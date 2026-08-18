@@ -9,7 +9,9 @@ function FormularioLogin() {
   const params = useSearchParams();
   const [correo, setCorreo] = useState("");
   const [clave, setClave] = useState("");
-  const [modo, setModo] = useState<"entrar" | "registrar">("entrar");
+  // El registro está cerrado con una lista de correos autorizados aplicada en
+  // la base. Ofrecer "crear cuenta" solo llevaría a un error confuso.
+  const modo = "entrar" as const;
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
@@ -19,10 +21,10 @@ function FormularioLogin() {
     setMensaje(null);
 
     const supabase = clienteNavegador();
-    const { error } =
-      modo === "entrar"
-        ? await supabase.auth.signInWithPassword({ email: correo, password: clave })
-        : await supabase.auth.signUp({ email: correo, password: clave });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: correo,
+      password: clave,
+    });
 
     setCargando(false);
 
@@ -31,11 +33,6 @@ function FormularioLogin() {
       return;
     }
 
-    if (modo === "registrar") {
-      setMensaje("Cuenta creada. Si tu proyecto pide confirmar el correo, revísalo y luego entra.");
-      setModo("entrar");
-      return;
-    }
 
     router.push(params.get("destino") ?? "/");
     router.refresh();
@@ -45,7 +42,7 @@ function FormularioLogin() {
     <div className="mx-auto max-w-sm py-16">
       <h1 className="text-xl font-semibold">Planeador de envíos a Full</h1>
       <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-        {modo === "entrar" ? "Entra con tu correo." : "Crea tu cuenta."}
+        Entra con tu correo.
       </p>
 
       <form onSubmit={enviar} className="mt-6 flex flex-col gap-3">
@@ -64,7 +61,7 @@ function FormularioLogin() {
           placeholder="Contraseña"
           value={clave}
           onChange={(e) => setClave(e.target.value)}
-          autoComplete={modo === "entrar" ? "current-password" : "new-password"}
+          autoComplete="current-password"
         />
         <button
           type="submit"
@@ -72,7 +69,7 @@ function FormularioLogin() {
           className="rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
           style={{ background: "var(--acento)" }}
         >
-          {cargando ? "Un momento…" : modo === "entrar" ? "Entrar" : "Crear cuenta"}
+          {cargando ? "Un momento…" : "Entrar"}
         </button>
       </form>
 
@@ -81,14 +78,6 @@ function FormularioLogin() {
           {mensaje}
         </p>
       ) : null}
-
-      <button
-        onClick={() => setModo(modo === "entrar" ? "registrar" : "entrar")}
-        className="mt-4 text-sm underline"
-        style={{ color: "var(--ink-2)" }}
-      >
-        {modo === "entrar" ? "No tengo cuenta" : "Ya tengo cuenta"}
-      </button>
     </div>
   );
 }

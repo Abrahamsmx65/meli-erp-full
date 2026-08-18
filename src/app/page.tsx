@@ -3,12 +3,6 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { Ficha } from "@/components/tiles";
-import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
-import {
-  TablasPlan,
-  type FilaCajaPlan,
-  type FilaSkuPlan,
-} from "@/components/tablas-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -16,189 +10,213 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
-export default async function Plan() {
+export default async function Resumen() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
   if (!cuenta) {
     return (
-      <Bienvenida
-        titulo="Conecta tu cuenta de Mercado Libre"
-        texto="Todavía no hay una cuenta conectada. Ve a Ajustes para autorizar la app y traer tu catálogo, tu stock en Full y tus ventas."
-        cta={{ href: "/ajustes", texto: "Ir a Ajustes" }}
-      />
+      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
+        <h1 className="text-lg font-semibold">Conecta tu cuenta de Mercado Libre</h1>
+        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          Todavía no hay una cuenta conectada. Ve a Ajustes para autorizar la app.
+        </p>
+        <Link
+          href="/ajustes"
+          className="mt-4 inline-block rounded-lg px-4 py-2 text-sm font-medium text-white"
+          style={{ background: "var(--acento)" }}
+        >
+          Ir a Ajustes
+        </Link>
+      </div>
     );
   }
 
-  const estado = await obtenerPlan(supabase, cuenta.id);
-  const plan = estado.plan;
-  const { pendientes, catalogo } = plan;
+  const [{ plan }, inventario, pedidos, contenedores] = await Promise.all([
+    obtenerPlan(supabase, cuenta.id),
+    supabase
+      .from("existencias")
+      .select("cajas_disponibles, pares_por_caja, en_camino, almacen")
+      .eq("account_id", cuenta.id),
+    supabase
+      .from("pedidos")
+      .select("id, pedido, estado")
+      .eq("account_id", cuenta.id),
+    supabase
+      .from("contenedores")
+      .select("id, numero, estado, fecha_llegada_est")
+      .eq("account_id", cuenta.id)
+      .neq("estado", "recibido")
+      .order("fecha_llegada_est", { ascending: true })
+      .limit(5),
+  ]);
+
   const r = plan.resumen;
-  const p = plan.parametros;
+  const filas = inventario.data ?? [];
+  const cajasBodega = filas.reduce((a, f) => a + (f.cajas_disponibles ?? 0), 0);
+  const paresBodega = filas.reduce(
+    (a, f) => a + (f.cajas_disponibles ?? 0) * (f.pares_por_caja ?? 0),
+    0,
+  );
+  const paresEnFull = plan.lineas.reduce((a, l) => a + l.disponible, 0);
+  const pendientes =
+    plan.pendientes.sinCorrida.length + plan.pendientes.sinAmarre.length;
 
-  if (!plan.lineas.length) {
-    // El botón va AQUÍ, no un enlace a otra pantalla: sin datos todavía es
-    // justo cuando hace falta sincronizar, y mandar al usuario a Ajustes lo
-    // dejaba atrapado sin forma de disparar la primera bajada.
-    return (
-      <Bienvenida
-        titulo="Falta sincronizar"
-        texto="La cuenta está conectada pero aún no hay SKUs. Trae tu catálogo, tu stock en Full y tus ventas de los últimos 90 días. La primera vez tarda varios minutos."
-      >
-        <BotonesPlan />
-      </Bienvenida>
+  const porAlmacen = new Map<string, number>();
+  for (const f of filas) {
+    porAlmacen.set(
+      f.almacen ?? "—",
+      (porAlmacen.get(f.almacen ?? "—") ?? 0) + (f.cajas_disponibles ?? 0),
     );
   }
 
-  // Al navegador solo va lo que la tabla pinta. Las explicaciones y el resto
-  // del detalle se quedan del lado del servidor y salen en el Excel: mandarlo
-  // todo serían más de dos megas de JSON en cada carga.
-  const filasSku: FilaSkuPlan[] = plan.lineas.map((l) => ({
-    sku: l.sku,
-    modelo: l.modelo,
-    color: l.color,
-    talla: l.talla,
-    estado: l.estado,
-    demandaDiaria: l.demandaDiaria,
-    factorCorreccion: l.factorCorreccion,
-    diasSinStock: l.diasSinStock,
-    disponible: l.disponible,
-    enTransferencia: l.enTransferencia,
-    coberturaDias: l.coberturaDias,
-    sugerido: l.sugerido,
-    enviado: l.enviado,
-  }));
-
-  const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
-    codigo: c.codigo,
-    skuCaja: c.skuCaja,
-    modelo: c.modelo,
-    color: c.color,
-    almacen: c.almacen,
-    esCorrida: c.esCorrida,
-    talla: c.talla,
-    cantidad: c.cantidad,
-    cajasDisponibles: c.cajasDisponibles,
-    paresTotales: c.paresTotales,
-    aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresTotales: a.paresTotales })),
-  }));
+  const pedidosCreados = (pedidos.data ?? []).filter((p) => p.estado === "creado").length;
+  const pedidosEnTransito = (pedidos.data ?? []).filter(
+    (p) => p.estado === "en_transito" || p.estado === "con_contenedor",
+  ).length;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Plan de envío</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Próximo envío {r.proximoEnvio} · cobertura objetivo {p.horizonteDias} días ·
-            lead time {p.leadTimeDias} días · {p.enviosPorSemana} envíos por semana
-          </p>
-        </div>
-        <BotonesPlan />
+      <div>
+        <h1 className="text-xl font-semibold">Resumen</h1>
+        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          Cómo va el inventario hoy · cuenta {cuenta.nickname ?? cuenta.meli_user_id}
+        </p>
       </div>
 
-      <FrescuraPlan
-        generadoEn={plan.generadoEn}
-        vigente={estado.vigente}
-        motivo={estado.motivo}
-        msCalculo={estado.msCalculo}
-      />
-
-      {/* ---- Cifras de cabecera ------------------------------------------ */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      {/* ---- Lo que hay que atender hoy ---------------------------------- */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Ficha
           titulo="SKUs críticos"
           valor={r.skusCriticos}
-          nota="Se agotan antes de que llegue el envío"
+          nota="Se agotan antes del próximo envío"
           tono={r.skusCriticos > 0 ? "critico" : "bien"}
         />
-        <Ficha titulo="Urgentes" valor={r.skusUrgentes} nota="Bajo punto de reorden" tono="alerta" />
-        <Ficha titulo="Cajas a mandar" valor={r.totalCajas} nota={`${n(r.piezasPlaneadas)} pares`} />
         <Ficha
-          titulo="Pares sugeridos"
-          valor={n(r.piezasSugeridas)}
-          nota="Lo ideal, antes de cuadrar cajas"
+          titulo="Cajas por mandar"
+          valor={r.totalCajas}
+          nota={`${n(r.piezasPlaneadas)} pares`}
         />
         <Ficha
-          titulo="Venta perdida"
-          valor={n(r.ventaPerdidaEstimada)}
-          nota={`Pares no vendidos por agotamiento en ${p.diasHistoria} días`}
-          tono={r.ventaPerdidaEstimada > 0 ? "alerta" : "neutro"}
+          titulo="Pares en Full"
+          valor={n(paresEnFull)}
+          nota="Disponibles para vender ahora"
+        />
+        <Ficha
+          titulo="Pares en bodega"
+          valor={n(paresBodega)}
+          nota={`${n(cajasBodega)} cajas cerradas`}
         />
       </div>
 
-      {/* ---- Avisos ------------------------------------------------------- */}
-      {(pendientes.sinCorrida.length > 0 || pendientes.sinAmarre.length > 0) && (
-        <div
-          className="tarjeta flex flex-wrap items-center gap-x-4 gap-y-2 p-4 text-sm"
+      {pendientes > 0 ? (
+        <Link
+          href="/pendientes"
+          className="tarjeta flex flex-wrap items-center gap-3 p-4 text-sm"
           style={{ borderColor: "var(--estado-alerta)" }}
         >
           <span aria-hidden="true" style={{ color: "var(--estado-alerta)" }}>
             ■
           </span>
           <span>
-            {pendientes.sinCorrida.length > 0 && (
-              <>
-                <strong>{pendientes.sinCorrida.length}</strong> cajas de corrida sin receta capturada
-                {pendientes.sinAmarre.length > 0 && " · "}
-              </>
-            )}
-            {pendientes.sinAmarre.length > 0 && (
-              <>
-                <strong>{pendientes.sinAmarre.length}</strong> SKUs de bodega sin amarrar a MELI
-              </>
-            )}
-            . Ese inventario no se está considerando en el plan.
+            <strong className="cifra">{pendientes}</strong> cosas por resolver:{" "}
+            {plan.pendientes.sinCorrida.length} cajas sin corrida capturada y{" "}
+            {plan.pendientes.sinAmarre.length} SKUs sin amarrar a Mercado Libre. Ese
+            inventario no entra al plan.
           </span>
-          <Link href="/pendientes" className="underline" style={{ color: "var(--acento)" }}>
+          <span className="underline" style={{ color: "var(--acento)" }}>
             Resolver
-          </Link>
-        </div>
-      )}
+          </span>
+        </Link>
+      ) : null}
 
-      {plan.avisos.map((a, i) => (
-        <div key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          {a}
-        </div>
-      ))}
+      {/* ---- Accesos ------------------------------------------------------ */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Tarjeta
+          href="/envios"
+          titulo="Envíos a Full"
+          cifra={`${r.totalCajas} cajas`}
+          nota={`Próximo envío ${r.proximoEnvio} · ${n(r.piezasSugeridas)} pares sugeridos`}
+        />
+        <Tarjeta
+          href="/inventario"
+          titulo="Inventario"
+          cifra={`${n(cajasBodega)} cajas`}
+          nota={
+            [...porAlmacen.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([a, c]) => `${a}: ${n(c)}`)
+              .join(" · ") || "Sin existencias cargadas"
+          }
+        />
+        <Tarjeta
+          href="/pedidos"
+          titulo="Pedidos a China"
+          cifra={`${pedidosCreados + pedidosEnTransito}`}
+          nota={
+            pedidosCreados + pedidosEnTransito === 0
+              ? "Ningún pedido abierto"
+              : `${pedidosCreados} sin contenedor · ${pedidosEnTransito} en camino`
+          }
+        />
+        <Tarjeta
+          href="/corridas"
+          titulo="Corridas"
+          cifra=""
+          nota="Cómo se reparten las tallas en cada caja"
+        />
+      </div>
 
-      <TablasPlan
-        lineas={filasSku}
-        cajas={filasCaja}
-        horizonteDias={p.horizonteDias}
-        totalAnalizados={r.skusAnalizados}
-        cajasDisponiblesBodega={catalogo.cajasDisponibles}
-      />
+      {/* ---- Contenedores en camino -------------------------------------- */}
+      {contenedores.data?.length ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="font-semibold">Contenedores en camino</h2>
+          </header>
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Contenedor</th>
+                <th>Estado</th>
+                <th>Llegada estimada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contenedores.data.map((c) => (
+                <tr key={c.id}>
+                  <td className="font-medium">{c.numero}</td>
+                  <td className="text-sm">{c.estado}</td>
+                  <td className="cifra text-sm">{c.fecha_llegada_est ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function Bienvenida({
+function Tarjeta({
+  href,
   titulo,
-  texto,
-  cta,
-  children,
+  cifra,
+  nota,
 }: {
+  href: string;
   titulo: string;
-  texto: string;
-  cta?: { href: string; texto: string };
-  children?: React.ReactNode;
+  cifra: string;
+  nota: string;
 }) {
   return (
-    <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-      <h1 className="text-lg font-semibold">{titulo}</h1>
-      <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-        {texto}
+    <Link href={href} className="tarjeta block p-4 transition-colors hover:border-[var(--acento)]">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="font-semibold">{titulo}</h2>
+        {cifra ? <span className="cifra text-lg font-semibold">{cifra}</span> : null}
+      </div>
+      <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        {nota}
       </p>
-      {cta ? (
-        <Link
-          href={cta.href}
-          className="mt-4 inline-block rounded-lg px-4 py-2 text-sm font-medium text-white"
-          style={{ background: "var(--acento)" }}
-        >
-          {cta.texto}
-        </Link>
-      ) : null}
-      {children ? <div className="mt-4 flex justify-center">{children}</div> : null}
-    </div>
+    </Link>
   );
 }

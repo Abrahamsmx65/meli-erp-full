@@ -34,8 +34,8 @@ export default async function DetalleSku({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/" className="text-sm underline" style={{ color: "var(--acento)" }}>
-          ← Volver al plan
+        <Link href="/envios" className="text-sm underline" style={{ color: "var(--acento)" }}>
+          ← Volver a Envíos a Full
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">{h.sku}</h1>
