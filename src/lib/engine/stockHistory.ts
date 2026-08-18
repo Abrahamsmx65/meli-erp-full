@@ -103,13 +103,20 @@ export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
       let cierre: number | null;
       let org: OrigenDia;
 
-      if (snap && snap.origen !== "reconstruido") {
-        // Medición directa: reancla y corrige cualquier deriva acumulada.
-        cierre = snap.disponible;
-        org = "snapshot";
-      } else if (opsDia.length && opsDia[opsDia.length - 1].resultadoDisponible != null) {
+      // Los movimientos de MELI mandan sobre nuestras fotos.
+      //
+      // Una foto se toma a la hora que corre la sincronización (digamos las
+      // 7am) y guardarla como "el stock del día" la deja corta por medio día
+      // de ventas. Un movimiento trae la hora exacta, así que el último del
+      // día es el cierre real. La foto solo sirve cuando ese día no hubo
+      // ningún movimiento: si nada se movió, la lectura de la mañana vale
+      // igual que la de la noche.
+      if (opsDia.length && opsDia[opsDia.length - 1].resultadoDisponible != null) {
         cierre = opsDia[opsDia.length - 1].resultadoDisponible!;
         org = "operaciones";
+      } else if (snap && snap.origen !== "reconstruido") {
+        cierre = snap.disponible;
+        org = "snapshot";
       } else if (corriendo !== null) {
         cierre = corriendo;
         org = hayHistorial ? "operaciones" : "desconocido";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generarDatosDemo, SKUS_DEMO } from "../demo";
 import { generarPlan } from "./index";
 import { optimizarCajas } from "./boxes";
-import { calcularFraccionesConStock } from "./stockHistory";
+import { calcularFraccionesConStock, reconstruirStockDiario } from "./stockHistory";
 import { aISO, proximoEnvio, sumarDias } from "./fechas";
 import type { Caja, DiaStock } from "./types";
 
@@ -257,5 +257,81 @@ describe("calendario de envíos", () => {
   it("el próximo envío nunca queda en el pasado", () => {
     const hoy = aISO(new Date());
     expect(proximoEnvio(hoy, 2) >= hoy).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("origen del stock histórico", () => {
+  const base = {
+    skus: ["A"],
+    desde: "2026-08-10",
+    hasta: "2026-08-12",
+    stockActual: new Map([
+      ["A", { sku: "A", disponible: 50, enTransferencia: 0, noDisponible: 0, total: 50 }],
+    ]),
+    ventas: [],
+  };
+
+  it("cuando hay movimiento de MELI, ese manda sobre la foto del día", () => {
+    // La foto se tomó a las 7am con 80; después del mediodía se vendió hasta
+    // quedar en 20. El cierre real del día es 20, no 80.
+    const r = reconstruirStockDiario({
+      ...base,
+      snapshots: [
+        { sku: "A", fecha: "2026-08-11", disponible: 80, origen: "snapshot" as const },
+      ],
+      operaciones: [
+        {
+          sku: "A",
+          fecha: "2026-08-11T18:30:00.000Z",
+          tipo: "sale",
+          deltaDisponible: -60,
+          resultadoDisponible: 20,
+        },
+      ],
+    });
+
+    const dia = r.get("A")!.find((d) => d.fecha === "2026-08-11")!;
+    expect(dia.fin).toBe(20);
+    expect(dia.origen).toBe("operaciones");
+  });
+
+  it("sin movimientos ese día, la foto sí vale", () => {
+    // Si nada se movió, la lectura de la mañana es igual a la de la noche.
+    const r = reconstruirStockDiario({
+      ...base,
+      snapshots: [
+        { sku: "A", fecha: "2026-08-11", disponible: 80, origen: "snapshot" as const },
+      ],
+      operaciones: [],
+    });
+
+    const dia = r.get("A")!.find((d) => d.fecha === "2026-08-11")!;
+    expect(dia.fin).toBe(80);
+    expect(dia.origen).toBe("snapshot");
+  });
+
+  it("detecta un agotamiento que la foto de la mañana no vería", () => {
+    // Foto a las 7am: 40 piezas. Se agotó a las 3pm. Si mandara la foto,
+    // el día contaría como surtido y la demanda saldría subestimada.
+    const r = reconstruirStockDiario({
+      ...base,
+      snapshots: [
+        { sku: "A", fecha: "2026-08-11", disponible: 40, origen: "snapshot" as const },
+      ],
+      operaciones: [
+        {
+          sku: "A",
+          fecha: "2026-08-11T15:00:00.000Z",
+          tipo: "sale",
+          deltaDisponible: -40,
+          resultadoDisponible: 0,
+        },
+      ],
+    });
+
+    const dia = r.get("A")!.find((d) => d.fecha === "2026-08-11")!;
+    expect(dia.fin).toBe(0);
+    expect(dia.origen).toBe("operaciones");
   });
 });
