@@ -6,7 +6,13 @@
  * SKU y otras no aparecían en el sistema, sin ninguna señal de por qué.
  */
 import { describe, expect, it } from "vitest";
-import { dedupePorSku, extraerSku, nuevoDiagnostico, type FilaSku } from "./sync";
+import {
+  dedupePorSku,
+  derivarSkuDeHermana,
+  extraerSku,
+  nuevoDiagnostico,
+  type FilaSku,
+} from "./sync";
 
 describe("de dónde sale el SKU de una variante", () => {
   it("lo toma de value_name", () => {
@@ -145,5 +151,28 @@ describe("el SKU que vive en el user product", () => {
         ],
       } as never),
     ).toBeNull();
+  });
+});
+
+describe("deducir el SKU de una talla hermana", () => {
+  it("cambia solo la talla y respeta el sufijo de país", () => {
+    expect(derivarSkuDeHermana("GT187-BLK-24-MX", "24", "25")).toBe("GT187-BLK-25-MX");
+  });
+
+  it("sirve con modelos y colores que traen guiones", () => {
+    expect(derivarSkuDeHermana("GT104-4-DK-BROWN-25-MX", "25", "27")).toBe(
+      "GT104-4-DK-BROWN-27-MX",
+    );
+  });
+
+  it("no toca un número que aparece antes de la talla", () => {
+    // El 24 del modelo no se debe confundir con la talla: se sustituye el
+    // último segmento que sea la talla, no el primero que se le parezca.
+    expect(derivarSkuDeHermana("GT24-BLK-24", "24", "26")).toBe("GT24-BLK-26");
+  });
+
+  it("se rinde si la talla no aparece tal cual", () => {
+    expect(derivarSkuDeHermana("GT187-BLK-XL-MX", "24", "25")).toBeNull();
+    expect(derivarSkuDeHermana("GT187-BLK-24-MX", "24", "24")).toBeNull();
   });
 });
