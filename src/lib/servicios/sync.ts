@@ -34,7 +34,8 @@ export interface ResultadoSync {
     sinSku: number;
     repetidos: number;
     lotesFallidos: number;
-    ejemplos: string[];
+    /** "MLM123: 4" — cuántas tallas se cayeron por publicación */
+    publicaciones: string[];
   };
   errores: string[];
   duracionMs: number;
@@ -128,6 +129,19 @@ export async function sincronizar(
 
     // ---- Catálogo: recorrido de publicaciones ----------------------------
     const diag = nuevoDiagnostico();
+
+    // Agrupado por publicación: un id de variante suelto no le sirve a nadie,
+    // pero "esta publicación trae 6 tallas sin SKU" sí se puede ir a arreglar.
+    const porPublicacion = () => {
+      const porItem = new Map<string, number>();
+      for (const v of diag.variantesSinSku) {
+        porItem.set(v.itemId, (porItem.get(v.itemId) ?? 0) + 1);
+      }
+      return [...porItem.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 50)
+        .map(([itemId, n]) => `${itemId}: ${n}`);
+    };
     let catalogo = await obtenerCatalogo(cliente, sellerId, { diag });
 
     const hoy = aISO(new Date());
@@ -257,9 +271,7 @@ export async function sincronizar(
           sinSku: diag.variantesSinSku.length,
           repetidos: diag.skusRepetidos.length,
           lotesFallidos: diag.lotesFallidos,
-          ejemplos: diag.variantesSinSku
-            .slice(0, 20)
-            .map((v) => `${v.itemId}/${v.variationId ?? "-"}`),
+          publicaciones: porPublicacion(),
         },
         errores,
         duracionMs: Date.now() - t0,
@@ -337,10 +349,7 @@ export async function sincronizar(
     // Una variante descartada se ve, desde la pantalla, igual que un producto
     // que no está publicado. Aquí queda escrita la diferencia.
     if (diag.variantesSinSku.length) {
-      const ej = diag.variantesSinSku
-        .slice(0, 5)
-        .map((v) => `${v.itemId}/${v.variationId ?? "-"}`)
-        .join(", ");
+      const ej = porPublicacion().slice(0, 5).join(", ");
       errores.push(
         `Catálogo: ${diag.variantesSinSku.length} variantes vienen de MELI sin SKU ` +
           `(${ej}). Esas tallas no se pueden amarrar hasta que la publicación traiga su código.`,
@@ -372,9 +381,7 @@ export async function sincronizar(
         sinSku: diag.variantesSinSku.length,
         repetidos: diag.skusRepetidos.length,
         lotesFallidos: diag.lotesFallidos,
-        ejemplos: diag.variantesSinSku
-          .slice(0, 20)
-          .map((v) => `${v.itemId}/${v.variationId ?? "-"}`),
+        publicaciones: porPublicacion(),
       },
       errores,
       duracionMs: Date.now() - t0,

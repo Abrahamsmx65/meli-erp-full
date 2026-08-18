@@ -159,12 +159,20 @@ export async function listarIdsDeItems(c: MeliClient, userId: number): Promise<s
   return [...ids];
 }
 
-const CAMPOS_ITEM = [
-  "id", "title", "status", "price", "inventory_id",
-  "seller_custom_field", "attributes", "variations", "shipping",
-].join(",");
-
-/** Descarga cruda de publicaciones por id, sin interpretar nada. */
+/**
+ * Descarga cruda de publicaciones por id, sin interpretar nada.
+ *
+ * La publicación se pide COMPLETA, sin recortar campos. Antes se mandaba
+ * `attributes=id,title,...,variations,...` para bajar menos datos, pero esa
+ * proyección aplica al nivel de arriba: las variantes regresan sin su propio
+ * arreglo `attributes`, y ahí es donde MELI guarda el SKU de las
+ * publicaciones capturadas con el editor nuevo.
+ *
+ * El resultado era que muchas tallas se quedaban sin SKU, se descartaban, y
+ * en pantalla se veían igual que un producto no publicado. Solo sobrevivían
+ * las que traían el campo viejo `seller_custom_field`, y por eso dentro de
+ * una misma publicación unas tallas sí salían y otras no.
+ */
 export async function traerItems(
   c: MeliClient,
   ids: string[],
@@ -179,7 +187,6 @@ export async function traerItems(
     try {
       return await c.get<{ code: number; body: ItemMeli }[]>("/items", {
         ids: grupo.join(","),
-        attributes: CAMPOS_ITEM,
       });
     } catch {
       // Un lote que truena no tumba el catálogo entero, pero sí se cuenta.
