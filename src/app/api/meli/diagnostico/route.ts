@@ -62,8 +62,31 @@ export async function GET(req: NextRequest) {
     const item = await cliente.get<Record<string, unknown>>(`/items/${itemId}`);
     const variaciones = (item.variations as Record<string, unknown>[] | undefined) ?? [];
 
+    // Las variantes vienen sin atributos y sin seller_custom_field, pero
+    // traen user_product_id. Si el SKU vive ahí, esto lo enseña.
+    const upid = variaciones[0]?.user_product_id;
+    let userProduct: unknown = null;
+    if (upid) {
+      try {
+        const up = await cliente.get<Record<string, unknown>>(`/user-products/${upid}`);
+        userProduct = {
+          ok: true,
+          llaves: Object.keys(up).sort(),
+          atributos: ((up.attributes as Record<string, unknown>[] | undefined) ?? []).map((a) => ({
+            id: a.id,
+            value_name: a.value_name,
+            values: a.values,
+          })),
+        };
+      } catch (e) {
+        userProduct = { ok: false, error: (e as Error).message };
+      }
+    }
+
     return NextResponse.json({
       itemId,
+      userProductIdDeLaPrimera: upid ?? null,
+      userProduct,
       llavesDelItem: Object.keys(item).sort(),
       skuDelItem: item.seller_custom_field ?? null,
       atributosDelItem: ((item.attributes as { id?: string }[] | undefined) ?? [])
