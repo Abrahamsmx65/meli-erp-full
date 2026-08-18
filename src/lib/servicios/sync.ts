@@ -34,6 +34,7 @@ export interface ResultadoSync {
     sinSku: number;
     repetidos: number;
     lotesFallidos: number;
+    userProductsFallidos: number;
     /** "MLM123: 4" — cuántas tallas se cayeron por publicación */
     publicaciones: string[];
   };
@@ -271,6 +272,7 @@ export async function sincronizar(
           sinSku: diag.variantesSinSku.length,
           repetidos: diag.skusRepetidos.length,
           lotesFallidos: diag.lotesFallidos,
+          userProductsFallidos: diag.userProductsFallidos,
           publicaciones: porPublicacion(),
         },
         errores,
@@ -362,6 +364,12 @@ export async function sincronizar(
           `publicación (${ej}). Cuando dos tallas traen el mismo código solo sobrevive una.`,
       );
     }
+    if (diag.userProductsFallidos) {
+      errores.push(
+        `Catálogo: ${diag.userProductsFallidos} productos no bajaron de MELI, así que su SKU ` +
+          `no se pudo leer. Esas tallas conservan lo que ya estaba guardado.`,
+      );
+    }
     if (diag.lotesFallidos) {
       errores.push(
         `Catálogo: ${diag.lotesFallidos} lotes de publicaciones no bajaron de MELI; ` +
@@ -381,6 +389,7 @@ export async function sincronizar(
         sinSku: diag.variantesSinSku.length,
         repetidos: diag.skusRepetidos.length,
         lotesFallidos: diag.lotesFallidos,
+        userProductsFallidos: diag.userProductsFallidos,
         publicaciones: porPublicacion(),
       },
       errores,

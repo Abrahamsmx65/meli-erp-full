@@ -28,6 +28,8 @@ interface VariacionMeli {
   inventory_id?: string | null;
   seller_custom_field?: string | null;
   attributes?: AtributoMeli[];
+  /** Donde vive de verdad el SKU en las publicaciones modernas de Full. */
+  user_product_id?: string | null;
   available_quantity?: number;
   price?: number;
 }
@@ -42,6 +44,15 @@ interface ItemMeli {
   attributes?: AtributoMeli[];
   variations?: VariacionMeli[];
   shipping?: { logistic_type?: string };
+  user_product_id?: string | null;
+}
+
+/**
+ * El "producto del vendedor": la entidad que MELI creó para Full y donde
+ * ahora guarda el SKU. La publicación solo apunta a ella con un id.
+ */
+interface UserProductMeli {
+  attributes?: AtributoMeli[];
 }
 
 export interface FilaSku {
@@ -69,10 +80,12 @@ export interface DiagnosticoCatalogo {
   skusRepetidos: { sku: string; itemId: string; variationId: string | null }[];
   /** Lotes de /items que MELI no contestó. */
   lotesFallidos: number;
+  /** user products que no se pudieron consultar. */
+  userProductsFallidos: number;
 }
 
 export function nuevoDiagnostico(): DiagnosticoCatalogo {
-  return { variantesSinSku: [], skusRepetidos: [], lotesFallidos: 0 };
+  return { variantesSinSku: [], skusRepetidos: [], lotesFallidos: 0, userProductsFallidos: 0 };
 }
 
 export interface UsuarioMeli {
@@ -206,6 +219,43 @@ export async function traerItems(
   return { items, lotesFallidos };
 }
 
+/**
+ * Resuelve el SKU de un conjunto de user products.
+ *
+ * En las publicaciones de Full la variante ya no trae el SKU: trae un
+ * `user_product_id` y el SKU es un atributo SELLER_SKU de esa entidad, con el
+ * texto adentro de `values[].name` (ni siquiera hay `value_name`). Sin esta
+ * consulta, las tallas que no han vendido son invisibles para el sistema.
+ *
+ * Es una llamada por producto, así que se piden solo los que hacen falta y
+ * cada id una sola vez.
+ */
+export async function traerSkusDeUserProducts(
+  c: MeliClient,
+  ids: string[],
+  diag?: DiagnosticoCatalogo,
+): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  if (!ids.length) return mapa;
+
+  const resultados = await enLotes(ids, 10, async (id) => {
+    try {
+      const up = await c.get<UserProductMeli>(`/user-products/${id}`);
+      return { id, sku: extraerSku(up) };
+    } catch {
+      // Uno que no baje no debe tumbar el catálogo: esa talla simplemente
+      // se queda como estaba y queda contada en el diagnóstico.
+      if (diag) diag.userProductsFallidos++;
+      return { id, sku: null };
+    }
+  });
+
+  for (const r of resultados) {
+    if (r?.sku) mapa.set(r.id, r.sku);
+  }
+  return mapa;
+}
+
 /** Trae el detalle de un conjunto de publicaciones y lo aplana a un renglón por SKU. */
 export async function detallarItems(
   c: MeliClient,
@@ -216,53 +266,72 @@ export async function detallarItems(
 
   const { items, lotesFallidos } = await traerItems(c, ids);
   if (opts?.diag) opts.diag.lotesFallidos += lotesFallidos;
-  const respuestas = [[...items.values()].map((body) => ({ code: 200, body }))];
 
+  const publicaciones = [...items.values()].filter(
+    (item) =>
+      !opts?.soloFulfillment || (item.shipping?.logistic_type ?? null) === "fulfillment",
+  );
+
+  // Primera pasada: juntar los user products que hagan falta. Solo se piden
+  // los de las variantes que no traen SKU en la publicación, y cada id una
+  // sola vez aunque lo compartan varias.
+  const porResolver = new Set<string>();
+  for (const item of publicaciones) {
+    if (item.variations?.length) {
+      for (const v of item.variations) {
+        if (extraerSku(v) ?? extraerSku(item)) continue;
+        if (v.user_product_id) porResolver.add(v.user_product_id);
+      }
+    } else if (!extraerSku(item) && item.user_product_id) {
+      porResolver.add(item.user_product_id);
+    }
+  }
+
+  const skuPorUserProduct = await traerSkusDeUserProducts(c, [...porResolver], opts?.diag);
+
+  const deUserProduct = (id: string | null | undefined) =>
+    (id ? skuPorUserProduct.get(id) : null) ?? null;
+
+  // Segunda pasada: ya con los SKUs resueltos, armar los renglones.
   const filas: FilaSku[] = [];
 
-  for (const lote of respuestas) {
-    for (const envoltura of lote ?? []) {
-      if (envoltura?.code !== 200 || !envoltura.body) continue;
-      const item = envoltura.body;
-      const logistica = item.shipping?.logistic_type ?? null;
+  for (const item of publicaciones) {
+    const logistica = item.shipping?.logistic_type ?? null;
 
-      if (opts?.soloFulfillment && logistica !== "fulfillment") continue;
-
-      if (item.variations?.length) {
-        for (const v of item.variations) {
-          const sku = extraerSku(v) ?? extraerSku(item);
-          if (!sku) {
-            opts?.diag?.variantesSinSku.push({
-              itemId: item.id,
-              variationId: v.id != null ? String(v.id) : null,
-            });
-            continue;
-          }
-          filas.push({
-            sku,
+    if (item.variations?.length) {
+      for (const v of item.variations) {
+        const sku = extraerSku(v) ?? deUserProduct(v.user_product_id) ?? extraerSku(item);
+        if (!sku) {
+          opts?.diag?.variantesSinSku.push({
             itemId: item.id,
             variationId: v.id != null ? String(v.id) : null,
-            inventoryId: v.inventory_id ?? null,
-            titulo: item.title ?? "",
-            logistica,
-            estado: item.status ?? null,
-            precio: v.price ?? item.price ?? null,
           });
+          continue;
         }
-      } else {
-        const sku = extraerSku(item);
-        if (!sku) continue;
         filas.push({
           sku,
           itemId: item.id,
-          variationId: null,
-          inventoryId: item.inventory_id ?? null,
+          variationId: v.id != null ? String(v.id) : null,
+          inventoryId: v.inventory_id ?? null,
           titulo: item.title ?? "",
           logistica,
           estado: item.status ?? null,
-          precio: item.price ?? null,
+          precio: v.price ?? item.price ?? null,
         });
       }
+    } else {
+      const sku = extraerSku(item) ?? deUserProduct(item.user_product_id);
+      if (!sku) continue;
+      filas.push({
+        sku,
+        itemId: item.id,
+        variationId: null,
+        inventoryId: item.inventory_id ?? null,
+        titulo: item.title ?? "",
+        logistica,
+        estado: item.status ?? null,
+        precio: item.price ?? null,
+      });
     }
   }
 

@@ -120,3 +120,29 @@ describe("diagnóstico vacío", () => {
     expect(d.lotesFallidos).toBe(0);
   });
 });
+
+describe("el SKU que vive en el user product", () => {
+  it("lo lee de values[].name aunque no exista value_name", () => {
+    // Forma exacta con la que MELI contesta /user-products: el atributo no
+    // trae la llave value_name, solo values.
+    expect(
+      extraerSku({
+        attributes: [
+          { id: "COLOR", values: [{ id: "52049", name: "Negro" }] },
+          { id: "SELLER_SKU", values: [{ id: null, name: "GT187-BLK-24-MX" }] },
+        ],
+      } as never),
+    ).toBe("GT187-BLK-24-MX");
+  });
+
+  it("no confunde el SKU con otro atributo", () => {
+    expect(
+      extraerSku({
+        attributes: [
+          { id: "MODEL", values: [{ id: null, name: "GT187" }] },
+          { id: "SIZE", values: [{ id: "11375850", name: "24 MX" }] },
+        ],
+      } as never),
+    ).toBeNull();
+  });
+});
