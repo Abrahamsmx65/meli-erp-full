@@ -282,7 +282,13 @@ export function TablasPlan({
                 {lineasFiltradas.slice(0, 500).map((l) => (
                   <tr key={l.sku}>
                     <td>
-                      <div className="font-medium">{l.sku}</div>
+                      <a
+                        href={`/sku/${encodeURIComponent(l.sku)}`}
+                        className="font-medium underline decoration-dotted underline-offset-2"
+                        style={{ color: "var(--acento)" }}
+                      >
+                        {l.sku}
+                      </a>
                       {l.factorCorreccion > 1.15 ? (
                         <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
                           demanda ×{l.factorCorreccion.toFixed(2)} por {l.diasSinStock} días agotado
