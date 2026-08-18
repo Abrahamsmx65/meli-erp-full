@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { sincronizar } from "@/lib/servicios/sync";
+import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -50,6 +51,11 @@ export async function POST(req: NextRequest) {
       diasHistoria: body?.diasHistoria,
       soloStock: body?.soloStock === true,
     });
+    // Lo que haya quedado sin SKU se resuelve solo, en segundo plano.
+    if (resultado.descartadas.sinSku > 0) {
+      await dispararPendientes(process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin);
+    }
+
     return NextResponse.json({ ok: true, resultado });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

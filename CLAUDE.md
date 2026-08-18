@@ -38,6 +38,12 @@ guárdala numerada.
   aparte. Configurado en `almacenes_activos.grupo_envio`.
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega sale
   del reporte del almacén; crear filas propias lo contaría dos veces.
+- **El SKU de las publicaciones de Full vive en `/user-products/{id}`** (atributo
+  SELLER_SKU, texto en `values[].name`), NO en la publicación: las variantes
+  llegan con `attributes` vacío y `seller_custom_field` en null. MELI limita esa
+  consulta a ~1/s, así que la sincronización apunta lo no resuelto en
+  `skus_pendientes` y `/api/meli/skus-pendientes` lo resuelve en segundo plano
+  (se re-lanza solo). Nunca deducir un SKU: solo dato real de MELI.
 
 ## Dónde está cada cosa
 
@@ -71,5 +77,4 @@ guárdala numerada.
 - Crear el envío en MELI por API (hoy solo se prepara y separa).
 - Excel de los ~390 SKUs que no se mandan porque la corrida no cuadra en otras
   tallas.
-- Falta poner en la app de MELI la URL del webhook
-  (`/api/meli/webhook`, temas `orders_v2`, `items`, fulfillment).
+- La URL del webhook ya está puesta en la app de MELI y recibe avisos.

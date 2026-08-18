@@ -1,0 +1,209 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { registrarSync, cerrarSync, upsertEnTandas } from "@/lib/datos/repos";
+import { MeliClient } from "@/lib/meli/client";
+import { extraerSku } from "@/lib/meli/sync";
+import { desglosarSku } from "@/lib/servicios/sync";
+import { invalidar } from "@/lib/servicios/cache";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+/**
+ * Resuelve los SKUs pendientes contra MELI, con el dato real.
+ *
+ * En las publicaciones de Full el SKU vive en /user-products/{id}, y MELI
+ * limita esa consulta a más o menos una por segundo: no cabe dentro de la
+ * sincronización. Este proceso toma la tabla `skus_pendientes`, consulta
+ * cada producto UNA vez, guarda el SKU tal cual lo contesta MELI, y si se
+ * acaba el tiempo se vuelve a lanzar solo hasta vaciar la tabla.
+ *
+ * Nada se deduce ni se completa por parecido: lo que MELI no conteste se
+ * queda como pendiente, contado y visible.
+ */
+export async function POST(req: NextRequest) {
+  const secreto = process.env.CRON_SECRET;
+  const auth = req.headers.get("authorization");
+  const esCron = Boolean(secreto) && auth === `Bearer ${secreto}`;
+
+  if (!esCron) {
+    // También puede dispararlo alguien con sesión, desde la app.
+    const supabase = await clienteServidor();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  const admin = clienteAdmin();
+  const t0 = Date.now();
+  const PRESUPUESTO_MS = 230_000; // deja margen dentro de los 300 s de Vercel
+
+  const { data: cuentasPend } = await admin
+    .from("skus_pendientes")
+    .select("account_id")
+    .limit(1000);
+  const cuentas = [...new Set((cuentasPend ?? []).map((c) => c.account_id as string))];
+
+  let resueltos = 0;
+  let fallidos = 0;
+
+  for (const accountId of cuentas) {
+    // Candado: si ya hay un proceso vivo para esta cuenta, no se enciman.
+    const { data: vivo } = await admin
+      .from("sync_log")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("tarea", "skus_pendientes")
+      .eq("estado", "corriendo")
+      .gte("inicio", new Date(Date.now() - 5 * 60_000).toISOString())
+      .limit(1);
+    if (vivo?.length) continue;
+
+    const logId = await registrarSync(admin, accountId, "skus_pendientes");
+
+    try {
+      const { data: tok } = await admin
+        .from("meli_tokens")
+        .select("access_token, refresh_token, expira_en")
+        .eq("account_id", accountId)
+        .single();
+      if (!tok) throw new Error("Cuenta sin tokens.");
+
+      const cliente = new MeliClient({
+        clientId: process.env.MELI_CLIENT_ID!,
+        clientSecret: process.env.MELI_CLIENT_SECRET!,
+        credenciales: {
+          accessToken: tok.access_token,
+          refreshToken: tok.refresh_token,
+          expiraEn: new Date(tok.expira_en).getTime(),
+        },
+        alRenovar: async (c) => {
+          await admin
+            .from("meli_tokens")
+            .update({
+              access_token: c.accessToken,
+              refresh_token: c.refreshToken,
+              expira_en: new Date(c.expiraEn).toISOString(),
+              actualizado_en: new Date().toISOString(),
+            })
+            .eq("account_id", accountId);
+        },
+      });
+
+      const { data: pendientes } = await admin
+        .from("skus_pendientes")
+        .select("*")
+        .eq("account_id", accountId)
+        .order("intentos", { ascending: true })
+        .limit(500);
+
+      if (!pendientes?.length) {
+        await cerrarSync(admin, logId, "ok", { resueltos: 0, restantes: 0 });
+        continue;
+      }
+
+      // Un user product puede cubrir varias filas: se consulta una sola vez.
+      const skuPorUp = new Map<string, string | null>();
+      for (const fila of pendientes) {
+        if (Date.now() - t0 > PRESUPUESTO_MS) break;
+        const up = fila.user_product_id as string;
+        if (skuPorUp.has(up)) continue;
+        try {
+          const cuerpo = await cliente.get<{ attributes?: unknown[] }>(`/user-products/${up}`);
+          skuPorUp.set(up, extraerSku(cuerpo as never));
+        } catch (err) {
+          skuPorUp.set(up, null);
+          await admin
+            .from("skus_pendientes")
+            .update({
+              intentos: (fila.intentos ?? 0) + 1,
+              ultimo_error: (err as Error).message.slice(0, 300),
+            })
+            .eq("account_id", accountId)
+            .eq("item_id", fila.item_id)
+            .eq("variation_id", fila.variation_id);
+        }
+      }
+
+      const filasSku: Record<string, unknown>[] = [];
+      const resueltas: { item_id: string; variation_id: string }[] = [];
+
+      for (const fila of pendientes) {
+        const sku = skuPorUp.get(fila.user_product_id as string);
+        if (!sku) continue;
+        const d = desglosarSku(sku);
+        filasSku.push({
+          account_id: accountId,
+          sku,
+          item_id: fila.item_id,
+          variation_id: fila.variation_id || null,
+          inventory_id: fila.inventory_id,
+          user_product_id: fila.user_product_id,
+          titulo: fila.titulo ?? "",
+          logistica: fila.logistica,
+          estado: fila.estado,
+          precio: fila.precio,
+          modelo: d.modelo,
+          color: d.color,
+          talla: d.talla,
+          activo: true,
+          actualizado_en: new Date().toISOString(),
+        });
+        resueltas.push({ item_id: fila.item_id, variation_id: fila.variation_id });
+      }
+
+      if (filasSku.length) {
+        await upsertEnTandas(admin, "skus", filasSku, "account_id,sku");
+        for (const r of resueltas) {
+          await admin
+            .from("skus_pendientes")
+            .delete()
+            .eq("account_id", accountId)
+            .eq("item_id", r.item_id)
+            .eq("variation_id", r.variation_id);
+        }
+        await invalidar(admin, accountId, "Llegaron SKUs nuevos de Mercado Libre.");
+      }
+
+      const { count } = await admin
+        .from("skus_pendientes")
+        .select("*", { count: "exact", head: true })
+        .eq("account_id", accountId);
+
+      resueltos += filasSku.length;
+      fallidos += [...skuPorUp.values()].filter((v) => v === null).length;
+
+      await cerrarSync(admin, logId, "ok", {
+        resueltos: filasSku.length,
+        restantes: count ?? 0,
+      });
+    } catch (err) {
+      await cerrarSync(admin, logId, "error", { mensaje: (err as Error).message });
+    }
+  }
+
+  // ¿Queda trabajo? Este mismo proceso se vuelve a lanzar y sigue.
+  const { count: restantes } = await admin
+    .from("skus_pendientes")
+    .select("*", { count: "exact", head: true });
+
+  if ((restantes ?? 0) > 0 && secreto) {
+    const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 1500);
+    try {
+      await fetch(`${origen}/api/meli/skus-pendientes`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${secreto}` },
+        signal: ctl.signal,
+      });
+    } catch {
+      // El abort es esperado: la siguiente corrida ya quedó lanzada.
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  return NextResponse.json({ ok: true, resueltos, fallidos, restantes: restantes ?? 0 });
+}

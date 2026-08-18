@@ -34,7 +34,6 @@ export interface ResultadoSync {
     sinSku: number;
     repetidos: number;
     lotesFallidos: number;
-    derivadas: number;
     userProductsFallidos: number;
     userProductsPendientes: number;
     /** "MLM123: 4" — cuántas tallas se cayeron por publicación */
@@ -246,6 +245,27 @@ export async function sincronizar(
     });
     await upsertEnTandas(db, "skus", filasSku, "account_id,sku");
 
+    // Las tallas que siguen sin SKU se apuntan con todo su contexto para que
+    // el proceso de pendientes las resuelva con el dato real de MELI. La
+    // lista se reemplaza completa: es la foto de esta corrida.
+    await db.from("skus_pendientes").delete().eq("account_id", accountId);
+    if (diag.variantesSinSku.length) {
+      const filasPendientes = diag.variantesSinSku
+        .filter((v) => v.userProductId)
+        .map((v) => ({
+          account_id: accountId,
+          item_id: v.itemId,
+          variation_id: v.variationId ?? "",
+          user_product_id: v.userProductId,
+          inventory_id: v.inventoryId,
+          titulo: v.titulo,
+          logistica: v.logistica,
+          estado: v.estado,
+          precio: v.precio,
+        }));
+      await upsertEnTandas(db, "skus_pendientes", filasPendientes, "account_id,item_id,variation_id");
+    }
+
     // ---- Stock actual + foto del día -------------------------------------
     const conInventario = catalogo
       .filter((c) => c.inventoryId)
@@ -296,7 +316,6 @@ export async function sincronizar(
           sinSku: diag.variantesSinSku.length,
           repetidos: diag.skusRepetidos.length,
           lotesFallidos: diag.lotesFallidos,
-          derivadas: diag.variantesDerivadas,
           userProductsFallidos: diag.userProductsFallidos,
           userProductsPendientes: diag.userProductsPendientes,
           publicaciones: porPublicacion(),
@@ -390,17 +409,11 @@ export async function sincronizar(
           `publicación (${ej}). Cuando dos tallas traen el mismo código solo sobrevive una.`,
       );
     }
-    if (diag.variantesDerivadas) {
-      errores.push(
-        `Catálogo: ${diag.variantesDerivadas} tallas tomaron su SKU de una talla hermana del ` +
-          `mismo color y publicación, porque MELI limita cuántos SKUs se pueden consultar. ` +
-          `Si alguna publicación no sigue ese patrón, amárrala a mano en Pendientes.`,
-      );
-    }
     if (diag.userProductsPendientes) {
       errores.push(
-        `Catálogo: quedaron ${diag.userProductsPendientes} productos por consultar en esta ` +
-          `corrida para no pasarse del tiempo. Vuelve a sincronizar y sigue donde se quedó.`,
+        `Catálogo: ${diag.userProductsPendientes} SKUs se están consultando a MELI en segundo ` +
+          `plano (MELI limita el ritmo de esa consulta). No tienes que hacer nada: en unos ` +
+          `minutos estarán y el plan se actualizará solo.`,
       );
     }
     if (diag.userProductsFallidos) {
@@ -428,7 +441,6 @@ export async function sincronizar(
         sinSku: diag.variantesSinSku.length,
         repetidos: diag.skusRepetidos.length,
         lotesFallidos: diag.lotesFallidos,
-        derivadas: diag.variantesDerivadas,
         userProductsFallidos: diag.userProductsFallidos,
         userProductsPendientes: diag.userProductsPendientes,
         publicaciones: porPublicacion(),

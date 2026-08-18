@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/api/cron") ||
     ruta.startsWith("/api/meli/callback") ||
     ruta.startsWith("/api/meli/webhook") ||
+    ruta.startsWith("/api/meli/skus-pendientes") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {

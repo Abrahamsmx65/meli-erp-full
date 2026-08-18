@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizar } from "@/lib/servicios/sync";
 import { recalcular } from "@/lib/servicios/cache";
+import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -53,6 +54,9 @@ export async function GET(req: NextRequest) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }
   }
+
+  // Las tallas que quedaron sin SKU se resuelven solas después del cron.
+  await dispararPendientes(process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin);
 
   return NextResponse.json({ corridas: resultados.length, resultados });
 }

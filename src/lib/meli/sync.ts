@@ -23,16 +23,8 @@ interface AtributoMeli {
   values?: { name?: string | null }[];
 }
 
-interface CombinacionMeli {
-  id?: string;
-  value_id?: string | null;
-  value_name?: string | null;
-}
-
 interface VariacionMeli {
   id?: number | string;
-  /** color y talla de esta variante, como los muestra MELI */
-  attribute_combinations?: CombinacionMeli[];
   inventory_id?: string | null;
   seller_custom_field?: string | null;
   attributes?: AtributoMeli[];
@@ -83,15 +75,28 @@ export interface FilaSku {
  * desde la pantalla se ve idéntico a "ese producto no está publicado". Son
  * cosas muy distintas y hay que poder distinguirlas sin adivinar.
  */
+/**
+ * Una variante que quedó sin SKU, con todo lo necesario para resolverla
+ * después sin volver a bajar la publicación.
+ */
+export interface VarianteSinSku {
+  itemId: string;
+  variationId: string | null;
+  userProductId: string | null;
+  inventoryId: string | null;
+  titulo: string;
+  logistica: string | null;
+  estado: string | null;
+  precio: number | null;
+}
+
 export interface DiagnosticoCatalogo {
   /** Variantes que MELI devolvió sin SKU por ningún lado. */
-  variantesSinSku: { itemId: string; variationId: string | null }[];
+  variantesSinSku: VarianteSinSku[];
   /** Dos variantes con el mismo SKU: una pisa a la otra. */
   skusRepetidos: { sku: string; itemId: string; variationId: string | null }[];
   /** Lotes de /items que MELI no contestó. */
   lotesFallidos: number;
-  /** variantes cuyo SKU se dedujo de una talla hermana. */
-  variantesDerivadas: number;
   /** user products que no se pudieron consultar. */
   userProductsFallidos: number;
   /** los que ni se intentaron porque se acabó el presupuesto de tiempo. */
@@ -102,7 +107,6 @@ export function nuevoDiagnostico(): DiagnosticoCatalogo {
   return {
     variantesSinSku: [],
     skusRepetidos: [],
-    variantesDerivadas: 0,
     lotesFallidos: 0,
     userProductsFallidos: 0,
     userProductsPendientes: 0,
@@ -240,48 +244,6 @@ export async function traerItems(
   return { items, lotesFallidos };
 }
 
-/** Valor de una combinación (color, talla) de la variante. */
-function combinacion(v: VariacionMeli, id: string): CombinacionMeli | undefined {
-  return v.attribute_combinations?.find((a) => a.id === id);
-}
-
-/** Identidad estable del color: el id de MELI, y si no, su nombre. */
-function claveColor(v: VariacionMeli): string | null {
-  const c = combinacion(v, "COLOR") ?? combinacion(v, "MAIN_COLOR");
-  return c?.value_id ?? c?.value_name ?? null;
-}
-
-/** "24 MX" -> "24". Es el número lo único que viaja en el SKU. */
-function tallaDeVariacion(v: VariacionMeli): string | null {
-  const t = combinacion(v, "SIZE")?.value_name;
-  const m = t?.match(/\d+(?:\.\d+)?/);
-  return m ? m[0] : null;
-}
-
-/**
- * Deduce el SKU de una talla a partir de una hermana ya conocida.
- *
- * Dentro de una misma publicación y un mismo color, el SKU solo cambia en la
- * talla: si GT187-BLK-24-MX es la 24, la 25 es GT187-BLK-25-MX. Se sustituye
- * el segmento de la talla y nada más, así que el modelo, el color y el
- * sufijo de país se conservan tal como el vendedor los escribió.
- *
- * Solo se usa con un ancla del MISMO color de la MISMA publicación, que es
- * lo que hace que no sea una adivinanza.
- */
-export function derivarSkuDeHermana(
-  skuHermana: string,
-  tallaHermana: string,
-  tallaNueva: string,
-): string | null {
-  if (tallaHermana === tallaNueva) return null;
-  const partes = skuHermana.split("-");
-  const i = partes.lastIndexOf(tallaHermana);
-  if (i < 0) return null;
-  partes[i] = tallaNueva;
-  return partes.join("-");
-}
-
 /**
  * Resuelve el SKU de un conjunto de user products.
  *
@@ -388,54 +350,30 @@ export async function detallarItems(
     return recienResueltos.get(id) ?? opts?.cache?.get(id) ?? null;
   };
 
-  /** SKU que MELI da de forma directa, sin deducir nada. */
-  const skuDirecto = (item: ItemMeli, v: VariacionMeli) =>
-    extraerSku(v) ?? deUserProduct(v.user_product_id) ?? null;
-
+  // Segunda pasada: ya con los SKUs resueltos, armar los renglones. Lo que
+  // siga sin SKU se apunta con todo su contexto: NO se inventa nada, lo
+  // resuelve después el proceso de pendientes con el dato real de MELI.
   const filas: FilaSku[] = [];
 
   for (const item of publicaciones) {
     const logistica = item.shipping?.logistic_type ?? null;
 
     if (item.variations?.length) {
-      // MELI limita /user-products a cerca de una llamada por segundo, así
-      // que pedir el SKU de cada talla no escala. Pero dentro de una misma
-      // publicación y un mismo color el SKU solo cambia en la talla: basta
-      // con una talla conocida por color para deducir sus hermanas.
-      const anclas = new Map<string, { sku: string; talla: string }>();
       for (const v of item.variations) {
-        const sku = skuDirecto(item, v);
-        if (!sku) continue;
-        const color = claveColor(v);
-        const talla = tallaDeVariacion(v);
-        if (color && talla && !anclas.has(color)) anclas.set(color, { sku, talla });
-      }
-
-      for (const v of item.variations) {
-        let sku = skuDirecto(item, v);
-        let derivado = false;
-
-        if (!sku) {
-          const color = claveColor(v);
-          const talla = tallaDeVariacion(v);
-          const ancla = color ? anclas.get(color) : undefined;
-          if (ancla && talla) {
-            sku = derivarSkuDeHermana(ancla.sku, ancla.talla, talla);
-            derivado = sku != null;
-          }
-        }
-
-        sku = sku ?? extraerSku(item);
-
+        const sku = extraerSku(v) ?? deUserProduct(v.user_product_id) ?? extraerSku(item);
         if (!sku) {
           opts?.diag?.variantesSinSku.push({
             itemId: item.id,
             variationId: v.id != null ? String(v.id) : null,
+            userProductId: v.user_product_id ?? null,
+            inventoryId: v.inventory_id ?? null,
+            titulo: item.title ?? "",
+            logistica,
+            estado: item.status ?? null,
+            precio: v.price ?? item.price ?? null,
           });
           continue;
         }
-        if (derivado && opts?.diag) opts.diag.variantesDerivadas++;
-
         filas.push({
           sku,
           itemId: item.id,
@@ -450,7 +388,21 @@ export async function detallarItems(
       }
     } else {
       const sku = extraerSku(item) ?? deUserProduct(item.user_product_id);
-      if (!sku) continue;
+      if (!sku) {
+        if (item.user_product_id) {
+          opts?.diag?.variantesSinSku.push({
+            itemId: item.id,
+            variationId: null,
+            userProductId: item.user_product_id,
+            inventoryId: item.inventory_id ?? null,
+            titulo: item.title ?? "",
+            logistica,
+            estado: item.status ?? null,
+            precio: item.price ?? null,
+          });
+        }
+        continue;
+      }
       filas.push({
         sku,
         itemId: item.id,
