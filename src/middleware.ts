@@ -38,6 +38,7 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/login") ||
     ruta.startsWith("/api/cron") ||
     ruta.startsWith("/api/meli/callback") ||
+    ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {
