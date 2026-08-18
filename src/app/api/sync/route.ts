@@ -23,9 +23,30 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
 
+  // Dos sincronizaciones a la vez compiten por la cuota de MELI y acaban
+  // tumbándose entre ellas por tiempo. Si ya hay una viva, no se arranca otra.
+  const admin = clienteAdmin();
+  const { data: corriendo } = await admin
+    .from("sync_log")
+    .select("inicio")
+    .eq("account_id", cuenta.id)
+    .eq("estado", "corriendo")
+    .gte("inicio", new Date(Date.now() - 10 * 60_000).toISOString())
+    .limit(1);
+
+  if (corriendo?.length) {
+    return NextResponse.json(
+      {
+        error:
+          "Ya hay una sincronización en curso. Espera a que termine antes de lanzar otra.",
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     // La sincronización necesita leer tokens, que RLS esconde a propósito.
-    const resultado = await sincronizar(clienteAdmin(), cuenta.id, {
+    const resultado = await sincronizar(admin, cuenta.id, {
       diasHistoria: body?.diasHistoria,
       soloStock: body?.soloStock === true,
     });

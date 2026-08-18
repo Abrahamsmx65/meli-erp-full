@@ -9,6 +9,30 @@ export function BotonesPlan() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Lee la respuesta sin dar por hecho que es JSON.
+   *
+   * Cuando la función se pasa del tiempo, Vercel contesta una página de
+   * error en texto plano y el JSON.parse tronaba con un «Unexpected token»
+   * que no le dice nada a nadie.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function leer(r: Response): Promise<any> {
+    const texto = await r.text();
+    try {
+      return JSON.parse(texto);
+    } catch {
+      if (r.status === 504 || /timed? ?out|FUNCTION_INVOCATION_TIMEOUT/i.test(texto)) {
+        throw new Error(
+          "La sincronización se pasó del tiempo máximo. Vuelve a darle: retoma donde se quedó.",
+        );
+      }
+      throw new Error(
+        `El servidor contestó algo que no se pudo leer (${r.status}). Vuelve a intentar.`,
+      );
+    }
+  }
+
   async function correr(tarea: "sync" | "guardar" | "recalcular") {
     setOcupado(tarea);
     setAviso(null);
@@ -21,7 +45,7 @@ export function BotonesPlan() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
         });
-        const j = await r.json();
+        const j = await leer(r);
         if (!r.ok) throw new Error(j.error ?? "Falló la sincronización.");
         const d = j.resultado;
         const extra = d.recuperadas > 0
@@ -36,7 +60,7 @@ export function BotonesPlan() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recalcular: true }),
         });
-        const j = await r.json();
+        const j = await leer(r);
         if (!r.ok) throw new Error(j.error ?? "No se pudo recalcular el plan.");
         setAviso(`Plan recalculado en ${((j.ms ?? 0) / 1000).toFixed(1)} s.`);
       } else {
@@ -45,7 +69,7 @@ export function BotonesPlan() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ guardar: true }),
         });
-        const j = await r.json();
+        const j = await leer(r);
         if (!r.ok) throw new Error(j.error ?? "No se pudo guardar el plan.");
         setAviso("Plan guardado en el historial.");
       }

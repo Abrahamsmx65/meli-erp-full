@@ -35,6 +35,7 @@ export interface ResultadoSync {
     repetidos: number;
     lotesFallidos: number;
     userProductsFallidos: number;
+    userProductsPendientes: number;
     /** "MLM123: 4" — cuántas tallas se cayeron por publicación */
     publicaciones: string[];
   };
@@ -143,7 +144,28 @@ export async function sincronizar(
         .slice(0, 50)
         .map(([itemId, n]) => `${itemId}: ${n}`);
     };
-    let catalogo = await obtenerCatalogo(cliente, sellerId, { diag });
+    // Amarres user_product -> SKU que ya se resolvieron antes. Sin esto cada
+    // corrida volvería a preguntar por miles de productos y se pasaría del
+    // límite de tiempo de la función.
+    const cache = new Map<string, string>();
+    {
+      const { data: previos } = await db
+        .from("skus")
+        .select("sku, user_product_id")
+        .eq("account_id", accountId)
+        .not("user_product_id", "is", null);
+      for (const p of previos ?? []) {
+        if (p.user_product_id && p.sku) cache.set(p.user_product_id, p.sku);
+      }
+    }
+
+    let catalogo = await obtenerCatalogo(cliente, sellerId, {
+      diag,
+      cache,
+      // La sincronización entera tiene 300 s en Vercel; esta parte se queda
+      // con un pedazo acotado y lo que no alcance sigue en la próxima.
+      limiteUserProductsMs: 60_000,
+    });
 
     const hoy = aISO(new Date());
     const dias = opts?.diasHistoria ?? 90;
@@ -209,6 +231,7 @@ export async function sincronizar(
         item_id: f.itemId,
         variation_id: f.variationId,
         inventory_id: f.inventoryId,
+        user_product_id: f.userProductId,
         titulo: f.titulo,
         logistica: f.logistica,
         estado: f.estado,
@@ -273,6 +296,7 @@ export async function sincronizar(
           repetidos: diag.skusRepetidos.length,
           lotesFallidos: diag.lotesFallidos,
           userProductsFallidos: diag.userProductsFallidos,
+          userProductsPendientes: diag.userProductsPendientes,
           publicaciones: porPublicacion(),
         },
         errores,
@@ -364,6 +388,12 @@ export async function sincronizar(
           `publicación (${ej}). Cuando dos tallas traen el mismo código solo sobrevive una.`,
       );
     }
+    if (diag.userProductsPendientes) {
+      errores.push(
+        `Catálogo: quedaron ${diag.userProductsPendientes} productos por consultar en esta ` +
+          `corrida para no pasarse del tiempo. Vuelve a sincronizar y sigue donde se quedó.`,
+      );
+    }
     if (diag.userProductsFallidos) {
       errores.push(
         `Catálogo: ${diag.userProductsFallidos} productos no bajaron de MELI, así que su SKU ` +
@@ -390,6 +420,7 @@ export async function sincronizar(
         repetidos: diag.skusRepetidos.length,
         lotesFallidos: diag.lotesFallidos,
         userProductsFallidos: diag.userProductsFallidos,
+        userProductsPendientes: diag.userProductsPendientes,
         publicaciones: porPublicacion(),
       },
       errores,

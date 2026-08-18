@@ -60,6 +60,8 @@ export interface FilaSku {
   itemId: string;
   variationId: string | null;
   inventoryId: string | null;
+  /** de qué user product salió el SKU; null si vino en la publicación */
+  userProductId: string | null;
   titulo: string;
   logistica: string | null;
   estado: string | null;
@@ -82,10 +84,18 @@ export interface DiagnosticoCatalogo {
   lotesFallidos: number;
   /** user products que no se pudieron consultar. */
   userProductsFallidos: number;
+  /** los que ni se intentaron porque se acabó el presupuesto de tiempo. */
+  userProductsPendientes: number;
 }
 
 export function nuevoDiagnostico(): DiagnosticoCatalogo {
-  return { variantesSinSku: [], skusRepetidos: [], lotesFallidos: 0, userProductsFallidos: 0 };
+  return {
+    variantesSinSku: [],
+    skusRepetidos: [],
+    lotesFallidos: 0,
+    userProductsFallidos: 0,
+    userProductsPendientes: 0,
+  };
 }
 
 export interface UsuarioMeli {
@@ -234,21 +244,35 @@ export async function traerSkusDeUserProducts(
   c: MeliClient,
   ids: string[],
   diag?: DiagnosticoCatalogo,
+  limiteMs = 90_000,
 ): Promise<Map<string, string>> {
   const mapa = new Map<string, string>();
   if (!ids.length) return mapa;
 
+  // Presupuesto de tiempo: la sincronización entera vive dentro del límite
+  // de la función de Vercel, y con miles de productos esta parte sola se lo
+  // comía y tumbaba la corrida completa. Lo que no alcance se resuelve en la
+  // siguiente pasada: como el amarre se guarda, cada corrida avanza.
+  const t0 = Date.now();
+  let sinTiempo = 0;
+
   const resultados = await enLotes(ids, 10, async (id) => {
+    if (Date.now() - t0 > limiteMs) {
+      sinTiempo++;
+      return { id, sku: null };
+    }
     try {
       const up = await c.get<UserProductMeli>(`/user-products/${id}`);
       return { id, sku: extraerSku(up) };
     } catch {
-      // Uno que no baje no debe tumbar el catálogo: esa talla simplemente
-      // se queda como estaba y queda contada en el diagnóstico.
+      // Uno que no baje no debe tumbar el catálogo: esa talla se queda como
+      // estaba y queda contada en el diagnóstico.
       if (diag) diag.userProductsFallidos++;
       return { id, sku: null };
     }
   });
+
+  if (diag) diag.userProductsPendientes += sinTiempo;
 
   for (const r of resultados) {
     if (r?.sku) mapa.set(r.id, r.sku);
@@ -260,7 +284,13 @@ export async function traerSkusDeUserProducts(
 export async function detallarItems(
   c: MeliClient,
   ids: string[],
-  opts?: { soloFulfillment?: boolean; diag?: DiagnosticoCatalogo },
+  opts?: {
+    soloFulfillment?: boolean;
+    diag?: DiagnosticoCatalogo;
+    /** amarres user_product -> SKU que ya se conocen de corridas anteriores */
+    cache?: Map<string, string>;
+    limiteUserProductsMs?: number;
+  },
 ): Promise<FilaSku[]> {
   if (!ids.length) return [];
 
@@ -280,17 +310,26 @@ export async function detallarItems(
     if (item.variations?.length) {
       for (const v of item.variations) {
         if (extraerSku(v) ?? extraerSku(item)) continue;
-        if (v.user_product_id) porResolver.add(v.user_product_id);
+        if (v.user_product_id && !opts?.cache?.has(v.user_product_id)) {
+          porResolver.add(v.user_product_id);
+        }
       }
     } else if (!extraerSku(item) && item.user_product_id) {
-      porResolver.add(item.user_product_id);
+      if (!opts?.cache?.has(item.user_product_id)) porResolver.add(item.user_product_id);
     }
   }
 
-  const skuPorUserProduct = await traerSkusDeUserProducts(c, [...porResolver], opts?.diag);
+  const recienResueltos = await traerSkusDeUserProducts(
+    c,
+    [...porResolver],
+    opts?.diag,
+    opts?.limiteUserProductsMs,
+  );
 
-  const deUserProduct = (id: string | null | undefined) =>
-    (id ? skuPorUserProduct.get(id) : null) ?? null;
+  const deUserProduct = (id: string | null | undefined) => {
+    if (!id) return null;
+    return recienResueltos.get(id) ?? opts?.cache?.get(id) ?? null;
+  };
 
   // Segunda pasada: ya con los SKUs resueltos, armar los renglones.
   const filas: FilaSku[] = [];
@@ -313,6 +352,7 @@ export async function detallarItems(
           itemId: item.id,
           variationId: v.id != null ? String(v.id) : null,
           inventoryId: v.inventory_id ?? null,
+          userProductId: v.user_product_id ?? null,
           titulo: item.title ?? "",
           logistica,
           estado: item.status ?? null,
@@ -327,6 +367,7 @@ export async function detallarItems(
         itemId: item.id,
         variationId: null,
         inventoryId: item.inventory_id ?? null,
+        userProductId: item.user_product_id ?? null,
         titulo: item.title ?? "",
         logistica,
         estado: item.status ?? null,
@@ -367,7 +408,12 @@ export function dedupePorSku(filas: FilaSku[], diag?: DiagnosticoCatalogo): Fila
 export async function obtenerCatalogo(
   c: MeliClient,
   userId: number,
-  opts?: { soloFulfillment?: boolean; diag?: DiagnosticoCatalogo },
+  opts?: {
+    soloFulfillment?: boolean;
+    diag?: DiagnosticoCatalogo;
+    cache?: Map<string, string>;
+    limiteUserProductsMs?: number;
+  },
 ): Promise<FilaSku[]> {
   const ids = await listarIdsDeItems(c, userId);
   return dedupePorSku(await detallarItems(c, ids, opts), opts?.diag);
@@ -621,6 +667,7 @@ export async function recuperarDesdeOrdenes(
       itemId: item.id,
       variationId: r.variationId,
       inventoryId: variacion?.inventory_id ?? item.inventory_id ?? null,
+      userProductId: variacion?.user_product_id ?? item.user_product_id ?? null,
       titulo: item.title ?? "",
       logistica: item.shipping?.logistic_type ?? null,
       estado: item.status ?? null,

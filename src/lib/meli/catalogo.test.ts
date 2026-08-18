@@ -60,6 +60,7 @@ function fila(sku: string, extra?: Partial<FilaSku>): FilaSku {
     itemId: "MLM1",
     variationId: "1",
     inventoryId: null,
+    userProductId: null,
     titulo: "Sandalia",
     logistica: "fulfillment",
     estado: "active",
