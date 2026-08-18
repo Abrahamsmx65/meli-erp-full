@@ -1,13 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
 
 /** Cliente de Supabase para Server Components y rutas: respeta RLS. */
 export async function clienteServidor() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
@@ -38,7 +39,7 @@ export function clienteAdmin() {
   if (!key) throw new Error("Falta SUPABASE_SERVICE_ROLE_KEY en el entorno.");
 
   const { createClient } = require("@supabase/supabase-js") as typeof import("@supabase/supabase-js");
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
+  return createClient(SUPABASE_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
