@@ -229,7 +229,32 @@ export async function sincronizar(
 
     let operaciones = 0;
     try {
-      const ops = await obtenerOperaciones(cliente, sellerId, desde, hoy, mapaInventarioSku);
+      // Incremental: si ya hay historial, solo se piden los movimientos
+      // nuevos. La primera corrida baja 90 días (~142 llamadas); las
+      // siguientes bajan 2 o 3 días (~4 llamadas). Sin esto, cada
+      // sincronización repetía la carga completa y MELI acababa contestando
+      // 429 "over_quota" en este endpoint, que tiene su propia cuota.
+      const { data: ultima } = await db
+        .from("stock_operaciones")
+        .select("fecha")
+        .eq("account_id", accountId)
+        .order("fecha", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Se traslapan 2 días para no perder nada que haya entrado tarde.
+      const desdeOps = ultima?.fecha
+        ? sumarDias(aISO(new Date(ultima.fecha)), -2)
+        : desde;
+
+      const r = await obtenerOperaciones(cliente, sellerId, desdeOps, hoy, mapaInventarioSku);
+      const ops = r.operaciones;
+
+      if (r.lotesFallidos > 0) {
+        errores.push(
+          `Movimientos: ${r.lotesFallidos} de ${r.lotesTotales} lotes no bajaron (${r.errores[0] ?? "sin detalle"}). Lo demás sí se guardó; vuelve a sincronizar más tarde para completar.`,
+        );
+      }
       // Se usa el id real de MELI. El sintetizado por índice cambiaba entre
       // corridas y multiplicaba los renglones en cada sincronización.
       const filas = ops.map((o) => ({

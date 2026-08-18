@@ -389,18 +389,27 @@ interface OperacionMeli {
  *
  * La API topa cada consulta en 60 días, así que el periodo se parte en tramos.
  */
+export interface ResultadoOperaciones {
+  operaciones: OperacionStock[];
+  errores: string[];
+  lotesTotales: number;
+  lotesFallidos: number;
+}
+
 export async function obtenerOperaciones(
   c: MeliClient,
   sellerId: number,
   desde: string,
   hasta: string,
   mapaInventarioSku: Map<string, string>,
-): Promise<OperacionStock[]> {
+): Promise<ResultadoOperaciones> {
   // `inventory_id` es OBLIGATORIO en este endpoint: sin él, MELI responde
   // 400 missing_parameter. Como acepta una lista separada por comas pero la
   // URL no puede crecer sin límite, los inventarios se piden por tandas.
   const inventarios = [...mapaInventarioSku.keys()];
-  if (!inventarios.length) return [];
+  if (!inventarios.length) {
+    return { operaciones: [], errores: [], lotesTotales: 0, lotesFallidos: 0 };
+  }
 
   const tramos: [string, string][] = [];
   let cursor = new Date(`${desde}T00:00:00.000Z`);
@@ -418,47 +427,61 @@ export async function obtenerOperaciones(
     for (const [ini, fin2] of tramos) tareas.push({ ids: grupo, ini, fin: fin2 });
   }
 
-  const porTarea = await enLotes(tareas, 5, async (t) => {
+  const errores: string[] = [];
+  let lotesFallidos = 0;
+
+  // Concurrencia 3 (no 5): este endpoint tiene cuota propia y con 5 en vuelo
+  // MELI responde 429 "over_quota" a media sincronización.
+  const porTarea = await enLotes(tareas, 3, async (t) => {
     const acumulado: OperacionStock[] = [];
     let scroll: string | undefined;
 
-    for (let pagina = 0; pagina < 200; pagina++) {
-      const r = await c.get<{
-        results: OperacionMeli[];
-        paging?: { scroll?: string; total?: number };
-      }>("/stock/fulfillment/operations/search", {
-        seller_id: sellerId,
-        inventory_id: t.ids.join(","),
-        date_from: t.ini,
-        date_to: t.fin,
-        limit: 1000,
-        scroll,
-      });
-
-      const lote = r.results ?? [];
-      if (!lote.length) break;
-
-      for (const op of lote) {
-        const sku = op.inventory_id ? mapaInventarioSku.get(op.inventory_id) : undefined;
-        if (!sku || !op.date_created) continue;
-        acumulado.push({
-          id: op.id ?? null,
-          sku,
-          fecha: op.date_created,
-          tipo: op.type ?? null,
-          deltaDisponible: op.detail?.available_quantity ?? null,
-          resultadoDisponible: op.result?.available_quantity ?? null,
+    try {
+      for (let pagina = 0; pagina < 200; pagina++) {
+        const r = await c.get<{
+          results: OperacionMeli[];
+          paging?: { scroll?: string; total?: number };
+        }>("/stock/fulfillment/operations/search", {
+          seller_id: sellerId,
+          inventory_id: t.ids.join(","),
+          date_from: t.ini,
+          date_to: t.fin,
+          limit: 1000,
+          scroll,
         });
-      }
 
-      scroll = r.paging?.scroll;
-      if (!scroll || lote.length < 1000) break;
+        const lote = r.results ?? [];
+        if (!lote.length) break;
+
+        for (const op of lote) {
+          const sku = op.inventory_id ? mapaInventarioSku.get(op.inventory_id) : undefined;
+          if (!sku || !op.date_created) continue;
+          acumulado.push({
+            id: op.id ?? null,
+            sku,
+            fecha: op.date_created,
+            tipo: op.type ?? null,
+            deltaDisponible: op.detail?.available_quantity ?? null,
+            resultadoDisponible: op.result?.available_quantity ?? null,
+          });
+        }
+
+        scroll = r.paging?.scroll;
+        if (!scroll || lote.length < 1000) break;
+      }
+    } catch (err) {
+      // Un lote que truena NO tira la sincronización entera. Lo que ya se
+      // bajó se guarda; lo que faltó se reporta y se recupera en la
+      // siguiente corrida, que además ya arranca desde donde quedó.
+      lotesFallidos++;
+      if (errores.length < 5) errores.push((err as Error).message);
     }
 
     return acumulado;
   });
 
-  const salida = porTarea.flat();
-  salida.sort((a, b) => a.fecha.localeCompare(b.fecha));
-  return salida;
+  const operaciones = porTarea.flat();
+  operaciones.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  return { operaciones, errores, lotesTotales: tareas.length, lotesFallidos };
 }
