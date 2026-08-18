@@ -50,6 +50,30 @@ export function construirSkuMeli(modelo: string, color: string, talla: string | 
 }
 
 /**
+ * Sufijos de país/sitio que muchas cuentas le pegan al final del SKU
+ * (GT110-NAVY-26-MX). En bodega no existen, así que hay que ignorarlos al
+ * comparar o no empata absolutamente nada.
+ */
+const SUFIJOS_SITIO = new Set([
+  "MX", "MLM", "AR", "MLA", "BR", "MLB", "CL", "MLC",
+  "CO", "MCO", "PE", "MPE", "UY", "MLU", "US", "MX1",
+]);
+
+/**
+ * Clave con la que se comparan dos SKUs: forma canónica y sin el sufijo de
+ * sitio. Es lo que hace que "GT110-MILITARY GREEN-26-MX" de la publicación y
+ * "GT110-MILITARY GREEN-26" armado desde la corrida se reconozcan como el
+ * mismo par de zapatos.
+ */
+export function claveComparacion(s: string): string {
+  const partes = canonizar(s).split("-");
+  while (partes.length > 2 && SUFIJOS_SITIO.has(partes[partes.length - 1])) {
+    partes.pop();
+  }
+  return partes.join("-");
+}
+
+/**
  * Resuelve el SKU final contra el catálogo real de Mercado Libre.
  *
  * Devuelve además CÓMO se resolvió, porque no es lo mismo un amarre exacto
@@ -77,7 +101,7 @@ export function construirIndice(skusMeli: string[]): IndiceSkus {
     const limpio = s.trim();
     if (!limpio) continue;
     exactos.add(limpio);
-    const c = canonizar(limpio);
+    const c = claveComparacion(limpio);
     // El primero gana: evita que un duplicado raro pise un amarre bueno.
     if (!canonicos.has(c)) canonicos.set(c, limpio);
   }
@@ -93,14 +117,16 @@ export function amarrarSku(
 ): ResultadoAmarre {
   const construido = construirSkuMeli(modelo, color, talla);
 
-  const manual = mapeoManual?.get(construido) ?? mapeoManual?.get(canonizar(construido));
+  const manual =
+    mapeoManual?.get(construido) ?? mapeoManual?.get(claveComparacion(construido));
   if (manual) return { skuConstruido: construido, skuMeli: manual, origen: "manual" };
 
   if (indice.exactos.has(construido)) {
     return { skuConstruido: construido, skuMeli: construido, origen: "exacto" };
   }
 
-  const porCanonico = indice.canonicos.get(canonizar(construido));
+  // Ignora mayúsculas, separadores y el sufijo de sitio (-MX).
+  const porCanonico = indice.canonicos.get(claveComparacion(construido));
   if (porCanonico) {
     return { skuConstruido: construido, skuMeli: porCanonico, origen: "canonico" };
   }
