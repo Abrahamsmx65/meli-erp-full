@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, guardarParametros, leerParametros } from "@/lib/datos/repos";
+import { invalidar } from "@/lib/servicios/cache";
 import { normalizarParametros } from "@/lib/engine/params";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await guardarParametros(supabase, cuenta.id, limpios);
+    await invalidar(supabase, cuenta.id, "Se cambiaron los parámetros de planeación.");
     return NextResponse.json({ ok: true, parametros: limpios });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

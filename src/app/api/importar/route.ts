@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, upsertEnTandas } from "@/lib/datos/repos";
+import { invalidar } from "@/lib/servicios/cache";
 import { importarCorridas, importarExistencias } from "@/lib/importar/excel";
 
 export const dynamic = "force-dynamic";
@@ -115,6 +116,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No mandaste ningún archivo válido." }, { status: 400 });
     }
 
+    await invalidar(supabase, cuenta.id, "Se importaron archivos de corridas o existencias.");
     return NextResponse.json({ ok: true, resumen, avisos: avisos.slice(0, 50) });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });

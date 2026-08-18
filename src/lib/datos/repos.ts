@@ -16,7 +16,14 @@ import type { Corrida, FilaExistencia } from "../importar/excel";
 
 export type DB = SupabaseClient<any, "public", any>;
 
-/** Supabase pagina en 1000 renglones. Esto trae todo sin que se note. */
+/**
+ * Trae una tabla completa. Supabase corta en 1000 renglones por petición.
+ *
+ * Se cuenta primero y luego se piden todas las páginas EN PARALELO. Pedirlas
+ * en cadena, esperando cada una para saber si hay más, convertía 32 mil
+ * ventas en 33 viajes seguidos al servidor: varios segundos en puro ir y
+ * venir, antes de calcular nada.
+ */
 export async function traerTodo<T>(
   db: DB,
   tabla: string,
@@ -24,18 +31,39 @@ export async function traerTodo<T>(
   filtros: (q: any) => any,
   paso = 1000,
 ): Promise<T[]> {
-  const salida: T[] = [];
-  for (let desde = 0; ; desde += paso) {
-    const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
-      desde,
-      desde + paso - 1,
-    );
-    if (error) throw new Error(`${tabla}: ${error.message}`);
-    if (!data?.length) break;
-    salida.push(...(data as T[]));
-    if (data.length < paso) break;
-  }
-  return salida;
+  const { count, error: errorConteo } = await filtros(
+    db.from(tabla).select(columnas, { count: "exact", head: true }),
+  );
+  if (errorConteo) throw new Error(`${tabla}: ${errorConteo.message}`);
+
+  const total = count ?? 0;
+  if (total === 0) return [];
+
+  const paginas = Math.ceil(total / paso);
+  const CONCURRENCIA = 6;   // más que esto y Supabase empieza a encolar
+  const salida: T[] = new Array(total);
+  let siguiente = 0;
+
+  const trabajador = async () => {
+    while (true) {
+      const pagina = siguiente++;
+      if (pagina >= paginas) return;
+      const desde = pagina * paso;
+      const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
+        desde,
+        desde + paso - 1,
+      );
+      if (error) throw new Error(`${tabla}: ${error.message}`);
+      for (let i = 0; i < (data?.length ?? 0); i++) salida[desde + i] = data![i] as T;
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCIA, paginas) }, trabajador),
+  );
+
+  // Si algo se movió entre el conteo y la lectura pueden quedar huecos.
+  return salida.filter((x) => x !== undefined);
 }
 
 // ---------------------------------------------------------------------------

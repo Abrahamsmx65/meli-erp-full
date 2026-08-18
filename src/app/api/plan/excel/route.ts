@@ -2,8 +2,7 @@ import ExcelJS from "exceljs";
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { generarPlanCompleto } from "@/lib/servicios/plan";
-import { desglosarSku } from "@/lib/servicios/sync";
+import { obtenerPlan } from "@/lib/servicios/cache";
 import { aISO } from "@/lib/engine/fechas";
 import { etiquetaEstadoTexto } from "@/lib/reporte/etiquetas";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
@@ -42,10 +41,11 @@ export async function GET(request: NextRequest) {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const terminos = terminosDeBusqueda(q);
 
-  const completo = await generarPlanCompleto(supabase, cuenta.id);
-  const { plan, cajasPlaneadas, pendientes, catalogo } = completo;
+  const { plan } = await obtenerPlan(supabase, cuenta.id);
+  const { pendientes, catalogo } = plan;
   const p = plan.parametros;
   const r = plan.resumen;
+  const cajasPlaneadas = plan.cajas;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Planeador de envíos a Full";
@@ -185,37 +185,34 @@ export async function GET(request: NextRequest) {
   ];
   encabezar(hSkus);
 
-  const lineasFiltradas = plan.lineas.filter((l) => {
-    const d = desglosarSku(l.sku);
-    return coincide(`${l.sku} ${d.modelo ?? ""} ${d.color ?? ""}`, terminos);
-  });
+  const lineasFiltradas = plan.lineas.filter((l) =>
+    coincide(`${l.sku} ${l.modelo} ${l.color}`, terminos),
+  );
 
   for (const l of lineasFiltradas) {
-    const d = desglosarSku(l.sku);
-    const enviado = plan.cajas.enviadoPorSku.get(l.sku) ?? 0;
     hSkus.addRow({
       sku: l.sku,
-      modelo: d.modelo ?? "",
-      color: d.color ?? "",
-      talla: d.talla ?? "",
+      modelo: l.modelo,
+      color: l.color,
+      talla: l.talla,
       estado: etiquetaEstadoTexto(l.estado),
-      demanda: Number(l.demanda.demandaDiaria.toFixed(2)),
-      cruda: Number(l.demanda.tasaObservada.toFixed(2)),
-      factor: Number(l.demanda.factorCorreccion.toFixed(2)),
-      diasSin: l.demanda.diasSinStock,
-      vendidas: l.demanda.unidadesTotales,
+      demanda: l.demandaDiaria,
+      cruda: l.tasaObservada,
+      factor: l.factorCorreccion,
+      diasSin: l.diasSinStock,
+      vendidas: l.unidadesTotales,
       disp: l.disponible,
       transito: l.enTransferencia,
       posicion: l.posicion,
-      cobertura: Number.isFinite(l.coberturaDias) ? Number(l.coberturaDias.toFixed(1)) : "",
+      cobertura: l.coberturaDias ?? "",
       quiebre: l.fechaQuiebre ?? "",
       ss: l.stockSeguridad,
       reorden: l.puntoReorden,
       objetivo: l.nivelObjetivo,
       sugerido: l.sugerido,
-      enviado,
-      dif: enviado - l.sugerido,
-      confianza: l.demanda.confianza,
+      enviado: l.enviado,
+      dif: l.enviado - l.sugerido,
+      confianza: l.confianza,
       explicacion: l.explicacion,
     });
   }

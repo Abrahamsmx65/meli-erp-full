@@ -1,15 +1,14 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { generarPlanCompleto } from "@/lib/servicios/plan";
+import { obtenerPlan } from "@/lib/servicios/cache";
 import { Ficha } from "@/components/tiles";
-import { BotonesPlan } from "@/components/acciones";
+import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
 import {
   TablasPlan,
   type FilaCajaPlan,
   type FilaSkuPlan,
 } from "@/components/tablas-plan";
-import { desglosarSku } from "@/lib/servicios/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +30,9 @@ export default async function Plan() {
     );
   }
 
-  const completo = await generarPlanCompleto(supabase, cuenta.id);
-  const { plan, cajasPlaneadas, pendientes, catalogo } = completo;
+  const estado = await obtenerPlan(supabase, cuenta.id);
+  const plan = estado.plan;
+  const { pendientes, catalogo } = plan;
   const r = plan.resumen;
   const p = plan.parametros;
 
@@ -50,28 +50,26 @@ export default async function Plan() {
     );
   }
 
-  // Los datos que cruzan al navegador tienen que ser serializables: nada de
-  // Map ni de Infinity, que JSON convierte en null sin avisar.
-  const filasSku: FilaSkuPlan[] = plan.lineas.map((l) => {
-    const d = desglosarSku(l.sku);
-    return {
-      sku: l.sku,
-      modelo: d.modelo ?? "",
-      color: d.color ?? "",
-      talla: d.talla ?? "",
-      estado: l.estado,
-      demandaDiaria: l.demanda.demandaDiaria,
-      factorCorreccion: l.demanda.factorCorreccion,
-      diasSinStock: l.demanda.diasSinStock,
-      disponible: l.disponible,
-      enTransferencia: l.enTransferencia,
-      coberturaDias: Number.isFinite(l.coberturaDias) ? l.coberturaDias : null,
-      sugerido: l.sugerido,
-      enviado: plan.cajas.enviadoPorSku.get(l.sku) ?? 0,
-    };
-  });
+  // Al navegador solo va lo que la tabla pinta. Las explicaciones y el resto
+  // del detalle se quedan del lado del servidor y salen en el Excel: mandarlo
+  // todo serían más de dos megas de JSON en cada carga.
+  const filasSku: FilaSkuPlan[] = plan.lineas.map((l) => ({
+    sku: l.sku,
+    modelo: l.modelo,
+    color: l.color,
+    talla: l.talla,
+    estado: l.estado,
+    demandaDiaria: l.demandaDiaria,
+    factorCorreccion: l.factorCorreccion,
+    diasSinStock: l.diasSinStock,
+    disponible: l.disponible,
+    enTransferencia: l.enTransferencia,
+    coberturaDias: l.coberturaDias,
+    sugerido: l.sugerido,
+    enviado: l.enviado,
+  }));
 
-  const filasCaja: FilaCajaPlan[] = cajasPlaneadas.map((c) => ({
+  const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
     skuCaja: c.skuCaja,
     modelo: c.modelo,
@@ -97,6 +95,13 @@ export default async function Plan() {
         </div>
         <BotonesPlan />
       </div>
+
+      <FrescuraPlan
+        generadoEn={plan.generadoEn}
+        vigente={estado.vigente}
+        motivo={estado.motivo}
+        msCalculo={estado.msCalculo}
+      />
 
       {/* ---- Cifras de cabecera ------------------------------------------ */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -150,7 +155,7 @@ export default async function Plan() {
         </div>
       )}
 
-      {completo.avisos.map((a, i) => (
+      {plan.avisos.map((a, i) => (
         <div key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
           {a}
         </div>

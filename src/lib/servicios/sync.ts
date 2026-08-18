@@ -17,6 +17,7 @@ import {
 import { aISO, sumarDias } from "../engine/fechas";
 import { obtenerVentas, claveItem } from "../meli/sync";
 import { cerrarSync, registrarSync, upsertEnTandas, type DB } from "../datos/repos";
+import { invalidar } from "./cache";
 
 export interface ResultadoSync {
   skus: number;
@@ -329,6 +330,8 @@ export async function sincronizar(
     };
 
     await cerrarSync(db, logId, "ok", r as never);
+    // Los insumos cambiaron: el plan guardado quedó viejo.
+    await invalidar(db, accountId, "Se sincronizó con Mercado Libre después de calcularlo.");
     return r;
   } catch (err) {
     const mensaje = (err as Error).message;

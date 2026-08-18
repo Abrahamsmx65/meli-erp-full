@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { generarPlanCompleto } from "@/lib/servicios/plan";
+import { obtenerPlan } from "@/lib/servicios/cache";
 import { Estado, colorEstado } from "@/components/estado";
 import { BarraCobertura } from "@/components/tiles";
 
@@ -18,7 +18,7 @@ export default async function Skus() {
     return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
   }
 
-  const { plan } = await generarPlanCompleto(supabase, cuenta.id);
+  const { plan } = await obtenerPlan(supabase, cuenta.id);
   const p = plan.parametros;
   const maxCobertura = Math.max(p.horizonteDias * 2, 60);
 
@@ -56,24 +56,24 @@ export default async function Skus() {
                   <td>
                     <Estado estado={l.estado} />
                   </td>
-                  <td className="num cifra">{n(l.demanda.unidadesTotales)}</td>
+                  <td className="num cifra">{n(l.unidadesTotales)}</td>
                   <td
                     className="num cifra"
                     style={{
                       color:
-                        l.demanda.diasSinStock >= 7 ? "var(--estado-alerta)" : "var(--ink-2)",
+                        l.diasSinStock >= 7 ? "var(--estado-alerta)" : "var(--ink-2)",
                     }}
                   >
-                    {l.demanda.diasSinStock || "—"}
+                    {l.diasSinStock || "—"}
                   </td>
                   <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
-                    {l.demanda.tasaObservada.toFixed(2)}
+                    {l.tasaObservada.toFixed(2)}
                   </td>
                   <td className="num cifra font-medium">
-                    {l.demanda.demandaDiaria.toFixed(2)}
-                    {l.demanda.factorCorreccion > 1.15 ? (
+                    {l.demandaDiaria.toFixed(2)}
+                    {l.factorCorreccion > 1.15 ? (
                       <span className="ml-1 text-xs" style={{ color: "var(--estado-alerta)" }}>
-                        ×{l.demanda.factorCorreccion.toFixed(1)}
+                        ×{l.factorCorreccion.toFixed(1)}
                       </span>
                     ) : null}
                   </td>
@@ -81,7 +81,7 @@ export default async function Skus() {
                   <td style={{ minWidth: 150 }}>
                     <div className="flex items-center gap-2">
                       <BarraCobertura
-                        dias={l.coberturaDias}
+                        dias={l.coberturaDias ?? Number.POSITIVE_INFINITY}
                         horizonte={p.horizonteDias}
                         color={colorEstado(l.estado)}
                         maximo={maxCobertura}
@@ -90,13 +90,13 @@ export default async function Skus() {
                         className="cifra w-12 shrink-0 text-right text-xs"
                         style={{ color: "var(--ink-2)" }}
                       >
-                        {Number.isFinite(l.coberturaDias) ? `${l.coberturaDias.toFixed(0)}d` : "—"}
+                        {l.coberturaDias == null ? "—" : `${l.coberturaDias.toFixed(0)}d`}
                       </span>
                     </div>
                   </td>
                   <td className="num cifra">{n(l.sugerido)}</td>
                   <td className="text-xs" style={{ color: "var(--ink-2)" }}>
-                    {l.demanda.confianza}
+                    {l.confianza}
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
+import { invalidar } from "@/lib/servicios/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       .eq("account_id", cuenta.id)
       .eq("sku_construido", skuConstruido);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await invalidar(supabase, cuenta.id, "Se cambió el amarre de algún SKU.");
     return NextResponse.json({ ok: true, borrado: true });
   }
 

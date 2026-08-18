@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { generarPlanCompleto } from "@/lib/servicios/plan";
+import { obtenerPlan } from "@/lib/servicios/cache";
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,8 @@ export default async function Pendientes() {
     return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
   }
 
-  const { pendientes } = await generarPlanCompleto(supabase, cuenta.id);
+  const { plan } = await obtenerPlan(supabase, cuenta.id);
+  const { pendientes } = plan;
   const { sinCorrida, sinAmarre } = pendientes;
 
   const paresBloqueados = sinCorrida.reduce(

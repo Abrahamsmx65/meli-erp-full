@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { generarPlanCompleto, guardarPlan } from "@/lib/servicios/plan";
+import { recalcular } from "@/lib/servicios/cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -25,6 +26,18 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   try {
+    // Recalcular es lo más común: rehace el plan y refresca la caché, que es
+    // de donde lee la pantalla.
+    if (body?.recalcular) {
+      const t0 = Date.now();
+      const r = await recalcular(supabase, cuenta.id);
+      return NextResponse.json({
+        ok: true,
+        ms: r.msCalculo ?? Date.now() - t0,
+        resumen: r.plan.resumen,
+      });
+    }
+
     const completo = await generarPlanCompleto(supabase, cuenta.id, {
       parametros: body?.parametros,
     });
