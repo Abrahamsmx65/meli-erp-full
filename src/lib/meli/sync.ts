@@ -396,7 +396,11 @@ export async function obtenerOperaciones(
   hasta: string,
   mapaInventarioSku: Map<string, string>,
 ): Promise<OperacionStock[]> {
-  const salida: OperacionStock[] = [];
+  // `inventory_id` es OBLIGATORIO en este endpoint: sin él, MELI responde
+  // 400 missing_parameter. Como acepta una lista separada por comas pero la
+  // URL no puede crecer sin límite, los inventarios se piden por tandas.
+  const inventarios = [...mapaInventarioSku.keys()];
+  if (!inventarios.length) return [];
 
   const tramos: [string, string][] = [];
   let cursor = new Date(`${desde}T00:00:00.000Z`);
@@ -408,17 +412,25 @@ export async function obtenerOperaciones(
     cursor = sig;
   }
 
-  for (const [ini, fin2] of tramos) {
+  // Cada tarea es una combinación de (tanda de inventarios × tramo de fechas).
+  const tareas: { ids: string[]; ini: string; fin: string }[] = [];
+  for (const grupo of trozos(inventarios, 20)) {
+    for (const [ini, fin2] of tramos) tareas.push({ ids: grupo, ini, fin: fin2 });
+  }
+
+  const porTarea = await enLotes(tareas, 5, async (t) => {
+    const acumulado: OperacionStock[] = [];
     let scroll: string | undefined;
 
-    for (let pagina = 0; pagina < 500; pagina++) {
+    for (let pagina = 0; pagina < 200; pagina++) {
       const r = await c.get<{
         results: OperacionMeli[];
         paging?: { scroll?: string; total?: number };
       }>("/stock/fulfillment/operations/search", {
         seller_id: sellerId,
-        date_from: ini,
-        date_to: fin2,
+        inventory_id: t.ids.join(","),
+        date_from: t.ini,
+        date_to: t.fin,
         limit: 1000,
         scroll,
       });
@@ -429,7 +441,8 @@ export async function obtenerOperaciones(
       for (const op of lote) {
         const sku = op.inventory_id ? mapaInventarioSku.get(op.inventory_id) : undefined;
         if (!sku || !op.date_created) continue;
-        salida.push({
+        acumulado.push({
+          id: op.id ?? null,
           sku,
           fecha: op.date_created,
           tipo: op.type ?? null,
@@ -441,8 +454,11 @@ export async function obtenerOperaciones(
       scroll = r.paging?.scroll;
       if (!scroll || lote.length < 1000) break;
     }
-  }
 
+    return acumulado;
+  });
+
+  const salida = porTarea.flat();
   salida.sort((a, b) => a.fecha.localeCompare(b.fecha));
   return salida;
 }

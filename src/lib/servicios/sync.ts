@@ -219,11 +219,11 @@ export async function sincronizar(
     let operaciones = 0;
     try {
       const ops = await obtenerOperaciones(cliente, sellerId, desde, hoy, mapaInventarioSku);
-      // El id de operación viene en el payload; si falta, se sintetiza uno
-      // estable para no duplicar en la siguiente corrida.
-      const filas = ops.map((o, i) => ({
+      // Se usa el id real de MELI. El sintetizado por índice cambiaba entre
+      // corridas y multiplicaba los renglones en cada sincronización.
+      const filas = ops.map((o) => ({
         account_id: accountId,
-        operation_id: `${o.sku}-${o.fecha}-${i}`,
+        operation_id: o.id ?? `${o.sku}|${o.fecha}|${o.resultadoDisponible ?? ""}`,
         sku: o.sku,
         fecha: o.fecha,
         tipo: o.tipo,

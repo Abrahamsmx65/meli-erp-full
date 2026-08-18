@@ -20,6 +20,8 @@ export interface SnapshotStock {
 }
 
 export interface OperacionStock {
+  /** id que da MELI; sirve para no duplicar entre sincronizaciones */
+  id?: string | null;
   sku: string;
   /** timestamp ISO completo */
   fecha: string;
