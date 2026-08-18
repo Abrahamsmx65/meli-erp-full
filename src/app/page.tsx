@@ -32,12 +32,16 @@ export default async function Plan() {
   const p = plan.parametros;
 
   if (!plan.lineas.length) {
+    // El botón va AQUÍ, no un enlace a otra pantalla: sin datos todavía es
+    // justo cuando hace falta sincronizar, y mandar al usuario a Ajustes lo
+    // dejaba atrapado sin forma de disparar la primera bajada.
     return (
       <Bienvenida
         titulo="Falta sincronizar"
-        texto="La cuenta está conectada pero aún no hay SKUs. Sincroniza con Mercado Libre para traer tu catálogo y tus ventas."
-        cta={{ href: "/ajustes", texto: "Sincronizar" }}
-      />
+        texto="La cuenta está conectada pero aún no hay SKUs. Trae tu catálogo, tu stock en Full y tus ventas de los últimos 90 días. La primera vez tarda varios minutos."
+      >
+        <BotonesPlan />
+      </Bienvenida>
     );
   }
 
@@ -273,10 +277,12 @@ function Bienvenida({
   titulo,
   texto,
   cta,
+  children,
 }: {
   titulo: string;
   texto: string;
-  cta: { href: string; texto: string };
+  cta?: { href: string; texto: string };
+  children?: React.ReactNode;
 }) {
   return (
     <div className="tarjeta mx-auto max-w-lg p-8 text-center">
@@ -284,13 +290,16 @@ function Bienvenida({
       <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
         {texto}
       </p>
-      <Link
-        href={cta.href}
-        className="mt-4 inline-block rounded-lg px-4 py-2 text-sm font-medium text-white"
-        style={{ background: "var(--acento)" }}
-      >
-        {cta.texto}
-      </Link>
+      {cta ? (
+        <Link
+          href={cta.href}
+          className="mt-4 inline-block rounded-lg px-4 py-2 text-sm font-medium text-white"
+          style={{ background: "var(--acento)" }}
+        >
+          {cta.texto}
+        </Link>
+      ) : null}
+      {children ? <div className="mt-4 flex justify-center">{children}</div> : null}
     </div>
   );
 }

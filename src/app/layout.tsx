@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 
 const NAV = [
   { href: "/", texto: "Plan de envío" },
+  { href: "/sincronizar", texto: "Sincronizar" },
   { href: "/skus", texto: "SKUs" },
   { href: "/pendientes", texto: "Pendientes" },
   { href: "/importar", texto: "Importar" },
