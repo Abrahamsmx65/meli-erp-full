@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { generarDatosDemo, SKUS_DEMO } from "../demo";
 import { generarPlan } from "./index";
 import { optimizarCajas } from "./boxes";
+import { prioridadSobrante } from "./replenish";
+import { normalizarParametros } from "./params";
 import { calcularFraccionesConStock, reconstruirStockDiario } from "./stockHistory";
 import { aISO, proximoEnvio, sumarDias } from "./fechas";
 import type { Caja, DiaStock } from "./types";
@@ -333,5 +335,61 @@ describe("origen del stock histórico", () => {
     const dia = r.get("A")!.find((d) => d.fecha === "2026-08-11")!;
     expect(dia.fin).toBe(0);
     expect(dia.origen).toBe("operaciones");
+  });
+});
+
+describe("tallas que nunca tuvieron stock", () => {
+  const base = {
+    sku: "GT187-SILVER-24-MX",
+    titulo: null,
+    disponible: 0,
+    enTransferencia: 0,
+    posicion: 0,
+    stockSeguridad: 0,
+    puntoReorden: 0,
+    nivelObjetivo: 0,
+    coberturaDias: 0,
+    fechaQuiebre: null,
+    sugerido: 0,
+    inventarioPropio: 0,
+    faltanteBodega: 0,
+    estado: "sin_demanda" as const,
+    explicacion: "",
+  };
+  const demanda = (unidades: number, diasEfectivos: number) =>
+    ({
+      sku: base.sku,
+      unidadesTotales: unidades,
+      diasCalendario: 90,
+      diasEfectivos,
+      diasSinStock: 90 - diasEfectivos,
+      tasaObservada: 0,
+      tasaCorregida: 0,
+      factorCorreccion: 1,
+      buckets: [],
+      tasaPonderada: 0,
+      factorTendencia: 1,
+      demandaDiaria: 0,
+      sigmaDiaria: 0,
+      coefVariacion: 0,
+      confianza: "baja",
+      notas: [],
+    }) as never;
+
+  const p = normalizarParametros({});
+
+  it("no las castiga como si sobraran: nunca hubo qué vender", () => {
+    const linea = { ...base, demanda: demanda(0, 0) };
+    expect(prioridadSobrante(linea, p)).toBeLessThan(1);
+  });
+
+  it("sí castiga a la que tuvo stock y aun así no vendió", () => {
+    const linea = { ...base, demanda: demanda(0, 80) };
+    expect(prioridadSobrante(linea, p)).toBe(4);
+  });
+
+  it("respeta la exclusión manual aunque nunca haya tenido stock", () => {
+    const linea = { ...base, demanda: demanda(0, 0) };
+    expect(prioridadSobrante(linea, p, { excluido: true })).toBe(4);
   });
 });

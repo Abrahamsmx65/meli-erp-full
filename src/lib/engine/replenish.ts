@@ -200,7 +200,35 @@ export function prioridadFaltante(linea: LineaPlan, p: Parametros): number {
  * extra de algo que ya tiene 60 días de cobertura es pagar bodega en MELI
  * por inventario que no se va a mover.
  */
-export function prioridadSobrante(linea: LineaPlan, p: Parametros): number {
+/**
+ * Una talla que nunca ha tenido stock no es lo mismo que una que no vende.
+ *
+ * Sin ventas y sin un solo día con existencia, el cero no dice "no lo
+ * quieren": dice que nunca ha habido qué vender. Es la talla agotada de
+ * siempre, justo la que hay que reponer.
+ */
+function nuncaTuvoOportunidad(l: LineaPlan): boolean {
+  return (
+    l.disponible === 0 &&
+    l.enTransferencia === 0 &&
+    l.demanda.unidadesTotales === 0 &&
+    l.demanda.diasEfectivos < 1
+  );
+}
+
+export function prioridadSobrante(
+  linea: LineaPlan,
+  p: Parametros,
+  opts?: { excluido?: boolean },
+): number {
+  // Si tú la excluiste a mano, se respeta: no mandarla es la instrucción.
+  if (linea.estado === "sin_demanda" && !opts?.excluido && nuncaTuvoOportunidad(linea)) {
+    // Poco castigo: que llegue de más a una talla vacía no es capital
+    // dormido, es volver a tener qué vender. Pero tampoco es gratis, así
+    // que no se premia.
+    return 0.8;
+  }
+
   switch (linea.estado) {
     case "sin_demanda":
       return 4;          // no vende: cada pieza extra es puro costo

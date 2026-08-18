@@ -104,7 +104,10 @@ export function generarPlan(e: EntradaPlan): Plan {
   for (const l of lineas) {
     if (l.sugerido > 0) necesidad.set(l.sku, l.sugerido);
     prioridad.set(l.sku, prioridadFaltante(l, p));
-    castigoSobrante.set(l.sku, prioridadSobrante(l, p));
+    castigoSobrante.set(
+      l.sku,
+      prioridadSobrante(l, p, { excluido: overrideMap.get(l.sku)?.excluir === true }),
+    );
     demandaDiaria.set(l.sku, l.demanda.demandaDiaria);
   }
 
