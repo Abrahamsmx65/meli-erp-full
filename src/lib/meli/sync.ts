@@ -15,6 +15,12 @@ import type { OperacionStock, StockFull, VentaDiaria } from "../engine/types";
 interface AtributoMeli {
   id?: string;
   value_name?: string | null;
+  /**
+   * Según por dónde se haya capturado el SKU, MELI lo deja en `value_name` o
+   * lo mete aquí y deja `value_name` en null. Hay publicaciones con las dos
+   * formas mezcladas entre variantes de un mismo producto.
+   */
+  values?: { name?: string | null }[];
 }
 
 interface VariacionMeli {
@@ -49,6 +55,26 @@ export interface FilaSku {
   precio: number | null;
 }
 
+/**
+ * Lo que el recorrido del catálogo tuvo que descartar.
+ *
+ * Antes esto se tiraba en silencio y el SKU simplemente no aparecía, lo que
+ * desde la pantalla se ve idéntico a "ese producto no está publicado". Son
+ * cosas muy distintas y hay que poder distinguirlas sin adivinar.
+ */
+export interface DiagnosticoCatalogo {
+  /** Variantes que MELI devolvió sin SKU por ningún lado. */
+  variantesSinSku: { itemId: string; variationId: string | null }[];
+  /** Dos variantes con el mismo SKU: una pisa a la otra. */
+  skusRepetidos: { sku: string; itemId: string; variationId: string | null }[];
+  /** Lotes de /items que MELI no contestó. */
+  lotesFallidos: number;
+}
+
+export function nuevoDiagnostico(): DiagnosticoCatalogo {
+  return { variantesSinSku: [], skusRepetidos: [], lotesFallidos: 0 };
+}
+
 export interface UsuarioMeli {
   id: number;
   nickname: string;
@@ -60,13 +86,17 @@ export interface UsuarioMeli {
 // ---------------------------------------------------------------------------
 
 /** El SKU del vendedor puede venir en dos lugares según la antigüedad de la publicación. */
-function extraerSku(
+export function extraerSku(
   fuente: { seller_custom_field?: string | null; attributes?: AtributoMeli[] } | undefined,
 ): string | null {
   if (!fuente) return null;
   const attr = fuente.attributes?.find((a) => a.id === "SELLER_SKU");
   const v = attr?.value_name?.trim();
   if (v) return v;
+  for (const valor of attr?.values ?? []) {
+    const n = valor?.name?.trim();
+    if (n) return n;
+  }
   const scf = fuente.seller_custom_field?.trim();
   return scf || null;
 }
@@ -173,11 +203,12 @@ export async function traerItems(
 export async function detallarItems(
   c: MeliClient,
   ids: string[],
-  opts?: { soloFulfillment?: boolean },
+  opts?: { soloFulfillment?: boolean; diag?: DiagnosticoCatalogo },
 ): Promise<FilaSku[]> {
   if (!ids.length) return [];
 
-  const { items } = await traerItems(c, ids);
+  const { items, lotesFallidos } = await traerItems(c, ids);
+  if (opts?.diag) opts.diag.lotesFallidos += lotesFallidos;
   const respuestas = [[...items.values()].map((body) => ({ code: 200, body }))];
 
   const filas: FilaSku[] = [];
@@ -193,7 +224,13 @@ export async function detallarItems(
       if (item.variations?.length) {
         for (const v of item.variations) {
           const sku = extraerSku(v) ?? extraerSku(item);
-          if (!sku) continue;
+          if (!sku) {
+            opts?.diag?.variantesSinSku.push({
+              itemId: item.id,
+              variationId: v.id != null ? String(v.id) : null,
+            });
+            continue;
+          }
           filas.push({
             sku,
             itemId: item.id,
@@ -229,13 +266,18 @@ export async function detallarItems(
  * Un mismo SKU puede estar en varias publicaciones. Se conserva la que sí
  * tiene inventory_id de Full y está activa.
  */
-export function dedupePorSku(filas: FilaSku[]): FilaSku[] {
+export function dedupePorSku(filas: FilaSku[], diag?: DiagnosticoCatalogo): FilaSku[] {
   const porSku = new Map<string, FilaSku>();
   for (const f of filas) {
     const previa = porSku.get(f.sku);
     if (!previa) {
       porSku.set(f.sku, f);
       continue;
+    }
+    // Mismo SKU en dos variantes: una se pierde. Casi siempre es un SKU
+    // capturado de más en la publicación, y deja a la otra talla huérfana.
+    if (previa.itemId === f.itemId) {
+      diag?.skusRepetidos.push({ sku: f.sku, itemId: f.itemId, variationId: f.variationId });
     }
     const puntaje = (x: FilaSku) =>
       (x.inventoryId ? 4 : 0) +
@@ -249,10 +291,10 @@ export function dedupePorSku(filas: FilaSku[]): FilaSku[] {
 export async function obtenerCatalogo(
   c: MeliClient,
   userId: number,
-  opts?: { soloFulfillment?: boolean },
+  opts?: { soloFulfillment?: boolean; diag?: DiagnosticoCatalogo },
 ): Promise<FilaSku[]> {
   const ids = await listarIdsDeItems(c, userId);
-  return dedupePorSku(await detallarItems(c, ids, opts));
+  return dedupePorSku(await detallarItems(c, ids, opts), opts?.diag);
 }
 
 // ---------------------------------------------------------------------------

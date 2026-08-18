@@ -8,6 +8,7 @@
 import { MeliClient } from "../meli/client";
 import {
   dedupePorSku,
+  nuevoDiagnostico,
   recuperarDesdeOrdenes,
   obtenerCatalogo,
   obtenerOperaciones,
@@ -28,6 +29,13 @@ export interface ResultadoSync {
   ventasSinSku: number;
   /** publicaciones que el recorrido se saltó y se recuperaron desde las órdenes */
   recuperadas: number;
+  /** variantes que el catálogo descartó, con el motivo */
+  descartadas: {
+    sinSku: number;
+    repetidos: number;
+    lotesFallidos: number;
+    ejemplos: string[];
+  };
   errores: string[];
   duracionMs: number;
 }
@@ -119,7 +127,8 @@ export async function sincronizar(
     const sellerId = usuario.id;
 
     // ---- Catálogo: recorrido de publicaciones ----------------------------
-    let catalogo = await obtenerCatalogo(cliente, sellerId);
+    const diag = nuevoDiagnostico();
+    let catalogo = await obtenerCatalogo(cliente, sellerId, { diag });
 
     const hoy = aISO(new Date());
     const dias = opts?.diasHistoria ?? 90;
@@ -244,6 +253,14 @@ export async function sincronizar(
         operaciones: 0,
         ventasSinSku: 0,
         recuperadas: 0,
+        descartadas: {
+          sinSku: diag.variantesSinSku.length,
+          repetidos: diag.skusRepetidos.length,
+          lotesFallidos: diag.lotesFallidos,
+          ejemplos: diag.variantesSinSku
+            .slice(0, 20)
+            .map((v) => `${v.itemId}/${v.variationId ?? "-"}`),
+        },
         errores,
         duracionMs: Date.now() - t0,
       };
@@ -317,6 +334,32 @@ export async function sincronizar(
       errores.push(`Movimientos de inventario: ${(err as Error).message}`);
     }
 
+    // Una variante descartada se ve, desde la pantalla, igual que un producto
+    // que no está publicado. Aquí queda escrita la diferencia.
+    if (diag.variantesSinSku.length) {
+      const ej = diag.variantesSinSku
+        .slice(0, 5)
+        .map((v) => `${v.itemId}/${v.variationId ?? "-"}`)
+        .join(", ");
+      errores.push(
+        `Catálogo: ${diag.variantesSinSku.length} variantes vienen de MELI sin SKU ` +
+          `(${ej}). Esas tallas no se pueden amarrar hasta que la publicación traiga su código.`,
+      );
+    }
+    if (diag.skusRepetidos.length) {
+      const ej = [...new Set(diag.skusRepetidos.map((v) => v.sku))].slice(0, 5).join(", ");
+      errores.push(
+        `Catálogo: ${diag.skusRepetidos.length} variantes comparten SKU con otra de la misma ` +
+          `publicación (${ej}). Cuando dos tallas traen el mismo código solo sobrevive una.`,
+      );
+    }
+    if (diag.lotesFallidos) {
+      errores.push(
+        `Catálogo: ${diag.lotesFallidos} lotes de publicaciones no bajaron de MELI; ` +
+          `esos SKUs conservan lo que ya se tenía guardado.`,
+      );
+    }
+
     const r: ResultadoSync = {
       skus: filasSku.length,
       conStock: stock.length,
@@ -325,6 +368,14 @@ export async function sincronizar(
       operaciones,
       ventasSinSku: sinSku,
       recuperadas,
+      descartadas: {
+        sinSku: diag.variantesSinSku.length,
+        repetidos: diag.skusRepetidos.length,
+        lotesFallidos: diag.lotesFallidos,
+        ejemplos: diag.variantesSinSku
+          .slice(0, 20)
+          .map((v) => `${v.itemId}/${v.variationId ?? "-"}`),
+      },
       errores,
       duracionMs: Date.now() - t0,
     };
