@@ -1,0 +1,89 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { MeliClient } from "@/lib/meli/client";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+/**
+ * Radiografía de UNA publicación, tal como la devuelve MELI.
+ *
+ * Existe porque el catálogo descarta variantes por "venir sin SKU" y desde
+ * afuera no hay forma de saber si el SKU falta de verdad en la publicación o
+ * si está en un campo que el lector no mira. Devuelve la forma de la
+ * respuesta —qué llaves trae cada variante y qué atributos— para poder
+ * decidirlo con el dato enfrente en vez de adivinar.
+ *
+ * Es de lectura y pide sesión. Se puede borrar cuando el amarre esté resuelto.
+ */
+export async function GET(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+
+  const cuenta = await cuentaActiva(supabase);
+  if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
+
+  const itemId = req.nextUrl.searchParams.get("item");
+  if (!itemId) return NextResponse.json({ error: "Falta ?item=MLM..." }, { status: 400 });
+
+  const { data: tok } = await clienteAdmin()
+    .from("meli_tokens")
+    .select("access_token, refresh_token, expira_en")
+    .eq("account_id", cuenta.id)
+    .single();
+  if (!tok) return NextResponse.json({ error: "Sin tokens guardados." }, { status: 400 });
+
+  const cliente = new MeliClient({
+    clientId: process.env.MELI_CLIENT_ID!,
+    clientSecret: process.env.MELI_CLIENT_SECRET!,
+    credenciales: {
+      accessToken: tok.access_token,
+      refreshToken: tok.refresh_token,
+      expiraEn: new Date(tok.expira_en).getTime(),
+    },
+    alRenovar: async (c) => {
+      await clienteAdmin()
+        .from("meli_tokens")
+        .update({
+          access_token: c.accessToken,
+          refresh_token: c.refreshToken,
+          expira_en: new Date(c.expiraEn).toISOString(),
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("account_id", cuenta.id);
+    },
+  });
+
+  try {
+    const item = await cliente.get<Record<string, unknown>>(`/items/${itemId}`);
+    const variaciones = (item.variations as Record<string, unknown>[] | undefined) ?? [];
+
+    return NextResponse.json({
+      itemId,
+      llavesDelItem: Object.keys(item).sort(),
+      skuDelItem: item.seller_custom_field ?? null,
+      atributosDelItem: ((item.attributes as { id?: string }[] | undefined) ?? [])
+        .map((a) => a.id)
+        .filter(Boolean),
+      totalVariantes: variaciones.length,
+      // Las primeras tres bastan para ver la forma.
+      variantes: variaciones.slice(0, 3).map((v) => ({
+        id: v.id,
+        llaves: Object.keys(v).sort(),
+        seller_custom_field: v.seller_custom_field ?? null,
+        atributos: ((v.attributes as Record<string, unknown>[] | undefined) ?? []).map((a) => ({
+          id: a.id,
+          value_name: a.value_name,
+          values: a.values,
+        })),
+        combinaciones: v.attribute_combinations,
+      })),
+    });
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
