@@ -49,6 +49,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Sistema",
     entradas: [
       { href: "/pendientes", texto: "Pendientes", icono: "!", ayuda: "Lo que falta resolver" },
+      { href: "/sincronizar", texto: "Sincronizar", icono: "↻", ayuda: "Traer datos de Mercado Libre" },
       { href: "/ajustes", texto: "Ajustes", icono: "⚙", ayuda: "Parámetros y conexión" },
     ],
   },
