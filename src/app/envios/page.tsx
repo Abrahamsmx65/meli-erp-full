@@ -2,7 +2,9 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
+import { separarEnvios } from "@/lib/servicios/envios";
 import { Ficha } from "@/components/tiles";
+import { EnviosSeparados } from "@/components/envios-separados";
 import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
 import {
   TablasPlan,
@@ -68,6 +70,10 @@ export default async function Plan() {
     sugerido: l.sugerido,
     enviado: l.enviado,
   }));
+
+  // Las cajas del plan, repartidas en los envíos que de verdad se van a dar de
+  // alta: uno por dirección de recolección.
+  const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
 
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
@@ -160,6 +166,37 @@ export default async function Plan() {
           {a}
         </div>
       ))}
+
+      <EnviosSeparados
+        envios={envios.map((e) => ({
+          grupo: e.grupo,
+          nombre: e.nombre,
+          almacenes: e.almacenes,
+          totalCajas: e.totalCajas,
+          totalPares: e.totalPares,
+          skus: e.skus,
+          porSku: e.porSku,
+          cajas: e.cajas.map((c) => ({
+            codigo: c.codigo,
+            skuCaja: c.skuCaja,
+            pedido: c.pedido,
+            modelo: c.modelo,
+            color: c.color,
+            almacen: c.almacen,
+            esCorrida: c.esCorrida,
+            talla: c.talla,
+            cantidad: c.cantidad,
+            cajasDisponibles: c.cajasDisponibles,
+            paresTotales: c.paresTotales,
+            aporta: c.aporta.map((a) => ({
+              sku: a.sku,
+              talla: a.talla,
+              paresTotales: a.paresTotales,
+            })),
+          })),
+        }))}
+        sinConfigurar={sinConfigurar}
+      />
 
       <TablasPlan
         lineas={filasSku}

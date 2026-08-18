@@ -148,3 +148,41 @@ a:focus-visible {
   outline: 2px solid var(--acento);
   outline-offset: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+   Impresión de etiquetas.
+
+   La pantalla y la etiqueta impresa son dos cosas distintas: en papel no van
+   ni el menú, ni las tarjetas, ni los botones. Solo las etiquetas, del tamaño
+   exacto en milímetros que pide la impresora, sin nada que las empuje de su
+   lugar. Los milímetros se respetan porque el escáner del almacén necesita un
+   ancho de barra mínimo; si el navegador escalara, dejaría de leerse.
+--------------------------------------------------------------------------- */
+@media print {
+  .no-imprimir,
+  nav[aria-label="Secciones"] {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .hoja-etiquetas .tarjeta,
+  body:has(.hoja-etiquetas) .tarjeta {
+    border: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+
+  .etiqueta {
+    border: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    margin: 4mm;
+  }
+}

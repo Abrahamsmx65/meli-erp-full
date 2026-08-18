@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
+import { separarEnvios } from "@/lib/servicios/envios";
 import { aISO } from "@/lib/engine/fechas";
 import { etiquetaEstadoTexto } from "@/lib/reporte/etiquetas";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
@@ -45,7 +46,23 @@ export async function GET(request: NextRequest) {
   const { pendientes, catalogo } = plan;
   const p = plan.parametros;
   const r = plan.resumen;
-  const cajasPlaneadas = plan.cajas;
+
+  // Un envío se da de alta por dirección de recolección, así que el Excel que
+  // se lleva a la bodega tiene que traer SOLO las cajas de esa bodega. Un
+  // archivo con las tres bodegas juntas es exactamente lo que hace que alguien
+  // baje cajas que no le tocaban.
+  const grupo = (request.nextUrl.searchParams.get("grupo") ?? "").trim();
+  const { envios } = await separarEnvios(supabase, cuenta.id, plan.cajas);
+  const envio = grupo ? envios.find((e) => e.grupo === grupo) : null;
+
+  if (grupo && !envio) {
+    return NextResponse.json({ error: "Ese envío ya no existe en el plan." }, { status: 404 });
+  }
+
+  const cajasPlaneadas = envio ? envio.cajas : plan.cajas;
+  // Cuando se pide un envío en particular, los SKUs que se listan son los que
+  // van EN ESE envío; los demás no se están preparando aquí.
+  const skusDelEnvio = envio ? new Set(envio.porSku.map((s) => s.sku)) : null;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Planeador de envíos a Full";
@@ -64,6 +81,21 @@ export async function GET(request: NextRequest) {
     ["Generado", new Date().toLocaleString("es-MX"), ""],
     ["Cuenta de Mercado Libre", cuenta.nickname ?? String(cuenta.meli_user_id), ""],
     ["Próximo envío", r.proximoEnvio, `${p.enviosPorSemana} envíos por semana`],
+    ...(envio
+      ? ([
+          ["", "", ""],
+          ["— Este archivo es UN envío —", "", ""],
+          ["Envío", envio.nombre, `Recolección en ${envio.almacenes.join(" y ")}`],
+          ["Cajas de este envío", envio.totalCajas, "Es el número que se captura al darlo de alta"],
+          ["Pares de este envío", envio.totalPares, ""],
+          ["SKUs de este envío", envio.skus, ""],
+          [
+            "Ojo",
+            "",
+            "Las cifras de arriba son del plan completo; las de aquí abajo son solo de este envío.",
+          ],
+        ] as [string, string | number, string][])
+      : []),
     ["", "", ""],
     ["SKUs analizados", r.skusAnalizados, ""],
     ["SKUs críticos", r.skusCriticos, "Se agotan antes de que llegue el envío de hoy"],
@@ -185,8 +217,10 @@ export async function GET(request: NextRequest) {
   ];
   encabezar(hSkus);
 
-  const lineasFiltradas = plan.lineas.filter((l) =>
-    coincide(`${l.sku} ${l.modelo} ${l.color}`, terminos),
+  const lineasFiltradas = plan.lineas.filter(
+    (l) =>
+      (!skusDelEnvio || skusDelEnvio.has(l.sku)) &&
+      coincide(`${l.sku} ${l.modelo} ${l.color}`, terminos),
   );
 
   for (const l of lineasFiltradas) {
@@ -261,7 +295,9 @@ export async function GET(request: NextRequest) {
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const nombre = `plan-envio-full-${aISO(new Date())}${q ? `-${q.replace(/\s+/g, "_")}` : ""}.xlsx`;
+  const nombre = `${envio ? `envio-${envio.grupo}` : "plan-envio-full"}-${aISO(new Date())}${
+    q ? `-${q.replace(/\s+/g, "_")}` : ""
+  }.xlsx`;
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {
