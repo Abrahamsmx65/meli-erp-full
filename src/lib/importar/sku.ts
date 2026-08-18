@@ -79,7 +79,12 @@ export function claveComparacion(s: string): string {
  * Devuelve además CÓMO se resolvió, porque no es lo mismo un amarre exacto
  * que uno por forma canónica: el segundo hay que poder auditarlo.
  */
-export type OrigenAmarre = "manual" | "exacto" | "canonico" | "sin_amarre";
+export type OrigenAmarre =
+  | "manual"
+  | "exacto"
+  | "canonico"
+  | "aplastado"
+  | "sin_amarre";
 
 export interface ResultadoAmarre {
   skuConstruido: string;
@@ -87,25 +92,42 @@ export interface ResultadoAmarre {
   origen: OrigenAmarre;
 }
 
+/**
+ * Última red: la clave sin NINGÚN separador.
+ *
+ * En bodega el color se escribe "M BROWN" y en la publicación quedó
+ * "MBROWN", pegado. Canonizar no los empata porque uno tiene guion y el
+ * otro no. Aplastando todo sí. El modelo y la talla siguen teniendo que
+ * coincidir, así que el riesgo de un falso positivo es mínimo.
+ */
+export function claveAplastada(s: string): string {
+  return claveComparacion(s).replace(/-/g, "");
+}
+
 export interface IndiceSkus {
   /** SKUs de MELI tal cual vienen */
   exactos: Set<string>;
   /** forma canónica -> SKU real de MELI */
   canonicos: Map<string, string>;
+  /** forma sin separadores -> SKU real de MELI */
+  aplastados: Map<string, string>;
 }
 
 export function construirIndice(skusMeli: string[]): IndiceSkus {
   const exactos = new Set<string>();
   const canonicos = new Map<string, string>();
+  const aplastados = new Map<string, string>();
   for (const s of skusMeli) {
     const limpio = s.trim();
     if (!limpio) continue;
     exactos.add(limpio);
-    const c = claveComparacion(limpio);
     // El primero gana: evita que un duplicado raro pise un amarre bueno.
+    const c = claveComparacion(limpio);
     if (!canonicos.has(c)) canonicos.set(c, limpio);
+    const a = claveAplastada(limpio);
+    if (!aplastados.has(a)) aplastados.set(a, limpio);
   }
-  return { exactos, canonicos };
+  return { exactos, canonicos, aplastados };
 }
 
 export function amarrarSku(
@@ -129,6 +151,12 @@ export function amarrarSku(
   const porCanonico = indice.canonicos.get(claveComparacion(construido));
   if (porCanonico) {
     return { skuConstruido: construido, skuMeli: porCanonico, origen: "canonico" };
+  }
+
+  // "M BROWN" en bodega contra "MBROWN" en la publicación.
+  const porAplastado = indice.aplastados?.get(claveAplastada(construido));
+  if (porAplastado) {
+    return { skuConstruido: construido, skuMeli: porAplastado, origen: "aplastado" };
   }
 
   return { skuConstruido: construido, skuMeli: null, origen: "sin_amarre" };

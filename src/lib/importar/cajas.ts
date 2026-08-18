@@ -219,7 +219,7 @@ function resolverItem(
 ): ItemCaja {
   if (!opts.indice) {
     // Sin catálogo de MELI cargado todavía: se confía en el SKU construido.
-    const r = amarrarSku(modelo, color, talla, { exactos: new Set(), canonicos: new Map() }, opts.mapeoManual);
+    const r = amarrarSku(modelo, color, talla, { exactos: new Set(), canonicos: new Map(), aplastados: new Map() }, opts.mapeoManual);
     return { sku: r.skuMeli ?? r.skuConstruido, piezas: pares, talla, origen: "sin_catalogo" };
   }
 

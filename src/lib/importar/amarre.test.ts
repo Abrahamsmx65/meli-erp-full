@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { importarCorridas, importarExistencias } from "./excel";
 import { construirCajas } from "./cajas";
-import { claveComparacion, construirIndice, construirSkuMeli } from "./sku";
+import { amarrarSku, claveComparacion, construirIndice, construirSkuMeli } from "./sku";
 import { desglosarSku } from "../servicios/sync";
 
 const dir = join(process.cwd(), "fixtures");
@@ -83,5 +83,24 @@ describe("desglose del SKU de MELI", () => {
     expect(desglosarSku("YH817-DK BROWN-29")).toEqual({
       modelo: "YH817", color: "DK BROWN", talla: "29",
     });
+  });
+});
+
+describe("amarre por forma aplastada", () => {
+  it("empata M BROWN de bodega con MBROWN de la publicación", () => {
+    const indice = construirIndice(["GT152-MBROWN-25-MX"]);
+    const r = amarrarSku("GT152", "M BROWN", 25, indice);
+    expect(r.skuMeli).toBe("GT152-MBROWN-25-MX");
+    expect(r.origen).toBe("aplastado");
+  });
+
+  it("no inventa amarres cuando la talla no coincide", () => {
+    const indice = construirIndice(["GT152-MBROWN-25-MX"]);
+    expect(amarrarSku("GT152", "M BROWN", 26, indice).skuMeli).toBeNull();
+  });
+
+  it("no inventa amarres cuando el modelo no coincide", () => {
+    const indice = construirIndice(["GT152-MBROWN-25-MX"]);
+    expect(amarrarSku("GT153", "M BROWN", 25, indice).skuMeli).toBeNull();
   });
 });
