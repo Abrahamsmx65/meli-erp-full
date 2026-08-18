@@ -83,8 +83,40 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ¿El stock de Full trae el SKU? Si sí, sale gratis: esa consulta ya se
+    // hace para todo el catálogo y no la limita MELI como a /user-products.
+    const inv = variaciones[0]?.inventory_id;
+    let stockFull: unknown = null;
+    if (inv) {
+      try {
+        const st = await cliente.get<Record<string, unknown>>(
+          `/inventories/${inv}/stock/fulfillment`,
+        );
+        stockFull = { ok: true, llaves: Object.keys(st).sort(), crudo: st };
+      } catch (e) {
+        stockFull = { ok: false, error: (e as Error).message };
+      }
+    }
+
+    // ¿user-products acepta varios ids de un jalón, como /items?
+    const upids = variaciones
+      .slice(0, 3)
+      .map((v) => v.user_product_id)
+      .filter(Boolean);
+    let loteUserProducts: unknown = null;
+    if (upids.length > 1) {
+      try {
+        const lote = await cliente.get<unknown>(`/user-products`, { ids: upids.join(",") });
+        loteUserProducts = { ok: true, muestra: JSON.stringify(lote).slice(0, 600) };
+      } catch (e) {
+        loteUserProducts = { ok: false, error: (e as Error).message };
+      }
+    }
+
     return NextResponse.json({
       itemId,
+      stockFull,
+      loteUserProducts,
       userProductIdDeLaPrimera: upid ?? null,
       userProduct,
       llavesDelItem: Object.keys(item).sort(),
