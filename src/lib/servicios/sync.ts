@@ -7,6 +7,8 @@
  */
 import { MeliClient } from "../meli/client";
 import {
+  dedupePorSku,
+  detallarItems,
   obtenerCatalogo,
   obtenerOperaciones,
   obtenerStockFull,
@@ -23,6 +25,8 @@ export interface ResultadoSync {
   ordenes: number;
   operaciones: number;
   ventasSinSku: number;
+  /** publicaciones que el recorrido se saltó y se recuperaron desde las órdenes */
+  recuperadas: number;
   errores: string[];
   duracionMs: number;
 }
@@ -113,8 +117,62 @@ export async function sincronizar(
     const usuario = await obtenerUsuario(cliente);
     const sellerId = usuario.id;
 
-    // ---- Catálogo --------------------------------------------------------
-    const catalogo = await obtenerCatalogo(cliente, sellerId);
+    // ---- Catálogo: recorrido de publicaciones ----------------------------
+    let catalogo = await obtenerCatalogo(cliente, sellerId);
+
+    const hoy = aISO(new Date());
+    const dias = opts?.diasHistoria ?? 90;
+    const desde = sumarDias(hoy, -dias);
+
+    let ventas: Awaited<ReturnType<typeof obtenerVentas>>["ventas"] = [];
+    let ordenesLeidas = 0;
+    let sinSku = 0;
+    let recuperadas = 0;
+
+    if (!opts?.soloStock) {
+      // ---- Ventas --------------------------------------------------------
+      const mapaItemSku = new Map<string, string>();
+      for (const c of catalogo) {
+        mapaItemSku.set(claveItem(c.itemId, c.variationId), c.sku);
+        if (!c.variationId) mapaItemSku.set(c.itemId, c.sku);
+      }
+
+      const r = await obtenerVentas(cliente, sellerId, desde, hoy, mapaItemSku);
+      ventas = r.ventas;
+      ordenesLeidas = r.ordenesLeidas;
+      sinSku = r.sinSku;
+
+      // ---- Red de seguridad del catálogo ---------------------------------
+      //
+      // El recorrido de publicaciones se salta cosas: los productos agotados
+      // en Full quedan pausados o cerrados y no siempre aparecen. Justo esos
+      // son los que urge reponer, así que perderlos vacía el plan.
+      //
+      // Las órdenes son prueba irrefutable de que la publicación existe: si
+      // vendió, está. Se recuperan por su id y se agregan al catálogo.
+      const enCatalogo = new Set(catalogo.map((c) => c.sku));
+      const idsFaltantes = [
+        ...new Set(
+          [...r.itemsPorSku]
+            .filter(([sku]) => !enCatalogo.has(sku))
+            .map(([, itemId]) => itemId),
+        ),
+      ];
+
+      if (idsFaltantes.length) {
+        try {
+          const extra = await detallarItems(cliente, idsFaltantes);
+          if (extra.length) {
+            catalogo = dedupePorSku([...catalogo, ...extra]);
+            recuperadas = catalogo.length - enCatalogo.size;
+          }
+        } catch (err) {
+          errores.push(`Recuperación de publicaciones: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    // ---- Guardar catálogo ya completo ------------------------------------
     const filasSku = catalogo.map((f) => {
       const d = desglosarSku(f.sku);
       return {
@@ -136,8 +194,7 @@ export async function sincronizar(
     });
     await upsertEnTandas(db, "skus", filasSku, "account_id,sku");
 
-    // ---- Stock actual + foto del día ------------------------------------
-    const hoy = aISO(new Date());
+    // ---- Stock actual + foto del día -------------------------------------
     const conInventario = catalogo
       .filter((c) => c.inventoryId)
       .map((c) => ({ sku: c.sku, inventoryId: c.inventoryId }));
@@ -182,30 +239,13 @@ export async function sincronizar(
         ordenes: 0,
         operaciones: 0,
         ventasSinSku: 0,
+        recuperadas: 0,
         errores,
         duracionMs: Date.now() - t0,
       };
       await cerrarSync(db, logId, "ok", r as never);
       return r;
     }
-
-    // ---- Ventas ----------------------------------------------------------
-    const dias = opts?.diasHistoria ?? 90;
-    const desde = sumarDias(hoy, -dias);
-
-    const mapaItemSku = new Map<string, string>();
-    for (const c of catalogo) {
-      mapaItemSku.set(claveItem(c.itemId, c.variationId), c.sku);
-      if (!c.variationId) mapaItemSku.set(c.itemId, c.sku);
-    }
-
-    const { ventas, ordenesLeidas, sinSku } = await obtenerVentas(
-      cliente,
-      sellerId,
-      desde,
-      hoy,
-      mapaItemSku,
-    );
 
     await upsertEnTandas(
       db,
@@ -280,6 +320,7 @@ export async function sincronizar(
       ordenes: ordenesLeidas,
       operaciones,
       ventasSinSku: sinSku,
+      recuperadas,
       errores,
       duracionMs: Date.now() - t0,
     };

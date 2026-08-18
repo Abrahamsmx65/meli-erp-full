@@ -24,8 +24,11 @@ export function BotonesPlan() {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? "Falló la sincronización.");
         const d = j.resultado;
+        const extra = d.recuperadas > 0
+          ? ` (${d.recuperadas} publicaciones recuperadas desde las órdenes)`
+          : "";
         setAviso(
-          `Listo: ${d.skus} SKUs, ${d.conStock} con stock en Full, ${d.ordenes} órdenes y ${d.operaciones} movimientos.`,
+          `Listo: ${d.skus} SKUs${extra}, ${d.conStock} con stock en Full, ${d.ordenes} órdenes y ${d.operaciones} movimientos.`,
         );
       } else {
         const r = await fetch("/api/plan", {

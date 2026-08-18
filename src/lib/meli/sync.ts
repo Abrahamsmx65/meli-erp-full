@@ -91,23 +91,42 @@ export async function obtenerUsuario(c: MeliClient): Promise<UsuarioMeli> {
 // 2. Catálogo
 // ---------------------------------------------------------------------------
 
-/** Recorre TODAS las publicaciones del vendedor usando el modo scan. */
-export async function listarIdsDeItems(c: MeliClient, userId: number): Promise<string[]> {
-  const ids: string[] = [];
-  let scrollId: string | undefined;
+/**
+ * Estados de publicación que hay que recorrer.
+ *
+ * El scan sin filtro no devuelve todo: se queda corto justo con las
+ * publicaciones pausadas y cerradas, que son las de los productos agotados
+ * en Full — o sea, precisamente las que urge reponer. Se recorre estado por
+ * estado y se unen los resultados.
+ */
+const ESTADOS_PUBLICACION = ["active", "paused", "closed", "under_review"];
 
-  for (let vuelta = 0; vuelta < 500; vuelta++) {
-    const r = await c.get<{ results: string[]; scroll_id?: string }>(
-      `/users/${userId}/items/search`,
-      { search_type: "scan", limit: 100, scroll_id: scrollId },
-    );
-    if (!r.results?.length) break;
-    ids.push(...r.results);
-    scrollId = r.scroll_id;
-    if (!scrollId) break;
+/** Recorre TODAS las publicaciones del vendedor, en todos sus estados. */
+export async function listarIdsDeItems(c: MeliClient, userId: number): Promise<string[]> {
+  const ids = new Set<string>();
+
+  for (const status of ESTADOS_PUBLICACION) {
+    let scrollId: string | undefined;
+
+    for (let vuelta = 0; vuelta < 500; vuelta++) {
+      let r: { results?: string[]; scroll_id?: string };
+      try {
+        r = await c.get<{ results: string[]; scroll_id?: string }>(
+          `/users/${userId}/items/search`,
+          { search_type: "scan", limit: 100, status, scroll_id: scrollId },
+        );
+      } catch {
+        // Un estado que el sitio no soporte no debe tumbar el recorrido.
+        break;
+      }
+      if (!r.results?.length) break;
+      for (const id of r.results) ids.add(id);
+      scrollId = r.scroll_id;
+      if (!scrollId) break;
+    }
   }
 
-  return ids;
+  return [...ids];
 }
 
 const CAMPOS_ITEM = [
@@ -115,20 +134,24 @@ const CAMPOS_ITEM = [
   "seller_custom_field", "attributes", "variations", "shipping",
 ].join(",");
 
-/** Trae el detalle de las publicaciones y las aplana a un renglón por SKU. */
-export async function obtenerCatalogo(
+/** Trae el detalle de un conjunto de publicaciones y lo aplana a un renglón por SKU. */
+export async function detallarItems(
   c: MeliClient,
-  userId: number,
+  ids: string[],
   opts?: { soloFulfillment?: boolean },
 ): Promise<FilaSku[]> {
-  const ids = await listarIdsDeItems(c, userId);
+  if (!ids.length) return [];
+
   const grupos = trozos(ids, 20);   // /items?ids= acepta 20 por llamada
 
   const respuestas = await enLotes(grupos, 5, (grupo) =>
-    c.get<{ code: number; body: ItemMeli }[]>("/items", {
-      ids: grupo.join(","),
-      attributes: CAMPOS_ITEM,
-    }),
+    c
+      .get<{ code: number; body: ItemMeli }[]>("/items", {
+        ids: grupo.join(","),
+        attributes: CAMPOS_ITEM,
+      })
+      // Un lote que truena no debe tumbar el catálogo entero.
+      .catch(() => [] as { code: number; body: ItemMeli }[]),
   );
 
   const filas: FilaSku[] = [];
@@ -173,8 +196,14 @@ export async function obtenerCatalogo(
     }
   }
 
-  // Un mismo SKU puede estar en varias publicaciones. Nos quedamos con la
-  // que sí tiene inventory_id de Full y está activa.
+  return filas;
+}
+
+/**
+ * Un mismo SKU puede estar en varias publicaciones. Se conserva la que sí
+ * tiene inventory_id de Full y está activa.
+ */
+export function dedupePorSku(filas: FilaSku[]): FilaSku[] {
   const porSku = new Map<string, FilaSku>();
   for (const f of filas) {
     const previa = porSku.get(f.sku);
@@ -183,11 +212,21 @@ export async function obtenerCatalogo(
       continue;
     }
     const puntaje = (x: FilaSku) =>
-      (x.inventoryId ? 4 : 0) + (x.logistica === "fulfillment" ? 2 : 0) + (x.estado === "active" ? 1 : 0);
+      (x.inventoryId ? 4 : 0) +
+      (x.logistica === "fulfillment" ? 2 : 0) +
+      (x.estado === "active" ? 1 : 0);
     if (puntaje(f) > puntaje(previa)) porSku.set(f.sku, f);
   }
-
   return [...porSku.values()];
+}
+
+export async function obtenerCatalogo(
+  c: MeliClient,
+  userId: number,
+  opts?: { soloFulfillment?: boolean },
+): Promise<FilaSku[]> {
+  const ids = await listarIdsDeItems(c, userId);
+  return dedupePorSku(await detallarItems(c, ids, opts));
 }
 
 // ---------------------------------------------------------------------------
@@ -289,8 +328,21 @@ export async function obtenerVentas(
   desde: string,
   hasta: string,
   mapaItemSku?: Map<string, string>,
-): Promise<{ ventas: VentaDiaria[]; ordenesLeidas: number; sinSku: number }> {
+): Promise<{
+  ventas: VentaDiaria[];
+  ordenesLeidas: number;
+  sinSku: number;
+  /**
+   * SKU -> id de publicación, sacado de las órdenes.
+   *
+   * Es la red de seguridad del catálogo: si el recorrido de publicaciones se
+   * saltó una, la orden sí trae su id y con eso se puede recuperar. Vender
+   * es prueba irrefutable de que la publicación existe.
+   */
+  itemsPorSku: Map<string, string>;
+}> {
   const acumulado = new Map<string, VentaDiaria>();
+  const itemsPorSku = new Map<string, string>();
   let ordenesLeidas = 0;
   let sinSku = 0;
   const vistas = new Set<number>();
@@ -344,6 +396,8 @@ export async function obtenerVentas(
             continue;
           }
 
+          if (oi.item?.id && !itemsPorSku.has(sku)) itemsPorSku.set(sku, oi.item.id);
+
           const clave = `${sku}|${fecha}`;
           const prev = acumulado.get(clave);
           const unidades = oi.quantity ?? 0;
@@ -364,7 +418,7 @@ export async function obtenerVentas(
     }
   }
 
-  return { ventas: [...acumulado.values()], ordenesLeidas, sinSku };
+  return { ventas: [...acumulado.values()], ordenesLeidas, sinSku, itemsPorSku };
 }
 
 export function claveItem(itemId: string, variationId?: number | string | null): string {
