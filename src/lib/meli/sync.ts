@@ -256,7 +256,11 @@ export async function traerSkusDeUserProducts(
   const t0 = Date.now();
   let sinTiempo = 0;
 
-  const resultados = await enLotes(ids, 10, async (id) => {
+  // Concurrencia baja a propósito. Con diez en paralelo MELI contesta 429 y
+  // el cliente entra en esperas de hasta 15 s: se atoran todas y el
+  // rendimiento se desploma. Yendo de cuatro en cuatro no se provoca el
+  // límite y salen muchas más por minuto.
+  const resultados = await enLotes(ids, 4, async (id) => {
     if (Date.now() - t0 > limiteMs) {
       sinTiempo++;
       return { id, sku: null };
