@@ -134,6 +134,41 @@ const CAMPOS_ITEM = [
   "seller_custom_field", "attributes", "variations", "shipping",
 ].join(",");
 
+/** Descarga cruda de publicaciones por id, sin interpretar nada. */
+export async function traerItems(
+  c: MeliClient,
+  ids: string[],
+): Promise<{ items: Map<string, ItemMeli>; lotesFallidos: number }> {
+  const items = new Map<string, ItemMeli>();
+  let lotesFallidos = 0;
+  if (!ids.length) return { items, lotesFallidos };
+
+  const grupos = trozos(ids, 20);   // /items?ids= acepta 20 por llamada
+
+  const respuestas = await enLotes(grupos, 5, async (grupo) => {
+    try {
+      return await c.get<{ code: number; body: ItemMeli }[]>("/items", {
+        ids: grupo.join(","),
+        attributes: CAMPOS_ITEM,
+      });
+    } catch {
+      // Un lote que truena no tumba el catálogo entero, pero sí se cuenta.
+      lotesFallidos++;
+      return [] as { code: number; body: ItemMeli }[];
+    }
+  });
+
+  for (const lote of respuestas) {
+    for (const envoltura of lote ?? []) {
+      if (envoltura?.code === 200 && envoltura.body?.id) {
+        items.set(envoltura.body.id, envoltura.body);
+      }
+    }
+  }
+
+  return { items, lotesFallidos };
+}
+
 /** Trae el detalle de un conjunto de publicaciones y lo aplana a un renglón por SKU. */
 export async function detallarItems(
   c: MeliClient,
@@ -142,17 +177,8 @@ export async function detallarItems(
 ): Promise<FilaSku[]> {
   if (!ids.length) return [];
 
-  const grupos = trozos(ids, 20);   // /items?ids= acepta 20 por llamada
-
-  const respuestas = await enLotes(grupos, 5, (grupo) =>
-    c
-      .get<{ code: number; body: ItemMeli }[]>("/items", {
-        ids: grupo.join(","),
-        attributes: CAMPOS_ITEM,
-      })
-      // Un lote que truena no debe tumbar el catálogo entero.
-      .catch(() => [] as { code: number; body: ItemMeli }[]),
-  );
+  const { items } = await traerItems(c, ids);
+  const respuestas = [[...items.values()].map((body) => ({ code: 200, body }))];
 
   const filas: FilaSku[] = [];
 
@@ -339,10 +365,10 @@ export async function obtenerVentas(
    * saltó una, la orden sí trae su id y con eso se puede recuperar. Vender
    * es prueba irrefutable de que la publicación existe.
    */
-  itemsPorSku: Map<string, string>;
+  itemsPorSku: Map<string, RefOrden>;
 }> {
   const acumulado = new Map<string, VentaDiaria>();
-  const itemsPorSku = new Map<string, string>();
+  const itemsPorSku = new Map<string, RefOrden>();
   let ordenesLeidas = 0;
   let sinSku = 0;
   const vistas = new Set<number>();
@@ -396,7 +422,13 @@ export async function obtenerVentas(
             continue;
           }
 
-          if (oi.item?.id && !itemsPorSku.has(sku)) itemsPorSku.set(sku, oi.item.id);
+          if (oi.item?.id && !itemsPorSku.has(sku)) {
+            itemsPorSku.set(sku, {
+              sku,
+              itemId: oi.item.id,
+              variationId: oi.item.variation_id != null ? String(oi.item.variation_id) : null,
+            });
+          }
 
           const clave = `${sku}|${fecha}`;
           const prev = acumulado.get(clave);
@@ -419,6 +451,72 @@ export async function obtenerVentas(
   }
 
   return { ventas: [...acumulado.values()], ordenesLeidas, sinSku, itemsPorSku };
+}
+
+/** Lo que una orden nos dice de una publicación. */
+export interface RefOrden {
+  sku: string;
+  itemId: string;
+  variationId: string | null;
+}
+
+export interface ResultadoRecuperacion {
+  filas: FilaSku[];
+  intentados: number;
+  recuperados: number;
+  sinPublicacion: number;
+  lotesFallidos: number;
+}
+
+/**
+ * Reconstruye del catálogo lo que el recorrido de publicaciones se saltó.
+ *
+ * La diferencia con `detallarItems` es de dónde sale el SKU: aquí NO se
+ * intenta deducir de la publicación —las viejas no siempre lo traen donde
+ * uno espera— sino que se usa el que la propia orden ya reportó. De la
+ * publicación solo se toma lo que la orden no sabe: el inventory_id de Full,
+ * la modalidad de envío y el estado.
+ */
+export async function recuperarDesdeOrdenes(
+  c: MeliClient,
+  refs: RefOrden[],
+): Promise<ResultadoRecuperacion> {
+  const ids = [...new Set(refs.map((r) => r.itemId))];
+  const { items, lotesFallidos } = await traerItems(c, ids);
+
+  const filas: FilaSku[] = [];
+  let sinPublicacion = 0;
+
+  for (const r of refs) {
+    const item = items.get(r.itemId);
+    if (!item) {
+      sinPublicacion++;
+      continue;
+    }
+
+    const variacion = r.variationId
+      ? item.variations?.find((v) => String(v.id) === String(r.variationId))
+      : undefined;
+
+    filas.push({
+      sku: r.sku,
+      itemId: item.id,
+      variationId: r.variationId,
+      inventoryId: variacion?.inventory_id ?? item.inventory_id ?? null,
+      titulo: item.title ?? "",
+      logistica: item.shipping?.logistic_type ?? null,
+      estado: item.status ?? null,
+      precio: variacion?.price ?? item.price ?? null,
+    });
+  }
+
+  return {
+    filas,
+    intentados: refs.length,
+    recuperados: filas.length,
+    sinPublicacion,
+    lotesFallidos,
+  };
 }
 
 export function claveItem(itemId: string, variationId?: number | string | null): string {

@@ -8,7 +8,7 @@
 import { MeliClient } from "../meli/client";
 import {
   dedupePorSku,
-  detallarItems,
+  recuperarDesdeOrdenes,
   obtenerCatalogo,
   obtenerOperaciones,
   obtenerStockFull,
@@ -151,20 +151,23 @@ export async function sincronizar(
       // Las órdenes son prueba irrefutable de que la publicación existe: si
       // vendió, está. Se recuperan por su id y se agregan al catálogo.
       const enCatalogo = new Set(catalogo.map((c) => c.sku));
-      const idsFaltantes = [
-        ...new Set(
-          [...r.itemsPorSku]
-            .filter(([sku]) => !enCatalogo.has(sku))
-            .map(([, itemId]) => itemId),
-        ),
-      ];
+      const faltantes = [...r.itemsPorSku.values()].filter((ref) => !enCatalogo.has(ref.sku));
 
-      if (idsFaltantes.length) {
+      if (faltantes.length) {
         try {
-          const extra = await detallarItems(cliente, idsFaltantes);
-          if (extra.length) {
-            catalogo = dedupePorSku([...catalogo, ...extra]);
-            recuperadas = catalogo.length - enCatalogo.size;
+          const rec = await recuperarDesdeOrdenes(cliente, faltantes);
+          if (rec.filas.length) {
+            catalogo = dedupePorSku([...catalogo, ...rec.filas]);
+          }
+          recuperadas = rec.recuperados;
+
+          if (rec.recuperados < rec.intentados) {
+            errores.push(
+              `Publicaciones faltantes: se intentaron ${rec.intentados}, se recuperaron ${rec.recuperados}` +
+                (rec.sinPublicacion ? `, ${rec.sinPublicacion} sin publicación accesible` : "") +
+                (rec.lotesFallidos ? `, ${rec.lotesFallidos} lotes con error` : "") +
+                ".",
+            );
           }
         } catch (err) {
           errores.push(`Recuperación de publicaciones: ${(err as Error).message}`);
