@@ -1,5 +1,14 @@
 -- ============================================================================
---  ERP de reposición a Mercado Envíos Full — esquema base
+--  ERP de reposición a Mercado Envíos Full — calzado por corridas
+--
+--  Modelo del negocio:
+--    · El SKU de Mercado Libre es MODELO-COLOR-TALLA (ej. GT107-CAMEL-25).
+--    · En bodega el inventario está en CAJAS que no se abren.
+--    · Una caja de "corrida" trae varias tallas del mismo modelo y color,
+--      según una receta (la corrida). Toca varios SKUs de MELI a la vez.
+--    · Una caja de talla única trae todos sus pares de una sola talla.
+--  Por eso la decisión de reposición nunca es "cuántos pares", sino
+--  "cuáles cajas completas mando".
 -- ============================================================================
 create extension if not exists pgcrypto;
 
@@ -7,18 +16,18 @@ create extension if not exists pgcrypto;
 -- Cuenta de Mercado Libre conectada
 -- ---------------------------------------------------------------------------
 create table if not exists meli_accounts (
-  id            uuid primary key default gen_random_uuid(),
-  owner_id      uuid not null references auth.users (id) on delete cascade,
-  meli_user_id  bigint not null,
-  nickname      text,
-  site_id       text not null default 'MLM',
-  creado_en     timestamptz not null default now(),
+  id             uuid primary key default gen_random_uuid(),
+  owner_id       uuid not null references auth.users (id) on delete cascade,
+  meli_user_id   bigint not null,
+  nickname       text,
+  site_id        text not null default 'MLM',
+  creado_en      timestamptz not null default now(),
   actualizado_en timestamptz not null default now(),
   unique (owner_id, meli_user_id)
 );
 
--- Los tokens viven aparte: esta tabla NO tiene políticas RLS, así que solo
--- la service_role (el backend) puede leerla. Ni el navegador ni el usuario.
+-- Los tokens viven aparte: esta tabla tiene RLS activo y CERO políticas, así
+-- que solo la service_role (el backend) puede leerla. Nunca el navegador.
 create table if not exists meli_tokens (
   account_id     uuid primary key references meli_accounts (id) on delete cascade,
   access_token   text not null,
@@ -28,7 +37,7 @@ create table if not exists meli_tokens (
 );
 
 -- ---------------------------------------------------------------------------
--- Catálogo: un renglón por SKU del vendedor
+-- Catálogo de SKUs de Mercado Libre
 -- ---------------------------------------------------------------------------
 create table if not exists skus (
   id             uuid primary key default gen_random_uuid(),
@@ -38,17 +47,20 @@ create table if not exists skus (
   variation_id   text,
   inventory_id   text,
   titulo         text,
-  logistica      text,          -- fulfillment | drop_off | cross_docking | self_service
-  estado         text,          -- active | paused | closed
+  logistica      text,        -- fulfillment | drop_off | cross_docking | self_service
+  estado         text,        -- active | paused | closed
   precio         numeric,
-  -- Cuando un mismo SKU aparece en más de una publicación guardamos el resto aquí.
-  publicaciones  jsonb not null default '[]'::jsonb,
+  -- Desglose derivado del SKU, para agrupar y reportar por modelo o talla.
+  modelo         text,
+  color          text,
+  talla          text,
   activo         boolean not null default true,
   actualizado_en timestamptz not null default now(),
   unique (account_id, sku)
 );
 create index if not exists skus_account_idx on skus (account_id);
 create index if not exists skus_inventory_idx on skus (account_id, inventory_id);
+create index if not exists skus_modelo_idx on skus (account_id, modelo);
 
 -- ---------------------------------------------------------------------------
 -- Stock actual en Full
@@ -57,18 +69,17 @@ create table if not exists stock_full (
   account_id       uuid not null references meli_accounts (id) on delete cascade,
   sku              text not null,
   disponible       integer not null default 0,   -- listo para vender
-  en_transferencia integer not null default 0,   -- viajando / recibiéndose en el centro
-  no_disponible    integer not null default 0,   -- dañado, perdido, en revisión, etc.
+  en_transferencia integer not null default 0,   -- viajando / recibiéndose
+  no_disponible    integer not null default 0,   -- dañado, perdido, en revisión
   total            integer not null default 0,
-  detalle          jsonb not null default '{}'::jsonb,  -- not_available_detail crudo
+  detalle          jsonb not null default '{}'::jsonb,
   actualizado_en   timestamptz not null default now(),
   primary key (account_id, sku)
 );
 
 -- ---------------------------------------------------------------------------
--- Foto diaria del stock. Es lo que permite saber qué días NO hubo stock.
--- origen: 'snapshot'      -> lo medimos ese día (fuente de verdad)
---         'reconstruido'  -> lo dedujimos hacia atrás con las operaciones
+-- Foto diaria del stock. Es lo que permite saber qué días NO hubo stock,
+-- que es de donde sale la corrección de demanda.
 -- ---------------------------------------------------------------------------
 create table if not exists stock_snapshots (
   account_id       uuid not null references meli_accounts (id) on delete cascade,
@@ -76,13 +87,13 @@ create table if not exists stock_snapshots (
   fecha            date not null,
   disponible       integer not null default 0,
   en_transferencia integer not null default 0,
-  origen           text not null default 'snapshot',
+  origen           text not null default 'snapshot',  -- snapshot | reconstruido
   primary key (account_id, sku, fecha)
 );
 create index if not exists stock_snapshots_fecha_idx on stock_snapshots (account_id, fecha);
 
 -- ---------------------------------------------------------------------------
--- Ventas agregadas por SKU y día
+-- Ventas por SKU y día
 -- ---------------------------------------------------------------------------
 create table if not exists ventas_diarias (
   account_id uuid not null references meli_accounts (id) on delete cascade,
@@ -96,59 +107,91 @@ create table if not exists ventas_diarias (
 create index if not exists ventas_fecha_idx on ventas_diarias (account_id, fecha);
 
 -- ---------------------------------------------------------------------------
--- Movimientos de inventario en Full (entradas, ventas, ajustes, devoluciones)
--- Con esto reconstruimos el nivel de stock día por día hacia atrás.
+-- Movimientos de inventario en Full
 -- ---------------------------------------------------------------------------
 create table if not exists stock_operaciones (
-  account_id            uuid not null references meli_accounts (id) on delete cascade,
-  operation_id          text not null,
-  inventory_id          text,
-  sku                   text,
-  fecha                 timestamptz not null,
-  tipo                  text,
-  delta_disponible      integer,
-  resultado_disponible  integer,
-  resultado_total       integer,
-  raw                   jsonb,
+  account_id           uuid not null references meli_accounts (id) on delete cascade,
+  operation_id         text not null,
+  inventory_id         text,
+  sku                  text,
+  fecha                timestamptz not null,
+  tipo                 text,
+  delta_disponible     integer,
+  resultado_disponible integer,
   primary key (account_id, operation_id)
 );
 create index if not exists stock_ops_sku_fecha_idx on stock_operaciones (account_id, sku, fecha);
 
 -- ---------------------------------------------------------------------------
--- Mi inventario propio (bodega): piezas sueltas disponibles para enviar
+-- CORRIDAS: la receta de tallas de cada caja.
+-- Clave del negocio: PEDIDO + MODELO + COLOR.
 -- ---------------------------------------------------------------------------
-create table if not exists inventario_propio (
+create table if not exists corridas (
   account_id     uuid not null references meli_accounts (id) on delete cascade,
-  sku            text not null,
-  unidades       integer not null default 0,
-  ubicacion      text,
+  pedido         text not null,
+  modelo         text not null,
+  color          text not null,
+  -- { "23": 5, "24": 10, "25": 13, ... }
+  tallas         jsonb not null,
+  total          integer not null,
+  -- 'excel' si vino del archivo, 'manual' si se capturó en la app
+  origen         text not null default 'excel',
   actualizado_en timestamptz not null default now(),
-  primary key (account_id, sku)
+  primary key (account_id, pedido, modelo, color)
 );
+create index if not exists corridas_modelo_idx on corridas (account_id, modelo, color);
 
 -- ---------------------------------------------------------------------------
--- Cajas / corridas. Una caja puede traer varios SKUs en cantidades fijas.
+-- EXISTENCIAS: cuántas cajas hay, de qué y dónde.
 -- ---------------------------------------------------------------------------
-create table if not exists cajas (
+create table if not exists existencias (
   id                uuid primary key default gen_random_uuid(),
   account_id        uuid not null references meli_accounts (id) on delete cascade,
-  codigo            text not null,
-  nombre            text,
-  cajas_disponibles integer not null default 0,   -- cuántas cajas armadas tengo
-  activo            boolean not null default true,
-  actualizado_en    timestamptz not null default now(),
-  unique (account_id, codigo)
+  almacen           text not null,
+  codigo_almacen    text,
+  sku_caja          text not null,
+  pedido            text,
+  modelo            text not null,
+  color             text,
+  -- 'CORRIDA' o una talla concreta ('25')
+  talla             text not null,
+  contenedor        text,
+  cajas_fisicas     integer not null default 0,
+  cajas_apartadas   integer not null default 0,
+  en_camino         integer not null default 0,
+  cajas_disponibles integer not null default 0,
+  pares_por_caja    integer not null default 0,
+  importado_en      timestamptz not null default now(),
+  unique (account_id, almacen, sku_caja, talla, contenedor)
 );
+create index if not exists existencias_cuenta_idx on existencias (account_id);
+create index if not exists existencias_modelo_idx on existencias (account_id, modelo, color);
 
-create table if not exists caja_items (
-  caja_id uuid not null references cajas (id) on delete cascade,
-  sku     text not null,
-  piezas  integer not null check (piezas > 0),
-  primary key (caja_id, sku)
+-- Qué almacenes surten a Full (si está vacío, se usan todos)
+create table if not exists almacenes_activos (
+  account_id uuid not null references meli_accounts (id) on delete cascade,
+  almacen    text not null,
+  surte_full boolean not null default true,
+  primary key (account_id, almacen)
 );
 
 -- ---------------------------------------------------------------------------
--- Parámetros de planeación (uno por cuenta)
+-- MAPEO MANUAL DE SKU
+-- El SKU que se arma desde bodega (MODELO-COLOR-TALLA) no siempre coincide
+-- con el que está capturado en la publicación de MELI. Aquí se amarran a mano
+-- los que la normalización automática no alcanza.
+-- ---------------------------------------------------------------------------
+create table if not exists mapeo_sku (
+  account_id      uuid not null references meli_accounts (id) on delete cascade,
+  sku_construido  text not null,
+  sku_meli        text not null,
+  nota            text,
+  creado_en       timestamptz not null default now(),
+  primary key (account_id, sku_construido)
+);
+
+-- ---------------------------------------------------------------------------
+-- Parámetros y ajustes por SKU
 -- ---------------------------------------------------------------------------
 create table if not exists parametros (
   account_id     uuid primary key references meli_accounts (id) on delete cascade,
@@ -156,12 +199,11 @@ create table if not exists parametros (
   actualizado_en timestamptz not null default now()
 );
 
--- Overrides puntuales por SKU (excluir, forzar demanda, multiplicador de temporada)
 create table if not exists sku_overrides (
   account_id       uuid not null references meli_accounts (id) on delete cascade,
   sku              text not null,
   excluir          boolean not null default false,
-  demanda_manual   numeric,          -- si se llena, ignora el cálculo histórico
+  demanda_manual   numeric,
   factor_temporada numeric not null default 1.0,
   minimo_envio     integer,
   nota             text,
@@ -177,7 +219,7 @@ create table if not exists planes (
   creado_en  timestamptz not null default now(),
   parametros jsonb not null default '{}'::jsonb,
   resumen    jsonb not null default '{}'::jsonb,
-  estado     text not null default 'borrador'  -- borrador | confirmado | enviado
+  estado     text not null default 'borrador'   -- borrador | confirmado | enviado
 );
 create index if not exists planes_cuenta_idx on planes (account_id, creado_en desc);
 
@@ -189,14 +231,19 @@ create table if not exists plan_lineas (
 );
 
 create table if not exists plan_cajas (
-  plan_id      uuid not null references planes (id) on delete cascade,
-  caja_codigo  text not null,
-  cantidad     integer not null,
+  plan_id     uuid not null references planes (id) on delete cascade,
+  caja_codigo text not null,
+  almacen     text,
+  sku_caja    text,
+  talla       text,
+  cantidad    integer not null,
+  pares       integer not null default 0,
+  detalle     jsonb not null default '[]'::jsonb,
   primary key (plan_id, caja_codigo)
 );
 
 -- ---------------------------------------------------------------------------
--- Bitácora de sincronizaciones
+-- Bitácora de sincronizaciones e importaciones
 -- ---------------------------------------------------------------------------
 create table if not exists sync_log (
   id         bigserial primary key,

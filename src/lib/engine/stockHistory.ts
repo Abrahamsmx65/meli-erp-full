@@ -64,9 +64,9 @@ export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
   const salida = new Map<string, DiaStock[]>();
 
   for (const sku of e.skus) {
-    const snaps = snapPorSku.get(sku) ?? new Map();
-    const ops = opsPorSku.get(sku) ?? new Map();
-    const ventasDia = ventasPorSku.get(sku) ?? new Map();
+    const snaps: Map<ISODate, SnapshotStock[]> = snapPorSku.get(sku) ?? new Map();
+    const ops: Map<ISODate, OperacionStock[]> = opsPorSku.get(sku) ?? new Map();
+    const ventasDia: Map<ISODate, VentaDiaria[]> = ventasPorSku.get(sku) ?? new Map();
 
     const unidadesDe = (f: ISODate) =>
       (ventasDia.get(f) ?? []).reduce((a, v) => a + (v.unidades || 0), 0);

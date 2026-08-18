@@ -1,0 +1,163 @@
+/**
+ * Estas pruebas corren contra los archivos REALES de la operación
+ * (fixtures/), no contra ejemplos inventados. Si un export cambia de forma,
+ * aquí se nota antes de que rompa la planeación.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { importarCorridas, importarExistencias } from "./excel";
+import { construirCajas } from "./cajas";
+import { canonizar, construirSkuMeli, construirIndice, normalizarTalla } from "./sku";
+
+const dir = join(process.cwd(), "fixtures");
+const bufCorridas = readFileSync(join(dir, "CORRIDAS_BASE.xlsx"));
+const bufExist = readFileSync(join(dir, "ExistenciasGlobales.xlsx"));
+
+describe("normalización de SKU", () => {
+  it("canoniza colores escritos de formas distintas", () => {
+    expect(canonizar("DK BROWN")).toBe("DK-BROWN");
+    expect(canonizar("dk-brown")).toBe("DK-BROWN");
+    expect(canonizar("Dk  Brown")).toBe("DK-BROWN");
+    expect(canonizar("GREY/BLK")).toBe("GREY-BLK");
+  });
+
+  it("construye el SKU de MELI como MODELO-COLOR-TALLA", () => {
+    expect(construirSkuMeli("GT107", "CAMEL", 25)).toBe("GT107-CAMEL-25");
+    expect(construirSkuMeli("GT104-4", "NAVY", "26")).toBe("GT104-4-NAVY-26");
+    expect(construirSkuMeli("GT114", "DK BROWN", 24)).toBe("GT114-DK-BROWN-24");
+  });
+
+  it("distingue corrida de talla individual", () => {
+    expect(normalizarTalla("Corrida")).toBe("CORRIDA");
+    expect(normalizarTalla("corrida")).toBe("CORRIDA");
+    expect(normalizarTalla(29)).toBe("29");
+  });
+});
+
+describe("importación de CORRIDAS BASE (archivo real)", () => {
+  it("lee las corridas y detecta las 8 tallas", async () => {
+    const r = await importarCorridas(bufCorridas);
+    expect(r.tallas).toEqual(["23", "24", "25", "26", "27", "28", "29", "30"]);
+    expect(r.corridas.length).toBeGreaterThan(750);
+  });
+
+  it("las tallas de cada corrida suman su total", async () => {
+    const r = await importarCorridas(bufCorridas);
+    for (const c of r.corridas) {
+      const suma = Object.values(c.tallas).reduce((a, b) => a + b, 0);
+      expect(suma).toBe(c.total);
+      expect(suma).toBeGreaterThan(0);
+    }
+  });
+
+  it("colapsa los duplicados idénticos sin inventar avisos", async () => {
+    const r = await importarCorridas(bufCorridas);
+    const claves = new Set(r.corridas.map((c) => `${c.pedido}|${c.modelo}|${c.color}`));
+    expect(claves.size).toBe(r.corridas.length);
+    // 26 duplicados en el archivo, de los cuales 25 son idénticos.
+    expect(r.avisos.length).toBeLessThan(5);
+  });
+});
+
+describe("importación de EXISTENCIAS (archivo real)", () => {
+  it("lee los 3 almacenes", async () => {
+    const r = await importarExistencias(bufExist);
+    expect(r.almacenes.sort()).toEqual(["Caseshop", "EnvioPack", "Industher"]);
+    expect(r.filas.length).toBeGreaterThan(450);
+  });
+
+  it("respeta cajas disponibles = físicas − apartadas", async () => {
+    const r = await importarExistencias(bufExist);
+    for (const f of r.filas) {
+      expect(f.cajasDisponibles).toBe(f.cajasFisicas - f.cajasApartadas);
+    }
+  });
+
+  it("separa cajas de corrida de cajas de talla única", async () => {
+    const r = await importarExistencias(bufExist);
+    const corridas = r.filas.filter((f) => f.talla === "CORRIDA");
+    const individuales = r.filas.filter((f) => f.talla !== "CORRIDA");
+    expect(corridas.length).toBeGreaterThan(250);
+    expect(individuales.length).toBeGreaterThan(150);
+  });
+});
+
+describe("armado del catálogo de cajas (datos reales)", () => {
+  it("cruza corridas con existencias y deja el faltante a la vista", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+    const r = construirCajas(exist.filas, corr.corridas);
+
+    expect(r.cajas.length).toBeGreaterThan(300);
+    expect(r.resumen.cajasTotales).toBeGreaterThan(5000);
+
+    // Los renglones sin corrida se reportan, no se tragan en silencio.
+    expect(r.sinCorrida.length).toBeGreaterThan(0);
+    expect(r.sinCorrida.length).toBeLessThan(40);
+  });
+
+  it("las cajas de corrida tocan varias tallas y las individuales solo una", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+    const r = construirCajas(exist.filas, corr.corridas);
+
+    const deCorrida = r.cajas.filter((c) => c.esCorrida);
+    const individuales = r.cajas.filter((c) => !c.esCorrida);
+
+    expect(deCorrida.length).toBeGreaterThan(0);
+    expect(individuales.length).toBeGreaterThan(0);
+    for (const c of individuales) expect(c.items).toHaveLength(1);
+    // La mayoría de las corridas reparte en 3 o más tallas.
+    const multi = deCorrida.filter((c) => c.items.length >= 3);
+    expect(multi.length / deCorrida.length).toBeGreaterThan(0.5);
+  });
+
+  it("los pares por caja cuadran con el reporte de existencias", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+    const r = construirCajas(exist.filas, corr.corridas);
+
+    // El aviso solo debe aparecer cuando de verdad no cuadra.
+    const descuadres = r.avisos.filter((a) => a.mensaje.includes("pero el reporte dice"));
+    expect(descuadres).toEqual([]);
+  });
+
+  it("filtra por almacén cuando se le pide", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+    const todos = construirCajas(exist.filas, corr.corridas);
+    const solo = construirCajas(exist.filas, corr.corridas, { almacenes: ["Caseshop"] });
+
+    expect(solo.cajas.length).toBeLessThan(todos.cajas.length);
+    for (const c of solo.cajas) expect(c.almacen).toBe("Caseshop");
+  });
+
+  it("reporta los SKUs que no existen en el catálogo de MELI", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+
+    // Catálogo de MELI que solo conoce un modelo: todo lo demás debe salir
+    // listado como pendiente de amarrar, no desaparecer.
+    const indice = construirIndice(["GT107-CAMEL-25", "GT107-CAMEL-26"]);
+    const r = construirCajas(exist.filas, corr.corridas, { indice });
+
+    expect(r.sinAmarre.length).toBeGreaterThan(50);
+    const total = r.sinAmarre.reduce((a, s) => a + s.paresAfectados, 0);
+    expect(total).toBeGreaterThan(0);
+  });
+
+  it("el mapeo manual amarra lo que la normalización no alcanza", async () => {
+    const corr = await importarCorridas(bufCorridas);
+    const exist = await importarExistencias(bufExist);
+
+    // GT100-MINT-23 sí existe en los datos reales, pero en MELI está
+    // capturado con otro código: justo el caso que el mapeo manual resuelve.
+    const indice = construirIndice(["SKU-RARO-DE-MELI"]);
+    const mapeoManual = new Map([["GT100-MINT-23", "SKU-RARO-DE-MELI"]]);
+    const r = construirCajas(exist.filas, corr.corridas, { indice, mapeoManual });
+
+    const amarrada = r.cajas.find((c) => c.detalle.some((d) => d.origen === "manual"));
+    expect(amarrada).toBeDefined();
+  });
+});

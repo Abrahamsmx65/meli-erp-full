@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Tokens de diseño.
+   Los colores de estado vienen de una paleta fija validada para daltonismo,
+   y NUNCA cargan el significado solos: siempre van con ícono y etiqueta.
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;
+  --plane: #f9f9f7;
+  --ink-1: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --borde: rgba(11, 11, 11, 0.1);
+
+  --estado-bien: #0ca30c;
+  --estado-alerta: #fab219;
+  --estado-serio: #ec835a;
+  --estado-critico: #d03b3b;
+
+  --acento: #2a78d6;
+  --acento-suave: #cde2fb;
+  --exito-texto: #006300;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --ink-1: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --borde: rgba(255, 255, 255, 0.1);
+    --acento: #3987e5;
+    --acento-suave: #184f95;
+    --exito-texto: #0ca30c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --plane: #0d0d0d;
+  --ink-1: #ffffff;
+  --ink-2: #c3c2b7;
+  --ink-muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --borde: rgba(255, 255, 255, 0.1);
+  --acento: #3987e5;
+  --acento-suave: #184f95;
+  --exito-texto: #0ca30c;
+}
+
+html,
+body {
+  background: var(--plane);
+  color: var(--ink-1);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cifras alineadas: las columnas de números tienen que poder compararse
+   de un vistazo sin que los dígitos bailen. */
+.cifra {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.tarjeta {
+  background: var(--surface-1);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+
+.hairline {
+  border-color: var(--borde);
+}
+
+/* Barra de cobertura: extremo de dato redondeado 4px, anclado a la base. */
+.barra {
+  border-radius: 0 4px 4px 0;
+  height: 8px;
+}
+
+table.datos {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+table.datos th {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--grid);
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  z-index: 1;
+}
+
+table.datos td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--grid);
+  font-size: 0.875rem;
+}
+
+table.datos tbody tr:hover {
+  background: color-mix(in oklab, var(--ink-1) 4%, transparent);
+}
+
+.num {
+  text-align: right;
+}
+
+input,
+select,
+textarea {
+  background: var(--surface-1);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  color: var(--ink-1);
+  font-size: 0.875rem;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--acento);
+  outline-offset: 1px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}

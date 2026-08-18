@@ -151,9 +151,63 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   }
 
   // ---- Fase 2: búsqueda local (quitar / permutar) ------------------------
+  //
+  // El costo de una permutación se calcula SOLO sobre los SKUs que tocan las
+  // dos cajas involucradas. Evaluar el costo completo por cada par sería
+  // cuadrático en tipos de caja por el tamaño del catálogo, y con cientos de
+  // corridas y más de mil SKUs eso son cientos de millones de operaciones
+  // por barrida.
+  const deltaPermuta = (quitar: Caja, poner: Caja): number => {
+    const cambios = new Map<string, number>();
+    for (const it of quitar.items) {
+      cambios.set(it.sku, (cambios.get(it.sku) ?? 0) - it.piezas);
+    }
+    for (const it of poner.items) {
+      cambios.set(it.sku, (cambios.get(it.sku) ?? 0) + it.piezas);
+    }
+
+    let d = 0;
+    for (const [sku, cambio] of cambios) {
+      if (cambio === 0) continue;
+      const actual = enviado.get(sku) ?? 0;
+      const nuevo = Math.max(0, actual + cambio);
+      d +=
+        costoSku(nuevo, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps) -
+        costoSku(actual, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps);
+    }
+    return d;
+  };
+
+  // Índice SKU -> cajas que lo contienen. Sin tope de capacidad, permutar dos
+  // cajas que no comparten ningún SKU equivale a quitar una y poner otra por
+  // separado, cosa que las otras fases ya cubren: no vale la pena mirarlas.
+  const cajasPorSku = new Map<string, Caja[]>();
+  for (const c of cajas) {
+    for (const it of c.items) {
+      const l = cajasPorSku.get(it.sku);
+      if (l) l.push(c);
+      else cajasPorSku.set(it.sku, [c]);
+    }
+  }
+  const hayTope = maxCajas !== Infinity || maxPiezas !== Infinity;
+
+  const candidatas = (a: Caja): Caja[] => {
+    if (hayTope) return cajas;
+    const vistas = new Set<string>();
+    const out: Caja[] = [];
+    for (const it of a.items) {
+      for (const c of cajasPorSku.get(it.sku) ?? []) {
+        if (c.codigo === a.codigo || vistas.has(c.codigo)) continue;
+        vistas.add(c.codigo);
+        out.push(c);
+      }
+    }
+    return out;
+  };
+
   let mejoro = true;
   let vueltas = 0;
-  while (mejoro && vueltas++ < 200) {
+  while (mejoro && vueltas++ < 60) {
     mejoro = false;
 
     // Quitar una caja que ya no aporta.
@@ -168,20 +222,18 @@ export function optimizarCajas(e: Entrada): PlanCajas {
     // Permutar: cambiar una caja de tipo A por una de tipo B.
     for (const a of cajas) {
       if ((q.get(a.codigo) ?? 0) <= 0) continue;
-      for (const b of cajas) {
-        if (a.codigo === b.codigo) continue;
-        const antes = costoTotal();
-        aplicar(a, -1);
-        if (!cabe(b)) {
-          aplicar(a, 1);
-          continue;
+      for (const b of candidatas(a)) {
+        if ((q.get(b.codigo) ?? 0) >= b.cajasDisponibles) continue;
+        // Con tope de piezas, la permuta puede no caber aunque el conteo sí.
+        if (hayTope) {
+          const dif = (piezasDe.get(b.codigo) ?? 0) - (piezasDe.get(a.codigo) ?? 0);
+          if (piezasUsadas + dif > maxPiezas) continue;
         }
-        aplicar(b, 1);
-        if (costoTotal() < antes - 1e-9) {
+        if (deltaPermuta(a, b) < -1e-9) {
+          aplicar(a, -1);
+          aplicar(b, 1);
           mejoro = true;
-        } else {
-          aplicar(b, -1);
-          aplicar(a, 1);
+          if ((q.get(a.codigo) ?? 0) <= 0) break;
         }
       }
     }
