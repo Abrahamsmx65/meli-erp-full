@@ -2,6 +2,7 @@ import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
 import { procesarPendientes } from "./webhooks";
 import { recalcular } from "./cache";
+import { latidoAmazon } from "./latido-amazon";
 
 /** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
 export const EDAD_MAX_PLAN_MS = 3 * 60_000;
@@ -106,6 +107,14 @@ export async function latido(
       .eq("account_id", accountId)
       .eq("tarea", "en_vivo")
       .lt("inicio", new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+
+    // Amazon avanza montado en este mismo latido, con su propio espaciado.
+    // Un tropiezo de Amazon jamás debe tumbar el latido de MELI.
+    try {
+      await latidoAmazon(admin);
+    } catch (err) {
+      console.error("latidoAmazon:", (err as Error).message);
+    }
 
     return { corrio: true, procesados, msPlan };
   } catch (err) {

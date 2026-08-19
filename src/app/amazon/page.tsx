@@ -98,6 +98,7 @@ export default async function Amazon({
           dias={dias}
           busqueda={busqueda}
           limite={LIMITE_FILAS}
+          totales={{ unidades: totales.unidades, importe: totales.importe }}
         />
       </Suspense>
     </div>

@@ -73,6 +73,12 @@ export async function guardarEnLotes(admin: any, tabla: string, filas: any[]): P
   }
 }
 
+/** Cuánto se le espera a un reporte antes de darlo por perdido y pedir otro. */
+const PACIENCIA_REPORTE_MS = 45 * 60_000;
+
+/** Hasta dónde atrás puede abrirse la ventana (hoyos y reconciliación). */
+const DIAS_MAXIMOS = 30;
+
 export async function sincronizarVentas(
   admin: any,
   cliente: Cliente,
@@ -96,7 +102,41 @@ export async function sincronizarVentas(
     // hacia atrás para que ese día quede ENTERO dentro del reporte: pedir
     // "hace 3 días" a la hora exacta parte el día más viejo por la mitad, y
     // reescribirlo con medio día de datos borra las ventas de su mañana.
-    const corte = fechaLocal(hasta.getTime() - DIAS_VENTANA * 86_400_000, huso);
+    let corte = fechaLocal(hasta.getTime() - DIAS_VENTANA * 86_400_000, huso);
+    const piso = fechaLocal(hasta.getTime() - DIAS_MAXIMOS * 86_400_000, huso);
+
+    // Si el proceso estuvo caído más días que la ventana, retomar desde el
+    // último día cargado: sin esto, una caída de más de 3 días dejaba un
+    // hoyo permanente que nadie reponía.
+    const { data: est } = await admin
+      .from("amazon_sync_estado")
+      .select("cursor_ts")
+      .eq("account_id", accountId)
+      .eq("tarea", "cron_ventas")
+      .maybeSingle();
+    if (est?.cursor_ts) {
+      const ultima = fechaLocal(Date.parse(est.cursor_ts), huso);
+      const retomar = fechaLocal(Date.parse(`${ultima}T00:00:00Z`) - 86_400_000, 0);
+      if (retomar < corte) corte = retomar;
+    }
+
+    // Una vez a la semana la ventana se abre al máximo: las órdenes que se
+    // asientan tarde (pago pendiente que se concreta días después, o una
+    // cancelación tardía) quedan fuera de la ventana corta para siempre si
+    // nadie vuelve a leer esos días.
+    let reconcilia = false;
+    const { data: rec } = await admin
+      .from("amazon_sync_estado")
+      .select("cursor_ts")
+      .eq("account_id", accountId)
+      .eq("tarea", "reconciliacion_ventas")
+      .maybeSingle();
+    if (!rec?.cursor_ts || Date.now() - Date.parse(rec.cursor_ts) > 7 * 86_400_000) {
+      corte = piso;
+      reconcilia = true;
+    }
+    if (corte < piso) corte = piso;
+
     const desde = new Date(Date.parse(`${corte}T00:00:00Z`) - 86_400_000);
 
     const reportId = await solicitarReporte(cliente, VENTAS, cliente.cuenta.marketplaceId, {
@@ -104,12 +144,28 @@ export async function sincronizarVentas(
       hasta,
     });
     if (!reportId) return { estado: "reintentar" };
-    await anotar({ reportId, corte, desde: desde.toISOString() });
+    await anotar({
+      reportId,
+      corte,
+      reconcilia,
+      desde: desde.toISOString(),
+      pedidoEn: new Date().toISOString(),
+    });
     return { estado: "solicitado", desde: corte };
   }
 
   const st = await estadoReporte(cliente, paso.reportId);
-  if (st.estado === "procesando") return { estado: "procesando" };
+  if (st.estado === "procesando") {
+    // Un reporte que nunca termina congelaba el proceso para siempre: el
+    // folio guardado impedía pedir otro y nadie avisaba. Pasada la
+    // paciencia, se abandona y la siguiente corrida pide uno nuevo.
+    const edad = paso.pedidoEn ? Date.now() - Date.parse(paso.pedidoEn) : Infinity;
+    if (edad > PACIENCIA_REPORTE_MS) {
+      await anotar({});
+      return { estado: "reintentar" };
+    }
+    return { estado: "procesando" };
+  }
 
   if (st.estado === "fallido" || st.estado === "vacio") {
     await anotar({});
@@ -138,6 +194,16 @@ export async function sincronizarVentas(
     actualizado_en: new Date().toISOString(),
   });
 
+  if (paso.reconcilia) {
+    await admin.from("amazon_sync_estado").upsert({
+      account_id: accountId,
+      tarea: "reconciliacion_ventas",
+      cursor_ts: new Date().toISOString(),
+      datos: {},
+      actualizado_en: new Date().toISOString(),
+    });
+  }
+
   return { estado: "cargado", filas: completos.length, skus: skus.length, desde: corte };
 }
 
@@ -146,7 +212,7 @@ async function pasoPendiente(
   admin: any,
   accountId: string,
   tarea: string,
-): Promise<{ reportId: string; corte?: string } | null> {
+): Promise<{ reportId: string; corte?: string; reconcilia?: boolean; pedidoEn?: string } | null> {
   const { data } = await admin
     .from("amazon_sync_estado")
     .select("datos")
@@ -155,7 +221,12 @@ async function pasoPendiente(
     .maybeSingle();
   const id = data?.datos?.reportId;
   if (typeof id !== "string" || id === "") return null;
-  return { reportId: id, corte: data?.datos?.corte };
+  return {
+    reportId: id,
+    corte: data?.datos?.corte,
+    reconcilia: data?.datos?.reconcilia === true,
+    pedidoEn: data?.datos?.pedidoEn,
+  };
 }
 
 /**
@@ -202,7 +273,10 @@ export function agregarDesdeReporte(
       importe: 0,
       moneda: f["currency"] || null,
     };
-    reg.unidades += entero(f["quantity"]);
+    // El flat file "GENERAL" trae `quantity`; otras variantes del mismo
+    // reporte usan `quantity-purchased`. Aceptar ambas evita quedar en cero
+    // en silencio si Amazon cambia la variante.
+    reg.unidades += entero(f["quantity"] || f["quantity-purchased"]);
     reg.importe += decimal(f["item-price"]);
     acumulado.set(clave, reg);
 
@@ -250,7 +324,15 @@ export async function sincronizarInventario(
   // Paso 2: recoger el que quedó pendiente.
   const st = await estadoReporte(cliente, paso.reportId);
 
-  if (st.estado === "procesando") return { estado: "procesando" };
+  if (st.estado === "procesando") {
+    // Igual que en ventas: un reporte eterno no puede congelar el proceso.
+    const edad = paso.pedidoEn ? Date.now() - Date.parse(paso.pedidoEn) : Infinity;
+    if (edad > PACIENCIA_REPORTE_MS) {
+      await anotar({});
+      return { estado: "reintentar" };
+    }
+    return { estado: "procesando" };
+  }
 
   if (st.estado === "fallido" || st.estado === "vacio") {
     // Amazon a veces marca FATAL un reporte válido; se descarta y se vuelve a pedir.
