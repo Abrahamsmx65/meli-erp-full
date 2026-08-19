@@ -24,10 +24,19 @@ const ALMACEN_POR_OMISION = "Industher";
 // Descarga
 // ---------------------------------------------------------------------------
 
+/**
+ * Al pegar la llave en Vercel es fácil que se cuelen comillas o espacios
+ * (sobre todo copiándola de un .env o de un chat). Se limpian aquí: una llave
+ * con basura alrededor falla con "API Key inválida" y nadie sabe por qué.
+ */
+function limpiarValor(v: string | undefined): string {
+  return (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+}
+
 export function configuracionIndusther(): { url: string; apiKey: string } | null {
-  const apiKey = process.env.INDUSTHER_API_KEY?.trim();
+  const apiKey = limpiarValor(process.env.INDUSTHER_API_KEY);
   if (!apiKey) return null;
-  return { url: process.env.INDUSTHER_API_URL?.trim() || URL_POR_OMISION, apiKey };
+  return { url: limpiarValor(process.env.INDUSTHER_API_URL) || URL_POR_OMISION, apiKey };
 }
 
 /** Baja el inventario crudo del API de Industher. Nunca registra la llave. */

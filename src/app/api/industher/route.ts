@@ -24,12 +24,17 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
 
-  if (!configuracionIndusther()) {
+  const config = configuracionIndusther();
+  if (!config) {
     return NextResponse.json(
       { error: "Falta INDUSTHER_API_KEY en las variables de entorno de Vercel." },
       { status: 400 },
     );
   }
+
+  // Huella para comparar contra la llave real sin exponerla completa: si el
+  // API la rechaza, lo primero es saber si Vercel tiene guardado otro valor.
+  const llave = `${config.apiKey.length} caracteres, empieza "${config.apiKey.slice(0, 4)}" y termina "${config.apiKey.slice(-4)}"`;
 
   try {
     const crudo = await descargarInventarioIndusther();
@@ -46,7 +51,10 @@ export async function GET() {
       muestra: inv.filas.slice(0, 5),
     });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 502 });
+    return NextResponse.json(
+      { error: (err as Error).message, llaveCargada: llave },
+      { status: 502 },
+    );
   }
 }
 
