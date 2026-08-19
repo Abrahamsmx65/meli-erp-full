@@ -476,9 +476,9 @@ interface RespuestaStock {
  * Ese inventario ya es tuyo y hay que contarlo: si no, el sistema te haría
  * mandar de nuevo algo que ya va en la carretera.
  */
-const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
+export const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
 
-function esEnTransito(estado?: string): boolean {
+export function esEnTransito(estado?: string): boolean {
   if (!estado) return false;
   const e = estado.toLowerCase();
   return ESTADOS_EN_TRANSITO.some((t) => e.includes(t));

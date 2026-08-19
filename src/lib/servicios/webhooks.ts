@@ -10,13 +10,11 @@
  * puede correr cada pocos segundos sin despeinar a nadie.
  */
 import { MeliClient } from "../meli/client";
-import { detallarItems, dedupePorSku } from "../meli/sync";
+import { detallarItems, dedupePorSku, esEnTransito } from "../meli/sync";
 import { aISO } from "../engine/fechas";
 import { desglosarSku } from "./sync";
 import { invalidar } from "./cache";
 import type { DB } from "../datos/repos";
-
-const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
 
 export interface ResultadoProceso {
   procesados: number;
@@ -295,8 +293,9 @@ async function procesarStock(
   let noDisponible = 0;
   for (const d of r.not_available_detail ?? []) {
     const q = d.quantity ?? 0;
-    const e = (d.status ?? "").toLowerCase();
-    if (ESTADOS_EN_TRANSITO.some((t) => e.includes(t))) enTransferencia += q;
+    // La misma clasificación que usa la sincronización: si divergen, el
+    // webhook y el sync escriben cifras distintas sobre la misma tabla.
+    if (esEnTransito(d.status)) enTransferencia += q;
     else noDisponible += q;
   }
 
