@@ -39,6 +39,28 @@ export async function latido(
   const logId = await registrarSync(admin, accountId, "en_vivo");
 
   try {
+    // Los avisos anteriores a la última sincronización completa ya no dicen
+    // nada nuevo: esa corrida volvió a bajar ventas, stock y catálogo
+    // enteros. Se dan por procesados de un plumazo — sin esto, una bandeja
+    // con decenas de miles de avisos viejos (llegó a haber 71 mil) se come
+    // al latido procesando historia de 40 en 40 y lo de hoy nunca llega.
+    const { data: ultimaCompleta } = await admin
+      .from("sync_log")
+      .select("inicio")
+      .eq("account_id", accountId)
+      .eq("tarea", "completa")
+      .eq("estado", "ok")
+      .order("inicio", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (ultimaCompleta?.inicio) {
+      await admin
+        .from("webhooks_meli")
+        .update({ procesado_en: new Date().toISOString() })
+        .eq("account_id", accountId)
+        .is("procesado_en", null)
+        .lt("recibido_en", ultimaCompleta.inicio);
+    }
     // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo. Si
     // MELI truena a media tanda (cuota, red), el plan se recalcula igual:
     // los avisos que falten los recoge el siguiente latido.
