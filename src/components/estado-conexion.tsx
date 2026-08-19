@@ -34,8 +34,11 @@ export function EstadoConexion() {
         const j = (await r.json()) as Estado;
         if (!vivo) return;
         setE((previo) => {
-          // Si llegó una sincronización nueva, refrescar lo que se ve.
-          if (previo && j.ultimaSync && previo.ultimaSync !== j.ultimaSync) {
+          // Refrescar solo cuando hay un plan nuevo listo. Antes se refrescaba
+          // con cada aviso de MELI —o sea cada 30 segundos en horario de
+          // ventas— y las páginas pesadas se recargaban enteras sin parar:
+          // esa era la mayor causa de que la app se sintiera lenta.
+          if (previo && j.planGeneradoEn && previo.planGeneradoEn !== j.planGeneradoEn) {
             router.refresh();
           }
           return j;
