@@ -9,6 +9,7 @@ import { Ficha } from "@/components/tiles";
 import { CargarPedido } from "@/components/cargar-pedido";
 import { ListaPedidos } from "@/components/lista-pedidos";
 import { TablaCompras } from "@/components/tabla-compras";
+import { PedidoPorModelo } from "@/components/pedido-modelo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -167,6 +168,8 @@ export default async function Pedidos() {
           ) : null}
         </div>
       </details>
+
+      <PedidoPorModelo renglones={compra.renglones} />
 
       <TablaCompras renglones={compra.renglones} ciclo={ciclo} />
 
