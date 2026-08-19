@@ -61,7 +61,7 @@ async function clienteDeCuenta(db: DB, accountId: string): Promise<MeliClient | 
 export async function procesarPendientes(
   db: DB,
   accountId: string,
-  max = 40,
+  max = 300,
 ): Promise<ResultadoProceso> {
   const vacio: ResultadoProceso = {
     procesados: 0,
@@ -74,7 +74,7 @@ export async function procesarPendientes(
 
   const { data: pendientes } = await db
     .from("webhooks_meli")
-    .select("id, topic, resource, intentos")
+    .select("id, topic, resource, intentos, recibido_en")
     .eq("account_id", accountId)
     .is("procesado_en", null)
     .lt("intentos", 4)
@@ -91,12 +91,42 @@ export async function procesarPendientes(
   const r: ResultadoProceso = { ...vacio };
   const idsListos: number[] = [];
 
-  // Varios avisos suelen tocar el mismo recurso —MELI manda uno por cada
-  // cambio— así que se agrupan: procesar el mismo pedido cinco veces no
-  // aporta nada y sí gasta cuota.
+  // --- Órdenes: por DÍA, no por aviso -------------------------------------
+  // Recalcular una venta exige re-pedir el día completo a MELI (~17 páginas).
+  // Hacer eso por cada aviso, cuando un día de ventas trae cientos de avisos,
+  // era regalar la cuota: el mismo día se recalculaba cientos de veces. Se
+  // juntan los días que estos avisos tocan y cada día se pide UNA vez. El día
+  // se deduce de cuándo llegó el aviso (MELI avisa al momento), con un día de
+  // colchón hacia atrás por los husos y las órdenes de medianoche.
+  const avisosOrden = pendientes.filter(
+    (w) => w.topic === "orders_v2" || w.topic === "orders",
+  );
+  if (avisosOrden.length) {
+    const dias = new Set<string>();
+    for (const w of avisosOrden) {
+      const t = new Date(w.recibido_en as string).getTime();
+      dias.add(new Date(t).toISOString().slice(0, 10));
+      dias.add(new Date(t - 24 * 3600 * 1000).toISOString().slice(0, 10));
+    }
+    try {
+      for (const fecha of [...dias].sort()) {
+        r.ventasTocadas += await recalcularDiaVentas(db, accountId, cliente, fecha);
+      }
+      for (const w of avisosOrden) idsListos.push(w.id);
+      r.procesados += avisosOrden.length;
+    } catch (err) {
+      // Si MELI no dejó terminar, estos avisos se quedan y se reintentan en
+      // el siguiente latido; los días son idempotentes, repetirlos no daña.
+      if (r.errores.length < 5) r.errores.push(`ordenes: ${(err as Error).message}`);
+    }
+  }
+
+  // --- Stock y catálogo: por recurso, deduplicado --------------------------
   const vistos = new Set<string>();
 
   for (const w of pendientes) {
+    if (w.topic === "orders_v2" || w.topic === "orders") continue;
+
     const clave = `${w.topic}|${w.resource}`;
     if (vistos.has(clave)) {
       idsListos.push(w.id);
@@ -105,9 +135,7 @@ export async function procesarPendientes(
     vistos.add(clave);
 
     try {
-      if (w.topic === "orders_v2" || w.topic === "orders") {
-        if (await procesarOrden(db, accountId, cliente, w.resource)) r.ventasTocadas++;
-      } else if (w.topic.includes("stock")) {
+      if (w.topic.includes("stock")) {
         if (await procesarStock(db, accountId, cliente, w.resource)) r.stockTocado++;
       } else if (w.topic === "items") {
         if (await procesarItem(db, accountId, cliente, w.resource)) r.catalogoTocado++;
@@ -158,43 +186,29 @@ interface OrdenMeli {
 }
 
 /**
- * Una venta nueva.
+ * Recalcula las ventas de UN día completo, para todos los SKUs.
  *
- * Se RECALCULA el día completo del SKU en vez de sumarle la orden: si el
- * mismo aviso llega dos veces —y MELI reintenta— sumar duplicaría la venta.
- * Recalcular es idempotente.
+ * Se re-pide el día entero a MELI y se reescribe lo encontrado: si el mismo
+ * aviso llega dos veces —y MELI reintenta— el resultado es idéntico.
+ * Recalcular es idempotente, y un solo barrido cubre todos los avisos de
+ * órdenes de ese día, sean tres o trescientos.
  */
-async function procesarOrden(
+async function recalcularDiaVentas(
   db: DB,
   accountId: string,
   cliente: MeliClient,
-  resource: string,
-): Promise<boolean> {
-  const orden = await cliente.get<OrdenMeli>(resource);
-  if (!orden?.date_created) return false;
-  if (orden.status && orden.status !== "paid") return false;
-
-  const fecha = orden.date_created.slice(0, 10);
-  const skus = new Set<string>();
-  for (const oi of orden.order_items ?? []) {
-    const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
-    if (sku) skus.add(sku);
-  }
-  if (!skus.size) return false;
-
-  const sellerId = Number(orden.id) ? undefined : undefined;
-  void sellerId;
-
-  // Se vuelve a pedir el día entero de esos SKUs para quedar exactos.
+  fecha: string,
+): Promise<number> {
   const { data: cuenta } = await db
     .from("meli_accounts")
     .select("meli_user_id")
     .eq("id", accountId)
     .maybeSingle();
-  if (!cuenta) return false;
+  if (!cuenta) return 0;
 
   const desde = `${fecha}T00:00:00.000Z`;
   const hasta = `${fecha}T23:59:59.999Z`;
+  // sku → por día de creación de la orden (el barrido puede rozar dos días)
   const acumulado = new Map<string, { unidades: number; ordenes: number; importe: number }>();
 
   for (let offset = 0; offset < 5000; offset += 51) {
@@ -210,32 +224,37 @@ async function procesarOrden(
     if (!lote.length) break;
 
     for (const o of lote) {
+      const dia = o.date_created?.slice(0, 10) ?? fecha;
       for (const oi of o.order_items ?? []) {
         const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
-        if (!sku || !skus.has(sku)) continue;
-        const prev = acumulado.get(sku) ?? { unidades: 0, ordenes: 0, importe: 0 };
+        if (!sku) continue;
+        const clave = `${sku}|${dia}`;
+        const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0 };
         prev.unidades += oi.quantity ?? 0;
         prev.ordenes += 1;
         prev.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
-        acumulado.set(sku, prev);
+        acumulado.set(clave, prev);
       }
     }
     if (lote.length < 51) break;
   }
 
-  const filas = [...acumulado].map(([sku, v]) => ({
-    account_id: accountId,
-    sku,
-    fecha,
-    unidades: v.unidades,
-    ordenes: v.ordenes,
-    importe: v.importe,
-  }));
+  const filas = [...acumulado].map(([clave, v]) => {
+    const [sku, dia] = [clave.slice(0, clave.lastIndexOf("|")), clave.slice(clave.lastIndexOf("|") + 1)];
+    return {
+      account_id: accountId,
+      sku,
+      fecha: dia,
+      unidades: v.unidades,
+      ordenes: v.ordenes,
+      importe: v.importe,
+    };
+  });
 
   if (filas.length) {
     await db.from("ventas_diarias").upsert(filas, { onConflict: "account_id,sku,fecha" });
   }
-  return filas.length > 0;
+  return filas.length;
 }
 
 /** Cambio de stock en Full de un inventario. */

@@ -61,14 +61,17 @@ export async function latido(
         .is("procesado_en", null)
         .lt("recibido_en", ultimaCompleta.inicio);
     }
-    // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo. Si
-    // MELI truena a media tanda (cuota, red), el plan se recalcula igual:
-    // los avisos que falten los recoge el siguiente latido.
+    // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo. El
+    // drenado NO puede comerse todo el plazo: se le reserva medio minuto al
+    // recálculo del plan, que es lo que el usuario ve. Si MELI truena a media
+    // tanda (cuota, red), el plan se recalcula igual: los avisos que falten
+    // los recoge el siguiente latido.
+    const finDrenado = limite - 30_000;
     let procesados = 0;
     let errorAvisos: string | null = null;
     try {
-      while (Date.now() < limite) {
-        const r = await procesarPendientes(admin, accountId, 40);
+      while (Date.now() < finDrenado) {
+        const r = await procesarPendientes(admin, accountId, 500);
         procesados += r.procesados;
         if (r.quedanPendientes === 0 || r.procesados === 0) break;
       }
@@ -83,11 +86,13 @@ export async function latido(
       .select("generado_en, vigente")
       .eq("account_id", accountId)
       .maybeSingle();
+    // Sin condición de tiempo: recalcular toma segundos y es justo lo que el
+    // usuario está esperando ver. El margen ya se reservó arriba.
     const obsoleto =
       plan?.vigente === false &&
       (!plan?.generado_en ||
         Date.now() - new Date(plan.generado_en).getTime() > EDAD_MAX_PLAN_MS);
-    if (obsoleto && Date.now() < limite) {
+    if (obsoleto) {
       const r = await recalcular(admin, accountId);
       msPlan = r.msCalculo;
     }
