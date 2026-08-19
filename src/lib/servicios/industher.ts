@@ -109,9 +109,10 @@ export async function descargarInventarioIndusther(): Promise<DescargaIndusther>
   const lista: Record<string, unknown>[] = [];
   const avisos: string[] = [];
   let primeraFilaAnterior = "";
+  let offset = 0;
 
   for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
-    const cuerpo = await descargarPagina(config, pagina * LIMITE_PAGINA);
+    const cuerpo = await descargarPagina(config, offset);
 
     let filas: Record<string, unknown>[];
     try {
@@ -137,7 +138,14 @@ export async function descargarInventarioIndusther(): Promise<DescargaIndusther>
     primeraFilaAnterior = primeraFila;
 
     lista.push(...filas);
-    if (filas.length < LIMITE_PAGINA) break;
+    offset += filas.length;
+
+    // El API dice él mismo si hay más ("pagination.hasMore"); si no lo
+    // dijera, una página incompleta marca el final.
+    const paginacion = (cuerpo as { pagination?: { hasMore?: unknown } } | null)?.pagination;
+    const hayMas = typeof paginacion?.hasMore === "boolean" ? paginacion.hasMore : null;
+    if (hayMas === false) break;
+    if (hayMas === null && filas.length < LIMITE_PAGINA) break;
 
     if (pagina === MAX_PAGINAS - 1) {
       throw new Error(
@@ -168,10 +176,13 @@ export interface InventarioNormalizado {
  * el JSON gana. Mismo espíritu que localizarEncabezado() del Excel.
  */
 const SINONIMOS: Record<string, string[]> = {
-  almacen: ["ALMACEN", "BODEGA", "WAREHOUSE", "SUCURSAL"],
-  codigoAlmacen: ["CODIGO-ALMACEN", "CLAVE-ALMACEN", "CODIGO-BODEGA", "WAREHOUSE-CODE"],
+  // El API real manda warehouse como objeto {id, code, name}; aplanado queda
+  // "WAREHOUSE-NAME" / "WAREHOUSE-CODE".
+  almacen: ["WAREHOUSE-NAME", "ALMACEN", "BODEGA", "WAREHOUSE", "SUCURSAL"],
+  codigoAlmacen: ["WAREHOUSE-CODE", "CODIGO-ALMACEN", "CLAVE-ALMACEN", "CODIGO-BODEGA"],
   skuCaja: ["SKU", "SKU-CAJA", "CODIGO", "CLAVE", "CODIGO-SKU"],
   pedido: [
+    "ORDER-NUMBER",
     "N-PEDIDO",
     "PEDIDO",
     "NO-PEDIDO",
@@ -239,6 +250,7 @@ const SINONIMOS: Record<string, string[]> = {
 
 /** Claves bajo las que suele venir envuelta la lista en una respuesta JSON. */
 const ENVOLTURAS = [
+  "INVENTORY",
   "INVENTARIO",
   "EXISTENCIAS",
   "DATA",
@@ -306,8 +318,28 @@ export function extraerLista(cuerpo: unknown): Record<string, unknown>[] {
   );
 }
 
+/**
+ * El API real anida cosas: warehouse es {id, code, name}, y las cajas y los
+ * pares vienen como boxes/pairs {physical, reserved, available, inTransit}.
+ * Se aplana un nivel ("warehouse.name", "boxes.physical") para que el mapeo
+ * por sinónimos los alcance igual que a un campo plano.
+ */
+function aplanarFila(r: Record<string, unknown>): Record<string, unknown> {
+  const plana: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [sk, sv] of Object.entries(v as Record<string, unknown>)) {
+        plana[`${k}.${sk}`] = sv;
+      }
+    } else {
+      plana[k] = v;
+    }
+  }
+  return plana;
+}
+
 export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
-  const lista = extraerLista(cuerpo);
+  const lista = extraerLista(cuerpo).map(aplanarFila);
   const avisos: string[] = [];
 
   if (!lista.length) {

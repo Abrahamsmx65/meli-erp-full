@@ -208,6 +208,67 @@ describe("normalizarInventario", () => {
     expect(r.avisos.some((a) => a.includes("no dividen exacto"))).toBe(true);
   });
 
+  it("lee la respuesta REAL del API (captura del 2026-08-19): objetos anidados", () => {
+    // Copiado tal cual de la respuesta real con limit=1.
+    const respuesta = {
+      generatedAt: "2026-08-19T19:21:18.434Z",
+      readOnly: true,
+      filters: { sku: null, warehouse: null, model: null, color: null, container: null },
+      pagination: { total: 527, limit: 1, offset: 0, returned: 1, hasMore: true },
+      totals: {
+        physicalBoxes: 8548,
+        reservedBoxes: 165,
+        availableBoxes: 8383,
+        inTransitBoxes: 0,
+        physicalPairs: 253986,
+        reservedPairs: 4920,
+        availablePairs: 249066,
+        inTransitPairs: 0,
+      },
+      inventory: [
+        {
+          warehouse: {
+            id: "bb847ade-26e9-4de8-b6b2-11cea01fd3a5",
+            code: "CASESHOP",
+            name: "Caseshop",
+          },
+          sku: "IN10001-GT152-BLK",
+          orderNumber: "IN10001",
+          model: "GT152",
+          color: "BLK",
+          size: "Corrida",
+          container: "CASESHOP",
+          boxes: { physical: 2, reserved: 0, available: 2, inTransit: 0 },
+          pairsPerBox: 24,
+          pairs: { physical: 48, reserved: 0, available: 48, inTransit: 0 },
+        },
+      ],
+    };
+
+    const r = normalizarInventario(respuesta);
+    expect(r.filas).toHaveLength(1);
+
+    const f = r.filas[0];
+    expect(f.almacen).toBe("Caseshop");
+    expect(f.codigoAlmacen).toBe("CASESHOP");
+    expect(f.skuCaja).toBe("IN10001-GT152-BLK");
+    expect(f.pedido).toBe("IN10001");
+    expect(f.modelo).toBe("GT152");
+    expect(f.color).toBe("BLK");
+    expect(f.talla).toBe("CORRIDA");
+    expect(f.contenedor).toBe("CASESHOP");
+    expect(f.cajasFisicas).toBe(2);
+    expect(f.cajasApartadas).toBe(0);
+    expect(f.cajasDisponibles).toBe(2);
+    expect(f.enCamino).toBe(0);
+    expect(f.paresPorCaja).toBe(24);
+    expect(f.paresDisponibles).toBe(48);
+    expect(r.almacenes).toEqual(["Caseshop"]);
+    // Lo único sin mapear debe ser el id interno del almacén.
+    expect(r.camposIgnorados).toEqual(["warehouse.id"]);
+    expect(r.avisos).toEqual([]);
+  });
+
   it("el pares por caja directo le gana a la derivación", () => {
     const r = normalizarInventario([
       {
@@ -257,6 +318,33 @@ describe("descargarInventarioIndusther (paginación)", () => {
     expect(llamadas[0]).toContain("limit=1000");
     expect(llamadas[0]).toContain("offset=0");
     expect(llamadas[1]).toContain("offset=1000");
+  });
+
+  it("respeta pagination.hasMore aunque las páginas vengan de menos de mil", async () => {
+    const llamadas: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: URL) => {
+        llamadas.push(String(url));
+        const offset = Number(new URL(String(url)).searchParams.get("offset"));
+        const cuerpo =
+          offset === 0
+            ? {
+                pagination: { total: 527, returned: 300, hasMore: true },
+                inventory: Array.from({ length: 300 }, (_, i) => fila(i)),
+              }
+            : {
+                pagination: { total: 527, returned: 227, hasMore: false },
+                inventory: Array.from({ length: 227 }, (_, i) => fila(300 + i)),
+              };
+        return new Response(JSON.stringify(cuerpo), { status: 200 });
+      }),
+    );
+
+    const r = await descargarInventarioIndusther();
+    expect(r.lista).toHaveLength(527);
+    expect(llamadas).toHaveLength(2);
+    expect(llamadas[1]).toContain("offset=300");
   });
 
   it("si el API ignora el offset, corta y avisa en vez de duplicar inventario", async () => {
