@@ -6,10 +6,11 @@ import { sincronizarInventario, sincronizarVentas } from "@/lib/amazon/sync";
 export const dynamic = "force-dynamic";
 // zlib para descomprimir los reportes: hace falta el runtime de Node, no edge.
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// El plan Hobby topa las funciones en 60 s; pedir más no las alarga.
+export const maxDuration = 60;
 
-/** Margen antes del corte de Vercel, para alcanzar a guardar lo conseguido. */
-const PLAZO_MS = 270_000;
+/** Margen antes del corte, para alcanzar a guardar lo ya conseguido. */
+const PLAZO_MS = 50_000;
 
 /**
  * Sincronización de Amazon. La dispara Vercel Cron.
@@ -17,13 +18,35 @@ const PLAZO_MS = 270_000;
  *   ?tarea=ventas      cada 15 min · pedidos nuevos y modificados
  *   ?tarea=inventario  cada hora   · stock en FBA, vía reporte en dos pasos
  *
- * Vive en línea a propósito: antes dependía de que una Mac estuviera
- * encendida, y una laptop que se duerme no sirve para sincronizar.
+ * Quien la dispara NO es Vercel Cron: el plan Hobby sólo permite frecuencia
+ * diaria. La programación vive en pg_cron dentro de Supabase, que llama a
+ * esta ruta con pg_net. Así corre en línea sin depender de ninguna Mac y sin
+ * subir de plan.
+ *
+ * El secreto se valida contra la base y no contra una variable de entorno,
+ * porque quien llama es la propia base de datos.
  */
 export async function GET(req: NextRequest) {
-  const secreto = process.env.CRON_SECRET;
-  const auth = req.headers.get("authorization");
-  if (!secreto || auth !== `Bearer ${secreto}`) {
+  const auth = req.headers.get("authorization") ?? "";
+  const presentado = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!presentado) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  const admin = clienteAdmin();
+
+  // Vale el secreto de Vercel (por si algún día se dispara desde ahí) o el
+  // guardado en la base, que es el que usa pg_cron.
+  let autorizado = Boolean(process.env.CRON_SECRET) && presentado === process.env.CRON_SECRET;
+  if (!autorizado) {
+    const { data } = await admin
+      .from("app_secretos")
+      .select("valor")
+      .eq("clave", "cron_amazon")
+      .maybeSingle();
+    autorizado = Boolean(data?.valor) && presentado === data!.valor;
+  }
+  if (!autorizado) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
@@ -35,7 +58,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const admin = clienteAdmin();
   const cuentas = await cuentasAmazon(admin);
 
   if (cuentas.length === 0) {
