@@ -4,8 +4,10 @@ import {
   LIMITE_FILAS,
   cargarAmazon,
   cuentaAmazon,
+  estadoRecarga,
   normalizarDias,
 } from "@/lib/servicios/amazon";
+import { RecargaAmazon } from "@/components/recarga-amazon";
 import { TablaAmazon } from "@/components/tabla-amazon";
 import { Ficha } from "@/components/tiles";
 
@@ -44,7 +46,10 @@ export default async function Amazon({
     );
   }
 
-  const { renglones, totales } = await cargarAmazon(supabase, dias, busqueda);
+  const [{ renglones, totales }, recarga] = await Promise.all([
+    cargarAmazon(supabase, dias, busqueda),
+    estadoRecarga(supabase, cuenta.id),
+  ]);
   const etiqueta = dias === 365 ? "último año" : `últimos ${dias} días`;
 
   return (
@@ -83,6 +88,8 @@ export default async function Amazon({
           tono={totales.sinStock > 0 ? "critico" : "neutro"}
         />
       </div>
+
+      <RecargaAmazon estado={recarga} />
 
       {/* useSearchParams necesita un límite de Suspense para poder prerenderizar. */}
       <Suspense fallback={<div className="tarjeta p-8 text-center text-sm">Cargando…</div>}>

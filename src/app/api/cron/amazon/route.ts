@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { Cliente, cuentasAmazon } from "@/lib/amazon/spapi";
 import { sincronizarInventario, sincronizarVentas } from "@/lib/amazon/sync";
+import { procesarRecarga } from "@/lib/amazon/recarga";
 
 export const dynamic = "force-dynamic";
 // zlib para descomprimir los reportes: hace falta el runtime de Node, no edge.
@@ -15,8 +16,9 @@ const PLAZO_MS = 50_000;
 /**
  * Sincronización de Amazon. La dispara Vercel Cron.
  *
- *   ?tarea=ventas      cada 15 min · pedidos nuevos y modificados
- *   ?tarea=inventario  cada hora   · stock en FBA, vía reporte en dos pasos
+ *   ?tarea=ventas      cada 15 min · los últimos días de venta
+ *   ?tarea=inventario  cada hora   · stock en FBA
+ *   ?tarea=recarga     cada 5 min  · avanza una ventana de la cola histórica
  *
  * Quien la dispara NO es Vercel Cron: el plan Hobby sólo permite frecuencia
  * diaria. La programación vive en pg_cron dentro de Supabase, que llama a
@@ -51,9 +53,9 @@ export async function GET(req: NextRequest) {
   }
 
   const tarea = req.nextUrl.searchParams.get("tarea") ?? "ventas";
-  if (tarea !== "ventas" && tarea !== "inventario") {
+  if (tarea !== "ventas" && tarea !== "inventario" && tarea !== "recarga") {
     return NextResponse.json(
-      { error: "tarea debe ser 'ventas' o 'inventario'." },
+      { error: "tarea debe ser 'ventas', 'inventario' o 'recarga'." },
       { status: 400 },
     );
   }
@@ -82,7 +84,9 @@ export async function GET(req: NextRequest) {
       const r =
         tarea === "ventas"
           ? await sincronizarVentas(admin, cliente)
-          : await sincronizarInventario(admin, cliente);
+          : tarea === "inventario"
+            ? await sincronizarInventario(admin, cliente)
+            : await procesarRecarga(admin, cliente);
 
       resultados.push({ cuenta: cuenta.nombre, ok: true, ...r });
 

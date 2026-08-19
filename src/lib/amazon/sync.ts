@@ -66,7 +66,7 @@ export interface ResultadoInventario {
 const CANCELADAS = new Set(["cancelled", "canceled"]);
 
 /** Supabase corta las escrituras grandes; se mandan por tandas. */
-async function guardarEnLotes(admin: any, tabla: string, filas: any[]): Promise<void> {
+export async function guardarEnLotes(admin: any, tabla: string, filas: any[]): Promise<void> {
   for (let i = 0; i < filas.length; i += LOTE) {
     const { error } = await admin.from(tabla).upsert(filas.slice(i, i + LOTE));
     if (error) throw new Error(`${tabla}: ${error.message}`);
@@ -165,7 +165,7 @@ async function pasoPendiente(
  * primeros 10 caracteres SON la fecha local de venta: no hay que convertir
  * nada y no hay riesgo de mover una venta de día por error de huso.
  */
-function agregarDesdeReporte(
+export function agregarDesdeReporte(
   filas: Record<string, string>[],
   accountId: string,
 ): { ventas: any[]; skus: any[] } {
