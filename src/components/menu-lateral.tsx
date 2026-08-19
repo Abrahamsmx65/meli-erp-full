@@ -39,6 +39,12 @@ const GRUPOS: Grupo[] = [
     ],
   },
   {
+    titulo: "Canales",
+    entradas: [
+      { href: "/amazon", texto: "Amazon", icono: "▲", ayuda: "Ventas y stock en FBA" },
+    ],
+  },
+  {
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Pedidos a China", icono: "⛴", ayuda: "Qué pedir y qué viene en camino" },
