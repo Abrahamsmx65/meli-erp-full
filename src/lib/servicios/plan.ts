@@ -10,6 +10,7 @@ import type { ISODate, Parametros, Plan } from "../engine/types";
 import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAmarre } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import { cargarInsumos, type DB } from "../datos/repos";
+import { descontarEnviado, enviosActivos, sumarEnCamino } from "./envios-registrados";
 
 export interface CajaPlaneada {
   codigo: string;
@@ -45,6 +46,100 @@ export interface PlanCompleto {
   avisos: string[];
 }
 
+/**
+ * Orden de preferencia entre bodegas: de dónde debe salir una caja cuando
+ * hay de dónde escoger. Recolectar en EnvioPack es un envío aparte con su
+ * propio costo, así que solo se usa cuando las otras no alcanzan; entre
+ * Caseshop e Industher, la operación prefiere Industher.
+ */
+export function prioridadAlmacen(almacen: string): number {
+  const a = almacen.toLowerCase();
+  if (a.includes("industher")) return 0;
+  if (a.includes("enviopack") || a.includes("envio pack")) return 2;
+  return 1;
+}
+
+/**
+ * Recorre las cajas elegidas hacia la bodega preferida.
+ *
+ * El optimizador decide QUÉ composiciones mandar por costo, y para el costo
+ * da igual de qué bodega salgan — pero para la operación no: la misma caja
+ * disponible en Industher y en EnvioPack debe salir de Industher, y de
+ * EnvioPack solo lo que las demás no cubran. Aquí, cajas con exactamente el
+ * mismo contenido se tratan como intercambiables y lo elegido se reparte por
+ * prioridad de bodega, sin cambiar ni una pieza del total.
+ */
+export function reasignarPorBodega(
+  elegidas: Plan["cajas"]["cajas"],
+  catalogo: CajaConstruida[],
+): Plan["cajas"]["cajas"] {
+  const firma = (c: CajaConstruida) =>
+    c.detalle
+      .map((d) => `${d.sku}:${d.piezas}`)
+      .sort()
+      .join("|");
+
+  const defPorCodigo = new Map(catalogo.map((c) => [c.codigo, c]));
+  const porFirma = new Map<string, CajaConstruida[]>();
+  for (const c of catalogo) {
+    const f = firma(c);
+    const l = porFirma.get(f);
+    if (l) l.push(c);
+    else porFirma.set(f, [c]);
+  }
+
+  const cantidadElegida = new Map(elegidas.map((e) => [e.codigo, e.cantidad]));
+  const resultado = new Map<string, number>();
+  const firmasVistas = new Set<string>();
+
+  for (const e of elegidas) {
+    const def = defPorCodigo.get(e.codigo);
+    if (!def) {
+      resultado.set(e.codigo, e.cantidad);
+      continue;
+    }
+    const f = firma(def);
+    if (firmasVistas.has(f)) continue;
+    firmasVistas.add(f);
+
+    const grupo = porFirma.get(f) ?? [def];
+    let total = grupo.reduce((a, c) => a + (cantidadElegida.get(c.codigo) ?? 0), 0);
+
+    const ordenado = [...grupo].sort(
+      (a, b) => prioridadAlmacen(a.almacen) - prioridadAlmacen(b.almacen),
+    );
+    for (const c of ordenado) {
+      const toma = Math.min(total, c.cajasDisponibles);
+      if (toma > 0) resultado.set(c.codigo, toma);
+      total -= toma;
+      if (total <= 0) break;
+    }
+    // No debería sobrar (el optimizador respetó disponibilidades), pero si
+    // sobrara, mejor dejarlo donde estaba que perder cajas del plan.
+    if (total > 0) {
+      const c0 = ordenado[0];
+      resultado.set(c0.codigo, (resultado.get(c0.codigo) ?? 0) + total);
+    }
+  }
+
+  return [...resultado.entries()].map(([codigo, cantidad]) => {
+    const def = defPorCodigo.get(codigo);
+    const previa = elegidas.find((e) => e.codigo === codigo);
+    const piezasPorCaja =
+      def?.paresPorCaja ?? previa?.piezasPorCaja ?? 0;
+    return {
+      codigo,
+      nombre: previa?.nombre ?? null,
+      cantidad,
+      piezasPorCaja,
+      aporta: (def?.detalle ?? []).map((d) => ({
+        sku: d.sku,
+        piezas: d.piezas * cantidad,
+      })),
+    };
+  });
+}
+
 export async function generarPlanCompleto(
   db: DB,
   accountId: string,
@@ -64,6 +159,15 @@ export async function generarPlanCompleto(
     // Las cajas no se abren: nunca se mandan pares sueltos.
     permiteUnidadesSueltas: false,
   });
+
+  // Envíos ya dados de alta en MELI que siguen en camino: sus cajas dejan
+  // de estar disponibles en bodega y sus pares cuentan como en camino.
+  // MELI no expone la Gestión de envíos por API; este registro es el puente.
+  const enCamino = await enviosActivos(db, accountId);
+  if (enCamino.length) {
+    descontarEnviado(insumos.existencias, enCamino);
+    sumarEnCamino(insumos.stockActual, enCamino);
+  }
 
   // El catálogo real de MELI es la autoridad sobre qué SKU existe.
   const indice = insumos.skus.length
@@ -88,6 +192,10 @@ export async function generarPlanCompleto(
     parametros: p,
     hoy,
   });
+
+  // La misma caja disponible en dos bodegas debe salir de la preferida:
+  // el optimizador no distingue bodegas, esta pasada sí.
+  plan.cajas.cajas = reasignarPorBodega(plan.cajas.cajas, catalogo.cajas);
 
   // El motor devuelve códigos internos; aquí se vuelven algo que un humano
   // puede tomar y ejecutar en la bodega.

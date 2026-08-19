@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface Caja {
   codigo: string;
@@ -93,6 +94,32 @@ export function EnviosSeparados({
 function TarjetaEnvio({ envio }: { envio: Envio }) {
   const [vista, setVista] = useState<"cajas" | "skus">("cajas");
   const [abierta, setAbierta] = useState<string | null>(null);
+  const [registrando, setRegistrando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  // "Ya lo di de alta en MELI": desde este clic, las cajas del envío dejan
+  // de contar como disponibles y sus pares cuentan como en camino. Es lo que
+  // evita que el plan vuelva a sugerir lo que ya va en la carretera.
+  const registrar = async () => {
+    if (registrando) return;
+    if (!confirm(`¿Ya diste de alta este envío (${n(envio.totalCajas)} cajas) en Mercado Libre?`)) return;
+    setRegistrando(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/envios", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ grupo: envio.grupo }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? "No se pudo registrar.");
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+      setRegistrando(false);
+    }
+  };
 
   return (
     <section className="tarjeta overflow-hidden">
@@ -140,7 +167,25 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
           >
             Excel de este envío
           </a>
+
+          <button
+            onClick={registrar}
+            disabled={registrando}
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+            style={{
+              borderColor: "var(--exito-texto)",
+              color: "var(--exito-texto)",
+              opacity: registrando ? 0.6 : 1,
+            }}
+          >
+            {registrando ? "Registrando…" : "Ya lo di de alta en MELI"}
+          </button>
         </div>
+        {error ? (
+          <p className="w-full text-sm" style={{ color: "var(--estado-critico)" }}>
+            {error}
+          </p>
+        ) : null}
       </header>
 
       <div className="max-h-96 overflow-auto">
