@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { optimizarCajas } from "../engine/boxes";
 import { prioridadAlmacen, reasignarPorBodega } from "./plan";
 import type { CajaConstruida } from "../importar/cajas";
 
@@ -53,5 +54,44 @@ describe("prioridad de bodega", () => {
     const r = reasignarPorBodega(elegidas, catalogo);
     expect(r).toHaveLength(1);
     expect(r[0].cantidad).toBe(4);
+  });
+
+  it("un SKU disponible en dos bodegas NO se manda doble", () => {
+    // La necesidad es GLOBAL: 48 pares. La misma caja de 24 existe en dos
+    // bodegas con 5 disponibles cada una. Lo correcto son 2 cajas en total
+    // (una bodega sola alcanza), jamás 2 por bodega.
+    const dosBodegas = [
+      { codigo: "IN-1", cajasDisponibles: 5, items: [{ sku: "GT1-BLK-25", piezas: 24 }] },
+      { codigo: "EP-1", cajasDisponibles: 5, items: [{ sku: "GT1-BLK-25", piezas: 24 }] },
+    ];
+    const r = optimizarCajas({
+      necesidad: new Map([["GT1-BLK-25", 48]]),
+      prioridad: new Map(),
+      cajas: dosBodegas,
+      permiteUnidadesSueltas: false,
+      inventarioSuelto: new Map(),
+      pesoFaltante: 3,
+      pesoSobrante: 1,
+    });
+
+    expect(r.enviadoPorSku.get("GT1-BLK-25")).toBe(48);
+    expect(r.totalCajas).toBe(2);
+
+    // Y tras la reasignación por bodega, ambas salen de Industher.
+    const catalogo = [caja("IN-1", "Industher", 5), caja("EP-1", "EnvioPack", 5)];
+    const finales = reasignarPorBodega(
+      r.cajas.map((c) => ({
+        codigo: c.codigo,
+        nombre: null,
+        cantidad: c.cantidad,
+        piezasPorCaja: c.piezasPorCaja,
+        aporta: [],
+      })),
+      catalogo,
+    );
+    const por = new Map(finales.map((x) => [x.codigo, x.cantidad]));
+    expect(por.get("IN-1") ?? 0).toBe(2);
+    expect(por.get("EP-1") ?? 0).toBe(0);
+    expect(finales.reduce((a, x) => a + x.cantidad, 0)).toBe(2);
   });
 });
