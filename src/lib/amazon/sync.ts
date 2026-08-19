@@ -42,6 +42,21 @@ export interface ResultadoVentas {
  */
 const DIAS_VENTANA = 3;
 
+/** Desfase del marketplace: define dónde empieza y termina el día de venta. */
+function husoDe(marketplaceId: string): number {
+  const husos: Record<string, number> = {
+    A1AM78C64UM0Y8: -6, // México
+    ATVPDKIKX0DER: -8, // Estados Unidos
+    A2EUQ1WTGCTBG2: -8, // Canadá
+  };
+  return husos[marketplaceId] ?? 0;
+}
+
+/** Fecha local (YYYY-MM-DD) del marketplace en un instante dado. */
+function fechaLocal(ms: number, huso: number): string {
+  return new Date(ms + huso * 3_600_000).toISOString().slice(0, 10);
+}
+
 export interface ResultadoInventario {
   estado: "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar";
   skus?: number;
@@ -74,15 +89,23 @@ export async function sincronizarVentas(
     });
 
   if (!paso) {
+    const huso = husoDe(cliente.cuenta.marketplaceId);
     const hasta = new Date();
-    const desde = new Date(hasta.getTime() - DIAS_VENTANA * 86_400_000);
+
+    // `corte` es el primer día que se va a reescribir. Se pide un día extra
+    // hacia atrás para que ese día quede ENTERO dentro del reporte: pedir
+    // "hace 3 días" a la hora exacta parte el día más viejo por la mitad, y
+    // reescribirlo con medio día de datos borra las ventas de su mañana.
+    const corte = fechaLocal(hasta.getTime() - DIAS_VENTANA * 86_400_000, huso);
+    const desde = new Date(Date.parse(`${corte}T00:00:00Z`) - 86_400_000);
+
     const reportId = await solicitarReporte(cliente, VENTAS, cliente.cuenta.marketplaceId, {
       desde,
       hasta,
     });
     if (!reportId) return { estado: "reintentar" };
-    await anotar({ reportId, desde: desde.toISOString(), hasta: hasta.toISOString() });
-    return { estado: "solicitado", desde: desde.toISOString().slice(0, 10) };
+    await anotar({ reportId, corte, desde: desde.toISOString() });
+    return { estado: "solicitado", desde: corte };
   }
 
   const st = await estadoReporte(cliente, paso.reportId);
@@ -99,8 +122,13 @@ export async function sincronizarVentas(
 
   const { ventas, skus } = agregarDesdeReporte(filas, accountId);
 
+  // Solo se escriben los días que el reporte cubre completos. El día extra
+  // que se pidió de margen se descarta: viene incompleto por definición.
+  const corte: string = paso.corte ?? "";
+  const completos = corte ? ventas.filter((v) => v.fecha >= corte) : ventas;
+
   await guardarEnLotes(admin, "amazon_skus", skus);
-  await guardarEnLotes(admin, "amazon_ventas_diarias", ventas);
+  await guardarEnLotes(admin, "amazon_ventas_diarias", completos);
 
   await admin.from("amazon_sync_estado").upsert({
     account_id: accountId,
@@ -110,7 +138,7 @@ export async function sincronizarVentas(
     actualizado_en: new Date().toISOString(),
   });
 
-  return { estado: "cargado", filas: ventas.length, skus: skus.length };
+  return { estado: "cargado", filas: completos.length, skus: skus.length, desde: corte };
 }
 
 /** Lee el reporte pendiente, si la corrida anterior dejó uno pedido. */
@@ -118,7 +146,7 @@ async function pasoPendiente(
   admin: any,
   accountId: string,
   tarea: string,
-): Promise<{ reportId: string } | null> {
+): Promise<{ reportId: string; corte?: string } | null> {
   const { data } = await admin
     .from("amazon_sync_estado")
     .select("datos")
@@ -126,7 +154,8 @@ async function pasoPendiente(
     .eq("tarea", tarea)
     .maybeSingle();
   const id = data?.datos?.reportId;
-  return typeof id === "string" && id !== "" ? { reportId: id } : null;
+  if (typeof id !== "string" || id === "") return null;
+  return { reportId: id, corte: data?.datos?.corte };
 }
 
 /**
