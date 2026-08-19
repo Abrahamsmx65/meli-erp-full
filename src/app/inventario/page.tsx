@@ -32,10 +32,10 @@ export default async function Inventario() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Inventario</h1>
+        <h1 className="text-xl font-semibold">Bodega</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Todo tu producto en un solo lugar: lo que está en Full, lo que viaja hacia
-          allá, lo que está en cajas cerradas en bodega y lo que viene de China.
+          Todo tu producto en un solo lugar: lo que está en cajas cerradas en bodega,
+          lo que viene de China, lo que ya está en Full y lo que viaja hacia allá.
         </p>
       </div>
 

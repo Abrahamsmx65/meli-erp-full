@@ -46,7 +46,7 @@ export async function GET() {
     });
   }
 
-  const [sync, plan, pendientes, ultimoAviso] = await Promise.all([
+  const [sync, plan, pendientes, ultimoAviso, syncAmazon] = await Promise.all([
     supabase
       .from("sync_log")
       .select("inicio, estado")
@@ -71,6 +71,14 @@ export async function GET() {
       .select("recibido_en")
       .eq("account_id", cuenta.id)
       .order("recibido_en", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("amazon_sync_log")
+      .select("inicio")
+      .eq("estado", "ok")
+      .in("tarea", ["cron_ventas", "cron_inventario"])
+      .order("inicio", { ascending: false })
       .limit(1)
       .maybeSingle(),
   ]);
@@ -99,10 +107,11 @@ export async function GET() {
     conectado: true,
     enVivo: recibidoReciente,
     ultimaSync: recibidoReciente ? ultimaNovedad : (sync.data?.inicio ?? null),
+    ultimaSyncAmazon: syncAmazon.data?.inicio ?? null,
     planGeneradoEn: plan.data?.generado_en ?? null,
     planVigente: plan.data?.vigente ?? true,
     avisosPendientes: pendientes.count ?? 0,
     // Marca del código desplegado, para diagnosticar qué versión corre.
-    version: "fase1-e",
+    version: "fase4-a",
   });
 }

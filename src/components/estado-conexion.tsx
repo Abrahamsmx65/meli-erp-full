@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 interface Estado {
   conectado: boolean;
   ultimaSync: string | null;
+  ultimaSyncAmazon: string | null;
   planGeneradoEn: string | null;
   planVigente: boolean;
   avisosPendientes: number;
@@ -86,9 +87,13 @@ export function EstadoConexion() {
         {!e.conectado
           ? "Mercado Libre sin conectar"
           : e.enVivo
-            ? `En vivo · última novedad ${hace(e.ultimaSync)}`
-            : `Última sincronización ${hace(e.ultimaSync)}`}
+            ? `MELI en vivo · ${hace(e.ultimaSync)}`
+            : `MELI ${hace(e.ultimaSync)}`}
       </span>
+
+      {e.ultimaSyncAmazon ? (
+        <span style={{ color: "var(--ink-2)" }}>Amazon {hace(e.ultimaSyncAmazon)}</span>
+      ) : null}
 
       {e.planGeneradoEn ? (
         <span style={{ color: e.planVigente ? "var(--ink-muted)" : "var(--estado-alerta)" }}>

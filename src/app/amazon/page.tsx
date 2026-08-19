@@ -7,6 +7,7 @@ import {
   estadoRecarga,
   normalizarDias,
 } from "@/lib/servicios/amazon";
+import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { TablaAmazon } from "@/components/tabla-amazon";
 import { Ficha } from "@/components/tiles";
@@ -90,6 +91,10 @@ export default async function Amazon({
       </div>
 
       <RecargaAmazon estado={recarga} />
+
+      {/* Con búsqueda activa los renglones vienen filtrados y la sugerencia
+          de envío quedaría a medias: se muestra solo sobre el panorama entero. */}
+      {!busqueda ? <EnviosFba renglones={renglones} dias={dias} /> : null}
 
       {/* useSearchParams necesita un límite de Suspense para poder prerenderizar. */}
       <Suspense fallback={<div className="tarjeta p-8 text-center text-sm">Cargando…</div>}>

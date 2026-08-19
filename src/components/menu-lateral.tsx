@@ -31,23 +31,28 @@ const GRUPOS: Grupo[] = [
     entradas: [{ href: "/", texto: "Resumen", icono: "◈", ayuda: "Cómo va todo hoy" }],
   },
   {
-    titulo: "Operación",
+    titulo: "Inventario",
     entradas: [
-      { href: "/inventario", texto: "Inventario", icono: "▦", ayuda: "Bodega y Full por SKU" },
+      { href: "/inventario", texto: "Bodega", icono: "▦", ayuda: "Cajas y existencias por SKU" },
+    ],
+  },
+  {
+    titulo: "Mercado Libre",
+    entradas: [
       { href: "/envios", texto: "Envíos a Full", icono: "▶", ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: "▭", ayuda: "Imprimir etiquetas" },
     ],
   },
   {
-    titulo: "Canales",
+    titulo: "Amazon",
     entradas: [
-      { href: "/amazon", texto: "Amazon", icono: "▲", ayuda: "Ventas y stock en FBA" },
+      { href: "/amazon", texto: "Amazon y FBA", icono: "▲", ayuda: "Ventas, stock y envíos a FBA" },
     ],
   },
   {
     titulo: "Abastecimiento",
     entradas: [
-      { href: "/pedidos", texto: "Pedidos a China", icono: "⛴", ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos", texto: "Planificación China", icono: "⛴", ayuda: "Qué pedir y qué viene en camino" },
       { href: "/corridas", texto: "Corridas", icono: "≡", ayuda: "Tallas por caja" },
     ],
   },
