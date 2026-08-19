@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/sync",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/amazon?tarea=ventas",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/amazon?tarea=inventario",
+      "schedule": "0 * * * *"
     }
   ]
 }
