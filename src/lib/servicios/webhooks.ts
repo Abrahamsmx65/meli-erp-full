@@ -176,6 +176,8 @@ interface OrdenMeli {
   id: number;
   status?: string;
   date_created: string;
+  total_amount?: number;
+  payments?: { id?: number }[];
   order_items?: {
     quantity?: number;
     unit_price?: number;
@@ -212,6 +214,12 @@ async function recalcularDiaVentas(
     string,
     { unidades: number; ordenes: number; importe: number; comision: number }
   >();
+  // Por orden, para el neto real: qué renglones (sku|día) la componen y con
+  // qué peso, para repartir el depósito de la orden entre sus SKUs.
+  const ordenes = new Map<
+    number,
+    { dia: string; paymentId: number | null; total: number; renglones: { clave: string; importe: number }[] }
+  >();
 
   for (let offset = 0; offset < 5000; offset += 51) {
     const pagina = await cliente.get<{ results: OrdenMeli[] }>("/orders/search", {
@@ -227,24 +235,36 @@ async function recalcularDiaVentas(
 
     for (const o of lote) {
       const dia = o.date_created?.slice(0, 10) ?? fecha;
+      const info = {
+        dia,
+        paymentId: o.payments?.[0]?.id ?? null,
+        total: o.total_amount ?? 0,
+        renglones: [] as { clave: string; importe: number }[],
+      };
       for (const oi of o.order_items ?? []) {
         const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
         if (!sku) continue;
         const clave = `${sku}|${dia}`;
         const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0 };
+        const importeItem = (oi.quantity ?? 0) * (oi.unit_price ?? 0);
         prev.unidades += oi.quantity ?? 0;
         prev.ordenes += 1;
-        prev.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
+        prev.importe += importeItem;
         prev.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
         acumulado.set(clave, prev);
+        info.renglones.push({ clave, importe: importeItem });
       }
+      if (info.renglones.length) ordenes.set(o.id, info);
     }
     if (lote.length < 51) break;
   }
 
+  // --- Neto real por orden (lo que MELI deposita) --------------------------
+  const netoPorClave = await netosDelDia(db, accountId, cliente, ordenes);
+
   const filas = [...acumulado].map(([clave, v]) => {
     const [sku, dia] = [clave.slice(0, clave.lastIndexOf("|")), clave.slice(clave.lastIndexOf("|") + 1)];
-    return {
+    const base: Record<string, unknown> = {
       account_id: accountId,
       sku,
       fecha: dia,
@@ -253,10 +273,116 @@ async function recalcularDiaVentas(
       importe: v.importe,
       comision: v.comision,
     };
+    // El neto solo se escribe cuando el día quedó completo: escribir un
+    // parcial pisaría un valor bueno con uno a medias.
+    const neto = netoPorClave.get(clave);
+    if (neto !== undefined) base.neto = Math.round(neto * 100) / 100;
+    return base;
   });
 
   await guardarVentasDiarias(db, filas);
   return filas.length;
+}
+
+/**
+ * El neto real (net_received_amount) de cada orden del barrido, repartido a
+ * los renglones sku|día en proporción a su importe.
+ *
+ * Va con caché en `ordenes_neto` porque cada consulta a Mercado Pago cuesta
+ * una llamada: solo se piden las órdenes nuevas y las recientes (los cargos
+ * de envío y retenciones llegan DIFERIDOS, minutos después del pago, así que
+ * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
+ * solo para los días donde TODAS sus órdenes ya tienen neto conocido.
+ */
+async function netosDelDia(
+  db: DB,
+  accountId: string,
+  cliente: MeliClient,
+  ordenes: Map<
+    number,
+    { dia: string; paymentId: number | null; total: number; renglones: { clave: string; importe: number }[] }
+  >,
+): Promise<Map<string, number>> {
+  const vacio = new Map<string, number>();
+  if (!ordenes.size) return vacio;
+
+  // Caché existente. Si la tabla no existe (migración 0012 pendiente), el
+  // neto simplemente no se calcula todavía.
+  const ids = [...ordenes.keys()];
+  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await db
+      .from("ordenes_neto")
+      .select("order_id, neto, actualizado_en")
+      .eq("account_id", accountId)
+      .in("order_id", ids.slice(i, i + 200));
+    if (error) return vacio;
+    for (const f of data ?? []) {
+      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+    }
+  }
+
+  // ¿Cuáles hay que pedir? Las que no están, y las recientes con caché de
+  // hace más de 3 horas (por los cargos diferidos).
+  const ayer = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
+  const hace3h = Date.now() - 3 * 3_600_000;
+  const porPedir: number[] = [];
+  for (const [id, o] of ordenes) {
+    if (!o.paymentId) continue;
+    const c = cache.get(id);
+    if (!c) porPedir.push(id);
+    else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
+  }
+
+  // Tope por barrido para no comerse el tiempo: lo que falte lo recoge el
+  // siguiente latido (corre cada pocos minutos).
+  const nuevas: Record<string, unknown>[] = [];
+  for (const id of porPedir.slice(0, 150)) {
+    const o = ordenes.get(id)!;
+    try {
+      const r = await cliente.get<{ net_received_amount?: number }>(
+        `/collections/${o.paymentId}`,
+      );
+      if (typeof r?.net_received_amount !== "number") continue;
+      cache.set(id, { neto: r.net_received_amount, actualizadoEn: new Date().toISOString() });
+      nuevas.push({
+        account_id: accountId,
+        order_id: id,
+        payment_id: o.paymentId,
+        fecha: o.dia,
+        total: o.total,
+        neto: r.net_received_amount,
+        actualizado_en: new Date().toISOString(),
+      });
+    } catch {
+      // Sin drama: se reintenta en el siguiente barrido.
+    }
+  }
+  if (nuevas.length) {
+    await db.from("ordenes_neto").upsert(nuevas, { onConflict: "account_id,order_id" });
+  }
+
+  // Repartir el neto de cada orden entre sus renglones, y solo entregar los
+  // días completos (todas sus órdenes con neto conocido).
+  const porClave = new Map<string, number>();
+  const diasIncompletos = new Set<string>();
+  for (const [id, o] of ordenes) {
+    const c = cache.get(id);
+    if (!c) {
+      diasIncompletos.add(o.dia);
+      continue;
+    }
+    const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
+    if (importeOrden <= 0) continue;
+    for (const r of o.renglones) {
+      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + c.neto * (r.importe / importeOrden));
+    }
+  }
+  for (const clave of [...porClave.keys()]) {
+    const dia = clave.slice(clave.lastIndexOf("|") + 1);
+    if (diasIncompletos.has(dia)) porClave.delete(clave);
+  }
+  return porClave;
 }
 
 /** Cambio de stock en Full de un inventario. */

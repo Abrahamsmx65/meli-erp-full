@@ -75,20 +75,29 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
   const inicioSemana = fechaMx(6);
   const inicioPrev = fechaMx(13);
 
-  // La columna `comision` puede no existir todavía (migración 0011): se pide
-  // con ella y, si la base no la conoce, se vuelve a pedir sin ella.
+  // Las columnas `comision` y `neto` pueden no existir todavía (migraciones
+  // 0011 y 0012): se pide con ellas y se degrada en cascada si la base aún
+  // no las conoce.
   const leerVentas = async (): Promise<any[]> => {
+    const filtro = (q: any) => q.eq("account_id", accountId).gte("fecha", inicioPrev);
     try {
       return await traerTodo<any>(
         db,
         "ventas_diarias",
-        "sku, fecha, unidades, ordenes, importe, comision",
-        (q) => q.eq("account_id", accountId).gte("fecha", inicioPrev),
+        "sku, fecha, unidades, ordenes, importe, comision, neto",
+        filtro,
       );
     } catch {
-      return traerTodo<any>(db, "ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
-        q.eq("account_id", accountId).gte("fecha", inicioPrev),
-      );
+      try {
+        return await traerTodo<any>(
+          db,
+          "ventas_diarias",
+          "sku, fecha, unidades, ordenes, importe, comision",
+          filtro,
+        );
+      } catch {
+        return traerTodo<any>(db, "ventas_diarias", "sku, fecha, unidades, ordenes, importe", filtro);
+      }
     }
   };
 
@@ -155,7 +164,11 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
       m.importe7 += v.importe ?? 0;
       pr.d7 += v.unidades ?? 0;
       pr.importe7 += v.importe ?? 0;
-      pr.neto7 += (v.importe ?? 0) - (v.comision ?? 0);
+      // El neto REAL depositado por MELI cuando ya se conoce (incluye
+      // comisión, envío y retenciones); si no, la mejor aproximación:
+      // importe menos la comisión.
+      pr.neto7 +=
+        (v.neto ?? 0) > 0 ? (v.neto as number) : (v.importe ?? 0) - (v.comision ?? 0);
       if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
     } else {
       m.unidades7Prev += v.unidades ?? 0;

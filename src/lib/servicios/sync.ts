@@ -93,11 +93,12 @@ export async function guardarVentasDiarias(
   try {
     await upsertEnTandas(db, "ventas_diarias", filas, "account_id,sku,fecha");
   } catch (err) {
-    if (!String((err as Error).message).includes("comision")) throw err;
+    const mensaje = String((err as Error).message);
+    if (!mensaje.includes("comision") && !mensaje.includes("neto")) throw err;
     await upsertEnTandas(
       db,
       "ventas_diarias",
-      filas.map(({ comision: _c, ...resto }) => resto),
+      filas.map(({ comision: _c, neto: _n, ...resto }) => resto),
       "account_id,sku,fecha",
     );
   }
