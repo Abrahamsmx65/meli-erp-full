@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
@@ -34,7 +35,10 @@ export async function GET() {
 
   // Huella para comparar contra la llave real sin exponerla completa: si el
   // API la rechaza, lo primero es saber si Vercel tiene guardado otro valor.
-  const llave = `${config.apiKey.length} caracteres, empieza "${config.apiKey.slice(0, 4)}" y termina "${config.apiKey.slice(-4)}"`;
+  // El SHA-256 delata diferencias en el CENTRO de la llave, que los extremos
+  // no enseñan: cada quien hashea la suya y se comparan.
+  const hash = createHash("sha256").update(config.apiKey).digest("hex").slice(0, 12);
+  const llave = `${config.apiKey.length} caracteres, empieza "${config.apiKey.slice(0, 4)}", termina "${config.apiKey.slice(-4)}", SHA-256 ${hash}`;
 
   try {
     const descarga = await descargarInventarioIndusther();
