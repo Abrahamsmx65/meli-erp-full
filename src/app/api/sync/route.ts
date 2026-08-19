@@ -51,9 +51,14 @@ export async function POST(req: NextRequest) {
       diasHistoria: body?.diasHistoria,
       soloStock: body?.soloStock === true,
     });
-    // Lo que haya quedado sin SKU se resuelve solo, en segundo plano.
+    // Lo que haya quedado sin SKU se resuelve solo, en segundo plano. Las
+    // cookies van de respaldo: sin CRON_SECRET, la sesión del que sincroniza
+    // también enciende el proceso.
     if (resultado.descartadas.sinSku > 0) {
-      await dispararPendientes(process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin);
+      await dispararPendientes(
+        process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin,
+        req.headers.get("cookie"),
+      );
     }
 
     return NextResponse.json({ ok: true, resultado });

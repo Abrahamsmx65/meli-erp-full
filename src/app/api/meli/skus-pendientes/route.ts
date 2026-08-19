@@ -46,13 +46,24 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
 }
 
-/** Con sesión, abrir la URL en el navegador también lo enciende. */
+/**
+ * Con sesión, abrir la URL en el navegador también lo enciende. Y el cron de
+ * Vercel entra por aquí (los cron mandan GET con el bearer de CRON_SECRET):
+ * es la red de seguridad por si el eslabón después de la sincronización no
+ * prendió ese día.
+ */
 export async function GET(req: NextRequest) {
-  const supabase = await clienteServidor();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+  const secreto = process.env.CRON_SECRET;
+  const auth = req.headers.get("authorization");
+  const esCron = Boolean(secreto) && auth === `Bearer ${secreto}`;
+
+  if (!esCron) {
+    const supabase = await clienteServidor();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+  }
 
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
   after(() => procesar(origen));
