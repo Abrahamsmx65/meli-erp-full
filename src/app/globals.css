@@ -182,7 +182,19 @@ a:focus-visible {
     page-break-inside: avoid;
   }
 
+  /* En rollo continuo cada etiqueta ES una página: sin separación entre
+     ellas y con salto forzado, para que no se desalineen del troquel. */
+  .modo-rollo {
+    gap: 0 !important;
+  }
+  .modo-rollo .etiqueta {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  /* Margen cero: en una etiqueta de 25 mm de alto, 4 mm de margen se comen
+     un tercio del espacio. El aire lo pone el padding de la etiqueta. */
   @page {
-    margin: 4mm;
+    margin: 0;
   }
 }

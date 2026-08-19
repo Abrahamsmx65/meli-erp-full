@@ -66,9 +66,10 @@ export default async function PaginaEtiquetas() {
             almacén deja de leerlas.
           </p>
           <p>
-            Para rollo térmico, elige el tamaño de papel de 10 × 5 cm en la impresora. Para
-            hoja carta con etiquetas adheribles, usa la opción de 24 por hoja y verifica con
-            una hoja de prueba antes de gastar el paquete.
+            Para el rollo de la bodega (2 × 1 pulgadas), elige ese tamaño de papel en el
+            diálogo de la impresora térmica: cada etiqueta sale en su propia página, sin
+            márgenes. Para hoja carta con etiquetas adheribles, usa la opción de 24 por
+            hoja y verifica con una hoja de prueba antes de gastar el paquete.
           </p>
           <p>
             El código de barras lleva el <strong>código Full</strong> (el que empieza con

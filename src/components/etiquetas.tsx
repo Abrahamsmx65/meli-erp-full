@@ -19,10 +19,12 @@ interface Resultado {
   variante: string;
 }
 
-type Tamano = "rollo" | "hoja";
+type Tamano = "rollo2x1" | "rollo" | "hoja";
 
 const TAMANOS: Record<Tamano, { etiqueta: string; ancho: number; alto: number; columnas: number }> = {
-  // Medidas en milímetros.
+  // Medidas en milímetros. El rollo de 2 × 1 pulgadas es el que se usa en la
+  // bodega: va primero y es el de arranque.
+  rollo2x1: { etiqueta: "Rollo térmico 2 × 1 pulgadas (50.8 × 25.4 mm)", ancho: 50.8, alto: 25.4, columnas: 1 },
   rollo: { etiqueta: "Rollo térmico 10 × 5 cm", ancho: 100, alto: 50, columnas: 1 },
   hoja: { etiqueta: "Hoja tamaño carta, 24 por hoja", ancho: 63.5, alto: 33.9, columnas: 3 },
 };
@@ -77,6 +79,10 @@ function CodigoBarras({ texto, alto = 42 }: { texto: string; alto?: number }) {
 function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
   const t = TAMANOS[tamano];
   const chica = tamano === "hoja";
+  // En 2 × 1 pulgadas cada décima de milímetro cuenta: el título se reduce a
+  // una línea y el código de barras se queda con la mayor altura posible,
+  // que es lo que el escáner necesita.
+  const mini = tamano === "rollo2x1";
 
   return (
     <div
@@ -87,7 +93,7 @@ function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
         border: "1px solid #ddd",
         background: "#fff",
         color: "#000",
-        padding: chica ? "1.5mm 2mm" : "3mm 4mm",
+        padding: mini ? "1mm 1.5mm" : chica ? "1.5mm 2mm" : "3mm 4mm",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -96,41 +102,41 @@ function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
         breakInside: "avoid",
       }}
     >
-      <div style={{ fontSize: chica ? "5.5pt" : "8pt", lineHeight: 1.15 }}>
+      <div style={{ fontSize: mini ? "5pt" : chica ? "5.5pt" : "8pt", lineHeight: 1.15 }}>
         <div
           style={{
             fontWeight: 600,
             display: "-webkit-box",
-            WebkitLineClamp: chica ? 2 : 3,
+            WebkitLineClamp: mini ? 1 : chica ? 2 : 3,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}
         >
           {e.titulo ?? e.sku}
         </div>
-        {e.variante ? (
+        {e.variante && !mini ? (
           <div style={{ marginTop: "0.5mm" }}>{e.variante}</div>
         ) : null}
       </div>
 
       {e.codigoFull ? (
-        <div style={{ marginTop: chica ? "0.5mm" : "1.5mm" }}>
-          <CodigoBarras texto={e.codigoFull} alto={chica ? 26 : 44} />
+        <div style={{ marginTop: mini ? "0.3mm" : chica ? "0.5mm" : "1.5mm" }}>
+          <CodigoBarras texto={e.codigoFull} alto={mini ? 30 : chica ? 26 : 44} />
           <div
             style={{
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: chica ? "8pt" : "12pt",
+              fontSize: mini ? "6.5pt" : chica ? "8pt" : "12pt",
               fontWeight: 700,
               letterSpacing: "0.06em",
               textAlign: "center",
-              marginTop: "0.5mm",
+              marginTop: mini ? "0.3mm" : "0.5mm",
             }}
           >
             {e.codigoFull}
           </div>
         </div>
       ) : (
-        <div style={{ fontSize: chica ? "6pt" : "9pt", color: "#a00" }}>
+        <div style={{ fontSize: chica || mini ? "6pt" : "9pt", color: "#a00" }}>
           Sin código Full
         </div>
       )}
@@ -138,12 +144,12 @@ function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
       <div
         style={{
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: chica ? "5.5pt" : "7.5pt",
-          borderTop: "1px solid #000",
-          paddingTop: "0.8mm",
+          fontSize: mini ? "4.5pt" : chica ? "5.5pt" : "7.5pt",
+          borderTop: mini ? "none" : "1px solid #000",
+          paddingTop: mini ? "0" : "0.8mm",
         }}
       >
-        {e.sku}
+        {mini ? `${e.sku}${e.variante ? ` · ${e.variante}` : ""}` : e.sku}
       </div>
     </div>
   );
@@ -164,7 +170,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
   const [busqueda, setBusqueda] = useState("");
   const [resultados, setResultados] = useState<Resultado[]>([]);
   const [pegado, setPegado] = useState("");
-  const [tamano, setTamano] = useState<Tamano>("rollo");
+  const [tamano, setTamano] = useState<Tamano>("rollo2x1");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -473,7 +479,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
           </h2>
 
           <div
-            className="hoja-etiquetas mt-3"
+            className={`hoja-etiquetas mt-3 ${tamano !== "hoja" ? "modo-rollo" : ""}`}
             style={{
               display: "grid",
               gridTemplateColumns: `repeat(${TAMANOS[tamano].columnas}, ${TAMANOS[tamano].ancho}mm)`,

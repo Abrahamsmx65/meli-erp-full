@@ -39,6 +39,7 @@ const GRUPOS: Grupo[] = [
   {
     titulo: "Mercado Libre",
     entradas: [
+      { href: "/ventas", texto: "Ventas", icono: "◷", ayuda: "En vivo y por modelo" },
       { href: "/envios", texto: "Envíos a Full", icono: "▶", ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: "▭", ayuda: "Imprimir etiquetas" },
     ],
