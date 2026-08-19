@@ -39,12 +39,19 @@ export async function latido(
   const logId = await registrarSync(admin, accountId, "en_vivo");
 
   try {
-    // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo.
+    // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo. Si
+    // MELI truena a media tanda (cuota, red), el plan se recalcula igual:
+    // los avisos que falten los recoge el siguiente latido.
     let procesados = 0;
-    while (Date.now() < limite) {
-      const r = await procesarPendientes(admin, accountId, 40);
-      procesados += r.procesados;
-      if (r.quedanPendientes === 0 || r.procesados === 0) break;
+    let errorAvisos: string | null = null;
+    try {
+      while (Date.now() < limite) {
+        const r = await procesarPendientes(admin, accountId, 40);
+        procesados += r.procesados;
+        if (r.quedanPendientes === 0 || r.procesados === 0) break;
+      }
+    } catch (err) {
+      errorAvisos = (err as Error).message.slice(0, 300);
     }
 
     // Dejar el plan servido si quedó obsoleto y ya no está fresquito.
@@ -63,7 +70,7 @@ export async function latido(
       msPlan = r.msCalculo;
     }
 
-    await cerrarSync(admin, logId, "ok", { procesados, msPlan });
+    await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.
     await admin
