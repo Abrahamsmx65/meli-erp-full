@@ -12,6 +12,9 @@ import type { Cliente } from "./spapi";
 /** Inventario FBA. El reporte "ALL" no está permitido en el marketplace de México. */
 export const INVENTARIO_FBA = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
 
+/** Todas las órdenes por fecha de compra. Entrega el periodo COMPLETO. */
+export const VENTAS = "GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL";
+
 export type EstadoReporte =
   | { estado: "procesando" }
   | { estado: "listo"; documentId: string }
@@ -22,12 +25,21 @@ export async function solicitarReporte(
   cliente: Cliente,
   tipo: string,
   marketplaceId: string,
+  periodo?: { desde: Date; hasta: Date },
 ): Promise<string | null> {
+  const cuerpo: Record<string, unknown> = {
+    reportType: tipo,
+    marketplaceIds: [marketplaceId],
+  };
+  if (periodo) {
+    cuerpo.dataStartTime = periodo.desde.toISOString();
+    cuerpo.dataEndTime = periodo.hasta.toISOString();
+  }
   const r = await cliente.llamar<{ reportId?: string }>(
     "POST",
     "/reports/2021-06-30/reports",
     "createReport",
-    { cuerpo: { reportType: tipo, marketplaceIds: [marketplaceId] } },
+    { cuerpo },
   );
   return r?.reportId ?? null;
 }

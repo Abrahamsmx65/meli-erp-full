@@ -1,18 +1,21 @@
 /**
- * Sincronización de Amazon que corre en Vercel Cron.
+ * Sincronización de Amazon. La dispara pg_cron desde Supabase.
  *
- * Dos tareas con ritmos distintos:
+ * Ventas e inventario van por REPORTES, no por las APIs de consulta, y las dos
+ * en dos pasos: una corrida pide el reporte y la siguiente lo recoge. Generar
+ * un reporte tarda más de lo que vive una función serverless.
  *
- *  - Ventas: por la API de Pedidos, cada 15 minutos. Amazon limita getOrders a
- *    UNA llamada por minuto, así que solo sirve para ventanas cortas; el
- *    histórico se cargó aparte con reportes.
- *  - Inventario: por reporte plano, cada hora y en dos pasos. Paginar el
- *    inventario por API son cientos de llamadas para este catálogo y el token
- *    de paginación caduca a medio camino.
+ * Las ventas se hicieron por reporte tras un intento fallido con la API de
+ * Pedidos, y la razón importa: getOrders sólo devuelve las órdenes MODIFICADAS
+ * en la ventana. Agregar ese pedazo y escribirlo encima del total del día
+ * degradaba la cifra en cada corrida. El reporte entrega el periodo completo,
+ * así que recalcular y sobreescribir es correcto e idempotente: puede correr
+ * mil veces y siempre deja el mismo resultado.
  */
 import type { Cliente } from "./spapi";
 import {
   INVENTARIO_FBA,
+  VENTAS,
   decimal,
   descargarReporte,
   entero,
@@ -20,44 +23,34 @@ import {
   solicitarReporte,
 } from "./reportes";
 
-/** Una orden puede actualizarse tarde; el cursor retrocede para no perderla. */
-const SOLAPE_HORAS = 6;
 const LOTE = 500;
 
 export interface ResultadoVentas {
-  ordenes: number;
-  partidas: number;
-  filasVenta: number;
-  truncado: boolean;
+  estado: "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar";
+  filas?: number;
+  skus?: number;
+  desde?: string;
+  hasta?: string;
 }
+
+/**
+ * Días hacia atrás que se recalculan en cada pasada.
+ *
+ * Tres y no uno porque una orden puede cambiar de estado después (una
+ * cancelación de ayer tiene que dejar de contar), y porque si el cron se cae
+ * unas horas la siguiente corrida repone el hueco sola.
+ */
+const DIAS_VENTANA = 3;
 
 export interface ResultadoInventario {
   estado: "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar";
   skus?: number;
 }
 
+/** Una orden cancelada no es una venta, aunque siga apareciendo en el reporte. */
 const CANCELADAS = new Set(["cancelled", "canceled"]);
 
-function iso(d: Date): string {
-  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-/** Desfase del marketplace: decide a qué día local se asigna cada venta. */
-function husoDe(marketplaceId: string): number {
-  const husos: Record<string, number> = {
-    A1AM78C64UM0Y8: -6, // México
-    ATVPDKIKX0DER: -8, // Estados Unidos
-    A2EUQ1WTGCTBG2: -8, // Canadá
-  };
-  return husos[marketplaceId] ?? 0;
-}
-
-function fechaLocal(iso8601: string, huso: number): string | null {
-  const t = Date.parse(iso8601);
-  if (Number.isNaN(t)) return null;
-  return new Date(t + huso * 3_600_000).toISOString().slice(0, 10);
-}
-
+/** Supabase corta las escrituras grandes; se mandan por tandas. */
 async function guardarEnLotes(admin: any, tabla: string, filas: any[]): Promise<void> {
   for (let i = 0; i < filas.length; i += LOTE) {
     const { error } = await admin.from(tabla).upsert(filas.slice(i, i + LOTE));
@@ -65,177 +58,137 @@ async function guardarEnLotes(admin: any, tabla: string, filas: any[]): Promise<
   }
 }
 
-// ---------------------------------------------------------------------------
-// Ventas
-// ---------------------------------------------------------------------------
 export async function sincronizarVentas(
   admin: any,
   cliente: Cliente,
 ): Promise<ResultadoVentas> {
   const accountId = cliente.cuenta.accountId;
+  const paso = await pasoPendiente(admin, accountId, "cron_ventas");
 
-  const { data: estado } = await admin
-    .from("amazon_sync_estado")
-    .select("cursor_ts")
-    .eq("account_id", accountId)
-    .eq("tarea", "cron_ventas")
-    .maybeSingle();
-
-  const previo = estado?.cursor_ts ? Date.parse(estado.cursor_ts) : NaN;
-  const desde = new Date(
-    Number.isNaN(previo)
-      ? Date.now() - 7 * 86_400_000
-      : previo - SOLAPE_HORAS * 3_600_000,
-  );
-
-  const ordenes: any[] = [];
-  let token: string | undefined;
-  let truncado = false;
-
-  do {
-    const params: Record<string, string | number | undefined> = token
-      ? { MarketplaceIds: cliente.cuenta.marketplaceId, NextToken: token }
-      : {
-          MarketplaceIds: cliente.cuenta.marketplaceId,
-          LastUpdatedAfter: iso(desde),
-          MaxResultsPerPage: 100,
-        };
-
-    const r = await cliente.llamar<any>("GET", "/orders/v0/orders", "getOrders", { params });
-    // Sin respuesta = se acabó el plazo o la cuota; lo conseguido se guarda igual.
-    if (!r) {
-      truncado = true;
-      break;
-    }
-
-    const carga = r.payload ?? r;
-    ordenes.push(...(carga.Orders ?? []));
-    token = carga.NextToken;
-  } while (token);
-
-  if (ordenes.length === 0) {
-    await avanzarCursor(admin, accountId, truncado);
-    return { ordenes: 0, partidas: 0, filasVenta: 0, truncado };
-  }
-
-  const huso = husoDe(cliente.cuenta.marketplaceId);
-  const fechas = new Map<string, string>();
-  const estados = new Map<string, string>();
-
-  const filasOrden = ordenes.map((o: any) => {
-    const id = o.AmazonOrderId as string;
-    estados.set(id, String(o.OrderStatus ?? ""));
-    const f = fechaLocal(o.PurchaseDate, huso);
-    if (f) fechas.set(id, f);
-    return {
+  const anotar = (datos: Record<string, unknown>) =>
+    admin.from("amazon_sync_estado").upsert({
       account_id: accountId,
-      amazon_order_id: id,
-      fecha_compra: o.PurchaseDate ?? null,
-      fecha_actualizacion: o.LastUpdateDate ?? null,
-      estado: o.OrderStatus ?? null,
-      canal_logistico: o.FulfillmentChannel ?? null,
-      canal_venta: o.SalesChannel ?? null,
-      marketplace_id: o.MarketplaceId ?? null,
-      total: o.OrderTotal?.Amount ? decimal(o.OrderTotal.Amount) : null,
-      moneda: o.OrderTotal?.CurrencyCode ?? null,
-      items_enviados: entero(o.NumberOfItemsShipped),
-      items_pendientes: entero(o.NumberOfItemsUnshipped),
-      es_negocio: Boolean(o.IsBusinessOrder),
-      // Sin datos del comprador: por eso no hacen falta los roles de PII.
-      detalle: { OrderType: o.OrderType ?? null, IsPrime: o.IsPrime ?? null },
-    };
-  });
+      tarea: "cron_ventas",
+      datos,
+      actualizado_en: new Date().toISOString(),
+    });
 
-  await guardarEnLotes(admin, "amazon_ordenes", filasOrden);
-
-  const partidas: any[] = [];
-  for (const o of filasOrden) {
-    const r = await cliente.llamar<any>(
-      "GET",
-      `/orders/v0/orders/${o.amazon_order_id}/orderItems`,
-      "getOrderItems",
-    );
-    if (!r) {
-      truncado = true;
-      break;
-    }
-    for (const it of (r.payload ?? r).OrderItems ?? []) {
-      partidas.push({
-        account_id: accountId,
-        amazon_order_id: o.amazon_order_id,
-        order_item_id: it.OrderItemId,
-        seller_sku: it.SellerSKU ?? null,
-        asin: it.ASIN ?? null,
-        titulo: it.Title ?? null,
-        cantidad: entero(it.QuantityOrdered),
-        cantidad_enviada: entero(it.QuantityShipped),
-        precio: it.ItemPrice?.Amount ? decimal(it.ItemPrice.Amount) : null,
-        impuesto: it.ItemTax?.Amount ? decimal(it.ItemTax.Amount) : null,
-        descuento: it.PromotionDiscount?.Amount ? decimal(it.PromotionDiscount.Amount) : null,
-        moneda: it.ItemPrice?.CurrencyCode ?? null,
-      });
-    }
+  if (!paso) {
+    const hasta = new Date();
+    const desde = new Date(hasta.getTime() - DIAS_VENTANA * 86_400_000);
+    const reportId = await solicitarReporte(cliente, VENTAS, cliente.cuenta.marketplaceId, {
+      desde,
+      hasta,
+    });
+    if (!reportId) return { estado: "reintentar" };
+    await anotar({ reportId, desde: desde.toISOString(), hasta: hasta.toISOString() });
+    return { estado: "solicitado", desde: desde.toISOString().slice(0, 10) };
   }
 
-  await guardarEnLotes(admin, "amazon_orden_items", partidas);
+  const st = await estadoReporte(cliente, paso.reportId);
+  if (st.estado === "procesando") return { estado: "procesando" };
 
-  // Agregado diario por SKU: es lo que consume la pantalla.
-  const acumulado = new Map<string, any>();
-  const pedidosPorClave = new Map<string, Set<string>>();
-
-  for (const p of partidas) {
-    const fecha = fechas.get(p.amazon_order_id);
-    if (!p.seller_sku || !fecha) continue;
-    if (CANCELADAS.has((estados.get(p.amazon_order_id) ?? "").toLowerCase())) continue;
-
-    const clave = `${p.seller_sku}|${fecha}`;
-    const reg = acumulado.get(clave) ?? {
-      account_id: accountId,
-      seller_sku: p.seller_sku,
-      fecha,
-      unidades: 0,
-      ordenes: 0,
-      importe: 0,
-      moneda: p.moneda,
-    };
-    reg.unidades += p.cantidad;
-    reg.importe += p.precio ?? 0;
-    acumulado.set(clave, reg);
-
-    const vistos = pedidosPorClave.get(clave) ?? new Set<string>();
-    vistos.add(p.amazon_order_id);
-    pedidosPorClave.set(clave, vistos);
+  if (st.estado === "fallido" || st.estado === "vacio") {
+    await anotar({});
+    return { estado: st.estado === "vacio" ? "vacio" : "reintentar" };
   }
 
-  const filasVenta = [...acumulado.entries()].map(([clave, reg]) => ({
-    ...reg,
-    ordenes: pedidosPorClave.get(clave)?.size ?? 0,
-    importe: Math.round(reg.importe * 100) / 100,
-  }));
+  const filas = await descargarReporte(cliente, st.documentId);
+  await anotar({});
+  if (filas.length === 0) return { estado: "vacio" };
 
-  await guardarEnLotes(admin, "amazon_ventas_diarias", filasVenta);
-  await avanzarCursor(admin, accountId, truncado);
+  const { ventas, skus } = agregarDesdeReporte(filas, accountId);
 
-  return {
-    ordenes: filasOrden.length,
-    partidas: partidas.length,
-    filasVenta: filasVenta.length,
-    truncado,
-  };
-}
+  await guardarEnLotes(admin, "amazon_skus", skus);
+  await guardarEnLotes(admin, "amazon_ventas_diarias", ventas);
 
-/**
- * El cursor solo avanza si se procesó TODO. Si la corrida se quedó a medias,
- * dejarlo donde estaba hace que la siguiente recupere lo que faltó.
- */
-async function avanzarCursor(admin: any, accountId: string, truncado: boolean) {
-  if (truncado) return;
   await admin.from("amazon_sync_estado").upsert({
     account_id: accountId,
     tarea: "cron_ventas",
     cursor_ts: new Date().toISOString(),
+    datos: {},
     actualizado_en: new Date().toISOString(),
   });
+
+  return { estado: "cargado", filas: ventas.length, skus: skus.length };
+}
+
+/** Lee el reporte pendiente, si la corrida anterior dejó uno pedido. */
+async function pasoPendiente(
+  admin: any,
+  accountId: string,
+  tarea: string,
+): Promise<{ reportId: string } | null> {
+  const { data } = await admin
+    .from("amazon_sync_estado")
+    .select("datos")
+    .eq("account_id", accountId)
+    .eq("tarea", tarea)
+    .maybeSingle();
+  const id = data?.datos?.reportId;
+  return typeof id === "string" && id !== "" ? { reportId: id } : null;
+}
+
+/**
+ * Convierte el reporte plano en el agregado diario por SKU.
+ *
+ * La columna purchase-date ya trae el desfase del marketplace, así que sus
+ * primeros 10 caracteres SON la fecha local de venta: no hay que convertir
+ * nada y no hay riesgo de mover una venta de día por error de huso.
+ */
+function agregarDesdeReporte(
+  filas: Record<string, string>[],
+  accountId: string,
+): { ventas: any[]; skus: any[] } {
+  const acumulado = new Map<string, any>();
+  const pedidos = new Map<string, Set<string>>();
+  const catalogo = new Map<string, any>();
+
+  for (const f of filas) {
+    const sku = (f["sku"] ?? "").trim();
+    const compra = (f["purchase-date"] ?? "").trim();
+    if (!sku || compra.length < 10) continue;
+
+    if (!catalogo.has(sku)) {
+      catalogo.set(sku, {
+        account_id: accountId,
+        seller_sku: sku,
+        asin: f["asin"] || null,
+        titulo: f["product-name"] || null,
+        canal: f["fulfillment-channel"] || null,
+      });
+    }
+
+    const estado = (f["item-status"] || f["order-status"] || "").toLowerCase();
+    if (CANCELADAS.has(estado)) continue;
+
+    const fecha = compra.slice(0, 10);
+    const clave = `${sku}|${fecha}`;
+    const reg = acumulado.get(clave) ?? {
+      account_id: accountId,
+      seller_sku: sku,
+      fecha,
+      unidades: 0,
+      ordenes: 0,
+      importe: 0,
+      moneda: f["currency"] || null,
+    };
+    reg.unidades += entero(f["quantity"]);
+    reg.importe += decimal(f["item-price"]);
+    acumulado.set(clave, reg);
+
+    const vistos = pedidos.get(clave) ?? new Set<string>();
+    vistos.add(f["amazon-order-id"] ?? "");
+    pedidos.set(clave, vistos);
+  }
+
+  const ventas = [...acumulado.entries()].map(([clave, reg]) => ({
+    ...reg,
+    ordenes: pedidos.get(clave)?.size ?? 0,
+    importe: Math.round(reg.importe * 100) / 100,
+  }));
+
+  return { ventas, skus: [...catalogo.values()] };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,14 +200,7 @@ export async function sincronizarInventario(
 ): Promise<ResultadoInventario> {
   const accountId = cliente.cuenta.accountId;
 
-  const { data: estado } = await admin
-    .from("amazon_sync_estado")
-    .select("datos")
-    .eq("account_id", accountId)
-    .eq("tarea", "cron_inventario")
-    .maybeSingle();
-
-  const pendiente: string | undefined = estado?.datos?.reportId;
+  const paso = await pasoPendiente(admin, accountId, "cron_inventario");
 
   const anotar = (datos: Record<string, unknown>) =>
     admin.from("amazon_sync_estado").upsert({
@@ -265,7 +211,7 @@ export async function sincronizarInventario(
     });
 
   // Paso 1: no hay reporte pendiente, se pide uno y se recoge la próxima vez.
-  if (!pendiente) {
+  if (!paso) {
     const reportId = await solicitarReporte(cliente, INVENTARIO_FBA, cliente.cuenta.marketplaceId);
     if (!reportId) return { estado: "reintentar" };
     await anotar({ reportId, pedidoEn: new Date().toISOString() });
@@ -273,7 +219,7 @@ export async function sincronizarInventario(
   }
 
   // Paso 2: recoger el que quedó pendiente.
-  const st = await estadoReporte(cliente, pendiente);
+  const st = await estadoReporte(cliente, paso.reportId);
 
   if (st.estado === "procesando") return { estado: "procesando" };
 
