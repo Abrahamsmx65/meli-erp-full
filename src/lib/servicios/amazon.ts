@@ -115,3 +115,32 @@ export async function cargarAmazon(
     },
   };
 }
+
+export interface EstadoRecarga {
+  pendientes: number;
+  listas: number;
+  total: number;
+  /** Ventana más antigua que falta: es lo que se está procesando ahora. */
+  enCurso: string | null;
+}
+
+/** Avance de la recarga histórica encolada, para mostrarlo en pantalla. */
+export async function estadoRecarga(db: DB, accountId: string): Promise<EstadoRecarga> {
+  const { data } = await db
+    .from("amazon_recargas")
+    .select("desde, estado")
+    .eq("account_id", accountId)
+    .order("desde", { ascending: true });
+
+  const filas = (data ?? []) as { desde: string; estado: string }[];
+  const pendientes = filas.filter(
+    (f) => f.estado === "pendiente" || f.estado === "solicitado",
+  );
+
+  return {
+    pendientes: pendientes.length,
+    listas: filas.filter((f) => f.estado === "listo").length,
+    total: filas.length,
+    enCurso: pendientes[0]?.desde ?? null,
+  };
+}
