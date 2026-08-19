@@ -1,8 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, registrarSync, cerrarSync } from "@/lib/datos/repos";
-import { procesarPendientes } from "@/lib/servicios/webhooks";
-import { recalcular } from "@/lib/servicios/cache";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { latido, EDAD_MAX_PLAN_MS } from "@/lib/servicios/latido";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,12 +21,9 @@ export const maxDuration = 300;
  *
  * Es a propósito que el trabajo vaya montado en la consulta de estado y no en
  * el webhook: MELI corta a los 500 ms y procesar ahí haría que perdiéramos
- * avisos. Lo que nadie procese mientras la app está cerrada lo recoge el cron.
+ * avisos. Cuando la app está cerrada, el propio webhook enciende el latido
+ * cada hora (ver latido.ts).
  */
-
-/** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
-const EDAD_MAX_PLAN_MS = 3 * 60_000;
-
 export async function GET() {
   const supabase = await clienteServidor();
   const {
@@ -86,7 +82,8 @@ export async function GET() {
       Date.now() - new Date(plan.data.generado_en).getTime() > EDAD_MAX_PLAN_MS);
 
   if (hayAvisos || planViejo) {
-    after(() => trabajar(cuenta.id, hayAvisos, planViejo));
+    const accountId = cuenta.id;
+    after(() => latido(clienteAdmin(), accountId));
   }
 
   // "En vivo" significa que los webhooks están llegando de verdad, no que
@@ -106,66 +103,4 @@ export async function GET() {
     planVigente: plan.data?.vigente ?? true,
     avisosPendientes: pendientes.count ?? 0,
   });
-}
-
-/**
- * El trabajo pesado, ya con la respuesta entregada.
- *
- * El candado vive en sync_log: si otra pestaña (u otro ciclo del mismo
- * navegador) ya tiene una corrida viva, esta se retira sin hacer nada.
- */
-async function trabajar(accountId: string, avisos: boolean, planViejo: boolean): Promise<void> {
-  const admin = clienteAdmin();
-
-  const { data: vivo } = await admin
-    .from("sync_log")
-    .select("id")
-    .eq("account_id", accountId)
-    .eq("tarea", "en_vivo")
-    .eq("estado", "corriendo")
-    .gte("inicio", new Date(Date.now() - 4 * 60_000).toISOString())
-    .limit(1);
-  if (vivo?.length) return;
-
-  const logId = await registrarSync(admin, accountId, "en_vivo");
-
-  try {
-    let procesados = 0;
-    if (avisos) {
-      const r = await procesarPendientes(admin, accountId, 25);
-      procesados = r.procesados;
-    }
-
-    // Recalcular si el plan ya venía viejo o si estos avisos lo invalidaron.
-    let msPlan: number | null = null;
-    if (planViejo || procesados > 0) {
-      const { data: plan } = await admin
-        .from("plan_cache")
-        .select("generado_en, vigente")
-        .eq("account_id", accountId)
-        .maybeSingle();
-      const obsoleto =
-        plan?.vigente === false &&
-        (!plan?.generado_en ||
-          Date.now() - new Date(plan.generado_en).getTime() > EDAD_MAX_PLAN_MS);
-      if (obsoleto) {
-        const r = await recalcular(admin, accountId);
-        msPlan = r.msCalculo;
-      }
-    }
-
-    await cerrarSync(admin, logId, "ok", { procesados, msPlan });
-
-    // Estas corridas son latidos, no historia: no vale la pena acumularlas.
-    await admin
-      .from("sync_log")
-      .delete()
-      .eq("account_id", accountId)
-      .eq("tarea", "en_vivo")
-      .lt("inicio", new Date(Date.now() - 24 * 3600 * 1000).toISOString());
-  } catch (err) {
-    await cerrarSync(admin, logId, "error", {
-      mensaje: (err as Error).message.slice(0, 300),
-    });
-  }
 }
