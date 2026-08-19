@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { registrarSync, cerrarSync, upsertEnTandas } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
@@ -35,6 +35,40 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
+  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+
+  // Se contesta de inmediato y el trabajo corre después de responder.
+  // El que dispara no puede quedarse esperando los ~4 minutos que esto puede
+  // tardar, y abortar la petición antes de tiempo mataba la función en frío:
+  // así fue como este proceso estuvo semanas sin correr ni una vez.
+  after(() => procesar(origen));
+
+  return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
+}
+
+/** Con sesión, abrir la URL en el navegador también lo enciende. */
+export async function GET(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+
+  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  after(() => procesar(origen));
+
+  const admin = clienteAdmin();
+  const { count } = await admin
+    .from("skus_pendientes")
+    .select("*", { count: "exact", head: true });
+
+  return NextResponse.json(
+    { ok: true, encolado: true, pendientes: count ?? 0 },
+    { status: 202 },
+  );
+}
+
+async function procesar(origen: string): Promise<void> {
   const admin = clienteAdmin();
   const t0 = Date.now();
   const PRESUPUESTO_MS = 230_000; // deja margen dentro de los 300 s de Vercel
@@ -183,27 +217,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ¿Queda trabajo? Este mismo proceso se vuelve a lanzar y sigue.
+  // ¿Queda trabajo? Este mismo proceso se vuelve a lanzar y sigue. La nueva
+  // invocación contesta 202 al instante, así que aquí no se espera casi nada.
   const { count: restantes } = await admin
     .from("skus_pendientes")
     .select("*", { count: "exact", head: true });
 
-  if ((restantes ?? 0) > 0 && secreto) {
-    const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 1500);
+  const secreto = process.env.CRON_SECRET;
+  if ((restantes ?? 0) > 0 && resueltos + fallidos > 0 && secreto) {
     try {
       await fetch(`${origen}/api/meli/skus-pendientes`, {
         method: "POST",
         headers: { authorization: `Bearer ${secreto}` },
-        signal: ctl.signal,
+        signal: AbortSignal.timeout(10_000),
       });
     } catch {
-      // El abort es esperado: la siguiente corrida ya quedó lanzada.
-    } finally {
-      clearTimeout(t);
+      // Si el eslabón no prende, el siguiente sync o el cron lo relanzan.
     }
   }
-
-  return NextResponse.json({ ok: true, resueltos, fallidos, restantes: restantes ?? 0 });
 }

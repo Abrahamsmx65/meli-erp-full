@@ -1,25 +1,22 @@
 /**
- * Lanza el proceso de SKUs pendientes sin esperar su respuesta.
+ * Lanza el proceso de SKUs pendientes.
  *
- * Se llama al terminar una sincronización: si quedaron tallas por resolver,
- * el proceso arranca solo y se re-lanza hasta vaciar la tabla. El abort a
- * los 1.5 s es a propósito: basta con que la petición haya llegado.
+ * El proceso contesta 202 de inmediato y trabaja después de responder, así
+ * que esta espera es corta. El timeout de 10 s es solo por si la función
+ * tarda en arrancar en frío: abortar antes de tiempo la mataba sin que
+ * llegara a ejecutarse, que es justo el error que hubo que corregir aquí.
  */
 export async function dispararPendientes(origen: string): Promise<void> {
   const secreto = process.env.CRON_SECRET;
   if (!secreto) return;
 
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 1500);
   try {
     await fetch(`${origen}/api/meli/skus-pendientes`, {
       method: "POST",
       headers: { authorization: `Bearer ${secreto}` },
-      signal: ctl.signal,
+      signal: AbortSignal.timeout(10_000),
     });
   } catch {
-    // Esperado: no nos interesa la respuesta, solo encenderlo.
-  } finally {
-    clearTimeout(t);
+    // Si no prendió, el siguiente sync o el cron lo vuelven a intentar.
   }
 }
