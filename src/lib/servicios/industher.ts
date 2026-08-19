@@ -39,18 +39,22 @@ export function configuracionIndusther(): { url: string; apiKey: string } | null
   return { url: limpiarValor(process.env.INDUSTHER_API_URL) || URL_POR_OMISION, apiKey };
 }
 
-/** Baja el inventario crudo del API de Industher. Nunca registra la llave. */
-export async function descargarInventarioIndusther(): Promise<unknown> {
-  const config = configuracionIndusther();
-  if (!config) {
-    throw new Error(
-      "Falta INDUSTHER_API_KEY en las variables de entorno. Agrégala en Vercel para activar la integración.",
-    );
-  }
+/** El API entrega máximo 1,000 registros por consulta; se pagina con offset. */
+const LIMITE_PAGINA = 1000;
+/** Tope de seguridad: 100 páginas = 100 mil renglones. Más que eso es un ciclo. */
+const MAX_PAGINAS = 100;
+
+async function descargarPagina(
+  config: { url: string; apiKey: string },
+  offset: number,
+): Promise<unknown> {
+  const url = new URL(config.url);
+  url.searchParams.set("limit", String(LIMITE_PAGINA));
+  url.searchParams.set("offset", String(offset));
 
   let respuesta: Response;
   try {
-    respuesta = await fetch(config.url, {
+    respuesta = await fetch(url, {
       headers: { "x-api-key": config.apiKey, accept: "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
@@ -85,6 +89,66 @@ export async function descargarInventarioIndusther(): Promise<unknown> {
   return cuerpo;
 }
 
+export interface DescargaIndusther {
+  lista: Record<string, unknown>[];
+  avisos: string[];
+}
+
+/**
+ * Baja el inventario COMPLETO del API de Industher, página por página, hasta
+ * que una venga incompleta. Nunca registra la llave.
+ */
+export async function descargarInventarioIndusther(): Promise<DescargaIndusther> {
+  const config = configuracionIndusther();
+  if (!config) {
+    throw new Error(
+      "Falta INDUSTHER_API_KEY en las variables de entorno. Agrégala en Vercel para activar la integración.",
+    );
+  }
+
+  const lista: Record<string, unknown>[] = [];
+  const avisos: string[] = [];
+  let primeraFilaAnterior = "";
+
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+    const cuerpo = await descargarPagina(config, pagina * LIMITE_PAGINA);
+
+    let filas: Record<string, unknown>[];
+    try {
+      filas = extraerLista(cuerpo);
+    } catch (err) {
+      // En la primera página es un error real; después solo significa que
+      // ya no hay más datos.
+      if (pagina === 0) throw err;
+      break;
+    }
+
+    if (!filas.length) break;
+
+    // Si el API ignorara el offset regresaría siempre lo mismo, y sumar la
+    // misma página cien veces duplicaría el inventario. Se detecta y se corta.
+    const primeraFila = JSON.stringify(filas[0]);
+    if (pagina > 0 && primeraFila === primeraFilaAnterior) {
+      avisos.push(
+        "El API regresó la misma página dos veces (parece ignorar el offset); se dejó de paginar para no duplicar renglones.",
+      );
+      break;
+    }
+    primeraFilaAnterior = primeraFila;
+
+    lista.push(...filas);
+    if (filas.length < LIMITE_PAGINA) break;
+
+    if (pagina === MAX_PAGINAS - 1) {
+      throw new Error(
+        `El API lleva más de ${(MAX_PAGINAS * LIMITE_PAGINA).toLocaleString("es-MX")} renglones sin terminar; se corta por seguridad.`,
+      );
+    }
+  }
+
+  return { lista, avisos };
+}
+
 // ---------------------------------------------------------------------------
 // Normalización
 // ---------------------------------------------------------------------------
@@ -105,16 +169,47 @@ export interface InventarioNormalizado {
  */
 const SINONIMOS: Record<string, string[]> = {
   almacen: ["ALMACEN", "BODEGA", "WAREHOUSE", "SUCURSAL"],
-  codigoAlmacen: ["CODIGO-ALMACEN", "CLAVE-ALMACEN", "CODIGO-BODEGA"],
+  codigoAlmacen: ["CODIGO-ALMACEN", "CLAVE-ALMACEN", "CODIGO-BODEGA", "WAREHOUSE-CODE"],
   skuCaja: ["SKU", "SKU-CAJA", "CODIGO", "CLAVE", "CODIGO-SKU"],
-  pedido: ["N-PEDIDO", "PEDIDO", "NO-PEDIDO", "NUM-PEDIDO", "NUMERO-PEDIDO", "ORDEN"],
+  pedido: [
+    "N-PEDIDO",
+    "PEDIDO",
+    "NO-PEDIDO",
+    "NUM-PEDIDO",
+    "NUMERO-PEDIDO",
+    "ORDEN",
+    "ORDER",
+    "PURCHASE-ORDER",
+  ],
   modelo: ["MODELO", "ESTILO", "MODEL"],
   color: ["COLOR"],
   talla: ["TALLA", "SIZE", "MEDIDA"],
   contenedor: ["CONTENEDOR", "CONTAINER"],
-  cajasFisicas: ["CAJAS-FISICAS", "FISICAS", "CAJAS-TOTALES", "TOTAL-CAJAS"],
-  cajasApartadas: ["CAJAS-APARTADAS", "APARTADAS", "RESERVADAS", "CAJAS-RESERVADAS"],
-  enCamino: ["EN-CAMINO", "EN-TRANSITO", "TRANSITO"],
+  cajasFisicas: [
+    "CAJAS-FISICAS",
+    "FISICAS",
+    "CAJAS-TOTALES",
+    "TOTAL-CAJAS",
+    "PHYSICAL-BOXES",
+    "BOXES-PHYSICAL",
+  ],
+  cajasApartadas: [
+    "CAJAS-APARTADAS",
+    "APARTADAS",
+    "RESERVADAS",
+    "CAJAS-RESERVADAS",
+    "RESERVED-BOXES",
+    "BOXES-RESERVED",
+  ],
+  enCamino: [
+    "CAJAS-EN-CAMINO",
+    "EN-CAMINO",
+    "EN-TRANSITO",
+    "TRANSITO",
+    "BOXES-IN-TRANSIT",
+    "IN-TRANSIT-BOXES",
+    "IN-TRANSIT",
+  ],
   cajasDisponibles: [
     "CAJAS-DISPONIBLES",
     "DISPONIBLES",
@@ -122,6 +217,8 @@ const SINONIMOS: Record<string, string[]> = {
     "EXISTENCIA-CAJAS",
     "STOCK-CAJAS",
     "CANTIDAD-CAJAS",
+    "AVAILABLE-BOXES",
+    "BOXES-AVAILABLE",
   ],
   paresPorCaja: [
     "PARES-POR-CAJA",
@@ -129,7 +226,15 @@ const SINONIMOS: Record<string, string[]> = {
     "PIEZAS-POR-CAJA",
     "PZAS-POR-CAJA",
     "UNIDADES-POR-CAJA",
+    "PAIRS-PER-BOX",
   ],
+  // El API reporta también pares (físicos, apartados, disponibles, en camino).
+  // El esquema guarda cajas + pares por caja, así que estos sirven para
+  // DERIVAR los pares por caja cuando no vienen directos.
+  paresFisicos: ["PARES-FISICOS", "PHYSICAL-PAIRS", "PAIRS-PHYSICAL", "TOTAL-PARES"],
+  paresApartados: ["PARES-APARTADOS", "RESERVED-PAIRS", "PAIRS-RESERVED"],
+  paresDisponibles: ["PARES-DISPONIBLES", "AVAILABLE-PAIRS", "PAIRS-AVAILABLE"],
+  paresEnCamino: ["PARES-EN-CAMINO", "PAIRS-IN-TRANSIT", "IN-TRANSIT-PAIRS"],
 };
 
 /** Claves bajo las que suele venir envuelta la lista en una respuesta JSON. */
@@ -247,6 +352,10 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
   const kCamino = claveDe("enCamino");
   const kDisponibles = claveDe("cajasDisponibles");
   const kParesCaja = claveDe("paresPorCaja");
+  const kParesFisicos = claveDe("paresFisicos");
+  claveDe("paresApartados"); // solo para no reportarlos como ignorados
+  const kParesDisponibles = claveDe("paresDisponibles");
+  claveDe("paresEnCamino");
 
   if (!kModelo && !kSku) {
     throw new Error(
@@ -273,6 +382,9 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
   const filas: FilaExistencia[] = [];
   const almacenes = new Set<string>();
   let saltadas = 0;
+  let derivados = 0;
+  let noEnteros = 0;
+  let sinParesPorCaja = 0;
 
   for (const r of lista) {
     const modelo = kModelo ? texto(r[kModelo]) : "";
@@ -297,6 +409,27 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
     const almacen = (kAlmacen ? texto(r[kAlmacen]) : "") || ALMACEN_POR_OMISION;
     almacenes.add(almacen);
 
+    // Pares por caja: directo si viene; si no, se deriva de pares ÷ cajas
+    // (primero con los físicos, que no dependen de apartados; luego con los
+    // disponibles). El motor no puede convertir cajas a pares sin este dato.
+    const paresFisicos = kParesFisicos ? numero(r[kParesFisicos]) : 0;
+    const paresDisponibles = kParesDisponibles ? numero(r[kParesDisponibles]) : 0;
+    let paresPorCaja = kParesCaja ? numero(r[kParesCaja]) : 0;
+    if (!paresPorCaja) {
+      const razon =
+        fisicas > 0 && paresFisicos > 0
+          ? paresFisicos / fisicas
+          : disponibles > 0 && paresDisponibles > 0
+            ? paresDisponibles / disponibles
+            : 0;
+      if (razon > 0) {
+        derivados++;
+        if (Math.abs(razon - Math.round(razon)) > 0.01) noEnteros++;
+        paresPorCaja = Math.round(razon);
+      }
+    }
+    if (!paresPorCaja && disponibles > 0) sinParesPorCaja++;
+
     filas.push({
       almacen,
       codigoAlmacen: kCodAlmacen ? texto(r[kCodAlmacen]) : "",
@@ -310,8 +443,8 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
       cajasApartadas: apartadas,
       enCamino: kCamino ? numero(r[kCamino]) : 0,
       cajasDisponibles: disponibles,
-      paresPorCaja: kParesCaja ? numero(r[kParesCaja]) : 0,
-      paresDisponibles: 0,
+      paresPorCaja,
+      paresDisponibles,
     });
   }
 
@@ -335,6 +468,7 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
     previa.cajasApartadas += f.cajasApartadas;
     previa.enCamino += f.enCamino;
     previa.cajasDisponibles += f.cajasDisponibles;
+    previa.paresDisponibles += f.paresDisponibles;
     previa.paresPorCaja = previa.paresPorCaja || f.paresPorCaja;
   }
   if (duplicadas > 0) {
@@ -344,9 +478,19 @@ export function normalizarInventario(cuerpo: unknown): InventarioNormalizado {
       `${duplicadas} renglones venían repetidos (mismo almacén, SKU, talla y contenedor); se sumaron sus cajas.`,
     );
   }
-  if (!kParesCaja) {
+  if (derivados > 0) {
     avisos.push(
-      "El API no trae pares por caja; sin ese dato las cajas mixtas no convierten a pares. Revisa los campos ignorados.",
+      `Los pares por caja no vienen directos; se derivaron de pares ÷ cajas en ${derivados} renglones.`,
+    );
+  }
+  if (noEnteros > 0) {
+    avisos.push(
+      `En ${noEnteros} renglones los pares no dividen exacto entre las cajas (se redondeó). Vale la pena revisarlos con Industher.`,
+    );
+  }
+  if (sinParesPorCaja > 0) {
+    avisos.push(
+      `${sinParesPorCaja} renglones con cajas disponibles quedaron SIN pares por caja; esas cajas no convierten a pares. Revisa los campos ignorados.`,
     );
   }
 
@@ -381,8 +525,9 @@ export async function sincronizarInventarioIndusther(
   db: DB,
   accountId: string,
 ): Promise<ResumenSincronizacion> {
-  const crudo = await descargarInventarioIndusther();
-  const inv = normalizarInventario(crudo);
+  const descarga = await descargarInventarioIndusther();
+  const inv = normalizarInventario(descarga.lista);
+  inv.avisos.unshift(...descarga.avisos);
 
   if (!inv.filas.length) {
     throw new Error(

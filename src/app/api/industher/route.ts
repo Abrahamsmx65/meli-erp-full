@@ -37,8 +37,9 @@ export async function GET() {
   const llave = `${config.apiKey.length} caracteres, empieza "${config.apiKey.slice(0, 4)}" y termina "${config.apiKey.slice(-4)}"`;
 
   try {
-    const crudo = await descargarInventarioIndusther();
-    const inv = normalizarInventario(crudo);
+    const descarga = await descargarInventarioIndusther();
+    const inv = normalizarInventario(descarga.lista);
+    inv.avisos.unshift(...descarga.avisos);
 
     return NextResponse.json({
       ok: true,
