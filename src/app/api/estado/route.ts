@@ -102,5 +102,7 @@ export async function GET() {
     planGeneradoEn: plan.data?.generado_en ?? null,
     planVigente: plan.data?.vigente ?? true,
     avisosPendientes: pendientes.count ?? 0,
+    // Marca del código desplegado, para diagnosticar qué versión corre.
+    version: "fase1-e",
   });
 }
