@@ -149,19 +149,24 @@ export async function sugerirCompra(
     { enFull: number; enTransferencia: number; enBodega: number; enCamino: number }
   >,
   opciones?: Partial<ParametrosCompra>,
+  precargado?: { corridas: any[]; skus: any[] },
 ): Promise<SugerenciaCompra> {
   const p = { ...COMPRA_POR_DEFECTO, ...opciones };
   const ciclo = p.diasProduccion + p.diasTransito;
   const horizonte = ciclo + p.diasCobertura;
 
-  const [corridasRaw, skusRaw] = await Promise.all([
-    traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total, actualizado_en", (q) =>
-      q.eq("account_id", accountId),
-    ),
-    traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
-      q.eq("account_id", accountId).eq("activo", true),
-    ),
-  ]);
+  // La página de pedidos ya leyó estas dos tablas para el inventario:
+  // volver a pedirlas duplicaba los viajes a la base en cada clic.
+  const [corridasRaw, skusRaw] = precargado
+    ? [precargado.corridas, precargado.skus]
+    : await Promise.all([
+        traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
+          q.eq("account_id", accountId),
+        ),
+        traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
+          q.eq("account_id", accountId).eq("activo", true),
+        ),
+      ]);
 
   // La corrida más reciente de cada modelo+color es la que la fábrica usa hoy.
   const corridaDe = new Map<string, { tallas: Record<string, number>; total: number; pedido: string }>();

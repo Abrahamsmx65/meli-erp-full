@@ -65,6 +65,8 @@ export default async function Pedidos() {
     cuenta.id,
     planEstado.plan.lineas,
     inventarioPorSku,
+    undefined,
+    inventario.crudos,
   );
 
   const p = compra.parametros;

@@ -43,6 +43,12 @@ export interface ResumenInventario {
   };
   porAlmacen: { almacen: string; cajas: number; pares: number }[];
   porPedido: { pedido: string; cajas: number; pares: number; almacenes: string[] }[];
+  /**
+   * Las tablas crudas que ya se leyeron, para que quien necesite ambas cosas
+   * (la página de pedidos usa inventario Y sugerencia de compra) no vuelva a
+   * pedirlas a la base: era el doble de viajes por cada clic.
+   */
+  crudos: { corridas: any[]; skus: any[] };
 }
 
 export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
@@ -210,5 +216,6 @@ export async function cargarInventario(db: DB, accountId: string): Promise<Resum
         almacenes: [...v.almacenes].sort(),
       }))
       .sort((a, b) => b.pares - a.pares),
+    crudos: { corridas: corridasRaw, skus },
   };
 }
