@@ -51,7 +51,25 @@ export interface ResumenInventario {
   crudos: { corridas: any[]; skus: any[] };
 }
 
+/**
+ * Caché en memoria del proceso: cruzar bodega con Full lee seis tablas y
+ * arma todas las cajas — es lo que hace lentas a Bodega y a Planificación
+ * China. El resultado vive 60 segundos en la instancia: los clics seguidos
+ * son instantáneos y el dato nunca envejece más de un minuto.
+ */
+const cacheInventario = new Map<string, { en: number; datos: ResumenInventario }>();
+const VIDA_CACHE_MS = 60_000;
+
 export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
+  const guardado = cacheInventario.get(accountId);
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
+
+  const datos = await cargarInventarioSinCache(db, accountId);
+  cacheInventario.set(accountId, { en: Date.now(), datos });
+  return datos;
+}
+
+async function cargarInventarioSinCache(db: DB, accountId: string): Promise<ResumenInventario> {
   const eq = (q: any) => q.eq("account_id", accountId);
 
   const [skus, stock, corridasRaw, existRaw, mapeoRaw, almacenesRaw] = await Promise.all([
