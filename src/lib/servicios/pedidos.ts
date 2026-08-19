@@ -81,6 +81,7 @@ export async function guardarProforma(
   // tabla tiene una restricción de unicidad ahí y fallaría al insertar.
   const porClave = new Map<string, (typeof proforma.lineas)[number]>();
   for (const l of proforma.lineas) {
+    if (l.unitalla) continue;
     const k = `${canonizar(l.modelo)}|${canonizar(l.color)}`;
     const previa = porClave.get(k);
     if (previa) {
@@ -91,7 +92,39 @@ export async function guardarProforma(
     }
   }
 
-  const lineas = [...porClave.values()];
+  // Solo las líneas de corrida definen la corrida del modelo. Se aparta la
+  // lista ANTES de sumarle las unitallas.
+  const lineasDeCorrida = [...porClave.values()];
+
+  // Las cajas unitalla se resumen en un renglón por modelo+color, con los
+  // pares TOTALES por talla (cajas de una talla = pares ÷ pares por caja).
+  // Si el mismo color también trae corrida, sus totales se suman ahí.
+  const unitallas = new Map<string, (typeof proforma.lineas)[number]>();
+  for (const l of proforma.lineas) {
+    if (!l.unitalla) continue;
+    const k = `${canonizar(l.modelo)}|${canonizar(l.color)}`;
+    const enCorrida = porClave.get(k);
+    if (enCorrida && !unitallas.has(k)) {
+      enCorrida.cajas += l.cajas;
+      enCorrida.pares += l.pares;
+      continue;
+    }
+    const acc =
+      unitallas.get(k) ??
+      ({
+        ...l,
+        tallas: {},
+        cajas: 0,
+        pares: 0,
+        descripcion: `${l.descripcion || ""} (cajas de una sola talla)`.trim(),
+      } as (typeof proforma.lineas)[number]);
+    acc.tallas[l.unitalla] = (acc.tallas[l.unitalla] ?? 0) + l.pares;
+    acc.cajas += l.cajas;
+    acc.pares += l.pares;
+    unitallas.set(k, acc);
+  }
+
+  const lineas = [...lineasDeCorrida, ...unitallas.values()];
 
   const { error: errLineas } = await db.from("pedido_lineas").insert(
     lineas.map((l) => ({
@@ -108,9 +141,10 @@ export async function guardarProforma(
   );
   if (errLineas) throw new Error(`No se pudieron guardar los renglones: ${errLineas.message}`);
 
-  // Las corridas. Aquí está el ahorro: se dan de alta solas.
+  // Las corridas. Aquí está el ahorro: se dan de alta solas. Las unitallas
+  // quedan fuera: una caja de pura talla 24 no es la corrida del modelo.
   const { error: errCorridas } = await db.from("corridas").upsert(
-    lineas.map((l) => ({
+    lineasDeCorrida.map((l) => ({
       account_id: accountId,
       pedido: proforma.pedido,
       modelo: l.modelo,
@@ -129,7 +163,7 @@ export async function guardarProforma(
   return {
     pedidoId: pedido.id,
     lineasCreadas: lineas.length,
-    corridasCreadas: lineas.length,
+    corridasCreadas: lineasDeCorrida.length,
   };
 }
 

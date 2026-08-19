@@ -50,6 +50,15 @@ export const COMPRA_POR_DEFECTO: ParametrosCompra = {
 
 export type UrgenciaCompra = "quiebre" | "urgente" | "pronto" | "ok" | "sobrado";
 
+/**
+ * Reglas de unitalla: la fábrica acepta cajas de una sola talla únicamente
+ * en pedidos grandes. Una talla se separa como unitalla solo si ella sola
+ * justifica al menos UNITALLA_MIN_CAJAS cajas Y el color completo pide al
+ * menos COLOR_MIN_CAJAS cajas; si no, todo va en cajas de corrida.
+ */
+export const UNITALLA_MIN_CAJAS = 10;
+export const COLOR_MIN_CAJAS = 100;
+
 export interface RenglonCompra {
   modelo: string;
   color: string;
@@ -79,6 +88,18 @@ export interface RenglonCompra {
   /** si la corrida no embona con cómo se vende: talla -> desvío */
   desajusteCorrida: { talla: string; enCorrida: number; segunDemanda: number }[];
   motivo: string;
+  /**
+   * La corrida QUE CONVIENE PEDIR: el reparto de pares por caja calculado
+   * según lo que falta de cada talla (demanda del horizonte menos stock de
+   * esa talla). Es la corrida ajustada a la demanda real, no la histórica.
+   */
+  corridaPropuesta: Record<string, number> | null;
+  /** cajas de corrida (ya sin las tallas que se separaron como unitalla) */
+  cajasCorrida: number;
+  /** tallas que ameritan caja de una sola talla, con sus cajas */
+  unitallas: { talla: string; cajas: number }[];
+  /** faltante por talla, la base de todo el reparto */
+  faltantePorTalla: Record<string, number>;
 }
 
 export interface SugerenciaCompra {
@@ -96,6 +117,79 @@ export interface SugerenciaCompra {
 
 function clave(modelo: string, color: string): string {
   return `${modelo.trim().toUpperCase()}|${color.trim().toUpperCase()}`;
+}
+
+/**
+ * Reparte los pares de una caja entre tallas en proporción a su faltante,
+ * en enteros que suman exacto (mayor residuo se lleva el par sobrante).
+ */
+export function repartirCorrida(
+  faltantePorTalla: Record<string, number>,
+  paresPorCaja: number,
+): Record<string, number> {
+  const total = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+  if (total <= 0 || paresPorCaja <= 0) return {};
+
+  const crudos = Object.entries(faltantePorTalla)
+    .filter(([, f]) => f > 0)
+    .map(([talla, f]) => {
+      const exacto = (f / total) * paresPorCaja;
+      return { talla, piso: Math.floor(exacto), residuo: exacto - Math.floor(exacto) };
+    });
+
+  let sobran = paresPorCaja - crudos.reduce((a, c) => a + c.piso, 0);
+  crudos.sort((a, b) => b.residuo - a.residuo);
+  const corrida: Record<string, number> = {};
+  for (const c of crudos) {
+    const extra = sobran > 0 ? 1 : 0;
+    if (extra) sobran--;
+    const pares = c.piso + extra;
+    if (pares > 0) corrida[c.talla] = pares;
+  }
+  return corrida;
+}
+
+/**
+ * Divide el faltante de un color entre cajas UNITALLA y cajas de CORRIDA.
+ *
+ * Unitalla solo en pedidos grandes: la talla debe justificar sola al menos
+ * UNITALLA_MIN_CAJAS cajas y el color completo debe pedir al menos
+ * COLOR_MIN_CAJAS. Lo que se va en unitalla se resta del faltante y el resto
+ * se reparte en cajas de corrida con la proporción del faltante restante.
+ */
+export function armarPedidoColor(
+  faltantePorTalla: Record<string, number>,
+  paresPorCaja: number,
+): {
+  unitallas: { talla: string; cajas: number }[];
+  cajasCorrida: number;
+  corridaPropuesta: Record<string, number>;
+} {
+  const totalFaltante = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+  if (totalFaltante <= 0 || paresPorCaja <= 0) {
+    return { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
+  }
+
+  const cajasTotales = Math.ceil(totalFaltante / paresPorCaja);
+  const restante: Record<string, number> = { ...faltantePorTalla };
+  const unitallas: { talla: string; cajas: number }[] = [];
+
+  if (cajasTotales >= COLOR_MIN_CAJAS) {
+    for (const [talla, f] of Object.entries(restante)) {
+      const cajas = Math.floor(f / paresPorCaja);
+      if (cajas >= UNITALLA_MIN_CAJAS) {
+        unitallas.push({ talla, cajas });
+        restante[talla] = f - cajas * paresPorCaja;
+      }
+    }
+    unitallas.sort((a, b) => Number(a.talla) - Number(b.talla));
+  }
+
+  const faltanteRestante = Object.values(restante).reduce((a, b) => a + b, 0);
+  const cajasCorrida = Math.ceil(faltanteRestante / paresPorCaja);
+  const corridaPropuesta = repartirCorrida(restante, paresPorCaja);
+
+  return { unitallas, cajasCorrida, corridaPropuesta };
 }
 
 function urgenciaDe(cobertura: number | null, ciclo: number): UrgenciaCompra {
@@ -208,6 +302,7 @@ export async function sugerirCompra(
     enBodega: number;
     enCamino: number;
     demandaPorTalla: Map<string, number>;
+    inventarioPorTalla: Map<string, number>;
   }
 
   const grupos = new Map<string, Acumulado>();
@@ -227,6 +322,7 @@ export async function sugerirCompra(
         enBodega: 0,
         enCamino: 0,
         demandaPorTalla: new Map(),
+        inventarioPorTalla: new Map(),
       };
       grupos.set(k, g);
     }
@@ -251,13 +347,17 @@ export async function sugerirCompra(
   // ni siquiera menciona porque nunca se han vendido. Esos también ocupan
   // espacio y no hay que volver a pedirlos.
   for (const [sku, inv] of inventarioPorSku) {
-    const { modelo, color } = partes(sku);
+    const { modelo, color, talla } = partes(sku);
     const g = grupo(modelo, color);
     g.skus.add(sku);
     g.enFull += inv.enFull;
     g.enTransferencia += inv.enTransferencia;
     g.enBodega += inv.enBodega;
     g.enCamino += inv.enCamino;
+    if (talla) {
+      const total = inv.enFull + inv.enTransferencia + inv.enBodega + inv.enCamino;
+      g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + total);
+    }
   }
 
   // --- Un renglón por grupo ------------------------------------------------
@@ -281,8 +381,25 @@ export async function sugerirCompra(
 
     const c = corridaDe.get(clave(g.modelo, g.color));
     const paresPorCaja = c?.total ?? null;
+
+    // Faltante POR TALLA: la demanda del horizonte de cada talla menos su
+    // propio inventario. Es la base de la corrida propuesta — pedir con la
+    // corrida vieja repone también las tallas que ya están sobradas.
+    const faltantePorTalla: Record<string, number> = {};
+    const tallasTodas = new Set([...g.demandaPorTalla.keys(), ...g.inventarioPorTalla.keys()]);
+    for (const t of tallasTodas) {
+      const f =
+        (g.demandaPorTalla.get(t) ?? 0) * horizonte - (g.inventarioPorTalla.get(t) ?? 0);
+      if (f > 0) faltantePorTalla[t] = Math.round(f);
+    }
+
+    const pedido =
+      faltante > 0 && paresPorCaja && paresPorCaja > 0
+        ? armarPedidoColor(faltantePorTalla, paresPorCaja)
+        : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
+
     const cajasSugeridas =
-      faltante > 0 && paresPorCaja && paresPorCaja > 0 ? Math.ceil(faltante / paresPorCaja) : 0;
+      pedido.cajasCorrida + pedido.unitallas.reduce((a, u) => a + u.cajas, 0);
 
     const urgencia = urgenciaDe(cobertura, ciclo);
 
@@ -324,6 +441,12 @@ export async function sugerirCompra(
       urgencia,
       desajusteCorrida: c ? compararCorrida(c.tallas, g.demandaPorTalla) : [],
       motivo,
+      corridaPropuesta: Object.keys(pedido.corridaPropuesta).length
+        ? pedido.corridaPropuesta
+        : null,
+      cajasCorrida: pedido.cajasCorrida,
+      unitallas: pedido.unitallas,
+      faltantePorTalla,
     });
   }
 
