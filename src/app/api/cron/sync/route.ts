@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizar } from "@/lib/servicios/sync";
 import { recalcular } from "@/lib/servicios/cache";
+import { configuracionIndusther, sincronizarInventarioIndusther } from "@/lib/servicios/industher";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,19 @@ export async function GET(req: NextRequest) {
     try {
       const r = await sincronizar(admin, c.id);
 
+      // El inventario de bodega también llega solo, si la integración con
+      // Industher está configurada. Si su API falla, la foto anterior sigue
+      // sirviendo: se avisa y el resto de la sincronización continúa.
+      let industher: Record<string, unknown> | null = null;
+      if (configuracionIndusther()) {
+        try {
+          const inv = await sincronizarInventarioIndusther(admin, c.id);
+          industher = { renglones: inv.renglones, cajasDisponibles: inv.cajasDisponibles };
+        } catch (err) {
+          industher = { error: (err as Error).message };
+        }
+      }
+
       // Dejar el plan servido. Si esto truena, la sincronización sigue siendo
       // buena: solo se pierde el adelanto y el plan se calcula al abrir.
       let msPlan: number | null = null;
@@ -49,7 +63,7 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      resultados.push({ cuenta: c.nickname, ok: true, msPlan, ...r });
+      resultados.push({ cuenta: c.nickname, ok: true, msPlan, industher, ...r });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }

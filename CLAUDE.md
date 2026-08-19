@@ -55,6 +55,7 @@ guárdala numerada.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts`              |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Código de barras Code 128        | `src/lib/etiquetas/code128.ts`              |
 | Páginas                          | `src/app/{envios,inventario,pedidos,corridas,etiquetas,pendientes,ajustes}` |
 
