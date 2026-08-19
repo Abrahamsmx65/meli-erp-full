@@ -3,7 +3,11 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan, invalidar } from "@/lib/servicios/cache";
 import { separarEnvios } from "@/lib/servicios/envios";
-import { marcarRecibido, registrarEnvio } from "@/lib/servicios/envios-registrados";
+import {
+  marcarRecibido,
+  registrarEnvio,
+  registrarEnvioManual,
+} from "@/lib/servicios/envios-registrados";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,6 +32,34 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
+
+  // Registro MANUAL: folio + lista de SKU y pares (envíos ya dados de alta
+  // en MELI antes de que existiera el botón, o armados fuera del plan).
+  if (Array.isArray(body?.renglones)) {
+    const renglones = (body.renglones as { sku?: unknown; pares?: unknown }[])
+      .map((r) => ({ sku: String(r.sku ?? "").trim(), pares: Math.round(Number(r.pares)) }))
+      .filter((r) => r.sku && Number.isFinite(r.pares) && r.pares > 0);
+    if (!renglones.length) {
+      return NextResponse.json(
+        { error: "No encontré ningún SKU con pares en la lista." },
+        { status: 400 },
+      );
+    }
+    try {
+      const id = await registrarEnvioManual(
+        supabase,
+        cuenta.id,
+        String(body?.folio ?? "").trim(),
+        renglones,
+      );
+      await invalidar(clienteAdmin(), cuenta.id, "Se registró un envío a Full en camino.");
+      const pares = renglones.reduce((a, r) => a + r.pares, 0);
+      return NextResponse.json({ ok: true, id, skus: renglones.length, pares });
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    }
+  }
+
   const grupo = typeof body?.grupo === "string" ? body.grupo.trim() : "";
   if (!grupo) return NextResponse.json({ error: "Falta el envío (grupo)." }, { status: 400 });
 

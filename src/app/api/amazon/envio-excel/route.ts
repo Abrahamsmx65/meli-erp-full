@@ -1,8 +1,14 @@
 import ExcelJS from "exceljs";
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { cargarAmazon, cuentaAmazon, normalizarDias } from "@/lib/servicios/amazon";
-import { OBJETIVO_DIAS_FBA, URGENTE_DIAS_FBA, sugerirEnvioFba } from "@/lib/servicios/fba";
+import {
+  OBJETIVO_DIAS_FBA,
+  URGENTE_DIAS_FBA,
+  mapaCorridas,
+  sugerirEnvioFba,
+} from "@/lib/servicios/fba";
 import { aISO } from "@/lib/engine/fechas";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +51,18 @@ export async function GET(request: NextRequest) {
   }
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
-  const { renglones } = await cargarAmazon(supabase, dias, "");
-  const sugerencias = sugerirEnvioFba(renglones, dias);
-  const totalPares = sugerencias.reduce((a, s) => a + s.sugerido, 0);
+  const cuentaMeli = await cuentaActiva(supabase);
+  const [{ renglones }, corridasRaw] = await Promise.all([
+    cargarAmazon(supabase, dias, ""),
+    cuentaMeli
+      ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
+  ]);
+  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw));
+  const totalCajas = sugerencias.reduce((a, s) => a + s.cajas, 0);
+  const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
   const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
 
   const wb = new ExcelJS.Workbook();
@@ -69,10 +84,11 @@ export async function GET(request: NextRequest) {
     ["Periodo de venta analizado", `${dias} días`, "El ritmo de venta sale de este periodo"],
     ["Cobertura objetivo", `${OBJETIVO_DIAS_FBA} días`, "Cuánta venta quieres tener en FBA"],
     ["", "", ""],
-    ["SKUs por reponer", sugerencias.length, ""],
-    ["Pares sugeridos", totalPares, ""],
+    ["Productos por reponer", sugerencias.length, "Solo calzado (GT, MY, YH, G650)"],
+    ["Cajas", totalCajas, "Cajas completas: no se abren"],
+    ["Pares", totalPares, ""],
     [
-      "SKUs urgentes",
+      "Urgentes",
       urgentes,
       `Con menos de ${URGENTE_DIAS_FBA} días de stock al ritmo actual`,
     ],
@@ -83,29 +99,33 @@ export async function GET(request: NextRequest) {
   // ------------------------------------------------------------ ENVÍO A FBA
   const hEnvio = wb.addWorksheet("Envío a FBA");
   hEnvio.columns = [
-    { header: "SKU", key: "sku", width: 30 },
-    { header: "ASIN", key: "asin", width: 14 },
+    { header: "Modelo", key: "modelo", width: 12 },
+    { header: "Color", key: "color", width: 18 },
     { header: "Producto", key: "titulo", width: 60 },
-    { header: `Vendidas (${dias}d)`, key: "unidades", width: 14 },
+    { header: "Tallas", key: "tallas", width: 8 },
     { header: "Venta/día", key: "ventaDiaria", width: 11 },
     { header: "En FBA", key: "disponible", width: 10 },
     { header: "En camino", key: "enTransferencia", width: 11 },
     { header: "Cobertura (días)", key: "cobertura", width: 14 },
-    { header: "Pares a mandar", key: "sugerido", width: 14 },
+    { header: "Pares/caja", key: "porCaja", width: 11 },
+    { header: "Cajas a mandar", key: "cajas", width: 14 },
+    { header: "Pares", key: "pares", width: 10 },
   ];
   encabezar(hEnvio);
 
   for (const s of sugerencias) {
     hEnvio.addRow({
-      sku: s.sku,
-      asin: s.asin ?? "",
+      modelo: s.modelo,
+      color: s.color,
       titulo: s.titulo ?? "",
-      unidades: s.unidades,
+      tallas: s.tallas,
       ventaDiaria: Number(s.ventaDiaria.toFixed(2)),
       disponible: s.disponible,
       enTransferencia: s.enTransferencia,
       cobertura: s.cobertura === null ? "" : Math.round(s.cobertura),
-      sugerido: s.sugerido,
+      porCaja: s.paresPorCaja ?? "sin corrida",
+      cajas: s.tieneCorrida ? s.cajas : "?",
+      pares: s.pares,
     });
   }
 

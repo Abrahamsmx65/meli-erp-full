@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const modelo = typeof body?.modelo === "string" ? body.modelo.trim() : "";
-  const color = typeof body?.color === "string" ? body.color.trim() : "";
+  // El costo y la categoría son POR MODELO: mismo precio todos los colores.
+  const color = "";
   if (!modelo) return NextResponse.json({ error: "Falta el modelo." }, { status: 400 });
 
   const categoria =

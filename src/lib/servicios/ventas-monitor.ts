@@ -191,7 +191,8 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
 
   for (const pr of productos.values()) {
     unidadesSemanaTotal += pr.d7;
-    const cfg = config.get(`${pr.modelo}|${pr.color}`);
+    // El costo y la categoría son por MODELO: mismo precio todos los colores.
+    const cfg = config.get(pr.modelo);
     const categoria = cfg?.categoria ?? "Sin categoría";
     const cat =
       categorias.get(categoria) ??

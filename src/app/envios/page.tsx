@@ -176,6 +176,7 @@ export default async function Plan() {
       <EnviosEnCamino
         envios={enCamino.map((e) => ({
           id: e.id,
+          folio: e.folio,
           bodegas: e.bodegas,
           cajas: e.cajas,
           pares: e.pares,

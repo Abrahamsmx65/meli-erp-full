@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarInventario } from "@/lib/servicios/inventario";
+import { configPorProducto } from "@/lib/servicios/productos";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
 import Link from "next/link";
@@ -9,6 +10,10 @@ export const dynamic = "force-dynamic";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
+}
+
+function pesos(x: number): string {
+  return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
 export default async function Inventario() {
@@ -26,33 +31,63 @@ export default async function Inventario() {
     );
   }
 
-  const inv = await cargarInventario(supabase, cuenta.id);
+  const [inv, config] = await Promise.all([
+    cargarInventario(supabase, cuenta.id),
+    configPorProducto(supabase, cuenta.id),
+  ]);
   const t = inv.totales;
+
+  // El dinero parado en la bodega, a costo: pares × costo del modelo. Solo
+  // suma lo que tiene costo capturado en Productos y costos.
+  let valorBodega = 0;
+  let valorEnCamino = 0;
+  let paresSinCosto = 0;
+  for (const r of inv.renglones) {
+    const costo = config.get(r.modelo)?.costo;
+    if (costo == null) {
+      paresSinCosto += r.enBodega + r.enCamino;
+      continue;
+    }
+    valorBodega += r.enBodega * costo;
+    valorEnCamino += r.enCamino * costo;
+  }
+
+  const skusBodega = inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length;
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold">Bodega</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Todo tu producto en un solo lugar: lo que está en cajas cerradas en bodega,
-          lo que viene de China, lo que ya está en Full y lo que viaja hacia allá.
+          Lo que está en cajas cerradas en tu bodega y lo que viene de China. Lo de
+          Mercado Libre vive en su propia sección.
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Ficha titulo="SKUs" valor={n(t.skus)} nota="Con inventario o publicación" />
-        <Ficha titulo="En Full" valor={n(t.enFull)} nota="Listos para vender" tono="bien" />
-        <Ficha
-          titulo="Hacia Full"
-          valor={n(t.enTransferencia)}
-          nota="En transferencia"
-        />
-        <Ficha titulo="En bodega" valor={n(t.enBodega)} nota="En cajas cerradas" />
+        <Ficha titulo="SKUs" valor={n(skusBodega)} nota="Con producto en bodega o en camino" />
+        <Ficha titulo="En bodega" valor={n(t.enBodega)} nota="Pares en cajas cerradas" />
         <Ficha
           titulo="Desde China"
           valor={n(t.enCamino)}
           nota="En camino a bodega"
           tono={t.enCamino > 0 ? "alerta" : "neutro"}
+        />
+        <Ficha
+          titulo="Valor en bodega"
+          valor={valorBodega > 0 ? pesos(valorBodega) : "—"}
+          nota={
+            valorBodega > 0
+              ? paresSinCosto > 0
+                ? `A costo · ${n(paresSinCosto)} pares sin costo capturado`
+                : "A costo, con todos los costos capturados"
+              : "Captura costos en Productos y costos"
+          }
+        />
+        <Ficha
+          titulo="Valor en camino"
+          valor={valorEnCamino > 0 ? pesos(valorEnCamino) : "—"}
+          nota="Lo que viene de China, a costo"
         />
       </div>
 
@@ -113,7 +148,7 @@ export default async function Inventario() {
         </section>
       </div>
 
-      <TablaInventario renglones={inv.renglones} />
+      <TablaInventario renglones={inv.renglones} soloBodega />
     </div>
   );
 }

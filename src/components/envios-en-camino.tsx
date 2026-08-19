@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 interface EnvioEnCamino {
   id: string;
+  folio: string | null;
   bodegas: string[];
   cajas: number;
   pares: number;
@@ -33,8 +34,6 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const router = useRouter();
 
-  if (!envios.length) return null;
-
   const recibido = async (id: string) => {
     if (trabajando) return;
     if (!confirm("¿MELI ya recibió este envío en Full?")) return;
@@ -62,6 +61,13 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
           uno, márcalo — o se cierra solo a los 21 días.
         </p>
       </header>
+      {envios.length === 0 ? (
+        <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+          No hay envíos registrados en camino. Si ya diste de alta alguno en MELI y no
+          pasó por el botón del plan, regístralo aquí abajo para que el sistema lo
+          cuente.
+        </p>
+      ) : null}
       <ul>
         {envios.map((e) => (
           <li
@@ -70,9 +76,13 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
           >
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">
-                {e.bodegas.length ? e.bodegas.join(" y ") : "Envío"} ·{" "}
-                <span className="cifra">{n(e.cajas)}</span> cajas ·{" "}
-                <span className="cifra">{n(e.pares)}</span> pares
+                {e.folio ? `Envío ${e.folio}` : e.bodegas.length ? e.bodegas.join(" y ") : "Envío"}
+                {e.cajas > 0 ? (
+                  <>
+                    {" "}· <span className="cifra">{n(e.cajas)}</span> cajas
+                  </>
+                ) : null}{" "}
+                · <span className="cifra">{n(e.pares)}</span> pares
               </div>
               <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
                 Dado de alta {hace(e.enviadoEn)}
@@ -92,6 +102,118 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
           </li>
         ))}
       </ul>
+
+      <RegistrarManual />
     </section>
+  );
+}
+
+/**
+ * Registro a mano de un envío que ya va en camino: folio de MELI y la lista
+ * de SKU + pares (pégala del contenido del envío en Gestión de envíos, o de
+ * la hoja "Picking por talla" del Excel con el que se armó).
+ */
+function RegistrarManual() {
+  const [abierto, setAbierto] = useState(false);
+  const [folio, setFolio] = useState("");
+  const [pegado, setPegado] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  const registrar = async () => {
+    const renglones = pegado
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const partes = l.split(/[\t,;]+|\s{2,}|\s+(?=\d+$)/).filter(Boolean);
+        return { sku: partes[0] ?? "", pares: Number(partes[1] ?? 0) };
+      })
+      .filter((r) => r.sku && r.pares > 0);
+
+    if (!renglones.length) {
+      setError("Pega un SKU por renglón con sus pares al lado (SKU 48).");
+      return;
+    }
+    setGuardando(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/envios", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folio, renglones }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? "No se pudo registrar.");
+      setFolio("");
+      setPegado("");
+      setAbierto(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="border-t p-4 hairline">
+      {!abierto ? (
+        <button
+          onClick={() => setAbierto(true)}
+          className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+          style={{ borderColor: "var(--borde)" }}
+        >
+          Registrar un envío que ya va en camino
+        </button>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+            Pega la lista del envío: un SKU por renglón y sus pares al lado (sale del
+            contenido del envío en Gestión de envíos de MELI, o de la hoja "Picking por
+            talla" del Excel con el que lo armaste).
+          </p>
+          <input
+            value={folio}
+            onChange={(e) => setFolio(e.target.value)}
+            placeholder="Folio del envío en MELI (ej. 74713738)"
+            className="max-w-xs rounded-lg border px-2 py-1.5 text-sm"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          />
+          <textarea
+            value={pegado}
+            onChange={(e) => setPegado(e.target.value)}
+            rows={6}
+            placeholder={"GT104-BLK-25-MX\t48\nGT204-PINK-23-MX\t24"}
+            className="w-full rounded-lg border px-2 py-1.5 font-mono text-xs"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          />
+          {error ? (
+            <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+              {error}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAbierto(false)}
+              disabled={guardando}
+              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={registrar}
+              disabled={guardando || !pegado.trim()}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              {guardando ? "Registrando…" : "Registrar envío"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

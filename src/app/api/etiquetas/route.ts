@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { claveComparacion } from "@/lib/importar/sku";
 
 export const dynamic = "force-dynamic";
@@ -53,10 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Son demasiados SKUs de un jalón." }, { status: 400 });
   }
 
-  const { data: catalogo } = await supabase
-    .from("skus")
-    .select("sku, inventory_id, titulo, color, talla, logistica")
-    .eq("account_id", cuenta.id);
+  // TODO el catálogo, paginado: una lectura directa corta en 1000 filas y
+  // con más SKUs que eso, dos tercios del catálogo "no existían" para las
+  // etiquetas.
+  const catalogo = await traerTodo<any>(
+    supabase,
+    "skus",
+    "sku, inventory_id, titulo, color, talla, logistica",
+    (q) => q.eq("account_id", cuenta.id),
+  );
 
   // Dos índices: el SKU tal cual y el SKU sin el sufijo del sitio.
   const exacto = new Map<string, any>();

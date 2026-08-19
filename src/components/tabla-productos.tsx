@@ -29,14 +29,13 @@ export function TablaProductos({
       if (!q) return true;
       return (
         p.modelo.toUpperCase().includes(q) ||
-        p.color.toUpperCase().includes(q) ||
         (p.categoria ?? "").toUpperCase().includes(q) ||
         (p.titulo ?? "").toUpperCase().includes(q)
       );
     });
   }, [filas, busqueda, soloSinCosto]);
 
-  const clave = (p: ProductoConfig) => `${p.modelo}|${p.color}`;
+  const clave = (p: ProductoConfig) => p.modelo;
 
   const guardar = async (p: ProductoConfig) => {
     const k = clave(p);
@@ -47,7 +46,6 @@ export function TablaProductos({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           modelo: p.modelo,
-          color: p.color,
           categoria: p.categoria ?? "",
           costoMxn: p.costoMxn ?? 0,
         }),
@@ -91,8 +89,8 @@ export function TablaProductos({
           <thead>
             <tr>
               <th>Modelo</th>
-              <th>Color</th>
               <th>Producto</th>
+              <th className="num">Colores</th>
               <th className="num">Tallas</th>
               <th>Categoría</th>
               <th className="num">Costo (MXN/par)</th>
@@ -106,7 +104,6 @@ export function TablaProductos({
               return (
                 <tr key={k}>
                   <td className="font-medium">{p.modelo}</td>
-                  <td>{p.color || "—"}</td>
                   <td
                     className="max-w-72 truncate text-xs"
                     style={{ color: "var(--ink-2)" }}
@@ -114,6 +111,7 @@ export function TablaProductos({
                   >
                     {p.titulo ?? "—"}
                   </td>
+                  <td className="num cifra">{p.colores}</td>
                   <td className="num cifra">{p.tallas}</td>
                   <td>
                     <input

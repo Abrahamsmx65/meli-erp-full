@@ -18,7 +18,14 @@ function n(x: number): string {
  * lo que hace que uno crea que tiene producto cuando en realidad está a seis
  * semanas de tenerlo.
  */
-export function TablaInventario({ renglones }: { renglones: RenglonInventario[] }) {
+export function TablaInventario({
+  renglones,
+  soloBodega,
+}: {
+  renglones: RenglonInventario[];
+  /** true = la vista de Bodega: sin columnas de MELI, solo bodega y China */
+  soloBodega?: boolean;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const [soloConExistencia, setSoloConExistencia] = useState(true);
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -28,13 +35,15 @@ export function TablaInventario({ renglones }: { renglones: RenglonInventario[] 
   const filtrados = useMemo(
     () =>
       renglones.filter((r) => {
-        if (soloConExistencia && r.total === 0) return false;
+        const relevante = soloBodega ? r.enBodega + r.enCamino : r.total;
+        if (soloConExistencia && relevante === 0) return false;
+        if (soloBodega && r.enBodega + r.enCamino === 0) return false;
         return coincide(
           `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
           terminos,
         );
       }),
-    [renglones, terminos, soloConExistencia],
+    [renglones, terminos, soloConExistencia, soloBodega],
   );
 
   const totales = useMemo(
@@ -73,10 +82,14 @@ export function TablaInventario({ renglones }: { renglones: RenglonInventario[] 
         </div>
 
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          <strong className="cifra">{filtrados.length}</strong> SKUs · Full{" "}
-          <span className="cifra">{n(totales.enFull)}</span> · hacia Full{" "}
-          <span className="cifra">{n(totales.enTransferencia)}</span> · bodega{" "}
-          <span className="cifra">{n(totales.enBodega)}</span> · China{" "}
+          <strong className="cifra">{filtrados.length}</strong> SKUs
+          {!soloBodega ? (
+            <>
+              {" "}· Full <span className="cifra">{n(totales.enFull)}</span> · hacia Full{" "}
+              <span className="cifra">{n(totales.enTransferencia)}</span>
+            </>
+          ) : null}{" "}
+          · bodega <span className="cifra">{n(totales.enBodega)}</span> · China{" "}
           <span className="cifra">{n(totales.enCamino)}</span>
         </p>
       </header>
@@ -89,8 +102,12 @@ export function TablaInventario({ renglones }: { renglones: RenglonInventario[] 
               <th>Modelo</th>
               <th>Color</th>
               <th className="num">Talla</th>
-              <th className="num">En Full</th>
-              <th className="num">Hacia Full</th>
+              {!soloBodega ? (
+                <>
+                  <th className="num">En Full</th>
+                  <th className="num">Hacia Full</th>
+                </>
+              ) : null}
               <th className="num">Bodega</th>
               <th className="num">China</th>
               <th className="num">Total</th>
@@ -120,20 +137,28 @@ export function TablaInventario({ renglones }: { renglones: RenglonInventario[] 
                     <td className="text-sm">{r.modelo}</td>
                     <td className="text-sm">{r.color}</td>
                     <td className="num cifra text-sm">{r.talla}</td>
-                    <td
-                      className="num cifra font-medium"
-                      style={{ color: r.enFull === 0 ? "var(--estado-critico)" : "var(--ink-1)" }}
-                    >
-                      {n(r.enFull)}
-                    </td>
-                    <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                      {r.enTransferencia ? n(r.enTransferencia) : "—"}
-                    </td>
+                    {!soloBodega ? (
+                      <>
+                        <td
+                          className="num cifra font-medium"
+                          style={{
+                            color: r.enFull === 0 ? "var(--estado-critico)" : "var(--ink-1)",
+                          }}
+                        >
+                          {n(r.enFull)}
+                        </td>
+                        <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                          {r.enTransferencia ? n(r.enTransferencia) : "—"}
+                        </td>
+                      </>
+                    ) : null}
                     <td className="num cifra">{r.enBodega ? n(r.enBodega) : "—"}</td>
                     <td className="num cifra" style={{ color: "var(--ink-2)" }}>
                       {r.enCamino ? n(r.enCamino) : "—"}
                     </td>
-                    <td className="num cifra font-semibold">{n(r.total)}</td>
+                    <td className="num cifra font-semibold">
+                      {n(soloBodega ? r.enBodega + r.enCamino : r.total)}
+                    </td>
                     <td className="text-xs">
                       {r.pedidos.length === 0 ? (
                         <span style={{ color: "var(--ink-muted)" }}>—</span>

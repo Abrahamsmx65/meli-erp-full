@@ -87,6 +87,60 @@ export async function registrarEnvio(
   return cabecera.id as string;
 }
 
+/**
+ * Registra un envío que YA va en camino, capturado a mano: folio de MELI y
+ * la lista de SKU + pares. Es para los envíos dados de alta antes de que
+ * existiera el botón, o armados fuera del plan. Sus pares cuentan como en
+ * camino igual que los registrados con un clic.
+ */
+export async function registrarEnvioManual(
+  db: DB,
+  accountId: string,
+  folio: string,
+  renglones: { sku: string; pares: number }[],
+): Promise<string> {
+  const pares = renglones.reduce((a, r) => a + r.pares, 0);
+  const { data: cabecera, error } = await db
+    .from("envios_full")
+    .insert({
+      account_id: accountId,
+      folio: folio || null,
+      bodegas: [],
+      estado: "enviado",
+      cajas: 0,
+      pares,
+      notas: "Registrado a mano (envío ya dado de alta en MELI)",
+      enviado_en: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error || !cabecera) {
+    throw new Error(`No se pudo registrar el envío: ${error?.message ?? "sin id"}`);
+  }
+
+  const { error: errCajas } = await db.from("envio_cajas").insert(
+    renglones.map((r) => ({
+      envio_id: cabecera.id,
+      caja_codigo: `manual|${r.sku}`,
+      almacen: null,
+      sku_caja: null,
+      pedido: null,
+      modelo: null,
+      color: null,
+      talla: null,
+      cantidad: 0,
+      pares: r.pares,
+      detalle: [{ sku: r.sku, talla: "", paresTotales: r.pares }],
+    })),
+  );
+  if (errCajas) {
+    await db.from("envios_full").delete().eq("id", cabecera.id);
+    throw new Error(`No se pudieron registrar los renglones: ${errCajas.message}`);
+  }
+
+  return cabecera.id as string;
+}
+
 export async function marcarRecibido(db: DB, envioId: string): Promise<void> {
   const { error } = await db
     .from("envios_full")

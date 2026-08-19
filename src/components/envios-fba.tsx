@@ -1,26 +1,20 @@
-import type { RenglonAmazon } from "@/lib/servicios/amazon";
-import {
-  OBJETIVO_DIAS_FBA,
-  URGENTE_DIAS_FBA,
-  sugerirEnvioFba,
-} from "@/lib/servicios/fba";
+import type { SugerenciaFba } from "@/lib/servicios/fba";
+import { OBJETIVO_DIAS_FBA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
 /**
- * Qué mandar a FBA. El cálculo vive en servicios/fba.ts — es el mismo que
- * usa el Excel, para que la pantalla y el archivo nunca digan cosas
- * distintas.
+ * Qué mandar a FBA, en cajas completas por modelo + color. El cálculo vive
+ * en servicios/fba.ts — es el mismo que usa el Excel, para que la pantalla
+ * y el archivo nunca digan cosas distintas.
  */
-export function EnviosFba({ renglones, dias }: { renglones: RenglonAmazon[]; dias: number }) {
-  const sugerencias = sugerirEnvioFba(renglones, dias);
-
-  const totalPares = sugerencias.reduce((a, s) => a + s.sugerido, 0);
-  const urgentes = sugerencias.filter(
-    (s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA,
-  ).length;
+export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[]; dias: number }) {
+  const totalCajas = sugerencias.reduce((a, s) => a + s.cajas, 0);
+  const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
+  const sinCorrida = sugerencias.filter((s) => !s.tieneCorrida).length;
+  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
   const visibles = sugerencias.slice(0, 100);
 
   return (
@@ -29,13 +23,14 @@ export function EnviosFba({ renglones, dias }: { renglones: RenglonAmazon[]; dia
         <div>
           <h2 className="text-base font-semibold">Envíos a FBA</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Qué mandar a Amazon para cubrir {OBJETIVO_DIAS_FBA} días al ritmo de venta de
-            los últimos {dias === 365 ? 365 : dias} días. Lo que ya está en FBA y lo que
-            va en camino cuenta a favor.
+            Cajas completas por modelo y color para cubrir {OBJETIVO_DIAS_FBA} días al
+            ritmo de venta de los últimos {dias === 365 ? 365 : dias} días. Solo calzado;
+            lo que ya está en FBA y lo que va en camino cuenta a favor.
           </p>
           <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-            <strong className="cifra">{n(sugerencias.length)}</strong> SKUs por reponer ·{" "}
-            <span className="cifra">{n(totalPares)}</span> pares sugeridos
+            <strong className="cifra">{n(sugerencias.length)}</strong> productos ·{" "}
+            <span className="cifra">{n(totalCajas)}</span> cajas ·{" "}
+            <span className="cifra">{n(totalPares)}</span> pares
             {urgentes > 0 ? (
               <>
                 {" "}·{" "}
@@ -44,9 +39,14 @@ export function EnviosFba({ renglones, dias }: { renglones: RenglonAmazon[]; dia
                 </span>
               </>
             ) : null}
-            {sugerencias.length > visibles.length
-              ? ` · mostrando los ${n(visibles.length)} más urgentes`
-              : null}
+            {sinCorrida > 0 ? (
+              <>
+                {" "}·{" "}
+                <span style={{ color: "var(--estado-alerta)" }}>
+                  {n(sinCorrida)} sin corrida cargada (solo pares)
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
 
@@ -63,33 +63,35 @@ export function EnviosFba({ renglones, dias }: { renglones: RenglonAmazon[]; dia
 
       {visibles.length === 0 ? (
         <p className="p-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
-          Nada que mandar: todo lo que vende tiene cobertura de sobra.
+          Nada que mandar: todo el calzado que vende tiene cobertura de sobra.
         </p>
       ) : (
         <div className="max-h-[32rem] overflow-auto">
           <table className="datos">
             <thead>
               <tr>
-                <th>SKU</th>
                 <th>Producto</th>
+                <th className="num">Tallas</th>
                 <th className="num">Venta diaria</th>
                 <th className="num">En FBA</th>
                 <th className="num">En camino</th>
                 <th className="num">Cobertura</th>
-                <th className="num">Mandar</th>
+                <th className="num">Cajas</th>
+                <th className="num">Pares</th>
               </tr>
             </thead>
             <tbody>
               {visibles.map((s) => (
-                <tr key={s.sku}>
-                  <td className="cifra whitespace-nowrap">{s.sku}</td>
-                  <td
-                    className="max-w-[24rem] truncate"
-                    style={{ color: "var(--ink-2)" }}
-                    title={s.titulo ?? undefined}
-                  >
-                    {s.titulo ?? "—"}
+                <tr key={s.producto}>
+                  <td>
+                    <span className="font-medium">{s.producto}</span>
+                    {!s.tieneCorrida ? (
+                      <div className="text-[11px]" style={{ color: "var(--estado-alerta)" }}>
+                        sin corrida: no sé cuántas cajas son
+                      </div>
+                    ) : null}
                   </td>
+                  <td className="num cifra">{s.tallas}</td>
                   <td className="num cifra">{s.ventaDiaria.toFixed(1)}</td>
                   <td className="num cifra">{n(s.disponible)}</td>
                   <td className="num cifra">{n(s.enTransferencia)}</td>
@@ -104,7 +106,10 @@ export function EnviosFba({ renglones, dias }: { renglones: RenglonAmazon[]; dia
                   >
                     {s.cobertura === null ? "—" : `${Math.round(s.cobertura)} d`}
                   </td>
-                  <td className="num cifra font-semibold">{n(s.sugerido)}</td>
+                  <td className="num cifra font-semibold">
+                    {s.tieneCorrida ? n(s.cajas) : "?"}
+                  </td>
+                  <td className="num cifra">{n(s.pares)}</td>
                 </tr>
               ))}
             </tbody>

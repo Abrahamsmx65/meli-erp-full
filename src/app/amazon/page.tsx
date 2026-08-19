@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import {
   LIMITE_FILAS,
   cargarAmazon,
@@ -7,6 +8,7 @@ import {
   estadoRecarga,
   normalizarDias,
 } from "@/lib/servicios/amazon";
+import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
 import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { TablaAmazon } from "@/components/tabla-amazon";
@@ -47,10 +49,18 @@ export default async function Amazon({
     );
   }
 
-  const [{ renglones, totales }, recarga] = await Promise.all([
+  // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
+  const cuentaMeli = await cuentaActiva(supabase);
+  const [{ renglones, totales }, recarga, corridasRaw] = await Promise.all([
     cargarAmazon(supabase, dias, busqueda),
     estadoRecarga(supabase, cuenta.id),
+    cuentaMeli
+      ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
   ]);
+  const sugerencias = busqueda ? [] : sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw));
   const etiqueta = dias === 365 ? "último año" : `últimos ${dias} días`;
 
   return (
@@ -94,7 +104,7 @@ export default async function Amazon({
 
       {/* Con búsqueda activa los renglones vienen filtrados y la sugerencia
           de envío quedaría a medias: se muestra solo sobre el panorama entero. */}
-      {!busqueda ? <EnviosFba renglones={renglones} dias={dias} /> : null}
+      {!busqueda ? <EnviosFba sugerencias={sugerencias} dias={dias} /> : null}
 
       {/* useSearchParams necesita un límite de Suspense para poder prerenderizar. */}
       <Suspense fallback={<div className="tarjeta p-8 text-center text-sm">Cargando…</div>}>
