@@ -19,10 +19,16 @@ export type DB = SupabaseClient<any, "public", any>;
 /**
  * Trae una tabla completa. Supabase corta en 1000 renglones por petición.
  *
- * Se cuenta primero y luego se piden todas las páginas EN PARALELO. Pedirlas
+ * Se estima el tamaño y se piden todas las páginas EN PARALELO. Pedirlas
  * en cadena, esperando cada una para saber si hay más, convertía 32 mil
  * ventas en 33 viajes seguidos al servidor: varios segundos en puro ir y
  * venir, antes de calcular nada.
+ *
+ * El conteo es ESTIMADO (estadísticas de Postgres, gratis) y no exacto:
+ * el exacto recorría el índice completo en cada carga de página, y estas
+ * lecturas corren varias veces por clic. Si el estimado se queda corto,
+ * se siguen pidiendo páginas hasta que llegue una incompleta; si se pasa,
+ * las páginas de más regresan vacías y no cuestan casi nada.
  */
 export async function traerTodo<T>(
   db: DB,
@@ -32,38 +38,44 @@ export async function traerTodo<T>(
   paso = 1000,
 ): Promise<T[]> {
   const { count, error: errorConteo } = await filtros(
-    db.from(tabla).select(columnas, { count: "exact", head: true }),
+    db.from(tabla).select(columnas, { count: "estimated", head: true }),
   );
   if (errorConteo) throw new Error(`${tabla}: ${errorConteo.message}`);
 
-  const total = count ?? 0;
-  if (total === 0) return [];
-
-  const paginas = Math.ceil(total / paso);
-  const CONCURRENCIA = 6;   // más que esto y Supabase empieza a encolar
-  const salida: T[] = new Array(total);
+  const CONCURRENCIA = 6; // más que esto y Supabase empieza a encolar
+  const paginas: T[][] = [];
+  let tope = Math.max(1, Math.ceil((count ?? 0) / paso));
   let siguiente = 0;
+
+  const leer = async (pagina: number): Promise<T[]> => {
+    const desde = pagina * paso;
+    const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
+      desde,
+      desde + paso - 1,
+    );
+    if (error) throw new Error(`${tabla}: ${error.message}`);
+    return (data ?? []) as T[];
+  };
 
   const trabajador = async () => {
     while (true) {
       const pagina = siguiente++;
-      if (pagina >= paginas) return;
-      const desde = pagina * paso;
-      const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
-        desde,
-        desde + paso - 1,
-      );
-      if (error) throw new Error(`${tabla}: ${error.message}`);
-      for (let i = 0; i < (data?.length ?? 0); i++) salida[desde + i] = data![i] as T;
+      if (pagina >= tope) return;
+      paginas[pagina] = await leer(pagina);
     }
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCIA, paginas) }, trabajador),
+    Array.from({ length: Math.min(CONCURRENCIA, tope) }, trabajador),
   );
 
-  // Si algo se movió entre el conteo y la lectura pueden quedar huecos.
-  return salida.filter((x) => x !== undefined);
+  // El estimado puede quedarse corto: si la última página vino llena, hay más.
+  while (paginas[tope - 1]?.length === paso) {
+    paginas[tope] = await leer(tope);
+    tope++;
+  }
+
+  return paginas.flat();
 }
 
 // ---------------------------------------------------------------------------
