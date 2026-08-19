@@ -47,7 +47,7 @@ export default async function Ventas() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
           titulo="Hoy"
           valor={n(m.hoy.unidades)}
@@ -69,12 +69,66 @@ export default async function Ventas() {
           valor={n(m.semana.unidades / 7)}
           nota="Promedio de la semana"
         />
+        <Ficha
+          titulo="Ganancia 7 días"
+          valor={m.coberturaCosto > 0 ? pesos(m.ganancia7) : "—"}
+          nota={
+            m.coberturaCosto > 0
+              ? `Neto de MELI − costo · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo`
+              : "Captura costos en Productos y costos"
+          }
+          tono={m.coberturaCosto > 0 && m.ganancia7 < 0 ? "critico" : "neutro"}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Movimientos titulo="Suben esta semana" lista={m.subiendo} positivo />
         <Movimientos titulo="Bajan esta semana" lista={m.bajando} />
       </div>
+
+      {m.porCategoria.length > 1 || m.porCategoria[0]?.categoria !== "Sin categoría" ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="text-base font-semibold">Por categoría</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              Las categorías se capturan en Productos y costos. Neto = lo que MELI
+              deposita (ya sin su comisión); ganancia = neto − costo.
+            </p>
+          </header>
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Categoría</th>
+                <th className="num">Unidades 7d</th>
+                <th className="num">Venta 7d</th>
+                <th className="num">Neto 7d</th>
+                <th className="num">Ganancia 7d</th>
+              </tr>
+            </thead>
+            <tbody>
+              {m.porCategoria.map((c) => (
+                <tr key={c.categoria}>
+                  <td className="font-medium">{c.categoria}</td>
+                  <td className="num cifra">{n(c.unidades7)}</td>
+                  <td className="num cifra">{pesos(c.importe7)}</td>
+                  <td className="num cifra">{pesos(c.neto7)}</td>
+                  <td
+                    className="num cifra"
+                    style={{
+                      color:
+                        c.ganancia7 != null && c.ganancia7 < 0
+                          ? "var(--estado-critico)"
+                          : "var(--ink-1)",
+                    }}
+                  >
+                    {c.ganancia7 == null ? "—" : pesos(c.ganancia7)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
 
       <section className="tarjeta overflow-hidden">
         <header className="border-b p-4 hairline">
@@ -95,6 +149,7 @@ export default async function Ventas() {
                 <th className="num">7 previos</th>
                 <th className="num">Cambio</th>
                 <th className="num">Importe 7d</th>
+                <th className="num">Ganancia 7d</th>
               </tr>
             </thead>
             <tbody>
@@ -123,6 +178,17 @@ export default async function Ventas() {
                       {delta > 0 ? `+${n(delta)}` : n(delta)}
                     </td>
                     <td className="num cifra">{pesos(f.importe7)}</td>
+                    <td
+                      className="num cifra"
+                      style={{
+                        color:
+                          f.ganancia7 != null && f.ganancia7 < 0
+                            ? "var(--estado-critico)"
+                            : "var(--ink-1)",
+                      }}
+                    >
+                      {f.ganancia7 == null ? "—" : pesos(f.ganancia7)}
+                    </td>
                   </tr>
                 );
               })}

@@ -34,6 +34,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Inventario",
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: "▦", ayuda: "Cajas y existencias por SKU" },
+      { href: "/productos", texto: "Productos y costos", icono: "◍", ayuda: "Categoría y costo por color" },
     ],
   },
   {

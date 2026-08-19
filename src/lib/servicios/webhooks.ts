@@ -12,7 +12,7 @@
 import { MeliClient } from "../meli/client";
 import { detallarItems, dedupePorSku, esEnTransito } from "../meli/sync";
 import { aISO } from "../engine/fechas";
-import { desglosarSku } from "./sync";
+import { desglosarSku, guardarVentasDiarias } from "./sync";
 import { invalidar } from "./cache";
 import type { DB } from "../datos/repos";
 
@@ -179,6 +179,7 @@ interface OrdenMeli {
   order_items?: {
     quantity?: number;
     unit_price?: number;
+    sale_fee?: number;
     item?: { id?: string; seller_sku?: string | null; seller_custom_field?: string | null };
   }[];
 }
@@ -207,7 +208,10 @@ async function recalcularDiaVentas(
   const desde = `${fecha}T00:00:00.000Z`;
   const hasta = `${fecha}T23:59:59.999Z`;
   // sku → por día de creación de la orden (el barrido puede rozar dos días)
-  const acumulado = new Map<string, { unidades: number; ordenes: number; importe: number }>();
+  const acumulado = new Map<
+    string,
+    { unidades: number; ordenes: number; importe: number; comision: number }
+  >();
 
   for (let offset = 0; offset < 5000; offset += 51) {
     const pagina = await cliente.get<{ results: OrdenMeli[] }>("/orders/search", {
@@ -227,10 +231,11 @@ async function recalcularDiaVentas(
         const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
         if (!sku) continue;
         const clave = `${sku}|${dia}`;
-        const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0 };
+        const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0 };
         prev.unidades += oi.quantity ?? 0;
         prev.ordenes += 1;
         prev.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
+        prev.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
         acumulado.set(clave, prev);
       }
     }
@@ -246,12 +251,11 @@ async function recalcularDiaVentas(
       unidades: v.unidades,
       ordenes: v.ordenes,
       importe: v.importe,
+      comision: v.comision,
     };
   });
 
-  if (filas.length) {
-    await db.from("ventas_diarias").upsert(filas, { onConflict: "account_id,sku,fecha" });
-  }
+  await guardarVentasDiarias(db, filas);
   return filas.length;
 }
 

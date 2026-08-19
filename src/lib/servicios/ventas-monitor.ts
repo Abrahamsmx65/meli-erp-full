@@ -11,6 +11,7 @@
  * se atribuye a la demanda.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { configPorProducto } from "./productos";
 
 export interface ResumenDia {
   unidades: number;
@@ -25,6 +26,16 @@ export interface FilaModelo {
   importe7: number;
   unidadesHoy: number;
   colores: number;
+  /** neto - costo, solo de los colores con costo capturado; null = sin costo */
+  ganancia7: number | null;
+}
+
+export interface FilaCategoria {
+  categoria: string;
+  unidades7: number;
+  importe7: number;
+  neto7: number;
+  ganancia7: number | null;
 }
 
 export interface Movimiento {
@@ -42,8 +53,13 @@ export interface Monitor {
   ayer: ResumenDia;
   semana: ResumenDia;
   porModelo: FilaModelo[];
+  porCategoria: FilaCategoria[];
   subiendo: Movimiento[];
   bajando: Movimiento[];
+  /** ganancia de la semana, solo de la venta con costo capturado */
+  ganancia7: number;
+  /** qué fracción de las unidades de la semana tiene costo capturado (0-1) */
+  coberturaCosto: number;
 }
 
 /** Fecha local de México (las ventas se guardan con el huso de MELI). */
@@ -59,10 +75,25 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
   const inicioSemana = fechaMx(6);
   const inicioPrev = fechaMx(13);
 
-  const [ventas, skus, stock, snapshots] = await Promise.all([
-    traerTodo<any>(db, "ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
-      q.eq("account_id", accountId).gte("fecha", inicioPrev),
-    ),
+  // La columna `comision` puede no existir todavía (migración 0011): se pide
+  // con ella y, si la base no la conoce, se vuelve a pedir sin ella.
+  const leerVentas = async (): Promise<any[]> => {
+    try {
+      return await traerTodo<any>(
+        db,
+        "ventas_diarias",
+        "sku, fecha, unidades, ordenes, importe, comision",
+        (q) => q.eq("account_id", accountId).gte("fecha", inicioPrev),
+      );
+    } catch {
+      return traerTodo<any>(db, "ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
+        q.eq("account_id", accountId).gte("fecha", inicioPrev),
+      );
+    }
+  };
+
+  const [ventas, skus, stock, snapshots, config] = await Promise.all([
+    leerVentas(),
     traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
@@ -72,6 +103,7 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
     traerTodo<any>(db, "stock_snapshots", "sku, fecha, disponible", (q) =>
       q.eq("account_id", accountId).gte("fecha", inicioPrev),
     ),
+    configPorProducto(db, accountId),
   ]);
 
   const infoSku = new Map(skus.map((s) => [s.sku, s]));
@@ -103,7 +135,10 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
     string,
     { unidades7: number; unidades7Prev: number; importe7: number; unidadesHoy: number; colores: Set<string> }
   >();
-  const productos = new Map<string, { modelo: string; color: string; d7: number; prev7: number }>();
+  const productos = new Map<
+    string,
+    { modelo: string; color: string; d7: number; prev7: number; importe7: number; neto7: number }
+  >();
 
   for (const v of ventas) {
     const { modelo, color } = partes(v.sku);
@@ -111,12 +146,16 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
       modelos.get(modelo) ??
       { unidades7: 0, unidades7Prev: 0, importe7: 0, unidadesHoy: 0, colores: new Set<string>() };
     const claveProd = `${modelo}|${color}`;
-    const pr = productos.get(claveProd) ?? { modelo, color, d7: 0, prev7: 0 };
+    const pr =
+      productos.get(claveProd) ??
+      { modelo, color, d7: 0, prev7: 0, importe7: 0, neto7: 0 };
 
     if (v.fecha >= inicioSemana) {
       m.unidades7 += v.unidades ?? 0;
       m.importe7 += v.importe ?? 0;
       pr.d7 += v.unidades ?? 0;
+      pr.importe7 += v.importe ?? 0;
+      pr.neto7 += (v.importe ?? 0) - (v.comision ?? 0);
       if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
     } else {
       m.unidades7Prev += v.unidades ?? 0;
@@ -126,6 +165,49 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
     modelos.set(modelo, m);
     productos.set(claveProd, pr);
   }
+
+  // --- Ganancia y categorías (con lo capturado en Productos y costos) ------
+  // Ganancia = (importe - comisión de MELI) - costo × unidades. Solo se
+  // calcula donde hay costo capturado; el resto se reporta como cobertura.
+  const gananciaPorModelo = new Map<string, number>();
+  const modeloConCosto = new Set<string>();
+  const categorias = new Map<string, { unidades7: number; importe7: number; neto7: number; ganancia7: number; conCosto: boolean }>();
+  let ganancia7 = 0;
+  let unidadesConCosto = 0;
+  let unidadesSemanaTotal = 0;
+
+  for (const pr of productos.values()) {
+    unidadesSemanaTotal += pr.d7;
+    const cfg = config.get(`${pr.modelo}|${pr.color}`);
+    const categoria = cfg?.categoria ?? "Sin categoría";
+    const cat =
+      categorias.get(categoria) ??
+      { unidades7: 0, importe7: 0, neto7: 0, ganancia7: 0, conCosto: false };
+    cat.unidades7 += pr.d7;
+    cat.importe7 += pr.importe7;
+    cat.neto7 += pr.neto7;
+
+    if (cfg?.costo != null && pr.d7 > 0) {
+      const g = pr.neto7 - cfg.costo * pr.d7;
+      ganancia7 += g;
+      unidadesConCosto += pr.d7;
+      gananciaPorModelo.set(pr.modelo, (gananciaPorModelo.get(pr.modelo) ?? 0) + g);
+      modeloConCosto.add(pr.modelo);
+      cat.ganancia7 += g;
+      cat.conCosto = true;
+    }
+    categorias.set(categoria, cat);
+  }
+
+  const porCategoria: FilaCategoria[] = [...categorias.entries()]
+    .map(([categoria, c]) => ({
+      categoria,
+      unidades7: c.unidades7,
+      importe7: c.importe7,
+      neto7: c.neto7,
+      ganancia7: c.conCosto ? c.ganancia7 : null,
+    }))
+    .sort((a, b) => b.unidades7 - a.unidades7);
 
   // --- Razones: qué dice el stock de cada producto -------------------------
   // Tallas agotadas hoy, y tallas que estuvieron agotadas algún día de la
@@ -207,6 +289,7 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
       importe7: m.importe7,
       unidadesHoy: m.unidadesHoy,
       colores: m.colores.size,
+      ganancia7: modeloConCosto.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
     }))
     .sort((a, b) => b.unidades7 - a.unidades7)
     .slice(0, 150);
@@ -216,7 +299,10 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
     ayer: resumen(ayer, ayer),
     semana: resumen(inicioSemana, hoy),
     porModelo,
+    porCategoria,
     subiendo,
     bajando,
+    ganancia7,
+    coberturaCosto: unidadesSemanaTotal > 0 ? unidadesConCosto / unidadesSemanaTotal : 0,
   };
 }

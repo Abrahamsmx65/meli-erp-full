@@ -537,6 +537,8 @@ interface OrdenMeli {
   order_items?: {
     quantity?: number;
     unit_price?: number;
+    /** comisión de MELI por unidad; lo que se recibe es precio - sale_fee */
+    sale_fee?: number;
     item?: {
       id?: string;
       seller_sku?: string | null;
@@ -639,13 +641,15 @@ export async function obtenerVentas(
           const prev = acumulado.get(clave);
           const unidades = oi.quantity ?? 0;
           const importe = unidades * (oi.unit_price ?? 0);
+          const comision = unidades * (oi.sale_fee ?? 0);
 
           if (prev) {
             prev.unidades += unidades;
             prev.ordenes = (prev.ordenes ?? 0) + 1;
             prev.importe = (prev.importe ?? 0) + importe;
+            prev.comision = (prev.comision ?? 0) + comision;
           } else {
-            acumulado.set(clave, { sku, fecha, unidades, ordenes: 1, importe });
+            acumulado.set(clave, { sku, fecha, unidades, ordenes: 1, importe, comision });
           }
         }
       }
