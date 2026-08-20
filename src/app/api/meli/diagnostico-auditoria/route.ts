@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   // plana, Supabase corta en 1,000 filas y una semana de ventas trae más:
   // el diagnóstico mostraba días "encogidos" o "vacíos" que en la base
   // estaban completos, y nos tuvo persiguiendo un fantasma que no existía.
-  const [ventas, netos, reparacion, barridos, amazon] = await Promise.all([
+  const [ventas, netos, reparacion, reparacionNetos, barridos, amazon] = await Promise.all([
     traerTodo<any>(supabase, "ventas_diarias", "fecha, unidades, ordenes, importe", (q) =>
       q.eq("account_id", cuenta.id).gte("fecha", desde),
     ),
@@ -47,6 +47,13 @@ export async function GET(req: NextRequest) {
       .eq("tarea", "reparacion_ventas_v7")
       .order("inicio", { ascending: false })
       .limit(4),
+    supabase
+      .from("sync_log")
+      .select("inicio, detalle")
+      .eq("account_id", cuenta.id)
+      .eq("tarea", "reparacion_netos_v1")
+      .order("inicio", { ascending: false })
+      .limit(3),
     supabase
       .from("sync_log")
       .select("inicio, detalle")
@@ -192,6 +199,9 @@ export async function GET(req: NextRequest) {
     reparacionHistorial: reparacion.data?.length
       ? (reparacion.data as any[]).map((r) => ({ corrida: r.inicio, avance: r.detalle }))
       : "aún no corre (arranca con el latido, con la app abierta)",
+    reparacionNetos: reparacionNetos.data?.length
+      ? (reparacionNetos.data as any[]).map((r) => ({ corrida: r.inicio, avance: r.detalle }))
+      : "aún no corre (arranca cuando la reparación del historial termina)",
     amazonPagos: amazon,
   });
 }

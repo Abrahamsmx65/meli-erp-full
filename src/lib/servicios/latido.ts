@@ -1,6 +1,6 @@
 import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
-import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
+import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 
@@ -100,6 +100,11 @@ export async function latido(
       try {
         const rep = await repararVentasHistoricas(admin, accountId, finDrenado - 15_000);
         diasReparados = rep.dias;
+        // Con el historial ya completo, el mismo espacio del latido se usa
+        // para rellenar los netos que esos días restaurados dejaron en cero.
+        if (rep.completo && Date.now() < finDrenado - 60_000) {
+          await repararNetosHistoricos(admin, accountId, finDrenado - 15_000);
+        }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);
       }

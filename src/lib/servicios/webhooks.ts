@@ -303,6 +303,106 @@ export async function repararVentasHistoricas(
   return { dias, completo };
 }
 
+/**
+ * Reparación de NETOS, una sola vez y en abonos: los días que la reparación
+ * del historial restauró se escribieron sin el depósito real (la columna cae
+ * en 0), porque juntar el neto de un día pide sus órdenes a Mercado Pago de
+ * 150 en 150 y un día trae más de mil. Esto re-barre cada día CON ceros
+ * hasta que su neto queda completo (o se agotan los intentos: hay órdenes
+ * cuyo neto es 0 de verdad, como las reembolsadas), de anteayer hacia atrás
+ * hasta 35 días. Corre después de la reparación del historial y solo cuando
+ * aquella ya terminó.
+ */
+export async function repararNetosHistoricos(
+  db: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ pasadas: number; completo: boolean }> {
+  const { data: marca } = await db
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", "reparacion_netos_v1")
+    .eq("estado", "ok")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (marca?.detalle?.completo) return { pasadas: 0, completo: true };
+
+  const ahoraMx = Date.now() - 6 * 3_600_000;
+  const fondo = new Date(ahoraMx - 35 * 86_400_000).toISOString().slice(0, 10);
+  // Se arranca en anteayer: hoy y ayer los re-barre el latido solo.
+  const arranque = new Date(ahoraMx - 2 * 86_400_000).toISOString().slice(0, 10);
+  let fecha: string =
+    typeof marca?.detalle?.fecha === "string" ? marca.detalle.fecha : arranque;
+  if (fecha > arranque) fecha = arranque;
+  let intentos: number = typeof marca?.detalle?.intentos === "number" ? marca.detalle.intentos : 0;
+
+  const ceros = async (dia: string): Promise<number> => {
+    const { count } = await db
+      .from("ventas_diarias")
+      .select("sku", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("fecha", dia)
+      .gt("importe", 0)
+      .lte("neto", 0);
+    return count ?? 0;
+  };
+
+  const cliente = await clienteDeCuenta(db, accountId);
+  if (!cliente) return { pasadas: 0, completo: false };
+  const mapaItemSku = await mapaItemSkuDe(db, accountId);
+
+  let pasadas = 0;
+  const bitacora: Record<string, unknown>[] = [];
+  // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago): con dos
+  // por latido basta, lo demás es avanzar gratis por días ya sanos.
+  while (fecha >= fondo && pasadas < 2 && Date.now() < finMs - 40_000) {
+    const antes = await ceros(fecha);
+    if (antes === 0) {
+      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+      intentos = 0;
+      continue;
+    }
+    try {
+      await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    } catch {
+      // MELI degradado o sin cuota: el intento cuenta y se sigue después.
+    }
+    intentos++;
+    pasadas++;
+    const despues = await ceros(fecha);
+    bitacora.push({ fecha, intento: intentos, cerosAntes: antes, cerosDespues: despues });
+    // Un día de ~1,200 órdenes necesita ~8 pasadas (150 netos por pasada);
+    // 12 es el tope para los días con ceros legítimos (reembolsos).
+    if (despues === 0 || intentos >= 12) {
+      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+      intentos = 0;
+    }
+  }
+
+  const completo = fecha < fondo;
+  // Sin avance no se deja huella: si el latido llegó sin tiempo, insertar
+  // el mismo estado cada minuto solo ensuciaría el sync_log.
+  if (
+    pasadas === 0 &&
+    marca?.detalle &&
+    marca.detalle.fecha === fecha &&
+    marca.detalle.intentos === intentos &&
+    marca.detalle.completo === completo
+  ) {
+    return { pasadas, completo };
+  }
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "reparacion_netos_v1",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { fecha, intentos, completo, pasadas, bitacora },
+  });
+  return { pasadas, completo };
+}
+
 interface ResultadoDia {
   filas: number;
   ordenesLeidas: number;
