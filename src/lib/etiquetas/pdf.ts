@@ -17,6 +17,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import fontkit from "@pdf-lib/fontkit";
 import { codificar128 } from "./code128";
 import { FUENTE_CONDENSADA_B64 } from "./fuente-condensada";
+import { FUENTE_AMAZON_B64 } from "./fuente-amazon";
 import type { EtiquetaResuelta } from "./resolver";
 import { varianteMeli, type DatosEtiqueta } from "./zpl";
 
@@ -25,7 +26,7 @@ export type { DatosEtiqueta } from "./zpl";
 interface Fuentes {
   /** La letra de la térmica (etiqueta MELI): la fuente 0 de ZPL es bold condensada. */
   normal: PDFFont;
-  /** La letra de la etiqueta de Amazon: normal, como la imprime Amazon. */
+  /** La letra de la etiqueta de Amazon: Open Sans Condensed Light, como la imprime Amazon. */
   amazon: PDFFont;
   negrita: PDFFont;
 }
@@ -100,7 +101,7 @@ async function fuentesDe(doc: PDFDocument): Promise<Fuentes> {
   doc.registerFontkit(fontkit);
   return {
     normal: await doc.embedFont(Buffer.from(FUENTE_CONDENSADA_B64, "base64"), { subset: true }),
-    amazon: await doc.embedFont(StandardFonts.Helvetica),
+    amazon: await doc.embedFont(Buffer.from(FUENTE_AMAZON_B64, "base64"), { subset: true }),
     negrita: await doc.embedFont(StandardFonts.HelveticaBold),
   };
 }
