@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { MeliClient } from "@/lib/meli/client";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 
 export const dynamic = "force-dynamic";
@@ -27,20 +27,19 @@ export async function GET(req: NextRequest) {
 
   const inicioMes = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 8) + "01";
 
+  // OJO: estas dos lecturas van PAGINADAS con traerTodo. Con la consulta
+  // plana, Supabase corta en 1,000 filas y una semana de ventas trae más:
+  // el diagnóstico mostraba días "encogidos" o "vacíos" que en la base
+  // estaban completos, y nos tuvo persiguiendo un fantasma que no existía.
   const [ventas, netos, reparacion, barridos, amazon] = await Promise.all([
-    supabase
-      .from("ventas_diarias")
-      .select("fecha, unidades, ordenes, importe")
-      .eq("account_id", cuenta.id)
-      .gte("fecha", desde),
+    traerTodo<any>(supabase, "ventas_diarias", "fecha, unidades, ordenes, importe", (q) =>
+      q.eq("account_id", cuenta.id).gte("fecha", desde),
+    ),
     // Radiografía del neto del MES: cuántas filas tienen neto real, cuántas
     // traen un 0 sospechoso y cuántas siguen sin dato.
-    supabase
-      .from("ventas_diarias")
-      .select("importe, comision, neto, unidades")
-      .eq("account_id", cuenta.id)
-      .gte("fecha", inicioMes)
-      .limit(10000),
+    traerTodo<any>(supabase, "ventas_diarias", "importe, comision, neto, unidades", (q) =>
+      q.eq("account_id", cuenta.id).gte("fecha", inicioMes),
+    ),
     supabase
       .from("sync_log")
       .select("inicio, detalle")
@@ -77,11 +76,7 @@ export async function GET(req: NextRequest) {
           .order("fecha", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase
-          .from("amazon_pagos")
-          .select("neto")
-          .eq("account_id", cta.id)
-          .limit(20000),
+        traerTodo<any>(supabase, "amazon_pagos", "neto", (q) => q.eq("account_id", cta.id)),
         supabase
           .from("amazon_sync_log")
           .select("inicio, estado, detalle")
@@ -96,7 +91,7 @@ export async function GET(req: NextRequest) {
         pagosDesde: primera.data?.fecha ?? null,
         pagosHasta: ultima.data?.fecha ?? null,
         pagosNetoTotal: Math.round(
-          (netosPagos.data ?? []).reduce((a, f) => a + (Number(f.neto) || 0), 0),
+          (netosPagos ?? []).reduce((a: number, f: any) => a + (Number(f.neto) || 0), 0),
         ),
         ultimasCorridas: (logPagos.data ?? []).map((l) => ({
           inicio: l.inicio,
@@ -109,7 +104,7 @@ export async function GET(req: NextRequest) {
   ]);
 
   const porDia = new Map<string, { unidades: number; ordenes: number; importe: number }>();
-  for (const v of ventas.data ?? []) {
+  for (const v of ventas ?? []) {
     const d = porDia.get(v.fecha) ?? { unidades: 0, ordenes: 0, importe: 0 };
     d.unidades += v.unidades ?? 0;
     d.ordenes += v.ordenes ?? 0;
@@ -117,7 +112,7 @@ export async function GET(req: NextRequest) {
     porDia.set(v.fecha, d);
   }
 
-  const nf = netos.data ?? [];
+  const nf = netos ?? [];
   const conNeto = nf.filter((f: any) => f.neto != null && Number(f.neto) > 0);
   const netoCero = nf.filter((f: any) => f.neto != null && Number(f.neto) <= 0);
   const sinNeto = nf.filter((f: any) => f.neto == null);
