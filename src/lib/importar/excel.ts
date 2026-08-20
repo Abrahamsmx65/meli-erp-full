@@ -150,19 +150,24 @@ export async function importarCorridas(
 
   const avisos: Aviso[] = [];
   const porClave = new Map<string, Corrida>();
+  let filasSinPedido = 0;
   let filasSinModelo = 0;
   let filasSinPares = 0;
 
   for (let i = indice + 1; i < filas.length; i++) {
     const f = filas[i];
-    // PEDIDO vacío (o "-") = corrida genérica: la receta del modelo+color
-    // vale para cualquier caja de ese modelo cuyo pedido no tenga la suya.
+    // En este proyecto nada se supone: una corrida sin su PEDIDO exacto no
+    // se puede usar, así que se salta — pero se cuenta y se avisa.
     const pedidoCrudo = texto(f[cPedido]);
     const pedido = pedidoCrudo === "-" || pedidoCrudo === "—" ? "" : pedidoCrudo;
     const modelo = texto(f[cModelo]);
     const color = texto(f[cColor]);
     if (!modelo) {
       if (pedido || color) filasSinModelo++;
+      continue;
+    }
+    if (!pedido) {
+      filasSinPedido++;
       continue;
     }
 
@@ -214,6 +219,12 @@ export async function importarCorridas(
 
   // Que lo que se saltó se vea: un hueco silencioso en las corridas se
   // descubre semanas después, cuando una caja no se puede planear.
+  if (filasSinPedido > 0) {
+    avisos.push({
+      fila: 0,
+      mensaje: `${filasSinPedido} filas sin PEDIDO se saltaron: cada corrida debe traer su pedido exacto.`,
+    });
+  }
   if (filasSinModelo > 0) {
     avisos.push({ fila: 0, mensaje: `${filasSinModelo} filas sin MODELO se saltaron.` });
   }
