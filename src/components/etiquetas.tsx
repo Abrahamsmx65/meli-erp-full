@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import localFont from "next/font/local";
 import { codificar128 } from "@/lib/etiquetas/code128";
+
+// Las MISMAS letras que los PDF del paquete de la fábrica (extraídas de las
+// fuentes embebidas): Roboto Condensed Bold para MELI y Open Sans Condensed
+// Light para Amazon.
+const fuenteMeli = localFont({ src: "../fonts/roboto-condensed-bold.ttf" });
+const fuenteAmazon = localFont({ src: "../fonts/open-sans-condensed-light.ttf" });
 
 interface Etiqueta {
   sku: string;
@@ -96,82 +103,123 @@ function imprimible(e: Etiqueta, tipo: TipoEtiqueta): boolean {
   return Boolean(codigoDe(e, tipo));
 }
 
-/** Una etiqueta física. Deliberadamente en blanco y negro y sin adornos. */
+/**
+ * Una etiqueta física, CALCADA de las plantillas de 2 × 1 del paquete de la
+ * fábrica — las mismas del PDF y el TXT: barras arriba, código en negritas,
+ * título en dos líneas, variante y SKU (MELI), o barras del FNSKU, FNSKU
+ * centrado, "NEW - título" y SKU (Amazon). Los otros tamaños son la misma
+ * plantilla escalada, para que pantalla, navegador y térmica digan lo mismo.
+ */
 function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: Plataforma }) {
   const codigo = codigoDe(e, tipo);
   const t = TAMANOS[tamano];
-  const chica = tamano === "hoja";
-  // En 2 × 1 pulgadas cada décima de milímetro cuenta: el título se reduce a
-  // una línea y el código de barras se queda con la mayor altura posible,
-  // que es lo que el escáner necesita.
-  const mini = tamano === "rollo2x1";
+  // 50.8 mm es el 2 × 1 real: ahí la escala es 1 y los puntos son los del PDF.
+  const esc = t.ancho / 50.8;
+  const pt = (n: number) => `${(n * esc).toFixed(2)}pt`;
+  const px = (n: number) => Math.max(6, Math.round(n * esc * (96 / 72)));
 
-  return (
-    <div
-      className="etiqueta"
-      style={{
-        width: `${t.ancho}mm`,
-        height: `${t.alto}mm`,
-        border: "1px solid #ddd",
-        background: "#fff",
-        color: "#000",
-        padding: mini ? "1mm 1.5mm" : chica ? "1.5mm 2mm" : "3mm 4mm",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        overflow: "hidden",
-        boxSizing: "border-box",
-        breakInside: "avoid",
-      }}
-    >
-      <div style={{ fontSize: mini ? "5pt" : chica ? "5.5pt" : "8pt", lineHeight: 1.15 }}>
+  const fraccionBarras = useMemo(() => {
+    if (!codigo) return 0;
+    try {
+      // Módulo de 2 dots sobre los 406 dots de ancho de la etiqueta.
+      return Math.min(0.88, (codificar128(codigo).modulos * 2) / 406);
+    } catch {
+      return 0;
+    }
+  }, [codigo]);
+
+  const caja: React.CSSProperties = {
+    width: `${t.ancho}mm`,
+    height: `${t.alto}mm`,
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#000",
+    overflow: "hidden",
+    boxSizing: "border-box",
+    breakInside: "avoid",
+  };
+
+  if (!codigo || !fraccionBarras) {
+    return (
+      <div
+        className="etiqueta"
+        style={{ ...caja, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <span style={{ fontSize: pt(7), color: "#a00" }}>
+          {tipo === "amazon" ? "Sin FNSKU" : "Sin código Full"} · {e.sku}
+        </span>
+      </div>
+    );
+  }
+
+  if (tipo === "amazon") {
+    return (
+      <div className={`etiqueta ${fuenteAmazon.className}`} style={caja}>
+        <div style={{ marginTop: pt(6.7), marginLeft: "9.9%", width: `${fraccionBarras * 100}%` }}>
+          <CodigoBarras texto={codigo} alto={px(17.7)} />
+        </div>
         <div
           style={{
-            fontWeight: 600,
+            marginLeft: "17.2%",
+            width: "54.2%",
+            textAlign: "center",
+            fontSize: pt(8.5),
+            lineHeight: 1.05,
+            marginTop: pt(0.8),
+          }}
+        >
+          {codigo}
+        </div>
+        <div
+          style={{
+            marginLeft: "7.4%",
+            width: "74%",
+            fontSize: pt(6.4),
+            lineHeight: 1.44,
+            marginTop: pt(1.4),
             display: "-webkit-box",
-            WebkitLineClamp: mini ? 1 : chica ? 2 : 3,
+            WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}
         >
-          {e.titulo ?? e.sku}
+          {`NEW - ${(e.titulo ?? e.sku).slice(0, 55)}`}
         </div>
-        {e.variante && !mini ? (
-          <div style={{ marginTop: "0.5mm" }}>{e.variante}</div>
-        ) : null}
+        <div style={{ marginLeft: "7.4%", fontSize: pt(5.7), marginTop: pt(1.4) }}>
+          SKU: {e.sku}
+        </div>
       </div>
+    );
+  }
 
-      {codigo ? (
-        <div style={{ marginTop: mini ? "0.3mm" : chica ? "0.5mm" : "1.5mm" }}>
-          <CodigoBarras texto={codigo} alto={mini ? 30 : chica ? 26 : 44} />
-          <div
-            style={{
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: mini ? "6.5pt" : chica ? "8pt" : "12pt",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textAlign: "center",
-              marginTop: mini ? "0.3mm" : "0.5mm",
-            }}
-          >
-            {codigo}
-          </div>
-        </div>
-      ) : (
-        <div style={{ fontSize: chica || mini ? "6pt" : "9pt", color: "#a00" }}>
-          {tipo === "amazon" ? "Sin FNSKU" : "Sin código Full"}
-        </div>
-      )}
-
+  return (
+    <div className={`etiqueta ${fuenteMeli.className}`} style={caja}>
+      <div style={{ marginTop: pt(6.4), marginLeft: "6.2%", width: `${fraccionBarras * 100}%` }}>
+        <CodigoBarras texto={codigo} alto={px(16)} />
+      </div>
+      <div style={{ marginLeft: "26.8%", fontSize: pt(7.8), lineHeight: 1, marginTop: pt(1.6) }}>
+        {codigo}
+      </div>
       <div
         style={{
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: mini ? "4.5pt" : chica ? "5.5pt" : "7.5pt",
-          borderTop: mini ? "none" : "1px solid #000",
-          paddingTop: mini ? "0" : "0.8mm",
+          marginLeft: "5.4%",
+          width: "74%",
+          fontSize: pt(6.4),
+          lineHeight: 1,
+          marginTop: pt(2.2),
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
         }}
       >
-        {mini ? `${e.sku}${e.variante ? ` · ${e.variante}` : ""}` : e.sku}
+        {(e.titulo ?? e.sku).slice(0, 60)}
+      </div>
+      <div style={{ marginLeft: "5.4%", fontSize: pt(6.4), lineHeight: 1, marginTop: pt(1) }}>
+        {e.variante}
+      </div>
+      <div style={{ marginLeft: "5.4%", fontSize: pt(6.4), lineHeight: 1, marginTop: pt(1.4) }}>
+        SKU: {e.sku}
       </div>
     </div>
   );
