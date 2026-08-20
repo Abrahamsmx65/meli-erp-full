@@ -274,6 +274,29 @@ export async function generarPdfAmazon(etiquetas: EtiquetaResuelta[]): Promise<U
 }
 
 /**
+ * El PDF con LAS DOS etiquetas de cada par: página de Amazon seguida de la
+ * de MELI, repetidas su cantidad — el acomodo por pares del paquete de la
+ * fábrica, pero desde la pantalla de etiquetas. Un par sin FNSKU sale solo
+ * con su página de MELI, y al revés.
+ */
+export async function generarPdfAmbas(etiquetas: EtiquetaResuelta[]): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const fuentes = await fuentesDe(doc);
+  for (const e of etiquetas) {
+    if (e.cantidad <= 0) continue;
+    const a = amazonDe(e);
+    const m = e.codigoFull ? datosMeli(e) : null;
+    if (!a && !m) continue;
+    for (let copia = 0; copia < e.cantidad; copia++) {
+      if (a) paginaAmazon2x1(doc, fuentes, a);
+      if (m) paginaMeli2x1(doc, fuentes, m);
+    }
+  }
+  if (!doc.getPageCount()) doc.addPage(PAGINA_2X1);
+  return doc.save();
+}
+
+/**
  * El PDF de una variante para la fábrica: la etiqueta de Amazon y la de
  * MELI, una por página y del mismo tamaño (2 × 1), en ese orden — igual que
  * los "…, 2 LABEL.pdf" que ya se comparten con China.

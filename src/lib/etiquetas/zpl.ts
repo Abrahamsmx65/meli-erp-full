@@ -103,6 +103,24 @@ export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
  * dos líneas y el SKU de Amazon abajo. Es la plantilla que ya se usaba en
  * el generador viejo de etiquetas mixtas.
  */
+/**
+ * El TXT con LAS DOS etiquetas de cada par, intercaladas: bloque de Amazon
+ * y en seguida el de MELI, por cada copia. Así el rollo sale en pares y se
+ * etiqueta el par completo de un jalón. Un par sin FNSKU sale solo con su
+ * bloque de MELI, y al revés.
+ */
+export function generarZplAmbas(etiquetas: EtiquetaResuelta[]): string {
+  let zpl = "";
+  for (const e of etiquetas) {
+    if (e.cantidad <= 0) continue;
+    const unaVez = { ...e, cantidad: 1 };
+    const amazon = e.fnsku ? generarZplAmazon([unaVez]) : "";
+    const meli = e.codigoFull ? generarZpl([unaVez]) : "";
+    for (let c = 0; c < e.cantidad; c++) zpl += amazon + meli;
+  }
+  return zpl;
+}
+
 export function generarZplAmazon(etiquetas: EtiquetaResuelta[]): string {
   let zpl = "";
 

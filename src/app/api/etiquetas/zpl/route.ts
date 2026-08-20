@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { resolverEtiquetas } from "@/lib/etiquetas/resolver";
-import { generarZpl, generarZplAmazon } from "@/lib/etiquetas/zpl";
+import { generarZpl, generarZplAmazon, generarZplAmbas } from "@/lib/etiquetas/zpl";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +21,12 @@ export async function POST(req: NextRequest) {
   const pedidas = Array.isArray(body?.skus) ? body.skus : [];
   if (!pedidas.length) return NextResponse.json({ error: "No mandaste ningún SKU." }, { status: 400 });
 
-  const tipo = body?.tipo === "amazon" ? "amazon" : "meli";
+  const tipo =
+    body?.tipo === "amazon" ? "amazon" : body?.tipo === "ambas" ? "ambas" : "meli";
   const etiquetas = await resolverEtiquetas(supabase, cuenta.id, pedidas);
-  const conCodigo = etiquetas.filter((e) => (tipo === "amazon" ? e.fnsku : e.codigoFull));
+  const conCodigo = etiquetas.filter((e) =>
+    tipo === "amazon" ? e.fnsku : tipo === "ambas" ? e.fnsku || e.codigoFull : e.codigoFull,
+  );
   if (!conCodigo.length) {
     return NextResponse.json(
       {
@@ -36,11 +39,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const zpl = tipo === "amazon" ? generarZplAmazon(conCodigo) : generarZpl(conCodigo);
+  const zpl =
+    tipo === "amazon"
+      ? generarZplAmazon(conCodigo)
+      : tipo === "ambas"
+        ? generarZplAmbas(conCodigo)
+        : generarZpl(conCodigo);
+  const sufijo = tipo === "meli" ? "" : `-${tipo}`;
   return new NextResponse(zpl, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="etiquetas${tipo === "amazon" ? "-amazon" : ""}.txt"`,
+      "Content-Disposition": `attachment; filename="etiquetas${sufijo}.txt"`,
       "Cache-Control": "no-store",
     },
   });

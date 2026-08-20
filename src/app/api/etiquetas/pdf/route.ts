@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { resolverEtiquetas } from "@/lib/etiquetas/resolver";
-import { generarPdfAmazon, generarPdfEtiquetas } from "@/lib/etiquetas/pdf";
+import { generarPdfAmazon, generarPdfAmbas, generarPdfEtiquetas } from "@/lib/etiquetas/pdf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,9 +26,12 @@ export async function POST(req: NextRequest) {
   const pedidas = Array.isArray(body?.skus) ? body.skus : [];
   if (!pedidas.length) return NextResponse.json({ error: "No mandaste ningún SKU." }, { status: 400 });
 
-  const tipo = body?.tipo === "amazon" ? "amazon" : "meli";
+  const tipo =
+    body?.tipo === "amazon" ? "amazon" : body?.tipo === "ambas" ? "ambas" : "meli";
   const etiquetas = await resolverEtiquetas(supabase, cuenta.id, pedidas);
-  const conCodigo = etiquetas.filter((e) => (tipo === "amazon" ? e.fnsku : e.codigoFull));
+  const conCodigo = etiquetas.filter((e) =>
+    tipo === "amazon" ? e.fnsku : tipo === "ambas" ? e.fnsku || e.codigoFull : e.codigoFull,
+  );
   if (!conCodigo.length) {
     return NextResponse.json(
       {
@@ -42,11 +45,16 @@ export async function POST(req: NextRequest) {
   }
 
   const pdf =
-    tipo === "amazon" ? await generarPdfAmazon(conCodigo) : await generarPdfEtiquetas(conCodigo);
+    tipo === "amazon"
+      ? await generarPdfAmazon(conCodigo)
+      : tipo === "ambas"
+        ? await generarPdfAmbas(conCodigo)
+        : await generarPdfEtiquetas(conCodigo);
+  const sufijo = tipo === "meli" ? "" : `-${tipo}`;
   return new NextResponse(Buffer.from(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="etiquetas${tipo === "amazon" ? "-amazon" : ""}.pdf"`,
+      "Content-Disposition": `attachment; filename="etiquetas${sufijo}.pdf"`,
       "Cache-Control": "no-store",
     },
   });

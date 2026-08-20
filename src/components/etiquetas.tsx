@@ -13,8 +13,14 @@ interface Etiqueta {
   problema: string | null;
 }
 
-/** Qué código llevan las barras: el Full de MELI o el FNSKU de Amazon. */
-type TipoEtiqueta = "meli" | "amazon";
+/**
+ * Qué etiquetas salen: la de MELI (código Full), la de Amazon (FNSKU) o LAS
+ * DOS por par — Amazon seguida de MELI, como el paquete de la fábrica.
+ */
+type TipoEtiqueta = "meli" | "amazon" | "ambas";
+
+/** Cada etiqueta física impresa es de una plataforma concreta. */
+type Plataforma = "meli" | "amazon";
 
 interface Resultado {
   sku: string;
@@ -79,13 +85,19 @@ function CodigoBarras({ texto, alto = 42 }: { texto: string; alto?: number }) {
   );
 }
 
-/** El código que va en las barras según el tipo de etiqueta. */
-function codigoDe(e: Etiqueta, tipo: TipoEtiqueta): string | null {
+/** El código que va en las barras según la plataforma. */
+function codigoDe(e: Etiqueta, tipo: Plataforma): string | null {
   return tipo === "amazon" ? e.fnsku : e.codigoFull;
 }
 
+/** ¿Este SKU tiene con qué imprimirse en el modo elegido? */
+function imprimible(e: Etiqueta, tipo: TipoEtiqueta): boolean {
+  if (tipo === "ambas") return Boolean(e.fnsku || e.codigoFull);
+  return Boolean(codigoDe(e, tipo));
+}
+
 /** Una etiqueta física. Deliberadamente en blanco y negro y sin adornos. */
-function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: TipoEtiqueta }) {
+function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: Plataforma }) {
   const codigo = codigoDe(e, tipo);
   const t = TAMANOS[tamano];
   const chica = tamano === "hoja";
@@ -272,7 +284,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
         body: JSON.stringify({
           tipo,
           skus: lista
-            .filter((e) => codigoDe(e, tipo))
+            .filter((e) => imprimible(e, tipo))
             .map((e) => ({ sku: e.sku, cantidad: e.cantidad })),
         }),
       });
@@ -281,7 +293,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const sufijo = tipo === "amazon" ? "-amazon" : "";
+      const sufijo = tipo === "meli" ? "" : `-${tipo}`;
       a.download = formato === "zpl" ? `etiquetas${sufijo}.txt` : `etiquetas${sufijo}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
@@ -292,10 +304,20 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
     }
   };
 
-  // Cada etiqueta se repite tantas veces como pida su cantidad.
-  const impresas = lista.flatMap((e) =>
-    codigoDe(e, tipo) ? Array.from({ length: e.cantidad }, () => e) : [],
-  );
+  // Cada etiqueta se repite tantas veces como pida su cantidad. En "las dos"
+  // cada copia sale en PAR: la de Amazon y en seguida la de MELI.
+  const impresas: { e: Etiqueta; plataforma: Plataforma }[] = lista.flatMap((e) => {
+    const unidades: { e: Etiqueta; plataforma: Plataforma }[] = [];
+    for (let i = 0; i < e.cantidad; i++) {
+      if (tipo === "ambas") {
+        if (e.fnsku) unidades.push({ e, plataforma: "amazon" });
+        if (e.codigoFull) unidades.push({ e, plataforma: "meli" });
+      } else if (codigoDe(e, tipo)) {
+        unidades.push({ e, plataforma: tipo });
+      }
+    }
+    return unidades;
+  });
 
   return (
     <div className="flex flex-col gap-5">
@@ -410,6 +432,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               >
                 <option value="meli">Mercado Libre (código Full)</option>
                 <option value="amazon">Amazon (FNSKU)</option>
+                <option value="ambas">Los dos (Amazon + MELI por par)</option>
               </select>
             </label>
 
@@ -564,8 +587,8 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               justifyContent: "start",
             }}
           >
-            {impresas.map((e, i) => (
-              <Etiqueta key={`${e.sku}-${i}`} e={e} tamano={tamano} tipo={tipo} />
+            {impresas.map((x, i) => (
+              <Etiqueta key={`${x.e.sku}-${x.plataforma}-${i}`} e={x.e} tamano={tamano} tipo={x.plataforma} />
             ))}
           </div>
         </section>

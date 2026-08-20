@@ -48,9 +48,10 @@ export default async function PaginaEtiquetas() {
       <div className="no-imprimir">
         <h1 className="text-xl font-semibold">Etiquetas</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          La etiqueta que pide Mercado Envíos Full, generada desde aquí. Solo hace
-          falta el SKU y cuántas quieres: el código Full, el título y la variante ya
-          están en el sistema.
+          La etiqueta que pide Mercado Envíos Full, la de Amazon (FNSKU) o las dos
+          por par, generadas desde aquí en PDF o TXT para la térmica. Solo hace
+          falta el SKU y cuántas quieres: el código Full, el FNSKU, el título y la
+          variante ya están en el sistema.
         </p>
       </div>
 
