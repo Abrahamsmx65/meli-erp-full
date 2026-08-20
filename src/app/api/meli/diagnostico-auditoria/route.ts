@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       .from("sync_log")
       .select("inicio, detalle")
       .eq("account_id", cuenta.id)
-      .eq("tarea", "reparacion_ventas_v3")
+      .eq("tarea", "reparacion_ventas_v4")
       .order("inicio", { ascending: false })
       .limit(1)
       .maybeSingle(),
