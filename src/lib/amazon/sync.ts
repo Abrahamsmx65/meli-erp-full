@@ -130,11 +130,18 @@ export async function sincronizarVentas(
     let reconcilia = false;
     const { data: rec } = await admin
       .from("amazon_sync_estado")
-      .select("cursor_ts")
+      .select("cursor_ts, datos")
       .eq("account_id", accountId)
       .eq("tarea", "reconciliacion_ventas")
       .maybeSingle();
-    if (!rec?.cursor_ts || Date.now() - Date.parse(rec.cursor_ts) > 7 * 86_400_000) {
+    // También se fuerza UNA reconciliación cuando cambió la ventana: los
+    // días que la ventana vieja dejó incompletos se reescriben ya, no
+    // hasta la próxima semana.
+    if (
+      !rec?.cursor_ts ||
+      Date.now() - Date.parse(rec.cursor_ts) > 7 * 86_400_000 ||
+      rec?.datos?.ventana !== DIAS_VENTANA
+    ) {
       corte = piso;
       reconcilia = true;
     }
@@ -202,7 +209,7 @@ export async function sincronizarVentas(
       account_id: accountId,
       tarea: "reconciliacion_ventas",
       cursor_ts: new Date().toISOString(),
-      datos: {},
+      datos: { ventana: DIAS_VENTANA },
       actualizado_en: new Date().toISOString(),
     });
   }

@@ -1,6 +1,6 @@
 import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
-import { procesarPendientes } from "./webhooks";
+import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 
@@ -80,6 +80,19 @@ export async function latido(
       errorAvisos = (err as Error).message.slice(0, 300);
     }
 
+    // Reparación del historial de ventas (una sola vez, en abonos): solo si
+    // después del drenado sobra tiempo de sobra. Un tropiezo aquí no debe
+    // tumbar el latido: el siguiente retoma donde se quedó.
+    let diasReparados = 0;
+    if (Date.now() < finDrenado - 60_000) {
+      try {
+        const rep = await repararVentasHistoricas(admin, accountId, finDrenado - 15_000);
+        diasReparados = rep.dias;
+      } catch (err) {
+        console.error("repararVentasHistoricas:", (err as Error).message);
+      }
+    }
+
     // Dejar el plan servido si quedó obsoleto y ya no está fresquito.
     let msPlan: number | null = null;
     const { data: plan } = await admin
@@ -98,7 +111,7 @@ export async function latido(
       msPlan = r.msCalculo;
     }
 
-    await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos });
+    await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.
     await admin

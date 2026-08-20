@@ -223,6 +223,64 @@ interface OrdenMeli {
  * Recalcular es idempotente, y un solo barrido cubre todos los avisos de
  * órdenes de ese día, sean tres o trescientos.
  */
+/**
+ * Reparación del historial de ventas, una sola vez y en abonos.
+ *
+ * Durante un tiempo el barrido de avisos descartó las órdenes sin
+ * seller_sku, así que los días que él reescribió quedaron con MENOS venta
+ * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
+ * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
+ * El avance vive en sync_log (tarea `reparacion_ventas_v2`): cuando llega
+ * al fondo se marca completo y no vuelve a correr.
+ */
+export async function repararVentasHistoricas(
+  db: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ dias: number; completo: boolean }> {
+  const { data: marca } = await db
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", "reparacion_ventas_v2")
+    .eq("estado", "ok")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (marca?.detalle?.completo) return { dias: 0, completo: true };
+
+  const hoy = new Date().toISOString().slice(0, 10);
+  const fondo = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+  let fecha: string =
+    typeof marca?.detalle?.siguiente === "string"
+      ? marca.detalle.siguiente
+      : new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  if (fecha >= hoy) fecha = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
+  const cliente = await clienteDeCuenta(db, accountId);
+  if (!cliente) return { dias: 0, completo: false };
+  const mapaItemSku = await mapaItemSkuDe(db, accountId);
+
+  let dias = 0;
+  // Máximo 3 días por latido: cada día re-pide sus órdenes a MELI y sus
+  // netos a Mercado Pago, y el latido tiene más cosas que hacer.
+  while (fecha >= fondo && dias < 3 && Date.now() < finMs) {
+    await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+    dias++;
+  }
+
+  const completo = fecha < fondo;
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "reparacion_ventas_v2",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { siguiente: fecha, completo, dias },
+  });
+  return { dias, completo };
+}
+
 async function recalcularDiaVentas(
   db: DB,
   accountId: string,

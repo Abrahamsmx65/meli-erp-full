@@ -44,6 +44,27 @@ guárdala numerada.
   consulta a ~1/s, así que la sincronización apunta lo no resuelto en
   `skus_pendientes` y `/api/meli/skus-pendientes` lo resuelve en segundo plano
   (se re-lanza solo). Nunca deducir un SKU: solo dato real de MELI.
+- **Las órdenes también llegan sin SKU**: al contar ventas SIEMPRE hay que
+  amarrar por item+variación contra el catálogo (`claveItem`, como hacen
+  `obtenerVentas` y `recalcularDiaVentas`). Descartar renglones sin
+  seller_sku deja el panel con muchas menos ventas que MELI.
+- **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
+  cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
+  solos a los 7 días y se quedan visibles como caducados.
+- **Costos y categorías son por MODELO** (mismo costo todos los colores), en
+  MXN final, en `productos_config`. La ganancia de MELI usa el neto real
+  depositado (net_received_amount de Mercado Pago, con cargos diferidos).
+- **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
+  (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
+  (tokens ordenados), nunca solo con la clave canónica.
+- **Las etiquetas están calcadas de formatos reales** y no se inventan:
+  MELI y Amazon en ZPL vienen del generador viejo de etiquetas mixtas del
+  usuario (plantillas verbatim en `etiquetas/zpl.ts`); el PDF 2×1 es esa
+  misma plantilla traducida a 72/203 puntos, con Roboto Condensed Bold para
+  MELI y Open Sans Condensed Light para Amazon; el ZIP por pedido replica
+  IN10128_GT125.zip (carpeta `PEDIDO (MODELO)`, un "…, 2 LABEL.pdf" por
+  talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
+  AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras).
 
 ## Dónde está cada cosa
 
@@ -51,12 +72,17 @@ guárdala numerada.
 |----------------------------------|---------------------------------------------|
 | Motor de demanda / stock / cajas | `src/lib/engine/` (`demand.ts`, `stockHistory.ts`, `boxes.ts`, `replenish.ts`) |
 | Sincronización con MELI          | `src/lib/servicios/sync.ts`, `webhooks.ts`  |
+| Latido (drena avisos, recalcula, repara historial) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
-| Sugerencia de compra a China     | `src/lib/servicios/compras.ts`              |
+| Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
-| Código de barras Code 128        | `src/lib/etiquetas/code128.ts`              |
-| Páginas                          | `src/app/{envios,inventario,pedidos,corridas,etiquetas,pendientes,ajustes}` |
+| Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
+| Monitor de ventas MELI / Amazon  | `src/lib/servicios/ventas-monitor.ts`, `amazon-monitor.ts` (filtro de fechas en `components/filtro-fechas.tsx`) |
+| Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
+| ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
+| Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
+| Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
 
