@@ -3,6 +3,10 @@ import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizar } from "@/lib/servicios/sync";
 import { recalcular } from "@/lib/servicios/cache";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "@/lib/servicios/industher";
+import {
+  configuracionCorridasSheets,
+  sincronizarCorridasDesdeSheets,
+} from "@/lib/servicios/corridas-sheets";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +54,18 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Las corridas también, si el sheet está configurado. Misma política:
+      // un fallo avisa y no detiene lo demás.
+      let corridasSheets: Record<string, unknown> | null = null;
+      if (configuracionCorridasSheets()) {
+        try {
+          const cs = await sincronizarCorridasDesdeSheets(admin, c.id);
+          corridasSheets = { corridas: cs.corridas, hoja: cs.hoja };
+        } catch (err) {
+          corridasSheets = { error: (err as Error).message };
+        }
+      }
+
       // Dejar el plan servido. Si esto truena, la sincronización sigue siendo
       // buena: solo se pierde el adelanto y el plan se calcula al abrir.
       let msPlan: number | null = null;
@@ -63,7 +79,7 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      resultados.push({ cuenta: c.nickname, ok: true, msPlan, industher, ...r });
+      resultados.push({ cuenta: c.nickname, ok: true, msPlan, industher, corridasSheets, ...r });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }
