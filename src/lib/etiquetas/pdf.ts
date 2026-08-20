@@ -23,8 +23,10 @@ import { varianteMeli, type DatosEtiqueta } from "./zpl";
 export type { DatosEtiqueta } from "./zpl";
 
 interface Fuentes {
-  /** La letra de la térmica: la fuente 0 de ZPL es bold condensada. */
+  /** La letra de la térmica (etiqueta MELI): la fuente 0 de ZPL es bold condensada. */
   normal: PDFFont;
+  /** La letra de la etiqueta de Amazon: normal, como la imprime Amazon. */
+  amazon: PDFFont;
   negrita: PDFFont;
 }
 
@@ -98,6 +100,7 @@ async function fuentesDe(doc: PDFDocument): Promise<Fuentes> {
   doc.registerFontkit(fontkit);
   return {
     normal: await doc.embedFont(Buffer.from(FUENTE_CONDENSADA_B64, "base64"), { subset: true }),
+    amazon: await doc.embedFont(StandardFonts.Helvetica),
     negrita: await doc.embedFont(StandardFonts.HelveticaBold),
   };
 }
@@ -205,35 +208,35 @@ export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmaz
 
   // ^FO70,85 ^A0N,24,24 ^FB220,1,0,C: centrado dentro del bloque de 220 dots.
   const tFnsku = 24 * D;
-  const anchoFnsku = fuentes.normal.widthOfTextAtSize(fnsku, tFnsku);
+  const anchoFnsku = fuentes.amazon.widthOfTextAtSize(fnsku, tFnsku);
   page.drawText(fnsku, {
     x: (70 + 110) * D - anchoFnsku / 2,
     y: 72 - (85 + 24 * 0.722) * D,
     size: tFnsku,
-    font: fuentes.normal,
+    font: fuentes.amazon,
   });
 
   // ^FO30,115 ^A0N,18,18 ^FB300,2,10: dos líneas con 10 dots extra de paso.
   const tTitulo = 18 * D;
   const maxAncho = 300 * D;
   const titulo = seguro(`NEW - ${d.titulo.slice(0, 55)}`);
-  const lineas = dosLineas(titulo, fuentes.normal, tTitulo, maxAncho);
+  const lineas = dosLineas(titulo, fuentes.amazon, tTitulo, maxAncho);
   lineas.forEach((l, i) => {
     page.drawText(l, {
       x: 30 * D,
       y: 72 - (115 + 18 * 0.722 + i * 28) * D,
       size: tTitulo,
-      font: fuentes.normal,
+      font: fuentes.amazon,
     });
   });
 
   // ^FO30,180 ^A0N,16,16: el SKU de Amazon.
   const tSku = 16 * D;
-  page.drawText(recortar(seguro(`SKU: ${d.sku}`), fuentes.normal, tSku, maxAncho), {
+  page.drawText(recortar(seguro(`SKU: ${d.sku}`), fuentes.amazon, tSku, maxAncho), {
     x: 30 * D,
     y: 72 - (180 + 16 * 0.722) * D,
     size: tSku,
-    font: fuentes.normal,
+    font: fuentes.amazon,
   });
 }
 
