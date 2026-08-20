@@ -120,23 +120,30 @@ export async function GET(req: NextRequest) {
           },
           alRenovar: async () => {},
         });
-        const r = await cliente.get<any>("/orders/search", {
-          seller: cuenta.meli_user_id,
-          "order.date_created.from": `${dia}T00:00:00.000-06:00`,
-          "order.date_created.to": `${dia}T23:59:59.999-06:00`,
-          "order.status": "paid",
-          sort: "date_asc",
-          limit: 51,
-          offset: 0,
-        });
-        const lote = r?.results ?? [];
-        prueba = {
-          dia,
-          totalSegunMeli: r?.paging?.total ?? null,
-          primeraPagina: lote.length,
-          primeraFecha: lote[0]?.date_created ?? null,
-          ultimaFechaPagina: lote[lote.length - 1]?.date_created ?? null,
-        };
+        // La MISMA ventana y formato que usa el barrido (UTC), y varias
+        // páginas: verifica que la paginación llegue al total.
+        const desdeP = new Date(`${dia}T00:00:00.000-06:00`).toISOString();
+        const hastaP = new Date(`${dia}T23:59:59.999-06:00`).toISOString();
+        const paginas: { offset: number; filas: number; primera: string | null }[] = [];
+        let totalSegunMeli: number | null = null;
+        let leidas = 0;
+        for (const offset of [0, 51, 102, 510, 1020]) {
+          const r = await cliente.get<any>("/orders/search", {
+            seller: cuenta.meli_user_id,
+            "order.date_created.from": desdeP,
+            "order.date_created.to": hastaP,
+            "order.status": "paid",
+            sort: "date_asc",
+            limit: 51,
+            offset,
+          });
+          const lote = r?.results ?? [];
+          if (offset === 0) totalSegunMeli = r?.paging?.total ?? null;
+          leidas += lote.length;
+          paginas.push({ offset, filas: lote.length, primera: lote[0]?.date_created ?? null });
+          if (!lote.length) break;
+        }
+        prueba = { dia, ventana: [desdeP, hastaP], totalSegunMeli, paginas, leidas };
       }
     } catch (err) {
       prueba = { dia, error: (err as Error).message.slice(0, 400) };

@@ -232,7 +232,7 @@ interface OrdenMeli {
  * seller_sku, así que los días que él reescribió quedaron con MENOS venta
  * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
  * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
- * El avance vive en sync_log (tarea `reparacion_ventas_v3`): cuando llega
+ * El avance vive en sync_log (tarea `reparacion_ventas_v4`): cuando llega
  * al fondo se marca completo y no vuelve a correr.
  */
 export async function repararVentasHistoricas(
@@ -244,7 +244,7 @@ export async function repararVentasHistoricas(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_ventas_v3")
+    .eq("tarea", "reparacion_ventas_v4")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
@@ -276,7 +276,7 @@ export async function repararVentasHistoricas(
   const completo = fecha < fondo;
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_ventas_v3",
+    tarea: "reparacion_ventas_v4",
     estado: "ok",
     fin: new Date().toISOString(),
     detalle: { siguiente: fecha, completo, dias },
@@ -298,12 +298,13 @@ async function recalcularDiaVentas(
     .maybeSingle();
   if (!cuenta) return 0;
 
-  // La ventana se pide en HORA DE MÉXICO (-06:00), que es el día del negocio
-  // y el del monitor. Antes se pedía en UTC y se agrupaba por el día del
-  // offset de MELI (-04:00): cada barrido veía solo un pedazo del día y
-  // reescribía días completos con datos parciales — el panel traía menos.
-  const desde = `${fecha}T00:00:00.000-06:00`;
-  const hasta = `${fecha}T23:59:59.999-06:00`;
+  // La ventana cubre el día COMPLETO en hora de México (-06:00), que es el
+  // día del negocio y el del monitor, pero se manda en formato UTC (Z): es
+  // el formato con el que la paginación de MELI está probada — con el
+  // offset -06:00 en el texto, MELI regresaba bien la primera página y
+  // cortaba las siguientes.
+  const desde = new Date(`${fecha}T00:00:00.000-06:00`).toISOString();
+  const hasta = new Date(`${fecha}T23:59:59.999-06:00`).toISOString();
   const acumulado = new Map<
     string,
     { unidades: number; ordenes: number; importe: number; comision: number }
@@ -318,8 +319,9 @@ async function recalcularDiaVentas(
   // esto, la misma orden puede salir en dos páginas y contarse doble.
   const vistas = new Set<number>();
 
+  let totalSegunMeli: number | null = null;
   for (let offset = 0; offset < 5000; offset += 51) {
-    const pagina = await cliente.get<{ results: OrdenMeli[] }>("/orders/search", {
+    const pagina = await cliente.get<{ results: OrdenMeli[]; paging?: { total?: number } }>("/orders/search", {
       seller: cuenta.meli_user_id,
       "order.date_created.from": desde,
       "order.date_created.to": hasta,
@@ -329,6 +331,9 @@ async function recalcularDiaVentas(
       offset,
     });
     const lote = pagina.results ?? [];
+    if (offset === 0 && typeof pagina.paging?.total === "number") {
+      totalSegunMeli = pagina.paging.total;
+    }
     if (!lote.length) break;
 
     for (const o of lote) {
@@ -372,6 +377,16 @@ async function recalcularDiaVentas(
       if (info.renglones.length) ordenes.set(o.id, info);
     }
     if (lote.length < 51) break;
+  }
+
+  // CANDADO: si MELI reporta más órdenes de las que llegaron, la paginación
+  // se quedó corta. Escribir (y sobre todo BORRAR faltantes) con un barrido
+  // incompleto destruye días buenos: mejor tronar y que el siguiente latido
+  // reintente. Margen de 2 por órdenes que entran a media paginación.
+  if (totalSegunMeli !== null && vistas.size + 2 < totalSegunMeli) {
+    throw new Error(
+      `Barrido incompleto del ${fecha}: MELI reporta ${totalSegunMeli} órdenes y llegaron ${vistas.size}. No se escribe nada.`,
+    );
   }
 
   // --- Neto real por orden (lo que MELI deposita) --------------------------
