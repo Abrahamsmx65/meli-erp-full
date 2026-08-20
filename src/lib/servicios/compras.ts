@@ -422,8 +422,13 @@ export async function sugerirCompra(
       if (f > 0) faltantePorTalla[t] = Math.round(f);
     }
 
+    // OJO: la puerta es el faltante POR TALLA, no el agregado. El agregado
+    // engaña: 500 pares de sobra en la talla 29 "tapan" el faltante de la
+    // 25 en la resta global, y el color se quedaba sin pedir justo lo que
+    // se le agotó. El sobrante de una talla no se puede vender como otra.
+    const totalFaltanteTallas = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
     const pedido =
-      faltante > 0 && paresPorCaja && paresPorCaja > 0
+      totalFaltanteTallas > 0 && paresPorCaja && paresPorCaja > 0
         ? armarPedidoColor(faltantePorTalla, paresPorCaja)
         : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
 
@@ -435,10 +440,13 @@ export async function sugerirCompra(
     let motivo: string;
     if (demanda < p.ventaMinimaDiaria) {
       motivo = `Casi no se vende (${(demanda * 30).toFixed(1)} pares al mes). No conviene volver a pedirlo.`;
-    } else if (faltante <= 0) {
+    } else if (totalFaltanteTallas <= 0) {
       motivo = `Con ${Math.round(inventarioTotal)} pares aguanta ${Math.round(cobertura ?? 0)} días; el ciclo completo son ${horizonte}. No hace falta pedir.`;
     } else if (!paresPorCaja) {
-      motivo = `Faltan ${Math.round(faltante)} pares, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+    } else if (faltante <= 0) {
+      const tallasCortas = Object.keys(faltantePorTalla).sort((a, b) => Number(a) - Number(b));
+      motivo = `En total parece alcanzar, pero por talla no: faltan ${Math.round(totalFaltanteTallas)} pares en ${tallasCortas.join(", ")} (el sobrante de otras tallas no las tapa).`;
     } else {
       const llegada = Math.round(cobertura ?? 0) - ciclo;
       motivo =

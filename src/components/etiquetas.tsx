@@ -6,11 +6,15 @@ import { codificar128 } from "@/lib/etiquetas/code128";
 interface Etiqueta {
   sku: string;
   codigoFull: string | null;
+  fnsku: string | null;
   titulo: string | null;
   variante: string;
   cantidad: number;
   problema: string | null;
 }
+
+/** Qué código llevan las barras: el Full de MELI o el FNSKU de Amazon. */
+type TipoEtiqueta = "meli" | "amazon";
 
 interface Resultado {
   sku: string;
@@ -75,8 +79,14 @@ function CodigoBarras({ texto, alto = 42 }: { texto: string; alto?: number }) {
   );
 }
 
+/** El código que va en las barras según el tipo de etiqueta. */
+function codigoDe(e: Etiqueta, tipo: TipoEtiqueta): string | null {
+  return tipo === "amazon" ? e.fnsku : e.codigoFull;
+}
+
 /** Una etiqueta física. Deliberadamente en blanco y negro y sin adornos. */
-function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
+function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: TipoEtiqueta }) {
+  const codigo = codigoDe(e, tipo);
   const t = TAMANOS[tamano];
   const chica = tamano === "hoja";
   // En 2 × 1 pulgadas cada décima de milímetro cuenta: el título se reduce a
@@ -119,9 +129,9 @@ function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
         ) : null}
       </div>
 
-      {e.codigoFull ? (
+      {codigo ? (
         <div style={{ marginTop: mini ? "0.3mm" : chica ? "0.5mm" : "1.5mm" }}>
-          <CodigoBarras texto={e.codigoFull} alto={mini ? 30 : chica ? 26 : 44} />
+          <CodigoBarras texto={codigo} alto={mini ? 30 : chica ? 26 : 44} />
           <div
             style={{
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -132,12 +142,12 @@ function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
               marginTop: mini ? "0.3mm" : "0.5mm",
             }}
           >
-            {e.codigoFull}
+            {codigo}
           </div>
         </div>
       ) : (
         <div style={{ fontSize: chica || mini ? "6pt" : "9pt", color: "#a00" }}>
-          Sin código Full
+          {tipo === "amazon" ? "Sin FNSKU" : "Sin código Full"}
         </div>
       )}
 
@@ -171,6 +181,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
   const [resultados, setResultados] = useState<Resultado[]>([]);
   const [pegado, setPegado] = useState("");
   const [tamano, setTamano] = useState<Tamano>("rollo2x1");
+  const [tipo, setTipo] = useState<TipoEtiqueta>("meli");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -259,7 +270,10 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          skus: lista.filter((e) => e.codigoFull).map((e) => ({ sku: e.sku, cantidad: e.cantidad })),
+          tipo,
+          skus: lista
+            .filter((e) => codigoDe(e, tipo))
+            .map((e) => ({ sku: e.sku, cantidad: e.cantidad })),
         }),
       });
       if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo generar.");
@@ -267,7 +281,8 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = formato === "zpl" ? "etiquetas.txt" : "etiquetas.pdf";
+      const sufijo = tipo === "amazon" ? "-amazon" : "";
+      a.download = formato === "zpl" ? `etiquetas${sufijo}.txt` : `etiquetas${sufijo}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -279,7 +294,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
 
   // Cada etiqueta se repite tantas veces como pida su cantidad.
   const impresas = lista.flatMap((e) =>
-    e.codigoFull ? Array.from({ length: e.cantidad }, () => e) : [],
+    codigoDe(e, tipo) ? Array.from({ length: e.cantidad }, () => e) : [],
   );
 
   return (
@@ -386,6 +401,19 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
             </h2>
 
             <label className="ml-auto flex items-center gap-2 text-sm">
+              <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
+              <select
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
+                className="rounded-lg border px-2 py-1 text-sm"
+                style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+              >
+                <option value="meli">Mercado Libre (código Full)</option>
+                <option value="amazon">Amazon (FNSKU)</option>
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
               <span style={{ color: "var(--ink-2)" }}>Tamaño</span>
               <select
                 value={tamano}
@@ -439,6 +467,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               <tr>
                 <th>SKU</th>
                 <th>Código Full</th>
+                <th>FNSKU</th>
                 <th>Título</th>
                 <th>Variante</th>
                 <th className="num">Etiquetas</th>
@@ -453,6 +482,9 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
                     {e.codigoFull ?? (
                       <span style={{ color: "var(--estado-critico)" }}>—</span>
                     )}
+                  </td>
+                  <td className="cifra">
+                    {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
                   </td>
                   <td
                     className="max-w-72 truncate text-xs"
@@ -533,7 +565,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
             }}
           >
             {impresas.map((e, i) => (
-              <Etiqueta key={`${e.sku}-${i}`} e={e} tamano={tamano} />
+              <Etiqueta key={`${e.sku}-${i}`} e={e} tamano={tamano} tipo={tipo} />
             ))}
           </div>
         </section>

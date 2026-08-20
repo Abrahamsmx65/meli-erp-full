@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { resolverEtiquetas } from "@/lib/etiquetas/resolver";
-import { generarZpl } from "@/lib/etiquetas/zpl";
+import { generarZpl, generarZplAmazon } from "@/lib/etiquetas/zpl";
 
 export const dynamic = "force-dynamic";
 
@@ -21,20 +21,26 @@ export async function POST(req: NextRequest) {
   const pedidas = Array.isArray(body?.skus) ? body.skus : [];
   if (!pedidas.length) return NextResponse.json({ error: "No mandaste ningún SKU." }, { status: 400 });
 
+  const tipo = body?.tipo === "amazon" ? "amazon" : "meli";
   const etiquetas = await resolverEtiquetas(supabase, cuenta.id, pedidas);
-  const conCodigo = etiquetas.filter((e) => e.codigoFull);
+  const conCodigo = etiquetas.filter((e) => (tipo === "amazon" ? e.fnsku : e.codigoFull));
   if (!conCodigo.length) {
     return NextResponse.json(
-      { error: "Ninguno de esos SKUs tiene código Full todavía." },
+      {
+        error:
+          tipo === "amazon"
+            ? "Ninguno de esos SKUs tiene FNSKU. Aparece cuando el producto existe en el inventario de Amazon; sincroniza Amazon y vuelve a intentar."
+            : "Ninguno de esos SKUs tiene código Full todavía.",
+      },
       { status: 400 },
     );
   }
 
-  const zpl = generarZpl(conCodigo);
+  const zpl = tipo === "amazon" ? generarZplAmazon(conCodigo) : generarZpl(conCodigo);
   return new NextResponse(zpl, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="etiquetas.txt"',
+      "Content-Disposition": `attachment; filename="etiquetas${tipo === "amazon" ? "-amazon" : ""}.txt"`,
       "Cache-Control": "no-store",
     },
   });

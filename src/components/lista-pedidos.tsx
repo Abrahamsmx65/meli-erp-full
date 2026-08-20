@@ -141,13 +141,24 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                       </span>
                     </td>
                     <td>
-                      <button
-                        onClick={() => setAsignando(p)}
-                        className="rounded-lg border px-2 py-1 text-xs font-medium"
-                        style={{ borderColor: "var(--borde)" }}
-                      >
-                        Contenedor
-                      </button>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setAsignando(p)}
+                          className="rounded-lg border px-2 py-1 text-xs font-medium"
+                          style={{ borderColor: "var(--borde)" }}
+                        >
+                          Contenedor
+                        </button>
+                        {/* ZIP con las etiquetas MELI + Amazon de cada modelo/color,
+                            el Excel de códigos y las etiquetas de cartón (CTNS LABELS). */}
+                        <a
+                          href={`/api/pedidos/${p.id}/etiquetas`}
+                          className="rounded-lg border px-2 py-1 text-xs font-medium"
+                          style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                        >
+                          Etiquetas
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 );

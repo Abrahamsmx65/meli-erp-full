@@ -11,12 +11,41 @@ import { claveComparacion } from "../importar/sku";
 export interface EtiquetaResuelta {
   sku: string;
   codigoFull: string | null;
+  /** FNSKU de Amazon, si el mismo producto también se vende por FBA. */
+  fnsku: string | null;
   titulo: string | null;
   color: string | null;
   talla: string | null;
   variante: string;
   cantidad: number;
   problema: string | null;
+}
+
+/**
+ * FNSKU por clave de comparación de SKU. El SKU de Amazon es el mismo que el
+ * de MELI salvo las diferencias de siempre (sufijo -MX, espacios en el
+ * color), así que se amarra igual que bodega↔MELI: por clave aplastada.
+ * Si Amazon no está conectado o la tabla está vacía, simplemente no hay
+ * FNSKUs y las etiquetas de Amazon salen vacías.
+ */
+export async function mapaFnsku(db: DB): Promise<Map<string, string>> {
+  try {
+    const filas = await traerTodo<{ seller_sku: string; fnsku: string | null }>(
+      db,
+      "amazon_inventario",
+      "seller_sku, fnsku",
+      (q) => q,
+    );
+    const mapa = new Map<string, string>();
+    for (const f of filas ?? []) {
+      if (!f.fnsku) continue;
+      const clave = claveComparacion(f.seller_sku);
+      if (!mapa.has(clave)) mapa.set(clave, f.fnsku);
+    }
+    return mapa;
+  } catch {
+    return new Map();
+  }
 }
 
 function variante(color: string | null, talla: string | null): string {
@@ -32,12 +61,15 @@ export async function resolverEtiquetas(
   pedidas: { sku?: unknown; cantidad?: unknown }[],
 ): Promise<EtiquetaResuelta[]> {
   // TODO el catálogo, paginado: una lectura directa corta en 1000 filas.
-  const catalogo = await traerTodo<any>(
-    db,
-    "skus",
-    "sku, inventory_id, titulo, color, talla, logistica",
-    (q) => q.eq("account_id", accountId),
-  );
+  const [catalogo, fnskus] = await Promise.all([
+    traerTodo<any>(
+      db,
+      "skus",
+      "sku, inventory_id, titulo, color, talla, logistica",
+      (q) => q.eq("account_id", accountId),
+    ),
+    mapaFnsku(db),
+  ]);
 
   const exacto = new Map<string, any>();
   const flexible = new Map<string, any>();
@@ -58,6 +90,7 @@ export async function resolverEtiquetas(
       etiquetas.push({
         sku,
         codigoFull: null,
+        fnsku: fnskus.get(claveComparacion(sku)) ?? null,
         titulo: null,
         color: null,
         talla: null,
@@ -71,6 +104,7 @@ export async function resolverEtiquetas(
     etiquetas.push({
       sku: encontrado.sku,
       codigoFull: encontrado.inventory_id ?? null,
+      fnsku: fnskus.get(claveComparacion(encontrado.sku)) ?? null,
       titulo: encontrado.titulo ?? null,
       color: encontrado.color ?? null,
       talla: encontrado.talla ?? null,
