@@ -6,15 +6,14 @@ import { useRouter } from "next/navigation";
 export default function Importar() {
   const router = useRouter();
   const [corridas, setCorridas] = useState<File | null>(null);
-  const [existencias, setExistencias] = useState<File | null>(null);
   const [cargando, setCargando] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function subir(e: React.FormEvent) {
     e.preventDefault();
-    if (!corridas && !existencias) {
-      setError("Elige al menos un archivo.");
+    if (!corridas) {
+      setError("Elige el archivo de corridas.");
       return;
     }
 
@@ -23,8 +22,7 @@ export default function Importar() {
     setResultado(null);
 
     const form = new FormData();
-    if (corridas) form.append("corridas", corridas);
-    if (existencias) form.append("existencias", existencias);
+    form.append("corridas", corridas);
 
     try {
       const r = await fetch("/api/importar", { method: "POST", body: form });
@@ -44,10 +42,13 @@ export default function Importar() {
       <div>
         <h1 className="text-xl font-semibold">Importar inventario</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Sube tus dos reportes de siempre. Se leen por nombre de columna, así que
-          pueden traer columnas de más o venir en otro orden.
+          Las existencias de bodega llegan solas desde el API de Industher (cada
+          mañana con la sincronización, o al momento con el botón de abajo). Lo
+          único que se sube a mano es el Excel de corridas.
         </p>
       </div>
+
+      <SeccionIndusther />
 
       <form onSubmit={subir} className="tarjeta flex flex-col gap-5 p-5">
         <Campo
@@ -55,13 +56,6 @@ export default function Importar() {
           descripcion="La receta de tallas de cada caja. Columnas: PEDIDO, MODELO, COLOR y una columna por talla. Se acumula: las corridas viejas siguen sirviendo."
           archivo={corridas}
           onChange={setCorridas}
-        />
-
-        <Campo
-          titulo="Existencias globales"
-          descripcion="Cuántas cajas hay y dónde. Columnas: Almacén, SKU, N-Pedido, Modelo, Color, Talla, Cajas disponibles, Pares por caja. Reemplaza por completo lo anterior: es la foto del momento."
-          archivo={existencias}
-          onChange={setExistencias}
         />
 
         <button
@@ -93,14 +87,6 @@ export default function Importar() {
             </p>
           ) : null}
 
-          {resultado.resumen?.existencias ? (
-            <p className="text-sm">
-              <strong>{resultado.resumen.existencias.leidas}</strong> renglones de existencias ·{" "}
-              <strong>{resultado.resumen.existencias.cajasDisponibles.toLocaleString("es-MX")}</strong>{" "}
-              cajas disponibles · almacenes: {resultado.resumen.existencias.almacenes.join(", ")}
-            </p>
-          ) : null}
-
           {resultado.avisos?.length ? (
             <details className="text-sm">
               <summary className="cursor-pointer" style={{ color: "var(--estado-alerta)" }}>
@@ -117,8 +103,6 @@ export default function Importar() {
           ) : null}
         </div>
       ) : null}
-
-      <SeccionIndusther />
     </div>
   );
 }

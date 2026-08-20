@@ -36,8 +36,11 @@ guárdala numerada.
   y tiene tres niveles: manual → exacto → canónico → aplastado.
 - **Envíos a Full por bodega:** Caseshop + Industher salen juntos, EnvioPack
   aparte. Configurado en `almacenes_activos.grupo_envio`.
-- **Recibir un contenedor NO crea existencias.** El inventario de bodega sale
-  del reporte del almacén; crear filas propias lo contaría dos veces.
+- **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
+  del **API de Industher** (sincronización diaria en el cron y botón en
+  /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
+  veces. El Excel de existencias ya no tiene UI: queda solo como respaldo de
+  emergencia en `/api/importar`.
 - **El SKU de las publicaciones de Full vive en `/user-products/{id}`** (atributo
   SELLER_SKU, texto en `values[].name`), NO en la publicación: las variantes
   llegan con `attributes` vacío y `seller_custom_field` en null. MELI limita esa
