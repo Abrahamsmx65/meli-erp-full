@@ -422,7 +422,7 @@ export async function sincronizarInventario(
 // ---------------------------------------------------------------------------
 
 export interface ResultadoPagos {
-  estado: "cargado" | "vacio" | "sin_tabla" | "reintentar";
+  estado: "cargado" | "vacio" | "sin_tabla" | "sin_permiso" | "reintentar";
   reportes?: number;
   filas?: number;
 }
@@ -457,7 +457,18 @@ export async function sincronizarPagos(
     ? new Date(Date.parse(est.cursor_ts) - 3_600_000).toISOString()
     : new Date(Date.now() - 90 * 86_400_000).toISOString();
 
-  const reportes = await listarReportesListos(cliente, PAGOS, desde);
+  let reportes;
+  try {
+    reportes = await listarReportesListos(cliente, PAGOS, desde);
+  } catch (err: any) {
+    // 403 = la app de SP-API no tiene el rol de FINANZAS: los reportes de
+    // liquidación piden ese permiso aparte. Se reporta claro en el log en
+    // vez de reventar; en cuanto el rol se active, esto arranca solo.
+    if (err?.status === 403) {
+      return { estado: "sin_permiso" } as ResultadoPagos;
+    }
+    throw err;
+  }
   if (!reportes.length) return { estado: "vacio", reportes: 0 };
 
   let filasTotales = 0;

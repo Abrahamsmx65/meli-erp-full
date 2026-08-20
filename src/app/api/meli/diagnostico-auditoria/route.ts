@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
-import { clienteServidor } from "@/lib/supabase/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { MeliClient } from "@/lib/meli/client";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
  * estado de la reparación del historial, y avance de los pagos de Amazon.
  * Se abre logueado en el navegador y se comparte el JSON. Borrable después.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
   const {
     data: { user },
@@ -96,7 +97,54 @@ export async function GET() {
   const sinNeto = nf.filter((f: any) => f.neto == null);
   const suma = (l: any[], k: string) => Math.round(l.reduce((a, f) => a + (Number(f[k]) || 0), 0));
 
+  // ?probar=YYYY-MM-DD: pregunta a MELI cuántas órdenes pagadas hay en la
+  // ventana del día de México, SIN escribir nada. Para verificar que la
+  // ventana con offset -06:00 regresa el día completo.
+  let prueba: unknown = null;
+  const dia = req.nextUrl.searchParams.get("probar");
+  if (dia && /^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+    try {
+      const { data: tok } = await clienteAdmin()
+        .from("meli_tokens")
+        .select("access_token, refresh_token, expira_en")
+        .eq("account_id", cuenta.id)
+        .single();
+      if (tok) {
+        const cliente = new MeliClient({
+          clientId: process.env.MELI_CLIENT_ID!,
+          clientSecret: process.env.MELI_CLIENT_SECRET!,
+          credenciales: {
+            accessToken: tok.access_token,
+            refreshToken: tok.refresh_token,
+            expiraEn: new Date(tok.expira_en).getTime(),
+          },
+          alRenovar: async () => {},
+        });
+        const r = await cliente.get<any>("/orders/search", {
+          seller: cuenta.meli_user_id,
+          "order.date_created.from": `${dia}T00:00:00.000-06:00`,
+          "order.date_created.to": `${dia}T23:59:59.999-06:00`,
+          "order.status": "paid",
+          sort: "date_asc",
+          limit: 51,
+          offset: 0,
+        });
+        const lote = r?.results ?? [];
+        prueba = {
+          dia,
+          totalSegunMeli: r?.paging?.total ?? null,
+          primeraPagina: lote.length,
+          primeraFecha: lote[0]?.date_created ?? null,
+          ultimaFechaPagina: lote[lote.length - 1]?.date_created ?? null,
+        };
+      }
+    } catch (err) {
+      prueba = { dia, error: (err as Error).message.slice(0, 400) };
+    }
+  }
+
   return NextResponse.json({
+    prueba,
     netoDelMes: {
       filasConNetoReal: conNeto.length,
       filasConNetoCeroSospechoso: netoCero.length,
