@@ -232,7 +232,7 @@ interface OrdenMeli {
  * seller_sku, así que los días que él reescribió quedaron con MENOS venta
  * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
  * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
- * El avance vive en sync_log (tarea `reparacion_ventas_v6`): cuando llega
+ * El avance vive en sync_log (tarea `reparacion_ventas_v7`): cuando llega
  * al fondo se marca completo y no vuelve a correr.
  */
 export async function repararVentasHistoricas(
@@ -244,7 +244,7 @@ export async function repararVentasHistoricas(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_ventas_v6")
+    .eq("tarea", "reparacion_ventas_v7")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
@@ -295,7 +295,7 @@ export async function repararVentasHistoricas(
   const completo = fecha < fondo;
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_ventas_v6",
+    tarea: "reparacion_ventas_v7",
     estado: "ok",
     fin: new Date().toISOString(),
     detalle: { siguiente: fecha, completo, dias, bitacora },
@@ -344,6 +344,26 @@ async function recalcularDiaVentas(
   // esto, la misma orden puede salir en dos páginas y contarse doble.
   const vistas = new Set<number>();
 
+  // Radiografía previa del día guardado (solo días viejos): si MELI declara
+  // muchísimas menos órdenes de las que el día ya tiene, es su respuesta
+  // degradada (solo las órdenes modificadas hace poco, con un paging.total
+  // chico pero consistente). Con esto se aborta ANTES de paginar y de tocar
+  // nada — el candado tardío de abajo dependía de leer lo guardado justo
+  // antes de escribir, y en una carrera con la reparación llegó a perder.
+  const hace2dias = new Date(Date.now() - 6 * 3_600_000 - 2 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  let ordenesGuardadas = 0;
+  if (fecha <= hace2dias) {
+    const { data: previas } = await db
+      .from("ventas_diarias")
+      .select("ordenes")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    ordenesGuardadas = (previas ?? []).reduce((a: number, f: any) => a + (f.ordenes ?? 0), 0);
+  }
+
   let totalSegunMeli: number | null = null;
   for (let offset = 0; offset < 5000; offset += 51) {
     const pagina = await cliente.get<{ results: OrdenMeli[]; paging?: { total?: number } }>("/orders/search", {
@@ -358,6 +378,14 @@ async function recalcularDiaVentas(
     const lote = pagina.results ?? [];
     if (offset === 0 && typeof pagina.paging?.total === "number") {
       totalSegunMeli = pagina.paging.total;
+      // ordenesGuardadas sobrecuenta un poco (una orden con dos SKUs cuenta
+      // dos veces), pero para un umbral del 50% sobra: una cancelación real
+      // jamás desaparece medio día de órdenes.
+      if (ordenesGuardadas > 20 && totalSegunMeli < ordenesGuardadas * 0.5) {
+        throw new Error(
+          `Respuesta degradada de MELI para el ${fecha}: declara ${totalSegunMeli} órdenes y el día tiene ~${ordenesGuardadas} guardadas. No se toca.`,
+        );
+      }
     }
     if (!lote.length) break;
 
@@ -449,15 +477,10 @@ async function recalcularDiaVentas(
     return base;
   });
 
-  // CANDADO DE PLAUSIBILIDAD: MELI a veces contesta la búsqueda de un día
-  // VIEJO solo con las órdenes modificadas hace poco (un total chico que
-  // hasta trae paging.total consistente, así que el candado de completitud
-  // no lo ve). Reescribir con eso vacía días buenos. Regla: un día de hace
-  // 2 o más días nunca puede encoger a menos de la mitad de lo guardado —
-  // una cancelación real jamás borra medio día.
-  const hace2dias = new Date(Date.now() - 6 * 3_600_000 - 2 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  // CANDADO DE PLAUSIBILIDAD (segunda línea de defensa, ya con las filas
+  // armadas): un día de hace 2 o más días nunca puede encoger a menos de la
+  // mitad de lo guardado. Se relee lo guardado AQUÍ, justo antes de
+  // escribir, para achicar la ventana de carrera con la reparación.
   if (fecha <= hace2dias) {
     const { data: guardadas } = await db
       .from("ventas_diarias")
