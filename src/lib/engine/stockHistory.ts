@@ -104,11 +104,27 @@ export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
     // se sabe nada: extender el nivel hacia el pasado inventaba "stock con
     // cero ventas" en SKUs nuevos (los días previos al lanzamiento) y
     // diluía su demanda a una fracción de la real.
+    //
+    // OJO: el corte SOLO aplica si el SKU tampoco tenía VENTAS antes de su
+    // primer dato — es decir, si de verdad es un lanzamiento. Un SKU viejo
+    // cuyo historial de fotos empieza hace poco SÍ vendía antes: cortarle
+    // esos días lo mandaba al régimen de fracciones parciales y le inflaba
+    // la demanda (el plan pedía y mandaba el doble).
     let primerDato: ISODate | null = null;
     for (const f of fechas) {
       if (snaps.has(f) || ops.has(f)) {
         primerDato = f;
         break;
+      }
+    }
+    if (primerDato !== null) {
+      for (const f of fechas) {
+        if (f >= primerDato) break;
+        if (unidadesDe(f) > 0) {
+          // Vendía antes del primer dato: no es un lanzamiento, no se corta.
+          primerDato = null;
+          break;
+        }
       }
     }
 
