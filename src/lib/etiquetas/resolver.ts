@@ -6,7 +6,7 @@
  * decir exactamente lo mismo.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { claveComparacion } from "../importar/sku";
+import { claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
 
 export interface EtiquetaResuelta {
   sku: string;
@@ -96,6 +96,71 @@ export function buscarAmazon(
   sku: string,
 ): DatoAmazon | null {
   return mapa.get(claveComparacion(sku)) ?? mapa.get(claveOrdenada(sku)) ?? null;
+}
+
+/* ---- Amarre de variantes de pedido (modelo + color + talla) -------------- */
+
+export interface IndiceCatalogo {
+  exacto: Map<string, any>;
+  canonico: Map<string, any>;
+  aplastado: Map<string, any>;
+  ordenado: Map<string, any>;
+}
+
+/** Indexa el catálogo de MELI con los cuatro amarres. */
+export function indexarCatalogo(catalogo: { sku: string }[]): IndiceCatalogo {
+  const ix: IndiceCatalogo = {
+    exacto: new Map(),
+    canonico: new Map(),
+    aplastado: new Map(),
+    ordenado: new Map(),
+  };
+  for (const s of catalogo ?? []) {
+    ix.exacto.set(s.sku.trim().toUpperCase(), s);
+    const c = claveComparacion(s.sku);
+    if (!ix.canonico.has(c)) ix.canonico.set(c, s);
+    const a = claveAplastada(s.sku);
+    if (!ix.aplastado.has(a)) ix.aplastado.set(a, s);
+    const o = claveOrdenada(s.sku);
+    if (!ix.ordenado.has(o)) ix.ordenado.set(o, s);
+  }
+  return ix;
+}
+
+/**
+ * El color de la proforma a veces trae anotaciones que el SKU de MELI no
+ * tiene: "BLK  (NEGRO)". Para amarrar y para nombres se usa sin paréntesis.
+ */
+export function sinAnotacion(color: string): string {
+  const limpio = color.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  return limpio || color;
+}
+
+/**
+ * Busca la variante de un pedido (modelo + color de proforma + talla) en el
+ * catálogo de MELI: prueba el color tal cual y sin su anotación, con los
+ * cuatro amarres (exacto, canónico, aplastado y con los pedazos ordenados).
+ */
+export function buscarVariante(
+  ix: IndiceCatalogo,
+  modelo: string,
+  color: string,
+  talla: string,
+): { construido: string; encontrado: any | null } {
+  const colores = [...new Set([color, sinAnotacion(color)])];
+  for (const c of colores) {
+    const construido = construirSkuMeli(modelo, c, talla);
+    const dado =
+      ix.exacto.get(construido) ??
+      ix.canonico.get(claveComparacion(construido)) ??
+      ix.aplastado.get(claveAplastada(construido)) ??
+      ix.ordenado.get(claveOrdenada(construido));
+    if (dado) return { construido, encontrado: dado };
+  }
+  return {
+    construido: construirSkuMeli(modelo, colores[colores.length - 1], talla),
+    encontrado: null,
+  };
 }
 
 function variante(color: string | null, talla: string | null): string {

@@ -3,8 +3,13 @@ import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { claveAplastada, claveComparacion, construirSkuMeli } from "@/lib/importar/sku";
-import { buscarAmazon, mapaAmazon } from "@/lib/etiquetas/resolver";
+import {
+  buscarAmazon,
+  buscarVariante,
+  indexarCatalogo,
+  mapaAmazon,
+  sinAnotacion,
+} from "@/lib/etiquetas/resolver";
 import { varianteMeli } from "@/lib/etiquetas/zpl";
 import { generarPdf2Etiquetas, generarPdfCarton } from "@/lib/etiquetas/pdf";
 
@@ -15,6 +20,7 @@ export const maxDuration = 300;
 function pegado(s: string): string {
   return s.toUpperCase().replace(/\s+/g, "");
 }
+
 
 /** Para nombre de archivo: la diagonal no puede ir, se vuelve " - ". */
 function nombreArchivo(s: string): string {
@@ -87,16 +93,7 @@ export async function GET(
     mapaAmazon(supabase),
   ]);
 
-  const exacto = new Map<string, any>();
-  const canonico = new Map<string, any>();
-  const aplastado = new Map<string, any>();
-  for (const s of catalogo ?? []) {
-    exacto.set(s.sku.trim().toUpperCase(), s);
-    const c = claveComparacion(s.sku);
-    if (!canonico.has(c)) canonico.set(c, s);
-    const a = claveAplastada(s.sku);
-    if (!aplastado.has(a)) aplastado.set(a, s);
-  }
+  const indice = indexarCatalogo(catalogo ?? []);
 
   const numeroPedido = pegado(pedido.pedido || "PEDIDO");
   const zip = new JSZip();
@@ -124,15 +121,11 @@ export async function GET(
     const coloresCarton: string[] = [];
 
     for (const l of lineasModelo) {
-      const color = pegado(l.color ?? "");
+      const color = pegado(sinAnotacion(l.color ?? ""));
       coloresCarton.push(`${numeroPedido}-${modelo}-${color}`);
 
       for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
-        const construido = construirSkuMeli(l.modelo, l.color, talla);
-        const encontrado =
-          exacto.get(construido) ??
-          canonico.get(claveComparacion(construido)) ??
-          aplastado.get(claveAplastada(construido));
+        const { construido, encontrado } = buscarVariante(indice, l.modelo, l.color ?? "", talla);
 
         const sku = encontrado?.sku ?? construido;
         const codigoFull = encontrado?.inventory_id ?? null;
@@ -159,7 +152,10 @@ export async function GET(
             ? {
                 codigo: codigoFull,
                 titulo,
-                variante: varianteMeli(encontrado?.color ?? l.color, encontrado?.talla ?? talla),
+                variante: varianteMeli(
+                  encontrado?.color ?? sinAnotacion(l.color ?? ""),
+                  encontrado?.talla ?? talla,
+                ),
                 pie: `SKU: ${sku}`,
                 cantidad: 1,
               }
