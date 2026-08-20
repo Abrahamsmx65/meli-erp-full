@@ -63,6 +63,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Sistema",
     entradas: [
       { href: "/pendientes", texto: "Pendientes", icono: "!", ayuda: "Lo que falta resolver" },
+      { href: "/importar", texto: "Importar", icono: "⇥", ayuda: "Bodega desde Industher y corridas del sheet" },
       { href: "/sincronizar", texto: "Sincronizar", icono: "↻", ayuda: "Traer datos de Mercado Libre" },
       { href: "/ajustes", texto: "Ajustes", icono: "⚙", ayuda: "Parámetros y conexión" },
     ],

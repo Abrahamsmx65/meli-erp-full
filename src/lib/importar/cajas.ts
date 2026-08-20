@@ -122,7 +122,12 @@ export function construirCajas(
     let detalle: ItemCaja[] = [];
 
     if (esCorridaFila) {
-      const receta = porClave.get(claveCorrida(base.pedido, base.modelo, base.color));
+      // Primero la receta del pedido exacto; si no hay, la genérica del
+      // modelo+color (corridas capturadas sin pedido): la misma corrida se
+      // repite entre pedidos y capturarla una vez debe bastar.
+      const receta =
+        porClave.get(claveCorrida(base.pedido, base.modelo, base.color)) ??
+        porClave.get(claveCorrida("", base.modelo, base.color));
       if (!receta) {
         sinCorrida.push({
           almacen: base.almacen,
