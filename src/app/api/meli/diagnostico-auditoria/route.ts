@@ -45,10 +45,9 @@ export async function GET(req: NextRequest) {
       .from("sync_log")
       .select("inicio, detalle")
       .eq("account_id", cuenta.id)
-      .eq("tarea", "reparacion_ventas_v4")
+      .eq("tarea", "reparacion_ventas_v5")
       .order("inicio", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(4),
     (async () => {
       const cta = await cuentaAmazon(supabase);
       if (!cta) return { conectado: false };
@@ -167,8 +166,8 @@ export async function GET(req: NextRequest) {
     ventasMeliPorDia: [...porDia.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([fecha, d]) => ({ fecha, ...d, importe: Math.round(d.importe) })),
-    reparacionHistorial: reparacion.data
-      ? { ultimaCorrida: reparacion.data.inicio, avance: reparacion.data.detalle }
+    reparacionHistorial: reparacion.data?.length
+      ? (reparacion.data as any[]).map((r) => ({ corrida: r.inicio, avance: r.detalle }))
       : "aún no corre (arranca con el latido, con la app abierta)",
     amazonPagos: amazon,
   });

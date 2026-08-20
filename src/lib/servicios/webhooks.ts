@@ -134,7 +134,7 @@ export async function procesarPendientes(
       // perdían del panel. Es el mismo mapa que usa la sincronización.
       const mapaItemSku = await mapaItemSkuDe(db, accountId);
       for (const fecha of [...dias].sort()) {
-        r.ventasTocadas += await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+        r.ventasTocadas += (await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku)).filas;
       }
       for (const w of avisosOrden) idsListos.push(w.id);
       r.procesados += avisosOrden.length;
@@ -232,7 +232,7 @@ interface OrdenMeli {
  * seller_sku, así que los días que él reescribió quedaron con MENOS venta
  * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
  * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
- * El avance vive en sync_log (tarea `reparacion_ventas_v4`): cuando llega
+ * El avance vive en sync_log (tarea `reparacion_ventas_v5`): cuando llega
  * al fondo se marca completo y no vuelve a correr.
  */
 export async function repararVentasHistoricas(
@@ -244,7 +244,7 @@ export async function repararVentasHistoricas(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_ventas_v4")
+    .eq("tarea", "reparacion_ventas_v5")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
@@ -265,10 +265,12 @@ export async function repararVentasHistoricas(
   const mapaItemSku = await mapaItemSkuDe(db, accountId);
 
   let dias = 0;
+  const bitacora: { fecha: string; filas: number; ordenes: number; total: number | null }[] = [];
   // Máximo 3 días por latido: cada día re-pide sus órdenes a MELI y sus
   // netos a Mercado Pago, y el latido tiene más cosas que hacer.
   while (fecha >= fondo && dias < 3 && Date.now() < finMs) {
-    await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    const r = await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    bitacora.push({ fecha, filas: r.filas, ordenes: r.ordenesLeidas, total: r.totalSegunMeli });
     fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
     dias++;
   }
@@ -276,12 +278,18 @@ export async function repararVentasHistoricas(
   const completo = fecha < fondo;
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_ventas_v4",
+    tarea: "reparacion_ventas_v5",
     estado: "ok",
     fin: new Date().toISOString(),
-    detalle: { siguiente: fecha, completo, dias },
+    detalle: { siguiente: fecha, completo, dias, bitacora },
   });
   return { dias, completo };
+}
+
+interface ResultadoDia {
+  filas: number;
+  ordenesLeidas: number;
+  totalSegunMeli: number | null;
 }
 
 async function recalcularDiaVentas(
@@ -290,13 +298,13 @@ async function recalcularDiaVentas(
   cliente: MeliClient,
   fecha: string,
   mapaItemSku?: Map<string, string>,
-): Promise<number> {
+): Promise<ResultadoDia> {
   const { data: cuenta } = await db
     .from("meli_accounts")
     .select("meli_user_id")
     .eq("id", accountId)
     .maybeSingle();
-  if (!cuenta) return 0;
+  if (!cuenta) return { filas: 0, ordenesLeidas: 0, totalSegunMeli: null };
 
   // La ventana cubre el día COMPLETO en hora de México (-06:00), que es el
   // día del negocio y el del monitor, pero se manda en formato UTC (Z): es
@@ -388,6 +396,20 @@ async function recalcularDiaVentas(
       `Barrido incompleto del ${fecha}: MELI reporta ${totalSegunMeli} órdenes y llegaron ${vistas.size}. No se escribe nada.`,
     );
   }
+  // Sin total declarado y sin órdenes tampoco se confía: puede ser una
+  // respuesta degradada de MELI, y "día vacío" borraría un día bueno.
+  if (totalSegunMeli === null && vistas.size === 0) {
+    const { count } = await db
+      .from("ventas_diarias")
+      .select("sku", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("fecha", fecha);
+    if ((count ?? 0) > 0) {
+      throw new Error(
+        `MELI contestó vacío y sin total para el ${fecha}, pero el día tiene ${count} filas guardadas: no se toca.`,
+      );
+    }
+  }
 
   // --- Neto real por orden (lo que MELI deposita) --------------------------
   const netoPorClave = await netosDelDia(db, accountId, cliente, ordenes);
@@ -419,7 +441,12 @@ async function recalcularDiaVentas(
   if (sinNeto.length) await guardarVentasDiarias(db, sinNeto);
 
   // Las filas del día que YA no aparecen en el barrido son órdenes que se
-  // cancelaron o reembolsaron: sin esto, contaban para siempre.
+  // cancelaron o reembolsaron: sin esto, contaban para siempre. SOLO se
+  // borra cuando MELI declaró el total y el barrido lo cubrió: borrar con
+  // una respuesta degradada vació días buenos.
+  if (totalSegunMeli === null) {
+    return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
+  }
   const skusBarridos = new Set(filas.map((f) => f.sku as string));
   const { data: existentes } = await db
     .from("ventas_diarias")
@@ -438,7 +465,7 @@ async function recalcularDiaVentas(
       .in("sku", sobrantes.slice(i, i + 100));
   }
 
-  return filas.length;
+  return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
 }
 
 /**
