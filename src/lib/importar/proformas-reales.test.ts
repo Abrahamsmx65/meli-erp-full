@@ -82,3 +82,34 @@ describe("proformas reales de fábrica", () => {
     expect(p.totales.pares).toBe(3120);
   });
 });
+
+describe("proforma BAIKE (tallas juntas en una celda)", () => {
+  it("lee pedido, corridas y totales del IN10105", async () => {
+    const p = await importarProforma(fixture("proforma-baike-IN10105.xls"), {
+      nombre: "USD_PI_for_boot_orderBAIKE2026.6.25_IN10105.xls",
+    });
+    // El pedido viene escondido como "S/C NO.:BK26-0527 (IN10105)".
+    expect(p.pedido).toBe("IN10105");
+    expect(p.lineas).toHaveLength(15);
+
+    const negro = p.lineas[0];
+    expect(negro.modelo).toBe("GT251");
+    expect(negro.color).toBe("BLACK");
+    expect(negro.tallas).toEqual({ "23": 3, "24": 8, "25": 8, "26": 5 });
+    expect(negro.paresPorCaja).toBe(24);
+    expect(negro.cajas).toBe(20);
+    expect(negro.pares).toBe(480);
+    expect(negro.cuadra).toBe(true);
+    expect(negro.precioUnitario).toBe(7.1);
+
+    // El segundo color hereda el modelo.
+    expect(p.lineas[1].modelo).toBe("GT251");
+    expect(p.lineas[1].color).toBe("BROWN");
+
+    // Todas las líneas cuadran (corrida × cajas = pares).
+    expect(p.lineas.every((l) => l.cuadra)).toBe(true);
+    expect(p.totales.cajas).toBe(297);
+    expect(p.totales.pares).toBe(7128);
+    expect(p.totales.importe).toBe(60564);
+  });
+});
