@@ -147,19 +147,22 @@ export function paginaMeli2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosEtique
   const page = doc.addPage(PAGINA_2X1);
   const codigo = seguro(d.codigo);
 
-  // Código de barras: ^FO25,15 ^BY2 ^BCN,55 traducido a puntos.
-  dibujarBarras(page, codigo, 8.9202, 47.2256, (codificar128(codigo).modulos * 2 * 72) / 203, 19.401);
+  // Código de barras: ^FO25,15 ^BY2 traducido a puntos. Las barras bajan de
+  // 55 a 45 dots y todo el bloque se recorre para quedar CENTRADO: impreso,
+  // el diseño original quedaba pegado al borde de arriba (~1.3 mm) y el
+  // usuario pidió margen sin cambiar el tamaño de la etiqueta ni las letras.
+  dibujarBarras(page, codigo, 8.9202, 49.59, (codificar128(codigo).modulos * 2 * 72) / 203, 15.9606);
 
   // El código en "negritas" de impresora térmica: doble trazo corrido un dot.
   const tCodigo = 7.803;
   for (const x of [39.0148, 38.6601]) {
-    page.drawText(codigo, { x, y: 37.2414, size: tCodigo, font: fuentes.normal });
+    page.drawText(codigo, { x, y: 39.6, size: tCodigo, font: fuentes.normal });
   }
 
   const tTexto = 6.3842;
   const maxAncho = (300 * 72) / 203; // ^FB300
   const lineas = dosLineas(seguro(d.titulo.slice(0, 60)), fuentes.normal, tTexto, maxAncho);
-  const ysTitulo = [26.601, 20.2167];
+  const ysTitulo = [28.96, 22.58];
   lineas.forEach((l, i) => {
     page.drawText(l, { x: 7.803, y: ysTitulo[i], size: tTexto, font: fuentes.normal });
   });
@@ -168,13 +171,13 @@ export function paginaMeli2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosEtique
   if (variante) {
     const v = recortar(variante, fuentes.normal, tTexto, maxAncho);
     for (const x of [7.803, 7.4483]) {
-      page.drawText(v, { x, y: 13.1232, size: tTexto, font: fuentes.normal });
+      page.drawText(v, { x, y: 15.48, size: tTexto, font: fuentes.normal });
     }
   }
 
   page.drawText(recortar(seguro(d.pie), fuentes.normal, tTexto, maxAncho), {
     x: 7.803,
-    y: 5.3202,
+    y: 7.68,
     size: tTexto,
     font: fuentes.normal,
   });
@@ -197,27 +200,30 @@ export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmaz
   const D = 72 / 203; // dots ZPL → puntos PDF
   const fnsku = seguro(d.fnsku);
 
-  // ^FO40,10 ^BY2 ^BCN,65: módulo de 2 dots, 65 dots de alto.
+  // ^FO40,10 ^BY2 traducido, con dos ajustes pedidos por el usuario: las
+  // barras bajan de 65 a 50 dots y todo el bloque se recorre para quedar
+  // CENTRADO — el diseño original quedaba pegado al borde de arriba
+  // (~1.3 mm de margen). Mismo tamaño de etiqueta y de letras.
   dibujarBarras(
     page,
     fnsku,
     40 * D,
-    72 - (10 + 65) * D,
+    72 - (19 + 50) * D,
     codificar128(fnsku).modulos * 2 * D,
-    65 * D,
+    50 * D,
   );
 
-  // ^FO70,85 ^A0N,24,24 ^FB220,1,0,C: centrado dentro del bloque de 220 dots.
+  // ^A0N,24,24 ^FB220,1,0,C: centrado dentro del bloque de 220 dots.
   const tFnsku = 24 * D;
   const anchoFnsku = fuentes.amazon.widthOfTextAtSize(fnsku, tFnsku);
   page.drawText(fnsku, {
     x: (70 + 110) * D - anchoFnsku / 2,
-    y: 72 - (85 + 24 * 0.722) * D,
+    y: 72 - (79 + 24 * 0.722) * D,
     size: tFnsku,
     font: fuentes.amazon,
   });
 
-  // ^FO30,115 ^A0N,18,18 ^FB300,2,10: dos líneas con 10 dots extra de paso.
+  // ^A0N,18,18 ^FB300,2,10: dos líneas, paso apenas más compacto (26 dots).
   const tTitulo = 18 * D;
   const maxAncho = 300 * D;
   const titulo = seguro(`NEW - ${d.titulo.slice(0, 55)}`);
@@ -225,17 +231,17 @@ export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmaz
   lineas.forEach((l, i) => {
     page.drawText(l, {
       x: 30 * D,
-      y: 72 - (115 + 18 * 0.722 + i * 28) * D,
+      y: 72 - (108 + 18 * 0.722 + i * 26) * D,
       size: tTitulo,
       font: fuentes.amazon,
     });
   });
 
-  // ^FO30,180 ^A0N,16,16: el SKU de Amazon.
+  // ^A0N,16,16: el SKU de Amazon.
   const tSku = 16 * D;
   page.drawText(recortar(seguro(`SKU: ${d.sku}`), fuentes.amazon, tSku, maxAncho), {
     x: 30 * D,
-    y: 72 - (180 + 16 * 0.722) * D,
+    y: 72 - (170 + 16 * 0.722) * D,
     size: tSku,
     font: fuentes.amazon,
   });
