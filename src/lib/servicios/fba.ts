@@ -1,5 +1,6 @@
 import type { RenglonAmazon } from "./amazon";
 import { desglosarSku } from "./sync";
+import { traerTodo, type DB } from "../datos/repos";
 
 /** Días de venta que el stock en FBA debe cubrir. */
 export const OBJETIVO_DIAS_FBA = 30;
@@ -113,6 +114,46 @@ export function sugerirEnvioFba(
       };
     })
     .sort((a, b) => (a.cobertura ?? 0) - (b.cobertura ?? 0));
+}
+
+/**
+ * Amazon por SKU para el pedido a China: venta diaria (últimos 30 días) y
+ * stock (FBA + lo que viaja hacia FBA). Solo calzado. Si Amazon no está
+ * conectado o las tablas están vacías, regresa un mapa vacío y el pedido se
+ * calcula solo con MELI, como antes.
+ */
+export async function amazonParaCompras(
+  db: DB,
+): Promise<Map<string, { ventaDiaria: number; stock: number }>> {
+  const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  try {
+    const [ventas, inventario] = await Promise.all([
+      traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades", (q) =>
+        q.gte("fecha", desde),
+      ),
+      traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) => q),
+    ]);
+
+    const mapa = new Map<string, { ventaDiaria: number; stock: number }>();
+    const entrada = (sku: string) => {
+      const e = mapa.get(sku) ?? { ventaDiaria: 0, stock: 0 };
+      mapa.set(sku, e);
+      return e;
+    };
+    for (const v of ventas) {
+      const sku = String(v.seller_sku ?? "");
+      if (!esCalzado(sku)) continue;
+      entrada(sku).ventaDiaria += (v.unidades ?? 0) / 30;
+    }
+    for (const i of inventario) {
+      const sku = String(i.seller_sku ?? "");
+      if (!esCalzado(sku)) continue;
+      entrada(sku).stock += (i.disponible ?? 0) + (i.en_transferencia ?? 0);
+    }
+    return mapa;
+  } catch {
+    return new Map();
+  }
 }
 
 /** Corridas por modelo+color → pares por caja, para redondear a cajas. */

@@ -16,6 +16,13 @@ interface Renglon {
   tieneCorrida: boolean;
   faltante: number;
   motivo: string;
+  enBodega: number;
+  enFull: number;
+  enTransferencia: number;
+  enFba: number;
+  enCamino: number;
+  ventaMes: number;
+  ventaMesAmazon: number;
 }
 
 function n(x: number): string {
@@ -34,13 +41,34 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
   const [abierto, setAbierto] = useState<string | null>(null);
 
   const modelos = useMemo(() => {
-    const porModelo = new Map<string, { colores: Renglon[]; cajas: number; pares: number }>();
+    const porModelo = new Map<
+      string,
+      {
+        colores: Renglon[];
+        cajas: number;
+        pares: number;
+        bodega: number;
+        meli: number;
+        amazon: number;
+        china: number;
+        vMeli: number;
+        vAmz: number;
+      }
+    >();
     for (const r of renglones) {
       if (r.cajasSugeridas <= 0) continue;
-      const m = porModelo.get(r.modelo) ?? { colores: [], cajas: 0, pares: 0 };
+      const m =
+        porModelo.get(r.modelo) ??
+        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0 };
       m.colores.push(r);
       m.cajas += r.cajasSugeridas;
       m.pares += r.paresSugeridos;
+      m.bodega += r.enBodega;
+      m.meli += r.enFull + r.enTransferencia;
+      m.amazon += r.enFba;
+      m.china += r.enCamino;
+      m.vMeli += r.ventaMes;
+      m.vAmz += r.ventaMesAmazon;
       porModelo.set(r.modelo, m);
     }
     return [...porModelo.entries()]
@@ -62,12 +90,19 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         </p>
       </header>
 
+      <div className="max-h-[36rem] overflow-auto">
       <table className="datos">
         <thead>
           <tr>
             <th>Modelo</th>
             <th className="num">Colores</th>
-            <th className="num">Cajas</th>
+            <th className="num">Bodega</th>
+            <th className="num">MELI</th>
+            <th className="num">Amazon</th>
+            <th className="num">De China</th>
+            <th className="num">Vta MELI/mes</th>
+            <th className="num">Vta AMZ/mes</th>
+            <th className="num">Cajas a pedir</th>
             <th className="num">Pares</th>
             <th></th>
           </tr>
@@ -86,6 +121,14 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                   {m.modelo}
                 </td>
                 <td className="num cifra">{m.colores.length}</td>
+                <td className="num cifra">{n(m.bodega)}</td>
+                <td className="num cifra">{n(m.meli)}</td>
+                <td className="num cifra">{n(m.amazon)}</td>
+                <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  {m.china ? n(m.china) : "—"}
+                </td>
+                <td className="num cifra">{n(m.vMeli)}</td>
+                <td className="num cifra">{n(m.vAmz)}</td>
                 <td className="num cifra font-semibold">{n(m.cajas)}</td>
                 <td className="num cifra">{n(m.pares)}</td>
                 <td className="text-right">
@@ -107,6 +150,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
@@ -118,12 +162,17 @@ function DetalleColor({ r }: { r: Renglon }) {
 
   return (
     <tr style={{ background: "var(--surface-2)" }}>
-      <td colSpan={5} className="p-4">
+      <td colSpan={11} className="p-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-semibold">{r.color || "(sin color)"}</span>
             <span className="cifra text-sm">
               {n(r.cajasSugeridas)} cajas · {n(r.paresSugeridos)} pares
+            </span>
+            <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+              bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
+              {n(r.enFba)} · de China {n(r.enCamino)} · vende {n(r.ventaMes)} MELI +{" "}
+              {n(r.ventaMesAmazon)} AMZ al mes
             </span>
             {r.unitallas.length ? (
               <span className="text-sm" style={{ color: "var(--acento)" }}>

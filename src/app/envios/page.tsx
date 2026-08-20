@@ -3,7 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { separarEnvios } from "@/lib/servicios/envios";
-import { enviosActivos } from "@/lib/servicios/envios-registrados";
+import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
 import { Ficha } from "@/components/tiles";
 import { EnviosSeparados } from "@/components/envios-separados";
 import { EnviosEnCamino } from "@/components/envios-en-camino";
@@ -77,9 +77,9 @@ export default async function Plan() {
   // alta: uno por dirección de recolección.
   const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
 
-  // Envíos ya dados de alta en MELI que siguen viajando: se muestran y ya
-  // están descontados del plan.
-  const enCamino = await enviosActivos(supabase, cuenta.id);
+  // Envíos ya dados de alta en MELI: los que van en camino cuentan para el
+  // plan; los caducados se quedan a la vista un mes, marcados.
+  const enCamino = await enviosParaPantalla(supabase, cuenta.id);
 
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
@@ -181,6 +181,7 @@ export default async function Plan() {
           cajas: e.cajas,
           pares: e.pares,
           enviadoEn: e.enviadoEn,
+          estado: e.estado,
         }))}
       />
 

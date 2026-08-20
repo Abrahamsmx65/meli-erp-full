@@ -2,6 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarProductos } from "@/lib/servicios/productos";
 import { TablaProductos } from "@/components/tabla-productos";
+import { SubirCostos } from "@/components/subir-costos";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,8 @@ export default async function Productos() {
           guardar.
         </p>
       ) : null}
+
+      <SubirCostos />
 
       <TablaProductos productos={productos} categorias={categorias} />
     </div>

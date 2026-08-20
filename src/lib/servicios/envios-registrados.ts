@@ -15,12 +15,16 @@
  * stock de Full y el reporte de bodega ya lo reflejan por sí mismos).
  */
 import type { DB } from "../datos/repos";
-import type { FilaExistencia } from "../importar/excel";
 import type { StockFull } from "../engine/types";
 import type { EnvioSeparado } from "./envios";
 
-/** A los cuántos días un envío en camino se da por llegado solo. */
-const DIAS_AUTOCIERRE = 21;
+/**
+ * A los cuántos días un envío en camino CADUCA solo. Para entonces el stock
+ * ya debe estar en Full y contado por MELI: seguirlo sumando duplicaría.
+ * Los caducados se quedan visibles en la lista, marcados, por si algo no
+ * llegó y hay que reclamarlo.
+ */
+const DIAS_CADUCIDAD = 7;
 
 export interface EnvioRegistrado {
   id: string;
@@ -29,6 +33,7 @@ export interface EnvioRegistrado {
   cajas: number;
   pares: number;
   enviadoEn: string;
+  estado: "enviado" | "caducado" | "recibido";
   detalleCajas: {
     cajaCodigo: string;
     almacen: string | null;
@@ -150,25 +155,55 @@ export async function marcarRecibido(db: DB, envioId: string): Promise<void> {
 }
 
 /**
- * Envíos que siguen en camino. De paso cierra solos los que ya pasaron del
- * plazo: para entonces el stock de Full y el reporte de bodega ya reflejan
- * la llegada, y seguirlos contando duplicaría.
+ * Envíos que siguen en camino (los que cuentan para el plan). De paso caduca
+ * solos los que ya pasaron del plazo.
  */
 export async function enviosActivos(db: DB, accountId: string): Promise<EnvioRegistrado[]> {
-  const corte = new Date(Date.now() - DIAS_AUTOCIERRE * 86_400_000).toISOString();
+  const corte = new Date(Date.now() - DIAS_CADUCIDAD * 86_400_000).toISOString();
   await db
     .from("envios_full")
-    .update({ estado: "recibido", notas: `Cerrado solo a los ${DIAS_AUTOCIERRE} días` })
+    .update({
+      estado: "caducado",
+      notas: `Caducó a los ${DIAS_CADUCIDAD} días: el stock ya debe estar en Full`,
+    })
     .eq("account_id", accountId)
     .eq("estado", "enviado")
     .lt("enviado_en", corte);
 
-  const { data } = await db
+  return leerEnvios(db, accountId, ["enviado"]);
+}
+
+/**
+ * Lo que se pinta en pantalla: los que van en camino Y los que caducaron
+ * hace poco, para que se vea qué pasó con cada uno.
+ */
+export async function enviosParaPantalla(
+  db: DB,
+  accountId: string,
+): Promise<EnvioRegistrado[]> {
+  const activos = await enviosActivos(db, accountId);
+  const caducados = await leerEnvios(db, accountId, ["caducado", "recibido"], 30);
+  return [...activos, ...caducados];
+}
+
+async function leerEnvios(
+  db: DB,
+  accountId: string,
+  estados: string[],
+  ultimosDias?: number,
+): Promise<EnvioRegistrado[]> {
+  let q = db
     .from("envios_full")
-    .select("id, folio, bodegas, cajas, pares, enviado_en, envio_cajas(caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle)")
+    .select(
+      "id, folio, bodegas, cajas, pares, enviado_en, estado, envio_cajas(caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle)",
+    )
     .eq("account_id", accountId)
-    .eq("estado", "enviado")
+    .in("estado", estados)
     .order("enviado_en", { ascending: false });
+  if (ultimosDias) {
+    q = q.gte("enviado_en", new Date(Date.now() - ultimosDias * 86_400_000).toISOString());
+  }
+  const { data } = await q;
 
   return (data ?? []).map((e: any) => ({
     id: e.id,
@@ -177,6 +212,7 @@ export async function enviosActivos(db: DB, accountId: string): Promise<EnvioReg
     cajas: e.cajas ?? 0,
     pares: e.pares ?? 0,
     enviadoEn: e.enviado_en,
+    estado: e.estado ?? "enviado",
     detalleCajas: (e.envio_cajas ?? []).map((c: any) => ({
       cajaCodigo: c.caja_codigo,
       almacen: c.almacen,
@@ -187,37 +223,6 @@ export async function enviosActivos(db: DB, accountId: string): Promise<EnvioReg
       detalle: Array.isArray(c.detalle) ? c.detalle : [],
     })),
   }));
-}
-
-/**
- * Descuenta de las existencias las cajas de los envíos en camino.
- *
- * Piso en cero a propósito: si el reporte de bodega ya se volvió a importar
- * después del despacho, esas cajas ya no aparecen y no hay nada que
- * descontar. Preferimos quedarnos cortos (no sugerir) que sugerir de más.
- */
-export function descontarEnviado(
-  existencias: FilaExistencia[],
-  envios: EnvioRegistrado[],
-): void {
-  for (const e of envios) {
-    for (const c of e.detalleCajas) {
-      let porDescontar = c.cantidad;
-      for (const fila of existencias) {
-        if (porDescontar <= 0) break;
-        if (
-          fila.almacen !== (c.almacen ?? "") ||
-          fila.skuCaja !== (c.skuCaja ?? "") ||
-          (fila.pedido ?? "") !== (c.pedido ?? "")
-        ) {
-          continue;
-        }
-        const quita = Math.min(porDescontar, fila.cajasDisponibles);
-        fila.cajasDisponibles -= quita;
-        porDescontar -= quita;
-      }
-    }
-  }
 }
 
 /**

@@ -8,8 +8,8 @@ import { sugerirCompra } from "@/lib/servicios/compras";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido } from "@/components/cargar-pedido";
 import { ListaPedidos } from "@/components/lista-pedidos";
-import { TablaCompras } from "@/components/tabla-compras";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
+import { amazonParaCompras } from "@/lib/servicios/fba";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -43,10 +43,11 @@ export default async function Pedidos() {
 
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
-  const [planEstado, inventario, pedidos] = await Promise.all([
+  const [planEstado, inventario, pedidos, amazon] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     cargarInventario(supabase, cuenta.id),
     listarPedidos(supabase, cuenta.id),
+    amazonParaCompras(supabase),
   ]);
 
   const inventarioPorSku = new Map(
@@ -68,6 +69,7 @@ export default async function Pedidos() {
     inventarioPorSku,
     undefined,
     inventario.crudos,
+    amazon,
   );
 
   const p = compra.parametros;
@@ -170,8 +172,6 @@ export default async function Pedidos() {
       </details>
 
       <PedidoPorModelo renglones={compra.renglones} />
-
-      <TablaCompras renglones={compra.renglones} ciclo={ciclo} />
 
       <CargarPedido />
 

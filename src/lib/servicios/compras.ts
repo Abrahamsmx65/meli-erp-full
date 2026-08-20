@@ -65,12 +65,16 @@ export interface RenglonCompra {
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
-  /** ventas de los últimos 30 días, para contrastar contra la demanda corregida */
+  /** venta mensual de MELI (demanda corregida × 30) */
   ventaMes: number;
+  /** venta mensual de Amazon (últimos 30 días) */
+  ventaMesAmazon: number;
   enFull: number;
   enTransferencia: number;
   enBodega: number;
   enCamino: number;
+  /** stock en FBA + lo que viaja hacia FBA */
+  enFba: number;
   inventarioTotal: number;
   /** días que aguanta el inventario actual */
   coberturaDias: number | null;
@@ -244,6 +248,12 @@ export async function sugerirCompra(
   >,
   opciones?: Partial<ParametrosCompra>,
   precargado?: { corridas: any[]; skus: any[] },
+  /**
+   * Amazon por SKU: su venta diaria y su stock (FBA + en camino). El pedido
+   * a China tiene que cubrir LOS DOS canales: pedir solo con la demanda de
+   * MELI deja corto todo lo que también vende en Amazon.
+   */
+  amazonPorSku?: Map<string, { ventaDiaria: number; stock: number }>,
 ): Promise<SugerenciaCompra> {
   const p = { ...COMPRA_POR_DEFECTO, ...opciones };
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -297,10 +307,12 @@ export async function sugerirCompra(
     skus: Set<string>;
     demandaDiaria: number;
     ventaMes: number;
+    ventaMesAmazon: number;
     enFull: number;
     enTransferencia: number;
     enBodega: number;
     enCamino: number;
+    enFba: number;
     demandaPorTalla: Map<string, number>;
     inventarioPorTalla: Map<string, number>;
   }
@@ -317,10 +329,12 @@ export async function sugerirCompra(
         skus: new Set(),
         demandaDiaria: 0,
         ventaMes: 0,
+        ventaMesAmazon: 0,
         enFull: 0,
         enTransferencia: 0,
         enBodega: 0,
         enCamino: 0,
+        enFba: 0,
         demandaPorTalla: new Map(),
         inventarioPorTalla: new Map(),
       };
@@ -360,12 +374,27 @@ export async function sugerirCompra(
     }
   }
 
+  // Amazon: su demanda se SUMA a la de MELI y su stock cuenta como
+  // inventario ya comprado. El pedido a China surte a los dos canales.
+  for (const [sku, amz] of amazonPorSku ?? []) {
+    const { modelo, color, talla } = partes(sku);
+    const g = grupo(modelo, color);
+    g.skus.add(sku);
+    g.demandaDiaria += amz.ventaDiaria;
+    g.ventaMesAmazon += amz.ventaDiaria * 30;
+    g.enFba += amz.stock;
+    if (talla) {
+      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + amz.ventaDiaria);
+      g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + amz.stock);
+    }
+  }
+
   // --- Un renglón por grupo ------------------------------------------------
   const renglones: RenglonCompra[] = [];
   const hoy = new Date();
 
   for (const g of grupos.values()) {
-    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino;
+    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino + g.enFba;
     const demanda = g.demandaDiaria;
 
     if (demanda < p.ventaMinimaDiaria && inventarioTotal === 0) continue;
@@ -424,10 +453,12 @@ export async function sugerirCompra(
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
       ventaMes: Math.round(g.ventaMes),
+      ventaMesAmazon: Math.round(g.ventaMesAmazon),
       enFull: Math.round(g.enFull),
       enTransferencia: Math.round(g.enTransferencia),
       enBodega: Math.round(g.enBodega),
       enCamino: Math.round(g.enCamino),
+      enFba: Math.round(g.enFba),
       inventarioTotal: Math.round(inventarioTotal),
       coberturaDias: cobertura === null ? null : Number(cobertura.toFixed(1)),
       fechaQuiebre,

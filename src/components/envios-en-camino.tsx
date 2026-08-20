@@ -10,6 +10,7 @@ interface EnvioEnCamino {
   cajas: number;
   pares: number;
   enviadoEn: string;
+  estado: "enviado" | "caducado" | "recibido";
 }
 
 function n(x: number): string {
@@ -56,9 +57,10 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
       <header className="border-b p-4 hairline">
         <h2 className="text-base font-semibold">En camino a Full</h2>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Envíos ya dados de alta en Mercado Libre. Sus cajas ya no cuentan como
-          disponibles y sus pares ya cuentan a favor del plan. Cuando MELI reciba
-          uno, márcalo — o se cierra solo a los 21 días.
+          Envíos ya dados de alta en Mercado Libre. Se usan SOLO para calcular qué
+          mandar (sus pares cuentan a favor del plan) — no descuentan inventario de
+          nada. A los 7 días caducan solos, porque para entonces el stock ya está en
+          Full y MELI ya lo cuenta.
         </p>
       </header>
       {envios.length === 0 ? (
@@ -88,17 +90,29 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
                 Dado de alta {hace(e.enviadoEn)}
               </div>
             </div>
-            <button
-              onClick={() => recibido(e.id)}
-              disabled={trabajando === e.id}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{
-                borderColor: "var(--borde)",
-                opacity: trabajando === e.id ? 0.6 : 1,
-              }}
-            >
-              {trabajando === e.id ? "Cerrando…" : "Ya llegó a Full"}
-            </button>
+            {e.estado === "enviado" ? (
+              <button
+                onClick={() => recibido(e.id)}
+                disabled={trabajando === e.id}
+                className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+                style={{
+                  borderColor: "var(--borde)",
+                  opacity: trabajando === e.id ? 0.6 : 1,
+                }}
+              >
+                {trabajando === e.id ? "Cerrando…" : "Ya llegó a Full"}
+              </button>
+            ) : (
+              <span
+                className="rounded-full px-2.5 py-1 text-xs font-medium"
+                style={{
+                  background: "var(--surface-2)",
+                  color: "var(--ink-muted)",
+                }}
+              >
+                {e.estado === "caducado" ? "Caducado" : "Recibido"}
+              </span>
+            )}
           </li>
         ))}
       </ul>

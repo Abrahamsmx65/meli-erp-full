@@ -247,6 +247,35 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
 
   const total = lista.reduce((a, e) => a + e.cantidad, 0);
   const conProblema = lista.filter((e) => e.problema).length;
+  const [descargando, setDescargando] = useState<"zpl" | "pdf" | null>(null);
+
+  // TXT (ZPL) y PDF con el formato de las "Etiquetas de producto" de MELI.
+  const descargar = async (formato: "zpl" | "pdf") => {
+    if (descargando) return;
+    setDescargando(formato);
+    setError(null);
+    try {
+      const r = await fetch(`/api/etiquetas/${formato}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skus: lista.filter((e) => e.codigoFull).map((e) => ({ sku: e.sku, cantidad: e.cantidad })),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo generar.");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = formato === "zpl" ? "etiquetas.txt" : "etiquetas.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDescargando(null);
+    }
+  };
 
   // Cada etiqueta se repite tantas veces como pida su cantidad.
   const impresas = lista.flatMap((e) =>
@@ -380,12 +409,28 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               Vaciar
             </button>
             <button
-              onClick={() => window.print()}
-              disabled={!impresas.length}
+              onClick={() => descargar("pdf")}
+              disabled={!impresas.length || descargando !== null}
               className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               style={{ background: "var(--acento)" }}
             >
-              Imprimir {impresas.length}
+              {descargando === "pdf" ? "Generando…" : "PDF"}
+            </button>
+            <button
+              onClick={() => descargar("zpl")}
+              disabled={!impresas.length || descargando !== null}
+              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            >
+              {descargando === "zpl" ? "Generando…" : "TXT (ZPL)"}
+            </button>
+            <button
+              onClick={() => window.print()}
+              disabled={!impresas.length}
+              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Imprimir
             </button>
           </header>
 

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { claveComparacion } from "@/lib/importar/sku";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { resolverEtiquetas } from "@/lib/etiquetas/resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -53,57 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Son demasiados SKUs de un jalón." }, { status: 400 });
   }
 
-  // TODO el catálogo, paginado: una lectura directa corta en 1000 filas y
-  // con más SKUs que eso, dos tercios del catálogo "no existían" para las
-  // etiquetas.
-  const catalogo = await traerTodo<any>(
-    supabase,
-    "skus",
-    "sku, inventory_id, titulo, color, talla, logistica",
-    (q) => q.eq("account_id", cuenta.id),
-  );
-
-  // Dos índices: el SKU tal cual y el SKU sin el sufijo del sitio.
-  const exacto = new Map<string, any>();
-  const flexible = new Map<string, any>();
-  for (const s of catalogo ?? []) {
-    exacto.set(s.sku.trim().toUpperCase(), s);
-    const c = claveComparacion(s.sku);
-    if (!flexible.has(c)) flexible.set(c, s);
-  }
-
-  const etiquetas: DatosEtiqueta[] = [];
-
-  for (const p of pedidas) {
-    const sku = String(p?.sku ?? "").trim().toUpperCase();
-    const cantidad = Math.max(0, Math.min(999, Math.round(Number(p?.cantidad) || 0)));
-    if (!sku || cantidad <= 0) continue;
-
-    const encontrado = exacto.get(sku) ?? flexible.get(claveComparacion(sku));
-
-    if (!encontrado) {
-      etiquetas.push({
-        sku,
-        codigoFull: null,
-        titulo: null,
-        variante: "",
-        cantidad,
-        problema: "Este SKU no está en el catálogo de Mercado Libre.",
-      });
-      continue;
-    }
-
-    etiquetas.push({
-      sku: encontrado.sku,
-      codigoFull: encontrado.inventory_id ?? null,
-      titulo: encontrado.titulo ?? null,
-      variante: variante(encontrado.color, encontrado.talla),
-      cantidad,
-      problema: encontrado.inventory_id
-        ? null
-        : "Todavía no tiene código Full. Aparece cuando la publicación entra a Full; sincroniza y vuelve a intentar.",
-    });
-  }
+  const etiquetas = await resolverEtiquetas(supabase, cuenta.id, pedidas);
 
   if (!etiquetas.length) {
     return NextResponse.json(

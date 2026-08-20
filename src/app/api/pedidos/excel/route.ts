@@ -5,6 +5,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { cargarInventario } from "@/lib/servicios/inventario";
 import { sugerirCompra } from "@/lib/servicios/compras";
+import { amazonParaCompras } from "@/lib/servicios/fba";
 import { aISO } from "@/lib/engine/fechas";
 
 export const dynamic = "force-dynamic";
@@ -46,9 +47,10 @@ export async function GET(request: NextRequest) {
 
   const modelo = (request.nextUrl.searchParams.get("modelo") ?? "").trim().toUpperCase();
 
-  const [planEstado, inventario] = await Promise.all([
+  const [planEstado, inventario, amazon] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     cargarInventario(supabase, cuenta.id),
+    amazonParaCompras(supabase),
   ]);
 
   const inventarioPorSku = new Map(
@@ -70,6 +72,7 @@ export async function GET(request: NextRequest) {
     inventarioPorSku,
     undefined,
     inventario.crudos,
+    amazon,
   );
 
   const renglones = compra.renglones.filter(

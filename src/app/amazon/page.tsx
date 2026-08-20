@@ -9,6 +9,7 @@ import {
   normalizarDias,
 } from "@/lib/servicios/amazon";
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
+import { desglosarSku } from "@/lib/servicios/sync";
 import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { TablaAmazon } from "@/components/tabla-amazon";
@@ -63,6 +64,38 @@ export default async function Amazon({
   const sugerencias = busqueda ? [] : sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw));
   const etiqueta = dias === 365 ? "último año" : `últimos ${dias} días`;
 
+  // Por modelo (el "padre"): todo el MY2307 junto, colores y tallas sumados.
+  const porModelo = new Map<
+    string,
+    { colores: Set<string>; skus: number; unidades: number; importe: number; fba: number; enCamino: number }
+  >();
+  for (const r of renglones) {
+    const modelo = (desglosarSku(r.sku).modelo ?? r.sku).toUpperCase();
+    const m =
+      porModelo.get(modelo) ??
+      { colores: new Set<string>(), skus: 0, unidades: 0, importe: 0, fba: 0, enCamino: 0 };
+    const color = desglosarSku(r.sku).color;
+    if (color) m.colores.add(color);
+    m.skus += 1;
+    m.unidades += r.unidades;
+    m.importe += r.importe;
+    m.fba += r.disponible;
+    m.enCamino += r.enTransferencia;
+    porModelo.set(modelo, m);
+  }
+  const modelos = [...porModelo.entries()]
+    .map(([modelo, m]) => ({
+      modelo,
+      colores: m.colores.size,
+      skus: m.skus,
+      unidades: m.unidades,
+      importe: m.importe,
+      fba: m.fba,
+      enCamino: m.enCamino,
+      cobertura: m.unidades > 0 ? (m.fba + m.enCamino) / (m.unidades / dias) : null,
+    }))
+    .sort((a, b) => b.unidades - a.unidades);
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -101,6 +134,57 @@ export default async function Amazon({
       </div>
 
       <RecargaAmazon estado={recarga} />
+
+      {modelos.length ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="text-base font-semibold">Por modelo</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              Todos los colores y tallas de cada modelo, juntos, en los {etiqueta}.
+            </p>
+          </header>
+          <div className="max-h-[28rem] overflow-auto">
+            <table className="datos">
+              <thead>
+                <tr>
+                  <th>Modelo</th>
+                  <th className="num">Colores</th>
+                  <th className="num">SKUs</th>
+                  <th className="num">Vendidas</th>
+                  <th className="num">Importe</th>
+                  <th className="num">En FBA</th>
+                  <th className="num">En camino</th>
+                  <th className="num">Cobertura</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modelos.slice(0, 100).map((m) => (
+                  <tr key={m.modelo}>
+                    <td className="font-medium">{m.modelo}</td>
+                    <td className="num cifra">{m.colores}</td>
+                    <td className="num cifra">{m.skus}</td>
+                    <td className="num cifra font-semibold">{n(m.unidades)}</td>
+                    <td className="num cifra">{pesos(m.importe)}</td>
+                    <td className="num cifra">{n(m.fba)}</td>
+                    <td className="num cifra">{n(m.enCamino)}</td>
+                    <td
+                      className="num cifra"
+                      style={{
+                        color:
+                          m.cobertura !== null && m.cobertura < 14
+                            ? "var(--estado-critico)"
+                            : "var(--ink-1)",
+                      }}
+                    >
+                      {m.cobertura === null ? "—" : `${Math.round(m.cobertura)} d`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {/* Con búsqueda activa los renglones vienen filtrados y la sugerencia
           de envío quedaría a medias: se muestra solo sobre el panorama entero. */}

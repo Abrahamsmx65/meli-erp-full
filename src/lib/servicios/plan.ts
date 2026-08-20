@@ -10,7 +10,7 @@ import type { ISODate, Parametros, Plan } from "../engine/types";
 import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAmarre } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import { cargarInsumos, type DB } from "../datos/repos";
-import { descontarEnviado, enviosActivos, sumarEnCamino } from "./envios-registrados";
+import { enviosActivos, sumarEnCamino } from "./envios-registrados";
 
 export interface CajaPlaneada {
   codigo: string;
@@ -160,12 +160,13 @@ export async function generarPlanCompleto(
     permiteUnidadesSueltas: false,
   });
 
-  // Envíos ya dados de alta en MELI que siguen en camino: sus cajas dejan
-  // de estar disponibles en bodega y sus pares cuentan como en camino.
-  // MELI no expone la Gestión de envíos por API; este registro es el puente.
+  // Envíos ya dados de alta en MELI que siguen en camino: sus pares cuentan
+  // como "en camino" en la posición del plan — SOLO para calcular qué mandar.
+  // No descuentan bodega ni tocan inventario: el reporte de existencias
+  // sigue siendo la única verdad de la bodega. A los 7 días caducan solos,
+  // porque para entonces MELI ya cuenta ese stock en Full.
   const enCamino = await enviosActivos(db, accountId);
   if (enCamino.length) {
-    descontarEnviado(insumos.existencias, enCamino);
     sumarEnCamino(insumos.stockActual, enCamino);
   }
 
