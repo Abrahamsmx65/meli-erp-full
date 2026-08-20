@@ -22,12 +22,22 @@ export interface DatosEtiqueta {
 }
 
 /**
- * ^FH usa `_` como marca de hexadecimal: un guion se escribe _2D y un
- * guion bajo _5F, igual que en los archivos de MELI. Lo demás va tal cual
- * (^CI28 pone la impresora en UTF-8, los acentos pasan derecho).
+ * ^FH usa `_` como marca de hexadecimal: el guion va como _2D y los acentos
+ * como su UTF-8 en hex, exactamente el mismo encodeZPL del generador viejo
+ * de etiquetas mixtas. El guion bajo se escapa a _5F por seguridad (es el
+ * carácter de escape mismo).
  */
 function escaparFH(texto: string): string {
-  return texto.replace(/_/g, "_5F").replace(/-/g, "_2D").replace(/[\^~]/g, " ");
+  return texto
+    .replace(/_/g, "_5F")
+    .replace(/-/g, "_2D")
+    .replace(/é/g, "_C3_A9")
+    .replace(/á/g, "_C3_A1")
+    .replace(/í/g, "_C3_AD")
+    .replace(/ó/g, "_C3_B3")
+    .replace(/ú/g, "_C3_BA")
+    .replace(/ñ/g, "_C3_B1")
+    .replace(/[\^~]/g, " ");
 }
 
 function limpiar(texto: string): string {
@@ -43,32 +53,34 @@ export function varianteMeli(color: string | null, talla: string | null): string
 }
 
 export function generarZplDatos(datos: DatosEtiqueta[]): string {
-  const bloques: string[] = [];
+  let zpl = "";
 
   for (const d of datos) {
     if (!d.codigo || d.cantidad <= 0) continue;
     const codigo = limpiar(d.codigo);
-    const titulo = limpiar(d.titulo);
-    const variante = limpiar(d.variante);
+    const titulo = escaparFH(limpiar(d.titulo));
+    const variante = escaparFH(limpiar(d.variante));
+    const pie = escaparFH(limpiar(d.pie));
 
-    bloques.push(
-      [
-        "^XA",
-        "^CI28",
-        "^LH0,0",
-        `^FO25,15^BY2,,0^BCN,55,N,N^FD${codigo}^FS`,
-        `^FT110,98^A0N,22,22^FH^FD${codigo}^FS`,
-        `^FT109,98^A0N,22,22^FH^FD${codigo}^FS`,
-        `^FO22,115^A0N,18,18^FB300,2,0,L^FH^FD${titulo}^FS`,
-        `^FO22,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS`,
-        `^FO21,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS`,
-        `^FO22,175^A0N,18,18^FH^FD${escaparFH(limpiar(d.pie))}^FS`,
-        `^PQ${d.cantidad},0,1,Y^XZ`,
-      ].join("\n"),
-    );
+    // Un bloque por copia con ^PQ1, tal cual lo arma el generador viejo.
+    const bloque = `
+^XA
+^CI28
+^LH0,0
+^FO25,15^BY2,,0^BCN,55,N,N^FD${codigo}^FS
+^FT110,98^A0N,22,22^FH^FD${codigo}^FS
+^FT109,98^A0N,22,22^FH^FD${codigo}^FS
+^FO22,115^A0N,18,18^FB300,2,0,L^FH^FD${titulo}^FS
+^FO22,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
+^FO21,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
+^FO22,175^A0N,18,18^FH^FD${pie}^FS
+^PQ1,0,1,Y
+^XZ
+`;
+    for (let c = 0; c < d.cantidad; c++) zpl += bloque;
   }
 
-  return bloques.join("\n") + "\n";
+  return zpl;
 }
 
 export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
@@ -92,27 +104,35 @@ export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
  * el generador viejo de etiquetas mixtas.
  */
 export function generarZplAmazon(etiquetas: EtiquetaResuelta[]): string {
-  const bloques: string[] = [];
+  let zpl = "";
 
   for (const e of etiquetas) {
     if (!e.fnsku || e.cantidad <= 0) continue;
     const fnsku = limpiar(e.fnsku);
-    const titulo = limpiar(`NEW - ${(e.tituloAmazon ?? e.titulo ?? e.sku).slice(0, 55)}`);
-    const sku = `SKU: ${escaparFH(limpiar(e.skuAmazon ?? e.sku))}`;
+    const titulo = escaparFH(limpiar(`NEW - ${(e.tituloAmazon ?? e.titulo ?? e.sku).slice(0, 55)}`));
+    const sku = escaparFH(limpiar(`SKU: ${e.skuAmazon ?? e.sku}`));
 
-    bloques.push(
-      [
-        "^XA",
-        "^CI28",
-        "^LH0,0",
-        `^FO40,10^BY2^BCN,65,N,N,N^FD${fnsku}^FS`,
-        `^FO70,85^A0N,24,24^FB220,1,0,C^FH^FD${escaparFH(fnsku)}^FS`,
-        `^FO30,115^A0N,18,18^FB300,2,10,L^FH^FD${escaparFH(titulo)}^FS`,
-        `^FO30,180^A0N,16,16^FB300,1,0,L^FH^FD${sku}^FS`,
-        `^PQ${e.cantidad},0,1,Y^XZ`,
-      ].join("\n"),
-    );
+    // La plantilla del generador viejo tal cual, con sus líneas en blanco.
+    const bloque = `
+^XA
+^CI28
+^LH0,0
+
+^FO40,10^BY2
+^BCN,65,N,N,N
+^FD${fnsku}^FS
+
+^FO70,85^A0N,24,24^FB220,1,0,C^FH^FD${escaparFH(fnsku)}^FS
+
+^FO30,115^A0N,18,18^FB300,2,10,L^FH^FD${titulo}^FS
+
+^FO30,180^A0N,16,16^FB300,1,0,L^FH^FD${sku}^FS
+
+^PQ1,0,1,Y
+^XZ
+`;
+    for (let c = 0; c < e.cantidad; c++) zpl += bloque;
   }
 
-  return bloques.join("\n") + "\n";
+  return zpl;
 }

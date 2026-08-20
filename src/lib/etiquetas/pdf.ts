@@ -14,13 +14,16 @@
  * de un paquete real (IN10128_GT125.zip).
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import { codificar128 } from "./code128";
+import { FUENTE_CONDENSADA_B64 } from "./fuente-condensada";
 import type { EtiquetaResuelta } from "./resolver";
 import { varianteMeli, type DatosEtiqueta } from "./zpl";
 
 export type { DatosEtiqueta } from "./zpl";
 
 interface Fuentes {
+  /** La letra de la térmica: la fuente 0 de ZPL es bold condensada. */
   normal: PDFFont;
   negrita: PDFFont;
 }
@@ -92,8 +95,9 @@ function dibujarBarras(
 }
 
 async function fuentesDe(doc: PDFDocument): Promise<Fuentes> {
+  doc.registerFontkit(fontkit);
   return {
-    normal: await doc.embedFont(StandardFonts.Helvetica),
+    normal: await doc.embedFont(Buffer.from(FUENTE_CONDENSADA_B64, "base64"), { subset: true }),
     negrita: await doc.embedFont(StandardFonts.HelveticaBold),
   };
 }
