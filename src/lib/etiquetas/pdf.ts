@@ -142,9 +142,22 @@ export async function generarPdfEtiquetas(etiquetas: EtiquetaResuelta[]): Promis
 
 const PAGINA_2X1: [number, number] = [144, 72];
 
+/**
+ * Lienzo blanco que abarca TODA la página. Sin esto, algunos drivers de
+ * impresión (sobre todo al imprimir desde el teléfono) escalan lo PINTADO
+ * al tamaño del papel: el margen blanco del diseño no cuenta como contenido
+ * y se lo comen — el bloque salía estirado y pegado a los bordes aunque el
+ * PDF estuviera centrado. Con el fondo pintado, el contenido ES la página
+ * completa y los márgenes sobreviven cualquier "ajustar al papel".
+ */
+function lienzoCompleto(page: PDFPage, ancho: number, alto: number): void {
+  page.drawRectangle({ x: 0, y: 0, width: ancho, height: alto, color: rgb(1, 1, 1) });
+}
+
 /** Página con la etiqueta de MELI, idéntica a la del archivo de la fábrica. */
 export function paginaMeli2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosEtiqueta): void {
   const page = doc.addPage(PAGINA_2X1);
+  lienzoCompleto(page, PAGINA_2X1[0], PAGINA_2X1[1]);
   const codigo = seguro(d.codigo);
 
   // Código de barras: ^FO25,15 ^BY2 traducido a puntos. Las barras bajan de
@@ -197,6 +210,7 @@ export interface DatosAmazon2x1 {
  */
 export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmazon2x1): void {
   const page = doc.addPage(PAGINA_2X1);
+  lienzoCompleto(page, PAGINA_2X1[0], PAGINA_2X1[1]);
   const D = 72 / 203; // dots ZPL → puntos PDF
   const fnsku = seguro(d.fnsku);
 
@@ -327,6 +341,7 @@ export async function generarPdfCarton(textos: string[]): Promise<Uint8Array> {
 
   for (const texto of textos) {
     const page = doc.addPage([ancho, alto]);
+    lienzoCompleto(page, ancho, alto);
     const limpio = seguro(texto);
 
     const anchoBarras = 249;
