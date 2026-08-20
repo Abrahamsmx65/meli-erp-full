@@ -265,12 +265,29 @@ export async function repararVentasHistoricas(
   const mapaItemSku = await mapaItemSkuDe(db, accountId);
 
   let dias = 0;
-  const bitacora: { fecha: string; filas: number; ordenes: number; total: number | null }[] = [];
+  const bitacora: Record<string, unknown>[] = [];
   // Máximo 3 días por latido: cada día re-pide sus órdenes a MELI y sus
   // netos a Mercado Pago, y el latido tiene más cosas que hacer.
   while (fecha >= fondo && dias < 3 && Date.now() < finMs) {
     const r = await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
-    bitacora.push({ fecha, filas: r.filas, ordenes: r.ordenesLeidas, total: r.totalSegunMeli });
+    // Leer de vuelta lo que QUEDÓ en la base: si el barrido dice 468 filas
+    // y aquí aparecen 0, el problema es la escritura, no la lectura.
+    const { data: eco } = await db
+      .from("ventas_diarias")
+      .select("unidades")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    const enBase = (eco ?? []).length;
+    const unidadesEnBase = (eco ?? []).reduce((a: number, f: any) => a + (f.unidades ?? 0), 0);
+    bitacora.push({
+      fecha,
+      filas: r.filas,
+      ordenes: r.ordenesLeidas,
+      total: r.totalSegunMeli,
+      enBase,
+      unidadesEnBase,
+    } as any);
     fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
     dias++;
   }
