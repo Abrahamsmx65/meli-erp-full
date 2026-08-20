@@ -86,16 +86,19 @@ export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
   );
 }
 
-/** El TXT para la térmica pero con el FNSKU de Amazon en las barras. */
+/**
+ * El TXT para la térmica pero como etiqueta de Amazon: FNSKU en las barras,
+ * el título de la publicación de Amazon, el SKU de Amazon y "New" al pie.
+ */
 export function generarZplAmazon(etiquetas: EtiquetaResuelta[]): string {
   return generarZplDatos(
     etiquetas
       .filter((e) => e.fnsku)
       .map((e) => ({
         codigo: e.fnsku!,
-        titulo: e.titulo ?? e.sku,
-        variante: varianteMeli(e.color, e.talla),
-        pie: "Nuevo",
+        titulo: e.tituloAmazon ?? e.titulo ?? e.sku,
+        variante: e.skuAmazon ?? e.sku,
+        pie: "New",
         cantidad: e.cantidad,
       })),
   );

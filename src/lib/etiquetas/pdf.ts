@@ -89,12 +89,19 @@ function dosLineas(texto: string, font: PDFFont, tamano: number, maxAncho: numbe
 
 /**
  * El código de barras como rectángulos de vector, estirado exactamente al
- * ancho fijo que usa MELI (85.04 pt): así cualquier código, largo o corto,
- * ocupa el mismo espacio que en su PDF.
+ * ancho pedido: así cualquier código, largo o corto, ocupa el mismo espacio
+ * que en los archivos originales de MELI y Amazon.
  */
-function dibujarBarras(page: PDFPage, texto: string, x: number, y: number): void {
+function dibujarBarras(
+  page: PDFPage,
+  texto: string,
+  x: number,
+  y: number,
+  anchoTotal: number,
+  alto: number,
+): void {
   const barras = codificar128(texto);
-  const modulo = BARRAS_ANCHO / barras.modulos;
+  const modulo = anchoTotal / barras.modulos;
   let cursor = x;
   let esBarra = true;
   for (const a of barras.anchos) {
@@ -104,13 +111,31 @@ function dibujarBarras(page: PDFPage, texto: string, x: number, y: number): void
         x: cursor,
         y,
         width: ancho,
-        height: BARRAS_ALTO,
+        height: alto,
         color: rgb(0, 0, 0),
       });
     }
     cursor += ancho;
     esBarra = !esBarra;
   }
+}
+
+/**
+ * Truncado al medio, como recorta Amazon los títulos largos en su etiqueta:
+ * "Getac CHANCLAS MUJER, SA...ujer, Medición, 25.0 cm)".
+ */
+function truncarMedio(texto: string, font: PDFFont, tamano: number, maxAncho: number): string {
+  if (font.widthOfTextAtSize(texto, tamano) <= maxAncho) return texto;
+  let cabeza = texto.slice(0, Math.ceil(texto.length / 2));
+  let cola = texto.slice(-Math.floor(texto.length / 2));
+  while (
+    (cabeza.length > 4 || cola.length > 4) &&
+    font.widthOfTextAtSize(`${cabeza}...${cola}`, tamano) > maxAncho
+  ) {
+    if (cabeza.length >= cola.length) cabeza = cabeza.slice(0, -1);
+    else cola = cola.slice(1);
+  }
+  return `${cabeza}...${cola}`;
 }
 
 /** Una etiqueta en la posición (columna, fila) de la hoja. */
@@ -136,7 +161,7 @@ function dibujarEtiqueta(
   });
 
   const codigo = seguro(d.codigo);
-  dibujarBarras(page, codigo, bx + BARRAS_X, by + BARRAS_Y);
+  dibujarBarras(page, codigo, bx + BARRAS_X, by + BARRAS_Y, BARRAS_ANCHO, BARRAS_ALTO);
 
   const anchoCodigo = fuentes.negrita.widthOfTextAtSize(codigo, TAM_CODIGO);
   page.drawText(codigo, {
@@ -225,49 +250,172 @@ export function datosMeli(e: EtiquetaResuelta): DatosEtiqueta {
   };
 }
 
-/** Etiquetas de Amazon: FNSKU en las barras y la condición al pie. */
-export function datosAmazon(e: EtiquetaResuelta): DatosEtiqueta {
-  return {
-    codigo: e.fnsku ?? "",
-    titulo: e.titulo ?? e.sku,
-    variante: varianteMeli(e.color, e.talla),
-    pie: "Nuevo",
-    cantidad: e.cantidad,
-  };
-}
-
 /** El PDF de la pantalla de etiquetas, formato MELI (hoja A4, 24 por hoja). */
 export async function generarPdfEtiquetas(etiquetas: EtiquetaResuelta[]): Promise<Uint8Array> {
   return generarPdfDatos(etiquetas.filter((e) => e.codigoFull).map(datosMeli));
 }
 
-/** Lo mismo pero con el FNSKU de Amazon en las barras. */
-export async function generarPdfAmazon(etiquetas: EtiquetaResuelta[]): Promise<Uint8Array> {
-  return generarPdfDatos(etiquetas.filter((e) => e.fnsku).map(datosAmazon));
+/* ========================================================================== */
+/* Etiquetas de 2 × 1 pulgadas, una por página: el formato que se comparte   */
+/* con la fábrica en China. Medidas calcadas de un paquete real              */
+/* (IN10128_GT125.zip): la página de MELI es su ZPL rendereado a 72/203 y la */
+/* de Amazon es la etiqueta térmica que genera Amazon.                       */
+/* ========================================================================== */
+
+const PAGINA_2X1: [number, number] = [144, 72];
+
+/** Página con la etiqueta de MELI, idéntica a la del archivo de la fábrica. */
+export function paginaMeli2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosEtiqueta): void {
+  const page = doc.addPage(PAGINA_2X1);
+  const codigo = seguro(d.codigo);
+
+  // Código de barras: ^FO25,15 ^BY2 ^BCN,55 traducido a puntos.
+  dibujarBarras(page, codigo, 8.9202, 47.2256, (codificar128(codigo).modulos * 2 * 72) / 203, 19.401);
+
+  // El código en "negritas" de impresora térmica: doble trazo corrido un dot.
+  const tCodigo = 7.803;
+  for (const x of [39.0148, 38.6601]) {
+    page.drawText(codigo, { x, y: 37.2414, size: tCodigo, font: fuentes.normal });
+  }
+
+  const tTexto = 6.3842;
+  const maxAncho = (300 * 72) / 203; // ^FB300
+  const lineas = dosLineas(seguro(d.titulo), fuentes.normal, tTexto, maxAncho);
+  const ysTitulo = [26.601, 20.2167];
+  lineas.forEach((l, i) => {
+    page.drawText(l, { x: 7.803, y: ysTitulo[i], size: tTexto, font: fuentes.normal });
+  });
+
+  const variante = seguro(d.variante);
+  if (variante) {
+    const v = recortar(variante, fuentes.normal, tTexto, maxAncho);
+    for (const x of [7.803, 7.4483]) {
+      page.drawText(v, { x, y: 13.1232, size: tTexto, font: fuentes.normal });
+    }
+  }
+
+  page.drawText(recortar(seguro(d.pie), fuentes.normal, tTexto, maxAncho), {
+    x: 7.803,
+    y: 5.3202,
+    size: tTexto,
+    font: fuentes.normal,
+  });
+}
+
+export interface DatosAmazon2x1 {
+  fnsku: string;
+  titulo: string;
+  sku: string;
+}
+
+/** Página con la etiqueta de Amazon: FNSKU, título recortado, SKU y "New". */
+export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmazon2x1): void {
+  const page = doc.addPage(PAGINA_2X1);
+  const fnsku = seguro(d.fnsku);
+
+  // Barras al ancho completo que usa Amazon (136.22 pt).
+  dibujarBarras(page, fnsku, 2.7898, 42.3146, 136.224, 22.932);
+
+  const tFnsku = 8.983;
+  const anchoFnsku = fuentes.normal.widthOfTextAtSize(fnsku, tFnsku);
+  page.drawText(fnsku, {
+    x: (PAGINA_2X1[0] - anchoFnsku) / 2,
+    y: 33.2248,
+    size: tFnsku,
+    font: fuentes.normal,
+  });
+
+  page.drawText(truncarMedio(seguro(d.titulo), fuentes.normal, 5.2, 137.05), {
+    x: 3.4727,
+    y: 24.8048,
+    size: 5.2,
+    font: fuentes.normal,
+  });
+
+  page.drawText(recortar(seguro(d.sku), fuentes.normal, 6.0695, 136.0), {
+    x: 4.1783,
+    y: 16.5,
+    size: 6.0695,
+    font: fuentes.normal,
+  });
+
+  page.drawText("New", { x: 4.1783, y: 9.0, size: 6.0695, font: fuentes.normal });
+}
+
+/** Los datos de Amazon de una etiqueta resuelta, con sus respaldos. */
+export function amazonDe(e: EtiquetaResuelta): DatosAmazon2x1 | null {
+  if (!e.fnsku) return null;
+  return {
+    fnsku: e.fnsku,
+    titulo: e.tituloAmazon ?? e.titulo ?? e.sku,
+    sku: e.skuAmazon ?? e.sku,
+  };
 }
 
 /**
- * Etiqueta grande de cartón (media carta apaisada): solo el texto
- * "PEDIDO-MODELO-COLOR" en enorme, para pegarse en la caja.
+ * El PDF de Amazon de la pantalla de etiquetas: una etiqueta de 2 × 1 por
+ * página (el formato de Amazon), repetida su cantidad.
  */
-export async function generarPdfCarton(texto: string): Promise<Uint8Array> {
+export async function generarPdfAmazon(etiquetas: EtiquetaResuelta[]): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const fuentes = await fuentesDe(doc);
+  for (const e of etiquetas) {
+    const d = amazonDe(e);
+    if (!d || e.cantidad <= 0) continue;
+    for (let copia = 0; copia < e.cantidad; copia++) paginaAmazon2x1(doc, fuentes, d);
+  }
+  if (!doc.getPageCount()) doc.addPage(PAGINA_2X1);
+  return doc.save();
+}
+
+/**
+ * El PDF de una variante para la fábrica: la etiqueta de Amazon y la de
+ * MELI, una por página y del mismo tamaño (2 × 1), en ese orden — igual que
+ * los "…, 2 LABEL.pdf" que ya se comparten con China.
+ */
+export async function generarPdf2Etiquetas(
+  amazon: DatosAmazon2x1 | null,
+  meli: DatosEtiqueta | null,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const fuentes = await fuentesDe(doc);
+  if (amazon) paginaAmazon2x1(doc, fuentes, amazon);
+  if (meli) paginaMeli2x1(doc, fuentes, meli);
+  if (!doc.getPageCount()) doc.addPage(PAGINA_2X1);
+  return doc.save();
+}
+
+/**
+ * La etiqueta de caja (BOX LABEL): 10 × 5 cm por página, con el código de
+ * barras del texto "PEDIDO-MODELO-COLOR" y el texto abajo en negritas,
+ * centrados — una página por color, todas en un solo PDF, igual que el
+ * "IN10128 - BOX LABEL.pdf" del paquete real.
+ */
+export async function generarPdfCarton(textos: string[]): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
-  const ancho = 396; // 5.5 in
-  const alto = 216; // 3 in
-  const page = doc.addPage([ancho, alto]);
+  const ancho = 282.96;
+  const alto = 142.08;
 
-  const limpio = seguro(texto);
-  let tamano = 60;
-  while (tamano > 8 && negrita.widthOfTextAtSize(limpio, tamano) > ancho - 24) {
-    tamano -= 1;
+  for (const texto of textos) {
+    const page = doc.addPage([ancho, alto]);
+    const limpio = seguro(texto);
+
+    const anchoBarras = 249;
+    dibujarBarras(page, limpio, (ancho - anchoBarras) / 2, 50.58, anchoBarras, 68.25);
+
+    let tamano = 13.5;
+    while (tamano > 7 && negrita.widthOfTextAtSize(limpio, tamano) > ancho - 24) {
+      tamano -= 0.5;
+    }
+    page.drawText(limpio, {
+      x: (ancho - negrita.widthOfTextAtSize(limpio, tamano)) / 2,
+      y: 27.33,
+      size: tamano,
+      font: negrita,
+    });
   }
-  page.drawText(limpio, {
-    x: (ancho - negrita.widthOfTextAtSize(limpio, tamano)) / 2,
-    y: (alto - tamano) / 2 + tamano * 0.12,
-    size: tamano,
-    font: negrita,
-  });
 
+  if (!doc.getPageCount()) doc.addPage([ancho, alto]);
   return doc.save();
 }

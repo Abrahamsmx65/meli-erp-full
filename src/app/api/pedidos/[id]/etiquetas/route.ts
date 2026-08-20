@@ -3,26 +3,22 @@ import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import {
-  canonizar,
-  claveAplastada,
-  claveComparacion,
-  construirSkuMeli,
-} from "@/lib/importar/sku";
-import { mapaFnsku } from "@/lib/etiquetas/resolver";
+import { claveAplastada, claveComparacion, construirSkuMeli } from "@/lib/importar/sku";
+import { buscarAmazon, mapaAmazon } from "@/lib/etiquetas/resolver";
 import { varianteMeli } from "@/lib/etiquetas/zpl";
-import {
-  generarPdfCarton,
-  generarPdfDatos,
-  type DatosEtiqueta,
-} from "@/lib/etiquetas/pdf";
+import { generarPdf2Etiquetas, generarPdfCarton } from "@/lib/etiquetas/pdf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** "M BROWN" → "MBROWN": para nombres de archivo y la etiqueta de cartón. */
+/** Sin espacios y en mayúsculas: "blk/brown " → "BLK/BROWN". */
 function pegado(s: string): string {
-  return canonizar(s).replace(/-/g, "");
+  return s.toUpperCase().replace(/\s+/g, "");
+}
+
+/** Para nombre de archivo: la diagonal no puede ir, se vuelve " - ". */
+function nombreArchivo(s: string): string {
+  return s.replace(/\//g, " - ").replace(/[\\:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /** Tallas en orden natural: 21, 21.5, 22 … y lo no numérico al final. */
@@ -38,16 +34,16 @@ function ordenarTallas(tallas: string[]): string[] {
 }
 
 /**
- * El paquete de etiquetas de un pedido a China, en un ZIP:
+ * El paquete de etiquetas de un pedido, calcado de cómo ya se comparte con
+ * la fábrica en China (ejemplo real: IN10128_GT125.zip). Por cada modelo va
+ * una carpeta "PEDIDO (MODELO)" con:
  *
- *   - Un PDF por modelo+color con la etiqueta de MELI (código Full) y la de
- *     Amazon (FNSKU) de cada talla, una tras otra y del mismo tamaño, en el
- *     formato de "Etiquetas de producto" de MELI (hoja A4, 24 por hoja).
- *   - `codigos.xlsx` con el código Full y el FNSKU de cada variante.
- *   - La carpeta `CTNS LABELS` con una etiqueta grande por modelo+color con
- *     el texto PEDIDO-MODELO-COLOR (p. ej. IN10199-GT142-BLK), para el cartón.
- *
- * Es lo que se le manda a la fábrica para que etiquete el pedido.
+ *   - "MODELO COLOR TALLA MX, 2 LABEL.pdf" por variante: página 1 la
+ *     etiqueta de Amazon (FNSKU) y página 2 la de MELI (código Full),
+ *     las dos de 2 × 1 pulgadas.
+ *   - "MODELO.xlsx" con SKU | LABEL MELI | LABEL AMAZON.
+ *   - "PEDIDO - BOX LABEL.pdf": una página de 10 × 5 cm por color, con el
+ *     código de barras y el texto PEDIDO-MODELO-COLOR, para el cartón.
  */
 export async function GET(
   _req: Request,
@@ -76,18 +72,19 @@ export async function GET(
     .from("pedido_lineas")
     .select("modelo, color, tallas")
     .eq("pedido_id", id)
-    .order("modelo", { ascending: true });
+    .order("modelo", { ascending: true })
+    .order("color", { ascending: true });
   if (!lineas?.length) {
     return NextResponse.json({ error: "El pedido no tiene renglones." }, { status: 400 });
   }
 
-  // El catálogo completo de MELI y los FNSKU de Amazon, indexados con los
-  // mismos amarres de siempre: exacto → canónico → aplastado.
-  const [catalogo, fnskus] = await Promise.all([
+  // El catálogo completo de MELI y los datos de Amazon, indexados con los
+  // amarres de siempre: exacto → canónico → aplastado.
+  const [catalogo, amazon] = await Promise.all([
     traerTodo<any>(supabase, "skus", "sku, inventory_id, titulo, color, talla", (q) =>
       q.eq("account_id", cuenta.id),
     ),
-    mapaFnsku(supabase),
+    mapaAmazon(supabase),
   ]);
 
   const exacto = new Map<string, any>();
@@ -103,91 +100,95 @@ export async function GET(
 
   const numeroPedido = pegado(pedido.pedido || "PEDIDO");
   const zip = new JSZip();
-  const carpetaCarton = zip.folder("CTNS LABELS")!;
-
-  const libro = new ExcelJS.Workbook();
-  const hoja = libro.addWorksheet("Códigos");
-  hoja.columns = [
-    { header: "Pedido", key: "pedido", width: 12 },
-    { header: "Modelo", key: "modelo", width: 12 },
-    { header: "Color", key: "color", width: 16 },
-    { header: "Talla", key: "talla", width: 8 },
-    { header: "SKU MELI", key: "sku", width: 26 },
-    { header: "Código Full", key: "full", width: 16 },
-    { header: "FNSKU", key: "fnsku", width: 16 },
-  ];
-  hoja.getRow(1).font = { bold: true };
-
   const sinCodigo: string[] = [];
 
+  // Un pedido puede traer varios modelos: cada uno con su carpeta, como los
+  // paquetes que ya se comparten.
+  const porModelo = new Map<string, typeof lineas>();
   for (const l of lineas) {
-    const tallas = ordenarTallas(Object.keys(l.tallas ?? {}));
-    if (!tallas.length) continue;
+    const m = pegado(l.modelo);
+    if (!porModelo.has(m)) porModelo.set(m, []);
+    porModelo.get(m)!.push(l);
+  }
 
-    const datos: DatosEtiqueta[] = [];
-    for (const talla of tallas) {
-      const construido = construirSkuMeli(l.modelo, l.color, talla);
-      const encontrado =
-        exacto.get(construido) ??
-        canonico.get(claveComparacion(construido)) ??
-        aplastado.get(claveAplastada(construido));
+  for (const [modelo, lineasModelo] of porModelo) {
+    const carpeta = zip.folder(nombreArchivo(`${numeroPedido} (${modelo})`))!;
 
-      const sku = encontrado?.sku ?? construido;
-      const codigoFull = encontrado?.inventory_id ?? null;
-      const fnsku =
-        fnskus.get(claveComparacion(sku)) ?? fnskus.get(claveComparacion(construido)) ?? null;
-      const titulo = encontrado?.titulo ?? `${l.modelo} ${l.color}`;
-      const variante = varianteMeli(encontrado?.color ?? l.color, encontrado?.talla ?? talla);
+    const libro = new ExcelJS.Workbook();
+    const hoja = libro.addWorksheet("Hoja 1");
+    hoja.addRow(["SKU", "LABEL MELI", "LABEL AMAZON"]);
+    hoja.getColumn(1).width = 26;
+    hoja.getColumn(2).width = 14;
+    hoja.getColumn(3).width = 14;
 
-      hoja.addRow({
-        pedido: pedido.pedido,
-        modelo: l.modelo,
-        color: l.color,
-        talla,
-        sku,
-        full: codigoFull ?? "",
-        fnsku: fnsku ?? "",
-      });
-      if (!codigoFull && !fnsku) {
-        sinCodigo.push(sku);
-        continue;
-      }
+    const coloresCarton: string[] = [];
 
-      // La etiqueta de MELI y la de Amazon de la misma talla, una tras otra
-      // y del mismo tamaño.
-      if (codigoFull) {
-        datos.push({ codigo: codigoFull, titulo, variante, pie: `SKU: ${sku}`, cantidad: 1 });
-      }
-      if (fnsku) {
-        datos.push({ codigo: fnsku, titulo, variante, pie: "Nuevo", cantidad: 1 });
+    for (const l of lineasModelo) {
+      const color = pegado(l.color ?? "");
+      coloresCarton.push(`${numeroPedido}-${modelo}-${color}`);
+
+      for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
+        const construido = construirSkuMeli(l.modelo, l.color, talla);
+        const encontrado =
+          exacto.get(construido) ??
+          canonico.get(claveComparacion(construido)) ??
+          aplastado.get(claveAplastada(construido));
+
+        const sku = encontrado?.sku ?? construido;
+        const codigoFull = encontrado?.inventory_id ?? null;
+        const datoAmazon = buscarAmazon(amazon, sku) ?? buscarAmazon(amazon, construido);
+
+        hoja.addRow([sku, codigoFull ?? "", datoAmazon?.fnsku ?? ""]);
+        if (!codigoFull && !datoAmazon) {
+          sinCodigo.push(sku);
+          continue;
+        }
+        if (!codigoFull) sinCodigo.push(`${sku} (sin código Full, solo va la de Amazon)`);
+        if (!datoAmazon) sinCodigo.push(`${sku} (sin FNSKU, solo va la de MELI)`);
+
+        const titulo = encontrado?.titulo ?? `${l.modelo} ${l.color}`;
+        const pdf = await generarPdf2Etiquetas(
+          datoAmazon
+            ? {
+                fnsku: datoAmazon.fnsku,
+                titulo: datoAmazon.titulo ?? titulo,
+                sku: datoAmazon.sku,
+              }
+            : null,
+          codigoFull
+            ? {
+                codigo: codigoFull,
+                titulo,
+                variante: varianteMeli(encontrado?.color ?? l.color, encontrado?.talla ?? talla),
+                pie: `SKU: ${sku}`,
+                cantidad: 1,
+              }
+            : null,
+        );
+
+        carpeta.file(nombreArchivo(`${modelo} ${color} ${talla} MX, 2 LABEL.pdf`), pdf);
       }
     }
 
-    const nombreBase = `${pegado(l.modelo)}-${pegado(l.color)}`;
-    if (datos.length) {
-      zip.file(`${nombreBase}.pdf`, await generarPdfDatos(datos));
-    }
-
-    const textoCarton = `${numeroPedido}-${nombreBase}`;
-    carpetaCarton.file(`${textoCarton}.pdf`, await generarPdfCarton(textoCarton));
+    carpeta.file(
+      nombreArchivo(`${numeroPedido} - BOX LABEL.pdf`),
+      await generarPdfCarton(coloresCarton),
+    );
+    carpeta.file(nombreArchivo(`${modelo}.xlsx`), Buffer.from(await libro.xlsx.writeBuffer()));
   }
 
   if (sinCodigo.length) {
     zip.file(
-      "SIN-CODIGO.txt",
-      "Estas variantes no tienen código Full ni FNSKU todavía, así que no llevan etiqueta:\n\n" +
-        sinCodigo.join("\n") +
-        "\n",
+      "FALTANTES.txt",
+      "A estas variantes les falta código:\n\n" + sinCodigo.join("\n") + "\n",
     );
   }
-
-  zip.file("codigos.xlsx", Buffer.from(await libro.xlsx.writeBuffer()));
 
   const contenido = await zip.generateAsync({ type: "nodebuffer" });
   return new NextResponse(new Uint8Array(contenido), {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="etiquetas-${numeroPedido}.zip"`,
+      "Content-Disposition": `attachment; filename="${nombreArchivo(numeroPedido)}.zip"`,
       "Cache-Control": "no-store",
     },
   });
