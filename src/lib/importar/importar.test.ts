@@ -161,3 +161,80 @@ describe("armado del catálogo de cajas (datos reales)", () => {
     expect(amarrada).toBeDefined();
   });
 });
+
+describe("corridas sin pedido (genéricas)", () => {
+  async function libroCorridas(filas: (string | number | null)[][]): Promise<Buffer> {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(["PEDIDO", "MODELO", "COLOR", 23, 24, 25, "TOTAL"]);
+    for (const f of filas) ws.addRow(f);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
+
+  it("una fila sin PEDIDO (vacío o con guion) también se lee", async () => {
+    const buf = await libroCorridas([
+      [null, "GT110", "NAVY", 12, 12, 24, 48],
+      ["-", "GT114", "TABACO BROWN", "-", 24, "-", 24],
+      ["IN10001", "GT152", "BLK", 8, 8, 8, 24],
+    ]);
+
+    const r = await importarCorridas(buf);
+    expect(r.corridas).toHaveLength(3);
+
+    const generica = r.corridas.find((c) => c.modelo === "GT110");
+    expect(generica?.pedido).toBe("");
+    expect(generica?.total).toBe(48);
+
+    const conGuion = r.corridas.find((c) => c.modelo === "GT114");
+    expect(conGuion?.pedido).toBe("");
+  });
+
+  it("las filas sin MODELO o sin pares se saltan pero se avisan", async () => {
+    const buf = await libroCorridas([
+      ["IN10001", "GT152", "BLK", 8, 8, 8, 24],
+      ["IN10002", null, "NAVY", 8, 8, 8, 24],
+      ["IN10003", "GT200", "CREAM", "-", "-", "-", null],
+    ]);
+
+    const r = await importarCorridas(buf);
+    expect(r.corridas).toHaveLength(1);
+    expect(r.avisos.some((a) => a.mensaje.includes("sin MODELO"))).toBe(true);
+    expect(r.avisos.some((a) => a.mensaje.includes("sin ningún par"))).toBe(true);
+  });
+
+  it("una caja usa la corrida genérica cuando su pedido no tiene la suya", async () => {
+    const corridas = [
+      { pedido: "", modelo: "GT110", color: "NAVY", tallas: { "23": 12, "24": 12 }, total: 24 },
+      { pedido: "IN10001", modelo: "GT110", color: "NAVY", tallas: { "25": 24 }, total: 24 },
+    ];
+    const caja = (pedido: string): any => ({
+      almacen: "Industher",
+      codigoAlmacen: "",
+      skuCaja: `${pedido || "X"}-GT110-NAVY`,
+      pedido,
+      modelo: "GT110",
+      color: "NAVY",
+      talla: "CORRIDA",
+      contenedor: "",
+      cajasFisicas: 1,
+      cajasApartadas: 0,
+      enCamino: 0,
+      cajasDisponibles: 1,
+      paresPorCaja: 24,
+      paresDisponibles: 24,
+    });
+
+    const r = construirCajas([caja("RT04"), caja("IN10001")], corridas as any);
+
+    // RT04 no tiene corrida propia: cae a la genérica (23 y 24).
+    const generica = r.cajas.find((c) => c.pedido === "RT04");
+    expect(generica?.detalle.map((d) => d.talla).sort()).toEqual(["23", "24"]);
+
+    // IN10001 sí tiene la suya: la genérica NO la pisa.
+    const exacta = r.cajas.find((c) => c.pedido === "IN10001");
+    expect(exacta?.detalle.map((d) => d.talla)).toEqual(["25"]);
+
+    expect(r.sinCorrida).toHaveLength(0);
+  });
+});

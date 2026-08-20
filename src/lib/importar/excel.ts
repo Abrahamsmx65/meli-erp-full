@@ -150,13 +150,21 @@ export async function importarCorridas(
 
   const avisos: Aviso[] = [];
   const porClave = new Map<string, Corrida>();
+  let filasSinModelo = 0;
+  let filasSinPares = 0;
 
   for (let i = indice + 1; i < filas.length; i++) {
     const f = filas[i];
-    const pedido = texto(f[cPedido]);
+    // PEDIDO vacío (o "-") = corrida genérica: la receta del modelo+color
+    // vale para cualquier caja de ese modelo cuyo pedido no tenga la suya.
+    const pedidoCrudo = texto(f[cPedido]);
+    const pedido = pedidoCrudo === "-" || pedidoCrudo === "—" ? "" : pedidoCrudo;
     const modelo = texto(f[cModelo]);
     const color = texto(f[cColor]);
-    if (!pedido || !modelo) continue;
+    if (!modelo) {
+      if (pedido || color) filasSinModelo++;
+      continue;
+    }
 
     const tallas: Record<string, number> = {};
     let suma = 0;
@@ -167,13 +175,17 @@ export async function importarCorridas(
         suma += pares;
       }
     }
-    if (suma <= 0) continue;
+    if (suma <= 0) {
+      filasSinPares++;
+      continue;
+    }
 
+    const etiqueta = `${pedido || "(sin pedido)"}/${modelo}/${color}`;
     const totalDeclarado = cTotal != null ? numero(f[cTotal]) : 0;
     if (totalDeclarado > 0 && totalDeclarado !== suma) {
       avisos.push({
         fila: i + 1,
-        mensaje: `${pedido}/${modelo}/${color}: el TOTAL dice ${totalDeclarado} pero las tallas suman ${suma}. Se usan las tallas.`,
+        mensaje: `${etiqueta}: el TOTAL dice ${totalDeclarado} pero las tallas suman ${suma}. Se usan las tallas.`,
       });
     }
 
@@ -194,10 +206,22 @@ export async function importarCorridas(
     if (!igual) {
       avisos.push({
         fila: i + 1,
-        mensaje: `${pedido}/${modelo}/${color}: aparece más de una vez con tallas distintas. Se conserva la última.`,
+        mensaje: `${etiqueta}: aparece más de una vez con tallas distintas. Se conserva la última.`,
       });
       porClave.set(clave, { pedido, modelo, color, tallas, total: suma });
     }
+  }
+
+  // Que lo que se saltó se vea: un hueco silencioso en las corridas se
+  // descubre semanas después, cuando una caja no se puede planear.
+  if (filasSinModelo > 0) {
+    avisos.push({ fila: 0, mensaje: `${filasSinModelo} filas sin MODELO se saltaron.` });
+  }
+  if (filasSinPares > 0) {
+    avisos.push({
+      fila: 0,
+      mensaje: `${filasSinPares} filas sin ningún par en las columnas de talla se saltaron.`,
+    });
   }
 
   return {
