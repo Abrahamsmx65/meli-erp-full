@@ -60,13 +60,25 @@ const SUFIJOS_SITIO = new Set([
 ]);
 
 /**
+ * Equivalencias de color CONFIRMADAS, caso por caso: la fábrica escribe
+ * "BLACK" en la proforma y los SKUs del negocio usan "BLK". Solo entran
+ * pares verificados — nada de adivinar abreviaturas para otros colores
+ * (BROWN, BEIGE, etc. se escriben igual en los dos lados).
+ */
+const SINONIMOS_COLOR: Record<string, string> = {
+  BLACK: "BLK",
+};
+
+/**
  * Clave con la que se comparan dos SKUs: forma canónica y sin el sufijo de
  * sitio. Es lo que hace que "GT110-MILITARY GREEN-26-MX" de la publicación y
  * "GT110-MILITARY GREEN-26" armado desde la corrida se reconozcan como el
  * mismo par de zapatos.
  */
 export function claveComparacion(s: string): string {
-  const partes = canonizar(s).split("-");
+  const partes = canonizar(s)
+    .split("-")
+    .map((p) => SINONIMOS_COLOR[p] ?? p);
   while (partes.length > 2 && SUFIJOS_SITIO.has(partes[partes.length - 1])) {
     partes.pop();
   }

@@ -19,6 +19,7 @@ interface Pedido {
   cajas: number;
   pares: number;
   modelos: number;
+  modelosLista: string[];
   cajasAsignadas: number;
   contenedores: Contenedor[];
   creadoEn: string;
@@ -52,6 +53,26 @@ function fecha(s: string | null): string {
 export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   const router = useRouter();
   const [asignando, setAsignando] = useState<Pedido | null>(null);
+  const [borrando, setBorrando] = useState<string | null>(null);
+
+  async function eliminar(p: Pedido) {
+    const seguro = window.confirm(
+      `¿Borrar el pedido ${p.pedido} (${n(p.cajas)} cajas, ${n(p.pares)} pares)? ` +
+        "Se quitan sus renglones y deja de contar como en camino. Las corridas se quedan.",
+    );
+    if (!seguro) return;
+    setBorrando(p.id);
+    try {
+      const r = await fetch(`/api/pedidos?id=${p.id}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo borrar.");
+      router.refresh();
+    } catch (e) {
+      window.alert((e as Error).message);
+    } finally {
+      setBorrando(null);
+    }
+  }
 
   if (!pedidos.length) {
     return (
@@ -76,8 +97,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
             <thead>
               <tr>
                 <th>Pedido</th>
-                <th>Fecha PI</th>
-                <th className="num">Modelos</th>
+                <th>Modelos</th>
                 <th className="num">Cajas</th>
                 <th className="num">Pares</th>
                 <th className="num">Sin barco</th>
@@ -104,8 +124,9 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         </div>
                       ) : null}
                     </td>
-                    <td className="cifra text-sm">{fecha(p.fechaPi)}</td>
-                    <td className="num cifra">{n(p.modelos)}</td>
+                    <td className="max-w-64 text-xs" title={p.modelosLista.join(", ")}>
+                      {p.modelosLista.length ? p.modelosLista.join(", ") : "—"}
+                    </td>
                     <td className="num cifra">{n(p.cajas)}</td>
                     <td className="num cifra">{n(p.pares)}</td>
                     <td
@@ -158,6 +179,14 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         >
                           Etiquetas
                         </a>
+                        <button
+                          onClick={() => eliminar(p)}
+                          disabled={borrando === p.id}
+                          className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                          style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
+                        >
+                          {borrando === p.id ? "Borrando…" : "Borrar"}
+                        </button>
                       </div>
                     </td>
                   </tr>

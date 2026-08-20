@@ -26,6 +26,8 @@ export interface PedidoResumen {
   cajas: number;
   pares: number;
   modelos: number;
+  /** Qué modelos vienen (GT251, GT252…), para verlos sin abrir el pedido. */
+  modelosLista: string[];
   cajasAsignadas: number;
   contenedores: { numero: string; estado: string; llegadaEst: string | null; cajas: number }[];
   creadoEn: string;
@@ -259,6 +261,7 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
       cajas: agg?.cajas ?? 0,
       pares: agg?.pares ?? 0,
       modelos: agg?.modelos.size ?? 0,
+      modelosLista: [...(agg?.modelos ?? [])].sort(),
       cajasAsignadas: conts.reduce((a, c) => a + c.cajas, 0),
       contenedores: conts,
       creadoEn: p.creado_en,

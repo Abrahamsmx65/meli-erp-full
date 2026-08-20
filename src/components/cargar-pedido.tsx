@@ -44,7 +44,6 @@ export function CargarPedido() {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [previsualizacion, setPrevisualizacion] = useState<Proforma | null>(null);
   const [yaExiste, setYaExiste] = useState(false);
-  const [fechaPi, setFechaPi] = useState("");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
@@ -83,7 +82,6 @@ export function CargarPedido() {
       const fd = new FormData();
       fd.append("archivo", archivo);
       fd.append("accion", "confirmar");
-      if (fechaPi) fd.append("fechaPi", fechaPi);
 
       const r = await fetch("/api/pedidos", { method: "POST", body: fd });
       const j = await r.json();
@@ -105,7 +103,6 @@ export function CargarPedido() {
     setPrevisualizacion(null);
     setArchivo(null);
     setYaExiste(false);
-    setFechaPi("");
     if (input.current) input.current.value = "";
   }
 
@@ -252,18 +249,6 @@ export function CargarPedido() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-end gap-3">
-              <label className="text-sm">
-                <span className="block" style={{ color: "var(--ink-2)" }}>
-                  Fecha de la proforma (opcional)
-                </span>
-                <input
-                  type="date"
-                  value={fechaPi}
-                  onChange={(e) => setFechaPi(e.target.value)}
-                  className="mt-1"
-                />
-              </label>
-
               <div className="ml-auto flex gap-2">
                 <button
                   onClick={cancelar}
