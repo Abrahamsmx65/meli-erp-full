@@ -33,9 +33,10 @@ export async function latidoAmazon(admin: DB): Promise<void> {
       return sincronizarInventario(admin, cliente);
     });
 
-    // Los reportes de liquidación salen cada ~2 semanas: revisarlos cada 6 h
-    // sobra y no gasta nada cuando no hay nuevos.
-    await paso(admin, cuenta.accountId, "cron_pagos", 6 * 3_600_000, async () => {
+    // Los reportes de liquidación salen cada ~2 semanas, pero revisar si hay
+    // nuevos cuesta UNA llamada barata: cada 10 minutos, y el cursor evita
+    // reprocesar. Así la primera carga entra en minutos, no en horas.
+    await paso(admin, cuenta.accountId, "cron_pagos", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarPagos(admin, cliente);
     });
