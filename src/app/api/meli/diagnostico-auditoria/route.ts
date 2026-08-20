@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   const inicioMes = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 8) + "01";
 
-  const [ventas, netos, reparacion, amazon] = await Promise.all([
+  const [ventas, netos, reparacion, barridos, amazon] = await Promise.all([
     supabase
       .from("ventas_diarias")
       .select("fecha, unidades, ordenes, importe")
@@ -45,9 +45,16 @@ export async function GET(req: NextRequest) {
       .from("sync_log")
       .select("inicio, detalle")
       .eq("account_id", cuenta.id)
-      .eq("tarea", "reparacion_ventas_v5")
+      .eq("tarea", "reparacion_ventas_v6")
       .order("inicio", { ascending: false })
       .limit(4),
+    supabase
+      .from("sync_log")
+      .select("inicio, detalle")
+      .eq("account_id", cuenta.id)
+      .eq("tarea", "barrido_dia")
+      .order("inicio", { ascending: false })
+      .limit(25),
     (async () => {
       const cta = await cuentaAmazon(supabase);
       if (!cta) return { conectado: false };
@@ -166,6 +173,7 @@ export async function GET(req: NextRequest) {
     ventasMeliPorDia: [...porDia.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([fecha, d]) => ({ fecha, ...d, importe: Math.round(d.importe) })),
+    barridosRecientes: (barridos.data ?? []).map((b: any) => ({ en: b.inicio, ...b.detalle })),
     reparacionHistorial: reparacion.data?.length
       ? (reparacion.data as any[]).map((r) => ({ corrida: r.inicio, avance: r.detalle }))
       : "aún no corre (arranca con el latido, con la app abierta)",

@@ -232,7 +232,7 @@ interface OrdenMeli {
  * seller_sku, así que los días que él reescribió quedaron con MENOS venta
  * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
  * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
- * El avance vive en sync_log (tarea `reparacion_ventas_v5`): cuando llega
+ * El avance vive en sync_log (tarea `reparacion_ventas_v6`): cuando llega
  * al fondo se marca completo y no vuelve a correr.
  */
 export async function repararVentasHistoricas(
@@ -244,7 +244,7 @@ export async function repararVentasHistoricas(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_ventas_v5")
+    .eq("tarea", "reparacion_ventas_v6")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
@@ -295,7 +295,7 @@ export async function repararVentasHistoricas(
   const completo = fecha < fondo;
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_ventas_v5",
+    tarea: "reparacion_ventas_v6",
     estado: "ok",
     fin: new Date().toISOString(),
     detalle: { siguiente: fecha, completo, dias, bitacora },
@@ -449,6 +449,34 @@ async function recalcularDiaVentas(
     return base;
   });
 
+  // CANDADO DE PLAUSIBILIDAD: MELI a veces contesta la búsqueda de un día
+  // VIEJO solo con las órdenes modificadas hace poco (un total chico que
+  // hasta trae paging.total consistente, así que el candado de completitud
+  // no lo ve). Reescribir con eso vacía días buenos. Regla: un día de hace
+  // 2 o más días nunca puede encoger a menos de la mitad de lo guardado —
+  // una cancelación real jamás borra medio día.
+  const hace2dias = new Date(Date.now() - 6 * 3_600_000 - 2 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  if (fecha <= hace2dias) {
+    const { data: guardadas } = await db
+      .from("ventas_diarias")
+      .select("unidades")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    const unidadesGuardadas = (guardadas ?? []).reduce(
+      (a: number, f: any) => a + (f.unidades ?? 0),
+      0,
+    );
+    const unidadesNuevas = filas.reduce((a, f) => a + ((f.unidades as number) ?? 0), 0);
+    if (unidadesGuardadas > 20 && unidadesNuevas < unidadesGuardadas * 0.5) {
+      throw new Error(
+        `Barrido implausible del ${fecha}: trae ${unidadesNuevas} unidades y el día tiene ${unidadesGuardadas} guardadas. Se descarta.`,
+      );
+    }
+  }
+
   // El upsert de Supabase manda la UNIÓN de columnas de todo el lote y
   // rellena con NULL las ausentes: mezclar filas con y sin neto borraría
   // netos buenos. Se guardan por separado.
@@ -481,6 +509,20 @@ async function recalcularDiaVentas(
       .eq("fecha", fecha)
       .in("sku", sobrantes.slice(i, i + 100));
   }
+
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "barrido_dia",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: {
+      fecha,
+      total: totalSegunMeli,
+      ordenes: vistas.size,
+      filas: filas.length,
+      borradas: sobrantes.length,
+    },
+  });
 
   return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
 }

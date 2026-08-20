@@ -130,7 +130,7 @@ export async function latido(
       .from("sync_log")
       .delete()
       .eq("account_id", accountId)
-      .eq("tarea", "en_vivo")
+      .in("tarea", ["en_vivo", "barrido_dia"])
       .lt("inicio", new Date(Date.now() - 24 * 3600 * 1000).toISOString());
 
     // Amazon avanza montado en este mismo latido, con su propio espaciado.
