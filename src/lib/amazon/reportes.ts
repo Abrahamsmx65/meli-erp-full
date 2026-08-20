@@ -60,6 +60,23 @@ export async function listarReportesListos(
     .sort((a, b) => a.creadoEn.localeCompare(b.creadoEn));
 }
 
+/**
+ * Fechas de los flat files de settlement: Amazon México las manda como
+ * "01.05.2026 11:22:33 UTC" (día.mes.año). Date.parse las leería al revés
+ * (1 de mayo → 5 de enero) y con día mayor a 12 daría NaN y la fila se
+ * perdería, así que el formato con puntos se desarma a mano. Cualquier otro
+ * formato (ISO, con guiones) cae al parser normal.
+ */
+export function msDeFechaReporte(texto: string): number {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[ T](\d{1,2}):(\d{2}):(\d{2}))?/.exec(
+    (texto ?? "").trim(),
+  );
+  if (m) {
+    return Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0));
+  }
+  return Date.parse(texto);
+}
+
 export type EstadoReporte =
   | { estado: "procesando" }
   | { estado: "listo"; documentId: string }

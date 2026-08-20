@@ -58,11 +58,30 @@ export async function GET(req: NextRequest) {
     (async () => {
       const cta = await cuentaAmazon(supabase);
       if (!cta) return { conectado: false };
-      const [pagos, logPagos] = await Promise.all([
+      const [conteo, primera, ultima, netosPagos, logPagos] = await Promise.all([
         supabase
           .from("amazon_pagos")
-          .select("fecha, neto")
+          .select("fecha", { count: "exact", head: true })
           .eq("account_id", cta.id),
+        supabase
+          .from("amazon_pagos")
+          .select("fecha")
+          .eq("account_id", cta.id)
+          .order("fecha", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("amazon_pagos")
+          .select("fecha")
+          .eq("account_id", cta.id)
+          .order("fecha", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("amazon_pagos")
+          .select("neto")
+          .eq("account_id", cta.id)
+          .limit(20000),
         supabase
           .from("amazon_sync_log")
           .select("inicio, estado, detalle")
@@ -71,19 +90,20 @@ export async function GET(req: NextRequest) {
           .order("inicio", { ascending: false })
           .limit(3),
       ]);
-      const filas = pagos.data ?? [];
       return {
         conectado: true,
-        pagosFilas: filas.length,
-        pagosDesde: filas.length ? filas.reduce((a, f) => (f.fecha < a ? f.fecha : a), filas[0].fecha) : null,
-        pagosHasta: filas.length ? filas.reduce((a, f) => (f.fecha > a ? f.fecha : a), filas[0].fecha) : null,
-        pagosNetoTotal: Math.round(filas.reduce((a, f) => a + (Number(f.neto) || 0), 0)),
+        pagosFilas: conteo.count ?? 0,
+        pagosDesde: primera.data?.fecha ?? null,
+        pagosHasta: ultima.data?.fecha ?? null,
+        pagosNetoTotal: Math.round(
+          (netosPagos.data ?? []).reduce((a, f) => a + (Number(f.neto) || 0), 0),
+        ),
         ultimasCorridas: (logPagos.data ?? []).map((l) => ({
           inicio: l.inicio,
           estado: l.estado,
           detalle: l.detalle,
         })),
-        errorPagos: pagos.error?.message ?? null,
+        errorPagos: conteo.error?.message ?? null,
       };
     })(),
   ]);

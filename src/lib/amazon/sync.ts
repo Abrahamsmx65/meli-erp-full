@@ -22,6 +22,7 @@ import {
   entero,
   estadoReporte,
   listarReportesListos,
+  msDeFechaReporte,
   solicitarReporte,
 } from "./reportes";
 
@@ -447,14 +448,19 @@ export async function sincronizarPagos(
 
   const { data: est } = await admin
     .from("amazon_sync_estado")
-    .select("cursor_ts")
+    .select("cursor_ts, datos")
     .eq("account_id", accountId)
     .eq("tarea", "cron_pagos")
     .maybeSingle();
+  // Las primeras cargas guardaron fechas mal leídas (mes.día en vez de
+  // día.mes): una sola vez se tira todo lo cargado y se relee desde cero,
+  // ya con el parser correcto. La marca fechasV2 evita repetirlo.
+  const necesitaReset = Boolean(est) && est?.datos?.fechasV2 !== true;
+  const cursorTs: string | null = necesitaReset ? null : (est?.cursor_ts ?? null);
   // La primera vez se mira 90 días atrás (Amazon guarda ~90 días de
   // reportes); después, desde el último leído con una hora de traslape.
-  const desde = est?.cursor_ts
-    ? new Date(Date.parse(est.cursor_ts) - 3_600_000).toISOString()
+  const desde = cursorTs
+    ? new Date(Date.parse(cursorTs) - 3_600_000).toISOString()
     : new Date(Date.now() - 90 * 86_400_000).toISOString();
 
   let reportes;
@@ -469,10 +475,19 @@ export async function sincronizarPagos(
     }
     throw err;
   }
+  // Estrictamente lo aún no leído: el traslape de una hora protege contra
+  // reportes generados mientras corría la tanda anterior, pero Amazon crea
+  // varios settlement en el mismo minuto y sin este filtro los mismos tres
+  // reportes se releían por siempre y el cursor jamás avanzaba.
+  if (cursorTs) reportes = reportes.filter((r) => r.creadoEn > cursorTs);
   if (!reportes.length) return { estado: "vacio", reportes: 0 };
 
+  if (necesitaReset) {
+    await admin.from("amazon_pagos").delete().eq("account_id", accountId);
+  }
+
   let filasTotales = 0;
-  let ultimoCreado = est?.cursor_ts ?? "";
+  let ultimoCreado = cursorTs ?? "";
 
   // Máximo 3 reportes por corrida: cada uno puede traer decenas de miles de
   // renglones y la función tiene plazo. Lo que falte lo recoge la siguiente.
@@ -488,7 +503,7 @@ export async function sincronizarPagos(
       const sku = (f["sku"] ?? "").trim();
       if (!sku) continue; // cargos de cuenta (suscripción, etc.): sin SKU
       const posted = f["posted-date-time"] || f["posted-date"] || "";
-      const ms = Date.parse(posted);
+      const ms = msDeFechaReporte(posted);
       if (!Number.isFinite(ms)) continue;
       const fecha = fechaLocal(ms, huso);
       const settlementId = (f["settlement-id"] ?? "").trim() || rep.reportId;
@@ -533,7 +548,7 @@ export async function sincronizarPagos(
       account_id: accountId,
       tarea: "cron_pagos",
       cursor_ts: ultimoCreado,
-      datos: {},
+      datos: { fechasV2: true },
       actualizado_en: new Date().toISOString(),
     });
   }
