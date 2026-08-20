@@ -163,7 +163,7 @@ export function construirCajas(
     // Los items sin amarre a MELI no pueden planearse: se excluyen del
     // contenido pero la caja sigue viva por sus demás tallas.
     const items = detalle
-      .filter((d) => d.origen !== "sin_catalogo" || true)
+      
       .filter((d) => d.sku)
       .map((d) => ({ sku: d.sku, piezas: d.piezas }));
 

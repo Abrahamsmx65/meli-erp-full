@@ -10,13 +10,31 @@
  * puede correr cada pocos segundos sin despeinar a nadie.
  */
 import { MeliClient } from "../meli/client";
-import { detallarItems, dedupePorSku } from "../meli/sync";
+import { detallarItems, dedupePorSku, esEnTransito, claveItem } from "../meli/sync";
 import { aISO } from "../engine/fechas";
-import { desglosarSku } from "./sync";
+import { desglosarSku, guardarVentasDiarias } from "./sync";
 import { invalidar } from "./cache";
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
 
-const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
+/**
+ * item+variación → SKU, desde el catálogo ya sincronizado. Es la misma
+ * convención de clave que usa `obtenerVentas` en la sincronización completa.
+ */
+async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
+  const filas = await traerTodo<{ sku: string; item_id: string | null; variation_id: string | null }>(
+    db,
+    "skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId).not("item_id", "is", null),
+  );
+  const mapa = new Map<string, string>();
+  for (const f of filas ?? []) {
+    if (!f.item_id) continue;
+    mapa.set(claveItem(f.item_id, f.variation_id), f.sku);
+    if (!f.variation_id) mapa.set(f.item_id, f.sku);
+  }
+  return mapa;
+}
 
 export interface ResultadoProceso {
   procesados: number;
@@ -61,7 +79,7 @@ async function clienteDeCuenta(db: DB, accountId: string): Promise<MeliClient | 
 export async function procesarPendientes(
   db: DB,
   accountId: string,
-  max = 40,
+  max = 300,
 ): Promise<ResultadoProceso> {
   const vacio: ResultadoProceso = {
     procesados: 0,
@@ -74,7 +92,7 @@ export async function procesarPendientes(
 
   const { data: pendientes } = await db
     .from("webhooks_meli")
-    .select("id, topic, resource, intentos")
+    .select("id, topic, resource, intentos, recibido_en")
     .eq("account_id", accountId)
     .is("procesado_en", null)
     .lt("intentos", 4)
@@ -91,12 +109,48 @@ export async function procesarPendientes(
   const r: ResultadoProceso = { ...vacio };
   const idsListos: number[] = [];
 
-  // Varios avisos suelen tocar el mismo recurso —MELI manda uno por cada
-  // cambio— así que se agrupan: procesar el mismo pedido cinco veces no
-  // aporta nada y sí gasta cuota.
+  // --- Órdenes: por DÍA, no por aviso -------------------------------------
+  // Recalcular una venta exige re-pedir el día completo a MELI (~17 páginas).
+  // Hacer eso por cada aviso, cuando un día de ventas trae cientos de avisos,
+  // era regalar la cuota: el mismo día se recalculaba cientos de veces. Se
+  // juntan los días que estos avisos tocan y cada día se pide UNA vez. El día
+  // se deduce de cuándo llegó el aviso (MELI avisa al momento), con un día de
+  // colchón hacia atrás por los husos y las órdenes de medianoche.
+  const avisosOrden = pendientes.filter(
+    (w) => w.topic === "orders_v2" || w.topic === "orders",
+  );
+  if (avisosOrden.length) {
+    // Los días se piensan en hora de México (-06:00), igual que las filas
+    // de ventas_diarias que estos barridos reescriben.
+    const dias = new Set<string>();
+    for (const w of avisosOrden) {
+      const t = new Date(w.recibido_en as string).getTime() - 6 * 3_600_000;
+      dias.add(new Date(t).toISOString().slice(0, 10));
+      dias.add(new Date(t - 24 * 3600 * 1000).toISOString().slice(0, 10));
+    }
+    try {
+      // El mapa item+variación → SKU: muchas órdenes vienen SIN seller_sku
+      // (el SKU vive en /user-products), y sin este amarre esas ventas se
+      // perdían del panel. Es el mismo mapa que usa la sincronización.
+      const mapaItemSku = await mapaItemSkuDe(db, accountId);
+      for (const fecha of [...dias].sort()) {
+        r.ventasTocadas += (await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku)).filas;
+      }
+      for (const w of avisosOrden) idsListos.push(w.id);
+      r.procesados += avisosOrden.length;
+    } catch (err) {
+      // Si MELI no dejó terminar, estos avisos se quedan y se reintentan en
+      // el siguiente latido; los días son idempotentes, repetirlos no daña.
+      if (r.errores.length < 5) r.errores.push(`ordenes: ${(err as Error).message}`);
+    }
+  }
+
+  // --- Stock y catálogo: por recurso, deduplicado --------------------------
   const vistos = new Set<string>();
 
   for (const w of pendientes) {
+    if (w.topic === "orders_v2" || w.topic === "orders") continue;
+
     const clave = `${w.topic}|${w.resource}`;
     if (vistos.has(clave)) {
       idsListos.push(w.id);
@@ -105,9 +159,7 @@ export async function procesarPendientes(
     vistos.add(clave);
 
     try {
-      if (w.topic === "orders_v2" || w.topic === "orders") {
-        if (await procesarOrden(db, accountId, cliente, w.resource)) r.ventasTocadas++;
-      } else if (w.topic.includes("stock")) {
+      if (w.topic.includes("stock")) {
         if (await procesarStock(db, accountId, cliente, w.resource)) r.stockTocado++;
       } else if (w.topic === "items") {
         if (await procesarItem(db, accountId, cliente, w.resource)) r.catalogoTocado++;
@@ -150,92 +202,567 @@ interface OrdenMeli {
   id: number;
   status?: string;
   date_created: string;
+  total_amount?: number;
+  payments?: { id?: number }[];
   order_items?: {
     quantity?: number;
     unit_price?: number;
-    item?: { id?: string; seller_sku?: string | null; seller_custom_field?: string | null };
+    sale_fee?: number;
+    item?: {
+      id?: string;
+      variation_id?: number | string | null;
+      seller_sku?: string | null;
+      seller_custom_field?: string | null;
+    };
   }[];
 }
 
 /**
- * Una venta nueva.
+ * Recalcula las ventas de UN día completo, para todos los SKUs.
  *
- * Se RECALCULA el día completo del SKU en vez de sumarle la orden: si el
- * mismo aviso llega dos veces —y MELI reintenta— sumar duplicaría la venta.
- * Recalcular es idempotente.
+ * Se re-pide el día entero a MELI y se reescribe lo encontrado: si el mismo
+ * aviso llega dos veces —y MELI reintenta— el resultado es idéntico.
+ * Recalcular es idempotente, y un solo barrido cubre todos los avisos de
+ * órdenes de ese día, sean tres o trescientos.
  */
-async function procesarOrden(
+/**
+ * Reparación del historial de ventas, una sola vez y en abonos.
+ *
+ * Durante un tiempo el barrido de avisos descartó las órdenes sin
+ * seller_sku, así que los días que él reescribió quedaron con MENOS venta
+ * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
+ * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
+ * El avance vive en sync_log (tarea `reparacion_ventas_v7`): cuando llega
+ * al fondo se marca completo y no vuelve a correr.
+ */
+export async function repararVentasHistoricas(
+  db: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ dias: number; completo: boolean }> {
+  const { data: marca } = await db
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", "reparacion_ventas_v7")
+    .eq("estado", "ok")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (marca?.detalle?.completo) return { dias: 0, completo: true };
+
+  const ahoraMx = Date.now() - 6 * 3_600_000;
+  const hoy = new Date(ahoraMx).toISOString().slice(0, 10);
+  const fondo = new Date(ahoraMx - 60 * 86_400_000).toISOString().slice(0, 10);
+  let fecha: string =
+    typeof marca?.detalle?.siguiente === "string"
+      ? marca.detalle.siguiente
+      : new Date(ahoraMx - 86_400_000).toISOString().slice(0, 10);
+  if (fecha >= hoy) fecha = new Date(ahoraMx - 86_400_000).toISOString().slice(0, 10);
+
+  const cliente = await clienteDeCuenta(db, accountId);
+  if (!cliente) return { dias: 0, completo: false };
+  const mapaItemSku = await mapaItemSkuDe(db, accountId);
+
+  let dias = 0;
+  const bitacora: Record<string, unknown>[] = [];
+  // Máximo 3 días por latido: cada día re-pide sus órdenes a MELI y sus
+  // netos a Mercado Pago, y el latido tiene más cosas que hacer.
+  while (fecha >= fondo && dias < 3 && Date.now() < finMs) {
+    const r = await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    // Leer de vuelta lo que QUEDÓ en la base: si el barrido dice 468 filas
+    // y aquí aparecen 0, el problema es la escritura, no la lectura.
+    const { data: eco } = await db
+      .from("ventas_diarias")
+      .select("unidades")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    const enBase = (eco ?? []).length;
+    const unidadesEnBase = (eco ?? []).reduce((a: number, f: any) => a + (f.unidades ?? 0), 0);
+    bitacora.push({
+      fecha,
+      filas: r.filas,
+      ordenes: r.ordenesLeidas,
+      total: r.totalSegunMeli,
+      enBase,
+      unidadesEnBase,
+    } as any);
+    fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+    dias++;
+  }
+
+  const completo = fecha < fondo;
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "reparacion_ventas_v7",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { siguiente: fecha, completo, dias, bitacora },
+  });
+  return { dias, completo };
+}
+
+/**
+ * Reparación de NETOS, una sola vez y en abonos: los días que la reparación
+ * del historial restauró se escribieron sin el depósito real (la columna cae
+ * en 0), porque juntar el neto de un día pide sus órdenes a Mercado Pago de
+ * 150 en 150 y un día trae más de mil. Esto re-barre cada día CON ceros
+ * hasta que su neto queda completo (o se agotan los intentos: hay órdenes
+ * cuyo neto es 0 de verdad, como las reembolsadas), de anteayer hacia atrás
+ * hasta 35 días. Corre después de la reparación del historial y solo cuando
+ * aquella ya terminó.
+ */
+export async function repararNetosHistoricos(
+  db: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ pasadas: number; completo: boolean }> {
+  const { data: marca } = await db
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", "reparacion_netos_v1")
+    .eq("estado", "ok")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (marca?.detalle?.completo) return { pasadas: 0, completo: true };
+
+  const ahoraMx = Date.now() - 6 * 3_600_000;
+  const fondo = new Date(ahoraMx - 35 * 86_400_000).toISOString().slice(0, 10);
+  // Se arranca en anteayer: hoy y ayer los re-barre el latido solo.
+  const arranque = new Date(ahoraMx - 2 * 86_400_000).toISOString().slice(0, 10);
+  let fecha: string =
+    typeof marca?.detalle?.fecha === "string" ? marca.detalle.fecha : arranque;
+  if (fecha > arranque) fecha = arranque;
+  let intentos: number = typeof marca?.detalle?.intentos === "number" ? marca.detalle.intentos : 0;
+
+  const ceros = async (dia: string): Promise<number> => {
+    const { count } = await db
+      .from("ventas_diarias")
+      .select("sku", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("fecha", dia)
+      .gt("importe", 0)
+      .lte("neto", 0);
+    return count ?? 0;
+  };
+
+  const cliente = await clienteDeCuenta(db, accountId);
+  if (!cliente) return { pasadas: 0, completo: false };
+  const mapaItemSku = await mapaItemSkuDe(db, accountId);
+
+  let pasadas = 0;
+  const bitacora: Record<string, unknown>[] = [];
+  // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago): con dos
+  // por latido basta, lo demás es avanzar gratis por días ya sanos.
+  while (fecha >= fondo && pasadas < 2 && Date.now() < finMs - 40_000) {
+    const antes = await ceros(fecha);
+    if (antes === 0) {
+      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+      intentos = 0;
+      continue;
+    }
+    try {
+      await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+    } catch {
+      // MELI degradado o sin cuota: el intento cuenta y se sigue después.
+    }
+    intentos++;
+    pasadas++;
+    const despues = await ceros(fecha);
+    bitacora.push({ fecha, intento: intentos, cerosAntes: antes, cerosDespues: despues });
+    // Un día de ~1,200 órdenes necesita ~8 pasadas (150 netos por pasada);
+    // 12 es el tope para los días con ceros legítimos (reembolsos).
+    if (despues === 0 || intentos >= 12) {
+      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+      intentos = 0;
+    }
+  }
+
+  const completo = fecha < fondo;
+  // Sin avance no se deja huella: si el latido llegó sin tiempo, insertar
+  // el mismo estado cada minuto solo ensuciaría el sync_log.
+  if (
+    pasadas === 0 &&
+    marca?.detalle &&
+    marca.detalle.fecha === fecha &&
+    marca.detalle.intentos === intentos &&
+    marca.detalle.completo === completo
+  ) {
+    return { pasadas, completo };
+  }
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "reparacion_netos_v1",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { fecha, intentos, completo, pasadas, bitacora },
+  });
+  return { pasadas, completo };
+}
+
+interface ResultadoDia {
+  filas: number;
+  ordenesLeidas: number;
+  totalSegunMeli: number | null;
+}
+
+async function recalcularDiaVentas(
   db: DB,
   accountId: string,
   cliente: MeliClient,
-  resource: string,
-): Promise<boolean> {
-  const orden = await cliente.get<OrdenMeli>(resource);
-  if (!orden?.date_created) return false;
-  if (orden.status && orden.status !== "paid") return false;
-
-  const fecha = orden.date_created.slice(0, 10);
-  const skus = new Set<string>();
-  for (const oi of orden.order_items ?? []) {
-    const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
-    if (sku) skus.add(sku);
-  }
-  if (!skus.size) return false;
-
-  const sellerId = Number(orden.id) ? undefined : undefined;
-  void sellerId;
-
-  // Se vuelve a pedir el día entero de esos SKUs para quedar exactos.
+  fecha: string,
+  mapaItemSku?: Map<string, string>,
+): Promise<ResultadoDia> {
   const { data: cuenta } = await db
     .from("meli_accounts")
     .select("meli_user_id")
     .eq("id", accountId)
     .maybeSingle();
-  if (!cuenta) return false;
+  if (!cuenta) return { filas: 0, ordenesLeidas: 0, totalSegunMeli: null };
 
-  const desde = `${fecha}T00:00:00.000Z`;
-  const hasta = `${fecha}T23:59:59.999Z`;
-  const acumulado = new Map<string, { unidades: number; ordenes: number; importe: number }>();
+  // La ventana cubre el día COMPLETO en hora de México (-06:00), que es el
+  // día del negocio y el del monitor, pero se manda en formato UTC (Z): es
+  // el formato con el que la paginación de MELI está probada — con el
+  // offset -06:00 en el texto, MELI regresaba bien la primera página y
+  // cortaba las siguientes.
+  const desde = new Date(`${fecha}T00:00:00.000-06:00`).toISOString();
+  const hasta = new Date(`${fecha}T23:59:59.999-06:00`).toISOString();
+  const acumulado = new Map<
+    string,
+    { unidades: number; ordenes: number; importe: number; comision: number }
+  >();
+  // Por orden, para el neto real: qué renglones (sku|día) la componen y con
+  // qué peso, para repartir el depósito de la orden entre sus SKUs.
+  const ordenes = new Map<
+    number,
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
+  >();
+  // Una orden nueva que entra a media paginación recorre las demás: sin
+  // esto, la misma orden puede salir en dos páginas y contarse doble.
+  const vistas = new Set<number>();
 
+  // Radiografía previa del día guardado (solo días viejos): si MELI declara
+  // muchísimas menos órdenes de las que el día ya tiene, es su respuesta
+  // degradada (solo las órdenes modificadas hace poco, con un paging.total
+  // chico pero consistente). Con esto se aborta ANTES de paginar y de tocar
+  // nada — el candado tardío de abajo dependía de leer lo guardado justo
+  // antes de escribir, y en una carrera con la reparación llegó a perder.
+  const hace2dias = new Date(Date.now() - 6 * 3_600_000 - 2 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  let ordenesGuardadas = 0;
+  if (fecha <= hace2dias) {
+    const { data: previas } = await db
+      .from("ventas_diarias")
+      .select("ordenes")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    ordenesGuardadas = (previas ?? []).reduce((a: number, f: any) => a + (f.ordenes ?? 0), 0);
+  }
+
+  let totalSegunMeli: number | null = null;
   for (let offset = 0; offset < 5000; offset += 51) {
-    const pagina = await cliente.get<{ results: OrdenMeli[] }>("/orders/search", {
+    const pagina = await cliente.get<{ results: OrdenMeli[]; paging?: { total?: number } }>("/orders/search", {
       seller: cuenta.meli_user_id,
       "order.date_created.from": desde,
       "order.date_created.to": hasta,
       "order.status": "paid",
+      sort: "date_asc",
       limit: 51,
       offset,
     });
     const lote = pagina.results ?? [];
+    if (offset === 0 && typeof pagina.paging?.total === "number") {
+      totalSegunMeli = pagina.paging.total;
+      // ordenesGuardadas sobrecuenta un poco (una orden con dos SKUs cuenta
+      // dos veces), pero para un umbral del 50% sobra: una cancelación real
+      // jamás desaparece medio día de órdenes.
+      if (ordenesGuardadas > 20 && totalSegunMeli < ordenesGuardadas * 0.5) {
+        throw new Error(
+          `Respuesta degradada de MELI para el ${fecha}: declara ${totalSegunMeli} órdenes y el día tiene ~${ordenesGuardadas} guardadas. No se toca.`,
+        );
+      }
+    }
     if (!lote.length) break;
 
     for (const o of lote) {
+      if (vistas.has(o.id)) continue;
+      vistas.add(o.id);
+      const info = {
+        dia: fecha,
+        paymentIds: (o.payments ?? []).map((p) => p.id).filter((x): x is number => x != null),
+        total: o.total_amount ?? 0,
+        renglones: [] as { clave: string; importe: number }[],
+      };
+      // Los renglones se juntan por SKU DENTRO de la orden: así "ordenes"
+      // cuenta órdenes que tocaron al SKU, no renglones de item.
+      const porSku = new Map<string, { unidades: number; importe: number; comision: number }>();
       for (const oi of o.order_items ?? []) {
-        const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
-        if (!sku || !skus.has(sku)) continue;
-        const prev = acumulado.get(sku) ?? { unidades: 0, ordenes: 0, importe: 0 };
-        prev.unidades += oi.quantity ?? 0;
-        prev.ordenes += 1;
-        prev.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
-        acumulado.set(sku, prev);
+        // El mismo orden de amarre que la sincronización completa: el SKU de
+        // la orden, y si no viene (variantes cuyo SKU vive en /user-products),
+        // el catálogo por item+variación.
+        const sku =
+          oi.item?.seller_sku?.trim() ||
+          oi.item?.seller_custom_field?.trim() ||
+          (oi.item?.id ? mapaItemSku?.get(claveItem(oi.item.id, oi.item.variation_id)) : undefined) ||
+          (oi.item?.id ? mapaItemSku?.get(oi.item.id) : undefined);
+        if (!sku) continue;
+        const s = porSku.get(sku) ?? { unidades: 0, importe: 0, comision: 0 };
+        s.unidades += oi.quantity ?? 0;
+        s.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
+        s.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
+        porSku.set(sku, s);
       }
+      for (const [sku, s] of porSku) {
+        const clave = `${sku}|${fecha}`;
+        const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0 };
+        prev.unidades += s.unidades;
+        prev.ordenes += 1;
+        prev.importe += s.importe;
+        prev.comision += s.comision;
+        acumulado.set(clave, prev);
+        info.renglones.push({ clave, importe: s.importe });
+      }
+      if (info.renglones.length) ordenes.set(o.id, info);
     }
     if (lote.length < 51) break;
   }
 
-  const filas = [...acumulado].map(([sku, v]) => ({
-    account_id: accountId,
-    sku,
-    fecha,
-    unidades: v.unidades,
-    ordenes: v.ordenes,
-    importe: v.importe,
-  }));
-
-  if (filas.length) {
-    await db.from("ventas_diarias").upsert(filas, { onConflict: "account_id,sku,fecha" });
+  // CANDADO: si MELI reporta más órdenes de las que llegaron, la paginación
+  // se quedó corta. Escribir (y sobre todo BORRAR faltantes) con un barrido
+  // incompleto destruye días buenos: mejor tronar y que el siguiente latido
+  // reintente. Margen de 2 por órdenes que entran a media paginación.
+  if (totalSegunMeli !== null && vistas.size + 2 < totalSegunMeli) {
+    throw new Error(
+      `Barrido incompleto del ${fecha}: MELI reporta ${totalSegunMeli} órdenes y llegaron ${vistas.size}. No se escribe nada.`,
+    );
   }
-  return filas.length > 0;
+  // Sin total declarado y sin órdenes tampoco se confía: puede ser una
+  // respuesta degradada de MELI, y "día vacío" borraría un día bueno.
+  if (totalSegunMeli === null && vistas.size === 0) {
+    const { count } = await db
+      .from("ventas_diarias")
+      .select("sku", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("fecha", fecha);
+    if ((count ?? 0) > 0) {
+      throw new Error(
+        `MELI contestó vacío y sin total para el ${fecha}, pero el día tiene ${count} filas guardadas: no se toca.`,
+      );
+    }
+  }
+
+  // --- Neto real por orden (lo que MELI deposita) --------------------------
+  const netoPorClave = await netosDelDia(db, accountId, cliente, ordenes);
+
+  const filas = [...acumulado].map(([clave, v]) => {
+    const sku = clave.slice(0, clave.lastIndexOf("|"));
+    const base: Record<string, unknown> = {
+      account_id: accountId,
+      sku,
+      fecha,
+      unidades: v.unidades,
+      ordenes: v.ordenes,
+      importe: v.importe,
+      comision: v.comision,
+    };
+    // El neto solo se escribe cuando el día quedó completo: escribir un
+    // parcial pisaría un valor bueno con uno a medias.
+    const neto = netoPorClave.get(clave);
+    if (neto !== undefined) base.neto = Math.round(neto * 100) / 100;
+    return base;
+  });
+
+  // CANDADO DE PLAUSIBILIDAD (segunda línea de defensa, ya con las filas
+  // armadas): un día de hace 2 o más días nunca puede encoger a menos de la
+  // mitad de lo guardado. Se relee lo guardado AQUÍ, justo antes de
+  // escribir, para achicar la ventana de carrera con la reparación.
+  if (fecha <= hace2dias) {
+    const { data: guardadas } = await db
+      .from("ventas_diarias")
+      .select("unidades")
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .limit(2000);
+    const unidadesGuardadas = (guardadas ?? []).reduce(
+      (a: number, f: any) => a + (f.unidades ?? 0),
+      0,
+    );
+    const unidadesNuevas = filas.reduce((a, f) => a + ((f.unidades as number) ?? 0), 0);
+    if (unidadesGuardadas > 20 && unidadesNuevas < unidadesGuardadas * 0.5) {
+      throw new Error(
+        `Barrido implausible del ${fecha}: trae ${unidadesNuevas} unidades y el día tiene ${unidadesGuardadas} guardadas. Se descarta.`,
+      );
+    }
+  }
+
+  // El upsert de Supabase manda la UNIÓN de columnas de todo el lote y
+  // rellena con NULL las ausentes: mezclar filas con y sin neto borraría
+  // netos buenos. Se guardan por separado.
+  const conNeto = filas.filter((f) => "neto" in f);
+  const sinNeto = filas.filter((f) => !("neto" in f));
+  if (conNeto.length) await guardarVentasDiarias(db, conNeto);
+  if (sinNeto.length) await guardarVentasDiarias(db, sinNeto);
+
+  // Las filas del día que YA no aparecen en el barrido son órdenes que se
+  // cancelaron o reembolsaron: sin esto, contaban para siempre. SOLO se
+  // borra cuando MELI declaró el total y el barrido lo cubrió: borrar con
+  // una respuesta degradada vació días buenos.
+  if (totalSegunMeli === null) {
+    return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
+  }
+  const skusBarridos = new Set(filas.map((f) => f.sku as string));
+  const { data: existentes } = await db
+    .from("ventas_diarias")
+    .select("sku")
+    .eq("account_id", accountId)
+    .eq("fecha", fecha);
+  const sobrantes = (existentes ?? [])
+    .map((e: any) => e.sku as string)
+    .filter((s) => !skusBarridos.has(s));
+  for (let i = 0; i < sobrantes.length; i += 100) {
+    await db
+      .from("ventas_diarias")
+      .delete()
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .in("sku", sobrantes.slice(i, i + 100));
+  }
+
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "barrido_dia",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: {
+      fecha,
+      total: totalSegunMeli,
+      ordenes: vistas.size,
+      filas: filas.length,
+      borradas: sobrantes.length,
+    },
+  });
+
+  return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
+}
+
+/**
+ * El neto real (net_received_amount) de cada orden del barrido, repartido a
+ * los renglones sku|día en proporción a su importe.
+ *
+ * Va con caché en `ordenes_neto` porque cada consulta a Mercado Pago cuesta
+ * una llamada: solo se piden las órdenes nuevas y las recientes (los cargos
+ * de envío y retenciones llegan DIFERIDOS, minutos después del pago, así que
+ * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
+ * solo para los días donde TODAS sus órdenes ya tienen neto conocido.
+ */
+async function netosDelDia(
+  db: DB,
+  accountId: string,
+  cliente: MeliClient,
+  ordenes: Map<
+    number,
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
+  >,
+): Promise<Map<string, number>> {
+  const vacio = new Map<string, number>();
+  if (!ordenes.size) return vacio;
+
+  // Caché existente. Si la tabla no existe (migración 0012 pendiente), el
+  // neto simplemente no se calcula todavía.
+  const ids = [...ordenes.keys()];
+  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await db
+      .from("ordenes_neto")
+      .select("order_id, neto, actualizado_en")
+      .eq("account_id", accountId)
+      .in("order_id", ids.slice(i, i + 200));
+    if (error) return vacio;
+    for (const f of data ?? []) {
+      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+    }
+  }
+
+  // ¿Cuáles hay que pedir? Las que no están, y las recientes con caché de
+  // hace más de 3 horas (por los cargos diferidos).
+  const ayer = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
+  const hace3h = Date.now() - 3 * 3_600_000;
+  const porPedir: number[] = [];
+  for (const [id, o] of ordenes) {
+    if (!o.paymentIds.length) continue;
+    const c = cache.get(id);
+    if (!c) porPedir.push(id);
+    else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
+    // Un neto cacheado en 0 con la orden cobrada es basura del error viejo
+    // de multipagos (se guardaba solo el primer pago, aunque estuviera
+    // rechazado): se vuelve a pedir sin importar la edad.
+    else if (c.neto <= 0 && o.total > 0) porPedir.push(id);
+  }
+
+  // Tope por barrido para no comerse el tiempo: lo que falte lo recoge el
+  // siguiente latido (corre cada pocos minutos).
+  const nuevas: Record<string, unknown>[] = [];
+  for (const id of porPedir.slice(0, 150)) {
+    const o = ordenes.get(id)!;
+    try {
+      // Una orden puede tener VARIOS pagos (dos tarjetas, o un intento
+      // rechazado y el bueno): el neto de la orden es la suma de todos.
+      let neto = 0;
+      let algunDato = false;
+      for (const paymentId of o.paymentIds) {
+        const r = await cliente.get<{ net_received_amount?: number }>(
+          `/collections/${paymentId}`,
+        );
+        if (typeof r?.net_received_amount === "number") {
+          neto += r.net_received_amount;
+          algunDato = true;
+        }
+      }
+      if (!algunDato) continue;
+      cache.set(id, { neto, actualizadoEn: new Date().toISOString() });
+      nuevas.push({
+        account_id: accountId,
+        order_id: id,
+        payment_id: o.paymentIds[0],
+        fecha: o.dia,
+        total: o.total,
+        neto,
+        actualizado_en: new Date().toISOString(),
+      });
+    } catch {
+      // Sin drama: se reintenta en el siguiente barrido.
+    }
+  }
+  if (nuevas.length) {
+    await db.from("ordenes_neto").upsert(nuevas, { onConflict: "account_id,order_id" });
+  }
+
+  // Repartir el neto de cada orden entre sus renglones, y solo entregar los
+  // días completos (todas sus órdenes con neto conocido).
+  const porClave = new Map<string, number>();
+  const diasIncompletos = new Set<string>();
+  for (const [id, o] of ordenes) {
+    const c = cache.get(id);
+    if (!c) {
+      diasIncompletos.add(o.dia);
+      continue;
+    }
+    const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
+    if (importeOrden <= 0) continue;
+    for (const r of o.renglones) {
+      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + c.neto * (r.importe / importeOrden));
+    }
+  }
+  for (const clave of [...porClave.keys()]) {
+    const dia = clave.slice(clave.lastIndexOf("|") + 1);
+    if (diasIncompletos.has(dia)) porClave.delete(clave);
+  }
+  return porClave;
 }
 
 /** Cambio de stock en Full de un inventario. */
@@ -276,8 +803,9 @@ async function procesarStock(
   let noDisponible = 0;
   for (const d of r.not_available_detail ?? []) {
     const q = d.quantity ?? 0;
-    const e = (d.status ?? "").toLowerCase();
-    if (ESTADOS_EN_TRANSITO.some((t) => e.includes(t))) enTransferencia += q;
+    // La misma clasificación que usa la sincronización: si divergen, el
+    // webhook y el sync escriben cifras distintas sobre la misma tabla.
+    if (esEnTransito(d.status)) enTransferencia += q;
     else noDisponible += q;
   }
 

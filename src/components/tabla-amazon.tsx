@@ -39,11 +39,14 @@ export function TablaAmazon({
   dias,
   busqueda,
   limite,
+  totales,
 }: {
   renglones: RenglonAmazon[];
   dias: number;
   busqueda: string;
   limite: number;
+  /** Totales REALES del periodo (de la base), no de las filas recibidas. */
+  totales?: { unidades: number; importe: number };
 }) {
   const router = useRouter();
   const ruta = usePathname();
@@ -79,13 +82,17 @@ export function TablaAmazon({
 
   const truncado = renglones.length >= limite;
 
-  const resumen = useMemo(
-    () => ({
+  // Sin búsqueda, el resumen usa los totales reales del periodo: sumar solo
+  // las filas recibidas (topadas a `limite`) daba una cifra menor a la real
+  // y contradecía a las fichas de arriba. Con búsqueda sí se suman las filas,
+  // porque el resumen describe lo encontrado.
+  const resumen = useMemo(() => {
+    if (!busqueda && totales) return totales;
+    return {
       unidades: renglones.reduce((a, r) => a + r.unidades, 0),
       importe: renglones.reduce((a, r) => a + r.importe, 0),
-    }),
-    [renglones],
-  );
+    };
+  }, [renglones, busqueda, totales]);
 
   return (
     <section className="tarjeta overflow-hidden">

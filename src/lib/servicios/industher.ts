@@ -16,6 +16,7 @@ import { canonizar, normalizarTalla } from "../importar/sku";
 import type { FilaExistencia } from "../importar/excel";
 import { upsertEnTandas, type DB } from "../datos/repos";
 import { invalidar } from "./cache";
+import { invalidarInventario } from "./inventario";
 
 const URL_POR_OMISION = "https://inventarios-industher.vercel.app/api/integracion/inventario";
 const ALMACEN_POR_OMISION = "Industher";
@@ -606,6 +607,7 @@ export async function sincronizarInventarioIndusther(
       .upsert(almacenes, { onConflict: "account_id,almacen", ignoreDuplicates: true });
   }
 
+  invalidarInventario(accountId);
   await invalidar(db, accountId, "Se sincronizó el inventario desde el API de Industher.");
 
   return {

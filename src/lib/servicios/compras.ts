@@ -28,6 +28,8 @@
  * medio ciclo y esperar tres meses.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
+import { claveAplastada, claveComparacion } from "../importar/sku";
 import type { LineaGuardada } from "./cache";
 
 export interface ParametrosCompra {
@@ -50,18 +52,31 @@ export const COMPRA_POR_DEFECTO: ParametrosCompra = {
 
 export type UrgenciaCompra = "quiebre" | "urgente" | "pronto" | "ok" | "sobrado";
 
+/**
+ * Reglas de unitalla: la fábrica acepta cajas de una sola talla únicamente
+ * en pedidos grandes. Una talla se separa como unitalla solo si ella sola
+ * justifica al menos UNITALLA_MIN_CAJAS cajas Y el color completo pide al
+ * menos COLOR_MIN_CAJAS cajas; si no, todo va en cajas de corrida.
+ */
+export const UNITALLA_MIN_CAJAS = 10;
+export const COLOR_MIN_CAJAS = 100;
+
 export interface RenglonCompra {
   modelo: string;
   color: string;
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
-  /** ventas de los últimos 30 días, para contrastar contra la demanda corregida */
+  /** venta mensual de MELI (demanda corregida × 30) */
   ventaMes: number;
+  /** venta mensual de Amazon (últimos 30 días) */
+  ventaMesAmazon: number;
   enFull: number;
   enTransferencia: number;
   enBodega: number;
   enCamino: number;
+  /** stock en FBA + lo que viaja hacia FBA */
+  enFba: number;
   inventarioTotal: number;
   /** días que aguanta el inventario actual */
   coberturaDias: number | null;
@@ -79,6 +94,18 @@ export interface RenglonCompra {
   /** si la corrida no embona con cómo se vende: talla -> desvío */
   desajusteCorrida: { talla: string; enCorrida: number; segunDemanda: number }[];
   motivo: string;
+  /**
+   * La corrida QUE CONVIENE PEDIR: el reparto de pares por caja calculado
+   * según lo que falta de cada talla (demanda del horizonte menos stock de
+   * esa talla). Es la corrida ajustada a la demanda real, no la histórica.
+   */
+  corridaPropuesta: Record<string, number> | null;
+  /** cajas de corrida (ya sin las tallas que se separaron como unitalla) */
+  cajasCorrida: number;
+  /** tallas que ameritan caja de una sola talla, con sus cajas */
+  unitallas: { talla: string; cajas: number }[];
+  /** faltante por talla, la base de todo el reparto */
+  faltantePorTalla: Record<string, number>;
 }
 
 export interface SugerenciaCompra {
@@ -96,6 +123,79 @@ export interface SugerenciaCompra {
 
 function clave(modelo: string, color: string): string {
   return `${modelo.trim().toUpperCase()}|${color.trim().toUpperCase()}`;
+}
+
+/**
+ * Reparte los pares de una caja entre tallas en proporción a su faltante,
+ * en enteros que suman exacto (mayor residuo se lleva el par sobrante).
+ */
+export function repartirCorrida(
+  faltantePorTalla: Record<string, number>,
+  paresPorCaja: number,
+): Record<string, number> {
+  const total = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+  if (total <= 0 || paresPorCaja <= 0) return {};
+
+  const crudos = Object.entries(faltantePorTalla)
+    .filter(([, f]) => f > 0)
+    .map(([talla, f]) => {
+      const exacto = (f / total) * paresPorCaja;
+      return { talla, piso: Math.floor(exacto), residuo: exacto - Math.floor(exacto) };
+    });
+
+  let sobran = paresPorCaja - crudos.reduce((a, c) => a + c.piso, 0);
+  crudos.sort((a, b) => b.residuo - a.residuo);
+  const corrida: Record<string, number> = {};
+  for (const c of crudos) {
+    const extra = sobran > 0 ? 1 : 0;
+    if (extra) sobran--;
+    const pares = c.piso + extra;
+    if (pares > 0) corrida[c.talla] = pares;
+  }
+  return corrida;
+}
+
+/**
+ * Divide el faltante de un color entre cajas UNITALLA y cajas de CORRIDA.
+ *
+ * Unitalla solo en pedidos grandes: la talla debe justificar sola al menos
+ * UNITALLA_MIN_CAJAS cajas y el color completo debe pedir al menos
+ * COLOR_MIN_CAJAS. Lo que se va en unitalla se resta del faltante y el resto
+ * se reparte en cajas de corrida con la proporción del faltante restante.
+ */
+export function armarPedidoColor(
+  faltantePorTalla: Record<string, number>,
+  paresPorCaja: number,
+): {
+  unitallas: { talla: string; cajas: number }[];
+  cajasCorrida: number;
+  corridaPropuesta: Record<string, number>;
+} {
+  const totalFaltante = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+  if (totalFaltante <= 0 || paresPorCaja <= 0) {
+    return { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
+  }
+
+  const cajasTotales = Math.ceil(totalFaltante / paresPorCaja);
+  const restante: Record<string, number> = { ...faltantePorTalla };
+  const unitallas: { talla: string; cajas: number }[] = [];
+
+  if (cajasTotales >= COLOR_MIN_CAJAS) {
+    for (const [talla, f] of Object.entries(restante)) {
+      const cajas = Math.floor(f / paresPorCaja);
+      if (cajas >= UNITALLA_MIN_CAJAS) {
+        unitallas.push({ talla, cajas });
+        restante[talla] = f - cajas * paresPorCaja;
+      }
+    }
+    unitallas.sort((a, b) => Number(a.talla) - Number(b.talla));
+  }
+
+  const faltanteRestante = Object.values(restante).reduce((a, b) => a + b, 0);
+  const cajasCorrida = Math.ceil(faltanteRestante / paresPorCaja);
+  const corridaPropuesta = repartirCorrida(restante, paresPorCaja);
+
+  return { unitallas, cajasCorrida, corridaPropuesta };
 }
 
 function urgenciaDe(cobertura: number | null, ciclo: number): UrgenciaCompra {
@@ -140,6 +240,13 @@ function compararCorrida(
   return desvios.sort((a, b) => Number(a.talla) - Number(b.talla)).slice(0, 8);
 }
 
+
+/** "IN10160" → 10160, para comparar pedidos por número y no por texto. */
+export function numeroDePedido(pedido: string): number {
+  const n = Number(pedido.replace(/\D+/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 export async function sugerirCompra(
   db: DB,
   accountId: string,
@@ -149,19 +256,30 @@ export async function sugerirCompra(
     { enFull: number; enTransferencia: number; enBodega: number; enCamino: number }
   >,
   opciones?: Partial<ParametrosCompra>,
+  precargado?: { corridas: any[]; skus: any[] },
+  /**
+   * Amazon por SKU: su venta diaria y su stock (FBA + en camino). El pedido
+   * a China tiene que cubrir LOS DOS canales: pedir solo con la demanda de
+   * MELI deja corto todo lo que también vende en Amazon.
+   */
+  amazonPorSku?: Map<string, { ventaDiaria: number; stock: number }>,
 ): Promise<SugerenciaCompra> {
   const p = { ...COMPRA_POR_DEFECTO, ...opciones };
   const ciclo = p.diasProduccion + p.diasTransito;
   const horizonte = ciclo + p.diasCobertura;
 
-  const [corridasRaw, skusRaw] = await Promise.all([
-    traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total, actualizado_en", (q) =>
-      q.eq("account_id", accountId),
-    ),
-    traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
-      q.eq("account_id", accountId).eq("activo", true),
-    ),
-  ]);
+  // La página de pedidos ya leyó estas dos tablas para el inventario:
+  // volver a pedirlas duplicaba los viajes a la base en cada clic.
+  const [corridasRaw, skusRaw] = precargado
+    ? [precargado.corridas, precargado.skus]
+    : await Promise.all([
+        traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
+          q.eq("account_id", accountId),
+        ),
+        traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
+          q.eq("account_id", accountId).eq("activo", true),
+        ),
+      ]);
 
   // La corrida más reciente de cada modelo+color es la que la fábrica usa hoy.
   const corridaDe = new Map<string, { tallas: Record<string, number>; total: number; pedido: string }>();
@@ -171,17 +289,27 @@ export async function sugerirCompra(
     const total = c.total ?? Object.values(c.tallas ?? {}).reduce((a: number, b: any) => a + Number(b), 0);
     if (!total) continue;
     // Empatan por pedido: el número de pedido más alto es el más nuevo.
-    if (!previa || String(c.pedido ?? "") > previa.pedido) {
+    // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
+    if (!previa || numeroDePedido(String(c.pedido ?? "")) > numeroDePedido(previa.pedido)) {
       corridaDe.set(k, { tallas: c.tallas ?? {}, total, pedido: String(c.pedido ?? "") });
     }
   }
 
-  // Cómo se descompone cada SKU. Se prefiere el catálogo; si un SKU no está
-  // ahí, se parte por guiones (GT104-BLK-25).
+  // Cómo se descompone cada SKU. Se prefiere el catálogo directo; si no
+  // está (los SKUs de AMAZON traen sufijo -MX y a veces la talla antes del
+  // color), se amarra contra el catálogo con los índices de siempre —
+  // canónico, aplastado y con los pedazos ordenados. Sin este amarre, la
+  // venta y el stock de Amazon caían en grupos fantasma (GT128|23-BLK) y el
+  // pedido a China se calculaba solo con MELI.
   const infoSku = new Map(skusRaw.map((s) => [s.sku, s]));
+  const indiceMeli = indexarCatalogo(skusRaw);
 
   function partes(sku: string): { modelo: string; color: string; talla: string } {
-    const i = infoSku.get(sku);
+    const i =
+      infoSku.get(sku) ??
+      indiceMeli.canonico.get(claveComparacion(sku)) ??
+      indiceMeli.aplastado.get(claveAplastada(sku)) ??
+      indiceMeli.ordenado.get(claveOrdenada(sku));
     if (i?.modelo) return { modelo: i.modelo, color: i.color ?? "", talla: i.talla ?? "" };
     const t = sku.split("-");
     return {
@@ -198,11 +326,14 @@ export async function sugerirCompra(
     skus: Set<string>;
     demandaDiaria: number;
     ventaMes: number;
+    ventaMesAmazon: number;
     enFull: number;
     enTransferencia: number;
     enBodega: number;
     enCamino: number;
+    enFba: number;
     demandaPorTalla: Map<string, number>;
+    inventarioPorTalla: Map<string, number>;
   }
 
   const grupos = new Map<string, Acumulado>();
@@ -217,11 +348,14 @@ export async function sugerirCompra(
         skus: new Set(),
         demandaDiaria: 0,
         ventaMes: 0,
+        ventaMesAmazon: 0,
         enFull: 0,
         enTransferencia: 0,
         enBodega: 0,
         enCamino: 0,
+        enFba: 0,
         demandaPorTalla: new Map(),
+        inventarioPorTalla: new Map(),
       };
       grupos.set(k, g);
     }
@@ -246,13 +380,32 @@ export async function sugerirCompra(
   // ni siquiera menciona porque nunca se han vendido. Esos también ocupan
   // espacio y no hay que volver a pedirlos.
   for (const [sku, inv] of inventarioPorSku) {
-    const { modelo, color } = partes(sku);
+    const { modelo, color, talla } = partes(sku);
     const g = grupo(modelo, color);
     g.skus.add(sku);
     g.enFull += inv.enFull;
     g.enTransferencia += inv.enTransferencia;
     g.enBodega += inv.enBodega;
     g.enCamino += inv.enCamino;
+    if (talla) {
+      const total = inv.enFull + inv.enTransferencia + inv.enBodega + inv.enCamino;
+      g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + total);
+    }
+  }
+
+  // Amazon: su demanda se SUMA a la de MELI y su stock cuenta como
+  // inventario ya comprado. El pedido a China surte a los dos canales.
+  for (const [sku, amz] of amazonPorSku ?? []) {
+    const { modelo, color, talla } = partes(sku);
+    const g = grupo(modelo, color);
+    g.skus.add(sku);
+    g.demandaDiaria += amz.ventaDiaria;
+    g.ventaMesAmazon += amz.ventaDiaria * 30;
+    g.enFba += amz.stock;
+    if (talla) {
+      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + amz.ventaDiaria);
+      g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + amz.stock);
+    }
   }
 
   // --- Un renglón por grupo ------------------------------------------------
@@ -260,7 +413,7 @@ export async function sugerirCompra(
   const hoy = new Date();
 
   for (const g of grupos.values()) {
-    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino;
+    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino + g.enFba;
     const demanda = g.demandaDiaria;
 
     if (demanda < p.ventaMinimaDiaria && inventarioTotal === 0) continue;
@@ -276,18 +429,46 @@ export async function sugerirCompra(
 
     const c = corridaDe.get(clave(g.modelo, g.color));
     const paresPorCaja = c?.total ?? null;
+
+    // Faltante POR TALLA: la demanda del horizonte de cada talla menos su
+    // propio inventario. Es la base de la corrida propuesta — pedir con la
+    // corrida vieja repone también las tallas que ya están sobradas.
+    const faltantePorTalla: Record<string, number> = {};
+    const tallasTodas = new Set([...g.demandaPorTalla.keys(), ...g.inventarioPorTalla.keys()]);
+    for (const t of tallasTodas) {
+      const f =
+        (g.demandaPorTalla.get(t) ?? 0) * horizonte - (g.inventarioPorTalla.get(t) ?? 0);
+      if (Math.round(f) > 0) faltantePorTalla[t] = Math.round(f);
+    }
+
+    // OJO: la puerta es el faltante POR TALLA, no el agregado. El agregado
+    // engaña: 500 pares de sobra en la talla 29 "tapan" el faltante de la
+    // 25 en la resta global, y el color se quedaba sin pedir justo lo que
+    // se le agotó. El sobrante de una talla no se puede vender como otra.
+    const totalFaltanteTallas = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+    // El umbral de venta mínima APAGA el pedido, no solo el texto: antes un
+    // modelo con el motivo "no conviene volver a pedirlo" igual sumaba cajas.
+    const valeLaPena = demanda >= p.ventaMinimaDiaria;
+    const pedido =
+      valeLaPena && totalFaltanteTallas > 0 && paresPorCaja && paresPorCaja > 0
+        ? armarPedidoColor(faltantePorTalla, paresPorCaja)
+        : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
+
     const cajasSugeridas =
-      faltante > 0 && paresPorCaja && paresPorCaja > 0 ? Math.ceil(faltante / paresPorCaja) : 0;
+      pedido.cajasCorrida + pedido.unitallas.reduce((a, u) => a + u.cajas, 0);
 
     const urgencia = urgenciaDe(cobertura, ciclo);
 
     let motivo: string;
     if (demanda < p.ventaMinimaDiaria) {
       motivo = `Casi no se vende (${(demanda * 30).toFixed(1)} pares al mes). No conviene volver a pedirlo.`;
-    } else if (faltante <= 0) {
+    } else if (totalFaltanteTallas <= 0) {
       motivo = `Con ${Math.round(inventarioTotal)} pares aguanta ${Math.round(cobertura ?? 0)} días; el ciclo completo son ${horizonte}. No hace falta pedir.`;
     } else if (!paresPorCaja) {
-      motivo = `Faltan ${Math.round(faltante)} pares, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+    } else if (faltante <= 0) {
+      const tallasCortas = Object.keys(faltantePorTalla).sort((a, b) => Number(a) - Number(b));
+      motivo = `En total parece alcanzar, pero por talla no: faltan ${Math.round(totalFaltanteTallas)} pares en ${tallasCortas.join(", ")} (el sobrante de otras tallas no las tapa).`;
     } else {
       const llegada = Math.round(cobertura ?? 0) - ciclo;
       motivo =
@@ -302,10 +483,12 @@ export async function sugerirCompra(
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
       ventaMes: Math.round(g.ventaMes),
+      ventaMesAmazon: Math.round(g.ventaMesAmazon),
       enFull: Math.round(g.enFull),
       enTransferencia: Math.round(g.enTransferencia),
       enBodega: Math.round(g.enBodega),
       enCamino: Math.round(g.enCamino),
+      enFba: Math.round(g.enFba),
       inventarioTotal: Math.round(inventarioTotal),
       coberturaDias: cobertura === null ? null : Number(cobertura.toFixed(1)),
       fechaQuiebre,
@@ -319,6 +502,12 @@ export async function sugerirCompra(
       urgencia,
       desajusteCorrida: c ? compararCorrida(c.tallas, g.demandaPorTalla) : [],
       motivo,
+      corridaPropuesta: Object.keys(pedido.corridaPropuesta).length
+        ? pedido.corridaPropuesta
+        : null,
+      cajasCorrida: pedido.cajasCorrida,
+      unitallas: pedido.unitallas,
+      faltantePorTalla,
     });
   }
 
@@ -347,7 +536,7 @@ export async function sugerirCompra(
       cajas: aPedir.reduce((a, r) => a + r.cajasSugeridas, 0),
       pares: aPedir.reduce((a, r) => a + r.paresSugeridos, 0),
       enQuiebre: renglones.filter((r) => r.urgencia === "quiebre" || r.urgencia === "urgente").length,
-      sinCorrida: renglones.filter((r) => r.faltante > 0 && !r.tieneCorrida).length,
+      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.tieneCorrida).length,
     },
   };
 }

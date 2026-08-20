@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { invalidar } from "@/lib/servicios/cache";
+import { invalidarInventario } from "@/lib/servicios/inventario";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
   );
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  invalidarInventario(cuenta.id);
   await invalidar(supabase, cuenta.id, "Se capturó o cambió una corrida.");
     return NextResponse.json({ ok: true, total });
 }

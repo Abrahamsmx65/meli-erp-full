@@ -10,6 +10,7 @@ import type { ISODate, Parametros, Plan } from "../engine/types";
 import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAmarre } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import { cargarInsumos, type DB } from "../datos/repos";
+import { enviosActivos, sumarEnCamino } from "./envios-registrados";
 
 export interface CajaPlaneada {
   codigo: string;
@@ -45,16 +46,135 @@ export interface PlanCompleto {
   avisos: string[];
 }
 
+/**
+ * Orden de preferencia entre bodegas: de dónde debe salir una caja cuando
+ * hay de dónde escoger. Recolectar en EnvioPack es un envío aparte con su
+ * propio costo, así que solo se usa cuando las otras no alcanzan; entre
+ * Caseshop e Industher, la operación prefiere Industher.
+ */
+export function prioridadAlmacen(almacen: string): number {
+  const a = almacen.toLowerCase();
+  if (a.includes("industher")) return 0;
+  if (a.includes("enviopack") || a.includes("envio pack")) return 2;
+  return 1;
+}
+
+/**
+ * Recorre las cajas elegidas hacia la bodega preferida.
+ *
+ * El optimizador decide QUÉ composiciones mandar por costo, y para el costo
+ * da igual de qué bodega salgan — pero para la operación no: la misma caja
+ * disponible en Industher y en EnvioPack debe salir de Industher, y de
+ * EnvioPack solo lo que las demás no cubran. Aquí, cajas con exactamente el
+ * mismo contenido se tratan como intercambiables y lo elegido se reparte por
+ * prioridad de bodega, sin cambiar ni una pieza del total.
+ */
+export function reasignarPorBodega(
+  elegidas: Plan["cajas"]["cajas"],
+  catalogo: CajaConstruida[],
+): Plan["cajas"]["cajas"] {
+  const firma = (c: CajaConstruida) =>
+    c.detalle
+      .map((d) => `${d.sku}:${d.piezas}`)
+      .sort()
+      .join("|");
+
+  const defPorCodigo = new Map(catalogo.map((c) => [c.codigo, c]));
+  const porFirma = new Map<string, CajaConstruida[]>();
+  for (const c of catalogo) {
+    const f = firma(c);
+    const l = porFirma.get(f);
+    if (l) l.push(c);
+    else porFirma.set(f, [c]);
+  }
+
+  const cantidadElegida = new Map(elegidas.map((e) => [e.codigo, e.cantidad]));
+  const resultado = new Map<string, number>();
+  const firmasVistas = new Set<string>();
+
+  for (const e of elegidas) {
+    const def = defPorCodigo.get(e.codigo);
+    if (!def) {
+      resultado.set(e.codigo, e.cantidad);
+      continue;
+    }
+    const f = firma(def);
+    if (firmasVistas.has(f)) continue;
+    firmasVistas.add(f);
+
+    const grupo = porFirma.get(f) ?? [def];
+    let total = grupo.reduce((a, c) => a + (cantidadElegida.get(c.codigo) ?? 0), 0);
+
+    const ordenado = [...grupo].sort(
+      (a, b) => prioridadAlmacen(a.almacen) - prioridadAlmacen(b.almacen),
+    );
+    for (const c of ordenado) {
+      const toma = Math.min(total, c.cajasDisponibles);
+      if (toma > 0) resultado.set(c.codigo, toma);
+      total -= toma;
+      if (total <= 0) break;
+    }
+    // No debería sobrar (el optimizador respetó disponibilidades), pero si
+    // sobrara, mejor dejarlo donde estaba que perder cajas del plan.
+    if (total > 0) {
+      const c0 = ordenado[0];
+      resultado.set(c0.codigo, (resultado.get(c0.codigo) ?? 0) + total);
+    }
+  }
+
+  return [...resultado.entries()].map(([codigo, cantidad]) => {
+    const def = defPorCodigo.get(codigo);
+    const previa = elegidas.find((e) => e.codigo === codigo);
+    const piezasPorCaja =
+      def?.paresPorCaja ?? previa?.piezasPorCaja ?? 0;
+    return {
+      codigo,
+      nombre: previa?.nombre ?? null,
+      cantidad,
+      piezasPorCaja,
+      aporta: (def?.detalle ?? []).map((d) => ({
+        sku: d.sku,
+        piezas: d.piezas * cantidad,
+      })),
+    };
+  });
+}
+
+
+/** Pares disponibles en cajas de bodega, por SKU (para "faltanteBodega"). */
+function paresEnBodega(cajas: CajaConstruida[]): { sku: string; unidades: number }[] {
+  const porSku = new Map<string, number>();
+  for (const c of cajas) {
+    for (const d of c.detalle) {
+      porSku.set(d.sku, (porSku.get(d.sku) ?? 0) + d.piezas * c.cajasDisponibles);
+    }
+  }
+  return [...porSku.entries()].map(([sku, unidades]) => ({ sku, unidades }));
+}
+
 export async function generarPlanCompleto(
   db: DB,
   accountId: string,
   opciones?: { hoy?: ISODate; parametros?: Record<string, unknown> },
 ): Promise<PlanCompleto> {
-  const hoy = opciones?.hoy ?? aISO(new Date());
+  // "Hoy" es el día del NEGOCIO (México, UTC-6): con el día UTC, un plan
+  // generado después de las 6 pm usaba mañana como hoy y corría las fechas.
+  const hoy = opciones?.hoy ?? aISO(new Date(Date.now() - 6 * 3_600_000));
 
-  // Se leen los parámetros primero porque definen qué tanta historia traer.
+  // Los parámetros de la BASE se leen ANTES de pedir la historia: definen
+  // cuántos días traer. Antes la ventana se calculaba con los defaults y si
+  // el usuario subía "Historia a analizar" en Ajustes, los días extra
+  // llegaban vacíos (cero ventas con stock) y diluían la demanda.
   const parametrosPedidos = (opciones?.parametros ?? {}) as Partial<Parametros>;
-  const paramsPrevios = normalizarParametros(parametrosPedidos);
+  const { data: paramsBd } = await db
+    .from("parametros")
+    .select("datos")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  const paramsPrevios = normalizarParametros({
+    ...((paramsBd?.datos as Record<string, unknown>) ?? {}),
+    ...parametrosPedidos,
+  });
   const desde = sumarDias(hoy, -(paramsPrevios.diasHistoria + 5));
 
   const insumos = await cargarInsumos(db, accountId, desde);
@@ -64,6 +184,16 @@ export async function generarPlanCompleto(
     // Las cajas no se abren: nunca se mandan pares sueltos.
     permiteUnidadesSueltas: false,
   });
+
+  // Envíos ya dados de alta en MELI que siguen en camino: sus pares cuentan
+  // como "en camino" en la posición del plan — SOLO para calcular qué mandar.
+  // No descuentan bodega ni tocan inventario: el reporte de existencias
+  // sigue siendo la única verdad de la bodega. A los 7 días caducan solos,
+  // porque para entonces MELI ya cuenta ese stock en Full.
+  const enCamino = await enviosActivos(db, accountId);
+  if (enCamino.length) {
+    sumarEnCamino(insumos.stockActual, enCamino);
+  }
 
   // El catálogo real de MELI es la autoridad sobre qué SKU existe.
   const indice = insumos.skus.length
@@ -82,12 +212,19 @@ export async function generarPlanCompleto(
     ventas: insumos.ventas,
     snapshots: insumos.snapshots,
     operaciones: insumos.operaciones,
-    inventarioPropio: [],
+    // Los pares que SÍ hay en cajas de bodega, por SKU: con la lista vacía,
+    // "faltanteBodega" salía igual al sugerido y toda línea decía
+    // "Te faltan N pzas en bodega" aunque las cajas sobraran.
+    inventarioPropio: paresEnBodega(catalogo.cajas),
     cajas: catalogo.cajas,
     overrides: insumos.overrides,
     parametros: p,
     hoy,
   });
+
+  // La misma caja disponible en dos bodegas debe salir de la preferida:
+  // el optimizador no distingue bodegas, esta pasada sí.
+  plan.cajas.cajas = reasignarPorBodega(plan.cajas.cajas, catalogo.cajas);
 
   // El motor devuelve códigos internos; aquí se vuelven algo que un humano
   // puede tomar y ejecutar en la bodega.
@@ -173,7 +310,8 @@ export async function guardarPlan(
 
   if (lineas.length) {
     for (let i = 0; i < lineas.length; i += 500) {
-      await db.from("plan_lineas").insert(lineas.slice(i, i + 500));
+      const { error: errLineasPlan } = await db.from("plan_lineas").insert(lineas.slice(i, i + 500));
+      if (errLineasPlan) console.error("plan_lineas:", errLineasPlan.message);
     }
   }
 
@@ -190,7 +328,8 @@ export async function guardarPlan(
 
   if (cajas.length) {
     for (let i = 0; i < cajas.length; i += 500) {
-      await db.from("plan_cajas").insert(cajas.slice(i, i + 500));
+      const { error: errCajasPlan } = await db.from("plan_cajas").insert(cajas.slice(i, i + 500));
+      if (errCajasPlan) console.error("plan_cajas:", errCajasPlan.message);
     }
   }
 

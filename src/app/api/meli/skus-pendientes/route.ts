@@ -2,7 +2,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { registrarSync, cerrarSync, upsertEnTandas } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
-import { extraerSku } from "@/lib/meli/sync";
+import { extraerSku, obtenerStockFull } from "@/lib/meli/sync";
 import { desglosarSku } from "@/lib/servicios/sync";
 import { invalidar } from "@/lib/servicios/cache";
 
@@ -46,13 +46,24 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
 }
 
-/** Con sesión, abrir la URL en el navegador también lo enciende. */
+/**
+ * Con sesión, abrir la URL en el navegador también lo enciende. Y el cron de
+ * Vercel entra por aquí (los cron mandan GET con el bearer de CRON_SECRET):
+ * es la red de seguridad por si el eslabón después de la sincronización no
+ * prendió ese día.
+ */
 export async function GET(req: NextRequest) {
-  const supabase = await clienteServidor();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+  const secreto = process.env.CRON_SECRET;
+  const auth = req.headers.get("authorization");
+  const esCron = Boolean(secreto) && auth === `Bearer ${secreto}`;
+
+  if (!esCron) {
+    const supabase = await clienteServidor();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+  }
 
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
   after(() => procesar(origen));
@@ -103,6 +114,13 @@ async function procesar(origen: string): Promise<void> {
         .eq("account_id", accountId)
         .single();
       if (!tok) throw new Error("Cuenta sin tokens.");
+
+      const { data: cuenta } = await admin
+        .from("meli_accounts")
+        .select("meli_user_id")
+        .eq("id", accountId)
+        .single();
+      if (!cuenta) throw new Error("Cuenta no encontrada.");
 
       const cliente = new MeliClient({
         clientId: process.env.MELI_CLIENT_ID!,
@@ -197,6 +215,50 @@ async function procesar(origen: string): Promise<void> {
             .eq("item_id", r.item_id)
             .eq("variation_id", r.variation_id);
         }
+
+        // El SKU sin su stock deja al producto en cero hasta la siguiente
+        // sincronización: un día entero de ceguera justo en las tallas que
+        // más lo necesitan. Aquí mismo se baja el stock de lo recién amarrado.
+        const conInventario = filasSku
+          .filter((f) => f.inventory_id)
+          .map((f) => ({ sku: f.sku as string, inventoryId: f.inventory_id as string }));
+        if (conInventario.length) {
+          const { stock } = await obtenerStockFull(
+            cliente,
+            cuenta.meli_user_id,
+            conInventario,
+          );
+          const ahora = new Date().toISOString();
+          const hoy = ahora.slice(0, 10);
+          await upsertEnTandas(
+            admin,
+            "stock_full",
+            stock.map((s) => ({
+              account_id: accountId,
+              sku: s.sku,
+              disponible: s.disponible,
+              en_transferencia: s.enTransferencia,
+              no_disponible: s.noDisponible,
+              total: s.total,
+              actualizado_en: ahora,
+            })),
+            "account_id,sku",
+          );
+          await upsertEnTandas(
+            admin,
+            "stock_snapshots",
+            stock.map((s) => ({
+              account_id: accountId,
+              sku: s.sku,
+              fecha: hoy,
+              disponible: s.disponible,
+              en_transferencia: s.enTransferencia,
+              origen: "snapshot",
+            })),
+            "account_id,sku,fecha",
+          );
+        }
+
         await invalidar(admin, accountId, "Llegaron SKUs nuevos de Mercado Libre.");
       }
 

@@ -1,14 +1,15 @@
-import { Suspense } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import {
-  LIMITE_FILAS,
   cargarAmazon,
   cuentaAmazon,
   estadoRecarga,
   normalizarDias,
 } from "@/lib/servicios/amazon";
+import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
+import { indexarCatalogo } from "@/lib/etiquetas/resolver";
+import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
-import { TablaAmazon } from "@/components/tabla-amazon";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -17,18 +18,17 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
-function pesos(x: number): string {
-  return "$" + Math.round(x).toLocaleString("es-MX");
-}
-
+/**
+ * Envíos a FBA: existencias en Amazon y qué cajas completas mandar.
+ * Las ventas de Amazon viven en su propio panel (/amazon/ventas).
+ */
 export default async function Amazon({
   searchParams,
 }: {
-  searchParams: Promise<{ dias?: string; q?: string }>;
+  searchParams: Promise<{ dias?: string }>;
 }) {
   const sp = await searchParams;
   const dias = normalizarDias(sp.dias);
-  const busqueda = (sp.q ?? "").trim();
 
   const supabase = await clienteServidor();
   const cuenta = await cuentaAmazon(supabase);
@@ -46,35 +46,43 @@ export default async function Amazon({
     );
   }
 
-  const [{ renglones, totales }, recarga] = await Promise.all([
-    cargarAmazon(supabase, dias, busqueda),
+  // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
+  const cuentaMeli = await cuentaActiva(supabase);
+  const [{ renglones, totales }, recarga, corridasRaw, skusMeli] = await Promise.all([
+    cargarAmazon(supabase, dias, ""),
     estadoRecarga(supabase, cuenta.id),
+    cuentaMeli
+      ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
+    // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
+    // orden) a su modelo+color real: sin él, la corrida no se encuentra.
+    cuentaMeli
+      ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
   ]);
-  const etiqueta = dias === 365 ? "último año" : `últimos ${dias} días`;
+  const sugerencias = sugerirEnvioFba(
+    renglones,
+    dias,
+    mapaCorridas(corridasRaw),
+    undefined,
+    indexarCatalogo(skusMeli),
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Amazon</h1>
+        <h1 className="text-xl font-semibold">Envíos a FBA</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Ventas y existencias de {cuenta.nombre ?? "tu cuenta"} en Amazon{" "}
-          {cuenta.pais}. La cobertura dice cuántos días dura el stock de FBA al
-          ritmo de venta del periodo: es el número que decide qué reponer.
+          Existencias en FBA de {cuenta.nombre ?? "tu cuenta"} y qué cajas completas
+          mandar. Las ventas de Amazon viven en su propio panel, en Ventas Amazon.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Ficha
-          titulo="Unidades"
-          valor={n(totales.unidades)}
-          nota={`Vendidas en los ${etiqueta}`}
-        />
-        <Ficha titulo="Importe" valor={pesos(totales.importe)} nota="Venta del periodo" />
-        <Ficha
-          titulo="Con venta"
-          valor={n(totales.conVenta)}
-          nota={`De ${n(totales.skus)} SKUs`}
-        />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Ficha
           titulo="En FBA"
           valor={n(totales.disponible)}
@@ -87,19 +95,21 @@ export default async function Amazon({
           nota="Venden pero están en cero"
           tono={totales.sinStock > 0 ? "critico" : "neutro"}
         />
+        <Ficha
+          titulo="Con venta"
+          valor={n(totales.conVenta)}
+          nota={`De ${n(totales.skus)} SKUs`}
+        />
+        <Ficha
+          titulo="Unidades vendidas"
+          valor={n(totales.unidades)}
+          nota={`Últimos ${dias} días (ritmo para la cobertura)`}
+        />
       </div>
 
       <RecargaAmazon estado={recarga} />
 
-      {/* useSearchParams necesita un límite de Suspense para poder prerenderizar. */}
-      <Suspense fallback={<div className="tarjeta p-8 text-center text-sm">Cargando…</div>}>
-        <TablaAmazon
-          renglones={renglones}
-          dias={dias}
-          busqueda={busqueda}
-          limite={LIMITE_FILAS}
-        />
-      </Suspense>
+      <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>
   );
 }

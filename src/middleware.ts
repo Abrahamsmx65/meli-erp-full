@@ -29,9 +29,19 @@ export async function middleware(request: NextRequest) {
     },
   );
 
+  // La sesión se lee de la cookie SIN viaje a Supabase: validar contra el
+  // servidor en cada clic costaba 100-300 ms fijos por navegación. Solo se
+  // valida (y refresca) por red cuando el token está por vencer; los datos
+  // siguen protegidos por RLS aunque alguien fabricara una cookie.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  let user = session?.user ?? null;
+  const expiraMs = (session?.expires_at ?? 0) * 1000;
+  if (!session || expiraMs < Date.now() + 60_000) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
 
   const ruta = request.nextUrl.pathname;
   const publica =

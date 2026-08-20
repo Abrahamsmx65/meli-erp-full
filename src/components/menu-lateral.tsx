@@ -31,23 +31,31 @@ const GRUPOS: Grupo[] = [
     entradas: [{ href: "/", texto: "Resumen", icono: "◈", ayuda: "Cómo va todo hoy" }],
   },
   {
-    titulo: "Operación",
+    titulo: "Inventario",
     entradas: [
-      { href: "/inventario", texto: "Inventario", icono: "▦", ayuda: "Bodega y Full por SKU" },
+      { href: "/inventario", texto: "Bodega", icono: "▦", ayuda: "Cajas y existencias por SKU" },
+      { href: "/productos", texto: "Productos y costos", icono: "◍", ayuda: "Categoría y costo por color" },
+    ],
+  },
+  {
+    titulo: "Mercado Libre",
+    entradas: [
+      { href: "/ventas", texto: "Ventas", icono: "◷", ayuda: "En vivo y por modelo" },
       { href: "/envios", texto: "Envíos a Full", icono: "▶", ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: "▭", ayuda: "Imprimir etiquetas" },
     ],
   },
   {
-    titulo: "Canales",
+    titulo: "Amazon",
     entradas: [
-      { href: "/amazon", texto: "Amazon", icono: "▲", ayuda: "Ventas y stock en FBA" },
+      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: "◷", ayuda: "En vivo y por modelo" },
+      { href: "/amazon", texto: "Envíos a FBA", icono: "▲", ayuda: "Stock FBA y qué cajas mandar" },
     ],
   },
   {
     titulo: "Abastecimiento",
     entradas: [
-      { href: "/pedidos", texto: "Pedidos a China", icono: "⛴", ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos", texto: "Planificación China", icono: "⛴", ayuda: "Qué pedir y qué viene en camino" },
       { href: "/corridas", texto: "Corridas", icono: "≡", ayuda: "Tallas por caja" },
     ],
   },
@@ -65,8 +73,13 @@ export function MenuLateral({ pendientes }: { pendientes?: number }) {
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
 
-  const activo = (href: string) =>
-    href === "/" ? ruta === "/" : ruta.startsWith(href);
+  // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
+  const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+  const activo = (href: string) => {
+    if (href === "/") return ruta === "/";
+    if (!ruta.startsWith(href)) return false;
+    return !todos.some((otro) => otro !== href && otro.startsWith(href) && ruta.startsWith(otro));
+  };
 
   return (
     <>

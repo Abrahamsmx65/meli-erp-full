@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { importarProforma } from "@/lib/importar/proforma";
 import { guardarProforma, listarPedidos } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
+import { invalidarInventario } from "@/lib/servicios/inventario";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -99,6 +100,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Las corridas nuevas cambian lo que el planeador puede armar.
+    invalidarInventario(ctx.cuenta.id);
     await invalidar(ctx.supabase, ctx.cuenta.id, "Se cargó un pedido nuevo con sus corridas.");
 
     return NextResponse.json({ ok: true, ...r, pedido: proforma.pedido });
@@ -131,6 +133,7 @@ export async function DELETE(req: NextRequest) {
 
   // Las corridas se quedan: puede haber inventario viejo de ese pedido en
   // bodega que las siga necesitando para armar sus cajas.
+  invalidarInventario(ctx.cuenta.id);
   await invalidar(ctx.supabase, ctx.cuenta.id, "Se borró un pedido.");
 
   return NextResponse.json({ ok: true, pedido: pedido?.pedido });

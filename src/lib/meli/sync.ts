@@ -140,11 +140,15 @@ export function extraerSku(
 }
 
 /**
- * MELI regresa las fechas ya en la zona del sitio (con offset explícito),
- * así que los primeros 10 caracteres son el día local del vendedor.
+ * El día de venta del NEGOCIO: hora de la Ciudad de México (UTC-6 fijo).
+ * OJO: MELI manda las fechas con offset -04:00 (no -06:00), así que cortar
+ * los primeros 10 caracteres corría al día siguiente toda venta posterior a
+ * las 22:00 de México. Se convierte desde el instante real.
  */
 function diaLocal(iso: string): string {
-  return iso.slice(0, 10);
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso.slice(0, 10);
+  return new Date(t - 6 * 3_600_000).toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -476,9 +480,9 @@ interface RespuestaStock {
  * Ese inventario ya es tuyo y hay que contarlo: si no, el sistema te haría
  * mandar de nuevo algo que ya va en la carretera.
  */
-const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
+export const ESTADOS_EN_TRANSITO = ["transfer", "inbound", "in_transit", "receiving", "pending"];
 
-function esEnTransito(estado?: string): boolean {
+export function esEnTransito(estado?: string): boolean {
   if (!estado) return false;
   const e = estado.toLowerCase();
   return ESTADOS_EN_TRANSITO.some((t) => e.includes(t));
@@ -537,6 +541,8 @@ interface OrdenMeli {
   order_items?: {
     quantity?: number;
     unit_price?: number;
+    /** comisión de MELI por unidad; lo que se recibe es precio - sale_fee */
+    sale_fee?: number;
     item?: {
       id?: string;
       seller_sku?: string | null;
@@ -578,9 +584,12 @@ export async function obtenerVentas(
   let sinSku = 0;
   const vistas = new Set<number>();
 
+  // Las ventanas cubren los días COMPLETOS en hora de México (-06:00): si se
+  // pidieran en UTC, el primer y el último día del rango quedarían partidos
+  // y se escribirían filas parciales.
   const ventanas: [string, string][] = [];
-  let cursor = new Date(`${desde}T00:00:00.000Z`);
-  const fin = new Date(`${hasta}T23:59:59.999Z`);
+  let cursor = new Date(`${desde}T00:00:00.000-06:00`);
+  const fin = new Date(`${hasta}T23:59:59.999-06:00`);
   while (cursor < fin) {
     const sig = new Date(cursor);
     sig.setUTCDate(sig.getUTCDate() + 7);
@@ -639,13 +648,15 @@ export async function obtenerVentas(
           const prev = acumulado.get(clave);
           const unidades = oi.quantity ?? 0;
           const importe = unidades * (oi.unit_price ?? 0);
+          const comision = unidades * (oi.sale_fee ?? 0);
 
           if (prev) {
             prev.unidades += unidades;
             prev.ordenes = (prev.ordenes ?? 0) + 1;
             prev.importe = (prev.importe ?? 0) + importe;
+            prev.comision = (prev.comision ?? 0) + comision;
           } else {
-            acumulado.set(clave, { sku, fecha, unidades, ordenes: 1, importe });
+            acumulado.set(clave, { sku, fecha, unidades, ordenes: 1, importe, comision });
           }
         }
       }

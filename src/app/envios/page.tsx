@@ -3,8 +3,10 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { separarEnvios } from "@/lib/servicios/envios";
+import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
 import { Ficha } from "@/components/tiles";
 import { EnviosSeparados } from "@/components/envios-separados";
+import { EnviosEnCamino } from "@/components/envios-en-camino";
 import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
 import {
   TablasPlan,
@@ -32,7 +34,11 @@ export default async function Plan() {
     );
   }
 
-  const estado = await obtenerPlan(supabase, cuenta.id);
+  // El plan y los envíos registrados no dependen uno del otro: en paralelo.
+  const [estado, enCamino] = await Promise.all([
+    obtenerPlan(supabase, cuenta.id),
+    enviosParaPantalla(supabase, cuenta.id),
+  ]);
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
   const r = plan.resumen;
@@ -74,6 +80,7 @@ export default async function Plan() {
   // Las cajas del plan, repartidas en los envíos que de verdad se van a dar de
   // alta: uno por dirección de recolección.
   const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
+
 
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
@@ -166,6 +173,18 @@ export default async function Plan() {
           {a}
         </div>
       ))}
+
+      <EnviosEnCamino
+        envios={enCamino.map((e) => ({
+          id: e.id,
+          folio: e.folio,
+          bodegas: e.bodegas,
+          cajas: e.cajas,
+          pares: e.pares,
+          enviadoEn: e.enviadoEn,
+          estado: e.estado,
+        }))}
+      />
 
       <EnviosSeparados
         envios={envios.map((e) => ({

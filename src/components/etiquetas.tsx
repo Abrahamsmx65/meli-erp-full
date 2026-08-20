@@ -1,16 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import localFont from "next/font/local";
 import { codificar128 } from "@/lib/etiquetas/code128";
+
+// Las MISMAS letras que los PDF del paquete de la fábrica (extraídas de las
+// fuentes embebidas): Roboto Condensed Bold para MELI y Open Sans Condensed
+// Light para Amazon.
+const fuenteMeli = localFont({ src: "../fonts/roboto-condensed-bold.ttf" });
+const fuenteAmazon = localFont({ src: "../fonts/open-sans-condensed-light.ttf" });
 
 interface Etiqueta {
   sku: string;
   codigoFull: string | null;
+  fnsku: string | null;
   titulo: string | null;
   variante: string;
   cantidad: number;
   problema: string | null;
 }
+
+/**
+ * Qué etiquetas salen: la de MELI (código Full), la de Amazon (FNSKU) o LAS
+ * DOS por par — Amazon seguida de MELI, como el paquete de la fábrica.
+ */
+type TipoEtiqueta = "meli" | "amazon" | "ambas";
+
+/** Cada etiqueta física impresa es de una plataforma concreta. */
+type Plataforma = "meli" | "amazon";
 
 interface Resultado {
   sku: string;
@@ -19,10 +36,12 @@ interface Resultado {
   variante: string;
 }
 
-type Tamano = "rollo" | "hoja";
+type Tamano = "rollo2x1" | "rollo" | "hoja";
 
 const TAMANOS: Record<Tamano, { etiqueta: string; ancho: number; alto: number; columnas: number }> = {
-  // Medidas en milímetros.
+  // Medidas en milímetros. El rollo de 2 × 1 pulgadas es el que se usa en la
+  // bodega: va primero y es el de arranque.
+  rollo2x1: { etiqueta: "Rollo térmico 2 × 1 pulgadas (50.8 × 25.4 mm)", ancho: 50.8, alto: 25.4, columnas: 1 },
   rollo: { etiqueta: "Rollo térmico 10 × 5 cm", ancho: 100, alto: 50, columnas: 1 },
   hoja: { etiqueta: "Hoja tamaño carta, 24 por hoja", ancho: 63.5, alto: 33.9, columnas: 3 },
 };
@@ -73,77 +92,134 @@ function CodigoBarras({ texto, alto = 42 }: { texto: string; alto?: number }) {
   );
 }
 
-/** Una etiqueta física. Deliberadamente en blanco y negro y sin adornos. */
-function Etiqueta({ e, tamano }: { e: Etiqueta; tamano: Tamano }) {
-  const t = TAMANOS[tamano];
-  const chica = tamano === "hoja";
+/** El código que va en las barras según la plataforma. */
+function codigoDe(e: Etiqueta, tipo: Plataforma): string | null {
+  return tipo === "amazon" ? e.fnsku : e.codigoFull;
+}
 
-  return (
-    <div
-      className="etiqueta"
-      style={{
-        width: `${t.ancho}mm`,
-        height: `${t.alto}mm`,
-        border: "1px solid #ddd",
-        background: "#fff",
-        color: "#000",
-        padding: chica ? "1.5mm 2mm" : "3mm 4mm",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        overflow: "hidden",
-        boxSizing: "border-box",
-        breakInside: "avoid",
-      }}
-    >
-      <div style={{ fontSize: chica ? "5.5pt" : "8pt", lineHeight: 1.15 }}>
+/** ¿Este SKU tiene con qué imprimirse en el modo elegido? */
+function imprimible(e: Etiqueta, tipo: TipoEtiqueta): boolean {
+  if (tipo === "ambas") return Boolean(e.fnsku || e.codigoFull);
+  return Boolean(codigoDe(e, tipo));
+}
+
+/**
+ * Una etiqueta física, CALCADA de las plantillas de 2 × 1 del paquete de la
+ * fábrica — las mismas del PDF y el TXT: barras arriba, código en negritas,
+ * título en dos líneas, variante y SKU (MELI), o barras del FNSKU, FNSKU
+ * centrado, "NEW - título" y SKU (Amazon). Los otros tamaños son la misma
+ * plantilla escalada, para que pantalla, navegador y térmica digan lo mismo.
+ */
+function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: Plataforma }) {
+  const codigo = codigoDe(e, tipo);
+  const t = TAMANOS[tamano];
+  // 50.8 mm es el 2 × 1 real: ahí la escala es 1 y los puntos son los del PDF.
+  const esc = t.ancho / 50.8;
+  const pt = (n: number) => `${(n * esc).toFixed(2)}pt`;
+  const px = (n: number) => Math.max(6, Math.round(n * esc * (96 / 72)));
+
+  const fraccionBarras = useMemo(() => {
+    if (!codigo) return 0;
+    try {
+      // Módulo de 2 dots sobre los 406 dots de ancho de la etiqueta.
+      return Math.min(0.88, (codificar128(codigo).modulos * 2) / 406);
+    } catch {
+      return 0;
+    }
+  }, [codigo]);
+
+  const caja: React.CSSProperties = {
+    width: `${t.ancho}mm`,
+    height: `${t.alto}mm`,
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#000",
+    overflow: "hidden",
+    boxSizing: "border-box",
+    breakInside: "avoid",
+  };
+
+  if (!codigo || !fraccionBarras) {
+    return (
+      <div
+        className="etiqueta"
+        style={{ ...caja, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <span style={{ fontSize: pt(7), color: "#a00" }}>
+          {tipo === "amazon" ? "Sin FNSKU" : "Sin código Full"} · {e.sku}
+        </span>
+      </div>
+    );
+  }
+
+  if (tipo === "amazon") {
+    return (
+      <div className={`etiqueta ${fuenteAmazon.className}`} style={caja}>
+        <div style={{ marginTop: pt(6.7), marginLeft: "9.9%", width: `${fraccionBarras * 100}%` }}>
+          <CodigoBarras texto={codigo} alto={px(17.7)} />
+        </div>
         <div
           style={{
-            fontWeight: 600,
+            marginLeft: "17.2%",
+            width: "54.2%",
+            textAlign: "center",
+            fontSize: pt(8.5),
+            lineHeight: 1.05,
+            marginTop: pt(0.8),
+          }}
+        >
+          {codigo}
+        </div>
+        <div
+          style={{
+            marginLeft: "7.4%",
+            width: "74%",
+            fontSize: pt(6.4),
+            lineHeight: 1.44,
+            marginTop: pt(1.4),
             display: "-webkit-box",
-            WebkitLineClamp: chica ? 2 : 3,
+            WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}
         >
-          {e.titulo ?? e.sku}
+          {`NEW - ${(e.titulo ?? e.sku).slice(0, 55)}`}
         </div>
-        {e.variante ? (
-          <div style={{ marginTop: "0.5mm" }}>{e.variante}</div>
-        ) : null}
+        <div style={{ marginLeft: "7.4%", fontSize: pt(5.7), marginTop: pt(1.4) }}>
+          SKU: {e.sku}
+        </div>
       </div>
+    );
+  }
 
-      {e.codigoFull ? (
-        <div style={{ marginTop: chica ? "0.5mm" : "1.5mm" }}>
-          <CodigoBarras texto={e.codigoFull} alto={chica ? 26 : 44} />
-          <div
-            style={{
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: chica ? "8pt" : "12pt",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textAlign: "center",
-              marginTop: "0.5mm",
-            }}
-          >
-            {e.codigoFull}
-          </div>
-        </div>
-      ) : (
-        <div style={{ fontSize: chica ? "6pt" : "9pt", color: "#a00" }}>
-          Sin código Full
-        </div>
-      )}
-
+  return (
+    <div className={`etiqueta ${fuenteMeli.className}`} style={caja}>
+      <div style={{ marginTop: pt(6.4), marginLeft: "6.2%", width: `${fraccionBarras * 100}%` }}>
+        <CodigoBarras texto={codigo} alto={px(16)} />
+      </div>
+      <div style={{ marginLeft: "26.8%", fontSize: pt(7.8), lineHeight: 1, marginTop: pt(1.6) }}>
+        {codigo}
+      </div>
       <div
         style={{
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: chica ? "5.5pt" : "7.5pt",
-          borderTop: "1px solid #000",
-          paddingTop: "0.8mm",
+          marginLeft: "5.4%",
+          width: "74%",
+          fontSize: pt(6.4),
+          lineHeight: 1,
+          marginTop: pt(2.2),
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
         }}
       >
-        {e.sku}
+        {(e.titulo ?? e.sku).slice(0, 60)}
+      </div>
+      <div style={{ marginLeft: "5.4%", fontSize: pt(6.4), lineHeight: 1, marginTop: pt(1) }}>
+        {e.variante}
+      </div>
+      <div style={{ marginLeft: "5.4%", fontSize: pt(6.4), lineHeight: 1, marginTop: pt(1.4) }}>
+        SKU: {e.sku}
       </div>
     </div>
   );
@@ -164,7 +240,8 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
   const [busqueda, setBusqueda] = useState("");
   const [resultados, setResultados] = useState<Resultado[]>([]);
   const [pegado, setPegado] = useState("");
-  const [tamano, setTamano] = useState<Tamano>("rollo");
+  const [tamano, setTamano] = useState<Tamano>("rollo2x1");
+  const [tipo, setTipo] = useState<TipoEtiqueta>("meli");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -241,11 +318,54 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
 
   const total = lista.reduce((a, e) => a + e.cantidad, 0);
   const conProblema = lista.filter((e) => e.problema).length;
+  const [descargando, setDescargando] = useState<"zpl" | "pdf" | null>(null);
 
-  // Cada etiqueta se repite tantas veces como pida su cantidad.
-  const impresas = lista.flatMap((e) =>
-    e.codigoFull ? Array.from({ length: e.cantidad }, () => e) : [],
-  );
+  // TXT (ZPL) y PDF con el formato de las "Etiquetas de producto" de MELI.
+  const descargar = async (formato: "zpl" | "pdf") => {
+    if (descargando) return;
+    setDescargando(formato);
+    setError(null);
+    try {
+      const r = await fetch(`/api/etiquetas/${formato}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo,
+          skus: lista
+            .filter((e) => imprimible(e, tipo))
+            .map((e) => ({ sku: e.sku, cantidad: e.cantidad })),
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo generar.");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const sufijo = tipo === "meli" ? "" : `-${tipo}`;
+      a.download = formato === "zpl" ? `etiquetas${sufijo}.txt` : `etiquetas${sufijo}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDescargando(null);
+    }
+  };
+
+  // Cada etiqueta se repite tantas veces como pida su cantidad. En "las dos"
+  // cada copia sale en PAR: la de Amazon y en seguida la de MELI.
+  const impresas: { e: Etiqueta; plataforma: Plataforma }[] = lista.flatMap((e) => {
+    const unidades: { e: Etiqueta; plataforma: Plataforma }[] = [];
+    for (let i = 0; i < e.cantidad; i++) {
+      if (tipo === "ambas") {
+        if (e.fnsku) unidades.push({ e, plataforma: "amazon" });
+        if (e.codigoFull) unidades.push({ e, plataforma: "meli" });
+      } else if (codigoDe(e, tipo)) {
+        unidades.push({ e, plataforma: tipo });
+      }
+    }
+    return unidades;
+  });
 
   return (
     <div className="flex flex-col gap-5">
@@ -351,6 +471,20 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
             </h2>
 
             <label className="ml-auto flex items-center gap-2 text-sm">
+              <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
+              <select
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
+                className="rounded-lg border px-2 py-1 text-sm"
+                style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+              >
+                <option value="meli">Mercado Libre (código Full)</option>
+                <option value="amazon">Amazon (FNSKU)</option>
+                <option value="ambas">Los dos (Amazon + MELI por par)</option>
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
               <span style={{ color: "var(--ink-2)" }}>Tamaño</span>
               <select
                 value={tamano}
@@ -374,12 +508,28 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               Vaciar
             </button>
             <button
-              onClick={() => window.print()}
-              disabled={!impresas.length}
+              onClick={() => descargar("pdf")}
+              disabled={!impresas.length || descargando !== null}
               className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               style={{ background: "var(--acento)" }}
             >
-              Imprimir {impresas.length}
+              {descargando === "pdf" ? "Generando…" : "PDF"}
+            </button>
+            <button
+              onClick={() => descargar("zpl")}
+              disabled={!impresas.length || descargando !== null}
+              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            >
+              {descargando === "zpl" ? "Generando…" : "TXT (ZPL)"}
+            </button>
+            <button
+              onClick={() => window.print()}
+              disabled={!impresas.length}
+              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Imprimir
             </button>
           </header>
 
@@ -388,6 +538,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               <tr>
                 <th>SKU</th>
                 <th>Código Full</th>
+                <th>FNSKU</th>
                 <th>Título</th>
                 <th>Variante</th>
                 <th className="num">Etiquetas</th>
@@ -402,6 +553,9 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
                     {e.codigoFull ?? (
                       <span style={{ color: "var(--estado-critico)" }}>—</span>
                     )}
+                  </td>
+                  <td className="cifra">
+                    {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
                   </td>
                   <td
                     className="max-w-72 truncate text-xs"
@@ -473,7 +627,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
           </h2>
 
           <div
-            className="hoja-etiquetas mt-3"
+            className={`hoja-etiquetas mt-3 ${tamano !== "hoja" ? "modo-rollo" : ""}`}
             style={{
               display: "grid",
               gridTemplateColumns: `repeat(${TAMANOS[tamano].columnas}, ${TAMANOS[tamano].ancho}mm)`,
@@ -481,8 +635,8 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               justifyContent: "start",
             }}
           >
-            {impresas.map((e, i) => (
-              <Etiqueta key={`${e.sku}-${i}`} e={e} tamano={tamano} />
+            {impresas.map((x, i) => (
+              <Etiqueta key={`${x.e.sku}-${x.plataforma}-${i}`} e={x.e} tamano={tamano} tipo={x.plataforma} />
             ))}
           </div>
         </section>

@@ -1,8 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
+import { latido, latidoApagado } from "@/lib/servicios/latido";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+export const maxDuration = 300;
 
 /**
  * Bandeja de entrada de los avisos de Mercado Libre.
@@ -10,9 +11,11 @@ export const maxDuration = 10;
  * MELI exige un 200 en menos de 500 ms. Si tardas, reintenta; si sigues
  * tardando, te desactiva la suscripción y te quedas sin avisos sin enterarte.
  *
- * Por eso aquí NO se procesa nada: se guarda el aviso y se contesta. El
- * trabajo de verdad lo hace `procesarPendientes`, que corre cuando alguien
- * tiene la app abierta y en la pasada nocturna.
+ * Por eso aquí NO se procesa nada antes de contestar: se guarda el aviso y
+ * se responde. El trabajo de verdad lo hace el latido, que corre cuando
+ * alguien tiene la app abierta — y si nadie la abre en una hora, este mismo
+ * webhook lo enciende DESPUÉS de haber contestado (los avisos de MELI llegan
+ * a toda hora, así que hacen de reloj sin necesidad de ningún cron).
  *
  * Esta ruta es pública por necesidad —MELI no manda credenciales— así que se
  * valida que el aviso venga con la forma que MELI usa y que el vendedor sea
@@ -54,6 +57,16 @@ export async function POST(req: NextRequest) {
       topic,
       resource,
       raw: cuerpo,
+    });
+
+    // Con la respuesta ya entregada: si el latido lleva más de una hora sin
+    // correr (app cerrada), este aviso lo enciende. El candado de latido()
+    // evita que dos avisos simultáneos lo dupliquen.
+    const accountId = cuenta.id;
+    after(async () => {
+      if (await latidoApagado(admin, accountId)) {
+        await latido(admin, accountId);
+      }
     });
   } catch {
     // Aun si falla el guardado hay que contestar 200: un 500 hace que MELI

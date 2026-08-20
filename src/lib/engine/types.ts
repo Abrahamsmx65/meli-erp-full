@@ -9,6 +9,8 @@ export interface VentaDiaria {
   unidades: number;
   ordenes?: number;
   importe?: number;
+  /** comisión que MELI cobró (sale_fee); lo recibido es importe - comision */
+  comision?: number;
 }
 
 export interface SnapshotStock {

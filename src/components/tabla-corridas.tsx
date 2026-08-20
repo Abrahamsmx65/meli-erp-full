@@ -48,7 +48,25 @@ export function TablaCorridas({
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [soloConCajas, setSoloConCajas] = useState(false);
-  const [capturando, setCapturando] = useState<Hueco | null>(null);
+  const [capturando, setCapturando] = useState<{
+    hueco: Hueco;
+    inicial?: Record<string, number>;
+  } | null>(null);
+
+  // Editar = el mismo capturador, con las tallas actuales precargadas.
+  const editar = (c: Corrida) =>
+    setCapturando({
+      hueco: {
+        pedido: c.pedido,
+        modelo: c.modelo,
+        color: c.color,
+        cajas: c.cajasEnBodega,
+        almacenes: c.almacenes,
+        tallasVistas: Object.keys(c.tallas),
+        paresPorCaja: 0,
+      },
+      inicial: c.tallas,
+    });
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toUpperCase();
@@ -106,7 +124,7 @@ export function TablaCorridas({
                     </td>
                     <td>
                       <button
-                        onClick={() => setCapturando(h)}
+                        onClick={() => setCapturando({ hueco: h })}
                         className="rounded-lg px-2 py-1 text-xs font-medium text-white"
                         style={{ background: "var(--acento)" }}
                       >
@@ -165,6 +183,7 @@ export function TablaCorridas({
                 <th className="num">Pares/caja</th>
                 <th className="num">Cajas hoy</th>
                 <th>Origen</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -203,6 +222,15 @@ export function TablaCorridas({
                       {c.origen === "proforma" ? "de la proforma" : c.origen}
                     </span>
                   </td>
+                  <td>
+                    <button
+                      onClick={() => editar(c)}
+                      className="rounded-lg border px-2 py-1 text-xs font-medium"
+                      style={{ borderColor: "var(--borde)" }}
+                    >
+                      Editar
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -217,7 +245,11 @@ export function TablaCorridas({
       </section>
 
       {capturando ? (
-        <CapturarCorrida hueco={capturando} onCerrar={() => setCapturando(null)} />
+        <CapturarCorrida
+          hueco={capturando.hueco}
+          inicial={capturando.inicial}
+          onCerrar={() => setCapturando(null)}
+        />
       ) : null}
     </div>
   );
@@ -227,11 +259,23 @@ export function TablaCorridas({
 
 const TALLAS_SUGERIDAS = ["22", "23", "24", "25", "26", "27", "28", "29", "30", "31"];
 
-function CapturarCorrida({ hueco, onCerrar }: { hueco: Hueco; onCerrar: () => void }) {
+function CapturarCorrida({
+  hueco,
+  inicial,
+  onCerrar,
+}: {
+  hueco: Hueco;
+  /** tallas actuales, cuando se está editando una corrida ya cargada */
+  inicial?: Record<string, number>;
+  onCerrar: () => void;
+}) {
   const router = useRouter();
-  const [valores, setValores] = useState<Record<string, string>>({});
+  const [valores, setValores] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(inicial ?? {}).map(([t, v]) => [t, String(v)])),
+  );
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const editando = Boolean(inicial);
 
   // Si el reporte de existencias ya mencionó tallas para este modelo, esas van
   // primero: es más probable que la caja las traiga.
@@ -281,7 +325,7 @@ function CapturarCorrida({ hueco, onCerrar }: { hueco: Hueco; onCerrar: () => vo
     >
       <div className="tarjeta w-full max-w-2xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="text-lg font-semibold">
-          Corrida de {hueco.modelo} {hueco.color}
+          {editando ? "Editar corrida de" : "Corrida de"} {hueco.modelo} {hueco.color}
         </h3>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Pedido {hueco.pedido || "sin pedido"} · {n(hueco.cajas)} cajas en{" "}
@@ -289,9 +333,9 @@ function CapturarCorrida({ hueco, onCerrar }: { hueco: Hueco; onCerrar: () => vo
           {hueco.paresPorCaja ? ` · el reporte dice ${hueco.paresPorCaja} pares por caja` : ""}
         </p>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          Abre una caja de este modelo y anota cuántos pares hay de cada talla. Es lo
-          único que se captura a mano; los pedidos nuevos traen su corrida en la
-          proforma.
+          {editando
+            ? "Ajusta los pares por talla y guarda. El plan se recalcula solo con la corrida nueva."
+            : "Abre una caja de este modelo y anota cuántos pares hay de cada talla. Es lo único que se captura a mano; los pedidos nuevos traen su corrida en la proforma."}
         </p>
 
         <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">

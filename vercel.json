@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/sync",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/meli/skus-pendientes",
+      "schedule": "0 15 * * *"
     }
   ]
 }

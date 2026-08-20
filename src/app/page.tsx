@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
+import { leerPlanParcial, obtenerPlan } from "@/lib/servicios/cache";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +32,21 @@ export default async function Resumen() {
     );
   }
 
-  const [{ plan }, inventario, pedidos, contenedores] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
-    supabase
-      .from("existencias")
-      .select("cajas_disponibles, pares_por_caja, en_camino, almacen")
-      .eq("account_id", cuenta.id),
+  // Del plan solo hacen falta el resumen y los pendientes: se leen esas dos
+  // claves del JSON en vez de bajar el plan completo (varios MB por clic).
+  const [parcial, stockFull, filas, pedidos, contenedores] = await Promise.all([
+    leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]),
+    traerTodo<any>(supabase, "stock_full", "disponible", (q) =>
+      q.eq("account_id", cuenta.id),
+    ),
+    // PAGINADO: una lectura directa corta en 1,000 filas y las fichas de
+    // bodega quedaban sumando solo una parte de las existencias.
+    traerTodo<any>(
+      supabase,
+      "existencias",
+      "cajas_disponibles, pares_por_caja, en_camino, almacen",
+      (q) => q.eq("account_id", cuenta.id),
+    ),
     supabase
       .from("pedidos")
       .select("id, pedido, estado")
@@ -51,16 +60,18 @@ export default async function Resumen() {
       .limit(5),
   ]);
 
-  const r = plan.resumen;
-  const filas = inventario.data ?? [];
+  // Sin plan guardado (primera vez), se genera con el camino normal.
+  const respaldo = parcial ? null : await obtenerPlan(supabase, cuenta.id);
+  const r = (parcial?.resumen ?? respaldo?.plan.resumen) as any;
+  const pend = (parcial?.pendientes ?? respaldo?.plan.pendientes) as any;
   const cajasBodega = filas.reduce((a, f) => a + (f.cajas_disponibles ?? 0), 0);
   const paresBodega = filas.reduce(
     (a, f) => a + (f.cajas_disponibles ?? 0) * (f.pares_por_caja ?? 0),
     0,
   );
-  const paresEnFull = plan.lineas.reduce((a, l) => a + l.disponible, 0);
+  const paresEnFull = stockFull.reduce((a, f) => a + (f.disponible ?? 0), 0);
   const pendientes =
-    plan.pendientes.sinCorrida.length + plan.pendientes.sinAmarre.length;
+    (pend?.sinCorrida?.length ?? 0) + (pend?.sinAmarre?.length ?? 0);
 
   const porAlmacen = new Map<string, number>();
   for (const f of filas) {
@@ -120,8 +131,8 @@ export default async function Resumen() {
           </span>
           <span>
             <strong className="cifra">{pendientes}</strong> cosas por resolver:{" "}
-            {plan.pendientes.sinCorrida.length} cajas sin corrida capturada y{" "}
-            {plan.pendientes.sinAmarre.length} SKUs sin amarrar a Mercado Libre. Ese
+            {pend?.sinCorrida?.length ?? 0} cajas sin corrida capturada y{" "}
+            {pend?.sinAmarre?.length ?? 0} SKUs sin amarrar a Mercado Libre. Ese
             inventario no entra al plan.
           </span>
           <span className="underline" style={{ color: "var(--acento)" }}>

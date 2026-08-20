@@ -8,7 +8,8 @@ import { sugerirCompra } from "@/lib/servicios/compras";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido } from "@/components/cargar-pedido";
 import { ListaPedidos } from "@/components/lista-pedidos";
-import { TablaCompras } from "@/components/tabla-compras";
+import { PedidoPorModelo } from "@/components/pedido-modelo";
+import { amazonParaCompras } from "@/lib/servicios/fba";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -42,10 +43,11 @@ export default async function Pedidos() {
 
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
-  const [planEstado, inventario, pedidos] = await Promise.all([
+  const [planEstado, inventario, pedidos, amazon] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     cargarInventario(supabase, cuenta.id),
     listarPedidos(supabase, cuenta.id),
+    amazonParaCompras(supabase),
   ]);
 
   const inventarioPorSku = new Map(
@@ -65,15 +67,20 @@ export default async function Pedidos() {
     cuenta.id,
     planEstado.plan.lineas,
     inventarioPorSku,
+    undefined,
+    inventario.crudos,
+    amazon,
   );
 
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
 
-  const cajasEnCamino = pedidos.reduce(
-    (a, x) => a + x.contenedores.filter((c) => c.estado !== "recibido").reduce((s, c) => s + c.cajas, 0),
-    0,
-  );
+  const cajasEnCamino = pedidos
+    .filter((x) => x.estado !== "cancelado")
+    .reduce(
+      (a, x) => a + x.contenedores.filter((c) => c.estado !== "recibido").reduce((s, c) => s + c.cajas, 0),
+      0,
+    );
   const cajasSinBarco = pedidos
     .filter((x) => x.estado !== "recibido" && x.estado !== "cancelado")
     .reduce((a, x) => a + Math.max(0, x.cajas - x.cajasAsignadas), 0);
@@ -166,7 +173,7 @@ export default async function Pedidos() {
         </div>
       </details>
 
-      <TablaCompras renglones={compra.renglones} ciclo={ciclo} />
+      <PedidoPorModelo renglones={compra.renglones} />
 
       <CargarPedido />
 

@@ -79,6 +79,31 @@ export function desglosarSku(sku: string): {
   };
 }
 
+/**
+ * Guarda ventas diarias tolerando que la columna `comision` todavía no
+ * exista en la base (la migración 0011 puede aplicarse después del deploy).
+ * En cuanto exista, la comisión se escribe sola; mientras, no se pierde nada
+ * más que ese campo.
+ */
+export async function guardarVentasDiarias(
+  db: DB,
+  filas: Record<string, unknown>[],
+): Promise<void> {
+  if (!filas.length) return;
+  try {
+    await upsertEnTandas(db, "ventas_diarias", filas, "account_id,sku,fecha");
+  } catch (err) {
+    const mensaje = String((err as Error).message);
+    if (!mensaje.includes("comision") && !mensaje.includes("neto")) throw err;
+    await upsertEnTandas(
+      db,
+      "ventas_diarias",
+      filas.map(({ comision: _c, neto: _n, ...resto }) => resto),
+      "account_id,sku,fecha",
+    );
+  }
+}
+
 export async function sincronizar(
   db: DB,
   accountId: string,
@@ -327,9 +352,8 @@ export async function sincronizar(
       return r;
     }
 
-    await upsertEnTandas(
+    await guardarVentasDiarias(
       db,
-      "ventas_diarias",
       ventas.map((v) => ({
         account_id: accountId,
         sku: v.sku,
@@ -337,8 +361,8 @@ export async function sincronizar(
         unidades: v.unidades,
         ordenes: v.ordenes ?? 0,
         importe: v.importe ?? 0,
+        comision: v.comision ?? 0,
       })),
-      "account_id,sku,fecha",
     );
 
     // ---- Movimientos de inventario ---------------------------------------

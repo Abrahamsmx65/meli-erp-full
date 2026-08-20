@@ -1,23 +1,28 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { procesarPendientes } from "@/lib/servicios/webhooks";
+import { latido, EDAD_MAX_PLAN_MS } from "@/lib/servicios/latido";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Estado de la conexión, y de paso el motor de la sincronización en vivo.
  *
  * La barra de arriba consulta esto cada 30 segundos. Aprovechando el viaje,
- * aquí se procesan los avisos que MELI dejó en la bandeja: mientras alguien
- * tenga la app abierta, las ventas y el stock se actualizan solos en menos de
- * medio minuto, sin picar nada.
+ * aquí se procesan los avisos que MELI dejó en la bandeja y se recalcula el
+ * plan cuando quedó obsoleto: mientras alguien tenga la app abierta, todo se
+ * actualiza solo, sin picar nada.
+ *
+ * La respuesta sale ANTES de hacer ese trabajo. Antes se procesaban hasta 25
+ * avisos —cada uno con sus llamadas a MELI— con la barra esperando: la app
+ * entera se sentía lenta por culpa de su propio latido. Ahora el trabajo corre
+ * después de contestar, con candado para que dos pestañas no lo dupliquen.
  *
  * Es a propósito que el trabajo vaya montado en la consulta de estado y no en
  * el webhook: MELI corta a los 500 ms y procesar ahí haría que perdiéramos
- * avisos. Lo que nadie procese mientras la app está cerrada lo recoge la
- * pasada nocturna.
+ * avisos. Cuando la app está cerrada, el propio webhook enciende el latido
+ * cada hora (ver latido.ts).
  */
 export async function GET() {
   const supabase = await clienteServidor();
@@ -41,22 +46,13 @@ export async function GET() {
     });
   }
 
-  // Drenar la bandeja. Si truena, el estado se devuelve igual: saber cómo
-  // vamos nunca debe depender de que la sincronización haya salido bien.
-  let procesados = 0;
-  try {
-    const r = await procesarPendientes(clienteAdmin(), cuenta.id, 25);
-    procesados = r.procesados;
-  } catch {
-    /* se reintenta en el siguiente ciclo */
-  }
-
-  const [sync, plan, pendientes, ultimoAviso] = await Promise.all([
+  const [sync, plan, pendientes, ultimoAviso, syncAmazon] = await Promise.all([
     supabase
       .from("sync_log")
       .select("inicio, estado")
       .eq("account_id", cuenta.id)
       .eq("estado", "ok")
+      .neq("tarea", "en_vivo")
       .order("inicio", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -77,7 +73,26 @@ export async function GET() {
       .order("recibido_en", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("amazon_sync_log")
+      .select("inicio")
+      .eq("estado", "ok")
+      .in("tarea", ["cron_ventas", "cron_inventario"])
+      .order("inicio", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+
+  const hayAvisos = (pendientes.count ?? 0) > 0;
+  const planViejo =
+    plan.data?.vigente === false &&
+    (!plan.data?.generado_en ||
+      Date.now() - new Date(plan.data.generado_en).getTime() > EDAD_MAX_PLAN_MS);
+
+  if (hayAvisos || planViejo) {
+    const accountId = cuenta.id;
+    after(() => latido(clienteAdmin(), accountId));
+  }
 
   // "En vivo" significa que los webhooks están llegando de verdad, no que
   // estén configurados. Si no llega nada en 24 h, algo se rompió y hay que
@@ -92,9 +107,11 @@ export async function GET() {
     conectado: true,
     enVivo: recibidoReciente,
     ultimaSync: recibidoReciente ? ultimaNovedad : (sync.data?.inicio ?? null),
+    ultimaSyncAmazon: syncAmazon.data?.inicio ?? null,
     planGeneradoEn: plan.data?.generado_en ?? null,
     planVigente: plan.data?.vigente ?? true,
     avisosPendientes: pendientes.count ?? 0,
-    procesadosAhora: procesados,
+    // Marca del código desplegado, para diagnosticar qué versión corre.
+    version: "fase4-a",
   });
 }
