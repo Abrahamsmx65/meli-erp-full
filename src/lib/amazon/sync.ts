@@ -36,11 +36,14 @@ export interface ResultadoVentas {
 /**
  * Días hacia atrás que se recalculan en cada pasada.
  *
- * Tres y no uno porque una orden puede cambiar de estado después (una
- * cancelación de ayer tiene que dejar de contar), y porque si el cron se cae
- * unas horas la siguiente corrida repone el hueco sola.
+ * Catorce y no uno porque una orden puede cambiar de estado DÍAS después:
+ * una orden pendiente de pago se concreta (y recién ahí trae unidades y
+ * precio), o una cancelación tardía tiene que dejar de contar. Con la
+ * ventana corta de antes, todo lo que se asentaba después de 3 días se
+ * perdía hasta la reconciliación semanal — por eso el panel traía menos
+ * que Amazon. El reporte de 14 días sigue siendo chico y se pide igual.
  */
-const DIAS_VENTANA = 3;
+const DIAS_VENTANA = 14;
 
 /** Desfase del marketplace: define dónde empieza y termina el día de venta. */
 function husoDe(marketplaceId: string): number {

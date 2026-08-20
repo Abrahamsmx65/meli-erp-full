@@ -98,7 +98,9 @@ export function TablaInventario({
         <table className="datos">
           <thead>
             <tr>
-              <th>SKU</th>
+              {/* En Bodega el SKU de MELI/Full sobra: aquí se piensa en
+                  modelo + color + talla, lo de MELI vive en su sección. */}
+              {!soloBodega ? <th>SKU</th> : null}
               <th>Modelo</th>
               <th>Color</th>
               <th className="num">Talla</th>
@@ -120,21 +122,23 @@ export function TablaInventario({
               return (
                 <Fragment key={r.sku}>
                   <tr>
-                    <td>
-                      <Link
-                        href={`/sku/${encodeURIComponent(r.sku)}`}
-                        className="font-medium underline decoration-dotted underline-offset-2"
-                        style={{ color: "var(--acento)" }}
-                      >
-                        {r.sku}
-                      </Link>
-                      {r.inventoryId ? (
-                        <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                          Full: {r.inventoryId}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="text-sm">{r.modelo}</td>
+                    {!soloBodega ? (
+                      <td>
+                        <Link
+                          href={`/sku/${encodeURIComponent(r.sku)}`}
+                          className="font-medium underline decoration-dotted underline-offset-2"
+                          style={{ color: "var(--acento)" }}
+                        >
+                          {r.sku}
+                        </Link>
+                        {r.inventoryId ? (
+                          <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                            Full: {r.inventoryId}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
+                    <td className="text-sm font-medium">{r.modelo}</td>
                     <td className="text-sm">{r.color}</td>
                     <td className="num cifra text-sm">{r.talla}</td>
                     {!soloBodega ? (
@@ -181,10 +185,14 @@ export function TablaInventario({
                   {abierto
                     ? r.pedidos.map((p) => (
                         <tr key={`${r.sku}-${p.pedido}-${p.almacen}`}>
-                          <td colSpan={4} className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td
+                            colSpan={soloBodega ? 3 : 4}
+                            className="pl-8 text-xs"
+                            style={{ color: "var(--ink-2)" }}
+                          >
                             Pedido <strong>{p.pedido}</strong> · {p.almacen}
                           </td>
-                          <td colSpan={5} className="text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td colSpan={soloBodega ? 3 : 5} className="text-xs" style={{ color: "var(--ink-2)" }}>
                             {n(p.cajas)} cajas
                           </td>
                           <td className="num cifra text-xs">{n(p.pares)} pares</td>

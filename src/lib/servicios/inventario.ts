@@ -8,6 +8,7 @@
  */
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
+import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
 import type { Corrida, FilaExistencia } from "../importar/excel";
 
@@ -72,7 +73,7 @@ export async function cargarInventario(db: DB, accountId: string): Promise<Resum
 async function cargarInventarioSinCache(db: DB, accountId: string): Promise<ResumenInventario> {
   const eq = (q: any) => q.eq("account_id", accountId);
 
-  const [skus, stock, corridasRaw, existRaw, mapeoRaw, almacenesRaw] = await Promise.all([
+  const [skus, stock, corridasRaw, existRaw, mapeoRaw, almacenesRaw, pedidosVivos] = await Promise.all([
     traerTodo<any>(db, "skus", "sku, titulo, inventory_id, modelo, color, talla", (q) =>
       eq(q).eq("activo", true),
     ),
@@ -86,6 +87,14 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     ),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
     traerTodo<any>(db, "almacenes_activos", "almacen, surte_full", eq),
+    // Pedidos a China que siguen vivos, con sus renglones: lo que el
+    // almacén todavía no reporta cuenta aquí como "en camino".
+    traerTodo<any>(
+      db,
+      "pedidos",
+      "pedido, estado, pedido_lineas(modelo, color, tallas, cajas, pares)",
+      (q) => eq(q).not("estado", "in", "(recibido,cancelado)"),
+    ).catch(() => [] as any[]),
   ]);
 
   const corridas: Corrida[] = corridasRaw.map((c) => ({
@@ -143,6 +152,49 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
 
       bodega.set(item.sku, acc);
     }
+  }
+
+  // --- Pedidos de China que el almacén todavía no ve -----------------------
+  // El reporte del almacén es la verdad una vez que menciona un pedido (ahí
+  // vienen sus cajas y su "en camino"). Pero un pedido recién cargado no
+  // existe para el almacén: sus pares se suman aquí como en camino, talla
+  // por talla, amarrados al SKU de MELI con los amarres de siempre.
+  const pedidosEnAlmacen = new Set(existRaw.map((e) => String(e.pedido ?? "").trim().toUpperCase()));
+  const indiceMeli = indexarCatalogo(skus);
+  const pedidosEnCamino: { pedido: string; cajas: number; pares: number }[] = [];
+
+  for (const p of pedidosVivos ?? []) {
+    const numero = String(p.pedido ?? "").trim();
+    if (!numero || pedidosEnAlmacen.has(numero.toUpperCase())) continue;
+
+    let cajasPedido = 0;
+    let paresPedido = 0;
+    for (const l of p.pedido_lineas ?? []) {
+      const tallas: Record<string, number> = l.tallas ?? {};
+      const suma = Object.values(tallas).reduce((a, b) => a + (Number(b) || 0), 0);
+      if (!suma) continue;
+      // En renglones de corrida `tallas` trae pares POR CAJA y en unitallas
+      // trae totales; el factor contra `pares` cubre los dos casos.
+      const factor = (l.pares ?? 0) / suma;
+      cajasPedido += l.cajas ?? 0;
+
+      for (const [talla, valor] of Object.entries(tallas)) {
+        const paresTalla = Math.round((Number(valor) || 0) * factor);
+        if (!paresTalla) continue;
+        const { construido, encontrado } = buscarVariante(indiceMeli, l.modelo, l.color ?? "", talla);
+        const sku = encontrado?.sku ?? construido;
+
+        const acc = bodega.get(sku) ?? { pares: 0, enCamino: 0, pedidos: new Map() };
+        acc.enCamino += paresTalla;
+        const clave = `${numero}|En camino de China`;
+        const reg = acc.pedidos.get(clave) ?? { almacen: "En camino de China", cajas: 0, pares: 0 };
+        reg.pares += paresTalla;
+        acc.pedidos.set(clave, reg);
+        bodega.set(sku, acc);
+        paresPedido += paresTalla;
+      }
+    }
+    if (paresPedido > 0) pedidosEnCamino.push({ pedido: numero, cajas: cajasPedido, pares: paresPedido });
   }
 
   // --- Un renglón por SKU --------------------------------------------------
@@ -212,6 +264,15 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     p.pares += pares;
     p.almacenes.add(c.almacen);
     porPedido.set(clave, p);
+  }
+
+  // Los pedidos que vienen de China también se ven en la lista por pedido.
+  for (const pe of pedidosEnCamino) {
+    const p = porPedido.get(pe.pedido) ?? { cajas: 0, pares: 0, almacenes: new Set<string>() };
+    p.cajas += pe.cajas;
+    p.pares += pe.pares;
+    p.almacenes.add("En camino de China");
+    porPedido.set(pe.pedido, p);
   }
 
   return {

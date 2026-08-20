@@ -48,7 +48,8 @@ const GRUPOS: Grupo[] = [
   {
     titulo: "Amazon",
     entradas: [
-      { href: "/amazon", texto: "Amazon y FBA", icono: "▲", ayuda: "Ventas, stock y envíos a FBA" },
+      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: "◷", ayuda: "En vivo y por modelo" },
+      { href: "/amazon", texto: "Envíos a FBA", icono: "▲", ayuda: "Stock FBA y qué cajas mandar" },
     ],
   },
   {
@@ -72,8 +73,13 @@ export function MenuLateral({ pendientes }: { pendientes?: number }) {
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
 
-  const activo = (href: string) =>
-    href === "/" ? ruta === "/" : ruta.startsWith(href);
+  // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
+  const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+  const activo = (href: string) => {
+    if (href === "/") return ruta === "/";
+    if (!ruta.startsWith(href)) return false;
+    return !todos.some((otro) => otro !== href && otro.startsWith(href) && ruta.startsWith(otro));
+  };
 
   return (
     <>

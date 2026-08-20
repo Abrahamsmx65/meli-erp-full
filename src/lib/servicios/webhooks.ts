@@ -10,11 +10,31 @@
  * puede correr cada pocos segundos sin despeinar a nadie.
  */
 import { MeliClient } from "../meli/client";
-import { detallarItems, dedupePorSku, esEnTransito } from "../meli/sync";
+import { detallarItems, dedupePorSku, esEnTransito, claveItem } from "../meli/sync";
 import { aISO } from "../engine/fechas";
 import { desglosarSku, guardarVentasDiarias } from "./sync";
 import { invalidar } from "./cache";
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
+
+/**
+ * item+variación → SKU, desde el catálogo ya sincronizado. Es la misma
+ * convención de clave que usa `obtenerVentas` en la sincronización completa.
+ */
+async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
+  const filas = await traerTodo<{ sku: string; item_id: string | null; variation_id: string | null }>(
+    db,
+    "skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId).not("item_id", "is", null),
+  );
+  const mapa = new Map<string, string>();
+  for (const f of filas ?? []) {
+    if (!f.item_id) continue;
+    mapa.set(claveItem(f.item_id, f.variation_id), f.sku);
+    if (!f.variation_id) mapa.set(f.item_id, f.sku);
+  }
+  return mapa;
+}
 
 export interface ResultadoProceso {
   procesados: number;
@@ -107,8 +127,12 @@ export async function procesarPendientes(
       dias.add(new Date(t - 24 * 3600 * 1000).toISOString().slice(0, 10));
     }
     try {
+      // El mapa item+variación → SKU: muchas órdenes vienen SIN seller_sku
+      // (el SKU vive en /user-products), y sin este amarre esas ventas se
+      // perdían del panel. Es el mismo mapa que usa la sincronización.
+      const mapaItemSku = await mapaItemSkuDe(db, accountId);
       for (const fecha of [...dias].sort()) {
-        r.ventasTocadas += await recalcularDiaVentas(db, accountId, cliente, fecha);
+        r.ventasTocadas += await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
       }
       for (const w of avisosOrden) idsListos.push(w.id);
       r.procesados += avisosOrden.length;
@@ -182,7 +206,12 @@ interface OrdenMeli {
     quantity?: number;
     unit_price?: number;
     sale_fee?: number;
-    item?: { id?: string; seller_sku?: string | null; seller_custom_field?: string | null };
+    item?: {
+      id?: string;
+      variation_id?: number | string | null;
+      seller_sku?: string | null;
+      seller_custom_field?: string | null;
+    };
   }[];
 }
 
@@ -199,6 +228,7 @@ async function recalcularDiaVentas(
   accountId: string,
   cliente: MeliClient,
   fecha: string,
+  mapaItemSku?: Map<string, string>,
 ): Promise<number> {
   const { data: cuenta } = await db
     .from("meli_accounts")
@@ -242,7 +272,14 @@ async function recalcularDiaVentas(
         renglones: [] as { clave: string; importe: number }[],
       };
       for (const oi of o.order_items ?? []) {
-        const sku = oi.item?.seller_sku?.trim() || oi.item?.seller_custom_field?.trim();
+        // El mismo orden de amarre que la sincronización completa: el SKU de
+        // la orden, y si no viene (variantes cuyo SKU vive en /user-products),
+        // el catálogo por item+variación.
+        const sku =
+          oi.item?.seller_sku?.trim() ||
+          oi.item?.seller_custom_field?.trim() ||
+          (oi.item?.id ? mapaItemSku?.get(claveItem(oi.item.id, oi.item.variation_id)) : undefined) ||
+          (oi.item?.id ? mapaItemSku?.get(oi.item.id) : undefined);
         if (!sku) continue;
         const clave = `${sku}|${dia}`;
         const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0 };

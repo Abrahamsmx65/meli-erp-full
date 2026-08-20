@@ -63,17 +63,49 @@ export interface Monitor {
 }
 
 /** Fecha local de México (las ventas se guardan con el huso de MELI). */
-function fechaMx(desplazamientoDias = 0): string {
+export function fechaMx(desplazamientoDias = 0): string {
   return new Date(Date.now() - 6 * 3_600_000 - desplazamientoDias * 86_400_000)
     .toISOString()
     .slice(0, 10);
 }
 
-export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor> {
+export interface RangoFechas {
+  desde: string;
+  hasta: string;
+}
+
+/** Valida el rango que viene de la URL; sin rango, los últimos 7 días. */
+export function normalizarRango(desde?: string, hasta?: string): RangoFechas {
+  const valida = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
+  const hoy = fechaMx(0);
+  let d = valida(desde) ?? fechaMx(6);
+  let h = valida(hasta) ?? hoy;
+  if (h > hoy) h = hoy;
+  if (d > h) d = h;
+  return { desde: d, hasta: h };
+}
+
+/** Días que abarca el rango, contando ambos extremos. */
+export function diasDeRango(r: RangoFechas): number {
+  return Math.max(1, Math.round((Date.parse(r.hasta) - Date.parse(r.desde)) / 86_400_000) + 1);
+}
+
+/** El periodo anterior del mismo largo, para comparar. */
+function rangoPrevio(r: RangoFechas): RangoFechas {
+  const dias = diasDeRango(r);
+  const desde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
+  const hasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
+  return { desde, hasta };
+}
+
+export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
-  const inicioSemana = fechaMx(6);
-  const inicioPrev = fechaMx(13);
+  const r = rango ?? normalizarRango();
+  const inicioSemana = r.desde;
+  const finRango = r.hasta;
+  const previo = rangoPrevio(r);
+  const inicioPrev = previo.desde;
 
   // Las columnas `comision` y `neto` pueden no existir todavía (migraciones
   // 0011 y 0012): se pide con ellas y se degrada en cascada si la base aún
@@ -159,7 +191,7 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
       productos.get(claveProd) ??
       { modelo, color, d7: 0, prev7: 0, importe7: 0, neto7: 0 };
 
-    if (v.fecha >= inicioSemana) {
+    if (v.fecha >= inicioSemana && v.fecha <= finRango) {
       m.unidades7 += v.unidades ?? 0;
       m.importe7 += v.importe ?? 0;
       pr.d7 += v.unidades ?? 0;
@@ -170,7 +202,7 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
       pr.neto7 +=
         (v.neto ?? 0) > 0 ? (v.neto as number) : (v.importe ?? 0) - (v.comision ?? 0);
       if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
-    } else {
+    } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
       m.unidades7Prev += v.unidades ?? 0;
       pr.prev7 += v.unidades ?? 0;
     }
@@ -311,7 +343,7 @@ export async function cargarMonitor(db: DB, accountId: string): Promise<Monitor>
   return {
     hoy: resumen(hoy, hoy),
     ayer: resumen(ayer, ayer),
-    semana: resumen(inicioSemana, hoy),
+    semana: resumen(inicioSemana, finRango),
     porModelo,
     porCategoria,
     subiendo,
