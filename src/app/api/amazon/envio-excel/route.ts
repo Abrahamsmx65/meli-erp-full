@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
+import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { cargarAmazon, cuentaAmazon, normalizarDias } from "@/lib/servicios/amazon";
 import {
   OBJETIVO_DIAS_FBA,
@@ -52,15 +53,26 @@ export async function GET(request: NextRequest) {
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones }, corridasRaw] = await Promise.all([
+  const [{ renglones }, corridasRaw, skusMeli] = await Promise.all([
     cargarAmazon(supabase, dias, ""),
     cuentaMeli
       ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
           q.eq("account_id", cuentaMeli.id),
         )
       : Promise.resolve([]),
+    cuentaMeli
+      ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
   ]);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw));
+  const sugerencias = sugerirEnvioFba(
+    renglones,
+    dias,
+    mapaCorridas(corridasRaw),
+    undefined,
+    indexarCatalogo(skusMeli),
+  );
   const totalCajas = sugerencias.reduce((a, s) => a + s.cajas, 0);
   const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
   const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;

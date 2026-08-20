@@ -1,7 +1,21 @@
 import type { RenglonAmazon } from "./amazon";
 import { desglosarSku } from "./sync";
-import { claveComparacion } from "../importar/sku";
+import { claveAplastada, claveComparacion } from "../importar/sku";
+import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { numeroDePedido } from "./compras";
+
+
+/**
+ * Clave de grupo modelo|color APLANADA: "GREY/BLK", "GREY-BLK" y "GREY BLK"
+ * son el mismo color escrito por tres manos distintas (proforma, MELI,
+ * Amazon). Sin aplanar, la corrida no se encontraba y salía "sin corrida:
+ * no sé cuántas cajas son".
+ */
+export function claveGrupoFba(modelo: string, color: string): string {
+  const m = (modelo ?? "").toUpperCase().replace(/[^A-Z0-9.]/g, "");
+  const c = (color ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return `${m}|${c}`;
+}
 
 /**
  * Desglose que entiende los SKUs de Amazon: a veces traen la talla ANTES
@@ -12,7 +26,7 @@ function desglosarAmazon(sku: string): { modelo: string | null; color: string | 
   const d = desglosarSku(sku);
   if (d.talla) return d;
   const t = claveComparacion(sku).split("-");
-  const idx = t.findIndex((x, i) => i > 0 && /^\d{2}(\.\d)?$/.test(x));
+  const idx = t.findIndex((x, i) => i > 0 && /^\d{1,2}(\.\d)?$/.test(x));
   if (idx > 0) {
     return {
       modelo: t[0] ?? null,
@@ -74,6 +88,7 @@ export function sugerirEnvioFba(
   dias: number,
   corridas: Map<string, number>,
   objetivoDias = OBJETIVO_DIAS_FBA,
+  indiceMeli?: IndiceCatalogo,
 ): SugerenciaFba[] {
   interface Grupo {
     modelo: string;
@@ -89,10 +104,19 @@ export function sugerirEnvioFba(
 
   for (const r of renglones) {
     if (!esCalzado(r.sku)) continue;
-    const d = desglosarAmazon(r.sku);
+    // Primero el catálogo real de MELI (sabe modelo, color y talla de cada
+    // SKU, venga como venga escrito el de Amazon); el desglose por guiones
+    // queda de respaldo para lo que no esté publicado en MELI.
+    const enCatalogo =
+      indiceMeli?.canonico.get(claveComparacion(r.sku)) ??
+      indiceMeli?.aplastado.get(claveAplastada(r.sku)) ??
+      indiceMeli?.ordenado.get(claveOrdenada(r.sku));
+    const d = enCatalogo?.modelo
+      ? { modelo: enCatalogo.modelo, color: enCatalogo.color ?? "", talla: enCatalogo.talla ?? "" }
+      : desglosarAmazon(r.sku);
     const modelo = (d.modelo ?? r.sku).toUpperCase();
     const color = (d.color ?? "").toUpperCase();
-    const clave = `${modelo}|${color}`;
+    const clave = claveGrupoFba(modelo, color);
 
     const g =
       grupos.get(clave) ??
@@ -116,7 +140,7 @@ export function sugerirEnvioFba(
     .map((g) => {
       const posicion = g.disponible + g.enTransferencia;
       const cobertura = g.ventaDiaria > 0 ? posicion / g.ventaDiaria : null;
-      const paresPorCaja = corridas.get(`${g.modelo}|${g.color}`) ?? null;
+      const paresPorCaja = corridas.get(claveGrupoFba(g.modelo, g.color)) ?? null;
       const cajas = paresPorCaja ? Math.ceil(g.faltante / paresPorCaja) : 0;
       return {
         modelo: g.modelo,
@@ -193,7 +217,7 @@ export function mapaCorridas(
 ): Map<string, number> {
   const porClave = new Map<string, { total: number; pedido: string }>();
   for (const c of corridasRaw) {
-    const clave = `${(c.modelo ?? "").toUpperCase()}|${(c.color ?? "").toUpperCase()}`;
+    const clave = claveGrupoFba(c.modelo ?? "", c.color ?? "");
     const total =
       c.total ?? Object.values(c.tallas ?? {}).reduce((a, b) => a + Number(b), 0);
     if (!total) continue;

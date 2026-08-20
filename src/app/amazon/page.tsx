@@ -7,6 +7,7 @@ import {
   normalizarDias,
 } from "@/lib/servicios/amazon";
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
+import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { Ficha } from "@/components/tiles";
@@ -47,7 +48,7 @@ export default async function Amazon({
 
   // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones, totales }, recarga, corridasRaw] = await Promise.all([
+  const [{ renglones, totales }, recarga, corridasRaw, skusMeli] = await Promise.all([
     cargarAmazon(supabase, dias, ""),
     estadoRecarga(supabase, cuenta.id),
     cuentaMeli
@@ -55,8 +56,21 @@ export default async function Amazon({
           q.eq("account_id", cuentaMeli.id),
         )
       : Promise.resolve([]),
+    // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
+    // orden) a su modelo+color real: sin él, la corrida no se encuentra.
+    cuentaMeli
+      ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
+          q.eq("account_id", cuentaMeli.id),
+        )
+      : Promise.resolve([]),
   ]);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw));
+  const sugerencias = sugerirEnvioFba(
+    renglones,
+    dias,
+    mapaCorridas(corridasRaw),
+    undefined,
+    indexarCatalogo(skusMeli),
+  );
 
   return (
     <div className="flex flex-col gap-6">
