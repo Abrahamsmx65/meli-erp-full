@@ -42,18 +42,20 @@ export default function Importar() {
       <div>
         <h1 className="text-xl font-semibold">Importar inventario</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Las existencias de bodega llegan solas desde el API de Industher (cada
-          mañana con la sincronización, o al momento con el botón de abajo). Lo
-          único que se sube a mano es el Excel de corridas.
+          Todo llega solo cada mañana: las existencias de bodega desde el API de
+          Industher y las corridas desde tu Google Sheets. Los botones de abajo
+          sincronizan al momento; el Excel queda solo como respaldo.
         </p>
       </div>
 
       <SeccionIndusther />
 
+      <SeccionCorridasSheets />
+
       <form onSubmit={subir} className="tarjeta flex flex-col gap-5 p-5">
         <Campo
-          titulo="CORRIDAS BASE"
-          descripcion="La receta de tallas de cada caja. Columnas: PEDIDO, MODELO, COLOR y una columna por talla. Se acumula: las corridas viejas siguen sirviendo."
+          titulo="CORRIDAS BASE (Excel, respaldo)"
+          descripcion="La receta de tallas de cada caja. Columnas: PEDIDO, MODELO, COLOR y una columna por talla. Se acumula: las corridas viejas siguen sirviendo. Normalmente no hace falta: las corridas llegan solas del sheet."
           archivo={corridas}
           onChange={setCorridas}
         />
@@ -227,6 +229,104 @@ function SeccionIndusther() {
             ignorados={resumen.camposIgnorados}
             avisos={resumen.avisos}
           />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Corridas desde Google Sheets: el sheet (compartido con enlace, solo
+ * lectura) se baja como Excel y pasa por el mismo importador de siempre. La
+ * URL vive en CORRIDAS_SHEET_URL.
+ */
+function SeccionCorridasSheets() {
+  const router = useRouter();
+  const [probando, setProbando] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [prueba, setPrueba] = useState<any>(null);
+  const [resumen, setResumen] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function llamar(metodo: "GET" | "POST") {
+    const esPrueba = metodo === "GET";
+    (esPrueba ? setProbando : setSincronizando)(true);
+    setError(null);
+    if (esPrueba) setPrueba(null);
+    else setResumen(null);
+
+    try {
+      const r = await fetch("/api/corridas/sheets", { method: metodo });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo leer el sheet de corridas.");
+      if (esPrueba) {
+        setPrueba(j);
+      } else {
+        setResumen(j.resumen);
+        router.refresh();
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      (esPrueba ? setProbando : setSincronizando)(false);
+    }
+  }
+
+  return (
+    <div className="tarjeta flex flex-col gap-4 p-5">
+      <div>
+        <h2 className="font-semibold">Corridas desde Google Sheets</h2>
+        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+          Lee tu sheet de corridas (mismo formato que el Excel) y las acumula,
+          sin subir archivo. La pestaña correcta se detecta sola por sus
+          columnas.
+        </p>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => llamar("GET")}
+          disabled={probando || sincronizando}
+          className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-60"
+          style={{ borderColor: "var(--borde)" }}
+        >
+          {probando ? "Probando…" : "Probar lectura"}
+        </button>
+        <button
+          type="button"
+          onClick={() => llamar("POST")}
+          disabled={probando || sincronizando}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          style={{ background: "var(--acento)" }}
+        >
+          {sincronizando ? "Sincronizando…" : "Sincronizar corridas"}
+        </button>
+      </div>
+
+      {error ? (
+        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </p>
+      ) : null}
+
+      {prueba ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p style={{ color: "var(--exito-texto)" }}>
+            Lectura buena: <strong>{prueba.corridas}</strong> corridas en la pestaña{" "}
+            <strong>{prueba.hoja}</strong> · tallas: {prueba.tallas?.join(", ")}
+          </p>
+          <ResumenCampos avisos={prueba.avisos} />
+        </div>
+      ) : null}
+
+      {resumen ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p style={{ color: "var(--exito-texto)" }}>
+            Corridas sincronizadas: <strong>{resumen.corridas}</strong> desde la pestaña{" "}
+            <strong>{resumen.hoja}</strong>
+          </p>
+          <ResumenCampos avisos={resumen.avisos} />
         </div>
       ) : null}
     </div>
