@@ -9,13 +9,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Recibe los dos Excel de la operación y los guarda.
+ * Recibe los Excel de la operación y los guarda.
  *
  *   CORRIDAS BASE  -> se acumula: una corrida vieja sigue sirviendo para el
  *                     inventario de ese pedido.
  *   EXISTENCIAS    -> se REEMPLAZA completo: es una foto del momento, y
  *                     conservar renglones viejos haría planear con cajas
  *                     que ya se movieron.
+ *
+ * Las existencias ya llegan solas desde el API de Industher (/api/industher y
+ * el cron diario); la pantalla de importar ya no ofrece ese archivo. La rama
+ * de EXISTENCIAS se conserva como respaldo de emergencia por si el API del
+ * almacén llegara a caerse.
  */
 export async function POST(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -118,7 +123,7 @@ export async function POST(req: NextRequest) {
     }
 
     invalidarInventario(cuenta.id);
-  await invalidar(supabase, cuenta.id, "Se importaron archivos de corridas o existencias.");
+    await invalidar(supabase, cuenta.id, "Se importaron archivos de corridas o existencias.");
     return NextResponse.json({ ok: true, resumen, avisos: avisos.slice(0, 50) });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
