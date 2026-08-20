@@ -19,6 +19,9 @@ export interface FilaModeloAmazon {
   importe: number;
   unidadesHoy: number;
   ganancia: number | null;
+  /** neto real del reporte de pagos (liquidado en el periodo); null = sin dato */
+  netoReal: number | null;
+  gananciaReal: number | null;
 }
 
 export interface FilaCategoriaAmazon {
@@ -26,6 +29,8 @@ export interface FilaCategoriaAmazon {
   unidades: number;
   importe: number;
   ganancia: number | null;
+  netoReal: number | null;
+  gananciaReal: number | null;
 }
 
 export interface MonitorAmazon {
@@ -36,6 +41,11 @@ export interface MonitorAmazon {
   porCategoria: FilaCategoriaAmazon[];
   ganancia: number;
   coberturaCosto: number;
+  /** Lo depositado por Amazon en el periodo (reporte de pagos); null = sin datos */
+  netoReal: number | null;
+  /** neto real − costo de las unidades liquidadas; null = sin datos o sin costos */
+  gananciaReal: number | null;
+  unidadesLiquidadas: number;
 }
 
 export async function cargarMonitorAmazon(
@@ -51,7 +61,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, config] = await Promise.all([
+  const [ventas, config, pagos] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -61,6 +71,15 @@ export async function cargarMonitorAmazon(
     // El costo y la categoría son los mismos productos físicos: viven con la
     // cuenta de MELI en Productos y costos.
     meliAccountId ? configPorProducto(db, meliAccountId) : Promise.resolve(new Map()),
+    // El NETO real del reporte de pagos de Amazon (comisiones, envíos e
+    // impuestos ya descontados), por día de liquidación. Si la tabla no
+    // existe todavía, simplemente no hay dato real y se usa el estimado.
+    traerTodo<any>(
+      db,
+      "amazon_pagos",
+      "seller_sku, fecha, neto, unidades",
+      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
+    ).catch(() => [] as any[]),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
@@ -94,20 +113,39 @@ export async function cargarMonitorAmazon(
     modelos.set(modelo, m);
   }
 
+  // --- El dinero REAL: lo liquidado por Amazon en el periodo ----------------
+  const pagosPorModelo = new Map<string, { neto: number; unidades: number }>();
+  for (const p of pagos) {
+    const modelo = (desglosarSku(String(p.seller_sku ?? "")).modelo ?? String(p.seller_sku ?? "")).toUpperCase();
+    const reg = pagosPorModelo.get(modelo) ?? { neto: 0, unidades: 0 };
+    reg.neto += Number(p.neto) || 0;
+    reg.unidades += p.unidades ?? 0;
+    pagosPorModelo.set(modelo, reg);
+  }
+
   const categorias = new Map<
     string,
-    { unidades: number; importe: number; ganancia: number; conCosto: boolean }
+    { unidades: number; importe: number; ganancia: number; conCosto: boolean; netoReal: number; gananciaReal: number; conPagos: boolean }
   >();
   let ganancia = 0;
   let unidadesConCosto = 0;
   let unidadesTotal = 0;
+  let netoRealTotal = 0;
+  let gananciaRealTotal = 0;
+  let unidadesLiquidadas = 0;
+  let hayPagos = pagos.length > 0;
   const gananciaPorModelo = new Map<string, number>();
+  const gananciaRealPorModelo = new Map<string, number>();
 
-  for (const [modelo, m] of modelos) {
+  const todosLosModelos = new Set([...modelos.keys(), ...pagosPorModelo.keys()]);
+  for (const modelo of todosLosModelos) {
+    const m = modelos.get(modelo) ?? { unidades: 0, unidadesPrev: 0, importe: 0, unidadesHoy: 0 };
     unidadesTotal += m.unidades;
     const cfg = config.get(modelo);
     const categoria = cfg?.categoria ?? "Sin categoría";
-    const cat = categorias.get(categoria) ?? { unidades: 0, importe: 0, ganancia: 0, conCosto: false };
+    const cat =
+      categorias.get(categoria) ??
+      { unidades: 0, importe: 0, ganancia: 0, conCosto: false, netoReal: 0, gananciaReal: 0, conPagos: false };
     cat.unidades += m.unidades;
     cat.importe += m.importe;
 
@@ -119,19 +157,40 @@ export async function cargarMonitorAmazon(
       cat.ganancia += g;
       cat.conCosto = true;
     }
+
+    const pago = pagosPorModelo.get(modelo);
+    if (pago) {
+      netoRealTotal += pago.neto;
+      unidadesLiquidadas += pago.unidades;
+      cat.netoReal += pago.neto;
+      cat.conPagos = true;
+      if (cfg?.costo != null) {
+        const gr = pago.neto - cfg.costo * pago.unidades;
+        gananciaRealTotal += gr;
+        gananciaRealPorModelo.set(modelo, gr);
+        cat.gananciaReal += gr;
+      }
+    }
     categorias.set(categoria, cat);
   }
 
-  const porModelo: FilaModeloAmazon[] = [...modelos.entries()]
-    .map(([modelo, m]) => ({
-      modelo,
-      unidades: m.unidades,
-      unidadesPrev: m.unidadesPrev,
-      importe: m.importe,
-      unidadesHoy: m.unidadesHoy,
-      ganancia: gananciaPorModelo.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
-    }))
-    .filter((f) => f.unidades + f.unidadesPrev > 0)
+  const porModelo: FilaModeloAmazon[] = [...todosLosModelos]
+    .map((modelo) => {
+      const m = modelos.get(modelo) ?? { unidades: 0, unidadesPrev: 0, importe: 0, unidadesHoy: 0 };
+      return {
+        modelo,
+        unidades: m.unidades,
+        unidadesPrev: m.unidadesPrev,
+        importe: m.importe,
+        unidadesHoy: m.unidadesHoy,
+        ganancia: gananciaPorModelo.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
+        netoReal: pagosPorModelo.get(modelo)?.neto ?? null,
+        gananciaReal: gananciaRealPorModelo.has(modelo)
+          ? (gananciaRealPorModelo.get(modelo) ?? 0)
+          : null,
+      };
+    })
+    .filter((f) => f.unidades + f.unidadesPrev > 0 || (f.netoReal ?? 0) !== 0)
     .sort((a, b) => b.unidades - a.unidades)
     .slice(0, 150);
 
@@ -141,8 +200,10 @@ export async function cargarMonitorAmazon(
       unidades: c.unidades,
       importe: c.importe,
       ganancia: c.conCosto ? c.ganancia : null,
+      netoReal: c.conPagos ? c.netoReal : null,
+      gananciaReal: c.conPagos && c.conCosto ? c.gananciaReal : null,
     }))
-    .filter((c) => c.unidades > 0)
+    .filter((c) => c.unidades > 0 || (c.netoReal ?? 0) !== 0)
     .sort((a, b) => b.unidades - a.unidades);
 
   return {
@@ -153,5 +214,8 @@ export async function cargarMonitorAmazon(
     porCategoria,
     ganancia,
     coberturaCosto: unidadesTotal > 0 ? unidadesConCosto / unidadesTotal : 0,
+    netoReal: hayPagos ? netoRealTotal : null,
+    gananciaReal: hayPagos && unidadesConCosto > 0 ? gananciaRealTotal : null,
+    unidadesLiquidadas,
   };
 }

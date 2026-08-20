@@ -140,11 +140,15 @@ export function extraerSku(
 }
 
 /**
- * MELI regresa las fechas ya en la zona del sitio (con offset explícito),
- * así que los primeros 10 caracteres son el día local del vendedor.
+ * El día de venta del NEGOCIO: hora de la Ciudad de México (UTC-6 fijo).
+ * OJO: MELI manda las fechas con offset -04:00 (no -06:00), así que cortar
+ * los primeros 10 caracteres corría al día siguiente toda venta posterior a
+ * las 22:00 de México. Se convierte desde el instante real.
  */
 function diaLocal(iso: string): string {
-  return iso.slice(0, 10);
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso.slice(0, 10);
+  return new Date(t - 6 * 3_600_000).toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -580,9 +584,12 @@ export async function obtenerVentas(
   let sinSku = 0;
   const vistas = new Set<number>();
 
+  // Las ventanas cubren los días COMPLETOS en hora de México (-06:00): si se
+  // pidieran en UTC, el primer y el último día del rango quedarían partidos
+  // y se escribirían filas parciales.
   const ventanas: [string, string][] = [];
-  let cursor = new Date(`${desde}T00:00:00.000Z`);
-  const fin = new Date(`${hasta}T23:59:59.999Z`);
+  let cursor = new Date(`${desde}T00:00:00.000-06:00`);
+  const fin = new Date(`${hasta}T23:59:59.999-06:00`);
   while (cursor < fin) {
     const sig = new Date(cursor);
     sig.setUTCDate(sig.getUTCDate() + 7);

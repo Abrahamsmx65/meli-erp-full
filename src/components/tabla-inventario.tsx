@@ -37,7 +37,6 @@ export function TablaInventario({
       renglones.filter((r) => {
         const relevante = soloBodega ? r.enBodega + r.enCamino : r.total;
         if (soloConExistencia && relevante === 0) return false;
-        if (soloBodega && r.enBodega + r.enCamino === 0) return false;
         return coincide(
           `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
           terminos,

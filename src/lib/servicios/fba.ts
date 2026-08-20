@@ -1,5 +1,27 @@
 import type { RenglonAmazon } from "./amazon";
 import { desglosarSku } from "./sync";
+import { claveComparacion } from "../importar/sku";
+import { numeroDePedido } from "./compras";
+
+/**
+ * Desglose que entiende los SKUs de Amazon: a veces traen la talla ANTES
+ * del color (GT128-23-BLK-MX). Si el desglose normal no encuentra talla,
+ * se busca el token que parece talla en cualquier posición.
+ */
+function desglosarAmazon(sku: string): { modelo: string | null; color: string | null; talla: string | null } {
+  const d = desglosarSku(sku);
+  if (d.talla) return d;
+  const t = claveComparacion(sku).split("-");
+  const idx = t.findIndex((x, i) => i > 0 && /^\d{2}(\.\d)?$/.test(x));
+  if (idx > 0) {
+    return {
+      modelo: t[0] ?? null,
+      color: t.filter((_, i) => i > 0 && i !== idx).join("-") || null,
+      talla: t[idx],
+    };
+  }
+  return d;
+}
 import { traerTodo, type DB } from "../datos/repos";
 
 /** Días de venta que el stock en FBA debe cubrir. */
@@ -67,7 +89,7 @@ export function sugerirEnvioFba(
 
   for (const r of renglones) {
     if (!esCalzado(r.sku)) continue;
-    const d = desglosarSku(r.sku);
+    const d = desglosarAmazon(r.sku);
     const modelo = (d.modelo ?? r.sku).toUpperCase();
     const color = (d.color ?? "").toUpperCase();
     const clave = `${modelo}|${color}`;
@@ -122,9 +144,17 @@ export function sugerirEnvioFba(
  * conectado o las tablas están vacías, regresa un mapa vacío y el pedido se
  * calcula solo con MELI, como antes.
  */
+const cacheAmazonCompras = new Map<string, { en: number; datos: Map<string, { ventaDiaria: number; stock: number }> }>();
+const VIDA_CACHE_AMZ_MS = 60_000;
+
 export async function amazonParaCompras(
   db: DB,
 ): Promise<Map<string, { ventaDiaria: number; stock: number }>> {
+  // Cada clic en Planificación bajaba ~30 días de ventas de Amazon fila por
+  // fila solo para sumarlas; un minuto de caché por instancia lo evita.
+  const guardado = cacheAmazonCompras.get("unica");
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_AMZ_MS) return guardado.datos;
+
   const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   try {
     const [ventas, inventario] = await Promise.all([
@@ -150,6 +180,7 @@ export async function amazonParaCompras(
       if (!esCalzado(sku)) continue;
       entrada(sku).stock += (i.disponible ?? 0) + (i.en_transferencia ?? 0);
     }
+    cacheAmazonCompras.set("unica", { en: Date.now(), datos: mapa });
     return mapa;
   } catch {
     return new Map();
@@ -167,8 +198,9 @@ export function mapaCorridas(
       c.total ?? Object.values(c.tallas ?? {}).reduce((a, b) => a + Number(b), 0);
     if (!total) continue;
     const previa = porClave.get(clave);
-    // La corrida del pedido más nuevo es la vigente.
-    if (!previa || String(c.pedido ?? "") > previa.pedido) {
+    // La corrida del pedido más nuevo es la vigente (por NÚMERO, no por
+    // texto: "IN9999" > "IN10160" como cadena).
+    if (!previa || numeroDePedido(String(c.pedido ?? "")) > numeroDePedido(previa.pedido)) {
       porClave.set(clave, { total, pedido: String(c.pedido ?? "") });
     }
   }

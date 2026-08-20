@@ -50,7 +50,7 @@ export default async function Skus() {
               </tr>
             </thead>
             <tbody>
-              {plan.lineas.map((l) => (
+              {plan.lineas.slice(0, 500).map((l) => (
                 <tr key={l.sku}>
                   <td className="font-medium">{l.sku}</td>
                   <td>

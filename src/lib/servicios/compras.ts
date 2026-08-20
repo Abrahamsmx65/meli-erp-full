@@ -28,6 +28,8 @@
  * medio ciclo y esperar tres meses.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
+import { claveAplastada, claveComparacion } from "../importar/sku";
 import type { LineaGuardada } from "./cache";
 
 export interface ParametrosCompra {
@@ -238,6 +240,13 @@ function compararCorrida(
   return desvios.sort((a, b) => Number(a.talla) - Number(b.talla)).slice(0, 8);
 }
 
+
+/** "IN10160" → 10160, para comparar pedidos por número y no por texto. */
+export function numeroDePedido(pedido: string): number {
+  const n = Number(pedido.replace(/\D+/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 export async function sugerirCompra(
   db: DB,
   accountId: string,
@@ -280,17 +289,27 @@ export async function sugerirCompra(
     const total = c.total ?? Object.values(c.tallas ?? {}).reduce((a: number, b: any) => a + Number(b), 0);
     if (!total) continue;
     // Empatan por pedido: el número de pedido más alto es el más nuevo.
-    if (!previa || String(c.pedido ?? "") > previa.pedido) {
+    // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
+    if (!previa || numeroDePedido(String(c.pedido ?? "")) > numeroDePedido(previa.pedido)) {
       corridaDe.set(k, { tallas: c.tallas ?? {}, total, pedido: String(c.pedido ?? "") });
     }
   }
 
-  // Cómo se descompone cada SKU. Se prefiere el catálogo; si un SKU no está
-  // ahí, se parte por guiones (GT104-BLK-25).
+  // Cómo se descompone cada SKU. Se prefiere el catálogo directo; si no
+  // está (los SKUs de AMAZON traen sufijo -MX y a veces la talla antes del
+  // color), se amarra contra el catálogo con los índices de siempre —
+  // canónico, aplastado y con los pedazos ordenados. Sin este amarre, la
+  // venta y el stock de Amazon caían en grupos fantasma (GT128|23-BLK) y el
+  // pedido a China se calculaba solo con MELI.
   const infoSku = new Map(skusRaw.map((s) => [s.sku, s]));
+  const indiceMeli = indexarCatalogo(skusRaw);
 
   function partes(sku: string): { modelo: string; color: string; talla: string } {
-    const i = infoSku.get(sku);
+    const i =
+      infoSku.get(sku) ??
+      indiceMeli.canonico.get(claveComparacion(sku)) ??
+      indiceMeli.aplastado.get(claveAplastada(sku)) ??
+      indiceMeli.ordenado.get(claveOrdenada(sku));
     if (i?.modelo) return { modelo: i.modelo, color: i.color ?? "", talla: i.talla ?? "" };
     const t = sku.split("-");
     return {
@@ -419,7 +438,7 @@ export async function sugerirCompra(
     for (const t of tallasTodas) {
       const f =
         (g.demandaPorTalla.get(t) ?? 0) * horizonte - (g.inventarioPorTalla.get(t) ?? 0);
-      if (f > 0) faltantePorTalla[t] = Math.round(f);
+      if (Math.round(f) > 0) faltantePorTalla[t] = Math.round(f);
     }
 
     // OJO: la puerta es el faltante POR TALLA, no el agregado. El agregado
@@ -427,8 +446,11 @@ export async function sugerirCompra(
     // 25 en la resta global, y el color se quedaba sin pedir justo lo que
     // se le agotó. El sobrante de una talla no se puede vender como otra.
     const totalFaltanteTallas = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
+    // El umbral de venta mínima APAGA el pedido, no solo el texto: antes un
+    // modelo con el motivo "no conviene volver a pedirlo" igual sumaba cajas.
+    const valeLaPena = demanda >= p.ventaMinimaDiaria;
     const pedido =
-      totalFaltanteTallas > 0 && paresPorCaja && paresPorCaja > 0
+      valeLaPena && totalFaltanteTallas > 0 && paresPorCaja && paresPorCaja > 0
         ? armarPedidoColor(faltantePorTalla, paresPorCaja)
         : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
 
@@ -514,7 +536,7 @@ export async function sugerirCompra(
       cajas: aPedir.reduce((a, r) => a + r.cajasSugeridas, 0),
       pares: aPedir.reduce((a, r) => a + r.paresSugeridos, 0),
       enQuiebre: renglones.filter((r) => r.urgencia === "quiebre" || r.urgencia === "urgente").length,
-      sinCorrida: renglones.filter((r) => r.faltante > 0 && !r.tieneCorrida).length,
+      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.tieneCorrida).length,
     },
   };
 }

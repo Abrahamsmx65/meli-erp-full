@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
+import { indexarCatalogo, claveOrdenada } from "@/lib/etiquetas/resolver";
+import { claveAplastada, claveComparacion } from "@/lib/importar/sku";
 import { obtenerPlan, invalidar } from "@/lib/servicios/cache";
 import { separarEnvios } from "@/lib/servicios/envios";
 import {
@@ -36,8 +38,23 @@ export async function POST(req: NextRequest) {
   // Registro MANUAL: folio + lista de SKU y pares (envíos ya dados de alta
   // en MELI antes de que existiera el botón, o armados fuera del plan).
   if (Array.isArray(body?.renglones)) {
+    // El SKU capturado a mano se amarra contra el catálogo real de MELI
+    // (mayúsculas, sufijo -MX, espacios): un SKU escrito distinto creaba un
+    // renglón fantasma y el plan seguía sin ver esos pares en camino.
+    const catalogo = await traerTodo<any>(supabase, "skus", "sku", (q) =>
+      q.eq("account_id", cuenta.id),
+    );
+    const indice = indexarCatalogo(catalogo ?? []);
+    const amarrar = (sku: string): string => {
+      const dado =
+        indice.exacto.get(sku.toUpperCase()) ??
+        indice.canonico.get(claveComparacion(sku)) ??
+        indice.aplastado.get(claveAplastada(sku)) ??
+        indice.ordenado.get(claveOrdenada(sku));
+      return dado?.sku ?? sku;
+    };
     const renglones = (body.renglones as { sku?: unknown; pares?: unknown }[])
-      .map((r) => ({ sku: String(r.sku ?? "").trim(), pares: Math.round(Number(r.pares)) }))
+      .map((r) => ({ sku: amarrar(String(r.sku ?? "").trim()), pares: Math.round(Number(r.pares)) }))
       .filter((r) => r.sku && Number.isFinite(r.pares) && r.pares > 0);
     if (!renglones.length) {
       return NextResponse.json(

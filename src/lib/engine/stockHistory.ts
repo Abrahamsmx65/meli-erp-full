@@ -55,10 +55,20 @@ function agrupar<T extends { sku: string }>(
 
 export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
   const fechas = rangoFechas(e.desde, e.hasta);
-  const hoy = aISO(new Date());
+  // El día del negocio es el de México (UTC-6): con el día UTC, un plan
+  // corrido en la tarde-noche usaba "mañana" como hoy.
+  const hoy = aISO(new Date(Date.now() - 6 * 3_600_000));
 
   const snapPorSku = agrupar(e.snapshots, (s) => s.fecha);
-  const opsPorSku = agrupar(e.operaciones, (o) => o.fecha.slice(0, 10));
+  // Las operaciones llegan como timestamptz en UTC: su DÍA es el de México,
+  // no el corte de los primeros 10 caracteres (un agotamiento de las 8 pm
+  // caía en el día siguiente y descuadraba contra las ventas).
+  const opsPorSku = agrupar(e.operaciones, (o) => {
+    const t = Date.parse(o.fecha);
+    return Number.isFinite(t)
+      ? new Date(t - 6 * 3_600_000).toISOString().slice(0, 10)
+      : o.fecha.slice(0, 10);
+  });
   const ventasPorSku = agrupar(e.ventas, (v) => v.fecha);
 
   const salida = new Map<string, DiaStock[]>();
@@ -90,6 +100,18 @@ export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
 
     const hayHistorial = ops.size > 0 || snaps.size > 0;
 
+    // El primer día con evidencia real (foto o movimiento). Antes de él no
+    // se sabe nada: extender el nivel hacia el pasado inventaba "stock con
+    // cero ventas" en SKUs nuevos (los días previos al lanzamiento) y
+    // diluía su demanda a una fracción de la real.
+    let primerDato: ISODate | null = null;
+    for (const f of fechas) {
+      if (snaps.has(f) || ops.has(f)) {
+        primerDato = f;
+        break;
+      }
+    }
+
     // --- Paso 1: nivel al CIERRE de cada día, caminando hacia atrás ---------
     const fin = new Map<ISODate, number>();
     const origen = new Map<ISODate, OrigenDia>();
@@ -97,6 +119,13 @@ export function reconstruirStockDiario(e: Entrada): Map<string, DiaStock[]> {
     let corriendo = ancla;
     for (let i = fechas.length - 1; i >= 0; i--) {
       const f = fechas[i];
+      if (primerDato !== null && f < primerDato) {
+        // Prehistoria sin datos: no cuenta como "con stock" ni como agotado
+        // con venta — el cálculo de fracciones la deja fuera.
+        origen.set(f, "desconocido");
+        corriendo = null;
+        continue;
+      }
       const snap = snaps.get(f)?.[0];
       const opsDia = (ops.get(f) ?? []).slice().sort((a, b) => a.fecha.localeCompare(b.fecha));
 
@@ -184,7 +213,9 @@ function inferirPorVentas(dias: DiaStock[]): void {
   const VENTANA = 10;
   for (let i = 0; i < n; i++) {
     if (dias[i].unidades > 0) {
-      dias[i].origen = "operaciones";
+      // Vendió: seguro tuvo stock (fin > 0 evita contarlo como "se agotó").
+      dias[i].fin = Math.max(dias[i].fin, 1);
+      dias[i].origen = "inferido";
       continue;
     }
     let vecinos = 0;
@@ -194,10 +225,13 @@ function inferirPorVentas(dias: DiaStock[]): void {
       vecinos++;
       if (dias[j].unidades > 0) conVenta++;
     }
-    // Vendía la mayor parte de los días de alrededor pero este día no: sospechoso.
+    // Vendía la mayor parte de los días de alrededor pero este día no:
+    // probablemente agotado. Si no, se marca CON stock (inicio y fin > 0):
+    // antes esta rama dejaba 0/0 y todo día sin venta contaba como agotado,
+    // inflando la demanda de los SKUs sin historial hasta 3 veces.
     const probableAgotado = vecinos > 0 && conVenta / vecinos >= 0.6;
-    dias[i].inicio = probableAgotado ? 0 : dias[i].inicio;
-    dias[i].fin = probableAgotado ? 0 : dias[i].fin;
+    dias[i].inicio = probableAgotado ? 0 : Math.max(dias[i].inicio, 1);
+    dias[i].fin = probableAgotado ? 0 : Math.max(dias[i].fin, 1);
     dias[i].origen = "inferido";
   }
 }

@@ -15,11 +15,13 @@
 import type { Cliente } from "./spapi";
 import {
   INVENTARIO_FBA,
+  PAGOS,
   VENTAS,
   decimal,
   descargarReporte,
   entero,
   estadoReporte,
+  listarReportesListos,
   solicitarReporte,
 } from "./reportes";
 
@@ -46,7 +48,7 @@ export interface ResultadoVentas {
 const DIAS_VENTANA = 14;
 
 /** Desfase del marketplace: define dónde empieza y termina el día de venta. */
-function husoDe(marketplaceId: string): number {
+export function husoDe(marketplaceId: string): number {
   const husos: Record<string, number> = {
     A1AM78C64UM0Y8: -6, // México
     ATVPDKIKX0DER: -8, // Estados Unidos
@@ -140,7 +142,8 @@ export async function sincronizarVentas(
     if (
       !rec?.cursor_ts ||
       Date.now() - Date.parse(rec.cursor_ts) > 7 * 86_400_000 ||
-      rec?.datos?.ventana !== DIAS_VENTANA
+      rec?.datos?.ventana !== DIAS_VENTANA ||
+      rec?.datos?.husoLocal !== true
     ) {
       corte = piso;
       reconcilia = true;
@@ -186,7 +189,7 @@ export async function sincronizarVentas(
   await anotar({});
   if (filas.length === 0) return { estado: "vacio" };
 
-  const { ventas, skus } = agregarDesdeReporte(filas, accountId);
+  const { ventas, skus } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
 
   // Solo se escriben los días que el reporte cubre completos. El día extra
   // que se pidió de margen se descarta: viene incompleto por definición.
@@ -209,7 +212,7 @@ export async function sincronizarVentas(
       account_id: accountId,
       tarea: "reconciliacion_ventas",
       cursor_ts: new Date().toISOString(),
-      datos: { ventana: DIAS_VENTANA },
+      datos: { ventana: DIAS_VENTANA, husoLocal: true },
       actualizado_en: new Date().toISOString(),
     });
   }
@@ -242,13 +245,16 @@ async function pasoPendiente(
 /**
  * Convierte el reporte plano en el agregado diario por SKU.
  *
- * La columna purchase-date ya trae el desfase del marketplace, así que sus
- * primeros 10 caracteres SON la fecha local de venta: no hay que convertir
- * nada y no hay riesgo de mover una venta de día por error de huso.
+ * La columna purchase-date llega con OFFSET EXPLÍCITO, pero ese offset
+ * depende de la preferencia de la cuenta (muchas veces es UTC, +00:00):
+ * cortar los primeros 10 caracteres corría al día siguiente toda venta de
+ * la tarde-noche de México. Se convierte del instante real al huso del
+ * marketplace.
  */
 export function agregarDesdeReporte(
   filas: Record<string, string>[],
   accountId: string,
+  huso = -6,
 ): { ventas: any[]; skus: any[] } {
   const acumulado = new Map<string, any>();
   const pedidos = new Map<string, Set<string>>();
@@ -272,7 +278,8 @@ export function agregarDesdeReporte(
     const estado = (f["item-status"] || f["order-status"] || "").toLowerCase();
     if (CANCELADAS.has(estado)) continue;
 
-    const fecha = compra.slice(0, 10);
+    const ms = Date.parse(compra);
+    const fecha = Number.isFinite(ms) ? fechaLocal(ms, huso) : compra.slice(0, 10);
     const clave = `${sku}|${fecha}`;
     const reg = acumulado.get(clave) ?? {
       account_id: accountId,
@@ -286,13 +293,19 @@ export function agregarDesdeReporte(
     // El flat file "GENERAL" trae `quantity`; otras variantes del mismo
     // reporte usan `quantity-purchased`. Aceptar ambas evita quedar en cero
     // en silencio si Amazon cambia la variante.
-    reg.unidades += entero(f["quantity"] || f["quantity-purchased"]);
+    const unidades = entero(f["quantity"] || f["quantity-purchased"]);
+    reg.unidades += unidades;
     reg.importe += decimal(f["item-price"]);
     acumulado.set(clave, reg);
 
-    const vistos = pedidos.get(clave) ?? new Set<string>();
-    vistos.add(f["amazon-order-id"] ?? "");
-    pedidos.set(clave, vistos);
+    // Una orden Pending viene con 0 unidades y sin precio: contarla como
+    // "orden" inflaría el conteo con órdenes que aún no aportan nada. Se
+    // cuenta cuando se concreta (la ventana de 14 días la vuelve a leer).
+    if (unidades > 0) {
+      const vistos = pedidos.get(clave) ?? new Set<string>();
+      vistos.add(f["amazon-order-id"] ?? "");
+      pedidos.set(clave, vistos);
+    }
   }
 
   const ventas = [...acumulado.entries()].map(([clave, reg]) => ({
@@ -402,4 +415,117 @@ export async function sincronizarInventario(
   );
 
   return { estado: "cargado", skus: inventario.length };
+}
+
+// ---------------------------------------------------------------------------
+// Pagos (settlement): lo que Amazon deposita de verdad
+// ---------------------------------------------------------------------------
+
+export interface ResultadoPagos {
+  estado: "cargado" | "vacio" | "sin_tabla" | "reintentar";
+  reportes?: number;
+  filas?: number;
+}
+
+/**
+ * Baja los reportes de liquidación (settlement) que Amazon ya generó y
+ * guarda, por SKU y día de asiento, el NETO real depositado: precio cobrado
+ * menos comisiones, envío e impuestos, con reembolsos en negativo. Es el
+ * equivalente del net_received_amount de Mercado Pago, pero de Amazon.
+ *
+ * Idempotente por diseño: cada fila vive bajo (cuenta, settlement, sku,
+ * fecha), así que reprocesar un reporte reescribe lo mismo. El cursor
+ * (amazon_sync_estado, tarea cron_pagos) guarda hasta qué fecha de creación
+ * de reporte ya se leyó.
+ */
+export async function sincronizarPagos(
+  admin: any,
+  cliente: Cliente,
+): Promise<ResultadoPagos> {
+  const accountId = cliente.cuenta.accountId;
+  const huso = husoDe(cliente.cuenta.marketplaceId);
+
+  const { data: est } = await admin
+    .from("amazon_sync_estado")
+    .select("cursor_ts")
+    .eq("account_id", accountId)
+    .eq("tarea", "cron_pagos")
+    .maybeSingle();
+  // La primera vez se mira 90 días atrás (Amazon guarda ~90 días de
+  // reportes); después, desde el último leído con una hora de traslape.
+  const desde = est?.cursor_ts
+    ? new Date(Date.parse(est.cursor_ts) - 3_600_000).toISOString()
+    : new Date(Date.now() - 90 * 86_400_000).toISOString();
+
+  const reportes = await listarReportesListos(cliente, PAGOS, desde);
+  if (!reportes.length) return { estado: "vacio", reportes: 0 };
+
+  let filasTotales = 0;
+  let ultimoCreado = est?.cursor_ts ?? "";
+
+  // Máximo 3 reportes por corrida: cada uno puede traer decenas de miles de
+  // renglones y la función tiene plazo. Lo que falte lo recoge la siguiente.
+  for (const rep of reportes.slice(0, 3)) {
+    const filas = await descargarReporte(cliente, rep.documentId);
+
+    // settlement-id|sku|día → neto y unidades liquidadas.
+    const acumulado = new Map<
+      string,
+      { settlementId: string; sku: string; fecha: string; neto: number; unidades: number }
+    >();
+    for (const f of filas) {
+      const sku = (f["sku"] ?? "").trim();
+      if (!sku) continue; // cargos de cuenta (suscripción, etc.): sin SKU
+      const posted = f["posted-date-time"] || f["posted-date"] || "";
+      const ms = Date.parse(posted);
+      if (!Number.isFinite(ms)) continue;
+      const fecha = fechaLocal(ms, huso);
+      const settlementId = (f["settlement-id"] ?? "").trim() || rep.reportId;
+
+      const clave = `${settlementId}|${sku}|${fecha}`;
+      const reg =
+        acumulado.get(clave) ?? { settlementId, sku, fecha, neto: 0, unidades: 0 };
+      reg.neto += decimal(f["amount"]);
+      if ((f["transaction-type"] ?? "").toLowerCase() === "order") {
+        reg.unidades += entero(f["quantity-purchased"]);
+      }
+      acumulado.set(clave, reg);
+    }
+
+    const filasDb = [...acumulado.values()].map((r) => ({
+      account_id: accountId,
+      settlement_id: r.settlementId,
+      seller_sku: r.sku,
+      fecha: r.fecha,
+      neto: Math.round(r.neto * 100) / 100,
+      unidades: r.unidades,
+      actualizado_en: new Date().toISOString(),
+    }));
+
+    try {
+      await guardarEnLotes(admin, "amazon_pagos", filasDb);
+    } catch (err) {
+      // La tabla puede no existir todavía (migración 0013 pendiente): el
+      // resto de la sincronización no debe caerse por eso.
+      if (String((err as Error).message).includes("amazon_pagos")) {
+        return { estado: "sin_tabla" };
+      }
+      throw err;
+    }
+
+    filasTotales += filasDb.length;
+    if (rep.creadoEn > ultimoCreado) ultimoCreado = rep.creadoEn;
+  }
+
+  if (ultimoCreado) {
+    await admin.from("amazon_sync_estado").upsert({
+      account_id: accountId,
+      tarea: "cron_pagos",
+      cursor_ts: ultimoCreado,
+      datos: {},
+      actualizado_en: new Date().toISOString(),
+    });
+  }
+
+  return { estado: "cargado", reportes: Math.min(reportes.length, 3), filas: filasTotales };
 }

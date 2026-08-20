@@ -141,8 +141,10 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) =>
       q.eq("account_id", accountId),
     ),
+    // SOLO las fotos en cero: es lo único que el monitor usa (días
+    // agotados). Traerlas todas eran ~36 mil filas por clic.
     traerTodo<any>(db, "stock_snapshots", "sku, fecha, disponible", (q) =>
-      q.eq("account_id", accountId).gte("fecha", inicioPrev),
+      q.eq("account_id", accountId).gte("fecha", inicioPrev).eq("disponible", 0),
     ),
     configPorProducto(db, accountId),
   ]);
@@ -200,7 +202,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       // comisión, envío y retenciones); si no, la mejor aproximación:
       // importe menos la comisión.
       pr.neto7 +=
-        (v.neto ?? 0) > 0 ? (v.neto as number) : (v.importe ?? 0) - (v.comision ?? 0);
+        v.neto != null ? Number(v.neto) : (v.importe ?? 0) - (v.comision ?? 0);
       if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
     } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
       m.unidades7Prev += v.unidades ?? 0;

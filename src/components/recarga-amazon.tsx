@@ -24,7 +24,7 @@ export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
   // Mientras hay cola, la pantalla se refresca sola para que se vea el avance.
   useEffect(() => {
     if (!enCola) return;
-    const t = setInterval(() => router.refresh(), 20_000);
+    const t = setInterval(() => router.refresh(), 45_000);
     return () => clearInterval(t);
   }, [enCola, router]);
 

@@ -120,9 +120,11 @@ export async function procesarPendientes(
     (w) => w.topic === "orders_v2" || w.topic === "orders",
   );
   if (avisosOrden.length) {
+    // Los días se piensan en hora de México (-06:00), igual que las filas
+    // de ventas_diarias que estos barridos reescriben.
     const dias = new Set<string>();
     for (const w of avisosOrden) {
-      const t = new Date(w.recibido_en as string).getTime();
+      const t = new Date(w.recibido_en as string).getTime() - 6 * 3_600_000;
       dias.add(new Date(t).toISOString().slice(0, 10));
       dias.add(new Date(t - 24 * 3600 * 1000).toISOString().slice(0, 10));
     }
@@ -230,7 +232,7 @@ interface OrdenMeli {
  * seller_sku, así que los días que él reescribió quedaron con MENOS venta
  * de la real. Esto los vuelve a barrer — de ayer hacia atrás, hasta 60
  * días — unos cuantos por latido para no comerse la cuota ni el tiempo.
- * El avance vive en sync_log (tarea `reparacion_ventas_v2`): cuando llega
+ * El avance vive en sync_log (tarea `reparacion_ventas_v3`): cuando llega
  * al fondo se marca completo y no vuelve a correr.
  */
 export async function repararVentasHistoricas(
@@ -242,20 +244,21 @@ export async function repararVentasHistoricas(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_ventas_v2")
+    .eq("tarea", "reparacion_ventas_v3")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (marca?.detalle?.completo) return { dias: 0, completo: true };
 
-  const hoy = new Date().toISOString().slice(0, 10);
-  const fondo = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+  const ahoraMx = Date.now() - 6 * 3_600_000;
+  const hoy = new Date(ahoraMx).toISOString().slice(0, 10);
+  const fondo = new Date(ahoraMx - 60 * 86_400_000).toISOString().slice(0, 10);
   let fecha: string =
     typeof marca?.detalle?.siguiente === "string"
       ? marca.detalle.siguiente
-      : new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  if (fecha >= hoy) fecha = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+      : new Date(ahoraMx - 86_400_000).toISOString().slice(0, 10);
+  if (fecha >= hoy) fecha = new Date(ahoraMx - 86_400_000).toISOString().slice(0, 10);
 
   const cliente = await clienteDeCuenta(db, accountId);
   if (!cliente) return { dias: 0, completo: false };
@@ -273,7 +276,7 @@ export async function repararVentasHistoricas(
   const completo = fecha < fondo;
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_ventas_v2",
+    tarea: "reparacion_ventas_v3",
     estado: "ok",
     fin: new Date().toISOString(),
     detalle: { siguiente: fecha, completo, dias },
@@ -295,9 +298,12 @@ async function recalcularDiaVentas(
     .maybeSingle();
   if (!cuenta) return 0;
 
-  const desde = `${fecha}T00:00:00.000Z`;
-  const hasta = `${fecha}T23:59:59.999Z`;
-  // sku → por día de creación de la orden (el barrido puede rozar dos días)
+  // La ventana se pide en HORA DE MÉXICO (-06:00), que es el día del negocio
+  // y el del monitor. Antes se pedía en UTC y se agrupaba por el día del
+  // offset de MELI (-04:00): cada barrido veía solo un pedazo del día y
+  // reescribía días completos con datos parciales — el panel traía menos.
+  const desde = `${fecha}T00:00:00.000-06:00`;
+  const hasta = `${fecha}T23:59:59.999-06:00`;
   const acumulado = new Map<
     string,
     { unidades: number; ordenes: number; importe: number; comision: number }
@@ -306,8 +312,11 @@ async function recalcularDiaVentas(
   // qué peso, para repartir el depósito de la orden entre sus SKUs.
   const ordenes = new Map<
     number,
-    { dia: string; paymentId: number | null; total: number; renglones: { clave: string; importe: number }[] }
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
   >();
+  // Una orden nueva que entra a media paginación recorre las demás: sin
+  // esto, la misma orden puede salir en dos páginas y contarse doble.
+  const vistas = new Set<number>();
 
   for (let offset = 0; offset < 5000; offset += 51) {
     const pagina = await cliente.get<{ results: OrdenMeli[] }>("/orders/search", {
@@ -315,6 +324,7 @@ async function recalcularDiaVentas(
       "order.date_created.from": desde,
       "order.date_created.to": hasta,
       "order.status": "paid",
+      sort: "date_asc",
       limit: 51,
       offset,
     });
@@ -322,13 +332,17 @@ async function recalcularDiaVentas(
     if (!lote.length) break;
 
     for (const o of lote) {
-      const dia = o.date_created?.slice(0, 10) ?? fecha;
+      if (vistas.has(o.id)) continue;
+      vistas.add(o.id);
       const info = {
-        dia,
-        paymentId: o.payments?.[0]?.id ?? null,
+        dia: fecha,
+        paymentIds: (o.payments ?? []).map((p) => p.id).filter((x): x is number => x != null),
         total: o.total_amount ?? 0,
         renglones: [] as { clave: string; importe: number }[],
       };
+      // Los renglones se juntan por SKU DENTRO de la orden: así "ordenes"
+      // cuenta órdenes que tocaron al SKU, no renglones de item.
+      const porSku = new Map<string, { unidades: number; importe: number; comision: number }>();
       for (const oi of o.order_items ?? []) {
         // El mismo orden de amarre que la sincronización completa: el SKU de
         // la orden, y si no viene (variantes cuyo SKU vive en /user-products),
@@ -339,15 +353,21 @@ async function recalcularDiaVentas(
           (oi.item?.id ? mapaItemSku?.get(claveItem(oi.item.id, oi.item.variation_id)) : undefined) ||
           (oi.item?.id ? mapaItemSku?.get(oi.item.id) : undefined);
         if (!sku) continue;
-        const clave = `${sku}|${dia}`;
+        const s = porSku.get(sku) ?? { unidades: 0, importe: 0, comision: 0 };
+        s.unidades += oi.quantity ?? 0;
+        s.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
+        s.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
+        porSku.set(sku, s);
+      }
+      for (const [sku, s] of porSku) {
+        const clave = `${sku}|${fecha}`;
         const prev = acumulado.get(clave) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0 };
-        const importeItem = (oi.quantity ?? 0) * (oi.unit_price ?? 0);
-        prev.unidades += oi.quantity ?? 0;
+        prev.unidades += s.unidades;
         prev.ordenes += 1;
-        prev.importe += importeItem;
-        prev.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
+        prev.importe += s.importe;
+        prev.comision += s.comision;
         acumulado.set(clave, prev);
-        info.renglones.push({ clave, importe: importeItem });
+        info.renglones.push({ clave, importe: s.importe });
       }
       if (info.renglones.length) ordenes.set(o.id, info);
     }
@@ -358,11 +378,11 @@ async function recalcularDiaVentas(
   const netoPorClave = await netosDelDia(db, accountId, cliente, ordenes);
 
   const filas = [...acumulado].map(([clave, v]) => {
-    const [sku, dia] = [clave.slice(0, clave.lastIndexOf("|")), clave.slice(clave.lastIndexOf("|") + 1)];
+    const sku = clave.slice(0, clave.lastIndexOf("|"));
     const base: Record<string, unknown> = {
       account_id: accountId,
       sku,
-      fecha: dia,
+      fecha,
       unidades: v.unidades,
       ordenes: v.ordenes,
       importe: v.importe,
@@ -375,7 +395,34 @@ async function recalcularDiaVentas(
     return base;
   });
 
-  await guardarVentasDiarias(db, filas);
+  // El upsert de Supabase manda la UNIÓN de columnas de todo el lote y
+  // rellena con NULL las ausentes: mezclar filas con y sin neto borraría
+  // netos buenos. Se guardan por separado.
+  const conNeto = filas.filter((f) => "neto" in f);
+  const sinNeto = filas.filter((f) => !("neto" in f));
+  if (conNeto.length) await guardarVentasDiarias(db, conNeto);
+  if (sinNeto.length) await guardarVentasDiarias(db, sinNeto);
+
+  // Las filas del día que YA no aparecen en el barrido son órdenes que se
+  // cancelaron o reembolsaron: sin esto, contaban para siempre.
+  const skusBarridos = new Set(filas.map((f) => f.sku as string));
+  const { data: existentes } = await db
+    .from("ventas_diarias")
+    .select("sku")
+    .eq("account_id", accountId)
+    .eq("fecha", fecha);
+  const sobrantes = (existentes ?? [])
+    .map((e: any) => e.sku as string)
+    .filter((s) => !skusBarridos.has(s));
+  for (let i = 0; i < sobrantes.length; i += 100) {
+    await db
+      .from("ventas_diarias")
+      .delete()
+      .eq("account_id", accountId)
+      .eq("fecha", fecha)
+      .in("sku", sobrantes.slice(i, i + 100));
+  }
+
   return filas.length;
 }
 
@@ -395,7 +442,7 @@ async function netosDelDia(
   cliente: MeliClient,
   ordenes: Map<
     number,
-    { dia: string; paymentId: number | null; total: number; renglones: { clave: string; importe: number }[] }
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
   >,
 ): Promise<Map<string, number>> {
   const vacio = new Map<string, number>();
@@ -423,7 +470,7 @@ async function netosDelDia(
   const hace3h = Date.now() - 3 * 3_600_000;
   const porPedir: number[] = [];
   for (const [id, o] of ordenes) {
-    if (!o.paymentId) continue;
+    if (!o.paymentIds.length) continue;
     const c = cache.get(id);
     if (!c) porPedir.push(id);
     else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
@@ -435,18 +482,28 @@ async function netosDelDia(
   for (const id of porPedir.slice(0, 150)) {
     const o = ordenes.get(id)!;
     try {
-      const r = await cliente.get<{ net_received_amount?: number }>(
-        `/collections/${o.paymentId}`,
-      );
-      if (typeof r?.net_received_amount !== "number") continue;
-      cache.set(id, { neto: r.net_received_amount, actualizadoEn: new Date().toISOString() });
+      // Una orden puede tener VARIOS pagos (dos tarjetas, o un intento
+      // rechazado y el bueno): el neto de la orden es la suma de todos.
+      let neto = 0;
+      let algunDato = false;
+      for (const paymentId of o.paymentIds) {
+        const r = await cliente.get<{ net_received_amount?: number }>(
+          `/collections/${paymentId}`,
+        );
+        if (typeof r?.net_received_amount === "number") {
+          neto += r.net_received_amount;
+          algunDato = true;
+        }
+      }
+      if (!algunDato) continue;
+      cache.set(id, { neto, actualizadoEn: new Date().toISOString() });
       nuevas.push({
         account_id: accountId,
         order_id: id,
-        payment_id: o.paymentId,
+        payment_id: o.paymentIds[0],
         fecha: o.dia,
         total: o.total,
-        neto: r.net_received_amount,
+        neto,
         actualizado_en: new Date().toISOString(),
       });
     } catch {

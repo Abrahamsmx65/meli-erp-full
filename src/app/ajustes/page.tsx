@@ -14,26 +14,29 @@ export default async function Ajustes({
   const sp = await searchParams;
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  const guardados = cuenta ? await leerParametros(supabase, cuenta.id) : {};
+  // Las tres lecturas son independientes: en serie sumaban ~3 viajes.
+  const [guardados, rAlmacenes, rSync] = await Promise.all([
+    cuenta ? leerParametros(supabase, cuenta.id) : Promise.resolve({}),
+    cuenta
+      ? supabase
+          .from("almacenes_activos")
+          .select("almacen, surte_full")
+          .eq("account_id", cuenta.id)
+          .order("almacen")
+      : Promise.resolve({ data: [] as any[] }),
+    cuenta
+      ? supabase
+          .from("sync_log")
+          .select("tarea, inicio, fin, estado, detalle")
+          .eq("account_id", cuenta.id)
+          .order("inicio", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null as any }),
+  ]);
   const p = normalizarParametros(guardados);
-
-  const { data: almacenes } = cuenta
-    ? await supabase
-        .from("almacenes_activos")
-        .select("almacen, surte_full")
-        .eq("account_id", cuenta.id)
-        .order("almacen")
-    : { data: [] };
-
-  const { data: ultimoSync } = cuenta
-    ? await supabase
-        .from("sync_log")
-        .select("tarea, inicio, fin, estado, detalle")
-        .eq("account_id", cuenta.id)
-        .order("inicio", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : { data: null };
+  const almacenes = rAlmacenes.data;
+  const ultimoSync = rSync.data;
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">

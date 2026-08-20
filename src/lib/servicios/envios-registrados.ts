@@ -8,11 +8,12 @@
  *
  * La salida es un clic: la app ya sabe exactamente qué cajas trae cada envío
  * (ella los arma), así que "ya lo di de alta en MELI" registra el envío
- * completo en `envios_full`/`envio_cajas`. Desde ese momento:
- *   - sus cajas se descuentan de la disponibilidad de bodega, y
- *   - sus pares cuentan como "en camino" en la posición del plan,
- * hasta que se marque recibido (o se cierre solo a los 21 días, cuando el
- * stock de Full y el reporte de bodega ya lo reflejan por sí mismos).
+ * completo en `envios_full`/`envio_cajas`.
+ *
+ * REGLA NO NEGOCIABLE: estos envíos SOLO alimentan cálculos. Sus pares
+ * cuentan como "en camino" en la posición del plan; NUNCA descuentan
+ * inventario de bodega (el inventario sale del reporte del almacén). A los
+ * 7 días caducan solos y se quedan visibles como caducados.
  */
 import type { DB } from "../datos/repos";
 import type { StockFull } from "../engine/types";
@@ -181,9 +182,21 @@ export async function enviosParaPantalla(
   db: DB,
   accountId: string,
 ): Promise<EnvioRegistrado[]> {
-  const activos = await enviosActivos(db, accountId);
-  const caducados = await leerEnvios(db, accountId, ["caducado", "recibido"], 30);
-  return [...activos, ...caducados];
+  // Caducar y leer TODO en una sola pasada (antes eran tres viajes en serie).
+  const corte = new Date(Date.now() - DIAS_CADUCIDAD * 86_400_000).toISOString();
+  await db
+    .from("envios_full")
+    .update({
+      estado: "caducado",
+      notas: `Caducó a los ${DIAS_CADUCIDAD} días: el stock ya debe estar en Full`,
+    })
+    .eq("account_id", accountId)
+    .eq("estado", "enviado")
+    .lt("enviado_en", corte);
+
+  const todos = await leerEnvios(db, accountId, ["enviado", "caducado", "recibido"]);
+  const hace30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  return todos.filter((e) => e.estado === "enviado" || e.enviadoEn >= hace30);
 }
 
 async function leerEnvios(

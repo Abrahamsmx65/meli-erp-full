@@ -8,7 +8,7 @@
  */
 import type { Cliente } from "./spapi";
 import { VENTAS, descargarReporte, estadoReporte, solicitarReporte } from "./reportes";
-import { agregarDesdeReporte, guardarEnLotes } from "./sync";
+import { agregarDesdeReporte, guardarEnLotes, husoDe } from "./sync";
 
 /** Amazon limita cada reporte de órdenes a 30 días. */
 const DIAS_POR_VENTANA = 30;
@@ -126,7 +126,7 @@ export async function procesarRecarga(
   }
 
   const filas = await descargarReporte(cliente, st.documentId);
-  const { ventas, skus } = agregarDesdeReporte(filas, accountId);
+  const { ventas, skus } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
 
   // La ventana se pidió por días enteros, así que todo lo que trae es completo.
   await guardarEnLotes(admin, "amazon_skus", skus);

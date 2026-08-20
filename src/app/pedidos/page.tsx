@@ -75,10 +75,12 @@ export default async function Pedidos() {
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
 
-  const cajasEnCamino = pedidos.reduce(
-    (a, x) => a + x.contenedores.filter((c) => c.estado !== "recibido").reduce((s, c) => s + c.cajas, 0),
-    0,
-  );
+  const cajasEnCamino = pedidos
+    .filter((x) => x.estado !== "cancelado")
+    .reduce(
+      (a, x) => a + x.contenedores.filter((c) => c.estado !== "recibido").reduce((s, c) => s + c.cajas, 0),
+      0,
+    );
   const cajasSinBarco = pedidos
     .filter((x) => x.estado !== "recibido" && x.estado !== "cancelado")
     .reduce((a, x) => a + Math.max(0, x.cajas - x.cajasAsignadas), 0);

@@ -15,6 +15,51 @@ export const INVENTARIO_FBA = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
 /** Todas las órdenes por fecha de compra. Entrega el periodo COMPLETO. */
 export const VENTAS = "GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL";
 
+/**
+ * Reporte de pagos (settlement): lo que Amazon DEPOSITA de verdad, renglón
+ * por renglón — precio cobrado, comisiones, envío e impuestos, con signo.
+ * Amazon lo genera solo (cada cierre de liquidación); NO se puede solicitar:
+ * solo se listan los ya generados y se descargan.
+ */
+export const PAGOS = "GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2";
+
+export interface ReporteListo {
+  reportId: string;
+  documentId: string;
+  creadoEn: string;
+}
+
+/** Lista los reportes YA generados de un tipo (para los de settlement). */
+export async function listarReportesListos(
+  cliente: Cliente,
+  tipo: string,
+  creadosDesde: string,
+): Promise<ReporteListo[]> {
+  const r = await cliente.llamar<{
+    reports?: {
+      reportId?: string;
+      reportDocumentId?: string;
+      createdTime?: string;
+      processingStatus?: string;
+    }[];
+  }>("GET", "/reports/2021-06-30/reports", "getReports", {
+    params: {
+      reportTypes: tipo,
+      createdSince: creadosDesde,
+      pageSize: 100,
+    },
+  });
+
+  return (r?.reports ?? [])
+    .filter((x) => x.processingStatus === "DONE" && x.reportDocumentId && x.createdTime)
+    .map((x) => ({
+      reportId: x.reportId ?? "",
+      documentId: x.reportDocumentId!,
+      creadoEn: x.createdTime!,
+    }))
+    .sort((a, b) => a.creadoEn.localeCompare(b.creadoEn));
+}
+
 export type EstadoReporte =
   | { estado: "procesando" }
   | { estado: "listo"; documentId: string }

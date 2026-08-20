@@ -37,16 +37,6 @@ export async function traerTodo<T>(
   filtros: (q: any) => any,
   paso = 1000,
 ): Promise<T[]> {
-  const { count, error: errorConteo } = await filtros(
-    db.from(tabla).select(columnas, { count: "estimated", head: true }),
-  );
-  if (errorConteo) throw new Error(`${tabla}: ${errorConteo.message}`);
-
-  const CONCURRENCIA = 6; // más que esto y Supabase empieza a encolar
-  const paginas: T[][] = [];
-  let tope = Math.max(1, Math.ceil((count ?? 0) / paso));
-  let siguiente = 0;
-
   const leer = async (pagina: number): Promise<T[]> => {
     const desde = pagina * paso;
     const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
@@ -57,6 +47,22 @@ export async function traerTodo<T>(
     return (data ?? []) as T[];
   };
 
+  // La página 0 y el conteo salen JUNTOS: para las tablas chicas (la
+  // mayoría) la página 0 basta y el conteo deja de costar un viaje EN SERIE
+  // antes de cada lectura, que sumaba ~medio segundo por pantalla.
+  const [primera, conteo] = await Promise.all([
+    leer(0),
+    filtros(db.from(tabla).select(columnas, { count: "estimated", head: true })),
+  ]);
+  if (conteo.error) throw new Error(`${tabla}: ${conteo.error.message}`);
+  if (primera.length < paso) return primera;
+
+  const count = conteo.count as number | null;
+  const CONCURRENCIA = 6; // más que esto y Supabase empieza a encolar
+  const paginas: T[][] = [primera];
+  let tope = Math.max(1, Math.ceil((count ?? 0) / paso));
+  let siguiente = 1;
+
   const trabajador = async () => {
     while (true) {
       const pagina = siguiente++;
@@ -66,7 +72,7 @@ export async function traerTodo<T>(
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCIA, tope) }, trabajador),
+    Array.from({ length: Math.min(CONCURRENCIA, Math.max(1, tope - 1)) }, trabajador),
   );
 
   // El estimado puede quedarse corto: si la última página vino llena, hay más.
@@ -88,14 +94,37 @@ export interface Cuenta {
   site_id: string;
 }
 
+/**
+ * La cuenta casi nunca cambia pero se consultaba EN SERIE al inicio de cada
+ * página: era un viaje a la base antes de poder pedir nada más. Se cachea
+ * un minuto POR USUARIO (la llave sale del token de la sesión, sin red).
+ */
+const cacheCuenta = new Map<string, { en: number; cuenta: Cuenta | null }>();
+const VIDA_CACHE_CUENTA_MS = 60_000;
+
 export async function cuentaActiva(db: DB): Promise<Cuenta | null> {
+  let llave: string | null = null;
+  try {
+    const { data } = await (db as any).auth.getSession();
+    llave = data?.session?.user?.id ?? null;
+  } catch {
+    llave = null;
+  }
+
+  if (llave) {
+    const guardada = cacheCuenta.get(llave);
+    if (guardada && Date.now() - guardada.en < VIDA_CACHE_CUENTA_MS) return guardada.cuenta;
+  }
+
   const { data } = await db
     .from("meli_accounts")
     .select("id, meli_user_id, nickname, site_id")
     .order("creado_en", { ascending: true })
     .limit(1)
     .maybeSingle();
-  return (data as Cuenta) ?? null;
+  const cuenta = (data as Cuenta) ?? null;
+  if (llave) cacheCuenta.set(llave, { en: Date.now(), cuenta });
+  return cuenta;
 }
 
 // ---------------------------------------------------------------------------

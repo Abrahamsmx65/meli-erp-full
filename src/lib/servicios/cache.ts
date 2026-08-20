@@ -147,6 +147,28 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
  * con un aviso que quedarse viendo una pantalla en blanco 8 segundos; el
  * botón de recalcular está a un clic.
  */
+
+/**
+ * Lee SOLO unas claves del plan guardado (datos->resumen, datos->pendientes…)
+ * sin bajar el JSON completo, que pesa varios megas. Para las pantallas que
+ * usan dos números del plan, bajarlo entero era el costo más alto del clic.
+ * Devuelve null si no hay plan guardado: el llamador cae a obtenerPlan().
+ */
+export async function leerPlanParcial(
+  db: DB,
+  accountId: string,
+  claves: string[],
+): Promise<Record<string, any> | null> {
+  const sel = claves.map((k) => `${k}:datos->${k}`).join(", ");
+  const { data, error } = await db
+    .from("plan_cache")
+    .select(sel)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as Record<string, any>;
+}
+
 export async function obtenerPlan(
   db: DB,
   accountId: string,

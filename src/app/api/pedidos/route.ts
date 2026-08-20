@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { importarProforma } from "@/lib/importar/proforma";
 import { guardarProforma, listarPedidos } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
+import { invalidarInventario } from "@/lib/servicios/inventario";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;

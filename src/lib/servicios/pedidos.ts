@@ -100,11 +100,20 @@ export async function guardarProforma(
   // pares TOTALES por talla (cajas de una talla = pares ÷ pares por caja).
   // Si el mismo color también trae corrida, sus totales se suman ahí.
   const unitallas = new Map<string, (typeof proforma.lineas)[number]>();
+  // Pares unitalla que se suman a un renglón de corrida, POR TALLA: hacen
+  // falta para que el renglón guarde totales reales por talla y el "en
+  // camino" no unte los pares de la unitalla sobre toda la corrida.
+  const extraUnitalla = new Map<string, Record<string, number>>();
+  const cajasCorridaOriginal = new Map<string, number>();
   for (const l of proforma.lineas) {
     if (!l.unitalla) continue;
     const k = `${canonizar(l.modelo)}|${canonizar(l.color)}`;
     const enCorrida = porClave.get(k);
-    if (enCorrida && !unitallas.has(k)) {
+    if (enCorrida) {
+      if (!cajasCorridaOriginal.has(k)) cajasCorridaOriginal.set(k, enCorrida.cajas);
+      const extra = extraUnitalla.get(k) ?? {};
+      extra[l.unitalla] = (extra[l.unitalla] ?? 0) + l.pares;
+      extraUnitalla.set(k, extra);
       enCorrida.cajas += l.cajas;
       enCorrida.pares += l.pares;
       continue;
@@ -126,13 +135,29 @@ export async function guardarProforma(
 
   const lineas = [...lineasDeCorrida, ...unitallas.values()];
 
+  // Cuando un color trae corrida Y unitallas, el renglón guarda pares
+  // TOTALES por talla (receta × cajas de corrida + pares unitalla): con la
+  // receta a secas, el reparto proporcional del "en camino" untaba los
+  // pares de la unitalla sobre todas las tallas. La corrida del modelo
+  // (abajo) sigue guardando la receta pura.
+  const tallasDeLinea = (l: (typeof proforma.lineas)[number]): Record<string, number> => {
+    const k = `${canonizar(l.modelo)}|${canonizar(l.color)}`;
+    const extra = extraUnitalla.get(k);
+    if (!extra || l.unitalla) return l.tallas;
+    const cajas = cajasCorridaOriginal.get(k) ?? 0;
+    const totales: Record<string, number> = {};
+    for (const [t, v] of Object.entries(l.tallas)) totales[t] = (v ?? 0) * cajas;
+    for (const [t, v] of Object.entries(extra)) totales[t] = (totales[t] ?? 0) + v;
+    return totales;
+  };
+
   const { error: errLineas } = await db.from("pedido_lineas").insert(
     lineas.map((l) => ({
       pedido_id: pedido.id,
       modelo: l.modelo,
       color: l.color,
       descripcion: l.descripcion || null,
-      tallas: l.tallas,
+      tallas: tallasDeLinea(l),
       pares_por_caja: l.paresPorCaja,
       cajas: l.cajas,
       pares: l.pares,

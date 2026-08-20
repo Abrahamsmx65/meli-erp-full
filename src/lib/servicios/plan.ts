@@ -140,16 +140,41 @@ export function reasignarPorBodega(
   });
 }
 
+
+/** Pares disponibles en cajas de bodega, por SKU (para "faltanteBodega"). */
+function paresEnBodega(cajas: CajaConstruida[]): { sku: string; unidades: number }[] {
+  const porSku = new Map<string, number>();
+  for (const c of cajas) {
+    for (const d of c.detalle) {
+      porSku.set(d.sku, (porSku.get(d.sku) ?? 0) + d.piezas * c.cajasDisponibles);
+    }
+  }
+  return [...porSku.entries()].map(([sku, unidades]) => ({ sku, unidades }));
+}
+
 export async function generarPlanCompleto(
   db: DB,
   accountId: string,
   opciones?: { hoy?: ISODate; parametros?: Record<string, unknown> },
 ): Promise<PlanCompleto> {
-  const hoy = opciones?.hoy ?? aISO(new Date());
+  // "Hoy" es el día del NEGOCIO (México, UTC-6): con el día UTC, un plan
+  // generado después de las 6 pm usaba mañana como hoy y corría las fechas.
+  const hoy = opciones?.hoy ?? aISO(new Date(Date.now() - 6 * 3_600_000));
 
-  // Se leen los parámetros primero porque definen qué tanta historia traer.
+  // Los parámetros de la BASE se leen ANTES de pedir la historia: definen
+  // cuántos días traer. Antes la ventana se calculaba con los defaults y si
+  // el usuario subía "Historia a analizar" en Ajustes, los días extra
+  // llegaban vacíos (cero ventas con stock) y diluían la demanda.
   const parametrosPedidos = (opciones?.parametros ?? {}) as Partial<Parametros>;
-  const paramsPrevios = normalizarParametros(parametrosPedidos);
+  const { data: paramsBd } = await db
+    .from("parametros")
+    .select("datos")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  const paramsPrevios = normalizarParametros({
+    ...((paramsBd?.datos as Record<string, unknown>) ?? {}),
+    ...parametrosPedidos,
+  });
   const desde = sumarDias(hoy, -(paramsPrevios.diasHistoria + 5));
 
   const insumos = await cargarInsumos(db, accountId, desde);
@@ -187,7 +212,10 @@ export async function generarPlanCompleto(
     ventas: insumos.ventas,
     snapshots: insumos.snapshots,
     operaciones: insumos.operaciones,
-    inventarioPropio: [],
+    // Los pares que SÍ hay en cajas de bodega, por SKU: con la lista vacía,
+    // "faltanteBodega" salía igual al sugerido y toda línea decía
+    // "Te faltan N pzas en bodega" aunque las cajas sobraran.
+    inventarioPropio: paresEnBodega(catalogo.cajas),
     cajas: catalogo.cajas,
     overrides: insumos.overrides,
     parametros: p,
@@ -282,7 +310,8 @@ export async function guardarPlan(
 
   if (lineas.length) {
     for (let i = 0; i < lineas.length; i += 500) {
-      await db.from("plan_lineas").insert(lineas.slice(i, i + 500));
+      const { error: errLineasPlan } = await db.from("plan_lineas").insert(lineas.slice(i, i + 500));
+      if (errLineasPlan) console.error("plan_lineas:", errLineasPlan.message);
     }
   }
 
@@ -299,7 +328,8 @@ export async function guardarPlan(
 
   if (cajas.length) {
     for (let i = 0; i < cajas.length; i += 500) {
-      await db.from("plan_cajas").insert(cajas.slice(i, i + 500));
+      const { error: errCajasPlan } = await db.from("plan_cajas").insert(cajas.slice(i, i + 500));
+      if (errCajasPlan) console.error("plan_cajas:", errCajasPlan.message);
     }
   }
 

@@ -27,7 +27,19 @@ export async function latido(
 ): Promise<{ corrio: boolean; procesados: number; msPlan: number | null }> {
   const limite = Date.now() + (opts?.limiteMs ?? 240_000);
 
+  // Un latido por minuto basta: con la app abierta, /api/estado empuja cada
+  // 30 s y correr el latido completo en cada empujón competía por CPU y red
+  // con los clics del usuario en la misma instancia.
   const { data: vivo } = await admin
+    .from("sync_log")
+    .select("id, estado")
+    .eq("account_id", accountId)
+    .eq("tarea", "en_vivo")
+    .gte("inicio", new Date(Date.now() - 60_000).toISOString())
+    .limit(1);
+  if (vivo?.length) return { corrio: false, procesados: 0, msPlan: null };
+
+  const { data: corriendo } = await admin
     .from("sync_log")
     .select("id")
     .eq("account_id", accountId)
@@ -35,7 +47,7 @@ export async function latido(
     .eq("estado", "corriendo")
     .gte("inicio", new Date(Date.now() - 4 * 60_000).toISOString())
     .limit(1);
-  if (vivo?.length) return { corrio: false, procesados: 0, msPlan: null };
+  if (corriendo?.length) return { corrio: false, procesados: 0, msPlan: null };
 
   const logId = await registrarSync(admin, accountId, "en_vivo");
 

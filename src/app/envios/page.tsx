@@ -34,7 +34,11 @@ export default async function Plan() {
     );
   }
 
-  const estado = await obtenerPlan(supabase, cuenta.id);
+  // El plan y los envíos registrados no dependen uno del otro: en paralelo.
+  const [estado, enCamino] = await Promise.all([
+    obtenerPlan(supabase, cuenta.id),
+    enviosParaPantalla(supabase, cuenta.id),
+  ]);
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
   const r = plan.resumen;
@@ -77,9 +81,6 @@ export default async function Plan() {
   // alta: uno por dirección de recolección.
   const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
 
-  // Envíos ya dados de alta en MELI: los que van en camino cuentan para el
-  // plan; los caducados se quedan a la vista un mes, marcados.
-  const enCamino = await enviosParaPantalla(supabase, cuenta.id);
 
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,

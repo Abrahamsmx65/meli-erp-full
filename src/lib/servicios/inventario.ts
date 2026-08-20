@@ -7,7 +7,7 @@
  * cruzan una vez.
  */
 import { construirCajas } from "../importar/cajas";
-import { construirIndice } from "../importar/sku";
+import { canonizar, construirIndice } from "../importar/sku";
 import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
 import type { Corrida, FilaExistencia } from "../importar/excel";
@@ -60,6 +60,16 @@ export interface ResumenInventario {
  */
 const cacheInventario = new Map<string, { en: number; datos: ResumenInventario }>();
 const VIDA_CACHE_MS = 60_000;
+
+/**
+ * Tira el caché de una cuenta. Lo llaman las rutas que cambian sus insumos
+ * (importar existencias, cargar un pedido, amarrar un SKU, editar una
+ * corrida): sin esto, el usuario guardaba y veía el dato viejo hasta un
+ * minuto después.
+ */
+export function invalidarInventario(accountId: string): void {
+  cacheInventario.delete(accountId);
+}
 
 export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
   const guardado = cacheInventario.get(accountId);
@@ -159,13 +169,19 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
   // vienen sus cajas y su "en camino"). Pero un pedido recién cargado no
   // existe para el almacén: sus pares se suman aquí como en camino, talla
   // por talla, amarrados al SKU de MELI con los amarres de siempre.
-  const pedidosEnAlmacen = new Set(existRaw.map((e) => String(e.pedido ?? "").trim().toUpperCase()));
+  // El número de pedido se compara CANONIZADO: el almacén a veces lo escribe
+  // con espacios o guiones ("IN 10128", "IN-10128") y una comparación literal
+  // dejaría pasar el mismo pedido dos veces (una por el reporte, otra por
+  // las líneas del pedido).
+  const pedidosEnAlmacen = new Set(
+    existRaw.map((e) => canonizar(String(e.pedido ?? ""))).filter(Boolean),
+  );
   const indiceMeli = indexarCatalogo(skus);
   const pedidosEnCamino: { pedido: string; cajas: number; pares: number }[] = [];
 
   for (const p of pedidosVivos ?? []) {
     const numero = String(p.pedido ?? "").trim();
-    if (!numero || pedidosEnAlmacen.has(numero.toUpperCase())) continue;
+    if (!numero || pedidosEnAlmacen.has(canonizar(numero))) continue;
 
     let cajasPedido = 0;
     let paresPedido = 0;

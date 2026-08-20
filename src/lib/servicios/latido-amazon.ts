@@ -1,6 +1,6 @@
 import type { DB } from "../datos/repos";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
-import { sincronizarInventario, sincronizarVentas } from "../amazon/sync";
+import { sincronizarInventario, sincronizarPagos, sincronizarVentas } from "../amazon/sync";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -31,6 +31,13 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_inventario", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarInventario(admin, cliente);
+    });
+
+    // Los reportes de liquidación salen cada ~2 semanas: revisarlos cada 6 h
+    // sobra y no gasta nada cuando no hay nuevos.
+    await paso(admin, cuenta.accountId, "cron_pagos", 6 * 3_600_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarPagos(admin, cliente);
     });
   }
 }

@@ -78,14 +78,26 @@ export default async function VentasAmazon({
           nota="Promedio del periodo"
         />
         <Ficha
-          titulo="Ganancia estimada"
-          valor={m.coberturaCosto > 0 ? pesos(m.ganancia) : "—"}
-          nota={
-            m.coberturaCosto > 0
-              ? `Venta − costo, ANTES de comisiones de Amazon · ${Math.round(m.coberturaCosto * 100)}% con costo`
-              : "Captura costos en Productos y costos"
+          titulo={m.gananciaReal != null ? "Ganancia real" : "Ganancia estimada"}
+          valor={
+            m.gananciaReal != null
+              ? pesos(m.gananciaReal)
+              : m.coberturaCosto > 0
+                ? pesos(m.ganancia)
+                : "—"
           }
-          tono={m.coberturaCosto > 0 && m.ganancia < 0 ? "critico" : "neutro"}
+          nota={
+            m.gananciaReal != null
+              ? `Neto depositado ${pesos(m.netoReal ?? 0)} − costo de ${n(m.unidadesLiquidadas)} pares liquidados (comisiones, envío e impuestos ya descontados)`
+              : m.coberturaCosto > 0
+                ? `Venta − costo, ANTES de comisiones de Amazon · ${Math.round(m.coberturaCosto * 100)}% con costo`
+                : "Captura costos en Productos y costos"
+          }
+          tono={
+            (m.gananciaReal ?? m.ganancia) < 0 && (m.gananciaReal != null || m.coberturaCosto > 0)
+              ? "critico"
+              : "neutro"
+          }
         />
       </div>
 
@@ -95,8 +107,10 @@ export default async function VentasAmazon({
             <h2 className="text-base font-semibold">Por categoría</h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
               Las categorías y costos se capturan en Productos y costos (son los
-              mismos productos que en MELI). La ganancia es venta − costo, sin
-              descontar comisiones de Amazon.
+              mismos productos que en MELI). "Neto real" es lo que Amazon depositó
+              según su reporte de pagos (comisiones, envío e impuestos ya
+              descontados) y la ganancia sale de ahí; cuando aún no hay pagos
+              liquidados del periodo, la ganancia con ~ es venta − costo.
             </p>
           </header>
           <table className="datos">
@@ -105,6 +119,7 @@ export default async function VentasAmazon({
                 <th>Categoría</th>
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
+                <th className="num">Neto real</th>
                 <th className="num">Ganancia</th>
               </tr>
             </thead>
@@ -114,16 +129,23 @@ export default async function VentasAmazon({
                   <td className="font-medium">{c.categoria}</td>
                   <td className="num cifra">{n(c.unidades)}</td>
                   <td className="num cifra">{pesos(c.importe)}</td>
+                  <td className="num cifra">
+                    {c.netoReal == null ? "—" : pesos(c.netoReal)}
+                  </td>
                   <td
                     className="num cifra"
                     style={{
                       color:
-                        c.ganancia != null && c.ganancia < 0
+                        (c.gananciaReal ?? c.ganancia ?? 0) < 0
                           ? "var(--estado-critico)"
                           : "var(--ink-1)",
                     }}
                   >
-                    {c.ganancia == null ? "—" : pesos(c.ganancia)}
+                    {c.gananciaReal != null
+                      ? pesos(c.gananciaReal)
+                      : c.ganancia == null
+                        ? "—"
+                        : `~${pesos(c.ganancia)}`}
                   </td>
                 </tr>
               ))}
@@ -149,6 +171,7 @@ export default async function VentasAmazon({
                 <th className="num">Previo</th>
                 <th className="num">Cambio</th>
                 <th className="num">Importe</th>
+                <th className="num">Neto real</th>
                 <th className="num">Ganancia</th>
               </tr>
             </thead>
@@ -177,16 +200,23 @@ export default async function VentasAmazon({
                       {delta > 0 ? `+${n(delta)}` : n(delta)}
                     </td>
                     <td className="num cifra">{pesos(f.importe)}</td>
+                    <td className="num cifra">
+                      {f.netoReal == null ? "—" : pesos(f.netoReal)}
+                    </td>
                     <td
                       className="num cifra"
                       style={{
                         color:
-                          f.ganancia != null && f.ganancia < 0
+                          (f.gananciaReal ?? f.ganancia ?? 0) < 0
                             ? "var(--estado-critico)"
                             : "var(--ink-1)",
                       }}
                     >
-                      {f.ganancia == null ? "—" : pesos(f.ganancia)}
+                      {f.gananciaReal != null
+                        ? pesos(f.gananciaReal)
+                        : f.ganancia == null
+                          ? "—"
+                          : `~${pesos(f.ganancia)}`}
                     </td>
                   </tr>
                 );
