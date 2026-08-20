@@ -474,6 +474,10 @@ async function netosDelDia(
     const c = cache.get(id);
     if (!c) porPedir.push(id);
     else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
+    // Un neto cacheado en 0 con la orden cobrada es basura del error viejo
+    // de multipagos (se guardaba solo el primer pago, aunque estuviera
+    // rechazado): se vuelve a pedir sin importar la edad.
+    else if (c.neto <= 0 && o.total > 0) porPedir.push(id);
   }
 
   // Tope por barrido para no comerse el tiempo: lo que falte lo recoge el

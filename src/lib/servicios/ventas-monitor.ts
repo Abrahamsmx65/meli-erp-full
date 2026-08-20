@@ -201,8 +201,14 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       // El neto REAL depositado por MELI cuando ya se conoce (incluye
       // comisión, envío y retenciones); si no, la mejor aproximación:
       // importe menos la comisión.
+      // Un neto en 0 o negativo con venta ese día NO es creíble como dato
+      // (viene de pagos rechazados cacheados antes del arreglo de
+      // multipagos): se usa el respaldo importe − comisión hasta que el
+      // barrido vuelva a pedir el neto real.
       pr.neto7 +=
-        v.neto != null ? Number(v.neto) : (v.importe ?? 0) - (v.comision ?? 0);
+        v.neto != null && Number(v.neto) > 0
+          ? Number(v.neto)
+          : (v.importe ?? 0) - (v.comision ?? 0);
       if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
     } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
       m.unidades7Prev += v.unidades ?? 0;

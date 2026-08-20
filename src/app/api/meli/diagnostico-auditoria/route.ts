@@ -24,12 +24,22 @@ export async function GET() {
     .toISOString()
     .slice(0, 10);
 
-  const [ventas, reparacion, amazon] = await Promise.all([
+  const inicioMes = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 8) + "01";
+
+  const [ventas, netos, reparacion, amazon] = await Promise.all([
     supabase
       .from("ventas_diarias")
       .select("fecha, unidades, ordenes, importe")
       .eq("account_id", cuenta.id)
       .gte("fecha", desde),
+    // Radiografía del neto del MES: cuántas filas tienen neto real, cuántas
+    // traen un 0 sospechoso y cuántas siguen sin dato.
+    supabase
+      .from("ventas_diarias")
+      .select("importe, comision, neto, unidades")
+      .eq("account_id", cuenta.id)
+      .gte("fecha", inicioMes)
+      .limit(10000),
     supabase
       .from("sync_log")
       .select("inicio, detalle")
@@ -80,7 +90,25 @@ export async function GET() {
     porDia.set(v.fecha, d);
   }
 
+  const nf = netos.data ?? [];
+  const conNeto = nf.filter((f: any) => f.neto != null && Number(f.neto) > 0);
+  const netoCero = nf.filter((f: any) => f.neto != null && Number(f.neto) <= 0);
+  const sinNeto = nf.filter((f: any) => f.neto == null);
+  const suma = (l: any[], k: string) => Math.round(l.reduce((a, f) => a + (Number(f[k]) || 0), 0));
+
   return NextResponse.json({
+    netoDelMes: {
+      filasConNetoReal: conNeto.length,
+      filasConNetoCeroSospechoso: netoCero.length,
+      filasSinNeto: sinNeto.length,
+      importeConNetoReal: suma(conNeto, "importe"),
+      netoRealSumado: suma(conNeto, "neto"),
+      importeNetoCero: suma(netoCero, "importe"),
+      importeSinNeto: suma(sinNeto, "importe"),
+      comisionMes: suma(nf, "comision"),
+      importeMes: suma(nf, "importe"),
+      unidadesMes: suma(nf, "unidades"),
+    },
     ventasMeliPorDia: [...porDia.entries()]
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([fecha, d]) => ({ fecha, ...d, importe: Math.round(d.importe) })),
