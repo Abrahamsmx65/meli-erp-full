@@ -63,7 +63,6 @@ export function generarZplDatos(datos: DatosEtiqueta[]): string {
         `^FO22,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS`,
         `^FO21,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS`,
         `^FO22,175^A0N,18,18^FH^FD${escaparFH(limpiar(d.pie))}^FS`,
-        `^FO22,175^A0N,18,18^FH^FD^FS`,
         `^PQ${d.cantidad},0,1,Y^XZ`,
       ].join("\n"),
     );
@@ -78,7 +77,7 @@ export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
       .filter((e) => e.codigoFull)
       .map((e) => ({
         codigo: e.codigoFull!,
-        titulo: e.titulo ?? e.sku,
+        titulo: (e.titulo ?? e.sku).slice(0, 60),
         variante: varianteMeli(e.color, e.talla),
         pie: `SKU: ${e.sku}`,
         cantidad: e.cantidad,
@@ -87,19 +86,33 @@ export function generarZpl(etiquetas: EtiquetaResuelta[]): string {
 }
 
 /**
- * El TXT para la térmica pero como etiqueta de Amazon: FNSKU en las barras,
- * el título de la publicación de Amazon, el SKU de Amazon y "New" al pie.
+ * El TXT como etiqueta de Amazon, con su PROPIO acomodo (no el de MELI):
+ * barras del FNSKU arriba, el FNSKU centrado, "NEW - título de Amazon" en
+ * dos líneas y el SKU de Amazon abajo. Es la plantilla que ya se usaba en
+ * el generador viejo de etiquetas mixtas.
  */
 export function generarZplAmazon(etiquetas: EtiquetaResuelta[]): string {
-  return generarZplDatos(
-    etiquetas
-      .filter((e) => e.fnsku)
-      .map((e) => ({
-        codigo: e.fnsku!,
-        titulo: e.tituloAmazon ?? e.titulo ?? e.sku,
-        variante: e.skuAmazon ?? e.sku,
-        pie: "New",
-        cantidad: e.cantidad,
-      })),
-  );
+  const bloques: string[] = [];
+
+  for (const e of etiquetas) {
+    if (!e.fnsku || e.cantidad <= 0) continue;
+    const fnsku = limpiar(e.fnsku);
+    const titulo = limpiar(`NEW - ${(e.tituloAmazon ?? e.titulo ?? e.sku).slice(0, 55)}`);
+    const sku = `SKU: ${escaparFH(limpiar(e.skuAmazon ?? e.sku))}`;
+
+    bloques.push(
+      [
+        "^XA",
+        "^CI28",
+        "^LH0,0",
+        `^FO40,10^BY2^BCN,65,N,N,N^FD${fnsku}^FS`,
+        `^FO70,85^A0N,24,24^FB220,1,0,C^FH^FD${escaparFH(fnsku)}^FS`,
+        `^FO30,115^A0N,18,18^FB300,2,10,L^FH^FD${escaparFH(titulo)}^FS`,
+        `^FO30,180^A0N,16,16^FB300,1,0,L^FH^FD${sku}^FS`,
+        `^PQ${e.cantidad},0,1,Y^XZ`,
+      ].join("\n"),
+    );
+  }
+
+  return bloques.join("\n") + "\n";
 }

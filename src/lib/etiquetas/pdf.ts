@@ -120,24 +120,6 @@ function dibujarBarras(
   }
 }
 
-/**
- * Truncado al medio, como recorta Amazon los títulos largos en su etiqueta:
- * "Getac CHANCLAS MUJER, SA...ujer, Medición, 25.0 cm)".
- */
-function truncarMedio(texto: string, font: PDFFont, tamano: number, maxAncho: number): string {
-  if (font.widthOfTextAtSize(texto, tamano) <= maxAncho) return texto;
-  let cabeza = texto.slice(0, Math.ceil(texto.length / 2));
-  let cola = texto.slice(-Math.floor(texto.length / 2));
-  while (
-    (cabeza.length > 4 || cola.length > 4) &&
-    font.widthOfTextAtSize(`${cabeza}...${cola}`, tamano) > maxAncho
-  ) {
-    if (cabeza.length >= cola.length) cabeza = cabeza.slice(0, -1);
-    else cola = cola.slice(1);
-  }
-  return `${cabeza}...${cola}`;
-}
-
 /** Una etiqueta en la posición (columna, fila) de la hoja. */
 function dibujarEtiqueta(
   page: PDFPage,
@@ -280,7 +262,7 @@ export function paginaMeli2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosEtique
 
   const tTexto = 6.3842;
   const maxAncho = (300 * 72) / 203; // ^FB300
-  const lineas = dosLineas(seguro(d.titulo), fuentes.normal, tTexto, maxAncho);
+  const lineas = dosLineas(seguro(d.titulo.slice(0, 60)), fuentes.normal, tTexto, maxAncho);
   const ysTitulo = [26.601, 20.2167];
   lineas.forEach((l, i) => {
     page.drawText(l, { x: 7.803, y: ysTitulo[i], size: tTexto, font: fuentes.normal });
@@ -308,38 +290,59 @@ export interface DatosAmazon2x1 {
   sku: string;
 }
 
-/** Página con la etiqueta de Amazon: FNSKU, título recortado, SKU y "New". */
+/**
+ * Página con la etiqueta de Amazon, traducción exacta de su plantilla ZPL:
+ * barras del FNSKU (^FO40,10 ^BCN,65), el FNSKU centrado (^FO70,85 ^FB220,C),
+ * "NEW - título" en dos líneas (^FO30,115 ^FB300,2,10) y el SKU de Amazon
+ * (^FO30,180).
+ */
 export function paginaAmazon2x1(doc: PDFDocument, fuentes: Fuentes, d: DatosAmazon2x1): void {
   const page = doc.addPage(PAGINA_2X1);
+  const D = 72 / 203; // dots ZPL → puntos PDF
   const fnsku = seguro(d.fnsku);
 
-  // Barras al ancho completo que usa Amazon (136.22 pt).
-  dibujarBarras(page, fnsku, 2.7898, 42.3146, 136.224, 22.932);
+  // ^FO40,10 ^BY2 ^BCN,65: módulo de 2 dots, 65 dots de alto.
+  dibujarBarras(
+    page,
+    fnsku,
+    40 * D,
+    72 - (10 + 65) * D,
+    codificar128(fnsku).modulos * 2 * D,
+    65 * D,
+  );
 
-  const tFnsku = 8.983;
+  // ^FO70,85 ^A0N,24,24 ^FB220,1,0,C: centrado dentro del bloque de 220 dots.
+  const tFnsku = 24 * D;
   const anchoFnsku = fuentes.normal.widthOfTextAtSize(fnsku, tFnsku);
   page.drawText(fnsku, {
-    x: (PAGINA_2X1[0] - anchoFnsku) / 2,
-    y: 33.2248,
+    x: (70 + 110) * D - anchoFnsku / 2,
+    y: 72 - (85 + 24 * 0.722) * D,
     size: tFnsku,
     font: fuentes.normal,
   });
 
-  page.drawText(truncarMedio(seguro(d.titulo), fuentes.normal, 5.2, 137.05), {
-    x: 3.4727,
-    y: 24.8048,
-    size: 5.2,
-    font: fuentes.normal,
+  // ^FO30,115 ^A0N,18,18 ^FB300,2,10: dos líneas con 10 dots extra de paso.
+  const tTitulo = 18 * D;
+  const maxAncho = 300 * D;
+  const titulo = seguro(`NEW - ${d.titulo.slice(0, 55)}`);
+  const lineas = dosLineas(titulo, fuentes.normal, tTitulo, maxAncho);
+  lineas.forEach((l, i) => {
+    page.drawText(l, {
+      x: 30 * D,
+      y: 72 - (115 + 18 * 0.722 + i * 28) * D,
+      size: tTitulo,
+      font: fuentes.normal,
+    });
   });
 
-  page.drawText(recortar(seguro(d.sku), fuentes.normal, 6.0695, 136.0), {
-    x: 4.1783,
-    y: 16.5,
-    size: 6.0695,
+  // ^FO30,180 ^A0N,16,16: el SKU de Amazon.
+  const tSku = 16 * D;
+  page.drawText(recortar(seguro(`SKU: ${d.sku}`), fuentes.normal, tSku, maxAncho), {
+    x: 30 * D,
+    y: 72 - (180 + 16 * 0.722) * D,
+    size: tSku,
     font: fuentes.normal,
   });
-
-  page.drawText("New", { x: 4.1783, y: 9.0, size: 6.0695, font: fuentes.normal });
 }
 
 /** Los datos de Amazon de una etiqueta resuelta, con sus respaldos. */
