@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizar } from "@/lib/servicios/sync";
 import { recalcular } from "@/lib/servicios/cache";
+import { configuracionIndusther, sincronizarInventarioIndusther } from "@/lib/servicios/industher";
+import {
+  configuracionCorridasSheets,
+  sincronizarCorridasDesdeSheets,
+} from "@/lib/servicios/corridas-sheets";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +41,31 @@ export async function GET(req: NextRequest) {
     try {
       const r = await sincronizar(admin, c.id);
 
+      // El inventario de bodega también llega solo, si la integración con
+      // Industher está configurada. Si su API falla, la foto anterior sigue
+      // sirviendo: se avisa y el resto de la sincronización continúa.
+      let industher: Record<string, unknown> | null = null;
+      if (configuracionIndusther()) {
+        try {
+          const inv = await sincronizarInventarioIndusther(admin, c.id);
+          industher = { renglones: inv.renglones, cajasDisponibles: inv.cajasDisponibles };
+        } catch (err) {
+          industher = { error: (err as Error).message };
+        }
+      }
+
+      // Las corridas también, si el sheet está configurado. Misma política:
+      // un fallo avisa y no detiene lo demás.
+      let corridasSheets: Record<string, unknown> | null = null;
+      if (configuracionCorridasSheets()) {
+        try {
+          const cs = await sincronizarCorridasDesdeSheets(admin, c.id);
+          corridasSheets = { corridas: cs.corridas, hoja: cs.hoja };
+        } catch (err) {
+          corridasSheets = { error: (err as Error).message };
+        }
+      }
+
       // Dejar el plan servido. Si esto truena, la sincronización sigue siendo
       // buena: solo se pierde el adelanto y el plan se calcula al abrir.
       let msPlan: number | null = null;
@@ -49,7 +79,7 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      resultados.push({ cuenta: c.nickname, ok: true, msPlan, ...r });
+      resultados.push({ cuenta: c.nickname, ok: true, msPlan, industher, corridasSheets, ...r });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }

@@ -18,6 +18,7 @@ import {
   ShoppingCart,
   Tags,
   Truck,
+  Upload,
   Warehouse,
   X,
   type LucideIcon,
@@ -83,6 +84,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Sistema",
     entradas: [
       { href: "/pendientes", texto: "Pendientes", icono: AlertTriangle, ayuda: "Lo que falta resolver" },
+      { href: "/importar", texto: "Importar", icono: Upload, ayuda: "Bodega desde Industher y corridas del sheet" },
       { href: "/sincronizar", texto: "Sincronizar", icono: RefreshCw, ayuda: "Traer datos de Mercado Libre" },
       { href: "/ajustes", texto: "Ajustes", icono: Settings, ayuda: "Parámetros y conexión" },
     ],

@@ -122,6 +122,8 @@ export function construirCajas(
     let detalle: ItemCaja[] = [];
 
     if (esCorridaFila) {
+      // Solo la receta del pedido EXACTO: en este proyecto está prohibido
+      // suponer que la corrida de otro pedido aplica.
       const receta = porClave.get(claveCorrida(base.pedido, base.modelo, base.color));
       if (!receta) {
         sinCorrida.push({

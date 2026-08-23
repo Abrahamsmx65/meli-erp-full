@@ -161,3 +161,70 @@ describe("armado del catálogo de cajas (datos reales)", () => {
     expect(amarrada).toBeDefined();
   });
 });
+
+describe("filas incompletas en corridas: nada se supone, todo se avisa", () => {
+  async function libroCorridas(filas: (string | number | null)[][]): Promise<Buffer> {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.addRow(["PEDIDO", "MODELO", "COLOR", 23, 24, 25, "TOTAL"]);
+    for (const f of filas) ws.addRow(f);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
+
+  it("una fila sin PEDIDO (vacío o con guion) se salta y se avisa con conteo", async () => {
+    const buf = await libroCorridas([
+      [null, "GT110", "NAVY", 12, 12, 24, 48],
+      ["-", "GT114", "TABACO BROWN", "-", 24, "-", 24],
+      ["IN10001", "GT152", "BLK", 8, 8, 8, 24],
+    ]);
+
+    const r = await importarCorridas(buf);
+    expect(r.corridas).toHaveLength(1);
+    expect(r.corridas[0].pedido).toBe("IN10001");
+    expect(r.avisos.some((a) => a.mensaje.includes("2 filas sin PEDIDO"))).toBe(true);
+  });
+
+  it("las filas sin MODELO o sin pares se saltan pero se avisan", async () => {
+    const buf = await libroCorridas([
+      ["IN10001", "GT152", "BLK", 8, 8, 8, 24],
+      ["IN10002", null, "NAVY", 8, 8, 8, 24],
+      ["IN10003", "GT200", "CREAM", "-", "-", "-", null],
+    ]);
+
+    const r = await importarCorridas(buf);
+    expect(r.corridas).toHaveLength(1);
+    expect(r.avisos.some((a) => a.mensaje.includes("sin MODELO"))).toBe(true);
+    expect(r.avisos.some((a) => a.mensaje.includes("sin ningún par"))).toBe(true);
+  });
+
+  it("una caja SOLO usa la corrida de su pedido exacto; sin ella queda como hueco", async () => {
+    const corridas = [
+      { pedido: "IN10001", modelo: "GT110", color: "NAVY", tallas: { "25": 24 }, total: 24 },
+    ];
+    const caja = (pedido: string): any => ({
+      almacen: "Industher",
+      codigoAlmacen: "",
+      skuCaja: `${pedido}-GT110-NAVY`,
+      pedido,
+      modelo: "GT110",
+      color: "NAVY",
+      talla: "CORRIDA",
+      contenedor: "",
+      cajasFisicas: 1,
+      cajasApartadas: 0,
+      enCamino: 0,
+      cajasDisponibles: 1,
+      paresPorCaja: 24,
+      paresDisponibles: 24,
+    });
+
+    const r = construirCajas([caja("RT04"), caja("IN10001")], corridas as any);
+
+    // IN10001 arma su caja con SU corrida; RT04 no tiene y queda reportada
+    // como hueco, nunca rellenada con la receta de otro pedido.
+    expect(r.cajas.map((c) => c.pedido)).toEqual(["IN10001"]);
+    expect(r.sinCorrida).toHaveLength(1);
+    expect(r.sinCorrida[0].pedido).toBe("RT04");
+  });
+});
