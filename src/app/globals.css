@@ -1,83 +1,108 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 /* ==========================================================================
    Tokens de diseño.
-   Los colores de estado vienen de una paleta fija validada para daltonismo,
-   y NUNCA cargan el significado solos: siempre van con ícono y etiqueta.
+   Paleta portada de la maqueta visual aprobada por el usuario: fondo crema
+   cálido, tinta verde-pizarra, acento verde azulado con ámbar de apoyo, y
+   barra lateral oscura fija. Los colores de estado vienen de una paleta
+   fija validada para daltonismo y NUNCA cargan el significado solos:
+   siempre van con ícono y etiqueta.
    ========================================================================== */
 :root {
   color-scheme: light;
 
-  --surface-1: #fcfcfb;
-  --plane: #f9f9f7;
-  --ink-1: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-muted: #898781;
-  --grid: #e1e0d9;
-  --axis: #c3c2b7;
-  --borde: rgba(11, 11, 11, 0.1);
+  --surface-1: hsl(45 33% 98%);
+  --plane: hsl(42 25% 94%);
+  --ink-1: hsl(198 28% 15%);
+  --ink-2: hsl(198 14% 34%);
+  --ink-muted: hsl(198 10% 47%);
+  --grid: hsl(39 18% 86%);
+  --axis: hsl(39 12% 70%);
+  --borde: hsl(39 18% 84%);
 
   --estado-bien: #0ca30c;
   --estado-alerta: #fab219;
   --estado-serio: #ec835a;
   --estado-critico: #d03b3b;
 
-  --acento: #2a78d6;
-  --acento-suave: #cde2fb;
-  --exito-texto: #006300;
+  --acento: hsl(174 42% 29%);
+  --acento-suave: hsl(174 36% 90%);
+  --exito-texto: hsl(157 46% 28%);
+
+  --ambar: hsl(37 91% 57%);
+  --sidebar: hsl(197 31% 13%);
+  --sidebar-borde: hsl(197 22% 23%);
+  --sidebar-texto: hsl(42 25% 94%);
+  --sidebar-activo: hsl(197 24% 20%);
+  --sombra-panel: 0 8px 24px hsl(198 28% 15% / 0.04);
+
+  --fuente-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fuente-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --surface-1: #1a1a19;
-    --plane: #0d0d0d;
-    --ink-1: #ffffff;
-    --ink-2: #c3c2b7;
-    --ink-muted: #898781;
-    --grid: #2c2c2a;
-    --axis: #383835;
-    --borde: rgba(255, 255, 255, 0.1);
-    --acento: #3987e5;
-    --acento-suave: #184f95;
-    --exito-texto: #0ca30c;
+    --surface-1: hsl(197 27% 13%);
+    --plane: hsl(197 31% 9%);
+    --ink-1: hsl(42 25% 94%);
+    --ink-2: hsl(42 12% 72%);
+    --ink-muted: hsl(42 8% 58%);
+    --grid: hsl(197 18% 22%);
+    --axis: hsl(197 14% 32%);
+    --borde: hsl(197 18% 24%);
+    --acento: hsl(174 42% 46%);
+    --acento-suave: hsl(174 42% 18%);
+    --exito-texto: hsl(157 46% 52%);
+    --sidebar: hsl(197 36% 7%);
+    --sidebar-borde: hsl(197 22% 17%);
+    --sidebar-activo: hsl(197 24% 14%);
+    --sombra-panel: 0 8px 24px hsl(0 0% 0% / 0.25);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface-1: #1a1a19;
-  --plane: #0d0d0d;
-  --ink-1: #ffffff;
-  --ink-2: #c3c2b7;
-  --ink-muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
-  --borde: rgba(255, 255, 255, 0.1);
-  --acento: #3987e5;
-  --acento-suave: #184f95;
-  --exito-texto: #0ca30c;
+  --surface-1: hsl(197 27% 13%);
+  --plane: hsl(197 31% 9%);
+  --ink-1: hsl(42 25% 94%);
+  --ink-2: hsl(42 12% 72%);
+  --ink-muted: hsl(42 8% 58%);
+  --grid: hsl(197 18% 22%);
+  --axis: hsl(197 14% 32%);
+  --borde: hsl(197 18% 24%);
+  --acento: hsl(174 42% 46%);
+  --acento-suave: hsl(174 42% 18%);
+  --exito-texto: hsl(157 46% 52%);
+  --sidebar: hsl(197 36% 7%);
+  --sidebar-borde: hsl(197 22% 17%);
+  --sidebar-activo: hsl(197 24% 14%);
+  --sombra-panel: 0 8px 24px hsl(0 0% 0% / 0.25);
 }
 
 html,
 body {
   background: var(--plane);
   color: var(--ink-1);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--fuente-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Cifras alineadas: las columnas de números tienen que poder compararse
-   de un vistazo sin que los dígitos bailen. */
+/* Cifras alineadas y en mono: las columnas de números tienen que poder
+   compararse de un vistazo sin que los dígitos bailen. */
 .cifra {
+  font-family: var(--fuente-mono);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+  letter-spacing: -0.02em;
 }
 
 .tarjeta {
   background: var(--surface-1);
   border: 1px solid var(--borde);
   border-radius: 12px;
+  box-shadow: var(--sombra-panel);
 }
 
 .hairline {
@@ -97,10 +122,10 @@ table.datos {
 }
 
 table.datos th {
-  font-weight: 600;
-  font-size: 0.75rem;
+  font-weight: 700;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   color: var(--ink-muted);
   text-align: left;
   padding: 0.5rem 0.75rem;

@@ -24,14 +24,17 @@ export function Ficha({
 
   return (
     <div className="tarjeta p-4">
-      <div className="text-xs uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+      <div
+        className="text-[10px] font-extrabold uppercase tracking-[0.12em]"
+        style={{ color: "var(--ink-muted)" }}
+      >
         {titulo}
       </div>
-      <div className="cifra mt-1 text-3xl font-semibold" style={{ color }}>
+      <div className="cifra mt-2.5 text-[26px] leading-none font-medium" style={{ color }}>
         {typeof valor === "number" ? valor.toLocaleString("es-MX") : valor}
       </div>
       {nota ? (
-        <div className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+        <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--ink-2)" }}>
           {nota}
         </div>
       ) : null}
