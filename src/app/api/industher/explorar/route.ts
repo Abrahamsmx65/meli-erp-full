@@ -41,6 +41,51 @@ export async function GET() {
   const origen = new URL(config.url).origin;
   const resultados: Record<string, unknown>[] = [];
 
+  // La radiografía del bloque pendingShipments: llaves del bloque, del
+  // primer envío y de su primer producto, con UN envío completo de muestra
+  // (products recortado a 2). Es lo que hace falta para amarrar los campos
+  // exactos sin adivinar.
+  let pendientes: unknown = null;
+  try {
+    const url = new URL(config.url);
+    url.searchParams.set("limit", "1");
+    url.searchParams.set("offset", "0");
+    const r = await fetch(url, {
+      headers: { "x-api-key": config.apiKey, accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const cuerpo = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+    const bloque = cuerpo?.pendingShipments as Record<string, unknown> | undefined;
+    if (!bloque) {
+      pendientes = { aviso: "la respuesta no trae pendingShipments", llavesRespuesta: cuerpo ? Object.keys(cuerpo) : null };
+    } else {
+      const envios = Object.values(bloque).find(Array.isArray) as Record<string, unknown>[] | undefined;
+      const primero = envios?.[0] ?? null;
+      let muestra: unknown = primero;
+      let llavesProducto: string[] | null = null;
+      if (primero && typeof primero === "object") {
+        const copia: Record<string, unknown> = { ...primero };
+        for (const [k, v] of Object.entries(copia)) {
+          if (Array.isArray(v)) {
+            llavesProducto = v[0] && typeof v[0] === "object" ? Object.keys(v[0]) : null;
+            copia[k] = v.slice(0, 2);
+          }
+        }
+        muestra = copia;
+      }
+      pendientes = {
+        llavesBloque: Object.keys(bloque),
+        totalEnvios: envios?.length ?? 0,
+        llavesEnvio: primero && typeof primero === "object" ? Object.keys(primero) : null,
+        llavesProducto,
+        muestra,
+      };
+    }
+  } catch (err) {
+    pendientes = { error: (err as Error).message.slice(0, 200) };
+  }
+
   for (const ruta of CANDIDATAS) {
     const url = `${origen}${ruta}`;
     try {
@@ -88,5 +133,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ origen, resultados });
+  return NextResponse.json({ origen, pendientes, resultados });
 }
