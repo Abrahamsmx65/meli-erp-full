@@ -59,6 +59,12 @@ export function DatosFiscales() {
   const [leyendo, setLeyendo] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const reloj = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoEncendido = useRef(false);
+
+  const encender = useCallback(async () => {
+    const r = await fetch("/api/fiscal/procesar");
+    if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo encender la lectura.");
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -68,11 +74,27 @@ export function DatosFiscales() {
       setResumen(j.resumen);
       setModelos(j.modelos);
       setMensaje(null);
-      // Mientras haya lecturas o envíos en vuelo, se refresca solo.
-      const trabajando = j.resumen.sinLeer > 0 || j.resumen.pendientes > 0;
-      setLeyendo(trabajando);
+
+      // "Trabajando" lo dice el servidor (bitácora del proceso), no el hecho
+      // de que haya trabajo: confundirlos dejaba el botón apagado y el
+      // proceso sin arrancar jamás.
+      const hayTrabajo = j.resumen.sinLeer > 0 || j.resumen.pendientes > 0;
+      setLeyendo(Boolean(j.trabajando));
+
+      // Si hay trabajo y nadie lo está haciendo, se enciende solo UNA vez
+      // por visita; si el proceso muere, el botón queda vivo para relanzar.
+      if (hayTrabajo && !j.trabajando && !autoEncendido.current) {
+        autoEncendido.current = true;
+        try {
+          await encender();
+          setLeyendo(true);
+        } catch {
+          // El botón sigue disponible para encenderlo a mano.
+        }
+      }
+
       if (reloj.current) clearTimeout(reloj.current);
-      if (trabajando) reloj.current = setTimeout(cargar, 6000);
+      if (hayTrabajo || j.trabajando) reloj.current = setTimeout(cargar, 6000);
       return j.resumen as Resumen;
     } catch (err) {
       setMensaje((err as Error).message);
@@ -80,7 +102,7 @@ export function DatosFiscales() {
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [encender]);
 
   useEffect(() => {
     cargar();
@@ -93,8 +115,7 @@ export function DatosFiscales() {
     setLeyendo(true);
     setMensaje(null);
     try {
-      const r = await fetch("/api/fiscal/procesar");
-      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo encender la lectura.");
+      await encender();
       if (reloj.current) clearTimeout(reloj.current);
       reloj.current = setTimeout(cargar, 4000);
     } catch (err) {

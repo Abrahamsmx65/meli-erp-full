@@ -134,7 +134,18 @@ export async function GET() {
     .filter((m) => m.sinDatos || m.pendientes || m.errores)
     .sort((a, b) => b.sinDatos - a.sinDatos || a.modelo.localeCompare(b.modelo));
 
-  return NextResponse.json({ resumen, modelos: conTrabajo });
+  // ¿El proceso de fondo está corriendo AHORA? La página lo usa para saber si
+  // encenderlo: "hay trabajo" no es lo mismo que "alguien lo está haciendo".
+  const { data: vivo } = await supabase
+    .from("sync_log")
+    .select("id")
+    .eq("account_id", cuenta.id)
+    .eq("tarea", "datos_fiscales")
+    .eq("estado", "corriendo")
+    .gte("inicio", new Date(Date.now() - 6 * 60_000).toISOString())
+    .limit(1);
+
+  return NextResponse.json({ resumen, modelos: conTrabajo, trabajando: Boolean(vivo?.length) });
 }
 
 /**

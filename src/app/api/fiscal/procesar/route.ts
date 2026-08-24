@@ -76,12 +76,19 @@ async function procesar(origen: string): Promise<void> {
 
     try {
       await conCandado(admin, accountId, "datos_fiscales", 300, async () => {
+        // La bitácora abre ANTES que nada: la página usa el renglón
+        // "corriendo" para saber que el proceso está vivo.
+        const logId = await registrarSync(admin, accountId, "datos_fiscales");
+
         const { data: tok } = await admin
           .from("meli_tokens")
           .select("access_token, refresh_token, expira_en")
           .eq("account_id", accountId)
           .single();
-        if (!tok) return; // cuenta sin conectar: nada que hacer
+        if (!tok) {
+          await cerrarSync(admin, logId, "ok", { sinTokens: true });
+          return; // cuenta sin conectar: nada que hacer
+        }
 
         const cliente = new MeliClient({
           clientId: process.env.MELI_CLIENT_ID!,
@@ -104,7 +111,6 @@ async function procesar(origen: string): Promise<void> {
           },
         });
 
-        const logId = await registrarSync(admin, accountId, "datos_fiscales");
         try {
           // Lo capturado por el usuario va primero: es lo que está esperando.
           const envio = await enviarFiscalPendiente(admin, cliente, accountId, sigue);
