@@ -43,19 +43,12 @@ export const CONSULTA_POR_ITEM = `query PorItem($itemId: String!, $allVariations
   }
 }`;
 
-export const MUTACION_MLM = `mutation Actualizar($where: FiscalInformationWhereInput!, $input: UpdateFiscalInformationMLMInput!) {
-  updateFiscalInformationMLM(where: $where, input: $input) {
-    __typename
-    ... on FiscalInformationMLM {
-      sku
-      sat
-      iva
-      ieps
-      measureUnit
-      measureUnitDescription
-    }
-  }
-}`;
+// Sin variables declaradas A PROPÓSITO: la introspección está bloqueada y los
+// nombres de los tipos de entrada no se pueden conocer (MELI rechazó
+// "FiscalInformationWhereInput" con los 197 primeros envíos). Los argumentos
+// van en línea, que es válido en GraphQL sin importar cómo se llamen los
+// tipos; los valores ya pasaron por validarValores y el SKU se escapa con
+// JSON.stringify.
 
 export interface FilaFiscal {
   sku: string;
@@ -155,25 +148,31 @@ export function normalizarRespuestaItem(
 }
 
 /**
- * Arma las variables de la mutación con actualización PARCIAL: solo viajan
- * los campos capturados. La unidad va con su descripción (MELI guarda ambas).
+ * Arma la mutación con actualización PARCIAL: solo viajan los campos
+ * capturados. La unidad va con su descripción (MELI guarda ambas).
  */
-export function construirVariablesMutacion(
-  sku: string,
-  valores: ValoresFiscales,
-): { where: { sku: string }; input: Record<string, string | number> } {
-  const input: Record<string, string | number> = {};
-  if (valores.sat !== undefined) input.sat = valores.sat;
-  if (valores.iva !== undefined) input.iva = valores.iva;
-  if (valores.ieps !== undefined) input.ieps = valores.ieps;
+export function construirMutacion(sku: string, valores: ValoresFiscales): string {
+  const input: string[] = [];
+  if (valores.sat !== undefined) input.push(`sat: ${JSON.stringify(valores.sat)}`);
+  if (valores.iva !== undefined) input.push(`iva: ${JSON.stringify(valores.iva)}`);
+  if (valores.ieps !== undefined) input.push(`ieps: ${JSON.stringify(valores.ieps)}`);
   if (valores.unidad !== undefined) {
-    input.measureUnit = valores.unidad;
-    input.measureUnitDescription = DESCRIPCION_UNIDAD[valores.unidad] ?? valores.unidad;
+    input.push(`measureUnit: ${JSON.stringify(valores.unidad)}`);
+    input.push(
+      `measureUnitDescription: ${JSON.stringify(
+        DESCRIPCION_UNIDAD[valores.unidad] ?? valores.unidad,
+      )}`,
+    );
   }
-  if (!Object.keys(input).length) {
+  if (!input.length) {
     throw new Error(`No hay ningún valor fiscal que mandar para ${sku}.`);
   }
-  return { where: { sku }, input };
+  return `mutation {
+  updateFiscalInformationMLM(where: { sku: ${JSON.stringify(sku)} }, input: { ${input.join(", ")} }) {
+    __typename
+    ... on FiscalInformationMLM { sku sat iva ieps measureUnit measureUnitDescription }
+  }
+}`;
 }
 
 /** Unidades del catálogo c_ClaveUnidad del SAT que se usan en calzado. */
@@ -430,10 +429,8 @@ export async function enviarFiscalPendiente(
 
     const ahora = new Date().toISOString();
     try {
-      const variables = construirVariablesMutacion(fila.sku as string, valores);
       const respuesta = (await cliente.post(RUTA_FISCAL, {
-        query: MUTACION_MLM,
-        variables,
+        query: construirMutacion(fila.sku as string, valores),
       })) as { errors?: { message?: string }[] };
       if (respuesta?.errors?.length) {
         throw new Error(

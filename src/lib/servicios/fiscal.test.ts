@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  construirVariablesMutacion,
+  construirMutacion,
   normalizarRespuestaItem,
   skusAusentes,
   tieneDatos,
@@ -107,32 +107,30 @@ describe("skusAusentes", () => {
   });
 });
 
-describe("construirVariablesMutacion", () => {
-  it("manda solo los campos capturados (actualización parcial)", () => {
-    expect(construirVariablesMutacion("SKU1", { sat: "53111800" })).toEqual({
-      where: { sku: "SKU1" },
-      input: { sat: "53111800" },
-    });
+describe("construirMutacion", () => {
+  it("manda solo los campos capturados, en línea y sin tipos declarados", () => {
+    const q = construirMutacion("SKU1", { sat: "53111800" });
+    expect(q).toContain('where: { sku: "SKU1" }');
+    expect(q).toContain('input: { sat: "53111800" }');
+    // MELI rechazó los nombres de tipos adivinados; en línea no hacen falta.
+    expect(q).not.toContain("$where");
+    expect(q).not.toContain("Input!");
   });
 
   it("la unidad viaja con su descripción del catálogo del SAT", () => {
-    const { input } = construirVariablesMutacion("SKU1", {
-      sat: "53111800",
-      iva: "16",
-      ieps: 0,
-      unidad: "H87",
-    });
-    expect(input).toEqual({
-      sat: "53111800",
-      iva: "16",
-      ieps: 0,
-      measureUnit: "H87",
-      measureUnitDescription: "UN",
-    });
+    const q = construirMutacion("SKU1", { sat: "53111800", iva: "16", ieps: 0, unidad: "H87" });
+    expect(q).toContain(
+      'input: { sat: "53111800", iva: "16", ieps: 0, measureUnit: "H87", measureUnitDescription: "UN" }',
+    );
+  });
+
+  it("escapa el SKU aunque traiga comillas", () => {
+    const q = construirMutacion('RARO"1', { sat: "53111800" });
+    expect(q).toContain('where: { sku: "RARO\\"1" }');
   });
 
   it("rechaza una mutación vacía", () => {
-    expect(() => construirVariablesMutacion("SKU1", {})).toThrow(/ningún valor/);
+    expect(() => construirMutacion("SKU1", {})).toThrow(/ningún valor/);
   });
 });
 

@@ -32,6 +32,8 @@ type Plataforma = "meli" | "amazon";
 interface Resultado {
   sku: string;
   codigoFull: string | null;
+  /** productos solo-de-Amazon (las fundas): sin código Full pero con FNSKU */
+  fnsku: string | null;
   titulo: string | null;
   variante: string;
 }
@@ -382,7 +384,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               type="search"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="GT104-BLK-27 o «sandalia»"
+              placeholder="GT104-BLK-27, «sandalia» o una funda (499…)"
               className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
               style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
             />
@@ -403,7 +405,11 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
                     >
                       <span className="font-medium">{r.sku}</span>
                       <span style={{ color: "var(--ink-muted)" }}>
-                        {r.codigoFull ? ` · ${r.codigoFull}` : " · sin código Full"}
+                        {r.codigoFull
+                          ? ` · ${r.codigoFull}`
+                          : r.fnsku
+                            ? ` · Amazon · FNSKU ${r.fnsku}`
+                            : " · sin código Full"}
                       </span>
                       <div className="truncate text-xs" style={{ color: "var(--ink-2)" }}>
                         {r.titulo}
