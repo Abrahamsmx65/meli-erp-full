@@ -12,7 +12,7 @@
  * ... on FiscalInformationMLM (confirmado contra el API real; la
  * introspección la bloquea el PolicyAgent).
  */
-import { upsertEnTandas, type DB } from "../datos/repos";
+import { traerTodo, upsertEnTandas, type DB } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
 
 export const RUTA_FISCAL = "/fiscal_information/graphql";
@@ -232,21 +232,19 @@ export async function leerFiscalFaltante(
   accountId: string,
   sigue: () => boolean,
 ): Promise<ResultadoLectura> {
-  const { data: skus, error: errSkus } = await db
-    .from("skus")
-    .select("sku, item_id")
-    .eq("account_id", accountId)
-    .eq("activo", true)
-    .not("item_id", "is", null)
-    .limit(20000);
-  if (errSkus) throw new Error(`skus: ${errSkus.message}`);
-
-  const { data: existentes, error: errExist } = await db
-    .from("datos_fiscales")
-    .select("sku, estado, leido_en")
-    .eq("account_id", accountId)
-    .limit(20000);
-  if (errExist) throw new Error(`datos_fiscales: ${errExist.message}`);
+  // Sin traerTodo, Supabase corta en 1000 renglones y el resto del catálogo
+  // quedaría invisible para la lectura.
+  const skus = await traerTodo<{ sku: string; item_id: string }>(
+    db,
+    "skus",
+    "sku, item_id",
+    (q) => q.eq("account_id", accountId).eq("activo", true).not("item_id", "is", null),
+  );
+  const existentes = await traerTodo<{
+    sku: string;
+    estado: string;
+    leido_en: string | null;
+  }>(db, "datos_fiscales", "sku, estado, leido_en", (q) => q.eq("account_id", accountId));
 
   const yaLeido = new Set(
     (existentes ?? []).filter((e) => e.leido_en).map((e) => e.sku as string),

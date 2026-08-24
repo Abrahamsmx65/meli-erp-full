@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import {
   dispararProcesoFiscal,
   tieneDatos,
@@ -35,34 +35,34 @@ export async function GET() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
 
-  const { data: skus, error: errSkus } = await supabase
-    .from("skus")
-    .select("sku, modelo, titulo")
-    .eq("account_id", cuenta.id)
-    .eq("activo", true)
-    .not("item_id", "is", null)
-    .limit(20000);
-  if (errSkus) return NextResponse.json({ error: errSkus.message }, { status: 500 });
-
-  const { data: fiscales, error: errFisc } = await supabase
-    .from("datos_fiscales")
-    .select("sku, estado, sat, iva, ieps, unidad, ultimo_error, leido_en")
-    .eq("account_id", cuenta.id)
-    .limit(20000);
-  if (errFisc) {
-    const falta = errFisc.message.includes("datos_fiscales");
+  // traerTodo pagina: sin él, Supabase corta en 1000 y el resumen mentiría
+  // en catálogos más grandes.
+  let skus: { sku: string; modelo: string | null; titulo: string | null }[];
+  let fiscales: FilaLocal[];
+  try {
+    skus = await traerTodo(supabase, "skus", "sku, modelo, titulo", (q) =>
+      q.eq("account_id", cuenta.id).eq("activo", true).not("item_id", "is", null),
+    );
+    fiscales = await traerTodo(
+      supabase,
+      "datos_fiscales",
+      "sku, estado, sat, iva, ieps, unidad, ultimo_error, leido_en",
+      (q) => q.eq("account_id", cuenta.id),
+    );
+  } catch (err) {
+    const mensaje = (err as Error).message;
     return NextResponse.json(
       {
-        error: falta
+        error: mensaje.includes("datos_fiscales")
           ? "Falta aplicar la migración 0019 en Supabase (tabla datos_fiscales)."
-          : errFisc.message,
+          : mensaje,
       },
       { status: 500 },
     );
   }
 
   const porSku = new Map<string, FilaLocal>();
-  for (const f of (fiscales ?? []) as FilaLocal[]) porSku.set(f.sku, f);
+  for (const f of fiscales) porSku.set(f.sku, f);
 
   interface Modelo {
     modelo: string;
