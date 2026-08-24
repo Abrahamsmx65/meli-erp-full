@@ -259,7 +259,18 @@ async function ejecutarSincronizacion(
       // Las órdenes son prueba irrefutable de que la publicación existe: si
       // vendió, está. Se recuperan por su id y se agregan al catálogo.
       const enCatalogo = new Set(catalogo.map((c) => c.sku));
-      const faltantes = [...r.itemsPorSku.values()].filter((ref) => !enCatalogo.has(ref.sku));
+      // Si la publicación+variación de la orden YA está en el catálogo con
+      // otro nombre, el SKU de la orden es un nombre VIEJO (renombrado en
+      // MELI): rescatarlo lo resucitaba en cada corrida y el fantasma nunca
+      // moría. Solo se rescata lo que de verdad no vino: agotados y pausados.
+      const clavesEnCatalogo = new Set(
+        catalogo.map((c) => claveItem(c.itemId, c.variationId)),
+      );
+      const faltantes = [...r.itemsPorSku.values()].filter(
+        (ref) =>
+          !enCatalogo.has(ref.sku) &&
+          !clavesEnCatalogo.has(claveItem(ref.itemId, ref.variationId)),
+      );
 
       if (faltantes.length) {
         try {
