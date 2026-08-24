@@ -53,6 +53,7 @@ function fecha(s: string | null): string {
 export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   const router = useRouter();
   const [asignando, setAsignando] = useState<Pedido | null>(null);
+  const [editando, setEditando] = useState<Pedido | null>(null);
   const [borrando, setBorrando] = useState<string | null>(null);
 
   async function eliminar(p: Pedido) {
@@ -170,6 +171,13 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         >
                           Contenedor
                         </button>
+                        <button
+                          onClick={() => setEditando(p)}
+                          className="rounded-lg border px-2 py-1 text-xs font-medium"
+                          style={{ borderColor: "var(--borde)" }}
+                        >
+                          Renglones
+                        </button>
                         {/* ZIP con las etiquetas MELI + Amazon de cada modelo/color,
                             el Excel de códigos y las etiquetas de cartón (CTNS LABELS). */}
                         <a
@@ -207,6 +215,17 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
           }}
         />
       ) : null}
+
+      {editando ? (
+        <EditarRenglones
+          pedido={editando}
+          onCerrar={() => setEditando(null)}
+          onGuardado={() => {
+            setEditando(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -220,6 +239,7 @@ interface LineaPedido {
   /** vacía en renglones de corrida; la talla en cajas de una sola talla */
   talla: string | null;
   cajas: number;
+  paresPorCaja: number;
   yaAsignadas: number;
 }
 
@@ -234,6 +254,7 @@ function AsignarContenedor({
 }) {
   const [lineas, setLineas] = useState<LineaPedido[] | null>(null);
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
+  const [busqueda, setBusqueda] = useState("");
   const [numero, setNumero] = useState("");
   const [numeroNaviera, setNumeroNaviera] = useState("");
   const [naviera, setNaviera] = useState("");
@@ -254,9 +275,11 @@ function AsignarContenedor({
         if (!vivo) return;
         const ls: LineaPedido[] = j.lineas ?? [];
         setLineas(ls);
-        // Por defecto se embarca todo lo que falta: es lo normal.
+        // Se arranca en CERO: un pedido de 100 SKUs repartido en 8
+        // contenedores obligaba a borrar a mano todo lo que no iba en este.
+        // El botón "Todo lo pendiente" recupera el atajo del caso simple.
         const inicial: Record<string, number> = {};
-        for (const l of ls) inicial[l.id] = Math.max(0, l.cajas - l.yaAsignadas);
+        for (const l of ls) inicial[l.id] = 0;
         setCantidades(inicial);
       })
       .catch(() => {
@@ -267,7 +290,23 @@ function AsignarContenedor({
     };
   }, [pedido.id]);
 
+  const filtro = busqueda.trim().toUpperCase();
+  const visibles = (lineas ?? []).filter(
+    (l) => !filtro || `${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
+  );
+
   const total = Object.values(cantidades).reduce((a, b) => a + (Number(b) || 0), 0);
+
+  /** Pone todos los renglones VISIBLES en su pendiente (o en cero). */
+  function marcarVisibles(todo: boolean) {
+    setCantidades((c) => {
+      const nuevo = { ...c };
+      for (const l of visibles) {
+        nuevo[l.id] = todo ? Math.max(0, l.cajas - l.yaAsignadas) : 0;
+      }
+      return nuevo;
+    });
+  }
 
   async function guardar() {
     if (!numero.trim()) {
@@ -378,7 +417,32 @@ function AsignarContenedor({
           </Campo>
         </div>
 
-        <div className="mt-4 max-h-72 overflow-auto">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar modelo, color o talla…"
+            className="min-w-48 flex-1 rounded-lg border px-3 py-1.5 text-sm"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          />
+          <button
+            onClick={() => marcarVisibles(true)}
+            className="rounded-lg border px-2.5 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--borde)" }}
+            title="Los renglones visibles quedan con todo su pendiente"
+          >
+            Todo lo pendiente{filtro ? " (filtrados)" : ""}
+          </button>
+          <button
+            onClick={() => marcarVisibles(false)}
+            className="rounded-lg border px-2.5 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--borde)" }}
+          >
+            Nada
+          </button>
+        </div>
+
+        <div className="mt-2 max-h-72 overflow-auto">
           <table className="datos">
             <thead>
               <tr>
@@ -391,8 +455,9 @@ function AsignarContenedor({
               </tr>
             </thead>
             <tbody>
-              {(lineas ?? []).map((l) => {
+              {visibles.map((l) => {
                 const tope = Math.max(0, l.cajas - l.yaAsignadas);
+                const valor = cantidades[l.id] ?? 0;
                 return (
                   <tr key={l.id}>
                     <td className="font-medium">{l.modelo}</td>
@@ -403,20 +468,33 @@ function AsignarContenedor({
                     <td className="num cifra">{n(l.cajas)}</td>
                     <td className="num cifra">{l.yaAsignadas ? n(l.yaAsignadas) : "—"}</td>
                     <td className="num">
-                      <input
-                        type="number"
-                        min={0}
-                        max={tope}
-                        value={cantidades[l.id] ?? 0}
-                        onChange={(e) =>
-                          setCantidades((c) => ({
-                            ...c,
-                            [l.id]: Math.max(0, Math.min(tope, Number(e.target.value) || 0)),
-                          }))
-                        }
-                        className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm"
-                        style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setCantidades((c) => ({ ...c, [l.id]: valor > 0 ? 0 : tope }))}
+                          className="rounded border px-1.5 py-0.5 text-[11px]"
+                          style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                          title={valor > 0 ? "Quitar de este contenedor" : `Poner el pendiente (${tope})`}
+                        >
+                          {valor > 0 ? "0" : "todo"}
+                        </button>
+                        <input
+                          type="number"
+                          min={0}
+                          max={tope}
+                          value={valor}
+                          onChange={(e) =>
+                            setCantidades((c) => ({
+                              ...c,
+                              [l.id]: Math.max(0, Math.min(tope, Number(e.target.value) || 0)),
+                            }))
+                          }
+                          className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm"
+                          style={{
+                            borderColor: valor > 0 ? "var(--acento)" : "var(--borde)",
+                            background: "var(--surface-2)",
+                          }}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -426,6 +504,11 @@ function AsignarContenedor({
           {lineas === null ? (
             <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
               Cargando renglones…
+            </p>
+          ) : null}
+          {lineas !== null && !visibles.length ? (
+            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+              Ningún renglón coincide con la búsqueda.
             </p>
           ) : null}
         </div>
@@ -472,5 +555,249 @@ function Campo({ etiqueta, children }: { etiqueta: string; children: React.React
       </span>
       <div className="mt-1">{children}</div>
     </label>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Corrección de los RENGLONES del pedido: si una parte ya no se fabricó, se
+ * bajan sus cajas (los pares se recalculan solos) o se quita el renglón. El
+ * piso siempre es lo ya embarcado en contenedores: eso se corrige primero
+ * en la sección Contenedores.
+ */
+function EditarRenglones({
+  pedido,
+  onCerrar,
+  onGuardado,
+}: {
+  pedido: Pedido;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [lineas, setLineas] = useState<LineaPedido[] | null>(null);
+  const [cajas, setCajas] = useState<Record<string, number>>({});
+  const [quitar, setQuitar] = useState<Set<string>>(new Set());
+  const [busqueda, setBusqueda] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/pedidos/${pedido.id}/lineas`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!vivo) return;
+        const ls: LineaPedido[] = j.lineas ?? [];
+        setLineas(ls);
+        const inicial: Record<string, number> = {};
+        for (const l of ls) inicial[l.id] = l.cajas;
+        setCajas(inicial);
+      })
+      .catch(() => {
+        if (vivo) setLineas([]);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [pedido.id]);
+
+  const filtro = busqueda.trim().toUpperCase();
+  const visibles = (lineas ?? []).filter(
+    (l) => !filtro || `${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
+  );
+
+  async function guardar() {
+    if (!lineas) return;
+    setGuardando(true);
+    setError(null);
+    try {
+      // Primero las bajas de cajas, luego los renglones que se quitan; en
+      // serie para que un error diga exactamente en qué renglón se detuvo.
+      for (const l of lineas) {
+        if (quitar.has(l.id)) continue;
+        const nuevas = cajas[l.id] ?? l.cajas;
+        if (nuevas === l.cajas) continue;
+        const r = await fetch(`/api/pedidos/${pedido.id}/lineas`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lineaId: l.id, cajas: nuevas }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          throw new Error(`${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}: ${j.error}`);
+        }
+      }
+      for (const l of lineas) {
+        if (!quitar.has(l.id)) continue;
+        const r = await fetch(`/api/pedidos/${pedido.id}/lineas?linea=${l.id}`, {
+          method: "DELETE",
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          throw new Error(`${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}: ${j.error}`);
+        }
+      }
+      onGuardado();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  const hayCambios =
+    quitar.size > 0 ||
+    (lineas ?? []).some((l) => !quitar.has(l.id) && (cajas[l.id] ?? l.cajas) !== l.cajas);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4"
+      style={{ background: "rgba(0,0,0,.45)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Renglones del pedido ${pedido.pedido}`}
+    >
+      <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
+        <h3 className="text-lg font-semibold">Renglones del pedido {pedido.pedido}</h3>
+        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+          Si una parte ya no se fabricó, baja sus cajas o quita el renglón: los pares se
+          recalculan solos y deja de contar como en camino. No se puede bajar de lo ya
+          embarcado en contenedores; eso se corrige primero en{" "}
+          <strong>Contenedores → Contenido</strong>. Las corridas no se tocan.
+        </p>
+
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar modelo, color o talla…"
+          className="mt-3 w-full rounded-lg border px-3 py-1.5 text-sm"
+          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+        />
+
+        <div className="mt-3 max-h-96 overflow-auto">
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th>Color</th>
+                <th>Talla</th>
+                <th className="num">Embarcadas</th>
+                <th className="num">Cajas</th>
+                <th className="num">Pares</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((l) => {
+                const marcada = quitar.has(l.id);
+                const valor = cajas[l.id] ?? l.cajas;
+                return (
+                  <tr key={l.id} style={marcada ? { opacity: 0.5 } : undefined}>
+                    <td
+                      className="font-medium"
+                      style={marcada ? { textDecoration: "line-through" } : undefined}
+                    >
+                      {l.modelo}
+                    </td>
+                    <td style={marcada ? { textDecoration: "line-through" } : undefined}>
+                      {l.color}
+                    </td>
+                    <td className="cifra">
+                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                    </td>
+                    <td className="num cifra">{l.yaAsignadas ? n(l.yaAsignadas) : "—"}</td>
+                    <td className="num">
+                      <input
+                        type="number"
+                        min={l.yaAsignadas}
+                        value={valor}
+                        disabled={marcada}
+                        onChange={(e) =>
+                          setCajas((c) => ({
+                            ...c,
+                            [l.id]: Math.max(l.yaAsignadas, Number(e.target.value) || 0),
+                          }))
+                        }
+                        className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm disabled:opacity-50"
+                        style={{
+                          borderColor: valor !== l.cajas ? "var(--acento)" : "var(--borde)",
+                          background: "var(--surface-2)",
+                        }}
+                      />
+                    </td>
+                    <td className="num cifra">{n(valor * l.paresPorCaja)}</td>
+                    <td>
+                      <button
+                        onClick={() =>
+                          setQuitar((s) => {
+                            const nuevo = new Set(s);
+                            if (nuevo.has(l.id)) nuevo.delete(l.id);
+                            else nuevo.add(l.id);
+                            return nuevo;
+                          })
+                        }
+                        disabled={l.yaAsignadas > 0}
+                        title={
+                          l.yaAsignadas > 0
+                            ? "Tiene cajas embarcadas: quítalas primero del contenedor"
+                            : marcada
+                              ? "Conservar el renglón"
+                              : "Quitar el renglón (ya no se surte)"
+                        }
+                        className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-40"
+                        style={{
+                          borderColor: marcada ? "var(--borde)" : "var(--estado-critico)",
+                          color: marcada ? "var(--ink-2)" : "var(--estado-critico)",
+                        }}
+                      >
+                        {marcada ? "Conservar" : "Quitar"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {lineas === null ? (
+            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+              Cargando renglones…
+            </p>
+          ) : null}
+        </div>
+
+        {error ? (
+          <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-4 flex items-center gap-3">
+          {quitar.size > 0 ? (
+            <span className="text-sm" style={{ color: "var(--estado-critico)" }}>
+              Se van a quitar {quitar.size} renglones.
+            </span>
+          ) : null}
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={onCerrar}
+              disabled={guardando}
+              className="rounded-lg border px-3 py-2 text-sm font-medium"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={guardar}
+              disabled={guardando || !hayCambios}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              {guardando ? "Guardando…" : "Guardar cambios"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

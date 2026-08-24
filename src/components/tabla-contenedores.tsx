@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 interface Contenedor {
@@ -40,6 +40,7 @@ function fecha(s: string | null): string {
 export function TablaContenedores({ contenedores }: { contenedores: Contenedor[] }) {
   const router = useRouter();
   const [editando, setEditando] = useState<string | null>(null);
+  const [contenido, setContenido] = useState<Contenedor | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -285,6 +286,13 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Editar
                           </button>
+                          <button
+                            onClick={() => setContenido(c)}
+                            className="rounded-lg border px-2 py-1 text-xs font-medium"
+                            style={{ borderColor: "var(--borde)" }}
+                          >
+                            Contenido
+                          </button>
                           <a
                             href={`/api/contenedores/${c.id}/packing-list`}
                             className="rounded-lg border px-2 py-1 text-xs font-medium"
@@ -315,6 +323,235 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
           </tbody>
         </table>
       </div>
+
+      {contenido ? (
+        <ContenidoContenedor
+          contenedor={contenido}
+          onCerrar={() => setContenido(null)}
+          onGuardado={() => {
+            setContenido(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+interface LineaContenido {
+  pedidoLineaId: string;
+  pedido: string;
+  modelo: string;
+  color: string;
+  talla: string | null;
+  cajasPedido: number;
+  paresPorCaja: number;
+  enEste: number;
+  enOtros: number;
+}
+
+/**
+ * Edición de lo EMBARCADO en un contenedor: corrige cajas mal capturadas
+ * (0 = quitar el renglón) y permite agregar renglones de los mismos pedidos
+ * que faltaban. Nunca deja pasar del pedido menos lo de otros contenedores.
+ */
+function ContenidoContenedor({
+  contenedor,
+  onCerrar,
+  onGuardado,
+}: {
+  contenedor: Contenedor;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [lineas, setLineas] = useState<LineaContenido[] | null>(null);
+  const [cajas, setCajas] = useState<Record<string, number>>({});
+  const [busqueda, setBusqueda] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [avisos, setAvisos] = useState<string[]>([]);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/contenedores/${contenedor.id}/lineas`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!vivo) return;
+        const ls: LineaContenido[] = j.lineas ?? [];
+        setLineas(ls);
+        const inicial: Record<string, number> = {};
+        for (const l of ls) inicial[l.pedidoLineaId] = l.enEste;
+        setCajas(inicial);
+      })
+      .catch(() => {
+        if (vivo) setLineas([]);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [contenedor.id]);
+
+  const filtro = busqueda.trim().toUpperCase();
+  const visibles = (lineas ?? []).filter(
+    (l) =>
+      !filtro ||
+      `${l.pedido} ${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
+  );
+  const totalCajas = Object.values(cajas).reduce((a, b) => a + (Number(b) || 0), 0);
+
+  async function guardar() {
+    if (!lineas) return;
+    setGuardando(true);
+    setError(null);
+    try {
+      const cambios = lineas
+        .filter((l) => (cajas[l.pedidoLineaId] ?? l.enEste) !== l.enEste)
+        .map((l) => ({ pedidoLineaId: l.pedidoLineaId, cajas: cajas[l.pedidoLineaId] ?? 0 }));
+      if (!cambios.length) {
+        onCerrar();
+        return;
+      }
+      const r = await fetch(`/api/contenedores/${contenedor.id}/lineas`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cambios }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+      if (Array.isArray(j.recortes) && j.recortes.length) {
+        setAvisos(j.recortes);
+      }
+      onGuardado();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4"
+      style={{ background: "rgba(0,0,0,.45)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Contenido del contenedor ${contenedor.numero}`}
+    >
+      <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
+        <h3 className="text-lg font-semibold">Contenido de {contenedor.numero}</h3>
+        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+          Corrige las cajas de cada renglón si algo se capturó mal. Pon <strong>0</strong>{" "}
+          para quitarlo del contenedor. También puedes agregar renglones de los mismos
+          pedidos que no se habían embarcado.
+        </p>
+
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar modelo, color, talla o pedido…"
+          className="mt-3 w-full rounded-lg border px-3 py-1.5 text-sm"
+          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+        />
+
+        <div className="mt-3 max-h-96 overflow-auto">
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Pedido</th>
+                <th>Modelo</th>
+                <th>Color</th>
+                <th>Talla</th>
+                <th className="num">Del pedido</th>
+                <th className="num">En otros</th>
+                <th className="num">En este</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((l) => {
+                const tope = Math.max(0, l.cajasPedido - l.enOtros);
+                const valor = cajas[l.pedidoLineaId] ?? l.enEste;
+                return (
+                  <tr key={l.pedidoLineaId}>
+                    <td className="text-xs">{l.pedido}</td>
+                    <td className="font-medium">{l.modelo}</td>
+                    <td>{l.color}</td>
+                    <td className="cifra">
+                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                    </td>
+                    <td className="num cifra">{l.cajasPedido}</td>
+                    <td className="num cifra">{l.enOtros || "—"}</td>
+                    <td className="num">
+                      <input
+                        type="number"
+                        min={0}
+                        max={tope}
+                        value={valor}
+                        onChange={(e) =>
+                          setCajas((c2) => ({
+                            ...c2,
+                            [l.pedidoLineaId]: Math.max(
+                              0,
+                              Math.min(tope, Number(e.target.value) || 0),
+                            ),
+                          }))
+                        }
+                        className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm"
+                        style={{
+                          borderColor: valor !== l.enEste ? "var(--acento)" : "var(--borde)",
+                          background: "var(--surface-2)",
+                        }}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {lineas === null ? (
+            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+              Cargando contenido…
+            </p>
+          ) : null}
+        </div>
+
+        {error ? (
+          <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+            {error}
+          </p>
+        ) : null}
+        {avisos.map((a, i) => (
+          <p key={i} className="mt-1 text-xs" style={{ color: "var(--estado-alerta)" }}>
+            {a}
+          </p>
+        ))}
+
+        <div className="mt-4 flex items-center gap-3">
+          <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+            Quedan <strong className="cifra">{n(totalCajas)}</strong> cajas en este
+            contenedor.
+          </span>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={onCerrar}
+              disabled={guardando}
+              className="rounded-lg border px-3 py-2 text-sm font-medium"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={guardar}
+              disabled={guardando || lineas === null}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              {guardando ? "Guardando…" : "Guardar cambios"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
