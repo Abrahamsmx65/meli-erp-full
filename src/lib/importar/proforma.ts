@@ -316,6 +316,10 @@ export async function importarProforma(
     }
   }
 
+  // Todas las tallas que la hoja llegue a usar: las del encabezado y las de
+  // cualquier RE-encabezado a mitad de hoja (ver abajo).
+  const tallasVistas = new Set(colsTalla.map((c) => c.talla));
+
   // BAIKE (Wenzhou): no hay una columna por talla — TODAS vienen juntas en
   // una sola celda ("23MX  24MX  25MX  26MX") y la corrida por caja en esa
   // misma columna dos filas abajo ("3  8  8  5", la fila de "mm" en medio).
@@ -357,6 +361,35 @@ export async function importarProforma(
     if (/^(TTL|TOTAL)/i.test(modeloCrudo)) {
       ultima = null;
       continue;
+    }
+
+    // --- ¿La fila REDEFINE las tallas de las columnas? --------------------
+    // A mitad de hoja el pedido puede cambiar de corrida (damas 23–27 →
+    // caballeros 26–30, como el IN10079): la fábrica repite el encabezado
+    // con "26MX 265MM…" en las MISMAS columnas. Se reconoce porque las
+    // celdas de talla traen texto con "MX" — un renglón de datos trae puros
+    // números. Desde aquí, las columnas significan las tallas nuevas.
+    if (colsTalla.length) {
+      const redefinidas: { col: number; talla: string }[] = [];
+      let conTexto = 0;
+      for (const { col } of colsTalla) {
+        const celda = texto(f[col]);
+        if (!celda) continue;
+        conTexto++;
+        if (/\d\s*MX/i.test(celda)) {
+          const t = tallaDeEncabezado(celda);
+          if (t) redefinidas.push({ col, talla: t });
+        }
+      }
+      if (redefinidas.length >= 2 && redefinidas.length === conTexto) {
+        for (const r of redefinidas) {
+          const c = colsTalla.find((x) => x.col === r.col);
+          if (c) c.talla = r.talla;
+          tallasVistas.add(r.talla);
+        }
+        ultima = null;
+        continue;
+      }
     }
 
     const tallasFila = colsTalla
@@ -572,7 +605,7 @@ export async function importarProforma(
       pares: totalPares,
       importe: importe > 0 ? Number(importe.toFixed(2)) : null,
     },
-    tallasDetectadas: [...new Set(colsTalla.map((c) => c.talla))],
+    tallasDetectadas: [...new Set([...tallasVistas, ...colsTalla.map((c) => c.talla)])],
     avisos,
   };
 }

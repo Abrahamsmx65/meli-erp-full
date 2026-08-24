@@ -113,3 +113,33 @@ describe("proforma BAIKE (tallas juntas en una celda)", () => {
     expect(p.totales.importe).toBe(60564);
   });
 });
+
+describe("re-encabezado de tallas a mitad de hoja (IN10079 UGG)", () => {
+  it("las damas van 23-27 y, tras el segundo encabezado, los caballeros 26-30", async () => {
+    const p = await importarProforma(fixture("proforma-ugg-IN10079.xls"), {
+      nombre: "IN10079 UGG revised on May 19.xls",
+    });
+    expect(p.pedido).toBe("IN10079");
+    expect(p.tallasDetectadas).toEqual(["23", "24", "25", "26", "27", "28", "29", "30"]);
+
+    // Antes del re-encabezado: corrida de damas.
+    const damas = p.lineas.find((l) => l.modelo === "GT150" && l.color === "BLACK")!;
+    expect(damas.tallas).toEqual({ "23": 4, "24": 7, "25": 7, "26": 4, "27": 2 });
+
+    // Después del re-encabezado ("26MX 265MM…"): las MISMAS columnas ahora
+    // son tallas de caballero. Antes salían como 23-27 y el pedido quedaba
+    // con tallas que no existen en esos modelos.
+    for (const modelo of ["GT227", "GT223", "GT224", "GT225"]) {
+      for (const l of p.lineas.filter((x) => x.modelo === modelo)) {
+        expect(l.tallas).toEqual({ "26": 2, "27": 6, "28": 7, "29": 6, "30": 3 });
+        expect(l.cuadra).toBe(true);
+      }
+    }
+
+    // Los totales del archivo, exactos.
+    expect(p.totales.cajas).toBe(4070);
+    expect(p.totales.pares).toBe(97680);
+    expect(p.lineas).toHaveLength(62);
+    expect(p.avisos).toEqual([]);
+  });
+});
