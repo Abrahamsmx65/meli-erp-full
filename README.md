@@ -116,8 +116,9 @@ npm run typecheck
 npm run build
 ```
 
-GitHub Actions ejecuta estos tres controles en cada pull request y en cada
-push a `main`; no necesita secretos de producción.
+`npm run build` ejecuta antes, de forma automática, todas las pruebas y el
+typecheck. Así cada preview y despliegue de Vercel se detiene antes de compilar
+si cualquiera de esos controles falla, sin necesitar secretos de producción.
 
 Sube a Vercel. `vercel.json` ya deja programada la sincronización diaria a las
 7:00 de la mañana (hora del centro de México).
