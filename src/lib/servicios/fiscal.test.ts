@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import {
+  construirVariablesMutacion,
+  normalizarRespuestaItem,
+  tieneDatos,
+  validarValores,
+} from "./fiscal";
+
+/** Forma REAL capturada del API fiscal_information (GT203, ago 2026). */
+function respuestaReal() {
+  return {
+    data: {
+      getFiscalInformationsByItem: [
+        {
+          itemId: "MLM2775842349",
+          variationId: "198112513109",
+          type: "SINGLE",
+          components: [
+            {
+              sku: "GT203-BLK-23-MX",
+              quantity: 1,
+              percentageShare: 100,
+              fiscalInformation: {
+                __typename: "FiscalInformationMLM",
+                sat: "53111800",
+                iva: "16",
+                ieps: 0,
+                measureUnit: "H87",
+              },
+            },
+          ],
+        },
+        {
+          itemId: "MLM2775842349",
+          variationId: "198112513111",
+          type: "SINGLE",
+          components: [
+            {
+              sku: "GT203-GOLD-23-MX",
+              quantity: 1,
+              percentageShare: 100,
+              // Variante SIN información fiscal cargada.
+              fiscalInformation: null,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+describe("normalizarRespuestaItem", () => {
+  it("aplana la respuesta real a una fila por SKU", () => {
+    const { filas, sinSku } = normalizarRespuestaItem("MLM2775842349", respuestaReal());
+
+    expect(sinSku).toBe(0);
+    expect(filas).toHaveLength(2);
+
+    const conDatos = filas.find((f) => f.sku === "GT203-BLK-23-MX")!;
+    expect(conDatos).toMatchObject({
+      itemId: "MLM2775842349",
+      variationId: "198112513109",
+      sat: "53111800",
+      iva: "16",
+      ieps: 0,
+      unidad: "H87",
+    });
+    expect(tieneDatos(conDatos)).toBe(true);
+
+    const sinDatos = filas.find((f) => f.sku === "GT203-GOLD-23-MX")!;
+    expect(sinDatos.sat).toBeNull();
+    expect(tieneDatos(sinDatos)).toBe(false);
+  });
+
+  it("cuenta los componentes sin SKU en lugar de inventarles uno", () => {
+    const { filas, sinSku } = normalizarRespuestaItem("MLM1", {
+      data: {
+        getFiscalInformationsByItem: [
+          { itemId: "MLM1", variationId: null, components: [{ sku: null }] },
+        ],
+      },
+    });
+    expect(filas).toHaveLength(0);
+    expect(sinSku).toBe(1);
+  });
+
+  it("convierte los errores GraphQL en excepción con el mensaje de MELI", () => {
+    expect(() =>
+      normalizarRespuestaItem("MLM1", {
+        errors: [{ message: "Cannot query field X" }],
+      }),
+    ).toThrow(/Cannot query field X/);
+  });
+});
+
+describe("construirVariablesMutacion", () => {
+  it("manda solo los campos capturados (actualización parcial)", () => {
+    expect(construirVariablesMutacion("SKU1", { sat: "53111800" })).toEqual({
+      where: { sku: "SKU1" },
+      input: { sat: "53111800" },
+    });
+  });
+
+  it("la unidad viaja con su descripción del catálogo del SAT", () => {
+    const { input } = construirVariablesMutacion("SKU1", {
+      sat: "53111800",
+      iva: "16",
+      ieps: 0,
+      unidad: "H87",
+    });
+    expect(input).toEqual({
+      sat: "53111800",
+      iva: "16",
+      ieps: 0,
+      measureUnit: "H87",
+      measureUnitDescription: "UN",
+    });
+  });
+
+  it("rechaza una mutación vacía", () => {
+    expect(() => construirVariablesMutacion("SKU1", {})).toThrow(/ningún valor/);
+  });
+});
+
+describe("validarValores", () => {
+  it("acepta la captura típica de calzado", () => {
+    expect(validarValores({ sat: "53111800", iva: "16", ieps: 0, unidad: "H87" })).toBeNull();
+  });
+
+  it("exige clave SAT de 8 dígitos", () => {
+    expect(validarValores({ sat: "531118" })).toMatch(/8 dígitos/);
+    expect(validarValores({})).toMatch(/8 dígitos/);
+  });
+
+  it("solo admite los IVA de México", () => {
+    expect(validarValores({ sat: "53111800", iva: "15" })).toMatch(/IVA/);
+  });
+
+  it("acota el IEPS a un porcentaje", () => {
+    expect(validarValores({ sat: "53111800", ieps: 200 })).toMatch(/IEPS/);
+  });
+});

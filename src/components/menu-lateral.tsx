@@ -13,6 +13,7 @@ import {
   Menu,
   Package,
   PackageCheck,
+  ReceiptText,
   RefreshCw,
   Settings,
   Ship,
@@ -61,6 +62,7 @@ const GRUPOS: Grupo[] = [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
+      { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
     ],
   },
   {
