@@ -100,6 +100,54 @@ export default async function Ventas({
         />
       </div>
 
+      {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
+      <section className="tarjeta p-4">
+        <h2 className="text-sm font-semibold">A dónde se fue el dinero del periodo</h2>
+        <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+          El neto es el depósito REAL de Mercado Pago donde ya llegó (
+          {Math.round(m.desglose.coberturaNetoReal * 100)}% del importe del periodo);
+          donde aún no, se usa importe − comisión. La publicidad de MELI requiere el
+          permiso de Product Ads y entra en la siguiente parte.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
+          <Ficha titulo="Venta bruta" valor={pesos(m.desglose.bruto)} nota="Precio × unidades" />
+          <Ficha
+            titulo="Comisión MELI"
+            valor={pesos(-m.desglose.comision)}
+            nota="Cargo por venta (sale fee)"
+            tono={m.desglose.comision > 0 ? "alerta" : "neutro"}
+          />
+          <Ficha
+            titulo="Envíos y otros"
+            valor={m.desglose.enviosYOtros != null ? pesos(-m.desglose.enviosYOtros) : "—"}
+            nota={
+              m.desglose.enviosYOtros != null
+                ? "Fletes, retenciones y cargos, según el depósito real"
+                : "Se sabrá cuando llegue el neto real del periodo"
+            }
+            tono={(m.desglose.enviosYOtros ?? 0) > 0 ? "alerta" : "neutro"}
+          />
+          <Ficha
+            titulo="Neto depositado"
+            valor={pesos(m.desglose.neto)}
+            nota="Lo que Mercado Pago deposita"
+          />
+          <Ficha
+            titulo="Costo de producto"
+            valor={m.desglose.costoProducto > 0 ? pesos(-m.desglose.costoProducto) : "—"}
+            nota={`${Math.round(m.coberturaCosto * 100)}% de la venta con costo capturado`}
+          />
+          <Ficha
+            titulo="Ganancia real"
+            valor={m.coberturaCosto > 0 ? pesos(m.desglose.gananciaReal) : "—"}
+            nota="Neto − costo de producto"
+            tono={
+              m.coberturaCosto > 0 ? (m.desglose.gananciaReal < 0 ? "critico" : "bien") : "neutro"
+            }
+          />
+        </div>
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
         <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />

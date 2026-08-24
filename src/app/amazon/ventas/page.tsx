@@ -101,6 +101,50 @@ export default async function VentasAmazon({
         />
       </div>
 
+      {/* ---- El desglose del dinero real del periodo ---------------------- */}
+      {m.netoReal != null ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">A dónde se fue el dinero (liquidado en el periodo)</h2>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+            Sale del reporte de pagos de Amazon: es lo que de verdad se depositó, con
+            comisiones, envíos e impuestos ya descontados por producto, y los gastos de
+            cuenta aparte.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
+            <Ficha
+              titulo="Neto por productos"
+              valor={pesos(m.netoReal)}
+              nota={`${n(m.unidadesLiquidadas)} pares liquidados`}
+            />
+            <Ficha
+              titulo="Costo de producto"
+              valor={m.gananciaReal != null ? pesos(m.gananciaReal - m.netoReal) : "—"}
+              nota="De los pares liquidados, a costo capturado"
+            />
+            <Ficha
+              titulo="Publicidad"
+              valor={m.publicidad != null ? pesos(m.publicidad) : "—"}
+              nota="Cargos de anuncios en el periodo"
+              tono={(m.publicidad ?? 0) < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha
+              titulo="Otros cargos"
+              valor={m.otrosCargos != null ? pesos(m.otrosCargos) : "—"}
+              nota="Almacenaje, suscripción y demás"
+              tono={(m.otrosCargos ?? 0) < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha
+              titulo="Ganancia final"
+              valor={m.gananciaFinal != null ? pesos(m.gananciaFinal) : "—"}
+              nota="Neto − costo − publicidad − otros cargos"
+              tono={
+                m.gananciaFinal == null ? "neutro" : m.gananciaFinal < 0 ? "critico" : "bien"
+              }
+            />
+          </div>
+        </section>
+      ) : null}
+
       {m.porCategoria.length ? (
         <section className="tarjeta overflow-hidden">
           <header className="border-b p-4 hairline">

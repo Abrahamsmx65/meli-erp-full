@@ -46,6 +46,12 @@ export interface MonitorAmazon {
   /** neto real − costo de las unidades liquidadas; null = sin datos o sin costos */
   gananciaReal: number | null;
   unidadesLiquidadas: number;
+  /** gasto de publicidad del periodo según el reporte de pagos (negativo) */
+  publicidad: number | null;
+  /** otros cargos de cuenta del periodo: almacenaje, suscripción… (negativo) */
+  otrosCargos: number | null;
+  /** ganancia real − publicidad − otros cargos: lo que de verdad quedó */
+  gananciaFinal: number | null;
 }
 
 export async function cargarMonitorAmazon(
@@ -114,9 +120,22 @@ export async function cargarMonitorAmazon(
   }
 
   // --- El dinero REAL: lo liquidado por Amazon en el periodo ----------------
+  // Los pseudo-SKUs "(PUBLICIDAD)" y "(OTROS CARGOS)" son gastos de CUENTA
+  // (no de un producto): se separan para restarlos de la ganancia final.
   const pagosPorModelo = new Map<string, { neto: number; unidades: number }>();
+  let publicidad = 0;
+  let otrosCargos = 0;
   for (const p of pagos) {
-    const modelo = (desglosarSku(String(p.seller_sku ?? "")).modelo ?? String(p.seller_sku ?? "")).toUpperCase();
+    const skuPago = String(p.seller_sku ?? "");
+    if (skuPago === "(PUBLICIDAD)") {
+      publicidad += Number(p.neto) || 0;
+      continue;
+    }
+    if (skuPago === "(OTROS CARGOS)") {
+      otrosCargos += Number(p.neto) || 0;
+      continue;
+    }
+    const modelo = (desglosarSku(skuPago).modelo ?? skuPago).toUpperCase();
     const reg = pagosPorModelo.get(modelo) ?? { neto: 0, unidades: 0 };
     reg.neto += Number(p.neto) || 0;
     reg.unidades += p.unidades ?? 0;
@@ -217,5 +236,9 @@ export async function cargarMonitorAmazon(
     netoReal: hayPagos ? netoRealTotal : null,
     gananciaReal: hayPagos && unidadesConCosto > 0 ? gananciaRealTotal : null,
     unidadesLiquidadas,
+    publicidad: hayPagos ? publicidad : null,
+    otrosCargos: hayPagos ? otrosCargos : null,
+    gananciaFinal:
+      hayPagos && unidadesConCosto > 0 ? gananciaRealTotal + publicidad + otrosCargos : null,
   };
 }

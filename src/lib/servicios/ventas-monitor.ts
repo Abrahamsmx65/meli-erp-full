@@ -48,6 +48,28 @@ export interface Movimiento {
   razon: string;
 }
 
+/** A dónde se fue el dinero del periodo, con lo que MELI ya reportó. */
+export interface DesgloseDinero {
+  /** venta bruta del periodo (precio × unidades) */
+  bruto: number;
+  /** comisiones de MELI (sale_fee) */
+  comision: number;
+  /** lo depositado: neto real donde ya se conoce, importe − comisión donde no */
+  neto: number;
+  /**
+   * Envíos, retenciones y otros cargos = bruto − comisión − neto, calculado
+   * SOLO sobre la parte del periodo cuyo neto real ya llegó de Mercado
+   * Pago. null = todavía no hay neto real en el periodo.
+   */
+  enviosYOtros: number | null;
+  /** qué fracción del importe del periodo ya tiene neto REAL (0-1) */
+  coberturaNetoReal: number;
+  /** costo de producto de las unidades vendidas (donde hay costo capturado) */
+  costoProducto: number;
+  /** neto − costo, donde hay costo capturado */
+  gananciaReal: number;
+}
+
 export interface Monitor {
   hoy: ResumenDia;
   ayer: ResumenDia;
@@ -60,6 +82,7 @@ export interface Monitor {
   ganancia7: number;
   /** qué fracción de las unidades de la semana tiene costo capturado (0-1) */
   coberturaCosto: number;
+  desglose: DesgloseDinero;
 }
 
 /** Fecha local de México (las ventas se guardan con el huso de MELI). */
@@ -183,6 +206,13 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     { modelo: string; color: string; d7: number; prev7: number; importe7: number; neto7: number }
   >();
 
+  let brutoP = 0;
+  let comisionP = 0;
+  let netoP = 0;
+  let brutoConNetoReal = 0;
+  let comisionConNetoReal = 0;
+  let netoRealSolo = 0;
+
   for (const v of ventas) {
     const { modelo, color } = partes(v.sku);
     const m =
@@ -198,6 +228,16 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       m.importe7 += v.importe ?? 0;
       pr.d7 += v.unidades ?? 0;
       pr.importe7 += v.importe ?? 0;
+      // Acumuladores del desglose de dinero del periodo.
+      brutoP += v.importe ?? 0;
+      comisionP += v.comision ?? 0;
+      const netoRealFila = v.neto != null && Number(v.neto) > 0 ? Number(v.neto) : null;
+      netoP += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
+      if (netoRealFila != null) {
+        brutoConNetoReal += v.importe ?? 0;
+        comisionConNetoReal += v.comision ?? 0;
+        netoRealSolo += netoRealFila;
+      }
       // El neto REAL depositado por MELI cuando ya se conoce (incluye
       // comisión, envío y retenciones); si no, la mejor aproximación:
       // importe menos la comisión.
@@ -228,6 +268,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   let ganancia7 = 0;
   let unidadesConCosto = 0;
   let unidadesSemanaTotal = 0;
+  let costoProductoP = 0;
 
   for (const pr of productos.values()) {
     unidadesSemanaTotal += pr.d7;
@@ -242,6 +283,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     cat.neto7 += pr.neto7;
 
     if (cfg?.costo != null && pr.d7 > 0) {
+      costoProductoP += cfg.costo * pr.d7;
       const g = pr.neto7 - cfg.costo * pr.d7;
       ganancia7 += g;
       unidadesConCosto += pr.d7;
@@ -358,5 +400,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     bajando,
     ganancia7,
     coberturaCosto: unidadesSemanaTotal > 0 ? unidadesConCosto / unidadesSemanaTotal : 0,
+    desglose: {
+      bruto: brutoP,
+      comision: comisionP,
+      neto: netoP,
+      enviosYOtros:
+        brutoConNetoReal > 0 ? brutoConNetoReal - comisionConNetoReal - netoRealSolo : null,
+      coberturaNetoReal: brutoP > 0 ? brutoConNetoReal / brutoP : 0,
+      costoProducto: costoProductoP,
+      gananciaReal: ganancia7,
+    },
   };
 }

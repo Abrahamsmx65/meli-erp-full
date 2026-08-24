@@ -454,8 +454,10 @@ export async function sincronizarPagos(
     .maybeSingle();
   // Las primeras cargas guardaron fechas mal leídas (mes.día en vez de
   // día.mes): una sola vez se tira todo lo cargado y se relee desde cero,
-  // ya con el parser correcto. La marca fechasV2 evita repetirlo.
-  const necesitaReset = Boolean(est) && est?.datos?.fechasV2 !== true;
+  // ya con el parser correcto. La marca de formato evita repetirlo; sube de
+  // versión cuando cambia CÓMO se leen los renglones (v3: unidades solo del
+  // renglón Principal + cargos de cuenta como pseudo-SKUs).
+  const necesitaReset = Boolean(est) && est?.datos?.formatoPagos !== "v3";
   const cursorTs: string | null = necesitaReset ? null : (est?.cursor_ts ?? null);
   // La primera vez se mira 90 días atrás (Amazon guarda ~90 días de
   // reportes); después, desde el último leído con una hora de traslape.
@@ -494,25 +496,42 @@ export async function sincronizarPagos(
   for (const rep of reportes.slice(0, 3)) {
     const filas = await descargarReporte(cliente, rep.documentId);
 
-    // settlement-id|sku|día → neto y unidades liquidadas.
+    // settlement-id|sku|día → neto y unidades liquidadas. Los cargos de
+    // CUENTA (sin SKU) no se tiran: publicidad y demás gastos van a
+    // pseudo-SKUs "(PUBLICIDAD)" / "(OTROS CARGOS)" para poder restarlos
+    // de la ganancia del periodo.
     const acumulado = new Map<
       string,
       { settlementId: string; sku: string; fecha: string; neto: number; unidades: number }
     >();
     for (const f of filas) {
-      const sku = (f["sku"] ?? "").trim();
-      if (!sku) continue; // cargos de cuenta (suscripción, etc.): sin SKU
       const posted = f["posted-date-time"] || f["posted-date"] || "";
       const ms = msDeFechaReporte(posted);
       if (!Number.isFinite(ms)) continue;
       const fecha = fechaLocal(ms, huso);
       const settlementId = (f["settlement-id"] ?? "").trim() || rep.reportId;
 
+      let sku = (f["sku"] ?? "").trim();
+      if (!sku) {
+        const monto = decimal(f["amount"]);
+        if (!monto) continue; // el renglón-resumen del settlement, sin importe
+        const desc = `${f["amount-type"] ?? ""} ${f["amount-description"] ?? ""}`.toLowerCase();
+        sku = /advertis|publicidad/.test(desc) ? "(PUBLICIDAD)" : "(OTROS CARGOS)";
+      }
+
       const clave = `${settlementId}|${sku}|${fecha}`;
       const reg =
         acumulado.get(clave) ?? { settlementId, sku, fecha, neto: 0, unidades: 0 };
       reg.neto += decimal(f["amount"]);
-      if ((f["transaction-type"] ?? "").toLowerCase() === "order") {
+      // Las unidades SOLO se cuentan en el renglón del precio (Principal):
+      // cada cargo de la misma orden (comisión, tarifa FBA…) viene en su
+      // propio renglón y repite quantity-purchased — sumarlos todos triplicaba
+      // las unidades liquidadas y hacía que el costo comiera toda la ganancia.
+      if (
+        (f["transaction-type"] ?? "").toLowerCase() === "order" &&
+        (f["amount-type"] ?? "").toLowerCase() === "itemprice" &&
+        (f["amount-description"] ?? "").toLowerCase() === "principal"
+      ) {
         reg.unidades += entero(f["quantity-purchased"]);
       }
       acumulado.set(clave, reg);
@@ -548,7 +567,7 @@ export async function sincronizarPagos(
       account_id: accountId,
       tarea: "cron_pagos",
       cursor_ts: ultimoCreado,
-      datos: { fechasV2: true },
+      datos: { formatoPagos: "v3" },
       actualizado_en: new Date().toISOString(),
     });
   }
