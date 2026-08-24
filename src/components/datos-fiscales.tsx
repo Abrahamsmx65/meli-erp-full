@@ -81,6 +81,12 @@ export function DatosFiscales() {
       const hayTrabajo = j.resumen.sinLeer > 0 || j.resumen.pendientes > 0;
       setLeyendo(Boolean(j.trabajando));
 
+      // Ver al proceso trabajando re-arma el auto-encendido: si al terminar
+      // queda (o llega) más trabajo, la página lo vuelve a encender sola.
+      // Nunca puede martillar: cada encendido extra exige haber visto antes
+      // una corrida viva.
+      if (j.trabajando) autoEncendido.current = false;
+
       // Si hay trabajo y nadie lo está haciendo, se enciende solo UNA vez
       // por visita; si el proceso muere, el botón queda vivo para relanzar.
       if (hayTrabajo && !j.trabajando && !autoEncendido.current) {
