@@ -16,7 +16,7 @@ create table if not exists public.candados_trabajo (
 
 -- Tabla interna: solo se toca mediante las funciones de abajo.
 alter table public.candados_trabajo enable row level security;
-revoke all on table public.candados_trabajo from anon, authenticated;
+revoke all on table public.candados_trabajo from anon, authenticated, public;
 
 create or replace function public.adquirir_candado_trabajo(
   p_account_id uuid,
@@ -104,7 +104,7 @@ create or replace function public.reemplazar_existencias(
 )
 returns integer
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 declare
