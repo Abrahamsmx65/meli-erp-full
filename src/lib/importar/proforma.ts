@@ -51,6 +51,88 @@ export interface Proforma {
   avisos: string[];
 }
 
+/** Ajustes por renglón que el usuario hace en la ventana de confirmación. */
+export interface OverrideLinea {
+  indice: number;
+  /**
+   * El renglón es de CAJAS COMPLETAS por color-modelo: cada columna de talla
+   * trae las CAJAS de esa sola talla (46 cajas de la 23, 88 de la 24…), no
+   * pares. Al aplicarlo, el renglón se parte en una línea unitalla por talla.
+   */
+  esCajaCompleta?: boolean;
+  modelo?: string;
+  color?: string;
+}
+
+/**
+ * Aplica los ajustes del usuario sobre la proforma recién leída, ANTES de
+ * guardar. Nada se estima: los pares por caja de un renglón de cajas
+ * completas salen del propio archivo (PRS ÷ CTNS), y si los números no
+ * cuadran exacto se rechaza con el detalle en lugar de adivinar.
+ */
+export function aplicarOverridesProforma(proforma: Proforma, overrides: OverrideLinea[]): void {
+  const porIndice = new Map(overrides.map((o) => [o.indice, o]));
+  const resultado: LineaProforma[] = [];
+
+  proforma.lineas.forEach((l, i) => {
+    const o = porIndice.get(i);
+    if (o) {
+      if (typeof o.modelo === "string" && o.modelo.trim()) l.modelo = o.modelo.trim().toUpperCase();
+      if (typeof o.color === "string" && o.color.trim()) {
+        l.color = o.color.trim().toUpperCase();
+        l.colorCrudo = o.color.trim();
+      }
+    }
+
+    // Las líneas que el archivo ya trae como unitalla no se tocan.
+    if (!o?.esCajaCompleta || l.unitalla) {
+      resultado.push(l);
+      return;
+    }
+
+    const etiqueta = `${l.modelo} ${l.color}`;
+    const sumaTallas = Object.values(l.tallas).reduce((a, b) => a + (Number(b) || 0), 0);
+
+    if (!(l.cajas > 0) || !(l.pares > 0)) {
+      throw new Error(
+        `${etiqueta}: para leerlo como cajas completas el archivo necesita CTNS y PRS, y trae ${l.cajas} cajas y ${l.pares} pares.`,
+      );
+    }
+    if (l.pares % l.cajas !== 0) {
+      throw new Error(
+        `${etiqueta}: ${l.pares} pares no es múltiplo de ${l.cajas} cajas; no se pueden deducir los pares por caja sin adivinar.`,
+      );
+    }
+    if (sumaTallas !== l.cajas) {
+      throw new Error(
+        `${etiqueta}: las columnas de talla suman ${sumaTallas} cajas pero CTNS dice ${l.cajas}. Revisa el renglón antes de marcarlo como cajas completas.`,
+      );
+    }
+
+    // Pares por caja EXACTOS del archivo: PRS ÷ CTNS (7,200 / 300 = 24).
+    const porCaja = l.pares / l.cajas;
+
+    for (const [talla, cajasTalla] of Object.entries(l.tallas)) {
+      const cajasT = Number(cajasTalla) || 0;
+      if (cajasT <= 0) continue;
+      resultado.push({
+        ...l,
+        tallas: { [talla]: cajasT },
+        paresPorCaja: porCaja,
+        cajas: cajasT,
+        pares: cajasT * porCaja,
+        cuadra: true,
+        unitalla: talla,
+      });
+    }
+  });
+
+  proforma.lineas = resultado;
+  proforma.totales.cajas = resultado.reduce((a, l) => a + l.cajas, 0);
+  proforma.totales.pares = resultado.reduce((a, l) => a + l.pares, 0);
+  // El importe NO se recalcula: es el que dice la Proforma Invoice.
+}
+
 function texto(v: unknown): string {
   if (v == null) return "";
   if (typeof v === "object") {

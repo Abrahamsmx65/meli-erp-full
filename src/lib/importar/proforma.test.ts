@@ -4,7 +4,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { colorDeProforma, importarProforma, tallaDeEncabezado } from "./proforma";
+import {
+  aplicarOverridesProforma,
+  colorDeProforma,
+  importarProforma,
+  tallaDeEncabezado,
+  type Proforma,
+} from "./proforma";
 
 const buf = readFileSync(join(process.cwd(), "fixtures", "PEDIDO_IN10151.xls"));
 
@@ -76,5 +82,90 @@ describe("Proforma Invoice real (.xls)", () => {
     for (const l of p.lineas) {
       expect(l.cajas * l.paresPorCaja).toBe(l.pares);
     }
+  });
+});
+
+describe("ajustes del usuario al confirmar (aplicarOverridesProforma)", () => {
+  // Los números son los del pedido REAL IN10121 (GT114 BEIGE): las columnas
+  // de talla traen CAJAS de una sola talla, CTNS dice 300 y PRS 7,200, así
+  // que cada caja trae 7200 / 300 = 24 pares.
+  function proformaCajasCompletas(): Proforma {
+    return {
+      pedido: "IN10121",
+      proveedor: "CHAOZHOU YINGYUAN SHOES CO., LTD.",
+      lineas: [
+        {
+          modelo: "GT114",
+          color: "BEIGE",
+          colorCrudo: "BEIGE",
+          descripcion: "",
+          tallas: { "23": 46, "24": 88, "25": 96, "26": 53, "27": 17 },
+          paresPorCaja: 300,
+          cajas: 300,
+          pares: 7200,
+          precioUnitario: null,
+          cuadra: false,
+          unitalla: null,
+        },
+      ],
+      totales: { cajas: 300, pares: 7200, importe: null },
+      tallasDetectadas: ["23", "24", "25", "26", "27"],
+      avisos: [],
+    };
+  }
+
+  it("caja completa: parte el renglón en una línea unitalla por talla con PRS ÷ CTNS pares por caja", () => {
+    const p = proformaCajasCompletas();
+    aplicarOverridesProforma(p, [{ indice: 0, esCajaCompleta: true }]);
+
+    expect(p.lineas).toHaveLength(5);
+    for (const l of p.lineas) {
+      expect(l.unitalla).not.toBeNull();
+      expect(l.paresPorCaja).toBe(24);
+    }
+    const t23 = p.lineas.find((l) => l.unitalla === "23")!;
+    expect(t23.cajas).toBe(46);
+    expect(t23.pares).toBe(46 * 24);
+    expect(t23.tallas).toEqual({ "23": 46 });
+
+    // Los totales no cambian: eran los correctos desde el archivo.
+    expect(p.totales.cajas).toBe(300);
+    expect(p.totales.pares).toBe(7200);
+  });
+
+  it("rechaza cajas completas si PRS no es múltiplo de CTNS, con el detalle", () => {
+    const p = proformaCajasCompletas();
+    p.lineas[0].pares = 7201;
+    p.totales.pares = 7201;
+    expect(() => aplicarOverridesProforma(p, [{ indice: 0, esCajaCompleta: true }])).toThrow(
+      /7201 pares no es múltiplo de 300 cajas/,
+    );
+  });
+
+  it("rechaza cajas completas si las tallas no suman las cajas del archivo", () => {
+    const p = proformaCajasCompletas();
+    p.lineas[0].tallas = { "23": 46, "24": 88 };
+    expect(() => aplicarOverridesProforma(p, [{ indice: 0, esCajaCompleta: true }])).toThrow(
+      /suman 134 cajas pero CTNS dice 300/,
+    );
+  });
+
+  it("edita modelo y color en mayúsculas sin tocar los números", () => {
+    const p = proformaCajasCompletas();
+    aplicarOverridesProforma(p, [{ indice: 0, modelo: "gt114-a", color: "Beige Claro" }]);
+    expect(p.lineas[0].modelo).toBe("GT114-A");
+    expect(p.lineas[0].color).toBe("BEIGE CLARO");
+    expect(p.lineas[0].colorCrudo).toBe("Beige Claro");
+    expect(p.lineas[0].cajas).toBe(300);
+    expect(p.lineas[0].pares).toBe(7200);
+  });
+
+  it("una línea que el archivo ya trae como unitalla no se vuelve a partir", () => {
+    const p = proformaCajasCompletas();
+    p.lineas[0].unitalla = "23";
+    p.lineas[0].tallas = { "23": 300 };
+    aplicarOverridesProforma(p, [{ indice: 0, esCajaCompleta: true }]);
+    expect(p.lineas).toHaveLength(1);
+    expect(p.lineas[0].paresPorCaja).toBe(300);
   });
 });

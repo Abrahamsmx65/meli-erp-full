@@ -70,11 +70,29 @@ export function CargarPedido() {
     const a = ajustes[i] ?? {};
     const modelo = a.modelo?.trim() ? a.modelo.trim().toUpperCase() : l.modelo;
     const color = a.color?.trim() ? a.color.trim().toUpperCase() : l.color;
-    if (a.esCajaCompleta) {
-      const cajas = l.cajas > 0 ? l.cajas : l.pares;
-      return { modelo, color, cajas, pares: cajas * l.paresPorCaja };
+
+    if (a.esCajaCompleta && !l.unitalla) {
+      // Cajas completas: las columnas de talla son CAJAS de esa talla, CTNS
+      // el total de cajas, y los pares por caja salen del archivo: PRS ÷ CTNS.
+      const sumaTallas = Object.values(l.tallas).reduce((x, y) => x + (Number(y) || 0), 0);
+      const divide = l.cajas > 0 && l.pares > 0 && l.pares % l.cajas === 0;
+      const cuadraTallas = sumaTallas === l.cajas;
+      const problema = !divide
+        ? `${n(l.pares)} pares no es múltiplo de ${n(l.cajas)} cajas.`
+        : !cuadraTallas
+          ? `Las tallas suman ${n(sumaTallas)} cajas pero el archivo dice ${n(l.cajas)}.`
+          : null;
+      return {
+        modelo,
+        color,
+        cajas: l.cajas,
+        pares: l.pares,
+        porCaja: divide ? l.pares / l.cajas : null,
+        problema,
+      };
     }
-    return { modelo, color, cajas: l.cajas, pares: l.pares };
+
+    return { modelo, color, cajas: l.cajas, pares: l.pares, porCaja: l.paresPorCaja, problema: null };
   }
 
   async function previsualizar(f: File) {
@@ -145,6 +163,7 @@ export function CargarPedido() {
   const efectivas = p ? p.lineas.map((l, i) => efectiva(l, i)) : [];
   const totalCajas = efectivas.reduce((a, e) => a + e.cajas, 0);
   const totalPares = efectivas.reduce((a, e) => a + e.pares, 0);
+  const hayProblema = efectivas.some((e) => e.problema);
 
   return (
     <section className="tarjeta p-4">
@@ -241,9 +260,10 @@ export function CargarPedido() {
 
             <p className="mt-3 text-xs" style={{ color: "var(--ink-muted)" }}>
               Puedes corregir el modelo y el color de cada renglón, y marcar{" "}
-              <strong>Caja completa</strong> cuando el número del archivo son CAJAS por
-              color-modelo (no pares): los pares se calculan con los pares por caja de
-              su corrida. Cajas y pares se recalculan aquí mismo antes de confirmar.
+              <strong>Caja completa</strong> cuando las columnas de talla traen CAJAS de
+              una sola talla (46 cajas de la 23, 88 de la 24…): el renglón se parte en
+              una caja por talla y los pares por caja salen del propio archivo (pares ÷
+              cajas). Aquí mismo ves cómo queda antes de confirmar.
             </p>
 
             <div className="mt-2 max-h-80 overflow-auto">
@@ -300,9 +320,17 @@ export function CargarPedido() {
                         ))}
                         <td
                           className="num cifra font-medium"
-                          style={{ color: l.cuadra ? "var(--ink-1)" : "var(--estado-alerta)" }}
+                          style={{
+                            color: e.problema
+                              ? "var(--estado-critico)"
+                              : a.esCajaCompleta
+                                ? "var(--acento)"
+                                : l.cuadra
+                                  ? "var(--ink-1)"
+                                  : "var(--estado-alerta)",
+                          }}
                         >
-                          {l.paresPorCaja}
+                          {e.porCaja ?? "¿?"}
                         </td>
                         <td className="text-center">
                           {l.unitalla ? (
@@ -310,12 +338,24 @@ export function CargarPedido() {
                               talla {l.unitalla}
                             </span>
                           ) : (
-                            <input
-                              type="checkbox"
-                              checked={Boolean(a.esCajaCompleta)}
-                              onChange={(ev) => ajustar(i, { esCajaCompleta: ev.target.checked })}
-                              aria-label={`El renglón ${i + 1} trae cajas, no pares`}
-                            />
+                            <>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(a.esCajaCompleta)}
+                                onChange={(ev) => ajustar(i, { esCajaCompleta: ev.target.checked })}
+                                aria-label={`Las tallas del renglón ${i + 1} son cajas de una sola talla`}
+                              />
+                              {a.esCajaCompleta ? (
+                                <div
+                                  className="text-[10px] leading-tight"
+                                  style={{
+                                    color: e.problema ? "var(--estado-critico)" : "var(--ink-muted)",
+                                  }}
+                                >
+                                  {e.problema ?? "una caja por talla"}
+                                </div>
+                              ) : null}
+                            </>
                           )}
                         </td>
                         <td
@@ -349,7 +389,7 @@ export function CargarPedido() {
                 </button>
                 <button
                   onClick={confirmar}
-                  disabled={cargando || yaExiste}
+                  disabled={cargando || yaExiste || hayProblema}
                   className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                   style={{ background: "var(--acento)" }}
                 >
