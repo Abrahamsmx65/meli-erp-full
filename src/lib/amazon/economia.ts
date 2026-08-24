@@ -48,10 +48,19 @@ function fechaLocal(ms: number, huso: number): string {
   return new Date(ms + huso * 3_600_000).toISOString().slice(0, 10);
 }
 
-function consulta(desde: string, hasta: string): string {
+// Los campos vienen del esquema OFICIAL analytics_economics_2024_03_15
+// (repositorio amzn/selling-partner-api-models): marketplaceIds es argumento
+// obligatorio, las tarifas viven en fees[].charges[].aggregatedDetail
+// .totalAmount y la publicidad en ads[].charge.totalAmount.
+function consulta(desde: string, hasta: string, marketplaceId: string): string {
   return `query Economia {
   analytics_economics_2024_03_15 {
-    economics(startDate: "${desde}", endDate: "${hasta}", aggregateBy: {date: DAY, productId: MSKU}) {
+    economics(
+      startDate: "${desde}"
+      endDate: "${hasta}"
+      marketplaceIds: ["${marketplaceId}"]
+      aggregateBy: {date: DAY, productId: MSKU}
+    ) {
       startDate
       endDate
       msku
@@ -61,13 +70,16 @@ function consulta(desde: string, hasta: string): string {
         netProductSales { amount }
       }
       fees {
-        aggregatedDetail {
-          totalFees { amount }
+        charges {
+          aggregatedDetail {
+            totalAmount { amount }
+          }
         }
       }
       ads {
-        adTypeName
-        charge { amount }
+        charge {
+          totalAmount { amount }
+        }
       }
       netProceeds {
         total { amount }
@@ -140,7 +152,7 @@ export async function sincronizarEconomia(
       "POST",
       `${RUTA}/queries`,
       "createQuery",
-      { cuerpo: { query: consulta(desde, hasta) } },
+      { cuerpo: { query: consulta(desde, hasta, cliente.cuenta.marketplaceId) } },
     );
     if (!r?.queryId) return { estado: "reintentar" };
     await anotar({ queryId: r.queryId, desde, hasta, pedidoEn: new Date().toISOString() });
@@ -170,7 +182,9 @@ export async function sincronizarEconomia(
     let detalle = status;
     if (q?.errorDocumentId) {
       try {
-        detalle = (await descargarDocumento(cliente, q.errorDocumentId)).slice(0, 1500);
+        // Completo (hasta 4000): un error cortado a la mitad ya nos costó
+        // una vuelta de diagnóstico.
+        detalle = (await descargarDocumento(cliente, q.errorDocumentId)).slice(0, 4000);
       } catch {
         /* el estado solo ya dice bastante */
       }
