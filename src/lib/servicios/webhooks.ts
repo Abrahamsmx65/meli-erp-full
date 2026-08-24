@@ -25,7 +25,10 @@ async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, str
     db,
     "skus",
     "sku, item_id, variation_id",
-    (q) => q.eq("account_id", accountId).not("item_id", "is", null),
+    // Solo SKUs ACTIVOS: tras un renombre en MELI, la fila vieja (apagada)
+    // comparte item+variación con la nueva, y cuál ganaba el mapa era
+    // aleatorio — la misma venta caía en un SKU distinto según la corrida.
+    (q) => q.eq("account_id", accountId).eq("activo", true).not("item_id", "is", null),
   );
   const mapa = new Map<string, string>();
   for (const f of filas ?? []) {

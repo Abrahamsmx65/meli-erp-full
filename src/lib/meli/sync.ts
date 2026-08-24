@@ -577,11 +577,14 @@ export async function obtenerVentas(
    * es prueba irrefutable de que la publicación existe.
    */
   itemsPorSku: Map<string, RefOrden>;
+  /** Alguna ventana chocó con el tope de ~10 mil órdenes de MELI: la foto está incompleta. */
+  truncado: boolean;
 }> {
   const acumulado = new Map<string, VentaDiaria>();
   const itemsPorSku = new Map<string, RefOrden>();
   let ordenesLeidas = 0;
   let sinSku = 0;
+  let truncado = false;
   const vistas = new Set<number>();
 
   // Las ventanas cubren los días COMPLETOS en hora de México (-06:00): si se
@@ -624,6 +627,15 @@ export async function obtenerVentas(
 
         const fecha = diaLocal(o.date_created);
 
+        // Los renglones de la orden se juntan por SKU ANTES de acumular: dos
+        // variantes que comparten SKU en la misma orden son UNA orden de ese
+        // SKU, no dos. Sumar +1 por renglón inflaba la columna `ordenes` y
+        // desempataba con el barrido de webhooks, que sí agrupa.
+        const porSkuOrden = new Map<
+          string,
+          { unidades: number; importe: number; comision: number }
+        >();
+
         for (const oi of o.order_items ?? []) {
           const sku =
             oi.item?.seller_sku?.trim() ||
@@ -644,29 +656,47 @@ export async function obtenerVentas(
             });
           }
 
+          const unidades = oi.quantity ?? 0;
+          const s = porSkuOrden.get(sku) ?? { unidades: 0, importe: 0, comision: 0 };
+          s.unidades += unidades;
+          s.importe += unidades * (oi.unit_price ?? 0);
+          s.comision += unidades * (oi.sale_fee ?? 0);
+          porSkuOrden.set(sku, s);
+        }
+
+        for (const [sku, s] of porSkuOrden) {
           const clave = `${sku}|${fecha}`;
           const prev = acumulado.get(clave);
-          const unidades = oi.quantity ?? 0;
-          const importe = unidades * (oi.unit_price ?? 0);
-          const comision = unidades * (oi.sale_fee ?? 0);
-
           if (prev) {
-            prev.unidades += unidades;
+            prev.unidades += s.unidades;
             prev.ordenes = (prev.ordenes ?? 0) + 1;
-            prev.importe = (prev.importe ?? 0) + importe;
-            prev.comision = (prev.comision ?? 0) + comision;
+            prev.importe = (prev.importe ?? 0) + s.importe;
+            prev.comision = (prev.comision ?? 0) + s.comision;
           } else {
-            acumulado.set(clave, { sku, fecha, unidades, ordenes: 1, importe, comision });
+            acumulado.set(clave, {
+              sku,
+              fecha,
+              unidades: s.unidades,
+              ordenes: 1,
+              importe: s.importe,
+              comision: s.comision,
+            });
           }
         }
       }
 
       offset += lote.length;
-      if (lote.length < 51 || offset >= 9_950) break;
+      if (lote.length < 51) break;
+      if (offset >= 9_950) {
+        // MELI no deja pasar de ~10 mil por búsqueda: la ventana quedó CORTA.
+        // Quien reconcilie contra esta foto debe saber que está incompleta.
+        truncado = true;
+        break;
+      }
     }
   }
 
-  return { ventas: [...acumulado.values()], ordenesLeidas, sinSku, itemsPorSku };
+  return { ventas: [...acumulado.values()], ordenesLeidas, sinSku, itemsPorSku, truncado };
 }
 
 /** Lo que una orden nos dice de una publicación. */

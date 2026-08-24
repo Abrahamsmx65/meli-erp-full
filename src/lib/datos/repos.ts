@@ -37,12 +37,21 @@ export async function traerTodo<T>(
   filtros: (q: any) => any,
   paso = 1000,
 ): Promise<T[]> {
+  // Paginar SIN ORDER BY no es determinista en Postgres: con escrituras
+  // concurrentes (el latido escribe cada minuto) una fila leída en la página
+  // 0 puede reaparecer en la 3 y se suma DOS veces. El monitor de ventas
+  // llegó a mostrar ~1.7× las unidades reales por esto. Orden estable por
+  // todas las columnas pedidas.
+  const orden =
+    columnas.includes("(") || columnas.includes("*")
+      ? []
+      : columnas.split(",").map((c) => c.trim()).filter(Boolean);
+
   const leer = async (pagina: number): Promise<T[]> => {
     const desde = pagina * paso;
-    const { data, error } = await filtros(db.from(tabla).select(columnas)).range(
-      desde,
-      desde + paso - 1,
-    );
+    let q = filtros(db.from(tabla).select(columnas));
+    for (const col of orden) q = q.order(col, { ascending: true });
+    const { data, error } = await q.range(desde, desde + paso - 1);
     if (error) throw new Error(`${tabla}: ${error.message}`);
     return (data ?? []) as T[];
   };
