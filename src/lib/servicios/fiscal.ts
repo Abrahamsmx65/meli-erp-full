@@ -204,6 +204,18 @@ export function validarValores(v: ValoresFiscales): string | null {
   return null;
 }
 
+/**
+ * SKUs del catálogo que la respuesta fiscal de su publicación NO mencionó.
+ * Preguntamos por la publicación completa: si MELI no devolvió registro para
+ * un SKU, esa ES la respuesta — no tiene datos fiscales. Sin esto, el SKU
+ * jamás se marcaba como leído y el proceso releía la misma publicación en
+ * cada vuelta, para siempre.
+ */
+export function skusAusentes(skusDelItem: string[], filas: FilaFiscal[]): string[] {
+  const vistos = new Set(filas.map((f) => f.sku));
+  return skusDelItem.filter((s) => !vistos.has(s));
+}
+
 /** Pausa corta entre llamadas para no toparse con el límite de tasa. */
 function dormir(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -285,37 +297,51 @@ export async function leerFiscalFaltante(
       const { filas } = normalizarRespuestaItem(itemId, respuesta);
       const ahora = new Date().toISOString();
 
+      // Los SKUs de esta publicación que MELI no mencionó quedan leídos y
+      // SIN DATOS: preguntamos por la publicación completa y no hubo registro.
+      const ausentes = skusAusentes(porItem.get(itemId) ?? [], filas);
+
       // La captura en cola no se pisa; lo demás se refresca completo.
       const nuevas = filas.filter((f) => !enCola.has(f.sku));
-      if (nuevas.length) {
-        await upsertEnTandas(
-          db,
-          "datos_fiscales",
-          nuevas.map((f) => ({
+      const filasDb = [
+        ...nuevas.map((f) => ({
+          account_id: accountId,
+          sku: f.sku,
+          item_id: f.itemId,
+          variation_id: f.variationId,
+          sat: f.sat,
+          iva: f.iva,
+          ieps: f.ieps,
+          upc: f.upc,
+          descripcion: f.descripcion,
+          unidad: f.unidad,
+          unidad_desc: f.unidadDesc,
+          leido_en: ahora,
+          estado: tieneDatos(f) ? "ok" : "sin_datos",
+          actualizado_en: ahora,
+        })),
+        ...ausentes
+          .filter((sku) => !enCola.has(sku))
+          .map((sku) => ({
             account_id: accountId,
-            sku: f.sku,
-            item_id: f.itemId,
-            variation_id: f.variationId,
-            sat: f.sat,
-            iva: f.iva,
-            ieps: f.ieps,
-            upc: f.upc,
-            descripcion: f.descripcion,
-            unidad: f.unidad,
-            unidad_desc: f.unidadDesc,
+            sku,
+            item_id: itemId,
             leido_en: ahora,
-            estado: tieneDatos(f) ? "ok" : "sin_datos",
+            estado: "sin_datos",
             actualizado_en: ahora,
           })),
-          "account_id,sku",
-        );
+      ];
+      if (filasDb.length) {
+        await upsertEnTandas(db, "datos_fiscales", filasDb, "account_id,sku");
       }
 
       resultado.itemsLeidos++;
       resultado.skusLeidos += filas.length;
-      resultado.sinDatos += filas.filter((f) => !tieneDatos(f)).length;
+      resultado.sinDatos +=
+        filas.filter((f) => !tieneDatos(f)).length + ausentes.length;
       resultado.itemsRestantes--;
       filas.forEach((f) => yaLeido.add(f.sku));
+      ausentes.forEach((sku) => yaLeido.add(sku));
     } catch (err) {
       resultado.errores.push(`${itemId}: ${(err as Error).message.slice(0, 200)}`);
       resultado.itemsRestantes--;

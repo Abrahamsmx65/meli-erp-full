@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   construirVariablesMutacion,
   normalizarRespuestaItem,
+  skusAusentes,
   tieneDatos,
   validarValores,
 } from "./fiscal";
@@ -90,6 +91,19 @@ describe("normalizarRespuestaItem", () => {
         errors: [{ message: "Cannot query field X" }],
       }),
     ).toThrow(/Cannot query field X/);
+  });
+});
+
+describe("skusAusentes", () => {
+  it("marca como sin respuesta los SKUs del catálogo que MELI no mencionó", () => {
+    const { filas } = normalizarRespuestaItem("MLM2775842349", respuestaReal());
+    const delItem = ["GT203-BLK-23-MX", "GT203-GOLD-23-MX", "GT203-PINK-27-MX"];
+    expect(skusAusentes(delItem, filas)).toEqual(["GT203-PINK-27-MX"]);
+  });
+
+  it("sin ausentes regresa vacío", () => {
+    const { filas } = normalizarRespuestaItem("MLM2775842349", respuestaReal());
+    expect(skusAusentes(["GT203-BLK-23-MX"], filas)).toEqual([]);
   });
 });
 
