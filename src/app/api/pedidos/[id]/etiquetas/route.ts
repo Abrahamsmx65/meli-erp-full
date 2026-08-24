@@ -119,12 +119,18 @@ export async function GET(
     hoja.getColumn(3).width = 14;
 
     const coloresCarton: string[] = [];
+    // Un color puede venir en varios renglones (la corrida + sus cajas de
+    // una sola talla): cada etiqueta y cada renglón del cartón van UNA vez.
+    const tallasHechas = new Set<string>();
 
     for (const l of lineasModelo) {
       const color = pegado(sinAnotacion(l.color ?? ""));
-      coloresCarton.push(`${numeroPedido}-${modelo}-${color}`);
+      const renglonCarton = `${numeroPedido}-${modelo}-${color}`;
+      if (!coloresCarton.includes(renglonCarton)) coloresCarton.push(renglonCarton);
 
       for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
+        if (tallasHechas.has(`${color}|${talla}`)) continue;
+        tallasHechas.add(`${color}|${talla}`);
         const { construido, encontrado } = buscarVariante(indice, l.modelo, l.color ?? "", talla);
 
         const sku = encontrado?.sku ?? construido;

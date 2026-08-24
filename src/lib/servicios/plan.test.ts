@@ -95,3 +95,23 @@ describe("prioridad de bodega", () => {
     expect(finales.reduce((a, x) => a + x.cantidad, 0)).toBe(2);
   });
 });
+
+describe("lo que viene de China no se puede enviar a Full", () => {
+  it("el optimizador solo puede elegir cajas DISPONIBLES, nunca las en camino", () => {
+    // Una caja con 0 disponibles y 8 en camino de China: existe en el
+    // catálogo pero el plan de envíos no puede subirla al camión.
+    const c = caja("IN-2", "Industher", 0);
+    (c as any).enCamino = 8;
+    const r = optimizarCajas({
+      necesidad: new Map([["GT1-BLK-25", 240]]),
+      prioridad: new Map(),
+      cajas: [c],
+      permiteUnidadesSueltas: false,
+      inventarioSuelto: new Map(),
+      pesoFaltante: 10,
+      pesoSobrante: 1,
+    });
+    expect(r.totalCajas).toBe(0);
+    expect(r.enviadoPorSku.get("GT1-BLK-25") ?? 0).toBe(0);
+  });
+});

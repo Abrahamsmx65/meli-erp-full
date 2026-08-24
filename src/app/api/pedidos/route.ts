@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { importarProforma } from "@/lib/importar/proforma";
+import { importarProforma, type Proforma } from "@/lib/importar/proforma";
 import { guardarProforma, listarPedidos } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
@@ -10,6 +10,47 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const MAX_BYTES = 8 * 1024 * 1024;
+
+/** Ajustes por renglón que el usuario hace en la ventana de confirmación. */
+interface OverrideLinea {
+  indice: number;
+  /**
+   * El renglón es de cajas completas por color-modelo: el número que trae el
+   * archivo son CAJAS, no pares. Se convierte con los pares por caja de su
+   * propia corrida.
+   */
+  esCajaCompleta?: boolean;
+  modelo?: string;
+  color?: string;
+}
+
+/**
+ * Aplica los ajustes ANTES de guardar. El archivo se relee tal cual en cada
+ * paso, así que los ajustes viajan con la confirmación y se aplican aquí,
+ * del lado del servidor, sobre los mismos datos que se van a guardar.
+ */
+function aplicarOverrides(proforma: Proforma, overrides: OverrideLinea[]) {
+  for (const o of overrides) {
+    const l = proforma.lineas[o.indice];
+    if (!l) continue;
+    if (typeof o.modelo === "string" && o.modelo.trim()) {
+      l.modelo = o.modelo.trim().toUpperCase();
+    }
+    if (typeof o.color === "string" && o.color.trim()) {
+      l.color = o.color.trim().toUpperCase();
+      l.colorCrudo = o.color.trim();
+    }
+    if (o.esCajaCompleta) {
+      const cajas = l.cajas > 0 ? l.cajas : l.pares;
+      l.cajas = cajas;
+      l.pares = cajas * l.paresPorCaja;
+    }
+  }
+  // Los totales de cajas y pares se recalculan; el importe NO: es el que
+  // dice la Proforma Invoice y es lo que de verdad se paga.
+  proforma.totales.cajas = proforma.lineas.reduce((a, l) => a + l.cajas, 0);
+  proforma.totales.pares = proforma.lineas.reduce((a, l) => a + l.pares, 0);
+}
 
 async function cuenta(req: NextRequest) {
   void req;
@@ -64,6 +105,13 @@ export async function POST(req: NextRequest) {
   try {
     const buffer = Buffer.from(await archivo.arrayBuffer());
     proforma = await importarProforma(buffer, { nombre: archivo.name });
+
+    const crudo = form.get("overrides");
+    if (typeof crudo === "string" && crudo) {
+      const overrides = JSON.parse(crudo) as OverrideLinea[];
+      if (!Array.isArray(overrides)) throw new Error("Los ajustes de renglones vienen mal formados.");
+      aplicarOverrides(proforma, overrides);
+    }
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }

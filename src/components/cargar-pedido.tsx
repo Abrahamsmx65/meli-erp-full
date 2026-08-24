@@ -13,6 +13,18 @@ interface LineaProforma {
   cajas: number;
   pares: number;
   cuadra: boolean;
+  unitalla: string | null;
+}
+
+/**
+ * Ajustes que el usuario hace por renglón en la ventana de confirmación.
+ * Viajan al servidor junto con el archivo y se aplican allá, sobre los
+ * mismos datos que se van a guardar.
+ */
+interface AjusteLinea {
+  esCajaCompleta?: boolean;
+  modelo?: string;
+  color?: string;
 }
 
 interface Proforma {
@@ -47,6 +59,23 @@ export function CargarPedido() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
+  const [ajustes, setAjustes] = useState<Record<number, AjusteLinea>>({});
+
+  function ajustar(i: number, cambio: AjusteLinea) {
+    setAjustes((prev) => ({ ...prev, [i]: { ...prev[i], ...cambio } }));
+  }
+
+  /** El renglón como va a quedar YA con los ajustes, para verlo antes de confirmar. */
+  function efectiva(l: LineaProforma, i: number) {
+    const a = ajustes[i] ?? {};
+    const modelo = a.modelo?.trim() ? a.modelo.trim().toUpperCase() : l.modelo;
+    const color = a.color?.trim() ? a.color.trim().toUpperCase() : l.color;
+    if (a.esCajaCompleta) {
+      const cajas = l.cajas > 0 ? l.cajas : l.pares;
+      return { modelo, color, cajas, pares: cajas * l.paresPorCaja };
+    }
+    return { modelo, color, cajas: l.cajas, pares: l.pares };
+  }
 
   async function previsualizar(f: File) {
     setCargando(true);
@@ -83,6 +112,11 @@ export function CargarPedido() {
       fd.append("archivo", archivo);
       fd.append("accion", "confirmar");
 
+      const overrides = Object.entries(ajustes)
+        .map(([indice, a]) => ({ indice: Number(indice), ...a }))
+        .filter((o) => o.esCajaCompleta || o.modelo?.trim() || o.color?.trim());
+      if (overrides.length) fd.append("overrides", JSON.stringify(overrides));
+
       const r = await fetch("/api/pedidos", { method: "POST", body: fd });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar el pedido.");
@@ -103,10 +137,14 @@ export function CargarPedido() {
     setPrevisualizacion(null);
     setArchivo(null);
     setYaExiste(false);
+    setAjustes({});
     if (input.current) input.current.value = "";
   }
 
   const p = previsualizacion;
+  const efectivas = p ? p.lineas.map((l, i) => efectiva(l, i)) : [];
+  const totalCajas = efectivas.reduce((a, e) => a + e.cajas, 0);
+  const totalPares = efectivas.reduce((a, e) => a + e.pares, 0);
 
   return (
     <section className="tarjeta p-4">
@@ -183,8 +221,8 @@ export function CargarPedido() {
 
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
               <Dato titulo="Renglones" valor={String(p.lineas.length)} />
-              <Dato titulo="Cajas" valor={n(p.totales.cajas)} />
-              <Dato titulo="Pares" valor={n(p.totales.pares)} />
+              <Dato titulo="Cajas" valor={n(totalCajas)} />
+              <Dato titulo="Pares" valor={n(totalPares)} />
               <Dato titulo="Tallas" valor={p.tallasDetectadas.join(", ")} />
             </div>
 
@@ -201,7 +239,14 @@ export function CargarPedido() {
               </ul>
             ) : null}
 
-            <div className="mt-4 max-h-80 overflow-auto">
+            <p className="mt-3 text-xs" style={{ color: "var(--ink-muted)" }}>
+              Puedes corregir el modelo y el color de cada renglón, y marcar{" "}
+              <strong>Caja completa</strong> cuando el número del archivo son CAJAS por
+              color-modelo (no pares): los pares se calculan con los pares por caja de
+              su corrida. Cajas y pares se recalculan aquí mismo antes de confirmar.
+            </p>
+
+            <div className="mt-2 max-h-80 overflow-auto">
               <table className="datos">
                 <thead>
                   <tr>
@@ -213,37 +258,81 @@ export function CargarPedido() {
                       </th>
                     ))}
                     <th className="num">Por caja</th>
+                    <th>Caja completa</th>
                     <th className="num">Cajas</th>
                     <th className="num">Pares</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {p.lineas.map((l, i) => (
-                    <tr key={`${l.modelo}-${l.color}-${i}`}>
-                      <td className="font-medium">{l.modelo}</td>
-                      <td>
-                        {l.color}
-                        {l.colorCrudo !== l.color ? (
-                          <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                            {l.colorCrudo}
-                          </div>
-                        ) : null}
-                      </td>
-                      {p.tallasDetectadas.map((t) => (
-                        <td key={t} className="num cifra">
-                          {l.tallas[t] || "—"}
+                  {p.lineas.map((l, i) => {
+                    const e = efectivas[i];
+                    const a = ajustes[i] ?? {};
+                    const cambiado = a.esCajaCompleta || a.modelo?.trim() || a.color?.trim();
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <input
+                            value={a.modelo ?? l.modelo}
+                            onChange={(ev) => ajustar(i, { modelo: ev.target.value })}
+                            className="w-24 rounded border px-1.5 py-0.5 text-sm font-medium"
+                            style={{ borderColor: "var(--borde)", background: "transparent" }}
+                            aria-label={`Modelo del renglón ${i + 1}`}
+                          />
                         </td>
-                      ))}
-                      <td
-                        className="num cifra font-medium"
-                        style={{ color: l.cuadra ? "var(--ink-1)" : "var(--estado-alerta)" }}
-                      >
-                        {l.paresPorCaja}
-                      </td>
-                      <td className="num cifra">{n(l.cajas)}</td>
-                      <td className="num cifra">{n(l.pares)}</td>
-                    </tr>
-                  ))}
+                        <td>
+                          <input
+                            value={a.color ?? l.color}
+                            onChange={(ev) => ajustar(i, { color: ev.target.value })}
+                            className="w-28 rounded border px-1.5 py-0.5 text-sm"
+                            style={{ borderColor: "var(--borde)", background: "transparent" }}
+                            aria-label={`Color del renglón ${i + 1}`}
+                          />
+                          {l.colorCrudo !== l.color ? (
+                            <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                              {l.colorCrudo}
+                            </div>
+                          ) : null}
+                        </td>
+                        {p.tallasDetectadas.map((t) => (
+                          <td key={t} className="num cifra">
+                            {l.tallas[t] || "—"}
+                          </td>
+                        ))}
+                        <td
+                          className="num cifra font-medium"
+                          style={{ color: l.cuadra ? "var(--ink-1)" : "var(--estado-alerta)" }}
+                        >
+                          {l.paresPorCaja}
+                        </td>
+                        <td className="text-center">
+                          {l.unitalla ? (
+                            <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                              talla {l.unitalla}
+                            </span>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={Boolean(a.esCajaCompleta)}
+                              onChange={(ev) => ajustar(i, { esCajaCompleta: ev.target.checked })}
+                              aria-label={`El renglón ${i + 1} trae cajas, no pares`}
+                            />
+                          )}
+                        </td>
+                        <td
+                          className="num cifra"
+                          style={cambiado ? { color: "var(--acento)", fontWeight: 600 } : undefined}
+                        >
+                          {n(e.cajas)}
+                        </td>
+                        <td
+                          className="num cifra"
+                          style={cambiado ? { color: "var(--acento)", fontWeight: 600 } : undefined}
+                        >
+                          {n(e.pares)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Barcode,
   Boxes,
+  Container,
   LogOut,
   Menu,
   Package,
@@ -73,6 +74,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
       { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
     ],
   },

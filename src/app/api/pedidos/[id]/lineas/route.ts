@@ -36,7 +36,7 @@ export async function GET(
 
   const { data: lineas } = await supabase
     .from("pedido_lineas")
-    .select("id, modelo, color, cajas, pares, pares_por_caja")
+    .select("id, modelo, color, talla, cajas, pares, pares_por_caja")
     .eq("pedido_id", id)
     .order("modelo", { ascending: true });
 
@@ -59,6 +59,7 @@ export async function GET(
       id: l.id,
       modelo: l.modelo,
       color: l.color,
+      talla: l.talla || null,
       cajas: l.cajas ?? 0,
       pares: l.pares ?? 0,
       paresPorCaja: l.pares_por_caja ?? 0,

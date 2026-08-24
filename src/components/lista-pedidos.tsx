@@ -217,6 +217,8 @@ interface LineaPedido {
   id: string;
   modelo: string;
   color: string;
+  /** vacía en renglones de corrida; la talla en cajas de una sola talla */
+  talla: string | null;
   cajas: number;
   yaAsignadas: number;
 }
@@ -233,6 +235,7 @@ function AsignarContenedor({
   const [lineas, setLineas] = useState<LineaPedido[] | null>(null);
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
   const [numero, setNumero] = useState("");
+  const [numeroNaviera, setNumeroNaviera] = useState("");
   const [naviera, setNaviera] = useState("");
   const [salida, setSalida] = useState("");
   const [llegada, setLlegada] = useState("");
@@ -280,6 +283,7 @@ function AsignarContenedor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           numero,
+          numeroNaviera: numeroNaviera || null,
           naviera: naviera || null,
           fechaSalida: salida || null,
           fechaLlegadaEst: llegada || null,
@@ -316,10 +320,19 @@ function AsignarContenedor({
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Campo etiqueta="Número de contenedor">
+          <Campo etiqueta="Nuestro ID del contenedor">
             <input
               value={numero}
               onChange={(e) => setNumero(e.target.value.toUpperCase())}
+              placeholder="C-2026-01"
+              className="w-full rounded-lg border px-2 py-1.5 text-sm"
+              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            />
+          </Campo>
+          <Campo etiqueta="Núm. de la naviera (opcional)">
+            <input
+              value={numeroNaviera}
+              onChange={(e) => setNumeroNaviera(e.target.value.toUpperCase())}
               placeholder="MSKU1234567"
               className="w-full rounded-lg border px-2 py-1.5 text-sm"
               style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -371,6 +384,7 @@ function AsignarContenedor({
               <tr>
                 <th>Modelo</th>
                 <th>Color</th>
+                <th>Talla</th>
                 <th className="num">Cajas del pedido</th>
                 <th className="num">Ya embarcadas</th>
                 <th className="num">En este contenedor</th>
@@ -383,6 +397,9 @@ function AsignarContenedor({
                   <tr key={l.id}>
                     <td className="font-medium">{l.modelo}</td>
                     <td>{l.color}</td>
+                    <td className="cifra">
+                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                    </td>
                     <td className="num cifra">{n(l.cajas)}</td>
                     <td className="num cifra">{l.yaAsignadas ? n(l.yaAsignadas) : "—"}</td>
                     <td className="num">

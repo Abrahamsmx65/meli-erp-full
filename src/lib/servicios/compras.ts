@@ -41,6 +41,19 @@ export interface ParametrosCompra {
   diasCobertura: number;
   /** no pedir modelos que vendan menos de esto al día */
   ventaMinimaDiaria: number;
+  /**
+   * Umbral del régimen (lógica B del usuario): si la cobertura del color es
+   * MENOR a esto, el stock actual se ignora al armar la corrida — se habrá
+   * agotado antes de que el pedido llegue, y descontarlo deformaría la
+   * corrida con huecos que ya no van a existir.
+   */
+  umbralAgotamientoDias: number;
+  /**
+   * Cuando SÍ va a quedar stock, se descuenta solo esta fracción (70%): la
+   * reposición a medias evita que la corrida se deforme persiguiendo
+   * desbalances que las tendencias van a mover de todos modos.
+   */
+  descuentoStock: number;
 }
 
 export const COMPRA_POR_DEFECTO: ParametrosCompra = {
@@ -48,7 +61,80 @@ export const COMPRA_POR_DEFECTO: ParametrosCompra = {
   diasTransito: 45,
   diasCobertura: 90,
   ventaMinimaDiaria: 0.1,
+  umbralAgotamientoDias: 100,
+  descuentoStock: 0.7,
 };
+
+/** La fábrica solo arma cajas de estos totales. */
+export const PARES_POR_CAJA_VALIDOS = [12, 24, 36, 48] as const;
+
+/**
+ * Lleva el total histórico de la corrida al tamaño de caja REAL de fábrica:
+ * el más cercano de 12/24/36/48 (en empate, la caja más grande — pedir un
+ * par de más cuesta inventario; una caja imposible no existe).
+ */
+export function paresPorCajaNormalizado(historico: number): number {
+  if (!Number.isFinite(historico) || historico <= 0) return 24;
+  let mejor: number = PARES_POR_CAJA_VALIDOS[1];
+  let mejorDist = Infinity;
+  for (const v of PARES_POR_CAJA_VALIDOS) {
+    const d = Math.abs(v - historico);
+    if (d < mejorDist || (d === mejorDist && v > mejor)) {
+      mejorDist = d;
+      mejor = v;
+    }
+  }
+  return mejor;
+}
+
+export type RegimenCompra = "se_agota" | "repone";
+
+/**
+ * Los dos faltantes por talla de la lógica B, calculados juntos:
+ *
+ *  - `faltantePorTalla` (para las cajas de CORRIDA): con cobertura corta el
+ *    stock se ignora (régimen "se_agota": la corrida se recalcula limpia
+ *    desde la demanda); con cobertura larga el stock se descuenta
+ *    amortiguado (régimen "repone", 70%).
+ *  - `faltanteExactoPorTalla` (para las cajas COMPLETAS de una talla): el
+ *    stock siempre se descuenta al 100% — ahí no hay corrida que cuidar y
+ *    el número debe ser exacto.
+ */
+export function faltantesPorRegimen(e: {
+  demandaPorTalla: Map<string, number>;
+  inventarioPorTalla: Map<string, number>;
+  horizonte: number;
+  coberturaDias: number | null;
+  umbralAgotamientoDias: number;
+  descuentoStock: number;
+}): {
+  regimen: RegimenCompra;
+  faltantePorTalla: Record<string, number>;
+  faltanteExactoPorTalla: Record<string, number>;
+} {
+  const regimen: RegimenCompra =
+    e.coberturaDias !== null && e.coberturaDias < e.umbralAgotamientoDias
+      ? "se_agota"
+      : "repone";
+
+  const faltantePorTalla: Record<string, number> = {};
+  const faltanteExactoPorTalla: Record<string, number> = {};
+  const tallas = new Set([...e.demandaPorTalla.keys(), ...e.inventarioPorTalla.keys()]);
+
+  for (const t of tallas) {
+    const demanda = (e.demandaPorTalla.get(t) ?? 0) * e.horizonte;
+    const stock = e.inventarioPorTalla.get(t) ?? 0;
+
+    const corrida =
+      regimen === "se_agota" ? demanda : demanda - e.descuentoStock * stock;
+    if (Math.round(corrida) > 0) faltantePorTalla[t] = Math.round(corrida);
+
+    const exacto = demanda - stock;
+    if (Math.round(exacto) > 0) faltanteExactoPorTalla[t] = Math.round(exacto);
+  }
+
+  return { regimen, faltantePorTalla, faltanteExactoPorTalla };
+}
 
 export type UrgenciaCompra = "quiebre" | "urgente" | "pronto" | "ok" | "sobrado";
 
@@ -91,6 +177,12 @@ export interface RenglonCompra {
   tieneCorrida: boolean;
   corridaPedido: string | null;
   urgencia: UrgenciaCompra;
+  /**
+   * Con qué régimen se calculó el faltante: "se_agota" = el stock actual se
+   * ignoró (se acaba antes de que llegue el pedido, corrida limpia por
+   * demanda); "repone" = el stock se descontó amortiguado al 70%.
+   */
+  regimen: RegimenCompra;
   /** si la corrida no embona con cómo se vende: talla -> desvío */
   desajusteCorrida: { talla: string; enCorrida: number; segunDemanda: number }[];
   motivo: string;
@@ -166,6 +258,12 @@ export function repartirCorrida(
 export function armarPedidoColor(
   faltantePorTalla: Record<string, number>,
   paresPorCaja: number,
+  /**
+   * El faltante con el stock descontado al 100%, que es el que decide las
+   * cajas COMPLETAS de una talla. Si no se da, se usa el mismo faltante de
+   * corrida (comportamiento previo).
+   */
+  faltanteExactoPorTalla: Record<string, number> = faltantePorTalla,
 ): {
   unitallas: { talla: string; cajas: number }[];
   cajasCorrida: number;
@@ -181,11 +279,14 @@ export function armarPedidoColor(
   const unitallas: { talla: string; cajas: number }[] = [];
 
   if (cajasTotales >= COLOR_MIN_CAJAS) {
-    for (const [talla, f] of Object.entries(restante)) {
-      const cajas = Math.floor(f / paresPorCaja);
+    for (const talla of Object.keys(restante)) {
+      // Las cajas de una sola talla se miden con el faltante EXACTO: es
+      // caja completa, sin corrida que cuidar, y el número debe ser exacto.
+      const exacto = faltanteExactoPorTalla[talla] ?? 0;
+      const cajas = Math.floor(exacto / paresPorCaja);
       if (cajas >= UNITALLA_MIN_CAJAS) {
         unitallas.push({ talla, cajas });
-        restante[talla] = f - cajas * paresPorCaja;
+        restante[talla] = Math.max(0, restante[talla] - cajas * paresPorCaja);
       }
     }
     unitallas.sort((a, b) => Number(a.talla) - Number(b.talla));
@@ -428,30 +529,36 @@ export async function sugerirCompra(
     const faltante = Math.max(0, objetivo - inventarioTotal);
 
     const c = corridaDe.get(clave(g.modelo, g.color));
-    const paresPorCaja = c?.total ?? null;
+    // La fábrica solo arma cajas de 12/24/36/48: el total histórico se lleva
+    // al tamaño real más cercano (la corrida interna cambia, el total no).
+    const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : null;
 
-    // Faltante POR TALLA: la demanda del horizonte de cada talla menos su
-    // propio inventario. Es la base de la corrida propuesta — pedir con la
-    // corrida vieja repone también las tallas que ya están sobradas.
-    const faltantePorTalla: Record<string, number> = {};
-    const tallasTodas = new Set([...g.demandaPorTalla.keys(), ...g.inventarioPorTalla.keys()]);
-    for (const t of tallasTodas) {
-      const f =
-        (g.demandaPorTalla.get(t) ?? 0) * horizonte - (g.inventarioPorTalla.get(t) ?? 0);
-      if (Math.round(f) > 0) faltantePorTalla[t] = Math.round(f);
-    }
+    // Los dos faltantes por talla de la lógica B (regímenes por cobertura):
+    // el de corrida (stock ignorado si todo se agota antes de la llegada,
+    // amortiguado al 70% si no) y el exacto (para cajas de una talla).
+    // OJO: la puerta del pedido es el faltante POR TALLA, no el agregado. El
+    // agregado engaña: 500 pares de sobra en la 29 "tapan" el faltante de la
+    // 25, y el color se quedaba sin pedir justo lo que se le agotó.
+    const {
+      regimen,
+      faltantePorTalla,
+      faltanteExactoPorTalla,
+    } = faltantesPorRegimen({
+      demandaPorTalla: g.demandaPorTalla,
+      inventarioPorTalla: g.inventarioPorTalla,
+      horizonte,
+      coberturaDias: cobertura,
+      umbralAgotamientoDias: p.umbralAgotamientoDias,
+      descuentoStock: p.descuentoStock,
+    });
 
-    // OJO: la puerta es el faltante POR TALLA, no el agregado. El agregado
-    // engaña: 500 pares de sobra en la talla 29 "tapan" el faltante de la
-    // 25 en la resta global, y el color se quedaba sin pedir justo lo que
-    // se le agotó. El sobrante de una talla no se puede vender como otra.
     const totalFaltanteTallas = Object.values(faltantePorTalla).reduce((a, b) => a + b, 0);
     // El umbral de venta mínima APAGA el pedido, no solo el texto: antes un
     // modelo con el motivo "no conviene volver a pedirlo" igual sumaba cajas.
     const valeLaPena = demanda >= p.ventaMinimaDiaria;
     const pedido =
       valeLaPena && totalFaltanteTallas > 0 && paresPorCaja && paresPorCaja > 0
-        ? armarPedidoColor(faltantePorTalla, paresPorCaja)
+        ? armarPedidoColor(faltantePorTalla, paresPorCaja, faltanteExactoPorTalla)
         : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
 
     const cajasSugeridas =
@@ -475,6 +582,12 @@ export async function sugerirCompra(
         llegada < 0
           ? `Si pides hoy, llega ${Math.abs(llegada)} días DESPUÉS de quedarte sin producto.`
           : `Aguanta ${Math.round(cobertura ?? 0)} días y el pedido tarda ${ciclo}. Te quedan ${llegada} días de margen.`;
+    }
+    if (cajasSugeridas > 0) {
+      motivo +=
+        regimen === "se_agota"
+          ? ` Corrida limpia por demanda: el stock actual se agota antes de que llegue (cobertura < ${p.umbralAgotamientoDias} días).`
+          : ` Reposición amortiguada: el stock se descontó al ${Math.round(p.descuentoStock * 100)}% para no deformar la corrida.`;
     }
 
     renglones.push({
@@ -500,6 +613,7 @@ export async function sugerirCompra(
       tieneCorrida: Boolean(paresPorCaja),
       corridaPedido: c?.pedido ?? null,
       urgencia,
+      regimen,
       desajusteCorrida: c ? compararCorrida(c.tallas, g.demandaPorTalla) : [],
       motivo,
       corridaPropuesta: Object.keys(pedido.corridaPropuesta).length

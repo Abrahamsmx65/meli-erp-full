@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { armarPedidoColor, repartirCorrida } from "./compras";
+import {
+  armarPedidoColor,
+  faltantesPorRegimen,
+  paresPorCajaNormalizado,
+  repartirCorrida,
+} from "./compras";
 
 describe("corrida propuesta", () => {
   it("reparte los pares de la caja en proporción al faltante y suma exacto", () => {
@@ -46,5 +51,88 @@ describe("reglas de unitalla", () => {
     // Se pide al menos el faltante y a lo más una caja extra por el redondeo.
     expect(paresPedidos).toBeGreaterThanOrEqual(total);
     expect(paresPedidos).toBeLessThan(total + 24 * 2);
+  });
+
+  it("las unitallas se separan con el faltante EXACTO, no con el amortiguado", () => {
+    // El régimen amortiguado infla el faltante de la talla 26 (por el 70%),
+    // pero para cajas COMPLETAS de una talla el número exacto manda: 26 solo
+    // justifica 10 cajas exactas (240 pares), no las 20 del amortiguado.
+    const amortiguado = { "24": 1200, "25": 1200, "26": 480 };
+    const exacto = { "24": 1200, "25": 1200, "26": 240 };
+    const p = armarPedidoColor(amortiguado, 24, exacto);
+    expect(p.unitallas.find((u) => u.talla === "26")?.cajas).toBe(10);
+  });
+});
+
+describe("pares por caja normalizados (12/24/36/48)", () => {
+  it("respeta los totales históricos que ya caen en el set", () => {
+    for (const t of [12, 24, 36, 48]) expect(paresPorCajaNormalizado(t)).toBe(t);
+  });
+
+  it("lleva el histórico al valor más cercano del set", () => {
+    expect(paresPorCajaNormalizado(20)).toBe(24);
+    expect(paresPorCajaNormalizado(26)).toBe(24);
+    expect(paresPorCajaNormalizado(40)).toBe(36);
+    expect(paresPorCajaNormalizado(100)).toBe(48);
+    expect(paresPorCajaNormalizado(6)).toBe(12);
+  });
+
+  it("en empate gana la caja más grande", () => {
+    expect(paresPorCajaNormalizado(30)).toBe(36);
+    expect(paresPorCajaNormalizado(18)).toBe(24);
+    expect(paresPorCajaNormalizado(42)).toBe(48);
+  });
+});
+
+describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () => {
+  const base = {
+    demandaPorTalla: new Map([
+      ["24", 2],
+      ["25", 4],
+    ]),
+    inventarioPorTalla: new Map([
+      ["24", 300],
+      ["25", 0],
+    ]),
+    horizonte: 180,
+    umbralAgotamientoDias: 100,
+    descuentoStock: 0.7,
+  };
+
+  it("con cobertura corta (< 100 días) el stock se IGNORA: corrida limpia por demanda", () => {
+    // 300 pares / 6 al día = 50 días de cobertura < 100 → se agota.
+    const r = faltantesPorRegimen({ ...base, coberturaDias: 50 });
+    expect(r.regimen).toBe("se_agota");
+    expect(r.faltantePorTalla["24"]).toBe(2 * 180);
+    expect(r.faltantePorTalla["25"]).toBe(4 * 180);
+  });
+
+  it("con cobertura larga el stock se descuenta al 70%", () => {
+    const r = faltantesPorRegimen({ ...base, coberturaDias: 150 });
+    expect(r.regimen).toBe("repone");
+    expect(r.faltantePorTalla["24"]).toBe(Math.round(2 * 180 - 0.7 * 300));
+    expect(r.faltantePorTalla["25"]).toBe(4 * 180);
+  });
+
+  it("el faltante EXACTO siempre descuenta el stock completo, en ambos regímenes", () => {
+    const corto = faltantesPorRegimen({ ...base, coberturaDias: 50 });
+    const largo = faltantesPorRegimen({ ...base, coberturaDias: 150 });
+    for (const r of [corto, largo]) {
+      expect(r.faltanteExactoPorTalla["24"]).toBe(2 * 180 - 300);
+      expect(r.faltanteExactoPorTalla["25"]).toBe(4 * 180);
+    }
+  });
+
+  it("una talla con más stock que demanda no pide nada en ningún faltante", () => {
+    const r = faltantesPorRegimen({
+      ...base,
+      inventarioPorTalla: new Map([
+        ["24", 5000],
+        ["25", 0],
+      ]),
+      coberturaDias: 500,
+    });
+    expect(r.faltantePorTalla["24"]).toBeUndefined();
+    expect(r.faltanteExactoPorTalla["24"]).toBeUndefined();
   });
 });
