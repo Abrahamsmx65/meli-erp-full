@@ -6,6 +6,7 @@ import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
 import { enviosPendientesIndusther } from "@/lib/servicios/industher-pendientes";
 import { Ficha } from "@/components/tiles";
+import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosSeparados } from "@/components/envios-separados";
 import { PendientesIndusther } from "@/components/pendientes-industher";
 import { EnviosEnCamino } from "@/components/envios-en-camino";
@@ -93,6 +94,20 @@ export default async function Plan() {
   );
 
 
+  // Lo acordado: el total oficial son las cajas OBLIGATORIAS; las del rescate
+  // de tallas (opcionales) se muestran aparte con su sobrante por talla, y el
+  // usuario decide cuáles subir.
+  const desglose = desglosarOpcionales(
+    plan.cajas.map((c) => ({
+      codigo: c.codigo,
+      cantidad: c.cantidad,
+      paresPorCaja: c.paresPorCaja,
+      cantidadOpcional: c.cantidadOpcional ?? 0,
+      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
+    })),
+    plan.lineas.map((l) => ({ sku: l.sku, sugerido: l.sugerido })),
+  );
+
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
     skuCaja: c.skuCaja,
@@ -104,6 +119,8 @@ export default async function Plan() {
     cantidad: c.cantidad,
     cajasDisponibles: c.cajasDisponibles,
     paresTotales: c.paresTotales,
+    cantidadOpcional: Math.min(c.cantidad, c.cantidadOpcional ?? 0),
+    deMas: textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? []),
     aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresTotales: a.paresTotales })),
   }));
 
@@ -131,7 +148,7 @@ export default async function Plan() {
       <PendientesIndusther envios={pendientesBodega.envios} error={pendientesBodega.error} />
 
       {/* ---- Cifras de cabecera ------------------------------------------ */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Ficha
           titulo="SKUs críticos"
           valor={r.skusCriticos}
@@ -139,7 +156,21 @@ export default async function Plan() {
           tono={r.skusCriticos > 0 ? "critico" : "bien"}
         />
         <Ficha titulo="Urgentes" valor={r.skusUrgentes} nota="Bajo punto de reorden" tono="alerta" />
-        <Ficha titulo="Cajas a mandar" valor={r.totalCajas} nota={`${n(r.piezasPlaneadas)} pares`} />
+        <Ficha
+          titulo="Cajas a mandar"
+          valor={desglose.cajasObligatorias}
+          nota={`${n(desglose.paresObligatorios)} pares`}
+        />
+        <Ficha
+          titulo="Cajas opcionales"
+          valor={desglose.cajasOpcionales}
+          nota={
+            desglose.cajasOpcionales > 0
+              ? `${n(desglose.paresOpcionales)} pares extra si las subes todas`
+              : "El plan no necesitó rescates"
+          }
+          tono={desglose.cajasOpcionales > 0 ? "alerta" : "neutro"}
+        />
         <Ficha
           titulo="Pares sugeridos"
           valor={n(r.piezasSugeridas)}
@@ -152,6 +183,15 @@ export default async function Plan() {
           tono={r.ventaPerdidaEstimada > 0 ? "alerta" : "neutro"}
         />
       </div>
+
+      {desglose.totalDeMas > 0 ? (
+        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          Al cerrar cajas completas van <strong className="cifra">{n(desglose.totalDeMas)}</strong>{" "}
+          pares por encima de lo sugerido —{" "}
+          <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de esos viajan en las cajas
+          opcionales. Por talla: <span className="cifra">{textoDeMas(desglose.deMasPorTalla)}</span>
+        </p>
+      ) : null}
 
       {/* ---- Avisos ------------------------------------------------------- */}
       {(pendientes.sinCorrida.length > 0 || pendientes.sinAmarre.length > 0) && (

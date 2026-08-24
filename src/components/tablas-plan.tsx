@@ -34,6 +34,10 @@ export interface FilaCajaPlan {
   cantidad: number;
   cajasDisponibles: number;
   paresTotales: number;
+  /** cuántas de estas cajas son OPCIONALES (rescate de tallas faltantes) */
+  cantidadOpcional: number;
+  /** sobrante por talla si se suben las opcionales, ya como texto */
+  deMas: string;
   aporta: { sku: string; talla: string; paresTotales: number }[];
 }
 
@@ -224,14 +228,30 @@ export function TablasPlan({
                 {cajasFiltradas.map((c) => (
                   <tr key={c.codigo}>
                     <td>
-                      <div className="font-medium">{c.skuCaja}</div>
+                      <div
+                        className="font-medium"
+                        style={c.cantidadOpcional > 0 ? { color: "var(--estado-critico)" } : undefined}
+                      >
+                        {c.skuCaja}
+                      </div>
                       <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
                         {c.modelo} · {c.color}
                       </div>
+                      {c.cantidadOpcional > 0 ? (
+                        <div className="text-[11px]" style={{ color: "var(--estado-critico)" }}>
+                          {c.cantidadOpcional === c.cantidad
+                            ? "OPCIONAL"
+                            : `${c.cantidadOpcional} de ${c.cantidad} opcionales`}
+                          {c.deMas ? ` · sobra ${c.deMas}` : ""}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="text-sm">{c.almacen}</td>
                     <td className="text-sm">{c.esCorrida ? "Corrida" : `Talla ${c.talla}`}</td>
-                    <td className="num cifra font-semibold">
+                    <td
+                      className="num cifra font-semibold"
+                      style={c.cantidadOpcional > 0 ? { color: "var(--estado-critico)" } : undefined}
+                    >
                       {c.cantidad}
                       <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
                         {" "}

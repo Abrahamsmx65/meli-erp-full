@@ -69,6 +69,78 @@ const VIDA_CACHE_MS = 60_000;
  */
 export function invalidarInventario(accountId: string): void {
   cacheInventario.delete(accountId);
+  cacheCatalogo.delete(accountId);
+}
+
+/**
+ * SOLO el catálogo de cajas de bodega (sin cruzar contra Full): lo que el
+ * optimizador necesita para planear un envío. Lo usa el plan de FBA, que
+ * corre sobre las MISMAS cajas físicas que el plan de Full — cada canal ve
+ * todo lo disponible, y lo que un envío registrado aparta desaparece para
+ * los dos en la siguiente sincronización con Industher.
+ */
+const cacheCatalogo = new Map<
+  string,
+  { en: number; datos: Awaited<ReturnType<typeof catalogoBodegaSinCache>> }
+>();
+
+export async function catalogoBodega(db: DB, accountId: string) {
+  const guardado = cacheCatalogo.get(accountId);
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
+  const datos = await catalogoBodegaSinCache(db, accountId);
+  cacheCatalogo.set(accountId, { en: Date.now(), datos });
+  return datos;
+}
+
+async function catalogoBodegaSinCache(db: DB, accountId: string) {
+  const eq = (q: any) => q.eq("account_id", accountId);
+
+  const [skus, corridasRaw, existRaw, mapeoRaw, almacenesRaw] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) => eq(q).eq("activo", true)),
+    traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
+    traerTodo<any>(
+      db,
+      "existencias",
+      "almacen, codigo_almacen, sku_caja, pedido, modelo, color, talla, contenedor, cajas_fisicas, cajas_apartadas, en_camino, cajas_disponibles, pares_por_caja",
+      eq,
+    ),
+    traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
+    traerTodo<any>(db, "almacenes_activos", "almacen, surte_full", eq),
+  ]);
+
+  const corridas: Corrida[] = corridasRaw.map((c) => ({
+    pedido: c.pedido,
+    modelo: c.modelo,
+    color: c.color,
+    tallas: c.tallas ?? {},
+    total: c.total ?? 0,
+  }));
+
+  const existencias: FilaExistencia[] = existRaw.map((e) => ({
+    almacen: e.almacen,
+    codigoAlmacen: e.codigo_almacen ?? "",
+    skuCaja: e.sku_caja,
+    pedido: e.pedido ?? "",
+    modelo: e.modelo,
+    color: e.color ?? "",
+    talla: e.talla,
+    contenedor: e.contenedor ?? "",
+    cajasFisicas: e.cajas_fisicas ?? 0,
+    cajasApartadas: e.cajas_apartadas ?? 0,
+    enCamino: e.en_camino ?? 0,
+    cajasDisponibles: e.cajas_disponibles ?? 0,
+    paresPorCaja: e.pares_por_caja ?? 0,
+    paresDisponibles: 0,
+  }));
+
+  const indice = skus.length ? construirIndice(skus.map((s: any) => s.sku)) : null;
+  const catalogo = construirCajas(existencias, corridas, {
+    indice,
+    mapeoManual: new Map(mapeoRaw.map((m: any) => [m.sku_construido, m.sku_meli])),
+    almacenes: almacenesRaw.filter((a: any) => a.surte_full).map((a: any) => a.almacen),
+  });
+
+  return { catalogo, skus };
 }
 
 export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {

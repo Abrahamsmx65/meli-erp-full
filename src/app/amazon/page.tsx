@@ -7,7 +7,12 @@ import {
   normalizarDias,
 } from "@/lib/servicios/amazon";
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
+import { planFbaConCajas } from "@/lib/servicios/fba-plan";
+import { catalogoBodega } from "@/lib/servicios/inventario";
+import { desglosarOpcionales } from "@/lib/reporte/opcionales";
+import { normalizarParametros } from "@/lib/engine/params";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
+import { CajasFba } from "@/components/cajas-fba";
 import { EnviosFba } from "@/components/envios-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { Ficha } from "@/components/tiles";
@@ -48,28 +53,48 @@ export default async function Amazon({
 
   // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones, totales }, recarga, corridasRaw, skusMeli] = await Promise.all([
-    cargarAmazon(supabase, dias, ""),
-    estadoRecarga(supabase, cuenta.id),
-    cuentaMeli
-      ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
-          q.eq("account_id", cuentaMeli.id),
-        )
-      : Promise.resolve([]),
-    // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
-    // orden) a su modelo+color real: sin él, la corrida no se encuentra.
-    cuentaMeli
-      ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
-          q.eq("account_id", cuentaMeli.id),
-        )
-      : Promise.resolve([]),
-  ]);
-  const sugerencias = sugerirEnvioFba(
+  const [{ renglones, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd] =
+    await Promise.all([
+      cargarAmazon(supabase, dias, ""),
+      estadoRecarga(supabase, cuenta.id),
+      cuentaMeli
+        ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
+            q.eq("account_id", cuentaMeli.id),
+          )
+        : Promise.resolve([]),
+      // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
+      // orden) a su modelo+color real: sin él, la corrida no se encuentra.
+      cuentaMeli
+        ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
+            q.eq("account_id", cuentaMeli.id),
+          )
+        : Promise.resolve([]),
+      cuentaMeli ? catalogoBodega(supabase, cuentaMeli.id) : Promise.resolve(null),
+      cuentaMeli
+        ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+  const indiceMeli = indexarCatalogo(skusMeli);
+  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
+
+  // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
+  const planFba = planFbaConCajas({
     renglones,
     dias,
-    mapaCorridas(corridasRaw),
-    undefined,
-    indexarCatalogo(skusMeli),
+    catalogo: bodega?.catalogo.cajas ?? [],
+    indiceMeli,
+    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+  });
+  const desglose = desglosarOpcionales(
+    planFba.cajas.map((c) => ({
+      codigo: c.codigo,
+      cantidad: c.cantidad,
+      paresPorCaja: c.paresPorCaja,
+      cantidadOpcional: c.cantidadOpcional,
+      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
+    })),
+    planFba.lineas,
   );
 
   return (
@@ -108,6 +133,8 @@ export default async function Amazon({
       </div>
 
       <RecargaAmazon estado={recarga} />
+
+      <CajasFba plan={planFba} desglose={desglose} dias={dias} />
 
       <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>

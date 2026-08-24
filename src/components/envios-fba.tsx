@@ -21,11 +21,12 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 hairline">
         <div>
-          <h2 className="text-base font-semibold">Envíos a FBA</h2>
+          <h2 className="text-base font-semibold">Cobertura y faltantes por producto</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cajas completas por modelo y color para cubrir {OBJETIVO_DIAS_FBA} días al
-            ritmo de venta de los últimos {dias === 365 ? 365 : dias} días. Solo calzado;
-            lo que ya está en FBA y lo que va en camino cuenta a favor.
+            La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA}{" "}
+            días al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado;
+            lo que ya está en FBA y lo que va en camino cuenta a favor. Las cajas
+            reales a mandar son las de arriba.
           </p>
           <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
             <strong className="cifra">{n(sugerencias.length)}</strong> productos ·{" "}
@@ -50,15 +51,6 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
           </p>
         </div>
 
-        {sugerencias.length > 0 ? (
-          <a
-            href={`/api/amazon/envio-excel?dias=${dias}`}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: "var(--acento)" }}
-          >
-            Excel de este envío
-          </a>
-        ) : null}
       </header>
 
       {visibles.length === 0 ? (

@@ -7,6 +7,7 @@ import { separarEnvios } from "@/lib/servicios/envios";
 import { aISO } from "@/lib/engine/fechas";
 import { etiquetaEstadoTexto } from "@/lib/reporte/etiquetas";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -60,6 +61,19 @@ export async function GET(request: NextRequest) {
   }
 
   const cajasPlaneadas = envio ? envio.cajas : plan.cajas;
+
+  // Obligatorias vs. opcionales (rescate de tallas) y el sobrante por talla,
+  // calculado contra lo sugerido del propio plan.
+  const desglose = desglosarOpcionales(
+    cajasPlaneadas.map((c) => ({
+      codigo: c.codigo,
+      cantidad: c.cantidad,
+      paresPorCaja: c.paresPorCaja,
+      cantidadOpcional: Math.min(c.cantidad, c.cantidadOpcional ?? 0),
+      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
+    })),
+    plan.lineas.map((l) => ({ sku: l.sku, sugerido: l.sugerido })),
+  );
   // Cuando se pide un envío en particular, los SKUs que se listan son los que
   // van EN ESE envío; los demás no se están preparando aquí.
   const skusDelEnvio = envio ? new Set(envio.porSku.map((s) => s.sku)) : null;
@@ -104,8 +118,25 @@ export async function GET(request: NextRequest) {
     ["SKUs con quiebre histórico", r.skusConQuiebreHistorico, "Estuvieron agotados 3 días o más"],
     ["", "", ""],
     ["Pares sugeridos", r.piezasSugeridas, "Lo ideal, antes de cuadrar cajas completas"],
-    ["Cajas a mandar", r.totalCajas, ""],
-    ["Pares que viajan", r.piezasPlaneadas, "Lo que de verdad se manda al cerrar cajas"],
+    ["Cajas a mandar (obligatorias)", desglose.cajasObligatorias, "El plan de verdad"],
+    ["Pares que viajan (obligatorias)", desglose.paresObligatorios, "Lo que se manda al cerrar cajas"],
+    [
+      "Cajas OPCIONALES",
+      desglose.cajasOpcionales,
+      "En rojo en la hoja de cajas: rescatan tallas con faltante chico. Tú decides cuáles subir.",
+    ],
+    [
+      "Pares extra si subes todas las opcionales",
+      desglose.paresOpcionales,
+      desglose.deMasEnOpcionales > 0
+        ? `De esos, ${desglose.deMasEnOpcionales} son de más (tallas ya cubiertas)`
+        : "",
+    ],
+    [
+      "Pares de más del plan, por talla",
+      desglose.totalDeMas,
+      textoDeMas(desglose.deMasPorTalla, 12) || "Nada por encima de lo sugerido",
+    ],
     ["Venta perdida estimada", r.ventaPerdidaEstimada, `Pares no vendidos por agotamiento en ${p.diasHistoria} días`],
     ["", "", ""],
     ["Tipos de caja en bodega", catalogo.tiposDeCaja, ""],
@@ -133,6 +164,8 @@ export async function GET(request: NextRequest) {
     { header: "Color", key: "color", width: 18 },
     { header: "Tipo", key: "tipo", width: 12 },
     { header: "Cajas a mandar", key: "cantidad", width: 14 },
+    { header: "De esas, opcionales", key: "opcionales", width: 16 },
+    { header: "Sobra por talla (si la subes)", key: "deMas", width: 34 },
     { header: "Cajas disponibles", key: "disp", width: 16 },
     { header: "Pares por caja", key: "porCaja", width: 13 },
     { header: "Pares totales", key: "pares", width: 13 },
@@ -144,8 +177,11 @@ export async function GET(request: NextRequest) {
     coincide(`${c.skuCaja} ${c.modelo} ${c.color} ${c.almacen}`, terminos),
   );
 
+  const ROJO = { color: { argb: "FFC00000" } } as const;
+
   for (const c of cajasFiltradas) {
-    hCajas.addRow({
+    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+    const fila = hCajas.addRow({
       skuCaja: c.skuCaja,
       almacen: c.almacen,
       pedido: c.pedido,
@@ -153,11 +189,16 @@ export async function GET(request: NextRequest) {
       color: c.color,
       tipo: c.esCorrida ? "Corrida" : `Talla ${c.talla}`,
       cantidad: c.cantidad,
+      opcionales: opcionales || "",
+      deMas: opcionales ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
       disp: c.cajasDisponibles,
       porCaja: c.paresPorCaja,
       pares: c.paresTotales,
       contenedores: c.contenedores.join(", "),
     });
+    // Lo OPCIONAL va en rojo, como se acordó: se ve de lejos qué renglones
+    // puede recortar el que arma el envío.
+    if (opcionales > 0) fila.font = ROJO;
   }
 
   // ------------------------------------------------- CONTENIDO CAJA POR TALLA
@@ -175,8 +216,9 @@ export async function GET(request: NextRequest) {
   encabezar(hPicking);
 
   for (const c of cajasFiltradas) {
+    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
     for (const a of c.aporta) {
-      hPicking.addRow({
+      const fila = hPicking.addRow({
         skuCaja: c.skuCaja,
         almacen: c.almacen,
         cajas: c.cantidad,
@@ -185,6 +227,7 @@ export async function GET(request: NextRequest) {
         porCaja: a.paresPorCaja,
         pares: a.paresTotales,
       });
+      if (opcionales > 0) fila.font = ROJO;
     }
   }
 

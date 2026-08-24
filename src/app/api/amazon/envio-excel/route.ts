@@ -10,6 +10,10 @@ import {
   mapaCorridas,
   sugerirEnvioFba,
 } from "@/lib/servicios/fba";
+import { planFbaConCajas } from "@/lib/servicios/fba-plan";
+import { catalogoBodega } from "@/lib/servicios/inventario";
+import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
+import { normalizarParametros } from "@/lib/engine/params";
 import { aISO } from "@/lib/engine/fechas";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +57,7 @@ export async function GET(request: NextRequest) {
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones }, corridasRaw, skusMeli] = await Promise.all([
+  const [{ renglones }, corridasRaw, skusMeli, bodega, paramsBd] = await Promise.all([
     cargarAmazon(supabase, dias, ""),
     cuentaMeli
       ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
@@ -65,17 +69,33 @@ export async function GET(request: NextRequest) {
           q.eq("account_id", cuentaMeli.id),
         )
       : Promise.resolve([]),
+    cuentaMeli ? catalogoBodega(supabase, cuentaMeli.id) : Promise.resolve(null),
+    cuentaMeli
+      ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
-  const sugerencias = sugerirEnvioFba(
+  const indiceMeli = indexarCatalogo(skusMeli);
+  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
+  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
+
+  // Las cajas REALES de bodega, con el mismo motor que los envíos a Full.
+  const planFba = planFbaConCajas({
     renglones,
     dias,
-    mapaCorridas(corridasRaw),
-    undefined,
-    indexarCatalogo(skusMeli),
+    catalogo: bodega?.catalogo.cajas ?? [],
+    indiceMeli,
+    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+  });
+  const desglose = desglosarOpcionales(
+    planFba.cajas.map((c) => ({
+      codigo: c.codigo,
+      cantidad: c.cantidad,
+      paresPorCaja: c.paresPorCaja,
+      cantidadOpcional: c.cantidadOpcional,
+      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
+    })),
+    planFba.lineas,
   );
-  const totalCajas = sugerencias.reduce((a, s) => a + s.cajas, 0);
-  const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
-  const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Planeador de envíos a FBA";
@@ -97,8 +117,30 @@ export async function GET(request: NextRequest) {
     ["Cobertura objetivo", `${OBJETIVO_DIAS_FBA} días`, "Cuánta venta quieres tener en FBA"],
     ["", "", ""],
     ["Productos por reponer", sugerencias.length, "Solo calzado (GT, MY, YH, G650)"],
-    ["Cajas", totalCajas, "Cajas completas: no se abren"],
-    ["Pares", totalPares, ""],
+    ["Pares sugeridos", planFba.paresSugeridos, "El faltante exacto por talla"],
+    ["Cajas a mandar (obligatorias)", desglose.cajasObligatorias, "Cajas reales de bodega, del mismo motor que Full"],
+    ["Pares que viajan (obligatorias)", desglose.paresObligatorios, ""],
+    [
+      "Cajas OPCIONALES",
+      desglose.cajasOpcionales,
+      "En rojo en la hoja de cajas: rescatan tallas con faltante chico. Tú decides cuáles subir.",
+    ],
+    ["Pares extra si subes todas las opcionales", desglose.paresOpcionales, ""],
+    [
+      "Pares de más del plan, por talla",
+      desglose.totalDeMas,
+      textoDeMas(desglose.deMasPorTalla, 12) || "Nada por encima de lo sugerido",
+    ],
+    [
+      "Faltante sin caja en bodega",
+      planFba.sinCajaEnBodega.reduce((a, f) => a + f.pares, 0),
+      "Pares que faltan y ninguna caja disponible trae",
+    ],
+    [
+      "SKUs de Amazon sin amarre a MELI",
+      planFba.sinAmarre.length,
+      planFba.sinAmarre.slice(0, 6).map((s) => s.sku).join(", "),
+    ],
     [
       "Urgentes",
       urgentes,
@@ -108,8 +150,49 @@ export async function GET(request: NextRequest) {
   for (const [c, v, nota] of filasResumen) hResumen.addRow({ c, v, n: nota });
   hResumen.getColumn("c").font = { bold: false };
 
+  // ------------------------------------------------------------ CAJAS A MANDAR
+  const hCajas = wb.addWorksheet("Cajas a mandar");
+  hCajas.columns = [
+    { header: "SKU de caja", key: "skuCaja", width: 30 },
+    { header: "Almacén", key: "almacen", width: 14 },
+    { header: "Pedido", key: "pedido", width: 12 },
+    { header: "Modelo", key: "modelo", width: 12 },
+    { header: "Color", key: "color", width: 18 },
+    { header: "Tipo", key: "tipo", width: 12 },
+    { header: "Cajas a mandar", key: "cantidad", width: 14 },
+    { header: "De esas, opcionales", key: "opcionales", width: 16 },
+    { header: "Sobra por talla (si la subes)", key: "deMas", width: 34 },
+    { header: "Cajas disponibles", key: "disp", width: 16 },
+    { header: "Pares por caja", key: "porCaja", width: 13 },
+    { header: "Pares totales", key: "pares", width: 13 },
+    { header: "Contenido por talla", key: "contenido", width: 40 },
+  ];
+  encabezar(hCajas);
+
+  const ROJO = { color: { argb: "FFC00000" } } as const;
+  for (const c of planFba.cajas) {
+    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+    const fila = hCajas.addRow({
+      skuCaja: c.skuCaja,
+      almacen: c.almacen,
+      pedido: c.pedido,
+      modelo: c.modelo,
+      color: c.color,
+      tipo: c.esCorrida ? "Corrida" : `Talla ${c.talla}`,
+      cantidad: c.cantidad,
+      opcionales: opcionales || "",
+      deMas: opcionales ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
+      disp: c.cajasDisponibles,
+      porCaja: c.paresPorCaja,
+      pares: c.paresTotales,
+      contenido: c.aporta.map((a) => `${a.talla}:${a.paresTotales}`).join("  "),
+    });
+    // Lo OPCIONAL en rojo, igual que en el Excel de envíos a Full.
+    if (opcionales > 0) fila.font = ROJO;
+  }
+
   // ------------------------------------------------------------ ENVÍO A FBA
-  const hEnvio = wb.addWorksheet("Envío a FBA");
+  const hEnvio = wb.addWorksheet("Cobertura por producto");
   hEnvio.columns = [
     { header: "Modelo", key: "modelo", width: 12 },
     { header: "Color", key: "color", width: 18 },
