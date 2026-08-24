@@ -61,7 +61,16 @@ export interface CajaGuardada {
   aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
 }
 
+/**
+ * Versión del MOTOR de cálculo. Se sube a mano cuando cambia la matemática
+ * del plan (demanda, cajas, reabasto): un plan cacheado con versión vieja
+ * se marca no vigente y el latido lo recalcula solo. Sin esto, un deploy
+ * que corrige el motor seguía sirviendo números del motor anterior.
+ */
+export const VERSION_MOTOR = "2026-08-24.1";
+
 export interface PlanGuardado {
+  versionMotor?: string;
   generadoEn: string;
   parametros: Parametros;
   resumen: ResumenPlan;
@@ -185,10 +194,19 @@ export async function obtenerPlan(
       .maybeSingle();
 
     if (data?.datos) {
+      const plan = data.datos as PlanGuardado;
+      const motorViejo = plan.versionMotor !== VERSION_MOTOR;
+      if (motorViejo && (data.vigente ?? true)) {
+        // Se persiste para que el latido lo recalcule solo (mira la columna).
+        await db
+          .from("plan_cache")
+          .update({ vigente: false, motivo: "El motor de cálculo se actualizó." })
+          .eq("account_id", accountId);
+      }
       return {
-        plan: data.datos as PlanGuardado,
-        vigente: data.vigente ?? true,
-        motivo: data.motivo ?? null,
+        plan,
+        vigente: motorViejo ? false : data.vigente ?? true,
+        motivo: motorViejo ? "El motor de cálculo se actualizó." : data.motivo ?? null,
         msCalculo: data.ms_calculo ?? null,
         recienCalculado: false,
       };
@@ -202,6 +220,7 @@ export async function recalcular(db: DB, accountId: string): Promise<PlanConEsta
   const t0 = Date.now();
   const completo = await generarPlanCompleto(db, accountId);
   const plan = aplanar(completo);
+  plan.versionMotor = VERSION_MOTOR;
   const ms = Date.now() - t0;
 
   const { error } = await db.from("plan_cache").upsert(

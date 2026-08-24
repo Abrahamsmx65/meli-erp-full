@@ -120,6 +120,18 @@ export function calcularDemanda(
     notas.push("Sin buckets con días útiles: se usa la tasa corregida global.");
   }
 
+  // El MISMO techo global aplica al ponderado. Sin esto, el tope de 3× solo
+  // protegía el fallback: un SKU con 1 venta y 89 días agotado quedaba con
+  // demanda 9× la observada (su único bucket útil extrapolaba 3× SOBRE 30
+  // días y los buckets vacíos ni pesaban en el promedio) — el plan lo
+  // marcaba crítico y pedía cajas para una venta que nunca existió.
+  if (tasaObservada > EPS && tasaPonderada > techo) {
+    tasaPonderada = techo;
+    notas.push(
+      `Demanda topada en ${p.factorCorreccionMax}× lo observado en la ventana completa.`,
+    );
+  }
+
   // --- Tendencia ----------------------------------------------------------
   let factorTendencia = 1;
   if (p.aplicarTendencia && buckets.length >= 2) {

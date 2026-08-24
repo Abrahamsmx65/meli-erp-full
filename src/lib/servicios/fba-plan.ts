@@ -121,11 +121,8 @@ export function planFbaConCajas(opts: {
     pesoSobrante: p.pesoSobrante,
   });
 
-  // Igual que el plan de Full: el dato de opcionales se toma ANTES de
-  // reasignar bodegas, porque la reasignación no lo conserva.
-  const opcionalPorCodigo = new Map(
-    resultado.cajas.map((c) => [c.codigo, c.cantidadOpcional ?? 0]),
-  );
+  // Igual que el plan de Full: la marca de opcional viaja DENTRO de la
+  // reasignación (por firma de contenido), porque el código cambia.
   const reasignadas = reasignarPorBodega(resultado.cajas, catalogo);
 
   const porCodigo = new Map(catalogo.map((c) => [c.codigo, c]));
@@ -147,10 +144,7 @@ export function planFbaConCajas(opts: {
         esCorrida: def.esCorrida,
         contenedores: def.contenedores,
         cajasDisponibles: def.cajasDisponibles,
-        cantidadOpcional: Math.min(
-          elegida.cantidad,
-          opcionalPorCodigo.get(elegida.codigo) ?? 0,
-        ),
+        cantidadOpcional: Math.min(elegida.cantidad, elegida.cantidadOpcional ?? 0),
         aporta: def.detalle.map((d) => ({
           sku: d.sku,
           talla: d.talla,

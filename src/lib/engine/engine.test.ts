@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generarDatosDemo, SKUS_DEMO } from "../demo";
 import { generarPlan } from "./index";
+import { calcularDemanda } from "./demand";
 import { optimizarCajas } from "./boxes";
 import { prioridadSobrante } from "./replenish";
 import { normalizarParametros } from "./params";
@@ -72,6 +73,22 @@ describe("corrección de demanda por agotamiento", () => {
     // Sin corregir daría 600/90 = 6.67. Corregido debe dar ~10.
     expect(tasa).toBeGreaterThan(9.5);
     expect(tasa).toBeLessThan(10.5);
+  });
+
+  it("el techo global de 3× también gobierna la demanda final (1 venta, 89 días agotado)", () => {
+    // El caso real que infló el plan: un día con stock y una venta, el resto
+    // agotado. El bucket útil extrapolaba 3× SOBRE sus 30 días (0.1/día) y
+    // los buckets vacíos ni pesaban: demandaDiaria salía 9× la observada.
+    const dias: DiaStock[] = [];
+    dias.push(dia({ fecha: "2026-05-19", inicio: 1, fin: 0, unidades: 1 }));
+    for (let i = 1; i < 90; i++) {
+      dias.push(dia({ fecha: sumarDias("2026-05-19", i), inicio: 0, fin: 0, unidades: 0 }));
+    }
+
+    const d = calcularDemanda("SKU-PRUEBA", dias, normalizarParametros({}));
+    // tasaObservada = 1/90 ≈ 0.0111; el techo global es 3× eso.
+    expect(d.demandaDiaria).toBeLessThanOrEqual(d.tasaObservada * 3 + 1e-9);
+    expect(d.demandaDiaria).toBeLessThan(0.05);
   });
 });
 
