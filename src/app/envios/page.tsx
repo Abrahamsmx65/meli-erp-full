@@ -2,10 +2,12 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
-import { separarEnvios } from "@/lib/servicios/envios";
+import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
+import { enviosPendientesIndusther } from "@/lib/servicios/industher-pendientes";
 import { Ficha } from "@/components/tiles";
 import { EnviosSeparados } from "@/components/envios-separados";
+import { PendientesIndusther } from "@/components/pendientes-industher";
 import { EnviosEnCamino } from "@/components/envios-en-camino";
 import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
 import {
@@ -34,10 +36,12 @@ export default async function Plan() {
     );
   }
 
-  // El plan y los envíos registrados no dependen uno del otro: en paralelo.
-  const [estado, enCamino] = await Promise.all([
+  // El plan, los envíos registrados y los pendientes de la bodega no
+  // dependen uno del otro: en paralelo, todo del lado del servidor.
+  const [estado, enCamino, pendientesBodega] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     enviosParaPantalla(supabase, cuenta.id),
+    enviosPendientesIndusther(supabase, cuenta.id),
   ]);
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
@@ -81,6 +85,13 @@ export default async function Plan() {
   // alta: uno por dirección de recolección.
   const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
 
+  // Doble verificación del envío, calculada en el servidor: stock, cajas
+  // repetidas, cuadre de pares y solape con lo que la bodega ya apartó.
+  const verificacion = verificarEnvios(
+    envios,
+    pendientesBodega.envios.filter((e) => e.esMeli && !e.omitido),
+  );
+
 
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
@@ -115,6 +126,9 @@ export default async function Plan() {
         motivo={estado.motivo}
         msCalculo={estado.msCalculo}
       />
+
+      {/* ---- Envíos que la bodega ya apartó para MELI --------------------- */}
+      <PendientesIndusther envios={pendientesBodega.envios} error={pendientesBodega.error} />
 
       {/* ---- Cifras de cabecera ------------------------------------------ */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -207,6 +221,7 @@ export default async function Plan() {
             cantidad: c.cantidad,
             cajasDisponibles: c.cajasDisponibles,
             paresTotales: c.paresTotales,
+            cantidadOpcional: c.cantidadOpcional,
             aporta: c.aporta.map((a) => ({
               sku: a.sku,
               talla: a.talla,
@@ -216,6 +231,26 @@ export default async function Plan() {
         }))}
         sinConfigurar={sinConfigurar}
       />
+
+      {/* ---- Doble verificación del envío --------------------------------- */}
+      {envios.length ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">Verificación del envío</h2>
+          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+            {verificacion.map((v, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span
+                  aria-hidden="true"
+                  style={{ color: v.ok ? "var(--exito-texto)" : "var(--estado-alerta)" }}
+                >
+                  {v.ok ? "✓" : "⚠"}
+                </span>
+                <span style={{ color: v.ok ? "var(--ink-2)" : "var(--ink-1)" }}>{v.texto}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <TablasPlan
         lineas={filasSku}

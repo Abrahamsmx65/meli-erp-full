@@ -56,6 +56,8 @@ export interface CajaGuardada {
   paresPorCaja: number;
   paresTotales: number;
   contenedores: string[];
+  /** cuántas de estas cajas van como OPCIONALES (rescate de talla faltante) */
+  cantidadOpcional?: number;
   aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
 }
 
@@ -134,6 +136,7 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
       paresPorCaja: c.paresPorCaja,
       paresTotales: c.paresTotales,
       contenedores: c.contenedores,
+      cantidadOpcional: c.cantidadOpcional,
       aporta: c.aporta,
     })),
   };

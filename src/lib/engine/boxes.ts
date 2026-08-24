@@ -239,6 +239,63 @@ export function optimizarCajas(e: Entrada): PlanCajas {
     }
   }
 
+  // ---- Fase 2.5: rescate de tallas faltantes ------------------------------
+  // Regla del negocio: NUNCA se deja de mandar una talla que falta solo
+  // porque las demás tallas de su caja van a sobrar. Si el optimizador dejó
+  // faltantes que alguna caja disponible sí trae, esas cajas se fuerzan; y
+  // cuando casi toda la caja es sobrante ("muy diferencial"), la caja entra
+  // marcada como OPCIONAL para que el usuario decida si la sube.
+  const opcionales = new Map<string, number>();
+  const sinRemedio = new Set<string>();
+  for (let vuelta = 0; vuelta < topeIteraciones; vuelta++) {
+    // El SKU pedido con el faltante más grande, medido en días de venta.
+    let skuFalta: string | null = null;
+    let peorDias = 0.25; // faltantes de menos de ~un cuarto de día se toleran
+    for (const s of e.necesidad.keys()) {
+      if (sinRemedio.has(s)) continue;
+      const falta = nec(s) - (enviado.get(s) ?? 0);
+      if (falta <= 0) continue;
+      const diasFalta = falta / Math.max(dem(s), 0.5);
+      if (diasFalta > peorDias) {
+        peorDias = diasFalta;
+        skuFalta = s;
+      }
+    }
+    if (!skuFalta) break;
+
+    // La caja que lo trae con la MAYOR fracción de piezas útiles (que tapan
+    // faltantes reales de cualquier SKU) y la menor de sobrante.
+    let mejor: Caja | null = null;
+    let mejorPuntaje = -Infinity;
+    for (const c of cajasPorSku.get(skuFalta) ?? []) {
+      if (!cabe(c)) continue;
+      let utiles = 0;
+      let piezas = 0;
+      for (const it of c.items) {
+        piezas += it.piezas;
+        const falta = Math.max(0, nec(it.sku) - (enviado.get(it.sku) ?? 0));
+        utiles += Math.min(falta, it.piezas);
+      }
+      const puntaje = piezas > 0 ? utiles / piezas : 0;
+      if (puntaje > mejorPuntaje) {
+        mejorPuntaje = puntaje;
+        mejor = c;
+      }
+    }
+    if (!mejor) {
+      // Ninguna caja disponible trae esta talla (o ya no cabe): de verdad
+      // no se puede, y se sigue con el siguiente faltante.
+      sinRemedio.add(skuFalta);
+      continue;
+    }
+
+    aplicar(mejor, 1);
+    // "Muy diferencial": menos del 35% de la caja tapa faltantes reales.
+    if (mejorPuntaje < 0.35) {
+      opcionales.set(mejor.codigo, (opcionales.get(mejor.codigo) ?? 0) + 1);
+    }
+  }
+
   // ---- Fase 3: piezas sueltas para cerrar el hueco -----------------------
   const sueltas: { sku: string; piezas: number }[] = [];
   if (e.permiteUnidadesSueltas) {
@@ -269,6 +326,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
         cantidad,
         piezasPorCaja,
         aporta: c.items.map((it) => ({ sku: it.sku, piezas: it.piezas * cantidad })),
+        cantidadOpcional: opcionales.get(c.codigo) ?? 0,
       };
     })
     .sort((a, b) => b.cantidad * b.piezasPorCaja - a.cantidad * a.piezasPorCaja);

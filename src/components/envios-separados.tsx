@@ -15,6 +15,8 @@ interface Caja {
   /** cuántas cajas de este tipo hay en bodega, para saber si quedan */
   cajasDisponibles: number;
   paresTotales: number;
+  /** cajas que entraron por el rescate de una talla faltante: el usuario decide */
+  cantidadOpcional?: number;
   aporta: { sku: string; talla: string; paresTotales: number }[];
 }
 
@@ -179,7 +181,21 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
                         c.talla
                       )}
                     </td>
-                    <td className="num cifra font-semibold">{n(c.cantidad)}</td>
+                    <td className="num cifra font-semibold">
+                      {n(c.cantidad)}
+                      {c.cantidadOpcional ? (
+                        <span
+                          className="ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                          style={{
+                            background: "color-mix(in oklab, var(--estado-alerta) 18%, transparent)",
+                            color: "var(--ink-1)",
+                          }}
+                          title="Entraron para no dejar sin surtir una talla que falta, aunque las demás tallas de la caja sobren. Tú decides si las subes."
+                        >
+                          {n(c.cantidadOpcional)} opc.
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
                       {n(c.cajasDisponibles)}
                     </td>

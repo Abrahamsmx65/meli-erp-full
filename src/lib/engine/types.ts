@@ -185,6 +185,12 @@ export interface CajaElegida {
   cantidad: number;
   piezasPorCaja: number;
   aporta: { sku: string; piezas: number }[];
+  /**
+   * Cuántas de estas cajas entraron por el RESCATE de tallas faltantes con
+   * la caja mayormente sobrante ("muy diferencial"): van al envío marcadas
+   * como opcionales para que el usuario decida si las sube o no.
+   */
+  cantidadOpcional?: number;
 }
 
 export interface PlanCajas {

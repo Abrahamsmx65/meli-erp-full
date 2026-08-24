@@ -11,6 +11,10 @@ import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAm
 import { construirIndice } from "../importar/sku";
 import { cargarInsumos, type DB } from "../datos/repos";
 import { enviosActivos, sumarEnCamino } from "./envios-registrados";
+import {
+  enCaminoDesdePendientes,
+  enviosPendientesIndusther,
+} from "./industher-pendientes";
 
 export interface CajaPlaneada {
   codigo: string;
@@ -26,6 +30,8 @@ export interface CajaPlaneada {
   esCorrida: boolean;
   contenedores: string[];
   cajasDisponibles: number;
+  /** cuántas de estas cajas entraron por el rescate y van como OPCIONALES */
+  cantidadOpcional: number;
   /** qué SKUs y cuántos pares aporta este bloque de cajas */
   aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
 }
@@ -195,6 +201,36 @@ export async function generarPlanCompleto(
     sumarEnCamino(insumos.stockActual, enCamino);
   }
 
+  // Los envíos pendientes que la bodega (Industher) ya apartó para MELI
+  // (id que empieza con 7 u 8) también cuentan como en camino, salvo los
+  // que el usuario tachó. Mismo criterio del MÁXIMO que arriba: cuando
+  // MELI ya los reporta en tránsito, no se cuentan doble. Si el API no
+  // contesta, el plan sigue sin ellos.
+  try {
+    const pendientes = await enviosPendientesIndusther(db, accountId);
+    const porSku = enCaminoDesdePendientes(pendientes);
+    if (porSku.size) {
+      const stockPorSku = new Map(insumos.stockActual.map((s) => [s.sku, s]));
+      for (const [sku, pares] of porSku) {
+        const s = stockPorSku.get(sku);
+        if (s) {
+          s.enTransferencia = Math.max(s.enTransferencia, pares);
+          s.total = s.disponible + s.enTransferencia + s.noDisponible;
+        } else {
+          insumos.stockActual.push({
+            sku,
+            disponible: 0,
+            enTransferencia: pares,
+            noDisponible: 0,
+            total: pares,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("enviosPendientesIndusther:", (err as Error).message);
+  }
+
   // El catálogo real de MELI es la autoridad sobre qué SKU existe.
   const indice = insumos.skus.length
     ? construirIndice(insumos.skus.map((s) => s.sku))
@@ -221,6 +257,12 @@ export async function generarPlanCompleto(
     parametros: p,
     hoy,
   });
+
+  // Qué cajas entraron como opcionales (rescate de tallas faltantes), por
+  // código, ANTES de reasignar bodegas: la reasignación no conserva el dato.
+  const opcionalPorCodigo = new Map(
+    plan.cajas.cajas.map((c) => [c.codigo, c.cantidadOpcional ?? 0]),
+  );
 
   // La misma caja disponible en dos bodegas debe salir de la preferida:
   // el optimizador no distingue bodegas, esta pasada sí.
@@ -250,6 +292,10 @@ export async function generarPlanCompleto(
         esCorrida: def.esCorrida,
         contenedores: def.contenedores,
         cajasDisponibles: def.cajasDisponibles,
+        cantidadOpcional: Math.min(
+          elegida.cantidad,
+          opcionalPorCodigo.get(elegida.codigo) ?? 0,
+        ),
         aporta: def.detalle.map((d) => ({
           sku: d.sku,
           talla: d.talla,

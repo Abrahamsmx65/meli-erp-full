@@ -149,6 +149,29 @@ export function calcularDemanda(
     }
   }
 
+  // --- Tendencia corta: la última semana ----------------------------------
+  // La tendencia de arriba compara bloques de 30 días; esta mira los últimos
+  // 7 para reaccionar a lo que cambia día con día. Solo EMPUJA hacia arriba
+  // (nunca baja la demanda): si la semana corre más fuerte que el mes, el
+  // plan lo ve hoy y no hasta que el bucket mensual lo alcance. Se adelanta
+  // la mitad del empuje: una semana buena cuenta, pero no manda sola.
+  if (p.aplicarTendencia && dias.length >= 10) {
+    const ultimos7 = dias.slice(-7);
+    const efectivos7 = ultimos7.reduce((a, d) => a + d.fraccionConStock, 0);
+    const unidades7 = ultimos7.reduce((a, d) => a + d.unidades, 0);
+    if (efectivos7 >= 3) {
+      const tasa7 = unidades7 / efectivos7;
+      const base = tasaPonderada * factorTendencia;
+      if (base > EPS && tasa7 > base * 1.15) {
+        const empuje = clamp(tasa7 / base, 1, p.tendenciaMax);
+        factorTendencia *= 1 + (empuje - 1) * 0.5;
+        notas.push(
+          `La última semana corre +${((empuje - 1) * 100).toFixed(0)}% arriba del promedio: se adelanta la mitad del empuje.`,
+        );
+      }
+    }
+  }
+
   // --- Demanda final ------------------------------------------------------
   const temporada = override?.factorTemporada ?? 1;
   let demandaDiaria = tasaPonderada * factorTendencia * temporada;

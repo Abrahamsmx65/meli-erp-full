@@ -125,3 +125,94 @@ export async function separarEnvios(
 
   return { envios, sinConfigurar: [...sinConfigurar].sort() };
 }
+
+export interface PuntoVerificacion {
+  ok: boolean;
+  texto: string;
+}
+
+/**
+ * Doble verificación de los envíos armados, ANTES de darlos de alta: que
+ * ninguna caja pida más de las que hay, que ninguna caja esté repetida entre
+ * envíos, que los pares cuadren, y que nada de lo que va se esté duplicando
+ * con un envío pendiente que la bodega ya apartó.
+ */
+export function verificarEnvios(
+  envios: EnvioSeparado[],
+  pendientesMeli: { id: string; filas: { sku: string; cantidad: number }[] }[] = [],
+): PuntoVerificacion[] {
+  const puntos: PuntoVerificacion[] = [];
+
+  // 1. Stock: ninguna caja pide más de las disponibles.
+  const excedidas: string[] = [];
+  for (const e of envios) {
+    for (const c of e.cajas) {
+      if (c.cantidad > c.cajasDisponibles) {
+        excedidas.push(`${c.modelo} ${c.color} (${c.cantidad} de ${c.cajasDisponibles})`);
+      }
+    }
+  }
+  puntos.push(
+    excedidas.length
+      ? {
+          ok: false,
+          texto: `Hay cajas pedidas de más: ${excedidas.slice(0, 4).join(", ")}${excedidas.length > 4 ? "…" : ""}.`,
+        }
+      : { ok: true, texto: "Ninguna caja pide más de las que hay en bodega." },
+  );
+
+  // 2. Duplicados: la misma caja no puede ir en dos envíos.
+  const grupoDeCaja = new Map<string, string>();
+  const duplicadas: string[] = [];
+  for (const e of envios) {
+    for (const c of e.cajas) {
+      const antes = grupoDeCaja.get(c.codigo);
+      if (antes && antes !== e.grupo) duplicadas.push(`${c.modelo} ${c.color} ${c.talla}`);
+      grupoDeCaja.set(c.codigo, e.grupo);
+    }
+  }
+  puntos.push(
+    duplicadas.length
+      ? { ok: false, texto: `La misma caja aparece en dos envíos: ${duplicadas.slice(0, 4).join(", ")}.` }
+      : { ok: true, texto: "Ninguna caja está repetida entre envíos." },
+  );
+
+  // 3. Cuadre: los pares del envío == la suma de sus SKUs.
+  const descuadrados = envios.filter(
+    (e) => Math.abs(e.totalPares - e.porSku.reduce((a, s) => a + s.pares, 0)) > 0,
+  );
+  puntos.push(
+    descuadrados.length
+      ? {
+          ok: false,
+          texto: `Los pares no cuadran en: ${descuadrados.map((e) => e.nombre).join(", ")}.`,
+        }
+      : { ok: true, texto: "Los pares de cada envío cuadran con su detalle por SKU." },
+  );
+
+  // 4. Contra lo ya apartado: si un SKU del plan también viene en un envío
+  //    pendiente de la bodega, puede ser el MISMO envío contado dos veces.
+  if (pendientesMeli.length) {
+    const enPendientes = new Map<string, string>();
+    for (const p of pendientesMeli) {
+      for (const f of p.filas) enPendientes.set(f.sku, p.id);
+    }
+    const solapados: string[] = [];
+    for (const e of envios) {
+      for (const s of e.porSku) {
+        const id = enPendientes.get(s.sku);
+        if (id) solapados.push(`${s.sku} (pendiente ${id})`);
+      }
+    }
+    puntos.push(
+      solapados.length
+        ? {
+            ok: false,
+            texto: `Ojo: estos SKUs también van en un envío pendiente de la bodega — revisa que no se duplique: ${[...new Set(solapados)].slice(0, 5).join(", ")}.`,
+          }
+        : { ok: true, texto: "Nada del plan se solapa con los envíos pendientes de la bodega." },
+    );
+  }
+
+  return puntos;
+}
