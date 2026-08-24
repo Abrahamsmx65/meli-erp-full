@@ -76,10 +76,9 @@ bodega en MELI por inventario que no se va a mover.
 
 ### 1. Base de datos (Supabase)
 
-Corre las migraciones de `supabase/migrations/` en orden, desde el SQL Editor:
-
-1. `0001_esquema.sql`
-2. `0002_rls.sql`
+Corre **todas** las migraciones de `supabase/migrations/` en orden numérico,
+desde el SQL Editor. Antes de desplegar una versión nueva, aplica primero
+cualquier migración que esa versión agregue.
 
 RLS queda activo en todo. Los tokens de MELI viven en `meli_tokens`, que tiene
 RLS **sin políticas**: solo el backend con `service_role` puede leerlos, nunca
@@ -111,10 +110,15 @@ Copia `.env.example` a `.env.local` (y cárgalas en Vercel):
 ### 4. Deploy
 
 ```bash
-npm install
-npm test          # 38 pruebas, varias contra los archivos reales
+npm ci
+npm test
+npm run typecheck
 npm run build
 ```
+
+`npm run build` ejecuta antes, de forma automática, todas las pruebas y el
+typecheck. Así cada preview y despliegue de Vercel se detiene antes de compilar
+si cualquiera de esos controles falla, sin necesitar secretos de producción.
 
 Sube a Vercel. `vercel.json` ya deja programada la sincronización diaria a las
 7:00 de la mañana (hora del centro de México).

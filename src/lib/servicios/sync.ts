@@ -17,7 +17,13 @@ import {
 } from "../meli/sync";
 import { aISO, sumarDias } from "../engine/fechas";
 import { obtenerVentas, claveItem } from "../meli/sync";
-import { cerrarSync, registrarSync, upsertEnTandas, type DB } from "../datos/repos";
+import {
+  cerrarSync,
+  conCandado,
+  registrarSync,
+  upsertEnTandas,
+  type DB,
+} from "../datos/repos";
 import { invalidar } from "./cache";
 
 export interface ResultadoSync {
@@ -104,7 +110,7 @@ export async function guardarVentasDiarias(
   }
 }
 
-export async function sincronizar(
+async function ejecutarSincronizacion(
   db: DB,
   accountId: string,
   opts?: { diasHistoria?: number; soloStock?: boolean },
@@ -482,4 +488,19 @@ export async function sincronizar(
     await cerrarSync(db, logId, "error", { mensaje, errores });
     throw err;
   }
+}
+
+export async function sincronizar(
+  db: DB,
+  accountId: string,
+  opts?: { diasHistoria?: number; soloStock?: boolean },
+): Promise<ResultadoSync> {
+  return conCandado(
+    db,
+    accountId,
+    "meli_sync",
+    10 * 60,
+    () => ejecutarSincronizacion(db, accountId, opts),
+    "Ya hay una sincronización de Mercado Libre en curso. Espera a que termine.",
+  );
 }

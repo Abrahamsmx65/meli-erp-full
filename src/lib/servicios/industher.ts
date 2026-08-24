@@ -14,7 +14,7 @@
  */
 import { canonizar, normalizarTalla } from "../importar/sku";
 import type { FilaExistencia } from "../importar/excel";
-import { upsertEnTandas, type DB } from "../datos/repos";
+import { reemplazarExistencias, type DB } from "../datos/repos";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
 
@@ -568,16 +568,7 @@ export async function sincronizarInventarioIndusther(
     );
   }
 
-  // Foto nueva de estos almacenes: fuera la anterior.
-  const { error: errorBorrado } = await db
-    .from("existencias")
-    .delete()
-    .eq("account_id", accountId)
-    .in("almacen", inv.almacenes);
-  if (errorBorrado) throw new Error(`existencias: ${errorBorrado.message}`);
-
   const filas = inv.filas.map((f) => ({
-    account_id: accountId,
     almacen: f.almacen,
     codigo_almacen: f.codigoAlmacen,
     sku_caja: f.skuCaja,
@@ -593,19 +584,7 @@ export async function sincronizarInventarioIndusther(
     pares_por_caja: f.paresPorCaja,
   }));
 
-  await upsertEnTandas(db, "existencias", filas, "account_id,almacen,sku_caja,talla,contenedor");
-
-  // Igual que en el Excel: un almacén nuevo entra surtiendo a Full por omisión.
-  const almacenes = inv.almacenes.map((a) => ({
-    account_id: accountId,
-    almacen: a,
-    surte_full: true,
-  }));
-  if (almacenes.length) {
-    await db
-      .from("almacenes_activos")
-      .upsert(almacenes, { onConflict: "account_id,almacen", ignoreDuplicates: true });
-  }
+  await reemplazarExistencias(db, accountId, inv.almacenes, filas, false);
 
   invalidarInventario(accountId);
   await invalidar(db, accountId, "Se sincronizó el inventario desde el API de Industher.");
