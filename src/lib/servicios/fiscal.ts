@@ -175,6 +175,39 @@ export function construirMutacion(sku: string, valores: ValoresFiscales): string
 }`;
 }
 
+/**
+ * Alta de un registro fiscal que NO existe. El update de MELI contesta
+ * "Fiscal Information ... not found" cuando el SKU nunca ha tenido datos:
+ * ahí el camino es createFiscalInformationMLM, con el SKU dentro del input y
+ * la descripción tomada del título real de la publicación (los registros que
+ * MELI ya guarda usan exactamente eso).
+ */
+export function construirMutacionAlta(
+  sku: string,
+  valores: ValoresFiscales,
+  descripcion: string | null,
+): string {
+  const input: string[] = [`sku: ${JSON.stringify(sku)}`];
+  if (valores.sat !== undefined) input.push(`sat: ${JSON.stringify(valores.sat)}`);
+  if (valores.iva !== undefined) input.push(`iva: ${JSON.stringify(valores.iva)}`);
+  if (valores.ieps !== undefined) input.push(`ieps: ${JSON.stringify(valores.ieps)}`);
+  if (valores.unidad !== undefined) {
+    input.push(`measureUnit: ${JSON.stringify(valores.unidad)}`);
+    input.push(
+      `measureUnitDescription: ${JSON.stringify(
+        DESCRIPCION_UNIDAD[valores.unidad] ?? valores.unidad,
+      )}`,
+    );
+  }
+  if (descripcion) input.push(`description: ${JSON.stringify(descripcion.slice(0, 120))}`);
+  return `mutation {
+  createFiscalInformationMLM(input: { ${input.join(", ")} }) {
+    __typename
+    ... on FiscalInformationMLM { sku sat iva ieps measureUnit measureUnitDescription }
+  }
+}`;
+}
+
 /** Unidades del catálogo c_ClaveUnidad del SAT que se usan en calzado. */
 export const DESCRIPCION_UNIDAD: Record<string, string> = {
   H87: "UN",
@@ -418,6 +451,26 @@ export async function enviarFiscalPendiente(
     fallidos: 0,
     restantes: cola?.length ?? 0,
   };
+  if (!cola?.length) return resultado;
+
+  // Títulos del catálogo: la ALTA de un registro fiscal lleva descripción y
+  // se usa el título real de la publicación, como en los registros de MELI.
+  const catalogo = await traerTodo<{ sku: string; titulo: string | null }>(
+    db,
+    "skus",
+    "sku, titulo",
+    (q) => q.eq("account_id", accountId),
+  );
+  const titulos = new Map(catalogo.map((s) => [s.sku, s.titulo]));
+
+  const ejecutar = async (query: string) => {
+    const r = (await cliente.post(RUTA_FISCAL, { query })) as {
+      errors?: { message?: string }[];
+    };
+    if (r?.errors?.length) {
+      throw new Error(r.errors.map((e) => e.message ?? "").join("; ").slice(0, 400));
+    }
+  };
 
   for (const fila of cola ?? []) {
     if (!sigue()) break;
@@ -429,12 +482,17 @@ export async function enviarFiscalPendiente(
 
     const ahora = new Date().toISOString();
     try {
-      const respuesta = (await cliente.post(RUTA_FISCAL, {
-        query: construirMutacion(fila.sku as string, valores),
-      })) as { errors?: { message?: string }[] };
-      if (respuesta?.errors?.length) {
-        throw new Error(
-          respuesta.errors.map((e) => e.message ?? "").join("; ").slice(0, 400),
+      try {
+        await ejecutar(construirMutacion(fila.sku as string, valores));
+      } catch (err) {
+        // "not found" = el SKU nunca ha tenido registro fiscal: se da de alta.
+        if (!/not found/i.test((err as Error).message)) throw err;
+        await ejecutar(
+          construirMutacionAlta(
+            fila.sku as string,
+            valores,
+            titulos.get(fila.sku as string) ?? null,
+          ),
         );
       }
 

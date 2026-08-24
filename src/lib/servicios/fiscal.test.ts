@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   construirMutacion,
+  construirMutacionAlta,
   normalizarRespuestaItem,
   skusAusentes,
   tieneDatos,
@@ -131,6 +132,25 @@ describe("construirMutacion", () => {
 
   it("rechaza una mutación vacía", () => {
     expect(() => construirMutacion("SKU1", {})).toThrow(/ningún valor/);
+  });
+});
+
+describe("construirMutacionAlta", () => {
+  it("da de alta con el SKU dentro del input y la descripción del título", () => {
+    const q = construirMutacionAlta(
+      "GT134-BLK / BLK-26-MX",
+      { sat: "53111800", iva: "16", ieps: 0, unidad: "H87" },
+      "Sandalias Chanclas Mujer Y Hombre Eva Suela Gruesa",
+    );
+    expect(q).toContain("createFiscalInformationMLM(input: {");
+    expect(q).toContain('sku: "GT134-BLK / BLK-26-MX"');
+    expect(q).toContain('description: "Sandalias Chanclas Mujer Y Hombre Eva Suela Gruesa"');
+    expect(q).not.toContain("$input");
+  });
+
+  it("sin título simplemente no manda descripción", () => {
+    const q = construirMutacionAlta("SKU1", { sat: "53111800" }, null);
+    expect(q).not.toContain("description:");
   });
 });
 
