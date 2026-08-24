@@ -1,6 +1,7 @@
 import type { DB } from "../datos/repos";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
 import { sincronizarInventario, sincronizarPagos, sincronizarVentas } from "../amazon/sync";
+import { sincronizarEconomia } from "../amazon/economia";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -39,6 +40,14 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_pagos", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarPagos(admin, cliente);
+    });
+
+    // La economía por producto (SKU Economics vía Data Kiosk): cada paso es
+    // barato (crear o recoger UNA consulta); el espaciado interno decide
+    // cuándo toca refrescar (cada 6 horas).
+    await paso(admin, cuenta.accountId, "cron_economia", 10 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarEconomia(admin, cliente);
     });
   }
 }

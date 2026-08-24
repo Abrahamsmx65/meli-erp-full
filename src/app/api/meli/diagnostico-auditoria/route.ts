@@ -88,9 +88,9 @@ export async function GET(req: NextRequest) {
           .from("amazon_sync_log")
           .select("inicio, estado, detalle")
           .eq("account_id", cta.id)
-          .eq("tarea", "cron_pagos")
+          .in("tarea", ["cron_pagos", "cron_economia"])
           .order("inicio", { ascending: false })
-          .limit(3),
+          .limit(6),
       ]);
       return {
         conectado: true,

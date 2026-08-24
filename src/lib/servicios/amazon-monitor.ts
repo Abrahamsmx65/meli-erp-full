@@ -58,6 +58,25 @@ export interface MonitorAmazon {
    * esto, el desglose del dinero real sale vacío y hay que decirlo.
    */
   pagosHasta: string | null;
+  /**
+   * La economía POR PRODUCTO del periodo (SKU Economics vía Data Kiosk):
+   * ventas, tarifas, publicidad y neto por día y por SKU — la fuente que el
+   * usuario pidió para la ganancia. null = aún no hay datos en el rango.
+   */
+  economia: {
+    unidades: number;
+    ventas: number;
+    tarifas: number;
+    publicidad: number;
+    neto: number;
+    /** neto − costo de producto (donde hay costo capturado) */
+    gananciaFinal: number | null;
+    costoProducto: number;
+    coberturaCosto: number;
+    hasta: string | null;
+  } | null;
+  /** publicidad del periodo por modelo, para la columna de la tabla */
+  publicidadPorModelo: Map<string, number>;
 }
 
 export async function cargarMonitorAmazon(
@@ -73,7 +92,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, config, pagos, ultimaLiquidacion] = await Promise.all([
+  const [ventas, config, pagos, ultimaLiquidacion, economiaFilas] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -103,6 +122,13 @@ export async function cargarMonitorAmazon(
     )
       .then((x: any) => (x?.data?.fecha as string | undefined) ?? null)
       .catch(() => null),
+    // La economía por producto del Data Kiosk. Sin tabla o sin datos: [].
+    traerTodo<any>(
+      db,
+      "amazon_economia",
+      "seller_sku, fecha, unidades, ventas, tarifas, publicidad, neto",
+      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
+    ).catch(() => [] as any[]),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
@@ -157,6 +183,25 @@ export async function cargarMonitorAmazon(
     reg.neto += Number(p.neto) || 0;
     reg.unidades += p.unidades ?? 0;
     pagosPorModelo.set(modelo, reg);
+  }
+
+  // --- Economía por producto (SKU Economics) del periodo -------------------
+  const econPorModelo = new Map<
+    string,
+    { unidades: number; ventas: number; tarifas: number; publicidad: number; neto: number }
+  >();
+  let econHasta: string | null = null;
+  for (const e of economiaFilas) {
+    const modelo = (desglosarSku(String(e.seller_sku ?? "")).modelo ?? String(e.seller_sku ?? "")).toUpperCase();
+    const reg =
+      econPorModelo.get(modelo) ?? { unidades: 0, ventas: 0, tarifas: 0, publicidad: 0, neto: 0 };
+    reg.unidades += Number(e.unidades) || 0;
+    reg.ventas += Number(e.ventas) || 0;
+    reg.tarifas += Number(e.tarifas) || 0;
+    reg.publicidad += Number(e.publicidad) || 0;
+    reg.neto += Number(e.neto) || 0;
+    econPorModelo.set(modelo, reg);
+    if (!econHasta || e.fecha > econHasta) econHasta = e.fecha;
   }
 
   const categorias = new Map<
@@ -258,5 +303,41 @@ export async function cargarMonitorAmazon(
     gananciaFinal:
       hayPagos && unidadesConCosto > 0 ? gananciaRealTotal + publicidad + otrosCargos : null,
     pagosHasta: ultimaLiquidacion,
+    economia: (() => {
+      if (!economiaFilas.length) return null;
+      let unidadesE = 0;
+      let ventasE = 0;
+      let tarifasE = 0;
+      let publicidadE = 0;
+      let netoE = 0;
+      let costoE = 0;
+      let unidadesConCostoE = 0;
+      for (const [modelo, e] of econPorModelo) {
+        unidadesE += e.unidades;
+        ventasE += e.ventas;
+        tarifasE += e.tarifas;
+        publicidadE += e.publicidad;
+        netoE += e.neto;
+        const cfg = config.get(modelo);
+        if (cfg?.costo != null) {
+          costoE += cfg.costo * e.unidades;
+          unidadesConCostoE += e.unidades;
+        }
+      }
+      return {
+        unidades: unidadesE,
+        ventas: ventasE,
+        tarifas: tarifasE,
+        publicidad: publicidadE,
+        neto: netoE,
+        costoProducto: costoE,
+        coberturaCosto: unidadesE > 0 ? unidadesConCostoE / unidadesE : 0,
+        gananciaFinal: unidadesConCostoE > 0 ? netoE - costoE : null,
+        hasta: econHasta,
+      };
+    })(),
+    publicidadPorModelo: new Map(
+      [...econPorModelo.entries()].map(([m, e]) => [m, e.publicidad]),
+    ),
   };
 }

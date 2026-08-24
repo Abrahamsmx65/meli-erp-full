@@ -101,8 +101,61 @@ export default async function VentasAmazon({
         />
       </div>
 
+      {/* ---- Economía POR PRODUCTO (SKU Economics vía Data Kiosk) ---------- */}
+      {m.economia ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">A dónde se fue el dinero (por producto)</h2>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+            La misma fuente que el "SKU Economics" de Seller Central: ventas, tarifas y
+            publicidad por producto y por día
+            {m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
+            <Ficha
+              titulo="Ventas"
+              valor={pesos(m.economia.ventas)}
+              nota={`${n(m.economia.unidades)} unidades netas`}
+            />
+            <Ficha
+              titulo="Tarifas Amazon"
+              valor={pesos(-m.economia.tarifas)}
+              nota="Comisión, FBA y demás tarifas"
+              tono={m.economia.tarifas > 0 ? "alerta" : "neutro"}
+            />
+            <Ficha
+              titulo="Publicidad"
+              valor={pesos(-m.economia.publicidad)}
+              nota="Gasto de anuncios del periodo"
+              tono={m.economia.publicidad > 0 ? "alerta" : "neutro"}
+            />
+            <Ficha
+              titulo="Neto Amazon"
+              valor={pesos(m.economia.neto)}
+              nota="Ventas − tarifas − publicidad"
+            />
+            <Ficha
+              titulo="Costo de producto"
+              valor={m.economia.costoProducto > 0 ? pesos(-m.economia.costoProducto) : "—"}
+              nota={`${Math.round(m.economia.coberturaCosto * 100)}% con costo capturado`}
+            />
+            <Ficha
+              titulo="Ganancia final"
+              valor={m.economia.gananciaFinal != null ? pesos(m.economia.gananciaFinal) : "—"}
+              nota="Neto Amazon − costo de producto"
+              tono={
+                m.economia.gananciaFinal == null
+                  ? "neutro"
+                  : m.economia.gananciaFinal < 0
+                    ? "critico"
+                    : "bien"
+              }
+            />
+          </div>
+        </section>
+      ) : null}
+
       {/* ---- El desglose del dinero real del periodo ---------------------- */}
-      {m.netoReal == null && m.pagosHasta ? (
+      {!m.economia && m.netoReal == null && m.pagosHasta ? (
         <section
           className="tarjeta p-4 text-sm"
           style={{ background: "color-mix(in oklab, var(--estado-alerta) 8%, var(--surface-1))" }}
@@ -125,7 +178,7 @@ export default async function VentasAmazon({
         </section>
       ) : null}
 
-      {m.netoReal != null ? (
+      {!m.economia && m.netoReal != null ? (
         <section className="tarjeta p-4">
           <h2 className="text-sm font-semibold">A dónde se fue el dinero (liquidado en el periodo)</h2>
           <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
