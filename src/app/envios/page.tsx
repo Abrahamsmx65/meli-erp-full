@@ -4,7 +4,8 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
-import { enviosPendientesIndusther } from "@/lib/servicios/industher-pendientes";
+import { enviosPendientesIndusther, skuMeliDeFila } from "@/lib/servicios/industher-pendientes";
+import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { Ficha } from "@/components/tiles";
 import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosSeparados } from "@/components/envios-separados";
@@ -88,9 +89,17 @@ export default async function Plan() {
 
   // Doble verificación del envío, calculada en el servidor: stock, cajas
   // repetidas, cuadre de pares y solape con lo que la bodega ya apartó.
+  // Los SKUs de los pendientes vienen como los escribe la bodega: se
+  // amarran al SKU de MELI para que el solape compare manzanas con manzanas.
+  const indicePlan = indexarCatalogo(plan.lineas);
   const verificacion = verificarEnvios(
     envios,
-    pendientesBodega.envios.filter((e) => e.esMeli && !e.omitido),
+    pendientesBodega.envios
+      .filter((e) => e.esMeli && !e.omitido)
+      .map((e) => ({
+        id: e.id,
+        filas: e.filas.map((f) => ({ sku: skuMeliDeFila(f, indicePlan), cantidad: f.cantidad })),
+      })),
   );
 
 

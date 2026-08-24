@@ -9,6 +9,7 @@ import { normalizarParametros } from "../engine/params";
 import type { ISODate, Parametros, Plan } from "../engine/types";
 import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAmarre } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
+import { indexarCatalogo } from "../etiquetas/resolver";
 import { cargarInsumos, type DB } from "../datos/repos";
 import { enviosActivos, sumarEnCamino } from "./envios-registrados";
 import {
@@ -208,7 +209,12 @@ export async function generarPlanCompleto(
   // contesta, el plan sigue sin ellos.
   try {
     const pendientes = await enviosPendientesIndusther(db, accountId);
-    const porSku = enCaminoDesdePendientes(pendientes);
+    // Los productos del envío traen el SKU de la bodega: se amarran al de
+    // MELI por modelo+color+talla con el catálogo real, como en etiquetas.
+    const porSku = enCaminoDesdePendientes(
+      pendientes,
+      insumos.skus.length ? indexarCatalogo(insumos.skus) : null,
+    );
     if (porSku.size) {
       const stockPorSku = new Map(insumos.stockActual.map((s) => [s.sku, s]));
       for (const [sku, pares] of porSku) {
