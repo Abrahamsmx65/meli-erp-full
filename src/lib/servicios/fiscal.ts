@@ -521,11 +521,20 @@ export async function enviarFiscalPendiente(
         .eq("sku", fila.sku);
       resultado.enviados++;
     } catch (err) {
+      let mensaje = (err as Error).message.slice(0, 500);
+      // El 11004 de MELI en cristiano: el listado admite / y otros signos en
+      // el SKU, pero su servicio fiscal no. No es un fallo del envío.
+      if (mensaje.includes('"11004"') || mensaje.includes("Special characters")) {
+        mensaje =
+          "MELI no acepta este SKU en datos fiscales: trae un carácter " +
+          "prohibido para el registro fiscal (/, comillas, &, %…). Solo se " +
+          "arregla renombrando el SKU en la publicación.";
+      }
       await db
         .from("datos_fiscales")
         .update({
           estado: "error",
-          ultimo_error: (err as Error).message.slice(0, 500),
+          ultimo_error: mensaje,
           actualizado_en: ahora,
         })
         .eq("account_id", accountId)
