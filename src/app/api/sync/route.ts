@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, RecursoOcupadoError } from "@/lib/datos/repos";
 import { sincronizar } from "@/lib/servicios/sync";
 import { dispararPendientes } from "@/lib/servicios/disparar-pendientes";
 
@@ -23,27 +23,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-
-  // Dos sincronizaciones a la vez compiten por la cuota de MELI y acaban
-  // tumbándose entre ellas por tiempo. Si ya hay una viva, no se arranca otra.
   const admin = clienteAdmin();
-  const { data: corriendo } = await admin
-    .from("sync_log")
-    .select("inicio")
-    .eq("account_id", cuenta.id)
-    .eq("estado", "corriendo")
-    .gte("inicio", new Date(Date.now() - 10 * 60_000).toISOString())
-    .limit(1);
-
-  if (corriendo?.length) {
-    return NextResponse.json(
-      {
-        error:
-          "Ya hay una sincronización en curso. Espera a que termine antes de lanzar otra.",
-      },
-      { status: 409 },
-    );
-  }
 
   try {
     // La sincronización necesita leer tokens, que RLS esconde a propósito.
@@ -63,6 +43,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, resultado });
   } catch (err) {
+    if (err instanceof RecursoOcupadoError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }

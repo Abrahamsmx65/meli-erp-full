@@ -133,10 +133,7 @@ function SeccionIndusther() {
       const r = await fetch("/api/industher", { method: metodo });
       const j = await r.json();
       if (!r.ok) {
-        const detalle = j.llaveCargada
-          ? ` (la llave que el servidor tiene cargada: ${j.llaveCargada})`
-          : "";
-        throw new Error((j.error ?? "El API de Industher no contestó bien.") + detalle);
+        throw new Error(j.error ?? "El API de Industher no contestó bien.");
       }
       if (esPrueba) {
         setPrueba(j);

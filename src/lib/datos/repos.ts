@@ -313,6 +313,98 @@ export async function upsertEnTandas(
   return escritas;
 }
 
+export class RecursoOcupadoError extends Error {
+  constructor(
+    public readonly recurso: string,
+    mensaje = "Ya hay otra ejecución en curso.",
+  ) {
+    super(mensaje);
+    this.name = "RecursoOcupadoError";
+  }
+}
+
+export async function adquirirCandado(
+  db: DB,
+  accountId: string,
+  recurso: string,
+  ttlSegundos: number,
+): Promise<string | null> {
+  const { data, error } = await db.rpc("adquirir_candado_trabajo", {
+    p_account_id: accountId,
+    p_recurso: recurso,
+    p_ttl_segundos: ttlSegundos,
+  });
+  if (error) throw new Error(`candado ${recurso}: ${error.message}`);
+  return typeof data === "string" ? data : null;
+}
+
+export async function liberarCandado(
+  db: DB,
+  accountId: string,
+  recurso: string,
+  token: string,
+): Promise<boolean> {
+  const { data, error } = await db.rpc("liberar_candado_trabajo", {
+    p_account_id: accountId,
+    p_recurso: recurso,
+    p_token: token,
+  });
+  if (error) throw new Error(`candado ${recurso}: ${error.message}`);
+  return data === true;
+}
+
+/**
+ * Ejecuta una tarea con exclusión mutua por cuenta. El candado vence solo si
+ * la función muere antes del `finally`; una liberación fallida no oculta el
+ * resultado de la tarea y el TTL evita un bloqueo permanente.
+ */
+export async function conCandado<T>(
+  db: DB,
+  accountId: string,
+  recurso: string,
+  ttlSegundos: number,
+  tarea: () => Promise<T>,
+  mensajeOcupado?: string,
+): Promise<T> {
+  const token = await adquirirCandado(db, accountId, recurso, ttlSegundos);
+  if (!token) throw new RecursoOcupadoError(recurso, mensajeOcupado);
+
+  try {
+    return await tarea();
+  } finally {
+    try {
+      await liberarCandado(db, accountId, recurso, token);
+    } catch (err) {
+      console.error(`No se pudo liberar el candado ${recurso}:`, (err as Error).message);
+    }
+  }
+}
+
+/**
+ * Reemplaza una foto de existencias dentro de una sola transacción en
+ * Postgres. El borrado anterior se revierte automáticamente si cualquier fila
+ * nueva falla, de modo que nunca queda una foto vacía o a medias.
+ */
+export async function reemplazarExistencias(
+  db: DB,
+  accountId: string,
+  almacenes: string[],
+  filas: Record<string, unknown>[],
+  reemplazarTodo: boolean,
+): Promise<number> {
+  const { data, error } = await db.rpc("reemplazar_existencias", {
+    p_account_id: accountId,
+    p_almacenes: almacenes,
+    p_filas: filas,
+    p_reemplazar_todo: reemplazarTodo,
+  });
+  if (error) throw new Error(`existencias: ${error.message}`);
+  if (typeof data !== "number") {
+    throw new Error("existencias: la base no confirmó cuántos renglones reemplazó.");
+  }
+  return data;
+}
+
 export async function registrarSync(
   db: DB,
   accountId: string,

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, upsertEnTandas } from "@/lib/datos/repos";
+import { cuentaActiva, reemplazarExistencias, upsertEnTandas } from "@/lib/datos/repos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
 import { importarCorridas, importarExistencias } from "@/lib/importar/excel";
@@ -70,11 +70,7 @@ export async function POST(req: NextRequest) {
       const buf = Buffer.from(await fExistencias.arrayBuffer());
       const r = await importarExistencias(buf);
 
-      // Foto nueva: fuera la anterior.
-      await supabase.from("existencias").delete().eq("account_id", cuenta.id);
-
       const filas = r.filas.map((f) => ({
-        account_id: cuenta.id,
         almacen: f.almacen,
         codigo_almacen: f.codigoAlmacen,
         sku_caja: f.skuCaja,
@@ -90,25 +86,7 @@ export async function POST(req: NextRequest) {
         pares_por_caja: f.paresPorCaja,
       }));
 
-      await upsertEnTandas(
-        supabase,
-        "existencias",
-        filas,
-        "account_id,almacen,sku_caja,talla,contenedor",
-      );
-
-      // Los almacenes nuevos entran surtiendo a Full por omisión; el usuario
-      // puede apagar los que no correspondan desde Ajustes.
-      const almacenes = r.almacenes.map((a) => ({
-        account_id: cuenta.id,
-        almacen: a,
-        surte_full: true,
-      }));
-      if (almacenes.length) {
-        await supabase
-          .from("almacenes_activos")
-          .upsert(almacenes, { onConflict: "account_id,almacen", ignoreDuplicates: true });
-      }
+      await reemplazarExistencias(supabase, cuenta.id, r.almacenes, filas, true);
 
       resumen.existencias = {
         leidas: r.filas.length,
