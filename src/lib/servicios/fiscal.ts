@@ -468,7 +468,9 @@ export async function enviarFiscalPendiente(
       errors?: { message?: string }[];
     };
     if (r?.errors?.length) {
-      throw new Error(r.errors.map((e) => e.message ?? "").join("; ").slice(0, 400));
+      // El error COMPLETO, con extensions: "Input validation error, see
+      // details" trae la causa real fuera de message.
+      throw new Error(JSON.stringify(r.errors).slice(0, 600));
     }
   };
 
