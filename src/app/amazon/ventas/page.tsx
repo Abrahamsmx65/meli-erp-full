@@ -102,6 +102,29 @@ export default async function VentasAmazon({
       </div>
 
       {/* ---- El desglose del dinero real del periodo ---------------------- */}
+      {m.netoReal == null && m.pagosHasta ? (
+        <section
+          className="tarjeta p-4 text-sm"
+          style={{ background: "color-mix(in oklab, var(--estado-alerta) 8%, var(--surface-1))" }}
+        >
+          <h2 className="text-sm font-semibold">El dinero real de este periodo aún no llega</h2>
+          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
+            Amazon liquida cada ~2 semanas y sus pagos llegan hasta el{" "}
+            <strong className="cifra">{m.pagosHasta}</strong>. El rango que estás viendo es más
+            reciente, así que todavía no hay depósitos que desglosar.
+          </p>
+          <a
+            href={`/amazon/ventas?desde=${new Date(Date.parse(m.pagosHasta) - 13 * 86_400_000)
+              .toISOString()
+              .slice(0, 10)}&hasta=${m.pagosHasta}`}
+            className="mt-2 inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+            style={{ background: "var(--acento)" }}
+          >
+            Ver las últimas 2 semanas liquidadas
+          </a>
+        </section>
+      ) : null}
+
       {m.netoReal != null ? (
         <section className="tarjeta p-4">
           <h2 className="text-sm font-semibold">A dónde se fue el dinero (liquidado en el periodo)</h2>

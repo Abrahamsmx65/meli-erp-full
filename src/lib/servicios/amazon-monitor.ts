@@ -52,6 +52,12 @@ export interface MonitorAmazon {
   otrosCargos: number | null;
   /** ganancia real − publicidad − otros cargos: lo que de verdad quedó */
   gananciaFinal: number | null;
+  /**
+   * Hasta qué fecha hay liquidaciones cargadas (sin importar el rango).
+   * Amazon liquida cada ~2 semanas: si el rango elegido es más reciente que
+   * esto, el desglose del dinero real sale vacío y hay que decirlo.
+   */
+  pagosHasta: string | null;
 }
 
 export async function cargarMonitorAmazon(
@@ -67,7 +73,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, config, pagos] = await Promise.all([
+  const [ventas, config, pagos, ultimaLiquidacion] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -86,6 +92,17 @@ export async function cargarMonitorAmazon(
       "seller_sku, fecha, neto, unidades",
       (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
     ).catch(() => [] as any[]),
+    Promise.resolve(
+      db
+        .from("amazon_pagos")
+        .select("fecha")
+        .eq("account_id", amazonAccountId)
+        .order("fecha", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    )
+      .then((x: any) => (x?.data?.fecha as string | undefined) ?? null)
+      .catch(() => null),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
@@ -240,5 +257,6 @@ export async function cargarMonitorAmazon(
     otrosCargos: hayPagos ? otrosCargos : null,
     gananciaFinal:
       hayPagos && unidadesConCosto > 0 ? gananciaRealTotal + publicidad + otrosCargos : null,
+    pagosHasta: ultimaLiquidacion,
   };
 }
