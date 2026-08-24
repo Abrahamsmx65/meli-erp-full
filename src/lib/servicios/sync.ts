@@ -21,9 +21,39 @@ import {
   cerrarSync,
   conCandado,
   registrarSync,
+  traerTodo,
   upsertEnTandas,
   type DB,
 } from "../datos/repos";
+
+/**
+ * SKUs fantasma: filas activas de un item que ESTA corrida sí recorrió, cuyo
+ * SKU ya no vino de MELI y que no están pendientes de resolverse. Es la
+ * huella que deja renombrar un SKU en MELI: el nombre nuevo entra como fila
+ * nueva y el viejo se quedaba activo para siempre.
+ */
+export function detectarSkusFantasma(
+  activos: { sku: string; item_id: string | null; user_product_id: string | null }[],
+  frescos: { sku: string; itemId: string }[],
+  variantesSinSku: { itemId: string; userProductId: string | null }[],
+): string[] {
+  const itemsVistos = new Set(frescos.map((f) => f.itemId));
+  for (const v of variantesSinSku) itemsVistos.add(v.itemId);
+  const skusFrescos = new Set(frescos.map((f) => f.sku));
+  const pendientes = new Set(
+    variantesSinSku.map((v) => v.userProductId).filter(Boolean) as string[],
+  );
+
+  return activos
+    .filter(
+      (r) =>
+        r.item_id &&
+        itemsVistos.has(r.item_id) &&
+        !skusFrescos.has(r.sku) &&
+        !(r.user_product_id && pendientes.has(r.user_product_id)),
+    )
+    .map((r) => r.sku);
+}
 import { invalidar } from "./cache";
 
 export interface ResultadoSync {
@@ -275,6 +305,33 @@ async function ejecutarSincronizacion(
       };
     });
     await upsertEnTandas(db, "skus", filasSku, "account_id,sku");
+
+    // Renombrar un SKU en MELI dejaba el nombre viejo como fila fantasma,
+    // activa para siempre: el plan, las etiquetas y los datos fiscales la
+    // seguían contando como real. Lo que un item recorrido ya no trae, y no
+    // está pendiente de resolverse, se apaga; borrarlo rompería el historial.
+    const activosPrevios = await traerTodo<{
+      sku: string;
+      item_id: string | null;
+      user_product_id: string | null;
+    }>(db, "skus", "sku, item_id, user_product_id", (q) =>
+      q.eq("account_id", accountId).eq("activo", true),
+    );
+    const fantasmas = detectarSkusFantasma(
+      activosPrevios,
+      catalogo.map((c) => ({ sku: c.sku, itemId: c.itemId })),
+      diag.variantesSinSku.map((v) => ({
+        itemId: v.itemId,
+        userProductId: v.userProductId,
+      })),
+    );
+    for (let i = 0; i < fantasmas.length; i += 200) {
+      await db
+        .from("skus")
+        .update({ activo: false, actualizado_en: new Date().toISOString() })
+        .eq("account_id", accountId)
+        .in("sku", fantasmas.slice(i, i + 200));
+    }
 
     // Las tallas que siguen sin SKU se apuntan con todo su contexto para que
     // el proceso de pendientes las resuelva con el dato real de MELI. La
