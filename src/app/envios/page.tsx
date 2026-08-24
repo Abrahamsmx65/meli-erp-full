@@ -4,8 +4,9 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
-import { enviosPendientesIndusther, skuMeliDeFila } from "@/lib/servicios/industher-pendientes";
+import { enviosPendientesIndusther, expandirFilaMeli } from "@/lib/servicios/industher-pendientes";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
+import { traerTodo } from "@/lib/datos/repos";
 import { Ficha } from "@/components/tiles";
 import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosSeparados } from "@/components/envios-separados";
@@ -40,10 +41,14 @@ export default async function Plan() {
 
   // El plan, los envíos registrados y los pendientes de la bodega no
   // dependen uno del otro: en paralelo, todo del lado del servidor.
-  const [estado, enCamino, pendientesBodega] = await Promise.all([
+  const [estado, enCamino, pendientesBodega, corridasRaw] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     enviosParaPantalla(supabase, cuenta.id),
     enviosPendientesIndusther(supabase, cuenta.id),
+    // Para repartir por talla las filas de CORRIDA de los envíos pendientes.
+    traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
+      q.eq("account_id", cuenta.id),
+    ).catch(() => [] as any[]),
   ]);
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
@@ -90,15 +95,22 @@ export default async function Plan() {
   // Doble verificación del envío, calculada en el servidor: stock, cajas
   // repetidas, cuadre de pares y solape con lo que la bodega ya apartó.
   // Los SKUs de los pendientes vienen como los escribe la bodega: se
-  // amarran al SKU de MELI para que el solape compare manzanas con manzanas.
+  // amarran al SKU de MELI (y las corridas se reparten por talla) para que
+  // el solape compare manzanas con manzanas.
   const indicePlan = indexarCatalogo(plan.lineas);
+  const corridasPendientes = (corridasRaw ?? []).map((c: any) => ({
+    pedido: String(c.pedido ?? ""),
+    modelo: String(c.modelo ?? ""),
+    color: String(c.color ?? ""),
+    tallas: (c.tallas ?? {}) as Record<string, number>,
+  }));
   const verificacion = verificarEnvios(
     envios,
     pendientesBodega.envios
       .filter((e) => e.esMeli && !e.omitido)
       .map((e) => ({
         id: e.id,
-        filas: e.filas.map((f) => ({ sku: skuMeliDeFila(f, indicePlan), cantidad: f.cantidad })),
+        filas: e.filas.flatMap((f) => expandirFilaMeli(f, indicePlan, corridasPendientes)),
       })),
   );
 

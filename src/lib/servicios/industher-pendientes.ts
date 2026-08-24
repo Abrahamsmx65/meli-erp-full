@@ -17,15 +17,28 @@
  */
 import type { DB } from "../datos/repos";
 import { buscarVariante, type IndiceCatalogo } from "../etiquetas/resolver";
+import { canonizar } from "../importar/sku";
+import { numeroDePedido } from "./compras";
 import { configuracionIndusther } from "./industher";
 
 export interface FilaPendiente {
   /** el SKU tal como lo escribe la bodega */
   sku: string;
+  /** el pedido a China del que sale la caja (orderNumber: IN10099, RT04…) */
+  pedido: string;
   modelo: string;
   color: string;
+  /** la talla, o "Corrida" cuando la caja es mixta */
   talla: string;
+  cajas: number;
+  paresPorCaja: number;
+  /** pares totales de la fila */
   cantidad: number;
+}
+
+/** true cuando la fila es una caja mixta: su reparto por talla sale de la corrida. */
+export function esFilaCorrida(f: FilaPendiente): boolean {
+  return /^corrida$/i.test(f.talla);
 }
 
 export interface EnvioPendiente {
@@ -100,41 +113,42 @@ function cantidadDe(v: unknown): number {
   return numero(v);
 }
 
-/** Un envío del bloque `pendingShipments` del API, normalizado. */
+/**
+ * Un envío del bloque `pendingShipments` del API, normalizado. La forma
+ * real (verificada con el explorador el 2026-08-24): reference (a veces
+ * vacía; id interno de respaldo), destination, occurredOn, boxes y pairs
+ * planos, y los renglones en `lines` — `products` es solo un CONTEO.
+ */
 export function envioDeBloque(s: Record<string, unknown>): EnvioPendiente | null {
-  const id = texto(
-    campo(s, ["reference", "referencia", "shipmentnumber", "numeroenvio", "numero", "folio", "number", "id"]),
+  const referencia = texto(
+    campo(s, ["reference", "referencia", "shipmentnumber", "numeroenvio", "numero", "folio", "number"]),
   );
+  const id = referencia || texto(campo(s, ["id"]));
   if (!id) return null;
 
-  const productosCrudos = campo(s, [
-    "products",
-    "productos",
-    "items",
-    "lines",
-    "renglones",
-    "detalle",
-    "skus",
-  ]);
-  const productos = Array.isArray(productosCrudos)
-    ? (productosCrudos as Record<string, unknown>[])
-    : [];
+  const destino = texto(campo(s, ["destination", "destino", "cliente", "almacendestino"])) || null;
+
+  const lineasCrudas = campo(s, ["lines", "productos", "items", "renglones", "detalle"]);
+  const lineas = Array.isArray(lineasCrudas) ? (lineasCrudas as Record<string, unknown>[]) : [];
 
   const filas: FilaPendiente[] = [];
-  let cajasProductos = 0;
-  let paresProductos = 0;
-  for (const p of productos) {
+  let cajasLineas = 0;
+  let paresLineas = 0;
+  for (const p of lineas) {
     const sku = texto(campo(p, ["sku", "skucaja", "codigo", "clave"]));
-    const cajasP = cantidadDe(campo(p, ["boxes", "cajas", "totalboxes", "cantidadcajas"]));
-    const paresP = cantidadDe(campo(p, ["pairs", "pares", "totalpairs", "piezas", "unidades"]));
-    cajasProductos += cajasP;
-    paresProductos += paresP;
+    const cajasP = cantidadDe(campo(p, ["boxes", "cajas", "cantidadcajas"]));
+    const paresP = cantidadDe(campo(p, ["pairs", "pares", "piezas", "unidades"]));
+    cajasLineas += cajasP;
+    paresLineas += paresP;
     if (sku && paresP > 0) {
       filas.push({
         sku,
+        pedido: texto(campo(p, ["ordernumber", "pedido", "orden"])),
         modelo: texto(campo(p, ["model", "modelo"])),
         color: texto(campo(p, ["color"])),
         talla: texto(campo(p, ["size", "talla"])),
+        cajas: cajasP,
+        paresPorCaja: cantidadDe(campo(p, ["pairsperbox", "paresporcaja"])),
         cantidad: paresP,
       });
     }
@@ -142,11 +156,13 @@ export function envioDeBloque(s: Record<string, unknown>): EnvioPendiente | null
 
   return {
     id,
-    esMeli: /^[78]/.test(id),
-    fecha: texto(campo(s, ["date", "fecha", "createdat", "creado", "fechasalida"])) || null,
-    destino: texto(campo(s, ["destination", "destino", "cliente", "almacendestino"])) || null,
-    cajas: numero(campo(s, ["totalboxes", "cajas"])) || cajasProductos,
-    pares: numero(campo(s, ["totalpairs", "pares"])) || paresProductos,
+    // La señal fuerte es el DESTINO que captura el almacén; la regla del
+    // ID 7/8 queda de refuerzo para referencias de MELI sin destino.
+    esMeli: /MERCADO\s*LIBRE|MELI|FULL/i.test(destino ?? "") || /^[78]/.test(referencia),
+    fecha: texto(campo(s, ["occurredon", "date", "fecha", "createdat", "creado", "fechasalida"])) || null,
+    destino,
+    cajas: cantidadDe(campo(s, ["boxes", "totalboxes", "cajas"])) || cajasLineas,
+    pares: cantidadDe(campo(s, ["pairs", "totalpairs", "pares"])) || paresLineas,
     filas,
     omitido: false,
   };
@@ -235,9 +251,12 @@ function agruparFilasPlanas(filas: Record<string, unknown>[]): EnvioPendiente[] 
     if (sku && pares > 0) {
       e.filas.push({
         sku,
+        pedido: texto(campo(f, ["ordernumber", "pedido", "orden"])),
         modelo: texto(campo(f, ["model", "modelo"])),
         color: texto(campo(f, ["color"])),
         talla: texto(campo(f, ["size", "talla"])),
+        cajas: numero(campo(f, ["cajas", "cajasfisicas", "cantidadcajas"])) || 0,
+        paresPorCaja: numero(campo(f, ["pairsperbox", "paresporcaja"])) || 0,
         cantidad: pares,
       });
     }
@@ -296,35 +315,87 @@ export async function enviosPendientesIndusther(
   return { envios, error: null };
 }
 
-/**
- * El SKU de MELI de una fila pendiente. La bodega escribe el suyo (con
- * espacios, sufijos, otro orden): con el índice del catálogo se amarra por
- * modelo+color+talla igual que en etiquetas; sin índice o sin esos datos,
- * se usa el SKU tal cual vino.
- */
-export function skuMeliDeFila(f: FilaPendiente, indice?: IndiceCatalogo | null): string {
-  if (indice && f.modelo && f.talla) {
-    const { construido, encontrado } = buscarVariante(indice, f.modelo, f.color, f.talla);
-    return (encontrado?.sku as string | undefined) ?? construido;
-  }
-  return f.sku;
+/** Lo que la expansión necesita saber de una corrida ya cargada. */
+export interface CorridaParaPendientes {
+  pedido: string;
+  modelo: string;
+  color: string;
+  /** talla -> pares POR CAJA */
+  tallas: Record<string, number>;
 }
 
 /**
- * Pares "en camino a Full" según los envíos pendientes de MELI (id 7/8) NO
- * tachados, por SKU de MELI. Es lo que el plan cuenta como ya-viajando.
- * Solo sirve cuando el API trae renglones con SKU; si no, regresa vacío.
+ * El SKU de MELI de un modelo+color+talla de la bodega, con el índice del
+ * catálogo (mismos amarres que etiquetas). Sin índice, el SKU construido.
+ */
+function skuMeli(
+  modelo: string,
+  color: string,
+  talla: string,
+  indice?: IndiceCatalogo | null,
+): string | null {
+  if (!modelo || !talla) return null;
+  if (indice) {
+    const { construido, encontrado } = buscarVariante(indice, modelo, color, talla);
+    return (encontrado?.sku as string | undefined) ?? construido;
+  }
+  return [modelo, color, talla].filter(Boolean).join("-");
+}
+
+/**
+ * Una fila pendiente convertida a pares por SKU de MELI.
+ *
+ * Las filas de talla real van directo. Las de CORRIDA (cajas mixtas) se
+ * reparten con la corrida REAL del pedido (talla -> pares por caja × cajas
+ * de la fila): primero la corrida de su propio pedido, si no, la más
+ * reciente del modelo+color. Sin corrida conocida no se reparte nada — no
+ * se inventa un reparto.
+ */
+export function expandirFilaMeli(
+  f: FilaPendiente,
+  indice?: IndiceCatalogo | null,
+  corridas?: CorridaParaPendientes[],
+): { sku: string; cantidad: number }[] {
+  if (!esFilaCorrida(f)) {
+    const sku = skuMeli(f.modelo, f.color, f.talla, indice) ?? f.sku;
+    return f.cantidad > 0 ? [{ sku, cantidad: f.cantidad }] : [];
+  }
+
+  if (!corridas?.length) return [];
+  const clave = (m: string, c: string) => `${canonizar(m)}|${canonizar(c)}`;
+  const mias = corridas.filter((c) => clave(c.modelo, c.color) === clave(f.modelo, f.color));
+  const corrida =
+    mias.find((c) => canonizar(c.pedido) === canonizar(f.pedido)) ??
+    [...mias].sort((a, b) => numeroDePedido(b.pedido) - numeroDePedido(a.pedido))[0];
+  if (!corrida) return [];
+
+  const out: { sku: string; cantidad: number }[] = [];
+  for (const [talla, porCaja] of Object.entries(corrida.tallas)) {
+    const pares = (Number(porCaja) || 0) * f.cajas;
+    if (pares <= 0) continue;
+    const sku = skuMeli(f.modelo, f.color, talla, indice);
+    if (sku) out.push({ sku, cantidad: pares });
+  }
+  return out;
+}
+
+/**
+ * Pares "en camino a Full" según los envíos pendientes a MELI NO tachados,
+ * por SKU de MELI y por talla exacta. Es lo que el plan cuenta como
+ * ya-viajando. Solo sirve cuando el API trae renglones; si no, vacío.
  */
 export function enCaminoDesdePendientes(
   p: PendientesIndusther,
   indice?: IndiceCatalogo | null,
+  corridas?: CorridaParaPendientes[],
 ): Map<string, number> {
   const porSku = new Map<string, number>();
   for (const e of p.envios) {
     if (!e.esMeli || e.omitido) continue;
     for (const f of e.filas) {
-      const sku = skuMeliDeFila(f, indice);
-      porSku.set(sku, (porSku.get(sku) ?? 0) + f.cantidad);
+      for (const { sku, cantidad } of expandirFilaMeli(f, indice, corridas)) {
+        porSku.set(sku, (porSku.get(sku) ?? 0) + cantidad);
+      }
     }
   }
   return porSku;

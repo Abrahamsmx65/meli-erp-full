@@ -211,9 +211,11 @@ export async function generarPlanCompleto(
     const pendientes = await enviosPendientesIndusther(db, accountId);
     // Los productos del envío traen el SKU de la bodega: se amarran al de
     // MELI por modelo+color+talla con el catálogo real, como en etiquetas.
+    // Las filas de CORRIDA se reparten por talla con la corrida del pedido.
     const porSku = enCaminoDesdePendientes(
       pendientes,
       insumos.skus.length ? indexarCatalogo(insumos.skus) : null,
+      insumos.corridas,
     );
     if (porSku.size) {
       const stockPorSku = new Map(insumos.stockActual.map((s) => [s.sku, s]));
