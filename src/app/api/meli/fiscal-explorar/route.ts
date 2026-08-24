@@ -24,17 +24,22 @@ export const maxDuration = 60;
  */
 const CONSULTA_POR_SKU = `query PorSku($sku: String!) {
   getFiscalInformationBySku(sku: $sku) {
-    sku
-    sat
-    upc
-    iva
-    ieps
-    description
-    measureUnit
-    measureUnitDescription
+    __typename
+    ... on FiscalInformationMLM {
+      sku
+      sat
+      upc
+      iva
+      ieps
+      description
+      measureUnit
+      measureUnitDescription
+    }
   }
 }`;
 
+// El campo fiscal dentro de components es una exploración: si el nombre no es
+// ese, el error de validación de GraphQL sugiere el bueno.
 const CONSULTA_POR_ITEM = `query PorItem($itemId: String!, $allVariations: Boolean) {
   getFiscalInformationsByItem(itemId: $itemId, allVariations: $allVariations) {
     itemId
@@ -44,6 +49,15 @@ const CONSULTA_POR_ITEM = `query PorItem($itemId: String!, $allVariations: Boole
       sku
       quantity
       percentageShare
+      fiscalInformation {
+        __typename
+        ... on FiscalInformationMLM {
+          sat
+          iva
+          ieps
+          measureUnit
+        }
+      }
     }
   }
 }`;
