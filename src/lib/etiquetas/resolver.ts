@@ -202,6 +202,9 @@ export async function resolverEtiquetas(
 
     const encontrado = exacto.get(sku) ?? flexible.get(claveComparacion(sku));
     if (!encontrado) {
+      // Producto solo-de-Amazon (las fundas: SKUs que empiezan con número y
+      // no existen en MELI). Si el listado FBA lo conoce, su etiqueta de
+      // Amazon sale completa y NO es un problema; solo no habrá lado MELI.
       const amazonSuelto = buscarAmazon(fnskus, sku);
       etiquetas.push({
         sku,
@@ -209,12 +212,14 @@ export async function resolverEtiquetas(
         fnsku: amazonSuelto?.fnsku ?? null,
         skuAmazon: amazonSuelto?.sku ?? null,
         tituloAmazon: amazonSuelto?.titulo ?? null,
-        titulo: null,
+        titulo: amazonSuelto?.titulo ?? null,
         color: null,
         talla: null,
         variante: "",
         cantidad,
-        problema: "Este SKU no está en el catálogo de Mercado Libre.",
+        problema: amazonSuelto
+          ? null
+          : "Este SKU no está ni en el catálogo de Mercado Libre ni en el de Amazon.",
       });
       continue;
     }

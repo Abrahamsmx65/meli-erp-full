@@ -181,6 +181,66 @@ export class MeliClient {
       ? ultimoError
       : new MeliError(`Falló ${ruta}`, 0, ultimoError, ruta);
   }
+
+  /**
+   * POST con cuerpo JSON, con la misma renovación de token y reintentos que
+   * el GET. Lo usa el API de datos fiscales (GraphQL) y cualquier recurso de
+   * MELI que se escriba.
+   */
+  async post<T = unknown>(ruta: string, cuerpo: unknown): Promise<T> {
+    await this.asegurarToken();
+    const url = `${MELI_API}${this.prefix}${ruta}`;
+    let ultimoError: unknown;
+
+    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.cred.accessToken}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(cuerpo ?? {}),
+          cache: "no-store",
+        });
+
+        if (res.status === 401 && intento === 0) {
+          await this.renovar();
+          continue;
+        }
+        if (REINTENTABLES.has(res.status) && intento < MAX_REINTENTOS) {
+          const reintentarEn = Number(res.headers.get("Retry-After") ?? 0);
+          const espera = reintentarEn > 0
+            ? reintentarEn * 1000
+            : Math.min(15_000, 2 ** intento * 500 + Math.random() * 300);
+          await dormir(espera);
+          continue;
+        }
+
+        const texto = await res.text();
+        const json = texto ? safeJson(texto) : null;
+        if (!res.ok) {
+          throw new MeliError(
+            `MELI ${res.status} en ${ruta}: ${texto.slice(0, 400)}`,
+            res.status,
+            json,
+            ruta,
+          );
+        }
+        return json as T;
+      } catch (err) {
+        ultimoError = err;
+        if (err instanceof MeliError) throw err;
+        if (intento >= MAX_REINTENTOS) break;
+        await dormir(Math.min(15_000, 2 ** intento * 500));
+      }
+    }
+
+    throw ultimoError instanceof Error
+      ? ultimoError
+      : new MeliError(`Falló ${ruta}`, 0, ultimoError, ruta);
+  }
 }
 
 function safeJson(t: string): unknown {
