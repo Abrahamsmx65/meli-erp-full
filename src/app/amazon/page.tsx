@@ -5,6 +5,7 @@ import {
   cuentaAmazon,
   estadoRecarga,
   normalizarDias,
+  SIN_LIMITE,
 } from "@/lib/servicios/amazon";
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
@@ -55,7 +56,9 @@ export default async function Amazon({
   const cuentaMeli = await cuentaActiva(supabase);
   const [{ renglones, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd] =
     await Promise.all([
-      cargarAmazon(supabase, dias, ""),
+      // SIN límite: con el top-500, el 64% del calzado con venta quedaba
+      // invisible para el plan (esta página no pinta renglones crudos).
+      cargarAmazon(supabase, dias, "", SIN_LIMITE),
       estadoRecarga(supabase, cuenta.id),
       cuentaMeli
         ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>

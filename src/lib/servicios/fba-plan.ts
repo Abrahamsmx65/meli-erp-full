@@ -19,7 +19,7 @@ import type { CajaConstruida } from "../importar/cajas";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import type { RenglonAmazon } from "./amazon";
-import { esCalzado, OBJETIVO_DIAS_FBA, URGENTE_DIAS_FBA } from "./fba";
+import { esCalzado, OBJETIVO_DIAS_FBA, RIESGO_DIAS_FBA, URGENTE_DIAS_FBA } from "./fba";
 import type { CajaPlaneada } from "./plan";
 import { reasignarPorBodega } from "./plan";
 
@@ -67,7 +67,13 @@ export function planFbaConCajas(opts: {
 
     const ventaDiaria = r.unidades / dias;
     const posicion = r.disponible + r.enTransferencia;
-    const faltante = Math.round(Math.max(0, ventaDiaria * objetivo - posicion));
+    // El objetivo protege también los días que el envío tarda en volverse
+    // vendible en FBA (RIESGO_DIAS_FBA), como el plan de Full protege su
+    // ventana de riesgo; y el redondeo es hacia ARRIBA, como en Full — con
+    // round, toda talla que necesitara menos de medio par se iba a cero.
+    const faltante = Math.ceil(
+      Math.max(0, ventaDiaria * (objetivo + RIESGO_DIAS_FBA) - posicion),
+    );
     const cobertura = ventaDiaria > 0 ? posicion / ventaDiaria : null;
 
     // El mismo amarre de cuatro niveles que ya amarra los SKUs de Amazon en

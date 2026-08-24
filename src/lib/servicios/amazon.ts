@@ -45,6 +45,14 @@ export const PERIODO_OMISION = 30;
 /** Tope de renglones que se mandan al navegador; la búsqueda va en Postgres. */
 export const LIMITE_FILAS = 500;
 
+/**
+ * Para el PLAN de envíos el tope no aplica: con el top-500, el 64% de los
+ * SKUs de calzado con venta (~21% de las unidades) quedaba invisible — justo
+ * las tallas de las orillas que más se agotan. La pantalla puede paginar; el
+ * plan tiene que ver todo.
+ */
+export const SIN_LIMITE = 100_000;
+
 export function normalizarDias(valor: string | undefined): number {
   const n = Number(valor);
   return (PERIODOS as readonly number[]).includes(n) ? n : PERIODO_OMISION;
@@ -70,6 +78,7 @@ export async function cargarAmazon(
   db: DB,
   dias: number,
   busqueda: string,
+  limite: number = LIMITE_FILAS,
 ): Promise<{ renglones: RenglonAmazon[]; totales: TotalesAmazon }> {
   const q = busqueda.trim() === "" ? null : busqueda.trim();
 
@@ -77,7 +86,7 @@ export async function cargarAmazon(
     db.rpc("amazon_resumen_skus", {
       p_dias: dias,
       p_busqueda: q,
-      p_limite: LIMITE_FILAS,
+      p_limite: limite,
     }),
     db.rpc("amazon_totales", { p_dias: dias, p_busqueda: q }),
   ]);
