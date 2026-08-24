@@ -159,6 +159,26 @@ export default async function Inventario() {
         </section>
       </div>
 
+      {/* Por almacén: para detectar de un vistazo si dos bodegas reportan lo
+          mismo (el API reemplaza SOLO los almacenes que él reporta; una
+          bodega cargada por Excel hace tiempo se queda congelada). */}
+      {inv.porAlmacen.length > 1 ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">Por bodega</h2>
+          <div className="mt-2 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+            {inv.porAlmacen.map((a) => (
+              <div key={a.almacen}>
+                <span className="font-medium">{a.almacen}</span>{" "}
+                <span className="cifra">{n(a.cajas)}</span>{" "}
+                <span style={{ color: "var(--ink-2)" }}>cajas ·</span>{" "}
+                <span className="cifra">{n(a.pares)}</span>{" "}
+                <span style={{ color: "var(--ink-2)" }}>pares</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <TablaInventario
         renglones={inv.renglones}
         soloBodega

@@ -33,6 +33,9 @@ export interface CajaConstruida extends Caja {
   esCorrida: boolean;
   paresPorCaja: number;
   enCamino: number;
+  /** cajas APARTADAS para un envío que aún no sale/llega: ya viajan, no se
+   * pueden volver a planear, y sus pares cuentan como en camino a Full */
+  cajasApartadas: number;
   contenedores: string[];
   detalle: ItemCaja[];
 }
@@ -115,6 +118,7 @@ export function construirCajas(
     const base = grupo[0];
     const disponibles = grupo.reduce((a, f) => a + f.cajasDisponibles, 0);
     const enCamino = grupo.reduce((a, f) => a + f.enCamino, 0);
+    const apartadas = grupo.reduce((a, f) => a + (f.cajasApartadas ?? 0), 0);
     const contenedores = [...new Set(grupo.map((f) => f.contenedor).filter(Boolean))];
     const esCorridaFila = base.talla === "CORRIDA";
 
@@ -186,6 +190,7 @@ export function construirCajas(
       esCorrida: esCorridaFila,
       paresPorCaja: detalle.reduce((a, d) => a + d.piezas, 0),
       enCamino,
+      cajasApartadas: Math.max(0, apartadas),
       contenedores,
       detalle,
     });

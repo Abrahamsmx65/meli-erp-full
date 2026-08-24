@@ -242,6 +242,40 @@ export async function generarPlanCompleto(
     almacenes: insumos.almacenesActivos,
   });
 
+  // Las cajas APARTADAS en bodega son envíos que ya van saliendo: además de
+  // no estar disponibles, sus pares cuentan como EN CAMINO a Full. Sin esto,
+  // el plan volvía a pedir mandar el mismo modelo con otras cajas aunque el
+  // envío ya hubiera salido. Mismo criterio del máximo contra lo que MELI ya
+  // reporta en tránsito, para no contar el mismo par dos veces.
+  {
+    const apartadoPorSku = new Map<string, number>();
+    for (const c of catalogo.cajas) {
+      if (!c.cajasApartadas) continue;
+      for (const d of c.detalle) {
+        if (!d.sku) continue;
+        apartadoPorSku.set(d.sku, (apartadoPorSku.get(d.sku) ?? 0) + d.piezas * c.cajasApartadas);
+      }
+    }
+    if (apartadoPorSku.size) {
+      const stockPorSku = new Map(insumos.stockActual.map((s) => [s.sku, s]));
+      for (const [sku, pares] of apartadoPorSku) {
+        const s = stockPorSku.get(sku);
+        if (s) {
+          s.enTransferencia = Math.max(s.enTransferencia, pares);
+          s.total = s.disponible + s.enTransferencia + s.noDisponible;
+        } else {
+          insumos.stockActual.push({
+            sku,
+            disponible: 0,
+            enTransferencia: pares,
+            noDisponible: 0,
+            total: pares,
+          });
+        }
+      }
+    }
+  }
+
   const plan = generarPlan({
     skus: insumos.skus,
     stockActual: insumos.stockActual,
