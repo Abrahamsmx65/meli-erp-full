@@ -62,20 +62,20 @@ export function generarZplDatos(datos: DatosEtiqueta[]): string {
     const variante = escaparFH(limpiar(d.variante));
     const pie = escaparFH(limpiar(d.pie));
 
-    // Un bloque por copia con ^PQ1, como el generador viejo, pero con el
-    // bloque CENTRADO igual que el PDF: barras de 45 dots y todo recorrido
-    // para dejar margen arriba y abajo (el original salía pegado al borde).
+    // Un bloque por copia con ^PQ1, CALCA EXACTA del generador viejo del
+    // usuario (su Apps Script imprime perfecto en la térmica): aquí no se
+    // ajusta nada — los márgenes solo se retocan en el PDF.
     const bloque = `
 ^XA
 ^CI28
 ^LH0,0
-^FO25,18^BY2,,0^BCN,45,N,N^FD${codigo}^FS
-^FT110,91^A0N,22,22^FH^FD${codigo}^FS
-^FT109,91^A0N,22,22^FH^FD${codigo}^FS
-^FO22,108^A0N,18,18^FB300,2,0,L^FH^FD${titulo}^FS
-^FO22,146^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
-^FO21,146^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
-^FO22,168^A0N,18,18^FH^FD${pie}^FS
+^FO25,15^BY2,,0^BCN,55,N,N^FD${codigo}^FS
+^FT110,98^A0N,22,22^FH^FD${codigo}^FS
+^FT109,98^A0N,22,22^FH^FD${codigo}^FS
+^FO22,115^A0N,18,18^FB300,2,0,L^FH^FD${titulo}^FS
+^FO22,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
+^FO21,153^A0N,18,18^FB300,1,0,L^FH^FD${variante}^FS
+^FO22,175^A0N,18,18^FH^FD${pie}^FS
 ^PQ1,0,1,Y
 ^XZ
 `;
@@ -132,23 +132,22 @@ export function generarZplAmazon(etiquetas: EtiquetaResuelta[]): string {
     const titulo = escaparFH(limpiar(`NEW - ${(e.tituloAmazon ?? e.titulo ?? e.sku).slice(0, 55)}`));
     const sku = escaparFH(limpiar(`SKU: ${e.skuAmazon ?? e.sku}`));
 
-    // La plantilla del generador viejo, con el bloque CENTRADO igual que el
-    // PDF: barras de 50 dots y todo recorrido para dejar margen arriba y
-    // abajo (el original salía pegado al borde).
+    // La plantilla del generador viejo TAL CUAL, con sus líneas en blanco:
+    // el Apps Script del usuario imprime perfecto y aquí no se ajusta nada.
     const bloque = `
 ^XA
 ^CI28
 ^LH0,0
 
-^FO40,19^BY2
-^BCN,50,N,N,N
+^FO40,10^BY2
+^BCN,65,N,N,N
 ^FD${fnsku}^FS
 
-^FO70,79^A0N,24,24^FB220,1,0,C^FH^FD${escaparFH(fnsku)}^FS
+^FO70,85^A0N,24,24^FB220,1,0,C^FH^FD${escaparFH(fnsku)}^FS
 
-^FO30,108^A0N,18,18^FB300,2,8,L^FH^FD${titulo}^FS
+^FO30,115^A0N,18,18^FB300,2,10,L^FH^FD${titulo}^FS
 
-^FO30,170^A0N,16,16^FB300,1,0,L^FH^FD${sku}^FS
+^FO30,180^A0N,16,16^FB300,1,0,L^FH^FD${sku}^FS
 
 ^PQ1,0,1,Y
 ^XZ

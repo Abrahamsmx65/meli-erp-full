@@ -3,6 +3,7 @@ import { registrarSync, cerrarSync } from "../datos/repos";
 import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
+import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 
 /** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
 export const EDAD_MAX_PLAN_MS = 3 * 60_000;
@@ -107,6 +108,35 @@ export async function latido(
         }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);
+      }
+    }
+
+    // El inventario de bodega (API de Industher) se refresca solo cada 3
+    // horas montado en el latido: con solo el cron diario, las cajas que el
+    // almacén movía a media mañana no se veían hasta el día siguiente. Un
+    // fallo queda registrado en sync_log (tarea industher_auto) y se
+    // reintenta a las 3 horas, sin tumbar el resto del latido.
+    if (configuracionIndusther() && Date.now() < finDrenado - 30_000) {
+      const { data: ultimaInd } = await admin
+        .from("sync_log")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("tarea", "industher_auto")
+        .gte("inicio", new Date(Date.now() - 3 * 3_600_000).toISOString())
+        .limit(1);
+      if (!ultimaInd?.length) {
+        const idInd = await registrarSync(admin, accountId, "industher_auto");
+        try {
+          const inv = await sincronizarInventarioIndusther(admin, accountId);
+          await cerrarSync(admin, idInd, "ok", {
+            renglones: inv.renglones,
+            cajasDisponibles: inv.cajasDisponibles,
+          });
+        } catch (err) {
+          await cerrarSync(admin, idInd, "error", {
+            mensaje: (err as Error).message.slice(0, 300),
+          });
+        }
       }
     }
 

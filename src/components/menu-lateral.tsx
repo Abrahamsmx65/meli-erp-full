@@ -8,7 +8,7 @@ import {
   AlertTriangle,
   Barcode,
   Boxes,
-  LayoutDashboard,
+  LogOut,
   Menu,
   Package,
   PackageCheck,
@@ -47,10 +47,6 @@ interface Grupo {
 }
 
 const GRUPOS: Grupo[] = [
-  {
-    titulo: null,
-    entradas: [{ href: "/", texto: "Resumen", icono: LayoutDashboard, ayuda: "Cómo va todo hoy" }],
-  },
   {
     titulo: "Inventario",
     entradas: [
@@ -239,6 +235,25 @@ export function MenuLateral({ pendientes }: { pendientes?: number }) {
             </ul>
           </div>
         ))}
+
+        <div className="mt-2 border-t pt-3" style={{ borderColor: "var(--sidebar-borde)" }}>
+          <a
+            href="/api/salir"
+            className="flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors"
+            style={{ color: "color-mix(in oklab, var(--sidebar-texto) 72%, transparent)" }}
+          >
+            <LogOut size={15} strokeWidth={1.9} className="mt-0.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium">Cerrar sesión</span>
+              <span
+                className="block text-[10px] leading-tight"
+                style={{ color: "color-mix(in oklab, var(--sidebar-texto) 42%, transparent)" }}
+              >
+                Para entrar con otra cuenta de MELI
+              </span>
+            </span>
+          </a>
+        </div>
       </nav>
 
       {abierto ? (

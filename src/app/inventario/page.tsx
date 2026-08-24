@@ -53,19 +53,30 @@ export default async function Inventario() {
   }
 
   const skusBodega = inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length;
+  const cajasBodega = inv.porAlmacen.reduce((a, x) => a + x.cajas, 0);
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold">Bodega</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que está en cajas cerradas en tu bodega y lo que viene de China. Lo de
-          Mercado Libre vive en su propia sección.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Bodega</h1>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            Lo que está en cajas cerradas en tu bodega y lo que viene de China. Lo de
+            Mercado Libre vive en su propia sección.
+          </p>
+        </div>
+        <a
+          href="/api/inventario/excel"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+          style={{ background: "var(--acento)" }}
+        >
+          Descargar Excel
+        </a>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
         <Ficha titulo="SKUs" valor={n(skusBodega)} nota="Con producto en bodega o en camino" />
+        <Ficha titulo="Cajas" valor={n(cajasBodega)} nota="Cajas cerradas en bodega" />
         <Ficha titulo="En bodega" valor={n(t.enBodega)} nota="Pares en cajas cerradas" />
         <Ficha
           titulo="Desde China"
@@ -148,7 +159,11 @@ export default async function Inventario() {
         </section>
       </div>
 
-      <TablaInventario renglones={inv.renglones} soloBodega />
+      <TablaInventario
+        renglones={inv.renglones}
+        soloBodega
+        almacenes={inv.porAlmacen.map((a) => a.almacen)}
+      />
     </div>
   );
 }

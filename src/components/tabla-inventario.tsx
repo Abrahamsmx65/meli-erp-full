@@ -21,13 +21,17 @@ function n(x: number): string {
 export function TablaInventario({
   renglones,
   soloBodega,
+  almacenes,
 }: {
   renglones: RenglonInventario[];
   /** true = la vista de Bodega: sin columnas de MELI, solo bodega y China */
   soloBodega?: boolean;
+  /** los almacenes que existen, para poder filtrar por bodega */
+  almacenes?: string[];
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [soloConExistencia, setSoloConExistencia] = useState(true);
+  const [almacen, setAlmacen] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
 
   const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
@@ -37,12 +41,13 @@ export function TablaInventario({
       renglones.filter((r) => {
         const relevante = soloBodega ? r.enBodega + r.enCamino : r.total;
         if (soloConExistencia && relevante === 0) return false;
+        if (almacen && !r.pedidos.some((p) => p.almacen === almacen)) return false;
         return coincide(
           `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
           terminos,
         );
       }),
-    [renglones, terminos, soloConExistencia, soloBodega],
+    [renglones, terminos, soloConExistencia, soloBodega, almacen],
   );
 
   const totales = useMemo(
@@ -67,6 +72,22 @@ export function TablaInventario({
             className="min-w-[18rem] flex-1"
             aria-label="Buscar en el inventario"
           />
+          {almacenes?.length ? (
+            <select
+              value={almacen}
+              onChange={(e) => setAlmacen(e.target.value)}
+              aria-label="Filtrar por bodega"
+              className="rounded-lg border px-2 py-1.5 text-sm"
+              style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
+            >
+              <option value="">Todas las bodegas</option>
+              {almacenes.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button
             onClick={() => setSoloConExistencia((v) => !v)}
             aria-pressed={soloConExistencia}
@@ -78,6 +99,15 @@ export function TablaInventario({
           >
             Solo con existencia
           </button>
+          {soloBodega ? (
+            <a
+              href={`/api/inventario/excel${almacen ? `?almacen=${encodeURIComponent(almacen)}` : ""}`}
+              className="rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap"
+              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            >
+              Excel de esta vista
+            </a>
+          ) : null}
         </div>
 
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
