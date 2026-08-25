@@ -27,10 +27,11 @@ const CANDADO_UGC =
 
 // Imperfecciones que hacen que NO parezca anuncio generado.
 const IMPERFECCIONES =
-  " Slight handheld shake, occasional autofocus hunting, natural speech pauses, " +
-  "quick natural cuts, ordinary lighting, normal home imperfections. Genuine " +
-  "TikTok/Reels recommendation energy — NOT an ad, NOT cinematic, no fashion-model " +
-  "posing, no floating product shots, no slow motion.";
+  " Filmed as ONE single continuous handheld take: no cuts, no scene changes, no " +
+  "transitions — the camera stays with the person the whole time, with smooth fluid " +
+  "natural motion. Slight handheld sway, natural speech pauses, ordinary lighting, " +
+  "normal home imperfections. Genuine TikTok/Reels recommendation energy — NOT an ad, " +
+  "NOT cinematic, no fashion-model posing, no floating product shots, no slow motion.";
 
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
@@ -196,9 +197,8 @@ const CONCEPTOS: Concepto[] = [
       "by the front door with the day's mail in one hand, stepping into the featured slippers while talking",
     ],
     narrativas: [
-      "she arrives home after a long day, drops her bag, takes off street shoes and slides into the featured slippers — natural close-up of the feet sliding in — then walks through the apartment to the kitchen, prepares a drink and ends up relaxing on the sofa",
-      "cozy evening at home: shuffles around the apartment in the featured slippers, picks something from the kitchen, flops on the couch and lifts a foot to show them to the camera",
-      "the after-work ritual: shoes off by the door, featured slippers on, a sigh of relief to the camera, then normal home life — folding laundry, warming dinner — always wearing them",
+      "one continuous handheld take: sitting by the entryway she talks to the camera, slides her feet into the featured slippers, wiggles a foot up towards the lens and leans back with a relieved sigh",
+      "one continuous take on the couch: she talks to the camera while holding up the featured slippers, puts them on without leaving the frame and stretches her feet towards the lens",
     ],
     hooks: [
       "Les tengo que enseñar algo que últimamente uso TODOS los días.",
@@ -235,9 +235,8 @@ const CONCEPTOS: Concepto[] = [
       "by the window with a mug in hand, morning light, lifting one foot to show the featured slippers",
     ],
     narrativas: [
-      "morning routine: gets out of bed straight into the featured slippers, walks to the kitchen to make coffee, sits by the window with the mug, camera catches the slippers at every step",
-      "lazy Sunday vlog: breakfast, watering plants, tidying a little — all in the featured slippers, with one close-up of the feet walking on the cold floor",
-      "she films the 'first five minutes of my day': alarm off, feet into the slippers, curtains open, coffee — narrating to the camera the whole time",
+      "one continuous take in the kitchen: mug in one hand, she talks to the camera, tilts the phone down to show the featured slippers on her feet and smoothly back up",
+      "one continuous take sitting on the edge of the bed: she slides into the featured slippers while talking, lifts one foot briefly to the camera and smiles",
     ],
     hooks: [
       "Mi mañana no arranca sin esto.",
@@ -272,10 +271,8 @@ const CONCEPTOS: Concepto[] = [
       "mid mirror-selfie pose wearing the full outfit with the featured footwear on, phone visible in the mirror",
     ],
     narrativas: [
-      "Get Ready With Me: handheld mirror shot showing the outfit while she decides which shoes to wear, she picks the featured pair, close-up putting them on, full-body mirror check showing how they complement the outfit, then a low-angle clip walking down a pleasant street or café",
-      "she tries the outfit with another pair first, shakes her head, switches to the featured footwear, and the mirror shot shows the look clicking — ends walking out the door",
-      "quick outfit montage in the mirror, the featured footwear stays on in every option, final selfie-angle walking clip outside",
-      "three outfits, one pair: she shows how the featured footwear works with jeans, with a dress and with linen pants, mirror shots and quick cuts",
+      "one continuous mirror take: she talks to the phone in the mirror, gestures over the outfit from top to bottom and ends pointing both hands at the featured footwear, doing a small turn in place",
+      "one continuous take sitting on the bed: she straps on the featured footwear while talking, then stands and the phone tilts smoothly down and up over the full outfit",
     ],
     hooks: [
       "Ok, ayúdenme con el outfit de hoy…",
@@ -309,9 +306,8 @@ const CONCEPTOS: Concepto[] = [
       "full-length mirror shot in the evening outfit, holding the phone, featured footwear on",
     ],
     narrativas: [
-      "night-out prep: finishing touches of makeup, she picks up the featured footwear and puts it on sitting on the bed, stands for the full mirror look, grabs her bag and walks out — a clip of her walking to the uber at night",
-      "she shows the shoes to the camera first, explains why these are 'the going-out pair', puts them on and does a little turn at the mirror, then a short clip arriving at a restaurant",
-      "GRWM for dinner: outfit reveal in the mirror with the featured footwear as the final piece, close-up of the details, out the door",
+      "one continuous vanity take: she finishes a makeup touch, lifts the featured footwear into frame and talks about it with going-out excitement",
+      "one continuous mirror take in the evening outfit: she talks, does one slow turn in place, and the phone tilts down to the featured footwear and smoothly back",
     ],
     hooks: [
       "Hoy hay salida… y ya sé qué {palabra} van.",
@@ -348,10 +344,8 @@ const CONCEPTOS: Concepto[] = [
       "at a coffee shop table with the phone leaned on a cup, showing the featured footwear under the table",
     ],
     narrativas: [
-      "a normal weekday: he sits and puts the featured footwear on, ties it, stands up, grabs his keys and leaves — smartphone clips walking through a parking lot, a sidewalk and a casual work environment, one close-up of the footwear after hours of normal use",
-      "matter-of-fact review: he shows the footwear in his hands, points at the sole and stitching while talking, puts it on and walks naturally down the street — no posing",
-      "half the video walking POV looking down at the featured footwear on real streets, cut to him explaining to the camera why he keeps wearing it",
-      "morning-to-evening cut: same shoes at breakfast, at work, at the store and back home, timestamped like a day-in-the-life",
+      "one continuous take sitting in the entryway: he laces the featured footwear while talking to the propped phone, stands up and taps the toe on the floor to make the point",
+      "one continuous handheld take: he holds the featured footwear up, turns it slowly showing the sole and stitching while talking, then lowers it with a matter-of-fact shrug",
     ],
     hooks: [
       "Les enseño {estas} {palabra} porque sí me sorprendieron.",
@@ -389,9 +383,8 @@ const CONCEPTOS: Concepto[] = [
       "at home the night before the trip, packing the small bag on the bed, the featured footwear going in first",
     ],
     narrativas: [
-      "travel vlog: unpacking a small bag in the hotel room, pulls out the featured footwear and explains why it always comes along, puts it on beside the bed, walks the hotel hallway, goes down for breakfast, walks near the pool — with POV shots looking down at the feet",
-      "a day of the trip wearing the featured footwear everywhere: breakfast, walking the town, the pool area, back to the room — casual clips stitched like a real vlog",
-      "packing light: shows everything that fits in the small bag, the featured footwear goes in first, then quick clips of it being used all weekend",
+      "one continuous hotel-room take: he pulls the featured footwear out of the travel bag, holds it up to the camera while talking and sets it by the bed ready for tomorrow",
+      "one continuous balcony take: phone at arm's length, he talks about the trip and lifts the featured footwear into frame, warm sunlight behind",
     ],
     hooks: [
       "Esto SIEMPRE termina en mi maleta cuando salgo de viaje.",
@@ -434,9 +427,8 @@ const CONCEPTOS: Concepto[] = [
       "at the front door holding the just-received package, about to open it, talking to the camera",
     ],
     narrativas: [
-      "unboxing: opens the box on camera, honest first reaction, turns the featured footwear around showing the sole and material up close, tries it on for the first time and takes a few steps checking the mirror",
-      "first impressions: compares what it looks like in hand versus the listing photos, points at the details while talking, then puts it on and walks a little",
-      "quick unboxing cut with the fingers tracing the stitching and sole, then the first try-on with a mirror glance and a happy nod",
+      "one continuous unboxing take: the box opens on camera, honest first reaction, the featured footwear comes up close to the lens and turns slowly in the hands while talking",
+      "one continuous take on the couch: lid off, paper aside, the featured footwear held up and rotated near the camera with a nod of approval while talking",
     ],
     hooks: [
       "¡Por fin llegaron! Miren esto.",
@@ -480,9 +472,8 @@ const CONCEPTOS: Concepto[] = [
       "outdoors on a sidewalk holding the featured footwear sole towards the camera, daylight",
     ],
     narrativas: [
-      "honest one-month review: shows the featured footwear up close after weeks of use, points at the sole and stitching still holding up, puts it on and walks naturally on the street, ends talking straight to the camera",
-      "before-work check-in: puts the featured footwear on like any other day while telling the camera how it has held up, walks out the door",
-      "shows the featured footwear next to an older worn-out pair, makes the point, then wears it out for a walk",
+      "one continuous take: the featured footwear held up close to the camera, fingers pointing at the sole and stitching while talking, then one slow turn of the shoe to show it still holds up",
+      "one continuous doorstep take: wearing the featured footwear, he talks to the phone and tilts it down to show them on-feet and smoothly back up",
     ],
     hooks: [
       "Un mes usando {estas} {palabra}: reseña honesta.",
@@ -525,9 +516,8 @@ const CONCEPTOS: Concepto[] = [
       "at the bathroom getting the pool bag ready, featured sandals in hand, talking to the propped phone",
     ],
     narrativas: [
-      "pool day vlog: puts the featured sandals on, walks the wet pool deck confidently, dips the feet at the edge, walks to the snack bar — with POV shots of the feet walking on wet floor",
-      "beach-day version: sand, boardwalk and shore clips wearing the featured sandals, rinses them at the shower and they are ready again",
-      "getting ready for the pool: grabs towel and sunscreen, slides into the featured sandals and heads out, casual clips all the way to the water",
+      "one continuous poolside selfie take: she talks while walking slowly along the wet deck, tilts the phone down to the featured sandals gripping the floor and smoothly back up",
+      "one continuous take at the pool steps: she slides the featured sandals on while talking, stands and taps the wet floor to show they do not slip",
     ],
     hooks: [
       "Día de alberca… y esto es lo más importante que traje.",
@@ -563,9 +553,8 @@ const CONCEPTOS: Concepto[] = [
       "at the office desk stretching a foot out to show the featured footwear under the desk",
     ],
     narrativas: [
-      "office day: puts the featured footwear on at home, commute clips — walking to the car or transit — the office hallway, and at the end of the day still comfortable, told to the camera on the way home",
-      "the 8-hour test: quick cuts through the workday, morning coffee, meetings, errands at lunch — the featured footwear in frame at every step, final verdict walking home",
-      "she explains to the camera why office shoes used to hurt and how these changed it, showing the featured footwear from her desk",
+      "one continuous take by the door in office clothes: she puts the featured footwear on while talking, stands straight and smooths the outfit, ready to leave",
+      "one continuous desk take: she stretches a foot into frame showing the featured footwear while telling the camera about the workday",
     ],
     hooks: [
       "Ocho horas de oficina con {estas} {palabra}: les cuento.",
@@ -605,9 +594,8 @@ const CONCEPTOS: Concepto[] = [
       "loading groceries in the car trunk, phone propped, glancing down at the featured footwear",
     ],
     narrativas: [
-      "errand day: super, market, bank, pharmacy — quick clips walking everywhere in the featured footwear, counting the steps out loud, ending home with the bags and feet still fine",
-      "the market run: real streets, real crowds, POV of the feet dodging puddles and curbs in the featured footwear, verdict to the camera on the way back",
-      "she narrates the day while walking: how many blocks, how many hours, and how the featured footwear held up through all of it",
+      "one continuous take at the door with the tote bag: she talks while slipping on the featured footwear, lifts the bag and reaches for the handle without a cut",
+      "one continuous slow walking take on a real sidewalk: phone at arm's length, bags in the other hand, she talks and briefly tilts the phone to the featured footwear mid-stride",
     ],
     hooks: [
       "Hoy toca mandado… y estos son los {palabra} correctos.",
@@ -647,9 +635,8 @@ const CONCEPTOS: Concepto[] = [
       "at the end of the shift by the door, phone at arm's length, pointing at the featured footwear",
     ],
     narrativas: [
-      "shift day: puts the featured footwear on before work, mid-shift check-in during the break, end-of-shift verdict walking home — the whole day standing and the feet still fine",
-      "he talks straight to the camera on a break: how many hours standing, what used to hurt, and why he switched to the featured footwear — with a close-up of the cushioning",
-      "day-in-the-life of someone who works standing: opening the store, hours passing on a clock overlay style, the featured footwear at every cut",
+      "one continuous break-room take: sitting for a quick break he talks to the camera, lifts one foot to show the featured footwear and rolls the ankle",
+      "one continuous end-of-shift take by the door: tired but fine, he points down at the featured footwear and the phone tilts to them and smoothly back while he talks",
     ],
     hooks: [
       "Si trabajas de pie TODO el día, esto te interesa.",
@@ -689,9 +676,8 @@ const CONCEPTOS: Concepto[] = [
       "early morning at home in work clothes, putting on the featured boots by the door",
     ],
     narrativas: [
-      "workday test: laces the featured boots at dawn, clips through the shift — gravel, ladders, wet floor — one close-up of the sole grabbing, end-of-day verdict sitting on the truck",
-      "he shows the featured boots in his hands pointing at the reinforced stitching and the sole, puts them on and walks the jobsite naturally — no posing, just work",
-      "the two-boots story: shows a destroyed cheap pair next to the featured boots, makes the math of buying twice, then wears the featured ones to work",
+      "one continuous tailgate take: sitting on the truck he laces the featured boots while talking straight to the propped phone, slaps the toe cap and stands",
+      "one continuous workshop take: he holds the featured boots up, turns them showing the sole tread while talking, and sets them down firmly to make the point",
     ],
     hooks: [
       "En el trabajo no anda uno con {palabra} de juguete.",
@@ -727,9 +713,8 @@ const CONCEPTOS: Concepto[] = [
       "by the window with rain falling outside, holding up the featured footwear to the camera",
     ],
     narrativas: [
-      "rainy-day test: puts the featured footwear on and goes out anyway — wet sidewalks, puddles dodged and one stepped in, close-up of the sole on wet pavement — comes back with dry feet and tells the camera",
-      "the commute in the rain: bus stop, wet streets, quick clips of the featured footwear handling it, end verdict taking them off at home and showing the socks: dry",
-      "she films the rain from the door, decides the errand can't wait, wears the featured footwear and narrates the walk through the wet streets",
+      "one continuous doorway take with rain visible behind: he talks while putting the featured footwear on, then looks down as the phone smoothly follows to the shoes and back",
+      "one continuous take under an awning: rain falling behind, he lifts one foot showing the featured footwear sole to the lens while talking",
     ],
     hooks: [
       "Está lloviendo… perfecto para probar {estas} {palabra}.",
@@ -769,9 +754,8 @@ const CONCEPTOS: Concepto[] = [
       "at a store-pickup moment or with the delivery box, explaining who it is for",
     ],
     narrativas: [
-      "the gift story: shows the featured footwear, explains who it is for and why this pair, wraps the box halfway through, and closes telling the reaction it got",
-      "gift-hunting solved: she tells the camera how hard the person is to shop for, shows the featured footwear from every angle as 'the answer', packs it up",
-      "unwrapped: the box is opened on camera as the gift moment is retold, close-ups of the details that made it the right choice",
+      "one continuous table take: the featured footwear beside gift wrap, she holds it up to the camera while telling the story, then lays it on the paper ready to wrap",
+      "one continuous couch take: box on the lap, she opens it towards the camera and holds the featured footwear up while retelling the reaction it got",
     ],
     hooks: [
       "¿Regalo para alguien difícil? Ya lo resolví.",
@@ -812,9 +796,8 @@ const CONCEPTOS: Concepto[] = [
       "by the shoe rack comparing the featured footwear against a known-brand pair",
     ],
     narrativas: [
-      "the skeptic's story: tells the camera he had never heard of the brand, almost didn't buy, shows the featured footwear up close going over material, stitching and sole, and admits it beat his expectations — ends wearing them out",
-      "compares the featured footwear against a famous-brand pair he owns: details side by side, price difference told out loud, honest verdict",
-      "reads out loud a doubt he had before buying (sizing, quality), then answers it on camera showing the actual featured footwear",
+      "one continuous desk take: she holds the featured footwear like evidence, rotates it near the lens going over material and stitching while talking, then sets it down with a convinced nod",
+      "one continuous take by the shoe rack: the featured footwear in one hand and a known-brand pair in the other, raising each while talking, ending with the featured one up close",
     ],
     hooks: [
       "No conocía la marca… y casi no compro. Qué error hubiera sido.",
@@ -855,9 +838,8 @@ const CONCEPTOS: Concepto[] = [
       "at the dining table with the school backpack beside, showing the featured footwear to the camera",
     ],
     narrativas: [
-      "mom review: she shows the kids' featured footwear up close — the sole, the closure, how easy it opens — explains what it survives (school, park, bikes) and how it washes, all told to the camera with no children shown",
-      "the school-shoes talk: she compares how fast other pairs died, shows the featured footwear details and why this one lasts, ends putting it in the backpack for tomorrow",
-      "she demonstrates with her hands how easily the featured footwear opens and closes and how solid the sole is, telling anecdotes of what her kid puts shoes through",
+      "one continuous living-room take: she holds the kids' featured footwear up, opens and closes the closure with one hand while talking, and flexes the sole to show it (no children on camera)",
+      "one continuous take by the shoe rack: she picks up the kids' featured footwear, turns it near the lens showing what survives school and park, still talking (no children on camera)",
     ],
     hooks: [
       "Las mamás me van a entender: los niños DESTRUYEN zapatos.",
@@ -938,12 +920,14 @@ export function armarConceptoUGC(datos: {
   const cierre = elegir(concepto.cierres, datos.semilla, 29);
 
   const promptImagen =
-    `Frame grab from a casual vertical 9:16 video filmed on a smartphone: ${perfil}, ` +
-    `${escena}. The featured footwear from the reference image is clearly visible. ` +
-    `Full body or three-quarter body in frame, ordinary lighting, slightly imperfect ` +
-    `framing, mild phone-camera grain, real unretouched skin. It must look like a ` +
-    `regular person's TikTok clip: amateur, spontaneous, relatable. NO studio lighting, ` +
-    `NO advertising polish, NO cinematic look, NO posing.` + CANDADO_UGC;
+    `Photo edit task: keep the EXACT footwear from the provided photo completely ` +
+    `untouched and build a realistic scene around it. The scene: ${perfil}, ${escena}, ` +
+    `holding or wearing that exact footwear, clearly visible. The result must look ` +
+    `like a frame grab from a casual vertical 9:16 phone video: full body or ` +
+    `three-quarter body in frame, ordinary lighting, slightly imperfect framing, mild ` +
+    `phone-camera grain, real unretouched skin — a regular person's TikTok clip, ` +
+    `amateur and spontaneous. NO studio lighting, NO advertising polish, NO cinematic ` +
+    `look, NO posing.` + CANDADO_UGC;
 
   const narrativa =
     `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}. ` +

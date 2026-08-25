@@ -41,28 +41,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Sin HIGGSFIELD_CREDENTIALS en este entorno." });
   }
 
+  const malo = { prompt: "x", image_url: "https://example.com/x.jpg", aspect_ratio: "9:99" };
   const sondeos = [
-    // ¿Existe y qué campos exige?
-    await sondear("/bytedance/seedream/v4/edit", {}),
-    // ¿Qué valores acepta aspect_ratio? (inválido a propósito)
-    await sondear("/bytedance/seedream/v4/edit", {
-      prompt: "x",
-      image_url: "https://example.com/x.jpg",
-      aspect_ratio: "9:99",
-    }),
-    // ¿Qué valores acepta resolution? (inválido a propósito)
-    await sondear("/bytedance/seedream/v4/edit", {
-      prompt: "x",
-      image_url: "https://example.com/x.jpg",
-      aspect_ratio: "9:16",
-      resolution: "9K",
-    }),
-    // ¿image_url o image_urls? (por si pide lista)
-    await sondear("/bytedance/seedream/v4/edit", {
-      prompt: "x",
-      image_urls: ["https://example.com/x.jpg"],
-      aspect_ratio: "9:99",
-    }),
+    await sondear("/bytedance/seedream/v4/text-to-image", {}),
+    await sondear("/flux-pro/kontext/max/text-to-image", {}),
+    await sondear("/flux-pro/kontext/max/text-to-image", malo),
+    await sondear("/flux-pro/kontext/pro/text-to-image", {}),
+    await sondear("/flux-pro/kontext/max/image-to-image", {}),
+    await sondear("/nano-banana/edit", {}),
+    await sondear("/google/nano-banana/edit", {}),
+    await sondear("/nano-banana-pro/edit", {}),
+    await sondear("/gemini-2.5-flash-image/edit", {}),
+    await sondear("/bytedance/seededit/v3/edit", {}),
+    await sondear("/seededit/edit", {}),
+    await sondear("/qwen/image-edit", {}),
+    await sondear("/qwen-image-edit", {}),
+    await sondear("/bytedance/seedream/v3/text-to-image", {}),
+    await sondear("/recraft/image-edit", {}),
   ];
 
   return NextResponse.json({ sondeos });
