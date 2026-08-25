@@ -230,9 +230,17 @@ export async function amazonParaCompras(
         : (i.en_transferencia ?? 0);
       entrada(sku).stock += (i.disponible ?? 0) + camino;
     }
+    // Un mapa vacío aquí deja la Planificación China sin el lado Amazon y
+    // nadie se entera: que por lo menos quede gritado en los logs.
+    if (mapa.size === 0) {
+      console.error(
+        `amazonParaCompras: mapa VACÍO (ventas=${ventas.length}, inventario=${inventario.length}, entrantes=${entrantes.length})`,
+      );
+    }
     cacheAmazonCompras.set("unica", { en: Date.now(), datos: mapa });
     return mapa;
-  } catch {
+  } catch (err) {
+    console.error("amazonParaCompras tronó:", (err as Error).message);
     return new Map();
   }
 }
