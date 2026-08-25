@@ -13,7 +13,7 @@ import {
 } from "@/lib/servicios/fba";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
 import { catalogoBodega } from "@/lib/servicios/inventario";
-import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
+import { desglosarOpcionales, partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { normalizarParametros } from "@/lib/engine/params";
 import { aISO } from "@/lib/engine/fechas";
 
@@ -182,8 +182,17 @@ export async function GET(request: NextRequest) {
   encabezar(hCajas);
 
   const ROJO = { color: { argb: "FFC00000" } } as const;
-  for (const c of planFba.cajas) {
-    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+  const FONDO_OPCIONALES = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFFDE9D9" },
+  } as const;
+
+  // Igual que el Excel de envíos a Full: primero el ENVÍO BASE y abajo el
+  // bloque de OPCIONALES aparte; un renglón mixto se divide en dos.
+  const { normales, opcionales: cajasOpcionales } = partirPorOpcionales(planFba.cajas);
+
+  const filaDeCaja = (c: (typeof planFba.cajas)[number], esOpcional: boolean) => {
     const fila = hCajas.addRow({
       skuCaja: c.skuCaja,
       almacen: c.almacen,
@@ -192,15 +201,26 @@ export async function GET(request: NextRequest) {
       color: c.color,
       tipo: c.esCorrida ? "Corrida" : `Talla ${c.talla}`,
       cantidad: c.cantidad,
-      opcionales: opcionales || "",
-      deMas: opcionales ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
+      opcionales: esOpcional ? "OPCIONAL" : "",
+      deMas: esOpcional ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
       disp: c.cajasDisponibles,
       porCaja: c.paresPorCaja,
       pares: c.paresTotales,
       contenido: c.aporta.map((a) => `${a.talla}:${a.paresTotales}`).join("  "),
     });
-    // Lo OPCIONAL en rojo, igual que en el Excel de envíos a Full.
-    if (opcionales > 0) fila.font = ROJO;
+    if (esOpcional) fila.font = ROJO;
+  };
+
+  for (const c of normales) filaDeCaja(c, false);
+  if (cajasOpcionales.length) {
+    const cajasOpc = cajasOpcionales.reduce((a, c) => a + c.cantidad, 0);
+    const paresOpc = cajasOpcionales.reduce((a, c) => a + c.paresTotales, 0);
+    const divisor = hCajas.addRow({
+      skuCaja: `OPCIONALES — ${cajasOpc} cajas · ${paresOpc} pares. Entraron por el rescate de una talla que falta; tú decides si van en el envío.`,
+    });
+    divisor.font = { ...ROJO, bold: true };
+    divisor.fill = FONDO_OPCIONALES as ExcelJS.Fill;
+    for (const c of cajasOpcionales) filaDeCaja(c, true);
   }
 
   // ------------------------------------------------------------ ENVÍO A FBA

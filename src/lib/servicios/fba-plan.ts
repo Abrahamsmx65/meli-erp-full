@@ -39,8 +39,14 @@ export interface PlanFbaCajas {
   lineas: LineaFba[];
   paresSugeridos: number;
   skusConFaltante: number;
-  /** faltantes que ninguna caja disponible en bodega puede tapar */
+  /** faltantes cuyo SKU no viene en NINGUNA caja disponible: amarre roto o bodega agotada */
   sinCajaEnBodega: { sku: string; pares: number }[];
+  /**
+   * Faltantes cuyo SKU SÍ viene en alguna caja disponible: el motor mandó lo
+   * que se justificaba (enPlan) y dejó este pico para el siguiente envío en
+   * vez de arrastrar otra caja completa. NO es un problema de amarre.
+   */
+  faltanteConCaja: { sku: string; pares: number; enPlan: number }[];
   /** SKUs de Amazon con venta que no amarraron con el catálogo de MELI */
   sinAmarre: SinAmarreFba[];
 }
@@ -162,15 +168,35 @@ export function planFbaConCajas(opts: {
     .filter((x): x is CajaPlaneada => x !== null)
     .sort((a, b) => b.paresTotales - a.paresTotales);
 
+  // El faltante que el optimizador dejó tiene dos historias MUY distintas:
+  // si el SKU no viene en ninguna caja disponible, es amarre roto o bodega
+  // agotada (alarma); si sí viene, el motor simplemente decidió que el pico
+  // restante no justifica arrastrar otra caja completa (normal). Mezclarlas
+  // hacía que un residuo de 1 par saliera como "no está ligado a bodega"
+  // con 5 cajas de ese mismo SKU dentro del plan (caso GT114-LT BROWN-26).
+  const skuEnCajas = new Set<string>();
+  for (const c of catalogo) {
+    if (c.cajasDisponibles <= 0) continue;
+    for (const it of c.items) skuEnCajas.add(it.sku);
+  }
+  const sinCajaEnBodega: { sku: string; pares: number }[] = [];
+  const faltanteConCaja: { sku: string; pares: number; enPlan: number }[] = [];
+  for (const [sku, pares] of resultado.faltantePorSku) {
+    if (!necesidad.has(sku)) continue;
+    if (skuEnCajas.has(sku)) {
+      faltanteConCaja.push({ sku, pares, enPlan: resultado.enviadoPorSku.get(sku) ?? 0 });
+    } else {
+      sinCajaEnBodega.push({ sku, pares });
+    }
+  }
+
   return {
     cajas,
     lineas: [...necesidad.entries()].map(([sku, sugerido]) => ({ sku, sugerido })),
     paresSugeridos: [...necesidad.values()].reduce((a, b) => a + b, 0),
     skusConFaltante: necesidad.size,
-    sinCajaEnBodega: [...resultado.faltantePorSku.entries()]
-      .filter(([sku]) => necesidad.has(sku))
-      .map(([sku, pares]) => ({ sku, pares }))
-      .sort((a, b) => b.pares - a.pares),
+    sinCajaEnBodega: sinCajaEnBodega.sort((a, b) => b.pares - a.pares),
+    faltanteConCaja: faltanteConCaja.sort((a, b) => b.pares - a.pares),
     sinAmarre: sinAmarre.sort((a, b) => b.faltante - a.faltante),
   };
 }

@@ -190,10 +190,11 @@ export function CajasFba({
               {n(sinCaja)} pares)
             </h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Estos SKUs necesitan pares y ninguna caja disponible en bodega los trae —
-              aquí se ve si el plan sugiere poco porque de verdad no hay caja, o porque
-              algo no está ligando. Si un SKU de esta lista SÍ tiene caja en bodega, es
-              un problema de amarre: avísame cuál.
+              Estos SKUs necesitan pares y NO vienen en ninguna caja disponible: o la
+              bodega de verdad no tiene, o algo no está ligando. Si un SKU de esta
+              lista SÍ tiene caja física en bodega, es un problema de amarre: avísame
+              cuál. (Los faltantes chicos de SKUs que sí van en el plan ya no salen
+              aquí — están en su propia tabla abajo.)
             </p>
           </header>
           <div className="max-h-[24rem] overflow-auto">
@@ -208,6 +209,42 @@ export function CajasFba({
                 {plan.sinCajaEnBodega.map((f) => (
                   <tr key={f.sku}>
                     <td className="font-medium">{f.sku}</td>
+                    <td className="num cifra">{n(f.pares)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {plan.faltanteConCaja.length > 0 ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="font-semibold">
+              Faltantes chicos con caja disponible ({plan.faltanteConCaja.length} SKUs ·{" "}
+              {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
+            </h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              Estos SKUs SÍ tienen caja en bodega y el plan ya manda lo que se
+              justifica; el pico que queda no vale otra caja completa y se cubre en el
+              siguiente envío. No es un problema de amarre.
+            </p>
+          </header>
+          <div className="max-h-[20rem] overflow-auto">
+            <table className="datos">
+              <thead>
+                <tr>
+                  <th>SKU (MELI)</th>
+                  <th className="num">Van en el plan</th>
+                  <th className="num">Pico que queda</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plan.faltanteConCaja.map((f) => (
+                  <tr key={f.sku}>
+                    <td className="font-medium">{f.sku}</td>
+                    <td className="num cifra">{n(f.enPlan)}</td>
                     <td className="num cifra">{n(f.pares)}</td>
                   </tr>
                 ))}
