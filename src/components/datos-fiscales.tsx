@@ -34,7 +34,8 @@ interface ModeloFiscal {
   ivaSugerida: string | null;
   iepsSugerido: number | null;
   unidadSugerida: string | null;
-  sugerenciaDe: "modelo" | "parecidos" | "catalogo" | null;
+  sugerenciaDe: "modelo" | "categoria" | "catalogo" | null;
+  categoria: string | null;
 }
 
 interface Captura {
@@ -246,7 +247,7 @@ export function DatosFiscales() {
             disabled={!conSugerencia.length}
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             style={{ background: "var(--acento)" }}
-            title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de los modelos parecidos o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
+            title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de su categoría de MELI o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
             Confirmar y rellenar los {conSugerencia.length} modelos
           </button>
@@ -265,6 +266,7 @@ export function DatosFiscales() {
                 <tr>
                   <th>Modelo</th>
                   <th>Producto</th>
+                  <th>Categoría</th>
                   <th className="num">Sin datos</th>
                   <th>Clave SAT</th>
                   <th>IVA %</th>
@@ -288,6 +290,9 @@ export function DatosFiscales() {
                       >
                         {m.titulo ?? "—"}
                       </td>
+                      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                        {m.categoria ?? "—"}
+                      </td>
                       <td className="num cifra">
                         {m.sinDatos}
                         <span style={{ color: "var(--ink-muted)" }}> / {m.totalSkus}</span>
@@ -304,8 +309,8 @@ export function DatosFiscales() {
                               ? `Sugerido: ${m.satSugerido} (${
                                   m.sugerenciaDe === "modelo"
                                     ? "ya cargado en otro SKU de este modelo"
-                                    : m.sugerenciaDe === "parecidos"
-                                      ? "lo más usado en los modelos parecidos"
+                                    : m.sugerenciaDe === "categoria"
+                                      ? `lo que ya usa su categoría ${m.categoria ?? ""}`
                                       : "lo más usado en tu catálogo — revisa que aplique"
                                 })`
                               : "Clave del catálogo c_ClaveProdServ del SAT"
@@ -313,8 +318,8 @@ export function DatosFiscales() {
                         />
                         {m.sugerenciaDe && m.sugerenciaDe !== "modelo" ? (
                           <div className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
-                            {m.sugerenciaDe === "parecidos"
-                              ? "de los modelos parecidos"
+                            {m.sugerenciaDe === "categoria"
+                              ? "de su categoría"
                               : "del catálogo: revísala"}
                           </div>
                         ) : null}
