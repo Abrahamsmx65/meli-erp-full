@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
@@ -39,12 +40,16 @@ export default async function Plan() {
     );
   }
 
-  // El plan, los envíos registrados y los pendientes de la bodega no
-  // dependen uno del otro: en paralelo, todo del lado del servidor.
-  const [estado, enCamino, pendientesBodega, corridasRaw] = await Promise.all([
+  // Los pendientes de la bodega vienen del API de Industher EN VIVO (hasta
+  // 20 s si su servidor anda lento): la promesa arranca ya, pero NO se
+  // espera aquí — sus dos secciones llegan por streaming (Suspense) y el
+  // resto de la página pinta de inmediato.
+  const pendientesPromesa = enviosPendientesIndusther(supabase, cuenta.id);
+
+  // El plan y los envíos registrados no dependen uno del otro: en paralelo.
+  const [estado, enCamino, corridasRaw] = await Promise.all([
     obtenerPlan(supabase, cuenta.id),
     enviosParaPantalla(supabase, cuenta.id),
-    enviosPendientesIndusther(supabase, cuenta.id),
     // Para repartir por talla las filas de CORRIDA de los envíos pendientes.
     traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
       q.eq("account_id", cuenta.id),
@@ -92,11 +97,8 @@ export default async function Plan() {
   // alta: uno por dirección de recolección.
   const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
 
-  // Doble verificación del envío, calculada en el servidor: stock, cajas
-  // repetidas, cuadre de pares y solape con lo que la bodega ya apartó.
-  // Los SKUs de los pendientes vienen como los escribe la bodega: se
-  // amarran al SKU de MELI (y las corridas se reparten por talla) para que
-  // el solape compare manzanas con manzanas.
+  // Insumos de la verificación (se calcula dentro del Suspense, porque
+  // necesita la respuesta del API de Industher).
   const indicePlan = indexarCatalogo(plan.lineas);
   const corridasPendientes = (corridasRaw ?? []).map((c: any) => ({
     pedido: String(c.pedido ?? ""),
@@ -104,15 +106,6 @@ export default async function Plan() {
     color: String(c.color ?? ""),
     tallas: (c.tallas ?? {}) as Record<string, number>,
   }));
-  const verificacion = verificarEnvios(
-    envios,
-    pendientesBodega.envios
-      .filter((e) => e.esMeli && !e.omitido)
-      .map((e) => ({
-        id: e.id,
-        filas: e.filas.flatMap((f) => expandirFilaMeli(f, indicePlan, corridasPendientes)),
-      })),
-  );
 
 
   // Lo acordado: el total oficial son las cajas OBLIGATORIAS; las del rescate
@@ -165,8 +158,12 @@ export default async function Plan() {
         msCalculo={estado.msCalculo}
       />
 
-      {/* ---- Envíos que la bodega ya apartó para MELI --------------------- */}
-      <PendientesIndusther envios={pendientesBodega.envios} error={pendientesBodega.error} />
+      {/* ---- Envíos que la bodega ya apartó para MELI ---------------------
+           Llega por streaming: el API de Industher puede tardar segundos y
+           no debe detener el resto de la página. */}
+      <Suspense fallback={<EsperandoBodega />}>
+        <SeccionPendientesBodega promesa={pendientesPromesa} />
+      </Suspense>
 
       {/* ---- Cifras de cabecera ------------------------------------------ */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
@@ -295,24 +292,24 @@ export default async function Plan() {
         sinConfigurar={sinConfigurar}
       />
 
-      {/* ---- Doble verificación del envío --------------------------------- */}
+      {/* ---- Doble verificación del envío ---------------------------------
+           También espera al API de Industher (el solape con lo apartado):
+           llega por streaming después del resto. */}
       {envios.length ? (
-        <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">Verificación del envío</h2>
-          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
-            {verificacion.map((v, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span
-                  aria-hidden="true"
-                  style={{ color: v.ok ? "var(--exito-texto)" : "var(--estado-alerta)" }}
-                >
-                  {v.ok ? "✓" : "⚠"}
-                </span>
-                <span style={{ color: v.ok ? "var(--ink-2)" : "var(--ink-1)" }}>{v.texto}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Suspense
+          fallback={
+            <section className="tarjeta p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+              Verificando el envío contra lo que la bodega ya apartó…
+            </section>
+          }
+        >
+          <SeccionVerificacion
+            promesa={pendientesPromesa}
+            envios={envios}
+            indicePlan={indicePlan}
+            corridasPendientes={corridasPendientes}
+          />
+        </Suspense>
       ) : null}
 
       <TablasPlan
@@ -354,5 +351,69 @@ function Bienvenida({
       ) : null}
       {children ? <div className="mt-4 flex justify-center">{children}</div> : null}
     </div>
+  );
+}
+
+/** Mientras contesta el API de Industher: la página ya está usable. */
+function EsperandoBodega() {
+  return (
+    <section className="tarjeta animate-pulse p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+      Consultando a la bodega los envíos que ya apartó…
+    </section>
+  );
+}
+
+async function SeccionPendientesBodega({
+  promesa,
+}: {
+  promesa: ReturnType<typeof enviosPendientesIndusther>;
+}) {
+  const pendientesBodega = await promesa;
+  return <PendientesIndusther envios={pendientesBodega.envios} error={pendientesBodega.error} />;
+}
+
+async function SeccionVerificacion({
+  promesa,
+  envios,
+  indicePlan,
+  corridasPendientes,
+}: {
+  promesa: ReturnType<typeof enviosPendientesIndusther>;
+  envios: Awaited<ReturnType<typeof separarEnvios>>["envios"];
+  indicePlan: ReturnType<typeof indexarCatalogo>;
+  corridasPendientes: { pedido: string; modelo: string; color: string; tallas: Record<string, number> }[];
+}) {
+  const pendientesBodega = await promesa;
+  // Doble verificación del envío: stock, cajas repetidas, cuadre de pares y
+  // solape con lo que la bodega ya apartó. Los SKUs de los pendientes vienen
+  // como los escribe la bodega: se amarran al SKU de MELI (y las corridas se
+  // reparten por talla) para comparar manzanas con manzanas.
+  const verificacion = verificarEnvios(
+    envios,
+    pendientesBodega.envios
+      .filter((e) => e.esMeli && !e.omitido)
+      .map((e) => ({
+        id: e.id,
+        filas: e.filas.flatMap((f) => expandirFilaMeli(f, indicePlan, corridasPendientes)),
+      })),
+  );
+
+  return (
+    <section className="tarjeta p-4">
+      <h2 className="text-sm font-semibold">Verificación del envío</h2>
+      <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+        {verificacion.map((v, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span
+              aria-hidden="true"
+              style={{ color: v.ok ? "var(--exito-texto)" : "var(--estado-alerta)" }}
+            >
+              {v.ok ? "✓" : "⚠"}
+            </span>
+            <span style={{ color: v.ok ? "var(--ink-2)" : "var(--ink-1)" }}>{v.texto}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
