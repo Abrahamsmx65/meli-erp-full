@@ -50,6 +50,7 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/api/meli/callback") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
+    ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {
