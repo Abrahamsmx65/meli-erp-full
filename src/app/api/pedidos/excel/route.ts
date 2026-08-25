@@ -35,7 +35,7 @@ function encabezar(hoja: ExcelJS.Worksheet): void {
  * El Excel del pedido a China, por modelo (o completo si no se pide uno).
  *
  * Mismo cálculo que la pantalla: corrida propuesta según el faltante real de
- * cada talla, y cajas unitalla solo cuando el volumen las justifica. Sale
+ * cada talla, y cajas unitalla cuando la talla justifica 5+ cajas. Sale
  * listo para mandárselo a la fábrica.
  */
 export async function GET(request: NextRequest) {
@@ -131,8 +131,8 @@ export async function GET(request: NextRequest) {
     ["Cobertura al llegar", `${p.diasCobertura} días`, ""],
     [
       "Regla de unitalla",
-      "10 cajas / 100 cajas",
-      "Solo si la talla justifica 10+ cajas y el color pide 100+",
+      "5 cajas",
+      "Una talla se separa en cajas completas si sola justifica 5+ cajas",
     ],
   ];
   for (const [c, v, nota] of filasResumen) hResumen.addRow({ c, v, n: nota });

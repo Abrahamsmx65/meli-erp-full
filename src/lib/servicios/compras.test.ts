@@ -23,23 +23,31 @@ describe("corrida propuesta", () => {
 });
 
 describe("reglas de unitalla", () => {
-  it("pedido chico: todo va en corrida aunque una talla pese mucho", () => {
-    // 50 cajas totales (< 100): sin unitallas.
-    const p = armarPedidoColor({ "25": 800, "26": 400 }, 24);
+  it("una talla con menos de 5 cajas no se separa: va en corrida", () => {
+    // 25 pide 4 cajas justas (96/24) y 26 ni una: todo en corrida.
+    const p = armarPedidoColor({ "25": 96, "26": 40 }, 24);
     expect(p.unitallas).toHaveLength(0);
-    expect(p.cajasCorrida).toBe(Math.ceil(1200 / 24));
+    expect(p.cajasCorrida).toBe(Math.ceil(136 / 24));
   });
 
-  it("pedido grande: la talla que justifica 10+ cajas se separa como unitalla", () => {
-    // Total 2640 pares = 110 cajas (>= 100). La talla 26 pide 480 pares =
-    // 20 cajas unitalla; el resto va en corrida.
+  it("la talla que justifica 5+ cajas se separa como unitalla", () => {
     const p = armarPedidoColor({ "24": 1080, "25": 1080, "26": 480 }, 24);
     const uni26 = p.unitallas.find((u) => u.talla === "26");
     expect(uni26?.cajas).toBe(20);
-    // Las tallas 24 y 25 también superan 10 cajas cada una: también unitalla.
+    // Las tallas 24 y 25 también superan 5 cajas cada una: también unitalla.
     expect(p.unitallas.find((u) => u.talla === "24")?.cajas).toBe(45);
     expect(p.unitallas.find((u) => u.talla === "25")?.cajas).toBe(45);
     expect(p.cajasCorrida).toBe(0);
+  });
+
+  it("sin mínimo por color: un pedido chico también separa unitallas", () => {
+    // El color entero pide 12 cajas (< 100, la vieja regla lo bloqueaba):
+    // la 26 justifica 5 cajas exactas (120/24) y se separa igual; la 24 se
+    // queda en corrida con sus 48 pares.
+    const p = armarPedidoColor({ "24": 48, "26": 120 }, 24);
+    expect(p.unitallas).toEqual([{ talla: "26", cajas: 5 }]);
+    expect(p.cajasCorrida).toBe(2);
+    expect(p.corridaPropuesta).toEqual({ "24": 24 });
   });
 
   it("los pares no se pierden ni se duplican al separar unitallas", () => {
@@ -53,13 +61,13 @@ describe("reglas de unitalla", () => {
     expect(paresPedidos).toBeLessThan(total + 24 * 2);
   });
 
-  it("las unitallas se separan con el faltante EXACTO, no con el amortiguado", () => {
-    // El régimen amortiguado infla el faltante de la talla 26 (por el 70%),
-    // pero para cajas COMPLETAS de una talla el número exacto manda: 26 solo
-    // justifica 10 cajas exactas (240 pares), no las 20 del amortiguado.
-    const amortiguado = { "24": 1200, "25": 1200, "26": 480 };
+  it("las unitallas se separan con el faltante EXACTO, no con el de corrida", () => {
+    // Si el faltante de corrida viniera inflado en la talla 26, las cajas
+    // COMPLETAS de una talla igual se miden con el número exacto: 26 solo
+    // justifica 10 cajas exactas (240 pares), no las 20 del inflado.
+    const corrida = { "24": 1200, "25": 1200, "26": 480 };
     const exacto = { "24": 1200, "25": 1200, "26": 240 };
-    const p = armarPedidoColor(amortiguado, 24, exacto);
+    const p = armarPedidoColor(corrida, 24, exacto);
     expect(p.unitallas.find((u) => u.talla === "26")?.cajas).toBe(10);
   });
 });
@@ -84,7 +92,7 @@ describe("pares por caja normalizados (12/24/36/48)", () => {
   });
 });
 
-describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () => {
+describe("faltante por talla (stock descontado al 100% siempre)", () => {
   const base = {
     demandaPorTalla: new Map([
       ["24", 2],
@@ -96,10 +104,9 @@ describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () =>
     ]),
     horizonte: 180,
     umbralAgotamientoDias: 100,
-    descuentoStock: 0.7,
   };
 
-  it("con cobertura corta (< 100 días) el stock se descuenta COMPLETO", () => {
+  it("con cobertura corta (< 100 días) el régimen es se_agota, faltante exacto", () => {
     // 300 pares / 6 al día = 50 días de cobertura < 100 → se agota. El stock
     // se venderá antes de que llegue el pedido, pero cubre la primera parte
     // del horizonte: IGNORARLO (comportamiento viejo) pedía 360 pares
@@ -110,17 +117,21 @@ describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () =>
     expect(r.faltantePorTalla["25"]).toBe(4 * 180);
   });
 
-  it("con cobertura larga el stock se descuenta al 70%", () => {
+  it("con cobertura larga TAMBIÉN se descuenta completo (antes era 70%)", () => {
+    // El descuento amortiguado fabricaba faltantes fantasma: 30% del stock
+    // aparecía como "faltante" en colores con meses de cobertura. Ahora el
+    // Pedido 1 cuadra con el Detalle SKU: faltante = demanda − stock.
     const r = faltantesPorRegimen({ ...base, coberturaDias: 150 });
     expect(r.regimen).toBe("repone");
-    expect(r.faltantePorTalla["24"]).toBe(Math.round(2 * 180 - 0.7 * 300));
+    expect(r.faltantePorTalla["24"]).toBe(2 * 180 - 300);
     expect(r.faltantePorTalla["25"]).toBe(4 * 180);
   });
 
-  it("el faltante EXACTO siempre descuenta el stock completo, en ambos regímenes", () => {
+  it("el faltante EXACTO es el mismo que el de corrida, en ambos regímenes", () => {
     const corto = faltantesPorRegimen({ ...base, coberturaDias: 50 });
     const largo = faltantesPorRegimen({ ...base, coberturaDias: 150 });
     for (const r of [corto, largo]) {
+      expect(r.faltanteExactoPorTalla).toEqual(r.faltantePorTalla);
       expect(r.faltanteExactoPorTalla["24"]).toBe(2 * 180 - 300);
       expect(r.faltanteExactoPorTalla["25"]).toBe(4 * 180);
     }
@@ -151,7 +162,9 @@ describe("opción 2: pedido solo según la venta (sin descontar stock)", () => {
     const cajas =
       pedido.cajasCorrida + pedido.unitallas.reduce((a, u) => a + u.cajas, 0);
     expect(cajas).toBe(Math.ceil(240 / 24));
-    // El reparto de la caja respeta la proporción de venta (12/6/6 en 24).
-    expect(pedido.corridaPropuesta).toEqual({ "25": 12, "26": 6, "27": 6 });
+    // La 25 justifica 5 cajas exactas y se separa como unitalla; el resto
+    // se reparte en corrida a partes iguales (12/12 en 24).
+    expect(pedido.unitallas).toEqual([{ talla: "25", cajas: 5 }]);
+    expect(pedido.corridaPropuesta).toEqual({ "26": 12, "27": 12 });
   });
 });
