@@ -174,26 +174,71 @@ export function sugerirEnvioFba(
     .sort((a, b) => (a.cobertura ?? 0) - (b.cobertura ?? 0));
 }
 
+/** Ventana de venta que alimenta el pedido a China (días). */
+const VENTANA_VENTA_AMZ = 30;
+
 /**
- * Amazon por SKU para el pedido a China: venta diaria (últimos 30 días) y
- * stock (FBA + lo que viaja hacia FBA). Solo calzado. Si Amazon no está
- * conectado o las tablas están vacías, regresa un mapa vacío y el pedido se
- * calcula solo con MELI, como antes.
+ * Tope de la corrección por agotamiento, el MISMO que usa el motor de
+ * demanda de MELI (factorCorreccionMax = 3): la tasa corregida nunca puede
+ * ser más de 3× lo realmente vendido, para no extrapolar de más con pocos
+ * días de datos.
  */
-const cacheAmazonCompras = new Map<string, { en: number; datos: Map<string, { ventaDiaria: number; stock: number }> }>();
+export const FACTOR_CORRECCION_AMZ = 3;
+
+/**
+ * La venta diaria CORREGIDA por agotamiento, como la de MELI: las unidades
+ * vendidas se dividen entre los días que el SKU de verdad tuvo stock, no
+ * entre el calendario completo. Un SKU que vendió 20 pares pero pasó 20 de
+ * los 30 días agotado vendía 2 al día, no 0.67.
+ */
+export function ventaDiariaCorregida(
+  unidades: number,
+  diasAgotado: number,
+  ventana = VENTANA_VENTA_AMZ,
+  factorMax = FACTOR_CORRECCION_AMZ,
+): number {
+  if (unidades <= 0 || ventana <= 0) return 0;
+  const observada = unidades / ventana;
+  const efectivos = Math.max(1, ventana - diasAgotado);
+  return Math.min(unidades / efectivos, observada * factorMax);
+}
+
+interface AmazonCompraSku {
+  /** venta diaria corregida por agotamiento (la que usa el cálculo) */
+  ventaDiaria: number;
+  /** venta diaria realmente observada (unidades / 30), sin corrección */
+  ventaDiariaReal: number;
+  stock: number;
+}
+
+/**
+ * Amazon por SKU para el pedido a China: venta diaria de los últimos 30
+ * días — corregida por agotamiento con las fotos diarias del inventario
+ * (`amazon_inventario_snapshots`): un día con el SKU en cero y sin ventas
+ * no cuenta como día de venta — junto a la observada, y el stock (FBA + lo
+ * que viaja hacia FBA). Solo calzado. Si Amazon no está conectado o las
+ * tablas están vacías, regresa un mapa vacío y el pedido se calcula solo
+ * con MELI, como antes; sin fotos del inventario simplemente no se corrige.
+ */
+const cacheAmazonCompras = new Map<string, { en: number; datos: Map<string, AmazonCompraSku> }>();
 const VIDA_CACHE_AMZ_MS = 60_000;
+
+/** Solo para pruebas: olvida el minuto de caché. */
+export function limpiarCacheAmazonCompras(): void {
+  cacheAmazonCompras.clear();
+}
 
 export async function amazonParaCompras(
   db: DB,
-): Promise<Map<string, { ventaDiaria: number; stock: number }>> {
+): Promise<Map<string, AmazonCompraSku>> {
   // Cada clic en Planificación bajaba ~30 días de ventas de Amazon fila por
   // fila solo para sumarlas; un minuto de caché por instancia lo evita.
   const guardado = cacheAmazonCompras.get("unica");
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_AMZ_MS) return guardado.datos;
 
-  const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const desde = new Date(Date.now() - VENTANA_VENTA_AMZ * 86_400_000).toISOString().slice(0, 10);
   try {
-    const [ventas, inventario, entrantes] = await Promise.all([
+    const [ventas, inventario, entrantes, fotos] = await Promise.all([
       // `fecha` va en el select para que la paginación ordene por una llave
       // ÚNICA (seller_sku solo empata entre días y duplicaba filas).
       traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
@@ -208,19 +253,50 @@ export async function amazonParaCompras(
         "shipment_id, seller_sku, nombre, estado, enviado, recibido, vigente",
         (q) => q,
       ).catch(() => [] as any[]),
+      // Las fotos diarias del inventario, para saber qué días estuvo en
+      // cero cada SKU. Si aún no hay fotos, la corrección simplemente no
+      // aplica (venta corregida = observada).
+      traerTodo<any>(
+        db,
+        "amazon_inventario_snapshots",
+        "seller_sku, fecha, disponible",
+        (q) => q.gte("fecha", desde),
+      ).catch(() => [] as any[]),
     ]);
     const enCamino = resumirEnCamino(entrantes);
 
-    const mapa = new Map<string, { ventaDiaria: number; stock: number }>();
-    const entrada = (sku: string) => {
-      const e = mapa.get(sku) ?? { ventaDiaria: 0, stock: 0 };
-      mapa.set(sku, e);
-      return e;
-    };
+    // Unidades por SKU y en qué fechas vendió (si vendió, ese día SÍ tuvo
+    // stock aunque la foto lo marque en cero: se agotó a media jornada).
+    const ventaSku = new Map<string, { unidades: number; fechas: Set<string> }>();
     for (const v of ventas) {
       const sku = String(v.seller_sku ?? "");
       if (!esCalzado(sku)) continue;
-      entrada(sku).ventaDiaria += (v.unidades ?? 0) / 30;
+      const e = ventaSku.get(sku) ?? { unidades: 0, fechas: new Set<string>() };
+      e.unidades += v.unidades ?? 0;
+      if ((v.unidades ?? 0) > 0) e.fechas.add(String(v.fecha ?? ""));
+      ventaSku.set(sku, e);
+    }
+
+    // Días agotado = fotos con disponible en cero y sin venta ese día.
+    const diasAgotado = new Map<string, number>();
+    for (const f of fotos) {
+      const sku = String(f.seller_sku ?? "");
+      if (!esCalzado(sku)) continue;
+      if ((f.disponible ?? 0) > 0) continue;
+      if (ventaSku.get(sku)?.fechas.has(String(f.fecha ?? ""))) continue;
+      diasAgotado.set(sku, (diasAgotado.get(sku) ?? 0) + 1);
+    }
+
+    const mapa = new Map<string, AmazonCompraSku>();
+    const entrada = (sku: string) => {
+      const e = mapa.get(sku) ?? { ventaDiaria: 0, ventaDiariaReal: 0, stock: 0 };
+      mapa.set(sku, e);
+      return e;
+    };
+    for (const [sku, v] of ventaSku) {
+      const e = entrada(sku);
+      e.ventaDiariaReal = v.unidades / VENTANA_VENTA_AMZ;
+      e.ventaDiaria = ventaDiariaCorregida(v.unidades, diasAgotado.get(sku) ?? 0);
     }
     for (const i of inventario) {
       const sku = String(i.seller_sku ?? "");

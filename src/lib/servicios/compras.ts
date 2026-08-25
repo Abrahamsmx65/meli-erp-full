@@ -149,8 +149,10 @@ export interface RenglonCompra {
   ventaMes: number;
   /** venta mensual REALMENTE observada en MELI (tasa observada × 30) */
   ventaMesReal: number;
-  /** venta mensual de Amazon (últimos 30 días) */
+  /** venta mensual de Amazon corregida por agotamiento (la que usa el cálculo) */
   ventaMesAmazon: number;
+  /** venta mensual REALMENTE observada en Amazon (últimos 30 días, sin corrección) */
+  ventaMesRealAmazon: number;
   enFull: number;
   enTransferencia: number;
   enBodega: number;
@@ -221,8 +223,10 @@ export interface DetalleSkuCompra {
   ventaMesMeli: number;
   /** venta mensual realmente observada en MELI (sin corrección) */
   ventaMesRealMeli: number;
-  /** venta mensual de Amazon (últimos 30 días) */
+  /** venta mensual de Amazon corregida por agotamiento (la que usa el cálculo) */
   ventaMesAmazon: number;
+  /** venta mensual realmente observada en Amazon (sin corrección) */
+  ventaMesRealAmazon: number;
   /** stock en Full + lo que viaja hacia Full */
   enFull: number;
   /** stock en FBA + lo que de verdad viene en camino a FBA */
@@ -392,11 +396,12 @@ export async function sugerirCompra(
   opciones?: Partial<ParametrosCompra>,
   precargado?: { corridas: any[]; skus: any[] },
   /**
-   * Amazon por SKU: su venta diaria y su stock (FBA + en camino). El pedido
-   * a China tiene que cubrir LOS DOS canales: pedir solo con la demanda de
+   * Amazon por SKU: su venta diaria (corregida por agotamiento, con la
+   * observada de referencia) y su stock (FBA + en camino). El pedido a
+   * China tiene que cubrir LOS DOS canales: pedir solo con la demanda de
    * MELI deja corto todo lo que también vende en Amazon.
    */
-  amazonPorSku?: Map<string, { ventaDiaria: number; stock: number }>,
+  amazonPorSku?: Map<string, { ventaDiaria: number; stock: number; ventaDiariaReal?: number }>,
 ): Promise<SugerenciaCompra> {
   const p = { ...COMPRA_POR_DEFECTO, ...opciones };
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -462,6 +467,7 @@ export async function sugerirCompra(
     ventaMes: number;
     ventaMesReal: number;
     ventaMesAmazon: number;
+    ventaMesRealAmazon: number;
     enFull: number;
     enTransferencia: number;
     enBodega: number;
@@ -488,6 +494,7 @@ export async function sugerirCompra(
         ventaMesMeli: 0,
         ventaMesRealMeli: 0,
         ventaMesAmazon: 0,
+        ventaMesRealAmazon: 0,
         enFull: 0,
         enFba: 0,
         enBodega: 0,
@@ -512,6 +519,7 @@ export async function sugerirCompra(
         ventaMes: 0,
         ventaMesReal: 0,
         ventaMesAmazon: 0,
+        ventaMesRealAmazon: 0,
         enFull: 0,
         enTransferencia: 0,
         enBodega: 0,
@@ -577,6 +585,7 @@ export async function sugerirCompra(
     g.skus.add(sku);
     g.demandaDiaria += amz.ventaDiaria;
     g.ventaMesAmazon += amz.ventaDiaria * 30;
+    g.ventaMesRealAmazon += (amz.ventaDiariaReal ?? amz.ventaDiaria) * 30;
     g.enFba += amz.stock;
     if (talla) {
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + amz.ventaDiaria);
@@ -585,6 +594,7 @@ export async function sugerirCompra(
 
     const d = filaDetalle(sku, modelo, color, talla || "");
     d.ventaMesAmazon += amz.ventaDiaria * 30;
+    d.ventaMesRealAmazon += (amz.ventaDiariaReal ?? amz.ventaDiaria) * 30;
     d.enFba += amz.stock;
   }
 
@@ -596,6 +606,7 @@ export async function sugerirCompra(
       d.ventaMesMeli = Math.round(d.ventaMesMeli);
       d.ventaMesRealMeli = Math.round(d.ventaMesRealMeli);
       d.ventaMesAmazon = Math.round(d.ventaMesAmazon);
+      d.ventaMesRealAmazon = Math.round(d.ventaMesRealAmazon);
       d.enFull = Math.round(d.enFull);
       d.enFba = Math.round(d.enFba);
       d.enBodega = Math.round(d.enBodega);
@@ -719,6 +730,7 @@ export async function sugerirCompra(
       ventaMes: Math.round(g.ventaMes),
       ventaMesReal: Math.round(g.ventaMesReal),
       ventaMesAmazon: Math.round(g.ventaMesAmazon),
+      ventaMesRealAmazon: Math.round(g.ventaMesRealAmazon),
       enFull: Math.round(g.enFull),
       enTransferencia: Math.round(g.enTransferencia),
       enBodega: Math.round(g.enBodega),

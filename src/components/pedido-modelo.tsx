@@ -24,6 +24,7 @@ interface Renglon {
   ventaMes: number;
   ventaMesReal: number;
   ventaMesAmazon: number;
+  ventaMesRealAmazon?: number;
 }
 
 function n(x: number): string {
@@ -55,13 +56,14 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         vMeli: number;
         vAmz: number;
         vReal: number;
+        vAmzReal: number;
       }
     >();
     for (const r of renglones) {
       if (r.cajasSugeridas <= 0) continue;
       const m =
         porModelo.get(r.modelo) ??
-        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0 };
+        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0 };
       m.colores.push(r);
       m.cajas += r.cajasSugeridas;
       m.pares += r.paresSugeridos;
@@ -72,6 +74,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       m.vMeli += r.ventaMes;
       m.vAmz += r.ventaMesAmazon;
       m.vReal += r.ventaMesReal ?? r.ventaMes;
+      m.vAmzReal += r.ventaMesRealAmazon ?? r.ventaMesAmazon;
       porModelo.set(r.modelo, m);
     }
     return [...porModelo.entries()]
@@ -104,12 +107,20 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
             <th className="num">Amazon</th>
             <th className="num">De China</th>
             <th className="num" title="Unidades realmente vendidas en MELI, sin corrección">
-              Vendido/mes real
+              Vendido MELI real
             </th>
             <th className="num" title="Demanda corregida por agotamiento y tendencia (la que usa el cálculo)">
               Vta MELI/mes
             </th>
-            <th className="num">Vta AMZ/mes</th>
+            <th className="num" title="Unidades realmente vendidas en Amazon, sin corrección">
+              Vendido AMZ real
+            </th>
+            <th
+              className="num"
+              title="Venta de Amazon corregida por agotamiento con las fotos diarias del inventario FBA (la que usa el cálculo)"
+            >
+              Vta AMZ/mes
+            </th>
             <th className="num">Cajas a pedir</th>
             <th className="num">Pares</th>
             <th></th>
@@ -151,7 +162,22 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 >
                   {n(m.vMeli)}
                 </td>
-                <td className="num cifra">{n(m.vAmz)}</td>
+                <td className="num cifra">{n(m.vAmzReal)}</td>
+                <td
+                  className="num cifra"
+                  style={
+                    m.vAmzReal > 0 && m.vAmz > m.vAmzReal * 2
+                      ? { color: "var(--estado-critico)" }
+                      : undefined
+                  }
+                  title={
+                    m.vAmzReal > 0
+                      ? `${(m.vAmz / m.vAmzReal).toFixed(1)}× lo realmente vendido`
+                      : undefined
+                  }
+                >
+                  {n(m.vAmz)}
+                </td>
                 <td className="num cifra font-semibold">{n(m.cajas)}</td>
                 <td className="num cifra">{n(m.pares)}</td>
                 <td className="text-right">
@@ -185,7 +211,7 @@ function DetalleColor({ r }: { r: Renglon }) {
 
   return (
     <tr style={{ background: "var(--surface-2)" }}>
-      <td colSpan={11} className="p-4">
+      <td colSpan={13} className="p-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-semibold">{r.color || "(sin color)"}</span>
@@ -195,7 +221,8 @@ function DetalleColor({ r }: { r: Renglon }) {
             <span className="text-xs" style={{ color: "var(--ink-2)" }}>
               bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
               {n(r.enFba)} · de China {n(r.enCamino)} · vendió {n(r.ventaMesReal ?? r.ventaMes)}{" "}
-              real / usa {n(r.ventaMes)} MELI + {n(r.ventaMesAmazon)} AMZ al mes
+              MELI + {n(r.ventaMesRealAmazon ?? r.ventaMesAmazon)} AMZ real / usa{" "}
+              {n(r.ventaMes)} + {n(r.ventaMesAmazon)} al mes
             </span>
             {r.unitallas.length ? (
               <span className="text-sm" style={{ color: "var(--acento)" }}>
