@@ -3,9 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import {
   estadoGeneracion,
   generarVideoKling,
-  generarVideoSpeak,
   generarVideoVeo,
-  generarVideoWan,
 } from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
@@ -194,28 +192,24 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
   }
 
   if (enEtapaImagen) {
+    // En UGC la imagen NO se anima sola: llegan 4 candidatas y el usuario
+    // elige en cuál salió fiel el producto (estado 'eligiendo'); la
+    // animación la lanza /api/videos/animar con la elegida. Así el crédito
+    // caro solo se gasta sobre una imagen aprobada.
+    if (fila.formato === "ugc") {
+      const urls = res.urls.length ? res.urls : [res.url];
+      await guardar(admin, fila.id, {
+        imagenes_candidatas: urls,
+        imagen_generada: urls[0],
+        estado: "eligiendo",
+      });
+      return;
+    }
     // La foto 9:16 quedó: ahora sí, a animarla. El video hereda el formato
     // vertical de esta imagen. El clip mudo lo anima Kling (10 s, MELI);
-    // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español. En UGC
-    // la imagen es la persona con el producto: con audio grabado la anima
-    // Speak v2 con lip sync (5/10/15 s) y sin audio Wan 2.6 dice el guion
-    // con voz nativa (10-15 s).
+    // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español.
     const video =
-      fila.formato === "ugc"
-        ? fila.audio_url
-          ? await generarVideoSpeak({
-              input_image: { type: "image_url", image_url: res.url },
-              input_audio: { type: "audio_url", audio_url: fila.audio_url },
-              prompt: fila.prompt,
-              quality: "high",
-              duration: fila.duracion === 5 ? 5 : fila.duracion === 15 ? 15 : 10,
-            })
-          : await generarVideoWan({
-              prompt: fila.prompt,
-              image_url: res.url,
-              duration: fila.duracion === 15 ? 15 : 10,
-            })
-        : fila.formato === "hablado"
+      fila.formato === "hablado"
           ? await generarVideoVeo({
               prompt: fila.prompt,
               image_url: res.url,

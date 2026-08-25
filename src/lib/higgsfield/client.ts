@@ -39,6 +39,8 @@ export interface Generacion {
   status: EstadoHF;
   /** URL del resultado (video o imagen) cuando status es completed. */
   url: string | null;
+  /** TODAS las imágenes cuando el lote trae varias (Soul batch 4). */
+  urls: string[];
 }
 
 export function credencialesHiggsfield(): string | null {
@@ -119,18 +121,37 @@ interface CrudoJobSet {
 
 function aGeneracion(cuerpo: CrudoV2 & CrudoJobSet): Generacion {
   if (cuerpo.request_id || cuerpo.status) {
+    const urls = (cuerpo.images ?? []).map((i) => i.url).filter(Boolean);
     return {
       id: cuerpo.request_id ?? cuerpo.id ?? "",
       status: cuerpo.status ?? "queued",
-      url: cuerpo.video?.url ?? cuerpo.images?.[0]?.url ?? null,
+      url: cuerpo.video?.url ?? urls[0] ?? null,
+      urls,
     };
   }
-  // Formato v1: el estado del conjunto es el del primer trabajo (batch 1).
-  const trabajo = cuerpo.jobs?.[0];
+  // Formato v1: las URLs se juntan de TODOS los trabajos (un batch de 4
+  // imágenes llega como 4 jobs) y el estado del conjunto es el agregado:
+  // completado cuando todos terminaron y al menos uno trajo resultado.
+  const estados = (cuerpo.jobs ?? []).map((j) => j.status);
+  const urls = (cuerpo.jobs ?? [])
+    .map((j) => j.results?.raw?.url ?? "")
+    .filter(Boolean);
+  const TERMINALES = new Set<EstadoHF>(["completed", "failed", "nsfw", "canceled"]);
+  const status: EstadoHF =
+    estados.length === 0
+      ? "queued"
+      : estados.every((e) => TERMINALES.has(e))
+        ? estados.includes("completed")
+          ? "completed"
+          : (estados.find((e) => e !== "completed") as EstadoHF)
+        : estados.includes("in_progress")
+          ? "in_progress"
+          : "queued";
   return {
     id: cuerpo.id ?? "",
-    status: trabajo?.status ?? "queued",
-    url: trabajo?.results?.raw?.url ?? null,
+    status,
+    url: urls[0] ?? null,
+    urls,
   };
 }
 

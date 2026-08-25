@@ -5,6 +5,7 @@ import {
   GeneradorVideo,
   BotonActualizar,
   BotonBorrar,
+  ElegirImagen,
   type Publicacion,
 } from "@/components/videos";
 
@@ -14,6 +15,7 @@ const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
   creado: { texto: "Creado", color: "var(--ink-muted)" },
   enviado: { texto: "En el horno", color: "var(--estado-alerta)" },
   en_progreso: { texto: "Generando…", color: "var(--estado-alerta)" },
+  eligiendo: { texto: "Elige la imagen", color: "var(--acento)" },
   completado: { texto: "✓ Listo", color: "var(--exito-texto)" },
   fallido: { texto: "Falló", color: "var(--estado-critico)" },
   rechazado: { texto: "Rechazado", color: "var(--estado-critico)" },
@@ -149,7 +151,13 @@ export default async function Videos() {
                   return (
                     <tr key={v.id as string}>
                       <td>
-                        {v.video_guardado ? (
+                        {v.estado === "eligiendo" &&
+                        Array.isArray(v.imagenes_candidatas) ? (
+                          <ElegirImagen
+                            id={v.id as string}
+                            imagenes={v.imagenes_candidatas as string[]}
+                          />
+                        ) : v.video_guardado ? (
                           <video
                             src={v.video_guardado as string}
                             controls

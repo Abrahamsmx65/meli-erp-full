@@ -830,6 +830,74 @@ export function BotonActualizar({ hayEnCurso }: { hayEnCurso: boolean }) {
   );
 }
 
+/**
+ * Las 4 imágenes candidatas del UGC: el usuario revisa en cuál salió FIEL el
+ * producto y con un clic lanza la animación solo sobre esa. Si ninguna
+ * sirve, se borra el intento y se tira otro concepto — la imagen es lo
+ * barato; el video es lo caro.
+ */
+export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] }) {
+  const router = useRouter();
+  const [enviando, setEnviando] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function animar(imagen: string) {
+    setEnviando(imagen);
+    setError(null);
+    try {
+      const r = await fetch("/api/videos/animar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, imagen }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo animar."));
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+      setEnviando(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium" style={{ color: "var(--acento)" }}>
+        Elige la imagen donde el producto salió fiel; esa se anima:
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {imagenes.map((url, i) => (
+          <button
+            key={url}
+            onClick={() => animar(url)}
+            disabled={enviando !== null}
+            className="relative rounded-md border-2 p-0.5 disabled:opacity-50"
+            style={{ borderColor: enviando === url ? "var(--acento)" : "var(--borde)" }}
+            title="Animar esta imagen"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url} alt={`Opción ${i + 1}`} className="h-40 w-auto rounded" />
+            <span
+              className="absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
+              style={{ background: enviando === url ? "var(--acento)" : "rgba(0,0,0,0.55)" }}
+            >
+              {enviando === url ? "Animando…" : `Animar ${i + 1}`}
+            </span>
+          </button>
+        ))}
+      </div>
+      {error && (
+        <p className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </p>
+      )}
+      <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        ¿Ninguna convence? Borra el intento y tira 🎲 otro concepto: la imagen es
+        lo barato, el video es lo caro.
+      </p>
+    </div>
+  );
+}
+
 /** Quita un intento de la lista. */
 export function BotonBorrar({ id }: { id: string }) {
   const router = useRouter();

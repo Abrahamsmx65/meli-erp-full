@@ -200,12 +200,13 @@ export async function POST(req: NextRequest) {
     let requestId: string;
     if (formato === "ugc") {
       // Etapa 1: la imagen de la persona con el producto (Soul 9:16, con la
-      // foto real de referencia). El vigilante lanza Speak/Veo cuando quede.
+      // foto real de referencia). Van CUATRO candidatas: el usuario elige en
+      // cuál salió fiel el producto antes de gastar la animación.
       const res = await generarImagenSoul({
         prompt: promptImagenUGC!,
         width_and_height: "1152x2048",
         quality: "1080p",
-        batch_size: 1,
+        batch_size: 4,
         image_reference: { type: "image_url", image_url: imagenUrl },
       });
       requestId = res.id;

@@ -23,15 +23,17 @@ const CANDADO_UGC =
   " STRICT RULE: the featured footwear must remain EXACTLY as shown in the reference " +
   "image — same design, shape, proportions, colors, materials, textures, stitching, " +
   "sole and logos. Do not redesign, replace, morph or restyle it, and do not invent " +
-  "additional logos, text, buckles or design elements.";
+  "additional logos, text, buckles or design elements. The product is held firmly " +
+  "and steady at all times — never spun, tossed, shaken or waved — and it is not " +
+  "re-animated or morphed.";
 
 // Imperfecciones que hacen que NO parezca anuncio generado.
 const IMPERFECCIONES =
-  " Filmed as ONE single continuous handheld take: no cuts, no scene changes, no " +
-  "transitions — the camera stays with the person the whole time, with smooth fluid " +
-  "natural motion. Slight handheld sway, natural speech pauses, ordinary lighting, " +
-  "normal home imperfections. Genuine TikTok/Reels recommendation energy — NOT an ad, " +
-  "NOT cinematic, no fashion-model posing, no floating product shots, no slow motion.";
+  " Filmed as ONE single continuous take: no cuts, no scene changes, no transitions — " +
+  "the camera stays on the person the whole time, steady as if propped up, and ALL " +
+  "movements are smooth and slow. Natural speech pauses, ordinary lighting, normal " +
+  "home imperfections. Genuine TikTok/Reels recommendation energy — NOT an ad, NOT " +
+  "cinematic, no fashion-model posing, no floating product shots.";
 
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
@@ -345,7 +347,7 @@ const CONCEPTOS: Concepto[] = [
     ],
     narrativas: [
       "one continuous take sitting in the entryway: he laces the featured footwear while talking to the propped phone, stands up and taps the toe on the floor to make the point",
-      "one continuous handheld take: he holds the featured footwear up, turns it slowly showing the sole and stitching while talking, then lowers it with a matter-of-fact shrug",
+      "one continuous handheld take: he holds the featured footwear up, holds it firmly showing the sole and stitching while talking, then lowers it with a matter-of-fact shrug",
     ],
     hooks: [
       "Les enseño {estas} {palabra} porque sí me sorprendieron.",
@@ -427,8 +429,8 @@ const CONCEPTOS: Concepto[] = [
       "at the front door holding the just-received package, about to open it, talking to the camera",
     ],
     narrativas: [
-      "one continuous unboxing take: the box opens on camera, honest first reaction, the featured footwear comes up close to the lens and turns slowly in the hands while talking",
-      "one continuous take on the couch: lid off, paper aside, the featured footwear held up and rotated near the camera with a nod of approval while talking",
+      "one continuous unboxing take: the box opens on camera, honest first reaction, the featured footwear comes up close to the lens, held firmly with a very slight tilt while talking",
+      "one continuous take on the couch: lid off, paper aside, the featured footwear held up firmly near the camera with a nod of approval while talking",
     ],
     hooks: [
       "¡Por fin llegaron! Miren esto.",
@@ -472,7 +474,7 @@ const CONCEPTOS: Concepto[] = [
       "outdoors on a sidewalk holding the featured footwear sole towards the camera, daylight",
     ],
     narrativas: [
-      "one continuous take: the featured footwear held up close to the camera, fingers pointing at the sole and stitching while talking, then one slow turn of the shoe to show it still holds up",
+      "one continuous take: the featured footwear held up close to the camera, fingers pointing at the sole and stitching while talking, keeping the shoe firm and steady to show it still holds up",
       "one continuous doorstep take: wearing the featured footwear, he talks to the phone and tilts it down to show them on-feet and smoothly back up",
     ],
     hooks: [
@@ -677,7 +679,7 @@ const CONCEPTOS: Concepto[] = [
     ],
     narrativas: [
       "one continuous tailgate take: sitting on the truck he laces the featured boots while talking straight to the propped phone, slaps the toe cap and stands",
-      "one continuous workshop take: he holds the featured boots up, turns them showing the sole tread while talking, and sets them down firmly to make the point",
+      "one continuous workshop take: he holds the featured boots up, holds them firmly showing the sole tread while talking, and sets them down to make the point",
     ],
     hooks: [
       "En el trabajo no anda uno con {palabra} de juguete.",
@@ -796,7 +798,7 @@ const CONCEPTOS: Concepto[] = [
       "by the shoe rack comparing the featured footwear against a known-brand pair",
     ],
     narrativas: [
-      "one continuous desk take: she holds the featured footwear like evidence, rotates it near the lens going over material and stitching while talking, then sets it down with a convinced nod",
+      "one continuous desk take: she holds the featured footwear like evidence, holds it firmly near the lens going over material and stitching while talking, then sets it down with a convinced nod",
       "one continuous take by the shoe rack: the featured footwear in one hand and a known-brand pair in the other, raising each while talking, ending with the featured one up close",
     ],
     hooks: [
@@ -839,7 +841,7 @@ const CONCEPTOS: Concepto[] = [
     ],
     narrativas: [
       "one continuous living-room take: she holds the kids' featured footwear up, opens and closes the closure with one hand while talking, and flexes the sole to show it (no children on camera)",
-      "one continuous take by the shoe rack: she picks up the kids' featured footwear, turns it near the lens showing what survives school and park, still talking (no children on camera)",
+      "one continuous take by the shoe rack: she picks up the kids' featured footwear, holds it firmly near the lens showing what survives school and park, still talking (no children on camera)",
     ],
     hooks: [
       "Las mamás me van a entender: los niños DESTRUYEN zapatos.",
