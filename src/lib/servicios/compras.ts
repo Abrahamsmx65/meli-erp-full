@@ -224,8 +224,36 @@ export interface RenglonCompra {
   };
 }
 
+/**
+ * Un renglón por SKU con TODOS los números que alimentan el pedido: para que
+ * el usuario pueda auditar de dónde sale cada cantidad sugerida.
+ */
+export interface DetalleSkuCompra {
+  sku: string;
+  modelo: string;
+  color: string;
+  talla: string;
+  /** venta mensual usada por el cálculo (demanda corregida de MELI × 30) */
+  ventaMesMeli: number;
+  /** venta mensual realmente observada en MELI (sin corrección) */
+  ventaMesRealMeli: number;
+  /** venta mensual de Amazon (últimos 30 días) */
+  ventaMesAmazon: number;
+  /** stock en Full + lo que viaja hacia Full */
+  enFull: number;
+  /** stock en FBA + lo que de verdad viene en camino a FBA */
+  enFba: number;
+  enBodega: number;
+  /** lo que viene de China (pedidos vivos y contenedores) */
+  deChina: number;
+  inventarioTotal: number;
+  /** venta total × horizonte − inventario total, piso en cero */
+  faltante: number;
+}
+
 export interface SugerenciaCompra {
   renglones: RenglonCompra[];
+  detalleSkus: DetalleSkuCompra[];
   parametros: ParametrosCompra;
   totales: {
     modelos: number;
@@ -464,6 +492,33 @@ export async function sugerirCompra(
 
   const grupos = new Map<string, Acumulado>();
 
+  // El detalle POR SKU que audita todo el cálculo: se llena con los mismos
+  // tres recorridos que arman los grupos, así no puede divergir de ellos.
+  const detalle = new Map<string, DetalleSkuCompra>();
+  function filaDetalle(sku: string, modelo: string, color: string, talla: string): DetalleSkuCompra {
+    const k = `${clave(modelo, color)}|${talla}`;
+    let d = detalle.get(k);
+    if (!d) {
+      d = {
+        sku,
+        modelo: modelo.toUpperCase(),
+        color: color.toUpperCase(),
+        talla,
+        ventaMesMeli: 0,
+        ventaMesRealMeli: 0,
+        ventaMesAmazon: 0,
+        enFull: 0,
+        enFba: 0,
+        enBodega: 0,
+        deChina: 0,
+        inventarioTotal: 0,
+        faltante: 0,
+      };
+      detalle.set(k, d);
+    }
+    return d;
+  }
+
   function grupo(modelo: string, color: string): Acumulado {
     const k = clave(modelo, color);
     let g = grupos.get(k);
@@ -504,6 +559,11 @@ export async function sugerirCompra(
     if (talla) {
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
     }
+
+    const d = filaDetalle(l.sku, modelo, color, talla || "");
+    d.sku = l.sku; // el nombre real de MELI gana sobre uno construido
+    d.ventaMesMeli += l.demandaDiaria * 30;
+    d.ventaMesRealMeli += (l.tasaObservada ?? l.demandaDiaria) * 30;
   }
 
   // El inventario se suma aparte: hay SKUs con producto en bodega que el plan
@@ -521,6 +581,11 @@ export async function sugerirCompra(
       const total = inv.enFull + inv.enTransferencia + inv.enBodega + inv.enCamino;
       g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + total);
     }
+
+    const d = filaDetalle(sku, modelo, color, talla || "");
+    d.enFull += inv.enFull + inv.enTransferencia;
+    d.enBodega += inv.enBodega;
+    d.deChina += inv.enCamino;
   }
 
   // Amazon: su demanda se SUMA a la de MELI y su stock cuenta como
@@ -536,7 +601,38 @@ export async function sugerirCompra(
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + amz.ventaDiaria);
       g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + amz.stock);
     }
+
+    const d = filaDetalle(sku, modelo, color, talla || "");
+    d.ventaMesAmazon += amz.ventaDiaria * 30;
+    d.enFba += amz.stock;
   }
+
+  // El faltante por SKU, con la misma aritmética base del pedido: venta
+  // total (MELI corregida + Amazon) sobre el horizonte, menos TODO el
+  // inventario. Es el número "crudo" (sin amortiguar al 70%): el que deja
+  // verificar a ojo por qué se pide lo que se pide.
+  const detalleSkus = [...detalle.values()]
+    .map((d) => {
+      d.ventaMesMeli = Math.round(d.ventaMesMeli);
+      d.ventaMesRealMeli = Math.round(d.ventaMesRealMeli);
+      d.ventaMesAmazon = Math.round(d.ventaMesAmazon);
+      d.enFull = Math.round(d.enFull);
+      d.enFba = Math.round(d.enFba);
+      d.enBodega = Math.round(d.enBodega);
+      d.deChina = Math.round(d.deChina);
+      d.inventarioTotal = d.enFull + d.enFba + d.enBodega + d.deChina;
+      d.faltante = Math.max(
+        0,
+        Math.round(((d.ventaMesMeli + d.ventaMesAmazon) / 30) * horizonte - d.inventarioTotal),
+      );
+      return d;
+    })
+    .sort(
+      (a, b) =>
+        a.modelo.localeCompare(b.modelo) ||
+        a.color.localeCompare(b.color) ||
+        Number(a.talla) - Number(b.talla),
+    );
 
   // --- Un renglón por grupo ------------------------------------------------
   const renglones: RenglonCompra[] = [];
@@ -701,6 +797,7 @@ export async function sugerirCompra(
 
   return {
     renglones,
+    detalleSkus,
     parametros: p,
     totales: {
       modelos: renglones.length,
