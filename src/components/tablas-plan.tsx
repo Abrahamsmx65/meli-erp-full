@@ -133,6 +133,14 @@ export function TablasPlan({
           >
             Descargar Excel
           </a>
+          <a
+            href="/api/plan/excel-simple"
+            className="rounded-lg border px-3 py-2 text-sm font-medium whitespace-nowrap"
+            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            title="Un renglón por SKU: ventas, stock, en camino y faltante a cubrir"
+          >
+            Excel simple
+          </a>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">

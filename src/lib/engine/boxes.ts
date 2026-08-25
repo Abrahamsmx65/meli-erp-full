@@ -39,6 +39,14 @@ interface Entrada {
   inventarioSuelto: Map<string, number>;
   pesoFaltante: number;
   pesoSobrante: number;
+  /**
+   * Faltante mínimo (en días de venta) para que una talla FUERCE una caja en
+   * el rescate. El faltante se mide contra el objetivo completo (p. ej. 30
+   * días): un umbral de 23 significa "solo rescata a quien quedaría con
+   * menos de ~7 días de cobertura". Las tallas con hueco chico esperan al
+   * siguiente envío en vez de arrastrar cajas que las demás tallas no piden.
+   */
+  toleranciaRescateDias?: number;
   /** tope de cajas por envío (0 o undefined = sin tope) */
   maxCajas?: number;
   /** tope de piezas por envío (0 o undefined = sin tope) */
@@ -254,12 +262,12 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   const sinRemedio = new Set<string>();
   for (let vuelta = 0; vuelta < topeIteraciones; vuelta++) {
     // El SKU pedido con el faltante más grande, medido en días de venta.
-    // La tolerancia son ~2 días de venta: con envíos cada 3.5 días, un
-    // faltante menor se cubre en el siguiente envío. Con la tolerancia
-    // vieja (0.25 días = 1 par de un SKU lento) cualquier migaja disparaba
-    // una caja completa de rescate: pares que nadie pidió.
+    // Solo se rescatan tallas cuyo hueco supere la tolerancia: un faltante
+    // menor se cubre en el siguiente envío en vez de arrastrar una caja
+    // completa que las demás tallas no piden. (La tolerancia vieja de 0.25
+    // días hacía que 1 par de un SKU lento disparara una caja de rescate.)
     let skuFalta: string | null = null;
-    let peorDias = 2;
+    let peorDias = e.toleranciaRescateDias ?? 2;
     for (const s of e.necesidad.keys()) {
       if (sinRemedio.has(s)) continue;
       const falta = nec(s) - (enviado.get(s) ?? 0);

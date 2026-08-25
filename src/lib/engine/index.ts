@@ -121,6 +121,12 @@ export function generarPlan(e: EntradaPlan): Plan {
     inventarioSuelto: propioMap,
     pesoFaltante: p.pesoFaltante,
     pesoSobrante: p.pesoSobrante,
+    // Una talla solo fuerza caja completa si quedaría con MENOS de ~7 días
+    // de cobertura: el faltante se mide contra el objetivo (30 días), así
+    // que el umbral es horizonte − 7. Los huecos menores esperan al
+    // siguiente envío (hay 2 por semana) en vez de subir cajas que las
+    // demás tallas no necesitan.
+    toleranciaRescateDias: Math.max(2, p.horizonteDias - 7),
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
   });

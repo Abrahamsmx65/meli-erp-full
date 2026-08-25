@@ -10,6 +10,7 @@ import {
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
 import { catalogoBodega } from "@/lib/servicios/inventario";
+import { separarEnvios } from "@/lib/servicios/envios";
 import { desglosarOpcionales } from "@/lib/reporte/opcionales";
 import { normalizarParametros } from "@/lib/engine/params";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
@@ -100,6 +101,12 @@ export default async function Amazon({
     planFba.lineas,
   );
 
+  // Igual que MELI: un envío sale de UNA dirección. Caseshop e Industher van
+  // juntas y EnvioPack aparte, según almacenes_activos.grupo_envio.
+  const enviosFba = cuentaMeli
+    ? await separarEnvios(supabase, cuentaMeli.id, planFba.cajas)
+    : { envios: [], sinConfigurar: [] };
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -137,7 +144,7 @@ export default async function Amazon({
 
       <RecargaAmazon estado={recarga} />
 
-      <CajasFba plan={planFba} desglose={desglose} dias={dias} />
+      <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} />
 
       <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>
