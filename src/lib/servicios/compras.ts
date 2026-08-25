@@ -208,6 +208,20 @@ export interface RenglonCompra {
   unitallas: { talla: string; cajas: number }[];
   /** faltante por talla, la base de todo el reparto */
   faltantePorTalla: Record<string, number>;
+  /**
+   * La OTRA opción de pedido: solo según la venta, SIN descontar ningún
+   * inventario. La demanda por talla ya viene corregida por agotamientos
+   * (una talla que no vendió por estar en cero cuenta con su demanda
+   * estimada, no con cero), así que este pedido repone el ritmo real.
+   */
+  soloVenta: {
+    cajas: number;
+    pares: number;
+    cajasCorrida: number;
+    unitallas: { talla: string; cajas: number }[];
+    corridaPropuesta: Record<string, number> | null;
+    demandaPorTalla: Record<string, number>;
+  };
 }
 
 export interface SugerenciaCompra {
@@ -579,6 +593,24 @@ export async function sugerirCompra(
     const cajasSugeridas =
       pedido.cajasCorrida + pedido.unitallas.reduce((a, u) => a + u.cajas, 0);
 
+    // Opción 2 del Excel: pedir SOLO según la venta del horizonte, sin
+    // descontar inventario. La demanda por talla ya trae la corrección por
+    // agotamientos, así que una talla que no vendió por estar en cero SÍ
+    // suma lo que habría vendido.
+    const demandaHorizonte: Record<string, number> = {};
+    for (const [t, d] of g.demandaPorTalla) {
+      const v = Math.round(d * horizonte);
+      if (v > 0) demandaHorizonte[t] = v;
+    }
+    const totalSoloVenta = Object.values(demandaHorizonte).reduce((a, b) => a + b, 0);
+    const pedidoSoloVenta =
+      valeLaPena && totalSoloVenta > 0 && paresPorCaja && paresPorCaja > 0
+        ? armarPedidoColor(demandaHorizonte, paresPorCaja, demandaHorizonte)
+        : { unitallas: [], cajasCorrida: 0, corridaPropuesta: {} };
+    const cajasSoloVenta =
+      pedidoSoloVenta.cajasCorrida +
+      pedidoSoloVenta.unitallas.reduce((a, u) => a + u.cajas, 0);
+
     const urgencia = urgenciaDe(cobertura, ciclo);
 
     let motivo: string;
@@ -638,6 +670,16 @@ export async function sugerirCompra(
       cajasCorrida: pedido.cajasCorrida,
       unitallas: pedido.unitallas,
       faltantePorTalla,
+      soloVenta: {
+        cajas: cajasSoloVenta,
+        pares: cajasSoloVenta * (paresPorCaja ?? 0),
+        cajasCorrida: pedidoSoloVenta.cajasCorrida,
+        unitallas: pedidoSoloVenta.unitallas,
+        corridaPropuesta: Object.keys(pedidoSoloVenta.corridaPropuesta).length
+          ? pedidoSoloVenta.corridaPropuesta
+          : null,
+        demandaPorTalla: demandaHorizonte,
+      },
     });
   }
 
