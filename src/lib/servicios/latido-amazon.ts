@@ -2,6 +2,7 @@ import type { DB } from "../datos/repos";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
 import {
   sincronizarEnviosEntrantes,
+  sincronizarHistorialInventario,
   sincronizarInventario,
   sincronizarPagos,
   sincronizarVentas,
@@ -37,6 +38,14 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_inventario", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarInventario(admin, cliente);
+    });
+
+    // La historia del inventario (Inventory Ledger): rellena los días que a
+    // las fotos diarias les faltan, para que la corrección por agotamiento
+    // vea la ventana completa. Cuando la historia ya alcanza, no pide nada.
+    await paso(admin, cuenta.accountId, "cron_ledger", 55 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarHistorialInventario(admin, cliente);
     });
 
     // El detalle de envíos entrantes a FBA: es lo que permite ignorar los
