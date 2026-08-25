@@ -7,16 +7,17 @@ import {
   ESCENAS,
   armarPromptProducto,
   armarPromptHablado,
-  armarPromptPersonaUGC,
-  armarPromptSpeakUGC,
-  armarPromptVozIAUGC,
   detectarGenero,
   detectarTipo,
   guionInicial,
-  guionInicialUGC,
   type Genero,
   type TipoCalzado,
 } from "@/lib/higgsfield/escenas";
+import {
+  armarConceptoUGC,
+  promptUGCConVozIA,
+  promptUGCParaSpeak,
+} from "@/lib/higgsfield/ugc";
 
 type Formato = "clip" | "hablado" | "ugc" | "dop";
 
@@ -173,6 +174,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
   const [guion, setGuion] = useState("");
   const [promptVideo, setPromptVideo] = useState("");
   const [promptImagen, setPromptImagen] = useState("");
+  const [concepto, setConcepto] = useState("");
 
   const [formato, setFormato] = useState<Formato>("clip");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
@@ -214,23 +216,24 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     hayAudio: boolean;
   }) {
     if (datos.formato === "ugc") {
+      // El motor de conceptos arma todo junto: escena, narrativa e imagen.
       // Con audio grabado, Speak anima (el audio pone las palabras); sin
-      // audio, Veo dice el guion. La imagen de la persona es aparte.
-      setPromptImagen(
-        armarPromptPersonaUGC({ tipo: datos.tipo, genero: datos.genero, semilla: datos.semilla }),
-      );
+      // audio, Wan dice el guion con voz propia.
+      const c = armarConceptoUGC({
+        tipo: datos.tipo,
+        genero: datos.genero,
+        semilla: datos.semilla,
+      });
+      setConcepto(c.etiqueta);
+      setPromptImagen(c.promptImagen);
       setPromptVideo(
         datos.hayAudio
-          ? armarPromptSpeakUGC({ tipo: datos.tipo, semilla: datos.semilla })
-          : armarPromptVozIAUGC({
-              tipo: datos.tipo,
-              genero: datos.genero,
-              semilla: datos.semilla,
-              guion: datos.guion,
-            }),
+          ? promptUGCParaSpeak(c.narrativa)
+          : promptUGCConVozIA(c.narrativa, datos.guion),
       );
       return;
     }
+    setConcepto("");
     setPromptImagen("");
     setPromptVideo(
       datos.formato === "hablado"
@@ -254,7 +257,10 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     const texto = `${p.titulo} ${p.modelo}`;
     const t = detectarTipo(texto);
     const g = detectarGenero(texto);
-    const gu = formato === "ugc" ? guionInicialUGC(t) : guionInicial(t);
+    const gu =
+      formato === "ugc"
+        ? armarConceptoUGC({ tipo: t, genero: g, semilla }).guionSugerido
+        : guionInicial(t);
     setTipo(t);
     setGenero(g);
     setGuion(gu);
@@ -305,11 +311,17 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     const s = cambios.semilla ?? semilla;
     const f = cambios.formato ?? formato;
     const conAudio = cambios.hayAudio ?? Boolean(audio);
-    // Si cambió el tipo o el formato, el guion inicial se rehace.
-    const guionBase = f === "ugc" ? guionInicialUGC(t) : guionInicial(t);
-    const gu =
-      cambios.guion ??
-      (cambios.tipo !== undefined || cambios.formato !== undefined ? guionBase : guion);
+    // El guion se rehace si cambió el tipo o el formato; en UGC también con
+    // el 🎲 y el género — el motor sugiere un concepto y guion nuevos.
+    const guionBase =
+      f === "ugc"
+        ? armarConceptoUGC({ tipo: t, genero: g, semilla: s }).guionSugerido
+        : guionInicial(t);
+    const rehacerGuion =
+      cambios.tipo !== undefined ||
+      cambios.formato !== undefined ||
+      (f === "ugc" && (cambios.semilla !== undefined || cambios.genero !== undefined));
+    const gu = cambios.guion ?? (rehacerGuion ? guionBase : guion);
     if (cambios.tipo !== undefined) setTipo(t);
     if (cambios.genero !== undefined) setGenero(g);
     if (cambios.escenaId !== undefined) setEscenaId(e);
@@ -408,7 +420,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
             formato === "hablado"
               ? `Hablado (${TIPOS_ETIQUETA[tipo]})`
               : formato === "ugc"
-                ? `UGC ${audio ? "con tu voz" : "voz IA"} (${TIPOS_ETIQUETA[tipo]})`
+                ? `UGC · ${concepto || "concepto"} · ${audio ? "tu voz" : "voz IA"} (${TIPOS_ETIQUETA[tipo]})`
                 : `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
           prompt: promptVideo,
           promptImagen: formato === "ugc" ? promptImagen : undefined,
@@ -586,13 +598,25 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                   {e.etiqueta}
                 </button>
               ))}
+            {formato === "ugc" && concepto && (
+              <span
+                className="rounded-full border px-3 py-1 text-xs font-semibold"
+                style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+              >
+                Concepto: {concepto}
+              </span>
+            )}
             <button
               onClick={() => cambiar({ semilla: Math.random() })}
-              title="Otra luz y otro movimiento de cámara"
+              title={
+                formato === "ugc"
+                  ? "Otro concepto completo: escena, influencer y guion"
+                  : "Otra luz y otro movimiento de cámara"
+              }
               className="rounded-full border px-3 py-1 text-xs"
               style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
             >
-              🎲 Variar
+              {formato === "ugc" ? "🎲 Otro concepto" : "🎲 Variar"}
             </button>
           </div>
 
