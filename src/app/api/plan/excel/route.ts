@@ -7,7 +7,7 @@ import { separarEnvios } from "@/lib/servicios/envios";
 import { aISO } from "@/lib/engine/fechas";
 import { etiquetaEstadoTexto } from "@/lib/reporte/etiquetas";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
-import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
+import { desglosarOpcionales, partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -178,9 +178,17 @@ export async function GET(request: NextRequest) {
   );
 
   const ROJO = { color: { argb: "FFC00000" } } as const;
+  const FONDO_OPCIONALES = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFFDE9D9" },
+  } as const;
 
-  for (const c of cajasFiltradas) {
-    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+  // Igual que en la pantalla: primero el ENVÍO BASE y abajo un bloque de
+  // OPCIONALES aparte. Un renglón mixto (5 cajas, 2 opcionales) se divide.
+  const { normales, opcionales: cajasOpcionales } = partirPorOpcionales(cajasFiltradas);
+
+  const filaDeCaja = (c: (typeof cajasFiltradas)[number], esOpcional: boolean) => {
     const fila = hCajas.addRow({
       skuCaja: c.skuCaja,
       almacen: c.almacen,
@@ -189,16 +197,27 @@ export async function GET(request: NextRequest) {
       color: c.color,
       tipo: c.esCorrida ? "Corrida" : `Talla ${c.talla}`,
       cantidad: c.cantidad,
-      opcionales: opcionales || "",
-      deMas: opcionales ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
+      opcionales: esOpcional ? "OPCIONAL" : "",
+      deMas: esOpcional ? textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? [], 12) : "",
       disp: c.cajasDisponibles,
       porCaja: c.paresPorCaja,
       pares: c.paresTotales,
       contenedores: c.contenedores.join(", "),
     });
-    // Lo OPCIONAL va en rojo, como se acordó: se ve de lejos qué renglones
-    // puede recortar el que arma el envío.
-    if (opcionales > 0) fila.font = ROJO;
+    if (esOpcional) fila.font = ROJO;
+  };
+
+  for (const c of normales) filaDeCaja(c, false);
+
+  if (cajasOpcionales.length) {
+    const cajasOpc = cajasOpcionales.reduce((a, c) => a + c.cantidad, 0);
+    const paresOpc = cajasOpcionales.reduce((a, c) => a + c.paresTotales, 0);
+    const divisor = hCajas.addRow({
+      skuCaja: `OPCIONALES — ${cajasOpc} cajas · ${paresOpc} pares. Entraron por el rescate de una talla que falta; tú decides si van en el envío.`,
+    });
+    divisor.font = { ...ROJO, bold: true };
+    divisor.fill = FONDO_OPCIONALES as ExcelJS.Fill;
+    for (const c of cajasOpcionales) filaDeCaja(c, true);
   }
 
   // ------------------------------------------------- CONTENIDO CAJA POR TALLA
@@ -215,8 +234,8 @@ export async function GET(request: NextRequest) {
   ];
   encabezar(hPicking);
 
-  for (const c of cajasFiltradas) {
-    const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+  // El mismo orden que la hoja de cajas: el envío base y abajo lo OPCIONAL.
+  const filasPicking = (c: (typeof cajasFiltradas)[number], esOpcional: boolean) => {
     for (const a of c.aporta) {
       const fila = hPicking.addRow({
         skuCaja: c.skuCaja,
@@ -227,8 +246,17 @@ export async function GET(request: NextRequest) {
         porCaja: a.paresPorCaja,
         pares: a.paresTotales,
       });
-      if (opcionales > 0) fila.font = ROJO;
+      if (esOpcional) fila.font = ROJO;
     }
+  };
+  for (const c of normales) filasPicking(c, false);
+  if (cajasOpcionales.length) {
+    const divisor = hPicking.addRow({
+      skuCaja: "OPCIONALES — de aquí para abajo, solo si decides subirlas.",
+    });
+    divisor.font = { ...ROJO, bold: true };
+    divisor.fill = FONDO_OPCIONALES as ExcelJS.Fill;
+    for (const c of cajasOpcionales) filasPicking(c, true);
   }
 
   // ------------------------------------------------------------ DETALLE POR SKU
