@@ -105,26 +105,16 @@ export async function GET(req: NextRequest) {
         : v;
   }
 
-  const conTagging = (tag: string) => (enlace: Record<string, unknown>) => {
-    const propio =
-      typeof enlace.tagging === "string"
-        ? enlace.tagging
-        : typeof enlace.tags === "string"
-          ? enlace.tags
-          : null;
-    return { "Content-Type": "image/jpeg", "x-amz-tagging": propio ?? tag };
-  };
-
   const subida = {
     respuesta,
     variantes: [
-      await probarPut("tagging del enlace o temp=true", conTagging("temp=true")),
-      await probarPut("tagging temporary=true", conTagging("temporary=true")),
-      await probarPut("tagging ttl=7d", conTagging("ttl=7d")),
-      await probarPut("tagging vacio", () => ({
-        "Content-Type": "image/jpeg",
-        "x-amz-tagging": "",
-      })),
+      // La respuesta trae upload_headers (content-type + x-amz-tagging): el
+      // PUT debe mandarlos tal cual — es el arreglo aplicado en subirArchivo.
+      await probarPut("con upload_headers de la respuesta", (enlace) =>
+        (enlace.upload_headers as Record<string, string>) ?? {
+          "Content-Type": "image/jpeg",
+        },
+      ),
     ],
   };
 

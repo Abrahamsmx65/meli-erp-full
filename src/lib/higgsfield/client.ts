@@ -298,10 +298,12 @@ export async function estadoPersonajeHF(id: string): Promise<PersonajeHF> {
  * Sube un archivo (foto o audio WAV) y devuelve su URL pública en el CDN de
  * Higgsfield.
  *
- * El PUT a la URL prefirmada llegó a contestar 403 sin explicación visible;
- * por eso cada intento pide una URL NUEVA (las prefirmadas caducan rápido y
- * pueden ser de un solo uso) y, si el almacén rechaza, el error trae el
- * cuerpo de la respuesta — ahí viene la causa real (firma, tamaño, caducada).
+ * El 403 (SignatureDoesNotMatch) que daba el PUT era porque la firma de la
+ * URL exige las cabeceras content-type y x-amz-tagging EXACTAS: vienen en el
+ * campo upload_headers de generate-upload-url, que ni los SDK oficiales
+ * viejos leen (la API cambió después). El PUT debe mandarlas tal cual.
+ * Cada intento pide una URL NUEVA (caducan y pueden ser de un solo uso) y,
+ * si el almacén rechaza, el error trae el cuerpo con la causa real.
  */
 export async function subirArchivo(
   datos: Buffer | Uint8Array,
@@ -312,10 +314,14 @@ export async function subirArchivo(
   for (let i = 0; i < 3; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
 
-    const enlace = await llamar<{ upload_url: string; public_url: string }>(
-      "/files/generate-upload-url",
-      { method: "POST", body: JSON.stringify({ content_type: contentType }) },
-    );
+    const enlace = await llamar<{
+      upload_url: string;
+      public_url: string;
+      upload_headers?: Record<string, string>;
+    }>("/files/generate-upload-url", {
+      method: "POST",
+      body: JSON.stringify({ content_type: contentType }),
+    });
     if (!enlace?.upload_url || !enlace.public_url) {
       ultimo = "Higgsfield no devolvió la URL de subida";
       continue;
@@ -325,7 +331,7 @@ export async function subirArchivo(
     try {
       res = await fetch(enlace.upload_url, {
         method: "PUT",
-        headers: { "Content-Type": contentType },
+        headers: enlace.upload_headers ?? { "Content-Type": contentType },
         body: Buffer.from(datos),
         signal: AbortSignal.timeout(120_000),
       });
