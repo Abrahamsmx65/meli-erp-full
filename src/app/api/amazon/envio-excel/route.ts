@@ -4,6 +4,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { cargarAmazon, cuentaAmazon, normalizarDias, SIN_LIMITE } from "@/lib/servicios/amazon";
+import { aplicarEnCamino, enCaminoFba } from "@/lib/servicios/fba-en-camino";
 import {
   OBJETIVO_DIAS_FBA,
   URGENTE_DIAS_FBA,
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones }, corridasRaw, skusMeli, bodega, paramsBd] = await Promise.all([
+  const [{ renglones: renglonesCrudos }, corridasRaw, skusMeli, bodega, paramsBd, enCamino] = await Promise.all([
     cargarAmazon(supabase, dias, "", SIN_LIMITE),
     cuentaMeli
       ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
@@ -74,7 +75,10 @@ export async function GET(request: NextRequest) {
     cuentaMeli
       ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
       : Promise.resolve({ data: null }),
+    enCaminoFba(supabase, cuenta.id),
   ]);
+  // El mismo "en camino" real que la pantalla: los envíos atorados no cuentan.
+  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
   const indiceMeli = indexarCatalogo(skusMeli);
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
   const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
@@ -146,6 +150,13 @@ export async function GET(request: NextRequest) {
       "Urgentes",
       urgentes,
       `Con menos de ${URGENTE_DIAS_FBA} días de stock al ritmo actual`,
+    ],
+    [
+      "Envíos entrantes ignorados por viejos",
+      enCamino ? enCamino.viejos.length : "sin detalle aún",
+      enCamino
+        ? `${enCamino.paresViejos} pares "en el aire" que ya no cuentan como en camino`
+        : "El detalle de envíos entrantes aún no se sincroniza; se usó el reporte",
     ],
   ];
   for (const [c, v, nota] of filasResumen) hResumen.addRow({ c, v, n: nota });

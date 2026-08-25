@@ -1,6 +1,11 @@
 import type { DB } from "../datos/repos";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
-import { sincronizarInventario, sincronizarPagos, sincronizarVentas } from "../amazon/sync";
+import {
+  sincronizarEnviosEntrantes,
+  sincronizarInventario,
+  sincronizarPagos,
+  sincronizarVentas,
+} from "../amazon/sync";
 import { sincronizarEconomia } from "../amazon/economia";
 
 /**
@@ -32,6 +37,14 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_inventario", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarInventario(admin, cliente);
+    });
+
+    // El detalle de envíos entrantes a FBA: es lo que permite ignorar los
+    // envíos atorados (sin movimiento en semanas) que el reporte de
+    // inventario sigue contando como "en camino" para siempre.
+    await paso(admin, cuenta.accountId, "cron_envios_fba", 55 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarEnviosEntrantes(admin, cliente);
     });
 
     // Los reportes de liquidación salen cada ~2 semanas, pero revisar si hay

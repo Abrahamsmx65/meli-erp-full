@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cargarAmazon, cuentaAmazon, normalizarDias, SIN_LIMITE } from "@/lib/servicios/amazon";
+import { aplicarEnCamino, enCaminoFba } from "@/lib/servicios/fba-en-camino";
 import { esCalzado, OBJETIVO_DIAS_FBA, RIESGO_DIAS_FBA } from "@/lib/servicios/fba";
 import { aISO } from "@/lib/engine/fechas";
 
@@ -21,7 +22,12 @@ export async function GET(request: NextRequest) {
   }
 
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
-  const { renglones } = await cargarAmazon(supabase, dias, "", SIN_LIMITE);
+  const [{ renglones: crudos }, enCamino] = await Promise.all([
+    cargarAmazon(supabase, dias, "", SIN_LIMITE),
+    enCaminoFba(supabase, cuenta.id),
+  ]);
+  // "En camino" real: los envíos sin movimiento en semanas ya no tapan faltantes.
+  const renglones = aplicarEnCamino(crudos, enCamino);
 
   const libro = new ExcelJS.Workbook();
   const hoja = libro.addWorksheet("Faltantes FBA");
