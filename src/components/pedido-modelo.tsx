@@ -88,8 +88,8 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Cada modelo con todos sus colores, listo para negociar con la fábrica. La
           corrida propuesta se calcula con lo que falta de cada talla — venta menos
-          stock — no con la corrida vieja. Unitalla solo cuando el volumen lo
-          justifica (10+ cajas de la talla y 100+ del color).
+          stock completo — no con la corrida vieja. Una talla se separa como
+          unitalla cuando ella sola justifica 5+ cajas.
         </p>
       </header>
 
