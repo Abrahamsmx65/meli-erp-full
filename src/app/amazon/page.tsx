@@ -28,6 +28,15 @@ function n(x: number): string {
 }
 
 /**
+ * El bloque pesado de la página (dos agregaciones en Postgres, el catálogo
+ * de bodega y el optimizador de cajas) con un minuto de caché por instancia:
+ * los insumos cambian con el cron, no con cada clic, y sin esto cada visita
+ * pagaba 3-5 s de cálculo completo.
+ */
+const cachePlanFba = new Map<string, { en: number; datos: any }>();
+const VIDA_CACHE_PLAN_MS = 60_000;
+
+/**
  * Envíos a FBA: existencias en Amazon y qué cajas completas mandar.
  * Las ventas de Amazon viven en su propio panel (/amazon/ventas).
  */
@@ -40,7 +49,11 @@ export default async function Amazon({
   const dias = normalizarDias(sp.dias);
 
   const supabase = await clienteServidor();
-  const cuenta = await cuentaAmazon(supabase);
+  // La cuenta de Amazon y la de MELI no dependen una de la otra: en paralelo.
+  const [cuenta, cuentaMeli] = await Promise.all([
+    cuentaAmazon(supabase),
+    cuentaActiva(supabase),
+  ]);
 
   if (!cuenta) {
     return (
@@ -55,71 +68,19 @@ export default async function Amazon({
     );
   }
 
-  // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
-  const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones: renglonesCrudos, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd, enCamino] =
-    await Promise.all([
-      // SIN límite: con el top-500, el 64% del calzado con venta quedaba
-      // invisible para el plan (esta página no pinta renglones crudos).
-      cargarAmazon(supabase, dias, "", SIN_LIMITE),
-      estadoRecarga(supabase, cuenta.id),
-      cuentaMeli
-        ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
-            q.eq("account_id", cuentaMeli.id),
-          )
-        : Promise.resolve([]),
-      // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
-      // orden) a su modelo+color real. SOLO activos: tras un renombre en
-      // MELI, el nombre viejo (apagado) ganaba el amarre exacto y la
-      // necesidad quedaba con una llave que ninguna caja usa — el SKU salía
-      // "sin caja en bodega" con la bodega llena.
-      cuentaMeli
-        ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
-            q.eq("account_id", cuentaMeli.id).eq("activo", true),
-          )
-        : Promise.resolve([]),
-      cuentaMeli ? catalogoBodega(supabase, cuentaMeli.id) : Promise.resolve(null),
-      cuentaMeli
-        ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
-        : Promise.resolve({ data: null }),
-      enCaminoFba(supabase, cuenta.id),
-    ]);
-
-  // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
-  // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
-  // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
-  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
-
-  const indiceMeli = indexarCatalogo(skusMeli);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
-
-  // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
-  const planFba = planFbaConCajas({
-    renglones,
-    dias,
-    catalogo: bodega?.catalogo.cajas ?? [],
-    indiceMeli,
-    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
-  });
-  const desglose = desglosarOpcionales(
-    planFba.cajas.map((c) => ({
-      codigo: c.codigo,
-      cantidad: c.cantidad,
-      paresPorCaja: c.paresPorCaja,
-      cantidadOpcional: c.cantidadOpcional,
-      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
-    })),
-    planFba.lineas,
-  );
-
-  // Igual que MELI: un envío sale de UNA dirección. Caseshop e Industher van
-  // juntas y EnvioPack aparte, según almacenes_activos.grupo_envio.
-  const enviosFba = cuentaMeli
-    ? await separarEnvios(supabase, cuentaMeli.id, planFba.cajas)
-    : { envios: [], sinConfigurar: [] };
+  const claveCache = `${cuenta.id}|${cuentaMeli?.id ?? ""}|${dias}`;
+  const guardado = cachePlanFba.get(claveCache);
+  const calculado =
+    guardado && Date.now() - guardado.en < VIDA_CACHE_PLAN_MS
+      ? guardado.datos
+      : await calcularPagina(supabase, cuenta.id, cuentaMeli?.id ?? null, dias);
+  if (calculado !== guardado?.datos) {
+    cachePlanFba.set(claveCache, { en: Date.now(), datos: calculado });
+  }
+  const { totales, recarga, enCamino, sugerencias, planFba, desglose, enviosFba } = calculado;
 
   const enTransito = enCamino
-    ? [...enCamino.porSku.values()].reduce((a, b) => a + b, 0)
+    ? [...(enCamino.porSku.values() as Iterable<number>)].reduce((a: number, b: number) => a + b, 0)
     : totales.enTransito;
 
   return (
@@ -170,4 +131,75 @@ export default async function Amazon({
       <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>
   );
+}
+
+/** Todo el trabajo caro de la página, separado para poderlo cachear. */
+async function calcularPagina(
+  supabase: Awaited<ReturnType<typeof clienteServidor>>,
+  cuentaId: string,
+  cuentaMeliId: string | null,
+  dias: number,
+) {
+  const [{ renglones: renglonesCrudos, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd, enCamino] =
+    await Promise.all([
+      // SIN límite: con el top-500, el 64% del calzado con venta quedaba
+      // invisible para el plan (esta página no pinta renglones crudos).
+      cargarAmazon(supabase, dias, "", SIN_LIMITE),
+      estadoRecarga(supabase, cuentaId),
+      cuentaMeliId
+        ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
+            q.eq("account_id", cuentaMeliId),
+          )
+        : Promise.resolve([]),
+      // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
+      // orden) a su modelo+color real. SOLO activos: tras un renombre en
+      // MELI, el nombre viejo (apagado) ganaba el amarre exacto y la
+      // necesidad quedaba con una llave que ninguna caja usa — el SKU salía
+      // "sin caja en bodega" con la bodega llena.
+      cuentaMeliId
+        ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
+            q.eq("account_id", cuentaMeliId).eq("activo", true),
+          )
+        : Promise.resolve([]),
+      cuentaMeliId ? catalogoBodega(supabase, cuentaMeliId) : Promise.resolve(null),
+      cuentaMeliId
+        ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeliId).maybeSingle()
+        : Promise.resolve({ data: null }),
+      enCaminoFba(supabase, cuentaId),
+    ]);
+
+  // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
+  // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
+  // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
+  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
+
+  const indiceMeli = indexarCatalogo(skusMeli);
+  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
+
+  // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
+  const planFba = planFbaConCajas({
+    renglones,
+    dias,
+    catalogo: bodega?.catalogo.cajas ?? [],
+    indiceMeli,
+    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+  });
+  const desglose = desglosarOpcionales(
+    planFba.cajas.map((c) => ({
+      codigo: c.codigo,
+      cantidad: c.cantidad,
+      paresPorCaja: c.paresPorCaja,
+      cantidadOpcional: c.cantidadOpcional,
+      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
+    })),
+    planFba.lineas,
+  );
+
+  // Igual que MELI: un envío sale de UNA dirección. Caseshop e Industher van
+  // juntas y EnvioPack aparte, según almacenes_activos.grupo_envio.
+  const enviosFba = cuentaMeliId
+    ? await separarEnvios(supabase, cuentaMeliId, planFba.cajas)
+    : { envios: [], sinConfigurar: [] };
+
+  return { totales, recarga, enCamino, sugerencias, planFba, desglose, enviosFba };
 }
