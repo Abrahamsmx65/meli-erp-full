@@ -719,9 +719,14 @@ export async function sincronizarEnviosEntrantes(
   });
   if (activos === null) return { estado: "reintentar" };
 
-  // 2. Los envíos con movimiento reciente (cualquier estado).
+  // 2. Los envíos con movimiento reciente. Amazon exige la lista de estados
+  //    TAMBIÉN aquí ("At least one of ShipmentStatusList and ShipmentIdList
+  //    must be provided"): se pasan los mismos entrantes — si un envío ya
+  //    está CLOSED o CANCELLED tampoco suma en el reporte, así que su
+  //    movimiento da igual.
   const recientes = await listarEnvios(cliente, {
     QueryType: "DATE_RANGE",
+    ShipmentStatusList: ESTADOS_ENTRANTES.join(","),
     LastUpdatedAfter: new Date(
       Date.now() - DIAS_VIGENCIA_ENVIO_FBA * 86_400_000,
     ).toISOString(),
