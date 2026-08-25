@@ -187,6 +187,28 @@ export async function generarVideoKling(entrada: EntradaKling): Promise<Generaci
   return aGeneracion(cuerpo!);
 }
 
+export interface EntradaWan {
+  prompt: string;
+  image_url: string;
+  /** Wan 2.6 acepta 5, 10 o 15 segundos. */
+  duration: 5 | 10 | 15;
+}
+
+/**
+ * Encola imagen→video con Wan 2.6 (cuerpo directo, como Kling y Veo). Genera
+ * AUDIO NATIVO con lip sync: si el prompt trae un diálogo entre comillas, la
+ * persona lo dice. Es el único modelo de la API con voz y 10-15 s — el motor
+ * de la voz de IA del UGC. El endpoint no está en los SDK oficiales; se
+ * encontró sondeando la API en vivo (contesta 400 enumerando [5, 10, 15]).
+ */
+export async function generarVideoWan(entrada: EntradaWan): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/wan/v2.6/image-to-video", {
+    method: "POST",
+    body: JSON.stringify(entrada),
+  });
+  return aGeneracion(cuerpo!);
+}
+
 export interface EntradaVeo {
   prompt: string;
   image_url: string;

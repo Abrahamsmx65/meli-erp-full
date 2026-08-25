@@ -303,7 +303,7 @@ export function armarPromptSpeakUGC(datos: { tipo: TipoCalzado; semilla: number 
  * Prompt del UGC hablado por IA: la persona de la imagen dice el guion en
  * español con lip sync y audio nativo. Mismo tono casero.
  */
-export function armarPromptVeoUGC(datos: {
+export function armarPromptVozIAUGC(datos: {
   tipo: TipoCalzado;
   genero: Genero;
   semilla: number;

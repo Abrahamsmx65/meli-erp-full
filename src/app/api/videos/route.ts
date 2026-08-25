@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
             : formato === "ugc"
               ? audioUrl
                 ? "speak-v2"
-                : "veo-3.1"
+                : "wan-2.6"
               : String(body?.modelo ?? "dop-turbo"),
       formato,
       // El UGC arranca por la imagen de la persona; lo demás va directo al video.
@@ -183,7 +183,10 @@ export async function POST(req: NextRequest) {
             : formato === "ugc"
               ? audioUrl
                 ? duracionSpeak
-                : 8
+                : // Voz de IA con Wan 2.6: 10 o 15 s según el guion.
+                  Number(body?.duracion) === 15
+                  ? 15
+                  : 10
               : 5,
     })
     .select("id")

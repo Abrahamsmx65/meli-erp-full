@@ -5,6 +5,7 @@ import {
   generarVideoKling,
   generarVideoSpeak,
   generarVideoVeo,
+  generarVideoWan,
 } from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
@@ -197,7 +198,8 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
     // vertical de esta imagen. El clip mudo lo anima Kling (10 s, MELI);
     // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español. En UGC
     // la imagen es la persona con el producto: con audio grabado la anima
-    // Speak v2 con lip sync (5/10/15 s) y sin audio Veo dice el guion (8 s).
+    // Speak v2 con lip sync (5/10/15 s) y sin audio Wan 2.6 dice el guion
+    // con voz nativa (10-15 s).
     const video =
       fila.formato === "ugc"
         ? fila.audio_url
@@ -208,11 +210,10 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
               quality: "high",
               duration: fila.duracion === 5 ? 5 : fila.duracion === 15 ? 15 : 10,
             })
-          : await generarVideoVeo({
+          : await generarVideoWan({
               prompt: fila.prompt,
               image_url: res.url,
-              duration: 8,
-              resolution: "1080p",
+              duration: fila.duracion === 15 ? 15 : 10,
             })
         : fila.formato === "hablado"
           ? await generarVideoVeo({

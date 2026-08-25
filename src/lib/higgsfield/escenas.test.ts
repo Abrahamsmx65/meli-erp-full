@@ -5,7 +5,7 @@ import {
   armarPromptHablado,
   armarPromptPersonaUGC,
   armarPromptSpeakUGC,
-  armarPromptVeoUGC,
+  armarPromptVozIAUGC,
   detectarGenero,
   detectarTipo,
   guionInicial,
@@ -157,7 +157,7 @@ describe("UGC", () => {
   });
 
   it("el UGC con voz de IA mete el guion en español con lip sync", () => {
-    const p = armarPromptVeoUGC({
+    const p = armarPromptVozIAUGC({
       tipo: "pantufla",
       genero: "mujer",
       semilla: 0.4,

@@ -9,7 +9,7 @@ import {
   armarPromptHablado,
   armarPromptPersonaUGC,
   armarPromptSpeakUGC,
-  armarPromptVeoUGC,
+  armarPromptVozIAUGC,
   detectarGenero,
   detectarTipo,
   guionInicial,
@@ -222,7 +222,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
       setPromptVideo(
         datos.hayAudio
           ? armarPromptSpeakUGC({ tipo: datos.tipo, semilla: datos.semilla })
-          : armarPromptVeoUGC({
+          : armarPromptVozIAUGC({
               tipo: datos.tipo,
               genero: datos.genero,
               semilla: datos.semilla,
@@ -415,6 +415,13 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           audio: formato === "ugc" && audio ? audio : undefined,
           audioDuracion:
             formato === "ugc" && audio ? Math.ceil(audioSegundos) : undefined,
+          // Voz de IA (Wan 2.6): un guion largo necesita los 15 s.
+          duracion:
+            formato === "ugc" && !audio
+              ? guion.trim().split(/\s+/).length > 22
+                ? 15
+                : 10
+              : undefined,
           modelo: modeloDop,
         }),
       });
@@ -595,7 +602,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                 {formato === "ugc"
                   ? audio
                     ? "Guion (referencia de lo que grabaste; el video usa TU audio)"
-                    : "Guion (sin audio grabado, la persona lo dice con voz de IA · 8 s)"
+                    : "Guion (la persona lo dice con voz de IA · 10-15 s)"
                   : "Guion (la voz en off lo dice en español)"}
               </span>
               <textarea
@@ -610,7 +617,8 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           {formato === "ugc" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Tu voz (opcional, recomendado) — graba el guion o sube un audio · máximo 15 s
+                Tu voz (opcional) — sin audio, la voz la genera la IA; graba o sube
+                un audio si prefieres la tuya · máximo 15 s
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {!grabando ? (
@@ -665,9 +673,9 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                 )}
               </div>
               <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                Con tu audio, la persona lo dice con lip sync (video de 10-15 s, ideal
-                para Clips de MELI, que piden mínimo 10 s). Sin audio, la voz la genera
-                la IA pero el video queda de 8 s.
+                Las dos opciones dan 10-15 s (lo que piden los Clips de MELI): con voz
+                de IA el video se genera con el audio integrado; con tu audio la
+                persona lo dice con lip sync.
               </p>
             </div>
           )}
@@ -711,7 +719,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
               className="px-2 py-1.5 text-sm"
             >
               <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
-              <option value="ugc">UGC — una persona lo muestra y habla · 10-15 s con tu voz</option>
+              <option value="ugc">UGC — una persona lo muestra y habla en español · 10-15 s</option>
               <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
               <option value="dop">Prueba rápida — ~5 s, usa todas las fotos marcadas</option>
             </select>
