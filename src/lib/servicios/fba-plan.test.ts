@@ -47,8 +47,11 @@ const catalogoMeli = indexarCatalogo([{ sku: "GT1-BLK-23" }, { sku: "GT1-BLK-24"
 
 describe("plan FBA con el motor de cajas de bodega", () => {
   it("amarra el SKU de Amazon (talla antes del color) y elige cajas reales", () => {
-    // 30 días de objetivo: vende 4/día la 23 y 4/día la 24, nada en FBA →
-    // faltan 120 y 120. La caja trae 12 y 12: deben salir ~10 cajas.
+    // Vende 4/día la 23 y 4/día la 24, nada en FBA. El objetivo cubre 30
+    // días MÁS los 14 que el envío tarda en volverse vendible en Amazon:
+    // 4 × 44 = 176 por talla (352 en total). La caja trae 12 y 12: salen 15
+    // cajas (360 pares) — los 8 pares de sobra cuestan menos que dejar 2
+    // días de venta descubiertos.
     const plan = planFbaConCajas({
       renglones: [renglon("GT1-23-BLK-MX", 120, 0), renglon("GT1-24-BLK-MX", 120, 0)],
       dias: 30,
@@ -58,10 +61,10 @@ describe("plan FBA con el motor de cajas de bodega", () => {
     });
 
     expect(plan.sinAmarre).toHaveLength(0);
-    expect(plan.paresSugeridos).toBe(240);
+    expect(plan.paresSugeridos).toBe(352);
     expect(plan.cajas).toHaveLength(1);
-    expect(plan.cajas[0].cantidad).toBe(10);
-    expect(plan.cajas[0].paresTotales).toBe(240);
+    expect(plan.cajas[0].cantidad).toBe(15);
+    expect(plan.cajas[0].paresTotales).toBe(360);
   });
 
   it("un SKU de Amazon que no amarra con MELI se reporta, no se inventa", () => {
@@ -107,6 +110,7 @@ describe("plan FBA con el motor de cajas de bodega", () => {
       parametros,
     });
     expect(plan.cajas).toHaveLength(0);
-    expect(plan.sinCajaEnBodega).toEqual([{ sku: "GT1-BLK-24", pares: 120 }]);
+    // 4/día × (30 + 14 de riesgo) = 176 pares que ninguna caja puede tapar.
+    expect(plan.sinCajaEnBodega).toEqual([{ sku: "GT1-BLK-24", pares: 176 }]);
   });
 });

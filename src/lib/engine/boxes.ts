@@ -73,8 +73,13 @@ export function optimizarCajas(e: Entrada): PlanCajas {
 
   const nec = (s: string) => e.necesidad.get(s) ?? 0;
   const prio = (s: string) => e.prioridad.get(s) ?? 1;
-  const castigo = (s: string) => e.castigoSobrante?.get(s) ?? 1;
-  const dem = (s: string) => e.demandaDiaria?.get(s) ?? 1;
+  // Un SKU que las cajas arrastran pero el plan no conoce (sin amarre a
+  // MELI) no tiene demanda comprobada: sobre-surtirlo cuesta como un
+  // sin_demanda (castigo 4, demanda al piso), no como un SKU sano. Con los
+  // defaults viejos (castigo 1, demanda 1) era 8× más barato que un SKU
+  // conocido sin ventas y el optimizador los metía como lastre gratis.
+  const castigo = (s: string) => e.castigoSobrante?.get(s) ?? 4;
+  const dem = (s: string) => e.demandaDiaria?.get(s) ?? 0.5;
 
   const cajas = e.cajas.filter((c) => c.cajasDisponibles > 0 && c.items.length > 0);
   const piezasDe = new Map(
@@ -249,8 +254,12 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   const sinRemedio = new Set<string>();
   for (let vuelta = 0; vuelta < topeIteraciones; vuelta++) {
     // El SKU pedido con el faltante más grande, medido en días de venta.
+    // La tolerancia son ~2 días de venta: con envíos cada 3.5 días, un
+    // faltante menor se cubre en el siguiente envío. Con la tolerancia
+    // vieja (0.25 días = 1 par de un SKU lento) cualquier migaja disparaba
+    // una caja completa de rescate: pares que nadie pidió.
     let skuFalta: string | null = null;
-    let peorDias = 0.25; // faltantes de menos de ~un cuarto de día se toleran
+    let peorDias = 2;
     for (const s of e.necesidad.keys()) {
       if (sinRemedio.has(s)) continue;
       const falta = nec(s) - (enviado.get(s) ?? 0);

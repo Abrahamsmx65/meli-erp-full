@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
-import { cargarAmazon, cuentaAmazon, normalizarDias } from "@/lib/servicios/amazon";
+import { cargarAmazon, cuentaAmazon, normalizarDias, SIN_LIMITE } from "@/lib/servicios/amazon";
 import {
   OBJETIVO_DIAS_FBA,
   URGENTE_DIAS_FBA,
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
   const dias = normalizarDias(request.nextUrl.searchParams.get("dias") ?? undefined);
   const cuentaMeli = await cuentaActiva(supabase);
   const [{ renglones }, corridasRaw, skusMeli, bodega, paramsBd] = await Promise.all([
-    cargarAmazon(supabase, dias, ""),
+    cargarAmazon(supabase, dias, "", SIN_LIMITE),
     cuentaMeli
       ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
           q.eq("account_id", cuentaMeli.id),

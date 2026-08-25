@@ -41,6 +41,15 @@ import { traerTodo, type DB } from "../datos/repos";
 /** Días de venta que el stock en FBA debe cubrir. */
 export const OBJETIVO_DIAS_FBA = 30;
 
+/**
+ * Días que tarda un envío en VOLVERSE stock vendible en FBA (armado, camión
+ * y recepción de Amazon). El plan de Full protege su ventana de riesgo
+ * (leadTime + periodo de revisión) más un stock de seguridad; el de FBA no
+ * protegía nada y por eso sugería sistemáticamente de menos: para cuando el
+ * envío llega, el objetivo de 30 días ya se comió dos semanas.
+ */
+export const RIESGO_DIAS_FBA = 14;
+
 /** Con menos de esto de cobertura, el envío ya es urgente. */
 export const URGENTE_DIAS_FBA = 14;
 
@@ -108,6 +117,7 @@ export function sugerirEnvioFba(
     // SKU, venga como venga escrito el de Amazon); el desglose por guiones
     // queda de respaldo para lo que no esté publicado en MELI.
     const enCatalogo =
+      indiceMeli?.exacto.get(r.sku.trim().toUpperCase()) ??
       indiceMeli?.canonico.get(claveComparacion(r.sku)) ??
       indiceMeli?.aplastado.get(claveAplastada(r.sku)) ??
       indiceMeli?.ordenado.get(claveOrdenada(r.sku));
@@ -129,8 +139,9 @@ export function sugerirEnvioFba(
     g.disponible += r.disponible;
     g.enTransferencia += r.enTransferencia;
     // El faltante se calcula POR TALLA y luego se suma: el sobrante de una
-    // talla no tapa el hueco de otra.
-    g.faltante += Math.max(0, ventaDiaria * objetivoDias - posicion);
+    // talla no tapa el hueco de otra. El objetivo cubre TAMBIÉN los días que
+    // el envío tarda en volverse vendible en FBA.
+    g.faltante += Math.max(0, ventaDiaria * (objetivoDias + RIESGO_DIAS_FBA) - posicion);
     if (!g.titulo && r.titulo) g.titulo = r.titulo;
     grupos.set(clave, g);
   }

@@ -96,13 +96,16 @@ export function reasignarPorBodega(
   }
 
   const cantidadElegida = new Map(elegidas.map((e) => [e.codigo, e.cantidad]));
+  const opcionalElegida = new Map(elegidas.map((e) => [e.codigo, e.cantidadOpcional ?? 0]));
   const resultado = new Map<string, number>();
+  const resultadoOpcional = new Map<string, number>();
   const firmasVistas = new Set<string>();
 
   for (const e of elegidas) {
     const def = defPorCodigo.get(e.codigo);
     if (!def) {
       resultado.set(e.codigo, e.cantidad);
+      resultadoOpcional.set(e.codigo, e.cantidadOpcional ?? 0);
       continue;
     }
     const f = firma(def);
@@ -111,13 +114,24 @@ export function reasignarPorBodega(
 
     const grupo = porFirma.get(f) ?? [def];
     let total = grupo.reduce((a, c) => a + (cantidadElegida.get(c.codigo) ?? 0), 0);
+    // La marca de OPCIONAL viaja con la firma: la reasignación cambia el
+    // código y sin esto las cajas del rescate se volvían "obligatorias" en
+    // silencio (el commit "Plan menos holgado" quedaba solo cosmético).
+    let totalOpcional = grupo.reduce(
+      (a, c) => a + (opcionalElegida.get(c.codigo) ?? 0),
+      0,
+    );
 
     const ordenado = [...grupo].sort(
       (a, b) => prioridadAlmacen(a.almacen) - prioridadAlmacen(b.almacen),
     );
+    const asignadas: { codigo: string; toma: number }[] = [];
     for (const c of ordenado) {
       const toma = Math.min(total, c.cajasDisponibles);
-      if (toma > 0) resultado.set(c.codigo, toma);
+      if (toma > 0) {
+        resultado.set(c.codigo, toma);
+        asignadas.push({ codigo: c.codigo, toma });
+      }
       total -= toma;
       if (total <= 0) break;
     }
@@ -126,6 +140,17 @@ export function reasignarPorBodega(
     if (total > 0) {
       const c0 = ordenado[0];
       resultado.set(c0.codigo, (resultado.get(c0.codigo) ?? 0) + total);
+      asignadas.push({ codigo: c0.codigo, toma: total });
+    }
+    // Las opcionales son fungibles dentro de la firma: se marcan al final de
+    // la asignación (las "de más" del rescate), acotadas por lo asignado.
+    for (let i = asignadas.length - 1; i >= 0 && totalOpcional > 0; i--) {
+      const marca = Math.min(totalOpcional, asignadas[i].toma);
+      resultadoOpcional.set(
+        asignadas[i].codigo,
+        (resultadoOpcional.get(asignadas[i].codigo) ?? 0) + marca,
+      );
+      totalOpcional -= marca;
     }
   }
 
@@ -138,6 +163,7 @@ export function reasignarPorBodega(
       codigo,
       nombre: previa?.nombre ?? null,
       cantidad,
+      cantidadOpcional: Math.min(cantidad, resultadoOpcional.get(codigo) ?? 0),
       piezasPorCaja,
       aporta: (def?.detalle ?? []).map((d) => ({
         sku: d.sku,
@@ -207,8 +233,16 @@ export async function generarPlanCompleto(
   // que el usuario tachó. Mismo criterio del MÁXIMO que arriba: cuando
   // MELI ya los reporta en tránsito, no se cuentan doble. Si el API no
   // contesta, el plan sigue sin ellos.
+  let avisoEnCamino: string | null = null;
   try {
     const pendientes = await enviosPendientesIndusther(db, accountId);
+    if (pendientes.error) {
+      // Sin el "en camino" el plan vuelve a sugerir lo que ya va en la
+      // caja del camión: eso tiene que verse, no tragarse en un log.
+      avisoEnCamino =
+        `No se pudo leer lo EN CAMINO de la bodega (${pendientes.error}). ` +
+        "El plan puede estar sugiriendo de más lo que ya va en camino a Full.";
+    }
     // Los productos del envío traen el SKU de la bodega: se amarran al de
     // MELI por modelo+color+talla con el catálogo real, como en etiquetas.
     // Las filas de CORRIDA se reparten por talla con la corrida del pedido.
@@ -237,6 +271,9 @@ export async function generarPlanCompleto(
     }
   } catch (err) {
     console.error("enviosPendientesIndusther:", (err as Error).message);
+    avisoEnCamino =
+      `No se pudo leer lo EN CAMINO de la bodega (${(err as Error).message.slice(0, 120)}). ` +
+      "El plan puede estar sugiriendo de más lo que ya va en camino a Full.";
   }
 
   // El catálogo real de MELI es la autoridad sobre qué SKU existe.
@@ -272,14 +309,10 @@ export async function generarPlanCompleto(
     hoy,
   });
 
-  // Qué cajas entraron como opcionales (rescate de tallas faltantes), por
-  // código, ANTES de reasignar bodegas: la reasignación no conserva el dato.
-  const opcionalPorCodigo = new Map(
-    plan.cajas.cajas.map((c) => [c.codigo, c.cantidadOpcional ?? 0]),
-  );
-
   // La misma caja disponible en dos bodegas debe salir de la preferida:
-  // el optimizador no distingue bodegas, esta pasada sí.
+  // el optimizador no distingue bodegas, esta pasada sí. La marca de caja
+  // OPCIONAL viaja dentro de la reasignación (viajaba por código y el
+  // código cambia: se perdía y todo se contaba obligatorio).
   plan.cajas.cajas = reasignarPorBodega(plan.cajas.cajas, catalogo.cajas);
 
   // El motor devuelve códigos internos; aquí se vuelven algo que un humano
@@ -306,10 +339,7 @@ export async function generarPlanCompleto(
         esCorrida: def.esCorrida,
         contenedores: def.contenedores,
         cajasDisponibles: def.cajasDisponibles,
-        cantidadOpcional: Math.min(
-          elegida.cantidad,
-          opcionalPorCodigo.get(elegida.codigo) ?? 0,
-        ),
+        cantidadOpcional: Math.min(elegida.cantidad, elegida.cantidadOpcional ?? 0),
         aporta: def.detalle.map((d) => ({
           sku: d.sku,
           talla: d.talla,
@@ -322,6 +352,7 @@ export async function generarPlanCompleto(
     .sort((a, b) => b.paresTotales - a.paresTotales);
 
   const avisos = catalogo.avisos.map((a) => a.mensaje);
+  if (avisoEnCamino) avisos.push(avisoEnCamino);
   if (!insumos.skus.length) {
     avisos.push(
       "Todavía no hay catálogo de Mercado Libre sincronizado, así que los SKUs de las cajas no están verificados contra MELI.",

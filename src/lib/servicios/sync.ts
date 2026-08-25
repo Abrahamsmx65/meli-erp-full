@@ -124,6 +124,8 @@ export function desglosarSku(sku: string): {
 export async function guardarVentasDiarias(
   db: DB,
   filas: Record<string, unknown>[],
+  // Con rango, la foto fresca MANDA: lo que esos días ya no traen, se borra.
+  rango?: { accountId: string; desde: string; hasta: string },
 ): Promise<void> {
   if (!filas.length) return;
   try {
@@ -137,6 +139,47 @@ export async function guardarVentasDiarias(
       filas.map(({ comision: _c, neto: _n, ...resto }) => resto),
       "account_id,sku,fecha",
     );
+  }
+
+  // El upsert nunca borra: un día re-sincronizado cuya venta se canceló, o
+  // cuyo SKU se renombró en MELI, dejaba la fila vieja sumando PARA SIEMPRE
+  // (el cron reescribe 90 días con el nombre nuevo y el viejo sobrevivía).
+  // La foto fresca del rango es la verdad de esos días: lo demás sobra.
+  if (!rango) return;
+  const frescos = new Map<string, Set<string>>();
+  for (const f of filas) {
+    const fecha = String(f.fecha);
+    let set = frescos.get(fecha);
+    if (!set) frescos.set(fecha, (set = new Set()));
+    set.add(String(f.sku));
+  }
+
+  const existentes = await traerTodo<{ sku: string; fecha: string }>(
+    db,
+    "ventas_diarias",
+    "sku, fecha",
+    (q) =>
+      q.eq("account_id", rango.accountId).gte("fecha", rango.desde).lte("fecha", rango.hasta),
+  );
+
+  const porFecha = new Map<string, string[]>();
+  for (const e of existentes) {
+    if (frescos.get(e.fecha)?.has(e.sku)) continue;
+    const lista = porFecha.get(e.fecha) ?? [];
+    lista.push(e.sku);
+    porFecha.set(e.fecha, lista);
+  }
+
+  for (const [fecha, skus] of porFecha) {
+    for (let i = 0; i < skus.length; i += 100) {
+      const { error } = await db
+        .from("ventas_diarias")
+        .delete()
+        .eq("account_id", rango.accountId)
+        .eq("fecha", fecha)
+        .in("sku", skus.slice(i, i + 100));
+      if (error) throw new Error(`ventas_diarias (reconciliación): ${error.message}`);
+    }
   }
 }
 
@@ -233,6 +276,7 @@ async function ejecutarSincronizacion(
     const desde = sumarDias(hoy, -dias);
 
     let ventas: Awaited<ReturnType<typeof obtenerVentas>>["ventas"] = [];
+    let ventasTruncadas = false;
     let ordenesLeidas = 0;
     let sinSku = 0;
     let recuperadas = 0;
@@ -247,6 +291,7 @@ async function ejecutarSincronizacion(
 
       const r = await obtenerVentas(cliente, sellerId, desde, hoy, mapaItemSku);
       ventas = r.ventas;
+      ventasTruncadas = r.truncado;
       ordenesLeidas = r.ordenesLeidas;
       sinSku = r.sinSku;
 
@@ -437,7 +482,16 @@ async function ejecutarSincronizacion(
         importe: v.importe ?? 0,
         comision: v.comision ?? 0,
       })),
+      // La ventana completa se reconcilia: cancelaciones y renombres fuera.
+      // Solo con la foto COMPLETA: si MELI truncó la descarga, borrar contra
+      // una foto incompleta destruiría ventas reales.
+      ventasTruncadas ? undefined : { accountId, desde, hasta: hoy },
     );
+    if (ventasTruncadas) {
+      errores.push(
+        "MELI truncó la descarga de órdenes (~10 mil por ventana): las ventas se guardaron pero la limpieza de residuos se saltó esta corrida.",
+      );
+    }
 
     // ---- Movimientos de inventario ---------------------------------------
     const mapaInventarioSku = new Map<string, string>();
