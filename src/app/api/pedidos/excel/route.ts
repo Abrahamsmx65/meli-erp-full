@@ -244,6 +244,51 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // ------------------------------------------------------------- DETALLE SKU
+  // Un renglón por SKU con todos los números que alimentan el pedido: venta
+  // de cada canal, stock en cada lado, lo que viene de China y el faltante.
+  // Es la hoja para auditar por qué se sugiere pedir lo que se pide.
+  const hDetalle = wb.addWorksheet("Detalle SKU");
+  hDetalle.columns = [
+    { header: "SKU", key: "sku", width: 28 },
+    { header: "Modelo", key: "modelo", width: 12 },
+    { header: "Color", key: "color", width: 18 },
+    { header: "Talla", key: "talla", width: 7 },
+    { header: "Venta MELI/mes (usada)", key: "vMeli", width: 19 },
+    { header: "Vendido MELI/mes (real)", key: "vReal", width: 19 },
+    { header: "Venta AMZ/mes", key: "vAmz", width: 14 },
+    { header: "Stock Full (+camino)", key: "full", width: 17 },
+    { header: "Stock FBA (+camino)", key: "fba", width: 17 },
+    { header: "Bodega", key: "bodega", width: 10 },
+    { header: "De China", key: "china", width: 10 },
+    { header: "Inventario total", key: "inv", width: 14 },
+    { header: "Faltante", key: "faltante", width: 10 },
+  ];
+  encabezar(hDetalle);
+
+  const detalleFiltrado = compra.detalleSkus.filter((d) => !modelo || d.modelo === modelo);
+  for (const d of detalleFiltrado) {
+    const fila = hDetalle.addRow({
+      sku: d.sku,
+      modelo: d.modelo,
+      color: d.color,
+      talla: d.talla,
+      vMeli: d.ventaMesMeli,
+      vReal: d.ventaMesRealMeli,
+      vAmz: d.ventaMesAmazon,
+      full: d.enFull,
+      fba: d.enFba,
+      bodega: d.enBodega,
+      china: d.deChina,
+      inv: d.inventarioTotal,
+      faltante: d.faltante,
+    });
+    // El faltante en rojo cuando el SKU de verdad pide pares.
+    if (d.faltante > 0) {
+      fila.getCell("faltante").font = { bold: true, color: { argb: "FFC00000" } };
+    }
+  }
+
   const buffer = await wb.xlsx.writeBuffer();
   const nombre = `pedido-china-${modelo ? `${modelo.toLowerCase()}-` : ""}${aISO(new Date())}.xlsx`;
 
