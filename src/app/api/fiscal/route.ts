@@ -37,16 +37,26 @@ export async function GET() {
 
   // traerTodo pagina: sin él, Supabase corta en 1000 y el resumen mentiría
   // en catálogos más grandes.
-  let skus: { sku: string; modelo: string | null; titulo: string | null }[];
+  let skus: {
+    sku: string;
+    modelo: string | null;
+    titulo: string | null;
+    categoria_id: string | null;
+  }[];
   let fiscales: FilaLocal[];
   try {
     // En paralelo: la página fiscal consulta este resumen en cada refresco
     // mientras el proceso trabaja, y las dos lecturas no dependen entre sí.
     [skus, fiscales] = await Promise.all([
-      traerTodo<{ sku: string; modelo: string | null; titulo: string | null }>(
+      traerTodo<{
+        sku: string;
+        modelo: string | null;
+        titulo: string | null;
+        categoria_id: string | null;
+      }>(
         supabase,
         "skus",
-        "sku, modelo, titulo",
+        "sku, modelo, titulo, categoria_id",
         (q) => q.eq("account_id", cuenta.id).eq("activo", true).not("item_id", "is", null),
       ),
       traerTodo<FilaLocal>(
@@ -84,8 +94,10 @@ export async function GET() {
     ivaSugerida: string | null;
     iepsSugerido: number | null;
     unidadSugerida: string | null;
-    /** de dónde salió la sugerencia: el propio modelo, los parecidos o el catálogo */
-    sugerenciaDe: "modelo" | "parecidos" | "catalogo" | null;
+    /** de dónde salió la sugerencia: el propio modelo, su categoría de MELI o el catálogo */
+    sugerenciaDe: "modelo" | "categoria" | "catalogo" | null;
+    /** nombre de la categoría de MELI (o su id si aún no se conoce el nombre) */
+    categoria: string | null;
   }
   const modelos = new Map<string, Modelo>();
   const resumen = { catalogo: 0, leidos: 0, sinLeer: 0, sinDatos: 0, pendientes: 0, errores: 0 };
@@ -108,6 +120,7 @@ export async function GET() {
         iepsSugerido: null,
         unidadSugerida: null,
         sugerenciaDe: null,
+        categoria: null,
       } satisfies Modelo);
     m.totalSkus++;
     resumen.catalogo++;
@@ -142,30 +155,25 @@ export async function GET() {
   }
 
   // Sugerencia para los modelos NUEVOS (sin ningún hermano con datos): la
-  // combinación SAT/IVA/IEPS/unidad más usada entre los modelos PARECIDOS
-  // (mismo prefijo de letras: GT…, MY…) y, en último caso, la más usada del
-  // catálogo entero. Es lo que hace la pantalla de "confirmar por categoría"
-  // de MELI, pero con los datos reales del propio negocio: el usuario solo
-  // confirma con el botón de rellenar todo.
-  const modeloDeSku = new Map(
-    (skus ?? []).map((s) => [s.sku, (s.modelo as string) || "(sin modelo)"]),
-  );
-  const prefijoDe = (modelo: string): string =>
-    (modelo.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase();
-  const combosPorPrefijo = new Map<string, Map<string, number>>();
+  // combinación SAT/IVA/IEPS/unidad más usada entre los SKUs de la MISMA
+  // CATEGORÍA de MELI (dato real de la publicación, no adivinado) y, en
+  // último caso, la más usada del catálogo entero. Es la pantalla de
+  // "confirmar por categoría" de MELI, pero con los datos del propio
+  // negocio: el usuario solo confirma con el botón de rellenar todo.
+  const categoriaDeSku = new Map((skus ?? []).map((s) => [s.sku, s.categoria_id]));
+  const combosPorCategoria = new Map<string, Map<string, number>>();
   const combosGlobal = new Map<string, number>();
   const comboValores = new Map<string, FilaLocal>();
   for (const f of fiscales) {
     if (!f.leido_en || !tieneDatos(f)) continue;
-    const deModelo = modeloDeSku.get(f.sku);
-    if (!deModelo) continue;
     const k = `${f.sat}|${f.iva}|${f.ieps}|${f.unidad}`;
     comboValores.set(k, f);
     combosGlobal.set(k, (combosGlobal.get(k) ?? 0) + 1);
-    const p = prefijoDe(deModelo);
-    const mapa = combosPorPrefijo.get(p) ?? new Map<string, number>();
+    const cat = categoriaDeSku.get(f.sku);
+    if (!cat) continue;
+    const mapa = combosPorCategoria.get(cat) ?? new Map<string, number>();
     mapa.set(k, (mapa.get(k) ?? 0) + 1);
-    combosPorPrefijo.set(p, mapa);
+    combosPorCategoria.set(cat, mapa);
   }
   const moda = (mapa?: Map<string, number>): string | null => {
     let mejor: string | null = null;
@@ -178,17 +186,50 @@ export async function GET() {
     }
     return mejor;
   };
+
+  // La categoría de cada modelo: la más común entre sus SKUs.
+  const categoriaPorModelo = new Map<string, string>();
+  {
+    const conteo = new Map<string, Map<string, number>>();
+    for (const s of skus ?? []) {
+      if (!s.categoria_id) continue;
+      const clave = (s.modelo as string) || "(sin modelo)";
+      const m = conteo.get(clave) ?? new Map<string, number>();
+      m.set(s.categoria_id, (m.get(s.categoria_id) ?? 0) + 1);
+      conteo.set(clave, m);
+    }
+    for (const [clave, m] of conteo) {
+      const cat = moda(m);
+      if (cat) categoriaPorModelo.set(clave, cat);
+    }
+  }
+
+  // Los nombres bonitos de las categorías ("Botas y Botines"); sin nombre
+  // conocido se enseña el id.
+  const nombresCategorias = new Map<string, string>();
+  try {
+    const idsCat = [...new Set(categoriaPorModelo.values())];
+    if (idsCat.length) {
+      const { data } = await supabase.from("categorias_meli").select("id, nombre").in("id", idsCat);
+      for (const c of data ?? []) nombresCategorias.set(c.id as string, c.nombre as string);
+    }
+  } catch {
+    // Tabla sin migrar todavía: se enseña el id.
+  }
+
   for (const m of modelos.values()) {
+    const cat = categoriaPorModelo.get(m.modelo) ?? null;
+    m.categoria = cat ? (nombresCategorias.get(cat) ?? cat) : null;
     if (m.satSugerido != null || m.sinDatos === 0) continue;
-    const dePrefijo = moda(combosPorPrefijo.get(prefijoDe(m.modelo)));
-    const k = dePrefijo ?? moda(combosGlobal);
+    const deCategoria = cat ? moda(combosPorCategoria.get(cat)) : null;
+    const k = deCategoria ?? moda(combosGlobal);
     if (!k) continue;
     const v = comboValores.get(k)!;
     m.satSugerido = v.sat;
     m.ivaSugerida = v.iva;
     m.iepsSugerido = v.ieps;
     m.unidadSugerida = v.unidad;
-    m.sugerenciaDe = dePrefijo ? "parecidos" : "catalogo";
+    m.sugerenciaDe = deCategoria ? "categoria" : "catalogo";
   }
 
   const conTrabajo = [...modelos.values()]

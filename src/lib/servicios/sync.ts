@@ -353,6 +353,7 @@ async function ejecutarSincronizacion(
         logistica: f.logistica,
         estado: f.estado,
         precio: f.precio,
+        categoria_id: f.categoriaId,
         modelo: d.modelo,
         color: d.color,
         talla: d.talla,
@@ -361,6 +362,28 @@ async function ejecutarSincronizacion(
       };
     });
     await upsertEnTandas(db, "skus", filasSku, "account_id,sku");
+
+    // Los NOMBRES de las categorías nuevas (para la pantalla fiscal): una
+    // llamada por categoría, una sola vez en la vida — se quedan guardadas.
+    try {
+      const idsCat = [...new Set(catalogo.map((f) => f.categoriaId).filter(Boolean))] as string[];
+      if (idsCat.length) {
+        const { data: conocidas } = await db.from("categorias_meli").select("id").in("id", idsCat);
+        const faltan = idsCat.filter((id) => !(conocidas ?? []).some((c: any) => c.id === id));
+        for (const id of faltan.slice(0, 30)) {
+          try {
+            const cat = await cliente.get<{ id: string; name?: string }>(`/categories/${id}`);
+            if (cat?.id) {
+              await db.from("categorias_meli").upsert({ id: cat.id, nombre: cat.name ?? cat.id });
+            }
+          } catch {
+            // Sin nombre no pasa nada: la pantalla enseña el id.
+          }
+        }
+      }
+    } catch {
+      // Tabla aún sin migrar: el catálogo se guardó igual.
+    }
 
     // Renombrar un SKU en MELI dejaba el nombre viejo como fila fantasma,
     // activa para siempre: el plan, las etiquetas y los datos fiscales la

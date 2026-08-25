@@ -37,6 +37,7 @@ interface VariacionMeli {
 interface ItemMeli {
   id: string;
   title?: string;
+  category_id?: string | null;
   status?: string;
   price?: number;
   inventory_id?: string | null;
@@ -59,6 +60,8 @@ export interface FilaSku {
   sku: string;
   itemId: string;
   variationId: string | null;
+  /** categoría de MELI de la publicación (MLM…): la base de la sugerencia fiscal */
+  categoriaId: string | null;
   inventoryId: string | null;
   /** de qué user product salió el SKU; null si vino en la publicación */
   userProductId: string | null;
@@ -382,6 +385,7 @@ export async function detallarItems(
           sku,
           itemId: item.id,
           variationId: v.id != null ? String(v.id) : null,
+          categoriaId: item.category_id ?? null,
           inventoryId: v.inventory_id ?? null,
           userProductId: v.user_product_id ?? null,
           titulo: item.title ?? "",
@@ -411,6 +415,7 @@ export async function detallarItems(
         sku,
         itemId: item.id,
         variationId: null,
+        categoriaId: item.category_id ?? null,
         inventoryId: item.inventory_id ?? null,
         userProductId: item.user_product_id ?? null,
         titulo: item.title ?? "",
@@ -748,6 +753,7 @@ export async function recuperarDesdeOrdenes(
       sku: r.sku,
       itemId: item.id,
       variationId: r.variationId,
+      categoriaId: item.category_id ?? null,
       inventoryId: variacion?.inventory_id ?? item.inventory_id ?? null,
       userProductId: variacion?.user_product_id ?? item.user_product_id ?? null,
       titulo: item.title ?? "",
