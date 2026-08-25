@@ -51,12 +51,20 @@ export async function POST(req: NextRequest) {
     // MELI no lo reintente eternamente.
     if (!cuenta) return NextResponse.json({ ok: true }, { status: 200 });
 
+    // Solo órdenes, catálogo y stock mueven algo en el sistema. Los demás
+    // temas (shipments, payments, messages…) son el 60% del volumen y el
+    // drenado los recorría uno por uno para no hacer nada: entran ya
+    // marcados como procesados — quedan de bitácora 3 días y se van.
+    const seProcesa =
+      topic === "orders" || topic === "orders_v2" || topic === "items" || topic.includes("stock");
+
     await admin.from("webhooks_meli").insert({
       account_id: cuenta.id,
       meli_user_id: meliUserId,
       topic,
       resource,
       raw: cuerpo,
+      ...(seProcesa ? {} : { procesado_en: new Date().toISOString() }),
     });
 
     // Con la respuesta ya entregada: si el latido lleva más de una hora sin

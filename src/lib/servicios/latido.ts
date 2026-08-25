@@ -55,9 +55,12 @@ export async function latido(
   try {
     // Los avisos anteriores a la última sincronización completa ya no dicen
     // nada nuevo: esa corrida volvió a bajar ventas, stock y catálogo
-    // enteros. Se dan por procesados de un plumazo — sin esto, una bandeja
-    // con decenas de miles de avisos viejos (llegó a haber 71 mil) se come
-    // al latido procesando historia de 40 en 40 y lo de hoy nunca llega.
+    // enteros. La limpieza corre DENTRO de Postgres, por tandas acotadas
+    // (limpiar_webhooks, migración 0023): la versión anterior era un solo
+    // UPDATE de cientos de miles de renglones que moría por tiempo y cuyo
+    // error nadie revisaba — el atasco creció a 192 mil avisos y la tabla a
+    // 382 MB antes de que se notara. De paso borra los procesados con más
+    // de 3 días, que solo son bitácora.
     const { data: ultimaCompleta } = await admin
       .from("sync_log")
       .select("inicio")
@@ -67,14 +70,11 @@ export async function latido(
       .order("inicio", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (ultimaCompleta?.inicio) {
-      await admin
-        .from("webhooks_meli")
-        .update({ procesado_en: new Date().toISOString() })
-        .eq("account_id", accountId)
-        .is("procesado_en", null)
-        .lt("recibido_en", ultimaCompleta.inicio);
-    }
+    const limpieza = await admin.rpc("limpiar_webhooks", {
+      p_account: accountId,
+      p_corte: ultimaCompleta?.inicio ?? null,
+    });
+    if (limpieza.error) console.error("limpiar_webhooks:", limpieza.error.message);
     // Drenar la bandeja en tandas hasta vaciarla o quedarse sin tiempo. El
     // drenado NO puede comerse todo el plazo: se le reserva medio minuto al
     // recálculo del plan, que es lo que el usuario ve. Si MELI truena a media
