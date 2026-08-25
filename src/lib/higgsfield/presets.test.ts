@@ -44,7 +44,7 @@ describe("construirEntradaDop", () => {
       const e = construirEntradaDop({
         prompt: p.prompt,
         imagenUrl: "https://x.com/a.jpg",
-        modelo: "dop-standard",
+        modelo: "dop-lite",
       });
       expect(e.prompt.length).toBeGreaterThan(20);
     }

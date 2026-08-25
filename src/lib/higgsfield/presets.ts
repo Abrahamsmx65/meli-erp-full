@@ -54,8 +54,8 @@ export const PRESETS: Preset[] = [
 ];
 
 export const MODELOS: { id: ModeloDop; etiqueta: string; nota: string }[] = [
-  { id: "dop-turbo", etiqueta: "Turbo", nota: "Rápido y barato; para probar prompts." },
-  { id: "dop-standard", etiqueta: "Estándar", nota: "Más calidad; para el video final." },
+  { id: "dop-turbo", etiqueta: "Turbo", nota: "El bueno; rápido y con calidad." },
+  { id: "dop-preview", etiqueta: "Preview", nota: "Borrador para probar prompts." },
   { id: "dop-lite", etiqueta: "Lite", nota: "El más económico." },
 ];
 

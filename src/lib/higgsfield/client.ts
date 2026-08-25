@@ -15,7 +15,9 @@ const BASE = "https://platform.higgsfield.ai";
 /** Reintentables: los mismos criterios que con MELI. */
 const REINTENTABLES = new Set([408, 429, 500, 502, 503, 504]);
 
-export type ModeloDop = "dop-lite" | "dop-turbo" | "dop-standard";
+// Los que acepta la API hoy (lo confirma su propio error 422 de enum);
+// el "dop-standard" que menciona el SDK ya no existe.
+export type ModeloDop = "dop-lite" | "dop-preview" | "dop-turbo";
 
 export type EstadoHF =
   | "queued"
@@ -103,9 +105,10 @@ export interface EntradaDop {
 
 /** Encola una generación imagen→video. Contesta de inmediato con el request_id. */
 export async function generarVideo(entrada: EntradaDop): Promise<RespuestaHF> {
+  // La API pide el cuerpo envuelto en `params`; mandarlo directo da 422.
   return llamar<RespuestaHF>("/v1/image2video/dop", {
     method: "POST",
-    body: JSON.stringify(entrada),
+    body: JSON.stringify({ params: entrada }),
   });
 }
 
