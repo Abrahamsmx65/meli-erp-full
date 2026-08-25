@@ -41,9 +41,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Sin HIGGSFIELD_CREDENTIALS en este entorno." });
   }
 
-  // 1. Subida al CDN: reproducir el flujo completo con un JPEG mínimo.
-  const subida: Record<string, unknown> = {};
-  try {
+  // 1. Subida al CDN: el PUT prefirmado da SignatureDoesNotMatch en Vercel,
+  //    así que se prueban variantes para aislar qué rompe la firma. Cada
+  //    variante pide su PROPIA URL (podrían ser de un solo uso).
+  // JPEG válido de 1x1 (mínimo verdadero, ~160 bytes).
+  const jpeg = Buffer.from(
+    "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==",
+    "base64",
+  );
+
+  async function pedirEnlace(): Promise<{ upload_url: string; public_url: string } | null> {
     const res = await fetch(`${BASE}/files/generate-upload-url`, {
       method: "POST",
       headers: {
@@ -53,37 +60,55 @@ export async function GET(req: NextRequest) {
       body: JSON.stringify({ content_type: "image/jpeg" }),
       signal: AbortSignal.timeout(30_000),
     });
-    subida.enlace_status = res.status;
-    if (res.ok) {
-      const enlace = (await res.json()) as { upload_url?: string; public_url?: string };
-      subida.upload_host = enlace.upload_url ? new URL(enlace.upload_url).host : null;
-      subida.public_host = enlace.public_url ? new URL(enlace.public_url).host : null;
-      // JPEG válido de 1x1 (mínimo verdadero, ~160 bytes).
-      const jpeg = Buffer.from(
-        "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==",
-        "base64",
-      );
-      const put = await fetch(enlace.upload_url!, {
+    if (!res.ok) return null;
+    return (await res.json()) as { upload_url: string; public_url: string };
+  }
+
+  async function probarPut(
+    nombre: string,
+    headers: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    const enlace = await pedirEnlace().catch(() => null);
+    if (!enlace?.upload_url) return { nombre, error: "sin enlace" };
+    const u = new URL(enlace.upload_url);
+    try {
+      const put = await fetch(enlace.upload_url, {
         method: "PUT",
-        headers: { "Content-Type": "image/jpeg" },
+        headers,
         body: jpeg,
         signal: AbortSignal.timeout(60_000),
       });
-      subida.put_status = put.status;
-      subida.put_detalle = (await put.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 400);
-      if (put.ok && enlace.public_url) {
-        const lectura = await fetch(enlace.public_url, {
-          method: "GET",
-          signal: AbortSignal.timeout(30_000),
-        });
-        subida.lectura_status = lectura.status;
+      const detalle = put.ok
+        ? ""
+        : (await put.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+      let lectura: number | null = null;
+      if (put.ok) {
+        const r = await fetch(enlace.public_url, { signal: AbortSignal.timeout(30_000) });
+        lectura = r.status;
       }
-    } else {
-      subida.enlace_detalle = (await res.text().catch(() => "")).slice(0, 300);
+      return {
+        nombre,
+        status: put.status,
+        detalle,
+        lectura,
+        firma_headers: u.searchParams.get("X-Amz-SignedHeaders"),
+        params: [...u.searchParams.keys()].filter((k) => k !== "X-Amz-Signature"),
+      };
+    } catch (err) {
+      return { nombre, error: (err as Error).message.slice(0, 200) };
     }
-  } catch (err) {
-    subida.error = (err as Error).message.slice(0, 200);
   }
+
+  const subida = {
+    variantes: [
+      await probarPut("con content-type", { "Content-Type": "image/jpeg" }),
+      await probarPut("sin headers", {}),
+      await probarPut("content-type y sin compresion", {
+        "Content-Type": "image/jpeg",
+        "Accept-Encoding": "identity",
+      }),
+    ],
+  };
 
   // 2. Sondeo de endpoints: cuerpo vacío a propósito — un 404 dice "no
   //    existe", un 422/400 dice "existe y pide parámetros". Nada se encola.
