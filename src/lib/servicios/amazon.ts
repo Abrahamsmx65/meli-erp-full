@@ -58,14 +58,27 @@ export function normalizarDias(valor: string | undefined): number {
   return (PERIODOS as readonly number[]).includes(n) ? n : PERIODO_OMISION;
 }
 
+/**
+ * La cuenta de Amazon casi nunca cambia y se consultaba EN SERIE al inicio
+ * de cada página del lado Amazon: un minuto de caché ahorra ese viaje.
+ */
+let cacheCuentaAmz: { en: number; cuenta: CuentaAmazon | null } | null = null;
+const VIDA_CACHE_CUENTA_MS = 60_000;
+
 export async function cuentaAmazon(db: DB): Promise<CuentaAmazon | null> {
+  if (cacheCuentaAmz && Date.now() - cacheCuentaAmz.en < VIDA_CACHE_CUENTA_MS) {
+    return cacheCuentaAmz.cuenta;
+  }
   const { data } = await db
     .from("amazon_accounts")
     .select("id, nombre, pais")
     .order("creado_en", { ascending: true })
     .limit(1)
     .maybeSingle();
-  return (data as CuentaAmazon) ?? null;
+  const cuenta = (data as CuentaAmazon) ?? null;
+  // Un fallo pasajero no se cachea: sin cuenta, se pregunta de nuevo.
+  if (cuenta) cacheCuentaAmz = { en: Date.now(), cuenta };
+  return cuenta;
 }
 
 /** PostgREST devuelve los `numeric` como texto; hay que convertirlos siempre. */

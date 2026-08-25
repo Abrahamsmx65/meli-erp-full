@@ -121,10 +121,22 @@ function rangoPrevio(r: RangoFechas): RangoFechas {
   return { desde, hasta };
 }
 
+/**
+ * Un minuto de caché por instancia: el monitor baja decenas de miles de
+ * renglones de venta por clic y el latido solo escribe una vez por minuto —
+ * releerlo en cada visita era puro tiempo perdido.
+ */
+const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
+const VIDA_CACHE_MONITOR_MS = 60_000;
+
 export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
   const r = rango ?? normalizarRango();
+
+  const claveCache = `${accountId}|${r.desde}|${r.hasta}|${hoy}`;
+  const guardado = cacheMonitor.get(claveCache);
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_MONITOR_MS) return guardado.datos;
   const inicioSemana = r.desde;
   const finRango = r.hasta;
   const previo = rangoPrevio(r);
@@ -390,7 +402,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     .sort((a, b) => b.unidades7 - a.unidades7)
     .slice(0, 150);
 
-  return {
+  const monitor: Monitor = {
     hoy: resumen(hoy, hoy),
     ayer: resumen(ayer, ayer),
     semana: resumen(inicioSemana, finRango),
@@ -411,4 +423,6 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       gananciaReal: ganancia7,
     },
   };
+  cacheMonitor.set(claveCache, { en: Date.now(), datos: monitor });
+  return monitor;
 }
