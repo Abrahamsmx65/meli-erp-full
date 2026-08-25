@@ -215,22 +215,57 @@ function personaUGC(genero: Genero): string {
   return "a friendly young Mexican woman in her mid 20s, casual everyday clothes";
 }
 
-/** Dónde se para la persona, según el tipo de calzado. */
+/**
+ * Dónde graba la persona. Lugares COTIDIANOS y con vida — un video UGC se ve
+ * grabado en casa o en la calle, no en un set.
+ */
 const ESCENARIOS_UGC: Record<TipoCalzado, string[]> = {
-  bota: ["a rustic outdoor patio", "a city street with autumn trees", "a cozy cabin porch"],
-  sandalia: ["a bright sunny terrace", "a summer garden", "a breezy boardwalk"],
-  sandalia_agua: ["a poolside deck", "a sunny beach walkway", "a resort pool area"],
-  pantufla: ["a cozy bright living room", "a warm bedroom with soft light", "a comfy home sofa corner"],
-  tenis: ["an urban park", "a bright city sidewalk", "a modern gym entrance"],
-  tacon: ["an elegant apartment interior", "a chic hotel lobby", "an evening city terrace"],
-  mocasin: ["a bright office lounge", "a boutique café", "a clean modern hallway"],
-  zapato: ["a bright living room", "a clean city sidewalk", "a modern home entrance"],
+  bota: [
+    "their apartment entryway with coats hanging behind",
+    "a sidewalk outside their house on a cloudy day",
+    "their bedroom with the closet door open behind them",
+  ],
+  sandalia: [
+    "their sunny apartment balcony with plants",
+    "their living room with a fan in the background",
+    "the patio of their house",
+  ],
+  sandalia_agua: [
+    "the edge of a community pool, towels in the background",
+    "a beach on an overcast day, filmed casually",
+    "their bathroom getting ready for the pool",
+  ],
+  pantufla: [
+    "their slightly messy cozy bedroom",
+    "their living room couch with blankets around",
+    "their kitchen while making morning coffee",
+  ],
+  tenis: [
+    "their bedroom with sneaker boxes visible behind",
+    "a regular city sidewalk with parked cars",
+    "the hallway mirror of their apartment",
+  ],
+  tacon: [
+    "their bedroom mirror while getting ready to go out",
+    "their apartment hallway, purse on the floor",
+    "their closet trying on outfits",
+  ],
+  mocasin: [
+    "their home office desk area",
+    "the entrance of their apartment before leaving for work",
+    "their living room, everyday clutter around",
+  ],
+  zapato: [
+    "their living room, everyday clutter around",
+    "their bedroom with the bed unmade behind",
+    "the entryway of their house",
+  ],
 };
 
 /**
  * Prompt de la IMAGEN del presentador (Soul, 9:16 con la foto real de
- * referencia): la persona de cuerpo completo mostrando el calzado a cámara,
- * estilo UGC de celular. De aquí sale el cuadro que Speak o Veo animan.
+ * referencia). UGC de verdad: cuadro de video casero de celular — luz normal,
+ * encuadre imperfecto, casa real — NUNCA foto de estudio ni anuncio.
  */
 export function armarPromptPersonaUGC(datos: {
   tipo: TipoCalzado;
@@ -238,33 +273,35 @@ export function armarPromptPersonaUGC(datos: {
   semilla: number;
 }): string {
   const escenario = elegir(ESCENARIOS_UGC[datos.tipo], datos.semilla, 5);
-  const luz = elegir(LUCES[datos.tipo], datos.semilla, 2);
   return (
-    `Authentic UGC-style vertical 9:16 photo shot on a smartphone: ${personaUGC(datos.genero)}, ` +
-    `full body visible from head to feet, standing in ${escenario}, ${luz}, natural skin ` +
-    `texture, looking at the camera mid-sentence while holding up and showing the featured ` +
-    `footwear from the reference image with one hand near chest height, the shoe clearly ` +
-    `visible and facing the camera. Casual, real, unposed creator vibe — not a studio ad.` +
+    `Frame grab from a casual selfie video filmed on a phone front camera, vertical 9:16: ` +
+    `${personaUGC(datos.genero)}, full body or three-quarter body visible, standing in ` +
+    `${escenario}. Ordinary indoor lighting, slightly imperfect framing, mild phone-camera ` +
+    `grain, real unretouched skin. Mid-sentence talking to the camera while holding up the ` +
+    `featured footwear from the reference image with one hand, shoe clearly visible near ` +
+    `chest height. It must look like a regular person's TikTok clip: amateur, spontaneous, ` +
+    `relatable. NO studio lighting, NO advertising polish, NO cinematic look, NO posing.` +
     CANDADO
   );
 }
 
 /**
  * Prompt de la animación Speak (el audio pone las palabras; esto solo pide
- * el tono y los gestos del presentador).
+ * el tono y los gestos del presentador). Vibra de video casero, no comercial.
  */
 export function armarPromptSpeakUGC(datos: { tipo: TipoCalzado; semilla: number }): string {
   const escenario = elegir(ESCENARIOS_UGC[datos.tipo], datos.semilla, 5);
   return (
-    `Energetic UGC product review: the person talks directly to the camera with natural ` +
-    `hand gestures, enthusiastically presenting the footwear they are holding, occasionally ` +
-    `tilting it toward the lens, subtle handheld smartphone feel, in ${escenario}.` + CANDADO
+    `Casual selfie-style talking video filmed on a phone in ${escenario}: the person chats ` +
+    `directly to the camera like recommending the shoes to a friend, spontaneous natural ` +
+    `gestures, lifts the shoe up and turns it while talking, slight handheld shake, ` +
+    `ordinary home lighting. Amateur TikTok energy — NOT an ad, NOT cinematic.` + CANDADO
   );
 }
 
 /**
- * Prompt del UGC hablado por IA (Veo 3.1, 8 s): la persona de la imagen dice
- * el guion en español con lip sync. Es el plan B cuando no hay audio grabado.
+ * Prompt del UGC hablado por IA: la persona de la imagen dice el guion en
+ * español con lip sync y audio nativo. Mismo tono casero.
  */
 export function armarPromptVeoUGC(datos: {
   tipo: TipoCalzado;
@@ -274,10 +311,11 @@ export function armarPromptVeoUGC(datos: {
 }): string {
   const guion = datos.guion.trim().replace(/"/g, "'");
   return (
-    `UGC-style video: the person in the image speaks directly to the camera in Mexican ` +
-    `Spanish with accurate lip sync and natural hand gestures, presenting the footwear ` +
-    `they are holding, saying: "${guion}". Subtle handheld smartphone feel, natural ` +
-    `ambient sound.` + CANDADO
+    `Casual selfie-style phone video, the person in the image talks directly to the camera ` +
+    `in casual Mexican Spanish with accurate lip sync, like recommending the shoes to a ` +
+    `friend, saying: "${guion}". Spontaneous gestures, lifts the shoe while talking, slight ` +
+    `handheld shake, ordinary home lighting, natural room ambience. Amateur TikTok energy — ` +
+    `NOT an ad, NOT cinematic.` + CANDADO
   );
 }
 

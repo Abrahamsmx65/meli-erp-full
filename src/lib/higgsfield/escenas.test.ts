@@ -142,10 +142,18 @@ describe("UGC", () => {
     expect(ninos).not.toMatch(/\bchild\b|\bkid\b/i);
   });
 
-  it("el prompt de Speak pide gestos naturales sin tocar el producto", () => {
+  it("el prompt de Speak es video casero, no anuncio, y respeta el candado", () => {
     const p = armarPromptSpeakUGC({ tipo: "bota", semilla: 0.3 });
-    expect(p).toContain("talks directly to the camera");
+    expect(p).toContain("chats directly to the camera");
+    expect(p).toContain("NOT an ad");
     expect(p).toMatch(/must remain EXACTLY/);
+  });
+
+  it("la imagen del presentador es cuadro de celular, nunca de estudio", () => {
+    const p = armarPromptPersonaUGC({ tipo: "tenis", genero: "mujer", semilla: 0.6 });
+    expect(p).toContain("phone front camera");
+    expect(p).toContain("NO studio lighting");
+    expect(p).not.toMatch(/premium|cinematic grade|studio light\b/);
   });
 
   it("el UGC con voz de IA mete el guion en español con lip sync", () => {
