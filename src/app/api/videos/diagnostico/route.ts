@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     "base64",
   );
 
-  async function pedirEnlace(): Promise<{ upload_url: string; public_url: string } | null> {
+  async function pedirEnlace(): Promise<Record<string, unknown> | null> {
     const res = await fetch(`${BASE}/files/generate-upload-url`, {
       method: "POST",
       headers: {
@@ -61,18 +61,22 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return null;
-    return (await res.json()) as { upload_url: string; public_url: string };
+    return (await res.json()) as Record<string, unknown>;
   }
 
+  // La firma exige content-type;host;x-amz-tagging: el valor del tagging
+  // tiene que venir de algún lado. Primero se vuelca la respuesta completa
+  // de generate-upload-url (menos la firma) y luego se prueba el PUT con el
+  // tagging del propio enlace o con valores típicos.
   async function probarPut(
     nombre: string,
-    headers: Record<string, string>,
+    armarHeaders: (enlace: Record<string, unknown>) => Record<string, string>,
   ): Promise<Record<string, unknown>> {
     const enlace = await pedirEnlace().catch(() => null);
     if (!enlace?.upload_url) return { nombre, error: "sin enlace" };
-    const u = new URL(enlace.upload_url);
+    const headers = armarHeaders(enlace);
     try {
-      const put = await fetch(enlace.upload_url, {
+      const put = await fetch(String(enlace.upload_url), {
         method: "PUT",
         headers,
         body: jpeg,
@@ -80,33 +84,47 @@ export async function GET(req: NextRequest) {
       });
       const detalle = put.ok
         ? ""
-        : (await put.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+        : (await put.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 160);
       let lectura: number | null = null;
-      if (put.ok) {
-        const r = await fetch(enlace.public_url, { signal: AbortSignal.timeout(30_000) });
+      if (put.ok && enlace.public_url) {
+        const r = await fetch(String(enlace.public_url), { signal: AbortSignal.timeout(30_000) });
         lectura = r.status;
       }
-      return {
-        nombre,
-        status: put.status,
-        detalle,
-        lectura,
-        firma_headers: u.searchParams.get("X-Amz-SignedHeaders"),
-        params: [...u.searchParams.keys()].filter((k) => k !== "X-Amz-Signature"),
-      };
+      return { nombre, headers_enviados: Object.keys(headers), status: put.status, detalle, lectura };
     } catch (err) {
       return { nombre, error: (err as Error).message.slice(0, 200) };
     }
   }
 
+  const muestra = await pedirEnlace().catch(() => null);
+  const respuesta: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(muestra ?? {})) {
+    respuesta[k] =
+      typeof v === "string" && v.includes("X-Amz-Signature")
+        ? v.replace(/X-Amz-Signature=[^&]+/, "X-Amz-Signature=…")
+        : v;
+  }
+
+  const conTagging = (tag: string) => (enlace: Record<string, unknown>) => {
+    const propio =
+      typeof enlace.tagging === "string"
+        ? enlace.tagging
+        : typeof enlace.tags === "string"
+          ? enlace.tags
+          : null;
+    return { "Content-Type": "image/jpeg", "x-amz-tagging": propio ?? tag };
+  };
+
   const subida = {
+    respuesta,
     variantes: [
-      await probarPut("con content-type", { "Content-Type": "image/jpeg" }),
-      await probarPut("sin headers", {}),
-      await probarPut("content-type y sin compresion", {
+      await probarPut("tagging del enlace o temp=true", conTagging("temp=true")),
+      await probarPut("tagging temporary=true", conTagging("temporary=true")),
+      await probarPut("tagging ttl=7d", conTagging("ttl=7d")),
+      await probarPut("tagging vacio", () => ({
         "Content-Type": "image/jpeg",
-        "Accept-Encoding": "identity",
-      }),
+        "x-amz-tagging": "",
+      })),
     ],
   };
 
