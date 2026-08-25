@@ -99,11 +99,14 @@ describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () =>
     descuentoStock: 0.7,
   };
 
-  it("con cobertura corta (< 100 días) el stock se IGNORA: corrida limpia por demanda", () => {
-    // 300 pares / 6 al día = 50 días de cobertura < 100 → se agota.
+  it("con cobertura corta (< 100 días) el stock se descuenta COMPLETO", () => {
+    // 300 pares / 6 al día = 50 días de cobertura < 100 → se agota. El stock
+    // se venderá antes de que llegue el pedido, pero cubre la primera parte
+    // del horizonte: IGNORARLO (comportamiento viejo) pedía 360 pares
+    // teniendo 300 — 6× lo necesario y el contenedor todavía en el barco.
     const r = faltantesPorRegimen({ ...base, coberturaDias: 50 });
     expect(r.regimen).toBe("se_agota");
-    expect(r.faltantePorTalla["24"]).toBe(2 * 180);
+    expect(r.faltantePorTalla["24"]).toBe(2 * 180 - 300);
     expect(r.faltantePorTalla["25"]).toBe(4 * 180);
   });
 

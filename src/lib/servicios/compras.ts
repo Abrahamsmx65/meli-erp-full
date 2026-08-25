@@ -93,9 +93,10 @@ export type RegimenCompra = "se_agota" | "repone";
  * Los dos faltantes por talla de la lógica B, calculados juntos:
  *
  *  - `faltantePorTalla` (para las cajas de CORRIDA): con cobertura corta el
- *    stock se ignora (régimen "se_agota": la corrida se recalcula limpia
- *    desde la demanda); con cobertura larga el stock se descuenta
- *    amortiguado (régimen "repone", 70%).
+ *    stock se descuenta COMPLETO (régimen "se_agota": se venderá seguro
+ *    antes de que llegue el pedido, pero cubre la primera parte del
+ *    horizonte); con cobertura larga se descuenta amortiguado (régimen
+ *    "repone", 70%, por si el inventario está envejecido).
  *  - `faltanteExactoPorTalla` (para las cajas COMPLETAS de una talla): el
  *    stock siempre se descuenta al 100% — ahí no hay corrida que cuidar y
  *    el número debe ser exacto.
@@ -125,8 +126,15 @@ export function faltantesPorRegimen(e: {
     const demanda = (e.demandaPorTalla.get(t) ?? 0) * e.horizonte;
     const stock = e.inventarioPorTalla.get(t) ?? 0;
 
+    // El stock SIEMPRE se descuenta: aunque se vaya a agotar antes de que
+    // llegue el pedido, cubre la primera parte del horizonte. Ignorarlo
+    // (como hacía el régimen "se_agota") pedía los 180 días completos con
+    // el contenedor todavía en el barco — pedir dos veces lo mismo, el
+    // error caro que este archivo promete evitar. En "se_agota" el
+    // descuento es completo (ese stock se venderá seguro); en "repone" va
+    // amortiguado por si el inventario está envejecido.
     const corrida =
-      regimen === "se_agota" ? demanda : demanda - e.descuentoStock * stock;
+      demanda - (regimen === "se_agota" ? stock : e.descuentoStock * stock);
     if (Math.round(corrida) > 0) faltantePorTalla[t] = Math.round(corrida);
 
     const exacto = demanda - stock;
@@ -155,6 +163,8 @@ export interface RenglonCompra {
   demandaDiaria: number;
   /** venta mensual de MELI (demanda corregida × 30) */
   ventaMes: number;
+  /** venta mensual REALMENTE observada en MELI (tasa observada × 30) */
+  ventaMesReal: number;
   /** venta mensual de Amazon (últimos 30 días) */
   ventaMesAmazon: number;
   enFull: number;
@@ -178,9 +188,9 @@ export interface RenglonCompra {
   corridaPedido: string | null;
   urgencia: UrgenciaCompra;
   /**
-   * Con qué régimen se calculó el faltante: "se_agota" = el stock actual se
-   * ignoró (se acaba antes de que llegue el pedido, corrida limpia por
-   * demanda); "repone" = el stock se descontó amortiguado al 70%.
+   * Con qué régimen se calculó el faltante: "se_agota" = el stock se
+   * descontó COMPLETO (se venderá antes de que llegue el pedido); "repone"
+   * = amortiguado al 70% por si el inventario está envejecido.
    */
   regimen: RegimenCompra;
   /** si la corrida no embona con cómo se vende: talla -> desvío */
@@ -427,6 +437,7 @@ export async function sugerirCompra(
     skus: Set<string>;
     demandaDiaria: number;
     ventaMes: number;
+    ventaMesReal: number;
     ventaMesAmazon: number;
     enFull: number;
     enTransferencia: number;
@@ -449,6 +460,7 @@ export async function sugerirCompra(
         skus: new Set(),
         demandaDiaria: 0,
         ventaMes: 0,
+        ventaMesReal: 0,
         ventaMesAmazon: 0,
         enFull: 0,
         enTransferencia: 0,
@@ -472,6 +484,9 @@ export async function sugerirCompra(
     g.skus.add(l.sku);
     g.demandaDiaria += l.demandaDiaria;
     g.ventaMes += l.demandaDiaria * 30;
+    // Lo REALMENTE vendido, sin corrección ni tendencia: la referencia para
+    // que el usuario verifique cuánto está estirando el cálculo.
+    g.ventaMesReal += (l.tasaObservada ?? l.demandaDiaria) * 30;
     if (talla) {
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
     }
@@ -596,6 +611,7 @@ export async function sugerirCompra(
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
       ventaMes: Math.round(g.ventaMes),
+      ventaMesReal: Math.round(g.ventaMesReal),
       ventaMesAmazon: Math.round(g.ventaMesAmazon),
       enFull: Math.round(g.enFull),
       enTransferencia: Math.round(g.enTransferencia),

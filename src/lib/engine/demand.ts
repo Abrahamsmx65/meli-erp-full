@@ -188,6 +188,17 @@ export function calcularDemanda(
   const temporada = override?.factorTemporada ?? 1;
   let demandaDiaria = tasaPonderada * factorTendencia * temporada;
 
+  // El techo global gobierna también DESPUÉS de la tendencia: sin esto, el
+  // factor (hasta 1.5×) y el empuje semanal (hasta 1.25×) volvían a subir
+  // por encima del 3× recién topado — techo efectivo 5.6×. La temporada
+  // (override explícito del usuario) sí queda fuera del tope.
+  if (tasaObservada > EPS && demandaDiaria > techo * temporada) {
+    demandaDiaria = techo * temporada;
+    notas.push(
+      `Demanda topada en ${p.factorCorreccionMax}× lo observado (la tendencia no puede rebasar el techo).`,
+    );
+  }
+
   if (override?.demandaManual != null && override.demandaManual >= 0) {
     demandaDiaria = override.demandaManual;
     notas.push("Demanda fijada a mano (override).");

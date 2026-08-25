@@ -22,6 +22,7 @@ interface Renglon {
   enFba: number;
   enCamino: number;
   ventaMes: number;
+  ventaMesReal: number;
   ventaMesAmazon: number;
 }
 
@@ -53,13 +54,14 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         china: number;
         vMeli: number;
         vAmz: number;
+        vReal: number;
       }
     >();
     for (const r of renglones) {
       if (r.cajasSugeridas <= 0) continue;
       const m =
         porModelo.get(r.modelo) ??
-        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0 };
+        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0 };
       m.colores.push(r);
       m.cajas += r.cajasSugeridas;
       m.pares += r.paresSugeridos;
@@ -69,6 +71,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       m.china += r.enCamino;
       m.vMeli += r.ventaMes;
       m.vAmz += r.ventaMesAmazon;
+      m.vReal += r.ventaMesReal ?? r.ventaMes;
       porModelo.set(r.modelo, m);
     }
     return [...porModelo.entries()]
@@ -100,7 +103,12 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
             <th className="num">MELI</th>
             <th className="num">Amazon</th>
             <th className="num">De China</th>
-            <th className="num">Vta MELI/mes</th>
+            <th className="num" title="Unidades realmente vendidas en MELI, sin corrección">
+              Vendido/mes real
+            </th>
+            <th className="num" title="Demanda corregida por agotamiento y tendencia (la que usa el cálculo)">
+              Vta MELI/mes
+            </th>
             <th className="num">Vta AMZ/mes</th>
             <th className="num">Cajas a pedir</th>
             <th className="num">Pares</th>
@@ -127,7 +135,22 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 <td className="num cifra" style={{ color: "var(--ink-2)" }}>
                   {m.china ? n(m.china) : "—"}
                 </td>
-                <td className="num cifra">{n(m.vMeli)}</td>
+                <td className="num cifra">{n(m.vReal)}</td>
+                <td
+                  className="num cifra"
+                  style={
+                    m.vReal > 0 && m.vMeli > m.vReal * 2
+                      ? { color: "var(--estado-critico)" }
+                      : undefined
+                  }
+                  title={
+                    m.vReal > 0
+                      ? `${(m.vMeli / m.vReal).toFixed(1)}× lo realmente vendido`
+                      : undefined
+                  }
+                >
+                  {n(m.vMeli)}
+                </td>
                 <td className="num cifra">{n(m.vAmz)}</td>
                 <td className="num cifra font-semibold">{n(m.cajas)}</td>
                 <td className="num cifra">{n(m.pares)}</td>
@@ -171,8 +194,8 @@ function DetalleColor({ r }: { r: Renglon }) {
             </span>
             <span className="text-xs" style={{ color: "var(--ink-2)" }}>
               bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
-              {n(r.enFba)} · de China {n(r.enCamino)} · vende {n(r.ventaMes)} MELI +{" "}
-              {n(r.ventaMesAmazon)} AMZ al mes
+              {n(r.enFba)} · de China {n(r.enCamino)} · vendió {n(r.ventaMesReal ?? r.ventaMes)}{" "}
+              real / usa {n(r.ventaMes)} MELI + {n(r.ventaMesAmazon)} AMZ al mes
             </span>
             {r.unitallas.length ? (
               <span className="text-sm" style={{ color: "var(--acento)" }}>
