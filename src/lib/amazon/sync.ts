@@ -13,6 +13,7 @@
  * mil veces y siempre deja el mismo resultado.
  */
 import type { Cliente } from "./spapi";
+import { DIAS_VIGENCIA_ENVIO_FBA } from "../servicios/fba-en-camino";
 import {
   INVENTARIO_FBA,
   PAGOS,
@@ -573,4 +574,221 @@ export async function sincronizarPagos(
   }
 
   return { estado: "cargado", reportes: Math.min(reportes.length, 3), filas: filasTotales };
+}
+
+// ---------------------------------------------------------------------------
+// Envíos entrantes a FBA: el detalle que el reporte de inventario no da
+// ---------------------------------------------------------------------------
+
+/**
+ * Estados en los que un envío entrante cuenta como "en camino" en el
+ * reporte de inventario (working + shipped + receiving). CLOSED, CANCELLED,
+ * DELETED y ERROR ya no suman nada.
+ */
+const ESTADOS_ENTRANTES = [
+  "WORKING",
+  "SHIPPED",
+  "IN_TRANSIT",
+  "DELIVERED",
+  "CHECKED_IN",
+  "RECEIVING",
+];
+
+export interface ResultadoEnviosEntrantes {
+  estado: "cargado" | "parcial" | "reintentar";
+  envios?: number;
+  vigentes?: number;
+  skus?: number;
+}
+
+interface EnvioSpApi {
+  ShipmentId?: string;
+  ShipmentName?: string;
+  ShipmentStatus?: string;
+}
+
+/** Recorre /fba/inbound/v0/shipments con la paginación de NextToken. */
+async function listarEnvios(
+  cliente: Cliente,
+  paramsIniciales: Record<string, string>,
+): Promise<EnvioSpApi[] | null> {
+  const envios: EnvioSpApi[] = [];
+  let token: string | undefined;
+  do {
+    const r = await cliente.llamar<{ payload?: { ShipmentData?: EnvioSpApi[]; NextToken?: string } }>(
+      "GET",
+      "/fba/inbound/v0/shipments",
+      "getShipments",
+      {
+        params: token
+          ? {
+              QueryType: "NEXT_TOKEN",
+              NextToken: token,
+              MarketplaceId: cliente.cuenta.marketplaceId,
+            }
+          : { ...paramsIniciales, MarketplaceId: cliente.cuenta.marketplaceId },
+      },
+    );
+    if (!r) return null; // se acabó el plazo de la función
+    envios.push(...(r.payload?.ShipmentData ?? []));
+    token = r.payload?.NextToken || undefined;
+  } while (token);
+  return envios;
+}
+
+interface ItemEnvio {
+  sku: string;
+  enviado: number;
+  recibido: number;
+}
+
+/** Los renglones (SKU, mandado, recibido) de UN envío, con paginación. */
+async function itemsDeEnvio(cliente: Cliente, shipmentId: string): Promise<ItemEnvio[] | null> {
+  const items: ItemEnvio[] = [];
+  let token: string | undefined;
+  do {
+    const r = await cliente.llamar<{
+      payload?: {
+        ItemData?: {
+          ShipmentId?: string;
+          SellerSKU?: string;
+          QuantityShipped?: number;
+          QuantityReceived?: number;
+        }[];
+        NextToken?: string;
+      };
+    }>(
+      "GET",
+      token
+        ? "/fba/inbound/v0/shipmentItems"
+        : `/fba/inbound/v0/shipments/${encodeURIComponent(shipmentId)}/items`,
+      "getShipmentItems",
+      {
+        params: token
+          ? {
+              QueryType: "NEXT_TOKEN",
+              NextToken: token,
+              MarketplaceId: cliente.cuenta.marketplaceId,
+            }
+          : { MarketplaceId: cliente.cuenta.marketplaceId },
+      },
+    );
+    if (!r) return null;
+    for (const it of r.payload?.ItemData ?? []) {
+      // La continuación viene por /shipmentItems y podría traer renglones de
+      // otro envío: solo se aceptan los de ESTE.
+      if (it.ShipmentId && it.ShipmentId !== shipmentId) continue;
+      const sku = (it.SellerSKU ?? "").trim();
+      if (!sku) continue;
+      items.push({
+        sku,
+        enviado: Math.max(0, Math.round(Number(it.QuantityShipped) || 0)),
+        recibido: Math.max(0, Math.round(Number(it.QuantityReceived) || 0)),
+      });
+    }
+    token = r.payload?.NextToken || undefined;
+  } while (token);
+  return items;
+}
+
+/**
+ * Baja los envíos entrantes a FBA y marca cuáles siguen VIVOS.
+ *
+ * Un envío es vigente si Amazon le registró algún movimiento en los últimos
+ * DIAS_VIGENCIA_ENVIO_FBA días (la API v0 no da fecha de creación, pero un
+ * envío recién creado siempre tiene movimiento reciente, y uno atorado deja
+ * de tenerlo). El plan de FBA cuenta como "en camino" SOLO lo pendiente de
+ * los vigentes; los viejos se enseñan aparte para cerrarlos en Seller
+ * Central.
+ *
+ * Si el plazo de la función se acaba a media corrida, lo ya guardado queda
+ * (upsert por envío) y la limpieza de envíos desaparecidos se salta: la
+ * siguiente corrida completa la deja exacta.
+ */
+export async function sincronizarEnviosEntrantes(
+  admin: any,
+  cliente: Cliente,
+): Promise<ResultadoEnviosEntrantes> {
+  const accountId = cliente.cuenta.accountId;
+  const ahora = new Date().toISOString();
+
+  // 1. Todo lo que el reporte de inventario cuenta como entrante.
+  const activos = await listarEnvios(cliente, {
+    QueryType: "SHIPMENT",
+    ShipmentStatusList: ESTADOS_ENTRANTES.join(","),
+  });
+  if (activos === null) return { estado: "reintentar" };
+
+  // 2. Los envíos con movimiento reciente (cualquier estado).
+  const recientes = await listarEnvios(cliente, {
+    QueryType: "DATE_RANGE",
+    LastUpdatedAfter: new Date(
+      Date.now() - DIAS_VIGENCIA_ENVIO_FBA * 86_400_000,
+    ).toISOString(),
+    LastUpdatedBefore: ahora,
+  });
+  if (recientes === null) return { estado: "reintentar" };
+  const conMovimiento = new Set(
+    recientes.map((s) => s.ShipmentId ?? "").filter(Boolean),
+  );
+
+  // 3. El contenido de cada envío, vigentes primero: si el plazo corta a la
+  //    mitad, lo importante (lo que SÍ viene) ya quedó guardado.
+  const porEnvio = new Map<string, EnvioSpApi>();
+  for (const s of activos) if (s.ShipmentId) porEnvio.set(s.ShipmentId, s);
+  const orden = [...porEnvio.keys()].sort(
+    (a, b) => Number(conMovimiento.has(b)) - Number(conMovimiento.has(a)),
+  );
+
+  let completo = true;
+  let skusTotales = 0;
+  for (const id of orden) {
+    const items = await itemsDeEnvio(cliente, id);
+    if (items === null) {
+      completo = false;
+      break;
+    }
+    const info = porEnvio.get(id)!;
+
+    // El mismo SKU puede venir en varios renglones del envío: se suma.
+    const porSku = new Map<string, ItemEnvio>();
+    for (const it of items) {
+      const acc = porSku.get(it.sku) ?? { sku: it.sku, enviado: 0, recibido: 0 };
+      acc.enviado += it.enviado;
+      acc.recibido += it.recibido;
+      porSku.set(it.sku, acc);
+    }
+
+    const filas = [...porSku.values()].map((it) => ({
+      account_id: accountId,
+      shipment_id: id,
+      seller_sku: it.sku,
+      nombre: info.ShipmentName ?? null,
+      estado: info.ShipmentStatus ?? "WORKING",
+      enviado: it.enviado,
+      recibido: it.recibido,
+      vigente: conMovimiento.has(id),
+      sincronizado_en: ahora,
+    }));
+    if (filas.length) await guardarEnLotes(admin, "amazon_envios_entrantes", filas);
+    skusTotales += filas.length;
+  }
+
+  // 4. Solo con la foto completa: lo que esta corrida no tocó ya no existe
+  //    (envío cerrado o cancelado) y se borra.
+  if (completo) {
+    const { error } = await admin
+      .from("amazon_envios_entrantes")
+      .delete()
+      .eq("account_id", accountId)
+      .lt("sincronizado_en", ahora);
+    if (error) throw new Error(`amazon_envios_entrantes: ${error.message}`);
+  }
+
+  return {
+    estado: completo ? "cargado" : "parcial",
+    envios: porEnvio.size,
+    vigentes: [...porEnvio.keys()].filter((id) => conMovimiento.has(id)).length,
+    skus: skusTotales,
+  };
 }

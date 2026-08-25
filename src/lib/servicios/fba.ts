@@ -3,6 +3,7 @@ import { desglosarSku } from "./sync";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { numeroDePedido } from "./compras";
+import { resumirEnCamino } from "./fba-en-camino";
 
 
 /**
@@ -192,14 +193,23 @@ export async function amazonParaCompras(
 
   const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   try {
-    const [ventas, inventario] = await Promise.all([
+    const [ventas, inventario, entrantes] = await Promise.all([
       // `fecha` va en el select para que la paginación ordene por una llave
       // ÚNICA (seller_sku solo empata entre días y duplicaba filas).
       traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
         q.gte("fecha", desde),
       ),
       traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) => q),
+      // El detalle de envíos entrantes, para NO contar como stock lo que
+      // lleva semanas atorado camino a FBA (mismo criterio que el plan).
+      traerTodo<any>(
+        db,
+        "amazon_envios_entrantes",
+        "shipment_id, seller_sku, nombre, estado, enviado, recibido, vigente",
+        (q) => q,
+      ).catch(() => [] as any[]),
     ]);
+    const enCamino = resumirEnCamino(entrantes);
 
     const mapa = new Map<string, { ventaDiaria: number; stock: number }>();
     const entrada = (sku: string) => {
@@ -215,7 +225,10 @@ export async function amazonParaCompras(
     for (const i of inventario) {
       const sku = String(i.seller_sku ?? "");
       if (!esCalzado(sku)) continue;
-      entrada(sku).stock += (i.disponible ?? 0) + (i.en_transferencia ?? 0);
+      const camino = enCamino
+        ? (enCamino.porSku.get(sku) ?? 0)
+        : (i.en_transferencia ?? 0);
+      entrada(sku).stock += (i.disponible ?? 0) + camino;
     }
     cacheAmazonCompras.set("unica", { en: Date.now(), datos: mapa });
     return mapa;

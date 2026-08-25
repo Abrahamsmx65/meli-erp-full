@@ -8,6 +8,7 @@ import {
   SIN_LIMITE,
 } from "@/lib/servicios/amazon";
 import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
+import { aplicarEnCamino, enCaminoFba } from "@/lib/servicios/fba-en-camino";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
 import { catalogoBodega } from "@/lib/servicios/inventario";
 import { separarEnvios } from "@/lib/servicios/envios";
@@ -16,6 +17,7 @@ import { normalizarParametros } from "@/lib/engine/params";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { CajasFba } from "@/components/cajas-fba";
 import { EnviosFba } from "@/components/envios-fba";
+import { EnviosViejosFba } from "@/components/envios-viejos-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { Ficha } from "@/components/tiles";
 
@@ -55,7 +57,7 @@ export default async function Amazon({
 
   // Las corridas viven con la cuenta de MELI: son las mismas cajas físicas.
   const cuentaMeli = await cuentaActiva(supabase);
-  const [{ renglones, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd] =
+  const [{ renglones: renglonesCrudos, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd, enCamino] =
     await Promise.all([
       // SIN límite: con el top-500, el 64% del calzado con venta quedaba
       // invisible para el plan (esta página no pinta renglones crudos).
@@ -80,7 +82,13 @@ export default async function Amazon({
       cuentaMeli
         ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeli.id).maybeSingle()
         : Promise.resolve({ data: null }),
+      enCaminoFba(supabase, cuenta.id),
     ]);
+
+  // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
+  // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
+  // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
+  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
 
   const indiceMeli = indexarCatalogo(skusMeli);
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
@@ -110,6 +118,10 @@ export default async function Amazon({
     ? await separarEnvios(supabase, cuentaMeli.id, planFba.cajas)
     : { envios: [], sinConfigurar: [] };
 
+  const enTransito = enCamino
+    ? [...enCamino.porSku.values()].reduce((a, b) => a + b, 0)
+    : totales.enTransito;
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -124,7 +136,11 @@ export default async function Amazon({
         <Ficha
           titulo="En FBA"
           valor={n(totales.disponible)}
-          nota={`${n(totales.enTransito)} en tránsito`}
+          nota={
+            enCamino
+              ? `${n(enTransito)} en camino de verdad`
+              : `${n(enTransito)} en tránsito`
+          }
           tono="bien"
         />
         <Ficha
@@ -146,6 +162,8 @@ export default async function Amazon({
       </div>
 
       <RecargaAmazon estado={recarga} />
+
+      <EnviosViejosFba enCamino={enCamino} />
 
       <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} />
 
