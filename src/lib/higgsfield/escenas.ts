@@ -14,6 +14,7 @@
 
 export type TipoCalzado =
   | "bota"
+  | "bota_industrial"
   | "sandalia"
   | "sandalia_agua"
   | "pantufla"
@@ -32,6 +33,8 @@ export type Genero = "mujer" | "hombre" | "nino" | null;
 // "sandalia acuática" es de agua antes que sandalia a secas.
 const TIPOS: [TipoCalzado, RegExp][] = [
   ["pantufla", /\b(PANTUFLA|SLIPPER|PELUCHE)/i],
+  // Industrial/hiking antes que bota: "bota industrial" es de trabajo.
+  ["bota_industrial", /\b(INDUSTRIAL|CASQUILLO|DIELECTRIC|SEGURIDAD|HIKING|SENDERISMO|TREKKING|TACTIC|MONTA(Ñ|N)A)/i],
   ["bota", /\b(BOTA|BOTIN|BOTÍN|BOOT)/i],
   ["sandalia_agua", /\b(CHANCLA|FLIP|JELLY)|\b(SANDALIA|HUARACHE)\b.*\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|MAR|POOL)|\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|POOL)\b.*\b(SANDALIA|HUARACHE)/i],
   ["sandalia", /\b(SANDALIA|HUARACHE)/i],
@@ -61,6 +64,7 @@ export function detectarGenero(texto: string): Genero {
 /** Cómo se llama el producto cuando la voz habla de él. */
 export const PALABRA_TIPO: Record<TipoCalzado, { palabra: string; femenino: boolean }> = {
   bota: { palabra: "botas", femenino: true },
+  bota_industrial: { palabra: "botas", femenino: true },
   sandalia: { palabra: "sandalias", femenino: true },
   sandalia_agua: { palabra: "sandalias", femenino: true },
   pantufla: { palabra: "pantuflas", femenino: true },
@@ -119,6 +123,7 @@ const CANDADO =
 
 const LUCES: Record<TipoCalzado, string[]> = {
   bota: ["moody warm light with soft shadows", "golden hour glow", "dramatic side light"],
+  bota_industrial: ["raw workshop light", "overcast outdoor daylight", "early morning jobsite light"],
   sandalia: ["bright airy summer light", "soft golden afternoon light", "fresh daylight"],
   sandalia_agua: ["sparkling summer light", "sunny poolside brightness", "fresh coastal light"],
   pantufla: ["warm cozy indoor light", "soft morning window light", "gentle lamp glow"],

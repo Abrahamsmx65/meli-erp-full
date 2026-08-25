@@ -8,6 +8,7 @@ import type { Genero, TipoCalzado } from "./escenas";
 
 const TIPOS: TipoCalzado[] = [
   "bota",
+  "bota_industrial",
   "sandalia",
   "sandalia_agua",
   "pantufla",
@@ -88,11 +89,44 @@ describe("motor de conceptos UGC", () => {
   });
 
   it("para niños presenta una mamá adulta, nunca menores generados", () => {
-    for (const semilla of [0.1, 0.5, 0.9]) {
+    for (const semilla of [0.1, 0.3, 0.5, 0.7, 0.9]) {
       const c = armarConceptoUGC({ tipo: "tenis", genero: "nino", semilla });
+      expect(c.id).toBe("para-mis-hijos");
       expect(c.promptImagen).toContain("mom");
-      expect(c.promptImagen).not.toMatch(/\bchild\b|\bkid\b(?!s')/i);
+      expect(c.promptImagen).toContain("no children on camera");
     }
+  });
+
+  it("el concepto de niños jamás aparece para adultos", () => {
+    for (const tipo of TIPOS) {
+      for (const semilla of [0.05, 0.35, 0.65, 0.95]) {
+        expect(armarConceptoUGC({ tipo, genero: "hombre", semilla }).id).not.toBe(
+          "para-mis-hijos",
+        );
+        expect(armarConceptoUGC({ tipo, genero: "mujer", semilla }).id).not.toBe(
+          "para-mis-hijos",
+        );
+      }
+    }
+  });
+
+  it("las botas industriales venden trabajo rudo, no moda", () => {
+    const ids = new Set(
+      Array.from({ length: 60 }, (_, i) =>
+        armarConceptoUGC({ tipo: "bota_industrial", genero: "hombre", semilla: i / 60 }).id,
+      ),
+    );
+    expect(ids.has("aguantan-trabajo")).toBe(true);
+    expect(ids.has("outfit-del-dia")).toBe(false);
+  });
+
+  it("con más conceptos y variantes, 20 tiradas dan varios conceptos distintos", () => {
+    const ids = new Set(
+      Array.from({ length: 20 }, (_, i) =>
+        armarConceptoUGC({ tipo: "tenis", genero: "hombre", semilla: (i + 0.5) / 20 }).id,
+      ),
+    );
+    expect(ids.size).toBeGreaterThanOrEqual(3);
   });
 
   it("la concordancia de género gramatical sale bien armada", () => {

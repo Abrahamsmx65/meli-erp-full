@@ -11,6 +11,7 @@ import {
 
 const TIPOS: TipoCalzado[] = [
   "bota",
+  "bota_industrial",
   "sandalia",
   "sandalia_agua",
   "pantufla",
@@ -28,6 +29,13 @@ describe("detectarTipo", () => {
     expect(detectarTipo("TENIS DEPORTIVO RUNNER GT200")).toBe("tenis");
     expect(detectarTipo("Zapatilla de tacón alto fiesta")).toBe("tacon");
     expect(detectarTipo("MOCASÍN DE PIEL CAFÉ")).toBe("mocasin");
+  });
+
+  it("las botas de trabajo y hiking son industriales, no botas de vestir", () => {
+    expect(detectarTipo("BOTA INDUSTRIAL CON CASQUILLO GT300")).toBe("bota_industrial");
+    expect(detectarTipo("Bota de seguridad dieléctrica")).toBe("bota_industrial");
+    expect(detectarTipo("BOTA HIKING SENDERISMO IMPERMEABLE")).toBe("bota_industrial");
+    expect(detectarTipo("BOTA CASUAL PARA CABALLERO")).toBe("bota");
   });
 
   it("las pantuflas no son sandalias, aunque sean de corcho", () => {

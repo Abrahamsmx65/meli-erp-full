@@ -31,6 +31,7 @@ export interface Publicacion {
 
 const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   bota: "Botas",
+  bota_industrial: "Botas industriales/hiking",
   sandalia: "Sandalias",
   sandalia_agua: "Sandalias de agua",
   pantufla: "Pantuflas",
