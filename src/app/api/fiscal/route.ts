@@ -40,15 +40,22 @@ export async function GET() {
   let skus: { sku: string; modelo: string | null; titulo: string | null }[];
   let fiscales: FilaLocal[];
   try {
-    skus = await traerTodo(supabase, "skus", "sku, modelo, titulo", (q) =>
-      q.eq("account_id", cuenta.id).eq("activo", true).not("item_id", "is", null),
-    );
-    fiscales = await traerTodo(
-      supabase,
-      "datos_fiscales",
-      "sku, estado, sat, iva, ieps, unidad, ultimo_error, leido_en",
-      (q) => q.eq("account_id", cuenta.id),
-    );
+    // En paralelo: la página fiscal consulta este resumen en cada refresco
+    // mientras el proceso trabaja, y las dos lecturas no dependen entre sí.
+    [skus, fiscales] = await Promise.all([
+      traerTodo<{ sku: string; modelo: string | null; titulo: string | null }>(
+        supabase,
+        "skus",
+        "sku, modelo, titulo",
+        (q) => q.eq("account_id", cuenta.id).eq("activo", true).not("item_id", "is", null),
+      ),
+      traerTodo<FilaLocal>(
+        supabase,
+        "datos_fiscales",
+        "sku, estado, sat, iva, ieps, unidad, ultimo_error, leido_en",
+        (q) => q.eq("account_id", cuenta.id),
+      ),
+    ]);
   } catch (err) {
     const mensaje = (err as Error).message;
     return NextResponse.json(

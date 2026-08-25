@@ -85,6 +85,13 @@ export interface MonitorAmazon {
   publicidadPorModelo: Map<string, number>;
 }
 
+/**
+ * Un minuto de caché por instancia, igual que el monitor de MELI: los datos
+ * de Amazon solo cambian cuando el cron sincroniza (cada 15-60 minutos).
+ */
+const cacheMonitorAmz = new Map<string, { en: number; datos: MonitorAmazon }>();
+const VIDA_CACHE_MONITOR_MS = 60_000;
+
 export async function cargarMonitorAmazon(
   db: DB,
   amazonAccountId: string,
@@ -94,6 +101,10 @@ export async function cargarMonitorAmazon(
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
   const r = rango ?? normalizarRango();
+
+  const claveCache = `${amazonAccountId}|${meliAccountId ?? ""}|${r.desde}|${r.hasta}|${hoy}`;
+  const guardado = cacheMonitorAmz.get(claveCache);
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_MONITOR_MS) return guardado.datos;
   const dias = diasDeRango(r);
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
@@ -309,7 +320,7 @@ export async function cargarMonitorAmazon(
     .filter((c) => c.unidades > 0 || (c.netoReal ?? 0) !== 0)
     .sort((a, b) => b.unidades - a.unidades);
 
-  return {
+  const monitor: MonitorAmazon = {
     hoy: resumen(hoy, hoy),
     ayer: resumen(ayer, ayer),
     periodo: resumen(r.desde, r.hasta),
@@ -362,4 +373,6 @@ export async function cargarMonitorAmazon(
       [...econPorModelo.entries()].map(([m, e]) => [m, e.publicidad]),
     ),
   };
+  cacheMonitorAmz.set(claveCache, { en: Date.now(), datos: monitor });
+  return monitor;
 }
