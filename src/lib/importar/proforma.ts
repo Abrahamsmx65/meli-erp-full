@@ -352,6 +352,18 @@ export async function importarProforma(
   let colorActual = "";
   let ultima: LineaProforma | null = null;
 
+  // El modelo puede no venir en NINGÚN renglón (CHAOZHOU a veces lo deja
+  // solo en la foto, y la celda "ITEM NO." queda vacía): última red, el
+  // nombre del archivo — los pedidos se llaman IN10148_GT114.xls.
+  let modeloDeArchivo = "";
+  if (opts?.nombre) {
+    const tokens = opts.nombre
+      .toUpperCase()
+      .replace(/\.[A-Z0-9]+$/, "")
+      .split(/[^A-Z0-9]+/);
+    modeloDeArchivo = tokens.find((t) => t !== pedido && /^[A-Z]{1,4}\d{2,5}$/.test(t)) ?? "";
+  }
+
   for (let i = filaEnc + 1; i < filas.length; i++) {
     const f = filas[i];
     const modeloCrudo = texto(f[colItem]);
@@ -404,6 +416,14 @@ export async function importarProforma(
 
     if (modeloCrudo) modeloActual = modeloCrudo.toUpperCase();
     if (colorCrudo) colorActual = colorCrudo;
+    if (!modeloActual && modeloDeArchivo && colorCrudo) {
+      // Renglón con color y tallas pero sin modelo por ningún lado: antes se
+      // descartaba y la proforma entera salía "sin renglones".
+      modeloActual = modeloDeArchivo;
+      avisos.push(
+        `Ningún renglón trae "Item No.": el modelo ${modeloDeArchivo} salió del nombre del archivo.`,
+      );
+    }
     if (!modeloActual) continue;
 
     // ---- Unitalla: una sola talla cuyo valor son las CAJAS ----------------
@@ -559,10 +579,48 @@ export async function importarProforma(
     throw new Error("No encontré ningún renglón de producto con tallas en el archivo.");
   }
 
+  // --- Cajas completas por talla, detectadas solas --------------------------
+  // CHAOZHOU también manda renglones donde el número bajo cada talla son las
+  // CAJAS de esa sola talla (10+10+15+20 = 55 = CTNS) y no una corrida.
+  // Leerlo como corrida inventa "55 pares por caja". La firma es inequívoca:
+  // las tallas suman EXACTO las cajas, los pares son múltiplo exacto de las
+  // cajas, y la lectura como corrida NO cuadra. Se parte en unitallas con la
+  // misma regla que el ajuste manual (PRS ÷ CTNS), avisado.
+  const comoCajasCompletas: OverrideLinea[] = [];
+  lineas.forEach((l, i) => {
+    if (l.unitalla || !(l.cajas > 0) || !(l.pares > 0)) return;
+    const suma = Object.values(l.tallas).reduce((a, b) => a + (Number(b) || 0), 0);
+    if (
+      suma === l.cajas &&
+      l.pares % l.cajas === 0 &&
+      l.pares / l.cajas > 1 &&
+      l.cajas * suma !== l.pares
+    ) {
+      comoCajasCompletas.push({ indice: i, esCajaCompleta: true });
+      avisos.push(
+        `${l.modelo} ${l.color}: las tallas suman ${suma} = CTNS, así que son CAJAS por talla (${l.pares / l.cajas} pares por caja). Se partió en unitallas.`,
+      );
+      declaradoDe.delete(l);
+    }
+  });
+  let lineasFinales = lineas;
+  if (comoCajasCompletas.length) {
+    const temporal: Proforma = {
+      pedido,
+      proveedor,
+      lineas,
+      totales: { cajas: 0, pares: 0, importe: null },
+      tallasDetectadas: [],
+      avisos,
+    };
+    aplicarOverridesProforma(temporal, comoCajasCompletas);
+    lineasFinales = temporal.lineas;
+  }
+
   // --- Cuadres, ya con las continuaciones sumadas ---------------------------
   let totalCajas = 0;
   let totalPares = 0;
-  for (const l of lineas) {
+  for (const l of lineasFinales) {
     if (!l.pares) l.pares = l.cajas * l.paresPorCaja;
 
     const declarado = declaradoDe.get(l) ?? 0;
@@ -585,7 +643,7 @@ export async function importarProforma(
   // Un mismo modelo+color repetido sería ambiguo al dar de alta la corrida.
   // Las líneas unitalla no cuentan: es normal que un color tenga varias.
   const vistos = new Map<string, number>();
-  for (const l of lineas) {
+  for (const l of lineasFinales) {
     if (l.unitalla) continue;
     const k = `${canonizar(l.modelo)}|${canonizar(l.color)}`;
     vistos.set(k, (vistos.get(k) ?? 0) + 1);
@@ -599,7 +657,7 @@ export async function importarProforma(
   return {
     pedido,
     proveedor,
-    lineas,
+    lineas: lineasFinales,
     totales: {
       cajas: totalCajas,
       pares: totalPares,
