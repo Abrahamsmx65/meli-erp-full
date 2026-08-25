@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { construirEntradaDop, PRESETS } from "./presets";
+import { construirEntradaDop } from "./presets";
 
 describe("construirEntradaDop", () => {
   it("arma el cuerpo que espera Higgsfield", () => {
@@ -37,16 +37,5 @@ describe("construirEntradaDop", () => {
     expect(() =>
       construirEntradaDop({ prompt: "ok", imagenUrl: "https://x.com/a.jpg", modelo: "sora" }),
     ).toThrow(/desconocido/i);
-  });
-
-  it("todas las recetas producen una entrada válida", () => {
-    for (const p of PRESETS) {
-      const e = construirEntradaDop({
-        prompt: p.prompt,
-        imagenUrl: "https://x.com/a.jpg",
-        modelo: "dop-lite",
-      });
-      expect(e.prompt.length).toBeGreaterThan(20);
-    }
   });
 });

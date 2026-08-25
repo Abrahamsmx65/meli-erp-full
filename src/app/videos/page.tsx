@@ -3,9 +3,11 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { credencialesHiggsfield } from "@/lib/higgsfield/client";
 import {
   GeneradorVideo,
+  PanelPersonajes,
   BotonActualizar,
   BotonBorrar,
   type Publicacion,
+  type Personaje,
 } from "@/components/videos";
 
 export const dynamic = "force-dynamic";
@@ -29,29 +31,40 @@ export default async function Videos() {
 
   const hayLlave = Boolean(credencialesHiggsfield());
 
-  // Una entrada por publicación (varios SKUs comparten item por las tallas).
+  // Una entrada por publicación; los SKUs de sus tallas se juntan para que
+  // la búsqueda también encuentre por SKU, no solo por título o MLM.
   const { data: filasSkus } = await supabase
     .from("skus")
-    .select("item_id, titulo, modelo, color")
+    .select("sku, item_id, titulo, modelo, color")
     .eq("account_id", cuenta.id)
     .eq("activo", true)
     .not("item_id", "is", null)
     .order("titulo")
-    .limit(3000);
+    .limit(5000);
 
   const porItem = new Map<string, Publicacion>();
   for (const f of filasSkus ?? []) {
     const id = f.item_id as string;
-    if (!porItem.has(id)) {
-      porItem.set(id, {
+    let pub = porItem.get(id);
+    if (!pub) {
+      pub = {
         itemId: id,
         titulo: (f.titulo as string) || id,
         modelo: (f.modelo as string) ?? "",
         color: (f.color as string) ?? "",
-      });
+        skus: [],
+      };
+      porItem.set(id, pub);
     }
+    if (f.sku) pub.skus.push(f.sku as string);
   }
   const publicaciones = [...porItem.values()];
+
+  const { data: personajes } = await supabase
+    .from("personajes_video")
+    .select("id, nombre, genero, estado")
+    .eq("account_id", cuenta.id)
+    .order("creado_en", { ascending: false });
 
   const { data: videos } = await supabase
     .from("videos_producto")
@@ -69,9 +82,9 @@ export default async function Videos() {
       <div>
         <h1 className="text-xl font-semibold">Videos de producto</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Convierte una foto de la publicación en un video corto de uso real con
-          Higgsfield, listo para subir a Mercado Libre. El video terminado se
-          guarda aquí para siempre; en Higgsfield solo vive unos días.
+          Clips verticales de 10 segundos en formato 9:16, listos para los Clips de
+          Mercado Libre, con tus personajes fijos usando el producto. El video
+          terminado se guarda aquí para siempre; en Higgsfield solo vive unos días.
         </p>
       </div>
 
@@ -86,7 +99,13 @@ export default async function Videos() {
           </p>
         </section>
       ) : (
-        <GeneradorVideo publicaciones={publicaciones} />
+        <>
+          <PanelPersonajes iniciales={(personajes ?? []) as Personaje[]} />
+          <GeneradorVideo
+            publicaciones={publicaciones}
+            personajes={(personajes ?? []) as Personaje[]}
+          />
+        </>
       )}
 
       <section className="tarjeta overflow-hidden">
@@ -97,7 +116,7 @@ export default async function Videos() {
               {(videos ?? []).length === 0
                 ? "Todavía no hay ninguna."
                 : enCurso > 0
-                  ? `${enCurso} en el horno. Un video tarda entre 1 y 5 minutos.`
+                  ? `${enCurso} en el horno. Un clip tarda entre 2 y 8 minutos (primero la foto, luego la animación).`
                   : "Todo lo encolado ya terminó."}
             </p>
           </div>
@@ -105,13 +124,13 @@ export default async function Videos() {
         </header>
 
         {(videos ?? []).length > 0 && (
-          <div className="max-h-[40rem] overflow-auto">
+          <div className="max-h-[44rem] overflow-auto">
             <table className="datos">
               <thead>
                 <tr>
                   <th>Video</th>
                   <th>Producto</th>
-                  <th>Receta</th>
+                  <th>Escena</th>
                   <th>Estado</th>
                   <th></th>
                 </tr>
@@ -122,6 +141,14 @@ export default async function Videos() {
                     texto: v.estado as string,
                     color: "var(--ink-muted)",
                   };
+                  const esClip = (v.formato as string) === "clip";
+                  const generando = ["enviado", "en_progreso"].includes(v.estado as string);
+                  const detalleEtapa =
+                    esClip && generando
+                      ? (v.etapa as string) === "imagen"
+                        ? "Etapa 1/2: creando la foto 9:16"
+                        : "Etapa 2/2: animando con Kling"
+                      : null;
                   return (
                     <tr key={v.id as string}>
                       <td>
@@ -130,12 +157,13 @@ export default async function Videos() {
                             src={v.video_guardado as string}
                             controls
                             preload="metadata"
-                            className="w-48 rounded-md"
+                            poster={(v.imagen_generada as string) ?? undefined}
+                            className={esClip ? "w-32 rounded-md" : "w-48 rounded-md"}
                           />
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={v.imagen_url as string}
+                            src={(v.imagen_generada as string) || (v.imagen_url as string)}
                             alt=""
                             className="w-24 rounded-md opacity-60"
                           />
@@ -151,7 +179,10 @@ export default async function Videos() {
                         </div>
                       </td>
                       <td className="max-w-[16rem] align-top">
-                        <div className="text-xs font-medium">{(v.preset as string) ?? "propio"}</div>
+                        <div className="text-xs font-medium">
+                          {(v.preset as string) ?? "propia"}
+                          {esClip ? " · 9:16 · 10 s" : " · prueba ~5 s"}
+                        </div>
                         <div
                           className="mt-0.5 line-clamp-3 text-xs"
                           style={{ color: "var(--ink-muted)" }}
@@ -159,14 +190,16 @@ export default async function Videos() {
                         >
                           {v.prompt as string}
                         </div>
-                        <div className="mt-0.5 text-[10px]" style={{ color: "var(--ink-muted)" }}>
-                          {v.modelo as string}
-                        </div>
                       </td>
                       <td className="align-top">
                         <span className="text-sm font-medium" style={{ color: est.color }}>
                           {est.texto}
                         </span>
+                        {detalleEtapa ? (
+                          <div className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+                            {detalleEtapa}
+                          </div>
+                        ) : null}
                         {v.error ? (
                           <div className="mt-1 max-w-[14rem] text-xs" style={{ color: "var(--estado-critico)" }}>
                             {v.error as string}

@@ -1,13 +1,19 @@
 /**
  * Cliente mínimo de la API de Higgsfield (https://platform.higgsfield.ai).
  *
- * Solo lo que este ERP usa: mandar una imagen a video (modelo DoP) y
- * preguntar cómo va la solicitud. Sin SDK: son dos endpoints REST y así no
- * se agrega una dependencia por eso.
+ * Lo que este ERP usa: imagen→video (DoP), texto→imagen (Soul, para poner al
+ * personaje usando el producto), personajes consistentes (custom references,
+ * los "Soul ID") y subida de fotos a su CDN. Sin SDK: son endpoints REST y
+ * así no se agrega una dependencia por eso.
  *
- * La autenticación es `Authorization: Key ID:SECRETO`, con las credenciales
- * que se crean en https://cloud.higgsfield.ai. Aquí viven en la variable de
- * entorno HIGGSFIELD_CREDENTIALS con el formato "ID:SECRETO", solo servidor.
+ * Mañas de la API aprendidas a golpes (el SDK v2 documenta otra cosa):
+ * - El cuerpo de generación va envuelto en `params`; directo contesta 422.
+ * - La respuesta puede venir en formato v2 ({request_id, status}) o v1
+ *   ({id, jobs:[…]}); el estado se consulta en /requests/{id}/status y si
+ *   eso da 404, en /v1/job-sets/{id}. Aquí se aceptan las dos formas.
+ *
+ * La autenticación es `Authorization: Key ID:SECRETO`, con credenciales de
+ * https://cloud.higgsfield.ai en HIGGSFIELD_CREDENTIALS, solo servidor.
  */
 
 const BASE = "https://platform.higgsfield.ai";
@@ -27,13 +33,12 @@ export type EstadoHF =
   | "nsfw"
   | "canceled";
 
-export interface RespuestaHF {
+/** Una generación en curso o terminada, ya normalizada. */
+export interface Generacion {
+  id: string;
   status: EstadoHF;
-  request_id: string;
-  status_url: string;
-  cancel_url: string;
-  video?: { url: string } | null;
-  images?: { url: string }[] | null;
+  /** URL del resultado (video o imagen) cuando status es completed. */
+  url: string | null;
 }
 
 export function credencialesHiggsfield(): string | null {
@@ -58,11 +63,11 @@ function encabezados(): Record<string, string> {
 async function llamar<T>(
   ruta: string,
   init: RequestInit,
-  intentos = 3,
-): Promise<T> {
+  opciones?: { nullEn404?: boolean },
+): Promise<T | null> {
   let ultimo: Error | null = null;
 
-  for (let i = 0; i < intentos; i++) {
+  for (let i = 0; i < 3; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
 
     let res: Response;
@@ -78,6 +83,7 @@ async function llamar<T>(
     }
 
     if (res.ok) return (await res.json()) as T;
+    if (res.status === 404 && opciones?.nullEn404) return null;
 
     if (REINTENTABLES.has(res.status)) {
       ultimo = new Error(`Higgsfield contestó ${res.status}.`);
@@ -86,7 +92,7 @@ async function llamar<T>(
 
     const detalle = await res.text().catch(() => "");
     if (res.status === 401) throw new Error("Credenciales de Higgsfield inválidas.");
-    if (res.status === 403) throw new Error("Sin créditos en Higgsfield.");
+    if (res.status === 403) throw new Error("Sin créditos de API en Higgsfield (se compran en cloud.higgsfield.ai).");
     throw new Error(
       `Higgsfield rechazó la solicitud (${res.status}): ${detalle.slice(0, 300)}`,
     );
@@ -94,6 +100,43 @@ async function llamar<T>(
 
   throw ultimo ?? new Error("No se pudo hablar con Higgsfield.");
 }
+
+// ---------------------------------------------------------------------------
+// Normalización de respuestas (v2 y v1 job-set)
+// ---------------------------------------------------------------------------
+
+interface CrudoV2 {
+  status?: EstadoHF;
+  request_id?: string;
+  video?: { url: string } | null;
+  images?: { url: string }[] | null;
+}
+
+interface CrudoJobSet {
+  id?: string;
+  jobs?: { id: string; status: EstadoHF; results?: { raw?: { url?: string } } | null }[];
+}
+
+function aGeneracion(cuerpo: CrudoV2 & CrudoJobSet): Generacion {
+  if (cuerpo.request_id || cuerpo.status) {
+    return {
+      id: cuerpo.request_id ?? cuerpo.id ?? "",
+      status: cuerpo.status ?? "queued",
+      url: cuerpo.video?.url ?? cuerpo.images?.[0]?.url ?? null,
+    };
+  }
+  // Formato v1: el estado del conjunto es el del primer trabajo (batch 1).
+  const trabajo = cuerpo.jobs?.[0];
+  return {
+    id: cuerpo.id ?? "",
+    status: trabajo?.status ?? "queued",
+    url: trabajo?.results?.raw?.url ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Generación
+// ---------------------------------------------------------------------------
 
 export interface EntradaDop {
   model: ModeloDop;
@@ -103,16 +146,126 @@ export interface EntradaDop {
   seed?: number;
 }
 
-/** Encola una generación imagen→video. Contesta de inmediato con el request_id. */
-export async function generarVideo(entrada: EntradaDop): Promise<RespuestaHF> {
-  // La API pide el cuerpo envuelto en `params`; mandarlo directo da 422.
-  return llamar<RespuestaHF>("/v1/image2video/dop", {
+export interface EntradaSoul {
+  prompt: string;
+  width_and_height: string; // p. ej. "1536x2048"
+  quality: "720p" | "1080p";
+  batch_size: 1 | 4;
+  custom_reference_id?: string;
+  custom_reference_strength?: number;
+  image_reference?: { type: "image_url"; image_url: string };
+  enhance_prompt?: boolean;
+  seed?: number;
+}
+
+/** Encola una generación imagen→video. Contesta de inmediato. */
+export async function generarVideo(entrada: EntradaDop): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/v1/image2video/dop", {
     method: "POST",
     body: JSON.stringify({ params: entrada }),
   });
+  return aGeneracion(cuerpo!);
 }
 
-/** Pregunta cómo va una solicitud; al completarse trae la URL del video. */
-export async function estadoSolicitud(requestId: string): Promise<RespuestaHF> {
-  return llamar<RespuestaHF>(`/requests/${requestId}/status`, { method: "GET" });
+export interface EntradaKling {
+  prompt: string;
+  image_url: string;
+  /** La API solo acepta 5 o 10; MELI Clips pide mínimo 10. */
+  duration: 5 | 10;
+}
+
+/**
+ * Encola imagen→video con Kling 2.5 turbo (endpoint nuevo: cuerpo directo,
+ * sin envoltura params). El video sale con el formato de la imagen de
+ * entrada: para 9:16 hay que darle una imagen 9:16.
+ */
+export async function generarVideoKling(entrada: EntradaKling): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>(
+    "/kling-video/v2.5-turbo/standard/image-to-video",
+    { method: "POST", body: JSON.stringify(entrada) },
+  );
+  return aGeneracion(cuerpo!);
+}
+
+/** Encola una imagen Soul (el personaje usando el producto). */
+export async function generarImagenSoul(entrada: EntradaSoul): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/v1/text2image/soul", {
+    method: "POST",
+    body: JSON.stringify({ params: entrada }),
+  });
+  return aGeneracion(cuerpo!);
+}
+
+/** Cómo va una generación; acepta ids de las dos épocas de la API. */
+export async function estadoGeneracion(id: string): Promise<Generacion> {
+  const v2 = await llamar<CrudoV2>(`/requests/${id}/status`, { method: "GET" }, { nullEn404: true });
+  if (v2) return aGeneracion(v2);
+
+  const v1 = await llamar<CrudoJobSet>(`/v1/job-sets/${id}`, { method: "GET" }, { nullEn404: true });
+  if (v1) return aGeneracion(v1);
+
+  throw new Error("Higgsfield ya no conoce esa generación.");
+}
+
+// ---------------------------------------------------------------------------
+// Personajes (custom references / Soul ID)
+// ---------------------------------------------------------------------------
+
+export type EstadoPersonajeHF =
+  | "not_ready"
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed";
+
+export interface PersonajeHF {
+  id: string;
+  name?: string;
+  status: EstadoPersonajeHF;
+}
+
+/** Crea un personaje consistente a partir de fotos de referencia. */
+export async function crearPersonajeHF(
+  nombre: string,
+  fotos: string[],
+): Promise<PersonajeHF> {
+  const cuerpo = await llamar<PersonajeHF>("/v1/custom-references", {
+    method: "POST",
+    body: JSON.stringify({
+      name: nombre,
+      input_images: fotos.map((url) => ({ type: "image_url", image_url: url })),
+    }),
+  });
+  return cuerpo!;
+}
+
+/** Cómo va el entrenamiento del personaje. */
+export async function estadoPersonajeHF(id: string): Promise<PersonajeHF> {
+  const cuerpo = await llamar<PersonajeHF>(`/v1/custom-references/${id}`, { method: "GET" });
+  return cuerpo!;
+}
+
+// ---------------------------------------------------------------------------
+// Subida de archivos al CDN de Higgsfield
+// ---------------------------------------------------------------------------
+
+/** Sube una foto y devuelve su URL pública en el CDN de Higgsfield. */
+export async function subirImagen(
+  datos: Buffer | Uint8Array,
+  contentType: string,
+): Promise<string> {
+  const enlace = await llamar<{ upload_url: string; public_url: string }>(
+    "/files/generate-upload-url",
+    { method: "POST", body: JSON.stringify({ content_type: contentType }) },
+  );
+
+  const res = await fetch(enlace!.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: Buffer.from(datos),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) throw new Error(`No se pudo subir la foto (${res.status}).`);
+
+  return enlace!.public_url;
 }

@@ -1,18 +1,28 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { generarVideo, credencialesHiggsfield } from "@/lib/higgsfield/client";
-import { construirEntradaDop } from "@/lib/higgsfield/presets";
+import {
+  credencialesHiggsfield,
+  generarVideo,
+  generarImagenSoul,
+} from "@/lib/higgsfield/client";
+import { construirEntradaDop, validarPrompt, validarImagenUrl } from "@/lib/higgsfield/presets";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Encola un video de producto con Higgsfield.
+ * Encola un video de producto.
+ *
+ * Dos modos:
+ * - `clip`: el bueno para MELI. Soul genera primero una foto vertical 9:16
+ *   (con el personaje usando el producto, o solo el producto) y cuando esa
+ *   foto está lista, el vigilante la anima con Kling 10 segundos — justo el
+ *   mínimo que piden los Clips de Mercado Libre.
+ * - `dop`: prueba rápida de ~5 s directa de la foto de la publicación.
  *
  * La fila se guarda ANTES de llamar a Higgsfield: si la llamada truena, el
- * intento queda registrado como fallido con su motivo, visible en la tabla,
- * en lugar de desaparecer en silencio.
+ * intento queda registrado como fallido con su motivo, no desaparece.
  */
 export async function POST(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -32,16 +42,38 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
+  const formato = body?.formato === "clip" ? "clip" : "dop";
 
-  let entrada;
+  let imagenUrl: string;
+  let promptVideo: string;
+  let promptImagen: string | null = null;
   try {
-    entrada = construirEntradaDop({
-      prompt: String(body?.prompt ?? ""),
-      imagenUrl: String(body?.imagenUrl ?? ""),
-      modelo: String(body?.modelo ?? "dop-turbo"),
-    });
+    imagenUrl = validarImagenUrl(String(body?.imagenUrl ?? ""));
+    promptVideo = validarPrompt(String(body?.prompt ?? ""));
+    if (formato === "clip") {
+      promptImagen = validarPrompt(String(body?.promptImagen ?? ""));
+    }
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+  }
+
+  // Personaje (solo en modo clip): debe existir, ser de esta cuenta y estar listo.
+  let personaje: { id: string; soul_id: string | null } | null = null;
+  if (formato === "clip" && body?.personajeId) {
+    const { data: p } = await supabase
+      .from("personajes_video")
+      .select("id, soul_id, estado")
+      .eq("account_id", cuenta.id)
+      .eq("id", String(body.personajeId))
+      .maybeSingle();
+    if (!p) return NextResponse.json({ error: "Ese personaje no existe." }, { status: 400 });
+    if (p.estado !== "listo" || !p.soul_id) {
+      return NextResponse.json(
+        { error: "Ese personaje todavía se está entrenando; espera a que diga Listo." },
+        { status: 400 },
+      );
+    }
+    personaje = { id: p.id as string, soul_id: p.soul_id as string };
   }
 
   const { data: fila, error: errIns } = await supabase
@@ -51,10 +83,15 @@ export async function POST(req: NextRequest) {
       item_id: body?.itemId ? String(body.itemId) : null,
       sku: body?.sku ? String(body.sku) : null,
       titulo: body?.titulo ? String(body.titulo) : null,
-      imagen_url: entrada.input_images[0].image_url,
-      prompt: entrada.prompt,
-      preset: body?.preset ? String(body.preset) : null,
-      modelo: entrada.model,
+      imagen_url: imagenUrl,
+      prompt: promptVideo,
+      prompt_imagen: promptImagen,
+      preset: body?.escena ? String(body.escena) : null,
+      modelo: formato === "clip" ? "soul+kling-2.5-turbo" : String(body?.modelo ?? "dop-turbo"),
+      formato,
+      etapa: formato === "clip" ? "imagen" : "video",
+      duracion: formato === "clip" ? 10 : 5,
+      personaje_id: personaje?.id ?? null,
     })
     .select("id")
     .single();
@@ -64,15 +101,48 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await generarVideo(entrada);
-    await supabase
-      .from("videos_producto")
-      .update({
-        request_id: res.request_id,
-        estado: "enviado",
-        actualizado_en: new Date().toISOString(),
-      })
-      .eq("id", fila.id);
+    let requestId: string;
+    if (formato === "clip") {
+      // Etapa 1: la foto vertical 9:16. La animación la lanza el vigilante
+      // cuando esta foto termina.
+      const res = await generarImagenSoul({
+        prompt: promptImagen!,
+        width_and_height: "1152x2048",
+        quality: "1080p",
+        batch_size: 1,
+        enhance_prompt: false, // el prompt ya viene armado por el motor de escenas
+        image_reference: { type: "image_url", image_url: imagenUrl },
+        ...(personaje
+          ? { custom_reference_id: personaje.soul_id!, custom_reference_strength: 0.8 }
+          : {}),
+      });
+      if (!res.id) throw new Error("Higgsfield no devolvió folio.");
+      requestId = res.id;
+      await supabase
+        .from("videos_producto")
+        .update({
+          request_id_imagen: requestId,
+          estado: "enviado",
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("id", fila.id);
+    } else {
+      const entrada = construirEntradaDop({
+        prompt: promptVideo,
+        imagenUrl,
+        modelo: String(body?.modelo ?? "dop-turbo"),
+      });
+      const res = await generarVideo(entrada);
+      if (!res.id) throw new Error("Higgsfield no devolvió folio.");
+      await supabase
+        .from("videos_producto")
+        .update({
+          request_id: res.id,
+          estado: "enviado",
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("id", fila.id);
+    }
   } catch (err) {
     await supabase
       .from("videos_producto")

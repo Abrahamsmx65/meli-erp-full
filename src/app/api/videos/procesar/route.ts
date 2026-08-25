@@ -1,6 +1,6 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { estadoSolicitud } from "@/lib/higgsfield/client";
+import { estadoGeneracion, generarVideoKling } from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -12,9 +12,11 @@ export const maxDuration = 300;
  * después de responder, y si al agotar su presupuesto de tiempo todavía hay
  * videos en el horno, se vuelve a lanzar solo.
  *
- * Al completarse un video se descarga del CDN de Higgsfield (donde solo vive
- * unos días) y se copia al bucket `videos-producto` de Supabase Storage; la
- * URL permanente es la que se enseña en la app.
+ * En modo clip hay dos etapas: cuando la foto vertical de Soul termina,
+ * aquí mismo se lanza la animación con Kling (10 s, formato 9:16 de la
+ * foto). Al completarse el video se descarga del CDN de Higgsfield (donde
+ * solo vive unos días) y se copia al bucket `videos-producto` de Supabase
+ * Storage; la URL permanente es la que se enseña en la app.
  */
 export async function POST(req: NextRequest) {
   const secreto = process.env.CRON_SECRET;
@@ -56,7 +58,20 @@ export async function GET(req: NextRequest) {
 }
 
 /** Una generación no debería tardar más que esto; después se da por perdida. */
-const LIMITE_MIN = 30;
+const LIMITE_MIN = 40;
+
+interface Fila {
+  id: string;
+  account_id: string;
+  prompt: string;
+  formato: string;
+  etapa: string;
+  duracion: number | null;
+  request_id: string | null;
+  request_id_imagen: string | null;
+  estado: string;
+  creado_en: string;
+}
 
 async function procesar(origen: string): Promise<void> {
   const admin = clienteAdmin();
@@ -68,7 +83,9 @@ async function procesar(origen: string): Promise<void> {
   while (Date.now() - t0 < PRESUPUESTO_MS) {
     const { data: pendientes } = await admin
       .from("videos_producto")
-      .select("id, account_id, request_id, estado, creado_en")
+      .select(
+        "id, account_id, prompt, formato, etapa, duracion, request_id, request_id_imagen, estado, creado_en",
+      )
       .in("estado", ["enviado", "en_progreso"])
       .order("creado_en", { ascending: true })
       .limit(50);
@@ -76,60 +93,14 @@ async function procesar(origen: string): Promise<void> {
     if (!pendientes?.length) break;
     huboEnCurso = true;
 
-    for (const fila of pendientes) {
+    for (const fila of pendientes as Fila[]) {
       if (Date.now() - t0 > PRESUPUESTO_MS) break;
-
-      // Sin request_id no hay a quién preguntarle; se marca de una vez.
-      if (!fila.request_id) {
-        await guardar(admin, fila.id, {
-          estado: "fallido",
-          error: "Se quedó sin folio de Higgsfield.",
-        });
-        continue;
-      }
-
-      // Demasiado tiempo en el horno: se da por perdido para no vigilar eterno.
-      if (Date.now() - new Date(fila.creado_en).getTime() > LIMITE_MIN * 60_000) {
-        await guardar(admin, fila.id, {
-          estado: "fallido",
-          error: `Sin respuesta de Higgsfield en ${LIMITE_MIN} minutos.`,
-        });
-        continue;
-      }
-
       try {
-        const res = await estadoSolicitud(fila.request_id);
-
-        if (res.status === "completed" && res.video?.url) {
-          const permanente = await copiarAVideoStorage(
-            admin,
-            fila.account_id,
-            fila.id,
-            res.video.url,
-          );
-          await guardar(admin, fila.id, {
-            estado: "completado",
-            video_url: res.video.url,
-            video_guardado: permanente,
-            error: null,
-          });
-        } else if (res.status === "failed" || res.status === "canceled") {
-          await guardar(admin, fila.id, {
-            estado: "fallido",
-            error: "Higgsfield no pudo generar el video (créditos devueltos).",
-          });
-        } else if (res.status === "nsfw") {
-          await guardar(admin, fila.id, {
-            estado: "rechazado",
-            error: "La moderación de Higgsfield rechazó el contenido (créditos devueltos).",
-          });
-        } else if (fila.estado !== "en_progreso") {
-          await guardar(admin, fila.id, { estado: "en_progreso" });
-        }
+        await avanzar(admin, fila);
       } catch (err) {
         // Error al preguntar no es error del video: se reintenta en la
         // siguiente vuelta, y el límite de tiempo evita el bucle eterno.
-        console.error(`videos: no se pudo consultar ${fila.request_id}:`, err);
+        console.error(`videos: no se pudo avanzar ${fila.id}:`, err);
       }
     }
 
@@ -157,6 +128,87 @@ async function procesar(origen: string): Promise<void> {
       // Si no prendió, el botón de actualizar de la página lo relanza.
     }
   }
+}
+
+async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Promise<void> {
+  const enEtapaImagen = fila.formato === "clip" && fila.etapa === "imagen";
+  const requestId = enEtapaImagen ? fila.request_id_imagen : fila.request_id;
+
+  // Sin folio no hay a quién preguntarle; se marca de una vez.
+  if (!requestId) {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: "Se quedó sin folio de Higgsfield.",
+    });
+    return;
+  }
+
+  // Demasiado tiempo en el horno: se da por perdido para no vigilar eterno.
+  if (Date.now() - new Date(fila.creado_en).getTime() > LIMITE_MIN * 60_000) {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: `Sin respuesta de Higgsfield en ${LIMITE_MIN} minutos.`,
+    });
+    return;
+  }
+
+  const res = await estadoGeneracion(requestId);
+
+  if (res.status === "failed" || res.status === "canceled") {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: "Higgsfield no pudo generar (los intentos fallidos no se cobran).",
+    });
+    return;
+  }
+  if (res.status === "nsfw") {
+    await guardar(admin, fila.id, {
+      estado: "rechazado",
+      error: "La moderación de Higgsfield rechazó el contenido (no se cobra).",
+    });
+    return;
+  }
+
+  if (res.status !== "completed") {
+    if (fila.estado !== "en_progreso") {
+      await guardar(admin, fila.id, { estado: "en_progreso" });
+    }
+    return;
+  }
+
+  if (!res.url) {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: "Higgsfield terminó pero no entregó archivo.",
+    });
+    return;
+  }
+
+  if (enEtapaImagen) {
+    // La foto 9:16 quedó: ahora sí, a animarla. El video hereda el formato
+    // vertical de esta imagen.
+    const video = await generarVideoKling({
+      prompt: fila.prompt,
+      image_url: res.url,
+      duration: fila.duracion === 5 ? 5 : 10,
+    });
+    if (!video.id) throw new Error("Kling no devolvió folio.");
+    await guardar(admin, fila.id, {
+      imagen_generada: res.url,
+      etapa: "video",
+      request_id: video.id,
+      estado: "en_progreso",
+    });
+    return;
+  }
+
+  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, res.url);
+  await guardar(admin, fila.id, {
+    estado: "completado",
+    video_url: res.url,
+    video_guardado: permanente,
+    error: null,
+  });
 }
 
 async function guardar(
