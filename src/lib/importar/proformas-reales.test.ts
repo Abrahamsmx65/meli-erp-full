@@ -143,3 +143,28 @@ describe("re-encabezado de tallas a mitad de hoja (IN10079 UGG)", () => {
     expect(p.avisos).toEqual([]);
   });
 });
+
+describe("CHAOZHOU cajas completas (IN10148): sin Item No. y tallas = cajas", () => {
+  it("saca el modelo del nombre del archivo y parte el renglón en unitallas", async () => {
+    const p = await importarProforma(fixture("proforma-chaozhou-cajascompletas-IN10148.xls"), {
+      nombre: "IN10148_GT114.xls",
+    });
+    expect(p.pedido).toBe("IN10148");
+    // El renglón venía sin modelo (celda Item No. vacía) y con las CAJAS por
+    // talla bajo cada columna (10+10+15+20 = 55 = CTNS): antes el lector lo
+    // descartaba y la proforma entera salía "sin renglones".
+    expect(p.lineas).toHaveLength(4);
+    expect(p.lineas.every((l) => l.modelo === "GT114" && l.color === "BLK")).toBe(true);
+    expect(p.lineas.every((l) => l.paresPorCaja === 48 && l.cuadra)).toBe(true);
+    expect(p.lineas.map((l) => [l.unitalla, l.cajas, l.pares])).toEqual([
+      ["26", 10, 480],
+      ["27", 10, 480],
+      ["28", 15, 720],
+      ["29", 20, 960],
+    ]);
+    expect(p.totales.cajas).toBe(55);
+    expect(p.totales.pares).toBe(2640);
+    expect(p.avisos.some((a) => a.includes("nombre del archivo"))).toBe(true);
+    expect(p.avisos.some((a) => a.includes("CAJAS por talla"))).toBe(true);
+  });
+});
