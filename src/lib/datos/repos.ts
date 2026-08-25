@@ -30,6 +30,45 @@ export type DB = SupabaseClient<any, "public", any>;
  * se siguen pidiendo páginas hasta que llegue una incompleta; si se pasa,
  * las páginas de más regresan vacías y no cuestan casi nada.
  */
+/**
+ * Llave primaria por tabla: el orden estable de la paginación.
+ *
+ * Ordenar por TODAS las columnas pedidas (la versión anterior) era estable
+ * pero carísimo: sin índice que soporte ese orden, Postgres re-ordenaba la
+ * tabla completa EN CADA página (~1.4 s por página en ventas_diarias; las
+ * pantallas tardaban decenas de segundos). La llave primaria ya tiene
+ * índice, es única —determinismo garantizado— y el orden sale gratis.
+ */
+const LLAVE_POR_TABLA: Record<string, string[]> = {
+  almacenes_activos: ["account_id", "almacen"],
+  amazon_envios_entrantes: ["account_id", "shipment_id", "seller_sku"],
+  amazon_inventario: ["account_id", "seller_sku"],
+  amazon_pagos: ["account_id", "settlement_id", "seller_sku", "fecha"],
+  amazon_skus: ["account_id", "seller_sku"],
+  corridas: ["account_id", "pedido", "modelo", "color"],
+  datos_fiscales: ["account_id", "sku"],
+  existencias: ["id"],
+  mapeo_sku: ["account_id", "sku_construido"],
+  ordenes_neto: ["account_id", "order_id"],
+  pedidos: ["id"],
+  productos_config: ["account_id", "modelo", "color"],
+  sku_overrides: ["account_id", "sku"],
+  skus: ["id"],
+  skus_pendientes: ["account_id", "item_id", "variation_id"],
+  stock_full: ["account_id", "sku"],
+  // Las tablas que SIEMPRE se leen por rango de fecha van ordenadas con la
+  // fecha ADELANTE: así el plan usa el índice (account_id, fecha) de la
+  // migración 0021 y no recorre el índice completo de la llave primaria
+  // (medido: 756 ms vs 1,065 ms en la peor página de ventas_diarias). El
+  // conjunto de columnas sigue siendo la llave completa: orden único.
+  amazon_economia: ["account_id", "fecha", "seller_sku"],
+  amazon_inventario_snapshots: ["account_id", "fecha", "seller_sku"],
+  amazon_ventas_diarias: ["account_id", "fecha", "seller_sku"],
+  stock_operaciones: ["account_id", "fecha", "operation_id"],
+  stock_snapshots: ["account_id", "fecha", "sku"],
+  ventas_diarias: ["account_id", "fecha", "sku"],
+};
+
 export async function traerTodo<T>(
   db: DB,
   tabla: string,
@@ -41,11 +80,13 @@ export async function traerTodo<T>(
   // concurrentes (el latido escribe cada minuto) una fila leída en la página
   // 0 puede reaparecer en la 3 y se suma DOS veces. El monitor de ventas
   // llegó a mostrar ~1.7× las unidades reales por esto. Orden estable por
-  // todas las columnas pedidas.
+  // la llave primaria (índice gratis); para una tabla que no esté en el
+  // mapa, por todas las columnas pedidas, como antes.
   const orden =
-    columnas.includes("(") || columnas.includes("*")
+    LLAVE_POR_TABLA[tabla] ??
+    (columnas.includes("(") || columnas.includes("*")
       ? []
-      : columnas.split(",").map((c) => c.trim()).filter(Boolean);
+      : columnas.split(",").map((c) => c.trim()).filter(Boolean));
 
   const leer = async (pagina: number): Promise<T[]> => {
     const desde = pagina * paso;
