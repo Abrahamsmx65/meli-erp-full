@@ -34,6 +34,7 @@ interface ModeloFiscal {
   ivaSugerida: string | null;
   iepsSugerido: number | null;
   unidadSugerida: string | null;
+  sugerenciaDe: "modelo" | "parecidos" | "catalogo" | null;
 }
 
 interface Captura {
@@ -243,11 +244,11 @@ export function DatosFiscales() {
           <button
             onClick={rellenarTodos}
             disabled={!conSugerencia.length}
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-            title="Encola todos los modelos visibles que ya tienen clave SAT capturada o sugerida"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            style={{ background: "var(--acento)" }}
+            title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de los modelos parecidos o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
-            Rellenar los {conSugerencia.length} con clave lista
+            Confirmar y rellenar los {conSugerencia.length} modelos
           </button>
         </header>
 
@@ -300,10 +301,23 @@ export function DatosFiscales() {
                           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                           title={
                             m.satSugerido
-                              ? `Sugerido: ${m.satSugerido} (ya cargado en otro SKU de este modelo)`
+                              ? `Sugerido: ${m.satSugerido} (${
+                                  m.sugerenciaDe === "modelo"
+                                    ? "ya cargado en otro SKU de este modelo"
+                                    : m.sugerenciaDe === "parecidos"
+                                      ? "lo más usado en los modelos parecidos"
+                                      : "lo más usado en tu catálogo — revisa que aplique"
+                                })`
                               : "Clave del catálogo c_ClaveProdServ del SAT"
                           }
                         />
+                        {m.sugerenciaDe && m.sugerenciaDe !== "modelo" ? (
+                          <div className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+                            {m.sugerenciaDe === "parecidos"
+                              ? "de los modelos parecidos"
+                              : "del catálogo: revísala"}
+                          </div>
+                        ) : null}
                       </td>
                       <td>
                         <select

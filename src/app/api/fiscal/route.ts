@@ -84,6 +84,8 @@ export async function GET() {
     ivaSugerida: string | null;
     iepsSugerido: number | null;
     unidadSugerida: string | null;
+    /** de dónde salió la sugerencia: el propio modelo, los parecidos o el catálogo */
+    sugerenciaDe: "modelo" | "parecidos" | "catalogo" | null;
   }
   const modelos = new Map<string, Modelo>();
   const resumen = { catalogo: 0, leidos: 0, sinLeer: 0, sinDatos: 0, pendientes: 0, errores: 0 };
@@ -105,6 +107,7 @@ export async function GET() {
         ivaSugerida: null,
         iepsSugerido: null,
         unidadSugerida: null,
+        sugerenciaDe: null,
       } satisfies Modelo);
     m.totalSkus++;
     resumen.catalogo++;
@@ -132,9 +135,60 @@ export async function GET() {
         m.ivaSugerida = f.iva;
         m.iepsSugerido = f.ieps;
         m.unidadSugerida = f.unidad;
+        m.sugerenciaDe = "modelo";
       }
     }
     modelos.set(clave, m);
+  }
+
+  // Sugerencia para los modelos NUEVOS (sin ningún hermano con datos): la
+  // combinación SAT/IVA/IEPS/unidad más usada entre los modelos PARECIDOS
+  // (mismo prefijo de letras: GT…, MY…) y, en último caso, la más usada del
+  // catálogo entero. Es lo que hace la pantalla de "confirmar por categoría"
+  // de MELI, pero con los datos reales del propio negocio: el usuario solo
+  // confirma con el botón de rellenar todo.
+  const modeloDeSku = new Map(
+    (skus ?? []).map((s) => [s.sku, (s.modelo as string) || "(sin modelo)"]),
+  );
+  const prefijoDe = (modelo: string): string =>
+    (modelo.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase();
+  const combosPorPrefijo = new Map<string, Map<string, number>>();
+  const combosGlobal = new Map<string, number>();
+  const comboValores = new Map<string, FilaLocal>();
+  for (const f of fiscales) {
+    if (!f.leido_en || !tieneDatos(f)) continue;
+    const deModelo = modeloDeSku.get(f.sku);
+    if (!deModelo) continue;
+    const k = `${f.sat}|${f.iva}|${f.ieps}|${f.unidad}`;
+    comboValores.set(k, f);
+    combosGlobal.set(k, (combosGlobal.get(k) ?? 0) + 1);
+    const p = prefijoDe(deModelo);
+    const mapa = combosPorPrefijo.get(p) ?? new Map<string, number>();
+    mapa.set(k, (mapa.get(k) ?? 0) + 1);
+    combosPorPrefijo.set(p, mapa);
+  }
+  const moda = (mapa?: Map<string, number>): string | null => {
+    let mejor: string | null = null;
+    let n = 0;
+    for (const [k, c] of mapa ?? []) {
+      if (c > n) {
+        n = c;
+        mejor = k;
+      }
+    }
+    return mejor;
+  };
+  for (const m of modelos.values()) {
+    if (m.satSugerido != null || m.sinDatos === 0) continue;
+    const dePrefijo = moda(combosPorPrefijo.get(prefijoDe(m.modelo)));
+    const k = dePrefijo ?? moda(combosGlobal);
+    if (!k) continue;
+    const v = comboValores.get(k)!;
+    m.satSugerido = v.sat;
+    m.ivaSugerida = v.iva;
+    m.iepsSugerido = v.ieps;
+    m.unidadSugerida = v.unidad;
+    m.sugerenciaDe = dePrefijo ? "parecidos" : "catalogo";
   }
 
   const conTrabajo = [...modelos.values()]
