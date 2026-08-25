@@ -1,6 +1,6 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { estadoGeneracion, generarVideoKling } from "@/lib/higgsfield/client";
+import { estadoGeneracion, generarVideoKling, generarVideoVeo } from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -131,7 +131,8 @@ async function procesar(origen: string): Promise<void> {
 }
 
 async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Promise<void> {
-  const enEtapaImagen = fila.formato === "clip" && fila.etapa === "imagen";
+  const enDosEtapas = fila.formato === "clip" || fila.formato === "hablado";
+  const enEtapaImagen = enDosEtapas && fila.etapa === "imagen";
   const requestId = enEtapaImagen ? fila.request_id_imagen : fila.request_id;
 
   // Sin folio no hay a quién preguntarle; se marca de una vez.
@@ -186,13 +187,22 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
 
   if (enEtapaImagen) {
     // La foto 9:16 quedó: ahora sí, a animarla. El video hereda el formato
-    // vertical de esta imagen.
-    const video = await generarVideoKling({
-      prompt: fila.prompt,
-      image_url: res.url,
-      duration: fila.duracion === 5 ? 5 : 10,
-    });
-    if (!video.id) throw new Error("Kling no devolvió folio.");
+    // vertical de esta imagen. El clip mudo lo anima Kling (10 s, MELI);
+    // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español.
+    const video =
+      fila.formato === "hablado"
+        ? await generarVideoVeo({
+            prompt: fila.prompt,
+            image_url: res.url,
+            duration: 8,
+            resolution: "1080p",
+          })
+        : await generarVideoKling({
+            prompt: fila.prompt,
+            image_url: res.url,
+            duration: fila.duracion === 5 ? 5 : 10,
+          });
+    if (!video.id) throw new Error("El modelo de video no devolvió folio.");
     await guardar(admin, fila.id, {
       imagen_generada: res.url,
       etapa: "video",

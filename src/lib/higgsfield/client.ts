@@ -187,6 +187,27 @@ export async function generarVideoKling(entrada: EntradaKling): Promise<Generaci
   return aGeneracion(cuerpo!);
 }
 
+export interface EntradaVeo {
+  prompt: string;
+  image_url: string;
+  /** Veo 3.1 solo acepta 4, 6 u 8 segundos. */
+  duration: 4 | 6 | 8;
+  resolution: "720p" | "1080p";
+}
+
+/**
+ * Encola imagen→video con Veo 3.1 (cuerpo directo). Genera audio nativo:
+ * si el prompt trae un diálogo entre comillas, el personaje lo dice con
+ * lip sync — así habla español sin necesitar un audio aparte.
+ */
+export async function generarVideoVeo(entrada: EntradaVeo): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/veo3.1/image-to-video", {
+    method: "POST",
+    body: JSON.stringify(entrada),
+  });
+  return aGeneracion(cuerpo!);
+}
+
 /** Encola una imagen Soul (el personaje usando el producto). */
 export async function generarImagenSoul(entrada: EntradaSoul): Promise<Generacion> {
   const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/v1/text2image/soul", {

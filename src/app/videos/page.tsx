@@ -141,13 +141,14 @@ export default async function Videos() {
                     texto: v.estado as string,
                     color: "var(--ink-muted)",
                   };
-                  const esClip = (v.formato as string) === "clip";
+                  const formato = (v.formato as string) ?? "dop";
+                  const esClip = formato === "clip" || formato === "hablado";
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
                   const detalleEtapa =
                     esClip && generando
                       ? (v.etapa as string) === "imagen"
                         ? "Etapa 1/2: creando la foto 9:16"
-                        : "Etapa 2/2: animando con Kling"
+                        : "Etapa 2/2: animando el video"
                       : null;
                   return (
                     <tr key={v.id as string}>
@@ -181,7 +182,11 @@ export default async function Videos() {
                       <td className="max-w-[16rem] align-top">
                         <div className="text-xs font-medium">
                           {(v.preset as string) ?? "propia"}
-                          {esClip ? " · 9:16 · 10 s" : " · prueba ~5 s"}
+                          {formato === "clip"
+                            ? " · 9:16 · 10 s"
+                            : formato === "hablado"
+                              ? " · habla español · 8 s"
+                              : " · prueba ~5 s"}
                         </div>
                         <div
                           className="mt-0.5 line-clamp-3 text-xs"

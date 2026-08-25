@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  const formato = body?.formato === "clip" ? "clip" : "dop";
+  const formato =
+    body?.formato === "clip" ? "clip" : body?.formato === "hablado" ? "hablado" : "dop";
+  const enDosEtapas = formato === "clip" || formato === "hablado";
 
   let imagenUrl: string;
   let promptVideo: string;
@@ -50,16 +52,16 @@ export async function POST(req: NextRequest) {
   try {
     imagenUrl = validarImagenUrl(String(body?.imagenUrl ?? ""));
     promptVideo = validarPrompt(String(body?.prompt ?? ""));
-    if (formato === "clip") {
+    if (enDosEtapas) {
       promptImagen = validarPrompt(String(body?.promptImagen ?? ""));
     }
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  // Personaje (solo en modo clip): debe existir, ser de esta cuenta y estar listo.
+  // Personaje (clip o hablado): debe existir, ser de esta cuenta y estar listo.
   let personaje: { id: string; soul_id: string | null } | null = null;
-  if (formato === "clip" && body?.personajeId) {
+  if (enDosEtapas && body?.personajeId) {
     const { data: p } = await supabase
       .from("personajes_video")
       .select("id, soul_id, estado")
@@ -87,10 +89,15 @@ export async function POST(req: NextRequest) {
       prompt: promptVideo,
       prompt_imagen: promptImagen,
       preset: body?.escena ? String(body.escena) : null,
-      modelo: formato === "clip" ? "soul+kling-2.5-turbo" : String(body?.modelo ?? "dop-turbo"),
+      modelo:
+        formato === "clip"
+          ? "soul+kling-2.5-turbo"
+          : formato === "hablado"
+            ? "soul+veo-3.1"
+            : String(body?.modelo ?? "dop-turbo"),
       formato,
-      etapa: formato === "clip" ? "imagen" : "video",
-      duracion: formato === "clip" ? 10 : 5,
+      etapa: enDosEtapas ? "imagen" : "video",
+      duracion: formato === "clip" ? 10 : formato === "hablado" ? 8 : 5,
       personaje_id: personaje?.id ?? null,
     })
     .select("id")
@@ -102,7 +109,7 @@ export async function POST(req: NextRequest) {
 
   try {
     let requestId: string;
-    if (formato === "clip") {
+    if (enDosEtapas) {
       // Etapa 1: la foto vertical 9:16. La animación la lanza el vigilante
       // cuando esta foto termina.
       const res = await generarImagenSoul({

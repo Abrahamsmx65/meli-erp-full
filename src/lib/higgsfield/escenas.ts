@@ -10,16 +10,28 @@
  * Los prompts van en inglés a propósito: los modelos generan mejor así.
  */
 
-export type TipoCalzado = "bota" | "sandalia" | "tenis" | "tacon" | "mocasin" | "zapato";
+export type TipoCalzado =
+  | "bota"
+  | "sandalia"
+  | "sandalia_agua"
+  | "pantufla"
+  | "tenis"
+  | "tacon"
+  | "mocasin"
+  | "zapato";
 export type Genero = "mujer" | "hombre" | "nino" | null;
 
 // ---------------------------------------------------------------------------
 // Detección a partir del texto de la publicación
 // ---------------------------------------------------------------------------
 
+// El orden importa: "Pantufla de corcho" es pantufla, no sandalia; y una
+// "sandalia acuática" es de agua antes que sandalia a secas.
 const TIPOS: [TipoCalzado, RegExp][] = [
+  ["pantufla", /\b(PANTUFLA|SLIPPER|PELUCHE)/i],
   ["bota", /\b(BOTA|BOTIN|BOTÍN|BOOT)/i],
-  ["sandalia", /\b(SANDALIA|HUARACHE|CHANCLA|FLIP)/i],
+  ["sandalia_agua", /\b(CHANCLA|FLIP|JELLY)|\b(SANDALIA|HUARACHE)\b.*\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|MAR|POOL)|\b(AGUA|ACUATIC|ACUÁTIC|PLAYA|ALBERCA|POOL)\b.*\b(SANDALIA|HUARACHE)/i],
+  ["sandalia", /\b(SANDALIA|HUARACHE)/i],
   ["tenis", /\b(TENIS|SNEAKER|DEPORTIV|RUNNER|CASUAL SPORT)/i],
   ["tacon", /\b(TACON|TACÓN|ZAPATILLA|STILETTO|PUMP)/i],
   ["mocasin", /\b(MOCASIN|MOCASÍN|LOAFER|NAUTICO|NÁUTICO)/i],
@@ -75,20 +87,54 @@ const INGREDIENTES: Record<TipoCalzado, Ingredientes> = {
     superficies: ["a weathered wooden crate", "wet asphalt with reflections", "mossy rocks"],
   },
   sandalia: {
+    // Sandalias de vestir, corcho, piel: nada de agua, que se echan a perder.
     locaciones: [
-      "a white-sand beach boardwalk at sunset",
-      "a tropical resort pool deck",
       "a colorful summer street market",
-      "a breezy seaside terrace",
+      "a charming café terrace with plants",
+      "a sunlit boutique district",
+      "a garden patio with warm string lights",
     ],
-    luces: ["bright summer sunlight", "soft sunset glow", "sparkling midday light with gentle shade"],
+    luces: ["bright summer sunlight", "soft golden afternoon light", "sparkling midday light with gentle shade"],
     acciones: [
-      "strolling relaxed along the boardwalk",
-      "walking barefoot-style, easy and light, splashing a little water",
+      "strolling relaxed through the market",
+      "walking easy and light across the terrace",
       "turning around smiling while walking away from the camera",
     ],
-    atuendos: ["a flowy summer dress", "linen shorts and a light shirt", "a beach cover-up"],
-    superficies: ["warm sand with seashells", "sun-bleached wooden planks", "a poolside mosaic edge"],
+    atuendos: ["a flowy summer dress", "linen shorts and a light shirt", "a light boho outfit"],
+    superficies: ["warm terracotta tiles", "sun-bleached wooden planks", "a linen-draped display table"],
+  },
+  sandalia_agua: {
+    locaciones: [
+      "a white-sand beach shoreline at sunset",
+      "a tropical resort pool deck",
+      "a rocky river bank with crystal-clear water",
+      "a breezy seaside boardwalk",
+    ],
+    luces: ["bright summer sunlight", "soft sunset glow", "sparkling reflections from the water"],
+    acciones: [
+      "walking along the wet shoreline, splashing a little water with each step",
+      "stepping into shallow crystal-clear water, drops sparkling",
+      "strolling on the pool deck leaving wet footprints",
+    ],
+    atuendos: ["a swimsuit with a beach cover-up", "board shorts and a tank top", "light beachwear"],
+    superficies: ["wet sand with foam from a wave", "a poolside mosaic edge with water drops", "smooth river stones"],
+  },
+  pantufla: {
+    // Las pantuflas viven dentro de casa: cozy, no banquetas.
+    locaciones: [
+      "a cozy living room with a soft rug and warm lamps",
+      "a bright bedroom on a lazy Sunday morning",
+      "a cabin with a fireplace glowing",
+      "a modern kitchen while making morning coffee",
+    ],
+    luces: ["warm cozy indoor light", "soft morning window light", "golden fireplace glow"],
+    acciones: [
+      "padding softly across the wooden floor toward the camera",
+      "curling up on the couch and stretching their feet toward the camera",
+      "walking to the kitchen holding a mug, relaxed and comfy",
+    ],
+    atuendos: ["cozy pajamas and a knit sweater", "a fluffy robe", "loungewear with warm socks vibes"],
+    superficies: ["a soft shaggy rug", "warm wooden flooring", "a knitted blanket on the couch"],
   },
   tenis: {
     locaciones: [
@@ -196,6 +242,26 @@ export const ESCENAS: Escena[] = [
   },
 ];
 
+/** Cómo se llama el producto cuando el personaje habla de él. */
+export const PALABRA_TIPO: Record<TipoCalzado, { palabra: string; femenino: boolean }> = {
+  bota: { palabra: "botas", femenino: true },
+  sandalia: { palabra: "sandalias", femenino: true },
+  sandalia_agua: { palabra: "sandalias", femenino: true },
+  pantufla: { palabra: "pantuflas", femenino: true },
+  tenis: { palabra: "tenis", femenino: false },
+  tacon: { palabra: "tacones", femenino: false },
+  mocasin: { palabra: "mocasines", femenino: false },
+  zapato: { palabra: "zapatos", femenino: false },
+};
+
+/** Guion inicial en español para el clip hablado; el vendedor lo edita. */
+export function guionInicial(tipo: TipoCalzado): string {
+  const { palabra, femenino } = PALABRA_TIPO[tipo];
+  const comodas = femenino ? "comodísimas" : "comodísimos";
+  const estas = femenino ? "estas" : "estos";
+  return `¡Tienen que ver ${estas} ${palabra}! Son ${comodas}, la calidad es increíble y combinan con todo. Córranle antes de que se acaben.`;
+}
+
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Determinista con la semilla: mismo dado, misma escena.
   const i = Math.abs(Math.floor(semilla * 7919 + sal * 104729)) % arr.length;
@@ -207,6 +273,39 @@ const PERSONA: Record<Exclude<Genero, null>, string> = {
   hombre: "a young male fashion influencer",
   nino: "a cheerful kid model",
 };
+
+/**
+ * Prompts del clip hablado: el personaje presenta el producto a cámara y
+ * dice el guion en español. Veo 3.1 genera la voz y el lip sync desde el
+ * propio prompt.
+ */
+export function armarPromptsHablado(datos: {
+  tipo: TipoCalzado;
+  genero: Genero;
+  semilla: number;
+  guion: string;
+}): PromptsEscena {
+  const ing = INGREDIENTES[datos.tipo];
+  const s = datos.semilla;
+  const locacion = elegir(ing.locaciones, s, 1);
+  const luz = elegir(ing.luces, s, 2);
+  const atuendo = elegir(ing.atuendos, s, 4);
+  const persona = PERSONA[datos.genero ?? "mujer"];
+  const guion = datos.guion.trim().replace(/"/g, "'");
+
+  return {
+    imagen:
+      `Vertical photo of ${persona} with ${atuendo} in ${locacion}, ${luz}, facing the camera ` +
+      `and holding up one shoe from the reference image toward the viewer while wearing the pair, ` +
+      `social media selfie-video framing, photorealistic, sharp focus, ` +
+      `the shoes must match the reference exactly`,
+    video:
+      `The person looks straight at the camera with a warm smile, lifts the shoe closer to the lens to ` +
+      `show it off, and says in enthusiastic Mexican Spanish: "${guion}". ` +
+      `Natural lip sync and hand gestures, upbeat social media influencer energy, ${luz}, ` +
+      `vertical video, the shoes clearly visible the whole time`,
+  };
+}
 
 export interface PromptsEscena {
   /** para Soul: la foto vertical de partida */

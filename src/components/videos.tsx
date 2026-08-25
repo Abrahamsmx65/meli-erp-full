@@ -6,11 +6,50 @@ import { MODELOS } from "@/lib/higgsfield/presets";
 import {
   ESCENAS,
   armarPrompts,
+  armarPromptsHablado,
   detectarGenero,
   detectarTipo,
+  guionInicial,
   type Genero,
   type TipoCalzado,
 } from "@/lib/higgsfield/escenas";
+
+/** Lee la respuesta como JSON y, si el servidor contestó texto plano
+ *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
+async function leerJson(r: Response): Promise<Record<string, unknown>> {
+  const texto = await r.text();
+  try {
+    return JSON.parse(texto);
+  } catch {
+    throw new Error(
+      r.status === 413
+        ? "Las fotos pesan demasiado para subirlas juntas. Intenta con menos fotos."
+        : `El servidor contestó ${r.status}: ${texto.slice(0, 120)}`,
+    );
+  }
+}
+
+/** Achica una foto en el navegador (máx 1280 px, JPEG) para que el paquete
+ *  completo quepa en el límite de ~4.5 MB por petición de Vercel. */
+async function comprimirFoto(archivo: File): Promise<string> {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
+      const i = new Image();
+      i.onload = () => resolver(i);
+      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+    const escala = Math.min(1, 1280 / Math.max(img.width, img.height));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = Math.round(img.width * escala);
+    lienzo.height = Math.round(img.height * escala);
+    lienzo.getContext("2d")!.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+    return lienzo.toDataURL("image/jpeg", 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export interface Publicacion {
   itemId: string;
@@ -30,6 +69,8 @@ export interface Personaje {
 const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   bota: "Botas",
   sandalia: "Sandalias",
+  sandalia_agua: "Sandalias de agua",
+  pantufla: "Pantuflas",
   tenis: "Tenis",
   tacon: "Tacones",
   mocasin: "Mocasines",
@@ -59,19 +100,13 @@ export function PanelPersonajes({ iniciales }: { iniciales: Personaje[] }) {
 
   async function alEscogerFotos(archivos: FileList | null) {
     if (!archivos) return;
-    const lista = [...archivos].slice(0, 6);
-    const leidas = await Promise.all(
-      lista.map(
-        (a) =>
-          new Promise<string>((resolver, rechazar) => {
-            const lector = new FileReader();
-            lector.onload = () => resolver(String(lector.result));
-            lector.onerror = () => rechazar(new Error("No se pudo leer la foto."));
-            lector.readAsDataURL(a);
-          }),
-      ),
-    );
-    setFotos(leidas);
+    setMensaje(null);
+    try {
+      const lista = [...archivos].slice(0, 6);
+      setFotos(await Promise.all(lista.map(comprimirFoto)));
+    } catch (e) {
+      setMensaje((e as Error).message);
+    }
   }
 
   async function crear() {
@@ -83,8 +118,8 @@ export function PanelPersonajes({ iniciales }: { iniciales: Personaje[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre, genero, fotos }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo crear.");
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo crear."));
       setAbierto(false);
       setNombre("");
       setFotos([]);
@@ -252,10 +287,11 @@ export function GeneradorVideo({
   const [genero, setGenero] = useState<Genero>(null);
   const [escenaId, setEscenaId] = useState(ESCENAS[0].id);
   const [semilla, setSemilla] = useState(0.42);
+  const [guion, setGuion] = useState("");
   const [promptImagen, setPromptImagen] = useState("");
   const [promptVideo, setPromptVideo] = useState("");
 
-  const [formato, setFormato] = useState<"clip" | "dop">("clip");
+  const [formato, setFormato] = useState<"clip" | "hablado" | "dop">("clip");
   const [personajeId, setPersonajeId] = useState<string>("");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
@@ -283,8 +319,18 @@ export function GeneradorVideo({
     genero: Genero;
     escenaId: string;
     semilla: number;
+    formato: "clip" | "hablado" | "dop";
+    guion: string;
   }) {
-    const prompts = armarPrompts(datos);
+    const prompts =
+      datos.formato === "hablado"
+        ? armarPromptsHablado({
+            tipo: datos.tipo,
+            genero: datos.genero,
+            semilla: datos.semilla,
+            guion: datos.guion,
+          })
+        : armarPrompts(datos);
     setPromptImagen(prompts.imagen);
     setPromptVideo(prompts.video);
   }
@@ -295,13 +341,15 @@ export function GeneradorVideo({
     setImagen("");
     setMensaje(null);
 
-    // La escena se adapta al producto: botas ≠ sandalias.
+    // La escena se adapta al producto: botas ≠ sandalias ≠ pantuflas.
     const texto = `${p.titulo} ${p.modelo}`;
     const t = detectarTipo(texto);
     const g = detectarGenero(texto);
+    const gu = guionInicial(t);
     setTipo(t);
     setGenero(g);
-    regenerarPrompts({ tipo: t, genero: g, escenaId, semilla });
+    setGuion(gu);
+    regenerarPrompts({ tipo: t, genero: g, escenaId, semilla, formato, guion: gu });
 
     // Personaje del género detectado, si hay uno listo.
     const candidato = listos.find((x) => x.genero === g) ?? listos[0];
@@ -322,16 +370,30 @@ export function GeneradorVideo({
     }
   }
 
-  function cambiar(cambios: Partial<{ tipo: TipoCalzado; genero: Genero; escenaId: string; semilla: number }>) {
+  function cambiar(
+    cambios: Partial<{
+      tipo: TipoCalzado;
+      genero: Genero;
+      escenaId: string;
+      semilla: number;
+      formato: "clip" | "hablado" | "dop";
+      guion: string;
+    }>,
+  ) {
     const t = cambios.tipo ?? tipo;
     const g = cambios.genero !== undefined ? cambios.genero : genero;
     const e = cambios.escenaId ?? escenaId;
     const s = cambios.semilla ?? semilla;
+    const f = cambios.formato ?? formato;
+    // Si cambió el tipo, el guion inicial se rehace para ese tipo.
+    const gu = cambios.guion ?? (cambios.tipo !== undefined ? guionInicial(t) : guion);
     if (cambios.tipo !== undefined) setTipo(t);
     if (cambios.genero !== undefined) setGenero(g);
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
-    regenerarPrompts({ tipo: t, genero: g, escenaId: e, semilla: s });
+    if (cambios.formato !== undefined) setFormato(f);
+    if (gu !== guion) setGuion(gu);
+    regenerarPrompts({ tipo: t, genero: g, escenaId: e, semilla: s, formato: f, guion: gu });
   }
 
   async function generar() {
@@ -347,15 +409,21 @@ export function GeneradorVideo({
           titulo: pub.titulo,
           imagenUrl: imagen,
           formato,
-          escena: `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
+          escena:
+            formato === "hablado"
+              ? `Hablado (${TIPOS_ETIQUETA[tipo]})`
+              : `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
           prompt: promptVideo,
           promptImagen,
-          personajeId: formato === "clip" && escena.conPersona ? personajeId || null : null,
+          personajeId:
+            formato === "hablado" || (formato === "clip" && escena.conPersona)
+              ? personajeId || null
+              : null,
           modelo: modeloDop,
         }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo encolar el video.");
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo encolar el video."));
       setEstado("ok");
       router.refresh();
       setTimeout(() => setEstado("listo"), 4000);
@@ -476,21 +544,22 @@ export function GeneradorVideo({
           </div>
 
           <div className="mt-2 flex flex-wrap gap-2">
-            {ESCENAS.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => cambiar({ escenaId: e.id })}
-                title={e.descripcion}
-                className="rounded-full border px-3 py-1 text-xs"
-                style={{
-                  borderColor: escenaId === e.id ? "var(--acento)" : "var(--borde)",
-                  color: escenaId === e.id ? "var(--acento)" : "var(--ink-1)",
-                  fontWeight: escenaId === e.id ? 600 : 400,
-                }}
-              >
-                {e.etiqueta}
-              </button>
-            ))}
+            {formato !== "hablado" &&
+              ESCENAS.map((e) => (
+                <button
+                  key={e.id}
+                  onClick={() => cambiar({ escenaId: e.id })}
+                  title={e.descripcion}
+                  className="rounded-full border px-3 py-1 text-xs"
+                  style={{
+                    borderColor: escenaId === e.id ? "var(--acento)" : "var(--borde)",
+                    color: escenaId === e.id ? "var(--acento)" : "var(--ink-1)",
+                    fontWeight: escenaId === e.id ? 600 : 400,
+                  }}
+                >
+                  {e.etiqueta}
+                </button>
+              ))}
             <button
               onClick={() => cambiar({ semilla: Math.random() })}
               title="Otra locación, luz y movimiento con la misma escena"
@@ -501,7 +570,21 @@ export function GeneradorVideo({
             </button>
           </div>
 
-          {escena.conPersona && formato === "clip" && (
+          {formato === "hablado" && (
+            <label className="mt-2 flex max-w-2xl flex-col gap-1">
+              <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Guion (lo que dice a cámara, en español)
+              </span>
+              <textarea
+                value={guion}
+                onChange={(e) => cambiar({ guion: e.target.value })}
+                rows={2}
+                className="w-full px-2 py-1.5 text-xs"
+              />
+            </label>
+          )}
+
+          {(formato === "hablado" || (formato === "clip" && escena.conPersona)) && (
             <div className="mt-2 flex items-center gap-2 text-sm">
               <span style={{ color: "var(--ink-muted)" }}>Personaje:</span>
               <select
@@ -520,7 +603,7 @@ export function GeneradorVideo({
           )}
 
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
-            {formato === "clip" && (
+            {formato !== "dop" && (
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
                   Prompt de la foto 9:16 (etapa 1)
@@ -554,10 +637,11 @@ export function GeneradorVideo({
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <select
               value={formato}
-              onChange={(e) => setFormato(e.target.value as "clip" | "dop")}
+              onChange={(e) => cambiar({ formato: e.target.value as "clip" | "hablado" | "dop" })}
               className="px-2 py-1.5 text-sm"
             >
-              <option value="clip">Clip para MELI — 9:16 vertical · 10 s</option>
+              <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
+              <option value="hablado">Hablado — presenta el producto en español · 8 s (para redes)</option>
               <option value="dop">Prueba rápida — ~5 s (no sirve para Clips)</option>
             </select>
 
