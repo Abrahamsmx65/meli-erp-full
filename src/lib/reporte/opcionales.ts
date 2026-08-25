@@ -38,6 +38,40 @@ export interface DesgloseOpcionales {
   deMasPorCaja: Map<string, { talla: string; pares: number }[]>;
 }
 
+/**
+ * Parte una lista de cajas en el ENVÍO NORMAL (obligatorias) y el bloque de
+ * OPCIONALES, dividiendo el renglón cuando un mismo tipo de caja trae de las
+ * dos (5 cajas con 2 opcionales → 3 al envío y 2 a opcionales). Los pares y
+ * el aporte por talla se re-escalan a la cantidad de cada mitad.
+ */
+export function partirPorOpcionales<
+  T extends {
+    cantidad: number;
+    paresPorCaja: number;
+    paresTotales: number;
+    cantidadOpcional?: number;
+    aporta: { paresPorCaja: number; paresTotales: number }[];
+  },
+>(cajas: T[]): { normales: T[]; opcionales: T[] } {
+  const reescalar = (c: T, cantidad: number, opcional: boolean): T => ({
+    ...c,
+    cantidad,
+    cantidadOpcional: opcional ? cantidad : 0,
+    paresTotales: cantidad * c.paresPorCaja,
+    aporta: c.aporta.map((a) => ({ ...a, paresTotales: a.paresPorCaja * cantidad })),
+  });
+
+  const normales: T[] = [];
+  const opcionales: T[] = [];
+  for (const c of cajas) {
+    const opc = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
+    const norm = c.cantidad - opc;
+    if (norm > 0) normales.push(reescalar(c, norm, false));
+    if (opc > 0) opcionales.push(reescalar(c, opc, true));
+  }
+  return { normales, opcionales };
+}
+
 export function desglosarOpcionales(
   cajas: CajaParaDesglose[],
   lineas: LineaParaDesglose[],

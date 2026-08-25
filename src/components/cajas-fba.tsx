@@ -2,7 +2,7 @@ import type { CajaPlaneada } from "@/lib/servicios/plan";
 import type { PlanFbaCajas } from "@/lib/servicios/fba-plan";
 import type { EnvioSeparado } from "@/lib/servicios/envios";
 import type { DesgloseOpcionales } from "@/lib/reporte/opcionales";
-import { textoDeMas } from "@/lib/reporte/opcionales";
+import { partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { Ficha } from "@/components/tiles";
 
 function n(x: number): string {
@@ -120,12 +120,26 @@ export function CajasFba({
               </thead>
               <tbody>
                 {(envios.length
-                  ? envios.flatMap((e) => [
-                      // Un renglón-encabezado por bodega: un envío sale de UNA
-                      // dirección, igual que en los envíos a Full.
-                      { tipo: "grupo" as const, envio: e },
-                      ...e.cajas.map((c) => ({ tipo: "caja" as const, caja: c as CajaPlaneada })),
-                    ])
+                  ? envios.flatMap((e) => {
+                      // Un envío sale de UNA dirección, igual que en Full — y
+                      // dentro de cada uno el bloque OPCIONAL va separado del
+                      // envío normal.
+                      const { normales, opcionales } = partirPorOpcionales(
+                        e.cajas as CajaPlaneada[],
+                      );
+                      const cajasNorm = normales.reduce((a, c) => a + c.cantidad, 0);
+                      const paresNorm = normales.reduce((a, c) => a + c.paresTotales, 0);
+                      const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
+                      const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
+                      return [
+                        { tipo: "grupo" as const, envio: e, cajasNorm, paresNorm },
+                        ...normales.map((c) => ({ tipo: "caja" as const, caja: c })),
+                        ...(opcionales.length
+                          ? [{ tipo: "opcionales" as const, envio: e, cajasOpc, paresOpc }]
+                          : []),
+                        ...opcionales.map((c) => ({ tipo: "caja" as const, caja: c })),
+                      ];
+                    })
                   : plan.cajas.map((c) => ({ tipo: "caja" as const, caja: c }))
                 ).map((fila, i) => {
                   if (fila.tipo === "grupo") {
@@ -136,9 +150,25 @@ export function CajasFba({
                           Envío {e.nombre}
                           <span className="font-normal text-xs" style={{ color: "var(--ink-2)" }}>
                             {" "}
-                            · {e.almacenes.join(" + ")} · {e.totalCajas} cajas ·{" "}
-                            {n(e.totalPares)} pares
+                            · {e.almacenes.join(" + ")} · {fila.cajasNorm} cajas ·{" "}
+                            {n(fila.paresNorm)} pares
                           </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  if (fila.tipo === "opcionales") {
+                    return (
+                      <tr
+                        key={`op-${fila.envio.grupo}`}
+                        style={{
+                          background:
+                            "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
+                        }}
+                      >
+                        <td colSpan={6} className="text-sm font-semibold">
+                          OPCIONALES de {fila.envio.nombre} — {fila.cajasOpc} cajas ·{" "}
+                          {n(fila.paresOpc)} pares. Tú decides si van.
                         </td>
                       </tr>
                     );
