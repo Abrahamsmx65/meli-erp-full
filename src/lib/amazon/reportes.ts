@@ -23,6 +23,14 @@ export const VENTAS = "GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL";
  */
 export const PAGOS = "GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2";
 
+/**
+ * Libro mayor del inventario (Inventory Ledger, vista resumen): el saldo de
+ * cada SKU POR DÍA, hasta 18 meses atrás. Es el único reporte que contesta
+ * "¿cuánto había tal día?" — la foto diaria del cron solo conoce los días en
+ * que ya corría. Se pide con las opciones {aggregatedByTimePeriod: DAILY}.
+ */
+export const LEDGER_INVENTARIO = "GET_LEDGER_SUMMARY_VIEW_DATA";
+
 export interface ReporteListo {
   reportId: string;
   documentId: string;
@@ -88,6 +96,7 @@ export async function solicitarReporte(
   tipo: string,
   marketplaceId: string,
   periodo?: { desde: Date; hasta: Date },
+  opciones?: Record<string, string>,
 ): Promise<string | null> {
   const cuerpo: Record<string, unknown> = {
     reportType: tipo,
@@ -97,6 +106,7 @@ export async function solicitarReporte(
     cuerpo.dataStartTime = periodo.desde.toISOString();
     cuerpo.dataEndTime = periodo.hasta.toISOString();
   }
+  if (opciones) cuerpo.reportOptions = opciones;
   const r = await cliente.llamar<{ reportId?: string }>(
     "POST",
     "/reports/2021-06-30/reports",

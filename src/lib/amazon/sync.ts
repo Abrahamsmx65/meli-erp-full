@@ -16,6 +16,7 @@ import type { Cliente } from "./spapi";
 import { DIAS_VIGENCIA_ENVIO_FBA } from "../servicios/fba-en-camino";
 import {
   INVENTARIO_FBA,
+  LEDGER_INVENTARIO,
   PAGOS,
   VENTAS,
   decimal,
@@ -417,6 +418,183 @@ export async function sincronizarInventario(
   );
 
   return { estado: "cargado", skus: inventario.length };
+}
+
+// ---------------------------------------------------------------------------
+// Historial del inventario (Inventory Ledger): el stock que HABÍA cada día
+// ---------------------------------------------------------------------------
+
+/** Cuántos días hacia atrás debe existir historia del inventario FBA. */
+export const DIAS_HISTORIAL_LEDGER = 35;
+
+/** "2026-08-19", "8/19/2026" o "19.08.2026" → "2026-08-19". */
+export function fechaLedger(texto: string): string | null {
+  const s = (texto ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dos = (x: string) => x.padStart(2, "0");
+  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s); // mes/día/año (formato US)
+  if (m) return `${m[3]}-${dos(m[1])}-${dos(m[2])}`;
+  m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s); // día.mes.año (formato EU)
+  if (m) return `${m[3]}-${dos(m[2])}-${dos(m[1])}`;
+  return null;
+}
+
+/**
+ * Convierte el reporte del ledger en fotos diarias del inventario.
+ *
+ * Solo el saldo VENDIBLE (disposition SELLABLE) al cierre de cada día,
+ * sumado entre ubicaciones. El ledger solo trae renglón los días con saldo o
+ * movimiento, así que los días sin renglón se rellenan ARRASTRANDO el último
+ * saldo conocido — sin el arrastre, justo los días en cero (los que la
+ * corrección por agotamiento necesita) quedarían sin foto.
+ */
+export function snapshotsDesdeLedger(
+  filas: Record<string, string>[],
+  accountId: string,
+  desde: string,
+  hasta: string,
+): {
+  account_id: string;
+  seller_sku: string;
+  fecha: string;
+  disponible: number;
+  en_transferencia: number;
+  reservado: number;
+  total: number;
+  origen: string;
+}[] {
+  // saldo de cierre por SKU y fecha (sumando ubicaciones)
+  const porSku = new Map<string, Map<string, number>>();
+  for (const f of filas) {
+    if ((f["disposition"] ?? "").trim().toUpperCase() !== "SELLABLE") continue;
+    const sku = (f["msku"] ?? "").trim();
+    const fecha = fechaLedger(f["date"] ?? "");
+    if (!sku || !fecha || fecha > hasta) continue;
+    const dias = porSku.get(sku) ?? new Map<string, number>();
+    dias.set(fecha, (dias.get(fecha) ?? 0) + entero(f["ending-warehouse-balance"]));
+    porSku.set(sku, dias);
+  }
+
+  const DIA_MS = 86_400_000;
+  const salida: ReturnType<typeof snapshotsDesdeLedger> = [];
+  for (const [sku, dias] of porSku) {
+    const fechas = [...dias.keys()].sort();
+    let saldo = 0;
+    for (
+      let ms = Date.parse(`${fechas[0]}T00:00:00Z`);
+      ms <= Date.parse(`${hasta}T00:00:00Z`);
+      ms += DIA_MS
+    ) {
+      const fecha = new Date(ms).toISOString().slice(0, 10);
+      saldo = dias.get(fecha) ?? saldo; // sin renglón: arrastra el último saldo
+      if (fecha < desde) continue;
+      salida.push({
+        account_id: accountId,
+        seller_sku: sku,
+        fecha,
+        disponible: saldo,
+        en_transferencia: 0,
+        reservado: 0,
+        total: saldo,
+        origen: "ledger",
+      });
+    }
+  }
+  return salida;
+}
+
+export interface ResultadoLedger {
+  estado: "completo" | "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar";
+  filas?: number;
+}
+
+/**
+ * Rellena la historia del inventario FBA con el Inventory Ledger de Amazon.
+ *
+ * Las fotos diarias del cron solo existen desde que el cron corre; el ledger
+ * sí sabe cuánto había cada día (hasta 18 meses atrás). Cuando la foto más
+ * vieja no llega a DIAS_HISTORIAL_LEDGER días atrás, se pide el ledger
+ * diario del hueco y se guarda como fotos con origen "ledger" — SIN pisar
+ * las fotos reales del cron (ignoreDuplicates). En cuanto la historia está
+ * completa, la tarea deja de pedir reportes: solo hace una consulta barata.
+ */
+export async function sincronizarHistorialInventario(
+  admin: any,
+  cliente: Cliente,
+): Promise<ResultadoLedger> {
+  const accountId = cliente.cuenta.accountId;
+  const paso = await pasoPendiente(admin, accountId, "cron_ledger");
+
+  const anotar = (datos: Record<string, unknown>) =>
+    admin.from("amazon_sync_estado").upsert({
+      account_id: accountId,
+      tarea: "cron_ledger",
+      datos,
+      actualizado_en: new Date().toISOString(),
+    });
+
+  const desde = new Date(Date.now() - DIAS_HISTORIAL_LEDGER * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+  if (!paso) {
+    // ¿Ya hay historia suficiente? La foto más vieja lo dice con una consulta.
+    const { data: primera } = await admin
+      .from("amazon_inventario_snapshots")
+      .select("fecha")
+      .eq("account_id", accountId)
+      .order("fecha", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (primera?.fecha && String(primera.fecha) <= desde) return { estado: "completo" };
+
+    const reportId = await solicitarReporte(
+      cliente,
+      LEDGER_INVENTARIO,
+      cliente.cuenta.marketplaceId,
+      { desde: new Date(Date.parse(`${desde}T00:00:00Z`)), hasta: new Date() },
+      { aggregatedByTimePeriod: "DAILY", aggregateByLocation: "COUNTRY" },
+    );
+    if (!reportId) return { estado: "reintentar" };
+    await anotar({ reportId, pedidoEn: new Date().toISOString() });
+    return { estado: "solicitado" };
+  }
+
+  const st = await estadoReporte(cliente, paso.reportId);
+  if (st.estado === "procesando") {
+    const edad = paso.pedidoEn ? Date.now() - Date.parse(paso.pedidoEn) : Infinity;
+    if (edad > PACIENCIA_REPORTE_MS) {
+      await anotar({});
+      return { estado: "reintentar" };
+    }
+    return { estado: "procesando" };
+  }
+  if (st.estado === "fallido" || st.estado === "vacio") {
+    await anotar({});
+    return { estado: st.estado === "vacio" ? "vacio" : "reintentar" };
+  }
+
+  const filas = await descargarReporte(cliente, st.documentId);
+  await anotar({});
+  if (filas.length === 0) return { estado: "vacio" };
+
+  // El día de hoy va incompleto en el ledger: hasta ayer.
+  const ayer = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const fotos = snapshotsDesdeLedger(filas, accountId, desde, ayer);
+
+  // ignoreDuplicates: la foto real del cron (con en-transferencia y
+  // reservado de verdad) gana sobre la reconstrucción del ledger.
+  for (let i = 0; i < fotos.length; i += LOTE) {
+    const { error } = await admin
+      .from("amazon_inventario_snapshots")
+      .upsert(fotos.slice(i, i + LOTE), {
+        onConflict: "account_id,seller_sku,fecha",
+        ignoreDuplicates: true,
+      });
+    if (error) throw new Error(`amazon_inventario_snapshots: ${error.message}`);
+  }
+
+  return { estado: "cargado", filas: fotos.length };
 }
 
 // ---------------------------------------------------------------------------
