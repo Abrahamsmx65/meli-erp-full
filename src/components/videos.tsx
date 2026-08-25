@@ -177,7 +177,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
   const [promptImagen, setPromptImagen] = useState("");
   const [concepto, setConcepto] = useState("");
 
-  const [formato, setFormato] = useState<Formato>("clip");
+  const [formato, setFormato] = useState<Formato>("ugc");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
   // Voz del UGC: grabada aquí mismo o subida como archivo; siempre acaba en WAV.
@@ -554,7 +554,22 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
       {principal && (
         <div className="mt-4">
           <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
-            3 · Escena
+            3 · Formato y escena
+          </div>
+
+          {/* El formato va PRIMERO: todo lo de abajo (concepto, guion,
+              prompts y el dado) depende de él. */}
+          <div className="mt-1.5">
+            <select
+              value={formato}
+              onChange={(e) => cambiar({ formato: e.target.value as Formato })}
+              className="px-2 py-1.5 text-sm"
+            >
+              <option value="ugc">UGC — una persona lo muestra y habla en español · 10-15 s</option>
+              <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
+              <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
+              <option value="dop">Prueba rápida — ~5 s, usa todas las fotos marcadas</option>
+            </select>
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
@@ -722,7 +737,9 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
 
           <label className="mt-3 flex max-w-2xl flex-col gap-1">
             <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-              Prompt del video (movimiento, luz; el producto no se toca)
+              {formato === "ugc"
+                ? "Prompt del video (la narrativa del concepto, en inglés)"
+                : "Prompt del video (movimiento, luz; el producto no se toca)"}
             </span>
             <textarea
               value={promptVideo}
@@ -732,23 +749,13 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
             />
           </label>
           <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-            Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento
-            sin que tengas que escribir nada.
+            {formato === "ugc"
+              ? "Puedes editarlo. En inglés funciona mejor; el 🎲 arma otro concepto completo (escena, influencer y guion)."
+              : "Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento sin que tengas que escribir nada."}
           </p>
 
-          {/* 4. Formato */}
+          {/* 4. Generar */}
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <select
-              value={formato}
-              onChange={(e) => cambiar({ formato: e.target.value as Formato })}
-              className="px-2 py-1.5 text-sm"
-            >
-              <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
-              <option value="ugc">UGC — una persona lo muestra y habla en español · 10-15 s</option>
-              <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
-              <option value="dop">Prueba rápida — ~5 s, usa todas las fotos marcadas</option>
-            </select>
-
             {formato === "dop" && (
               <select
                 value={modeloDop}
