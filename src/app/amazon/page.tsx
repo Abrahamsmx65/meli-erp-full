@@ -67,10 +67,13 @@ export default async function Amazon({
           )
         : Promise.resolve([]),
       // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
-      // orden) a su modelo+color real: sin él, la corrida no se encuentra.
+      // orden) a su modelo+color real. SOLO activos: tras un renombre en
+      // MELI, el nombre viejo (apagado) ganaba el amarre exacto y la
+      // necesidad quedaba con una llave que ninguna caja usa — el SKU salía
+      // "sin caja en bodega" con la bodega llena.
       cuentaMeli
         ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
-            q.eq("account_id", cuentaMeli.id),
+            q.eq("account_id", cuentaMeli.id).eq("activo", true),
           )
         : Promise.resolve([]),
       cuentaMeli ? catalogoBodega(supabase, cuentaMeli.id) : Promise.resolve(null),
