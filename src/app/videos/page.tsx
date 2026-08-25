@@ -3,11 +3,9 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { credencialesHiggsfield } from "@/lib/higgsfield/client";
 import {
   GeneradorVideo,
-  PanelPersonajes,
   BotonActualizar,
   BotonBorrar,
   type Publicacion,
-  type Personaje,
 } from "@/components/videos";
 
 export const dynamic = "force-dynamic";
@@ -60,12 +58,6 @@ export default async function Videos() {
   }
   const publicaciones = [...porItem.values()];
 
-  const { data: personajes } = await supabase
-    .from("personajes_video")
-    .select("id, nombre, genero, estado")
-    .eq("account_id", cuenta.id)
-    .order("creado_en", { ascending: false });
-
   const { data: videos } = await supabase
     .from("videos_producto")
     .select("*")
@@ -82,9 +74,10 @@ export default async function Videos() {
       <div>
         <h1 className="text-xl font-semibold">Videos de producto</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Clips verticales de 10 segundos en formato 9:16, listos para los Clips de
-          Mercado Libre, con tus personajes fijos usando el producto. El video
-          terminado se guarda aquí para siempre; en Higgsfield solo vive unos días.
+          Clips verticales 9:16 de 10 segundos listos para los Clips de Mercado
+          Libre, generados directo de tus fotos reales: el producto sale tal cual,
+          sin que la IA lo altere. El video terminado se guarda aquí para siempre;
+          en Higgsfield solo vive unos días.
         </p>
       </div>
 
@@ -99,13 +92,7 @@ export default async function Videos() {
           </p>
         </section>
       ) : (
-        <>
-          <PanelPersonajes iniciales={(personajes ?? []) as Personaje[]} />
-          <GeneradorVideo
-            publicaciones={publicaciones}
-            personajes={(personajes ?? []) as Personaje[]}
-          />
-        </>
+        <GeneradorVideo publicaciones={publicaciones} />
       )}
 
       <section className="tarjeta overflow-hidden">

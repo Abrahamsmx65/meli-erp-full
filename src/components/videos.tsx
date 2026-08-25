@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { MODELOS } from "@/lib/higgsfield/presets";
 import {
   ESCENAS,
-  armarPrompts,
-  armarPromptsHablado,
+  armarPromptProducto,
+  armarPromptHablado,
   detectarGenero,
   detectarTipo,
   guionInicial,
@@ -14,56 +14,12 @@ import {
   type TipoCalzado,
 } from "@/lib/higgsfield/escenas";
 
-/** Lee la respuesta como JSON y, si el servidor contestó texto plano
- *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
-async function leerJson(r: Response): Promise<Record<string, unknown>> {
-  const texto = await r.text();
-  try {
-    return JSON.parse(texto);
-  } catch {
-    throw new Error(
-      r.status === 413
-        ? "Las fotos pesan demasiado para subirlas juntas. Intenta con menos fotos."
-        : `El servidor contestó ${r.status}: ${texto.slice(0, 120)}`,
-    );
-  }
-}
-
-/** Achica una foto en el navegador (máx 1280 px, JPEG) para que el paquete
- *  completo quepa en el límite de ~4.5 MB por petición de Vercel. */
-async function comprimirFoto(archivo: File): Promise<string> {
-  const url = URL.createObjectURL(archivo);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
-      const i = new Image();
-      i.onload = () => resolver(i);
-      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
-      i.src = url;
-    });
-    const escala = Math.min(1, 1280 / Math.max(img.width, img.height));
-    const lienzo = document.createElement("canvas");
-    lienzo.width = Math.round(img.width * escala);
-    lienzo.height = Math.round(img.height * escala);
-    lienzo.getContext("2d")!.drawImage(img, 0, 0, lienzo.width, lienzo.height);
-    return lienzo.toDataURL("image/jpeg", 0.85);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 export interface Publicacion {
   itemId: string;
   titulo: string;
   modelo: string;
   color: string;
   skus: string[];
-}
-
-export interface Personaje {
-  id: string;
-  nombre: string;
-  genero: string | null;
-  estado: string;
 }
 
 const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
@@ -77,210 +33,77 @@ const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   zapato: "Zapatos",
 };
 
-const GENEROS_ETIQUETA: Record<string, string> = {
-  mujer: "Mujer",
-  hombre: "Hombre",
-  nino: "Niños",
-};
-
-// ---------------------------------------------------------------------------
-// Personajes fijos (la influencer, el modelo)
-// ---------------------------------------------------------------------------
-
-export function PanelPersonajes({ iniciales }: { iniciales: Personaje[] }) {
-  const router = useRouter();
-  const [abierto, setAbierto] = useState(false);
-  const [nombre, setNombre] = useState("");
-  const [genero, setGenero] = useState("mujer");
-  const [fotos, setFotos] = useState<string[]>([]);
-  const [estado, setEstado] = useState<"listo" | "enviando">("listo");
-  const [mensaje, setMensaje] = useState<string | null>(null);
-
-  const hayCreando = iniciales.some((p) => p.estado === "creando");
-
-  async function alEscogerFotos(archivos: FileList | null) {
-    if (!archivos) return;
-    setMensaje(null);
-    try {
-      const lista = [...archivos].slice(0, 6);
-      setFotos(await Promise.all(lista.map(comprimirFoto)));
-    } catch (e) {
-      setMensaje((e as Error).message);
-    }
+/** Lee la respuesta como JSON y, si el servidor contestó texto plano
+ *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
+async function leerJson(r: Response): Promise<Record<string, unknown>> {
+  const texto = await r.text();
+  try {
+    return JSON.parse(texto);
+  } catch {
+    throw new Error(`El servidor contestó ${r.status}: ${texto.slice(0, 120)}`);
   }
+}
 
-  async function crear() {
-    setEstado("enviando");
-    setMensaje(null);
-    try {
-      const r = await fetch("/api/videos/personajes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre, genero, fotos }),
-      });
-      const j = await leerJson(r);
-      if (!r.ok) throw new Error(String(j.error ?? "No se pudo crear."));
-      setAbierto(false);
-      setNombre("");
-      setFotos([]);
-      router.refresh();
-    } catch (e) {
-      setMensaje((e as Error).message);
-    } finally {
-      setEstado("listo");
-    }
+/**
+ * Arma el lienzo vertical 9:16 con la foto REAL, sin IA: la misma foto
+ * difuminada de fondo y encima el producto tal cual, completo y centrado.
+ * La foto pasa por nuestro proxy porque el CDN de MELI no manda CORS.
+ */
+async function armarLienzo(fotoUrl: string): Promise<string> {
+  const r = await fetch(`/api/videos/imagenes?proxy=${encodeURIComponent(fotoUrl)}`);
+  if (!r.ok) throw new Error("No se pudo descargar la foto para el lienzo.");
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
+      const i = new Image();
+      i.onload = () => resolver(i);
+      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+
+    const ANCHO = 1152;
+    const ALTO = 2048;
+    const lienzo = document.createElement("canvas");
+    lienzo.width = ANCHO;
+    lienzo.height = ALTO;
+    const ctx = lienzo.getContext("2d")!;
+
+    // Fondo: la misma foto estirada a cubrir, difuminada.
+    const escalaFondo = Math.max(ANCHO / img.width, ALTO / img.height);
+    ctx.filter = "blur(40px) brightness(0.9)";
+    ctx.drawImage(
+      img,
+      (ANCHO - img.width * escalaFondo) / 2,
+      (ALTO - img.height * escalaFondo) / 2,
+      img.width * escalaFondo,
+      img.height * escalaFondo,
+    );
+    ctx.filter = "none";
+
+    // Producto: la foto completa, centrada, SIN recortar ni tocar.
+    const escala = Math.min(ANCHO / img.width, (ALTO * 0.72) / img.height);
+    const w = img.width * escala;
+    const h = img.height * escala;
+    ctx.drawImage(img, (ANCHO - w) / 2, (ALTO - h) / 2, w, h);
+
+    return lienzo.toDataURL("image/jpeg", 0.9);
+  } finally {
+    URL.revokeObjectURL(url);
   }
-
-  async function refrescar() {
-    await fetch("/api/videos/personajes");
-    router.refresh();
-  }
-
-  async function borrar(id: string) {
-    await fetch(`/api/videos/personajes?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    router.refresh();
-  }
-
-  return (
-    <section className="tarjeta p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-semibold">Tus personajes</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            La misma cara en todos tus videos: una influencer para dama, un modelo
-            para caballero. Se entrenan una vez con 1 a 6 fotos y se reutilizan.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {hayCreando ? (
-            <button
-              onClick={refrescar}
-              className="rounded border px-3 py-1.5 text-sm"
-              style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
-            >
-              ↻ Revisar entrenamiento
-            </button>
-          ) : null}
-          <button
-            onClick={() => setAbierto((v) => !v)}
-            className="rounded px-3 py-1.5 text-sm text-white"
-            style={{ background: "var(--acento)" }}
-          >
-            {abierto ? "Cancelar" : "+ Nuevo personaje"}
-          </button>
-        </div>
-      </div>
-
-      {iniciales.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {iniciales.map((p) => (
-            <span
-              key={p.id}
-              className="flex items-center gap-2 rounded-full border px-3 py-1 text-sm"
-              style={{ borderColor: "var(--borde)" }}
-            >
-              <span className="font-medium">{p.nombre}</span>
-              <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
-                {GENEROS_ETIQUETA[p.genero ?? ""] ?? "—"}
-              </span>
-              <span
-                className="text-xs"
-                style={{
-                  color:
-                    p.estado === "listo"
-                      ? "var(--exito-texto)"
-                      : p.estado === "fallido"
-                        ? "var(--estado-critico)"
-                        : "var(--estado-alerta)",
-                }}
-              >
-                {p.estado === "listo" ? "✓ Listo" : p.estado === "fallido" ? "Falló" : "Entrenando…"}
-              </span>
-              <button
-                onClick={() => borrar(p.id)}
-                className="text-xs underline"
-                style={{ color: "var(--ink-muted)" }}
-              >
-                borrar
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {abierto && (
-        <div className="mt-4 flex flex-col gap-2 border-t pt-4 hairline">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Nombre (p. ej. Valeria)"
-              className="w-48 px-2 py-1.5 text-sm"
-            />
-            <select value={genero} onChange={(e) => setGenero(e.target.value)} className="px-2 py-1.5 text-sm">
-              <option value="mujer">Mujer</option>
-              <option value="hombre">Hombre</option>
-              <option value="nino">Niños</option>
-            </select>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              onChange={(e) => alEscogerFotos(e.target.files)}
-              className="text-xs"
-            />
-          </div>
-          <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-            De 1 a 6 fotos claras de la misma persona (rostro y cuerpo entero ayudan).
-            Tip: puedes crear a tu influencer en higgsfield.ai con tu plan Pro,
-            descargar sus fotos y subirlas aquí.
-          </p>
-          {fotos.length > 0 && (
-            <div className="flex gap-1.5">
-              {fotos.map((f, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={i} src={f} alt="" className="h-14 w-14 rounded object-cover" />
-              ))}
-            </div>
-          )}
-          <div>
-            <button
-              onClick={crear}
-              disabled={estado === "enviando" || !nombre.trim() || fotos.length === 0}
-              className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
-            >
-              {estado === "enviando" ? "Subiendo…" : "Crear personaje"}
-            </button>
-          </div>
-          {mensaje && (
-            <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
-              {mensaje}
-            </p>
-          )}
-        </div>
-      )}
-    </section>
-  );
 }
 
 // ---------------------------------------------------------------------------
 // Generador de videos
 // ---------------------------------------------------------------------------
 
-export function GeneradorVideo({
-  publicaciones,
-  personajes,
-}: {
-  publicaciones: Publicacion[];
-  personajes: Personaje[];
-}) {
+export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[] }) {
   const router = useRouter();
 
   const [busqueda, setBusqueda] = useState("");
   const [pub, setPub] = useState<Publicacion | null>(null);
   const [imagenes, setImagenes] = useState<string[]>([]);
-  const [imagen, setImagen] = useState("");
+  const [seleccion, setSeleccion] = useState<string[]>([]);
   const [cargandoFotos, setCargandoFotos] = useState(false);
 
   const [tipo, setTipo] = useState<TipoCalzado>("zapato");
@@ -288,18 +111,16 @@ export function GeneradorVideo({
   const [escenaId, setEscenaId] = useState(ESCENAS[0].id);
   const [semilla, setSemilla] = useState(0.42);
   const [guion, setGuion] = useState("");
-  const [promptImagen, setPromptImagen] = useState("");
   const [promptVideo, setPromptVideo] = useState("");
 
   const [formato, setFormato] = useState<"clip" | "hablado" | "dop">("clip");
-  const [personajeId, setPersonajeId] = useState<string>("");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
   const [estado, setEstado] = useState<"listo" | "enviando" | "ok" | "error">("listo");
   const [mensaje, setMensaje] = useState<string | null>(null);
 
-  const listos = personajes.filter((p) => p.estado === "listo");
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
+  const principal = seleccion[0] ?? "";
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -314,7 +135,7 @@ export function GeneradorVideo({
       .slice(0, 30);
   }, [busqueda, publicaciones]);
 
-  function regenerarPrompts(datos: {
+  function regenerarPrompt(datos: {
     tipo: TipoCalzado;
     genero: Genero;
     escenaId: string;
@@ -322,23 +143,22 @@ export function GeneradorVideo({
     formato: "clip" | "hablado" | "dop";
     guion: string;
   }) {
-    const prompts =
+    setPromptVideo(
       datos.formato === "hablado"
-        ? armarPromptsHablado({
+        ? armarPromptHablado({
             tipo: datos.tipo,
             genero: datos.genero,
             semilla: datos.semilla,
             guion: datos.guion,
           })
-        : armarPrompts(datos);
-    setPromptImagen(prompts.imagen);
-    setPromptVideo(prompts.video);
+        : armarPromptProducto(datos),
+    );
   }
 
   async function escogerPublicacion(p: Publicacion) {
     setPub(p);
     setImagenes([]);
-    setImagen("");
+    setSeleccion([]);
     setMensaje(null);
 
     // La escena se adapta al producto: botas ≠ sandalias ≠ pantuflas.
@@ -349,25 +169,26 @@ export function GeneradorVideo({
     setTipo(t);
     setGenero(g);
     setGuion(gu);
-    regenerarPrompts({ tipo: t, genero: g, escenaId, semilla, formato, guion: gu });
-
-    // Personaje del género detectado, si hay uno listo.
-    const candidato = listos.find((x) => x.genero === g) ?? listos[0];
-    setPersonajeId(candidato?.id ?? "");
+    regenerarPrompt({ tipo: t, genero: g, escenaId, semilla, formato, guion: gu });
 
     setCargandoFotos(true);
     try {
       const r = await fetch(`/api/videos/imagenes?item=${encodeURIComponent(p.itemId)}`);
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudieron traer las fotos.");
-      setImagenes(j.imagenes ?? []);
-      if (j.imagenes?.length) setImagen(j.imagenes[0]);
-      if (!j.imagenes?.length) setMensaje("La publicación no tiene fotos.");
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudieron traer las fotos."));
+      const fotos = (j.imagenes as string[]) ?? [];
+      setImagenes(fotos);
+      if (fotos.length) setSeleccion([fotos[0]]);
+      else setMensaje("La publicación no tiene fotos.");
     } catch (e) {
       setMensaje((e as Error).message);
     } finally {
       setCargandoFotos(false);
     }
+  }
+
+  function alternarFoto(url: string) {
+    setSeleccion((s) => (s.includes(url) ? s.filter((x) => x !== url) : [...s, url]));
   }
 
   function cambiar(
@@ -393,32 +214,33 @@ export function GeneradorVideo({
     if (cambios.semilla !== undefined) setSemilla(s);
     if (cambios.formato !== undefined) setFormato(f);
     if (gu !== guion) setGuion(gu);
-    regenerarPrompts({ tipo: t, genero: g, escenaId: e, semilla: s, formato: f, guion: gu });
+    regenerarPrompt({ tipo: t, genero: g, escenaId: e, semilla: s, formato: f, guion: gu });
   }
 
   async function generar() {
-    if (!pub) return;
+    if (!pub || !principal) return;
     setEstado("enviando");
     setMensaje(null);
     try {
+      // El lienzo 9:16 se arma aquí, con la foto real, sin IA de por medio.
+      const imagenLienzo =
+        formato === "clip" || formato === "hablado" ? await armarLienzo(principal) : null;
+
       const r = await fetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           itemId: pub.itemId,
           titulo: pub.titulo,
-          imagenUrl: imagen,
+          imagenUrl: principal,
+          imagenLienzo,
+          fotos: seleccion,
           formato,
           escena:
             formato === "hablado"
               ? `Hablado (${TIPOS_ETIQUETA[tipo]})`
               : `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
           prompt: promptVideo,
-          promptImagen,
-          personajeId:
-            formato === "hablado" || (formato === "clip" && escena.conPersona)
-              ? personajeId || null
-              : null,
           modelo: modeloDop,
         }),
       });
@@ -436,6 +258,10 @@ export function GeneradorVideo({
   return (
     <section className="tarjeta p-4">
       <h2 className="font-semibold">Nuevo video</h2>
+      <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        El video se genera directo de tus fotos reales: el producto sale tal cual,
+        sin que la IA lo redibuje.
+      </p>
 
       {/* 1. Publicación */}
       <div className="mt-3">
@@ -483,36 +309,53 @@ export function GeneradorVideo({
         )}
       </div>
 
-      {/* 2. Foto */}
+      {/* 2. Fotos */}
       {pub && (
         <div className="mt-4">
           <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
-            2 · Foto de partida
+            2 · Fotos del producto
           </div>
           {cargandoFotos ? (
             <p className="mt-1.5 text-sm" style={{ color: "var(--ink-muted)" }}>
               Trayendo fotos de MELI…
             </p>
           ) : (
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {imagenes.map((url) => (
-                <button
-                  key={url}
-                  onClick={() => setImagen(url)}
-                  className="rounded-md border-2 p-0.5"
-                  style={{ borderColor: imagen === url ? "var(--acento)" : "transparent" }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-20 w-20 rounded object-cover" />
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {imagenes.map((url) => {
+                  const posicion = seleccion.indexOf(url);
+                  return (
+                    <button
+                      key={url}
+                      onClick={() => alternarFoto(url)}
+                      className="relative rounded-md border-2 p-0.5"
+                      style={{ borderColor: posicion >= 0 ? "var(--acento)" : "transparent" }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-20 w-20 rounded object-cover" />
+                      {posicion >= 0 && (
+                        <span
+                          className="cifra absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                          style={{ background: "var(--acento)" }}
+                        >
+                          {posicion + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                Marca varias: la 1 es la principal del video; en la prueba rápida
+                todas se mandan de referencia a la IA.
+              </p>
+            </>
           )}
         </div>
       )}
 
       {/* 3. Escena */}
-      {imagen && (
+      {principal && (
         <div className="mt-4">
           <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
             3 · Escena
@@ -562,7 +405,7 @@ export function GeneradorVideo({
               ))}
             <button
               onClick={() => cambiar({ semilla: Math.random() })}
-              title="Otra locación, luz y movimiento con la misma escena"
+              title="Otra luz y otro movimiento de cámara"
               className="rounded-full border px-3 py-1 text-xs"
               style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
             >
@@ -573,7 +416,7 @@ export function GeneradorVideo({
           {formato === "hablado" && (
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Guion (lo que dice a cámara, en español)
+                Guion (la voz en off lo dice en español)
               </span>
               <textarea
                 value={guion}
@@ -584,53 +427,20 @@ export function GeneradorVideo({
             </label>
           )}
 
-          {(formato === "hablado" || (formato === "clip" && escena.conPersona)) && (
-            <div className="mt-2 flex items-center gap-2 text-sm">
-              <span style={{ color: "var(--ink-muted)" }}>Personaje:</span>
-              <select
-                value={personajeId}
-                onChange={(e) => setPersonajeId(e.target.value)}
-                className="px-2 py-1 text-sm"
-              >
-                <option value="">Sin personaje fijo (cara nueva cada vez)</option>
-                {listos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre} ({GENEROS_ETIQUETA[p.genero ?? ""] ?? "—"})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="mt-3 grid gap-2 lg:grid-cols-2">
-            {formato !== "dop" && (
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                  Prompt de la foto 9:16 (etapa 1)
-                </span>
-                <textarea
-                  value={promptImagen}
-                  onChange={(e) => setPromptImagen(e.target.value)}
-                  rows={4}
-                  className="w-full px-2 py-1.5 text-xs"
-                />
-              </label>
-            )}
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Prompt del movimiento {formato === "clip" ? "(etapa 2)" : ""}
-              </span>
-              <textarea
-                value={promptVideo}
-                onChange={(e) => setPromptVideo(e.target.value)}
-                rows={4}
-                className="w-full px-2 py-1.5 text-xs"
-              />
-            </label>
-          </div>
+          <label className="mt-3 flex max-w-2xl flex-col gap-1">
+            <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              Prompt del video (movimiento, luz; el producto no se toca)
+            </span>
+            <textarea
+              value={promptVideo}
+              onChange={(e) => setPromptVideo(e.target.value)}
+              rows={4}
+              className="w-full px-2 py-1.5 text-xs"
+            />
+          </label>
           <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-            Puedes editarlos. En inglés funciona mejor; el 🎲 cambia locación, luz,
-            atuendo y movimiento sin que tengas que escribir nada.
+            Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento
+            sin que tengas que escribir nada.
           </p>
 
           {/* 4. Formato */}
@@ -641,8 +451,8 @@ export function GeneradorVideo({
               className="px-2 py-1.5 text-sm"
             >
               <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
-              <option value="hablado">Hablado — presenta el producto en español · 8 s (para redes)</option>
-              <option value="dop">Prueba rápida — ~5 s (no sirve para Clips)</option>
+              <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
+              <option value="dop">Prueba rápida — ~5 s, usa todas las fotos marcadas</option>
             </select>
 
             {formato === "dop" && (

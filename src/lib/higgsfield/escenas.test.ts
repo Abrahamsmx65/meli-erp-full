@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   ESCENAS,
-  armarPrompts,
-  armarPromptsHablado,
+  armarPromptProducto,
+  armarPromptHablado,
   detectarGenero,
   detectarTipo,
   guionInicial,
   type TipoCalzado,
 } from "./escenas";
 
+const TIPOS: TipoCalzado[] = [
+  "bota",
+  "sandalia",
+  "sandalia_agua",
+  "pantufla",
+  "tenis",
+  "tacon",
+  "mocasin",
+  "zapato",
+];
+
 describe("detectarTipo", () => {
-  it("distingue botas, sandalias, tenis y tacones por el título real", () => {
+  it("distingue los tipos por el título real", () => {
     expect(detectarTipo("BOTA CASUAL GETAC PARA CABALLERO GT128")).toBe("bota");
     expect(detectarTipo("Botín Chelsea dama piel")).toBe("bota");
-    expect(detectarTipo("SANDALIA DE PLAYA PARA MUJER")).toBe("sandalia_agua");
     expect(detectarTipo("Huarache artesanal caballero")).toBe("sandalia");
     expect(detectarTipo("TENIS DEPORTIVO RUNNER GT200")).toBe("tenis");
     expect(detectarTipo("Zapatilla de tacón alto fiesta")).toBe("tacon");
@@ -26,6 +36,7 @@ describe("detectarTipo", () => {
 
   it("separa las sandalias de agua de las de vestir", () => {
     expect(detectarTipo("SANDALIA ACUATICA PARA PLAYA")).toBe("sandalia_agua");
+    expect(detectarTipo("SANDALIA DE PLAYA PARA MUJER")).toBe("sandalia_agua");
     expect(detectarTipo("Chancla de alberca")).toBe("sandalia_agua");
     expect(detectarTipo("SANDALIA DE CORCHO DAMA")).toBe("sandalia");
   });
@@ -45,50 +56,30 @@ describe("detectarGenero", () => {
   });
 });
 
-describe("armarPrompts", () => {
-  const tipos: TipoCalzado[] = [
-    "bota",
-    "sandalia",
-    "sandalia_agua",
-    "pantufla",
-    "tenis",
-    "tacon",
-    "mocasin",
-    "zapato",
-  ];
-
-  it("toda escena de todo tipo produce ambos prompts, con ancla al producto", () => {
-    for (const tipo of tipos) {
+describe("armarPromptProducto", () => {
+  it("toda escena de todo tipo produce prompt con el candado de fidelidad", () => {
+    for (const tipo of TIPOS) {
       for (const escena of ESCENAS) {
-        const p = armarPrompts({ tipo, escenaId: escena.id, genero: "mujer", semilla: 0.5 });
-        expect(p.imagen.length).toBeGreaterThan(60);
-        expect(p.video.length).toBeGreaterThan(40);
-        // El candado de fidelidad: la imagen siempre exige respetar la foto.
-        expect(p.imagen).toMatch(/reference/i);
+        const p = armarPromptProducto({ tipo, escenaId: escena.id, semilla: 0.5 });
+        expect(p.length).toBeGreaterThan(80);
+        expect(p).toMatch(/must remain EXACTLY/);
+        expect(p).toMatch(/Do not redesign/);
       }
     }
   });
 
-  it("la semilla cambia la variante pero no rompe la escena", () => {
-    const a = armarPrompts({ tipo: "bota", escenaId: "uso-real", genero: "hombre", semilla: 0.1 });
-    const b = armarPrompts({ tipo: "bota", escenaId: "uso-real", genero: "hombre", semilla: 0.9 });
-    expect(a.imagen).not.toEqual(b.imagen);
-    // Misma semilla, mismo resultado: el dado es determinista.
-    const c = armarPrompts({ tipo: "bota", escenaId: "uso-real", genero: "hombre", semilla: 0.1 });
+  it("la semilla cambia la variante y es determinista", () => {
+    const a = armarPromptProducto({ tipo: "bota", escenaId: "escaparate", semilla: 0.0 });
+    const b = armarPromptProducto({ tipo: "bota", escenaId: "escaparate", semilla: 0.2 });
+    expect(a).not.toEqual(b);
+    const c = armarPromptProducto({ tipo: "bota", escenaId: "escaparate", semilla: 0.0 });
     expect(c).toEqual(a);
   });
 
-  it("las escenas de producto no meten personas", () => {
-    const p = armarPrompts({ tipo: "sandalia", escenaId: "escaparate", genero: "mujer", semilla: 0.3 });
-    expect(p.imagen).not.toMatch(/influencer|person\b/i);
-  });
-
-  it("las sandalias de vestir no se mojan; las de agua sí pueden", () => {
+  it("nunca pide regenerar personas ni cambiar el producto", () => {
     for (const escena of ESCENAS) {
-      for (const s of [0.1, 0.35, 0.6, 0.85]) {
-        const p = armarPrompts({ tipo: "sandalia", escenaId: escena.id, genero: "mujer", semilla: s });
-        expect(`${p.imagen} ${p.video}`).not.toMatch(/water|splash|wet|pool|beach/i);
-      }
+      const p = armarPromptProducto({ tipo: "tenis", escenaId: escena.id, semilla: 0.7 });
+      expect(p).not.toMatch(/influencer|wearing|redesigned/i);
     }
   });
 });
@@ -101,16 +92,26 @@ describe("clip hablado", () => {
     expect(guionInicial("tenis")).toMatch(/comodísimos/);
   });
 
-  it("mete el guion en español dentro del prompt de video", () => {
-    const p = armarPromptsHablado({
+  it("mete el guion como voz en off en español y respeta el candado", () => {
+    const p = armarPromptHablado({
       tipo: "pantufla",
       genero: "mujer",
       semilla: 0.5,
       guion: 'Estas pantuflas son "lo máximo"',
     });
-    expect(p.video).toContain("Mexican Spanish");
+    expect(p).toContain("Mexican Spanish");
+    expect(p).toContain("voice-over");
     // Las comillas dobles del guion se convierten: son las que delimitan el diálogo.
-    expect(p.video).toContain("Estas pantuflas son 'lo máximo'");
-    expect(p.imagen).toMatch(/reference/i);
+    expect(p).toContain("Estas pantuflas son 'lo máximo'");
+    expect(p).toMatch(/must remain EXACTLY/);
+  });
+
+  it("la voz sigue el género del producto", () => {
+    expect(
+      armarPromptHablado({ tipo: "bota", genero: "hombre", semilla: 0.2, guion: "Hola" }),
+    ).toContain("male voice-over");
+    expect(
+      armarPromptHablado({ tipo: "bota", genero: "mujer", semilla: 0.2, guion: "Hola" }),
+    ).toContain("female voice-over");
   });
 });

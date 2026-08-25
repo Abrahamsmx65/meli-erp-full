@@ -1,13 +1,15 @@
 /**
  * Motor de escenas: qué video le queda a cada tipo de calzado.
  *
- * No es lo mismo unas botas que unas sandalias: el tipo se detecta del
- * título/modelo de la publicación y cada tipo trae sus propias escenas con
- * variantes de locación, luz y movimiento. El botón "Variar" de la UI tira
- * un dado nuevo y arma otra combinación, para que dos videos del mismo
- * producto no salgan iguales.
+ * REGLA DE ORO: el producto no se altera. Los videos se generan DIRECTO de
+ * las fotos reales de la publicación (nada de regenerar la imagen con IA:
+ * eso redibujaba el producto y quedó prohibido). Los prompts solo piden
+ * movimiento de cámara, luz y ambiente, y todos cierran con el candado de
+ * fidelidad.
  *
- * Los prompts van en inglés a propósito: los modelos generan mejor así.
+ * El tipo se detecta del título/modelo, y cada tipo trae variantes de luz y
+ * movimiento; el botón "Variar" tira el dado y arma otra combinación. Los
+ * prompts van en inglés a propósito: los modelos generan mejor así.
  */
 
 export type TipoCalzado =
@@ -19,6 +21,7 @@ export type TipoCalzado =
   | "tacon"
   | "mocasin"
   | "zapato";
+
 export type Genero = "mujer" | "hombre" | "nino" | null;
 
 // ---------------------------------------------------------------------------
@@ -52,197 +55,10 @@ export function detectarGenero(texto: string): Genero {
 }
 
 // ---------------------------------------------------------------------------
-// Ingredientes por tipo
+// Guion del clip hablado
 // ---------------------------------------------------------------------------
 
-interface Ingredientes {
-  /** dónde pasa la escena */
-  locaciones: string[];
-  /** con qué luz */
-  luces: string[];
-  /** qué hace la persona (video con personaje) */
-  acciones: string[];
-  /** ropa que acompaña al calzado */
-  atuendos: string[];
-  /** dónde se para el producto cuando NO hay personaje */
-  superficies: string[];
-}
-
-const INGREDIENTES: Record<TipoCalzado, Ingredientes> = {
-  bota: {
-    locaciones: [
-      "a rugged mountain trail with pine trees",
-      "a rain-soaked city street at night with neon reflections",
-      "an autumn forest path covered in golden leaves",
-      "an industrial district with brick walls",
-      "a desert road at golden hour",
-    ],
-    luces: ["moody overcast light", "warm golden hour glow", "dramatic low sun with long shadows"],
-    acciones: [
-      "walking firmly toward the camera with confident strides",
-      "stepping onto a rock ledge and pausing to look ahead",
-      "kicking up dust as they stride past the camera",
-    ],
-    atuendos: ["slim jeans and a rugged jacket", "cargo pants and a flannel shirt", "a long coat with dark denim"],
-    superficies: ["a weathered wooden crate", "wet asphalt with reflections", "mossy rocks"],
-  },
-  sandalia: {
-    // Sandalias de vestir, corcho, piel: nada de agua, que se echan a perder.
-    locaciones: [
-      "a colorful summer street market",
-      "a charming café terrace with plants",
-      "a sunlit boutique district",
-      "a garden patio with warm string lights",
-    ],
-    luces: ["bright summer sunlight", "soft golden afternoon light", "sparkling midday light with gentle shade"],
-    acciones: [
-      "strolling relaxed through the market",
-      "walking easy and light across the terrace",
-      "turning around smiling while walking away from the camera",
-    ],
-    atuendos: ["a flowy summer dress", "linen shorts and a light shirt", "a light boho outfit"],
-    superficies: ["warm terracotta tiles", "sun-bleached wooden planks", "a linen-draped display table"],
-  },
-  sandalia_agua: {
-    locaciones: [
-      "a white-sand beach shoreline at sunset",
-      "a tropical resort pool deck",
-      "a rocky river bank with crystal-clear water",
-      "a breezy seaside boardwalk",
-    ],
-    luces: ["bright summer sunlight", "soft sunset glow", "sparkling reflections from the water"],
-    acciones: [
-      "walking along the wet shoreline, splashing a little water with each step",
-      "stepping into shallow crystal-clear water, drops sparkling",
-      "strolling on the pool deck leaving wet footprints",
-    ],
-    atuendos: ["a swimsuit with a beach cover-up", "board shorts and a tank top", "light beachwear"],
-    superficies: ["wet sand with foam from a wave", "a poolside mosaic edge with water drops", "smooth river stones"],
-  },
-  pantufla: {
-    // Las pantuflas viven dentro de casa: cozy, no banquetas.
-    locaciones: [
-      "a cozy living room with a soft rug and warm lamps",
-      "a bright bedroom on a lazy Sunday morning",
-      "a cabin with a fireplace glowing",
-      "a modern kitchen while making morning coffee",
-    ],
-    luces: ["warm cozy indoor light", "soft morning window light", "golden fireplace glow"],
-    acciones: [
-      "padding softly across the wooden floor toward the camera",
-      "curling up on the couch and stretching their feet toward the camera",
-      "walking to the kitchen holding a mug, relaxed and comfy",
-    ],
-    atuendos: ["cozy pajamas and a knit sweater", "a fluffy robe", "loungewear with warm socks vibes"],
-    superficies: ["a soft shaggy rug", "warm wooden flooring", "a knitted blanket on the couch"],
-  },
-  tenis: {
-    locaciones: [
-      "an urban basketball court with murals",
-      "a skate park at golden hour",
-      "a busy city crosswalk",
-      "a modern gym with dramatic lighting",
-      "a colorful graffiti alley",
-    ],
-    luces: ["punchy urban daylight", "neon-tinted evening light", "clean bright studio-like light"],
-    acciones: [
-      "jogging toward the camera and stopping with energy",
-      "doing a quick pivot step, sneakers gripping the ground",
-      "walking with a confident bounce, camera tracking low",
-    ],
-    atuendos: ["joggers and a hoodie", "athletic wear", "streetwear with an oversized jacket"],
-    superficies: ["painted court concrete", "a skate ramp edge", "clean white studio blocks"],
-  },
-  tacon: {
-    locaciones: [
-      "an elegant hotel lobby with marble floors",
-      "a rooftop bar at dusk with city lights",
-      "a grand staircase with warm lamps",
-      "a gallery opening with soft spotlights",
-    ],
-    luces: ["warm glamorous lighting", "cool elegant evening light", "soft cinematic spotlights"],
-    acciones: [
-      "walking gracefully toward the camera, heels clicking",
-      "descending the staircase slowly, one hand on the rail",
-      "turning elegantly, dress flowing, heels in focus",
-    ],
-    atuendos: ["an elegant evening dress", "a chic tailored suit", "a cocktail dress"],
-    superficies: ["polished marble", "a velvet pedestal", "a mirrored platform"],
-  },
-  mocasin: {
-    locaciones: [
-      "a stylish café terrace in the morning",
-      "a modern office lobby",
-      "a cobblestone street in a historic district",
-      "a yacht deck on a clear day",
-    ],
-    luces: ["soft morning light", "clean corporate daylight", "warm afternoon light"],
-    acciones: [
-      "walking relaxed with hands in pockets",
-      "crossing the lobby with an easy confident pace",
-      "stepping off a curb smoothly, camera at ankle height",
-    ],
-    atuendos: ["chinos and a crisp shirt", "a smart-casual blazer", "light summer trousers"],
-    superficies: ["warm wooden decking", "polished concrete", "cobblestones"],
-  },
-  zapato: {
-    locaciones: [
-      "a lively city sidewalk",
-      "a sunlit park path",
-      "a modern shopping district",
-      "a minimalist studio set",
-    ],
-    luces: ["natural daylight", "warm golden hour glow", "clean soft studio light"],
-    acciones: [
-      "walking naturally toward the camera",
-      "stepping confidently past the camera, shoes in focus",
-      "pausing mid-walk and turning slightly",
-    ],
-    atuendos: ["smart-casual everyday clothes", "jeans and a neat jacket", "a relaxed modern outfit"],
-    superficies: ["clean pavement", "a wooden display cube", "smooth studio floor"],
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Escenas
-// ---------------------------------------------------------------------------
-
-export interface Escena {
-  id: string;
-  etiqueta: string;
-  descripcion: string;
-  /** true si la escena necesita una persona (y por lo tanto luce con personaje) */
-  conPersona: boolean;
-}
-
-export const ESCENAS: Escena[] = [
-  {
-    id: "uso-real",
-    etiqueta: "Uso real",
-    descripcion: "La persona camina con el producto puesto, escena natural.",
-    conPersona: true,
-  },
-  {
-    id: "influencer",
-    etiqueta: "Estilo influencer",
-    descripcion: "Pose y actitud de redes: cercano, con energía y carisma.",
-    conPersona: true,
-  },
-  {
-    id: "escaparate",
-    etiqueta: "Escaparate",
-    descripcion: "Solo el producto: la cámara lo rodea con luz de estudio.",
-    conPersona: false,
-  },
-  {
-    id: "detalle",
-    etiqueta: "Detalles",
-    descripcion: "Acercamientos a materiales, costuras y suela.",
-    conPersona: false,
-  },
-];
-
-/** Cómo se llama el producto cuando el personaje habla de él. */
+/** Cómo se llama el producto cuando la voz habla de él. */
 export const PALABRA_TIPO: Record<TipoCalzado, { palabra: string; femenino: boolean }> = {
   bota: { palabra: "botas", femenino: true },
   sandalia: { palabra: "sandalias", femenino: true },
@@ -262,119 +78,121 @@ export function guionInicial(tipo: TipoCalzado): string {
   return `¡Tienen que ver ${estas} ${palabra}! Son ${comodas}, la calidad es increíble y combinan con todo. Córranle antes de que se acaben.`;
 }
 
+// ---------------------------------------------------------------------------
+// Escenas (todas respetan el producto tal cual)
+// ---------------------------------------------------------------------------
+
+export interface Escena {
+  id: string;
+  etiqueta: string;
+  descripcion: string;
+}
+
+export const ESCENAS: Escena[] = [
+  {
+    id: "escaparate",
+    etiqueta: "Escaparate",
+    descripcion: "La cámara rodea el producto despacio, estilo comercial premium.",
+  },
+  {
+    id: "detalle",
+    etiqueta: "Detalles",
+    descripcion: "Acercamiento lento a materiales, costuras y suela.",
+  },
+  {
+    id: "manos",
+    etiqueta: "En manos",
+    descripcion: "Unas manos toman el producto y lo presentan a cámara.",
+  },
+  {
+    id: "vivo",
+    etiqueta: "Foto viva",
+    descripcion: "La foto cobra vida: luz que se mueve, fondo con aire, producto quieto.",
+  },
+];
+
+/** El candado que cierra TODOS los prompts. */
+const CANDADO =
+  " STRICT RULE: the product must remain EXACTLY as shown in the input image — " +
+  "same design, shape, colors, materials, textures and logos. Do not redesign, " +
+  "replace, morph or restyle the product in any way.";
+
+const LUCES: Record<TipoCalzado, string[]> = {
+  bota: ["moody warm light with soft shadows", "golden hour glow", "dramatic side light"],
+  sandalia: ["bright airy summer light", "soft golden afternoon light", "fresh daylight"],
+  sandalia_agua: ["sparkling summer light", "sunny poolside brightness", "fresh coastal light"],
+  pantufla: ["warm cozy indoor light", "soft morning window light", "gentle lamp glow"],
+  tenis: ["punchy studio light", "cool urban light", "clean bright light"],
+  tacon: ["glamorous warm spotlights", "elegant cool evening light", "soft cinematic glow"],
+  mocasin: ["refined soft daylight", "warm boutique light", "clean morning light"],
+  zapato: ["natural daylight", "warm golden light", "soft studio light"],
+};
+
+const MOVIMIENTOS: Record<string, string[]> = {
+  escaparate: [
+    "slow elegant orbit around the product",
+    "smooth semicircular dolly with a gentle rise",
+    "slow rotating turntable feel, camera fixed",
+  ],
+  detalle: [
+    "slow dolly-in toward the stitching and materials",
+    "gentle macro glide along the profile ending on the sole",
+    "slow push-in with a delicate focus pull",
+  ],
+  manos: [
+    "a pair of well-groomed hands enters the frame, gently lifts the product and presents it to the camera turning it slightly",
+    "hands pick up the product, bring it closer to the lens and tilt it to show the profile",
+    "one hand points out the details while the other holds the product steady toward the camera",
+  ],
+  vivo: [
+    "the light sweeps softly across the product while dust particles float in the air",
+    "the background gains subtle life and depth of field shifts gently, product perfectly still",
+    "a soft shadow of leaves moves over the scene while the camera drifts very slowly",
+  ],
+};
+
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Determinista con la semilla: mismo dado, misma escena.
   const i = Math.abs(Math.floor(semilla * 7919 + sal * 104729)) % arr.length;
   return arr[i];
 }
 
-const PERSONA: Record<Exclude<Genero, null>, string> = {
-  mujer: "a young female fashion influencer",
-  hombre: "a young male fashion influencer",
-  nino: "a cheerful kid model",
-};
+/**
+ * Prompt de video para animar la foto REAL del producto. Solo cámara, luz y
+ * ambiente; el candado de fidelidad va siempre al final.
+ */
+export function armarPromptProducto(datos: {
+  tipo: TipoCalzado;
+  escenaId: string;
+  semilla: number;
+}): string {
+  const luz = elegir(LUCES[datos.tipo], datos.semilla, 2);
+  const movimientos = MOVIMIENTOS[datos.escenaId] ?? MOVIMIENTOS.escaparate;
+  const movimiento = elegir(movimientos, datos.semilla, 3);
+  return (
+    `Premium product commercial: ${movimiento}, ${luz}, subtle cinematic grade, ` +
+    `the product always sharp and in focus.` + CANDADO
+  );
+}
 
 /**
- * Prompts del clip hablado: el personaje presenta el producto a cámara y
- * dice el guion en español. Veo 3.1 genera la voz y el lip sync desde el
- * propio prompt.
+ * Prompt del clip hablado: la foto real se anima con movimiento suave y una
+ * VOZ EN OFF en español presenta el producto. Nadie sale a cuadro y el
+ * producto no se toca; Veo 3.1 genera la voz desde el propio prompt.
  */
-export function armarPromptsHablado(datos: {
+export function armarPromptHablado(datos: {
   tipo: TipoCalzado;
   genero: Genero;
   semilla: number;
   guion: string;
-}): PromptsEscena {
-  const ing = INGREDIENTES[datos.tipo];
-  const s = datos.semilla;
-  const locacion = elegir(ing.locaciones, s, 1);
-  const luz = elegir(ing.luces, s, 2);
-  const atuendo = elegir(ing.atuendos, s, 4);
-  const persona = PERSONA[datos.genero ?? "mujer"];
+}): string {
+  const luz = elegir(LUCES[datos.tipo], datos.semilla, 2);
+  const movimiento = elegir(MOVIMIENTOS.escaparate, datos.semilla, 3);
+  const voz = datos.genero === "hombre" ? "male" : "female";
   const guion = datos.guion.trim().replace(/"/g, "'");
-
-  return {
-    imagen:
-      `Vertical photo of ${persona} with ${atuendo} in ${locacion}, ${luz}, facing the camera ` +
-      `and holding up one shoe from the reference image toward the viewer while wearing the pair, ` +
-      `social media selfie-video framing, photorealistic, sharp focus, ` +
-      `the shoes must match the reference exactly`,
-    video:
-      `The person looks straight at the camera with a warm smile, lifts the shoe closer to the lens to ` +
-      `show it off, and says in enthusiastic Mexican Spanish: "${guion}". ` +
-      `Natural lip sync and hand gestures, upbeat social media influencer energy, ${luz}, ` +
-      `vertical video, the shoes clearly visible the whole time`,
-  };
-}
-
-export interface PromptsEscena {
-  /** para Soul: la foto vertical de partida */
-  imagen: string;
-  /** para Kling/DoP: cómo se mueve esa foto */
-  video: string;
-}
-
-/**
- * Arma los dos prompts (imagen y video) para un tipo de calzado, escena,
- * género y semilla de variación. Cambiar la semilla cambia locación, luz,
- * atuendo y acción: esa es la "creatividad" controlada.
- */
-export function armarPrompts(datos: {
-  tipo: TipoCalzado;
-  escenaId: string;
-  genero: Genero;
-  semilla: number;
-}): PromptsEscena {
-  const ing = INGREDIENTES[datos.tipo];
-  const s = datos.semilla;
-  const locacion = elegir(ing.locaciones, s, 1);
-  const luz = elegir(ing.luces, s, 2);
-  const accion = elegir(ing.acciones, s, 3);
-  const atuendo = elegir(ing.atuendos, s, 4);
-  const superficie = elegir(ing.superficies, s, 5);
-  const persona = PERSONA[datos.genero ?? "mujer"];
-
-  switch (datos.escenaId) {
-    case "influencer":
-      return {
-        imagen:
-          `Vertical full-body photo of ${persona} wearing the exact shoes from the reference image ` +
-          `with ${atuendo}, posing for social media in ${locacion}, ${luz}, shot on a 35mm lens, ` +
-          `photorealistic, sharp focus on the shoes, the shoes must match the reference exactly`,
-        video:
-          `The person comes alive with influencer energy: ${accion}, then a playful spin toward ` +
-          `the camera, ${luz}, smooth gimbal movement, the shoes always in frame and in focus`,
-      };
-    case "escaparate":
-      return {
-        imagen:
-          `Vertical premium product photo of the exact shoes from the reference image placed on ` +
-          `${superficie} in ${locacion}, ${luz}, shallow depth of field, photorealistic, ` +
-          `the shoes must match the reference exactly`,
-        video:
-          `Slow cinematic orbit around the shoes, ${luz}, subtle dust particles in the light, ` +
-          `premium commercial style, the shoes stay perfectly identical`,
-      };
-    case "detalle":
-      return {
-        imagen:
-          `Vertical macro-style photo of the exact shoes from the reference image on ${superficie}, ` +
-          `${luz}, extreme detail of stitching, texture and sole, photorealistic, ` +
-          `the shoes must match the reference exactly`,
-        video:
-          `Slow dolly-in revealing the texture, stitching and sole of the shoes, ${luz}, ` +
-          `elegant focus pulls, premium commercial style, the shoes stay perfectly identical`,
-      };
-    case "uso-real":
-    default:
-      return {
-        imagen:
-          `Vertical full-body photo of ${persona} wearing the exact shoes from the reference image ` +
-          `with ${atuendo}, standing naturally in ${locacion}, ${luz}, candid documentary style, ` +
-          `photorealistic, sharp focus on the shoes, the shoes must match the reference exactly`,
-        video:
-          `Realistic scene: ${accion}, natural body motion, ${luz}, handheld documentary feel, ` +
-          `camera low and close to the ground, the shoes always visible and in focus`,
-      };
-  }
+  return (
+    `Product advertisement video: ${movimiento}, ${luz}, the product always sharp and in ` +
+    `focus, while a warm enthusiastic ${voz} voice-over in Mexican Spanish says: "${guion}". ` +
+    `Soft subtle background music under the voice.` + CANDADO
+  );
 }

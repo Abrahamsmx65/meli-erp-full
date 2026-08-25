@@ -4,25 +4,30 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import {
   credencialesHiggsfield,
   generarVideo,
-  generarImagenSoul,
+  generarVideoKling,
+  generarVideoVeo,
+  subirImagen,
 } from "@/lib/higgsfield/client";
-import { construirEntradaDop, validarPrompt, validarImagenUrl } from "@/lib/higgsfield/presets";
+import { validarPrompt, validarImagenUrl, construirEntradaDop } from "@/lib/higgsfield/presets";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * Encola un video de producto.
  *
- * Dos modos:
- * - `clip`: el bueno para MELI. Soul genera primero una foto vertical 9:16
- *   (con el personaje usando el producto, o solo el producto) y cuando esa
- *   foto está lista, el vigilante la anima con Kling 10 segundos — justo el
- *   mínimo que piden los Clips de Mercado Libre.
- * - `dop`: prueba rápida de ~5 s directa de la foto de la publicación.
+ * REGLA DE ORO: el producto no se altera. El video se genera DIRECTO de la
+ * foto real de la publicación; nada de regenerar imágenes con IA (eso
+ * redibujaba el producto y quedó prohibido).
  *
- * La fila se guarda ANTES de llamar a Higgsfield: si la llamada truena, el
- * intento queda registrado como fallido con su motivo, no desaparece.
+ * Modos:
+ * - `clip`: para MELI. El navegador arma un lienzo vertical 9:16 con la
+ *   foto real tal cual (fondo difuminado de la misma foto), se sube al CDN
+ *   de Higgsfield y Kling lo anima 10 s — el mínimo de los Clips.
+ * - `hablado`: mismo lienzo, animado por Veo 3.1 (8 s) con VOZ EN OFF en
+ *   español presentando el producto. Para redes.
+ * - `dop`: prueba rápida ~5 s; acepta VARIAS fotos reales como referencia.
  */
 export async function POST(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -44,39 +49,52 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const formato =
     body?.formato === "clip" ? "clip" : body?.formato === "hablado" ? "hablado" : "dop";
-  const enDosEtapas = formato === "clip" || formato === "hablado";
 
   let imagenUrl: string;
   let promptVideo: string;
-  let promptImagen: string | null = null;
   try {
     imagenUrl = validarImagenUrl(String(body?.imagenUrl ?? ""));
     promptVideo = validarPrompt(String(body?.prompt ?? ""));
-    if (enDosEtapas) {
-      promptImagen = validarPrompt(String(body?.promptImagen ?? ""));
-    }
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  // Personaje (clip o hablado): debe existir, ser de esta cuenta y estar listo.
-  let personaje: { id: string; soul_id: string | null } | null = null;
-  if (enDosEtapas && body?.personajeId) {
-    const { data: p } = await supabase
-      .from("personajes_video")
-      .select("id, soul_id, estado")
-      .eq("account_id", cuenta.id)
-      .eq("id", String(body.personajeId))
-      .maybeSingle();
-    if (!p) return NextResponse.json({ error: "Ese personaje no existe." }, { status: 400 });
-    if (p.estado !== "listo" || !p.soul_id) {
+  // Lienzo 9:16 (clip y hablado): la foto real montada en vertical, armada
+  // en el navegador SIN IA. Llega como data URL y se sube al CDN de
+  // Higgsfield, porque los modelos necesitan una URL.
+  let lienzoUrl: string | null = null;
+  if (formato === "clip" || formato === "hablado") {
+    const lienzo = String(body?.imagenLienzo ?? "");
+    const coincide = /^data:(image\/jpeg);base64,(.+)$/.exec(lienzo);
+    if (!coincide) {
+      return NextResponse.json({ error: "Falta el lienzo vertical de la foto." }, { status: 400 });
+    }
+    const datos = Buffer.from(coincide[2], "base64");
+    if (datos.length > 3 * 1024 * 1024) {
+      return NextResponse.json({ error: "El lienzo pesa demasiado." }, { status: 400 });
+    }
+    try {
+      lienzoUrl = await subirImagen(datos, "image/jpeg");
+    } catch (err) {
       return NextResponse.json(
-        { error: "Ese personaje todavía se está entrenando; espera a que diga Listo." },
-        { status: 400 },
+        { error: `No se pudo subir la foto: ${(err as Error).message}` },
+        { status: 502 },
       );
     }
-    personaje = { id: p.id as string, soul_id: p.soul_id as string };
   }
+
+  // Fotos extra (solo DoP, que sí acepta varias referencias reales).
+  const fotos: string[] = [];
+  if (formato === "dop" && Array.isArray(body?.fotos)) {
+    for (const f of body.fotos.slice(0, 6)) {
+      try {
+        fotos.push(validarImagenUrl(String(f)));
+      } catch {
+        // Una foto rara no tumba el intento; simplemente no se manda.
+      }
+    }
+  }
+  if (!fotos.length) fotos.push(imagenUrl);
 
   const { data: fila, error: errIns } = await supabase
     .from("videos_producto")
@@ -86,19 +104,18 @@ export async function POST(req: NextRequest) {
       sku: body?.sku ? String(body.sku) : null,
       titulo: body?.titulo ? String(body.titulo) : null,
       imagen_url: imagenUrl,
+      imagen_generada: lienzoUrl, // el lienzo 9:16 (foto real, sin IA)
       prompt: promptVideo,
-      prompt_imagen: promptImagen,
       preset: body?.escena ? String(body.escena) : null,
       modelo:
         formato === "clip"
-          ? "soul+kling-2.5-turbo"
+          ? "kling-2.5-turbo"
           : formato === "hablado"
-            ? "soul+veo-3.1"
+            ? "veo-3.1"
             : String(body?.modelo ?? "dop-turbo"),
       formato,
-      etapa: enDosEtapas ? "imagen" : "video",
+      etapa: "video",
       duracion: formato === "clip" ? 10 : formato === "hablado" ? 8 : 5,
-      personaje_id: personaje?.id ?? null,
     })
     .select("id")
     .single();
@@ -109,47 +126,42 @@ export async function POST(req: NextRequest) {
 
   try {
     let requestId: string;
-    if (enDosEtapas) {
-      // Etapa 1: la foto vertical 9:16. La animación la lanza el vigilante
-      // cuando esta foto termina.
-      const res = await generarImagenSoul({
-        prompt: promptImagen!,
-        width_and_height: "1152x2048",
-        quality: "1080p",
-        batch_size: 1,
-        enhance_prompt: false, // el prompt ya viene armado por el motor de escenas
-        image_reference: { type: "image_url", image_url: imagenUrl },
-        ...(personaje
-          ? { custom_reference_id: personaje.soul_id!, custom_reference_strength: 0.8 }
-          : {}),
+    if (formato === "clip") {
+      const res = await generarVideoKling({
+        prompt: promptVideo,
+        image_url: lienzoUrl!,
+        duration: 10,
       });
-      if (!res.id) throw new Error("Higgsfield no devolvió folio.");
       requestId = res.id;
-      await supabase
-        .from("videos_producto")
-        .update({
-          request_id_imagen: requestId,
-          estado: "enviado",
-          actualizado_en: new Date().toISOString(),
-        })
-        .eq("id", fila.id);
+    } else if (formato === "hablado") {
+      const res = await generarVideoVeo({
+        prompt: promptVideo,
+        image_url: lienzoUrl!,
+        duration: 8,
+        resolution: "1080p",
+      });
+      requestId = res.id;
     } else {
       const entrada = construirEntradaDop({
         prompt: promptVideo,
-        imagenUrl,
+        imagenUrl: fotos[0],
         modelo: String(body?.modelo ?? "dop-turbo"),
       });
+      // Todas las fotos reales seleccionadas van de referencia.
+      entrada.input_images = fotos.map((f) => ({ type: "image_url" as const, image_url: f }));
       const res = await generarVideo(entrada);
-      if (!res.id) throw new Error("Higgsfield no devolvió folio.");
-      await supabase
-        .from("videos_producto")
-        .update({
-          request_id: res.id,
-          estado: "enviado",
-          actualizado_en: new Date().toISOString(),
-        })
-        .eq("id", fila.id);
+      requestId = res.id;
     }
+    if (!requestId) throw new Error("Higgsfield no devolvió folio.");
+
+    await supabase
+      .from("videos_producto")
+      .update({
+        request_id: requestId,
+        estado: "enviado",
+        actualizado_en: new Date().toISOString(),
+      })
+      .eq("id", fila.id);
   } catch (err) {
     await supabase
       .from("videos_producto")
