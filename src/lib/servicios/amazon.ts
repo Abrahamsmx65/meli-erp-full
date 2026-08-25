@@ -74,6 +74,18 @@ function num(x: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Un minuto de caché por instancia: las dos funciones de agregación en
+ * Postgres cuestan ~0.5 s cada una y esta lectura corre en cada visita a
+ * /amazon, su Excel y el monitor. Los datos solo cambian cuando sincroniza
+ * el cron (cada 15-60 min); el minuto de retraso no cambia ninguna decisión.
+ */
+const cacheCarga = new Map<
+  string,
+  { en: number; datos: { renglones: RenglonAmazon[]; totales: TotalesAmazon } }
+>();
+const VIDA_CACHE_CARGA_MS = 60_000;
+
 export async function cargarAmazon(
   db: DB,
   dias: number,
@@ -81,6 +93,10 @@ export async function cargarAmazon(
   limite: number = LIMITE_FILAS,
 ): Promise<{ renglones: RenglonAmazon[]; totales: TotalesAmazon }> {
   const q = busqueda.trim() === "" ? null : busqueda.trim();
+
+  const clave = `${dias}|${q ?? ""}|${limite}`;
+  const guardado = cacheCarga.get(clave);
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_CARGA_MS) return guardado.datos;
 
   const [resumen, totales] = await Promise.all([
     db.rpc("amazon_resumen_skus", {
@@ -111,7 +127,7 @@ export async function cargarAmazon(
 
   const t = (((totales.data ?? []) as any[])[0] ?? {}) as Record<string, unknown>;
 
-  return {
+  const datos = {
     renglones,
     totales: {
       skus: num(t.skus),
@@ -123,6 +139,8 @@ export async function cargarAmazon(
       sinStock: num(t.sin_stock),
     },
   };
+  cacheCarga.set(clave, { en: Date.now(), datos });
+  return datos;
 }
 
 export interface EstadoRecarga {
