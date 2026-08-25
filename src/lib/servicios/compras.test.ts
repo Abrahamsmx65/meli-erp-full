@@ -139,3 +139,19 @@ describe("regímenes de reposición (B: umbral 100 días, descuento 70%)", () =>
     expect(r.faltanteExactoPorTalla["24"]).toBeUndefined();
   });
 });
+
+describe("opción 2: pedido solo según la venta (sin descontar stock)", () => {
+  it("la corrida solo-venta sigue a la demanda del horizonte aunque haya stock de sobra", () => {
+    // Misma demanda por talla, stock enorme: la opción 1 no pediría nada,
+    // la opción 2 pide la venta completa del horizonte. La demanda ya viene
+    // corregida por agotamientos, así que una talla en cero con venta
+    // estimada también entra.
+    const demandaHorizonte = { "25": 120, "26": 60, "27": 60 };
+    const pedido = armarPedidoColor(demandaHorizonte, 24, demandaHorizonte);
+    const cajas =
+      pedido.cajasCorrida + pedido.unitallas.reduce((a, u) => a + u.cajas, 0);
+    expect(cajas).toBe(Math.ceil(240 / 24));
+    // El reparto de la caja respeta la proporción de venta (12/6/6 en 24).
+    expect(pedido.corridaPropuesta).toEqual({ "25": 12, "26": 6, "27": 6 });
+  });
+});
