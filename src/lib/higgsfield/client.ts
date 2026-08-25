@@ -270,23 +270,49 @@ export async function estadoPersonajeHF(id: string): Promise<PersonajeHF> {
 // Subida de archivos al CDN de Higgsfield
 // ---------------------------------------------------------------------------
 
-/** Sube una foto y devuelve su URL pública en el CDN de Higgsfield. */
+/**
+ * Sube una foto y devuelve su URL pública en el CDN de Higgsfield.
+ *
+ * El PUT a la URL prefirmada llegó a contestar 403 sin explicación visible;
+ * por eso cada intento pide una URL NUEVA (las prefirmadas caducan rápido y
+ * pueden ser de un solo uso) y, si el almacén rechaza, el error trae el
+ * cuerpo de la respuesta — ahí viene la causa real (firma, tamaño, caducada).
+ */
 export async function subirImagen(
   datos: Buffer | Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const enlace = await llamar<{ upload_url: string; public_url: string }>(
-    "/files/generate-upload-url",
-    { method: "POST", body: JSON.stringify({ content_type: contentType }) },
-  );
+  let ultimo = "";
 
-  const res = await fetch(enlace!.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: Buffer.from(datos),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!res.ok) throw new Error(`No se pudo subir la foto (${res.status}).`);
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
 
-  return enlace!.public_url;
+    const enlace = await llamar<{ upload_url: string; public_url: string }>(
+      "/files/generate-upload-url",
+      { method: "POST", body: JSON.stringify({ content_type: contentType }) },
+    );
+    if (!enlace?.upload_url || !enlace.public_url) {
+      ultimo = "Higgsfield no devolvió la URL de subida";
+      continue;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(enlace.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: Buffer.from(datos),
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch (err) {
+      ultimo = (err as Error).message;
+      continue;
+    }
+    if (res.ok) return enlace.public_url;
+
+    const detalle = (await res.text().catch(() => "")).replace(/\s+/g, " ").trim();
+    ultimo = `el almacén contestó ${res.status}${detalle ? `: ${detalle.slice(0, 200)}` : ""}`;
+  }
+
+  throw new Error(`No se pudo subir la foto (${ultimo}).`);
 }
