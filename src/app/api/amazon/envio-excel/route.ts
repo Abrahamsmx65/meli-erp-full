@@ -66,7 +66,8 @@ export async function GET(request: NextRequest) {
       : Promise.resolve([]),
     cuentaMeli
       ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
-          q.eq("account_id", cuentaMeli.id),
+          // Solo activos: un SKU renombrado (apagado) no debe ganar el amarre.
+          q.eq("account_id", cuentaMeli.id).eq("activo", true),
         )
       : Promise.resolve([]),
     cuentaMeli ? catalogoBodega(supabase, cuentaMeli.id) : Promise.resolve(null),

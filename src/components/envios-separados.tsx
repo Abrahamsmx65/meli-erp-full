@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import { partirPorOpcionales } from "@/lib/reporte/opcionales";
 
 interface Caja {
   codigo: string;
@@ -14,10 +15,11 @@ interface Caja {
   cantidad: number;
   /** cuántas cajas de este tipo hay en bodega, para saber si quedan */
   cajasDisponibles: number;
+  paresPorCaja: number;
   paresTotales: number;
   /** cajas que entraron por el rescate de una talla faltante: el usuario decide */
   cantidadOpcional?: number;
-  aporta: { sku: string; talla: string; paresTotales: number }[];
+  aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
 }
 
 interface Envio {
@@ -96,6 +98,15 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
   const [vista, setVista] = useState<"cajas" | "skus">("cajas");
   const [abierta, setAbierta] = useState<string | null>(null);
 
+  // El envío NORMAL y el bloque de OPCIONALES van separados de verdad: el
+  // número grande es el que se captura en el alta; las opcionales son una
+  // decisión aparte, con sus propias cajas y pares.
+  const { normales, opcionales } = partirPorOpcionales(envio.cajas);
+  const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
+  const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
+  const cajasNorm = envio.totalCajas - cajasOpc;
+  const paresNorm = envio.totalPares - paresOpc;
+
   // El botón "Ya lo di de alta en MELI" se quitó a petición del usuario: lo
   // que va en camino ahora sale de los envíos pendientes del API de Industher
   // (los que empiezan con 7 u 8), no de un registro manual.
@@ -110,8 +121,11 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
         </div>
 
         <div className="flex gap-6">
-          <Dato titulo="Cajas" valor={n(envio.totalCajas)} grande />
-          <Dato titulo="Pares" valor={n(envio.totalPares)} />
+          <Dato titulo="Cajas del envío" valor={n(cajasNorm)} grande />
+          <Dato titulo="Pares" valor={n(paresNorm)} />
+          {cajasOpc > 0 ? (
+            <Dato titulo="Opcionales aparte" valor={`+${n(cajasOpc)} (${n(paresOpc)} pares)`} alerta />
+          ) : null}
           <Dato titulo="SKUs" valor={n(envio.skus)} />
         </div>
 
@@ -164,64 +178,35 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
               </tr>
             </thead>
             <tbody>
-              {envio.cajas.map((c) => (
-                <Fragment key={c.codigo}>
-                  <tr
-                    onClick={() => setAbierta(abierta === c.codigo ? null : c.codigo)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <td>{c.almacen}</td>
-                    <td className="text-xs">{c.pedido || "—"}</td>
-                    <td className="font-medium">{c.modelo}</td>
-                    <td>{c.color || "—"}</td>
-                    <td>
-                      {c.esCorrida ? (
-                        <span style={{ color: "var(--ink-2)" }}>corrida</span>
-                      ) : (
-                        c.talla
-                      )}
-                    </td>
-                    <td className="num cifra font-semibold">
-                      {n(c.cantidad)}
-                      {c.cantidadOpcional ? (
-                        <span
-                          className="ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold"
-                          style={{
-                            background: "color-mix(in oklab, var(--estado-alerta) 18%, transparent)",
-                            color: "var(--ink-1)",
-                          }}
-                          title="Entraron para no dejar sin surtir una talla que falta, aunque las demás tallas de la caja sobren. Tú decides si las subes."
-                        >
-                          {n(c.cantidadOpcional)} opc.
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
-                      {n(c.cajasDisponibles)}
-                    </td>
-                    <td className="num cifra">{n(c.paresTotales)}</td>
-                  </tr>
-
-                  {abierta === c.codigo ? (
-                    <tr>
-                      <td colSpan={8} style={{ background: "var(--surface-2)" }}>
-                        <div className="p-3 text-sm">
-                          <div className="text-xs font-semibold">
-                            Qué llevan estas {n(c.cantidad)} cajas
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs">
-                            {c.aporta.map((a) => (
-                              <span key={a.sku}>
-                                <span style={{ color: "var(--ink-2)" }}>{a.sku}</span>{" "}
-                                <strong className="cifra">{n(a.paresTotales)}</strong>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
+              {normales.map((c) => (
+                <FilaCajaEnvio
+                  key={`n-${c.codigo}`}
+                  c={c}
+                  abierta={abierta}
+                  setAbierta={setAbierta}
+                />
+              ))}
+              {opcionales.length > 0 ? (
+                <tr
+                  style={{
+                    background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
+                  }}
+                >
+                  <td colSpan={8} className="font-semibold text-sm">
+                    OPCIONALES — {n(cajasOpc)} cajas · {n(paresOpc)} pares. Entraron por el
+                    rescate de una talla que falta; el resto de la caja sobra. Tú decides si
+                    van en el envío.
+                  </td>
+                </tr>
+              ) : null}
+              {opcionales.map((c) => (
+                <FilaCajaEnvio
+                  key={`o-${c.codigo}`}
+                  c={c}
+                  abierta={abierta}
+                  setAbierta={setAbierta}
+                  opcional
+                />
               ))}
             </tbody>
           </table>
@@ -250,13 +235,95 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
   );
 }
 
-function Dato({ titulo, valor, grande }: { titulo: string; valor: string; grande?: boolean }) {
+function FilaCajaEnvio({
+  c,
+  abierta,
+  setAbierta,
+  opcional,
+}: {
+  c: Caja;
+  abierta: string | null;
+  setAbierta: (v: string | null) => void;
+  opcional?: boolean;
+}) {
+  const clave = `${opcional ? "o" : "n"}-${c.codigo}`;
+  return (
+    <Fragment>
+      <tr
+        onClick={() => setAbierta(abierta === clave ? null : clave)}
+        style={{
+          cursor: "pointer",
+          ...(opcional
+            ? { background: "color-mix(in oklab, var(--estado-alerta) 5%, transparent)" }
+            : null),
+        }}
+      >
+        <td>{c.almacen}</td>
+        <td className="text-xs">{c.pedido || "—"}</td>
+        <td className="font-medium" style={opcional ? { color: "var(--estado-critico)" } : undefined}>
+          {c.modelo}
+        </td>
+        <td>{c.color || "—"}</td>
+        <td>
+          {c.esCorrida ? <span style={{ color: "var(--ink-2)" }}>corrida</span> : c.talla}
+        </td>
+        <td
+          className="num cifra font-semibold"
+          style={opcional ? { color: "var(--estado-critico)" } : undefined}
+        >
+          {n(c.cantidad)}
+        </td>
+        <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+          {n(c.cajasDisponibles)}
+        </td>
+        <td className="num cifra">{n(c.paresTotales)}</td>
+      </tr>
+
+      {abierta === clave ? (
+        <tr>
+          <td colSpan={8} style={{ background: "var(--surface-2)" }}>
+            <div className="p-3 text-sm">
+              <div className="text-xs font-semibold">
+                Qué llevan estas {n(c.cantidad)} cajas
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                {c.aporta.map((a) => (
+                  <span key={a.sku}>
+                    <span style={{ color: "var(--ink-2)" }}>{a.sku}</span>{" "}
+                    <strong className="cifra">{n(a.paresTotales)}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </Fragment>
+  );
+}
+
+function Dato({
+  titulo,
+  valor,
+  grande,
+  alerta,
+}: {
+  titulo: string;
+  valor: string;
+  grande?: boolean;
+  alerta?: boolean;
+}) {
   return (
     <div>
       <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
         {titulo}
       </div>
-      <div className={`cifra font-semibold ${grande ? "text-2xl" : "text-lg"}`}>{valor}</div>
+      <div
+        className={`cifra font-semibold ${grande ? "text-2xl" : "text-lg"}`}
+        style={alerta ? { color: "var(--estado-critico)" } : undefined}
+      >
+        {valor}
+      </div>
     </div>
   );
 }

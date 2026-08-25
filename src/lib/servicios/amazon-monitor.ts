@@ -22,6 +22,12 @@ export interface FilaModeloAmazon {
   /** neto real del reporte de pagos (liquidado en el periodo); null = sin dato */
   netoReal: number | null;
   gananciaReal: number | null;
+  /** gasto de publicidad del periodo por modelo (SKU Economics); null = sin dato */
+  publicidad: number | null;
+  /** publicidad ÷ unidades netas del MISMO reporte de economía */
+  publicidadPorUnidad: number | null;
+  /** publicidad como % de la venta del reporte de economía (ACOS) */
+  acosPct: number | null;
 }
 
 export interface FilaCategoriaAmazon {
@@ -269,6 +275,22 @@ export async function cargarMonitorAmazon(
         gananciaReal: gananciaRealPorModelo.has(modelo)
           ? (gananciaRealPorModelo.get(modelo) ?? 0)
           : null,
+        // Publicidad del SKU Economics, agregada por modelo. El por-unidad y
+        // el ACOS usan unidades y ventas del MISMO reporte: mismo
+        // denominador, mismos días.
+        publicidad: econPorModelo.has(modelo)
+          ? (econPorModelo.get(modelo)?.publicidad ?? 0)
+          : null,
+        publicidadPorUnidad: (() => {
+          const e = econPorModelo.get(modelo);
+          if (!e || e.unidades <= 0) return null;
+          return e.publicidad / e.unidades;
+        })(),
+        acosPct: (() => {
+          const e = econPorModelo.get(modelo);
+          if (!e || e.ventas <= 0) return null;
+          return (100 * e.publicidad) / e.ventas;
+        })(),
       };
     })
     .filter((f) => f.unidades + f.unidadesPrev > 0 || (f.netoReal ?? 0) !== 0)

@@ -193,7 +193,9 @@ export async function amazonParaCompras(
   const desde = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   try {
     const [ventas, inventario] = await Promise.all([
-      traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades", (q) =>
+      // `fecha` va en el select para que la paginación ordene por una llave
+      // ÚNICA (seller_sku solo empata entre días y duplicaba filas).
+      traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
         q.gte("fecha", desde),
       ),
       traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) => q),

@@ -278,7 +278,10 @@ export default async function VentasAmazon({
         <header className="border-b p-4 hairline">
           <h2 className="text-base font-semibold">Por modelo</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todas las tallas y colores de cada modelo, juntos, en el periodo elegido.
+            Todas las tallas y colores de cada modelo, juntos, en el periodo elegido. La
+            publicidad viene del reporte de economía por SKU (confiable desde el 9 de
+            agosto de 2026; antes está incompleto). Un modelo con publicidad en “—” o $0
+            no tiene gasto atribuido a sus SKUs en ese reporte.
           </p>
         </header>
         <div className="max-h-[36rem] overflow-auto">
@@ -291,6 +294,11 @@ export default async function VentasAmazon({
                 <th className="num">Previo</th>
                 <th className="num">Cambio</th>
                 <th className="num">Importe</th>
+                <th className="num">Publicidad</th>
+                <th className="num" title="Gasto de publicidad entre unidades netas del mismo reporte">
+                  Ads/unidad
+                </th>
+                <th className="num" title="Publicidad como % de la venta (ACOS)">ACOS</th>
                 <th className="num">Neto real</th>
                 <th className="num">Ganancia</th>
               </tr>
@@ -320,6 +328,20 @@ export default async function VentasAmazon({
                       {delta > 0 ? `+${n(delta)}` : n(delta)}
                     </td>
                     <td className="num cifra">{pesos(f.importe)}</td>
+                    <td className="num cifra">
+                      {f.publicidad == null ? "—" : pesos(f.publicidad)}
+                    </td>
+                    <td className="num cifra">
+                      {f.publicidadPorUnidad == null ? "—" : pesos(f.publicidadPorUnidad)}
+                    </td>
+                    <td
+                      className="num cifra"
+                      style={
+                        (f.acosPct ?? 0) > 30 ? { color: "var(--estado-critico)" } : undefined
+                      }
+                    >
+                      {f.acosPct == null ? "—" : `${f.acosPct.toFixed(1)}%`}
+                    </td>
                     <td className="num cifra">
                       {f.netoReal == null ? "—" : pesos(f.netoReal)}
                     </td>

@@ -1,4 +1,37 @@
 import { describe, expect, it } from "vitest";
+import { partirPorOpcionales } from "./opcionales";
+
+describe("partirPorOpcionales", () => {
+  it("divide un renglón mixto en envío normal y bloque opcional", () => {
+    const caja = {
+      codigo: "C1",
+      cantidad: 5,
+      paresPorCaja: 24,
+      paresTotales: 120,
+      cantidadOpcional: 2,
+      aporta: [{ sku: "A", talla: "25", paresPorCaja: 12, paresTotales: 60 }],
+    };
+    const { normales, opcionales } = partirPorOpcionales([caja]);
+
+    expect(normales).toHaveLength(1);
+    expect(normales[0]).toMatchObject({ cantidad: 3, paresTotales: 72, cantidadOpcional: 0 });
+    expect(normales[0].aporta[0].paresTotales).toBe(36);
+
+    expect(opcionales).toHaveLength(1);
+    expect(opcionales[0]).toMatchObject({ cantidad: 2, paresTotales: 48, cantidadOpcional: 2 });
+    expect(opcionales[0].aporta[0].paresTotales).toBe(24);
+  });
+
+  it("una caja sin opcionales va completa al envío normal, y viceversa", () => {
+    const base = { paresPorCaja: 12, aporta: [] as { paresPorCaja: number; paresTotales: number }[] };
+    const { normales, opcionales } = partirPorOpcionales([
+      { ...base, codigo: "N", cantidad: 4, paresTotales: 48, cantidadOpcional: 0 },
+      { ...base, codigo: "O", cantidad: 3, paresTotales: 36, cantidadOpcional: 3 },
+    ]);
+    expect(normales.map((c: any) => c.codigo)).toEqual(["N"]);
+    expect(opcionales.map((c: any) => c.codigo)).toEqual(["O"]);
+  });
+});
 import { desglosarOpcionales, textoDeMas } from "./opcionales";
 
 const caja = (

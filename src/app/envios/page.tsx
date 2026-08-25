@@ -281,11 +281,13 @@ export default async function Plan() {
             talla: c.talla,
             cantidad: c.cantidad,
             cajasDisponibles: c.cajasDisponibles,
+            paresPorCaja: c.paresPorCaja,
             paresTotales: c.paresTotales,
             cantidadOpcional: c.cantidadOpcional,
             aporta: c.aporta.map((a) => ({
               sku: a.sku,
               talla: a.talla,
+              paresPorCaja: a.paresPorCaja,
               paresTotales: a.paresTotales,
             })),
           })),
