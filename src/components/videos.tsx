@@ -1,18 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MODELOS } from "@/lib/higgsfield/presets";
 import {
   ESCENAS,
   armarPromptProducto,
   armarPromptHablado,
+  armarPromptPersonaUGC,
+  armarPromptSpeakUGC,
+  armarPromptVeoUGC,
   detectarGenero,
   detectarTipo,
   guionInicial,
+  guionInicialUGC,
   type Genero,
   type TipoCalzado,
 } from "@/lib/higgsfield/escenas";
+
+type Formato = "clip" | "hablado" | "ugc" | "dop";
 
 export interface Publicacion {
   itemId: string;
@@ -93,6 +99,60 @@ async function armarLienzo(fotoUrl: string): Promise<string> {
   }
 }
 
+/**
+ * Convierte cualquier audio que el navegador sepa decodificar (la grabación
+ * del micrófono, un MP3 subido…) a WAV PCM 16 bits mono a 24 kHz — el único
+ * formato que acepta Speak. 15 s así pesan ~700 KB: cabe de sobra en la
+ * petición.
+ */
+async function convertirAWav(blob: Blob): Promise<{ dataUrl: string; segundos: number }> {
+  const ctx = new AudioContext();
+  let buf: AudioBuffer;
+  try {
+    buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    void ctx.close();
+  }
+
+  const TASA = 24000;
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(buf.duration * TASA)), TASA);
+  const fuente = off.createBufferSource();
+  fuente.buffer = buf;
+  fuente.connect(off.destination);
+  fuente.start();
+  const mono = await off.startRendering();
+  const muestras = mono.getChannelData(0);
+
+  const wav = new DataView(new ArrayBuffer(44 + muestras.length * 2));
+  const texto = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) wav.setUint8(o + i, s.charCodeAt(i));
+  };
+  texto(0, "RIFF");
+  wav.setUint32(4, 36 + muestras.length * 2, true);
+  texto(8, "WAVE");
+  texto(12, "fmt ");
+  wav.setUint32(16, 16, true);
+  wav.setUint16(20, 1, true); // PCM
+  wav.setUint16(22, 1, true); // mono
+  wav.setUint32(24, TASA, true);
+  wav.setUint32(28, TASA * 2, true);
+  wav.setUint16(32, 2, true);
+  wav.setUint16(34, 16, true);
+  texto(36, "data");
+  wav.setUint32(40, muestras.length * 2, true);
+  for (let i = 0; i < muestras.length; i++) {
+    const v = Math.max(-1, Math.min(1, muestras[i]));
+    wav.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+  }
+
+  const bytes = new Uint8Array(wav.buffer);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return { dataUrl: `data:audio/wav;base64,${btoa(bin)}`, segundos: buf.duration };
+}
+
 // ---------------------------------------------------------------------------
 // Generador de videos
 // ---------------------------------------------------------------------------
@@ -112,9 +172,18 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
   const [semilla, setSemilla] = useState(0.42);
   const [guion, setGuion] = useState("");
   const [promptVideo, setPromptVideo] = useState("");
+  const [promptImagen, setPromptImagen] = useState("");
 
-  const [formato, setFormato] = useState<"clip" | "hablado" | "dop">("clip");
+  const [formato, setFormato] = useState<Formato>("clip");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
+
+  // Voz del UGC: grabada aquí mismo o subida como archivo; siempre acaba en WAV.
+  const [audio, setAudio] = useState<string | null>(null);
+  const [audioSegundos, setAudioSegundos] = useState(0);
+  const [grabando, setGrabando] = useState(false);
+  const grabadorRef = useRef<MediaRecorder | null>(null);
+  const pedazosRef = useRef<Blob[]>([]);
+  const topeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [estado, setEstado] = useState<"listo" | "enviando" | "ok" | "error">("listo");
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -140,9 +209,29 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     genero: Genero;
     escenaId: string;
     semilla: number;
-    formato: "clip" | "hablado" | "dop";
+    formato: Formato;
     guion: string;
+    hayAudio: boolean;
   }) {
+    if (datos.formato === "ugc") {
+      // Con audio grabado, Speak anima (el audio pone las palabras); sin
+      // audio, Veo dice el guion. La imagen de la persona es aparte.
+      setPromptImagen(
+        armarPromptPersonaUGC({ tipo: datos.tipo, genero: datos.genero, semilla: datos.semilla }),
+      );
+      setPromptVideo(
+        datos.hayAudio
+          ? armarPromptSpeakUGC({ tipo: datos.tipo, semilla: datos.semilla })
+          : armarPromptVeoUGC({
+              tipo: datos.tipo,
+              genero: datos.genero,
+              semilla: datos.semilla,
+              guion: datos.guion,
+            }),
+      );
+      return;
+    }
+    setPromptImagen("");
     setPromptVideo(
       datos.formato === "hablado"
         ? armarPromptHablado({
@@ -165,11 +254,19 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     const texto = `${p.titulo} ${p.modelo}`;
     const t = detectarTipo(texto);
     const g = detectarGenero(texto);
-    const gu = guionInicial(t);
+    const gu = formato === "ugc" ? guionInicialUGC(t) : guionInicial(t);
     setTipo(t);
     setGenero(g);
     setGuion(gu);
-    regenerarPrompt({ tipo: t, genero: g, escenaId, semilla, formato, guion: gu });
+    regenerarPrompt({
+      tipo: t,
+      genero: g,
+      escenaId,
+      semilla,
+      formato,
+      guion: gu,
+      hayAudio: Boolean(audio),
+    });
 
     setCargandoFotos(true);
     try {
@@ -197,8 +294,9 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
       genero: Genero;
       escenaId: string;
       semilla: number;
-      formato: "clip" | "hablado" | "dop";
+      formato: Formato;
       guion: string;
+      hayAudio: boolean;
     }>,
   ) {
     const t = cambios.tipo ?? tipo;
@@ -206,15 +304,85 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     const e = cambios.escenaId ?? escenaId;
     const s = cambios.semilla ?? semilla;
     const f = cambios.formato ?? formato;
-    // Si cambió el tipo, el guion inicial se rehace para ese tipo.
-    const gu = cambios.guion ?? (cambios.tipo !== undefined ? guionInicial(t) : guion);
+    const conAudio = cambios.hayAudio ?? Boolean(audio);
+    // Si cambió el tipo o el formato, el guion inicial se rehace.
+    const guionBase = f === "ugc" ? guionInicialUGC(t) : guionInicial(t);
+    const gu =
+      cambios.guion ??
+      (cambios.tipo !== undefined || cambios.formato !== undefined ? guionBase : guion);
     if (cambios.tipo !== undefined) setTipo(t);
     if (cambios.genero !== undefined) setGenero(g);
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
     if (cambios.formato !== undefined) setFormato(f);
     if (gu !== guion) setGuion(gu);
-    regenerarPrompt({ tipo: t, genero: g, escenaId: e, semilla: s, formato: f, guion: gu });
+    regenerarPrompt({
+      tipo: t,
+      genero: g,
+      escenaId: e,
+      semilla: s,
+      formato: f,
+      guion: gu,
+      hayAudio: conAudio,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Voz del UGC
+  // -------------------------------------------------------------------------
+
+  async function ponerAudio(blob: Blob) {
+    try {
+      const { dataUrl, segundos } = await convertirAWav(blob);
+      if (segundos < 1) {
+        setMensaje("El audio quedó demasiado corto.");
+        return;
+      }
+      if (segundos > 15.5) {
+        setMensaje("El audio dura más de 15 segundos (el tope de Speak); graba uno más corto.");
+        return;
+      }
+      setMensaje(null);
+      setAudio(dataUrl);
+      setAudioSegundos(segundos);
+      cambiar({ hayAudio: true });
+    } catch {
+      setMensaje("No se pudo leer ese audio.");
+    }
+  }
+
+  async function empezarGrabacion() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const g = new MediaRecorder(stream);
+      pedazosRef.current = [];
+      g.ondataavailable = (ev) => pedazosRef.current.push(ev.data);
+      g.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        void ponerAudio(new Blob(pedazosRef.current, { type: g.mimeType }));
+      };
+      g.start();
+      grabadorRef.current = g;
+      setGrabando(true);
+      setMensaje(null);
+      // Speak acepta 15 s máximo: la grabación se corta sola ahí.
+      topeRef.current = setTimeout(() => pararGrabacion(), 15_000);
+    } catch {
+      setMensaje("No se pudo abrir el micrófono; revisa el permiso del navegador.");
+    }
+  }
+
+  function pararGrabacion() {
+    if (topeRef.current) clearTimeout(topeRef.current);
+    topeRef.current = null;
+    if (grabadorRef.current?.state === "recording") grabadorRef.current.stop();
+    setGrabando(false);
+  }
+
+  function quitarAudio() {
+    setAudio(null);
+    setAudioSegundos(0);
+    cambiar({ hayAudio: false });
   }
 
   async function generar() {
@@ -239,8 +407,14 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           escena:
             formato === "hablado"
               ? `Hablado (${TIPOS_ETIQUETA[tipo]})`
-              : `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
+              : formato === "ugc"
+                ? `UGC ${audio ? "con tu voz" : "voz IA"} (${TIPOS_ETIQUETA[tipo]})`
+                : `${escena.etiqueta} (${TIPOS_ETIQUETA[tipo]})`,
           prompt: promptVideo,
+          promptImagen: formato === "ugc" ? promptImagen : undefined,
+          audio: formato === "ugc" && audio ? audio : undefined,
+          audioDuracion:
+            formato === "ugc" && audio ? Math.ceil(audioSegundos) : undefined,
           modelo: modeloDop,
         }),
       });
@@ -259,8 +433,10 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     <section className="tarjeta p-4">
       <h2 className="font-semibold">Nuevo video</h2>
       <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-        El video se genera directo de tus fotos reales: el producto sale tal cual,
-        sin que la IA lo redibuje.
+        Clip, prueba y hablado se generan directo de tus fotos reales: el producto
+        sale tal cual, sin que la IA lo redibuje. En UGC una persona lo presenta
+        hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena con
+        tu foto de referencia.
       </p>
 
       {/* 1. Publicación */}
@@ -387,7 +563,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           </div>
 
           <div className="mt-2 flex flex-wrap gap-2">
-            {formato !== "hablado" &&
+            {(formato === "clip" || formato === "dop") &&
               ESCENAS.map((e) => (
                 <button
                   key={e.id}
@@ -413,15 +589,99 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
             </button>
           </div>
 
-          {formato === "hablado" && (
+          {(formato === "hablado" || formato === "ugc") && (
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Guion (la voz en off lo dice en español)
+                {formato === "ugc"
+                  ? audio
+                    ? "Guion (referencia de lo que grabaste; el video usa TU audio)"
+                    : "Guion (sin audio grabado, la persona lo dice con voz de IA · 8 s)"
+                  : "Guion (la voz en off lo dice en español)"}
               </span>
               <textarea
                 value={guion}
                 onChange={(e) => cambiar({ guion: e.target.value })}
                 rows={2}
+                className="w-full px-2 py-1.5 text-xs"
+              />
+            </label>
+          )}
+
+          {formato === "ugc" && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Tu voz (opcional, recomendado) — graba el guion o sube un audio · máximo 15 s
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {!grabando ? (
+                  <button
+                    onClick={empezarGrabacion}
+                    className="rounded border px-3 py-1.5 text-sm"
+                    style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                  >
+                    🎤 Grabar
+                  </button>
+                ) : (
+                  <button
+                    onClick={pararGrabacion}
+                    className="rounded px-3 py-1.5 text-sm text-white"
+                    style={{ background: "var(--estado-critico)" }}
+                  >
+                    ⏹ Detener (se corta solo a los 15 s)
+                  </button>
+                )}
+                <label
+                  className="cursor-pointer rounded border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--borde)" }}
+                >
+                  Subir audio…
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void ponerAudio(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {audio && (
+                  <>
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <audio src={audio} controls className="h-8" />
+                    <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                      {audioSegundos.toFixed(1)} s → video de{" "}
+                      {audioSegundos <= 5 ? 5 : audioSegundos <= 10 ? 10 : 15} s
+                    </span>
+                    <button
+                      onClick={quitarAudio}
+                      className="text-xs underline"
+                      style={{ color: "var(--ink-muted)" }}
+                    >
+                      Quitar
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                Con tu audio, la persona lo dice con lip sync (video de 10-15 s, ideal
+                para Clips de MELI, que piden mínimo 10 s). Sin audio, la voz la genera
+                la IA pero el video queda de 8 s.
+              </p>
+            </div>
+          )}
+
+          {formato === "ugc" && (
+            <label className="mt-3 flex max-w-2xl flex-col gap-1">
+              <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Imagen de la persona (la IA recrea la escena con tu foto de referencia;
+                revisa que el producto salga fiel antes de publicar)
+              </span>
+              <textarea
+                value={promptImagen}
+                onChange={(e) => setPromptImagen(e.target.value)}
+                rows={3}
                 className="w-full px-2 py-1.5 text-xs"
               />
             </label>
@@ -447,10 +707,11 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <select
               value={formato}
-              onChange={(e) => cambiar({ formato: e.target.value as "clip" | "hablado" | "dop" })}
+              onChange={(e) => cambiar({ formato: e.target.value as Formato })}
               className="px-2 py-1.5 text-sm"
             >
               <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
+              <option value="ugc">UGC — una persona lo muestra y habla · 10-15 s con tu voz</option>
               <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
               <option value="dop">Prueba rápida — ~5 s, usa todas las fotos marcadas</option>
             </select>
@@ -471,7 +732,11 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
 
             <button
               onClick={generar}
-              disabled={estado === "enviando" || !promptVideo.trim()}
+              disabled={
+                estado === "enviando" ||
+                !promptVideo.trim() ||
+                (formato === "ugc" && !promptImagen.trim())
+              }
               className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
               style={{ background: "var(--acento)" }}
             >

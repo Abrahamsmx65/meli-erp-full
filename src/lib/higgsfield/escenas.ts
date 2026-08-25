@@ -196,3 +196,100 @@ export function armarPromptHablado(datos: {
     `Soft subtle background music under the voice.` + CANDADO
   );
 }
+
+// ---------------------------------------------------------------------------
+// UGC: una persona presenta el producto hablando a cámara
+// ---------------------------------------------------------------------------
+
+/**
+ * Quién presenta. Para producto de niños presenta una mamá joven: personas
+ * menores generadas por IA quedan fuera a propósito.
+ */
+function personaUGC(genero: Genero): string {
+  if (genero === "hombre") {
+    return "a friendly young Mexican man in his late 20s, casual everyday clothes";
+  }
+  if (genero === "nino") {
+    return "a friendly young Mexican mom in her early 30s, casual everyday clothes";
+  }
+  return "a friendly young Mexican woman in her mid 20s, casual everyday clothes";
+}
+
+/** Dónde se para la persona, según el tipo de calzado. */
+const ESCENARIOS_UGC: Record<TipoCalzado, string[]> = {
+  bota: ["a rustic outdoor patio", "a city street with autumn trees", "a cozy cabin porch"],
+  sandalia: ["a bright sunny terrace", "a summer garden", "a breezy boardwalk"],
+  sandalia_agua: ["a poolside deck", "a sunny beach walkway", "a resort pool area"],
+  pantufla: ["a cozy bright living room", "a warm bedroom with soft light", "a comfy home sofa corner"],
+  tenis: ["an urban park", "a bright city sidewalk", "a modern gym entrance"],
+  tacon: ["an elegant apartment interior", "a chic hotel lobby", "an evening city terrace"],
+  mocasin: ["a bright office lounge", "a boutique café", "a clean modern hallway"],
+  zapato: ["a bright living room", "a clean city sidewalk", "a modern home entrance"],
+};
+
+/**
+ * Prompt de la IMAGEN del presentador (Soul, 9:16 con la foto real de
+ * referencia): la persona de cuerpo completo mostrando el calzado a cámara,
+ * estilo UGC de celular. De aquí sale el cuadro que Speak o Veo animan.
+ */
+export function armarPromptPersonaUGC(datos: {
+  tipo: TipoCalzado;
+  genero: Genero;
+  semilla: number;
+}): string {
+  const escenario = elegir(ESCENARIOS_UGC[datos.tipo], datos.semilla, 5);
+  const luz = elegir(LUCES[datos.tipo], datos.semilla, 2);
+  return (
+    `Authentic UGC-style vertical 9:16 photo shot on a smartphone: ${personaUGC(datos.genero)}, ` +
+    `full body visible from head to feet, standing in ${escenario}, ${luz}, natural skin ` +
+    `texture, looking at the camera mid-sentence while holding up and showing the featured ` +
+    `footwear from the reference image with one hand near chest height, the shoe clearly ` +
+    `visible and facing the camera. Casual, real, unposed creator vibe — not a studio ad.` +
+    CANDADO
+  );
+}
+
+/**
+ * Prompt de la animación Speak (el audio pone las palabras; esto solo pide
+ * el tono y los gestos del presentador).
+ */
+export function armarPromptSpeakUGC(datos: { tipo: TipoCalzado; semilla: number }): string {
+  const escenario = elegir(ESCENARIOS_UGC[datos.tipo], datos.semilla, 5);
+  return (
+    `Energetic UGC product review: the person talks directly to the camera with natural ` +
+    `hand gestures, enthusiastically presenting the footwear they are holding, occasionally ` +
+    `tilting it toward the lens, subtle handheld smartphone feel, in ${escenario}.` + CANDADO
+  );
+}
+
+/**
+ * Prompt del UGC hablado por IA (Veo 3.1, 8 s): la persona de la imagen dice
+ * el guion en español con lip sync. Es el plan B cuando no hay audio grabado.
+ */
+export function armarPromptVeoUGC(datos: {
+  tipo: TipoCalzado;
+  genero: Genero;
+  semilla: number;
+  guion: string;
+}): string {
+  const guion = datos.guion.trim().replace(/"/g, "'");
+  return (
+    `UGC-style video: the person in the image speaks directly to the camera in Mexican ` +
+    `Spanish with accurate lip sync and natural hand gestures, presenting the footwear ` +
+    `they are holding, saying: "${guion}". Subtle handheld smartphone feel, natural ` +
+    `ambient sound.` + CANDADO
+  );
+}
+
+/** Guion inicial del UGC: primera persona, como creador de contenido. */
+export function guionInicialUGC(tipo: TipoCalzado): string {
+  const { palabra, femenino } = PALABRA_TIPO[tipo];
+  const estas = femenino ? "estas" : "estos";
+  const comodas = femenino ? "cómodas" : "cómodos";
+  const las = femenino ? "las" : "los";
+  return (
+    `¡Miren ${estas} ${palabra} que me llegaron! Están súper ${comodas}, ` +
+    `los materiales se sienten de calidad y combinan con todo. Yo ya ${las} estoy ` +
+    `usando diario — córranle antes de que se agoten.`
+  );
+}

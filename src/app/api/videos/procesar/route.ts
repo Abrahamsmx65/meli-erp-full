@@ -1,6 +1,11 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { estadoGeneracion, generarVideoKling, generarVideoVeo } from "@/lib/higgsfield/client";
+import {
+  estadoGeneracion,
+  generarVideoKling,
+  generarVideoSpeak,
+  generarVideoVeo,
+} from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -67,6 +72,7 @@ interface Fila {
   formato: string;
   etapa: string;
   duracion: number | null;
+  audio_url: string | null;
   request_id: string | null;
   request_id_imagen: string | null;
   estado: string;
@@ -84,7 +90,7 @@ async function procesar(origen: string): Promise<void> {
     const { data: pendientes } = await admin
       .from("videos_producto")
       .select(
-        "id, account_id, prompt, formato, etapa, duracion, request_id, request_id_imagen, estado, creado_en",
+        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en",
       )
       .in("estado", ["enviado", "en_progreso"])
       .order("creado_en", { ascending: true })
@@ -131,7 +137,8 @@ async function procesar(origen: string): Promise<void> {
 }
 
 async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Promise<void> {
-  const enDosEtapas = fila.formato === "clip" || fila.formato === "hablado";
+  const enDosEtapas =
+    fila.formato === "clip" || fila.formato === "hablado" || fila.formato === "ugc";
   const enEtapaImagen = enDosEtapas && fila.etapa === "imagen";
   const requestId = enEtapaImagen ? fila.request_id_imagen : fila.request_id;
 
@@ -188,20 +195,37 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
   if (enEtapaImagen) {
     // La foto 9:16 quedó: ahora sí, a animarla. El video hereda el formato
     // vertical de esta imagen. El clip mudo lo anima Kling (10 s, MELI);
-    // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español.
+    // el hablado lo hace Veo 3.1 (8 s), que pone la voz en español. En UGC
+    // la imagen es la persona con el producto: con audio grabado la anima
+    // Speak v2 con lip sync (5/10/15 s) y sin audio Veo dice el guion (8 s).
     const video =
-      fila.formato === "hablado"
-        ? await generarVideoVeo({
-            prompt: fila.prompt,
-            image_url: res.url,
-            duration: 8,
-            resolution: "1080p",
-          })
-        : await generarVideoKling({
-            prompt: fila.prompt,
-            image_url: res.url,
-            duration: fila.duracion === 5 ? 5 : 10,
-          });
+      fila.formato === "ugc"
+        ? fila.audio_url
+          ? await generarVideoSpeak({
+              input_image: { type: "image_url", image_url: res.url },
+              input_audio: { type: "audio_url", audio_url: fila.audio_url },
+              prompt: fila.prompt,
+              quality: "high",
+              duration: fila.duracion === 5 ? 5 : fila.duracion === 15 ? 15 : 10,
+            })
+          : await generarVideoVeo({
+              prompt: fila.prompt,
+              image_url: res.url,
+              duration: 8,
+              resolution: "1080p",
+            })
+        : fila.formato === "hablado"
+          ? await generarVideoVeo({
+              prompt: fila.prompt,
+              image_url: res.url,
+              duration: 8,
+              resolution: "1080p",
+            })
+          : await generarVideoKling({
+              prompt: fila.prompt,
+              image_url: res.url,
+              duration: fila.duracion === 5 ? 5 : 10,
+            });
     if (!video.id) throw new Error("El modelo de video no devolvió folio.");
     await guardar(admin, fila.id, {
       imagen_generada: res.url,

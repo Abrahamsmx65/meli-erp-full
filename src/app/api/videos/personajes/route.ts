@@ -5,7 +5,7 @@ import {
   credencialesHiggsfield,
   crearPersonajeHF,
   estadoPersonajeHF,
-  subirImagen,
+  subirArchivo,
 } from "@/lib/higgsfield/client";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       if (datos.length > 8 * 1024 * 1024) {
         return NextResponse.json({ error: "Cada foto debe pesar menos de 8 MB." }, { status: 400 });
       }
-      urls.push(await subirImagen(datos, coincide[1]));
+      urls.push(await subirArchivo(datos, coincide[1]));
     }
   } catch (err) {
     return NextResponse.json(

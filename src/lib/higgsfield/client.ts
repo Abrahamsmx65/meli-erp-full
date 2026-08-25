@@ -217,6 +217,30 @@ export async function generarImagenSoul(entrada: EntradaSoul): Promise<Generacio
   return aGeneracion(cuerpo!);
 }
 
+export interface EntradaSpeak {
+  input_image: { type: "image_url"; image_url: string };
+  /** Solo acepta WAV. */
+  input_audio: { type: "audio_url"; audio_url: string };
+  prompt: string;
+  quality: "mid" | "high";
+  duration: 5 | 10 | 15;
+  seed?: number;
+}
+
+/**
+ * Encola Speak v2: anima a la persona de la imagen para que DIGA el audio,
+ * con lip sync. Es el motor del modo UGC — el video dura 5, 10 o 15 s según
+ * lo que se pida (el audio debe caber). Endpoint v1: cuerpo envuelto en
+ * params, igual que DoP y Soul.
+ */
+export async function generarVideoSpeak(entrada: EntradaSpeak): Promise<Generacion> {
+  const cuerpo = await llamar<CrudoV2 & CrudoJobSet>("/v1/speak/higgsfield", {
+    method: "POST",
+    body: JSON.stringify({ params: entrada }),
+  });
+  return aGeneracion(cuerpo!);
+}
+
 /** Cómo va una generación; acepta ids de las dos épocas de la API. */
 export async function estadoGeneracion(id: string): Promise<Generacion> {
   const v2 = await llamar<CrudoV2>(`/requests/${id}/status`, { method: "GET" }, { nullEn404: true });
@@ -271,14 +295,15 @@ export async function estadoPersonajeHF(id: string): Promise<PersonajeHF> {
 // ---------------------------------------------------------------------------
 
 /**
- * Sube una foto y devuelve su URL pública en el CDN de Higgsfield.
+ * Sube un archivo (foto o audio WAV) y devuelve su URL pública en el CDN de
+ * Higgsfield.
  *
  * El PUT a la URL prefirmada llegó a contestar 403 sin explicación visible;
  * por eso cada intento pide una URL NUEVA (las prefirmadas caducan rápido y
  * pueden ser de un solo uso) y, si el almacén rechaza, el error trae el
  * cuerpo de la respuesta — ahí viene la causa real (firma, tamaño, caducada).
  */
-export async function subirImagen(
+export async function subirArchivo(
   datos: Buffer | Uint8Array,
   contentType: string,
 ): Promise<string> {
@@ -314,5 +339,5 @@ export async function subirImagen(
     ultimo = `el almacén contestó ${res.status}${detalle ? `: ${detalle.slice(0, 200)}` : ""}`;
   }
 
-  throw new Error(`No se pudo subir la foto (${ultimo}).`);
+  throw new Error(`No se pudo subir el archivo (${ultimo}).`);
 }

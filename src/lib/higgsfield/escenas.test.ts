@@ -3,9 +3,13 @@ import {
   ESCENAS,
   armarPromptProducto,
   armarPromptHablado,
+  armarPromptPersonaUGC,
+  armarPromptSpeakUGC,
+  armarPromptVeoUGC,
   detectarGenero,
   detectarTipo,
   guionInicial,
+  guionInicialUGC,
   type TipoCalzado,
 } from "./escenas";
 
@@ -113,5 +117,54 @@ describe("clip hablado", () => {
     expect(
       armarPromptHablado({ tipo: "bota", genero: "mujer", semilla: 0.2, guion: "Hola" }),
     ).toContain("female voice-over");
+  });
+});
+
+describe("UGC", () => {
+  it("la imagen de la persona respeta el candado y el tipo, para todos los tipos", () => {
+    for (const tipo of TIPOS) {
+      const p = armarPromptPersonaUGC({ tipo, genero: "mujer", semilla: 0.5 });
+      expect(p).toContain("full body");
+      expect(p).toContain("9:16");
+      expect(p).toMatch(/must remain EXACTLY/);
+    }
+  });
+
+  it("la persona sigue el género, y para niños presenta una mamá adulta", () => {
+    expect(armarPromptPersonaUGC({ tipo: "tenis", genero: "hombre", semilla: 0.1 })).toContain(
+      "Mexican man",
+    );
+    expect(armarPromptPersonaUGC({ tipo: "tenis", genero: "mujer", semilla: 0.1 })).toContain(
+      "Mexican woman",
+    );
+    const ninos = armarPromptPersonaUGC({ tipo: "tenis", genero: "nino", semilla: 0.1 });
+    expect(ninos).toContain("mom");
+    expect(ninos).not.toMatch(/\bchild\b|\bkid\b/i);
+  });
+
+  it("el prompt de Speak pide gestos naturales sin tocar el producto", () => {
+    const p = armarPromptSpeakUGC({ tipo: "bota", semilla: 0.3 });
+    expect(p).toContain("talks directly to the camera");
+    expect(p).toMatch(/must remain EXACTLY/);
+  });
+
+  it("el UGC con voz de IA mete el guion en español con lip sync", () => {
+    const p = armarPromptVeoUGC({
+      tipo: "pantufla",
+      genero: "mujer",
+      semilla: 0.4,
+      guion: 'Estas pantuflas son "lo máximo"',
+    });
+    expect(p).toContain("Mexican Spanish");
+    expect(p).toContain("lip sync");
+    expect(p).toContain("Estas pantuflas son 'lo máximo'");
+    expect(p).toMatch(/must remain EXACTLY/);
+  });
+
+  it("el guion inicial del UGC concuerda en género gramatical", () => {
+    expect(guionInicialUGC("pantufla")).toMatch(/estas pantuflas/);
+    expect(guionInicialUGC("pantufla")).toMatch(/las estoy/);
+    expect(guionInicialUGC("tenis")).toMatch(/estos tenis/);
+    expect(guionInicialUGC("tenis")).toMatch(/los estoy/);
   });
 });

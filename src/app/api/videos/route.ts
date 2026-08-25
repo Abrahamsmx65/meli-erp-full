@@ -3,10 +3,11 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import {
   credencialesHiggsfield,
+  generarImagenSoul,
   generarVideo,
   generarVideoKling,
   generarVideoVeo,
-  subirImagen,
+  subirArchivo,
 } from "@/lib/higgsfield/client";
 import { validarPrompt, validarImagenUrl, construirEntradaDop } from "@/lib/higgsfield/presets";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
@@ -27,6 +28,12 @@ export const maxDuration = 120;
  *   de Higgsfield y Kling lo anima 10 s — el mínimo de los Clips.
  * - `hablado`: mismo lienzo, animado por Veo 3.1 (8 s) con VOZ EN OFF en
  *   español presentando el producto. Para redes.
+ * - `ugc`: una persona presenta el producto hablando a cámara. Es la única
+ *   excepción a la regla de oro y el usuario la pidió así: Soul genera la
+ *   imagen 9:16 de la persona SOSTENIENDO el producto (con la foto real de
+ *   referencia y el candado de fidelidad) y luego, con audio grabado, Speak
+ *   v2 la anima con lip sync (10-15 s); sin audio, Veo 3.1 le pone la voz
+ *   en español (8 s).
  * - `dop`: prueba rápida ~5 s; acepta VARIAS fotos reales como referencia.
  */
 export async function POST(req: NextRequest) {
@@ -48,7 +55,13 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const formato =
-    body?.formato === "clip" ? "clip" : body?.formato === "hablado" ? "hablado" : "dop";
+    body?.formato === "clip"
+      ? "clip"
+      : body?.formato === "hablado"
+        ? "hablado"
+        : body?.formato === "ugc"
+          ? "ugc"
+          : "dop";
 
   let imagenUrl: string;
   let promptVideo: string;
@@ -74,12 +87,52 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "El lienzo pesa demasiado." }, { status: 400 });
     }
     try {
-      lienzoUrl = await subirImagen(datos, "image/jpeg");
+      lienzoUrl = await subirArchivo(datos, "image/jpeg");
     } catch (err) {
       return NextResponse.json(
         { error: `No se pudo subir la foto: ${(err as Error).message}` },
         { status: 502 },
       );
+    }
+  }
+
+  // UGC: el prompt de la persona (imagen Soul) y, si viene, el audio grabado
+  // en WAV. La duración de Speak es el escalón (5/10/15 s) donde cabe el audio.
+  let promptImagenUGC: string | null = null;
+  let audioUrl: string | null = null;
+  let duracionSpeak: 5 | 10 | 15 = 10;
+  if (formato === "ugc") {
+    try {
+      promptImagenUGC = validarPrompt(String(body?.promptImagen ?? ""));
+    } catch {
+      return NextResponse.json({ error: "Falta el prompt de la persona (UGC)." }, { status: 400 });
+    }
+    const audio = String(body?.audio ?? "");
+    if (audio) {
+      const coincide = /^data:audio\/wav;base64,(.+)$/.exec(audio);
+      if (!coincide) {
+        return NextResponse.json({ error: "El audio debe llegar en WAV." }, { status: 400 });
+      }
+      const datos = Buffer.from(coincide[1], "base64");
+      if (datos.length > 3 * 1024 * 1024) {
+        return NextResponse.json({ error: "El audio pesa demasiado." }, { status: 400 });
+      }
+      const segundos = Number(body?.audioDuracion ?? 0);
+      if (!segundos || segundos > 15) {
+        return NextResponse.json(
+          { error: "El audio debe durar entre 1 y 15 segundos." },
+          { status: 400 },
+        );
+      }
+      duracionSpeak = segundos <= 5 ? 5 : segundos <= 10 ? 10 : 15;
+      try {
+        audioUrl = await subirArchivo(datos, "audio/wav");
+      } catch (err) {
+        return NextResponse.json(
+          { error: `No se pudo subir el audio: ${(err as Error).message}` },
+          { status: 502 },
+        );
+      }
     }
   }
 
@@ -106,16 +159,32 @@ export async function POST(req: NextRequest) {
       imagen_url: imagenUrl,
       imagen_generada: lienzoUrl, // el lienzo 9:16 (foto real, sin IA)
       prompt: promptVideo,
+      prompt_imagen: promptImagenUGC,
+      audio_url: audioUrl,
       preset: body?.escena ? String(body.escena) : null,
       modelo:
         formato === "clip"
           ? "kling-2.5-turbo"
           : formato === "hablado"
             ? "veo-3.1"
-            : String(body?.modelo ?? "dop-turbo"),
+            : formato === "ugc"
+              ? audioUrl
+                ? "speak-v2"
+                : "veo-3.1"
+              : String(body?.modelo ?? "dop-turbo"),
       formato,
-      etapa: "video",
-      duracion: formato === "clip" ? 10 : formato === "hablado" ? 8 : 5,
+      // El UGC arranca por la imagen de la persona; lo demás va directo al video.
+      etapa: formato === "ugc" ? "imagen" : "video",
+      duracion:
+        formato === "clip"
+          ? 10
+          : formato === "hablado"
+            ? 8
+            : formato === "ugc"
+              ? audioUrl
+                ? duracionSpeak
+                : 8
+              : 5,
     })
     .select("id")
     .single();
@@ -126,6 +195,30 @@ export async function POST(req: NextRequest) {
 
   try {
     let requestId: string;
+    if (formato === "ugc") {
+      // Etapa 1: la imagen de la persona con el producto (Soul 9:16, con la
+      // foto real de referencia). El vigilante lanza Speak/Veo cuando quede.
+      const res = await generarImagenSoul({
+        prompt: promptImagenUGC!,
+        width_and_height: "1152x2048",
+        quality: "1080p",
+        batch_size: 1,
+        image_reference: { type: "image_url", image_url: imagenUrl },
+      });
+      requestId = res.id;
+      if (!requestId) throw new Error("Higgsfield no devolvió folio.");
+      await supabase
+        .from("videos_producto")
+        .update({
+          request_id_imagen: requestId,
+          estado: "enviado",
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("id", fila.id);
+      const origenUgc = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+      after(() => dispararVideos(origenUgc));
+      return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
+    }
     if (formato === "clip") {
       const res = await generarVideoKling({
         prompt: promptVideo,

@@ -80,10 +80,11 @@ export default async function Videos() {
       <div>
         <h1 className="text-xl font-semibold">Videos de producto</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Clips verticales 9:16 de 10 segundos listos para los Clips de Mercado
-          Libre, generados directo de tus fotos reales: el producto sale tal cual,
-          sin que la IA lo altere. El video terminado se guarda aquí para siempre;
-          en Higgsfield solo vive unos días.
+          Clips verticales 9:16 listos para los Clips de Mercado Libre: del
+          producto tal cual (directo de tus fotos reales) o en modo UGC, con una
+          persona que lo presenta hablando en español — con tu voz grabada dura
+          10-15 segundos con lip sync. El video terminado se guarda aquí para
+          siempre; en Higgsfield solo vive unos días.
         </p>
       </div>
 
@@ -135,12 +136,14 @@ export default async function Videos() {
                     color: "var(--ink-muted)",
                   };
                   const formato = (v.formato as string) ?? "dop";
-                  const esClip = formato === "clip" || formato === "hablado";
+                  const esClip = formato === "clip" || formato === "hablado" || formato === "ugc";
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
                   const detalleEtapa =
                     esClip && generando
                       ? (v.etapa as string) === "imagen"
-                        ? "Etapa 1/2: creando la foto 9:16"
+                        ? formato === "ugc"
+                          ? "Etapa 1/2: creando a la persona con el producto"
+                          : "Etapa 1/2: creando la foto 9:16"
                         : "Etapa 2/2: animando el video"
                       : null;
                   return (
@@ -179,7 +182,9 @@ export default async function Videos() {
                             ? " · 9:16 · 10 s"
                             : formato === "hablado"
                               ? " · habla español · 8 s"
-                              : " · prueba ~5 s"}
+                              : formato === "ugc"
+                                ? ` · UGC · ${(v.duracion as number) ?? 10} s`
+                                : " · prueba ~5 s"}
                         </div>
                         <div
                           className="mt-0.5 line-clamp-3 text-xs"
