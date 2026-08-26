@@ -43,10 +43,20 @@ const IMPERFECCIONES =
  * personajes del UGC y del Studio: look pulido, outfit casual premium,
  * locación moderna y luminosa.
  */
-const ESTILO_PERSONA =
+export const ESTILO_PERSONA =
   "with an upscale Mexican 'fresa' (whitexican) vibe: light-skinned, polished and " +
   "well-groomed, quiet-luxury casual outfit, upscale modern Mexican home or setting " +
   "with beautiful natural light, aspirational lifestyle-creator energy";
+
+/**
+ * Cómo debe SONAR la voz: de corrido y fluida. El usuario reportó que el
+ * audio salía un poco entrecortado; esta instrucción va en todos los
+ * prompts que generan voz.
+ */
+export const VOZ_FLUIDA =
+  "The vocal delivery is smooth and flowing: sentences connect naturally in one " +
+  "relaxed conversational rhythm with soft natural breaths, never robotic, choppy, " +
+  "over-enunciated or with awkward gaps between phrases";
 
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
@@ -992,7 +1002,7 @@ export function promptUGCDesdeFoto(datos: {
     `The video starts EXACTLY on the provided real product photo — the first frame is ` +
     `identical to it. Then ${entrada}: ${persona}. They look into the camera with ` +
     `natural engaging expressions and talk in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate lip ` +
-    `sync, like recommending the product to a friend, saying: "${limpio}". While ` +
+    `sync, like recommending the product to a friend, saying: "${limpio}". ${VOZ_FLUIDA}. While ` +
     `talking they can show it closer to the lens, put it on and take a few natural ` +
     `steps as the handheld camera follows smoothly — everything in ONE single ` +
     `continuous take within the same continuous space: no cuts, no jump transitions, ` +
@@ -1017,7 +1027,8 @@ export function promptUGCConVozIA(narrativa: string, guion: string): string {
   return (
     narrativa +
     ` The person talks directly to the camera in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate ` +
-    `lip sync, like recommending the footwear to a friend, saying: "${limpio}".` +
+    `lip sync, like recommending the footwear to a friend, saying: "${limpio}". ` +
+    `${VOZ_FLUIDA}.` +
     CANDADO_UGC
   );
 }

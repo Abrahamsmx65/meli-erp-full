@@ -426,6 +426,8 @@ async function generarEstudio(
         mode: modo,
         aspect_ratio: "9:16",
         duration: 15,
+        // Sin esto el Studio entrega 720p; acepta hasta 1080p.
+        resolution: "1080p",
       };
       if (instrucciones) params.prompt = instrucciones;
       if (avatarId) params.avatar_ids = [avatarId];

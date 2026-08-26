@@ -49,6 +49,37 @@ const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   zapato: "Zapatos",
 };
 
+/**
+ * Estilos de voz del Studio: todos hablan DE CORRIDO (el usuario reportó
+ * audio entrecortado); el estilo elegido se agrega a las instrucciones.
+ */
+const VOCES_ESTUDIO = [
+  {
+    id: "fluida",
+    etiqueta: "Audio: voz natural y fluida",
+    instruccion:
+      "La voz habla DE CORRIDO, fluida y natural: frases enlazadas en un solo " +
+      "ritmo conversacional relajado, respiraciones suaves, sin pausas robóticas " +
+      "ni tono entrecortado.",
+  },
+  {
+    id: "energetica",
+    etiqueta: "Audio: voz enérgica",
+    instruccion:
+      "La voz es enérgica y entusiasta pero fluida: habla de corrido con ritmo " +
+      "ágil, frases enlazadas sin cortes, subidas de entonación naturales, nunca " +
+      "gritada ni robótica.",
+  },
+  {
+    id: "calmada",
+    etiqueta: "Audio: voz suave y calmada",
+    instruccion:
+      "La voz es suave, calmada y cercana: habla de corrido a ritmo tranquilo, " +
+      "frases enlazadas con fluidez, tono íntimo como platicando con alguien de " +
+      "confianza, sin pausas robóticas.",
+  },
+] as const;
+
 /** Lee la respuesta como JSON y, si el servidor contestó texto plano
  *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
 async function leerJson(r: Response): Promise<Record<string, unknown>> {
@@ -115,6 +146,31 @@ async function armarLienzo(fotoUrl: string): Promise<string> {
  * cuadro del UGC: una foto casera del producto en un lugar real — la
  * portada de MELI (catálogo, fondo blanco) no sirve para arrancar la escena.
  */
+/**
+ * Prepara la foto del PERSONAJE: sin recortes (la cara importa completa),
+ * solo se reduce si viene enorme del celular para que viaje ligera.
+ */
+async function prepararFotoPersonaje(archivo: File): Promise<string> {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
+      const i = new Image();
+      i.onload = () => resolver(i);
+      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+    const MAX = 1536;
+    const escala = Math.min(1, MAX / Math.max(img.width, img.height));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = Math.round(img.width * escala);
+    lienzo.height = Math.round(img.height * escala);
+    lienzo.getContext("2d")!.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+    return lienzo.toDataURL("image/jpeg", 0.9);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function recortarA916(archivo: File): Promise<string> {
   const url = URL.createObjectURL(archivo);
   try {
@@ -232,6 +288,15 @@ export function GeneradorVideo({
   // (~5 min, como el ejemplo de la app); `completo` = Marketing Studio
   // (guion + visuales + video, 10-30 min).
   const [motorEstudio, setMotorEstudio] = useState<"rapido" | "completo">("rapido");
+  // Estilo de voz del Studio (todas hablan de corrido, sin entrecortarse).
+  const [estiloVoz, setEstiloVoz] = useState<string>("fluida");
+  // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
+  const [personajeAbierto, setPersonajeAbierto] = useState(false);
+  const [nombrePersonaje, setNombrePersonaje] = useState("");
+  const [descPersonaje, setDescPersonaje] = useState("");
+  const [generoPersonaje, setGeneroPersonaje] = useState<"mujer" | "hombre">("mujer");
+  const [fotoPersonaje, setFotoPersonaje] = useState<string | null>(null);
+  const [creandoPersonaje, setCreandoPersonaje] = useState<"no" | "creando" | "generando">("no");
   const catalogoRef = useRef(false);
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
@@ -260,10 +325,12 @@ export function GeneradorVideo({
         if (!r.ok) throw new Error(String(j.error ?? ""));
         setAvatares((j.avatares as AvatarEstudio[]) ?? []);
         setModosEstudio((j.modos as { modo: string; descripcion: string }[]) ?? []);
-        // El personaje fijo de marca se recuerda en este navegador.
+        // El personaje fijo de marca y la voz se recuerdan en este navegador.
         try {
           const guardado = localStorage.getItem("hf_avatar_marca");
           if (guardado) setAvatarId(guardado);
+          const voz = localStorage.getItem("hf_voz_estudio");
+          if (voz && VOCES_ESTUDIO.some((v) => v.id === voz)) setEstiloVoz(voz);
         } catch {
           // Sin localStorage no pasa nada.
         }
@@ -524,6 +591,80 @@ export function GeneradorVideo({
     cambiar({ hayAudio: false });
   }
 
+  /** Crea el personaje de marca en la cuenta conectada y lo deja elegido. */
+  async function crearPersonajeAhora() {
+    const nombre = nombrePersonaje.trim();
+    if (!nombre) {
+      setMensaje("Ponle nombre al personaje.");
+      return;
+    }
+    setMensaje(null);
+    setCreandoPersonaje("creando");
+    try {
+      if (fotoPersonaje) {
+        const r = await fetch("/api/videos/estudio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "crear-foto", nombre, foto: fotoPersonaje }),
+        });
+        const j = await leerJson(r);
+        if (!r.ok) throw new Error(String(j.error ?? "No se pudo crear el personaje."));
+        adoptarPersonaje(j.avatar as AvatarEstudio);
+        return;
+      }
+      // Sin foto: la IA genera a la persona (~1 min) y aquí se espera a que
+      // quede para darla de alta como avatar.
+      const r = await fetch("/api/videos/estudio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "crear-ia",
+          nombre,
+          descripcion: descPersonaje.trim(),
+          genero: generoPersonaje,
+        }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el personaje."));
+      const jobId = String(j.jobId ?? "");
+      setCreandoPersonaje("generando");
+      for (let i = 0; i < 36; i++) {
+        await new Promise((re) => setTimeout(re, 5000));
+        const rp = await fetch("/api/videos/estudio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "terminar-ia", nombre, jobId }),
+        });
+        const jp = await leerJson(rp);
+        if (!rp.ok) throw new Error(String(jp.error ?? "No se pudo generar el personaje."));
+        if (!jp.pendiente) {
+          adoptarPersonaje(jp.avatar as AvatarEstudio);
+          return;
+        }
+      }
+      throw new Error("La imagen del personaje tardó demasiado; inténtalo otra vez.");
+    } catch (e) {
+      setCreandoPersonaje("no");
+      setMensaje((e as Error).message);
+    }
+  }
+
+  function adoptarPersonaje(avatar: AvatarEstudio) {
+    setAvatares((prev) => [avatar, ...prev.filter((a) => a.id !== avatar.id)]);
+    setAvatarId(avatar.id);
+    try {
+      localStorage.setItem("hf_avatar_marca", avatar.id);
+    } catch {
+      // Sin localStorage no pasa nada.
+    }
+    setCreandoPersonaje("no");
+    setPersonajeAbierto(false);
+    setNombrePersonaje("");
+    setDescPersonaje("");
+    setFotoPersonaje(null);
+    setMensaje(null);
+  }
+
   async function generar() {
     if (!pub || !principal) return;
     setEstado("enviando");
@@ -549,7 +690,10 @@ export function GeneradorVideo({
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
-            prompt: promptVideo,
+            // El estilo de voz elegido se suma a las instrucciones visibles.
+            prompt: `${promptVideo} ${
+              VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
+            }`.trim(),
             modo: modoEstudio,
             avatarId: avatarId || undefined,
             // En el motor rápido el personaje fijo viaja como FOTO de
@@ -849,10 +993,132 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              <select
+                value={estiloVoz}
+                onChange={(e) => {
+                  setEstiloVoz(e.target.value);
+                  try {
+                    localStorage.setItem("hf_voz_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                {VOCES_ESTUDIO.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.etiqueta}
+                  </option>
+                ))}
+              </select>
               {avatarId && (
                 <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
                   Personaje fijo: misma cara en todos tus videos.
                 </span>
+              )}
+            </div>
+          )}
+
+          {formato === "studio" && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <button
+                onClick={() => setPersonajeAbierto((v) => !v)}
+                className="text-sm font-semibold"
+                style={{ color: "var(--acento)" }}
+              >
+                {personajeAbierto ? "▾" : "▸"} Crear personaje de marca
+              </button>
+              {personajeAbierto && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                    Tu influencer fijo: se crea una vez en tu cuenta de Higgsfield
+                    y sale con la misma cara en todos los videos. Con una foto
+                    real (tuya o de quien quieras que sea la imagen) o generado
+                    con IA desde una descripción.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={nombrePersonaje}
+                      onChange={(e) => setNombrePersonaje(e.target.value)}
+                      placeholder="Nombre (p. ej. Regina GETAC)"
+                      className="px-2 py-1.5 text-sm"
+                    />
+                    <label
+                      className="cursor-pointer rounded border px-3 py-1.5 text-sm"
+                      style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                    >
+                      📷 Con foto…
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!f) return;
+                          try {
+                            setFotoPersonaje(await prepararFotoPersonaje(f));
+                            setMensaje(null);
+                          } catch {
+                            setMensaje("No se pudo leer esa foto.");
+                          }
+                        }}
+                      />
+                    </label>
+                    {fotoPersonaje && (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={fotoPersonaje} alt="Personaje" className="h-16 rounded" />
+                        <button
+                          onClick={() => setFotoPersonaje(null)}
+                          className="text-xs underline"
+                          style={{ color: "var(--ink-muted)" }}
+                        >
+                          Quitar
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {!fotoPersonaje && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={generoPersonaje}
+                        onChange={(e) => setGeneroPersonaje(e.target.value as "mujer" | "hombre")}
+                        className="px-2 py-1.5 text-sm"
+                      >
+                        <option value="mujer">Mujer</option>
+                        <option value="hombre">Hombre</option>
+                      </select>
+                      <input
+                        value={descPersonaje}
+                        onChange={(e) => setDescPersonaje(e.target.value)}
+                        placeholder="Descripción opcional (pelo, edad, estilo…)"
+                        className="min-w-64 flex-1 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={crearPersonajeAhora}
+                      disabled={creandoPersonaje !== "no"}
+                      className="rounded px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                      style={{ background: "var(--acento)" }}
+                    >
+                      {creandoPersonaje === "creando"
+                        ? "Creando…"
+                        : creandoPersonaje === "generando"
+                          ? "Generando a la persona (~1 min)…"
+                          : fotoPersonaje
+                            ? "Crear con esta foto"
+                            : "✨ Generarlo con IA"}
+                    </button>
+                    <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                      {fotoPersonaje
+                        ? "La cara de la foto será la del personaje."
+                        : "Sin foto, la IA inventa a la persona con el estilo de la marca."}
+                    </span>
+                  </div>
+                </div>
               )}
             </div>
           )}
