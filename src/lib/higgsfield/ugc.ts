@@ -37,6 +37,17 @@ const IMPERFECCIONES =
   "energy — NOT an ad, NOT cinematic, no fashion-model posing, no floating product " +
   "shots.";
 
+/**
+ * El estilo fijo de la marca (pedido del usuario): creador "whitexican" —
+ * fresa mexicano de clase alta, aspiracional. Se aplica a TODOS los
+ * personajes del UGC y del Studio: look pulido, outfit casual premium,
+ * locación moderna y luminosa.
+ */
+const ESTILO_PERSONA =
+  "with an upscale Mexican 'fresa' (whitexican) vibe: light-skinned, polished and " +
+  "well-groomed, quiet-luxury casual outfit, upscale modern Mexican home or setting " +
+  "with beautiful natural light, aspirational lifestyle-creator energy";
+
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
   // (el paso cae en múltiplos del largo y nunca toca un elemento).
@@ -925,7 +936,7 @@ export function armarConceptoUGC(datos: {
 
   const promptImagen =
     `Photo edit task: keep the EXACT footwear from the provided photo completely ` +
-    `untouched and build a realistic scene around it. The scene: ${perfil}, ${escena}, ` +
+    `untouched and build a realistic scene around it. The scene: ${perfil}, ${ESTILO_PERSONA}, ${escena}, ` +
     `holding or wearing that exact footwear, clearly visible. The result must look ` +
     `like a frame grab from a casual vertical 9:16 phone video: full body or ` +
     `three-quarter body in frame, ordinary lighting, slightly imperfect framing, mild ` +
@@ -934,7 +945,7 @@ export function armarConceptoUGC(datos: {
     `look, NO posing.` + CANDADO_UGC;
 
   const narrativa =
-    `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}. ` +
+    `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}, ${ESTILO_PERSONA}. ` +
     `${narrativaBase}.` + IMPERFECCIONES;
 
   const guionSugerido = llenar(`${hook} ${motivo} ${cierre}`, datos.tipo);
@@ -975,12 +986,12 @@ export function promptUGCDesdeFoto(datos: {
   guion: string;
 }): string {
   const entrada = elegir(ENTRADAS, datos.semilla, 37);
-  const persona = personaDesdeFoto(datos.genero);
+  const persona = `${personaDesdeFoto(datos.genero)}, ${ESTILO_PERSONA}`;
   const limpio = datos.guion.trim().replace(/"/g, "'");
   return (
     `The video starts EXACTLY on the provided real product photo — the first frame is ` +
     `identical to it. Then ${entrada}: ${persona}. They look into the camera with ` +
-    `natural engaging expressions and talk in casual Mexican Spanish with accurate lip ` +
+    `natural engaging expressions and talk in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate lip ` +
     `sync, like recommending the product to a friend, saying: "${limpio}". While ` +
     `talking they can show it closer to the lens, put it on and take a few natural ` +
     `steps as the handheld camera follows smoothly — everything in ONE single ` +
@@ -1005,7 +1016,7 @@ export function promptUGCConVozIA(narrativa: string, guion: string): string {
   const limpio = guion.trim().replace(/"/g, "'");
   return (
     narrativa +
-    ` The person talks directly to the camera in casual Mexican Spanish with accurate ` +
+    ` The person talks directly to the camera in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate ` +
     `lip sync, like recommending the footwear to a friend, saying: "${limpio}".` +
     CANDADO_UGC
   );

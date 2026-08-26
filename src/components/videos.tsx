@@ -313,7 +313,12 @@ export function GeneradorVideo({
       );
       setPromptVideo(
         `Video UGC vertical 9:16 de 15 segundos, TODO en español de México ` +
-          `(voz y subtítulos en español). Concepto: ${c.etiqueta}. Guion base: ` +
+          `(voz y subtítulos en español). Voz y acento: español mexicano de clase ` +
+          `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
+          `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
+          `caricatura. Estética: aspiracional de clase alta mexicana — creador de ` +
+          `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
+          `moderna y luminosa. Concepto: ${c.etiqueta}. Guion base: ` +
           `"${datos.guion || c.guionSugerido}". El creador habla a cámara con ` +
           `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
           `y movimientos reales y fluidos, en una sola locación con acciones ` +
