@@ -31,6 +31,7 @@ export function BotonAnuncio({
   estado,
   modelo,
   motivo,
+  campanaId,
 }: {
   itemId: string;
   /** estado actual en MELI */
@@ -38,6 +39,8 @@ export function BotonAnuncio({
   modelo: string;
   /** por qué se pausa (queda en la memoria para el recordatorio) */
   motivo?: string;
+  /** campaña del anuncio: el recurso de modificación de MELI la pide en la ruta */
+  campanaId?: string | null;
 }) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
@@ -57,6 +60,7 @@ export function BotonAnuncio({
             estado: destino,
             modelo,
             motivo: destino === "paused" ? (motivo ?? "") : "",
+            campanaId: campanaId ?? undefined,
           });
           setOcupado(false);
           if (err) setError(err);

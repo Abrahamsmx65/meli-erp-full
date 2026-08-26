@@ -39,6 +39,9 @@ export async function POST(req: Request) {
   }
   const modelo = String(cuerpo.modelo ?? "").slice(0, 40);
   const motivo = String(cuerpo.motivo ?? "").slice(0, 200);
+  const campanaId = /^\d+$/.test(String(cuerpo.campanaId ?? ""))
+    ? String(cuerpo.campanaId)
+    : null;
 
   const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
   if (!cliente) {
@@ -49,7 +52,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await cambiarEstadoAnuncio(cliente, cuenta.site_id, itemId, estado);
+    await cambiarEstadoAnuncio(cliente, cuenta.site_id, itemId, estado, campanaId);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "MELI no aceptó el cambio." },

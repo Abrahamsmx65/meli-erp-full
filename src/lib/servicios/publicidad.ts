@@ -353,20 +353,25 @@ export async function traerCampanasAds(
   return campanas;
 }
 
+interface IntentoEscritura {
+  ruta: string;
+  cuerpo: unknown;
+}
+
 /**
- * Escribe probando rutas candidatas EN ORDEN. Un 404 o un 503 (rutas viejas
- * ya apagadas contestan 503) pasa a la siguiente; cualquier otra respuesta
- * es del recurso real y se propaga tal cual. Si ninguna contesta, el error
- * resume qué dijo cada ruta: con eso se ve de un vistazo cuál es la buena.
- * Reintentos cortos (1): esto corre detrás de un botón, no de un cron.
+ * Escribe probando formas candidatas EN ORDEN (cada una con SU cuerpo). Un
+ * 404, 405 o 503 (rutas viejas apagadas o método no soportado) pasa a la
+ * siguiente; cualquier otra respuesta viene del recurso real y se propaga
+ * tal cual — un 400 con su mensaje es ORO: dice qué le falta al cuerpo. Si
+ * ninguna contesta, el error resume qué dijo cada ruta para converger a la
+ * buena de un vistazo. Reintentos cortos (1): esto corre detrás de un botón.
  */
 async function escribirConRutas(
   cliente: MeliClient,
-  rutas: string[],
-  cuerpo: unknown,
+  intentos: IntentoEscritura[],
 ): Promise<void> {
-  const intentos: string[] = [];
-  for (const ruta of rutas) {
+  const resumen: string[] = [];
+  for (const { ruta, cuerpo } of intentos) {
     try {
       await cliente.put(ruta, cuerpo, {
         headers: { "Api-Version": "2" },
@@ -374,39 +379,60 @@ async function escribirConRutas(
       });
       return;
     } catch (err) {
-      if (err instanceof MeliError && (err.status === 404 || err.status === 503)) {
-        intentos.push(`${err.status} en ${ruta.split("?")[0]}`);
+      if (
+        err instanceof MeliError &&
+        (err.status === 404 || err.status === 405 || err.status === 503)
+      ) {
+        resumen.push(`${err.status} en ${ruta.split("?")[0]}`);
         continue;
       }
       throw err;
     }
   }
   throw new MeliError(
-    `MELI no aceptó el cambio por ninguna ruta: ${intentos.join(" · ")}`,
+    `MELI no aceptó el cambio por ninguna ruta: ${resumen.join(" · ")}`,
     404,
     null,
-    rutas[0],
+    intentos[0]?.ruta,
   );
 }
 
-/** Pausa o enciende un anuncio (PUT, Api-Version 2). */
+/**
+ * Pausa o enciende un anuncio (PUT, Api-Version 2). El recurso nuevo de
+ * modificación no está documentado en abierto, así que se prueban las
+ * formas plausibles: el anuncio DEBAJO de su campaña, la modificación en
+ * LOTE sobre la colección de anuncios, y las formas por item (las por item
+ * con advertiser ya contestaron 404 en MLM; quedan al final por si MELI
+ * las enciende).
+ */
 export async function cambiarEstadoAnuncio(
   cliente: MeliClient,
   siteId: string,
   itemId: string,
   estado: "active" | "paused",
+  campanaId?: string | null,
 ): Promise<void> {
   const adv = await resolverAdvertiser(cliente, siteId);
-  // Los anuncios viven en el canal marketplace; algunas formas del recurso
-  // exigen decirlo explícito.
-  const rutas = [
-    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/${itemId}?channel=marketplace`,
-    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/${itemId}`,
-    `/advertising/${adv.siteId}/product_ads/ads/${itemId}?channel=marketplace`,
-    `/advertising/${adv.siteId}/product_ads/ads/${itemId}`,
-    `/advertising/product_ads/ads/${itemId}`,
-  ];
-  await escribirConRutas(cliente, rutas, { status: estado });
+  const base = `/advertising/${adv.siteId}`;
+  const conAdv = `${base}/advertisers/${adv.advertiserId}`;
+  const porItem = { status: estado };
+  const enLote = { ads: [{ item_id: itemId, status: estado }] };
+
+  const intentos: IntentoEscritura[] = [];
+  if (campanaId) {
+    intentos.push(
+      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/ads/${itemId}`, cuerpo: porItem },
+      { ruta: `${base}/product_ads/campaigns/${campanaId}/ads/${itemId}`, cuerpo: porItem },
+    );
+  }
+  intentos.push(
+    { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote },
+    { ruta: `${base}/product_ads/ads`, cuerpo: enLote },
+    { ruta: `${conAdv}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
+    { ruta: `${conAdv}/product_ads/ads/${itemId}`, cuerpo: porItem },
+    { ruta: `${base}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
+  );
+  await escribirConRutas(cliente, intentos);
 }
 
 /** Cambia presupuesto diario y/o ACOS objetivo de una campaña (PUT). */
@@ -422,14 +448,19 @@ export async function modificarCampanaAds(
   if (!Object.keys(cuerpo).length) return;
 
   const adv = await resolverAdvertiser(cliente, siteId);
+  const base = `/advertising/${adv.siteId}`;
+  const conAdv = `${base}/advertisers/${adv.advertiserId}`;
   const rutas = [
-    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}?channel=marketplace`,
-    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
-    `/advertising/${adv.siteId}/product_ads/campaigns/${campanaId}?channel=marketplace`,
-    `/advertising/${adv.siteId}/product_ads/campaigns/${campanaId}`,
+    `${conAdv}/product_ads/campaigns/${campanaId}`,
+    `${conAdv}/product_ads/campaigns/${campanaId}?channel=marketplace`,
+    `${base}/product_ads/campaigns/${campanaId}`,
+    `${base}/product_ads/campaigns/${campanaId}?channel=marketplace`,
     `/advertising/product_ads/campaigns/${campanaId}`,
   ];
-  await escribirConRutas(cliente, rutas, cuerpo);
+  await escribirConRutas(
+    cliente,
+    rutas.map((ruta) => ({ ruta, cuerpo })),
+  );
 }
 
 // ---------------------------------------------------------------------------

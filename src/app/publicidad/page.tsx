@@ -437,6 +437,7 @@ function Sugerencia({
                 estado={i.estado}
                 modelo={s.modelo}
                 motivo={s.accion === "pausar" ? "stock" : ""}
+                campanaId={i.campanaId}
               />
               <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
                 {i.itemId}
