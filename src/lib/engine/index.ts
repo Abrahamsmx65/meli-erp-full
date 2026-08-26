@@ -129,6 +129,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     horizonteDias: p.horizonteDias,
     factorSobrante: p.corridaSobranteFactor,
     diasDispareja: p.corridaDiasDispareja,
+    faltanteGrande: p.corridaFaltanteGrande,
   });
   // Una necesidad recortada se surte COMPLETA (tolerancia 0): el recorte ya
   // es la concesión, y quedarse además a un par del objetivo dejaba GT155
@@ -146,7 +147,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     l.explicacion +=
       a.regla === "mitad_corrida"
         ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
-        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
   }
 
   const planCajas = optimizarCajas({
