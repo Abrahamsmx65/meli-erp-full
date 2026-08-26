@@ -130,7 +130,7 @@ describe("armarPublicidad", () => {
     expect(p.totales.costoPorUnidad).toBeCloseTo(32);
   });
 
-  it("ignora anuncios sin actividad y ordena por gasto", () => {
+  it("ignora anuncios sin actividad y ordena alfabéticamente por modelo", () => {
     const p = armarPublicidad({
       anuncios: [
         anuncio("MLM111", 0, { clicks: 0, impresiones: 0 }), // muerto: fuera
@@ -145,7 +145,7 @@ describe("armarPublicidad", () => {
       costoDeModelo: new Map(),
       errorAds: null,
     });
-    // GT128 gastó en ads: va primero aunque venda menos.
+    // Alfabético: GT128 antes de MY2307, gaste o no gaste en ads.
     expect(p.filas.map((f) => f.modelo)).toEqual(["GT128", "MY2307"]);
     expect(p.filas[1].anuncios).toBe(0);
     expect(p.filas[1].gastoAds).toBe(0);
