@@ -28,6 +28,13 @@ export async function GET(req: NextRequest) {
   try {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
+
+    // ?herr=nombre → el esquema COMPLETO de esa herramienta.
+    const nombre = req.nextUrl.searchParams.get("herr");
+    if (nombre) {
+      const una = herramientas.find((h: any) => h.name === nombre);
+      return NextResponse.json(una ?? { error: "No existe esa herramienta." });
+    }
     // Nombres + descripción corta + campos del esquema (sin inundar).
     const resumen = herramientas.map((h: any) => ({
       nombre: h.name,
