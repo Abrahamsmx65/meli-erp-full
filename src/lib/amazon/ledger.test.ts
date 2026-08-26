@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
+import { filasTsv } from "./reportes";
 import { fechaLedger, snapshotsDesdeLedger } from "./sync";
+
+describe("el ledger REAL: TSV con todos los campos entre comillas", () => {
+  it("filasTsv les quita las comillas y el lector saca la foto", () => {
+    // Calcado de la radiografía del archivo real (amazon_sync_log.detalle):
+    // cada campo viene como "valor", comillas incluidas.
+    const texto = [
+      '"Date"\t"FNSKU"\t"ASIN"\t"MSKU"\t"Title"\t"Disposition"\t"Starting Warehouse Balance"\t"Ending Warehouse Balance"\t"Location"',
+      '"08/24/2026"\t"X004PD6H9H"\t"B0FB8T1KZF"\t"GT140-BROWN-24-MX"\t"Getac ""CHANCLAS"" MUJER"\t"SELLABLE"\t"10"\t"10"\t"MX"',
+    ].join("\n");
+
+    const filas = filasTsv(texto);
+    expect(filas[0]["date"]).toBe("08/24/2026");
+    expect(filas[0]["msku"]).toBe("GT140-BROWN-24-MX");
+    expect(filas[0]["title"]).toBe('Getac "CHANCLAS" MUJER'); // "" → "
+
+    const fotos = snapshotsDesdeLedger(filas, "cta", "2026-08-01", "2026-08-24");
+    expect(fotos).toHaveLength(1);
+    expect(fotos[0]).toMatchObject({
+      seller_sku: "GT140-BROWN-24-MX",
+      fecha: "2026-08-24",
+      disponible: 10,
+    });
+  });
+});
 
 describe("fechas del Inventory Ledger", () => {
   it("lee los tres formatos con que Amazon manda la fecha", () => {
