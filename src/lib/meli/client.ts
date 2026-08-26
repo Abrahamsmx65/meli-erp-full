@@ -197,18 +197,42 @@ export class MeliClient {
    * MELI que se escriba.
    */
   async post<T = unknown>(ruta: string, cuerpo: unknown): Promise<T> {
+    return this.conCuerpo<T>("POST", ruta, cuerpo);
+  }
+
+  /**
+   * PUT con cuerpo JSON (modificar un recurso: pausar un anuncio, cambiar el
+   * presupuesto de una campaña). Mismos reintentos que el POST; el API de
+   * publicidad exige además su versión por header.
+   */
+  async put<T = unknown>(
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string>; reintentos?: number },
+  ): Promise<T> {
+    return this.conCuerpo<T>("PUT", ruta, cuerpo, opts);
+  }
+
+  private async conCuerpo<T = unknown>(
+    metodo: "POST" | "PUT",
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string>; reintentos?: number },
+  ): Promise<T> {
     await this.asegurarToken();
     const url = `${MELI_API}${this.prefix}${ruta}`;
+    const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
     let ultimoError: unknown;
 
-    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
+    for (let intento = 0; intento <= maxReintentos; intento++) {
       try {
         const res = await fetch(url, {
-          method: "POST",
+          method: metodo,
           headers: {
             Authorization: `Bearer ${this.cred.accessToken}`,
             Accept: "application/json",
             "Content-Type": "application/json",
+            ...(opts?.headers ?? {}),
           },
           body: JSON.stringify(cuerpo ?? {}),
           cache: "no-store",
@@ -218,7 +242,7 @@ export class MeliClient {
           await this.renovar();
           continue;
         }
-        if (REINTENTABLES.has(res.status) && intento < MAX_REINTENTOS) {
+        if (REINTENTABLES.has(res.status) && intento < maxReintentos) {
           const reintentarEn = Number(res.headers.get("Retry-After") ?? 0);
           const espera = reintentarEn > 0
             ? reintentarEn * 1000
@@ -241,7 +265,7 @@ export class MeliClient {
       } catch (err) {
         ultimoError = err;
         if (err instanceof MeliError) throw err;
-        if (intento >= MAX_REINTENTOS) break;
+        if (intento >= maxReintentos) break;
         await dormir(Math.min(15_000, 2 ** intento * 500));
       }
     }
