@@ -124,6 +124,9 @@ export function ClipsMeli() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo escanear.");
+      // Encender también desde el navegador: este camino lleva la sesión y
+      // funciona aunque el disparo de servidor a servidor no prenda.
+      await encender();
       if (reloj.current) clearTimeout(reloj.current);
       reloj.current = setTimeout(cargar, 4000);
     } catch (err) {
@@ -145,6 +148,7 @@ export function ClipsMeli() {
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo encolar.");
       if (j.encolados === 0 && j.mensaje) setMensaje(j.mensaje);
+      if (j.encolados > 0) await encender();
       setEstado((e) => ({ ...e, [clave]: "ok" }));
       await cargar();
     } catch (err) {

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
+import { origenReal } from "@/lib/servicios/origen";
 import { cuentaActiva, traerTodo, upsertEnTandas } from "@/lib/datos/repos";
 import {
   dispararProcesoClips,
@@ -241,7 +242,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const accion = typeof body?.accion === "string" ? body.accion : "";
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  // origenReal, no NEXT_PUBLIC_APP_URL: con el valor de relleno del ejemplo,
+  // el disparo le pegaba a un dominio inexistente y moría en silencio.
+  const origen = origenReal(req);
 
   if (accion === "escanear") {
     // La foto vieja se invalida y el proceso vuelve a preguntar a MELI.
