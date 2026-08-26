@@ -173,6 +173,19 @@ export async function descargarReporte(
   return filasTsv(decodificar(bytes));
 }
 
+/**
+ * Algunos reportes (el Inventory Ledger, por ejemplo) mandan CADA campo
+ * envuelto en comillas dobles ("date", "08/24/2026"); la mayoría no. Se
+ * quitan las comillas envolventes y se des-escapan las dobladas ("" → ").
+ */
+function sinComillas(s: string): string {
+  const t = s.trim();
+  if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) {
+    return t.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return t;
+}
+
 /** Convierte el TSV en objetos con encabezados normalizados a minúsculas-con-guiones. */
 export function filasTsv(texto: string): Record<string, string>[] {
   const lineas = texto.split(/\r?\n/).filter((l) => l.trim() !== "");
@@ -180,13 +193,13 @@ export function filasTsv(texto: string): Record<string, string>[] {
 
   const encabezados = lineas[0]
     .split("\t")
-    .map((h) => h.trim().toLowerCase().replace(/[ _]/g, "-"));
+    .map((h) => sinComillas(h).toLowerCase().replace(/[ _]/g, "-"));
 
   const salida: Record<string, string>[] = [];
   for (let i = 1; i < lineas.length; i++) {
     const celdas = lineas[i].split("\t");
     const fila: Record<string, string> = {};
-    for (let j = 0; j < encabezados.length; j++) fila[encabezados[j]] = (celdas[j] ?? "").trim();
+    for (let j = 0; j < encabezados.length; j++) fila[encabezados[j]] = sinComillas(celdas[j] ?? "");
     salida.push(fila);
   }
   return salida;
