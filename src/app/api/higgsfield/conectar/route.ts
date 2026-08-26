@@ -27,8 +27,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/ajustes", req.nextUrl.origin));
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
-  const redirectUri = `${origen}/api/higgsfield/callback`;
+  // El dominio REAL con el que entró el usuario, desde los headers del
+  // proxy de Vercel. NEXT_PUBLIC_APP_URL no se usa aquí a propósito: si trae
+  // el valor de relleno del ejemplo, la redirección de OAuth se rompe.
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  if (!host) {
+    return NextResponse.json({ error: "No se pudo determinar el dominio." }, { status: 500 });
+  }
+  const redirectUri = `${proto}://${host}/api/higgsfield/callback`;
 
   let clientId: string;
   try {
