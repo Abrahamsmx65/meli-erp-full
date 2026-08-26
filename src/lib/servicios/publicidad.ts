@@ -15,6 +15,7 @@
  */
 import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
+import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
@@ -387,7 +388,16 @@ export async function cargarPublicidad(
       (q) => q.eq("account_id", cuenta.id).eq("activo", true),
     ),
     configPorProducto(db, cuenta.id),
-    clienteDeCuenta(db, cuenta.id),
+    // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
+    // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
+    // tabla se ve vacía aunque la cuenta esté conectada.
+    (async () => {
+      try {
+        return await clienteDeCuenta(clienteAdmin(), cuenta.id);
+      } catch {
+        return null;
+      }
+    })(),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -404,7 +414,8 @@ export async function cargarPublicidad(
   let anuncios: AnuncioAds[] = [];
   let errorAds: string | null = null;
   if (!cliente) {
-    errorAds = "La cuenta no tiene tokens de MELI guardados; conéctala en Ajustes.";
+    errorAds =
+      "No se pudieron leer los tokens de MELI: revisa que la cuenta esté conectada en Ajustes.";
   } else {
     try {
       anuncios = await traerAnunciosAds(cliente, cuenta.site_id, r);
