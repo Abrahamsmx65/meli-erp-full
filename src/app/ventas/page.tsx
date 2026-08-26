@@ -106,8 +106,8 @@ export default async function Ventas({
         <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
           El neto es el depósito REAL de Mercado Pago donde ya llegó (
           {Math.round(m.desglose.coberturaNetoReal * 100)}% del importe del periodo);
-          donde aún no, se usa importe − comisión. La publicidad de MELI requiere el
-          permiso de Product Ads y entra en la siguiente parte.
+          donde aún no, se usa importe − comisión. La publicidad de MELI tiene su
+          propia sección: Publicidad.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
           <Ficha titulo="Venta bruta" valor={pesos(m.desglose.bruto)} nota="Precio × unidades" />

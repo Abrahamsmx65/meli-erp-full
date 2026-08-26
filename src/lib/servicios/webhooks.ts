@@ -49,7 +49,7 @@ export interface ResultadoProceso {
 }
 
 /** Arma el cliente de MELI de una cuenta, renovando el token si hace falta. */
-async function clienteDeCuenta(db: DB, accountId: string): Promise<MeliClient | null> {
+export async function clienteDeCuenta(db: DB, accountId: string): Promise<MeliClient | null> {
   const { data: tok } = await db
     .from("meli_tokens")
     .select("access_token, refresh_token, expira_en")
