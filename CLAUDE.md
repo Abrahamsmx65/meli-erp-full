@@ -26,13 +26,18 @@ guárdala numerada.
 
 - **Las cajas nunca se abren.** Solo se mandan cajas completas. Muchas cajas
   son mixtas (una corrida: varias tallas del mismo modelo+color).
-- **Regla de la corrida despareja** (MELI y Amazon, `engine/corrida.ts`):
-  si una talla se agota pero su caja sobre-surtiría a las hermanas (la
-  mayoría de la caja no tapa faltantes), NO se completan sus 30 días:
-  con las hermanas al día (stock ≤ 1.3× su venta del horizonte) viaja la
-  MITAD de las cajas; con la corrida ya dispareja (alguna hermana arriba de
-  ese 1.3×, sin venta con stock, o sin amarre) solo se cubren los próximos
-  7 días de la talla agotada.
+- **Regla de la corrida despareja** (MELI y Amazon, `engine/corrida.ts`,
+  calibrada con GT135 DK/TABACO y GT155 BEIGE): si una talla se agota pero
+  su caja sobre-surtiría a las hermanas (la mayoría de la caja no tapa
+  faltantes), NO se completan sus 30 días. El sobrante de una hermana se
+  mide con sus APTAS (sin en camino) ÷ venta del horizonte, como se lee la
+  pantalla de Full. Hermanas al día (≤ 1.3×) → viaja la MITAD de las
+  cajas; corrida dispareja (alguna arriba de 1.3×, con stock sin venta o
+  sin amarre) → viajan 7 días de venta de la talla agotada, descontando
+  solo lo EN CAMINO (lo apto en piso ya se está vendiendo). Lo recortado
+  se surte completo (tolerancia de rescate 0: redondea a cajas hacia
+  arriba) y esas cajas NO se marcan opcionales. La tolerancia general de
+  rescate es de 7 días: una talla rápida a medio morir sí fuerza su caja.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos

@@ -122,7 +122,11 @@ export function generarPlan(e: EntradaPlan): Plan {
     datos: new Map(
       lineas.map((l) => [
         l.sku,
-        { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria },
+        {
+          disponible: l.disponible,
+          enCamino: l.enTransferencia,
+          demandaDiaria: l.demanda.demandaDiaria,
+        },
       ]),
     ),
     cajas: e.cajas,
@@ -130,10 +134,11 @@ export function generarPlan(e: EntradaPlan): Plan {
     factorSobrante: p.corridaSobranteFactor,
     diasDispareja: p.corridaDiasDispareja,
   });
-  // El recorte es deliberado: el rescate debe llenarlo aunque el hueco
-  // restante sea menor que la tolerancia general (que espera huecos de 30
-  // días). A las tallas recortadas se les da el piso de 2 días.
-  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 2]));
+  // Una necesidad recortada se surte COMPLETA (tolerancia 0): el recorte ya
+  // es la concesión, y quedarse además a un par del objetivo dejaba GT155
+  // BEIGE en 1 caja cuando la regla pedía las 2 que cubren los 7 días.
+  // En la práctica esto redondea el recorte a cajas hacia arriba.
+  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 0]));
   const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
   for (const a of ajustesCorrida) {
     const l = lineaPorSku.get(a.sku);
@@ -144,8 +149,8 @@ export function generarPlan(e: EntradaPlan): Plan {
     l.ajusteCorrida = a.regla;
     l.explicacion +=
       a.regla === "mitad_corrida"
-        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (sobrante ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
-        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): solo se cubren ${p.corridaDiasDispareja} días (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (aptas ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
+        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días en aptas): solo viajan ${p.corridaDiasDispareja} días de venta menos lo en camino (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
   }
 
   const planCajas = optimizarCajas({
@@ -158,12 +163,15 @@ export function generarPlan(e: EntradaPlan): Plan {
     inventarioSuelto: propioMap,
     pesoFaltante: p.pesoFaltante,
     pesoSobrante: p.pesoSobrante,
-    // Una talla solo fuerza caja completa si quedaría con MENOS de ~7 días
-    // de cobertura: el faltante se mide contra el objetivo (30 días), así
-    // que el umbral es horizonte − 7. Los huecos menores esperan al
-    // siguiente envío (hay 2 por semana) en vez de subir cajas que las
-    // demás tallas no necesitan.
-    toleranciaRescateDias: Math.max(2, p.horizonteDias - 7),
+    // Una talla fuerza caja completa cuando su hueco pasa de ~7 días de su
+    // venta; los huecos menores esperan al siguiente envío (hay 2 por
+    // semana). La tolerancia vieja de horizonte − 7 (~23 días) dejaba a las
+    // tallas RÁPIDAS morir a medias: GT135 DK BROWN 27 vendía 3.1/día con
+    // 12 días de cobertura y el rescate no subía cajas porque su hueco
+    // "solo" era de 22 días. El sobre-surtido que esa tolerancia evitaba
+    // ahora lo controla la regla de la corrida despareja, que recorta ANTES
+    // del optimizador las tallas cuya caja viaja mayormente de lastre.
+    toleranciaRescateDias: Math.min(Math.max(2, p.horizonteDias - 7), 7),
     toleranciaRescatePorSku: toleranciaPorSku,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,

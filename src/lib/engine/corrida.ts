@@ -6,13 +6,21 @@
  * los 30 días de la talla agotada obligaría a subir cajas cuyo resto nadie
  * pidió, y las tallas hermanas quedarían con stock de más.
  *
- * Lo acordado con el negocio:
+ * Lo acordado con el negocio (calibrado con los casos reales GT135 DK
+ * BROWN, GT135 TABACO y GT155 BEIGE del 26-ago-2026):
  *  - Si las hermanas traen buena venta y NO tienen más de 1.3× su ritmo de
- *    venta del horizonte (stock vs 30 días), se manda la MITAD de las cajas
- *    que la talla agotada pediría para completar sus 30 días.
- *  - Si la corrida ya está dispareja (alguna hermana arriba de ese 1.3×, o
- *    con stock parado sin venta), solo se cubren los próximos 7 días de la
- *    talla agotada, no más.
+ *    venta del horizonte, se manda la MITAD de las cajas que la talla
+ *    agotada pediría para completar sus 30 días.
+ *  - El sobrante de una hermana se mide con sus pares APTOS para vender
+ *    (sin lo en camino), igual que el negocio lee la pantalla de Full:
+ *    aptas ÷ venta de 30 días. Con lo en camino dentro, GT135 DK BROWN
+ *    salía "dispareja" cuando el criterio del negocio era mandar la mitad.
+ *  - Si la corrida ya está dispareja (alguna hermana arriba del 1.3×, o
+ *    con stock parado sin venta), se manda el equivalente a 7 días de
+ *    venta de la talla agotada, no más. Lo que ya viaja EN CAMINO hacia el
+ *    canal descuenta esos 7 días (si ya vienen 30 pares, no se manda
+ *    nada); lo apto en piso NO los descuenta, porque eso ya se está
+ *    vendiendo (GT155 BEIGE 26: con 8 aptas igual viajan sus ~7 días).
  *
  * La regla solo entra cuando subir la caja es mayormente sobre-surtir: si la
  * mitad o más de la caja tapa faltantes reales (varias tallas piden a la
@@ -30,8 +38,10 @@ const EPS = 1e-9;
 const FRACCION_CAJA_APROVECHADA = 0.5;
 
 export interface DatosSkuCorrida {
-  /** disponible + en camino en el canal (Full o FBA) */
-  posicion: number;
+  /** pares APTOS para vender ya en el canal (sin lo en camino) */
+  disponible: number;
+  /** pares en camino hacia el canal (transferencias / envíos activos) */
+  enCamino: number;
   /** piezas por día que vende en el canal */
   demandaDiaria: number;
 }
@@ -44,9 +54,9 @@ export interface AjusteCorrida {
   necesidadOriginal: number;
   necesidadAjustada: number;
   /**
-   * El peor sobrante entre las tallas hermanas sin faltante, en múltiplos de
-   * su venta del horizonte (1 = stock exacto para el horizonte; Infinity =
-   * stock parado sin venta o talla sin amarre).
+   * El peor sobrante entre las tallas hermanas sin faltante: sus pares
+   * APTOS en múltiplos de su venta del horizonte (1 = aptas exactas para el
+   * horizonte; Infinity = stock parado sin venta o talla sin amarre).
    */
   peorSobrante: number;
 }
@@ -110,7 +120,8 @@ export function ajustarNecesidadPorCorrida(e: {
     if (mejorAprovechada >= FRACCION_CAJA_APROVECHADA) continue;
 
     // Salud de las hermanas SIN faltante de esas cajas: ¿cuánto les sobra
-    // contra su venta del horizonte?
+    // en APTAS contra su venta del horizonte? (aptas ÷ venta de 30 días,
+    // como se lee la pantalla; lo en camino no entra al veredicto).
     let peor = 0;
     for (const c of propias) {
       for (const it of c.items) {
@@ -123,10 +134,10 @@ export function ajustarNecesidadPorCorrida(e: {
           continue;
         }
         // Vacía: que le llegue no es sobrar, es volver a tener qué vender.
-        if (d.posicion <= 0) continue;
+        if (d.disponible <= 0) continue;
         const sobrante =
           d.demandaDiaria > EPS
-            ? d.posicion / (d.demandaDiaria * e.horizonteDias)
+            ? d.disponible / (d.demandaDiaria * e.horizonteDias)
             : Infinity; // stock parado sin venta: la corrida ya está dispareja
         peor = Math.max(peor, sobrante);
       }
@@ -139,8 +150,11 @@ export function ajustarNecesidadPorCorrida(e: {
       ajustada = Math.ceil(pedida / 2);
     } else {
       regla = "solo_7_dias";
+      // El equivalente a 7 días de venta. Lo EN CAMINO ya viene a cubrir
+      // esos días y se descuenta; lo apto en piso no, porque eso se está
+      // vendiendo ya.
       const d = e.datos.get(sku);
-      const cubrir = (d?.demandaDiaria ?? 0) * diasDispareja - (d?.posicion ?? 0);
+      const cubrir = (d?.demandaDiaria ?? 0) * diasDispareja - (d?.enCamino ?? 0);
       ajustada = Math.min(pedida, Math.max(0, Math.ceil(cubrir)));
     }
     if (ajustada >= pedida) continue;

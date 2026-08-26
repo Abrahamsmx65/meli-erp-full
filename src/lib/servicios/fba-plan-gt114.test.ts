@@ -132,16 +132,16 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
       parametros: normalizarParametros({}),
     });
     // Corrida dispareja (hermanas sin venta en Amazon): en vez de los 46
-    // pares de 44 días, solo los 7 días = 8 pares. El rescate sube 2 cajas
-    // (6 pares de la 26) y el residuo de 2 NO debe salir como "sin caja en
-    // bodega": el SKU sí está ligado y sí viaja en el plan.
+    // pares de 44 días, solo los 7 días = 8 pares. Lo recortado se surte
+    // completo, así que el rescate sube 3 cajas (9 pares de la 26, con 3
+    // por caja) y no queda faltante — mucho menos que las ~15 cajas que
+    // pedían los 46 pares.
     expect(plan.ajustesCorrida).toHaveLength(1);
     expect(plan.ajustesCorrida[0].regla).toBe("solo_7_dias");
     expect(plan.ajustesCorrida[0].necesidadAjustada).toBe(8);
-    expect(plan.cajas.length).toBeGreaterThan(0);
+    expect(plan.cajas).toHaveLength(1);
+    expect(plan.cajas[0].cantidad).toBe(3);
     expect(plan.sinCajaEnBodega).toHaveLength(0);
-    expect(plan.faltanteConCaja).toEqual([
-      { sku: "GT114-LT BROWN-26-MX", pares: 2, enPlan: 6 },
-    ]);
+    expect(plan.faltanteConCaja).toHaveLength(0);
   });
 });

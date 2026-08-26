@@ -319,7 +319,10 @@ export function optimizarCajas(e: Entrada): PlanCajas {
 
     aplicar(mejor, 1);
     // "Muy diferencial": menos del 35% de la caja tapa faltantes reales.
-    if (mejorPuntaje < 0.35) {
+    // Excepción: si la talla trae tolerancia específica es porque la regla
+    // de la corrida ya RECORTÓ su necesidad al mínimo acordado (mitad o 7
+    // días); esas cajas no son opcionales, son el envío decidido.
+    if (mejorPuntaje < 0.35 && !e.toleranciaRescatePorSku?.has(skuFalta)) {
       opcionales.set(mejor.codigo, (opcionales.get(mejor.codigo) ?? 0) + 1);
     }
   }

@@ -73,7 +73,8 @@ export function planFbaConCajas(opts: {
   const prioridad = new Map<string, number>();
   const castigoSobrante = new Map<string, number>();
   const demandaDiaria = new Map<string, number>();
-  const posicionPorSku = new Map<string, number>();
+  const disponiblePorSku = new Map<string, number>();
+  const enCaminoPorSku = new Map<string, number>();
   const sinAmarre: SinAmarreFba[] = [];
 
   for (const r of renglones) {
@@ -109,7 +110,8 @@ export function planFbaConCajas(opts: {
 
     if (faltante > 0) necesidad.set(sku, (necesidad.get(sku) ?? 0) + faltante);
     demandaDiaria.set(sku, (demandaDiaria.get(sku) ?? 0) + ventaDiaria);
-    posicionPorSku.set(sku, (posicionPorSku.get(sku) ?? 0) + posicion);
+    disponiblePorSku.set(sku, (disponiblePorSku.get(sku) ?? 0) + r.disponible);
+    enCaminoPorSku.set(sku, (enCaminoPorSku.get(sku) ?? 0) + r.enTransferencia);
 
     // Los mismos pesos que el plan de Full, con los estados traducidos a
     // FBA: bajo de cobertura duele como crítico; con el doble del objetivo
@@ -139,7 +141,11 @@ export function planFbaConCajas(opts: {
     datos: new Map(
       [...demandaDiaria.entries()].map(([sku, d]) => [
         sku,
-        { posicion: posicionPorSku.get(sku) ?? 0, demandaDiaria: d },
+        {
+          disponible: disponiblePorSku.get(sku) ?? 0,
+          enCamino: enCaminoPorSku.get(sku) ?? 0,
+          demandaDiaria: d,
+        },
       ]),
     ),
     cajas: catalogo,
@@ -161,6 +167,9 @@ export function planFbaConCajas(opts: {
     inventarioSuelto: new Map(),
     pesoFaltante: p.pesoFaltante,
     pesoSobrante: p.pesoSobrante,
+    // Una necesidad recortada por la corrida se surte completa: el recorte
+    // ya es la concesión (mismo criterio que el plan de Full).
+    toleranciaRescatePorSku: new Map(ajustesCorrida.map((a) => [a.sku, 0])),
   });
 
   // Igual que el plan de Full: la marca de opcional viaja DENTRO de la

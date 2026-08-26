@@ -116,7 +116,8 @@ export function sugerirEnvioFba(
 ): SugerenciaFba[] {
   interface TallaGrupo {
     ventaDiaria: number;
-    posicion: number;
+    disponible: number;
+    enCamino: number;
     faltante: number;
   }
   interface Grupo {
@@ -164,7 +165,12 @@ export function sugerirEnvioFba(
     // el envío tarda en volverse vendible en FBA.
     const faltanteTalla = Math.max(0, ventaDiaria * (objetivoDias + RIESGO_DIAS_FBA) - posicion);
     g.faltante += faltanteTalla;
-    g.detalleTallas.push({ ventaDiaria, posicion, faltante: faltanteTalla });
+    g.detalleTallas.push({
+      ventaDiaria,
+      disponible: r.disponible,
+      enCamino: r.enTransferencia,
+      faltante: faltanteTalla,
+    });
     if (!g.titulo && r.titulo) g.titulo = r.titulo;
     grupos.set(clave, g);
   }
@@ -187,15 +193,16 @@ export function sugerirEnvioFba(
       let faltanteEnvio = g.faltante;
       if (agotadas.length > 0 && sanas.length > agotadas.length) {
         let peor = 0;
-        // El sobrante se mide contra el objetivo REAL de la talla (30 días
-        // + los 14 que el envío tarda en volverse vendible): contra 30
-        // pelones, una talla recién surtida al objetivo ya sería "dispareja".
+        // El sobrante se mide con lo DISPONIBLE en FBA (sin en camino),
+        // contra el objetivo real de la talla (30 días + los 14 que el
+        // envío tarda en volverse vendible): contra 30 pelones, una talla
+        // recién surtida al objetivo ya sería "dispareja".
         const diasObjetivo = objetivoDias + RIESGO_DIAS_FBA;
         for (const t of sanas) {
-          if (t.posicion <= 0) continue; // vacía: que le llegue no es sobrar
+          if (t.disponible <= 0) continue; // vacía: que le llegue no es sobrar
           peor = Math.max(
             peor,
-            t.ventaDiaria > 0 ? t.posicion / (t.ventaDiaria * diasObjetivo) : Infinity,
+            t.ventaDiaria > 0 ? t.disponible / (t.ventaDiaria * diasObjetivo) : Infinity,
           );
         }
         if (peor <= FACTOR_SOBRANTE_CORRIDA) {
@@ -203,8 +210,11 @@ export function sugerirEnvioFba(
           faltanteEnvio = g.faltante / 2;
         } else {
           ajusteCorrida = "solo_7_dias";
+          // 7 días de venta de cada talla agotada; lo que ya viaja EN
+          // CAMINO los descuenta (lo disponible no: eso ya se está
+          // vendiendo).
           faltanteEnvio = agotadas.reduce(
-            (a, t) => a + Math.max(0, t.ventaDiaria * DIAS_CORRIDA_DISPAREJA - t.posicion),
+            (a, t) => a + Math.max(0, t.ventaDiaria * DIAS_CORRIDA_DISPAREJA - t.enCamino),
             0,
           );
         }
