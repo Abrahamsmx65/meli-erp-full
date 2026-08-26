@@ -82,10 +82,19 @@ export async function GET(req: NextRequest) {
 
   const pruebas: Record<string, unknown> = {};
 
+  const { data: up } = await supabase
+    .from("skus")
+    .select("user_product_id")
+    .eq("account_id", cuenta.id)
+    .eq("item_id", itemId)
+    .not("user_product_id", "is", null)
+    .limit(1)
+    .maybeSingle();
   const { ruta, respuesta, sondeos } = await descubrirRutaClips(
     cliente,
     itemId,
     cuenta.meli_user_id,
+    (up?.user_product_id as string) ?? undefined,
   );
   pruebas["sondeo de rutas"] = sondeos;
   pruebas["ruta elegida"] = ruta?.nombre ?? "NINGUNA contestó";

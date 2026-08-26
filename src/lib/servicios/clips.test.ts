@@ -98,11 +98,18 @@ describe("descubrirRutaClips: la ruta real no está documentada, se sondea", () 
     expect(r.sondeos.every((s) => s.status === 404)).toBe(true);
   });
 
-  it("cada candidata tiene su ruta de subida al lado de la de lectura", () => {
-    for (const ruta of rutasCandidatas(99)) {
+  it("cada candidata por publicación lleva el item en lectura y subida", () => {
+    for (const ruta of rutasCandidatas(99, "MLMU123")) {
+      if (ruta.porItem === false) continue; // van por user product o vendedor
       expect(ruta.upload("MLM1")).toContain("MLM1");
       expect(ruta.get("MLM1")).toContain("MLM1");
     }
+  });
+
+  it("con user product y vendedor entran también sus rutas de sondeo", () => {
+    const nombres = rutasCandidatas(99, "MLMU123").map((r) => r.nombre);
+    expect(nombres).toContain("user-products/{up}/clips");
+    expect(nombres).toContain("users/{seller}/clips");
   });
 });
 

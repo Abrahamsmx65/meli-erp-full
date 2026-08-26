@@ -130,11 +130,32 @@ async function procesar(origen: string): Promise<void> {
             await cerrarSync(admin, logId, "ok", { sinPublicacionesActivas: true });
             return;
           }
+          const { data: up } = await admin
+            .from("skus")
+            .select("user_product_id")
+            .eq("account_id", accountId)
+            .eq("item_id", sonda.item_id)
+            .not("user_product_id", "is", null)
+            .limit(1)
+            .maybeSingle();
           const { ruta, sondeos } = await descubrirRutaClips(
             cliente,
             sonda.item_id,
             (cuenta.meli_user_id as number) ?? undefined,
+            (up?.user_product_id as string) ?? undefined,
           );
+          if (ruta && ruta.porItem === false) {
+            // El recurso existe pero no va por publicación: primero hay que
+            // adaptar el amarre (user product o vendedor). El sondeo dice
+            // exactamente qué contestó.
+            await cerrarSync(admin, logId, "error", {
+              mensaje:
+                `El API de clips contestó en "${ruta.nombre}", que no va por publicación. ` +
+                "Falta adaptar el servicio a ese amarre; el sondeo está abajo.",
+              sondeos,
+            });
+            return;
+          }
           if (!ruta) {
             await cerrarSync(admin, logId, "error", {
               mensaje:

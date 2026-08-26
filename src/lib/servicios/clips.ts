@@ -217,9 +217,15 @@ export interface RutaClips {
   nombre: string;
   get: (itemId: string) => string;
   upload: (itemId: string) => string;
+  /**
+   * false = la ruta no va por publicación (va por user product o por
+   * vendedor): sirve para DESCUBRIR que el recurso existe, pero el recorrido
+   * del catálogo necesita adaptarse antes de usarla.
+   */
+  porItem?: boolean;
 }
 
-export function rutasCandidatas(sellerId?: number): RutaClips[] {
+export function rutasCandidatas(sellerId?: number, userProductId?: string): RutaClips[] {
   const rutas: RutaClips[] = [
     {
       nombre: "items/{id}/clips",
@@ -242,12 +248,47 @@ export function rutasCandidatas(sellerId?: number): RutaClips[] {
       upload: (i) => `/clips/items/${i}/upload`,
     },
   ];
+  rutas.push({
+    nombre: "vis/items/{id}/videos",
+    get: (i) => `/vis/items/${i}/videos`,
+    upload: (i) => `/vis/items/${i}/videos/upload`,
+  });
   if (sellerId) {
-    rutas.push({
-      nombre: "users/{seller}/items/{id}/clips",
-      get: (i) => `/users/${sellerId}/items/${i}/clips`,
-      upload: (i) => `/users/${sellerId}/items/${i}/clips/upload`,
-    });
+    rutas.push(
+      {
+        nombre: "users/{seller}/items/{id}/clips",
+        get: (i) => `/users/${sellerId}/items/${i}/clips`,
+        upload: (i) => `/users/${sellerId}/items/${i}/clips/upload`,
+      },
+      {
+        nombre: "users/{seller}/clips",
+        porItem: false,
+        get: () => `/users/${sellerId}/clips`,
+        upload: () => `/users/${sellerId}/clips/upload`,
+      },
+      {
+        nombre: "marketplace/users/{seller}/clips",
+        porItem: false,
+        get: () => `/marketplace/users/${sellerId}/clips`,
+        upload: () => `/marketplace/users/${sellerId}/clips/upload`,
+      },
+    );
+  }
+  if (userProductId) {
+    rutas.push(
+      {
+        nombre: "user-products/{up}/clips",
+        porItem: false,
+        get: () => `/user-products/${userProductId}/clips`,
+        upload: () => `/user-products/${userProductId}/clips/upload`,
+      },
+      {
+        nombre: "marketplace/user-products/{up}/clips",
+        porItem: false,
+        get: () => `/marketplace/user-products/${userProductId}/clips`,
+        upload: () => `/marketplace/user-products/${userProductId}/clips/upload`,
+      },
+    );
   }
   return rutas;
 }
@@ -269,9 +310,10 @@ export async function descubrirRutaClips(
   cliente: Pick<MeliClient, "get">,
   itemId: string,
   sellerId?: number,
+  userProductId?: string,
 ): Promise<{ ruta: RutaClips | null; respuesta: unknown; sondeos: Sondeo[] }> {
   const sondeos: Sondeo[] = [];
-  for (const ruta of rutasCandidatas(sellerId)) {
+  for (const ruta of rutasCandidatas(sellerId, userProductId)) {
     const url = ruta.get(itemId);
     try {
       const respuesta = await cliente.get(url);
