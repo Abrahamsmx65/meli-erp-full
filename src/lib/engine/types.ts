@@ -92,6 +92,15 @@ export interface Parametros {
   maxCajasPorEnvio: number;
   /** tope de piezas por envío. 0 = sin tope */
   maxPiezasPorEnvio: number;
+  /**
+   * Regla de la corrida despareja: sobrante tolerado a las tallas hermanas,
+   * como múltiplo de su venta del horizonte (stock ≤ 1.3× su venta de 30
+   * días = hermanas al día → se manda la MITAD; arriba de eso → solo se
+   * cubren `corridaDiasDispareja` días de la talla agotada).
+   */
+  corridaSobranteFactor: number;
+  /** días a cubrir de la talla agotada cuando la corrida ya está dispareja */
+  corridaDiasDispareja: number;
 }
 
 export type OrigenDia =
@@ -171,6 +180,14 @@ export interface LineaPlan {
 
   /** lo que idealmente habría que mandar */
   sugerido: number;
+  /**
+   * Recorte por la regla de la corrida despareja: la caja de esta talla
+   * sobre-surtiría a sus hermanas, así que se manda menos. `sugerido` ya
+   * viene recortado; el pedido completo queda en `sugeridoCompleto`.
+   */
+  ajusteCorrida?: "mitad_corrida" | "solo_7_dias";
+  /** sugerido ANTES del recorte de la corrida (solo cuando hubo ajuste) */
+  sugeridoCompleto?: number;
   /** lo que puedo mandar con el inventario propio suelto que tengo */
   inventarioPropio: number;
   faltanteBodega: number;

@@ -58,7 +58,7 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
     expect(item26?.sku).toBe("GT114-LT BROWN-26-MX");
   });
 
-  it("el plan de FBA le encuentra caja al faltante de la talla 26", () => {
+  it("la regla de la corrida despareja frena las 5 cajas por 16 pares", () => {
     const catalogo = construirCajas(EXISTENCIAS as any, CORRIDAS as any, {
       indice: construirIndice(SKUS_MELI.map((s) => s.sku)),
       mapeoManual: new Map(),
@@ -86,13 +86,62 @@ describe("GT114-LT BROWN-26: el residuo del rescate no es \"sin caja en bodega\"
       parametros: normalizarParametros({}),
     });
     expect(plan.sinAmarre).toHaveLength(0);
-    // faltante = ceil(31/30 × 44 − 30) = 16 pares; el rescate manda 5 cajas
-    // (15 pares de la talla 26) y el par que sobra NO debe salir como "sin
-    // caja en bodega": el SKU sí está ligado y sí viaja en el plan.
+    // faltante = ceil(31/30 × 44 − 30) = 16 pares, pero la caja trae 21 de
+    // hermanas que Amazon ni conoce (sin venta ahí): corrida dispareja. Los
+    // próximos 7 días (≈7 pares) ya los cubren los 30 en camino, así que no
+    // viaja nada — antes esto arrastraba 5 cajas (120 pares) por 16.
+    expect(plan.ajustesCorrida).toEqual([
+      {
+        sku: "GT114-LT BROWN-26-MX",
+        regla: "solo_7_dias",
+        necesidadOriginal: 16,
+        necesidadAjustada: 0,
+        peorSobrante: Infinity,
+      },
+    ]);
+    expect(plan.paresSugeridos).toBe(0);
+    expect(plan.cajas).toHaveLength(0);
+    expect(plan.sinCajaEnBodega).toHaveLength(0);
+  });
+
+  it("con la talla 26 en cero sí viajan cajas para sus 7 días, y el residuo no es \"sin caja\"", () => {
+    const catalogo = construirCajas(EXISTENCIAS as any, CORRIDAS as any, {
+      indice: construirIndice(SKUS_MELI.map((s) => s.sku)),
+      mapeoManual: new Map(),
+      almacenes: ["Caseshop", "EnvioPack", "Industher"],
+    }).cajas;
+
+    const renglon: RenglonAmazon = {
+      sku: "GT114-LT BROWN-26-MX",
+      titulo: null,
+      asin: null,
+      unidades: 31,
+      ordenes: 28,
+      importe: 0,
+      disponible: 0,
+      enTransferencia: 0,
+      totalFba: 0,
+      cobertura: null,
+    };
+
+    const plan = planFbaConCajas({
+      renglones: [renglon],
+      dias: 30,
+      catalogo,
+      indiceMeli: indexarCatalogo(SKUS_MELI as any),
+      parametros: normalizarParametros({}),
+    });
+    // Corrida dispareja (hermanas sin venta en Amazon): en vez de los 46
+    // pares de 44 días, solo los 7 días = 8 pares. El rescate sube 2 cajas
+    // (6 pares de la 26) y el residuo de 2 NO debe salir como "sin caja en
+    // bodega": el SKU sí está ligado y sí viaja en el plan.
+    expect(plan.ajustesCorrida).toHaveLength(1);
+    expect(plan.ajustesCorrida[0].regla).toBe("solo_7_dias");
+    expect(plan.ajustesCorrida[0].necesidadAjustada).toBe(8);
     expect(plan.cajas.length).toBeGreaterThan(0);
     expect(plan.sinCajaEnBodega).toHaveLength(0);
     expect(plan.faltanteConCaja).toEqual([
-      { sku: "GT114-LT BROWN-26-MX", pares: 1, enPlan: 15 },
+      { sku: "GT114-LT BROWN-26-MX", pares: 2, enPlan: 6 },
     ]);
   });
 });

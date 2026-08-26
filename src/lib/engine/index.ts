@@ -8,6 +8,7 @@ import { normalizarParametros } from "./params";
 import { calcularLinea, prioridadFaltante, prioridadSobrante } from "./replenish";
 import { reconstruirStockDiario } from "./stockHistory";
 import { optimizarCajas } from "./boxes";
+import { ajustarNecesidadPorCorrida } from "./corrida";
 import type {
   Caja,
   ISODate,
@@ -25,6 +26,8 @@ import type {
 export * from "./types";
 export { PARAMETROS_DEFAULT, normalizarParametros, periodoRevision, ventanaRiesgo, zScore } from "./params";
 export { optimizarCajas } from "./boxes";
+export { ajustarNecesidadPorCorrida } from "./corrida";
+export type { AjusteCorrida, DatosSkuCorrida } from "./corrida";
 export { calcularDemanda } from "./demand";
 export { reconstruirStockDiario, calcularFraccionesConStock } from "./stockHistory";
 export { calcularLinea } from "./replenish";
@@ -111,6 +114,40 @@ export function generarPlan(e: EntradaPlan): Plan {
     demandaDiaria.set(l.sku, l.demanda.demandaDiaria);
   }
 
+  // 4.1 Regla de la corrida despareja: una talla agotada cuya caja sobre-
+  // surtiría a sus hermanas no pide sus 30 días completos — la mitad si las
+  // hermanas van al día, solo 7 días si la corrida ya está dispareja.
+  const ajustesCorrida = ajustarNecesidadPorCorrida({
+    necesidad,
+    datos: new Map(
+      lineas.map((l) => [
+        l.sku,
+        { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria },
+      ]),
+    ),
+    cajas: e.cajas,
+    horizonteDias: p.horizonteDias,
+    factorSobrante: p.corridaSobranteFactor,
+    diasDispareja: p.corridaDiasDispareja,
+  });
+  // El recorte es deliberado: el rescate debe llenarlo aunque el hueco
+  // restante sea menor que la tolerancia general (que espera huecos de 30
+  // días). A las tallas recortadas se les da el piso de 2 días.
+  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 2]));
+  const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
+  for (const a of ajustesCorrida) {
+    const l = lineaPorSku.get(a.sku);
+    if (!l) continue;
+    l.sugeridoCompleto = a.necesidadOriginal;
+    l.sugerido = a.necesidadAjustada;
+    l.faltanteBodega = Math.max(0, a.necesidadAjustada - l.inventarioPropio);
+    l.ajusteCorrida = a.regla;
+    l.explicacion +=
+      a.regla === "mitad_corrida"
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (sobrante ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
+        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): solo se cubren ${p.corridaDiasDispareja} días (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+  }
+
   const planCajas = optimizarCajas({
     necesidad,
     prioridad,
@@ -127,6 +164,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     // siguiente envío (hay 2 por semana) en vez de subir cajas que las
     // demás tallas no necesitan.
     toleranciaRescateDias: Math.max(2, p.horizonteDias - 7),
+    toleranciaRescatePorSku: toleranciaPorSku,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
   });
