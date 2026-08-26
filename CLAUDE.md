@@ -12,7 +12,7 @@ RLS) · Vercel · ExcelJS / SheetJS (solo `.xls`) · vitest.
 
 ```
 npm run dev      # local
-npm test         # vitest run  (72 pruebas, todas deben pasar)
+npm test         # vitest run  (todas las pruebas deben pasar)
 npx tsc --noEmit # tipos
 npm run build    # build de producción
 ```
@@ -88,6 +88,7 @@ guárdala numerada.
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
+| Clips de MELI en todas las variantes | `src/lib/servicios/clips.ts` + `/api/clips/*` + página `/clips` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron

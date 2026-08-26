@@ -347,6 +347,8 @@ async function generarEstudio(
       ? String(body.avatarFoto)
       : null;
   const rapido = body?.motor === "rapido";
+  // 1080p por default; 720p es la palanca de ahorro (mismo motor y estilo).
+  const resolucion = body?.resolucion === "720p" ? "720p" : "1080p";
 
   if (!titulo || !fotos.length) {
     return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
@@ -398,8 +400,9 @@ async function generarEstudio(
             : " Las imágenes adjuntas son las fotos reales del producto."),
         aspect_ratio: "9:16",
         duration: 15,
-        // 1080p solo existe en modo std; fast se queda en 720p.
-        resolution: "1080p",
+        // El modo std es el de calidad (fast recorta); la resolución la
+        // elige el usuario: 1080p, o 720p para ahorrar créditos.
+        resolution: resolucion,
         mode: "std",
         generate_audio: true,
         medias,
@@ -426,6 +429,8 @@ async function generarEstudio(
         mode: modo,
         aspect_ratio: "9:16",
         duration: 15,
+        // Sin esto el Studio entrega 720p; el usuario elige 1080p o 720p.
+        resolution: resolucion,
       };
       if (instrucciones) params.prompt = instrucciones;
       if (avatarId) params.avatar_ids = [avatarId];

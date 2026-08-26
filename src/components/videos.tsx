@@ -49,6 +49,60 @@ const TIPOS_ETIQUETA: Record<TipoCalzado, string> = {
   zapato: "Zapatos",
 };
 
+/**
+ * Estilos de voz del Studio: todos hablan DE CORRIDO (el usuario reportó
+ * audio entrecortado); el estilo elegido se agrega a las instrucciones.
+ */
+const VOCES_ESTUDIO = [
+  {
+    id: "fluida",
+    etiqueta: "Audio: voz natural y fluida",
+    instruccion:
+      "La voz habla DE CORRIDO, fluida y natural: frases enlazadas en un solo " +
+      "ritmo conversacional relajado, respiraciones suaves, sin pausas robóticas " +
+      "ni tono entrecortado.",
+  },
+  {
+    id: "energetica",
+    etiqueta: "Audio: voz enérgica",
+    instruccion:
+      "La voz es enérgica y entusiasta pero fluida: habla de corrido con ritmo " +
+      "ágil, frases enlazadas sin cortes, subidas de entonación naturales, nunca " +
+      "gritada ni robótica.",
+  },
+  {
+    id: "calmada",
+    etiqueta: "Audio: voz suave y calmada",
+    instruccion:
+      "La voz es suave, calmada y cercana: habla de corrido a ritmo tranquilo, " +
+      "frases enlazadas con fluidez, tono íntimo como platicando con alguien de " +
+      "confianza, sin pausas robóticas.",
+  },
+] as const;
+
+/**
+ * Subtítulos del Studio. El usuario los quiere ENCENDIDOS: van por default,
+ * exigiendo ortografía perfecta y que digan exactamente lo que dice la voz
+ * (la IA tiende a comerse letras si no se le exige).
+ */
+const SUBTITULOS_ESTUDIO = [
+  {
+    id: "si",
+    etiqueta: "Subtítulos: encendidos",
+    instruccion:
+      "Con subtítulos en español PERFECTAMENTE escritos: copian el guion LITERAL, " +
+      "letra por letra, sin faltas de ortografía, sin letras faltantes, sin " +
+      "traducir ninguna palabra al inglés, sincronizados con la voz.",
+  },
+  {
+    id: "no",
+    etiqueta: "Subtítulos: apagados",
+    instruccion:
+      "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
+      "palabras escritas ni marcas de agua.",
+  },
+] as const;
+
 /** Lee la respuesta como JSON y, si el servidor contestó texto plano
  *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
 async function leerJson(r: Response): Promise<Record<string, unknown>> {
@@ -115,6 +169,31 @@ async function armarLienzo(fotoUrl: string): Promise<string> {
  * cuadro del UGC: una foto casera del producto en un lugar real — la
  * portada de MELI (catálogo, fondo blanco) no sirve para arrancar la escena.
  */
+/**
+ * Prepara la foto del PERSONAJE: sin recortes (la cara importa completa),
+ * solo se reduce si viene enorme del celular para que viaje ligera.
+ */
+async function prepararFotoPersonaje(archivo: File): Promise<string> {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
+      const i = new Image();
+      i.onload = () => resolver(i);
+      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+    const MAX = 1536;
+    const escala = Math.min(1, MAX / Math.max(img.width, img.height));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = Math.round(img.width * escala);
+    lienzo.height = Math.round(img.height * escala);
+    lienzo.getContext("2d")!.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+    return lienzo.toDataURL("image/jpeg", 0.9);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function recortarA916(archivo: File): Promise<string> {
   const url = URL.createObjectURL(archivo);
   try {
@@ -232,6 +311,25 @@ export function GeneradorVideo({
   // (~5 min, como el ejemplo de la app); `completo` = Marketing Studio
   // (guion + visuales + video, 10-30 min).
   const [motorEstudio, setMotorEstudio] = useState<"rapido" | "completo">("rapido");
+  // Estilo de voz del Studio (todas hablan de corrido, sin entrecortarse).
+  const [estiloVoz, setEstiloVoz] = useState<string>("fluida");
+  // Subtítulos: encendidos por default (pedido del usuario), bien escritos.
+  const [subtitulos, setSubtitulos] = useState<string>("si");
+  // Un personaje por TIPO de producto (botas ≠ sandalias ≠ pantuflas): el
+  // amarre vive en este navegador y se aplica solo al detectar el tipo.
+  const [avataresPorTipo, setAvataresPorTipo] = useState<Record<string, string>>({});
+  // Calidad del video (1080p default; 720p sale más barato).
+  const [resolucionEstudio, setResolucionEstudio] = useState<"1080p" | "720p">("1080p");
+  // Saldo de créditos de la cuenta y costo estimado del próximo video.
+  const [saldo, setSaldo] = useState<number | null>(null);
+  const [costoVideo, setCostoVideo] = useState<number | null>(null);
+  // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
+  const [personajeAbierto, setPersonajeAbierto] = useState(false);
+  const [nombrePersonaje, setNombrePersonaje] = useState("");
+  const [descPersonaje, setDescPersonaje] = useState("");
+  const [generoPersonaje, setGeneroPersonaje] = useState<"mujer" | "hombre">("mujer");
+  const [fotoPersonaje, setFotoPersonaje] = useState<string | null>(null);
+  const [creandoPersonaje, setCreandoPersonaje] = useState<"no" | "creando" | "generando">("no");
   const catalogoRef = useRef(false);
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
@@ -260,10 +358,20 @@ export function GeneradorVideo({
         if (!r.ok) throw new Error(String(j.error ?? ""));
         setAvatares((j.avatares as AvatarEstudio[]) ?? []);
         setModosEstudio((j.modos as { modo: string; descripcion: string }[]) ?? []);
-        // El personaje fijo de marca se recuerda en este navegador.
+        // El personaje fijo de marca y la voz se recuerdan en este navegador.
         try {
           const guardado = localStorage.getItem("hf_avatar_marca");
           if (guardado) setAvatarId(guardado);
+          const voz = localStorage.getItem("hf_voz_estudio");
+          if (voz && VOCES_ESTUDIO.some((v) => v.id === voz)) setEstiloVoz(voz);
+          const subs = localStorage.getItem("hf_subs_estudio");
+          if (subs && SUBTITULOS_ESTUDIO.some((s) => s.id === subs)) setSubtitulos(subs);
+          const res_ = localStorage.getItem("hf_res_estudio");
+          if (res_ === "720p" || res_ === "1080p") setResolucionEstudio(res_);
+          const porTipo = JSON.parse(localStorage.getItem("hf_avatar_por_tipo") ?? "{}");
+          if (porTipo && typeof porTipo === "object") {
+            setAvataresPorTipo(porTipo as Record<string, string>);
+          }
         } catch {
           // Sin localStorage no pasa nada.
         }
@@ -272,6 +380,30 @@ export function GeneradorVideo({
       }
     })();
   }, [formato, cuentaConectada]);
+
+  // Cuánto costará el próximo video y cuántos créditos quedan: preguntarlo
+  // es gratis (get_cost no lanza ningún trabajo), y así no hay sorpresas.
+  useEffect(() => {
+    if (formato !== "studio" || !cuentaConectada) return;
+    let vivo = true;
+    setCostoVideo(null);
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/videos/estudio?costo=${motorEstudio}&res=${resolucionEstudio}`,
+        );
+        const j = await leerJson(r);
+        if (!vivo || !r.ok) return;
+        setCostoVideo(typeof j.creditos === "number" ? (j.creditos as number) : null);
+        setSaldo(typeof j.saldo === "number" ? (j.saldo as number) : null);
+      } catch {
+        // Sin el dato del costo no pasa nada.
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [formato, cuentaConectada, motorEstudio, resolucionEstudio]);
 
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
@@ -316,19 +448,24 @@ export function GeneradorVideo({
             : "UGC",
       );
       setPromptVideo(
-        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México ` +
-          `(voz y subtítulos en español). Voz y acento: español mexicano de clase ` +
+        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México. ` +
+          `Voz y acento: hablante NATIVO de español mexicano de clase ` +
           `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
-          `caricatura. Estética: aspiracional de clase alta mexicana — creador de ` +
+          `caricatura. PROHIBIDO mezclar idiomas: ni una palabra en inglés ni en ` +
+          `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
+          `'ampolas'); cada palabra se pronuncia completa y correcta en español. ` +
+          `Estética: aspiracional de clase alta mexicana — creador de ` +
           `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
-          `moderna y luminosa. Concepto: ${c.etiqueta}. Guion base: ` +
-          `"${datos.guion || c.guionSugerido}". El creador habla a cámara con ` +
+          `moderna y luminosa. Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
           `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
           `y movimientos reales y fluidos, en una sola locación con acciones ` +
           `variadas (lo muestra de cerca, se lo pone, camina). El producto es el ` +
           `calzado adjunto y debe verse EXACTAMENTE como en las fotos, sin ` +
-          `rediseñarlo ni inventarle detalles.`,
+          `rediseñarlo ni inventarle detalles. ` +
+          `Audio — la voz dice este guion EXACTO, palabra por palabra y letra ` +
+          `por letra, en español nativo de México, sin traducirlo, cambiarlo ni ` +
+          `inventar palabras: "${datos.guion || c.guionSugerido}".`,
       );
       return;
     }
@@ -390,6 +527,8 @@ export function GeneradorVideo({
     setTipo(t);
     setGenero(g);
     setGuion(gu);
+    // Si este tipo de producto tiene su propio personaje, se elige solo.
+    if (avataresPorTipo[t]) setAvatarId(avataresPorTipo[t]);
     regenerarPrompt({
       tipo: t,
       genero: g,
@@ -449,7 +588,11 @@ export function GeneradorVideo({
       ((f === "ugc" || f === "studio") &&
         (cambios.semilla !== undefined || cambios.genero !== undefined));
     const gu = cambios.guion ?? (rehacerGuion ? guionBase : guion);
-    if (cambios.tipo !== undefined) setTipo(t);
+    if (cambios.tipo !== undefined) {
+      setTipo(t);
+      // El personaje amarrado a ese tipo entra solo.
+      if (avataresPorTipo[t]) setAvatarId(avataresPorTipo[t]);
+    }
     if (cambios.genero !== undefined) setGenero(g);
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
@@ -524,6 +667,84 @@ export function GeneradorVideo({
     cambiar({ hayAudio: false });
   }
 
+  /** Crea el personaje de marca en la cuenta conectada y lo deja elegido. */
+  async function crearPersonajeAhora() {
+    const nombre = nombrePersonaje.trim();
+    if (!nombre) {
+      setMensaje("Ponle nombre al personaje.");
+      return;
+    }
+    setMensaje(null);
+    setCreandoPersonaje("creando");
+    try {
+      if (fotoPersonaje) {
+        const r = await fetch("/api/videos/estudio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "crear-foto", nombre, foto: fotoPersonaje }),
+        });
+        const j = await leerJson(r);
+        if (!r.ok) throw new Error(String(j.error ?? "No se pudo crear el personaje."));
+        adoptarPersonaje(j.avatar as AvatarEstudio);
+        return;
+      }
+      // Sin foto: la IA genera a la persona (~1 min) y aquí se espera a que
+      // quede para darla de alta como avatar.
+      const r = await fetch("/api/videos/estudio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "crear-ia",
+          nombre,
+          descripcion: descPersonaje.trim(),
+          genero: generoPersonaje,
+        }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el personaje."));
+      const jobId = String(j.jobId ?? "");
+      setCreandoPersonaje("generando");
+      for (let i = 0; i < 36; i++) {
+        await new Promise((re) => setTimeout(re, 5000));
+        const rp = await fetch("/api/videos/estudio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "terminar-ia", nombre, jobId }),
+        });
+        const jp = await leerJson(rp);
+        if (!rp.ok) throw new Error(String(jp.error ?? "No se pudo generar el personaje."));
+        if (!jp.pendiente) {
+          adoptarPersonaje(jp.avatar as AvatarEstudio);
+          return;
+        }
+      }
+      throw new Error("La imagen del personaje tardó demasiado; inténtalo otra vez.");
+    } catch (e) {
+      setCreandoPersonaje("no");
+      setMensaje((e as Error).message);
+    }
+  }
+
+  function adoptarPersonaje(avatar: AvatarEstudio) {
+    setAvatares((prev) => [avatar, ...prev.filter((a) => a.id !== avatar.id)]);
+    setAvatarId(avatar.id);
+    // El nuevo personaje queda amarrado al tipo de producto actual.
+    const nuevos = { ...avataresPorTipo, [tipo]: avatar.id };
+    setAvataresPorTipo(nuevos);
+    try {
+      localStorage.setItem("hf_avatar_marca", avatar.id);
+      localStorage.setItem("hf_avatar_por_tipo", JSON.stringify(nuevos));
+    } catch {
+      // Sin localStorage no pasa nada.
+    }
+    setCreandoPersonaje("no");
+    setPersonajeAbierto(false);
+    setNombrePersonaje("");
+    setDescPersonaje("");
+    setFotoPersonaje(null);
+    setMensaje(null);
+  }
+
   async function generar() {
     if (!pub || !principal) return;
     setEstado("enviando");
@@ -546,10 +767,16 @@ export function GeneradorVideo({
           body: JSON.stringify({
             formato: "studio",
             motor: motorEstudio,
+            resolucion: resolucionEstudio,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
-            prompt: promptVideo,
+            // El estilo de voz y los subtítulos elegidos se suman al prompt.
+            prompt: `${promptVideo} ${
+              VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
+            } ${
+              SUBTITULOS_ESTUDIO.find((s) => s.id === subtitulos)?.instruccion ?? ""
+            }`.trim(),
             modo: modoEstudio,
             avatarId: avatarId || undefined,
             // En el motor rápido el personaje fijo viaja como FOTO de
@@ -831,10 +1058,18 @@ export function GeneradorVideo({
               <select
                 value={avatarId}
                 onChange={(e) => {
-                  setAvatarId(e.target.value);
+                  const id = e.target.value;
+                  setAvatarId(id);
+                  // El personaje queda amarrado al TIPO de producto actual:
+                  // así cada línea (botas, sandalias…) tiene su influencer.
+                  const nuevos = { ...avataresPorTipo };
+                  if (id) nuevos[tipo] = id;
+                  else delete nuevos[tipo];
+                  setAvataresPorTipo(nuevos);
                   try {
-                    if (e.target.value) localStorage.setItem("hf_avatar_marca", e.target.value);
+                    if (id) localStorage.setItem("hf_avatar_marca", id);
                     else localStorage.removeItem("hf_avatar_marca");
+                    localStorage.setItem("hf_avatar_por_tipo", JSON.stringify(nuevos));
                   } catch {
                     // Sin localStorage no pasa nada.
                   }
@@ -849,10 +1084,173 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              <select
+                value={estiloVoz}
+                onChange={(e) => {
+                  setEstiloVoz(e.target.value);
+                  try {
+                    localStorage.setItem("hf_voz_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                {VOCES_ESTUDIO.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.etiqueta}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={subtitulos}
+                onChange={(e) => {
+                  setSubtitulos(e.target.value);
+                  try {
+                    localStorage.setItem("hf_subs_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                {SUBTITULOS_ESTUDIO.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.etiqueta}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={resolucionEstudio}
+                onChange={(e) => {
+                  setResolucionEstudio(e.target.value as "1080p" | "720p");
+                  try {
+                    localStorage.setItem("hf_res_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                <option value="1080p">Calidad: 1080p</option>
+                <option value="720p">Calidad: 720p (más barato)</option>
+              </select>
+              {(costoVideo !== null || saldo !== null) && (
+                <span className="text-[11px] font-medium" style={{ color: "var(--ink-muted)" }}>
+                  {costoVideo !== null && `≈ ${costoVideo} créditos por video`}
+                  {costoVideo !== null && saldo !== null && " · "}
+                  {saldo !== null && `Saldo: ${saldo}`}
+                </span>
+              )}
               {avatarId && (
                 <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                  Personaje fijo: misma cara en todos tus videos.
+                  Personaje para {TIPOS_ETIQUETA[tipo]}: misma cara en todos los
+                  videos de este tipo.
                 </span>
+              )}
+            </div>
+          )}
+
+          {formato === "studio" && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <button
+                onClick={() => setPersonajeAbierto((v) => !v)}
+                className="text-sm font-semibold"
+                style={{ color: "var(--acento)" }}
+              >
+                {personajeAbierto ? "▾" : "▸"} Crear personaje de marca
+              </button>
+              {personajeAbierto && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                    Tu influencer fijo: se crea una vez en tu cuenta de Higgsfield
+                    y sale con la misma cara en todos los videos. Con una foto
+                    real (tuya o de quien quieras que sea la imagen) o generado
+                    con IA desde una descripción.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={nombrePersonaje}
+                      onChange={(e) => setNombrePersonaje(e.target.value)}
+                      placeholder="Nombre (p. ej. Regina GETAC)"
+                      className="px-2 py-1.5 text-sm"
+                    />
+                    <label
+                      className="cursor-pointer rounded border px-3 py-1.5 text-sm"
+                      style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                    >
+                      📷 Con foto…
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!f) return;
+                          try {
+                            setFotoPersonaje(await prepararFotoPersonaje(f));
+                            setMensaje(null);
+                          } catch {
+                            setMensaje("No se pudo leer esa foto.");
+                          }
+                        }}
+                      />
+                    </label>
+                    {fotoPersonaje && (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={fotoPersonaje} alt="Personaje" className="h-16 rounded" />
+                        <button
+                          onClick={() => setFotoPersonaje(null)}
+                          className="text-xs underline"
+                          style={{ color: "var(--ink-muted)" }}
+                        >
+                          Quitar
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {!fotoPersonaje && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={generoPersonaje}
+                        onChange={(e) => setGeneroPersonaje(e.target.value as "mujer" | "hombre")}
+                        className="px-2 py-1.5 text-sm"
+                      >
+                        <option value="mujer">Mujer</option>
+                        <option value="hombre">Hombre</option>
+                      </select>
+                      <input
+                        value={descPersonaje}
+                        onChange={(e) => setDescPersonaje(e.target.value)}
+                        placeholder="Descripción opcional (pelo, edad, estilo…)"
+                        className="min-w-64 flex-1 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={crearPersonajeAhora}
+                      disabled={creandoPersonaje !== "no"}
+                      className="rounded px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                      style={{ background: "var(--acento)" }}
+                    >
+                      {creandoPersonaje === "creando"
+                        ? "Creando…"
+                        : creandoPersonaje === "generando"
+                          ? "Generando a la persona (~1 min)…"
+                          : fotoPersonaje
+                            ? "Crear con esta foto"
+                            : "✨ Generarlo con IA"}
+                    </button>
+                    <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                      {fotoPersonaje
+                        ? "La cara de la foto será la del personaje."
+                        : "Sin foto, la IA inventa a la persona con el estilo de la marca."}
+                    </span>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1196,6 +1594,128 @@ export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] 
 }
 
 /** Quita un intento de la lista. */
+/**
+ * Edición barata de un video terminado: cambia SOLO la voz (voice_change de
+ * Higgsfield) manteniendo visuales y tiempos. El resultado entra como
+ * intento nuevo; el original no se toca.
+ */
+export function CambiarVoz({ id }: { id: string }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [voces, setVoces] = useState<
+    { id: string; tipo: string; nombre: string; genero: string | null; muestra: string | null }[]
+  >([]);
+  const [vozSel, setVozSel] = useState("");
+  const [estado, setEstado] = useState<"listo" | "cargando" | "enviando">("listo");
+  const [error, setError] = useState<string | null>(null);
+
+  async function abrir() {
+    setAbierto(true);
+    setError(null);
+    if (voces.length) return;
+    setEstado("cargando");
+    try {
+      const r = await fetch("/api/videos/editar");
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudieron traer las voces."));
+      const vs =
+        (j.voces as {
+          id: string;
+          tipo: string;
+          nombre: string;
+          genero: string | null;
+          muestra: string | null;
+        }[]) ?? [];
+      setVoces(vs);
+      if (vs.length) setVozSel(vs[0].id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  async function aplicar() {
+    const voz = voces.find((v) => v.id === vozSel);
+    if (!voz) return;
+    setEstado("enviando");
+    setError(null);
+    try {
+      const r = await fetch("/api/videos/editar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, vozId: voz.id, vozTipo: voz.tipo, vozNombre: voz.nombre }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el cambio de voz."));
+      setAbierto(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  const muestra = voces.find((v) => v.id === vozSel)?.muestra ?? null;
+
+  if (!abierto) {
+    return (
+      <button onClick={abrir} className="text-xs underline" style={{ color: "var(--acento)" }}>
+        🎙 Cambiar voz
+      </button>
+    );
+  }
+  return (
+    <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
+      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+        Otra voz, mismo video (visuales y tiempos intactos; sale como intento nuevo)
+      </span>
+      {estado === "cargando" ? (
+        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          Trayendo voces…
+        </span>
+      ) : (
+        <>
+          <select
+            value={vozSel}
+            onChange={(e) => setVozSel(e.target.value)}
+            className="px-2 py-1 text-xs"
+          >
+            {voces.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.nombre || v.id.slice(0, 8)}
+                {v.genero ? ` (${v.genero})` : ""}
+              </option>
+            ))}
+          </select>
+          {muestra && <audio controls src={muestra} className="h-8 w-full" preload="none" />}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={aplicar}
+              disabled={estado === "enviando" || !vozSel}
+              className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              {estado === "enviando" ? "Lanzando…" : "Aplicar"}
+            </button>
+            <button
+              onClick={() => setAbierto(false)}
+              className="text-xs underline"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function BotonBorrar({ id }: { id: string }) {
   const router = useRouter();
   const [borrando, setBorrando] = useState(false);
