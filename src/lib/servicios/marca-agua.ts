@@ -47,9 +47,10 @@ export async function quemarMarcaYSubir(
     "echo LISTO_MARCA",
   ].join(" && ");
 
+  // El sandbox acepta 120 s máximo; para un video de 15 s alcanza de sobra.
   const res = await llamarHerramienta(sesion, "sandbox_exec", {
     command: comando,
-    timeout_seconds: 240,
+    timeout_seconds: 120,
   });
   const texto = JSON.stringify(resultadoEstructurado(res) ?? res);
   if (!texto.includes("LISTO_MARCA")) {
