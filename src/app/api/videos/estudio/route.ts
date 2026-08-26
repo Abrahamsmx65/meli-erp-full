@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { subirArchivo } from "@/lib/higgsfield/client";
@@ -18,7 +18,7 @@ export const maxDuration = 60;
  * (para fijar el personaje de marca — misma cara en todos los videos) y los
  * modos/presets de video (UGC, Unboxing, Product Review…).
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
   const {
     data: { user },
@@ -31,6 +31,43 @@ export async function GET() {
   const admin = clienteAdmin();
   try {
     const sesion = await abrirSesion(admin, cuenta.id);
+
+    // ?costo=rapido|completo → cuánto costaría el próximo video en créditos.
+    // get_cost NO lanza ningún trabajo: preguntar es gratis.
+    const costo = req.nextUrl.searchParams.get("costo");
+    if (costo) {
+      const resolucion = req.nextUrl.searchParams.get("res") === "720p" ? "720p" : "1080p";
+      const params: Record<string, unknown> =
+        costo === "completo"
+          ? {
+              model: "marketing_studio_video",
+              prompt: "Video de producto (consulta de costo)",
+              aspect_ratio: "9:16",
+              duration: 15,
+              resolution: resolucion,
+              get_cost: true,
+            }
+          : {
+              model: "seedance_2_0",
+              prompt: "Video de producto (consulta de costo)",
+              aspect_ratio: "9:16",
+              duration: 15,
+              resolution: resolucion,
+              mode: "std",
+              generate_audio: true,
+              get_cost: true,
+            };
+      const resCosto = await llamarHerramienta(sesion, "generate_video", { params });
+      const scCosto = resultadoEstructurado(resCosto);
+      const saldoRes = await llamarHerramienta(sesion, "balance", {}).catch(() => null);
+      const scSaldo = saldoRes ? resultadoEstructurado(saldoRes) : null;
+      return NextResponse.json({
+        ok: true,
+        creditos: scCosto?.cost?.credits ?? null,
+        saldo: typeof scSaldo?.credits === "number" ? scSaldo.credits : null,
+      });
+    }
+
     const res = await llamarHerramienta(sesion, "show_marketing_studio", {
       action: "list",
       type: "avatar",

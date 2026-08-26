@@ -81,25 +81,25 @@ const VOCES_ESTUDIO = [
 ] as const;
 
 /**
- * Subtítulos del Studio. La IA escribe MAL el texto en pantalla (letras
- * faltantes, faltas de ortografía), así que el default es sin subtítulos:
- * TikTok/Reels/MELI los ponen bien escritos al publicar.
+ * Subtítulos del Studio. El usuario los quiere ENCENDIDOS: van por default,
+ * exigiendo ortografía perfecta y que digan exactamente lo que dice la voz
+ * (la IA tiende a comerse letras si no se le exige).
  */
 const SUBTITULOS_ESTUDIO = [
   {
+    id: "si",
+    etiqueta: "Subtítulos: encendidos",
+    instruccion:
+      "Con subtítulos en español PERFECTAMENTE escritos, sin faltas de ortografía " +
+      "ni letras faltantes, sincronizados, que digan exactamente lo mismo que la " +
+      "voz, palabra por palabra.",
+  },
+  {
     id: "no",
-    etiqueta: "Subtítulos: sin subtítulos (recomendado)",
+    etiqueta: "Subtítulos: apagados",
     instruccion:
       "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
       "palabras escritas ni marcas de agua.",
-  },
-  {
-    id: "si",
-    etiqueta: "Subtítulos: quemados por la IA (pueden traer errores)",
-    instruccion:
-      "Con subtítulos en español PERFECTAMENTE escritos, sin faltas de ortografía " +
-      "ni letras faltantes, que digan exactamente lo mismo que la voz, palabra " +
-      "por palabra.",
   },
 ] as const;
 
@@ -313,8 +313,16 @@ export function GeneradorVideo({
   const [motorEstudio, setMotorEstudio] = useState<"rapido" | "completo">("rapido");
   // Estilo de voz del Studio (todas hablan de corrido, sin entrecortarse).
   const [estiloVoz, setEstiloVoz] = useState<string>("fluida");
-  // Subtítulos quemados: apagados por default (la IA los escribe con errores).
-  const [subtitulos, setSubtitulos] = useState<string>("no");
+  // Subtítulos: encendidos por default (pedido del usuario), bien escritos.
+  const [subtitulos, setSubtitulos] = useState<string>("si");
+  // Un personaje por TIPO de producto (botas ≠ sandalias ≠ pantuflas): el
+  // amarre vive en este navegador y se aplica solo al detectar el tipo.
+  const [avataresPorTipo, setAvataresPorTipo] = useState<Record<string, string>>({});
+  // Calidad del video (1080p default; 720p sale más barato).
+  const [resolucionEstudio, setResolucionEstudio] = useState<"1080p" | "720p">("1080p");
+  // Saldo de créditos de la cuenta y costo estimado del próximo video.
+  const [saldo, setSaldo] = useState<number | null>(null);
+  const [costoVideo, setCostoVideo] = useState<number | null>(null);
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -358,6 +366,12 @@ export function GeneradorVideo({
           if (voz && VOCES_ESTUDIO.some((v) => v.id === voz)) setEstiloVoz(voz);
           const subs = localStorage.getItem("hf_subs_estudio");
           if (subs && SUBTITULOS_ESTUDIO.some((s) => s.id === subs)) setSubtitulos(subs);
+          const res_ = localStorage.getItem("hf_res_estudio");
+          if (res_ === "720p" || res_ === "1080p") setResolucionEstudio(res_);
+          const porTipo = JSON.parse(localStorage.getItem("hf_avatar_por_tipo") ?? "{}");
+          if (porTipo && typeof porTipo === "object") {
+            setAvataresPorTipo(porTipo as Record<string, string>);
+          }
         } catch {
           // Sin localStorage no pasa nada.
         }
@@ -366,6 +380,30 @@ export function GeneradorVideo({
       }
     })();
   }, [formato, cuentaConectada]);
+
+  // Cuánto costará el próximo video y cuántos créditos quedan: preguntarlo
+  // es gratis (get_cost no lanza ningún trabajo), y así no hay sorpresas.
+  useEffect(() => {
+    if (formato !== "studio" || !cuentaConectada) return;
+    let vivo = true;
+    setCostoVideo(null);
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/videos/estudio?costo=${motorEstudio}&res=${resolucionEstudio}`,
+        );
+        const j = await leerJson(r);
+        if (!vivo || !r.ok) return;
+        setCostoVideo(typeof j.creditos === "number" ? (j.creditos as number) : null);
+        setSaldo(typeof j.saldo === "number" ? (j.saldo as number) : null);
+      } catch {
+        // Sin el dato del costo no pasa nada.
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [formato, cuentaConectada, motorEstudio, resolucionEstudio]);
 
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
@@ -486,6 +524,8 @@ export function GeneradorVideo({
     setTipo(t);
     setGenero(g);
     setGuion(gu);
+    // Si este tipo de producto tiene su propio personaje, se elige solo.
+    if (avataresPorTipo[t]) setAvatarId(avataresPorTipo[t]);
     regenerarPrompt({
       tipo: t,
       genero: g,
@@ -545,7 +585,11 @@ export function GeneradorVideo({
       ((f === "ugc" || f === "studio") &&
         (cambios.semilla !== undefined || cambios.genero !== undefined));
     const gu = cambios.guion ?? (rehacerGuion ? guionBase : guion);
-    if (cambios.tipo !== undefined) setTipo(t);
+    if (cambios.tipo !== undefined) {
+      setTipo(t);
+      // El personaje amarrado a ese tipo entra solo.
+      if (avataresPorTipo[t]) setAvatarId(avataresPorTipo[t]);
+    }
     if (cambios.genero !== undefined) setGenero(g);
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
@@ -681,8 +725,12 @@ export function GeneradorVideo({
   function adoptarPersonaje(avatar: AvatarEstudio) {
     setAvatares((prev) => [avatar, ...prev.filter((a) => a.id !== avatar.id)]);
     setAvatarId(avatar.id);
+    // El nuevo personaje queda amarrado al tipo de producto actual.
+    const nuevos = { ...avataresPorTipo, [tipo]: avatar.id };
+    setAvataresPorTipo(nuevos);
     try {
       localStorage.setItem("hf_avatar_marca", avatar.id);
+      localStorage.setItem("hf_avatar_por_tipo", JSON.stringify(nuevos));
     } catch {
       // Sin localStorage no pasa nada.
     }
@@ -716,6 +764,7 @@ export function GeneradorVideo({
           body: JSON.stringify({
             formato: "studio",
             motor: motorEstudio,
+            resolucion: resolucionEstudio,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
@@ -1006,10 +1055,18 @@ export function GeneradorVideo({
               <select
                 value={avatarId}
                 onChange={(e) => {
-                  setAvatarId(e.target.value);
+                  const id = e.target.value;
+                  setAvatarId(id);
+                  // El personaje queda amarrado al TIPO de producto actual:
+                  // así cada línea (botas, sandalias…) tiene su influencer.
+                  const nuevos = { ...avataresPorTipo };
+                  if (id) nuevos[tipo] = id;
+                  else delete nuevos[tipo];
+                  setAvataresPorTipo(nuevos);
                   try {
-                    if (e.target.value) localStorage.setItem("hf_avatar_marca", e.target.value);
+                    if (id) localStorage.setItem("hf_avatar_marca", id);
                     else localStorage.removeItem("hf_avatar_marca");
+                    localStorage.setItem("hf_avatar_por_tipo", JSON.stringify(nuevos));
                   } catch {
                     // Sin localStorage no pasa nada.
                   }
@@ -1060,9 +1117,32 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              <select
+                value={resolucionEstudio}
+                onChange={(e) => {
+                  setResolucionEstudio(e.target.value as "1080p" | "720p");
+                  try {
+                    localStorage.setItem("hf_res_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                <option value="1080p">Calidad: 1080p</option>
+                <option value="720p">Calidad: 720p (más barato)</option>
+              </select>
+              {(costoVideo !== null || saldo !== null) && (
+                <span className="text-[11px] font-medium" style={{ color: "var(--ink-muted)" }}>
+                  {costoVideo !== null && `≈ ${costoVideo} créditos por video`}
+                  {costoVideo !== null && saldo !== null && " · "}
+                  {saldo !== null && `Saldo: ${saldo}`}
+                </span>
+              )}
               {avatarId && (
                 <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                  Personaje fijo: misma cara en todos tus videos.
+                  Personaje para {TIPOS_ETIQUETA[tipo]}: misma cara en todos los
+                  videos de este tipo.
                 </span>
               )}
             </div>
