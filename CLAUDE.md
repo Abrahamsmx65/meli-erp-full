@@ -35,7 +35,10 @@ guárdala numerada.
   día (≤ `corridaSobranteFactor`, 1.5) → viaja la MITAD de las cajas; corrida
   dispareja (alguna arriba del factor, con stock sin venta o sin amarre) →
   viaja UNA SEMANA de venta de la talla agotada por envío, topada por su
-  faltante (goteo que se apaga solo al acercarse al objetivo). Lo
+  faltante (goteo que se apaga solo al acercarse al objetivo) — SALVO que
+  el faltante junto de las tallas cortas pase de `corridaFaltanteGrande`
+  (200 pares): esa venta pesa más que el sobrante y la corrida se surte
+  COMPLETA, sin recorte. Lo
   recortado se surte completo (tolerancia de rescate 0: redondea a cajas
   hacia arriba) y esas cajas NO se marcan opcionales. La tolerancia
   general de rescate es de 7 días: una talla rápida a medio morir sí

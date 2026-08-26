@@ -50,6 +50,25 @@ describe("regla de la corrida despareja", () => {
     expect(necesidad.get("T22")).toBe(24);
   });
 
+  it("un faltante grande pesa más que el sobrante: la corrida dispareja se surte completa", () => {
+    // Una hermana con 60 días (2×) vuelve la corrida dispareja, pero las
+    // tallas cortas deben más de 200 pares: dejar de mandar esa venta pesa
+    // más que el sobrante de la hermana, y no se recorta nada.
+    const datos = datosBase(30);
+    datos.set("T27", { posicion: 1.6 * 60, demandaDiaria: 1.6 });
+
+    const necesidad = new Map([["T22", 210]]);
+    const ajustes = ajustarNecesidadPorCorrida({
+      necesidad,
+      datos,
+      cajas: [cajaCorrida()],
+      horizonteDias: 30,
+    });
+
+    expect(ajustes).toEqual([]);
+    expect(necesidad.get("T22")).toBe(210);
+  });
+
   it("la posición de las hermanas cuenta COMPLETA: lo en camino también sobra", () => {
     // Hermanas con 30 días en el piso más una montaña en camino: la corrida
     // ya está dispareja aunque las aptas se vean al día — lo que viaja
@@ -239,7 +258,7 @@ describe("tolerancia de rescate por SKU en el optimizador", () => {
 // ---------------------------------------------------------------------------
 // Los dos casos reales con los que se verificó la regla (26-ago-2026).
 describe("casos reales de calibración", () => {
-  it("GT135 DK BROWN: hermanas entre 1.3× y 1.6× — el factor decide mitad o goteo", () => {
+  it("GT135 DK BROWN: la 25 cae en 1.56× y el faltante junto (135) no llega a 200 → goteo", () => {
     const S = (t: string) => `GT135-DK BROWN-${t}-MX`;
     const caja: Caja = {
       codigo: "DK",
@@ -260,25 +279,26 @@ describe("casos reales de calibración", () => {
     // Sugeridos del plan real: la 27 con 12 días de cobertura pedía 84.
     const necesidad = () => new Map([[S("27"), 84], [S("28"), 50], [S("23"), 1]]);
 
-    // Con el factor por defecto (1.5), la hermana 25 (125 pares = 1.56× su
-    // venta de 30 días) apenas vuelve la corrida dispareja: viaja una
-    // semana de venta de cada talla corta.
-    const n13 = necesidad();
-    const a13 = ajustarNecesidadPorCorrida({
-      necesidad: n13, datos, cajas: [caja], horizonteDias: 30,
+    // La hermana 25 (125 pares = 1.56×) cae apenas arriba del factor de
+    // 1.5 y las tallas cortas deben 84 + 50 + 1 = 135 pares — abajo del
+    // umbral de 200 del faltante grande: gotea una semana de venta.
+    const nDefault = necesidad();
+    const aDefault = ajustarNecesidadPorCorrida({
+      necesidad: nDefault, datos, cajas: [caja], horizonteDias: 30,
     });
-    expect(a13.find((a) => a.sku === S("27"))?.regla).toBe("solo_7_dias");
-    expect(n13.get(S("27"))).toBe(22);
-    expect(n13.get(S("28"))).toBe(16);
+    expect(aDefault.find((a) => a.sku === S("27"))?.regla).toBe("solo_7_dias");
+    expect(nDefault.get(S("27"))).toBe(22);
+    expect(nDefault.get(S("28"))).toBe(16);
 
-    // Subiendo el factor a 1.6, las mismas hermanas cuentan como "al día"
-    // y viaja la mitad.
-    const n16 = necesidad();
-    const a16 = ajustarNecesidadPorCorrida({
-      necesidad: n16, datos, cajas: [caja], horizonteDias: 30, factorSobrante: 1.6,
+    // Si el umbral del faltante grande quedara abajo de esos 135 pares, la
+    // venta pesaría más que el sobrante y la corrida se surtiría COMPLETA.
+    const nCompleto = necesidad();
+    const aCompleto = ajustarNecesidadPorCorrida({
+      necesidad: nCompleto, datos, cajas: [caja], horizonteDias: 30, faltanteGrande: 120,
     });
-    expect(a16.find((a) => a.sku === S("27"))?.regla).toBe("mitad_corrida");
-    expect(n16.get(S("27"))).toBe(42);
+    expect(aCompleto).toEqual([]);
+    expect(nCompleto.get(S("27"))).toBe(84);
+    expect(nCompleto.get(S("28"))).toBe(50);
   });
 
   it("GT155 BEIGE: hermanas con ~2× → viaja una semana de venta (~2 cajas, no 5)", () => {
