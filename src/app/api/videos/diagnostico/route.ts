@@ -41,23 +41,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Sin HIGGSFIELD_CREDENTIALS en este entorno." });
   }
 
-  const malo = { prompt: "x", image_url: "https://example.com/x.jpg", aspect_ratio: "9:99" };
+  const malo = { prompt: "x", duration: 99 };
   const sondeos = [
-    await sondear("/bytedance/seedream/v4/text-to-image", {}),
-    await sondear("/flux-pro/kontext/max/text-to-image", {}),
-    await sondear("/flux-pro/kontext/max/text-to-image", malo),
-    await sondear("/flux-pro/kontext/pro/text-to-image", {}),
-    await sondear("/flux-pro/kontext/max/image-to-image", {}),
-    await sondear("/nano-banana/edit", {}),
-    await sondear("/google/nano-banana/edit", {}),
-    await sondear("/nano-banana-pro/edit", {}),
-    await sondear("/gemini-2.5-flash-image/edit", {}),
-    await sondear("/bytedance/seededit/v3/edit", {}),
-    await sondear("/seededit/edit", {}),
-    await sondear("/qwen/image-edit", {}),
-    await sondear("/qwen-image-edit", {}),
-    await sondear("/bytedance/seedream/v3/text-to-image", {}),
-    await sondear("/recraft/image-edit", {}),
+    await sondear("/wan/v2.6/text-to-video", malo),
+    await sondear("/wan/v2.6/image-to-video", malo),
+    await sondear("/kling-video/v2.6/pro/text-to-video", malo),
+    await sondear("/kling-video/v2.5-turbo/standard/text-to-video", malo),
+    await sondear("/veo3.1/text-to-video", malo),
+    await sondear("/minimax/hailuo-02/standard/text-to-video", malo),
+    await sondear("/bytedance/seedance/v1/pro/text-to-video", malo),
+    await sondear("/wan/v2.6/image-to-video", { prompt: "x", image_url: "https://example.com/x.jpg", duration: 10, resolution: "9999p" }),
+    await sondear("/wan/v2.6/image-to-video", { prompt: "x", image_url: "https://example.com/x.jpg", duration: 10, quality: "malo" }),
   ];
 
   return NextResponse.json({ sondeos });
