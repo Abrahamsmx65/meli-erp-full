@@ -81,6 +81,64 @@ export function BotonAnuncio({
   );
 }
 
+/**
+ * Botón de UN clic que aplica un cambio concreto a una campaña (el que la
+ * sugerencia calculó): nuevo presupuesto diario y/o nuevo ACOS objetivo.
+ */
+export function BotonCampana({
+  campanaId,
+  etiqueta,
+  presupuesto,
+  acosObjetivo,
+}: {
+  campanaId: string;
+  /** texto del botón, con el número ya puesto (p. ej. "ACOS → 28%") */
+  etiqueta: string;
+  presupuesto?: number;
+  acosObjetivo?: number;
+}) {
+  const router = useRouter();
+  const [ocupado, setOcupado] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        disabled={ocupado}
+        onClick={async () => {
+          setOcupado(true);
+          setAviso(null);
+          const err = await llamar("/api/publicidad/campana", {
+            campanaId,
+            presupuesto,
+            acosObjetivo,
+          });
+          setOcupado(false);
+          if (err) setAviso(err);
+          else {
+            setAviso("Aplicado.");
+            router.refresh();
+          }
+        }}
+        className="rounded-md border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50"
+        style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+      >
+        {ocupado ? "…" : etiqueta}
+      </button>
+      {aviso ? (
+        <span
+          className="text-[10px]"
+          style={{
+            color: aviso === "Aplicado." ? "var(--exito-texto)" : "var(--estado-critico)",
+          }}
+        >
+          {aviso}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /** Fila editable de una campaña: presupuesto diario y ACOS objetivo. */
 export function EditorCampana({
   id,

@@ -249,6 +249,7 @@ const item = (itemId: string, estado: string | null = "active"): ItemDeModelo =>
   itemId,
   titulo: null,
   estado,
+  campanaId: null,
   compartido: false,
 });
 
@@ -316,15 +317,29 @@ describe("armarSugerencias", () => {
     expect(s).toHaveLength(0);
   });
 
-  it("pide apagar lo que gasta sin vender", () => {
-    const s = armarSugerencias({
-      filas: [fila("GT122", { unidades: 0, importe: 0, ganancia: null, tacos: null })],
+  it("pide apagar lo que gasta sin vender SOLO si el modelo ya vendía antes", () => {
+    const filas = [fila("GT122", { unidades: 0, importe: 0, ganancia: null, tacos: null })];
+    const comun = {
       stockDeModelo: new Map([["GT122", 100]]),
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set(),
+      pausadosDesdeErp: new Set<string>(),
+    };
+    // Con historia: el anuncio no trabaja, apagar.
+    const conHistoria = armarSugerencias({
+      filas,
+      ...comun,
+      modelosConHistoria: new Set(["GT122"]),
     });
-    expect(s[0].accion).toBe("apagar");
+    expect(conHistoria[0].accion).toBe("apagar");
+
+    // Sin historia (el caso GT190): es un lanzamiento en rampa, no se regaña.
+    const lanzamiento = armarSugerencias({
+      filas,
+      ...comun,
+      modelosConHistoria: new Set(),
+    });
+    expect(lanzamiento).toHaveLength(0);
   });
 
   it("pide bajar cuando el TACOS rebasa el margen, con el ROAS de equilibrio", () => {

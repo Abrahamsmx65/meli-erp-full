@@ -109,6 +109,7 @@ export interface ItemDeModelo {
   itemId: string;
   titulo: string | null;
   estado: string | null;
+  campanaId: string | null;
   /** compartido entre varios modelos (el gasto se reparte) */
   compartido: boolean;
 }
@@ -352,6 +353,42 @@ export async function traerCampanasAds(
   return campanas;
 }
 
+/**
+ * Escribe probando rutas candidatas EN ORDEN. Un 404 o un 503 (rutas viejas
+ * ya apagadas contestan 503) pasa a la siguiente; cualquier otra respuesta
+ * es del recurso real y se propaga tal cual. Si ninguna contesta, el error
+ * resume qué dijo cada ruta: con eso se ve de un vistazo cuál es la buena.
+ * Reintentos cortos (1): esto corre detrás de un botón, no de un cron.
+ */
+async function escribirConRutas(
+  cliente: MeliClient,
+  rutas: string[],
+  cuerpo: unknown,
+): Promise<void> {
+  const intentos: string[] = [];
+  for (const ruta of rutas) {
+    try {
+      await cliente.put(ruta, cuerpo, {
+        headers: { "Api-Version": "2" },
+        reintentos: 1,
+      });
+      return;
+    } catch (err) {
+      if (err instanceof MeliError && (err.status === 404 || err.status === 503)) {
+        intentos.push(`${err.status} en ${ruta.split("?")[0]}`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new MeliError(
+    `MELI no aceptó el cambio por ninguna ruta: ${intentos.join(" · ")}`,
+    404,
+    null,
+    rutas[0],
+  );
+}
+
 /** Pausa o enciende un anuncio (PUT, Api-Version 2). */
 export async function cambiarEstadoAnuncio(
   cliente: MeliClient,
@@ -360,13 +397,16 @@ export async function cambiarEstadoAnuncio(
   estado: "active" | "paused",
 ): Promise<void> {
   const adv = await resolverAdvertiser(cliente, siteId);
+  // Los anuncios viven en el canal marketplace; algunas formas del recurso
+  // exigen decirlo explícito.
   const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/${itemId}?channel=marketplace`,
     `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/${itemId}`,
+    `/advertising/${adv.siteId}/product_ads/ads/${itemId}?channel=marketplace`,
     `/advertising/${adv.siteId}/product_ads/ads/${itemId}`,
+    `/advertising/product_ads/ads/${itemId}`,
   ];
-  await conRutas(rutas, (ruta) =>
-    cliente.put(ruta, { status: estado }, { headers: { "Api-Version": "2" } }),
-  );
+  await escribirConRutas(cliente, rutas, { status: estado });
 }
 
 /** Cambia presupuesto diario y/o ACOS objetivo de una campaña (PUT). */
@@ -383,12 +423,13 @@ export async function modificarCampanaAds(
 
   const adv = await resolverAdvertiser(cliente, siteId);
   const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}?channel=marketplace`,
     `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
+    `/advertising/${adv.siteId}/product_ads/campaigns/${campanaId}?channel=marketplace`,
     `/advertising/${adv.siteId}/product_ads/campaigns/${campanaId}`,
+    `/advertising/product_ads/campaigns/${campanaId}`,
   ];
-  await conRutas(rutas, (ruta) =>
-    cliente.put(ruta, cuerpo, { headers: { "Api-Version": "2" } }),
-  );
+  await escribirConRutas(cliente, rutas, cuerpo);
 }
 
 // ---------------------------------------------------------------------------
@@ -433,8 +474,15 @@ export function armarSugerencias(opts: {
   itemsDeModelo: Map<string, ItemDeModelo[]>;
   /** item_ids pausados desde el ERP y aún sin reactivar */
   pausadosDesdeErp: Set<string>;
+  /**
+   * modelos que YA vendían antes del periodo. Un modelo que gasta sin vender
+   * pero que nunca ha vendido es un LANZAMIENTO en rampa, no un anuncio
+   * muerto: a ese no se le sugiere apagar (verificado con GT190).
+   */
+  modelosConHistoria?: Set<string>;
 }): SugerenciaAds[] {
   const { filas, stockDeModelo, dias, itemsDeModelo, pausadosDesdeErp } = opts;
+  const modelosConHistoria = opts.modelosConHistoria ?? null;
   const sugerencias: SugerenciaAds[] = [];
   const dEnteros = (x: number) => Math.round(x).toLocaleString("es-MX");
 
@@ -492,13 +540,15 @@ export function armarSugerencias(opts: {
       continue;
     }
 
-    // 3. Gasta y no vende nada.
-    if (f.gastoAds > 0 && f.unidades === 0) {
+    // 3. Gasta y no vende nada — SOLO si el modelo ya vendía antes: un
+    // lanzamiento nuevo con ads y cero ventas está en rampa, no muerto.
+    const yaVendia = modelosConHistoria == null || modelosConHistoria.has(f.modelo);
+    if (f.gastoAds > 0 && f.unidades === 0 && yaVendia) {
       sugerencias.push({
         ...base,
         accion: "apagar",
         items: activos,
-        razon: `Gastó $${dEnteros(f.gastoAds)} sin una sola venta del modelo en el periodo.`,
+        razon: `Gastó $${dEnteros(f.gastoAds)} sin una sola venta del modelo en el periodo, y el modelo ya vendía antes: el anuncio no está trabajando.`,
       });
       continue;
     }
@@ -751,10 +801,17 @@ export async function cargarPublicidad(
   const guardado = cachePublicidad.get(claveCache);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_ADS_MS) return guardado.datos;
 
+  // Se piden 60 días EXTRA hacia atrás solo para saber qué modelos ya
+  // vendían antes del periodo: un modelo sin historia es un lanzamiento y
+  // las sugerencias lo tratan distinto.
+  const desdeHistoria = new Date(Date.parse(r.desde) - 60 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
   // Igual que el monitor: `comision` y `neto` pueden no existir todavía.
   const leerVentas = async (): Promise<VentaDiaria[]> => {
     const filtro = (q: any) =>
-      q.eq("account_id", cuenta.id).gte("fecha", r.desde).lte("fecha", r.hasta);
+      q.eq("account_id", cuenta.id).gte("fecha", desdeHistoria).lte("fecha", r.hasta);
     try {
       return await traerTodo<VentaDiaria>(
         db,
@@ -863,9 +920,19 @@ export async function cargarPublicidad(
     }
   }
 
+  // El panel usa SOLO las ventas del periodo; las 60 días previas solo
+  // marcan qué modelos ya vendían antes (para no regañar lanzamientos).
+  const ventasPeriodo = ventas.filter((v) => v.fecha >= r.desde);
+  const modelosConHistoria = new Set<string>();
+  for (const v of ventas) {
+    if (v.fecha < r.desde && (v.unidades ?? 0) > 0) {
+      modelosConHistoria.add(modeloDeSku.get(v.sku) ?? (v.sku.split("-")[0] || v.sku));
+    }
+  }
+
   const datos = armarPublicidad({
     anuncios,
-    ventas,
+    ventas: ventasPeriodo,
     modelosDeItem,
     modeloDeSku,
     costoDeModelo,
@@ -882,6 +949,7 @@ export async function cargarPublicidad(
         itemId: an.itemId,
         titulo: an.titulo,
         estado: an.estado,
+        campanaId: an.campanaId,
         compartido: modelos.length > 1,
       });
       itemsDeModelo.set(modelo, lista);
@@ -922,6 +990,7 @@ export async function cargarPublicidad(
     dias: diasDeRango(r),
     itemsDeModelo,
     pausadosDesdeErp: new Set(pausas.map((p) => p.item_id)),
+    modelosConHistoria,
   });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el

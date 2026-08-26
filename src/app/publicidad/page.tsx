@@ -1,10 +1,14 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad, type SugerenciaAds } from "@/lib/servicios/publicidad";
+import {
+  cargarPublicidad,
+  type CampanaAds,
+  type SugerenciaAds,
+} from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
-import { BotonAnuncio, EditorCampana } from "@/components/publicidad-acciones";
+import { BotonAnuncio, BotonCampana, EditorCampana } from "@/components/publicidad-acciones";
 
 export const dynamic = "force-dynamic";
 
@@ -149,7 +153,11 @@ export default async function Publicidad({
           </header>
           <ul>
             {p.sugerencias.map((s) => (
-              <Sugerencia key={`${s.accion}|${s.modelo}`} s={s} />
+              <Sugerencia
+                key={`${s.accion}|${s.modelo}`}
+                s={s}
+                campanaDe={new Map(p.campanas.map((c) => [c.id, c]))}
+              />
             ))}
           </ul>
         </section>
@@ -331,9 +339,22 @@ const ETIQUETA_ACCION: Record<
   activar: { texto: "Candidato", color: "var(--acento)" },
 };
 
-function Sugerencia({ s }: { s: SugerenciaAds }) {
+function Sugerencia({
+  s,
+  campanaDe,
+}: {
+  s: SugerenciaAds;
+  campanaDe: Map<string, CampanaAds>;
+}) {
   const etiqueta = ETIQUETA_ACCION[s.accion];
   const conBotones = s.accion === "pausar" || s.accion === "encender" || s.accion === "apagar";
+  // Las campañas donde vive este modelo, para aplicar la sugerencia de un clic.
+  const campanas =
+    s.accion === "bajar" || s.accion === "subir"
+      ? [...new Set(s.items.map((i) => i.campanaId).filter((x): x is string => !!x))]
+          .map((id) => campanaDe.get(id))
+          .filter((c): c is CampanaAds => !!c)
+      : [];
   return (
     <li className="flex flex-col gap-2 border-b px-4 py-3 last:border-b-0 hairline">
       <div className="flex flex-wrap items-center gap-2">
@@ -366,6 +387,46 @@ function Sugerencia({ s }: { s: SugerenciaAds }) {
           ROAS actual {s.roasActual.toFixed(1)} · equilibrio {s.roasEquilibrio.toFixed(1)} ·
           ACOS sano ≤{Math.round(s.acosObjetivoPct ?? 0)}%
         </p>
+      ) : null}
+      {campanas.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {campanas.map((c) => {
+            const acosSano =
+              s.acosObjetivoPct != null ? Math.round(s.acosObjetivoPct * 10) / 10 : null;
+            if (s.accion === "bajar") {
+              return acosSano != null ? (
+                <BotonCampana
+                  key={c.id}
+                  campanaId={c.id}
+                  acosObjetivo={acosSano}
+                  etiqueta={`ACOS objetivo → ${acosSano}% · ${c.nombre}`}
+                />
+              ) : null;
+            }
+            // subir: +20% de presupuesto y, si el ACOS objetivo está por
+            // debajo del margen, también soltarlo hasta el margen.
+            const nuevoPresupuesto =
+              c.presupuesto != null ? Math.ceil(c.presupuesto * 1.2) : null;
+            return (
+              <span key={c.id} className="inline-flex flex-wrap items-center gap-2">
+                {nuevoPresupuesto != null ? (
+                  <BotonCampana
+                    campanaId={c.id}
+                    presupuesto={nuevoPresupuesto}
+                    etiqueta={`Presupuesto +20% → ${pesos(nuevoPresupuesto)}/día · ${c.nombre}`}
+                  />
+                ) : null}
+                {acosSano != null && c.acosObjetivo != null && c.acosObjetivo < acosSano ? (
+                  <BotonCampana
+                    campanaId={c.id}
+                    acosObjetivo={acosSano}
+                    etiqueta={`ACOS objetivo → ${acosSano}% · ${c.nombre}`}
+                  />
+                ) : null}
+              </span>
+            );
+          })}
+        </div>
       ) : null}
       {conBotones && s.items.length ? (
         <div className="flex flex-wrap items-center gap-2">
