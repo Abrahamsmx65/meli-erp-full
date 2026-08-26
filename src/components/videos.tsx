@@ -1057,10 +1057,23 @@ export function GeneradorVideo({
   );
 }
 
-/** Revisa el avance con Higgsfield y refresca la tabla. */
+/**
+ * Revisa el avance con Higgsfield y refresca la tabla. Mientras haya videos
+ * en el horno, también sondea SOLO cada 20 s: así la tabla se actualiza
+ * aunque el vigilante del servidor se haya apagado, sin picar nada.
+ */
 export function BotonActualizar({ hayEnCurso }: { hayEnCurso: boolean }) {
   const router = useRouter();
   const [girando, setGirando] = useState(false);
+
+  useEffect(() => {
+    if (!hayEnCurso) return;
+    const reloj = setInterval(() => {
+      void fetch("/api/videos/procesar", { method: "POST" }).catch(() => undefined);
+      router.refresh();
+    }, 20_000);
+    return () => clearInterval(reloj);
+  }, [hayEnCurso, router]);
 
   async function actualizar() {
     setGirando(true);

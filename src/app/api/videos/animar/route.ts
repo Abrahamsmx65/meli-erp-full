@@ -3,6 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { generarVideoSpeak, generarVideoWan } from "@/lib/higgsfield/client";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
+import { origenReal } from "@/lib/servicios/origen";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (err as Error).message }, { status: 502 });
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenReal(req);
   after(() => dispararVideos(origen));
 
   return NextResponse.json({ ok: true }, { status: 202 });

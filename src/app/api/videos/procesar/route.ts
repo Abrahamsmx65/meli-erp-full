@@ -5,6 +5,7 @@ import {
   generarVideoKling,
   generarVideoVeo,
 } from "@/lib/higgsfield/client";
+import { origenReal } from "@/lib/servicios/origen";
 import {
   abrirSesion,
   llamarHerramienta,
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenReal(req);
   after(() => procesar(origen));
 
   return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenReal(req);
   after(() => procesar(origen));
 
   const admin = clienteAdmin();

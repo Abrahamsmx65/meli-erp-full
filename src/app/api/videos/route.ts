@@ -18,6 +18,7 @@ import {
 } from "@/lib/higgsfield/mcp";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
+import { origenReal } from "@/lib/servicios/origen";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -244,7 +245,7 @@ export async function POST(req: NextRequest) {
           actualizado_en: new Date().toISOString(),
         })
         .eq("id", fila.id);
-      const origenUgc = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+      const origenUgc = origenReal(req);
       after(() => dispararVideos(origenUgc));
       return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
     }
@@ -307,7 +308,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Que el vigilante empiece a preguntar cómo va.
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenReal(req);
   after(() => dispararVideos(origen));
 
   return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
@@ -413,7 +414,7 @@ async function generarEstudio(
     return NextResponse.json({ error: errIns?.message ?? "No se pudo guardar." }, { status: 500 });
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenReal(req);
   after(() => dispararVideos(origen));
   return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
 }
