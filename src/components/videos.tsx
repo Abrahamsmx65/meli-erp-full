@@ -1594,6 +1594,128 @@ export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] 
 }
 
 /** Quita un intento de la lista. */
+/**
+ * Edición barata de un video terminado: cambia SOLO la voz (voice_change de
+ * Higgsfield) manteniendo visuales y tiempos. El resultado entra como
+ * intento nuevo; el original no se toca.
+ */
+export function CambiarVoz({ id }: { id: string }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [voces, setVoces] = useState<
+    { id: string; tipo: string; nombre: string; genero: string | null; muestra: string | null }[]
+  >([]);
+  const [vozSel, setVozSel] = useState("");
+  const [estado, setEstado] = useState<"listo" | "cargando" | "enviando">("listo");
+  const [error, setError] = useState<string | null>(null);
+
+  async function abrir() {
+    setAbierto(true);
+    setError(null);
+    if (voces.length) return;
+    setEstado("cargando");
+    try {
+      const r = await fetch("/api/videos/editar");
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudieron traer las voces."));
+      const vs =
+        (j.voces as {
+          id: string;
+          tipo: string;
+          nombre: string;
+          genero: string | null;
+          muestra: string | null;
+        }[]) ?? [];
+      setVoces(vs);
+      if (vs.length) setVozSel(vs[0].id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  async function aplicar() {
+    const voz = voces.find((v) => v.id === vozSel);
+    if (!voz) return;
+    setEstado("enviando");
+    setError(null);
+    try {
+      const r = await fetch("/api/videos/editar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, vozId: voz.id, vozTipo: voz.tipo, vozNombre: voz.nombre }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el cambio de voz."));
+      setAbierto(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  const muestra = voces.find((v) => v.id === vozSel)?.muestra ?? null;
+
+  if (!abierto) {
+    return (
+      <button onClick={abrir} className="text-xs underline" style={{ color: "var(--acento)" }}>
+        🎙 Cambiar voz
+      </button>
+    );
+  }
+  return (
+    <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
+      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+        Otra voz, mismo video (visuales y tiempos intactos; sale como intento nuevo)
+      </span>
+      {estado === "cargando" ? (
+        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          Trayendo voces…
+        </span>
+      ) : (
+        <>
+          <select
+            value={vozSel}
+            onChange={(e) => setVozSel(e.target.value)}
+            className="px-2 py-1 text-xs"
+          >
+            {voces.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.nombre || v.id.slice(0, 8)}
+                {v.genero ? ` (${v.genero})` : ""}
+              </option>
+            ))}
+          </select>
+          {muestra && <audio controls src={muestra} className="h-8 w-full" preload="none" />}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={aplicar}
+              disabled={estado === "enviando" || !vozSel}
+              className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              {estado === "enviando" ? "Lanzando…" : "Aplicar"}
+            </button>
+            <button
+              onClick={() => setAbierto(false)}
+              className="text-xs underline"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function BotonBorrar({ id }: { id: string }) {
   const router = useRouter();
   const [borrando, setBorrando] = useState(false);

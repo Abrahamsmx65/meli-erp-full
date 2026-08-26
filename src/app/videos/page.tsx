@@ -5,6 +5,7 @@ import {
   GeneradorVideo,
   BotonActualizar,
   BotonBorrar,
+  CambiarVoz,
   ElegirImagen,
   type Publicacion,
 } from "@/components/videos";
@@ -177,9 +178,11 @@ export default async function Videos() {
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
                   const detalleEtapa =
                     formato === "studio" && generando
-                      ? v.modelo === "seedance-2.0"
-                        ? "Seedance genera el video directo de tus fotos (~5 min)"
-                        : "El Studio arma guion, visuales y video (10-30 min)"
+                      ? v.modelo === "voice-change"
+                        ? "Cambiando la voz; visuales intactos (~2-5 min)"
+                        : v.modelo === "seedance-2.0"
+                          ? "Seedance genera el video directo de tus fotos (~5 min)"
+                          : "El Studio arma guion, visuales y video (10-30 min)"
                       : esClip && generando
                         ? (v.etapa as string) === "imagen"
                           ? formato === "ugc"
@@ -269,6 +272,9 @@ export default async function Videos() {
                             >
                               Descargar MP4
                             </a>
+                          ) : null}
+                          {v.estado === "completado" && v.video_guardado ? (
+                            <CambiarVoz id={v.id as string} />
                           ) : null}
                           <BotonBorrar id={v.id as string} />
                         </div>
