@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { armarSubtitulos, escaparDrawtext, filtrosSubtitulos } from "./marca-agua";
+import {
+  archivosSubtitulos,
+  armarSubtitulos,
+  escaparDrawtext,
+  filtrosSubtitulos,
+} from "./marca-agua";
 
 const GUION =
   "¡FERNANDO! ¡Ahora sí, ven para acá! Ay… no. Está demasiado bonita para " +
@@ -11,7 +16,7 @@ describe("subtítulos del ERP (quemados con el guion exacto)", () => {
     const subs = armarSubtitulos(GUION, 15);
     expect(subs.length).toBeGreaterThan(3);
     for (const s of subs) {
-      expect(s.texto.length).toBeLessThanOrEqual(34);
+      expect(s.texto.length).toBeLessThanOrEqual(26);
       expect(s.hasta).toBeGreaterThan(s.desde);
     }
     // En orden y sin huecos gigantes: el siguiente arranca donde acabó el otro.
@@ -36,9 +41,17 @@ describe("subtítulos del ERP (quemados con el guion exacto)", () => {
     expect(filtros.length).toBeGreaterThan(0);
     for (const f of filtros) {
       expect(f).toContain("fontfile=/tmp/marca.ttf");
+      // El texto va en archivo (textfile=): los dos puntos del guion
+      // rompían el filtro si iban incrustados.
+      expect(f).toContain("textfile=/tmp/sub");
+      expect(f).not.toContain("text='");
       expect(f).toContain("x=(w-tw)/2");
       expect(f).toMatch(/enable='between\(t,[\d.]+,[\d.]+\)'/);
     }
+    // Y los comandos que escriben cada renglón existen y son parejos.
+    const archivos = archivosSubtitulos("Hola. Qué bonitas sandalias de corcho.", 10);
+    expect(archivos.length).toBe(filtros.length);
+    expect(archivos[0]).toMatch(/^printf "%s" ".+" > \/tmp\/sub0\.txt$/);
   });
 
   it("sin guion no hay filtros y con espacios tampoco", () => {

@@ -30,21 +30,22 @@ export function armarSubtitulos(guion: string, duracion: number): Subtitulo[] {
   const limpio = guion.replace(/\s+/g, " ").trim();
   if (!limpio) return [];
 
-  // Frases por puntuación y luego a renglones de máximo ~34 caracteres
-  // (drawtext no parte líneas solo).
+  // Frases por puntuación y luego a renglones de máximo ~26 caracteres:
+  // Archivo Black es ANCHA y drawtext no parte líneas solo; con más largo
+  // el renglón se sale del cuadro en 720p.
   const frases = limpio
     .split(/(?<=[.!?…])\s+|,\s+/)
     .map((f) => f.trim())
     .filter(Boolean);
   const renglones: string[] = [];
   for (const frase of frases) {
-    if (frase.length <= 34) {
+    if (frase.length <= 26) {
       renglones.push(frase);
       continue;
     }
     let actual = "";
     for (const palabra of frase.split(" ")) {
-      if (`${actual} ${palabra}`.trim().length > 34) {
+      if (`${actual} ${palabra}`.trim().length > 26) {
         if (actual) renglones.push(actual);
         actual = palabra;
       } else {
@@ -68,11 +69,11 @@ export function armarSubtitulos(guion: string, duracion: number): Subtitulo[] {
 }
 
 /**
- * Deja el texto seguro para drawtext dentro de comillas simples del filtro
- * (ahí comas y dos puntos van literales) y del comando de shell entre
- * comillas dobles: el apóstrofo y las comillas pasan a apóstrofo
- * tipográfico (’, que drawtext pinta sin drama) y los caracteres de shell
- * o de expansión de drawtext se quitan.
+ * Deja el texto seguro para un comando de shell entre comillas dobles: las
+ * comillas pasan a apóstrofo tipográfico (’, que drawtext pinta sin drama)
+ * y los caracteres peligrosos del shell se quitan. El texto NO va incrustado
+ * en el filtro (los dos puntos y comas de ffmpeg son un campo minado): cada
+ * renglón se escribe a un archivo y drawtext lo lee con `textfile=`.
  */
 export function escaparDrawtext(texto: string): string {
   return texto
@@ -82,15 +83,22 @@ export function escaparDrawtext(texto: string): string {
     .trim();
 }
 
+/** Comandos que escriben cada renglón del subtítulo a su archivo. */
+export function archivosSubtitulos(guion: string, duracion: number): string[] {
+  return armarSubtitulos(guion, duracion).map(
+    (s, i) => `printf "%s" "${escaparDrawtext(s.texto)}" > /tmp/sub${i}.txt`,
+  );
+}
+
 /** Los filtros drawtext de los subtítulos (mismo estilo que los de la IA). */
 export function filtrosSubtitulos(guion: string, duracion: number): string[] {
-  // OJO: borderw NO acepta expresiones como h/240 (fontsize, x, y sí); un
-  // valor fijo funciona bien en 720p y 1080p. Con expresión, ffmpeg tronaba
-  // y el video se guardaba sin marca ni subtítulos.
+  // OJO: borderw NO acepta expresiones como h/240 (fontsize, x, y sí), y el
+  // texto va en archivos (textfile=), no incrustado: los dos puntos del
+  // guion rompían el parseo del filtro y el video salía sin marca.
   return armarSubtitulos(guion, duracion).map(
-    (s) =>
-      `drawtext=fontfile=/tmp/marca.ttf:text='${escaparDrawtext(s.texto)}':` +
-      `fontcolor=white:fontsize=h/26:borderw=6:bordercolor=black@0.85:` +
+    (s, i) =>
+      `drawtext=fontfile=/tmp/marca.ttf:textfile=/tmp/sub${i}.txt:` +
+      `fontcolor=white:fontsize=h/30:borderw=6:bordercolor=black@0.85:` +
       `x=(w-tw)/2:y=h*0.71:enable='between(t,${s.desde},${s.hasta})'`,
   );
 }
@@ -149,7 +157,8 @@ export async function quemarMarcaYSubir(
     `curl -sSL --max-time 120 -o /tmp/entrada.mp4 '${urlVideo}'`,
     ...(conVoz ? [`curl -sSL --max-time 60 -o /tmp/voz.m4a '${audioUrl}'`] : []),
     `curl -sSL --max-time 60 -o /tmp/marca.ttf '${FUENTE_MARCA}'`,
-    `ffmpeg -y ${entradas} -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 ${mapeo} -movflags +faststart /tmp/salida.mp4`,
+    ...(guion ? archivosSubtitulos(guion, duracion || 15) : []),
+    `ffmpeg -hide_banner -loglevel error -y ${entradas} -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 ${mapeo} -movflags +faststart /tmp/salida.mp4`,
     `curl -sS --fail --max-time 120 -X PUT '${firmada.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/salida.mp4 > /dev/null`,
     `curl -sS --fail --max-time 120 -X PUT '${firmadaLimpia.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/entrada.mp4 > /dev/null`,
     "echo LISTO_MARCA",
