@@ -125,7 +125,7 @@ export class MeliClient {
   async get<T = unknown>(
     ruta: string,
     params?: Record<string, string | number | undefined | null>,
-    opts?: { reintentos?: number },
+    opts?: { reintentos?: number; headers?: Record<string, string> },
   ): Promise<T> {
     await this.asegurarToken();
     const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
@@ -143,6 +143,8 @@ export class MeliClient {
           headers: {
             Authorization: `Bearer ${this.cred.accessToken}`,
             Accept: "application/json",
+            // El API de publicidad exige su versión por header (Api-Version).
+            ...(opts?.headers ?? {}),
           },
           cache: "no-store",
         });
