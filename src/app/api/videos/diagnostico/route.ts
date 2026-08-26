@@ -29,6 +29,15 @@ export async function GET(req: NextRequest) {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
 
+    // ?job=folio → el estado CRUDO de ese trabajo en el MCP (para destrabar
+    // videos que se ven eternos en la app).
+    const job = req.nextUrl.searchParams.get("job");
+    if (job) {
+      const { llamarHerramienta, resultadoEstructurado } = await import("@/lib/higgsfield/mcp");
+      const res = await llamarHerramienta(sesion, "job_status", { jobId: job });
+      return NextResponse.json(resultadoEstructurado(res) ?? res);
+    }
+
     // ?modelo=x → la ficha del modelo en el catálogo (params, roles, duraciones).
     const modelo = req.nextUrl.searchParams.get("modelo");
     if (modelo) {
