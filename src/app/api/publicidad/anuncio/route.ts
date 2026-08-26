@@ -5,6 +5,7 @@ import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import {
   cambiarEstadoAnuncio,
   invalidarCachePublicidad,
+  mensajeErrorEscrituraAds,
 } from "@/lib/servicios/publicidad";
 
 export const dynamic = "force-dynamic";
@@ -54,10 +55,7 @@ export async function POST(req: Request) {
   try {
     await cambiarEstadoAnuncio(cliente, cuenta.site_id, itemId, estado, campanaId);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "MELI no aceptó el cambio." },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: mensajeErrorEscrituraAds(err) }, { status: 502 });
   }
 
   // La memoria de pausas es cortesía: si la tabla aún no existe, el cambio

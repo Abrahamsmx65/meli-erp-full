@@ -420,23 +420,24 @@ export async function cambiarEstadoAnuncio(
   const porItem = { status: estado };
   const enLote = { ads: [{ item_id: itemId, status: estado }] };
 
-  // Lo ya descartado con la cuenta real (MLM): las formas ads/{item} y
-  // campaigns/{id}/ads/{item} contestan 404 en v2, y las viejas 405/503.
-  // Lo que sigue por probar: el segmento items/ (así nombra el API nuevo a
-  // los anuncios de una campaña) y las mismas formas con Api-Version 1.
-  const intentos: IntentoEscritura[] = [];
+  // La ruta real de CAMPAÑAS resultó ser /advertising/{site}/product_ads/
+  // campaigns/{id} (sin advertiser): la de anuncios casi seguro es su
+  // gemela ads/{item} — el 503 que daba era el servicio rechazando sin
+  // permiso de escritura, no una ruta muerta. Después, el segmento items/
+  // y las formas con Api-Version 1, de respaldo.
+  const intentos: IntentoEscritura[] = [
+    { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem },
+    { ruta: `${base}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
+  ];
   if (campanaId) {
     intentos.push(
-      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
       { ruta: `${base}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
+      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
     );
   }
   intentos.push(
-    { ruta: `${conAdv}/product_ads/items/${itemId}`, cuerpo: porItem },
     { ruta: `${base}/product_ads/items/${itemId}`, cuerpo: porItem },
     { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem, version: "1" },
-    { ruta: `${conAdv}/product_ads/ads/${itemId}`, cuerpo: porItem, version: "1" },
-    { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote, version: "1" },
     { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote },
   );
   await escribirConRutas(cliente, intentos);
@@ -456,18 +457,37 @@ export async function modificarCampanaAds(
 
   const adv = await resolverAdvertiser(cliente, siteId);
   const base = `/advertising/${adv.siteId}`;
-  const conAdv = `${base}/advertisers/${adv.advertiserId}`;
+  // La ruta REAL, confirmada con la cuenta: el servicio mclics.campaigns
+  // contesta en /advertising/{site}/product_ads/campaigns/{id} (sin
+  // advertiser). Las demás quedan de respaldo por si MELI la mueve.
   const rutas = [
-    `${conAdv}/product_ads/campaigns/${campanaId}`,
-    `${conAdv}/product_ads/campaigns/${campanaId}?channel=marketplace`,
     `${base}/product_ads/campaigns/${campanaId}`,
-    `${base}/product_ads/campaigns/${campanaId}?channel=marketplace`,
+    `${base}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
     `/advertising/product_ads/campaigns/${campanaId}`,
   ];
   await escribirConRutas(
     cliente,
     rutas.map((ruta) => ({ ruta, cuerpo })),
   );
+}
+
+/**
+ * Traduce el error de escritura de Product Ads a una instrucción accionable.
+ * El caso estrella: 401 "User does not have permission to write" — la app
+ * de MELI tiene permiso de LECTURA de ads pero no de ESCRITURA; se arregla
+ * en el DevCenter y reconectando, no en el código.
+ */
+export function mensajeErrorEscrituraAds(err: unknown): string {
+  if (err instanceof MeliError && err.status === 401) {
+    return (
+      "MELI dice que la app no tiene permiso de ESCRITURA en Product Ads " +
+      "(sí de lectura). En el DevCenter de Mercado Libre, en tu aplicación, " +
+      "activa el scope de escritura (write) y el permiso de administración de " +
+      "publicidad, y luego reconecta Mercado Libre en Ajustes para que el " +
+      "token nuevo lo traiga."
+    );
+  }
+  return err instanceof Error ? err.message : "MELI no aceptó el cambio.";
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import {
   invalidarCachePublicidad,
+  mensajeErrorEscrituraAds,
   modificarCampanaAds,
 } from "@/lib/servicios/publicidad";
 
@@ -68,10 +69,7 @@ export async function POST(req: Request) {
       acosObjetivo,
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "MELI no aceptó el cambio." },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: mensajeErrorEscrituraAds(err) }, { status: 502 });
   }
 
   invalidarCachePublicidad();
