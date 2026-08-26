@@ -102,6 +102,13 @@ export interface Parametros {
   corridaSobranteFactor: number;
   /** días a cubrir de la talla agotada cuando la corrida ya está dispareja */
   corridaDiasDispareja: number;
+  /**
+   * Faltante junto (pares) de las tallas cortas de una corrida a partir del
+   * cual esa venta pesa más que el sobrante: con más que esto, la corrida
+   * dispareja se surte COMPLETA en vez de gotear 7 días. El negocio lo
+   * fijó en 200.
+   */
+  corridaFaltanteGrande: number;
 }
 
 export type OrigenDia =

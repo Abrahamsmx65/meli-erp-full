@@ -18,6 +18,10 @@
  *    descuenta su stock: su faltante completo (`necesidad`) ya lo trae
  *    descontado y actúa de tope, así que el goteo se apaga solo conforme
  *    la talla se acerca a su objetivo.
+ *  - EXCEPCIÓN al goteo: si el faltante JUNTO de las tallas cortas de la
+ *    corrida es grande (más de `faltanteGrande` pares, 200 por defecto),
+ *    esa venta pesa más que la hermana que cayó del lado equivocado del
+ *    factor, y la corrida se surte COMPLETA, sin recorte.
  *
  * La regla solo entra cuando subir la caja es mayormente sobre-surtir: si la
  * mitad o más de la caja tapa faltantes reales (varias tallas piden a la
@@ -72,12 +76,19 @@ export function ajustarNecesidadPorCorrida(e: {
   factorSobrante?: number;
   /** días a cubrir cuando la corrida ya está dispareja */
   diasDispareja?: number;
+  /**
+   * Faltante junto (en pares) de las tallas cortas de la corrida a partir
+   * del cual la venta pesa más que el sobrante: con más que esto, la
+   * corrida dispareja se surte COMPLETA en vez de gotear.
+   */
+  faltanteGrande?: number;
 }): AjusteCorrida[] {
   // 1.5 lo decidió el negocio (26-ago-2026): el umbral se mide con la
   // posición completa y lo en camino la infla unos días, así que 1.3
   // marcaba "dispareja" corridas que el negocio ve al día.
   const factor = e.factorSobrante ?? 1.5;
   const diasDispareja = e.diasDispareja ?? 7;
+  const faltanteGrande = e.faltanteGrande ?? 200;
 
   // Todo se decide contra la necesidad ORIGINAL: recortar una talla no debe
   // cambiar el veredicto de otra talla de la misma corrida.
@@ -147,6 +158,21 @@ export function ajustarNecesidadPorCorrida(e: {
       regla = "mitad_corrida";
       ajustada = Math.ceil(pedida / 2);
     } else {
+      // Faltante JUNTO de las tallas cortas de esta corrida. Si es grande,
+      // la venta que el goteo dejaría de surtir pesa más que el sobrante
+      // de la hermana que cayó del lado equivocado del factor, y la
+      // corrida se surte COMPLETA: sin recorte.
+      let faltanteCorrida = 0;
+      const vistos = new Set<string>();
+      for (const c of propias) {
+        for (const it of c.items) {
+          if (vistos.has(it.sku)) continue;
+          vistos.add(it.sku);
+          faltanteCorrida += nec(it.sku);
+        }
+      }
+      if (faltanteCorrida > faltanteGrande) continue;
+
       regla = "solo_7_dias";
       // Una semana de venta de la talla por envío, sin restarle su stock:
       // el faltante (`pedida`) ya trae la posición descontada y hace de

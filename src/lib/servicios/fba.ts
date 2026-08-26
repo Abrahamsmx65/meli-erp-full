@@ -104,6 +104,13 @@ export const FACTOR_SOBRANTE_CORRIDA = 1.5;
 export const DIAS_CORRIDA_DISPAREJA = 7;
 
 /**
+ * Faltante junto (pares) de las tallas cortas a partir del cual esa venta
+ * pesa más que el sobrante: con más que esto, la corrida dispareja se
+ * surte COMPLETA en vez de gotear 7 días. Lo fijó el negocio en 200.
+ */
+export const FALTANTE_GRANDE_CORRIDA = 200;
+
+/**
  * Qué mandar a FBA, en CAJAS COMPLETAS por modelo + color.
  *
  * La misma regla que los envíos a Full: las cajas no se abren. Al ritmo de
@@ -207,7 +214,7 @@ export function sugerirEnvioFba(
         if (peor <= FACTOR_SOBRANTE_CORRIDA) {
           ajusteCorrida = "mitad_corrida";
           faltanteEnvio = g.faltante / 2;
-        } else {
+        } else if (g.faltante <= FALTANTE_GRANDE_CORRIDA) {
           ajusteCorrida = "solo_7_dias";
           // Una semana de venta de cada talla agotada por envío; su
           // faltante (que ya trae la posición descontada) hace de tope.
@@ -216,6 +223,8 @@ export function sugerirEnvioFba(
             0,
           );
         }
+        // Con un faltante junto de más de 200 pares, esa venta pesa más
+        // que la hermana pasada del factor: se surte COMPLETO, sin ajuste.
       }
 
       const cajasCompletas = paresPorCaja ? Math.ceil(g.faltante / paresPorCaja) : 0;

@@ -149,6 +149,7 @@ export function planFbaConCajas(opts: {
     horizonteDias: objetivo + RIESGO_DIAS_FBA,
     factorSobrante: p.corridaSobranteFactor,
     diasDispareja: p.corridaDiasDispareja,
+    faltanteGrande: p.corridaFaltanteGrande,
   });
 
   const resultado = optimizarCajas({

@@ -57,19 +57,36 @@ describe("sugerirEnvioFba con la regla de la corrida despareja", () => {
   });
 
   it("corrida dispareja: solo se cubren los próximos 7 días", () => {
-    // Igual, pero la 27 trae 100 pares con venta de 1/día: 100 días de
-    // stock, más de 1.3× su objetivo. Solo viaja la semana de venta de la 22.
+    // La 22 vende 2/día y está en cero (faltante 74, abajo del umbral de
+    // 100 del faltante grande); la 27 trae 100 pares con venta de 1/día:
+    // 100 días de stock, arriba del factor. Solo viaja la semana de venta
+    // de la 22.
     const filas = [
-      renglon("22", 120, 0),
+      renglon("22", 60, 0),
       ...["23", "24", "25", "26"].map((t) => renglon(t, 30, STOCK_AL_DIA)),
       renglon("27", 30, 100),
     ];
     const [s] = sugerirEnvioFba(filas, 30, corridas, undefined, indice);
 
     expect(s.ajusteCorrida).toBe("solo_7_dias");
-    // 4/día × 7 días = 28 pares → 2 cajas de 24.
-    expect(s.cajas).toBe(2);
-    expect(s.pares).toBe(48);
+    // 2/día × 7 días = 14 pares → 1 caja de 24.
+    expect(s.cajas).toBe(1);
+    expect(s.pares).toBe(24);
+  });
+
+  it("con un faltante grande la corrida dispareja se surte completa", () => {
+    // La 22 vende 8/día en cero: debe 296 pares (> 200). Aunque la 27
+    // esté pasada del factor, esa venta pesa más: viajan las 13 cajas
+    // completas, sin ajuste.
+    const filas = [
+      renglon("22", 240, 0),
+      ...["23", "24", "25", "26"].map((t) => renglon(t, 30, STOCK_AL_DIA)),
+      renglon("27", 30, 100),
+    ];
+    const [s] = sugerirEnvioFba(filas, 30, corridas, undefined, indice);
+
+    expect(s.ajusteCorrida).toBeNull();
+    expect(s.cajas).toBe(13);
   });
 
   it("si la mayoría de las tallas tiene faltante, no se recorta nada", () => {
