@@ -319,8 +319,9 @@ export function armarPublicidad(opts: {
         gananciaNeta: ganancia != null ? ganancia - a.gastoAds : null,
       };
     })
-    // Lo caro en ads arriba; entre iguales (p. ej. sin ads), el que más vende.
-    .sort((x, y) => y.gastoAds - x.gastoAds || y.unidades - x.unidades);
+    // En orden alfabético de modelo: así se busca un parent concreto de un
+    // vistazo, como en el resto de las tablas del sistema.
+    .sort((x, y) => x.modelo.localeCompare(y.modelo, "es"));
 
   let gastoAds = 0;
   let ventaAds = 0;
