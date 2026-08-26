@@ -6,6 +6,7 @@ import {
   generarVideoVeo,
 } from "@/lib/higgsfield/client";
 import { origenReal } from "@/lib/servicios/origen";
+import { quemarMarcaYSubir } from "@/lib/servicios/marca-agua";
 import {
   abrirSesion,
   llamarHerramienta,
@@ -113,7 +114,7 @@ async function procesar(origen: string): Promise<void> {
           await avanzarEstudio(admin, fila, sesionesMCP);
           continue;
         }
-        await avanzar(admin, fila);
+        await avanzar(admin, fila, sesionesMCP);
       } catch (err) {
         // Error al preguntar no es error del video: se reintenta en la
         // siguiente vuelta, y el límite de tiempo evita el bucle eterno.
@@ -147,7 +148,11 @@ async function procesar(origen: string): Promise<void> {
   }
 }
 
-async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Promise<void> {
+async function avanzar(
+  admin: ReturnType<typeof clienteAdmin>,
+  fila: Fila,
+  sesiones: Map<string, SesionMCP>,
+): Promise<void> {
   const enDosEtapas =
     fila.formato === "clip" || fila.formato === "hablado" || fila.formato === "ugc";
   const enEtapaImagen = enDosEtapas && fila.etapa === "imagen";
@@ -243,7 +248,7 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
     return;
   }
 
-  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, res.url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, res.url);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: res.url,
@@ -324,7 +329,7 @@ async function avanzarEstudio(
     });
     return;
   }
-  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, url);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: url,
@@ -348,18 +353,38 @@ async function guardar(
  * Baja el MP4 del CDN de Higgsfield y lo sube al bucket público. Devuelve la
  * URL permanente. Si la copia falla se lanza: mejor reintentar en la
  * siguiente vuelta que quedarse con una URL que caduca.
+ *
+ * Antes de guardar se intenta QUEMAR la marca de agua (texto real, no de
+ * IA): ffmpeg corre en el sandbox del MCP de Higgsfield, que descarga el
+ * video, le pone "GETAC" en blanco abajo a la derecha y lo sube directo al
+ * bucket con una URL firmada. Si el sandbox no está disponible (o la cuenta
+ * no tiene MCP conectado), el video se guarda sin marca: mejor sin marca
+ * que sin video.
  */
 async function copiarAVideoStorage(
   admin: ReturnType<typeof clienteAdmin>,
+  sesiones: Map<string, SesionMCP>,
   accountId: string,
   id: string,
   url: string,
 ): Promise<string> {
+  const ruta = `${accountId}/${id}.mp4`;
+
+  try {
+    let sesion = sesiones.get(accountId);
+    if (!sesion) {
+      sesion = await abrirSesion(admin, accountId);
+      sesiones.set(accountId, sesion);
+    }
+    return await quemarMarcaYSubir(admin, sesion, ruta, url);
+  } catch (err) {
+    console.error(`videos: sin marca de agua para ${id}:`, err);
+  }
+
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`No se pudo descargar el video (${res.status}).`);
   const cuerpo = Buffer.from(await res.arrayBuffer());
 
-  const ruta = `${accountId}/${id}.mp4`;
   const { error } = await admin.storage
     .from("videos-producto")
     .upload(ruta, cuerpo, { contentType: "video/mp4", upsert: true });

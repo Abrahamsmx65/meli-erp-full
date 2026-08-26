@@ -39,6 +39,44 @@ export async function GET(req: NextRequest) {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
 
+    // ?sandbox=1 → ¿el sandbox del MCP trae ffmpeg y salida a internet?
+    // (lo necesita la marca de agua).
+    if (req.nextUrl.searchParams.get("sandbox")) {
+      const { llamarHerramienta, resultadoEstructurado } = await import("@/lib/higgsfield/mcp");
+      const res = await llamarHerramienta(sesion, "sandbox_exec", {
+        command:
+          "ffmpeg -version 2>&1 | head -1; curl -sI --max-time 20 " +
+          "'https://raw.githubusercontent.com/google/fonts/main/ofl/archivoblack/ArchivoBlack-Regular.ttf' | head -1",
+        timeout_seconds: 60,
+      });
+      return NextResponse.json(resultadoEstructurado(res) ?? res);
+    }
+
+    // ?remarcar=id → quema la marca de agua sobre un video YA guardado
+    // (mismo archivo, misma URL; la página lo enseña marcado al recargar).
+    const remarcar = req.nextUrl.searchParams.get("remarcar");
+    if (remarcar) {
+      const { quemarMarcaYSubir } = await import("@/lib/servicios/marca-agua");
+      const { data: fila } = await admin
+        .from("videos_producto")
+        .select("id, account_id, estado, video_guardado")
+        .eq("id", remarcar)
+        .single();
+      if (!fila?.video_guardado || fila.estado !== "completado") {
+        return NextResponse.json({ error: "Ese video no está terminado." }, { status: 400 });
+      }
+      const ruta = `${fila.account_id}/${fila.id}.mp4`;
+      // El video fuente lleva un sufijo anticache para que el sandbox
+      // descargue el archivo actual y no una copia vieja del CDN.
+      const url = await quemarMarcaYSubir(
+        admin,
+        sesion,
+        ruta,
+        `${fila.video_guardado}?v=${Date.now()}`,
+      );
+      return NextResponse.json({ ok: true, url });
+    }
+
     // ?job=folio → el estado CRUDO de ese trabajo en el MCP (para destrabar
     // videos que se ven eternos en la app).
     const job = req.nextUrl.searchParams.get("job");
