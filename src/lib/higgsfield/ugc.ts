@@ -23,17 +23,19 @@ const CANDADO_UGC =
   " STRICT RULE: the featured footwear must remain EXACTLY as shown in the reference " +
   "image — same design, shape, proportions, colors, materials, textures, stitching, " +
   "sole and logos. Do not redesign, replace, morph or restyle it, and do not invent " +
-  "additional logos, text, buckles or design elements. The product is held firmly " +
-  "and steady at all times — never spun, tossed, shaken or waved — and it is not " +
-  "re-animated or morphed.";
+  "additional logos, text, buckles or design elements. The product can be picked " +
+  "up, worn and walked in naturally, but it is handled gently — never tossed, " +
+  "shaken or spun fast — and it never morphs.";
 
 // Imperfecciones que hacen que NO parezca anuncio generado.
 const IMPERFECCIONES =
-  " Filmed as ONE single continuous take: no cuts, no scene changes, no transitions — " +
-  "the camera stays on the person the whole time, steady as if propped up, and ALL " +
-  "movements are smooth and slow. Natural speech pauses, ordinary lighting, normal " +
-  "home imperfections. Genuine TikTok/Reels recommendation energy — NOT an ad, NOT " +
-  "cinematic, no fashion-model posing, no floating product shots.";
+  " Filmed as ONE single continuous take: no cuts, no jump transitions, no " +
+  "teleporting — but real motion is welcome: the person moves, walks, bends and acts " +
+  "naturally while the handheld camera follows smoothly with slow pans and tilts, " +
+  "all within the same continuous space. Fluid, natural rhythm; natural speech " +
+  "pauses, ordinary lighting, normal home imperfections. Genuine TikTok/Reels " +
+  "energy — NOT an ad, NOT cinematic, no fashion-model posing, no floating product " +
+  "shots.";
 
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
@@ -938,6 +940,55 @@ export function armarConceptoUGC(datos: {
   const guionSugerido = llenar(`${hook} ${motivo} ${cierre}`, datos.tipo);
 
   return { id: concepto.id, etiqueta: concepto.etiqueta, promptImagen, narrativa, guionSugerido };
+}
+
+
+/** Quién entra a cuadro cuando el video arranca de la foto real. */
+function personaDesdeFoto(genero: Genero): string {
+  if (genero === "hombre") {
+    return "a friendly regular Mexican man in his early 30s in casual everyday clothes";
+  }
+  if (genero === "nino") {
+    return "a friendly young Mexican mom in her early 30s in casual everyday clothes";
+  }
+  return "a friendly regular Mexican woman in her late 20s in casual everyday clothes";
+}
+
+/** Cómo entra la persona a cuadro sin romper la escena de la foto. */
+const ENTRADAS = [
+  "a hand reaches gently into the frame and picks up the footwear, then the person leans into frame holding it firmly at chest height",
+  "the person steps calmly into frame from the side, picks up the footwear and holds it firmly towards the camera",
+  "the person leans down into frame, lifts the footwear carefully with both hands and settles it steady near their chest",
+];
+
+/**
+ * Prompt del UGC con voz de IA en UNA sola etapa: el video ARRANCA
+ * exactamente de la foto real del producto (primer cuadro = tu foto, sin
+ * IA de por medio) y la persona entra a cuadro a levantarlo. Es la única
+ * forma en esta API de que el producto salga idéntico: Soul lo redibujaba
+ * y no existe ningún modelo de edición con la llave.
+ */
+export function promptUGCDesdeFoto(datos: {
+  tipo: TipoCalzado;
+  genero: Genero;
+  semilla: number;
+  guion: string;
+}): string {
+  const entrada = elegir(ENTRADAS, datos.semilla, 37);
+  const persona = personaDesdeFoto(datos.genero);
+  const limpio = datos.guion.trim().replace(/"/g, "'");
+  return (
+    `The video starts EXACTLY on the provided real product photo — the first frame is ` +
+    `identical to it. Then ${entrada}: ${persona}. They look into the camera with ` +
+    `natural engaging expressions and talk in casual Mexican Spanish with accurate lip ` +
+    `sync, like recommending the product to a friend, saying: "${limpio}". While ` +
+    `talking they can show it closer to the lens, put it on and take a few natural ` +
+    `steps as the handheld camera follows smoothly — everything in ONE single ` +
+    `continuous take within the same continuous space: no cuts, no jump transitions, ` +
+    `no teleporting, fluid smooth motion, natural speech pauses. It must feel like a ` +
+    `real person's TikTok recommendation — NOT an ad, NOT cinematic, no posing.` +
+    CANDADO_UGC
+  );
 }
 
 /** Remate para Speak (el audio grabado pone las palabras). */

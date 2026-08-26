@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarConceptoUGC,
   promptUGCConVozIA,
+  promptUGCDesdeFoto,
   promptUGCParaSpeak,
 } from "./ugc";
 import type { Genero, TipoCalzado } from "./escenas";
@@ -148,5 +149,33 @@ describe("motor de conceptos UGC", () => {
     expect(vozIA).toContain("lip sync");
     expect(vozIA).toContain("Estos tenis son 'otro nivel'");
     expect(vozIA).toMatch(/must remain EXACTLY/);
+  });
+
+  it("el UGC desde la foto real arranca del primer cuadro idéntico y sin cortes", () => {
+    for (const genero of GENEROS) {
+      const p = promptUGCDesdeFoto({
+        tipo: "bota",
+        genero,
+        semilla: 0.3,
+        guion: 'Estas botas "aguantan todo"',
+      });
+      expect(p).toContain("starts EXACTLY on the provided real product photo");
+      expect(p).toContain("Mexican Spanish");
+      expect(p).toContain("lip sync");
+      expect(p).toContain("Estas botas 'aguantan todo'");
+      expect(p).toContain("no cuts");
+      expect(p).toMatch(/must remain EXACTLY/);
+    }
+    // Determinista y con variantes de entrada a cuadro.
+    const a = promptUGCDesdeFoto({ tipo: "tenis", genero: "hombre", semilla: 0.1, guion: "x" });
+    expect(a).toEqual(
+      promptUGCDesdeFoto({ tipo: "tenis", genero: "hombre", semilla: 0.1, guion: "x" }),
+    );
+    const variantes = new Set(
+      [0.05, 0.25, 0.45, 0.65, 0.85].map((s) =>
+        promptUGCDesdeFoto({ tipo: "tenis", genero: "hombre", semilla: s, guion: "x" }),
+      ),
+    );
+    expect(variantes.size).toBeGreaterThan(1);
   });
 });

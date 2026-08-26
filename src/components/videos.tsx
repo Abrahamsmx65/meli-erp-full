@@ -15,7 +15,7 @@ import {
 } from "@/lib/higgsfield/escenas";
 import {
   armarConceptoUGC,
-  promptUGCConVozIA,
+  promptUGCDesdeFoto,
   promptUGCParaSpeak,
 } from "@/lib/higgsfield/ugc";
 
@@ -217,21 +217,30 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     hayAudio: boolean;
   }) {
     if (datos.formato === "ugc") {
-      // El motor de conceptos arma todo junto: escena, narrativa e imagen.
-      // Con audio grabado, Speak anima (el audio pone las palabras); sin
-      // audio, Wan dice el guion con voz propia.
       const c = armarConceptoUGC({
         tipo: datos.tipo,
         genero: datos.genero,
         semilla: datos.semilla,
       });
       setConcepto(c.etiqueta);
-      setPromptImagen(c.promptImagen);
-      setPromptVideo(
-        datos.hayAudio
-          ? promptUGCParaSpeak(c.narrativa)
-          : promptUGCConVozIA(c.narrativa, datos.guion),
-      );
+      if (datos.hayAudio) {
+        // Con audio grabado: Soul genera a la persona (4 candidatas, el
+        // usuario elige) y Speak la anima con el audio.
+        setPromptImagen(c.promptImagen);
+        setPromptVideo(promptUGCParaSpeak(c.narrativa));
+      } else {
+        // Voz de IA: el video ARRANCA de la foto real — sin imagen generada,
+        // el producto sale idéntico. Wan pone voz, persona y movimiento.
+        setPromptImagen("");
+        setPromptVideo(
+          promptUGCDesdeFoto({
+            tipo: datos.tipo,
+            genero: datos.genero,
+            semilla: datos.semilla,
+            guion: datos.guion,
+          }),
+        );
+      }
       return;
     }
     setConcepto("");
@@ -404,8 +413,11 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     setMensaje(null);
     try {
       // El lienzo 9:16 se arma aquí, con la foto real, sin IA de por medio.
+      // El UGC con voz de IA también lo usa: es el primer cuadro del video.
       const imagenLienzo =
-        formato === "clip" || formato === "hablado" ? await armarLienzo(principal) : null;
+        formato === "clip" || formato === "hablado" || (formato === "ugc" && !audio)
+          ? await armarLienzo(principal)
+          : null;
 
       const r = await fetch("/api/videos", {
         method: "POST",
@@ -713,18 +725,19 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                 )}
               </div>
               <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                Las dos opciones dan 10-15 s (lo que piden los Clips de MELI): con voz
-                de IA el video se genera con el audio integrado; con tu audio la
-                persona lo dice con lip sync.
+                Con voz de IA el video ARRANCA de tu foto real (el producto sale
+                idéntico) y la persona entra a cuadro a levantarlo. Con tu audio se
+                genera primero a la persona (4 candidatas para elegir) y Speak la
+                anima con lip sync. Las dos dan 10-15 s.
               </p>
             </div>
           )}
 
-          {formato === "ugc" && (
+          {formato === "ugc" && audio && (
             <label className="mt-3 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Imagen de la persona (la IA recrea la escena con tu foto de referencia;
-                revisa que el producto salga fiel antes de publicar)
+                Imagen de la persona (con tu audio se genera a la persona: salen 4
+                candidatas y eliges en cuál el producto quedó fiel)
               </span>
               <textarea
                 value={promptImagen}
@@ -775,7 +788,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
               disabled={
                 estado === "enviando" ||
                 !promptVideo.trim() ||
-                (formato === "ugc" && !promptImagen.trim())
+                (formato === "ugc" && audio !== null && !promptImagen.trim())
               }
               className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
               style={{ background: "var(--acento)" }}

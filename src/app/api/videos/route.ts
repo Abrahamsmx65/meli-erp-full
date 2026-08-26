@@ -7,6 +7,7 @@ import {
   generarVideo,
   generarVideoKling,
   generarVideoVeo,
+  generarVideoWan,
   subirArchivo,
 } from "@/lib/higgsfield/client";
 import { validarPrompt, validarImagenUrl, construirEntradaDop } from "@/lib/higgsfield/presets";
@@ -72,41 +73,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  // Lienzo 9:16 (clip y hablado): la foto real montada en vertical, armada
-  // en el navegador SIN IA. Llega como data URL y se sube al CDN de
-  // Higgsfield, porque los modelos necesitan una URL.
-  let lienzoUrl: string | null = null;
-  if (formato === "clip" || formato === "hablado") {
-    const lienzo = String(body?.imagenLienzo ?? "");
-    const coincide = /^data:(image\/jpeg);base64,(.+)$/.exec(lienzo);
-    if (!coincide) {
-      return NextResponse.json({ error: "Falta el lienzo vertical de la foto." }, { status: 400 });
-    }
-    const datos = Buffer.from(coincide[2], "base64");
-    if (datos.length > 3 * 1024 * 1024) {
-      return NextResponse.json({ error: "El lienzo pesa demasiado." }, { status: 400 });
-    }
-    try {
-      lienzoUrl = await subirArchivo(datos, "image/jpeg");
-    } catch (err) {
-      return NextResponse.json(
-        { error: `No se pudo subir la foto: ${(err as Error).message}` },
-        { status: 502 },
-      );
-    }
-  }
-
-  // UGC: el prompt de la persona (imagen Soul) y, si viene, el audio grabado
-  // en WAV. La duración de Speak es el escalón (5/10/15 s) donde cabe el audio.
+  // UGC: si viene audio grabado (WAV) va por Soul + Speak; sin audio el
+  // video ARRANCA de la foto real y lo hace Wan de una sola etapa. La
+  // duración de Speak es el escalón (5/10/15 s) donde cabe el audio.
   let promptImagenUGC: string | null = null;
   let audioUrl: string | null = null;
   let duracionSpeak: 5 | 10 | 15 = 10;
   if (formato === "ugc") {
-    try {
-      promptImagenUGC = validarPrompt(String(body?.promptImagen ?? ""));
-    } catch {
-      return NextResponse.json({ error: "Falta el prompt de la persona (UGC)." }, { status: 400 });
-    }
     const audio = String(body?.audio ?? "");
     if (audio) {
       const coincide = /^data:audio\/wav;base64,(.+)$/.exec(audio);
@@ -133,6 +106,42 @@ export async function POST(req: NextRequest) {
           { status: 502 },
         );
       }
+    }
+    // El prompt de la persona (Soul) solo hace falta en el camino con audio.
+    if (audioUrl) {
+      try {
+        promptImagenUGC = validarPrompt(String(body?.promptImagen ?? ""));
+      } catch {
+        return NextResponse.json(
+          { error: "Falta el prompt de la persona (UGC)." },
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  // Lienzo 9:16: la foto real montada en vertical, armada en el navegador
+  // SIN IA. Llega como data URL y se sube al CDN de Higgsfield, porque los
+  // modelos necesitan una URL. El UGC con voz de IA también parte de aquí:
+  // es el primer cuadro del video y por eso el producto sale idéntico.
+  let lienzoUrl: string | null = null;
+  if (formato === "clip" || formato === "hablado" || (formato === "ugc" && !audioUrl)) {
+    const lienzo = String(body?.imagenLienzo ?? "");
+    const coincide = /^data:(image\/jpeg);base64,(.+)$/.exec(lienzo);
+    if (!coincide) {
+      return NextResponse.json({ error: "Falta el lienzo vertical de la foto." }, { status: 400 });
+    }
+    const datos = Buffer.from(coincide[2], "base64");
+    if (datos.length > 3 * 1024 * 1024) {
+      return NextResponse.json({ error: "El lienzo pesa demasiado." }, { status: 400 });
+    }
+    try {
+      lienzoUrl = await subirArchivo(datos, "image/jpeg");
+    } catch (err) {
+      return NextResponse.json(
+        { error: `No se pudo subir la foto: ${(err as Error).message}` },
+        { status: 502 },
+      );
     }
   }
 
@@ -173,8 +182,10 @@ export async function POST(req: NextRequest) {
                 : "wan-2.6"
               : String(body?.modelo ?? "dop-turbo"),
       formato,
-      // El UGC arranca por la imagen de la persona; lo demás va directo al video.
-      etapa: formato === "ugc" ? "imagen" : "video",
+      // Solo el UGC con audio pasa por la imagen de la persona; el resto
+      // (incluido el UGC con voz de IA, que parte de la foto real) va
+      // directo al video.
+      etapa: formato === "ugc" && audioUrl ? "imagen" : "video",
       duracion:
         formato === "clip"
           ? 10
@@ -198,10 +209,10 @@ export async function POST(req: NextRequest) {
 
   try {
     let requestId: string;
-    if (formato === "ugc") {
-      // Etapa 1: la imagen de la persona con el producto (Soul 9:16, con la
-      // foto real de referencia). Van CUATRO candidatas: el usuario elige en
-      // cuál salió fiel el producto antes de gastar la animación.
+    if (formato === "ugc" && audioUrl) {
+      // Camino con audio grabado — etapa 1: la imagen de la persona (Soul,
+      // 4 candidatas; el usuario elige en cuál salió fiel el producto antes
+      // de gastar la animación con Speak).
       const res = await generarImagenSoul({
         prompt: promptImagenUGC!,
         width_and_height: "1152x2048",
@@ -223,7 +234,17 @@ export async function POST(req: NextRequest) {
       after(() => dispararVideos(origenUgc));
       return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
     }
-    if (formato === "clip") {
+    if (formato === "ugc") {
+      // Voz de IA en UNA etapa: el video arranca del lienzo con la foto
+      // REAL (producto idéntico) y Wan mete a la persona, la voz y el
+      // movimiento — todo en una toma continua.
+      const res = await generarVideoWan({
+        prompt: promptVideo,
+        image_url: lienzoUrl!,
+        duration: Number(body?.duracion) === 15 ? 15 : 10,
+      });
+      requestId = res.id;
+    } else if (formato === "clip") {
       const res = await generarVideoKling({
         prompt: promptVideo,
         image_url: lienzoUrl!,
