@@ -29,6 +29,17 @@ export async function GET(req: NextRequest) {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
 
+    // ?modelo=x → la ficha del modelo en el catálogo (params, roles, duraciones).
+    const modelo = req.nextUrl.searchParams.get("modelo");
+    if (modelo) {
+      const { llamarHerramienta, resultadoEstructurado } = await import("@/lib/higgsfield/mcp");
+      const res = await llamarHerramienta(sesion, "models_explore", {
+        action: "get",
+        model_id: modelo,
+      });
+      return NextResponse.json(resultadoEstructurado(res) ?? res);
+    }
+
     // ?herr=nombre → el esquema COMPLETO de esa herramienta.
     const nombre = req.nextUrl.searchParams.get("herr");
     if (nombre) {
