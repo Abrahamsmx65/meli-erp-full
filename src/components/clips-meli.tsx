@@ -74,7 +74,7 @@ export function ClipsMeli() {
       if (!r.ok) throw new Error(j?.error ?? "No se pudo cargar el resumen.");
       setResumen(j.resumen);
       setModelos(j.modelos);
-      setMensaje(null);
+      setMensaje(j.procesoError ?? null);
 
       // "Trabajando" lo dice el servidor (bitácora del proceso), no el hecho
       // de que haya trabajo: confundirlos deja el botón apagado para siempre.
@@ -85,7 +85,9 @@ export function ClipsMeli() {
       // queda más trabajo, la página lo vuelve a encender sola.
       if (j.trabajando) autoEncendido.current = false;
 
-      if (hayTrabajo && !j.trabajando && !autoEncendido.current) {
+      // Con la última corrida muerta no se relanza solo: repetiría el mismo
+      // golpe. El botón queda vivo para reintentar a mano.
+      if (hayTrabajo && !j.trabajando && !j.procesoError && !autoEncendido.current) {
         autoEncendido.current = true;
         try {
           await encender();

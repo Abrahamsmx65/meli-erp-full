@@ -7,7 +7,12 @@ import {
   registrarSync,
 } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
-import { leerClipsFaltantes, subirClipsPendientes } from "@/lib/servicios/clips";
+import {
+  descubrirRutaClips,
+  itemsDelCatalogo,
+  leerClipsFaltantes,
+  subirClipsPendientes,
+} from "@/lib/servicios/clips";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -62,7 +67,10 @@ async function procesar(origen: string): Promise<void> {
   const PRESUPUESTO_MS = 230_000; // margen dentro de los 300 s de Vercel
   const sigue = () => Date.now() - t0 < PRESUPUESTO_MS;
 
-  const { data: cuentas } = await admin.from("meli_accounts").select("id").limit(50);
+  const { data: cuentas } = await admin
+    .from("meli_accounts")
+    .select("id, meli_user_id")
+    .limit(50);
 
   let avance = 0;
   let restante = 0;
@@ -112,14 +120,49 @@ async function procesar(origen: string): Promise<void> {
         });
 
         try {
+          // La ruta del API de clips no está documentada para vendedores
+          // locales: se sondea contra una publicación real y se usa la que
+          // conteste. Sin ruta que funcione, NO se recorre el catálogo (eso
+          // solo llenaría todo de errores): el sondeo queda en la bitácora.
+          const items = await itemsDelCatalogo(admin, accountId);
+          const sonda = items.find((i) => i.estado === "active");
+          if (!sonda) {
+            await cerrarSync(admin, logId, "ok", { sinPublicacionesActivas: true });
+            return;
+          }
+          const { ruta, sondeos } = await descubrirRutaClips(
+            cliente,
+            sonda.item_id,
+            (cuenta.meli_user_id as number) ?? undefined,
+          );
+          if (!ruta) {
+            await cerrarSync(admin, logId, "error", {
+              mensaje:
+                "El API de clips de MELI no contestó en ninguna ruta conocida. " +
+                "El sondeo completo está abajo; con eso se ajusta el servicio.",
+              sondeos,
+            });
+            return;
+          }
+
+          // Lo que la ruta equivocada marcó como error se auto-repara: eran
+          // "resource not found" de una ruta que no existía, no de MELI.
+          await admin
+            .from("clips_meli")
+            .update({ leido_en: null, estado: "sin_leer", ultimo_error: null })
+            .eq("account_id", accountId)
+            .eq("estado", "error")
+            .ilike("ultimo_error", "%resource not found%");
+
           // Lo aceptado por el usuario va primero: es lo que está esperando.
-          const subida = await subirClipsPendientes(admin, cliente, accountId, sigue);
-          const lectura = await leerClipsFaltantes(admin, cliente, accountId, sigue);
+          const subida = await subirClipsPendientes(admin, cliente, accountId, ruta, sigue);
+          const lectura = await leerClipsFaltantes(admin, cliente, accountId, ruta, sigue);
 
           avance += subida.subidos + subida.fallidos + lectura.leidos;
           restante += subida.restantes + lectura.restantes;
 
           await cerrarSync(admin, logId, "ok", {
+            ruta: ruta.nombre,
             subidos: subida.subidos,
             fallidos: subida.fallidos,
             leidos: lectura.leidos,

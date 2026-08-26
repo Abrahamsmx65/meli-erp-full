@@ -197,10 +197,28 @@ export async function GET() {
     .gte("inicio", new Date(Date.now() - 6 * 60_000).toISOString())
     .limit(1);
 
+  // Si la última corrida murió (p. ej. el API de clips no contestó en
+  // ninguna ruta), la página debe enseñar el motivo y DEJAR de encender el
+  // proceso en automático: relanzarlo solo repetiría el mismo golpe.
+  const { data: ultimo } = await supabase
+    .from("sync_log")
+    .select("estado, detalle")
+    .eq("account_id", cuenta.id)
+    .eq("tarea", "clips_meli")
+    .neq("estado", "corriendo")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const procesoError =
+    ultimo?.estado === "error"
+      ? String((ultimo.detalle as { mensaje?: string } | null)?.mensaje ?? "El proceso falló.")
+      : null;
+
   return NextResponse.json({
     resumen,
     modelos: conTrabajo.slice(0, 400),
     trabajando: Boolean(vivo?.length),
+    procesoError,
   });
 }
 

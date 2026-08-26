@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { MeliClient, MeliError } from "@/lib/meli/client";
-import { normalizarClips, RUTA_CLIPS } from "@/lib/servicios/clips";
+import { descubrirRutaClips, normalizarClips } from "@/lib/servicios/clips";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -82,19 +82,15 @@ export async function GET(req: NextRequest) {
 
   const pruebas: Record<string, unknown> = {};
 
-  try {
-    const r = await cliente.get(RUTA_CLIPS(itemId));
-    pruebas["GET /items/{id}/clips"] = { crudo: r, normalizado: normalizarClips(r) };
-  } catch (err) {
-    pruebas["GET /items/{id}/clips"] = detalleError(err);
-  }
-
-  try {
-    pruebas["GET /marketplace/items/{id}/clips"] = await cliente.get(
-      `/marketplace/items/${itemId}/clips`,
-    );
-  } catch (err) {
-    pruebas["GET /marketplace/items/{id}/clips"] = detalleError(err);
+  const { ruta, respuesta, sondeos } = await descubrirRutaClips(
+    cliente,
+    itemId,
+    cuenta.meli_user_id,
+  );
+  pruebas["sondeo de rutas"] = sondeos;
+  pruebas["ruta elegida"] = ruta?.nombre ?? "NINGUNA contestó";
+  if (ruta) {
+    pruebas["clips normalizados"] = normalizarClips(respuesta);
   }
 
   try {

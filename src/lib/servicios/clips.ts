@@ -205,8 +205,93 @@ function dormir(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export const RUTA_CLIPS = (itemId: string) => `/items/${itemId}/clips`;
-export const RUTA_SUBIR_CLIP = (itemId: string) => `/items/${itemId}/clips/upload`;
+/**
+ * La ruta del API de clips NO está publicada para vendedores locales (la
+ * documentación abierta solo muestra la variante de Global Selling, con el
+ * prefijo /marketplace). En vez de adivinar y quemar el catálogo con
+ * errores, cada corrida SONDEA estas rutas candidatas contra una
+ * publicación real y usa la primera que conteste; el sondeo completo queda
+ * en la bitácora para poder diagnosticar cuando ninguna funcione.
+ */
+export interface RutaClips {
+  nombre: string;
+  get: (itemId: string) => string;
+  upload: (itemId: string) => string;
+}
+
+export function rutasCandidatas(sellerId?: number): RutaClips[] {
+  const rutas: RutaClips[] = [
+    {
+      nombre: "items/{id}/clips",
+      get: (i) => `/items/${i}/clips`,
+      upload: (i) => `/items/${i}/clips/upload`,
+    },
+    {
+      nombre: "marketplace/items/{id}/clips",
+      get: (i) => `/marketplace/items/${i}/clips`,
+      upload: (i) => `/marketplace/items/${i}/clips/upload`,
+    },
+    {
+      nombre: "items/{id}/videos",
+      get: (i) => `/items/${i}/videos`,
+      upload: (i) => `/items/${i}/videos/upload`,
+    },
+    {
+      nombre: "clips/items/{id}",
+      get: (i) => `/clips/items/${i}`,
+      upload: (i) => `/clips/items/${i}/upload`,
+    },
+  ];
+  if (sellerId) {
+    rutas.push({
+      nombre: "users/{seller}/items/{id}/clips",
+      get: (i) => `/users/${sellerId}/items/${i}/clips`,
+      upload: (i) => `/users/${sellerId}/items/${i}/clips/upload`,
+    });
+  }
+  return rutas;
+}
+
+export interface Sondeo {
+  ruta: string;
+  url: string;
+  status: number;
+  cuerpo: string;
+}
+
+/**
+ * Prueba las rutas candidatas con una publicación real y regresa la primera
+ * que conteste 2xx. Un 404 genérico ("resource not found") es "esta ruta no
+ * existe"; cualquier otra respuesta queda registrada tal cual en el sondeo:
+ * un 403, por ejemplo, diría que la ruta SÍ existe pero falta un permiso.
+ */
+export async function descubrirRutaClips(
+  cliente: Pick<MeliClient, "get">,
+  itemId: string,
+  sellerId?: number,
+): Promise<{ ruta: RutaClips | null; respuesta: unknown; sondeos: Sondeo[] }> {
+  const sondeos: Sondeo[] = [];
+  for (const ruta of rutasCandidatas(sellerId)) {
+    const url = ruta.get(itemId);
+    try {
+      const respuesta = await cliente.get(url);
+      sondeos.push({ ruta: ruta.nombre, url, status: 200, cuerpo: JSON.stringify(respuesta).slice(0, 400) });
+      return { ruta, respuesta, sondeos };
+    } catch (err) {
+      if (err instanceof MeliError) {
+        sondeos.push({
+          ruta: ruta.nombre,
+          url,
+          status: err.status,
+          cuerpo: JSON.stringify(err.cuerpo ?? err.message).slice(0, 400),
+        });
+      } else {
+        sondeos.push({ ruta: ruta.nombre, url, status: 0, cuerpo: (err as Error).message.slice(0, 400) });
+      }
+    }
+  }
+  return { ruta: null, respuesta: null, sondeos };
+}
 
 interface FilaItem {
   item_id: string;
@@ -269,6 +354,7 @@ export async function leerClipsFaltantes(
   db: DB,
   cliente: MeliClient,
   accountId: string,
+  ruta: RutaClips,
   sigue: () => boolean,
 ): Promise<ResultadoLecturaClips> {
   const items = await itemsDelCatalogo(db, accountId);
@@ -298,7 +384,7 @@ export async function leerClipsFaltantes(
     if (!sigue()) break;
     const ahora = new Date().toISOString();
     try {
-      const respuesta = await cliente.get(RUTA_CLIPS(item.item_id));
+      const respuesta = await cliente.get(ruta.get(item.item_id));
       const clips = normalizarClips(respuesta);
       const vivo = tieneClipVivo(clips);
       const fuente = elegirClipFuente(clips);
@@ -380,6 +466,7 @@ export async function subirClipsPendientes(
   db: DB,
   cliente: MeliClient,
   accountId: string,
+  ruta: RutaClips,
   sigue: () => boolean,
 ): Promise<ResultadoSubida> {
   const { data: cola, error } = await db
@@ -425,7 +512,7 @@ export async function subirClipsPendientes(
 
       const form = new FormData();
       form.append("file", video, "clip.mp4");
-      const respuesta = await cliente.postForm(RUTA_SUBIR_CLIP(fila.item_id as string), form);
+      const respuesta = await cliente.postForm(ruta.upload(fila.item_id as string), form);
 
       await db
         .from("clips_meli")

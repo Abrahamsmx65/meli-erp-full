@@ -7,10 +7,13 @@
  * (menos exposición) aunque en la página agrupada "se vea".
  */
 import { describe, expect, it } from "vitest";
+import { MeliError } from "../meli/client";
 import {
+  descubrirRutaClips,
   elegirClipFuente,
   normalizarClips,
   planAplicaciones,
+  rutasCandidatas,
   tieneClipVivo,
   type FilaPlan,
 } from "./clips";
@@ -61,6 +64,45 @@ describe("normalizarClips: la respuesta de MELI venga como venga", () => {
   it("conserva el crudo completo para poder revisar sin re-escanear", () => {
     const crudo = { id: "k", campo_raro: 42 };
     expect(normalizarClips([crudo])[0].crudo).toEqual(crudo);
+  });
+});
+
+describe("descubrirRutaClips: la ruta real no está documentada, se sondea", () => {
+  const noExiste = (url: string) =>
+    new MeliError("MELI 404", 404, { error: "resource not found" }, url);
+
+  it("elige la primera ruta que contesta y registra el sondeo de las que no", async () => {
+    const cliente = {
+      get: async (url: string) => {
+        if (url === "/marketplace/items/MLM1/clips") return { clips: [] };
+        throw noExiste(url);
+      },
+    };
+    const r = await descubrirRutaClips(cliente as never, "MLM1", 99);
+    expect(r.ruta?.nombre).toBe("marketplace/items/{id}/clips");
+    // La primera candidata falló y quedó apuntada; la elegida también consta.
+    expect(r.sondeos).toHaveLength(2);
+    expect(r.sondeos[0].status).toBe(404);
+    expect(r.sondeos[1].status).toBe(200);
+  });
+
+  it("sin ruta que conteste regresa null y el sondeo COMPLETO para diagnosticar", async () => {
+    const cliente = {
+      get: async (url: string) => {
+        throw noExiste(url);
+      },
+    };
+    const r = await descubrirRutaClips(cliente as never, "MLM1", 99);
+    expect(r.ruta).toBeNull();
+    expect(r.sondeos).toHaveLength(rutasCandidatas(99).length);
+    expect(r.sondeos.every((s) => s.status === 404)).toBe(true);
+  });
+
+  it("cada candidata tiene su ruta de subida al lado de la de lectura", () => {
+    for (const ruta of rutasCandidatas(99)) {
+      expect(ruta.upload("MLM1")).toContain("MLM1");
+      expect(ruta.get("MLM1")).toContain("MLM1");
+    }
   });
 });
 
