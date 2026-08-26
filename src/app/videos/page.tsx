@@ -1,4 +1,4 @@
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { credencialesHiggsfield } from "@/lib/higgsfield/client";
 import {
@@ -30,6 +30,15 @@ export default async function Videos() {
   }
 
   const hayLlave = Boolean(credencialesHiggsfield());
+
+  // ¿La CUENTA de Higgsfield (Marketing Studio) ya está conectada por OAuth?
+  const admin = clienteAdmin();
+  const { data: conexionMcp } = await admin
+    .from("higgsfield_mcp")
+    .select("account_id")
+    .eq("account_id", cuenta.id)
+    .maybeSingle();
+  const cuentaConectada = Boolean(conexionMcp);
 
   // Una entrada por publicación; los SKUs de sus tallas se juntan para que
   // la búsqueda también encuentre por SKU, no solo por título o MLM.
@@ -89,6 +98,28 @@ export default async function Videos() {
           siempre; en Higgsfield solo vive unos días.
         </p>
       </div>
+
+      <section className="tarjeta p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Cuenta de Higgsfield (Marketing Studio)</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              {cuentaConectada
+                ? "✓ Conectada. El ERP puede usar el Marketing Studio de tu cuenta: productos anclados a tus fotos reales y video UGC de la calidad de la app."
+                : "Conéctala para usar el Marketing Studio de tu suscripción desde aquí: producto idéntico y la calidad de la app. Un solo login; la conexión se mantiene sola."}
+            </p>
+          </div>
+          {!cuentaConectada && (
+            <a
+              href="/api/higgsfield/conectar"
+              className="rounded px-4 py-1.5 text-sm text-white"
+              style={{ background: "var(--acento)" }}
+            >
+              Conectar Higgsfield →
+            </a>
+          )}
+        </div>
+      </section>
 
       {!hayLlave ? (
         <section className="tarjeta p-4">
