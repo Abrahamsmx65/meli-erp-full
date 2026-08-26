@@ -157,11 +157,22 @@ async function procesar(origen: string): Promise<void> {
             return;
           }
           if (!ruta) {
+            // Última pista: a lo mejor el clip se delata en la propia
+            // publicación (video_id, tags). Queda junto al sondeo.
+            let camposItem: unknown = null;
+            try {
+              camposItem = await cliente.get(`/items/${sonda.item_id}`, {
+                attributes: "id,status,permalink,video_id,family_name,catalog_product_id,tags",
+              });
+            } catch (err) {
+              camposItem = { error: (err as Error).message.slice(0, 300) };
+            }
             await cerrarSync(admin, logId, "error", {
               mensaje:
                 "El API de clips de MELI no contestó en ninguna ruta conocida. " +
                 "El sondeo completo está abajo; con eso se ajusta el servicio.",
               sondeos,
+              camposItem,
             });
             return;
           }
