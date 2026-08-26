@@ -250,51 +250,6 @@ export class MeliClient {
       ? ultimoError
       : new MeliError(`Falló ${ruta}`, 0, ultimoError, ruta);
   }
-  /**
-   * POST multipart/form-data (subida de archivos, p. ej. los clips). El
-   * Content-Type lo pone fetch con su boundary; forzarlo a mano rompe la
-   * subida. Sin reintentos automáticos: repetir una subida de video puede
-   * duplicar el clip, así que el que llama decide si reintenta.
-   */
-  async postForm<T = unknown>(ruta: string, form: FormData): Promise<T> {
-    await this.asegurarToken();
-    const url = `${MELI_API}${this.prefix}${ruta}`;
-
-    let res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.cred.accessToken}`,
-        Accept: "application/json",
-      },
-      body: form,
-      cache: "no-store",
-    });
-
-    if (res.status === 401) {
-      await this.renovar();
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.cred.accessToken}`,
-          Accept: "application/json",
-        },
-        body: form,
-        cache: "no-store",
-      });
-    }
-
-    const texto = await res.text();
-    const json = texto ? safeJson(texto) : null;
-    if (!res.ok) {
-      throw new MeliError(
-        `MELI ${res.status} en ${ruta}: ${texto.slice(0, 400)}`,
-        res.status,
-        json,
-        ruta,
-      );
-    }
-    return json as T;
-  }
 }
 
 function safeJson(t: string): unknown {

@@ -219,15 +219,19 @@ export function armarPublicidad(opts: {
   anuncios: AnuncioAds[];
   /** ventas del periodo, YA filtradas al rango */
   ventas: VentaDiaria[];
-  /** item_id → modelo, del catálogo */
-  modeloDeItem: Map<string, string>;
+  /**
+   * item_id → TODOS los modelos con variantes en esa publicación. Una
+   * publicación puede juntar varios modelos (GT117…GT122 en un solo anuncio):
+   * su gasto se reparte entre ellos, no se le carga a uno.
+   */
+  modelosDeItem: Map<string, string[]>;
   /** sku → modelo, del catálogo */
   modeloDeSku: Map<string, string>;
   /** modelo → costo capturado (MXN), de productos_config */
   costoDeModelo: Map<string, number | null>;
   errorAds: string | null;
 }): Publicidad {
-  const { anuncios, ventas, modeloDeItem, modeloDeSku, costoDeModelo, errorAds } = opts;
+  const { anuncios, ventas, modelosDeItem, modeloDeSku, costoDeModelo, errorAds } = opts;
 
   interface Acum {
     anuncios: number;
@@ -279,23 +283,33 @@ export function armarPublicidad(opts: {
 
   const sinAmarre = { gasto: 0, anuncios: 0 };
   for (const an of anuncios) {
-    const modelo = modeloDeItem.get(an.itemId);
+    const modelos = modelosDeItem.get(an.itemId) ?? [];
     // Un anuncio sin actividad en el periodo no aporta nada al panel.
     const conActividad =
       an.gasto > 0 || an.clicks > 0 || an.impresiones > 0 || an.ventaAds > 0;
     if (!conActividad) continue;
-    if (!modelo) {
+    if (!modelos.length) {
       sinAmarre.gasto += an.gasto;
       sinAmarre.anuncios += 1;
       continue;
     }
-    const a = de(modelo);
-    a.anuncios += 1;
-    a.gastoAds += an.gasto;
-    a.ventaAds += an.ventaAds;
-    a.unidadesAds += an.unidadesAds;
-    a.clicks += an.clicks;
-    a.impresiones += an.impresiones;
+
+    // Reparto del anuncio entre los modelos de la publicación, proporcional
+    // a las unidades que cada uno vendió en el periodo (la mejor señal de a
+    // quién le trabajó el anuncio). Si ninguno vendió, en partes iguales.
+    const pesos = modelos.map((m) => porModelo.get(m)?.unidades ?? 0);
+    const totalPeso = pesos.reduce((s, x) => s + x, 0);
+    modelos.forEach((modelo, i) => {
+      const fraccion = totalPeso > 0 ? pesos[i] / totalPeso : 1 / modelos.length;
+      if (fraccion <= 0) return;
+      const a = de(modelo);
+      a.anuncios += 1;
+      a.gastoAds += an.gasto * fraccion;
+      a.ventaAds += an.ventaAds * fraccion;
+      a.unidadesAds += an.unidadesAds * fraccion;
+      a.clicks += an.clicks * fraccion;
+      a.impresiones += an.impresiones * fraccion;
+    });
   }
 
   const filas: FilaPublicidad[] = [...porModelo.entries()]
@@ -430,11 +444,17 @@ export async function cargarPublicidad(
   ]);
 
   const modeloDeSku = new Map<string, string>();
-  const modeloDeItem = new Map<string, string>();
+  // Una publicación puede traer variantes de VARIOS modelos: se guardan todos
+  // para repartir el gasto del anuncio, no cargárselo al último del catálogo.
+  const modelosDeItem = new Map<string, string[]>();
   for (const s of skus) {
     const modelo = s.modelo ?? (s.sku.split("-")[0] || s.sku);
     modeloDeSku.set(s.sku, modelo);
-    if (s.item_id) modeloDeItem.set(s.item_id, modelo);
+    if (s.item_id) {
+      const lista = modelosDeItem.get(s.item_id);
+      if (!lista) modelosDeItem.set(s.item_id, [modelo]);
+      else if (!lista.includes(modelo)) lista.push(modelo);
+    }
   }
 
   const costoDeModelo = new Map<string, number | null>();
@@ -465,7 +485,7 @@ export async function cargarPublicidad(
   const datos = armarPublicidad({
     anuncios,
     ventas,
-    modeloDeItem,
+    modelosDeItem,
     modeloDeSku,
     costoDeModelo,
     errorAds,

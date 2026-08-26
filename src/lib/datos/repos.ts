@@ -45,7 +45,6 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   amazon_inventario: ["account_id", "seller_sku"],
   amazon_pagos: ["account_id", "settlement_id", "seller_sku", "fecha"],
   amazon_skus: ["account_id", "seller_sku"],
-  clips_meli: ["account_id", "item_id"],
   corridas: ["account_id", "pedido", "modelo", "color"],
   datos_fiscales: ["account_id", "sku"],
   existencias: ["id"],
