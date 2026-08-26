@@ -58,7 +58,10 @@ export const ESTILO_PERSONA =
 export const VOZ_FLUIDA =
   "The vocal delivery is smooth and flowing: sentences connect naturally in one " +
   "relaxed conversational rhythm with soft natural breaths, never robotic, choppy, " +
-  "over-enunciated or with awkward gaps between phrases";
+  "over-enunciated or with awkward gaps between phrases. The speaker is a NATIVE " +
+  "Mexican Spanish speaker: never mix in English or Portuguese words or " +
+  "pronunciations (say 'sandalias', never 'sandals'; 'ampollas', never 'ampolas'), " +
+  "and pronounce every Spanish word completely and correctly";
 
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas

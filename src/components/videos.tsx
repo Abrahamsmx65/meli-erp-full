@@ -90,9 +90,9 @@ const SUBTITULOS_ESTUDIO = [
     id: "si",
     etiqueta: "Subtítulos: encendidos",
     instruccion:
-      "Con subtítulos en español PERFECTAMENTE escritos, sin faltas de ortografía " +
-      "ni letras faltantes, sincronizados, que digan exactamente lo mismo que la " +
-      "voz, palabra por palabra.",
+      "Con subtítulos en español PERFECTAMENTE escritos: copian el guion LITERAL, " +
+      "letra por letra, sin faltas de ortografía, sin letras faltantes, sin " +
+      "traducir ninguna palabra al inglés, sincronizados con la voz.",
   },
   {
     id: "no",
@@ -449,20 +449,23 @@ export function GeneradorVideo({
       );
       setPromptVideo(
         `Video UGC vertical 9:16 de 15 segundos, TODO en español de México. ` +
-          `Voz y acento: español mexicano de clase ` +
+          `Voz y acento: hablante NATIVO de español mexicano de clase ` +
           `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
-          `caricatura. Estética: aspiracional de clase alta mexicana — creador de ` +
+          `caricatura. PROHIBIDO mezclar idiomas: ni una palabra en inglés ni en ` +
+          `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
+          `'ampolas'); cada palabra se pronuncia completa y correcta en español. ` +
+          `Estética: aspiracional de clase alta mexicana — creador de ` +
           `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
-          `moderna y luminosa. Concepto: ${c.etiqueta}. La voz dice este guion ` +
-          `EXACTAMENTE, palabra por palabra, en español correcto, sin cambiarlo, ` +
-          `pronunciarlo mal ni inventar palabras: ` +
-          `"${datos.guion || c.guionSugerido}". El creador habla a cámara con ` +
+          `moderna y luminosa. Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
           `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
           `y movimientos reales y fluidos, en una sola locación con acciones ` +
           `variadas (lo muestra de cerca, se lo pone, camina). El producto es el ` +
           `calzado adjunto y debe verse EXACTAMENTE como en las fotos, sin ` +
-          `rediseñarlo ni inventarle detalles.`,
+          `rediseñarlo ni inventarle detalles. ` +
+          `Audio — la voz dice este guion EXACTO, palabra por palabra y letra ` +
+          `por letra, en español nativo de México, sin traducirlo, cambiarlo ni ` +
+          `inventar palabras: "${datos.guion || c.guionSugerido}".`,
       );
       return;
     }
