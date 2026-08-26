@@ -73,8 +73,7 @@ export function planFbaConCajas(opts: {
   const prioridad = new Map<string, number>();
   const castigoSobrante = new Map<string, number>();
   const demandaDiaria = new Map<string, number>();
-  const disponiblePorSku = new Map<string, number>();
-  const enCaminoPorSku = new Map<string, number>();
+  const posicionPorSku = new Map<string, number>();
   const sinAmarre: SinAmarreFba[] = [];
 
   for (const r of renglones) {
@@ -110,8 +109,7 @@ export function planFbaConCajas(opts: {
 
     if (faltante > 0) necesidad.set(sku, (necesidad.get(sku) ?? 0) + faltante);
     demandaDiaria.set(sku, (demandaDiaria.get(sku) ?? 0) + ventaDiaria);
-    disponiblePorSku.set(sku, (disponiblePorSku.get(sku) ?? 0) + r.disponible);
-    enCaminoPorSku.set(sku, (enCaminoPorSku.get(sku) ?? 0) + r.enTransferencia);
+    posicionPorSku.set(sku, (posicionPorSku.get(sku) ?? 0) + posicion);
 
     // Los mismos pesos que el plan de Full, con los estados traducidos a
     // FBA: bajo de cobertura duele como crítico; con el doble del objetivo
@@ -141,16 +139,12 @@ export function planFbaConCajas(opts: {
     datos: new Map(
       [...demandaDiaria.entries()].map(([sku, d]) => [
         sku,
-        {
-          disponible: disponiblePorSku.get(sku) ?? 0,
-          enCamino: enCaminoPorSku.get(sku) ?? 0,
-          demandaDiaria: d,
-        },
+        { posicion: posicionPorSku.get(sku) ?? 0, demandaDiaria: d },
       ]),
     ),
     cajas: catalogo,
     // El sobrante de las hermanas se mide contra el objetivo REAL de FBA
-    // (30 días + los 14 que tarda en volverse vendible): contra 30 pelones,
+    // (30 días + los 7 que tarda en volverse vendible): contra 30 pelones,
     // una talla recién surtida al objetivo ya contaría como "dispareja".
     horizonteDias: objetivo + RIESGO_DIAS_FBA,
     factorSobrante: p.corridaSobranteFactor,

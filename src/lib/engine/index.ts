@@ -122,11 +122,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     datos: new Map(
       lineas.map((l) => [
         l.sku,
-        {
-          disponible: l.disponible,
-          enCamino: l.enTransferencia,
-          demandaDiaria: l.demanda.demandaDiaria,
-        },
+        { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria },
       ]),
     ),
     cajas: e.cajas,
@@ -149,8 +145,8 @@ export function generarPlan(e: EntradaPlan): Plan {
     l.ajusteCorrida = a.regla;
     l.explicacion +=
       a.regla === "mitad_corrida"
-        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (aptas ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
-        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días en aptas): solo viajan ${p.corridaDiasDispareja} días de venta menos lo en camino (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
+        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
   }
 
   const planCajas = optimizarCajas({

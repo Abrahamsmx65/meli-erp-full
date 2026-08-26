@@ -46,10 +46,11 @@ export const OBJETIVO_DIAS_FBA = 30;
  * Días que tarda un envío en VOLVERSE stock vendible en FBA (armado, camión
  * y recepción de Amazon). El plan de Full protege su ventana de riesgo
  * (leadTime + periodo de revisión) más un stock de seguridad; el de FBA no
- * protegía nada y por eso sugería sistemáticamente de menos: para cuando el
- * envío llega, el objetivo de 30 días ya se comió dos semanas.
+ * protegía nada y por eso sugería sistemáticamente de menos. El dato es del
+ * negocio: el envío a Amazon tarda ~7 días en estar vendible (el 14 inicial
+ * era una estimación de más).
  */
-export const RIESGO_DIAS_FBA = 14;
+export const RIESGO_DIAS_FBA = 7;
 
 /** Con menos de esto de cobertura, el envío ya es urgente. */
 export const URGENTE_DIAS_FBA = 14;
@@ -84,16 +85,20 @@ export interface SugerenciaFba {
   tieneCorrida: boolean;
   /**
    * Regla de la corrida despareja: cuando la mayoría de las tallas NO tiene
-   * faltante, completar los 30 días de la agotada sobre-surte al resto.
-   * "mitad_corrida" = hermanas al día (sobrante ≤ 1.3× su venta de 30 días):
-   * viaja la mitad de las cajas. "solo_7_dias" = corrida ya dispareja: solo
-   * se cubren los próximos 7 días de las tallas agotadas.
+   * faltante, completar el objetivo de la agotada sobre-surte al resto.
+   * "mitad_corrida" = hermanas al día (posición ≤ 1.5× su venta del
+   * objetivo): viaja la mitad de las cajas. "solo_7_dias" = corrida ya
+   * dispareja: viaja una semana de venta de las tallas agotadas, no más.
    */
   ajusteCorrida: "mitad_corrida" | "solo_7_dias" | null;
 }
 
-/** Sobrante tolerado a las tallas hermanas: stock ≤ 1.3× su venta de 30 días. */
-export const FACTOR_SOBRANTE_CORRIDA = 1.3;
+/**
+ * Sobrante tolerado a las tallas hermanas: posición ≤ 1.5× su venta del
+ * objetivo. Lo fijó el negocio (26-ago-2026): la posición trae el en camino
+ * dentro y 1.3 marcaba "dispareja" corridas que el negocio ve al día.
+ */
+export const FACTOR_SOBRANTE_CORRIDA = 1.5;
 
 /** Días a cubrir de la talla agotada cuando la corrida ya está dispareja. */
 export const DIAS_CORRIDA_DISPAREJA = 7;
@@ -116,8 +121,7 @@ export function sugerirEnvioFba(
 ): SugerenciaFba[] {
   interface TallaGrupo {
     ventaDiaria: number;
-    disponible: number;
-    enCamino: number;
+    posicion: number;
     faltante: number;
   }
   interface Grupo {
@@ -165,12 +169,7 @@ export function sugerirEnvioFba(
     // el envío tarda en volverse vendible en FBA.
     const faltanteTalla = Math.max(0, ventaDiaria * (objetivoDias + RIESGO_DIAS_FBA) - posicion);
     g.faltante += faltanteTalla;
-    g.detalleTallas.push({
-      ventaDiaria,
-      disponible: r.disponible,
-      enCamino: r.enTransferencia,
-      faltante: faltanteTalla,
-    });
+    g.detalleTallas.push({ ventaDiaria, posicion, faltante: faltanteTalla });
     if (!g.titulo && r.titulo) g.titulo = r.titulo;
     grupos.set(clave, g);
   }
@@ -193,16 +192,16 @@ export function sugerirEnvioFba(
       let faltanteEnvio = g.faltante;
       if (agotadas.length > 0 && sanas.length > agotadas.length) {
         let peor = 0;
-        // El sobrante se mide con lo DISPONIBLE en FBA (sin en camino),
-        // contra el objetivo real de la talla (30 días + los 14 que el
-        // envío tarda en volverse vendible): contra 30 pelones, una talla
-        // recién surtida al objetivo ya sería "dispareja".
+        // El sobrante se mide con la posición completa contra el objetivo
+        // real de la talla (30 días + los 7 que el envío tarda en volverse
+        // vendible): contra 30 pelones, una talla recién surtida al
+        // objetivo ya sería "dispareja".
         const diasObjetivo = objetivoDias + RIESGO_DIAS_FBA;
         for (const t of sanas) {
-          if (t.disponible <= 0) continue; // vacía: que le llegue no es sobrar
+          if (t.posicion <= 0) continue; // vacía: que le llegue no es sobrar
           peor = Math.max(
             peor,
-            t.ventaDiaria > 0 ? t.disponible / (t.ventaDiaria * diasObjetivo) : Infinity,
+            t.ventaDiaria > 0 ? t.posicion / (t.ventaDiaria * diasObjetivo) : Infinity,
           );
         }
         if (peor <= FACTOR_SOBRANTE_CORRIDA) {
@@ -210,11 +209,10 @@ export function sugerirEnvioFba(
           faltanteEnvio = g.faltante / 2;
         } else {
           ajusteCorrida = "solo_7_dias";
-          // 7 días de venta de cada talla agotada; lo que ya viaja EN
-          // CAMINO los descuenta (lo disponible no: eso ya se está
-          // vendiendo).
+          // Una semana de venta de cada talla agotada por envío; su
+          // faltante (que ya trae la posición descontada) hace de tope.
           faltanteEnvio = agotadas.reduce(
-            (a, t) => a + Math.max(0, t.ventaDiaria * DIAS_CORRIDA_DISPAREJA - t.enCamino),
+            (a, t) => a + Math.min(t.faltante, t.ventaDiaria * DIAS_CORRIDA_DISPAREJA),
             0,
           );
         }

@@ -17,18 +17,18 @@ function cajaCorrida(disponibles = 10): Caja {
   };
 }
 
-/** Hermanas vendiendo 1.6/día con `dias` días en APTAS; la T22 agotada. */
+/** Hermanas vendiendo 1.6/día con `dias` días de posición; la T22 agotada. */
 function datosBase(diasHermanas: number): Map<string, DatosSkuCorrida> {
   const datos = new Map<string, DatosSkuCorrida>();
-  datos.set("T22", { disponible: 0, enCamino: 0, demandaDiaria: 1.6 });
+  datos.set("T22", { posicion: 0, demandaDiaria: 1.6 });
   for (const sku of TALLAS.slice(1)) {
-    datos.set(sku, { disponible: 1.6 * diasHermanas, enCamino: 0, demandaDiaria: 1.6 });
+    datos.set(sku, { posicion: 1.6 * diasHermanas, demandaDiaria: 1.6 });
   }
   return datos;
 }
 
 describe("regla de la corrida despareja", () => {
-  it("manda la MITAD cuando las hermanas van al día (aptas ≤ 1.3×)", () => {
+  it("manda la MITAD cuando las hermanas van al día (posición ≤ 1.3×)", () => {
     // T22 pide 48 (30 días a 1.6/día); las hermanas traen 30 días justos.
     const necesidad = new Map([["T22", 48]]);
     const ajustes = ajustarNecesidadPorCorrida({
@@ -50,12 +50,13 @@ describe("regla de la corrida despareja", () => {
     expect(necesidad.get("T22")).toBe(24);
   });
 
-  it("el sobrante de las hermanas se mide en APTAS: lo en camino no las vuelve disparejas", () => {
-    // Hermanas con 30 días en aptas + una montaña en camino: para el negocio
-    // siguen "al día" (así lee la pantalla) y la regla debe dar MITAD.
+  it("la posición de las hermanas cuenta COMPLETA: lo en camino también sobra", () => {
+    // Hermanas con 30 días en el piso más una montaña en camino: la corrida
+    // ya está dispareja aunque las aptas se vean al día — lo que viaja
+    // también va a estar en el piso.
     const datos = datosBase(30);
     for (const sku of TALLAS.slice(1)) {
-      datos.set(sku, { disponible: 1.6 * 30, enCamino: 100, demandaDiaria: 1.6 });
+      datos.set(sku, { posicion: 1.6 * 30 + 100, demandaDiaria: 1.6 });
     }
 
     const necesidad = new Map([["T22", 48]]);
@@ -66,16 +67,13 @@ describe("regla de la corrida despareja", () => {
       horizonteDias: 30,
     });
 
-    expect(ajuste.regla).toBe("mitad_corrida");
+    expect(ajuste.regla).toBe("solo_7_dias");
   });
 
-  it("solo cubre 7 días de venta cuando alguna hermana pasa del 1.3×", () => {
-    // Una hermana con 60 días en aptas (2× su venta de 30): corrida dispareja.
-    // La talla agotada trae 15 pares APTOS y aun así viajan sus 7 días: lo
-    // apto ya se está vendiendo y no descuenta.
+  it("con la corrida dispareja viaja una semana de venta de la talla agotada", () => {
+    // Una hermana con 60 días (2× su venta de 30): corrida dispareja.
     const datos = datosBase(30);
-    datos.set("T27", { disponible: 1.6 * 60, enCamino: 0, demandaDiaria: 1.6 });
-    datos.set("T22", { disponible: 15, enCamino: 0, demandaDiaria: 1.6 });
+    datos.set("T27", { posicion: 1.6 * 60, demandaDiaria: 1.6 });
 
     const necesidad = new Map([["T22", 48]]);
     const [ajuste] = ajustarNecesidadPorCorrida({
@@ -91,22 +89,25 @@ describe("regla de la corrida despareja", () => {
     expect(necesidad.get("T22")).toBe(12);
   });
 
-  it("lo EN CAMINO sí descuenta los 7 días de la corrida dispareja", () => {
+  it("el goteo de 7 días se topa con el faltante: no pasa a la talla de su objetivo", () => {
+    // La talla ya casi está surtida (solo le faltan 8): la semana de venta
+    // serían 12, pero jamás se manda más que su faltante — como el faltante
+    // ya trae la posición descontada, el goteo se apaga solo.
     const datos = datosBase(30);
-    datos.set("T27", { disponible: 1.6 * 60, enCamino: 0, demandaDiaria: 1.6 });
-    datos.set("T22", { disponible: 0, enCamino: 30, demandaDiaria: 1.6 });
+    datos.set("T27", { posicion: 1.6 * 60, demandaDiaria: 1.6 });
+    datos.set("T22", { posicion: 40, demandaDiaria: 1.6 });
 
-    const necesidad = new Map([["T22", 33]]);
-    const [ajuste] = ajustarNecesidadPorCorrida({
+    const necesidad = new Map([["T22", 8]]);
+    const ajustes = ajustarNecesidadPorCorrida({
       necesidad,
       datos,
       cajas: [cajaCorrida()],
       horizonteDias: 30,
     });
 
-    expect(ajuste.regla).toBe("solo_7_dias");
-    expect(ajuste.necesidadAjustada).toBe(0);
-    expect(necesidad.has("T22")).toBe(false);
+    // 12 ≥ 8: la semana completa ya no cabe en el faltante, no hay recorte.
+    expect(ajustes).toEqual([]);
+    expect(necesidad.get("T22")).toBe(8);
   });
 
   it("no recorta nada cuando la mitad o más de la caja tapa faltantes reales", () => {
@@ -140,7 +141,7 @@ describe("regla de la corrida despareja", () => {
 
   it("una hermana con stock parado y sin venta vuelve la corrida dispareja", () => {
     const datos = datosBase(30);
-    datos.set("T27", { disponible: 20, enCamino: 0, demandaDiaria: 0 });
+    datos.set("T27", { posicion: 20, demandaDiaria: 0 });
 
     const necesidad = new Map([["T22", 48]]);
     const [ajuste] = ajustarNecesidadPorCorrida({
@@ -156,7 +157,7 @@ describe("regla de la corrida despareja", () => {
   it("una hermana VACÍA sin venta no cuenta como sobrante", () => {
     // Que a una talla vacía le llegue caja no es sobrar: sigue siendo mitad.
     const datos = datosBase(30);
-    datos.set("T27", { disponible: 0, enCamino: 0, demandaDiaria: 0 });
+    datos.set("T27", { posicion: 0, demandaDiaria: 0 });
 
     const necesidad = new Map([["T22", 48]]);
     const [ajuste] = ajustarNecesidadPorCorrida({
@@ -187,7 +188,7 @@ describe("regla de la corrida despareja", () => {
     // Ambas deben decidirse contra la necesidad ORIGINAL, no contra la ya
     // recortada de la primera.
     const datos = datosBase(30);
-    datos.set("T23", { disponible: 0, enCamino: 0, demandaDiaria: 1.6 });
+    datos.set("T23", { posicion: 0, demandaDiaria: 1.6 });
 
     const necesidad = new Map([["T22", 48], ["T23", 48]]);
     const ajustes = ajustarNecesidadPorCorrida({
@@ -236,9 +237,9 @@ describe("tolerancia de rescate por SKU en el optimizador", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Los dos casos reales con los que se calibró la regla (26-ago-2026).
+// Los dos casos reales con los que se verificó la regla (26-ago-2026).
 describe("casos reales de calibración", () => {
-  it("GT135 DK BROWN: hermanas al día en aptas (aunque traigan en camino) → mitad", () => {
+  it("GT135 DK BROWN: hermanas entre 1.3× y 1.6× — el factor decide mitad o goteo", () => {
     const S = (t: string) => `GT135-DK BROWN-${t}-MX`;
     const caja: Caja = {
       codigo: "DK",
@@ -249,33 +250,38 @@ describe("casos reales de calibración", () => {
       ],
     };
     const datos = new Map<string, DatosSkuCorrida>([
-      [S("23"), { disponible: 25, enCamino: 12, demandaDiaria: 0.97 }],
-      [S("24"), { disponible: 50, enCamino: 24, demandaDiaria: 1.7 }],
-      [S("25"), { disponible: 81, enCamino: 44, demandaDiaria: 2.67 }],
-      [S("26"), { disponible: 71, enCamino: 30, demandaDiaria: 2.56 }],
-      [S("27"), { disponible: 9, enCamino: 28, demandaDiaria: 3.13 }],
-      [S("28"), { disponible: 16, enCamino: 18, demandaDiaria: 2.2 }],
+      [S("23"), { posicion: 37, demandaDiaria: 0.97 }],
+      [S("24"), { posicion: 74, demandaDiaria: 1.7 }],
+      [S("25"), { posicion: 125, demandaDiaria: 2.67 }],
+      [S("26"), { posicion: 101, demandaDiaria: 2.56 }],
+      [S("27"), { posicion: 37, demandaDiaria: 3.13 }],
+      [S("28"), { posicion: 34, demandaDiaria: 2.2 }],
     ]);
     // Sugeridos del plan real: la 27 con 12 días de cobertura pedía 84.
-    const necesidad = new Map([[S("27"), 84], [S("28"), 50], [S("23"), 1]]);
+    const necesidad = () => new Map([[S("27"), 84], [S("28"), 50], [S("23"), 1]]);
 
-    const ajustes = ajustarNecesidadPorCorrida({
-      necesidad,
-      datos,
-      cajas: [caja],
-      horizonteDias: 30,
+    // Con el factor por defecto (1.5), la hermana 25 (125 pares = 1.56× su
+    // venta de 30 días) apenas vuelve la corrida dispareja: viaja una
+    // semana de venta de cada talla corta.
+    const n13 = necesidad();
+    const a13 = ajustarNecesidadPorCorrida({
+      necesidad: n13, datos, cajas: [caja], horizonteDias: 30,
     });
+    expect(a13.find((a) => a.sku === S("27"))?.regla).toBe("solo_7_dias");
+    expect(n13.get(S("27"))).toBe(22);
+    expect(n13.get(S("28"))).toBe(16);
 
-    // Las hermanas 24/25/26 traen ~30 días en aptas: corrida PAREJA, viaja
-    // la mitad (con la posición completa dentro del cálculo salían 1.56× y
-    // la regla mataba el envío de un modelo que se está quedando sin 27/28).
-    const a27 = ajustes.find((a) => a.sku === S("27"));
-    expect(a27?.regla).toBe("mitad_corrida");
-    expect(a27?.necesidadAjustada).toBe(42);
-    expect(necesidad.get(S("28"))).toBe(25);
+    // Subiendo el factor a 1.6, las mismas hermanas cuentan como "al día"
+    // y viaja la mitad.
+    const n16 = necesidad();
+    const a16 = ajustarNecesidadPorCorrida({
+      necesidad: n16, datos, cajas: [caja], horizonteDias: 30, factorSobrante: 1.6,
+    });
+    expect(a16.find((a) => a.sku === S("27"))?.regla).toBe("mitad_corrida");
+    expect(n16.get(S("27"))).toBe(42);
   });
 
-  it("GT155 BEIGE: hermanas con 2× en aptas → solo 7 días de venta de las agotadas", () => {
+  it("GT155 BEIGE: hermanas con ~2× → viaja una semana de venta (~2 cajas, no 5)", () => {
     const B = (t: string) => `GT155-BEIGE-${t}-MX`;
     const caja: Caja = {
       codigo: "IN10119",
@@ -286,11 +292,11 @@ describe("casos reales de calibración", () => {
       ],
     };
     const datos = new Map<string, DatosSkuCorrida>([
-      [B("23"), { disponible: 22, enCamino: 0, demandaDiaria: 0.32 }],
-      [B("24"), { disponible: 51, enCamino: 5, demandaDiaria: 0.97 }],
-      [B("25"), { disponible: 59, enCamino: 1, demandaDiaria: 0.96 }],
-      [B("26"), { disponible: 8, enCamino: 0, demandaDiaria: 0.67 }],
-      [B("27"), { disponible: 9, enCamino: 0, demandaDiaria: 0.37 }],
+      [B("23"), { posicion: 22, demandaDiaria: 0.32 }],
+      [B("24"), { posicion: 56, demandaDiaria: 0.97 }],
+      [B("25"), { posicion: 60, demandaDiaria: 0.96 }],
+      [B("26"), { posicion: 8, demandaDiaria: 0.67 }],
+      [B("27"), { posicion: 9, demandaDiaria: 0.37 }],
     ]);
     const necesidad = new Map([[B("26"), 20], [B("27"), 10]]);
 
@@ -301,9 +307,9 @@ describe("casos reales de calibración", () => {
       horizonteDias: 30,
     });
 
-    // 23/24/25 traen 1.8–2.3× su venta de 30 días: dispareja. Viajan solo
-    // los 7 días de venta de la 26 (5 pzas) y de la 27 (3 pzas) — con la
-    // corrida de 4 y 2 pares, eso son ~2 cajas en vez de las 5 de antes.
+    // 23/24/25 traen 1.9–2.3× su venta de 30 días: dispareja. Viaja la
+    // semana de venta de la 26 (5 pzas) y de la 27 (3 pzas) — con la
+    // corrida de 4 y 2 pares, eso son 2 cajas en vez de las 5 de antes.
     expect(ajustes.map((a) => a.regla)).toEqual(["solo_7_dias", "solo_7_dias"]);
     expect(necesidad.get(B("26"))).toBe(5);
     expect(necesidad.get(B("27"))).toBe(3);

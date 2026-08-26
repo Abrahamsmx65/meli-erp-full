@@ -94,9 +94,10 @@ export interface Parametros {
   maxPiezasPorEnvio: number;
   /**
    * Regla de la corrida despareja: sobrante tolerado a las tallas hermanas,
-   * como múltiplo de su venta del horizonte (stock ≤ 1.3× su venta de 30
-   * días = hermanas al día → se manda la MITAD; arriba de eso → solo se
-   * cubren `corridaDiasDispareja` días de la talla agotada).
+   * como múltiplo de su venta del horizonte (posición ≤ factor × su venta
+   * del horizonte = hermanas al día → se manda la MITAD; arriba de eso →
+   * la talla agotada recibe `corridaDiasDispareja` días de su venta por
+   * envío). El negocio lo fijó en 1.5.
    */
   corridaSobranteFactor: number;
   /** días a cubrir de la talla agotada cuando la corrida ya está dispareja */

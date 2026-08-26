@@ -6,21 +6,18 @@
  * los 30 días de la talla agotada obligaría a subir cajas cuyo resto nadie
  * pidió, y las tallas hermanas quedarían con stock de más.
  *
- * Lo acordado con el negocio (calibrado con los casos reales GT135 DK
+ * Lo acordado con el negocio (verificado con los casos reales GT135 DK
  * BROWN, GT135 TABACO y GT155 BEIGE del 26-ago-2026):
- *  - Si las hermanas traen buena venta y NO tienen más de 1.3× su ritmo de
- *    venta del horizonte, se manda la MITAD de las cajas que la talla
- *    agotada pediría para completar sus 30 días.
- *  - El sobrante de una hermana se mide con sus pares APTOS para vender
- *    (sin lo en camino), igual que el negocio lee la pantalla de Full:
- *    aptas ÷ venta de 30 días. Con lo en camino dentro, GT135 DK BROWN
- *    salía "dispareja" cuando el criterio del negocio era mandar la mitad.
- *  - Si la corrida ya está dispareja (alguna hermana arriba del 1.3×, o
- *    con stock parado sin venta), se manda el equivalente a 7 días de
- *    venta de la talla agotada, no más. Lo que ya viaja EN CAMINO hacia el
- *    canal descuenta esos 7 días (si ya vienen 30 pares, no se manda
- *    nada); lo apto en piso NO los descuenta, porque eso ya se está
- *    vendiendo (GT155 BEIGE 26: con 8 aptas igual viajan sus ~7 días).
+ *  - Si las hermanas traen buena venta y NO tienen más de `factorSobrante`
+ *    veces su ritmo de venta del horizonte (posición completa: disponible
+ *    más en camino, contra venta del horizonte), se manda la MITAD de las
+ *    cajas que la talla agotada pediría para completar sus 30 días.
+ *  - Si la corrida ya está dispareja (alguna hermana arriba del factor, o
+ *    con stock parado sin venta), la talla agotada recibe el equivalente a
+ *    7 DÍAS DE SU VENTA por envío, no más — un goteo semanal. No se le
+ *    descuenta su stock: su faltante completo (`necesidad`) ya lo trae
+ *    descontado y actúa de tope, así que el goteo se apaga solo conforme
+ *    la talla se acerca a su objetivo.
  *
  * La regla solo entra cuando subir la caja es mayormente sobre-surtir: si la
  * mitad o más de la caja tapa faltantes reales (varias tallas piden a la
@@ -38,10 +35,8 @@ const EPS = 1e-9;
 const FRACCION_CAJA_APROVECHADA = 0.5;
 
 export interface DatosSkuCorrida {
-  /** pares APTOS para vender ya en el canal (sin lo en camino) */
-  disponible: number;
-  /** pares en camino hacia el canal (transferencias / envíos activos) */
-  enCamino: number;
+  /** posición completa en el canal: disponible + en camino */
+  posicion: number;
   /** piezas por día que vende en el canal */
   demandaDiaria: number;
 }
@@ -54,8 +49,8 @@ export interface AjusteCorrida {
   necesidadOriginal: number;
   necesidadAjustada: number;
   /**
-   * El peor sobrante entre las tallas hermanas sin faltante: sus pares
-   * APTOS en múltiplos de su venta del horizonte (1 = aptas exactas para el
+   * El peor sobrante entre las tallas hermanas sin faltante: su posición
+   * en múltiplos de su venta del horizonte (1 = posición exacta para el
    * horizonte; Infinity = stock parado sin venta o talla sin amarre).
    */
   peorSobrante: number;
@@ -78,7 +73,10 @@ export function ajustarNecesidadPorCorrida(e: {
   /** días a cubrir cuando la corrida ya está dispareja */
   diasDispareja?: number;
 }): AjusteCorrida[] {
-  const factor = e.factorSobrante ?? 1.3;
+  // 1.5 lo decidió el negocio (26-ago-2026): el umbral se mide con la
+  // posición completa y lo en camino la infla unos días, así que 1.3
+  // marcaba "dispareja" corridas que el negocio ve al día.
+  const factor = e.factorSobrante ?? 1.5;
   const diasDispareja = e.diasDispareja ?? 7;
 
   // Todo se decide contra la necesidad ORIGINAL: recortar una talla no debe
@@ -120,8 +118,8 @@ export function ajustarNecesidadPorCorrida(e: {
     if (mejorAprovechada >= FRACCION_CAJA_APROVECHADA) continue;
 
     // Salud de las hermanas SIN faltante de esas cajas: ¿cuánto les sobra
-    // en APTAS contra su venta del horizonte? (aptas ÷ venta de 30 días,
-    // como se lee la pantalla; lo en camino no entra al veredicto).
+    // contra su venta del horizonte? Se mide con la posición COMPLETA
+    // (disponible + en camino): lo que viaja también va a estar en el piso.
     let peor = 0;
     for (const c of propias) {
       for (const it of c.items) {
@@ -134,10 +132,10 @@ export function ajustarNecesidadPorCorrida(e: {
           continue;
         }
         // Vacía: que le llegue no es sobrar, es volver a tener qué vender.
-        if (d.disponible <= 0) continue;
+        if (d.posicion <= 0) continue;
         const sobrante =
           d.demandaDiaria > EPS
-            ? d.disponible / (d.demandaDiaria * e.horizonteDias)
+            ? d.posicion / (d.demandaDiaria * e.horizonteDias)
             : Infinity; // stock parado sin venta: la corrida ya está dispareja
         peor = Math.max(peor, sobrante);
       }
@@ -150,12 +148,12 @@ export function ajustarNecesidadPorCorrida(e: {
       ajustada = Math.ceil(pedida / 2);
     } else {
       regla = "solo_7_dias";
-      // El equivalente a 7 días de venta. Lo EN CAMINO ya viene a cubrir
-      // esos días y se descuenta; lo apto en piso no, porque eso se está
-      // vendiendo ya.
+      // Una semana de venta de la talla por envío, sin restarle su stock:
+      // el faltante (`pedida`) ya trae la posición descontada y hace de
+      // tope, así que el goteo nunca la pasa de su objetivo y se apaga
+      // solo conforme se acerca.
       const d = e.datos.get(sku);
-      const cubrir = (d?.demandaDiaria ?? 0) * diasDispareja - (d?.enCamino ?? 0);
-      ajustada = Math.min(pedida, Math.max(0, Math.ceil(cubrir)));
+      ajustada = Math.min(pedida, Math.max(0, Math.ceil((d?.demandaDiaria ?? 0) * diasDispareja)));
     }
     if (ajustada >= pedida) continue;
 

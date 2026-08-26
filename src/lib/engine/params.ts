@@ -20,7 +20,7 @@ export const PARAMETROS_DEFAULT: Parametros = {
   pesoFaltanteCritico: 3,
   maxCajasPorEnvio: 0,
   maxPiezasPorEnvio: 0,
-  corridaSobranteFactor: 1.3,
+  corridaSobranteFactor: 1.5,
   corridaDiasDispareja: 7,
 };
 
