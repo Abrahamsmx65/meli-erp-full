@@ -356,6 +356,8 @@ export async function traerCampanasAds(
 interface IntentoEscritura {
   ruta: string;
   cuerpo: unknown;
+  /** header Api-Version del intento (el API de ads enruta por versión) */
+  version?: "1" | "2";
 }
 
 /**
@@ -371,10 +373,10 @@ async function escribirConRutas(
   intentos: IntentoEscritura[],
 ): Promise<void> {
   const resumen: string[] = [];
-  for (const { ruta, cuerpo } of intentos) {
+  for (const { ruta, cuerpo, version } of intentos) {
     try {
       await cliente.put(ruta, cuerpo, {
-        headers: { "Api-Version": "2" },
+        headers: { "Api-Version": version ?? "2" },
         reintentos: 1,
       });
       return;
@@ -383,7 +385,7 @@ async function escribirConRutas(
         err instanceof MeliError &&
         (err.status === 404 || err.status === 405 || err.status === 503)
       ) {
-        resumen.push(`${err.status} en ${ruta.split("?")[0]}`);
+        resumen.push(`${err.status} en ${ruta.split("?")[0]} (v${version ?? "2"})`);
         continue;
       }
       throw err;
@@ -418,19 +420,24 @@ export async function cambiarEstadoAnuncio(
   const porItem = { status: estado };
   const enLote = { ads: [{ item_id: itemId, status: estado }] };
 
+  // Lo ya descartado con la cuenta real (MLM): las formas ads/{item} y
+  // campaigns/{id}/ads/{item} contestan 404 en v2, y las viejas 405/503.
+  // Lo que sigue por probar: el segmento items/ (así nombra el API nuevo a
+  // los anuncios de una campaña) y las mismas formas con Api-Version 1.
   const intentos: IntentoEscritura[] = [];
   if (campanaId) {
     intentos.push(
-      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/ads/${itemId}`, cuerpo: porItem },
-      { ruta: `${base}/product_ads/campaigns/${campanaId}/ads/${itemId}`, cuerpo: porItem },
+      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
+      { ruta: `${base}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
     );
   }
   intentos.push(
+    { ruta: `${conAdv}/product_ads/items/${itemId}`, cuerpo: porItem },
+    { ruta: `${base}/product_ads/items/${itemId}`, cuerpo: porItem },
+    { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem, version: "1" },
+    { ruta: `${conAdv}/product_ads/ads/${itemId}`, cuerpo: porItem, version: "1" },
+    { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote, version: "1" },
     { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote },
-    { ruta: `${base}/product_ads/ads`, cuerpo: enLote },
-    { ruta: `${conAdv}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
-    { ruta: `${conAdv}/product_ads/ads/${itemId}`, cuerpo: porItem },
-    { ruta: `${base}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
   );
   await escribirConRutas(cliente, intentos);
 }
