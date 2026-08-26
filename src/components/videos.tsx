@@ -81,22 +81,30 @@ const VOCES_ESTUDIO = [
 ] as const;
 
 /**
- * Subtítulos del Studio. El usuario los quiere ENCENDIDOS: van por default,
- * exigiendo ortografía perfecta y que digan exactamente lo que dice la voz
- * (la IA tiende a comerse letras si no se le exige).
+ * Subtítulos del Studio. La IA los escribe con faltas ("corclo", "nuve",
+ * "Já" en portugués), así que el default es que los queme el ERP: el video
+ * se pide SIN texto y el vigilante le pone el guion EXACTO encima —
+ * ortografía perfecta garantizada.
  */
 const SUBTITULOS_ESTUDIO = [
   {
     id: "si",
-    etiqueta: "Subtítulos: encendidos",
+    etiqueta: "Subtítulos: perfectos (los pone el ERP)",
+    instruccion:
+      "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
+      "palabras escritas ni marcas de agua (los subtítulos se agregan después).",
+  },
+  {
+    id: "ia",
+    etiqueta: "Subtítulos: de la IA (pueden traer errores)",
     instruccion:
       "Con subtítulos en español PERFECTAMENTE escritos: copian el guion LITERAL, " +
       "letra por letra, sin faltas de ortografía, sin letras faltantes, sin " +
-      "traducir ninguna palabra al inglés, sincronizados con la voz.",
+      "traducir ninguna palabra al inglés ni al portugués, sincronizados con la voz.",
   },
   {
     id: "no",
-    etiqueta: "Subtítulos: apagados",
+    etiqueta: "Subtítulos: sin subtítulos",
     instruccion:
       "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
       "palabras escritas ni marcas de agua.",
@@ -454,7 +462,9 @@ export function GeneradorVideo({
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
           `caricatura. PROHIBIDO mezclar idiomas: ni una palabra en inglés ni en ` +
           `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
-          `'ampolas'); cada palabra se pronuncia completa y correcta en español. ` +
+          `'ampolas'; 'ya', jamás 'já'; 'corcho', jamás 'corclo'; 'nube', jamás ` +
+          `'nuve'; 'suavecita', 'hay' y 'mijito' bien dichas); cada palabra se ` +
+          `pronuncia completa y correcta en español. ` +
           `Estética: aspiracional de clase alta mexicana — creador de ` +
           `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
           `moderna y luminosa. Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
@@ -768,6 +778,10 @@ export function GeneradorVideo({
             formato: "studio",
             motor: motorEstudio,
             resolucion: resolucionEstudio,
+            subtitulos,
+            // Con subtítulos del ERP, el guion exacto viaja aparte: el
+            // vigilante lo quema sobre el video terminado, sin faltas.
+            guion: guion.trim() || undefined,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,

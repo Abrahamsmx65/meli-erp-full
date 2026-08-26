@@ -84,6 +84,8 @@ interface Fila {
   request_id_imagen: string | null;
   estado: string;
   creado_en: string;
+  guion: string | null;
+  modelo: string | null;
 }
 
 async function procesar(origen: string): Promise<void> {
@@ -97,7 +99,7 @@ async function procesar(origen: string): Promise<void> {
     const { data: pendientes } = await admin
       .from("videos_producto")
       .select(
-        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en",
+        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en, guion, modelo",
       )
       .in("estado", ["enviado", "en_progreso"])
       .order("creado_en", { ascending: true })
@@ -248,7 +250,7 @@ async function avanzar(
     return;
   }
 
-  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, res.url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, res.url, fila);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: res.url,
@@ -329,7 +331,7 @@ async function avanzarEstudio(
     });
     return;
   }
-  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, url, fila);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: url,
@@ -367,6 +369,7 @@ async function copiarAVideoStorage(
   accountId: string,
   id: string,
   url: string,
+  fila: Fila,
 ): Promise<string> {
   const ruta = `${accountId}/${id}.mp4`;
 
@@ -376,7 +379,9 @@ async function copiarAVideoStorage(
       sesion = await abrirSesion(admin, accountId);
       sesiones.set(accountId, sesion);
     }
-    return await quemarMarcaYSubir(admin, sesion, ruta, url);
+    // Con guion guardado, los subtítulos también se queman aquí (texto
+    // perfecto del ERP; a la IA se le pidió el video SIN texto).
+    return await quemarMarcaYSubir(admin, sesion, ruta, url, fila.guion, fila.duracion);
   } catch (err) {
     console.error(`videos: sin marca de agua para ${id}:`, err);
   }

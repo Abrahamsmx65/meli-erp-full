@@ -349,6 +349,10 @@ async function generarEstudio(
   const rapido = body?.motor === "rapido";
   // 1080p por default; 720p es la palanca de ahorro (mismo motor y estilo).
   const resolucion = body?.resolucion === "720p" ? "720p" : "1080p";
+  // Subtítulos del ERP: el guion exacto se guarda y el vigilante lo quema
+  // sobre el video terminado (la IA los escribe con faltas; el ERP no).
+  const guion =
+    body?.subtitulos === "si" ? String(body?.guion ?? "").trim().slice(0, 600) : "";
 
   if (!titulo || !fotos.length) {
     return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
@@ -471,6 +475,7 @@ async function generarEstudio(
       duracion: 15,
       request_id: requestId,
       estado: "enviado",
+      guion: guion || null,
     })
     .select("id")
     .single();
