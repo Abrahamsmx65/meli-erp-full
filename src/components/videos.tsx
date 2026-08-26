@@ -1730,6 +1730,90 @@ export function CambiarVoz({ id }: { id: string }) {
   );
 }
 
+/**
+ * Corrección GRATIS de subtítulos: el guion editado se re-quema sobre la
+ * copia limpia del video (ffmpeg en el sandbox) — sin regenerar, sin
+ * créditos. Solo aparece en videos con subtítulos del ERP.
+ */
+export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState(guion);
+  const [estado, setEstado] = useState<"listo" | "enviando">("listo");
+  const [error, setError] = useState<string | null>(null);
+
+  async function aplicar() {
+    if (!texto.trim()) return;
+    setEstado("enviando");
+    setError(null);
+    try {
+      const r = await fetch("/api/videos/subtitulos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, guion: texto.trim() }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudieron corregir."));
+      setAbierto(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        className="text-xs underline"
+        style={{ color: "var(--acento)" }}
+      >
+        ✏️ Corregir subtítulos
+      </button>
+    );
+  }
+  return (
+    <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
+      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+        Edita el texto y se re-quema sobre el mismo video — gratis, sin
+        regenerar (la voz no cambia)
+      </span>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={4}
+        className="w-full px-2 py-1 text-xs"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={aplicar}
+          disabled={estado === "enviando" || !texto.trim()}
+          className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
+          style={{ background: "var(--acento)" }}
+        >
+          {estado === "enviando" ? "Re-quemando…" : "Aplicar"}
+        </button>
+        <button
+          onClick={() => setAbierto(false)}
+          className="text-xs underline"
+          style={{ color: "var(--ink-muted)" }}
+        >
+          Cancelar
+        </button>
+      </div>
+      {error && (
+        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </span>
+      )}
+      <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+        Si el video se ve igual después, recarga la página sin caché.
+      </span>
+    </div>
+  );
+}
+
 export function BotonBorrar({ id }: { id: string }) {
   const router = useRouter();
   const [borrando, setBorrando] = useState(false);

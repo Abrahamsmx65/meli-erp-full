@@ -114,6 +114,16 @@ export async function quemarMarcaYSubir(
     throw new Error(firmada.error?.message ?? "sin URL firmada");
   }
 
+  // También se guarda la copia LIMPIA (sin marca ni subtítulos): con ella
+  // los subtítulos se pueden corregir después cuantas veces sea, gratis.
+  const rutaLimpia = ruta.replace(/\.mp4$/, "-limpio.mp4");
+  const firmadaLimpia = await admin.storage
+    .from("videos-producto")
+    .createSignedUploadUrl(rutaLimpia, { upsert: true });
+  if (firmadaLimpia.error || !firmadaLimpia.data?.signedUrl) {
+    throw new Error(firmadaLimpia.error?.message ?? "sin URL firmada (limpia)");
+  }
+
   // Subtítulos del ERP primero (si hay guion) y la marca al final. El
   // tamaño y los márgenes escalan con la altura del video (720p o 1080p).
   const filtros = guion ? filtrosSubtitulos(guion, duracion || 15) : [];
@@ -129,6 +139,7 @@ export async function quemarMarcaYSubir(
     `curl -sSL --max-time 60 -o /tmp/marca.ttf '${FUENTE_MARCA}'`,
     `ffmpeg -y -i /tmp/entrada.mp4 -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 -c:a copy -movflags +faststart /tmp/salida.mp4`,
     `curl -sS --fail --max-time 120 -X PUT '${firmada.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/salida.mp4 > /dev/null`,
+    `curl -sS --fail --max-time 120 -X PUT '${firmadaLimpia.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/entrada.mp4 > /dev/null`,
     "echo LISTO_MARCA",
   ].join(" && ");
 
