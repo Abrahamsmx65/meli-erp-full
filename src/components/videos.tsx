@@ -81,26 +81,140 @@ const VOCES_ESTUDIO = [
 ] as const;
 
 /**
- * Subtítulos del Studio. El usuario los quiere ENCENDIDOS: van por default,
- * exigiendo ortografía perfecta y que digan exactamente lo que dice la voz
- * (la IA tiende a comerse letras si no se le exige).
+ * Subtítulos del Studio. La IA los escribe con faltas ("corclo", "nuve",
+ * "Já" en portugués), así que el default es que los queme el ERP: el video
+ * se pide SIN texto y el vigilante le pone el guion EXACTO encima —
+ * ortografía perfecta garantizada.
  */
 const SUBTITULOS_ESTUDIO = [
   {
     id: "si",
-    etiqueta: "Subtítulos: encendidos",
+    etiqueta: "Subtítulos: perfectos (los pone el ERP)",
+    instruccion:
+      "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
+      "palabras escritas ni marcas de agua (los subtítulos se agregan después).",
+  },
+  {
+    id: "ia",
+    etiqueta: "Subtítulos: de la IA (pueden traer errores)",
     instruccion:
       "Con subtítulos en español PERFECTAMENTE escritos: copian el guion LITERAL, " +
       "letra por letra, sin faltas de ortografía, sin letras faltantes, sin " +
-      "traducir ninguna palabra al inglés, sincronizados con la voz.",
+      "traducir ninguna palabra al inglés ni al portugués, sincronizados con la voz.",
   },
   {
     id: "no",
-    etiqueta: "Subtítulos: apagados",
+    etiqueta: "Subtítulos: sin subtítulos",
     instruccion:
       "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
       "palabras escritas ni marcas de agua.",
   },
+] as const;
+
+/**
+ * Locaciones para el video del Studio. "auto" deja que el concepto del 🎲
+ * decida; "otro" abre un campo libre. La instrucción va en español directo
+ * al prompt.
+ */
+const LUGARES_ESTUDIO = [
+  { id: "auto", etiqueta: "Lugar: el concepto decide", instruccion: "" },
+  {
+    id: "sala",
+    etiqueta: "Lugar: sala moderna",
+    instruccion: "Locación del video: sala moderna y luminosa de un departamento mexicano premium.",
+  },
+  {
+    id: "recamara",
+    etiqueta: "Lugar: recámara",
+    instruccion: "Locación del video: recámara amplia y arreglada con luz natural, espejo de cuerpo completo.",
+  },
+  {
+    id: "cocina",
+    etiqueta: "Lugar: cocina",
+    instruccion: "Locación del video: cocina moderna y luminosa, desayunador visible.",
+  },
+  {
+    id: "jardin",
+    etiqueta: "Lugar: jardín / terraza",
+    instruccion: "Locación del video: terraza o jardín con plantas y luz de día, ambiente relajado.",
+  },
+  {
+    id: "calle",
+    etiqueta: "Lugar: calle bonita",
+    instruccion: "Locación del video: calle bonita y arbolada tipo Polanco/Roma, banquetas limpias, luz de día.",
+  },
+  {
+    id: "oficina",
+    etiqueta: "Lugar: oficina",
+    instruccion: "Locación del video: oficina moderna y ordenada, escritorio y buena luz.",
+  },
+  {
+    id: "gimnasio",
+    etiqueta: "Lugar: gimnasio",
+    instruccion: "Locación del video: gimnasio limpio y moderno, aparatos de fondo.",
+  },
+  {
+    id: "alberca",
+    etiqueta: "Lugar: alberca / playa",
+    instruccion: "Locación del video: junto a una alberca o playa con sol, ambiente vacacional.",
+  },
+  {
+    id: "rancho",
+    etiqueta: "Lugar: rancho / campo",
+    instruccion: "Locación del video: exterior de rancho o campo mexicano, tierra y vegetación real.",
+  },
+  {
+    id: "taller",
+    etiqueta: "Lugar: taller / obra",
+    instruccion: "Locación del video: taller o zona de obra con herramienta y ambiente de trabajo real.",
+  },
+  { id: "otro", etiqueta: "Lugar: otro (escríbelo)", instruccion: "" },
+] as const;
+
+/** Vestuario del creador; misma mecánica que el lugar. */
+const ROPAS_ESTUDIO = [
+  { id: "auto", etiqueta: "Ropa: el concepto decide", instruccion: "" },
+  {
+    id: "casual",
+    etiqueta: "Ropa: casual premium",
+    instruccion: "Vestuario: casual premium estilo quiet luxury, arreglado y aspiracional.",
+  },
+  {
+    id: "mezclilla",
+    etiqueta: "Ropa: jeans y básicos",
+    instruccion: "Vestuario: jeans bien puestos con básicos limpios (playera o camisa sencilla).",
+  },
+  {
+    id: "deportiva",
+    etiqueta: "Ropa: deportiva",
+    instruccion: "Vestuario: ropa deportiva moderna (leggings o shorts y top/playera dry-fit).",
+  },
+  {
+    id: "formal",
+    etiqueta: "Ropa: formal / oficina",
+    instruccion: "Vestuario: formal de oficina (blazer o camisa de vestir, pantalón de vestir).",
+  },
+  {
+    id: "vestido",
+    etiqueta: "Ropa: vestido",
+    instruccion: "Vestuario: vestido casual bonito, accesorios discretos.",
+  },
+  {
+    id: "casa",
+    etiqueta: "Ropa: cómoda de casa",
+    instruccion: "Vestuario: ropa cómoda de casa (pants, sudadera o pijama presentable).",
+  },
+  {
+    id: "playera",
+    etiqueta: "Ropa: playera / verano",
+    instruccion: "Vestuario: ropa fresca de verano (shorts, lino, colores claros).",
+  },
+  {
+    id: "trabajo",
+    etiqueta: "Ropa: de trabajo",
+    instruccion: "Vestuario: ropa de trabajo real (chaleco, mezclilla resistente, casco si aplica).",
+  },
+  { id: "otro", etiqueta: "Ropa: otra (escríbela)", instruccion: "" },
 ] as const;
 
 /** Lee la respuesta como JSON y, si el servidor contestó texto plano
@@ -323,6 +437,20 @@ export function GeneradorVideo({
   // Saldo de créditos de la cuenta y costo estimado del próximo video.
   const [saldo, setSaldo] = useState<number | null>(null);
   const [costoVideo, setCostoVideo] = useState<number | null>(null);
+  // Prueba de voz ANTES del video (motor rápido): se genera solo el audio
+  // del guion, se escucha, y si dice todo bien se usa tal cual en el video.
+  const [vocesReales, setVocesReales] = useState<
+    { id: string; tipo: string; nombre: string; genero: string | null }[]
+  >([]);
+  const [vozRealId, setVozRealId] = useState("");
+  const [generandoVoz, setGenerandoVoz] = useState(false);
+  const [audioPrueba, setAudioPrueba] = useState<{ jobId: string; url: string } | null>(null);
+  const [usarVoz, setUsarVoz] = useState(false);
+  // Dónde se graba y qué trae puesto el creador ("auto" = decide el concepto).
+  const [lugarEstudio, setLugarEstudio] = useState("auto");
+  const [lugarOtro, setLugarOtro] = useState("");
+  const [ropaEstudio, setRopaEstudio] = useState("auto");
+  const [ropaOtro, setRopaOtro] = useState("");
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -405,6 +533,26 @@ export function GeneradorVideo({
     };
   }, [formato, cuentaConectada, motorEstudio, resolucionEstudio]);
 
+  // Las voces reales del catálogo (para la prueba de audio del motor rápido).
+  useEffect(() => {
+    if (formato !== "studio" || motorEstudio !== "rapido" || !cuentaConectada) return;
+    if (vocesReales.length) return;
+    void (async () => {
+      try {
+        const r = await fetch("/api/videos/editar");
+        const j = await leerJson(r);
+        if (!r.ok) return;
+        const vs =
+          (j.voces as { id: string; tipo: string; nombre: string; genero: string | null }[]) ??
+          [];
+        setVocesReales(vs);
+        if (vs.length) setVozRealId(vs[0].id);
+      } catch {
+        // Sin voces, la prueba simplemente no se ofrece.
+      }
+    })();
+  }, [formato, motorEstudio, cuentaConectada, vocesReales.length]);
+
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
 
@@ -454,7 +602,9 @@ export function GeneradorVideo({
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
           `caricatura. PROHIBIDO mezclar idiomas: ni una palabra en inglés ni en ` +
           `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
-          `'ampolas'); cada palabra se pronuncia completa y correcta en español. ` +
+          `'ampolas'; 'ya', jamás 'já'; 'corcho', jamás 'corclo'; 'nube', jamás ` +
+          `'nuve'; 'suavecita', 'hay' y 'mijito' bien dichas); cada palabra se ` +
+          `pronuncia completa y correcta en español. ` +
           `Estética: aspiracional de clase alta mexicana — creador de ` +
           `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
           `moderna y luminosa. Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
@@ -597,7 +747,12 @@ export function GeneradorVideo({
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
     if (cambios.formato !== undefined) setFormato(f);
-    if (gu !== guion) setGuion(gu);
+    if (gu !== guion) {
+      setGuion(gu);
+      // Guion nuevo = el audio aprobado ya no corresponde.
+      setAudioPrueba(null);
+      setUsarVoz(false);
+    }
     regenerarPrompt({
       tipo: t,
       genero: g,
@@ -665,6 +820,53 @@ export function GeneradorVideo({
     setAudio(null);
     setAudioSegundos(0);
     cambiar({ hayAudio: false });
+  }
+
+  /** Genera SOLO el audio del guion para escucharlo antes de gastar video. */
+  async function probarVoz() {
+    if (!guion.trim()) {
+      setMensaje("Escribe el guion primero.");
+      return;
+    }
+    setMensaje(null);
+    setGenerandoVoz(true);
+    setAudioPrueba(null);
+    setUsarVoz(false);
+    try {
+      const voz = vocesReales.find((v) => v.id === vozRealId);
+      const r = await fetch("/api/videos/voz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "generar",
+          guion: guion.trim(),
+          vozId: voz?.id || undefined,
+          vozTipo: voz?.tipo || undefined,
+        }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el audio."));
+      const jobId = String(j.jobId ?? "");
+      for (let i = 0; i < 30; i++) {
+        await new Promise((re) => setTimeout(re, 3000));
+        const rp = await fetch("/api/videos/voz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "estado", jobId }),
+        });
+        const jp = await leerJson(rp);
+        if (!rp.ok) throw new Error(String(jp.error ?? "El audio falló."));
+        if (!jp.pendiente && jp.url) {
+          setAudioPrueba({ jobId, url: String(jp.url) });
+          setGenerandoVoz(false);
+          return;
+        }
+      }
+      throw new Error("El audio tardó demasiado; inténtalo otra vez.");
+    } catch (e) {
+      setGenerandoVoz(false);
+      setMensaje((e as Error).message);
+    }
   }
 
   /** Crea el personaje de marca en la cuenta conectada y lo deja elegido. */
@@ -768,15 +970,36 @@ export function GeneradorVideo({
             formato: "studio",
             motor: motorEstudio,
             resolucion: resolucionEstudio,
+            subtitulos,
+            // Con subtítulos del ERP, el guion exacto viaja aparte: el
+            // vigilante lo quema sobre el video terminado, sin faltas.
+            guion: guion.trim() || undefined,
+            // Audio aprobado en la prueba: referencia de voz + pista final.
+            audioJobId: usarVoz && audioPrueba ? audioPrueba.jobId : undefined,
+            audioUrl: usarVoz && audioPrueba ? audioPrueba.url : undefined,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
-            // El estilo de voz y los subtítulos elegidos se suman al prompt.
+            // Estilo de voz, subtítulos, lugar y ropa elegidos van al prompt.
             prompt: `${promptVideo} ${
               VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
             } ${
               SUBTITULOS_ESTUDIO.find((s) => s.id === subtitulos)?.instruccion ?? ""
-            }`.trim(),
+            } ${
+              lugarEstudio === "otro"
+                ? lugarOtro.trim()
+                  ? `Locación del video: ${lugarOtro.trim()}.`
+                  : ""
+                : (LUGARES_ESTUDIO.find((l) => l.id === lugarEstudio)?.instruccion ?? "")
+            } ${
+              ropaEstudio === "otro"
+                ? ropaOtro.trim()
+                  ? `Vestuario del creador: ${ropaOtro.trim()}.`
+                  : ""
+                : (ROPAS_ESTUDIO.find((r) => r.id === ropaEstudio)?.instruccion ?? "")
+            }`
+              .replace(/\s+/g, " ")
+              .trim(),
             modo: modoEstudio,
             avatarId: avatarId || undefined,
             // En el motor rápido el personaje fijo viaja como FOTO de
@@ -1152,6 +1375,49 @@ export function GeneradorVideo({
           )}
 
           {formato === "studio" && (
+            <div className="mt-2 flex max-w-2xl flex-wrap items-center gap-2">
+              <select
+                value={lugarEstudio}
+                onChange={(e) => setLugarEstudio(e.target.value)}
+                className="px-2 py-1.5 text-sm"
+              >
+                {LUGARES_ESTUDIO.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.etiqueta}
+                  </option>
+                ))}
+              </select>
+              {lugarEstudio === "otro" && (
+                <input
+                  value={lugarOtro}
+                  onChange={(e) => setLugarOtro(e.target.value)}
+                  placeholder="Describe el lugar (p. ej. mercado de flores)"
+                  className="min-w-56 px-2 py-1.5 text-sm"
+                />
+              )}
+              <select
+                value={ropaEstudio}
+                onChange={(e) => setRopaEstudio(e.target.value)}
+                className="px-2 py-1.5 text-sm"
+              >
+                {ROPAS_ESTUDIO.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.etiqueta}
+                  </option>
+                ))}
+              </select>
+              {ropaEstudio === "otro" && (
+                <input
+                  value={ropaOtro}
+                  onChange={(e) => setRopaOtro(e.target.value)}
+                  placeholder="Describe la ropa (p. ej. camisa de lino blanca)"
+                  className="min-w-56 px-2 py-1.5 text-sm"
+                />
+              )}
+            </div>
+          )}
+
+          {formato === "studio" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <button
                 onClick={() => setPersonajeAbierto((v) => !v)}
@@ -1275,6 +1541,62 @@ export function GeneradorVideo({
                 className="w-full px-2 py-1.5 text-xs"
               />
             </label>
+          )}
+
+          {formato === "studio" && motorEstudio === "rapido" && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Prueba la voz ANTES de gastar el video (recomendado): se genera
+                solo el audio del guion — cuesta centavos — y si dice todas las
+                palabras bien, esa pista exacta queda en el video
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  value={vozRealId}
+                  onChange={(e) => {
+                    setVozRealId(e.target.value);
+                    setAudioPrueba(null);
+                    setUsarVoz(false);
+                  }}
+                  className="px-2 py-1.5 text-sm"
+                >
+                  {vocesReales.length === 0 && <option value="">Voz: automática</option>}
+                  {vocesReales.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      Voz: {v.nombre || v.id.slice(0, 8)}
+                      {v.genero ? ` (${v.genero})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={probarVoz}
+                  disabled={generandoVoz || !guion.trim()}
+                  className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+                  style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                >
+                  {generandoVoz ? "Generando audio…" : "🔊 Escuchar el guion"}
+                </button>
+              </div>
+              {audioPrueba && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <audio controls src={audioPrueba.url} className="h-9" />
+                  <label className="flex items-center gap-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={usarVoz}
+                      onChange={(e) => setUsarVoz(e.target.checked)}
+                    />
+                    Dice todo bien: usar ESTE audio en el video
+                  </label>
+                </div>
+              )}
+              {usarVoz && (
+                <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  El video se sincroniza a este audio y el archivo final lleva
+                  esta pista tal cual: palabras garantizadas.
+                </p>
+              )}
+            </div>
           )}
 
           {formato === "ugc" && !audio && (
@@ -1712,6 +2034,90 @@ export function CambiarVoz({ id }: { id: string }) {
           {error}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Corrección GRATIS de subtítulos: el guion editado se re-quema sobre la
+ * copia limpia del video (ffmpeg en el sandbox) — sin regenerar, sin
+ * créditos. Solo aparece en videos con subtítulos del ERP.
+ */
+export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState(guion);
+  const [estado, setEstado] = useState<"listo" | "enviando">("listo");
+  const [error, setError] = useState<string | null>(null);
+
+  async function aplicar() {
+    if (!texto.trim()) return;
+    setEstado("enviando");
+    setError(null);
+    try {
+      const r = await fetch("/api/videos/subtitulos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, guion: texto.trim() }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudieron corregir."));
+      setAbierto(false);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setEstado("listo");
+  }
+
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        className="text-xs underline"
+        style={{ color: "var(--acento)" }}
+      >
+        ✏️ Corregir subtítulos
+      </button>
+    );
+  }
+  return (
+    <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
+      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+        Edita el texto y se re-quema sobre el mismo video — gratis, sin
+        regenerar (la voz no cambia)
+      </span>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={4}
+        className="w-full px-2 py-1 text-xs"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={aplicar}
+          disabled={estado === "enviando" || !texto.trim()}
+          className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
+          style={{ background: "var(--acento)" }}
+        >
+          {estado === "enviando" ? "Re-quemando…" : "Aplicar"}
+        </button>
+        <button
+          onClick={() => setAbierto(false)}
+          className="text-xs underline"
+          style={{ color: "var(--ink-muted)" }}
+        >
+          Cancelar
+        </button>
+      </div>
+      {error && (
+        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </span>
+      )}
+      <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+        Si el video se ve igual después, recarga la página sin caché.
+      </span>
     </div>
   );
 }

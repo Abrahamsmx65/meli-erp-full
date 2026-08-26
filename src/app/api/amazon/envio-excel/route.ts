@@ -237,6 +237,7 @@ export async function GET(request: NextRequest) {
     { header: "Pares/caja", key: "porCaja", width: 11 },
     { header: "Cajas a mandar", key: "cajas", width: 14 },
     { header: "Pares", key: "pares", width: 10 },
+    { header: "Regla de corrida", key: "ajuste", width: 32 },
   ];
   encabezar(hEnvio);
 
@@ -253,6 +254,12 @@ export async function GET(request: NextRequest) {
       porCaja: s.paresPorCaja ?? "sin corrida",
       cajas: s.tieneCorrida ? s.cajas : "?",
       pares: s.pares,
+      ajuste:
+        s.ajusteCorrida === "mitad_corrida"
+          ? "resto al día: viaja la mitad de las cajas"
+          : s.ajusteCorrida === "solo_7_dias"
+            ? "corrida dispareja: solo 7 días"
+            : "",
     });
   }
 

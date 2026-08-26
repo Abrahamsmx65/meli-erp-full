@@ -46,10 +46,11 @@ export const OBJETIVO_DIAS_FBA = 30;
  * Días que tarda un envío en VOLVERSE stock vendible en FBA (armado, camión
  * y recepción de Amazon). El plan de Full protege su ventana de riesgo
  * (leadTime + periodo de revisión) más un stock de seguridad; el de FBA no
- * protegía nada y por eso sugería sistemáticamente de menos: para cuando el
- * envío llega, el objetivo de 30 días ya se comió dos semanas.
+ * protegía nada y por eso sugería sistemáticamente de menos. El dato es del
+ * negocio: el envío a Amazon tarda ~7 días en estar vendible (el 14 inicial
+ * era una estimación de más).
  */
-export const RIESGO_DIAS_FBA = 14;
+export const RIESGO_DIAS_FBA = 7;
 
 /** Con menos de esto de cobertura, el envío ya es urgente. */
 export const URGENTE_DIAS_FBA = 14;
@@ -82,7 +83,25 @@ export interface SugerenciaFba {
   /** pares que viajan = cajas × pares por caja (o el faltante, sin corrida) */
   pares: number;
   tieneCorrida: boolean;
+  /**
+   * Regla de la corrida despareja: cuando la mayoría de las tallas NO tiene
+   * faltante, completar el objetivo de la agotada sobre-surte al resto.
+   * "mitad_corrida" = hermanas al día (posición ≤ 1.5× su venta del
+   * objetivo): viaja la mitad de las cajas. "solo_7_dias" = corrida ya
+   * dispareja: viaja una semana de venta de las tallas agotadas, no más.
+   */
+  ajusteCorrida: "mitad_corrida" | "solo_7_dias" | null;
 }
+
+/**
+ * Sobrante tolerado a las tallas hermanas: posición ≤ 1.5× su venta del
+ * objetivo. Lo fijó el negocio (26-ago-2026): la posición trae el en camino
+ * dentro y 1.3 marcaba "dispareja" corridas que el negocio ve al día.
+ */
+export const FACTOR_SOBRANTE_CORRIDA = 1.5;
+
+/** Días a cubrir de la talla agotada cuando la corrida ya está dispareja. */
+export const DIAS_CORRIDA_DISPAREJA = 7;
 
 /**
  * Qué mandar a FBA, en CAJAS COMPLETAS por modelo + color.
@@ -100,6 +119,11 @@ export function sugerirEnvioFba(
   objetivoDias = OBJETIVO_DIAS_FBA,
   indiceMeli?: IndiceCatalogo,
 ): SugerenciaFba[] {
+  interface TallaGrupo {
+    ventaDiaria: number;
+    posicion: number;
+    faltante: number;
+  }
   interface Grupo {
     modelo: string;
     color: string;
@@ -109,6 +133,7 @@ export function sugerirEnvioFba(
     disponible: number;
     enTransferencia: number;
     faltante: number;
+    detalleTallas: TallaGrupo[];
   }
   const grupos = new Map<string, Grupo>();
 
@@ -131,7 +156,7 @@ export function sugerirEnvioFba(
 
     const g =
       grupos.get(clave) ??
-      { modelo, color, titulo: r.titulo, tallas: 0, ventaDiaria: 0, disponible: 0, enTransferencia: 0, faltante: 0 };
+      { modelo, color, titulo: r.titulo, tallas: 0, ventaDiaria: 0, disponible: 0, enTransferencia: 0, faltante: 0, detalleTallas: [] as TallaGrupo[] };
 
     const ventaDiaria = r.unidades / dias;
     const posicion = r.disponible + r.enTransferencia;
@@ -142,7 +167,9 @@ export function sugerirEnvioFba(
     // El faltante se calcula POR TALLA y luego se suma: el sobrante de una
     // talla no tapa el hueco de otra. El objetivo cubre TAMBIÉN los días que
     // el envío tarda en volverse vendible en FBA.
-    g.faltante += Math.max(0, ventaDiaria * (objetivoDias + RIESGO_DIAS_FBA) - posicion);
+    const faltanteTalla = Math.max(0, ventaDiaria * (objetivoDias + RIESGO_DIAS_FBA) - posicion);
+    g.faltante += faltanteTalla;
+    g.detalleTallas.push({ ventaDiaria, posicion, faltante: faltanteTalla });
     if (!g.titulo && r.titulo) g.titulo = r.titulo;
     grupos.set(clave, g);
   }
@@ -153,7 +180,50 @@ export function sugerirEnvioFba(
       const posicion = g.disponible + g.enTransferencia;
       const cobertura = g.ventaDiaria > 0 ? posicion / g.ventaDiaria : null;
       const paresPorCaja = corridas.get(claveGrupoFba(g.modelo, g.color)) ?? null;
-      const cajas = paresPorCaja ? Math.ceil(g.faltante / paresPorCaja) : 0;
+
+      // Regla de la corrida despareja: si la MAYORÍA de las tallas no tiene
+      // faltante, completar los 30 días de las agotadas sobre-surte al resto
+      // (las cajas no se abren). Hermanas al día (sobrante ≤ 1.3× su venta
+      // de 30 días) → viaja la mitad de las cajas; corrida ya dispareja →
+      // solo se cubren los próximos 7 días de las tallas agotadas.
+      const agotadas = g.detalleTallas.filter((t) => t.faltante >= 1);
+      const sanas = g.detalleTallas.filter((t) => t.faltante < 1);
+      let ajusteCorrida: SugerenciaFba["ajusteCorrida"] = null;
+      let faltanteEnvio = g.faltante;
+      if (agotadas.length > 0 && sanas.length > agotadas.length) {
+        let peor = 0;
+        // El sobrante se mide con la posición completa contra el objetivo
+        // real de la talla (30 días + los 7 que el envío tarda en volverse
+        // vendible): contra 30 pelones, una talla recién surtida al
+        // objetivo ya sería "dispareja".
+        const diasObjetivo = objetivoDias + RIESGO_DIAS_FBA;
+        for (const t of sanas) {
+          if (t.posicion <= 0) continue; // vacía: que le llegue no es sobrar
+          peor = Math.max(
+            peor,
+            t.ventaDiaria > 0 ? t.posicion / (t.ventaDiaria * diasObjetivo) : Infinity,
+          );
+        }
+        if (peor <= FACTOR_SOBRANTE_CORRIDA) {
+          ajusteCorrida = "mitad_corrida";
+          faltanteEnvio = g.faltante / 2;
+        } else {
+          ajusteCorrida = "solo_7_dias";
+          // Una semana de venta de cada talla agotada por envío; su
+          // faltante (que ya trae la posición descontada) hace de tope.
+          faltanteEnvio = agotadas.reduce(
+            (a, t) => a + Math.min(t.faltante, t.ventaDiaria * DIAS_CORRIDA_DISPAREJA),
+            0,
+          );
+        }
+      }
+
+      const cajasCompletas = paresPorCaja ? Math.ceil(g.faltante / paresPorCaja) : 0;
+      const cajas = paresPorCaja
+        ? ajusteCorrida === "mitad_corrida"
+          ? Math.ceil(cajasCompletas / 2)
+          : Math.ceil(faltanteEnvio / paresPorCaja)
+        : 0;
       return {
         modelo: g.modelo,
         color: g.color,
@@ -167,8 +237,9 @@ export function sugerirEnvioFba(
         faltantePares: Math.round(g.faltante),
         paresPorCaja,
         cajas,
-        pares: paresPorCaja ? cajas * paresPorCaja : Math.round(g.faltante),
+        pares: paresPorCaja ? cajas * paresPorCaja : Math.round(faltanteEnvio),
         tieneCorrida: Boolean(paresPorCaja),
+        ajusteCorrida,
       };
     })
     .sort((a, b) => (a.cobertura ?? 0) - (b.cobertura ?? 0));

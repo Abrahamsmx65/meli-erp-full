@@ -11,6 +11,7 @@ import {
   Clapperboard,
   Container,
   LogOut,
+  Megaphone,
   Menu,
   Package,
   PackageCheck,
@@ -61,6 +62,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
@@ -71,6 +73,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Amazon",
     entradas: [
       { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
+      { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
     ],
   },

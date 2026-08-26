@@ -6,6 +6,7 @@ import {
   BotonActualizar,
   BotonBorrar,
   CambiarVoz,
+  EditarSubtitulos,
   ElegirImagen,
   type Publicacion,
 } from "@/components/videos";
@@ -275,6 +276,12 @@ export default async function Videos() {
                           ) : null}
                           {v.estado === "completado" && v.video_guardado ? (
                             <CambiarVoz id={v.id as string} />
+                          ) : null}
+                          {v.estado === "completado" && v.video_guardado && v.guion ? (
+                            <EditarSubtitulos
+                              id={v.id as string}
+                              guion={v.guion as string}
+                            />
                           ) : null}
                           <BotonBorrar id={v.id as string} />
                         </div>

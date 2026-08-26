@@ -39,6 +39,58 @@ export async function GET(req: NextRequest) {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
 
+    // ?sandbox=1 → ¿el sandbox del MCP trae ffmpeg y salida a internet?
+    // (lo necesita la marca de agua).
+    if (req.nextUrl.searchParams.get("sandbox")) {
+      const { llamarHerramienta, resultadoEstructurado } = await import("@/lib/higgsfield/mcp");
+      const res = await llamarHerramienta(sesion, "sandbox_exec", {
+        command:
+          "ffmpeg -version 2>&1 | head -1; curl -sI --max-time 20 " +
+          "'https://raw.githubusercontent.com/google/fonts/main/ofl/archivoblack/ArchivoBlack-Regular.ttf' | head -1",
+        timeout_seconds: 60,
+      });
+      return NextResponse.json(resultadoEstructurado(res) ?? res);
+    }
+
+    // ?remarcar=id → quema la marca de agua sobre un video YA guardado
+    // (mismo archivo, misma URL; la página lo enseña marcado al recargar).
+    const remarcar = req.nextUrl.searchParams.get("remarcar");
+    if (remarcar) {
+      const { quemarMarcaYSubir } = await import("@/lib/servicios/marca-agua");
+      const { data: fila } = await admin
+        .from("videos_producto")
+        .select("id, account_id, estado, video_guardado, video_url, guion, duracion, audio_url, formato")
+        .eq("id", remarcar)
+        .single();
+      if (!fila?.video_guardado || fila.estado !== "completado") {
+        return NextResponse.json({ error: "Ese video no está terminado." }, { status: 400 });
+      }
+      const ruta = `${fila.account_id}/${fila.id}.mp4`;
+      // La fuente debe estar LIMPIA para no encimar textos: la copia limpia
+      // del bucket si existe; si no, el original del CDN; y como último
+      // recurso el archivo guardado (videos viejos sin textos previos).
+      const nombreLimpio = `${fila.id}-limpio.mp4`;
+      const { data: existentes } = await admin.storage
+        .from("videos-producto")
+        .list(fila.account_id as string, { search: nombreLimpio });
+      const fuente = existentes?.some((a) => a.name === nombreLimpio)
+        ? admin.storage
+            .from("videos-producto")
+            .getPublicUrl(`${fila.account_id}/${nombreLimpio}`).data.publicUrl
+        : ((fila.video_url as string) ?? (fila.video_guardado as string));
+      const url = await quemarMarcaYSubir(
+        admin,
+        sesion,
+        ruta,
+        // Anticache: que el sandbox baje el archivo actual.
+        `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
+        fila.guion as string | null,
+        (fila.duracion as number) || 15,
+        fila.formato === "studio" ? (fila.audio_url as string | null) : null,
+      );
+      return NextResponse.json({ ok: true, url });
+    }
+
     // ?job=folio → el estado CRUDO de ese trabajo en el MCP (para destrabar
     // videos que se ven eternos en la app).
     const job = req.nextUrl.searchParams.get("job");

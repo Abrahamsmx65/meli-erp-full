@@ -6,6 +6,7 @@ import {
   generarVideoVeo,
 } from "@/lib/higgsfield/client";
 import { origenReal } from "@/lib/servicios/origen";
+import { quemarMarcaYSubir } from "@/lib/servicios/marca-agua";
 import {
   abrirSesion,
   llamarHerramienta,
@@ -83,6 +84,8 @@ interface Fila {
   request_id_imagen: string | null;
   estado: string;
   creado_en: string;
+  guion: string | null;
+  modelo: string | null;
 }
 
 async function procesar(origen: string): Promise<void> {
@@ -96,7 +99,7 @@ async function procesar(origen: string): Promise<void> {
     const { data: pendientes } = await admin
       .from("videos_producto")
       .select(
-        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en",
+        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en, guion, modelo",
       )
       .in("estado", ["enviado", "en_progreso"])
       .order("creado_en", { ascending: true })
@@ -113,7 +116,7 @@ async function procesar(origen: string): Promise<void> {
           await avanzarEstudio(admin, fila, sesionesMCP);
           continue;
         }
-        await avanzar(admin, fila);
+        await avanzar(admin, fila, sesionesMCP);
       } catch (err) {
         // Error al preguntar no es error del video: se reintenta en la
         // siguiente vuelta, y el límite de tiempo evita el bucle eterno.
@@ -147,7 +150,11 @@ async function procesar(origen: string): Promise<void> {
   }
 }
 
-async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Promise<void> {
+async function avanzar(
+  admin: ReturnType<typeof clienteAdmin>,
+  fila: Fila,
+  sesiones: Map<string, SesionMCP>,
+): Promise<void> {
   const enDosEtapas =
     fila.formato === "clip" || fila.formato === "hablado" || fila.formato === "ugc";
   const enEtapaImagen = enDosEtapas && fila.etapa === "imagen";
@@ -243,12 +250,12 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
     return;
   }
 
-  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, res.url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, res.url, fila);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: res.url,
-    video_guardado: permanente,
-    error: null,
+    video_guardado: permanente.url,
+    error: permanente.nota,
   });
 }
 
@@ -324,12 +331,12 @@ async function avanzarEstudio(
     });
     return;
   }
-  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, url);
+  const permanente = await copiarAVideoStorage(admin, sesiones, fila.account_id, fila.id, url, fila);
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: url,
-    video_guardado: permanente,
-    error: null,
+    video_guardado: permanente.url,
+    error: permanente.nota,
   });
 }
 
@@ -348,23 +355,60 @@ async function guardar(
  * Baja el MP4 del CDN de Higgsfield y lo sube al bucket público. Devuelve la
  * URL permanente. Si la copia falla se lanza: mejor reintentar en la
  * siguiente vuelta que quedarse con una URL que caduca.
+ *
+ * Antes de guardar se intenta QUEMAR la marca de agua (texto real, no de
+ * IA): ffmpeg corre en el sandbox del MCP de Higgsfield, que descarga el
+ * video, le pone "GETAC" en blanco abajo a la derecha y lo sube directo al
+ * bucket con una URL firmada. Si el sandbox no está disponible (o la cuenta
+ * no tiene MCP conectado), el video se guarda sin marca: mejor sin marca
+ * que sin video.
  */
 async function copiarAVideoStorage(
   admin: ReturnType<typeof clienteAdmin>,
+  sesiones: Map<string, SesionMCP>,
   accountId: string,
   id: string,
   url: string,
-): Promise<string> {
+  fila: Fila,
+): Promise<{ url: string; nota: string | null }> {
+  const ruta = `${accountId}/${id}.mp4`;
+  let nota: string | null = null;
+
+  try {
+    let sesion = sesiones.get(accountId);
+    if (!sesion) {
+      sesion = await abrirSesion(admin, accountId);
+      sesiones.set(accountId, sesion);
+    }
+    // Con guion guardado, los subtítulos también se queman aquí (texto
+    // perfecto del ERP; a la IA se le pidió el video SIN texto). Y si hay
+    // audio aprobado (Studio), esa pista sustituye a la generada.
+    const url2 = await quemarMarcaYSubir(
+      admin,
+      sesion,
+      ruta,
+      url,
+      fila.guion,
+      fila.duracion,
+      fila.formato === "studio" ? fila.audio_url : null,
+    );
+    return { url: url2, nota: null };
+  } catch (err) {
+    // Que el fallo se VEA en la tabla en vez de tragarse en silencio: el
+    // video queda completado, pero con la nota de que salió sin marca.
+    console.error(`videos: sin marca de agua para ${id}:`, err);
+    nota = `Se guardó SIN marca/subtítulos (${(err as Error).message.slice(0, 120)}).`;
+  }
+
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`No se pudo descargar el video (${res.status}).`);
   const cuerpo = Buffer.from(await res.arrayBuffer());
 
-  const ruta = `${accountId}/${id}.mp4`;
   const { error } = await admin.storage
     .from("videos-producto")
     .upload(ruta, cuerpo, { contentType: "video/mp4", upsert: true });
   if (error) throw new Error(`No se pudo guardar en Storage: ${error.message}`);
 
   const { data } = admin.storage.from("videos-producto").getPublicUrl(ruta);
-  return data.publicUrl;
+  return { url: data.publicUrl, nota };
 }

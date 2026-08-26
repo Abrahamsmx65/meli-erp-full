@@ -47,6 +47,13 @@ interface Entrada {
    * siguiente envío en vez de arrastrar cajas que las demás tallas no piden.
    */
   toleranciaRescateDias?: number;
+  /**
+   * Tolerancia de rescate ESPECÍFICA por SKU (días), por encima de la
+   * general. La usa la regla de la corrida despareja: una talla recortada a
+   * "solo 7 días" trae un hueco chico a propósito, y con la tolerancia
+   * general (~23 días) el rescate nunca la levantaría.
+   */
+  toleranciaRescatePorSku?: Map<string, number>;
   /** tope de cajas por envío (0 o undefined = sin tope) */
   maxCajas?: number;
   /** tope de piezas por envío (0 o undefined = sin tope) */
@@ -267,14 +274,18 @@ export function optimizarCajas(e: Entrada): PlanCajas {
     // completa que las demás tallas no piden. (La tolerancia vieja de 0.25
     // días hacía que 1 par de un SKU lento disparara una caja de rescate.)
     let skuFalta: string | null = null;
-    let peorDias = e.toleranciaRescateDias ?? 2;
+    let peorExceso = 0;
     for (const s of e.necesidad.keys()) {
       if (sinRemedio.has(s)) continue;
       const falta = nec(s) - (enviado.get(s) ?? 0);
       if (falta <= 0) continue;
       const diasFalta = falta / Math.max(dem(s), 0.5);
-      if (diasFalta > peorDias) {
-        peorDias = diasFalta;
+      // Cada SKU se mide contra SU tolerancia (la específica manda), y se
+      // rescata primero al que más se pasa de la suya.
+      const tolerancia = e.toleranciaRescatePorSku?.get(s) ?? e.toleranciaRescateDias ?? 2;
+      const exceso = diasFalta - tolerancia;
+      if (exceso > peorExceso) {
+        peorExceso = exceso;
         skuFalta = s;
       }
     }
@@ -308,7 +319,10 @@ export function optimizarCajas(e: Entrada): PlanCajas {
 
     aplicar(mejor, 1);
     // "Muy diferencial": menos del 35% de la caja tapa faltantes reales.
-    if (mejorPuntaje < 0.35) {
+    // Excepción: si la talla trae tolerancia específica es porque la regla
+    // de la corrida ya RECORTÓ su necesidad al mínimo acordado (mitad o 7
+    // días); esas cajas no son opcionales, son el envío decidido.
+    if (mejorPuntaje < 0.35 && !e.toleranciaRescatePorSku?.has(skuFalta)) {
       opcionales.set(mejor.codigo, (opcionales.get(mejor.codigo) ?? 0) + 1);
     }
   }
