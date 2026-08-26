@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MODELOS } from "@/lib/higgsfield/presets";
 import {
@@ -19,7 +19,15 @@ import {
   promptUGCParaSpeak,
 } from "@/lib/higgsfield/ugc";
 
-type Formato = "clip" | "hablado" | "ugc" | "dop";
+type Formato = "studio" | "clip" | "hablado" | "ugc" | "dop";
+
+interface AvatarEstudio {
+  id: string;
+  nombre: string;
+  foto: string | null;
+  tipo: string;
+  genero: string | null;
+}
 
 export interface Publicacion {
   itemId: string;
@@ -190,7 +198,13 @@ async function convertirAWav(blob: Blob): Promise<{ dataUrl: string; segundos: n
 // Generador de videos
 // ---------------------------------------------------------------------------
 
-export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[] }) {
+export function GeneradorVideo({
+  publicaciones,
+  cuentaConectada,
+}: {
+  publicaciones: Publicacion[];
+  cuentaConectada: boolean;
+}) {
   const router = useRouter();
 
   const [busqueda, setBusqueda] = useState("");
@@ -208,7 +222,13 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
   const [promptImagen, setPromptImagen] = useState("");
   const [concepto, setConcepto] = useState("");
 
-  const [formato, setFormato] = useState<Formato>("ugc");
+  const [formato, setFormato] = useState<Formato>(cuentaConectada ? "studio" : "ugc");
+  // Catálogo del Studio: avatares (personaje fijo de marca) y modos.
+  const [avatares, setAvatares] = useState<AvatarEstudio[]>([]);
+  const [modosEstudio, setModosEstudio] = useState<{ modo: string; descripcion: string }[]>([]);
+  const [avatarId, setAvatarId] = useState<string>("");
+  const [modoEstudio, setModoEstudio] = useState("UGC");
+  const catalogoRef = useRef(false);
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
   // Primer cuadro del UGC con voz de IA: una foto casera del producto en un
@@ -225,6 +245,29 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
 
   const [estado, setEstado] = useState<"listo" | "enviando" | "ok" | "error">("listo");
   const [mensaje, setMensaje] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (formato !== "studio" || !cuentaConectada || catalogoRef.current) return;
+    catalogoRef.current = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/videos/estudio");
+        const j = await leerJson(r);
+        if (!r.ok) throw new Error(String(j.error ?? ""));
+        setAvatares((j.avatares as AvatarEstudio[]) ?? []);
+        setModosEstudio((j.modos as { modo: string; descripcion: string }[]) ?? []);
+        // El personaje fijo de marca se recuerda en este navegador.
+        try {
+          const guardado = localStorage.getItem("hf_avatar_marca");
+          if (guardado) setAvatarId(guardado);
+        } catch {
+          // Sin localStorage no pasa nada.
+        }
+      } catch {
+        catalogoRef.current = false;
+      }
+    })();
+  }, [formato, cuentaConectada]);
 
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
@@ -251,6 +294,35 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     guion: string;
     hayAudio: boolean;
   }) {
+    if (datos.formato === "studio") {
+      // El Studio arma su propio guion y visuales; aquí van las
+      // INSTRUCCIONES: concepto, idioma, energía del personaje y candado.
+      const c = armarConceptoUGC({
+        tipo: datos.tipo,
+        genero: datos.genero,
+        semilla: datos.semilla,
+      });
+      setConcepto(c.etiqueta);
+      setPromptImagen("");
+      setModoEstudio(
+        c.id === "recien-llegaron"
+          ? "Unboxing"
+          : c.id === "un-mes-despues"
+            ? "Product Review"
+            : "UGC",
+      );
+      setPromptVideo(
+        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México ` +
+          `(voz y subtítulos en español). Concepto: ${c.etiqueta}. Guion base: ` +
+          `"${datos.guion || c.guionSugerido}". El creador habla a cámara con ` +
+          `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
+          `y movimientos reales y fluidos, en una sola locación con acciones ` +
+          `variadas (lo muestra de cerca, se lo pone, camina). El producto es el ` +
+          `calzado adjunto y debe verse EXACTAMENTE como en las fotos, sin ` +
+          `rediseñarlo ni inventarle detalles.`,
+      );
+      return;
+    }
     if (datos.formato === "ugc") {
       const c = armarConceptoUGC({
         tipo: datos.tipo,
@@ -303,7 +375,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     const t = detectarTipo(texto);
     const g = detectarGenero(texto);
     const gu =
-      formato === "ugc"
+      formato === "ugc" || formato === "studio"
         ? armarConceptoUGC({ tipo: t, genero: g, semilla }).guionSugerido
         : guionInicial(t);
     setTipo(t);
@@ -359,13 +431,14 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     // El guion se rehace si cambió el tipo o el formato; en UGC también con
     // el 🎲 y el género — el motor sugiere un concepto y guion nuevos.
     const guionBase =
-      f === "ugc"
+      f === "ugc" || f === "studio"
         ? armarConceptoUGC({ tipo: t, genero: g, semilla: s }).guionSugerido
         : guionInicial(t);
     const rehacerGuion =
       cambios.tipo !== undefined ||
       cambios.formato !== undefined ||
-      (f === "ugc" && (cambios.semilla !== undefined || cambios.genero !== undefined));
+      ((f === "ugc" || f === "studio") &&
+        (cambios.semilla !== undefined || cambios.genero !== undefined));
     const gu = cambios.guion ?? (rehacerGuion ? guionBase : guion);
     if (cambios.tipo !== undefined) setTipo(t);
     if (cambios.genero !== undefined) setGenero(g);
@@ -456,6 +529,28 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
           : formato === "clip" || formato === "hablado"
             ? await armarLienzo(principal)
             : null;
+
+      if (formato === "studio") {
+        const r = await fetch("/api/videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            formato: "studio",
+            itemId: pub.itemId,
+            titulo: pub.titulo,
+            fotos: seleccion,
+            prompt: promptVideo,
+            modo: modoEstudio,
+            avatarId: avatarId || undefined,
+          }),
+        });
+        const j = await leerJson(r);
+        if (!r.ok) throw new Error(String(j.error ?? "No se pudo encolar el video."));
+        setEstado("ok");
+        router.refresh();
+        setTimeout(() => setEstado("listo"), 4000);
+        return;
+      }
 
       const r = await fetch("/api/videos", {
         method: "POST",
@@ -615,6 +710,11 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
               onChange={(e) => cambiar({ formato: e.target.value as Formato })}
               className="px-2 py-1.5 text-sm"
             >
+              {cuentaConectada && (
+                <option value="studio">
+                  Studio (tu cuenta) — producto idéntico, calidad de la app · 15 s
+                </option>
+              )}
               <option value="ugc">UGC — una persona lo muestra y habla en español · 10-15 s</option>
               <option value="clip">Clip para MELI — 9:16 · 10 s (MELI le pone música)</option>
               <option value="hablado">Hablado — voz en español presenta el producto · 8 s</option>
@@ -664,7 +764,7 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                   {e.etiqueta}
                 </button>
               ))}
-            {formato === "ugc" && concepto && (
+            {(formato === "ugc" || formato === "studio") && concepto && (
               <span
                 className="rounded-full border px-3 py-1 text-xs font-semibold"
                 style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
@@ -675,25 +775,72 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
             <button
               onClick={() => cambiar({ semilla: Math.random() })}
               title={
-                formato === "ugc"
+                formato === "ugc" || formato === "studio"
                   ? "Otro concepto completo: escena, influencer y guion"
                   : "Otra luz y otro movimiento de cámara"
               }
               className="rounded-full border px-3 py-1 text-xs"
               style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
             >
-              {formato === "ugc" ? "🎲 Otro concepto" : "🎲 Variar"}
+              {formato === "ugc" || formato === "studio" ? "🎲 Otro concepto" : "🎲 Variar"}
             </button>
           </div>
 
-          {(formato === "hablado" || formato === "ugc") && (
+          {formato === "studio" && (
+            <div className="mt-3 flex max-w-2xl flex-wrap items-center gap-2">
+              <select
+                value={modoEstudio}
+                onChange={(e) => setModoEstudio(e.target.value)}
+                className="px-2 py-1.5 text-sm"
+              >
+                {(modosEstudio.length
+                  ? modosEstudio.map((m) => m.modo)
+                  : ["UGC", "Unboxing", "Product Review", "Tutorial"]
+                ).map((m) => (
+                  <option key={m} value={m}>
+                    Modo: {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={avatarId}
+                onChange={(e) => {
+                  setAvatarId(e.target.value);
+                  try {
+                    if (e.target.value) localStorage.setItem("hf_avatar_marca", e.target.value);
+                    else localStorage.removeItem("hf_avatar_marca");
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                <option value="">Personaje: automático</option>
+                {avatares.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    Personaje: {a.nombre || a.id.slice(0, 8)}
+                    {a.genero ? ` (${a.genero})` : ""}
+                  </option>
+                ))}
+              </select>
+              {avatarId && (
+                <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  Personaje fijo: misma cara en todos tus videos.
+                </span>
+              )}
+            </div>
+          )}
+
+          {(formato === "hablado" || formato === "ugc" || formato === "studio") && (
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                {formato === "ugc"
-                  ? audio
-                    ? "Guion (referencia de lo que grabaste; el video usa TU audio)"
-                    : "Guion (la persona lo dice con voz de IA · 10-15 s)"
-                  : "Guion (la voz en off lo dice en español)"}
+                {formato === "studio"
+                  ? "Guion base (el Studio lo adapta al concepto; en español)"
+                  : formato === "ugc"
+                    ? audio
+                      ? "Guion (referencia de lo que grabaste; el video usa TU audio)"
+                      : "Guion (la persona lo dice con voz de IA · 10-15 s)"
+                    : "Guion (la voz en off lo dice en español)"}
               </span>
               <textarea
                 value={guion}
@@ -844,9 +991,11 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
 
           <label className="mt-3 flex max-w-2xl flex-col gap-1">
             <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-              {formato === "ugc"
-                ? "Prompt del video (la narrativa del concepto, en inglés)"
-                : "Prompt del video (movimiento, luz; el producto no se toca)"}
+              {formato === "studio"
+                ? "Instrucciones para el Studio (concepto, idioma, energía del personaje)"
+                : formato === "ugc"
+                  ? "Prompt del video (la narrativa del concepto, en inglés)"
+                  : "Prompt del video (movimiento, luz; el producto no se toca)"}
             </span>
             <textarea
               value={promptVideo}

@@ -11,6 +11,12 @@ import {
   subirArchivo,
 } from "@/lib/higgsfield/client";
 import { validarPrompt, validarImagenUrl, construirEntradaDop } from "@/lib/higgsfield/presets";
+import {
+  abrirSesion,
+  llamarHerramienta,
+  resultadoEstructurado,
+} from "@/lib/higgsfield/mcp";
+import { clienteAdmin } from "@/lib/supabase/server";
 import { dispararVideos } from "@/lib/servicios/disparar-videos";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +61,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
+
+  // Studio: el video se genera en la CUENTA de Higgsfield (Marketing Studio
+  // vía su MCP) — producto anclado a las fotos reales, avatar consistente y
+  // la calidad de la app. Camino aparte: no usa la llave de API.
+  if (body?.formato === "studio") {
+    return await generarEstudio(req, supabase, cuenta.id, body);
+  }
+
   const formato =
     body?.formato === "clip"
       ? "clip"
@@ -296,6 +310,111 @@ export async function POST(req: NextRequest) {
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
   after(() => dispararVideos(origen));
 
+  return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
+}
+
+/**
+ * Genera el video en el Marketing Studio de la cuenta conectada:
+ * 1. Crea (o reutiliza) el PRODUCTO con las fotos reales de la publicación —
+ *    ahí vive el candado de fidelidad de verdad.
+ * 2. Lanza marketing_studio_video con el modo (UGC/Unboxing/Reseña…), el
+ *    avatar fijo si se eligió, 9:16 y las instrucciones en español.
+ * 3. El vigilante sondea el job por el MCP y guarda el MP4 en Storage.
+ */
+async function generarEstudio(
+  req: NextRequest,
+  supabase: Awaited<ReturnType<typeof clienteServidor>>,
+  accountId: string,
+  body: any,
+): Promise<NextResponse> {
+  const titulo = String(body?.titulo ?? "").trim();
+  const fotos: string[] = (Array.isArray(body?.fotos) ? body.fotos : [])
+    .map((f: unknown) => String(f))
+    .filter((f: string) => /^https?:\/\//.test(f))
+    .slice(0, 6);
+  const instrucciones = String(body?.prompt ?? "").trim();
+  const modo = String(body?.modo ?? "UGC");
+  const avatarId = body?.avatarId ? String(body.avatarId) : null;
+
+  if (!titulo || !fotos.length) {
+    return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
+  }
+
+  const admin = clienteAdmin();
+  let requestId = "";
+  try {
+    const sesion = await abrirSesion(admin, accountId);
+
+    // 1. Producto anclado a las fotos reales.
+    const creado = await llamarHerramienta(sesion, "show_marketing_studio", {
+      action: "create",
+      type: "product",
+      title: titulo.slice(0, 255),
+      medias: fotos.map((f) => ({ value: f, role: "image" })),
+    });
+    const scProducto = resultadoEstructurado(creado);
+    const productoId: string | undefined =
+      scProducto?.scraping_id ?? scProducto?.items?.[0]?.id;
+    if (!productoId) {
+      throw new Error(
+        `El Studio no devolvió el producto: ${JSON.stringify(scProducto ?? {}).slice(0, 200)}`,
+      );
+    }
+
+    // 2. El video. Si la cuenta tiene generaciones ilimitadas de prueba, el
+    //    MCP pregunta antes de gastar: se usan (gratis) en automático.
+    const params: Record<string, unknown> = {
+      model: "marketing_studio_video",
+      product_ids: [productoId],
+      mode: modo,
+      aspect_ratio: "9:16",
+      duration: 15,
+    };
+    if (instrucciones) params.prompt = instrucciones;
+    if (avatarId) params.avatar_ids = [avatarId];
+
+    let res = await llamarHerramienta(sesion, "generate_video", { params });
+    let sc = resultadoEstructurado(res);
+    if (sc?.unlim_choice) {
+      res = await llamarHerramienta(sesion, "generate_video", {
+        params: { ...params, use_unlim: true },
+      });
+      sc = resultadoEstructurado(res);
+    }
+    if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
+    requestId = sc?.results?.[0]?.id ?? "";
+    if (!requestId) {
+      throw new Error(`El Studio no devolvió folio: ${JSON.stringify(sc ?? {}).slice(0, 200)}`);
+    }
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 502 });
+  }
+
+  const { data: fila, error: errIns } = await supabase
+    .from("videos_producto")
+    .insert({
+      account_id: accountId,
+      item_id: body?.itemId ? String(body.itemId) : null,
+      sku: body?.sku ? String(body.sku) : null,
+      titulo,
+      imagen_url: fotos[0],
+      prompt: instrucciones || `Marketing Studio · ${modo}`,
+      preset: `Studio · ${modo}`,
+      modelo: "marketing-studio",
+      formato: "studio",
+      etapa: "video",
+      duracion: 15,
+      request_id: requestId,
+      estado: "enviado",
+    })
+    .select("id")
+    .single();
+  if (errIns || !fila) {
+    return NextResponse.json({ error: errIns?.message ?? "No se pudo guardar." }, { status: 500 });
+  }
+
+  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  after(() => dispararVideos(origen));
   return NextResponse.json({ ok: true, id: fila.id }, { status: 202 });
 }
 

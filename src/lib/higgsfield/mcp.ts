@@ -249,3 +249,21 @@ export async function llamarHerramienta(
   }
   return res.cuerpo?.result;
 }
+
+/**
+ * El contenido útil de un tools/call: primero structuredContent; si no,
+ * el primer bloque de texto que parsee como JSON.
+ */
+export function resultadoEstructurado(resultado: any): any {
+  if (resultado?.structuredContent) return resultado.structuredContent;
+  for (const bloque of resultado?.content ?? []) {
+    if (bloque?.type === "text" && typeof bloque.text === "string") {
+      try {
+        return JSON.parse(bloque.text);
+      } catch {
+        // El siguiente bloque puede ser el JSON.
+      }
+    }
+  }
+  return null;
+}

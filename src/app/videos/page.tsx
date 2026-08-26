@@ -132,7 +132,7 @@ export default async function Videos() {
           </p>
         </section>
       ) : (
-        <GeneradorVideo publicaciones={publicaciones} />
+        <GeneradorVideo publicaciones={publicaciones} cuentaConectada={cuentaConectada} />
       )}
 
       <section className="tarjeta overflow-hidden">
@@ -169,16 +169,22 @@ export default async function Videos() {
                     color: "var(--ink-muted)",
                   };
                   const formato = (v.formato as string) ?? "dop";
-                  const esClip = formato === "clip" || formato === "hablado" || formato === "ugc";
+                  const esClip =
+                    formato === "clip" ||
+                    formato === "hablado" ||
+                    formato === "ugc" ||
+                    formato === "studio";
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
                   const detalleEtapa =
-                    esClip && generando
-                      ? (v.etapa as string) === "imagen"
-                        ? formato === "ugc"
-                          ? "Etapa 1/2: creando a la persona con el producto"
-                          : "Etapa 1/2: creando la foto 9:16"
-                        : "Etapa 2/2: animando el video"
-                      : null;
+                    formato === "studio" && generando
+                      ? "El Studio arma guion, visuales y video (10-30 min)"
+                      : esClip && generando
+                        ? (v.etapa as string) === "imagen"
+                          ? formato === "ugc"
+                            ? "Etapa 1/2: creando a la persona con el producto"
+                            : "Etapa 1/2: creando la foto 9:16"
+                          : "Etapa 2/2: animando el video"
+                        : null;
                   return (
                     <tr key={v.id as string}>
                       <td>
@@ -217,13 +223,15 @@ export default async function Videos() {
                       <td className="max-w-[16rem] align-top">
                         <div className="text-xs font-medium">
                           {(v.preset as string) ?? "propia"}
-                          {formato === "clip"
-                            ? " · 9:16 · 10 s"
-                            : formato === "hablado"
-                              ? " · habla español · 8 s"
-                              : formato === "ugc"
-                                ? ` · UGC · ${(v.duracion as number) ?? 10} s`
-                                : " · prueba ~5 s"}
+                          {formato === "studio"
+                            ? " · Studio · 15 s"
+                            : formato === "clip"
+                              ? " · 9:16 · 10 s"
+                              : formato === "hablado"
+                                ? " · habla español · 8 s"
+                                : formato === "ugc"
+                                  ? ` · UGC · ${(v.duracion as number) ?? 10} s`
+                                  : " · prueba ~5 s"}
                         </div>
                         <div
                           className="mt-0.5 line-clamp-3 text-xs"

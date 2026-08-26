@@ -5,6 +5,12 @@ import {
   generarVideoKling,
   generarVideoVeo,
 } from "@/lib/higgsfield/client";
+import {
+  abrirSesion,
+  llamarHerramienta,
+  resultadoEstructurado,
+  type SesionMCP,
+} from "@/lib/higgsfield/mcp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -98,9 +104,14 @@ async function procesar(origen: string): Promise<void> {
     if (!pendientes?.length) break;
     huboEnCurso = true;
 
+    const sesionesMCP = new Map<string, SesionMCP>();
     for (const fila of pendientes as Fila[]) {
       if (Date.now() - t0 > PRESUPUESTO_MS) break;
       try {
+        if (fila.formato === "studio") {
+          await avanzarEstudio(admin, fila, sesionesMCP);
+          continue;
+        }
         await avanzar(admin, fila);
       } catch (err) {
         // Error al preguntar no es error del video: se reintenta en la
@@ -235,6 +246,84 @@ async function avanzar(admin: ReturnType<typeof clienteAdmin>, fila: Fila): Prom
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: res.url,
+    video_guardado: permanente,
+    error: null,
+  });
+}
+
+/** El Marketing Studio arma guion, visuales y video: puede tardar bastante. */
+const LIMITE_ESTUDIO_MIN = 120;
+
+/**
+ * Avanza un video del Studio: el estado vive en el MCP de la cuenta
+ * (job_status), no en la API de la llave. Un job en ip_detect(ed) es la
+ * revisión de derechos del producto: como el producto es del usuario, se
+ * confirma con reveal_generation y se sigue esperando.
+ */
+async function avanzarEstudio(
+  admin: ReturnType<typeof clienteAdmin>,
+  fila: Fila,
+  sesiones: Map<string, SesionMCP>,
+): Promise<void> {
+  if (!fila.request_id) {
+    await guardar(admin, fila.id, { estado: "fallido", error: "Se quedó sin folio del Studio." });
+    return;
+  }
+  if (Date.now() - new Date(fila.creado_en).getTime() > LIMITE_ESTUDIO_MIN * 60_000) {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: `Sin respuesta del Studio en ${LIMITE_ESTUDIO_MIN} minutos.`,
+    });
+    return;
+  }
+
+  let sesion = sesiones.get(fila.account_id);
+  if (!sesion) {
+    sesion = await abrirSesion(admin, fila.account_id);
+    sesiones.set(fila.account_id, sesion);
+  }
+
+  const res = await llamarHerramienta(sesion, "job_status", { jobId: fila.request_id });
+  const sc = resultadoEstructurado(res);
+  const trabajo = sc?.results?.[0] ?? sc;
+  const estado = String(trabajo?.status ?? "");
+
+  if (estado === "ip_detected" || estado === "ip_detect") {
+    // Revisión de derechos: el producto es del usuario; se confirma.
+    await llamarHerramienta(sesion, "reveal_generation", { jobId: fila.request_id }).catch(
+      () => undefined,
+    );
+    return;
+  }
+  if (estado === "failed" || estado === "canceled" || estado === "nsfw") {
+    await guardar(admin, fila.id, {
+      estado: estado === "nsfw" ? "rechazado" : "fallido",
+      error:
+        estado === "nsfw"
+          ? "La moderación del Studio rechazó el contenido."
+          : "El Studio no pudo generar el video.",
+    });
+    return;
+  }
+  if (estado !== "completed") {
+    if (fila.estado !== "en_progreso") {
+      await guardar(admin, fila.id, { estado: "en_progreso" });
+    }
+    return;
+  }
+
+  const url = trabajo?.results?.rawUrl ?? trabajo?.results?.minUrl;
+  if (!url) {
+    await guardar(admin, fila.id, {
+      estado: "fallido",
+      error: "El Studio terminó pero no entregó el archivo.",
+    });
+    return;
+  }
+  const permanente = await copiarAVideoStorage(admin, fila.account_id, fila.id, url);
+  await guardar(admin, fila.id, {
+    estado: "completado",
+    video_url: url,
     video_guardado: permanente,
     error: null,
   });
