@@ -426,6 +426,10 @@ export async function cambiarEstadoAnuncio(
   // permiso de escritura, no una ruta muerta. Después, el segmento items/
   // y las formas con Api-Version 1, de respaldo.
   const intentos: IntentoEscritura[] = [
+    {
+      ruta: `${base}/product_ads/ads/${itemId}?advertiser_id=${adv.advertiserId}`,
+      cuerpo: porItem,
+    },
     { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem },
     { ruta: `${base}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
   ];
@@ -459,8 +463,12 @@ export async function modificarCampanaAds(
   const base = `/advertising/${adv.siteId}`;
   // La ruta REAL, confirmada con la cuenta: el servicio mclics.campaigns
   // contesta en /advertising/{site}/product_ads/campaigns/{id} (sin
-  // advertiser). Las demás quedan de respaldo por si MELI la mueve.
+  // advertiser en el camino). SIN advertiser_id contestó 401 "no permission
+  // to write" aun con el scope de ads en el token: el permiso se evalúa en
+  // el contexto del advertiser, así que va primero la forma que lo carga
+  // como parámetro.
   const rutas = [
+    `${base}/product_ads/campaigns/${campanaId}?advertiser_id=${adv.advertiserId}`,
     `${base}/product_ads/campaigns/${campanaId}`,
     `${base}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
     `/advertising/product_ads/campaigns/${campanaId}`,
@@ -480,11 +488,13 @@ export async function modificarCampanaAds(
 export function mensajeErrorEscrituraAds(err: unknown): string {
   if (err instanceof MeliError && err.status === 401) {
     return (
-      "MELI dice que la app no tiene permiso de ESCRITURA en Product Ads " +
-      "(sí de lectura). En el DevCenter de Mercado Libre, en tu aplicación, " +
-      "activa el scope de escritura (write) y el permiso de administración de " +
-      "publicidad, y luego reconecta Mercado Libre en Ajustes para que el " +
-      "token nuevo lo traiga."
+      "MELI negó la ESCRITURA en Product Ads aunque el token ya trae el " +
+      "permiso de ads (verificado en /api/publicidad/diagnostico): el " +
+      "bloqueo es el rol del usuario sobre el advertiser en Mercado Ads. " +
+      "Revisa en la consola de Publicidad (configuración → usuarios del " +
+      "advertiser) que tu cuenta sea administrador; si ya lo es, pide a " +
+      "soporte de developers de MELI que habiliten la administración de " +
+      "Product Ads por API para tu cuenta."
     );
   }
   return err instanceof Error ? err.message : "MELI no aceptó el cambio.";
