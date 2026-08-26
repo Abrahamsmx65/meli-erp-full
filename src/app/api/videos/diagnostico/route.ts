@@ -41,17 +41,41 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Sin HIGGSFIELD_CREDENTIALS en este entorno." });
   }
 
-  const malo = { prompt: "x", duration: 99 };
+  // Ronda 6: el MCP oficial de Higgsfield (mcp.higgsfield.ai). Queremos ver
+  // su reto de autenticación OAuth y metadatos — sin credenciales todavía.
+  async function ver(url: string, init?: RequestInit) {
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+      const texto = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 500);
+      const headers: Record<string, string> = {};
+      for (const k of ["www-authenticate", "content-type", "mcp-session-id"]) {
+        const v = res.headers.get(k);
+        if (v) headers[k] = v;
+      }
+      return { url, status: res.status, headers, texto };
+    } catch (err) {
+      return { url, error: (err as Error).message.slice(0, 200) };
+    }
+  }
+
   const sondeos = [
-    await sondear("/wan/v2.6/text-to-video", malo),
-    await sondear("/wan/v2.6/image-to-video", malo),
-    await sondear("/kling-video/v2.6/pro/text-to-video", malo),
-    await sondear("/kling-video/v2.5-turbo/standard/text-to-video", malo),
-    await sondear("/veo3.1/text-to-video", malo),
-    await sondear("/minimax/hailuo-02/standard/text-to-video", malo),
-    await sondear("/bytedance/seedance/v1/pro/text-to-video", malo),
-    await sondear("/wan/v2.6/image-to-video", { prompt: "x", image_url: "https://example.com/x.jpg", duration: 10, resolution: "9999p" }),
-    await sondear("/wan/v2.6/image-to-video", { prompt: "x", image_url: "https://example.com/x.jpg", duration: 10, quality: "malo" }),
+    await ver("https://mcp.higgsfield.ai/.well-known/oauth-protected-resource"),
+    await ver("https://mcp.higgsfield.ai/.well-known/oauth-protected-resource/mcp"),
+    await ver("https://mcp.higgsfield.ai/.well-known/oauth-authorization-server"),
+    await ver("https://mcp.higgsfield.ai/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "meli-erp", version: "1.0" },
+        },
+      }),
+    }),
   ];
 
   return NextResponse.json({ sondeos });
