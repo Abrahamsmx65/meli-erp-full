@@ -102,6 +102,37 @@ async function armarLienzo(fotoUrl: string): Promise<string> {
 }
 
 /**
+ * Recorta una foto propia a 9:16 (1152x2048) con recorte centrado tipo
+ * "cover", como se vería grabada en vertical con el celular. Es el primer
+ * cuadro del UGC: una foto casera del producto en un lugar real — la
+ * portada de MELI (catálogo, fondo blanco) no sirve para arrancar la escena.
+ */
+async function recortarA916(archivo: File): Promise<string> {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolver, rechazar) => {
+      const i = new Image();
+      i.onload = () => resolver(i);
+      i.onerror = () => rechazar(new Error("No se pudo leer la foto."));
+      i.src = url;
+    });
+    const ANCHO = 1152;
+    const ALTO = 2048;
+    const lienzo = document.createElement("canvas");
+    lienzo.width = ANCHO;
+    lienzo.height = ALTO;
+    const ctx = lienzo.getContext("2d")!;
+    const escala = Math.max(ANCHO / img.width, ALTO / img.height);
+    const w = img.width * escala;
+    const h = img.height * escala;
+    ctx.drawImage(img, (ANCHO - w) / 2, (ALTO - h) / 2, w, h);
+    return lienzo.toDataURL("image/jpeg", 0.9);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
  * Convierte cualquier audio que el navegador sepa decodificar (la grabación
  * del micrófono, un MP3 subido…) a WAV PCM 16 bits mono a 24 kHz — el único
  * formato que acepta Speak. 15 s así pesan ~700 KB: cabe de sobra en la
@@ -179,6 +210,10 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
 
   const [formato, setFormato] = useState<Formato>("ugc");
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
+
+  // Primer cuadro del UGC con voz de IA: una foto casera del producto en un
+  // lugar real (la portada de MELI es de catálogo y no arranca bien la escena).
+  const [fotoPropia, setFotoPropia] = useState<string | null>(null);
 
   // Voz del UGC: grabada aquí mismo o subida como archivo; siempre acaba en WAV.
   const [audio, setAudio] = useState<string | null>(null);
@@ -413,11 +448,14 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
     setMensaje(null);
     try {
       // El lienzo 9:16 se arma aquí, con la foto real, sin IA de por medio.
-      // El UGC con voz de IA también lo usa: es el primer cuadro del video.
+      // En UGC con voz de IA es el PRIMER CUADRO del video: de preferencia la
+      // foto casera que subió el usuario; si no, la de MELI montada.
       const imagenLienzo =
-        formato === "clip" || formato === "hablado" || (formato === "ugc" && !audio)
-          ? await armarLienzo(principal)
-          : null;
+        formato === "ugc" && !audio
+          ? (fotoPropia ?? (await armarLienzo(principal)))
+          : formato === "clip" || formato === "hablado"
+            ? await armarLienzo(principal)
+            : null;
 
       const r = await fetch("/api/videos", {
         method: "POST",
@@ -664,6 +702,62 @@ export function GeneradorVideo({ publicaciones }: { publicaciones: Publicacion[]
                 className="w-full px-2 py-1.5 text-xs"
               />
             </label>
+          )}
+
+          {formato === "ugc" && !audio && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Primer cuadro del video — sube una FOTO CASERA del producto
+                (recomendado): así arranca la escena y el producto sale idéntico
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label
+                  className="cursor-pointer rounded border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                >
+                  📷 Subir foto del producto…
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!f) return;
+                      try {
+                        setFotoPropia(await recortarA916(f));
+                        setMensaje(null);
+                      } catch {
+                        setMensaje("No se pudo leer esa foto.");
+                      }
+                    }}
+                  />
+                </label>
+                {fotoPropia ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={fotoPropia} alt="Primer cuadro" className="h-24 rounded" />
+                    <button
+                      onClick={() => setFotoPropia(null)}
+                      className="text-xs underline"
+                      style={{ color: "var(--ink-muted)" }}
+                    >
+                      Quitar
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    Sin foto propia se usa la de MELI, pero la portada casi nunca
+                    arranca bien una escena real.
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                Tip: tómala VERTICAL con el celular, con el producto en un lugar con
+                vida — el piso de la sala, una mesa, la entrada — y luz normal. La
+                persona del video entra a cuadro y lo levanta desde ahí.
+              </p>
+            </div>
           )}
 
           {formato === "ugc" && (
