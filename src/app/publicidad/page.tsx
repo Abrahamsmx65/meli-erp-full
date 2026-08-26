@@ -150,7 +150,9 @@ export default async function Publicidad({
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Todas las tallas y colores de cada modelo, juntos. Venta y unidades son
             TODAS las ventas del periodo; “$ ads/unidad” reparte el gasto de
-            publicidad entre ellas. Ganancia neta = ganancia (neto − costo) − ads.
+            publicidad entre ellas. Un anuncio compartido por varios modelos se
+            reparte entre ellos según sus ventas. Ganancia neta = ganancia (neto −
+            costo) − ads.
           </p>
         </header>
         <div className="max-h-[40rem] overflow-auto">
