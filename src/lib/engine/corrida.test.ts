@@ -253,6 +253,33 @@ describe("tolerancia de rescate por SKU en el optimizador", () => {
     expect(conAjuste.totalCajas).toBe(2);
     expect(conAjuste.enviadoPorSku.get("T22")).toBe(16);
   });
+
+  it("la MEDIA caja de la mitad sube marcada OPCIONAL; la mitad exacta no marca nada", () => {
+    const base = {
+      prioridad: new Map([["T22", 3]]),
+      castigoSobrante: new Map(TALLAS.slice(1).map((s) => [s, 2.5] as [string, number])),
+      demandaDiaria: new Map(TALLAS.map((s) => [s, 1.6] as [string, number])),
+      cajas: [cajaCorrida()],
+      permiteUnidadesSueltas: false,
+      inventarioSuelto: new Map<string, number>(),
+      pesoFaltante: 3,
+      pesoSobrante: 1,
+      toleranciaRescateDias: 23,
+      toleranciaRescatePorSku: new Map([["T22", 0]]),
+      mediaCajaOpcional: new Set(["T22"]),
+    };
+
+    // Mitad de 40 pares = 20: con cajas de 8 son 2.5 cajas. Suben 3, y la
+    // tercera (la que completa la fracción) va OPCIONAL.
+    const fraccion = optimizarCajas({ ...base, necesidad: new Map([["T22", 20]]) });
+    expect(fraccion.totalCajas).toBe(3);
+    expect(fraccion.cajas[0].cantidadOpcional).toBe(1);
+
+    // Mitad de 32 = 16: exactamente 2 cajas, ninguna opcional.
+    const exacta = optimizarCajas({ ...base, necesidad: new Map([["T22", 16]]) });
+    expect(exacta.totalCajas).toBe(2);
+    expect(exacta.cajas[0].cantidadOpcional).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

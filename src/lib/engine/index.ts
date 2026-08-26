@@ -136,6 +136,11 @@ export function generarPlan(e: EntradaPlan): Plan {
   // BEIGE en 1 caja cuando la regla pedía las 2 que cubren los 7 días.
   // En la práctica esto redondea el recorte a cajas hacia arriba.
   const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 0]));
+  // En la MITAD, la caja que completa la fracción (media caja no existe)
+  // sube marcada OPCIONAL para que el usuario decida.
+  const mediaCaja = new Set(
+    ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
+  );
   const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
   for (const a of ajustesCorrida) {
     const l = lineaPorSku.get(a.sku);
@@ -146,7 +151,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     l.ajusteCorrida = a.regla;
     l.explicacion +=
       a.regla === "mitad_corrida"
-        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas). Si la mitad no cierra en cajas completas, la caja de la fracción sube marcada OPCIONAL.`
         : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
   }
 
@@ -170,6 +175,7 @@ export function generarPlan(e: EntradaPlan): Plan {
     // del optimizador las tallas cuya caja viaja mayormente de lastre.
     toleranciaRescateDias: Math.min(Math.max(2, p.horizonteDias - 7), 7),
     toleranciaRescatePorSku: toleranciaPorSku,
+    mediaCajaOpcional: mediaCaja,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
   });

@@ -165,6 +165,11 @@ export function planFbaConCajas(opts: {
     // Una necesidad recortada por la corrida se surte completa: el recorte
     // ya es la concesión (mismo criterio que el plan de Full).
     toleranciaRescatePorSku: new Map(ajustesCorrida.map((a) => [a.sku, 0])),
+    // En la MITAD, la caja que completa la fracción va OPCIONAL: medias
+    // cajas no existen y el usuario decide si esa fracción viaja.
+    mediaCajaOpcional: new Set(
+      ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
+    ),
   });
 
   // Igual que el plan de Full: la marca de opcional viaja DENTRO de la

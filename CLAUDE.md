@@ -40,9 +40,11 @@ guárdala numerada.
   (200 pares): esa venta pesa más que el sobrante y la corrida se surte
   COMPLETA, sin recorte. Lo
   recortado se surte completo (tolerancia de rescate 0: redondea a cajas
-  hacia arriba) y esas cajas NO se marcan opcionales. La tolerancia
-  general de rescate es de 7 días: una talla rápida a medio morir sí
-  fuerza su caja.
+  hacia arriba); en la MITAD, como medias cajas no existen, la caja que
+  completa la fracción sube marcada OPCIONAL (4 cajas → 2 firmes; 3 cajas
+  → 1 firme + 1 opcional) y las demás cajas recortadas NO se marcan
+  opcionales. La tolerancia general de rescate es de 7 días: una talla
+  rápida a medio morir sí fuerza su caja.
 - **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
   (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
   es 30 + 7 = 37 días, no más.
