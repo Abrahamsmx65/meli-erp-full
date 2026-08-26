@@ -47,6 +47,7 @@ function dormir(ms: number): Promise<void> {
 export class MeliClient {
   private cred: Credenciales;
   private renovando: Promise<void> | null = null;
+  private ultimoScope: string | null = null;
 
   constructor(private readonly opts: OpcionesCliente) {
     this.cred = { ...opts.credenciales };
@@ -54,6 +55,16 @@ export class MeliClient {
 
   get credenciales(): Credenciales {
     return { ...this.cred };
+  }
+
+  /** Scopes que MELI reportó en la ÚLTIMA renovación de token; null = aún no renueva. */
+  get scope(): string | null {
+    return this.ultimoScope;
+  }
+
+  /** Fuerza una renovación de token (para diagnóstico: ver los scopes reales). */
+  async renovarAhora(): Promise<void> {
+    await this.renovar();
   }
 
   private get prefix(): string {
@@ -98,6 +109,7 @@ export class MeliClient {
         refreshToken: String(json.refresh_token ?? this.cred.refreshToken),
         expiraEn: Date.now() + Number(json.expires_in ?? 21600) * 1000,
       };
+      this.ultimoScope = typeof json.scope === "string" ? json.scope : null;
 
       await this.opts.alRenovar?.(this.cred);
     })();
