@@ -184,7 +184,7 @@ export default async function Plan() {
           valor={desglose.cajasOpcionales}
           nota={
             desglose.cajasOpcionales > 0
-              ? `${n(desglose.paresOpcionales)} pares extra si las subes todas`
+              ? `${n(desglose.paresOpcionales)} pares extra si las subes: rescates y la media caja de la regla de la mitad`
               : "El plan no necesitó rescates"
           }
           tono={desglose.cajasOpcionales > 0 ? "alerta" : "neutro"}

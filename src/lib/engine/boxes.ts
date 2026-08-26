@@ -54,6 +54,13 @@ interface Entrada {
    * general (~23 días) el rescate nunca la levantaría.
    */
   toleranciaRescatePorSku?: Map<string, number>;
+  /**
+   * Tallas recortadas a la MITAD por la regla de la corrida. Como las
+   * medias cajas no existen, cuando la mitad no cierra en cajas completas
+   * la caja que completa la fracción sube marcada OPCIONAL: el usuario
+   * decide si esa fracción viaja.
+   */
+  mediaCajaOpcional?: Set<string>;
   /** tope de cajas por envío (0 o undefined = sin tope) */
   maxCajas?: number;
   /** tope de piezas por envío (0 o undefined = sin tope) */
@@ -317,12 +324,22 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       continue;
     }
 
+    const faltaTalla = nec(skuFalta) - (enviado.get(skuFalta) ?? 0);
+    const traeTalla = mejor.items.find((it) => it.sku === skuFalta)?.piezas ?? 0;
     aplicar(mejor, 1);
     // "Muy diferencial": menos del 35% de la caja tapa faltantes reales.
     // Excepción: si la talla trae tolerancia específica es porque la regla
     // de la corrida ya RECORTÓ su necesidad al mínimo acordado (mitad o 7
     // días); esas cajas no son opcionales, son el envío decidido.
-    if (mejorPuntaje < 0.35 && !e.toleranciaRescatePorSku?.has(skuFalta)) {
+    const esRecorte = e.toleranciaRescatePorSku?.has(skuFalta) ?? false;
+    // …con UNA excepción a la excepción: la MEDIA CAJA de la regla de la
+    // mitad. Cuando la mitad no cierra en cajas completas (quedan menos
+    // piezas por tapar de las que la caja trae de esa talla), la caja que
+    // completa la fracción sube marcada OPCIONAL: medias cajas no existen
+    // y el usuario decide si la fracción viaja.
+    const esMediaCaja =
+      (e.mediaCajaOpcional?.has(skuFalta) ?? false) && faltaTalla < traeTalla;
+    if ((mejorPuntaje < 0.35 && !esRecorte) || esMediaCaja) {
       opcionales.set(mejor.codigo, (opcionales.get(mejor.codigo) ?? 0) + 1);
     }
   }
