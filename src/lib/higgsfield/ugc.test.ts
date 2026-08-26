@@ -58,14 +58,16 @@ describe("motor de conceptos UGC", () => {
   });
 
   it("cada público recibe sus conceptos: GRWM es de mujer, para-diario de hombre", () => {
+    // Con el paquete de 100 conceptos las tiradas deben ser muchas para que
+    // un concepto específico aparezca seguro en el muestreo.
     const conceptosMujer = new Set(
-      Array.from({ length: 40 }, (_, i) =>
-        armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: i / 40 }).id,
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: i / 800 }).id,
       ),
     );
     const conceptosHombre = new Set(
-      Array.from({ length: 40 }, (_, i) =>
-        armarConceptoUGC({ tipo: "bota", genero: "hombre", semilla: i / 40 }).id,
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "bota", genero: "hombre", semilla: i / 800 }).id,
       ),
     );
     expect(conceptosMujer.has("outfit-del-dia")).toBe(true);
@@ -76,36 +78,44 @@ describe("motor de conceptos UGC", () => {
 
   it("las pantuflas cuentan la llegada a casa y las de agua el día de alberca", () => {
     const idsPantufla = new Set(
-      Array.from({ length: 40 }, (_, i) =>
-        armarConceptoUGC({ tipo: "pantufla", genero: "mujer", semilla: i / 40 }).id,
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "pantufla", genero: "mujer", semilla: i / 800 }).id,
       ),
     );
     expect(idsPantufla.has("llegue-a-casa")).toBe(true);
     const idsAgua = new Set(
-      Array.from({ length: 40 }, (_, i) =>
-        armarConceptoUGC({ tipo: "sandalia_agua", genero: "hombre", semilla: i / 40 }).id,
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "sandalia_agua", genero: "hombre", semilla: i / 800 }).id,
       ),
     );
     expect(idsAgua.has("dia-de-alberca")).toBe(true);
   });
 
+  const CONCEPTOS_NINOS = [
+    "para-mis-hijos",
+    "regreso-a-clases-ninos",
+    "parque-sin-pendientes",
+    "crecen-rapidisimo",
+    "uniforme-que-aguanta",
+  ];
+
   it("para niños presenta una mamá adulta, nunca menores generados", () => {
-    for (const semilla of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    for (const semilla of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) {
       const c = armarConceptoUGC({ tipo: "tenis", genero: "nino", semilla });
-      expect(c.id).toBe("para-mis-hijos");
+      expect(CONCEPTOS_NINOS).toContain(c.id);
       expect(c.promptImagen).toContain("mom");
       expect(c.promptImagen).toContain("no children on camera");
     }
   });
 
-  it("el concepto de niños jamás aparece para adultos", () => {
+  it("los conceptos de niños jamás aparecen para adultos", () => {
     for (const tipo of TIPOS) {
       for (const semilla of [0.05, 0.35, 0.65, 0.95]) {
-        expect(armarConceptoUGC({ tipo, genero: "hombre", semilla }).id).not.toBe(
-          "para-mis-hijos",
+        expect(CONCEPTOS_NINOS).not.toContain(
+          armarConceptoUGC({ tipo, genero: "hombre", semilla }).id,
         );
-        expect(armarConceptoUGC({ tipo, genero: "mujer", semilla }).id).not.toBe(
-          "para-mis-hijos",
+        expect(CONCEPTOS_NINOS).not.toContain(
+          armarConceptoUGC({ tipo, genero: "mujer", semilla }).id,
         );
       }
     }
@@ -113,12 +123,37 @@ describe("motor de conceptos UGC", () => {
 
   it("las botas industriales venden trabajo rudo, no moda", () => {
     const ids = new Set(
-      Array.from({ length: 60 }, (_, i) =>
-        armarConceptoUGC({ tipo: "bota_industrial", genero: "hombre", semilla: i / 60 }).id,
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "bota_industrial", genero: "hombre", semilla: i / 800 }).id,
       ),
     );
     expect(ids.has("aguantan-trabajo")).toBe(true);
+    expect(ids.has("dia-en-la-obra")).toBe(true);
     expect(ids.has("outfit-del-dia")).toBe(false);
+  });
+
+  it("el paquete de 100 conceptos entra al motor: mucha variedad real", () => {
+    for (const tipo of TIPOS) {
+      const ids = new Set(
+        Array.from({ length: 400 }, (_, i) =>
+          armarConceptoUGC({ tipo, genero: "mujer", semilla: i / 400 }).id,
+        ),
+      );
+      // Cada tipo debe tener un abanico amplio de escenarios (los suyos +
+      // los transversales), no un puñito.
+      expect(ids.size).toBeGreaterThanOrEqual(15);
+    }
+    // Y entre los que salen deben estar los formatos nuevos del brief.
+    const idsTodos = new Set(
+      Array.from({ length: 800 }, (_, i) =>
+        armarConceptoUGC({ tipo: "tenis", genero: "hombre", semilla: i / 800 }).id,
+      ),
+    );
+    expect(idsTodos.has("problema-solucion")).toBe(true);
+    expect(idsTodos.has("unboxing-asmr")).toBe(true);
+    expect(idsTodos.has("resena-tres-puntos")).toBe(true);
+    expect(idsTodos.has("antes-y-despues")).toBe(true);
+    expect(idsTodos.has("dia-en-mi-vida")).toBe(true);
   });
 
   it("con más conceptos y variantes, 20 tiradas dan varios conceptos distintos", () => {
