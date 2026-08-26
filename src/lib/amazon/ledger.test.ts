@@ -4,7 +4,9 @@ import { fechaLedger, snapshotsDesdeLedger } from "./sync";
 describe("fechas del Inventory Ledger", () => {
   it("lee los tres formatos con que Amazon manda la fecha", () => {
     expect(fechaLedger("2026-08-19")).toBe("2026-08-19");
+    expect(fechaLedger("2026-08-19T00:00:00Z")).toBe("2026-08-19"); // con hora
     expect(fechaLedger("8/19/2026")).toBe("2026-08-19"); // mes/día/año (US)
+    expect(fechaLedger("8/19/26 12:00:00")).toBe("2026-08-19"); // año corto + hora
     expect(fechaLedger("19.08.2026")).toBe("2026-08-19"); // día.mes.año (EU)
     expect(fechaLedger("no es fecha")).toBeNull();
     expect(fechaLedger("")).toBeNull();

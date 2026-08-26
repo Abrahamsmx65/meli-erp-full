@@ -427,14 +427,22 @@ export async function sincronizarInventario(
 /** Cuántos días hacia atrás debe existir historia del inventario FBA. */
 export const DIAS_HISTORIAL_LEDGER = 35;
 
-/** "2026-08-19", "8/19/2026" o "19.08.2026" → "2026-08-19". */
+/**
+ * "2026-08-19", "8/19/2026", "19.08.2026" → "2026-08-19". Tolera hora pegada
+ * ("2026-08-19T00:00:00Z", "8/19/2026 12:00:00") y años de dos dígitos: los
+ * flat files de Amazon cambian el formato según reporte y marketplace.
+ */
 export function fechaLedger(texto: string): string | null {
   const s = (texto ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const dos = (x: string) => x.padStart(2, "0");
-  let m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s); // mes/día/año (formato US)
-  if (m) return `${m[3]}-${dos(m[1])}-${dos(m[2])}`;
-  m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s); // día.mes.año (formato EU)
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s); // ISO, con o sin hora
+  if (m) return `${m[1]}-${dos(m[2])}-${dos(m[3])}`;
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s); // mes/día/año (formato US)
+  if (m) {
+    const anio = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${anio}-${dos(m[1])}-${dos(m[2])}`;
+  }
+  m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})/.exec(s); // día.mes.año (formato EU)
   if (m) return `${m[3]}-${dos(m[2])}-${dos(m[1])}`;
   return null;
 }
@@ -463,15 +471,26 @@ export function snapshotsDesdeLedger(
   total: number;
   origen: string;
 }[] {
+  // Los encabezados reales varían por marketplace e idioma: se resuelven
+  // contra el archivo, no contra un nombre fijo.
+  const llaves = Object.keys(filas[0] ?? {});
+  const columna = (patron: RegExp) => llaves.find((k) => patron.test(k)) ?? null;
+  const colFecha = columna(/^(date|fecha)$/);
+  const colSku = columna(/^(msku|merchant-sku|sku)$/);
+  const colSaldo = columna(/(ending-warehouse-balance|saldo-final)/);
+  const colDisp = columna(/^(disposition|disposici)/);
+  if (!colFecha || !colSku || !colSaldo) return [];
+
   // saldo de cierre por SKU y fecha (sumando ubicaciones)
   const porSku = new Map<string, Map<string, number>>();
   for (const f of filas) {
-    if ((f["disposition"] ?? "").trim().toUpperCase() !== "SELLABLE") continue;
-    const sku = (f["msku"] ?? "").trim();
-    const fecha = fechaLedger(f["date"] ?? "");
+    // Solo el saldo vendible; si el archivo no trae la columna, no hay qué filtrar.
+    if (colDisp && (f[colDisp] ?? "").trim().toUpperCase() !== "SELLABLE") continue;
+    const sku = (f[colSku] ?? "").trim();
+    const fecha = fechaLedger(f[colFecha] ?? "");
     if (!sku || !fecha || fecha > hasta) continue;
     const dias = porSku.get(sku) ?? new Map<string, number>();
-    dias.set(fecha, (dias.get(fecha) ?? 0) + entero(f["ending-warehouse-balance"]));
+    dias.set(fecha, (dias.get(fecha) ?? 0) + entero(f[colSaldo]));
     porSku.set(sku, dias);
   }
 
@@ -506,6 +525,9 @@ export function snapshotsDesdeLedger(
 export interface ResultadoLedger {
   estado: "completo" | "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar";
   filas?: number;
+  /** radiografía cuando el reporte trae renglones pero no sale ni una foto */
+  encabezados?: string[];
+  muestra?: Record<string, string> | null;
 }
 
 /**
@@ -581,6 +603,18 @@ export async function sincronizarHistorialInventario(
   // El día de hoy va incompleto en el ledger: hasta ayer.
   const ayer = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const fotos = snapshotsDesdeLedger(filas, accountId, desde, ayer);
+
+  // Renglones sin ni una foto = el lector no entendió el archivo. La
+  // radiografía queda en la bitácora (amazon_sync_log.detalle) para poder
+  // diagnosticar sin acceso al reporte.
+  if (fotos.length === 0) {
+    return {
+      estado: "cargado",
+      filas: 0,
+      encabezados: Object.keys(filas[0] ?? {}),
+      muestra: filas[0] ?? null,
+    };
+  }
 
   // ignoreDuplicates: la foto real del cron (con en-transferencia y
   // reservado de verdad) gana sobre la reconstrucción del ledger.
