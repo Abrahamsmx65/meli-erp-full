@@ -380,8 +380,17 @@ async function copiarAVideoStorage(
       sesiones.set(accountId, sesion);
     }
     // Con guion guardado, los subtítulos también se queman aquí (texto
-    // perfecto del ERP; a la IA se le pidió el video SIN texto).
-    return await quemarMarcaYSubir(admin, sesion, ruta, url, fila.guion, fila.duracion);
+    // perfecto del ERP; a la IA se le pidió el video SIN texto). Y si hay
+    // audio aprobado (Studio), esa pista sustituye a la generada.
+    return await quemarMarcaYSubir(
+      admin,
+      sesion,
+      ruta,
+      url,
+      fila.guion,
+      fila.duracion,
+      fila.formato === "studio" ? fila.audio_url : null,
+    );
   } catch (err) {
     console.error(`videos: sin marca de agua para ${id}:`, err);
   }

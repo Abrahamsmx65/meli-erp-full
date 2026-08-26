@@ -331,6 +331,15 @@ export function GeneradorVideo({
   // Saldo de créditos de la cuenta y costo estimado del próximo video.
   const [saldo, setSaldo] = useState<number | null>(null);
   const [costoVideo, setCostoVideo] = useState<number | null>(null);
+  // Prueba de voz ANTES del video (motor rápido): se genera solo el audio
+  // del guion, se escucha, y si dice todo bien se usa tal cual en el video.
+  const [vocesReales, setVocesReales] = useState<
+    { id: string; tipo: string; nombre: string; genero: string | null }[]
+  >([]);
+  const [vozRealId, setVozRealId] = useState("");
+  const [generandoVoz, setGenerandoVoz] = useState(false);
+  const [audioPrueba, setAudioPrueba] = useState<{ jobId: string; url: string } | null>(null);
+  const [usarVoz, setUsarVoz] = useState(false);
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -412,6 +421,26 @@ export function GeneradorVideo({
       vivo = false;
     };
   }, [formato, cuentaConectada, motorEstudio, resolucionEstudio]);
+
+  // Las voces reales del catálogo (para la prueba de audio del motor rápido).
+  useEffect(() => {
+    if (formato !== "studio" || motorEstudio !== "rapido" || !cuentaConectada) return;
+    if (vocesReales.length) return;
+    void (async () => {
+      try {
+        const r = await fetch("/api/videos/editar");
+        const j = await leerJson(r);
+        if (!r.ok) return;
+        const vs =
+          (j.voces as { id: string; tipo: string; nombre: string; genero: string | null }[]) ??
+          [];
+        setVocesReales(vs);
+        if (vs.length) setVozRealId(vs[0].id);
+      } catch {
+        // Sin voces, la prueba simplemente no se ofrece.
+      }
+    })();
+  }, [formato, motorEstudio, cuentaConectada, vocesReales.length]);
 
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
@@ -607,7 +636,12 @@ export function GeneradorVideo({
     if (cambios.escenaId !== undefined) setEscenaId(e);
     if (cambios.semilla !== undefined) setSemilla(s);
     if (cambios.formato !== undefined) setFormato(f);
-    if (gu !== guion) setGuion(gu);
+    if (gu !== guion) {
+      setGuion(gu);
+      // Guion nuevo = el audio aprobado ya no corresponde.
+      setAudioPrueba(null);
+      setUsarVoz(false);
+    }
     regenerarPrompt({
       tipo: t,
       genero: g,
@@ -675,6 +709,53 @@ export function GeneradorVideo({
     setAudio(null);
     setAudioSegundos(0);
     cambiar({ hayAudio: false });
+  }
+
+  /** Genera SOLO el audio del guion para escucharlo antes de gastar video. */
+  async function probarVoz() {
+    if (!guion.trim()) {
+      setMensaje("Escribe el guion primero.");
+      return;
+    }
+    setMensaje(null);
+    setGenerandoVoz(true);
+    setAudioPrueba(null);
+    setUsarVoz(false);
+    try {
+      const voz = vocesReales.find((v) => v.id === vozRealId);
+      const r = await fetch("/api/videos/voz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accion: "generar",
+          guion: guion.trim(),
+          vozId: voz?.id || undefined,
+          vozTipo: voz?.tipo || undefined,
+        }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el audio."));
+      const jobId = String(j.jobId ?? "");
+      for (let i = 0; i < 30; i++) {
+        await new Promise((re) => setTimeout(re, 3000));
+        const rp = await fetch("/api/videos/voz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "estado", jobId }),
+        });
+        const jp = await leerJson(rp);
+        if (!rp.ok) throw new Error(String(jp.error ?? "El audio falló."));
+        if (!jp.pendiente && jp.url) {
+          setAudioPrueba({ jobId, url: String(jp.url) });
+          setGenerandoVoz(false);
+          return;
+        }
+      }
+      throw new Error("El audio tardó demasiado; inténtalo otra vez.");
+    } catch (e) {
+      setGenerandoVoz(false);
+      setMensaje((e as Error).message);
+    }
   }
 
   /** Crea el personaje de marca en la cuenta conectada y lo deja elegido. */
@@ -782,6 +863,9 @@ export function GeneradorVideo({
             // Con subtítulos del ERP, el guion exacto viaja aparte: el
             // vigilante lo quema sobre el video terminado, sin faltas.
             guion: guion.trim() || undefined,
+            // Audio aprobado en la prueba: referencia de voz + pista final.
+            audioJobId: usarVoz && audioPrueba ? audioPrueba.jobId : undefined,
+            audioUrl: usarVoz && audioPrueba ? audioPrueba.url : undefined,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
@@ -1289,6 +1373,62 @@ export function GeneradorVideo({
                 className="w-full px-2 py-1.5 text-xs"
               />
             </label>
+          )}
+
+          {formato === "studio" && motorEstudio === "rapido" && (
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Prueba la voz ANTES de gastar el video (recomendado): se genera
+                solo el audio del guion — cuesta centavos — y si dice todas las
+                palabras bien, esa pista exacta queda en el video
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  value={vozRealId}
+                  onChange={(e) => {
+                    setVozRealId(e.target.value);
+                    setAudioPrueba(null);
+                    setUsarVoz(false);
+                  }}
+                  className="px-2 py-1.5 text-sm"
+                >
+                  {vocesReales.length === 0 && <option value="">Voz: automática</option>}
+                  {vocesReales.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      Voz: {v.nombre || v.id.slice(0, 8)}
+                      {v.genero ? ` (${v.genero})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={probarVoz}
+                  disabled={generandoVoz || !guion.trim()}
+                  className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+                  style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                >
+                  {generandoVoz ? "Generando audio…" : "🔊 Escuchar el guion"}
+                </button>
+              </div>
+              {audioPrueba && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <audio controls src={audioPrueba.url} className="h-9" />
+                  <label className="flex items-center gap-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={usarVoz}
+                      onChange={(e) => setUsarVoz(e.target.checked)}
+                    />
+                    Dice todo bien: usar ESTE audio en el video
+                  </label>
+                </div>
+              )}
+              {usarVoz && (
+                <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  El video se sincroniza a este audio y el archivo final lleva
+                  esta pista tal cual: palabras garantizadas.
+                </p>
+              )}
+            </div>
           )}
 
           {formato === "ugc" && !audio && (

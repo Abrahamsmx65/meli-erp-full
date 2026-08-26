@@ -353,6 +353,16 @@ async function generarEstudio(
   // sobre el video terminado (la IA los escribe con faltas; el ERP no).
   const guion =
     body?.subtitulos === "si" ? String(body?.guion ?? "").trim().slice(0, 600) : "";
+  // Audio APROBADO (el usuario ya lo escuchó y verificó las palabras): el
+  // folio va de referencia de voz al video y la URL se guarda para que el
+  // vigilante ponga ESA pista exacta en el archivo final.
+  const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const audioJobId =
+    rapido && esUuid.test(String(body?.audioJobId ?? "")) ? String(body.audioJobId) : null;
+  const audioUrl =
+    audioJobId && /^https:\/\//.test(String(body?.audioUrl ?? ""))
+      ? String(body.audioUrl)
+      : null;
 
   if (!titulo || !fotos.length) {
     return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
@@ -395,13 +405,19 @@ async function generarEstudio(
           conPersonaje = true;
         }
       }
+      // La voz aprobada viaja de referencia: los labios se sincronizan a
+      // ella y el vigilante la pone como pista final del archivo.
+      if (audioJobId) medias.push({ value: audioJobId, role: "audio_references" });
       params = {
         model: "seedance_2_0",
         prompt:
           instrucciones +
           (conPersonaje
             ? " Las imágenes adjuntas son las fotos reales del producto y la ÚLTIMA es la persona que sale en el video: misma cara, misma identidad."
-            : " Las imágenes adjuntas son las fotos reales del producto."),
+            : " Las imágenes adjuntas son las fotos reales del producto.") +
+          (audioJobId
+            ? " El AUDIO adjunto es la voz final del video: la persona dice EXACTAMENTE esas palabras, con lip sync perfecto a ese audio, sin cambiar ni una palabra."
+            : ""),
         aspect_ratio: "9:16",
         duration: 15,
         // El modo std es el de calidad (fast recorta); la resolución la
@@ -476,6 +492,7 @@ async function generarEstudio(
       request_id: requestId,
       estado: "enviado",
       guion: guion || null,
+      audio_url: audioUrl,
     })
     .select("id")
     .single();
