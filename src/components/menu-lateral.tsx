@@ -75,6 +75,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Amazon",
     entradas: [
       { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
+      { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
     ],
   },
