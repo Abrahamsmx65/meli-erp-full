@@ -17,6 +17,7 @@
  */
 
 import { PALABRA_TIPO, type Genero, type TipoCalzado } from "./escenas";
+import { CONCEPTOS_EXTRA } from "./conceptos-extra";
 
 // El mismo candado de siempre + la regla anti-inventos del brief.
 const CANDADO_UGC =
@@ -170,9 +171,9 @@ const MOTIVOS: Record<TipoCalzado, string[]> = {
 // Conceptos
 // ---------------------------------------------------------------------------
 
-type Publico = "mujer" | "hombre";
+export type Publico = "mujer" | "hombre";
 
-interface Concepto {
+export interface Concepto {
   id: string;
   etiqueta: string;
   tipos: TipoCalzado[] | "todos";
@@ -890,6 +891,8 @@ const CONCEPTOS: Concepto[] = [
       "Aprobados por el mío, que es el crash test más rudo.",
     ],
   },
+  // El paquete grande de escenarios vive aparte para no inflar este archivo.
+  ...CONCEPTOS_EXTRA,
 ];
 
 // ---------------------------------------------------------------------------
