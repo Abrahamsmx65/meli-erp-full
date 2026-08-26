@@ -1,9 +1,10 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad } from "@/lib/servicios/publicidad";
+import { cargarPublicidad, type SugerenciaAds } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { BotonAnuncio, EditorCampana } from "@/components/publicidad-acciones";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +137,90 @@ export default async function Publicidad({
         />
       </div>
 
+      {p.sugerencias.length > 0 ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="text-base font-semibold">Sugerencias</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              Publicidad cruzada con el stock de Full y el margen de cada modelo. Los
+              botones escriben directo en Product Ads; al pausar por stock, el sistema
+              te recuerda encenderlo cuando rellenes.
+            </p>
+          </header>
+          <ul>
+            {p.sugerencias.map((s) => (
+              <Sugerencia key={`${s.accion}|${s.modelo}`} s={s} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {p.campanas.length > 0 ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="text-base font-semibold">Campañas</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              El presupuesto diario y el ACOS objetivo se editan aquí y se guardan
+              directo en Mercado Libre. ACOS objetivo = % de la venta que aceptas
+              gastar en ads (ROAS objetivo = 100 ÷ ACOS).
+            </p>
+          </header>
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Campaña</th>
+                <th>Estado</th>
+                <th className="num">Anuncios</th>
+                <th className="num">Gasto del periodo</th>
+                <th>Presupuesto y ACOS objetivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.campanas.map((c) => (
+                <tr key={c.id}>
+                  <td className="font-medium">
+                    {c.nombre}
+                    {c.estrategia ? (
+                      <span className="ml-1.5 text-[10px]" style={{ color: "var(--ink-muted)" }}>
+                        {c.estrategia}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td>
+                    <span
+                      className="text-xs font-semibold"
+                      style={{
+                        color:
+                          c.estado === "active"
+                            ? "var(--exito-texto)"
+                            : c.estado === "paused"
+                              ? "var(--estado-critico)"
+                              : "var(--ink-2)",
+                      }}
+                    >
+                      {c.estado === "active"
+                        ? "Activa"
+                        : c.estado === "paused"
+                          ? "Pausada"
+                          : (c.estado ?? "—")}
+                    </span>
+                  </td>
+                  <td className="num cifra">{c.anuncios}</td>
+                  <td className="num cifra">{pesos(c.gasto)}</td>
+                  <td>
+                    <EditorCampana
+                      id={c.id}
+                      presupuesto={c.presupuesto}
+                      acosObjetivo={c.acosObjetivo}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       {p.sinAmarre.anuncios > 0 ? (
         <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
           {p.sinAmarre.anuncios} anuncios con {pesos(p.sinAmarre.gasto)} de gasto no
@@ -231,5 +316,75 @@ export default async function Publicidad({
         </div>
       </section>
     </div>
+  );
+}
+
+const ETIQUETA_ACCION: Record<
+  SugerenciaAds["accion"],
+  { texto: string; color: string }
+> = {
+  pausar: { texto: "Pausar", color: "var(--estado-critico)" },
+  encender: { texto: "Encender", color: "var(--exito-texto)" },
+  apagar: { texto: "Apagar", color: "var(--estado-critico)" },
+  bajar: { texto: "Bajar gasto", color: "var(--estado-alerta)" },
+  subir: { texto: "Subir gasto", color: "var(--exito-texto)" },
+  activar: { texto: "Candidato", color: "var(--acento)" },
+};
+
+function Sugerencia({ s }: { s: SugerenciaAds }) {
+  const etiqueta = ETIQUETA_ACCION[s.accion];
+  const conBotones = s.accion === "pausar" || s.accion === "encender" || s.accion === "apagar";
+  return (
+    <li className="flex flex-col gap-2 border-b px-4 py-3 last:border-b-0 hairline">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
+          style={{ borderColor: etiqueta.color, color: etiqueta.color }}
+        >
+          {etiqueta.texto}
+        </span>
+        <span className="text-sm font-semibold">{s.modelo}</span>
+        {s.recordatorio ? (
+          <span className="text-[10px] font-semibold" style={{ color: "var(--exito-texto)" }}>
+            Recordatorio
+          </span>
+        ) : null}
+        <span className="cifra ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+          {s.gastoAds > 0 ? `${pesos(s.gastoAds)} en ads` : ""}
+          {s.coberturaDias != null && Number.isFinite(s.coberturaDias)
+            ? ` · ${Math.round(s.coberturaDias)}d de stock`
+            : ""}
+        </span>
+      </div>
+      <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+        {s.razon}
+      </p>
+      {(s.accion === "bajar" || s.accion === "subir") &&
+      s.roasActual != null &&
+      s.roasEquilibrio != null ? (
+        <p className="cifra text-[11px]" style={{ color: "var(--ink-muted)" }}>
+          ROAS actual {s.roasActual.toFixed(1)} · equilibrio {s.roasEquilibrio.toFixed(1)} ·
+          ACOS sano ≤{Math.round(s.acosObjetivoPct ?? 0)}%
+        </p>
+      ) : null}
+      {conBotones && s.items.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {s.items.map((i) => (
+            <span key={i.itemId} className="inline-flex items-center gap-1">
+              <BotonAnuncio
+                itemId={i.itemId}
+                estado={i.estado}
+                modelo={s.modelo}
+                motivo={s.accion === "pausar" ? "stock" : ""}
+              />
+              <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+                {i.itemId}
+                {i.compartido ? " (compartido)" : ""}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </li>
   );
 }

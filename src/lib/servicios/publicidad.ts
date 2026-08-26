@@ -18,7 +18,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
-import { normalizarRango, type RangoFechas } from "./ventas-monitor";
+import { diasDeRango, normalizarRango, type RangoFechas } from "./ventas-monitor";
 
 export interface FilaPublicidad {
   modelo: string;
@@ -48,6 +48,12 @@ export interface FilaPublicidad {
 
 export interface Publicidad {
   filas: FilaPublicidad[];
+  /** qué ajustar hoy, con la razón y los anuncios sobre los que actuar */
+  sugerencias: SugerenciaAds[];
+  /** campañas de Product Ads, editables desde el panel */
+  campanas: CampanaAds[];
+  /** anuncios por modelo, para los botones de pausar/encender de la tabla */
+  itemsDeModelo: Map<string, ItemDeModelo[]>;
   totales: {
     gastoAds: number;
     ventaAds: number;
@@ -77,6 +83,61 @@ export interface AnuncioAds {
   impresiones: number;
   unidadesAds: number;
   ventaAds: number;
+  /** active | paused | idle…, tal cual lo reporta MELI; null = no vino */
+  estado: string | null;
+  campanaId: string | null;
+  titulo: string | null;
+}
+
+/** Una campaña de Product Ads, con lo que el panel edita. */
+export interface CampanaAds {
+  id: string;
+  nombre: string;
+  estado: string | null;
+  /** presupuesto diario en MXN; null = no vino */
+  presupuesto: number | null;
+  /** ACOS objetivo en % (así lo maneja MELI); null = automática o no vino */
+  acosObjetivo: number | null;
+  estrategia: string | null;
+  /** gasto del periodo de los anuncios de esta campaña */
+  gasto: number;
+  anuncios: number;
+}
+
+/** Un anuncio de un modelo, con su estado, para los botones del panel. */
+export interface ItemDeModelo {
+  itemId: string;
+  titulo: string | null;
+  estado: string | null;
+  /** compartido entre varios modelos (el gasto se reparte) */
+  compartido: boolean;
+}
+
+export type AccionSugerida =
+  | "pausar"
+  | "encender"
+  | "apagar"
+  | "bajar"
+  | "subir"
+  | "activar";
+
+export interface SugerenciaAds {
+  modelo: string;
+  accion: AccionSugerida;
+  razon: string;
+  /** días de venta que cubre el stock de Full (disponible + en camino); null = sin ventas y sin stock */
+  coberturaDias: number | null;
+  /** ROAS actual del periodo (venta por ads ÷ gasto); null = sin gasto */
+  roasActual: number | null;
+  /** ROAS mínimo para no perder dinero (venta ÷ ganancia); null = sin costo capturado */
+  roasEquilibrio: number | null;
+  /** ACOS objetivo sano en % (= margen sobre la venta); null = sin costo */
+  acosObjetivoPct: number | null;
+  gastoAds: number;
+  /** anuncios del modelo sobre los que se puede actuar */
+  items: ItemDeModelo[];
+  /** true cuando nace de una pausa hecha desde el ERP (recordatorio) */
+  recordatorio: boolean;
 }
 
 interface VentaDiaria {
@@ -108,23 +169,36 @@ interface RespuestaAds {
   results?: {
     item_id?: string;
     id?: string;
+    title?: string;
+    status?: string;
+    campaign_id?: number | string;
     metrics?: Record<string, number | null>;
   }[];
   paging?: { total?: number; offset?: number; limit?: number };
 }
 
-/**
- * Baja todos los anuncios del periodo con sus métricas. Dos llamadas al API
- * de publicidad: el advertiser de la cuenta (Api-Version 1) y luego los
- * anuncios paginados (Api-Version 2). Los errores NO se tragan: el panel
- * muestra el motivo tal cual (el más común va a ser que a la app le falte el
- * permiso de Product Ads y haya que reconectar MELI).
- */
-export async function traerAnunciosAds(
+interface RespuestaCampanas {
+  results?: {
+    id?: number | string;
+    name?: string;
+    status?: string;
+    budget?: number;
+    acos_target?: number;
+    strategy?: string;
+  }[];
+  paging?: { total?: number; offset?: number; limit?: number };
+}
+
+export interface Advertiser {
+  advertiserId: string;
+  siteId: string;
+}
+
+/** El advertiser de Product Ads de la cuenta (Api-Version 1). */
+export async function resolverAdvertiser(
   cliente: MeliClient,
   siteId: string,
-  rango: RangoFechas,
-): Promise<AnuncioAds[]> {
+): Promise<Advertiser> {
   const adv = await cliente.get<RespuestaAdvertisers>(
     "/advertising/advertisers",
     { product_id: "PADS" },
@@ -141,52 +215,72 @@ export async function traerAnunciosAds(
       "/advertising/advertisers",
     );
   }
-
-  // La ruta actual lleva el sitio en medio (advertising/MLM/advertisers/…);
-  // la vieja, sin sitio, se queda como respaldo por si algún sitio aún la
-  // sirve. Se prueba en orden y gana la primera que no dé 404.
-  const sitio = advertiser.site_id ?? siteId;
-  const rutas = [
-    `/advertising/${sitio}/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
-    `/advertising/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
-  ];
-  let ruta = rutas[0];
-
-  const pedirPagina = async (offset: number): Promise<RespuestaAds> => {
-    let ultimo404: MeliError | null = null;
-    for (const candidata of rutas.slice(rutas.indexOf(ruta))) {
-      try {
-        const pagina = await cliente.get<RespuestaAds>(
-          candidata,
-          {
-            limit: 50, // el máximo que acepta el API
-            offset,
-            date_from: rango.desde,
-            date_to: rango.hasta,
-            metrics: METRICAS_ADS,
-          },
-          { headers: { "Api-Version": "2" }, reintentos: 2 },
-        );
-        ruta = candidata; // esta sirve: las páginas que siguen van directo
-        return pagina;
-      } catch (err) {
-        if (err instanceof MeliError && err.status === 404) {
-          ultimo404 = err;
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw ultimo404 ?? new MeliError("Sin ruta de anuncios que responda.", 404, null, ruta);
+  return {
+    advertiserId: String(advertiser.advertiser_id),
+    siteId: advertiser.site_id ?? siteId,
   };
+}
+
+/**
+ * Pide con la primera ruta que responda: la forma vigente lleva el sitio en
+ * medio (advertising/MLM/advertisers/…) y la vieja queda de respaldo. El
+ * mismo truco para GET y PUT: MELI ya nos cambió la ruta una vez.
+ */
+async function conRutas<T>(
+  rutas: string[],
+  pedir: (ruta: string) => Promise<T>,
+): Promise<T> {
+  let ultimo404: MeliError | null = null;
+  for (const ruta of rutas) {
+    try {
+      return await pedir(ruta);
+    } catch (err) {
+      if (err instanceof MeliError && err.status === 404) {
+        ultimo404 = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw ultimo404 ?? new MeliError("Sin ruta que responda.", 404, null, rutas[0]);
+}
+
+/**
+ * Baja todos los anuncios del periodo con sus métricas, estado y campaña,
+ * paginados (Api-Version 2). Los errores NO se tragan: el panel muestra el
+ * motivo tal cual (el más común va a ser que a la app le falte el permiso de
+ * Product Ads y haya que reconectar MELI).
+ */
+export async function traerAnunciosAds(
+  cliente: MeliClient,
+  adv: Advertiser,
+  rango: RangoFechas,
+): Promise<AnuncioAds[]> {
+  const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/search`,
+    `/advertising/advertisers/${adv.advertiserId}/product_ads/ads/search`,
+  ];
 
   const anuncios: AnuncioAds[] = [];
-  const limite = 50;
+  const limite = 50; // el máximo que acepta el API
   let offset = 0;
   let total = Infinity;
 
   while (offset < total) {
-    const pagina = await pedirPagina(offset);
+    const pos = offset;
+    const pagina = await conRutas(rutas, (ruta) =>
+      cliente.get<RespuestaAds>(
+        ruta,
+        {
+          limit: limite,
+          offset: pos,
+          date_from: rango.desde,
+          date_to: rango.hasta,
+          metrics: METRICAS_ADS,
+        },
+        { headers: { "Api-Version": "2" }, reintentos: 2 },
+      ),
+    );
 
     const filas = pagina.results ?? [];
     for (const f of filas) {
@@ -200,6 +294,9 @@ export async function traerAnunciosAds(
         impresiones: Number(m.prints ?? 0) || 0,
         unidadesAds: Number(m.units_quantity ?? 0) || 0,
         ventaAds: Number(m.total_amount ?? 0) || 0,
+        estado: f.status ?? null,
+        campanaId: f.campaign_id != null ? String(f.campaign_id) : null,
+        titulo: f.title ?? null,
       });
     }
 
@@ -209,6 +306,254 @@ export async function traerAnunciosAds(
   }
 
   return anuncios;
+}
+
+/** Las campañas de Product Ads con su presupuesto y ACOS objetivo. */
+export async function traerCampanasAds(
+  cliente: MeliClient,
+  adv: Advertiser,
+): Promise<Omit<CampanaAds, "gasto" | "anuncios">[]> {
+  const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/search`,
+    `/advertising/advertisers/${adv.advertiserId}/product_ads/campaigns/search`,
+  ];
+
+  const campanas: Omit<CampanaAds, "gasto" | "anuncios">[] = [];
+  const limite = 50;
+  let offset = 0;
+  let total = Infinity;
+
+  while (offset < total) {
+    const pos = offset;
+    const pagina = await conRutas(rutas, (ruta) =>
+      cliente.get<RespuestaCampanas>(
+        ruta,
+        { limit: limite, offset: pos },
+        { headers: { "Api-Version": "2" }, reintentos: 2 },
+      ),
+    );
+    const filas = pagina.results ?? [];
+    for (const c of filas) {
+      if (c.id == null) continue;
+      campanas.push({
+        id: String(c.id),
+        nombre: c.name ?? `Campaña ${c.id}`,
+        estado: c.status ?? null,
+        presupuesto: c.budget != null ? Number(c.budget) : null,
+        acosObjetivo: c.acos_target != null ? Number(c.acos_target) : null,
+        estrategia: c.strategy ?? null,
+      });
+    }
+    total = pagina.paging?.total ?? offset + filas.length;
+    offset += limite;
+    if (!filas.length) break;
+  }
+
+  return campanas;
+}
+
+/** Pausa o enciende un anuncio (PUT, Api-Version 2). */
+export async function cambiarEstadoAnuncio(
+  cliente: MeliClient,
+  siteId: string,
+  itemId: string,
+  estado: "active" | "paused",
+): Promise<void> {
+  const adv = await resolverAdvertiser(cliente, siteId);
+  const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/ads/${itemId}`,
+    `/advertising/${adv.siteId}/product_ads/ads/${itemId}`,
+  ];
+  await conRutas(rutas, (ruta) =>
+    cliente.put(ruta, { status: estado }, { headers: { "Api-Version": "2" } }),
+  );
+}
+
+/** Cambia presupuesto diario y/o ACOS objetivo de una campaña (PUT). */
+export async function modificarCampanaAds(
+  cliente: MeliClient,
+  siteId: string,
+  campanaId: string,
+  cambios: { presupuesto?: number; acosObjetivo?: number },
+): Promise<void> {
+  const cuerpo: Record<string, number> = {};
+  if (cambios.presupuesto != null) cuerpo.budget = cambios.presupuesto;
+  if (cambios.acosObjetivo != null) cuerpo.acos_target = cambios.acosObjetivo;
+  if (!Object.keys(cuerpo).length) return;
+
+  const adv = await resolverAdvertiser(cliente, siteId);
+  const rutas = [
+    `/advertising/${adv.siteId}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
+    `/advertising/${adv.siteId}/product_ads/campaigns/${campanaId}`,
+  ];
+  await conRutas(rutas, (ruta) =>
+    cliente.put(ruta, cuerpo, { headers: { "Api-Version": "2" } }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sugerencias (puro, para poder probarlo sin red)
+// ---------------------------------------------------------------------------
+
+/** Debajo de esto, la publicidad solo acelera el quiebre de stock. */
+export const COBERTURA_CORTA_DIAS = 14;
+/** Arriba de esto hay capital parado: espacio para invertir en ads. */
+export const COBERTURA_LARGA_DIAS = 45;
+
+const PRIORIDAD_ACCION: Record<AccionSugerida, number> = {
+  pausar: 0,
+  encender: 1,
+  apagar: 2,
+  bajar: 3,
+  subir: 4,
+  activar: 5,
+};
+
+/**
+ * Cruza el panel de publicidad con el stock de Full y el margen para sugerir
+ * ajustes. Reglas, en orden (una por modelo, gana la más urgente):
+ *
+ * 1. Anuncio activo con stock agotado o cobertura corta → PAUSAR: pagar por
+ *    acelerar un quiebre es regalar el gasto (esas ventas caían solas).
+ * 2. Anuncio pausado DESDE EL ERP cuyo stock ya se repuso → ENCENDER (el
+ *    recordatorio que pediste al rellenar).
+ * 3. Gasto sin una sola venta del modelo en el periodo → APAGAR.
+ * 4. TACOS por arriba del margen → BAJAR: está comprando ventas con pérdida;
+ *    se sugiere el ACOS objetivo sano (= margen) y el ROAS de equilibrio.
+ * 5. Mucho stock y ads usando menos de la mitad del margen → SUBIR
+ *    presupuesto: el costo real es el capital parado.
+ * 6. Vende ≥1/día, stock de sobra y sin anuncio → ACTIVAR (candidato).
+ */
+export function armarSugerencias(opts: {
+  filas: FilaPublicidad[];
+  /** modelo → pares en Full (disponible + en camino) */
+  stockDeModelo: Map<string, number>;
+  /** días del periodo, para el ritmo diario */
+  dias: number;
+  itemsDeModelo: Map<string, ItemDeModelo[]>;
+  /** item_ids pausados desde el ERP y aún sin reactivar */
+  pausadosDesdeErp: Set<string>;
+}): SugerenciaAds[] {
+  const { filas, stockDeModelo, dias, itemsDeModelo, pausadosDesdeErp } = opts;
+  const sugerencias: SugerenciaAds[] = [];
+  const dEnteros = (x: number) => Math.round(x).toLocaleString("es-MX");
+
+  for (const f of filas) {
+    const stock = stockDeModelo.get(f.modelo) ?? 0;
+    const ritmo = dias > 0 ? f.unidades / dias : 0;
+    const cobertura = ritmo > 0 ? stock / ritmo : null;
+    const items = itemsDeModelo.get(f.modelo) ?? [];
+    const activos = items.filter((i) => i.estado !== "paused");
+    const pausadosErp = items.filter(
+      (i) => i.estado === "paused" && pausadosDesdeErp.has(i.itemId),
+    );
+
+    const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
+    const base = {
+      modelo: f.modelo,
+      coberturaDias: cobertura,
+      roasActual: f.gastoAds > 0 && f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null,
+      roasEquilibrio: margen != null && margen > 0 ? 1 / margen : null,
+      acosObjetivoPct: margen != null ? margen * 100 : null,
+      gastoAds: f.gastoAds,
+      items,
+      recordatorio: false,
+    };
+
+    // 1. Stock agotado o por agotarse con el anuncio prendido.
+    const sinStock = stock <= 0;
+    const coberturaCorta = cobertura != null && cobertura < COBERTURA_CORTA_DIAS;
+    if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta)) {
+      sugerencias.push({
+        ...base,
+        accion: "pausar",
+        items: activos,
+        razon: sinStock
+          ? "Sin stock en Full: el anuncio está pagando por ventas que no puede surtir."
+          : `Quedan ~${dEnteros(cobertura!)} días de stock (${dEnteros(stock)} pares): la publicidad solo acelera el quiebre; esas ventas caían solas.`,
+      });
+      continue;
+    }
+
+    // 2. Pausado desde el ERP y el stock ya volvió: el recordatorio.
+    const stockRecuperado =
+      cobertura != null ? cobertura >= COBERTURA_CORTA_DIAS : stock > 0;
+    if (pausadosErp.length > 0 && stockRecuperado) {
+      sugerencias.push({
+        ...base,
+        accion: "encender",
+        items: pausadosErp,
+        recordatorio: true,
+        razon:
+          cobertura != null
+            ? `Lo pausaste por falta de stock y ya hay ~${dEnteros(cobertura)} días de cobertura (${dEnteros(stock)} pares): recuerda encenderlo.`
+            : `Lo pausaste por falta de stock y ya hay ${dEnteros(stock)} pares en Full: recuerda encenderlo.`,
+      });
+      continue;
+    }
+
+    // 3. Gasta y no vende nada.
+    if (f.gastoAds > 0 && f.unidades === 0) {
+      sugerencias.push({
+        ...base,
+        accion: "apagar",
+        items: activos,
+        razon: `Gastó $${dEnteros(f.gastoAds)} sin una sola venta del modelo en el periodo.`,
+      });
+      continue;
+    }
+
+    // 4. Los ads se comen más que el margen.
+    if (margen != null && f.tacos != null && f.gastoAds > 0 && f.tacos > margen) {
+      sugerencias.push({
+        ...base,
+        accion: "bajar",
+        razon: `Los ads se llevan el ${Math.round(f.tacos * 100)}% de la venta y el margen es ${Math.round(margen * 100)}%: está comprando ventas con pérdida. Sube el ROAS objetivo a ≥${base.roasEquilibrio!.toFixed(1)} (ACOS ≤${Math.round(margen * 100)}%).`,
+      });
+      continue;
+    }
+
+    // 5. Capital parado y margen de sobra.
+    if (
+      margen != null &&
+      f.gastoAds > 0 &&
+      f.tacos != null &&
+      cobertura != null &&
+      cobertura > COBERTURA_LARGA_DIAS &&
+      f.tacos < margen / 2
+    ) {
+      sugerencias.push({
+        ...base,
+        accion: "subir",
+        razon: `Hay ~${dEnteros(cobertura)} días de stock y los ads solo usan ${Math.round(f.tacos * 100)}% de un margen de ${Math.round(margen * 100)}%: espacio para subir presupuesto o aflojar el ACOS objetivo hasta ${Math.round(margen * 100)}%.`,
+      });
+      continue;
+    }
+
+    // 6. Vende solo, con stock de sobra y sin anuncio.
+    if (
+      f.gastoAds === 0 &&
+      items.length === 0 &&
+      ritmo >= 1 &&
+      stock > 0 &&
+      (cobertura == null || cobertura > COBERTURA_LARGA_DIAS)
+    ) {
+      sugerencias.push({
+        ...base,
+        accion: "activar",
+        razon: `Vende ~${dEnteros(ritmo)} al día sin publicidad y hay stock de sobra: candidato a Product Ads.`,
+      });
+    }
+  }
+
+  const ordenadas = sugerencias.sort(
+    (a, b) =>
+      PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion] ||
+      b.gastoAds - a.gastoAds,
+  );
+  // Los candidatos a activar pueden ser docenas: solo los 5 que más venden.
+  let candidatos = 0;
+  return ordenadas.filter((s) => s.accion !== "activar" || ++candidatos <= 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +704,10 @@ export function armarPublicidad(opts: {
 
   return {
     filas,
+    // Las llena la carga completa (necesitan stock, campañas y pausas).
+    sugerencias: [],
+    campanas: [],
+    itemsDeModelo: new Map(),
     totales: {
       gastoAds,
       ventaAds,
@@ -386,6 +735,11 @@ export function armarPublicidad(opts: {
  */
 const cachePublicidad = new Map<string, { en: number; datos: Publicidad }>();
 const VIDA_CACHE_ADS_MS = 10 * 60_000;
+
+/** Tras pausar/encender un anuncio o editar una campaña, el panel debe releer. */
+export function invalidarCachePublicidad(): void {
+  cachePublicidad.clear();
+}
 
 export async function cargarPublicidad(
   db: DB,
@@ -422,7 +776,7 @@ export async function cargarPublicidad(
     }
   };
 
-  const [ventas, skus, config, cliente] = await Promise.all([
+  const [ventas, skus, config, stock, pausas, cliente] = await Promise.all([
     leerVentas(),
     traerTodo<{ sku: string; modelo: string | null; item_id: string | null }>(
       db,
@@ -431,6 +785,24 @@ export async function cargarPublicidad(
       (q) => q.eq("account_id", cuenta.id).eq("activo", true),
     ),
     configPorProducto(db, cuenta.id),
+    // El stock de Full (disponible + en camino), para las sugerencias.
+    traerTodo<{ sku: string; disponible: number | null; en_transferencia: number | null }>(
+      db,
+      "stock_full",
+      "sku, disponible, en_transferencia",
+      (q) => q.eq("account_id", cuenta.id),
+    ).catch(() => []),
+    // Anuncios pausados desde el ERP y aún sin reactivar (los recordatorios).
+    // Si la migración no ha corrido, simplemente no hay recordatorios.
+    Promise.resolve(
+      db
+        .from("publicidad_pausas")
+        .select("item_id")
+        .eq("account_id", cuenta.id)
+        .is("reactivado_en", null),
+    )
+      .then((x: any) => (x?.data ?? []) as { item_id: string }[])
+      .catch(() => [] as { item_id: string }[]),
     // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
     // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
     // tabla se ve vacía aunque la cuenta esté conectada.
@@ -461,13 +833,22 @@ export async function cargarPublicidad(
   for (const [modelo, cfg] of config) costoDeModelo.set(modelo, cfg.costo);
 
   let anuncios: AnuncioAds[] = [];
+  let campanasBase: Omit<CampanaAds, "gasto" | "anuncios">[] = [];
   let errorAds: string | null = null;
   if (!cliente) {
     errorAds =
       "No se pudieron leer los tokens de MELI: revisa que la cuenta esté conectada en Ajustes.";
   } else {
     try {
-      anuncios = await traerAnunciosAds(cliente, cuenta.site_id, r);
+      const adv = await resolverAdvertiser(cliente, cuenta.site_id);
+      // Las campañas son lo editable; si su lectura falla, el panel de
+      // anuncios sigue sirviendo (por eso se tolera aparte).
+      [anuncios, campanasBase] = await Promise.all([
+        traerAnunciosAds(cliente, adv, r),
+        traerCampanasAds(cliente, adv).catch(
+          () => [] as Omit<CampanaAds, "gasto" | "anuncios">[],
+        ),
+      ]);
     } catch (err) {
       // 403 = a la app le falta el permiso de Product Ads en MELI. Se enseña
       // el motivo en el panel en vez de un panel vacío sin explicación.
@@ -489,6 +870,58 @@ export async function cargarPublicidad(
     modeloDeSku,
     costoDeModelo,
     errorAds,
+  });
+
+  // --- Anuncios por modelo, para los botones de pausar/encender ------------
+  const itemsDeModelo = new Map<string, ItemDeModelo[]>();
+  for (const an of anuncios) {
+    const modelos = modelosDeItem.get(an.itemId) ?? [];
+    for (const modelo of modelos) {
+      const lista = itemsDeModelo.get(modelo) ?? [];
+      lista.push({
+        itemId: an.itemId,
+        titulo: an.titulo,
+        estado: an.estado,
+        compartido: modelos.length > 1,
+      });
+      itemsDeModelo.set(modelo, lista);
+    }
+  }
+  datos.itemsDeModelo = itemsDeModelo;
+
+  // --- Campañas con su gasto del periodo -----------------------------------
+  const gastoPorCampana = new Map<string, { gasto: number; anuncios: number }>();
+  for (const an of anuncios) {
+    if (!an.campanaId) continue;
+    const g = gastoPorCampana.get(an.campanaId) ?? { gasto: 0, anuncios: 0 };
+    g.gasto += an.gasto;
+    g.anuncios += 1;
+    gastoPorCampana.set(an.campanaId, g);
+  }
+  datos.campanas = campanasBase
+    .map((c) => ({
+      ...c,
+      gasto: gastoPorCampana.get(c.id)?.gasto ?? 0,
+      anuncios: gastoPorCampana.get(c.id)?.anuncios ?? 0,
+    }))
+    .sort((a, b) => b.gasto - a.gasto);
+
+  // --- Sugerencias: publicidad × stock × margen ----------------------------
+  const stockDeModelo = new Map<string, number>();
+  for (const s of stock) {
+    const modelo = modeloDeSku.get(s.sku);
+    if (!modelo) continue;
+    stockDeModelo.set(
+      modelo,
+      (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
+    );
+  }
+  datos.sugerencias = armarSugerencias({
+    filas: datos.filas,
+    stockDeModelo,
+    dias: diasDeRango(r),
+    itemsDeModelo,
+    pausadosDesdeErp: new Set(pausas.map((p) => p.item_id)),
   });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el

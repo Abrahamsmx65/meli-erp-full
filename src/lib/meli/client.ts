@@ -197,6 +197,28 @@ export class MeliClient {
    * MELI que se escriba.
    */
   async post<T = unknown>(ruta: string, cuerpo: unknown): Promise<T> {
+    return this.conCuerpo<T>("POST", ruta, cuerpo);
+  }
+
+  /**
+   * PUT con cuerpo JSON (modificar un recurso: pausar un anuncio, cambiar el
+   * presupuesto de una campaña). Mismos reintentos que el POST; el API de
+   * publicidad exige además su versión por header.
+   */
+  async put<T = unknown>(
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string> },
+  ): Promise<T> {
+    return this.conCuerpo<T>("PUT", ruta, cuerpo, opts);
+  }
+
+  private async conCuerpo<T = unknown>(
+    metodo: "POST" | "PUT",
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string> },
+  ): Promise<T> {
     await this.asegurarToken();
     const url = `${MELI_API}${this.prefix}${ruta}`;
     let ultimoError: unknown;
@@ -204,11 +226,12 @@ export class MeliClient {
     for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
       try {
         const res = await fetch(url, {
-          method: "POST",
+          method: metodo,
           headers: {
             Authorization: `Bearer ${this.cred.accessToken}`,
             Accept: "application/json",
             "Content-Type": "application/json",
+            ...(opts?.headers ?? {}),
           },
           body: JSON.stringify(cuerpo ?? {}),
           cache: "no-store",
