@@ -228,6 +228,10 @@ export function GeneradorVideo({
   const [modosEstudio, setModosEstudio] = useState<{ modo: string; descripcion: string }[]>([]);
   const [avatarId, setAvatarId] = useState<string>("");
   const [modoEstudio, setModoEstudio] = useState("UGC");
+  // Motor del Studio: `rapido` = Seedance 2.0 directo con las fotos adjuntas
+  // (~5 min, como el ejemplo de la app); `completo` = Marketing Studio
+  // (guion + visuales + video, 10-30 min).
+  const [motorEstudio, setMotorEstudio] = useState<"rapido" | "completo">("rapido");
   const catalogoRef = useRef(false);
   const [modeloDop, setModeloDop] = useState(MODELOS[0].id);
 
@@ -541,12 +545,19 @@ export function GeneradorVideo({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             formato: "studio",
+            motor: motorEstudio,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
             prompt: promptVideo,
             modo: modoEstudio,
             avatarId: avatarId || undefined,
+            // En el motor rápido el personaje fijo viaja como FOTO de
+            // referencia (Seedance no conoce los avatares del Studio).
+            avatarFoto:
+              (motorEstudio === "rapido" &&
+                avatares.find((a) => a.id === avatarId)?.foto) ||
+              undefined,
           }),
         });
         const j = await leerJson(r);
@@ -794,6 +805,15 @@ export function GeneradorVideo({
           {formato === "studio" && (
             <div className="mt-3 flex max-w-2xl flex-wrap items-center gap-2">
               <select
+                value={motorEstudio}
+                onChange={(e) => setMotorEstudio(e.target.value as "rapido" | "completo")}
+                className="px-2 py-1.5 text-sm"
+              >
+                <option value="rapido">Motor: Rápido (Seedance 2.0) · ~5 min</option>
+                <option value="completo">Motor: Studio completo · 10-30 min</option>
+              </select>
+              {motorEstudio === "completo" && (
+              <select
                 value={modoEstudio}
                 onChange={(e) => setModoEstudio(e.target.value)}
                 className="px-2 py-1.5 text-sm"
@@ -807,6 +827,7 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              )}
               <select
                 value={avatarId}
                 onChange={(e) => {
@@ -840,7 +861,9 @@ export function GeneradorVideo({
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
                 {formato === "studio"
-                  ? "Guion base (el Studio lo adapta al concepto; en español)"
+                  ? motorEstudio === "rapido"
+                    ? "Guion base (Seedance lo dice en el video; en español)"
+                    : "Guion base (el Studio lo adapta al concepto; en español)"
                   : formato === "ugc"
                     ? audio
                       ? "Guion (referencia de lo que grabaste; el video usa TU audio)"

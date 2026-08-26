@@ -315,12 +315,18 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Genera el video en el Marketing Studio de la cuenta conectada:
- * 1. Crea (o reutiliza) el PRODUCTO con las fotos reales de la publicación —
- *    ahí vive el candado de fidelidad de verdad.
- * 2. Lanza marketing_studio_video con el modo (UGC/Unboxing/Reseña…), el
- *    avatar fijo si se eligió, 9:16 y las instrucciones en español.
- * 3. El vigilante sondea el job por el MCP y guarda el MP4 en Storage.
+ * Genera el video en la CUENTA de Higgsfield conectada, con dos motores:
+ *
+ * - `rapido` (Seedance 2.0 directo): las fotos reales del producto — y la
+ *   foto del personaje fijo si se eligió — se importan al almacén del MCP y
+ *   van de `image_references`; Seedance genera el video de una sola pasada
+ *   con audio nativo en español (~5 min). Es el mismo camino del ejemplo de
+ *   la app de Higgsfield.
+ * - `completo` (Marketing Studio): se crea el PRODUCTO anclado a las fotos
+ *   reales y marketing_studio_video arma guion, visuales y video con el modo
+ *   (UGC/Unboxing/Reseña…) y el avatar fijo (10-30 min).
+ *
+ * En ambos, el vigilante sondea el job por el MCP y guarda el MP4 en Storage.
  */
 async function generarEstudio(
   req: NextRequest,
@@ -336,9 +342,20 @@ async function generarEstudio(
   const instrucciones = String(body?.prompt ?? "").trim();
   const modo = String(body?.modo ?? "UGC");
   const avatarId = body?.avatarId ? String(body.avatarId) : null;
+  const avatarFoto =
+    body?.avatarFoto && /^https?:\/\//.test(String(body.avatarFoto))
+      ? String(body.avatarFoto)
+      : null;
+  const rapido = body?.motor === "rapido";
 
   if (!titulo || !fotos.length) {
     return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
+  }
+  if (rapido && !instrucciones) {
+    return NextResponse.json(
+      { error: "El Studio rápido necesita las instrucciones (el prompt)." },
+      { status: 400 },
+    );
   }
 
   const admin = clienteAdmin();
@@ -346,34 +363,76 @@ async function generarEstudio(
   try {
     const sesion = await abrirSesion(admin, accountId);
 
-    // 1. Producto anclado a las fotos reales.
-    const creado = await llamarHerramienta(sesion, "show_marketing_studio", {
-      action: "create",
-      type: "product",
-      title: titulo.slice(0, 255),
-      medias: fotos.map((f) => ({ value: f, role: "image" })),
-    });
-    const scProducto = resultadoEstructurado(creado);
-    const productoId: string | undefined =
-      scProducto?.scraping_id ?? scProducto?.items?.[0]?.id;
-    if (!productoId) {
-      throw new Error(
-        `El Studio no devolvió el producto: ${JSON.stringify(scProducto ?? {}).slice(0, 200)}`,
-      );
+    // Los params del video según el motor.
+    let params: Record<string, unknown>;
+    if (rapido) {
+      // Seedance no acepta URLs directas: cada foto se importa al almacén
+      // del MCP y el media_id resultante va de referencia de identidad.
+      const medias: { value: string; role: string }[] = [];
+      for (const foto of fotos) {
+        const imp = resultadoEstructurado(
+          await llamarHerramienta(sesion, "media_import_url", { url: foto, type: "image" }),
+        );
+        // Una foto que no se pudo importar no tumba el intento.
+        if (imp?.media_id) medias.push({ value: String(imp.media_id), role: "image_references" });
+      }
+      if (!medias.length) {
+        throw new Error("No se pudo importar ninguna foto del producto al Studio.");
+      }
+      let conPersonaje = false;
+      if (avatarFoto) {
+        const imp = resultadoEstructurado(
+          await llamarHerramienta(sesion, "media_import_url", { url: avatarFoto, type: "image" }),
+        );
+        if (imp?.media_id) {
+          medias.push({ value: String(imp.media_id), role: "image_references" });
+          conPersonaje = true;
+        }
+      }
+      params = {
+        model: "seedance_2_0",
+        prompt:
+          instrucciones +
+          (conPersonaje
+            ? " Las imágenes adjuntas son las fotos reales del producto y la ÚLTIMA es la persona que sale en el video: misma cara, misma identidad."
+            : " Las imágenes adjuntas son las fotos reales del producto."),
+        aspect_ratio: "9:16",
+        duration: 15,
+        // 1080p solo existe en modo std; fast se queda en 720p.
+        resolution: "1080p",
+        mode: "std",
+        generate_audio: true,
+        medias,
+      };
+    } else {
+      // 1. Producto anclado a las fotos reales.
+      const creado = await llamarHerramienta(sesion, "show_marketing_studio", {
+        action: "create",
+        type: "product",
+        title: titulo.slice(0, 255),
+        medias: fotos.map((f) => ({ value: f, role: "image" })),
+      });
+      const scProducto = resultadoEstructurado(creado);
+      const productoId: string | undefined =
+        scProducto?.scraping_id ?? scProducto?.items?.[0]?.id;
+      if (!productoId) {
+        throw new Error(
+          `El Studio no devolvió el producto: ${JSON.stringify(scProducto ?? {}).slice(0, 200)}`,
+        );
+      }
+      params = {
+        model: "marketing_studio_video",
+        product_ids: [productoId],
+        mode: modo,
+        aspect_ratio: "9:16",
+        duration: 15,
+      };
+      if (instrucciones) params.prompt = instrucciones;
+      if (avatarId) params.avatar_ids = [avatarId];
     }
 
     // 2. El video. Si la cuenta tiene generaciones ilimitadas de prueba, el
     //    MCP pregunta antes de gastar: se usan (gratis) en automático.
-    const params: Record<string, unknown> = {
-      model: "marketing_studio_video",
-      product_ids: [productoId],
-      mode: modo,
-      aspect_ratio: "9:16",
-      duration: 15,
-    };
-    if (instrucciones) params.prompt = instrucciones;
-    if (avatarId) params.avatar_ids = [avatarId];
-
     let res = await llamarHerramienta(sesion, "generate_video", { params });
     let sc = resultadoEstructurado(res);
     if (sc?.unlim_choice) {
@@ -400,8 +459,8 @@ async function generarEstudio(
       titulo,
       imagen_url: fotos[0],
       prompt: instrucciones || `Marketing Studio · ${modo}`,
-      preset: `Studio · ${modo}`,
-      modelo: "marketing-studio",
+      preset: rapido ? "Studio · Rápido" : `Studio · ${modo}`,
+      modelo: rapido ? "seedance-2.0" : "marketing-studio",
       formato: "studio",
       etapa: "video",
       duracion: 15,

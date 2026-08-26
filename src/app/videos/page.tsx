@@ -177,7 +177,9 @@ export default async function Videos() {
                   const generando = ["enviado", "en_progreso"].includes(v.estado as string);
                   const detalleEtapa =
                     formato === "studio" && generando
-                      ? "El Studio arma guion, visuales y video (10-30 min)"
+                      ? v.modelo === "seedance-2.0"
+                        ? "Seedance genera el video directo de tus fotos (~5 min)"
+                        : "El Studio arma guion, visuales y video (10-30 min)"
                       : esClip && generando
                         ? (v.etapa as string) === "imagen"
                           ? formato === "ugc"
