@@ -15,6 +15,7 @@
  */
 import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
+import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
@@ -141,23 +142,51 @@ export async function traerAnunciosAds(
     );
   }
 
+  // La ruta actual lleva el sitio en medio (advertising/MLM/advertisers/…);
+  // la vieja, sin sitio, se queda como respaldo por si algún sitio aún la
+  // sirve. Se prueba en orden y gana la primera que no dé 404.
+  const sitio = advertiser.site_id ?? siteId;
+  const rutas = [
+    `/advertising/${sitio}/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
+    `/advertising/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
+  ];
+  let ruta = rutas[0];
+
+  const pedirPagina = async (offset: number): Promise<RespuestaAds> => {
+    let ultimo404: MeliError | null = null;
+    for (const candidata of rutas.slice(rutas.indexOf(ruta))) {
+      try {
+        const pagina = await cliente.get<RespuestaAds>(
+          candidata,
+          {
+            limit: 50, // el máximo que acepta el API
+            offset,
+            date_from: rango.desde,
+            date_to: rango.hasta,
+            metrics: METRICAS_ADS,
+          },
+          { headers: { "Api-Version": "2" }, reintentos: 2 },
+        );
+        ruta = candidata; // esta sirve: las páginas que siguen van directo
+        return pagina;
+      } catch (err) {
+        if (err instanceof MeliError && err.status === 404) {
+          ultimo404 = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw ultimo404 ?? new MeliError("Sin ruta de anuncios que responda.", 404, null, ruta);
+  };
+
   const anuncios: AnuncioAds[] = [];
-  const limite = 50; // el máximo que acepta el API
+  const limite = 50;
   let offset = 0;
   let total = Infinity;
 
   while (offset < total) {
-    const pagina = await cliente.get<RespuestaAds>(
-      `/advertising/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
-      {
-        limit: limite,
-        offset,
-        date_from: rango.desde,
-        date_to: rango.hasta,
-        metrics: METRICAS_ADS,
-      },
-      { headers: { "Api-Version": "2" }, reintentos: 2 },
-    );
+    const pagina = await pedirPagina(offset);
 
     const filas = pagina.results ?? [];
     for (const f of filas) {
@@ -387,7 +416,16 @@ export async function cargarPublicidad(
       (q) => q.eq("account_id", cuenta.id).eq("activo", true),
     ),
     configPorProducto(db, cuenta.id),
-    clienteDeCuenta(db, cuenta.id),
+    // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
+    // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
+    // tabla se ve vacía aunque la cuenta esté conectada.
+    (async () => {
+      try {
+        return await clienteDeCuenta(clienteAdmin(), cuenta.id);
+      } catch {
+        return null;
+      }
+    })(),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -404,7 +442,8 @@ export async function cargarPublicidad(
   let anuncios: AnuncioAds[] = [];
   let errorAds: string | null = null;
   if (!cliente) {
-    errorAds = "La cuenta no tiene tokens de MELI guardados; conéctala en Ajustes.";
+    errorAds =
+      "No se pudieron leer los tokens de MELI: revisa que la cuenta esté conectada en Ajustes.";
   } else {
     try {
       anuncios = await traerAnunciosAds(cliente, cuenta.site_id, r);
