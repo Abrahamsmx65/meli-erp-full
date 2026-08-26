@@ -170,8 +170,12 @@ async function procesar(origen: string): Promise<void> {
             }
             await cerrarSync(admin, logId, "error", {
               mensaje:
-                "El API de clips de MELI no contestó en ninguna ruta conocida. " +
-                "El sondeo completo está abajo; con eso se ajusta el servicio.",
+                "MELI todavía no expone los clips por API para vendedores locales " +
+                "(se sondearon 10 rutas con una publicación que SÍ tiene clip: nada " +
+                "contesta, y la única ruta que existe es la de Global Selling, que el " +
+                "PolicyAgent le niega a esta app). Los clips se aplican por lo pronto " +
+                "desde Publicaciones → Clips en Seller Center; el sondeo queda armado " +
+                "y esta sección se activará sola el día que MELI lo prenda.",
               sondeos,
               camposItem,
             });

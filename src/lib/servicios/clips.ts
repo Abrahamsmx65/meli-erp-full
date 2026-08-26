@@ -316,7 +316,9 @@ export async function descubrirRutaClips(
   for (const ruta of rutasCandidatas(sellerId, userProductId)) {
     const url = ruta.get(itemId);
     try {
-      const respuesta = await cliente.get(url);
+      // Sin reintentos: el sondeo quiere la PRIMERA respuesta; un 500
+      // reintentado 4 veces con backoff quema el presupuesto de la función.
+      const respuesta = await cliente.get(url, undefined, { reintentos: 0 });
       sondeos.push({ ruta: ruta.nombre, url, status: 200, cuerpo: JSON.stringify(respuesta).slice(0, 400) });
       return { ruta, respuesta, sondeos };
     } catch (err) {

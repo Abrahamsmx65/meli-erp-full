@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cerrarSync, cuentaActiva, registrarSync } from "@/lib/datos/repos";
 import { MeliClient, MeliError } from "@/lib/meli/client";
 import { descubrirRutaClips, normalizarClips } from "@/lib/servicios/clips";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * Explorador del API de clips de MELI (?item=MLM123 para uno concreto; sin
@@ -105,10 +105,82 @@ export async function GET(req: NextRequest) {
   try {
     pruebas["GET /items/{id} (campos de video y agrupador)"] = await cliente.get(
       `/items/${itemId}`,
-      { attributes: "id,status,permalink,video_id,family_name,catalog_product_id,tags" },
+      {
+        attributes:
+          "id,status,permalink,video_id,family_name,catalog_product_id,tags,videos,clips,short_videos",
+      },
     );
   } catch (err) {
     pruebas["GET /items/{id} (campos de video y agrupador)"] = detalleError(err);
+  }
+
+  // Los user products de TODAS las tallas del item: si el clip vive ahí,
+  // basta con que una talla conteste 200 para amarrar la ruta. Primero los
+  // del catálogo local; si el item no está en el ERP, se sacan del item.
+  let ups: string[] = [];
+  {
+    const { data } = await supabase
+      .from("skus")
+      .select("user_product_id")
+      .eq("account_id", cuenta.id)
+      .eq("item_id", itemId)
+      .not("user_product_id", "is", null)
+      .limit(30);
+    ups = [...new Set((data ?? []).map((r) => r.user_product_id as string))];
+  }
+  if (!ups.length) {
+    try {
+      const item = await cliente.get<{
+        variations?: { user_product_id?: string | null }[];
+      }>(`/items/${itemId}`, { attributes: "variations" });
+      ups = [
+        ...new Set(
+          (item.variations ?? [])
+            .map((v) => v.user_product_id)
+            .filter(Boolean) as string[],
+        ),
+      ];
+    } catch {
+      // Sin variaciones legibles: el sondeo de arriba ya dijo lo suyo.
+    }
+  }
+
+  const clipsPorUp: Record<string, unknown> = {};
+  for (const up of ups.slice(0, 8)) {
+    try {
+      // Sin reintentos: esta ruta contesta 500 cuando no encuentra clip y
+      // reintentarla 4 veces por talla fue lo que mató la función por tiempo.
+      clipsPorUp[up] = await cliente.get(`/user-products/${up}/clips`, undefined, {
+        reintentos: 0,
+      });
+    } catch (err) {
+      clipsPorUp[up] = detalleError(err);
+    }
+  }
+  pruebas["GET /user-products/{up}/clips (todas las tallas)"] = clipsPorUp;
+
+  // El cuerpo COMPLETO de un user product: si el clip viene incrustado ahí
+  // (campo clips/videos/multimedia), aquí se ve.
+  if (ups.length) {
+    try {
+      const cuerpo = await cliente.get(`/user-products/${ups[0]}`, undefined, {
+        reintentos: 1,
+      });
+      // Como texto recortado: un JSON truncado no se puede re-parsear.
+      pruebas["GET /user-products/{up} (cuerpo completo)"] =
+        JSON.stringify(cuerpo).slice(0, 4000);
+    } catch (err) {
+      pruebas["GET /user-products/{up} (cuerpo completo)"] = detalleError(err);
+    }
+  }
+
+  // A la bitácora: así el resultado se puede revisar desde fuera sin copiar
+  // JSON del navegador. Es diagnóstico, no una corrida del proceso.
+  try {
+    const logId = await registrarSync(admin, cuenta.id, "clips_diagnostico");
+    await cerrarSync(admin, logId, "ok", { itemId, pruebas } as never);
+  } catch {
+    // Si la bitácora no guarda, el JSON del navegador sigue completo.
   }
 
   return NextResponse.json({ itemId, pruebas });

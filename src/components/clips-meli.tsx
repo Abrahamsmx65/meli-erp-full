@@ -82,12 +82,13 @@ export function ClipsMeli() {
       setTrabajando(Boolean(j.trabajando));
 
       // Ver al proceso trabajando re-arma el auto-encendido: si al terminar
-      // queda más trabajo, la página lo vuelve a encender sola.
-      if (j.trabajando) autoEncendido.current = false;
+      // queda más trabajo, la página lo vuelve a encender sola. Con una
+      // corrida muerta NO se re-arma: el intento automático es UNO por
+      // visita (suficiente para refrescar el sondeo tras un deploy, sin
+      // martillar a MELI con el mismo golpe).
+      if (j.trabajando && !j.procesoError) autoEncendido.current = false;
 
-      // Con la última corrida muerta no se relanza solo: repetiría el mismo
-      // golpe. El botón queda vivo para reintentar a mano.
-      if (hayTrabajo && !j.trabajando && !j.procesoError && !autoEncendido.current) {
+      if (hayTrabajo && !j.trabajando && !autoEncendido.current) {
         autoEncendido.current = true;
         try {
           await encender();
