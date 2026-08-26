@@ -111,6 +111,112 @@ const SUBTITULOS_ESTUDIO = [
   },
 ] as const;
 
+/**
+ * Locaciones para el video del Studio. "auto" deja que el concepto del 🎲
+ * decida; "otro" abre un campo libre. La instrucción va en español directo
+ * al prompt.
+ */
+const LUGARES_ESTUDIO = [
+  { id: "auto", etiqueta: "Lugar: el concepto decide", instruccion: "" },
+  {
+    id: "sala",
+    etiqueta: "Lugar: sala moderna",
+    instruccion: "Locación del video: sala moderna y luminosa de un departamento mexicano premium.",
+  },
+  {
+    id: "recamara",
+    etiqueta: "Lugar: recámara",
+    instruccion: "Locación del video: recámara amplia y arreglada con luz natural, espejo de cuerpo completo.",
+  },
+  {
+    id: "cocina",
+    etiqueta: "Lugar: cocina",
+    instruccion: "Locación del video: cocina moderna y luminosa, desayunador visible.",
+  },
+  {
+    id: "jardin",
+    etiqueta: "Lugar: jardín / terraza",
+    instruccion: "Locación del video: terraza o jardín con plantas y luz de día, ambiente relajado.",
+  },
+  {
+    id: "calle",
+    etiqueta: "Lugar: calle bonita",
+    instruccion: "Locación del video: calle bonita y arbolada tipo Polanco/Roma, banquetas limpias, luz de día.",
+  },
+  {
+    id: "oficina",
+    etiqueta: "Lugar: oficina",
+    instruccion: "Locación del video: oficina moderna y ordenada, escritorio y buena luz.",
+  },
+  {
+    id: "gimnasio",
+    etiqueta: "Lugar: gimnasio",
+    instruccion: "Locación del video: gimnasio limpio y moderno, aparatos de fondo.",
+  },
+  {
+    id: "alberca",
+    etiqueta: "Lugar: alberca / playa",
+    instruccion: "Locación del video: junto a una alberca o playa con sol, ambiente vacacional.",
+  },
+  {
+    id: "rancho",
+    etiqueta: "Lugar: rancho / campo",
+    instruccion: "Locación del video: exterior de rancho o campo mexicano, tierra y vegetación real.",
+  },
+  {
+    id: "taller",
+    etiqueta: "Lugar: taller / obra",
+    instruccion: "Locación del video: taller o zona de obra con herramienta y ambiente de trabajo real.",
+  },
+  { id: "otro", etiqueta: "Lugar: otro (escríbelo)", instruccion: "" },
+] as const;
+
+/** Vestuario del creador; misma mecánica que el lugar. */
+const ROPAS_ESTUDIO = [
+  { id: "auto", etiqueta: "Ropa: el concepto decide", instruccion: "" },
+  {
+    id: "casual",
+    etiqueta: "Ropa: casual premium",
+    instruccion: "Vestuario: casual premium estilo quiet luxury, arreglado y aspiracional.",
+  },
+  {
+    id: "mezclilla",
+    etiqueta: "Ropa: jeans y básicos",
+    instruccion: "Vestuario: jeans bien puestos con básicos limpios (playera o camisa sencilla).",
+  },
+  {
+    id: "deportiva",
+    etiqueta: "Ropa: deportiva",
+    instruccion: "Vestuario: ropa deportiva moderna (leggings o shorts y top/playera dry-fit).",
+  },
+  {
+    id: "formal",
+    etiqueta: "Ropa: formal / oficina",
+    instruccion: "Vestuario: formal de oficina (blazer o camisa de vestir, pantalón de vestir).",
+  },
+  {
+    id: "vestido",
+    etiqueta: "Ropa: vestido",
+    instruccion: "Vestuario: vestido casual bonito, accesorios discretos.",
+  },
+  {
+    id: "casa",
+    etiqueta: "Ropa: cómoda de casa",
+    instruccion: "Vestuario: ropa cómoda de casa (pants, sudadera o pijama presentable).",
+  },
+  {
+    id: "playera",
+    etiqueta: "Ropa: playera / verano",
+    instruccion: "Vestuario: ropa fresca de verano (shorts, lino, colores claros).",
+  },
+  {
+    id: "trabajo",
+    etiqueta: "Ropa: de trabajo",
+    instruccion: "Vestuario: ropa de trabajo real (chaleco, mezclilla resistente, casco si aplica).",
+  },
+  { id: "otro", etiqueta: "Ropa: otra (escríbela)", instruccion: "" },
+] as const;
+
 /** Lee la respuesta como JSON y, si el servidor contestó texto plano
  *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
 async function leerJson(r: Response): Promise<Record<string, unknown>> {
@@ -340,6 +446,11 @@ export function GeneradorVideo({
   const [generandoVoz, setGenerandoVoz] = useState(false);
   const [audioPrueba, setAudioPrueba] = useState<{ jobId: string; url: string } | null>(null);
   const [usarVoz, setUsarVoz] = useState(false);
+  // Dónde se graba y qué trae puesto el creador ("auto" = decide el concepto).
+  const [lugarEstudio, setLugarEstudio] = useState("auto");
+  const [lugarOtro, setLugarOtro] = useState("");
+  const [ropaEstudio, setRopaEstudio] = useState("auto");
+  const [ropaOtro, setRopaOtro] = useState("");
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -869,12 +980,26 @@ export function GeneradorVideo({
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
-            // El estilo de voz y los subtítulos elegidos se suman al prompt.
+            // Estilo de voz, subtítulos, lugar y ropa elegidos van al prompt.
             prompt: `${promptVideo} ${
               VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
             } ${
               SUBTITULOS_ESTUDIO.find((s) => s.id === subtitulos)?.instruccion ?? ""
-            }`.trim(),
+            } ${
+              lugarEstudio === "otro"
+                ? lugarOtro.trim()
+                  ? `Locación del video: ${lugarOtro.trim()}.`
+                  : ""
+                : (LUGARES_ESTUDIO.find((l) => l.id === lugarEstudio)?.instruccion ?? "")
+            } ${
+              ropaEstudio === "otro"
+                ? ropaOtro.trim()
+                  ? `Vestuario del creador: ${ropaOtro.trim()}.`
+                  : ""
+                : (ROPAS_ESTUDIO.find((r) => r.id === ropaEstudio)?.instruccion ?? "")
+            }`
+              .replace(/\s+/g, " ")
+              .trim(),
             modo: modoEstudio,
             avatarId: avatarId || undefined,
             // En el motor rápido el personaje fijo viaja como FOTO de
@@ -1245,6 +1370,49 @@ export function GeneradorVideo({
                   Personaje para {TIPOS_ETIQUETA[tipo]}: misma cara en todos los
                   videos de este tipo.
                 </span>
+              )}
+            </div>
+          )}
+
+          {formato === "studio" && (
+            <div className="mt-2 flex max-w-2xl flex-wrap items-center gap-2">
+              <select
+                value={lugarEstudio}
+                onChange={(e) => setLugarEstudio(e.target.value)}
+                className="px-2 py-1.5 text-sm"
+              >
+                {LUGARES_ESTUDIO.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.etiqueta}
+                  </option>
+                ))}
+              </select>
+              {lugarEstudio === "otro" && (
+                <input
+                  value={lugarOtro}
+                  onChange={(e) => setLugarOtro(e.target.value)}
+                  placeholder="Describe el lugar (p. ej. mercado de flores)"
+                  className="min-w-56 px-2 py-1.5 text-sm"
+                />
+              )}
+              <select
+                value={ropaEstudio}
+                onChange={(e) => setRopaEstudio(e.target.value)}
+                className="px-2 py-1.5 text-sm"
+              >
+                {ROPAS_ESTUDIO.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.etiqueta}
+                  </option>
+                ))}
+              </select>
+              {ropaEstudio === "otro" && (
+                <input
+                  value={ropaOtro}
+                  onChange={(e) => setRopaOtro(e.target.value)}
+                  placeholder="Describe la ropa (p. ej. camisa de lino blanca)"
+                  className="min-w-56 px-2 py-1.5 text-sm"
+                />
               )}
             </div>
           )}

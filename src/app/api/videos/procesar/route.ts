@@ -254,8 +254,8 @@ async function avanzar(
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: res.url,
-    video_guardado: permanente,
-    error: null,
+    video_guardado: permanente.url,
+    error: permanente.nota,
   });
 }
 
@@ -335,8 +335,8 @@ async function avanzarEstudio(
   await guardar(admin, fila.id, {
     estado: "completado",
     video_url: url,
-    video_guardado: permanente,
-    error: null,
+    video_guardado: permanente.url,
+    error: permanente.nota,
   });
 }
 
@@ -370,8 +370,9 @@ async function copiarAVideoStorage(
   id: string,
   url: string,
   fila: Fila,
-): Promise<string> {
+): Promise<{ url: string; nota: string | null }> {
   const ruta = `${accountId}/${id}.mp4`;
+  let nota: string | null = null;
 
   try {
     let sesion = sesiones.get(accountId);
@@ -382,7 +383,7 @@ async function copiarAVideoStorage(
     // Con guion guardado, los subtítulos también se queman aquí (texto
     // perfecto del ERP; a la IA se le pidió el video SIN texto). Y si hay
     // audio aprobado (Studio), esa pista sustituye a la generada.
-    return await quemarMarcaYSubir(
+    const url2 = await quemarMarcaYSubir(
       admin,
       sesion,
       ruta,
@@ -391,8 +392,12 @@ async function copiarAVideoStorage(
       fila.duracion,
       fila.formato === "studio" ? fila.audio_url : null,
     );
+    return { url: url2, nota: null };
   } catch (err) {
+    // Que el fallo se VEA en la tabla en vez de tragarse en silencio: el
+    // video queda completado, pero con la nota de que salió sin marca.
     console.error(`videos: sin marca de agua para ${id}:`, err);
+    nota = `Se guardó SIN marca/subtítulos (${(err as Error).message.slice(0, 120)}).`;
   }
 
   const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
@@ -405,5 +410,5 @@ async function copiarAVideoStorage(
   if (error) throw new Error(`No se pudo guardar en Storage: ${error.message}`);
 
   const { data } = admin.storage.from("videos-producto").getPublicUrl(ruta);
-  return data.publicUrl;
+  return { url: data.publicUrl, nota };
 }

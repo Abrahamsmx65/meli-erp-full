@@ -59,20 +59,34 @@ export async function GET(req: NextRequest) {
       const { quemarMarcaYSubir } = await import("@/lib/servicios/marca-agua");
       const { data: fila } = await admin
         .from("videos_producto")
-        .select("id, account_id, estado, video_guardado")
+        .select("id, account_id, estado, video_guardado, video_url, guion, duracion, audio_url, formato")
         .eq("id", remarcar)
         .single();
       if (!fila?.video_guardado || fila.estado !== "completado") {
         return NextResponse.json({ error: "Ese video no está terminado." }, { status: 400 });
       }
       const ruta = `${fila.account_id}/${fila.id}.mp4`;
-      // El video fuente lleva un sufijo anticache para que el sandbox
-      // descargue el archivo actual y no una copia vieja del CDN.
+      // La fuente debe estar LIMPIA para no encimar textos: la copia limpia
+      // del bucket si existe; si no, el original del CDN; y como último
+      // recurso el archivo guardado (videos viejos sin textos previos).
+      const nombreLimpio = `${fila.id}-limpio.mp4`;
+      const { data: existentes } = await admin.storage
+        .from("videos-producto")
+        .list(fila.account_id as string, { search: nombreLimpio });
+      const fuente = existentes?.some((a) => a.name === nombreLimpio)
+        ? admin.storage
+            .from("videos-producto")
+            .getPublicUrl(`${fila.account_id}/${nombreLimpio}`).data.publicUrl
+        : ((fila.video_url as string) ?? (fila.video_guardado as string));
       const url = await quemarMarcaYSubir(
         admin,
         sesion,
         ruta,
-        `${fila.video_guardado}?v=${Date.now()}`,
+        // Anticache: que el sandbox baje el archivo actual.
+        `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
+        fila.guion as string | null,
+        (fila.duracion as number) || 15,
+        fila.formato === "studio" ? (fila.audio_url as string | null) : null,
       );
       return NextResponse.json({ ok: true, url });
     }

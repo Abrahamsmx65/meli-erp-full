@@ -84,10 +84,13 @@ export function escaparDrawtext(texto: string): string {
 
 /** Los filtros drawtext de los subtítulos (mismo estilo que los de la IA). */
 export function filtrosSubtitulos(guion: string, duracion: number): string[] {
+  // OJO: borderw NO acepta expresiones como h/240 (fontsize, x, y sí); un
+  // valor fijo funciona bien en 720p y 1080p. Con expresión, ffmpeg tronaba
+  // y el video se guardaba sin marca ni subtítulos.
   return armarSubtitulos(guion, duracion).map(
     (s) =>
       `drawtext=fontfile=/tmp/marca.ttf:text='${escaparDrawtext(s.texto)}':` +
-      `fontcolor=white:fontsize=h/26:borderw=h/240:bordercolor=black@0.85:` +
+      `fontcolor=white:fontsize=h/26:borderw=6:bordercolor=black@0.85:` +
       `x=(w-tw)/2:y=h*0.71:enable='between(t,${s.desde},${s.hasta})'`,
   );
 }
