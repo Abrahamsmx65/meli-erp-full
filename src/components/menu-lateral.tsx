@@ -12,6 +12,7 @@ import {
   Container,
   Film,
   LogOut,
+  Megaphone,
   Menu,
   Package,
   PackageCheck,
@@ -62,6 +63,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
