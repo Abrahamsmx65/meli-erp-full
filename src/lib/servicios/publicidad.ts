@@ -142,23 +142,51 @@ export async function traerAnunciosAds(
     );
   }
 
+  // La ruta actual lleva el sitio en medio (advertising/MLM/advertisers/…);
+  // la vieja, sin sitio, se queda como respaldo por si algún sitio aún la
+  // sirve. Se prueba en orden y gana la primera que no dé 404.
+  const sitio = advertiser.site_id ?? siteId;
+  const rutas = [
+    `/advertising/${sitio}/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
+    `/advertising/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
+  ];
+  let ruta = rutas[0];
+
+  const pedirPagina = async (offset: number): Promise<RespuestaAds> => {
+    let ultimo404: MeliError | null = null;
+    for (const candidata of rutas.slice(rutas.indexOf(ruta))) {
+      try {
+        const pagina = await cliente.get<RespuestaAds>(
+          candidata,
+          {
+            limit: 50, // el máximo que acepta el API
+            offset,
+            date_from: rango.desde,
+            date_to: rango.hasta,
+            metrics: METRICAS_ADS,
+          },
+          { headers: { "Api-Version": "2" }, reintentos: 2 },
+        );
+        ruta = candidata; // esta sirve: las páginas que siguen van directo
+        return pagina;
+      } catch (err) {
+        if (err instanceof MeliError && err.status === 404) {
+          ultimo404 = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw ultimo404 ?? new MeliError("Sin ruta de anuncios que responda.", 404, null, ruta);
+  };
+
   const anuncios: AnuncioAds[] = [];
-  const limite = 50; // el máximo que acepta el API
+  const limite = 50;
   let offset = 0;
   let total = Infinity;
 
   while (offset < total) {
-    const pagina = await cliente.get<RespuestaAds>(
-      `/advertising/advertisers/${advertiser.advertiser_id}/product_ads/ads/search`,
-      {
-        limit: limite,
-        offset,
-        date_from: rango.desde,
-        date_to: rango.hasta,
-        metrics: METRICAS_ADS,
-      },
-      { headers: { "Api-Version": "2" }, reintentos: 2 },
-    );
+    const pagina = await pedirPagina(offset);
 
     const filas = pagina.results ?? [];
     for (const f of filas) {
