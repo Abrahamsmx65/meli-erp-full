@@ -286,7 +286,10 @@ async function avanzarEstudio(
 
   const res = await llamarHerramienta(sesion, "job_status", { jobId: fila.request_id });
   const sc = resultadoEstructurado(res);
-  const trabajo = sc?.results?.[0] ?? sc;
+  // job_status entrega el trabajo envuelto en `generation`; generate_video
+  // lo entrega en `results[0]`. Sin este desempaque el estado nunca se ve
+  // "completed" y el video se queda "en progreso" eternamente.
+  const trabajo = sc?.generation ?? sc?.results?.[0] ?? sc;
   const estado = String(trabajo?.status ?? "");
 
   if (estado === "ip_detected" || estado === "ip_detect") {

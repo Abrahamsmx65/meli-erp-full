@@ -1,6 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { abrirSesion, listarHerramientas } from "@/lib/higgsfield/mcp";
+import { dispararVideos } from "@/lib/servicios/disparar-videos";
+import { origenReal } from "@/lib/servicios/origen";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,6 +16,14 @@ const LLAVE = "dx-mgx7q4wkzt";
 export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("llave") !== LLAVE) {
     return NextResponse.json({ error: "No." }, { status: 404 });
+  }
+
+  // ?despachar=1 → enciende el vigilante de videos (para destrabar filas
+  // sin esperar a que alguien abra la página).
+  if (req.nextUrl.searchParams.get("despachar")) {
+    const origen = origenReal(req);
+    after(() => dispararVideos(origen));
+    return NextResponse.json({ ok: true, despachado: true });
   }
 
   const admin = clienteAdmin();
