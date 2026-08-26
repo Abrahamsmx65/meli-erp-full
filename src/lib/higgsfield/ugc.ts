@@ -25,7 +25,9 @@ const CANDADO_UGC =
   "sole and logos. Do not redesign, replace, morph or restyle it, and do not invent " +
   "additional logos, text, buckles or design elements. The product can be picked " +
   "up, worn and walked in naturally, but it is handled gently — never tossed, " +
-  "shaken or spun fast — and it never morphs.";
+  "shaken or spun fast — and it never morphs. No on-screen text of any kind: no " +
+  "subtitles, no captions, no labels, no watermarks (AI-rendered text comes out " +
+  "misspelled).";
 
 // Imperfecciones que hacen que NO parezca anuncio generado.
 const IMPERFECCIONES =
@@ -1002,7 +1004,9 @@ export function promptUGCDesdeFoto(datos: {
     `The video starts EXACTLY on the provided real product photo — the first frame is ` +
     `identical to it. Then ${entrada}: ${persona}. They look into the camera with ` +
     `natural engaging expressions and talk in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate lip ` +
-    `sync, like recommending the product to a friend, saying: "${limpio}". ${VOZ_FLUIDA}. While ` +
+    `sync, like recommending the product to a friend, saying EXACTLY this script, ` +
+    `word for word, in correct Spanish without changing or inventing words: ` +
+    `"${limpio}". ${VOZ_FLUIDA}. While ` +
     `talking they can show it closer to the lens, put it on and take a few natural ` +
     `steps as the handheld camera follows smoothly — everything in ONE single ` +
     `continuous take within the same continuous space: no cuts, no jump transitions, ` +
@@ -1027,8 +1031,9 @@ export function promptUGCConVozIA(narrativa: string, guion: string): string {
   return (
     narrativa +
     ` The person talks directly to the camera in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate ` +
-    `lip sync, like recommending the footwear to a friend, saying: "${limpio}". ` +
-    `${VOZ_FLUIDA}.` +
+    `lip sync, like recommending the footwear to a friend, saying EXACTLY this ` +
+    `script, word for word, in correct Spanish without changing or inventing ` +
+    `words: "${limpio}". ${VOZ_FLUIDA}.` +
     CANDADO_UGC
   );
 }

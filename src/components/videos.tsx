@@ -80,6 +80,29 @@ const VOCES_ESTUDIO = [
   },
 ] as const;
 
+/**
+ * Subtítulos del Studio. La IA escribe MAL el texto en pantalla (letras
+ * faltantes, faltas de ortografía), así que el default es sin subtítulos:
+ * TikTok/Reels/MELI los ponen bien escritos al publicar.
+ */
+const SUBTITULOS_ESTUDIO = [
+  {
+    id: "no",
+    etiqueta: "Subtítulos: sin subtítulos (recomendado)",
+    instruccion:
+      "SIN texto en pantalla de ningún tipo: sin subtítulos, sin rótulos, sin " +
+      "palabras escritas ni marcas de agua.",
+  },
+  {
+    id: "si",
+    etiqueta: "Subtítulos: quemados por la IA (pueden traer errores)",
+    instruccion:
+      "Con subtítulos en español PERFECTAMENTE escritos, sin faltas de ortografía " +
+      "ni letras faltantes, que digan exactamente lo mismo que la voz, palabra " +
+      "por palabra.",
+  },
+] as const;
+
 /** Lee la respuesta como JSON y, si el servidor contestó texto plano
  *  (p. ej. "Request Entity Too Large"), lo convierte en error legible. */
 async function leerJson(r: Response): Promise<Record<string, unknown>> {
@@ -290,6 +313,8 @@ export function GeneradorVideo({
   const [motorEstudio, setMotorEstudio] = useState<"rapido" | "completo">("rapido");
   // Estilo de voz del Studio (todas hablan de corrido, sin entrecortarse).
   const [estiloVoz, setEstiloVoz] = useState<string>("fluida");
+  // Subtítulos quemados: apagados por default (la IA los escribe con errores).
+  const [subtitulos, setSubtitulos] = useState<string>("no");
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -331,6 +356,8 @@ export function GeneradorVideo({
           if (guardado) setAvatarId(guardado);
           const voz = localStorage.getItem("hf_voz_estudio");
           if (voz && VOCES_ESTUDIO.some((v) => v.id === voz)) setEstiloVoz(voz);
+          const subs = localStorage.getItem("hf_subs_estudio");
+          if (subs && SUBTITULOS_ESTUDIO.some((s) => s.id === subs)) setSubtitulos(subs);
         } catch {
           // Sin localStorage no pasa nada.
         }
@@ -383,13 +410,15 @@ export function GeneradorVideo({
             : "UGC",
       );
       setPromptVideo(
-        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México ` +
-          `(voz y subtítulos en español). Voz y acento: español mexicano de clase ` +
+        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México. ` +
+          `Voz y acento: español mexicano de clase ` +
           `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
           `caricatura. Estética: aspiracional de clase alta mexicana — creador de ` +
           `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
-          `moderna y luminosa. Concepto: ${c.etiqueta}. Guion base: ` +
+          `moderna y luminosa. Concepto: ${c.etiqueta}. La voz dice este guion ` +
+          `EXACTAMENTE, palabra por palabra, en español correcto, sin cambiarlo, ` +
+          `pronunciarlo mal ni inventar palabras: ` +
           `"${datos.guion || c.guionSugerido}". El creador habla a cámara con ` +
           `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
           `y movimientos reales y fluidos, en una sola locación con acciones ` +
@@ -690,9 +719,11 @@ export function GeneradorVideo({
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
-            // El estilo de voz elegido se suma a las instrucciones visibles.
+            // El estilo de voz y los subtítulos elegidos se suman al prompt.
             prompt: `${promptVideo} ${
               VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
+            } ${
+              SUBTITULOS_ESTUDIO.find((s) => s.id === subtitulos)?.instruccion ?? ""
             }`.trim(),
             modo: modoEstudio,
             avatarId: avatarId || undefined,
@@ -1008,6 +1039,24 @@ export function GeneradorVideo({
                 {VOCES_ESTUDIO.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.etiqueta}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={subtitulos}
+                onChange={(e) => {
+                  setSubtitulos(e.target.value);
+                  try {
+                    localStorage.setItem("hf_subs_estudio", e.target.value);
+                  } catch {
+                    // Sin localStorage no pasa nada.
+                  }
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                {SUBTITULOS_ESTUDIO.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.etiqueta}
                   </option>
                 ))}
               </select>
