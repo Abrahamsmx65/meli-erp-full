@@ -116,12 +116,19 @@ export class MeliClient {
     }
   }
 
-  /** GET a la API con renovación de token, reintentos y backoff. */
+  /**
+   * GET a la API con renovación de token, reintentos y backoff.
+   * `opts.reintentos` acota los reintentos: los sondeos de diagnóstico
+   * quieren la PRIMERA respuesta (un 500 repetido 4 veces con backoff se
+   * come el presupuesto de la función), no insistir.
+   */
   async get<T = unknown>(
     ruta: string,
     params?: Record<string, string | number | undefined | null>,
+    opts?: { reintentos?: number },
   ): Promise<T> {
     await this.asegurarToken();
+    const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
 
     const url = new URL(`${MELI_API}${this.prefix}${ruta}`);
     for (const [k, v] of Object.entries(params ?? {})) {
@@ -130,7 +137,7 @@ export class MeliClient {
 
     let ultimoError: unknown;
 
-    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
+    for (let intento = 0; intento <= maxReintentos; intento++) {
       try {
         const res = await fetch(url.toString(), {
           headers: {
@@ -146,7 +153,7 @@ export class MeliClient {
           continue;
         }
 
-        if (REINTENTABLES.has(res.status) && intento < MAX_REINTENTOS) {
+        if (REINTENTABLES.has(res.status) && intento < maxReintentos) {
           const reintentarEn = Number(res.headers.get("Retry-After") ?? 0);
           const espera = reintentarEn > 0
             ? reintentarEn * 1000
@@ -172,7 +179,7 @@ export class MeliClient {
         ultimoError = err;
         // Errores de red: reintentar. Errores de MELI ya resueltos: propagar.
         if (err instanceof MeliError) throw err;
-        if (intento >= MAX_REINTENTOS) break;
+        if (intento >= maxReintentos) break;
         await dormir(Math.min(15_000, 2 ** intento * 500));
       }
     }

@@ -5,7 +5,7 @@ import { MeliClient, MeliError } from "@/lib/meli/client";
 import { descubrirRutaClips, normalizarClips } from "@/lib/servicios/clips";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * Explorador del API de clips de MELI (?item=MLM123 para uno concreto; sin
@@ -146,9 +146,13 @@ export async function GET(req: NextRequest) {
   }
 
   const clipsPorUp: Record<string, unknown> = {};
-  for (const up of ups.slice(0, 15)) {
+  for (const up of ups.slice(0, 8)) {
     try {
-      clipsPorUp[up] = await cliente.get(`/user-products/${up}/clips`);
+      // Sin reintentos: esta ruta contesta 500 cuando no encuentra clip y
+      // reintentarla 4 veces por talla fue lo que mató la función por tiempo.
+      clipsPorUp[up] = await cliente.get(`/user-products/${up}/clips`, undefined, {
+        reintentos: 0,
+      });
     } catch (err) {
       clipsPorUp[up] = detalleError(err);
     }
@@ -159,7 +163,9 @@ export async function GET(req: NextRequest) {
   // (campo clips/videos/multimedia), aquí se ve.
   if (ups.length) {
     try {
-      const cuerpo = await cliente.get(`/user-products/${ups[0]}`);
+      const cuerpo = await cliente.get(`/user-products/${ups[0]}`, undefined, {
+        reintentos: 1,
+      });
       // Como texto recortado: un JSON truncado no se puede re-parsear.
       pruebas["GET /user-products/{up} (cuerpo completo)"] =
         JSON.stringify(cuerpo).slice(0, 4000);
