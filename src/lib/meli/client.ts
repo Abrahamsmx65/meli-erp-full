@@ -116,19 +116,12 @@ export class MeliClient {
     }
   }
 
-  /**
-   * GET a la API con renovación de token, reintentos y backoff.
-   * `opts.reintentos` acota los reintentos: los sondeos de diagnóstico
-   * quieren la PRIMERA respuesta (un 500 repetido 4 veces con backoff se
-   * come el presupuesto de la función), no insistir.
-   */
+  /** GET a la API con renovación de token, reintentos y backoff. */
   async get<T = unknown>(
     ruta: string,
     params?: Record<string, string | number | undefined | null>,
-    opts?: { reintentos?: number },
   ): Promise<T> {
     await this.asegurarToken();
-    const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
 
     const url = new URL(`${MELI_API}${this.prefix}${ruta}`);
     for (const [k, v] of Object.entries(params ?? {})) {
@@ -137,7 +130,7 @@ export class MeliClient {
 
     let ultimoError: unknown;
 
-    for (let intento = 0; intento <= maxReintentos; intento++) {
+    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
       try {
         const res = await fetch(url.toString(), {
           headers: {
@@ -153,7 +146,7 @@ export class MeliClient {
           continue;
         }
 
-        if (REINTENTABLES.has(res.status) && intento < maxReintentos) {
+        if (REINTENTABLES.has(res.status) && intento < MAX_REINTENTOS) {
           const reintentarEn = Number(res.headers.get("Retry-After") ?? 0);
           const espera = reintentarEn > 0
             ? reintentarEn * 1000
@@ -179,7 +172,7 @@ export class MeliClient {
         ultimoError = err;
         // Errores de red: reintentar. Errores de MELI ya resueltos: propagar.
         if (err instanceof MeliError) throw err;
-        if (intento >= maxReintentos) break;
+        if (intento >= MAX_REINTENTOS) break;
         await dormir(Math.min(15_000, 2 ** intento * 500));
       }
     }
@@ -247,51 +240,6 @@ export class MeliClient {
     throw ultimoError instanceof Error
       ? ultimoError
       : new MeliError(`Falló ${ruta}`, 0, ultimoError, ruta);
-  }
-  /**
-   * POST multipart/form-data (subida de archivos, p. ej. los clips). El
-   * Content-Type lo pone fetch con su boundary; forzarlo a mano rompe la
-   * subida. Sin reintentos automáticos: repetir una subida de video puede
-   * duplicar el clip, así que el que llama decide si reintenta.
-   */
-  async postForm<T = unknown>(ruta: string, form: FormData): Promise<T> {
-    await this.asegurarToken();
-    const url = `${MELI_API}${this.prefix}${ruta}`;
-
-    let res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.cred.accessToken}`,
-        Accept: "application/json",
-      },
-      body: form,
-      cache: "no-store",
-    });
-
-    if (res.status === 401) {
-      await this.renovar();
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.cred.accessToken}`,
-          Accept: "application/json",
-        },
-        body: form,
-        cache: "no-store",
-      });
-    }
-
-    const texto = await res.text();
-    const json = texto ? safeJson(texto) : null;
-    if (!res.ok) {
-      throw new MeliError(
-        `MELI ${res.status} en ${ruta}: ${texto.slice(0, 400)}`,
-        res.status,
-        json,
-        ruta,
-      );
-    }
-    return json as T;
   }
 }
 

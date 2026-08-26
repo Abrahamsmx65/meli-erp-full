@@ -88,7 +88,6 @@ guárdala numerada.
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
-| Clips de MELI en todas las variantes | `src/lib/servicios/clips.ts` + `/api/clips/*` + página `/clips` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
@@ -111,3 +110,9 @@ guárdala numerada.
 - Excel de los ~390 SKUs que no se mandan porque la corrida no cuadra en otras
   tallas.
 - La URL del webhook ya está puesta en la app de MELI y recibe avisos.
+- **Clips de MELI: NO hay API para vendedores locales** (verificado ago 2026
+  sondeando 10 rutas contra una publicación CON clip; el clip tampoco se
+  asoma en el item ni en sus user products). La única ruta que existe es
+  `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
+  (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
+  el historial de git (commits e861525…6b75355) por si MELI publica el API.
