@@ -169,11 +169,14 @@ describe("armarPlanUnificacion", () => {
     ]);
   });
 
-  it("manda value_id cuando se conoce, en vez de dejar a MELI adivinar por texto", () => {
-    const item = grupoDesparejo()[1];
-    const plan = armarPlanUnificacion(item, "MATERIAL", "Piel real", "1");
+  it("el objetivo viaja SIEMPRE por nombre, nunca por value_id", () => {
+    // Mandar solo el value_id truena en publicaciones donde ese id no
+    // resuelve: "Value name of attribute MATERIALS was not provided and
+    // couldn't be resolved from attributes database" (visto en producción).
+    const item = grupoDesparejo()[1]; // su MATERIAL actual sí trae value_id
+    const plan = armarPlanUnificacion(item, "MATERIAL", "Piel real");
     expect((plan.cuerpo as { attributes: unknown[] }).attributes).toEqual([
-      { id: "MATERIAL", value_id: "1" },
+      { id: "MATERIAL", value_name: "Piel real" },
     ]);
   });
 

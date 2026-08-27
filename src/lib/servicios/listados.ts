@@ -330,16 +330,16 @@ export function armarPlanUnificacion(
   item: ItemCrudo,
   atributoId: string,
   valor: string,
-  valueId?: string | null,
 ): PlanUnificacion {
-  const objetivo: Record<string, unknown> = valueId
-    ? { id: atributoId, value_id: valueId }
-    : { id: atributoId, value_name: valor };
+  // SIEMPRE por nombre, nunca por value_id: mandar solo el id truena con
+  // "Value name of attribute MATERIALS was not provided and couldn't be
+  // resolved from attributes database" (visto en producción con MATERIALS,
+  // que es multivalor). El nombre MELI sí lo resuelve contra su catálogo, y
+  // si es un valor custom que las hermanas ya traen, lo acepta igual.
+  const objetivo: Record<string, unknown> = { id: atributoId, value_name: valor };
 
-  const coincide = (a: AtributoCrudo): boolean => {
-    if (valueId && a.value_id != null) return a.value_id === valueId;
-    return (valorDeAtributo(a) ?? "").trim() === valor.trim();
-  };
+  const coincide = (a: AtributoCrudo): boolean =>
+    (valorDeAtributo(a) ?? "").trim() === valor.trim();
 
   const variaciones = item.variations ?? [];
   const enCombos = variaciones.some((v) =>
@@ -530,7 +530,6 @@ export async function unificarAtributo(
   itemIds: string[],
   atributoId: string,
   valor: string,
-  valueId?: string | null,
 ): Promise<ResultadoUnificacion[]> {
   const { items } = await traerItemsCrudos(cliente, itemIds);
   const resultados: ResultadoUnificacion[] = [];
@@ -549,7 +548,7 @@ export async function unificarAtributo(
       continue;
     }
 
-    const plan = armarPlanUnificacion(item, atributoId, valor, valueId);
+    const plan = armarPlanUnificacion(item, atributoId, valor);
     if (!plan.cuerpo) {
       resultados.push({ itemId, estado: "sin_cambio", niveles: [], detalle: null });
       continue;

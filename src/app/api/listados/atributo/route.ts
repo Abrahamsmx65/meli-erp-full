@@ -24,8 +24,6 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const atributoId = typeof body.atributoId === "string" ? body.atributoId.trim() : "";
   const valor = typeof body.valor === "string" ? body.valor.trim() : "";
-  const valueId =
-    typeof body.valueId === "string" && body.valueId.trim() ? body.valueId.trim() : null;
   const itemIds = Array.isArray(body.itemIds)
     ? body.itemIds.filter((x): x is string => typeof x === "string" && /^ML[A-Z]\d{4,}$/.test(x))
     : [];
@@ -61,7 +59,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const resultados = await unificarAtributo(cliente, itemIds, atributoId, valor, valueId);
+  const resultados = await unificarAtributo(cliente, itemIds, atributoId, valor);
   const errores = resultados.filter((r) => r.estado === "error").length;
 
   return NextResponse.json({ ok: errores === 0, resultados });

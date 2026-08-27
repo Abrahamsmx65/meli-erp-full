@@ -79,9 +79,6 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
     const libre = (otro[k] ?? "").trim();
     const valor = libre || eleccion[k] || "";
     if (!valor || valor === SIN_DATO) return;
-    // Si se eligió un valor que ya existe en el grupo, se manda también su
-    // value_id: MELI amarra exacto en vez de adivinar por texto.
-    const valueId = libre ? null : (d.valores.find((v) => v.valor === valor)?.valueId ?? null);
 
     const seguro = confirm(
       `Se va a poner "${d.nombre}" = "${valor}" en las ${grupo.items.length} publicaciones del agrupador ${grupo.agrupador}. Esto escribe directo en Mercado Libre. ¿Continuar?`,
@@ -96,7 +93,6 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
         body: JSON.stringify({
           atributoId: d.atributoId,
           valor,
-          valueId,
           itemIds: grupo.items.map((i) => i.itemId),
         }),
       });
