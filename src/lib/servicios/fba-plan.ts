@@ -13,7 +13,8 @@
  * registrado aparta desaparece para ambos en la siguiente sincronización
  * con Industher. El orden lo decide el usuario.
  */
-import { optimizarCajas } from "../engine";
+import { ajustarNecesidadPorCorrida, optimizarCajas } from "../engine";
+import type { AjusteCorrida } from "../engine";
 import type { Parametros } from "../engine/types";
 import type { CajaConstruida } from "../importar/cajas";
 import { claveAplastada, claveComparacion } from "../importar/sku";
@@ -49,6 +50,12 @@ export interface PlanFbaCajas {
   faltanteConCaja: { sku: string; pares: number; enPlan: number }[];
   /** SKUs de Amazon con venta que no amarraron con el catálogo de MELI */
   sinAmarre: SinAmarreFba[];
+  /**
+   * Tallas recortadas por la regla de la corrida despareja: su caja
+   * sobre-surtiría a las hermanas, así que piden la mitad (hermanas al día)
+   * o solo 7 días (corrida dispareja) en vez de sus 30 días completos.
+   */
+  ajustesCorrida: AjusteCorrida[];
 }
 
 export function planFbaConCajas(opts: {
@@ -66,6 +73,7 @@ export function planFbaConCajas(opts: {
   const prioridad = new Map<string, number>();
   const castigoSobrante = new Map<string, number>();
   const demandaDiaria = new Map<string, number>();
+  const posicionPorSku = new Map<string, number>();
   const sinAmarre: SinAmarreFba[] = [];
 
   for (const r of renglones) {
@@ -101,6 +109,7 @@ export function planFbaConCajas(opts: {
 
     if (faltante > 0) necesidad.set(sku, (necesidad.get(sku) ?? 0) + faltante);
     demandaDiaria.set(sku, (demandaDiaria.get(sku) ?? 0) + ventaDiaria);
+    posicionPorSku.set(sku, (posicionPorSku.get(sku) ?? 0) + posicion);
 
     // Los mismos pesos que el plan de Full, con los estados traducidos a
     // FBA: bajo de cobertura duele como crítico; con el doble del objetivo
@@ -121,6 +130,28 @@ export function planFbaConCajas(opts: {
     }
   }
 
+  // La misma regla de la corrida despareja que el plan de Full: la talla
+  // agotada cuya caja sobre-surtiría a sus hermanas no pide sus 30 días
+  // completos — la mitad si las hermanas van al día, 7 días si la corrida
+  // ya está dispareja.
+  const ajustesCorrida = ajustarNecesidadPorCorrida({
+    necesidad,
+    datos: new Map(
+      [...demandaDiaria.entries()].map(([sku, d]) => [
+        sku,
+        { posicion: posicionPorSku.get(sku) ?? 0, demandaDiaria: d },
+      ]),
+    ),
+    cajas: catalogo,
+    // El sobrante de las hermanas se mide contra el objetivo REAL de FBA
+    // (30 días + los 7 que tarda en volverse vendible): contra 30 pelones,
+    // una talla recién surtida al objetivo ya contaría como "dispareja".
+    horizonteDias: objetivo + RIESGO_DIAS_FBA,
+    factorSobrante: p.corridaSobranteFactor,
+    diasDispareja: p.corridaDiasDispareja,
+    faltanteGrande: p.corridaFaltanteGrande,
+  });
+
   const resultado = optimizarCajas({
     necesidad,
     prioridad,
@@ -131,6 +162,14 @@ export function planFbaConCajas(opts: {
     inventarioSuelto: new Map(),
     pesoFaltante: p.pesoFaltante,
     pesoSobrante: p.pesoSobrante,
+    // Una necesidad recortada por la corrida se surte completa: el recorte
+    // ya es la concesión (mismo criterio que el plan de Full).
+    toleranciaRescatePorSku: new Map(ajustesCorrida.map((a) => [a.sku, 0])),
+    // En la MITAD, la caja que completa la fracción va OPCIONAL: medias
+    // cajas no existen y el usuario decide si esa fracción viaja.
+    mediaCajaOpcional: new Set(
+      ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
+    ),
   });
 
   // Igual que el plan de Full: la marca de opcional viaja DENTRO de la
@@ -198,5 +237,6 @@ export function planFbaConCajas(opts: {
     sinCajaEnBodega: sinCajaEnBodega.sort((a, b) => b.pares - a.pares),
     faltanteConCaja: faltanteConCaja.sort((a, b) => b.pares - a.pares),
     sinAmarre: sinAmarre.sort((a, b) => b.faltante - a.faltante),
+    ajustesCorrida,
   };
 }

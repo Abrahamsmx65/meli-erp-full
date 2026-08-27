@@ -20,6 +20,9 @@ export const PARAMETROS_DEFAULT: Parametros = {
   pesoFaltanteCritico: 3,
   maxCajasPorEnvio: 0,
   maxPiezasPorEnvio: 0,
+  corridaSobranteFactor: 1.5,
+  corridaDiasDispareja: 7,
+  corridaFaltanteGrande: 200,
 };
 
 export function normalizarParametros(p: Partial<Parametros> | null | undefined): Parametros {
@@ -38,6 +41,9 @@ export function normalizarParametros(p: Partial<Parametros> | null | undefined):
   out.tendenciaMin = Math.min(out.tendenciaMin, 1);
   out.tendenciaMax = Math.max(out.tendenciaMax, 1);
   out.factorCorreccionMax = Math.max(1, out.factorCorreccionMax);
+  out.corridaSobranteFactor = Math.max(1, out.corridaSobranteFactor);
+  out.corridaDiasDispareja = Math.max(1, Math.round(out.corridaDiasDispareja));
+  out.corridaFaltanteGrande = Math.max(0, out.corridaFaltanteGrande);
 
   return out;
 }

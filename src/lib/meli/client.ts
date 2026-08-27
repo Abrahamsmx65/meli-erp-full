@@ -47,6 +47,7 @@ function dormir(ms: number): Promise<void> {
 export class MeliClient {
   private cred: Credenciales;
   private renovando: Promise<void> | null = null;
+  private ultimoScope: string | null = null;
 
   constructor(private readonly opts: OpcionesCliente) {
     this.cred = { ...opts.credenciales };
@@ -54,6 +55,16 @@ export class MeliClient {
 
   get credenciales(): Credenciales {
     return { ...this.cred };
+  }
+
+  /** Scopes que MELI reportó en la ÚLTIMA renovación de token; null = aún no renueva. */
+  get scope(): string | null {
+    return this.ultimoScope;
+  }
+
+  /** Fuerza una renovación de token (para diagnóstico: ver los scopes reales). */
+  async renovarAhora(): Promise<void> {
+    await this.renovar();
   }
 
   private get prefix(): string {
@@ -98,6 +109,7 @@ export class MeliClient {
         refreshToken: String(json.refresh_token ?? this.cred.refreshToken),
         expiraEn: Date.now() + Number(json.expires_in ?? 21600) * 1000,
       };
+      this.ultimoScope = typeof json.scope === "string" ? json.scope : null;
 
       await this.opts.alRenovar?.(this.cred);
     })();
@@ -197,18 +209,42 @@ export class MeliClient {
    * MELI que se escriba.
    */
   async post<T = unknown>(ruta: string, cuerpo: unknown): Promise<T> {
+    return this.conCuerpo<T>("POST", ruta, cuerpo);
+  }
+
+  /**
+   * PUT con cuerpo JSON (modificar un recurso: pausar un anuncio, cambiar el
+   * presupuesto de una campaña). Mismos reintentos que el POST; el API de
+   * publicidad exige además su versión por header.
+   */
+  async put<T = unknown>(
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string>; reintentos?: number },
+  ): Promise<T> {
+    return this.conCuerpo<T>("PUT", ruta, cuerpo, opts);
+  }
+
+  private async conCuerpo<T = unknown>(
+    metodo: "POST" | "PUT",
+    ruta: string,
+    cuerpo: unknown,
+    opts?: { headers?: Record<string, string>; reintentos?: number },
+  ): Promise<T> {
     await this.asegurarToken();
     const url = `${MELI_API}${this.prefix}${ruta}`;
+    const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
     let ultimoError: unknown;
 
-    for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
+    for (let intento = 0; intento <= maxReintentos; intento++) {
       try {
         const res = await fetch(url, {
-          method: "POST",
+          method: metodo,
           headers: {
             Authorization: `Bearer ${this.cred.accessToken}`,
             Accept: "application/json",
             "Content-Type": "application/json",
+            ...(opts?.headers ?? {}),
           },
           body: JSON.stringify(cuerpo ?? {}),
           cache: "no-store",
@@ -218,7 +254,7 @@ export class MeliClient {
           await this.renovar();
           continue;
         }
-        if (REINTENTABLES.has(res.status) && intento < MAX_REINTENTOS) {
+        if (REINTENTABLES.has(res.status) && intento < maxReintentos) {
           const reintentarEn = Number(res.headers.get("Retry-After") ?? 0);
           const espera = reintentarEn > 0
             ? reintentarEn * 1000
@@ -241,7 +277,7 @@ export class MeliClient {
       } catch (err) {
         ultimoError = err;
         if (err instanceof MeliError) throw err;
-        if (intento >= MAX_REINTENTOS) break;
+        if (intento >= maxReintentos) break;
         await dormir(Math.min(15_000, 2 ** intento * 500));
       }
     }
@@ -249,51 +285,6 @@ export class MeliClient {
     throw ultimoError instanceof Error
       ? ultimoError
       : new MeliError(`Falló ${ruta}`, 0, ultimoError, ruta);
-  }
-  /**
-   * POST multipart/form-data (subida de archivos, p. ej. los clips). El
-   * Content-Type lo pone fetch con su boundary; forzarlo a mano rompe la
-   * subida. Sin reintentos automáticos: repetir una subida de video puede
-   * duplicar el clip, así que el que llama decide si reintenta.
-   */
-  async postForm<T = unknown>(ruta: string, form: FormData): Promise<T> {
-    await this.asegurarToken();
-    const url = `${MELI_API}${this.prefix}${ruta}`;
-
-    let res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.cred.accessToken}`,
-        Accept: "application/json",
-      },
-      body: form,
-      cache: "no-store",
-    });
-
-    if (res.status === 401) {
-      await this.renovar();
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.cred.accessToken}`,
-          Accept: "application/json",
-        },
-        body: form,
-        cache: "no-store",
-      });
-    }
-
-    const texto = await res.text();
-    const json = texto ? safeJson(texto) : null;
-    if (!res.ok) {
-      throw new MeliError(
-        `MELI ${res.status} en ${ruta}: ${texto.slice(0, 400)}`,
-        res.status,
-        json,
-        ruta,
-      );
-    }
-    return json as T;
   }
 }
 

@@ -26,6 +26,28 @@ guárdala numerada.
 
 - **Las cajas nunca se abren.** Solo se mandan cajas completas. Muchas cajas
   son mixtas (una corrida: varias tallas del mismo modelo+color).
+- **Regla de la corrida despareja** (MELI y Amazon, `engine/corrida.ts`,
+  verificada con GT135 DK/TABACO y GT155 BEIGE): si una talla se agota
+  pero su caja sobre-surtiría a las hermanas (la mayoría de la caja no
+  tapa faltantes), NO se completan sus 30 días. El sobrante de una hermana
+  se mide con su POSICIÓN COMPLETA (disponible + en camino) ÷ venta del
+  horizonte del canal (MELI 30 días; FBA 30 + 7 de recepción). Hermanas al
+  día (≤ `corridaSobranteFactor`, 1.5) → viaja la MITAD de las cajas; corrida
+  dispareja (alguna arriba del factor, con stock sin venta o sin amarre) →
+  viaja UNA SEMANA de venta de la talla agotada por envío, topada por su
+  faltante (goteo que se apaga solo al acercarse al objetivo) — SALVO que
+  el faltante junto de las tallas cortas pase de `corridaFaltanteGrande`
+  (200 pares): esa venta pesa más que el sobrante y la corrida se surte
+  COMPLETA, sin recorte. Lo
+  recortado se surte completo (tolerancia de rescate 0: redondea a cajas
+  hacia arriba); en la MITAD, como medias cajas no existen, la caja que
+  completa la fracción sube marcada OPCIONAL (4 cajas → 2 firmes; 3 cajas
+  → 1 firme + 1 opcional) y las demás cajas recortadas NO se marcan
+  opcionales. La tolerancia general de rescate es de 7 días: una talla
+  rápida a medio morir sí fuerza su caja.
+- **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
+  (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
+  es 30 + 7 = 37 días, no más.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos
@@ -88,7 +110,6 @@ guárdala numerada.
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
-| Clips de MELI en todas las variantes | `src/lib/servicios/clips.ts` + `/api/clips/*` + página `/clips` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
@@ -111,3 +132,9 @@ guárdala numerada.
 - Excel de los ~390 SKUs que no se mandan porque la corrida no cuadra en otras
   tallas.
 - La URL del webhook ya está puesta en la app de MELI y recibe avisos.
+- **Clips de MELI: NO hay API para vendedores locales** (verificado ago 2026
+  sondeando 10 rutas contra una publicación CON clip; el clip tampoco se
+  asoma en el item ni en sus user products). La única ruta que existe es
+  `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
+  (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
+  el historial de git (commits e861525…6b75355) por si MELI publica el API.

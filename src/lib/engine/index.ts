@@ -8,6 +8,7 @@ import { normalizarParametros } from "./params";
 import { calcularLinea, prioridadFaltante, prioridadSobrante } from "./replenish";
 import { reconstruirStockDiario } from "./stockHistory";
 import { optimizarCajas } from "./boxes";
+import { ajustarNecesidadPorCorrida } from "./corrida";
 import type {
   Caja,
   ISODate,
@@ -25,6 +26,8 @@ import type {
 export * from "./types";
 export { PARAMETROS_DEFAULT, normalizarParametros, periodoRevision, ventanaRiesgo, zScore } from "./params";
 export { optimizarCajas } from "./boxes";
+export { ajustarNecesidadPorCorrida } from "./corrida";
+export type { AjusteCorrida, DatosSkuCorrida } from "./corrida";
 export { calcularDemanda } from "./demand";
 export { reconstruirStockDiario, calcularFraccionesConStock } from "./stockHistory";
 export { calcularLinea } from "./replenish";
@@ -111,6 +114,47 @@ export function generarPlan(e: EntradaPlan): Plan {
     demandaDiaria.set(l.sku, l.demanda.demandaDiaria);
   }
 
+  // 4.1 Regla de la corrida despareja: una talla agotada cuya caja sobre-
+  // surtiría a sus hermanas no pide sus 30 días completos — la mitad si las
+  // hermanas van al día, solo 7 días si la corrida ya está dispareja.
+  const ajustesCorrida = ajustarNecesidadPorCorrida({
+    necesidad,
+    datos: new Map(
+      lineas.map((l) => [
+        l.sku,
+        { posicion: l.posicion, demandaDiaria: l.demanda.demandaDiaria },
+      ]),
+    ),
+    cajas: e.cajas,
+    horizonteDias: p.horizonteDias,
+    factorSobrante: p.corridaSobranteFactor,
+    diasDispareja: p.corridaDiasDispareja,
+    faltanteGrande: p.corridaFaltanteGrande,
+  });
+  // Una necesidad recortada se surte COMPLETA (tolerancia 0): el recorte ya
+  // es la concesión, y quedarse además a un par del objetivo dejaba GT155
+  // BEIGE en 1 caja cuando la regla pedía las 2 que cubren los 7 días.
+  // En la práctica esto redondea el recorte a cajas hacia arriba.
+  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 0]));
+  // En la MITAD, la caja que completa la fracción (media caja no existe)
+  // sube marcada OPCIONAL para que el usuario decida.
+  const mediaCaja = new Set(
+    ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
+  );
+  const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
+  for (const a of ajustesCorrida) {
+    const l = lineaPorSku.get(a.sku);
+    if (!l) continue;
+    l.sugeridoCompleto = a.necesidadOriginal;
+    l.sugerido = a.necesidadAjustada;
+    l.faltanteBodega = Math.max(0, a.necesidadAjustada - l.inventarioPropio);
+    l.ajusteCorrida = a.regla;
+    l.explicacion +=
+      a.regla === "mitad_corrida"
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas). Si la mitad no cierra en cajas completas, la caja de la fracción sube marcada OPCIONAL.`
+        : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+  }
+
   const planCajas = optimizarCajas({
     necesidad,
     prioridad,
@@ -121,12 +165,17 @@ export function generarPlan(e: EntradaPlan): Plan {
     inventarioSuelto: propioMap,
     pesoFaltante: p.pesoFaltante,
     pesoSobrante: p.pesoSobrante,
-    // Una talla solo fuerza caja completa si quedaría con MENOS de ~7 días
-    // de cobertura: el faltante se mide contra el objetivo (30 días), así
-    // que el umbral es horizonte − 7. Los huecos menores esperan al
-    // siguiente envío (hay 2 por semana) en vez de subir cajas que las
-    // demás tallas no necesitan.
-    toleranciaRescateDias: Math.max(2, p.horizonteDias - 7),
+    // Una talla fuerza caja completa cuando su hueco pasa de ~7 días de su
+    // venta; los huecos menores esperan al siguiente envío (hay 2 por
+    // semana). La tolerancia vieja de horizonte − 7 (~23 días) dejaba a las
+    // tallas RÁPIDAS morir a medias: GT135 DK BROWN 27 vendía 3.1/día con
+    // 12 días de cobertura y el rescate no subía cajas porque su hueco
+    // "solo" era de 22 días. El sobre-surtido que esa tolerancia evitaba
+    // ahora lo controla la regla de la corrida despareja, que recorta ANTES
+    // del optimizador las tallas cuya caja viaja mayormente de lastre.
+    toleranciaRescateDias: Math.min(Math.max(2, p.horizonteDias - 7), 7),
+    toleranciaRescatePorSku: toleranciaPorSku,
+    mediaCajaOpcional: mediaCaja,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
   });
