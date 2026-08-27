@@ -17,6 +17,13 @@ export interface EtiquetaResuelta {
   skuAmazon: string | null;
   /** El título de la publicación de Amazon, que no es el de MELI. */
   tituloAmazon: string | null;
+  /**
+   * El SKU sí está en el catálogo de Amazon pero le falta el FNSKU. Es el
+   * único caso que se arregla preguntándole al API de inventario, y por eso
+   * va como dato y no solo dentro del texto del problema: la pantalla ofrece
+   * el botón nada más cuando de verdad hay algo que buscar.
+   */
+  faltaFnsku: boolean;
   titulo: string | null;
   color: string | null;
   talla: string | null;
@@ -26,7 +33,14 @@ export interface EtiquetaResuelta {
 }
 
 export interface DatoAmazon {
-  fnsku: string;
+  /**
+   * Nulo cuando el SKU sí está dado de alta en Amazon pero su FNSKU todavía
+   * no se conoce: el reporte de inventario solo trae los listings vivos, así
+   * que un SKU agotado o pausado en FBA llega sin él hasta que el API de
+   * inventario lo contesta (`amazon/fnsku.ts`). Saber que EXISTE ya sirve:
+   * es la diferencia entre "falta un dato" y "este SKU no existe".
+   */
+  fnsku: string | null;
   sku: string;
   titulo: string | null;
 }
@@ -44,50 +58,61 @@ export function claveOrdenada(s: string): string {
 }
 
 /**
- * Los datos de Amazon por clave de SKU: FNSKU (del inventario FBA), el SKU
- * real de Amazon y su título (del catálogo de reportes). Cada clave entra
- * dos veces: canónica y con los pedazos ordenados. Si Amazon no está
- * conectado o las tablas están vacías, el mapa sale vacío y las etiquetas
- * de Amazon simplemente no están disponibles.
+ * Los datos de Amazon por clave de SKU: FNSKU (del catálogo o del inventario
+ * FBA), el SKU real de Amazon y su título. Cada clave entra dos veces:
+ * canónica y con los pedazos ordenados. Si Amazon no está conectado o las
+ * tablas están vacías, el mapa sale vacío y las etiquetas de Amazon
+ * simplemente no están disponibles.
+ *
+ * Entra TODO el catálogo, tenga FNSKU o no. Antes se descartaba lo que no lo
+ * tuviera, y por eso la pantalla decía "no está ni en el catálogo de Mercado
+ * Libre ni en el de Amazon" de SKUs que sí estaban en Amazon: solo les
+ * faltaba un dato. Entre dos filas que caen en la misma clave gana la que
+ * traiga FNSKU, que es la que sí puede imprimirse.
  */
 export async function mapaAmazon(db: DB): Promise<Map<string, DatoAmazon>> {
   try {
     const [inventario, catalogo] = await Promise.all([
-      traerTodo<{ seller_sku: string; fnsku: string | null }>(
-        db,
-        "amazon_inventario",
-        "seller_sku, fnsku",
-        (q) => q,
+      traerTodo<FilaAmazon>(db, "amazon_inventario", "seller_sku, fnsku", (q) => q),
+      traerTodo<FilaAmazon>(db, "amazon_skus", "seller_sku, fnsku, titulo", (q) => q).catch(
+        () => [] as FilaAmazon[],
       ),
-      traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
-        db,
-        "amazon_skus",
-        "seller_sku, fnsku, titulo",
-        (q) => q,
-      ).catch(() => [] as { seller_sku: string; fnsku: string | null; titulo: string | null }[]),
     ]);
-
-    const titulos = new Map<string, string>();
-    for (const f of catalogo ?? []) {
-      if (f.titulo && !titulos.has(f.seller_sku)) titulos.set(f.seller_sku, f.titulo);
-    }
-
-    const mapa = new Map<string, DatoAmazon>();
-    const anotar = (clave: string, dato: DatoAmazon) => {
-      if (!mapa.has(clave)) mapa.set(clave, dato);
-    };
-    const registrar = (sku: string, fnsku: string | null) => {
-      if (!fnsku) return;
-      const dato: DatoAmazon = { fnsku, sku, titulo: titulos.get(sku) ?? null };
-      anotar(claveComparacion(sku), dato);
-      anotar(claveOrdenada(sku), dato);
-    };
-    for (const f of inventario ?? []) registrar(f.seller_sku, f.fnsku);
-    for (const f of catalogo ?? []) registrar(f.seller_sku, f.fnsku);
-    return mapa;
+    return construirMapaAmazon(inventario ?? [], catalogo ?? []);
   } catch {
     return new Map();
   }
+}
+
+export interface FilaAmazon {
+  seller_sku: string;
+  fnsku: string | null;
+  titulo?: string | null;
+}
+
+/** El armado del mapa, aparte de la lectura, para poder probarlo. */
+export function construirMapaAmazon(
+  inventario: FilaAmazon[],
+  catalogo: FilaAmazon[],
+): Map<string, DatoAmazon> {
+  const titulos = new Map<string, string>();
+  for (const f of catalogo) {
+    if (f.titulo && !titulos.has(f.seller_sku)) titulos.set(f.seller_sku, f.titulo);
+  }
+
+  const mapa = new Map<string, DatoAmazon>();
+  const anotar = (clave: string, dato: DatoAmazon) => {
+    const previo = mapa.get(clave);
+    if (!previo || (!previo.fnsku && dato.fnsku)) mapa.set(clave, dato);
+  };
+  const registrar = (sku: string, fnsku: string | null) => {
+    const dato: DatoAmazon = { fnsku: fnsku || null, sku, titulo: titulos.get(sku) ?? null };
+    anotar(claveComparacion(sku), dato);
+    anotar(claveOrdenada(sku), dato);
+  };
+  for (const f of inventario) registrar(f.seller_sku, f.fnsku);
+  for (const f of catalogo) registrar(f.seller_sku, f.fnsku);
+  return mapa;
 }
 
 /** Busca el dato de Amazon de un SKU de MELI, con las dos claves. */
@@ -163,6 +188,22 @@ export function buscarVariante(
   };
 }
 
+/**
+ * Qué decir de un SKU que no está en Mercado Libre. Son tres casos distintos
+ * y antes se contestaban con uno solo: "no está en ningún catálogo", incluso
+ * cuando el SKU sí estaba dado de alta en Amazon y lo único que faltaba era
+ * su FNSKU. Mandaba a buscar el SKU al lugar equivocado.
+ */
+export function problemaAmazon(dato: DatoAmazon | null): string | null {
+  if (!dato) return "Este SKU no está ni en el catálogo de Mercado Libre ni en el de Amazon.";
+  if (dato.fnsku) return null;
+  return (
+    "Está en el catálogo de Amazon pero todavía no se conoce su FNSKU: el " +
+    "reporte de inventario solo trae los listings con existencias en FBA. " +
+    "Dale a “Buscar FNSKU en Amazon” para preguntárselo al API."
+  );
+}
+
 function variante(color: string | null, talla: string | null): string {
   const p: string[] = [];
   if (color) p.push(color);
@@ -207,19 +248,18 @@ export async function resolverEtiquetas(
       // Amazon sale completa y NO es un problema; solo no habrá lado MELI.
       const amazonSuelto = buscarAmazon(fnskus, sku);
       etiquetas.push({
-        sku,
+        sku: amazonSuelto?.sku ?? sku,
         codigoFull: null,
         fnsku: amazonSuelto?.fnsku ?? null,
         skuAmazon: amazonSuelto?.sku ?? null,
         tituloAmazon: amazonSuelto?.titulo ?? null,
+        faltaFnsku: Boolean(amazonSuelto && !amazonSuelto.fnsku),
         titulo: amazonSuelto?.titulo ?? null,
         color: null,
         talla: null,
         variante: "",
         cantidad,
-        problema: amazonSuelto
-          ? null
-          : "Este SKU no está ni en el catálogo de Mercado Libre ni en el de Amazon.",
+        problema: problemaAmazon(amazonSuelto),
       });
       continue;
     }
@@ -231,6 +271,7 @@ export async function resolverEtiquetas(
       fnsku: amazon?.fnsku ?? null,
       skuAmazon: amazon?.sku ?? null,
       tituloAmazon: amazon?.titulo ?? null,
+      faltaFnsku: Boolean(amazon && !amazon.fnsku),
       titulo: encontrado.titulo ?? null,
       color: encontrado.color ?? null,
       talla: encontrado.talla ?? null,

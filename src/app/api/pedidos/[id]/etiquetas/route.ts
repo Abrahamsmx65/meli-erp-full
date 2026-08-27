@@ -137,19 +137,24 @@ export async function GET(
         const codigoFull = encontrado?.inventory_id ?? null;
         const datoAmazon = buscarAmazon(amazon, sku) ?? buscarAmazon(amazon, construido);
 
-        hoja.addRow([sku, codigoFull ?? "", datoAmazon?.fnsku ?? ""]);
-        if (!codigoFull && !datoAmazon) {
+        // Un SKU puede estar en el catálogo de Amazon y aun así no tener
+        // FNSKU (listing agotado o pausado en FBA). Sin FNSKU no hay etiqueta
+        // de Amazon que imprimir, exista o no la ficha.
+        const fnsku = datoAmazon?.fnsku ?? null;
+
+        hoja.addRow([sku, codigoFull ?? "", fnsku ?? ""]);
+        if (!codigoFull && !fnsku) {
           sinCodigo.push(sku);
           continue;
         }
         if (!codigoFull) sinCodigo.push(`${sku} (sin código Full, solo va la de Amazon)`);
-        if (!datoAmazon) sinCodigo.push(`${sku} (sin FNSKU, solo va la de MELI)`);
+        if (!fnsku) sinCodigo.push(`${sku} (sin FNSKU, solo va la de MELI)`);
 
         const titulo = encontrado?.titulo ?? `${l.modelo} ${l.color}`;
         const pdf = await generarPdf2Etiquetas(
-          datoAmazon
+          fnsku && datoAmazon
             ? {
-                fnsku: datoAmazon.fnsku,
+                fnsku,
                 titulo: datoAmazon.titulo ?? titulo,
                 sku: datoAmazon.sku,
               }

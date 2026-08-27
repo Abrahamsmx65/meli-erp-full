@@ -82,6 +82,15 @@ guárdala numerada.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.
+- **El FNSKU NO llega completo del reporte de inventario.**
+  `GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA` trae solo los listings FBA vivos,
+  así que todo lo Inactive o Incomplete (agotado o pausado en FBA) queda sin
+  FNSKU y su etiqueta de Amazon no se puede armar: eran ~6 mil SKUs del
+  catálogo. Ese dato se pregunta SKU por SKU al API de inventario FBA
+  (`getInventorySummaries`, 50 por llamada) en `amazon/fnsku.ts`, se guarda en
+  `amazon_skus.fnsku` y `fnsku_consultado_en` evita repreguntar por los que de
+  verdad nunca entraron a FBA. Un SKU que está en el catálogo de Amazon pero
+  sin FNSKU NO es un SKU inexistente: dilo distinto en pantalla.
 - **Las etiquetas están calcadas de formatos reales** y no se inventan:
   MELI y Amazon en ZPL vienen del generador viejo de etiquetas mixtas del
   usuario (plantillas verbatim en `etiquetas/zpl.ts`); el PDF 2×1 es esa
@@ -107,6 +116,7 @@ guárdala numerada.
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
 | Monitor de ventas MELI / Amazon  | `src/lib/servicios/ventas-monitor.ts`, `amazon-monitor.ts` (filtro de fechas en `components/filtro-fechas.tsx`) |
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
+| FNSKU de listings sin stock FBA  | `src/lib/amazon/fnsku.ts` + `/api/amazon/fnskus` |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |

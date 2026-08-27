@@ -8,6 +8,7 @@ import {
   sincronizarVentas,
 } from "../amazon/sync";
 import { sincronizarEconomia } from "../amazon/economia";
+import { completarFnskus } from "../amazon/fnsku";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -62,6 +63,16 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_pagos", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarPagos(admin, cliente);
+    });
+
+    // El FNSKU de los SKUs que el reporte de inventario no alcanza (listings
+    // agotados o pausados en FBA). Sin él no hay etiqueta de Amazon que
+    // imprimir. Van de poco en poco: son miles y la cuota es de 2 por
+    // segundo, así que el catálogo se completa a lo largo de varias horas y
+    // luego el paso no vuelve a pedir nada.
+    await paso(admin, cuenta.accountId, "cron_fnskus", 55 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return completarFnskus(admin, cliente, { limite: 150 });
     });
 
     // La economía por producto (SKU Economics vía Data Kiosk): cada paso es

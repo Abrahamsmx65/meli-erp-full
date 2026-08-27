@@ -18,6 +18,10 @@ interface Etiqueta {
   variante: string;
   cantidad: number;
   problema: string | null;
+  /** Está en Amazon pero sin FNSKU: se puede ir a buscar al API. */
+  faltaFnsku?: boolean;
+  /** El SKU tal como está dado de alta en Amazon, que puede no ser el de MELI. */
+  skuAmazon?: string | null;
 }
 
 /**
@@ -245,6 +249,8 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
   const [tamano, setTamano] = useState<Tamano>("rollo2x1");
   const [tipo, setTipo] = useState<TipoEtiqueta>("meli");
   const [cargando, setCargando] = useState(false);
+  const [buscandoFnskus, setBuscandoFnskus] = useState(false);
+  const [avisoFnskus, setAvisoFnskus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -296,6 +302,51 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
     }
   }
 
+  /**
+   * Le pregunta a Amazon el FNSKU de los que están en su catálogo pero no lo
+   * tienen, y vuelve a armar la lista con lo que haya contestado.
+   *
+   * No se puede usar `resolver`: esa SUMA cantidades (es la de agregar), y
+   * aquí se está reemplazando lo mismo que ya está en pantalla.
+   */
+  async function buscarFnskus() {
+    // Se pregunta por el SKU tal como está en Amazon: el de MELI puede traer
+    // el sufijo del sitio o los pedazos en otro orden, y el API no lo conoce.
+    const pendientes = lista.filter((e) => e.faltaFnsku).map((e) => e.skuAmazon ?? e.sku);
+    if (!pendientes.length || buscandoFnskus) return;
+
+    setBuscandoFnskus(true);
+    setAvisoFnskus(null);
+    setError(null);
+    try {
+      const r = await fetch("/api/amazon/fnskus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: pendientes }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Amazon no contestó.");
+
+      const rr = await fetch("/api/etiquetas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: lista.map((e) => ({ sku: e.sku, cantidad: e.cantidad })) }),
+      });
+      const jj = await rr.json();
+      if (rr.ok && Array.isArray(jj.etiquetas)) setLista(jj.etiquetas as Etiqueta[]);
+
+      setAvisoFnskus(
+        j.resueltos
+          ? `Amazon contestó el FNSKU de ${j.resueltos} de ${pendientes.length}.`
+          : "Amazon no tiene FNSKU para ninguno de estos: nunca entraron a FBA.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBuscandoFnskus(false);
+    }
+  }
+
   function agregarPegado() {
     // Acepta "SKU 12", "SKU,12", "SKU<tab>12" y también solo el SKU (una).
     const filas = pegado
@@ -320,6 +371,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
 
   const total = lista.reduce((a, e) => a + e.cantidad, 0);
   const conProblema = lista.filter((e) => e.problema).length;
+  const faltanFnskus = lista.filter((e) => e.faltaFnsku).length;
   const [descargando, setDescargando] = useState<"zpl" | "pdf" | null>(null);
 
   // TXT (ZPL) y PDF con el formato de las "Etiquetas de producto" de MELI.
@@ -611,7 +663,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
             </tbody>
           </table>
 
-          {conProblema ? (
+          {conProblema || faltanFnskus ? (
             <div className="border-t p-3 text-sm hairline">
               {lista
                 .filter((e) => e.problema)
@@ -620,6 +672,28 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
                     <strong>{e.sku}</strong>: {e.problema}
                   </p>
                 ))}
+
+              {/* Lo único que se arregla desde aquí: preguntarle el FNSKU al
+                  API de inventario de Amazon. El reporte diario solo trae los
+                  listings con existencias, así que todo lo agotado o pausado
+                  en FBA llega sin él. */}
+              {faltanFnskus ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3 no-imprimir">
+                  <button
+                    onClick={buscarFnskus}
+                    disabled={buscandoFnskus}
+                    className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                    style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                  >
+                    {buscandoFnskus
+                      ? "Preguntando a Amazon…"
+                      : `Buscar FNSKU en Amazon (${faltanFnskus})`}
+                  </button>
+                  {avisoFnskus ? (
+                    <span style={{ color: "var(--ink-2)" }}>{avisoFnskus}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>
