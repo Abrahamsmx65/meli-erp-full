@@ -1,9 +1,10 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { cargarInventario } from "@/lib/servicios/inventario";
+import { cargarInventario, totalesMexicoPorSku } from "@/lib/servicios/inventario";
 import { configPorProducto } from "@/lib/servicios/productos";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
+import { TotalMexico } from "@/components/total-mexico";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ export default async function Inventario() {
     valorEnCamino += r.enCamino * costo;
   }
 
+  const totalMexico = totalesMexicoPorSku(inv.renglones);
   const skusBodega = inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length;
   const cajasBodega = inv.porAlmacen.reduce((a, x) => a + x.cajas, 0);
 
@@ -178,6 +180,8 @@ export default async function Inventario() {
           </div>
         </section>
       ) : null}
+
+      <TotalMexico renglones={totalMexico} />
 
       <TablaInventario
         renglones={inv.renglones}
