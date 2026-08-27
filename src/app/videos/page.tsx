@@ -111,7 +111,17 @@ export default async function Videos() {
                 : "Conéctala para usar el Marketing Studio de tu suscripción desde aquí: producto idéntico y la calidad de la app. Un solo login; la conexión se mantiene sola."}
             </p>
           </div>
-          {!cuentaConectada && (
+          {cuentaConectada ? (
+            // La sesión de Higgsfield puede expirar aunque la conexión exista;
+            // sin este botón no habría forma de renovarla desde la pantalla.
+            <a
+              href="/api/higgsfield/conectar"
+              className="rounded border px-4 py-1.5 text-sm"
+              style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+            >
+              Reconectar (si algo falla) →
+            </a>
+          ) : (
             <a
               href="/api/higgsfield/conectar"
               className="rounded px-4 py-1.5 text-sm text-white"
