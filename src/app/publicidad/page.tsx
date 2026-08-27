@@ -157,17 +157,7 @@ export default async function Publicidad({
             <tbody>
               {p.recomendaciones.map((r) => (
                 <tr key={`${r.accion}|${r.modelo}`}>
-                  <td className="font-semibold">
-                    {r.modelo}
-                    {r.publicaciones.length ? (
-                      <span
-                        className="mt-0.5 block text-[10px] leading-tight"
-                        style={{ color: "var(--ink-muted)" }}
-                      >
-                        {r.publicaciones.join(" · ")}
-                      </span>
-                    ) : null}
-                  </td>
+                  <td className="font-semibold">{r.modelo}</td>
                   <td
                     className="font-semibold"
                     style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}

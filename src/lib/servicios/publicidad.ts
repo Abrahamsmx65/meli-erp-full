@@ -131,8 +131,6 @@ export interface RecomendacionAds {
   queHacer: string;
   /** por qué, con los números que lo sostienen */
   razon: string;
-  /** publicaciones del modelo, para encontrarlas en MELI */
-  publicaciones: string[];
 }
 
 interface VentaDiaria {
@@ -401,7 +399,6 @@ export function armarRecomendaciones(opts: {
   const recomendaciones: RecomendacionAds[] = [];
   const num = (x: number) => Math.round(x).toLocaleString("es-MX");
   const pct = (x: number) => `${Math.round(x * 100)}%`;
-  const ids = (lista: ItemDeModelo[]) => lista.map((i) => i.itemId);
 
   // Para ordenar por lo que está en juego sin cargarlo en el tipo.
   const peso = new Map<RecomendacionAds, number>();
@@ -435,7 +432,6 @@ export function armarRecomendaciones(opts: {
           razon: sinStock
             ? `Sin stock en Full y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
             : `Quedan ${cobertext} y ya lleva $${num(f.gastoAds)} en ads: esas ventas caen solas, la publicidad solo acelera el quiebre.`,
-          publicaciones: ids(activos),
         },
         f.gastoAds,
       );
@@ -452,7 +448,6 @@ export function armarRecomendaciones(opts: {
           accion: "encender",
           queHacer: "Encender el anuncio",
           razon: `Está pausado y ya hay ${cobertext}: si lo pausaste por falta de stock, ya se puede prender.`,
-          publicaciones: ids(pausados),
         },
         f.importe,
       );
@@ -469,7 +464,6 @@ export function armarRecomendaciones(opts: {
           accion: "apagar",
           queHacer: "Apagar el anuncio",
           razon: `Gastó $${num(f.gastoAds)} sin una sola venta en el periodo y el modelo ya vendía antes: el anuncio no está trabajando.`,
-          publicaciones: ids(activos),
         },
         f.gastoAds,
       );
@@ -485,7 +479,6 @@ export function armarRecomendaciones(opts: {
           accion: "bajar",
           queHacer: `Bajar el gasto: ACOS objetivo a ${acosSano}% (ROAS ${(1 / margen).toFixed(1)})`,
           razon: `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen)}: cada venta por publicidad sale con pérdida.`,
-          publicaciones: ids(activos),
         },
         f.gastoAds,
       );
@@ -507,7 +500,6 @@ export function armarRecomendaciones(opts: {
           accion: "subir",
           queHacer: `Subir el presupuesto (hasta ${Math.round(margen * 100)}% de ACOS)`,
           razon: `Hay ${cobertext} parados y los ads solo usan ${pct(f.tacos)} de un margen de ${pct(margen)}: cabe más inversión sin perder.`,
-          publicaciones: ids(activos),
         },
         f.importe,
       );
@@ -528,21 +520,30 @@ export function armarRecomendaciones(opts: {
           accion: "activar",
           queHacer: "Crear anuncio (candidato)",
           razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en Product Ads.`,
-          publicaciones: [],
         },
         f.importe,
       );
     }
   }
 
-  const ordenadas = recomendaciones.sort(
-    (a, b) =>
-      PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion] ||
-      (peso.get(b) ?? 0) - (peso.get(a) ?? 0),
+  // Los candidatos a activar pueden ser docenas: se queda con los 5 que más
+  // venden ANTES de ordenar, para que el recorte no dependa del alfabeto.
+  const mejoresCandidatos = new Set(
+    recomendaciones
+      .filter((r) => r.accion === "activar")
+      .sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0))
+      .slice(0, 5),
   );
-  // Los candidatos a activar pueden ser docenas: solo los 5 que más venden.
-  let candidatos = 0;
-  return ordenadas.filter((r) => r.accion !== "activar" || ++candidatos <= 5);
+
+  return recomendaciones
+    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
+    // En orden alfabético de modelo, como el resto de las tablas: la lista se
+    // recorre buscando el modelo, no leyendo un ranking.
+    .sort(
+      (a, b) =>
+        a.modelo.localeCompare(b.modelo, "es") ||
+        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion],
+    );
 }
 
 // ---------------------------------------------------------------------------

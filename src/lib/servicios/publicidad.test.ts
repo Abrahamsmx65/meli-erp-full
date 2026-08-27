@@ -266,7 +266,6 @@ describe("armarRecomendaciones", () => {
     expect(r).toHaveLength(1);
     expect(r[0].accion).toBe("pausar");
     expect(r[0].queHacer).toBe("Pausar el anuncio");
-    expect(r[0].publicaciones).toEqual(["MLM1"]);
     expect(r[0].razon).toContain("5 días de stock");
   });
 
@@ -289,7 +288,6 @@ describe("armarRecomendaciones", () => {
       itemsDeModelo: new Map([["GT122", [item("MLM1", "paused")]]]),
     });
     expect(r[0].accion).toBe("encender");
-    expect(r[0].publicaciones).toEqual(["MLM1"]);
   });
 
   it("NO pide encender si el stock sigue corto", () => {
@@ -365,9 +363,9 @@ describe("armarRecomendaciones", () => {
     expect(r).toHaveLength(5);
   });
 
-  it("ordena lo urgente primero: pausar antes que subir", () => {
+  it("ordena alfabéticamente por modelo, no por urgencia", () => {
     const r = armarRecomendaciones({
-      filas: [fila("AAA"), fila("ZZZ")],
+      filas: [fila("ZZZ"), fila("AAA")],
       stockDeModelo: new Map([
         ["AAA", 200], // subir
         ["ZZZ", 4], // pausar
@@ -378,6 +376,7 @@ describe("armarRecomendaciones", () => {
         ["ZZZ", [item("MLM2")]],
       ]),
     });
-    expect(r.map((x) => x.accion)).toEqual(["pausar", "subir"]);
+    expect(r.map((x) => x.modelo)).toEqual(["AAA", "ZZZ"]);
+    expect(r.map((x) => x.accion)).toEqual(["subir", "pausar"]);
   });
 });
