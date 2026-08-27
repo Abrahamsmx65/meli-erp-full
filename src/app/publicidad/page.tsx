@@ -1,14 +1,9 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import {
-  cargarPublicidad,
-  type CampanaAds,
-  type SugerenciaAds,
-} from "@/lib/servicios/publicidad";
+import { cargarPublicidad, type RecomendacionAds } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
-import { BotonAnuncio, BotonCampana, EditorCampana } from "@/components/publicidad-acciones";
 
 export const dynamic = "force-dynamic";
 
@@ -141,86 +136,46 @@ export default async function Publicidad({
         />
       </div>
 
-      {p.sugerencias.length > 0 ? (
+      {p.recomendaciones.length > 0 ? (
         <section className="tarjeta overflow-hidden">
           <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Sugerencias</h2>
+            <h2 className="text-base font-semibold">Recomendaciones</h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Publicidad cruzada con el stock de Full y el margen de cada modelo. Los
-              botones escriben directo en Product Ads; al pausar por stock, el sistema
-              te recuerda encenderlo cuando rellenes.
-            </p>
-          </header>
-          <ul>
-            {p.sugerencias.map((s) => (
-              <Sugerencia
-                key={`${s.accion}|${s.modelo}`}
-                s={s}
-                campanaDe={new Map(p.campanas.map((c) => [c.id, c]))}
-              />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {p.campanas.length > 0 ? (
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Campañas</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              El presupuesto diario y el ACOS objetivo se editan aquí y se guardan
-              directo en Mercado Libre. ACOS objetivo = % de la venta que aceptas
-              gastar en ads (ROAS objetivo = 100 ÷ ACOS).
+              Qué hacer hoy con cada modelo, cruzando la publicidad con el stock de
+              Full y el margen. Los cambios se hacen en la consola de Product Ads de
+              Mercado Libre; su API no acepta modificarlos desde aquí.
             </p>
           </header>
           <table className="datos">
             <thead>
               <tr>
-                <th>Campaña</th>
-                <th>Estado</th>
-                <th className="num">Anuncios</th>
-                <th className="num">Gasto del periodo</th>
-                <th>Presupuesto y ACOS objetivo</th>
+                <th>Modelo</th>
+                <th>Qué hacer</th>
+                <th>Por qué</th>
               </tr>
             </thead>
             <tbody>
-              {p.campanas.map((c) => (
-                <tr key={c.id}>
-                  <td className="font-medium">
-                    {c.nombre}
-                    {c.estrategia ? (
-                      <span className="ml-1.5 text-[10px]" style={{ color: "var(--ink-muted)" }}>
-                        {c.estrategia}
+              {p.recomendaciones.map((r) => (
+                <tr key={`${r.accion}|${r.modelo}`}>
+                  <td className="font-semibold">
+                    {r.modelo}
+                    {r.publicaciones.length ? (
+                      <span
+                        className="mt-0.5 block text-[10px] leading-tight"
+                        style={{ color: "var(--ink-muted)" }}
+                      >
+                        {r.publicaciones.join(" · ")}
                       </span>
                     ) : null}
                   </td>
-                  <td>
-                    <span
-                      className="text-xs font-semibold"
-                      style={{
-                        color:
-                          c.estado === "active"
-                            ? "var(--exito-texto)"
-                            : c.estado === "paused"
-                              ? "var(--estado-critico)"
-                              : "var(--ink-2)",
-                      }}
-                    >
-                      {c.estado === "active"
-                        ? "Activa"
-                        : c.estado === "paused"
-                          ? "Pausada"
-                          : (c.estado ?? "—")}
-                    </span>
+                  <td
+                    className="font-semibold"
+                    style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
+                  >
+                    {r.queHacer}
                   </td>
-                  <td className="num cifra">{c.anuncios}</td>
-                  <td className="num cifra">{pesos(c.gasto)}</td>
-                  <td>
-                    <EditorCampana
-                      id={c.id}
-                      presupuesto={c.presupuesto}
-                      acosObjetivo={c.acosObjetivo}
-                    />
+                  <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
+                    {r.razon}
                   </td>
                 </tr>
               ))}
@@ -327,126 +282,11 @@ export default async function Publicidad({
   );
 }
 
-const ETIQUETA_ACCION: Record<
-  SugerenciaAds["accion"],
-  { texto: string; color: string }
-> = {
-  pausar: { texto: "Pausar", color: "var(--estado-critico)" },
-  encender: { texto: "Encender", color: "var(--exito-texto)" },
-  apagar: { texto: "Apagar", color: "var(--estado-critico)" },
-  bajar: { texto: "Bajar gasto", color: "var(--estado-alerta)" },
-  subir: { texto: "Subir gasto", color: "var(--exito-texto)" },
-  activar: { texto: "Candidato", color: "var(--acento)" },
+const COLOR_ACCION: Record<RecomendacionAds["accion"], string> = {
+  pausar: "var(--estado-critico)",
+  encender: "var(--exito-texto)",
+  apagar: "var(--estado-critico)",
+  bajar: "var(--estado-alerta)",
+  subir: "var(--exito-texto)",
+  activar: "var(--acento)",
 };
-
-function Sugerencia({
-  s,
-  campanaDe,
-}: {
-  s: SugerenciaAds;
-  campanaDe: Map<string, CampanaAds>;
-}) {
-  const etiqueta = ETIQUETA_ACCION[s.accion];
-  const conBotones = s.accion === "pausar" || s.accion === "encender" || s.accion === "apagar";
-  // Las campañas donde vive este modelo, para aplicar la sugerencia de un clic.
-  const campanas =
-    s.accion === "bajar" || s.accion === "subir"
-      ? [...new Set(s.items.map((i) => i.campanaId).filter((x): x is string => !!x))]
-          .map((id) => campanaDe.get(id))
-          .filter((c): c is CampanaAds => !!c)
-      : [];
-  return (
-    <li className="flex flex-col gap-2 border-b px-4 py-3 last:border-b-0 hairline">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className="rounded-full border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-          style={{ borderColor: etiqueta.color, color: etiqueta.color }}
-        >
-          {etiqueta.texto}
-        </span>
-        <span className="text-sm font-semibold">{s.modelo}</span>
-        {s.recordatorio ? (
-          <span className="text-[10px] font-semibold" style={{ color: "var(--exito-texto)" }}>
-            Recordatorio
-          </span>
-        ) : null}
-        <span className="cifra ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
-          {s.gastoAds > 0 ? `${pesos(s.gastoAds)} en ads` : ""}
-          {s.coberturaDias != null && Number.isFinite(s.coberturaDias)
-            ? ` · ${Math.round(s.coberturaDias)}d de stock`
-            : ""}
-        </span>
-      </div>
-      <p className="text-xs" style={{ color: "var(--ink-2)" }}>
-        {s.razon}
-      </p>
-      {(s.accion === "bajar" || s.accion === "subir") &&
-      s.roasActual != null &&
-      s.roasEquilibrio != null ? (
-        <p className="cifra text-[11px]" style={{ color: "var(--ink-muted)" }}>
-          ROAS actual {s.roasActual.toFixed(1)} · equilibrio {s.roasEquilibrio.toFixed(1)} ·
-          ACOS sano ≤{Math.round(s.acosObjetivoPct ?? 0)}%
-        </p>
-      ) : null}
-      {campanas.length ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {campanas.map((c) => {
-            const acosSano =
-              s.acosObjetivoPct != null ? Math.round(s.acosObjetivoPct * 10) / 10 : null;
-            if (s.accion === "bajar") {
-              return acosSano != null ? (
-                <BotonCampana
-                  key={c.id}
-                  campanaId={c.id}
-                  acosObjetivo={acosSano}
-                  etiqueta={`ACOS objetivo → ${acosSano}% · ${c.nombre}`}
-                />
-              ) : null;
-            }
-            // subir: +20% de presupuesto y, si el ACOS objetivo está por
-            // debajo del margen, también soltarlo hasta el margen.
-            const nuevoPresupuesto =
-              c.presupuesto != null ? Math.ceil(c.presupuesto * 1.2) : null;
-            return (
-              <span key={c.id} className="inline-flex flex-wrap items-center gap-2">
-                {nuevoPresupuesto != null ? (
-                  <BotonCampana
-                    campanaId={c.id}
-                    presupuesto={nuevoPresupuesto}
-                    etiqueta={`Presupuesto +20% → ${pesos(nuevoPresupuesto)}/día · ${c.nombre}`}
-                  />
-                ) : null}
-                {acosSano != null && c.acosObjetivo != null && c.acosObjetivo < acosSano ? (
-                  <BotonCampana
-                    campanaId={c.id}
-                    acosObjetivo={acosSano}
-                    etiqueta={`ACOS objetivo → ${acosSano}% · ${c.nombre}`}
-                  />
-                ) : null}
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
-      {conBotones && s.items.length ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {s.items.map((i) => (
-            <span key={i.itemId} className="inline-flex items-center gap-1">
-              <BotonAnuncio
-                itemId={i.itemId}
-                estado={i.estado}
-                modelo={s.modelo}
-                motivo={s.accion === "pausar" ? "stock" : ""}
-                campanaId={i.campanaId}
-              />
-              <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
-                {i.itemId}
-                {i.compartido ? " (compartido)" : ""}
-              </span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </li>
-  );
-}
