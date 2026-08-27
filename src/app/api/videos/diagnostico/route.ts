@@ -39,6 +39,18 @@ export async function GET(req: NextRequest) {
     const sesion = await abrirSesion(admin, conexiones[0].account_id as string);
     const herramientas = await listarHerramientas(sesion);
 
+    // ?importar=url → el resultado CRUDO de media_import_url (para cuando
+    // el Studio rápido no puede importar las fotos).
+    const importar = req.nextUrl.searchParams.get("importar");
+    if (importar) {
+      const { llamarHerramienta, resultadoEstructurado } = await import("@/lib/higgsfield/mcp");
+      const res = await llamarHerramienta(sesion, "media_import_url", {
+        url: importar,
+        type: "image",
+      });
+      return NextResponse.json(resultadoEstructurado(res) ?? res);
+    }
+
     // ?sandbox=1 → ¿el sandbox del MCP trae ffmpeg y salida a internet?
     // (lo necesita la marca de agua).
     if (req.nextUrl.searchParams.get("sandbox")) {

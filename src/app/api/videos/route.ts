@@ -385,15 +385,23 @@ async function generarEstudio(
       // Seedance no acepta URLs directas: cada foto se importa al almacén
       // del MCP y el media_id resultante va de referencia de identidad.
       const medias: { value: string; role: string }[] = [];
+      let ultimaFalla = "";
       for (const foto of fotos) {
         const imp = resultadoEstructurado(
           await llamarHerramienta(sesion, "media_import_url", { url: foto, type: "image" }),
         );
-        // Una foto que no se pudo importar no tumba el intento.
-        if (imp?.media_id) medias.push({ value: String(imp.media_id), role: "image_references" });
+        // Una foto que no se pudo importar no tumba el intento, pero la
+        // causa se guarda: si TODAS fallan, el error debe decir por qué.
+        if (imp?.media_id) {
+          medias.push({ value: String(imp.media_id), role: "image_references" });
+        } else {
+          ultimaFalla = String(imp?.error ?? JSON.stringify(imp ?? {})).slice(0, 200);
+        }
       }
       if (!medias.length) {
-        throw new Error("No se pudo importar ninguna foto del producto al Studio.");
+        throw new Error(
+          `No se pudo importar ninguna foto del producto al Studio${ultimaFalla ? `: ${ultimaFalla}` : "."}`,
+        );
       }
       let conPersonaje = false;
       if (avatarFoto) {
