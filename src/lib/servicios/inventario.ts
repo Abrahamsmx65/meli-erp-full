@@ -12,6 +12,13 @@ import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
 import type { Corrida, FilaExistencia } from "../importar/excel";
 
+/**
+ * Almacén ficticio para los pedidos que ya salieron de China pero que el
+ * reporte del almacén todavía no menciona. No es una bodega de México: los
+ * agregados que cuentan "lo que ya está aquí" lo excluyen a propósito.
+ */
+export const ALMACEN_CHINA = "En camino de China";
+
 export interface RenglonInventario {
   sku: string;
   modelo: string;
@@ -274,8 +281,8 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
 
         const acc = bodega.get(sku) ?? { pares: 0, enCamino: 0, pedidos: new Map() };
         acc.enCamino += paresTalla;
-        const clave = `${numero}|En camino de China`;
-        const reg = acc.pedidos.get(clave) ?? { almacen: "En camino de China", cajas: 0, pares: 0 };
+        const clave = `${numero}|${ALMACEN_CHINA}`;
+        const reg = acc.pedidos.get(clave) ?? { almacen: ALMACEN_CHINA, cajas: 0, pares: 0 };
         reg.pares += paresTalla;
         acc.pedidos.set(clave, reg);
         bodega.set(sku, acc);
@@ -359,7 +366,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     const p = porPedido.get(pe.pedido) ?? { cajas: 0, pares: 0, almacenes: new Set<string>() };
     p.cajas += pe.cajas;
     p.pares += pe.pares;
-    p.almacenes.add("En camino de China");
+    p.almacenes.add(ALMACEN_CHINA);
     porPedido.set(pe.pedido, p);
   }
 
@@ -385,4 +392,41 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
       .sort((a, b) => b.pares - a.pares),
     crudos: { corridas: corridasRaw, skus },
   };
+}
+
+/** Un renglón del resumen "todo lo que ya está en México", por SKU. */
+export interface TotalMexicoSku {
+  sku: string;
+  modelo: string;
+  color: string;
+  talla: string;
+  /** cajas en bodega que contienen este SKU */
+  cajas: number;
+  /** pares en cajas cerradas, sumando TODAS las bodegas de México */
+  pares: number;
+}
+
+/**
+ * Lo que ya está aterrizado en México, junto: todas las bodegas sumadas en un
+ * solo número por SKU, sin lo que viene de China.
+ *
+ * Ojo con las cajas: como las cajas de corrida son mixtas, una misma caja
+ * cuenta en cada talla que trae. La columna dice "en cuántas cajas aparece
+ * este SKU", NO cajas exclusivas — sumar la columna entera contaría de más.
+ * Los pares sí son exactos y sí se pueden sumar.
+ */
+export function totalesMexicoPorSku(renglones: RenglonInventario[]): TotalMexicoSku[] {
+  return renglones
+    .map((r) => ({
+      sku: r.sku,
+      modelo: r.modelo,
+      color: r.color,
+      talla: r.talla,
+      cajas: r.pedidos
+        .filter((p) => p.almacen !== ALMACEN_CHINA)
+        .reduce((a, p) => a + p.cajas, 0),
+      pares: r.enBodega,
+    }))
+    .filter((r) => r.pares > 0 || r.cajas > 0)
+    .sort((a, b) => b.pares - a.pares);
 }
