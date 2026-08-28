@@ -194,14 +194,22 @@ export function buscarVariante(
  * cuando el SKU sí estaba dado de alta en Amazon y lo único que faltaba era
  * su FNSKU. Mandaba a buscar el SKU al lugar equivocado.
  */
+export const SIN_CATALOGO =
+  "Este SKU no está ni en el catálogo de Mercado Libre ni en el de Amazon.";
+
+/** Falta el FNSKU y todavía no se le ha preguntado a Amazon. */
+export const FALTA_FNSKU =
+  "Está en el catálogo de Amazon pero todavía no se conoce su FNSKU: el " +
+  "reporte de inventario solo trae los listings con existencias en FBA.";
+
+/** Se le preguntó a Amazon y no tiene FNSKU: nunca entró a FBA. */
+export const SIN_FNSKU_EN_AMAZON =
+  "Está en el catálogo de Amazon pero no tiene FNSKU: nunca entró a FBA. " +
+  "Su etiqueta de Amazon no se puede armar hasta que se dé de alta ahí.";
+
 export function problemaAmazon(dato: DatoAmazon | null): string | null {
-  if (!dato) return "Este SKU no está ni en el catálogo de Mercado Libre ni en el de Amazon.";
-  if (dato.fnsku) return null;
-  return (
-    "Está en el catálogo de Amazon pero todavía no se conoce su FNSKU: el " +
-    "reporte de inventario solo trae los listings con existencias en FBA. " +
-    "Dale a “Buscar FNSKU en Amazon” para preguntárselo al API."
-  );
+  if (!dato) return SIN_CATALOGO;
+  return dato.fnsku ? null : FALTA_FNSKU;
 }
 
 function variante(color: string | null, talla: string | null): string {

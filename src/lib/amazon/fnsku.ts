@@ -76,6 +76,12 @@ export interface ResultadoFnskus {
   preguntados: number;
   /** Cuántos contestaron con FNSKU. */
   resueltos: number;
+  /**
+   * Lo que Amazon acabó de contestar, SKU → FNSKU. Va de regreso para que
+   * quien pidió las etiquetas pueda completarlas en la misma respuesta, sin
+   * volver a leer el catálogo entero.
+   */
+  encontrados: Map<string, string>;
 }
 
 /**
@@ -97,7 +103,10 @@ export async function completarFnskus(
     ? await sinFnsku(admin, accountId, opciones.skus)
     : await pendientesDelCatalogo(admin, accountId, limite);
 
-  if (!faltantes.length) return { estado: "sin_pendientes", preguntados: 0, resueltos: 0 };
+  const encontrados = new Map<string, string>();
+  if (!faltantes.length) {
+    return { estado: "sin_pendientes", preguntados: 0, resueltos: 0, encontrados };
+  }
 
   const ahora = new Date().toISOString();
   let preguntados = 0;
@@ -105,9 +114,10 @@ export async function completarFnskus(
 
   for (let i = 0; i < faltantes.length; i += POR_LLAMADA) {
     const tanda = faltantes.slice(i, i + POR_LLAMADA);
-    const encontrados = await resumenesFba(cliente, tanda);
+    const deLaTanda = await resumenesFba(cliente, tanda);
     // Se acabó el plazo: lo ya guardado queda, el resto sigue pendiente.
-    if (!encontrados) return { estado: "sin_plazo", preguntados, resueltos };
+    if (!deLaTanda) return { estado: "sin_plazo", preguntados, resueltos, encontrados };
+    for (const [sku, fnsku] of deLaTanda) encontrados.set(sku, fnsku);
 
     preguntados += tanda.length;
 
@@ -121,20 +131,20 @@ export async function completarFnskus(
       .eq("account_id", accountId)
       .in("seller_sku", tanda);
 
-    const conFnsku = tanda.filter((sku) => encontrados.get(sku));
+    const conFnsku = tanda.filter((sku) => deLaTanda.get(sku));
     resueltos += conFnsku.length;
     await Promise.all(
       conFnsku.map((sku) =>
         admin
           .from("amazon_skus")
-          .update({ fnsku: encontrados.get(sku), fnsku_consultado_en: ahora })
+          .update({ fnsku: deLaTanda.get(sku), fnsku_consultado_en: ahora })
           .eq("account_id", accountId)
           .eq("seller_sku", sku),
       ),
     );
   }
 
-  return { estado: "cargado", preguntados, resueltos };
+  return { estado: "cargado", preguntados, resueltos, encontrados };
 }
 
 /**

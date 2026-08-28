@@ -7,6 +7,10 @@
     {
       "path": "/api/meli/skus-pendientes",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/amazon/fnskus",
+      "schedule": "0 16 * * *"
     }
   ]
 }

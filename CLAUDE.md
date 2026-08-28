@@ -87,10 +87,13 @@ guárdala numerada.
   así que todo lo Inactive o Incomplete (agotado o pausado en FBA) queda sin
   FNSKU y su etiqueta de Amazon no se puede armar: eran ~6 mil SKUs del
   catálogo. Ese dato se pregunta SKU por SKU al API de inventario FBA
-  (`getInventorySummaries`, 50 por llamada) en `amazon/fnsku.ts`, se guarda en
-  `amazon_skus.fnsku` y `fnsku_consultado_en` evita repreguntar por los que de
-  verdad nunca entraron a FBA. Un SKU que está en el catálogo de Amazon pero
-  sin FNSKU NO es un SKU inexistente: dilo distinto en pantalla.
+  (`getInventorySummaries`, 50 por llamada) en `amazon/fnsku.ts`. `/api/etiquetas`
+  lo completa EN LA MISMA petición para lo que trae la lista (cabe: 50 SKUs por
+  llamada), lo guarda en `amazon_skus.fnsku` y `fnsku_consultado_en` evita
+  repreguntar por los que de verdad nunca entraron a FBA; `/api/amazon/fnskus`
+  hace el resto del catálogo en segundo plano (se re-lanza solo, cron diario).
+  Un SKU que está en el catálogo de Amazon pero sin FNSKU NO es un SKU
+  inexistente: dilo distinto en pantalla.
 - **Las etiquetas están calcadas de formatos reales** y no se inventan:
   MELI y Amazon en ZPL vienen del generador viejo de etiquetas mixtas del
   usuario (plantillas verbatim en `etiquetas/zpl.ts`); el PDF 2×1 es esa
