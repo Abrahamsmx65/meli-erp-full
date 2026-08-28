@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/foto",
+      "schedule": "0 13 * * *"
+    },
+    {
       "path": "/api/cron/sync",
       "schedule": "0 14 * * *"
     },

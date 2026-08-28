@@ -346,6 +346,36 @@ export async function cargarInsumos(
 // ---------------------------------------------------------------------------
 
 /** Inserta en tandas: Postgres se atraganta con upserts de 10 000 renglones. */
+/**
+ * Deja una sola fila por llave de conflicto. Gana la ÚLTIMA, que es la que
+ * viene con el dato más nuevo.
+ *
+ * Postgres rechaza la sentencia ENTERA si un upsert trae dos veces la misma
+ * llave ("ON CONFLICT DO UPDATE command cannot affect row a second time").
+ * No es teoría: el 27 y el 28 de agosto de 2026 la sincronización diaria
+ * murió justo ahí, en el upsert de `skus`, ANTES de alcanzar a guardar la
+ * foto del stock. Esos dos días de historial no se pueden recuperar — a
+ * ayer ya no se le puede tomar la foto — y sin ellos el motor no mide los
+ * agotamientos: los adivina.
+ */
+export function unicasPorLlave(
+  filas: Record<string, unknown>[],
+  onConflict: string,
+): Record<string, unknown>[] {
+  const llaves = onConflict
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (!llaves.length) return filas;
+
+  const porLlave = new Map<string, Record<string, unknown>>();
+  for (const f of filas) {
+    porLlave.set(llaves.map((k) => String(f[k] ?? "")).join("\u0000"), f);
+  }
+  // Sin repetidos se devuelve el mismo arreglo: el caso normal no paga copia.
+  return porLlave.size === filas.length ? filas : [...porLlave.values()];
+}
+
 export async function upsertEnTandas(
   db: DB,
   tabla: string,
@@ -353,9 +383,10 @@ export async function upsertEnTandas(
   onConflict: string,
   tanda = 500,
 ): Promise<number> {
+  const limpias = unicasPorLlave(filas, onConflict);
   let escritas = 0;
-  for (let i = 0; i < filas.length; i += tanda) {
-    const trozo = filas.slice(i, i + tanda);
+  for (let i = 0; i < limpias.length; i += tanda) {
+    const trozo = limpias.slice(i, i + tanda);
     const { error } = await db.from(tabla).upsert(trozo, { onConflict });
     if (error) throw new Error(`${tabla}: ${error.message}`);
     escritas += trozo.length;
