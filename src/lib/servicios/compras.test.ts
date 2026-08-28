@@ -4,6 +4,7 @@ import {
   faltantesPorRegimen,
   paresPorCajaNormalizado,
   repartirCorrida,
+  ventaRealMes,
 } from "./compras";
 
 describe("corrida propuesta", () => {
@@ -166,5 +167,36 @@ describe("opción 2: pedido solo según la venta (sin descontar stock)", () => {
     // se reparte en corrida a partes iguales (12/12 en 24).
     expect(pedido.unitallas).toEqual([{ talla: "25", cajas: 5 }]);
     expect(pedido.corridaPropuesta).toEqual({ "26": 12, "27": 12 });
+  });
+});
+
+describe("venta REAL del último mes (la referencia contra MELI)", () => {
+  it("usa las unidades de los últimos 30 días, no el promedio de la ventana", () => {
+    // GT135 real (ago 2026): 1,302 pares en 30 días, 6 en los 30 previos y
+    // 36 en los 30 anteriores. La cuenta vieja — tasa observada de la
+    // ventana de 90 días × 30 — daba 1,344/3 = 448 y la pantalla enseñaba
+    // 446 mientras MELI y la pestaña de Ventas decían 1,345.
+    const linea = { unidades30: 1302, tasaObservada: 1344 / 90, demandaDiaria: 42.8 };
+    expect(ventaRealMes(linea)).toBe(1302);
+    expect(Math.round((linea.tasaObservada as number) * 30)).toBe(448);
+  });
+
+  it("un modelo estable da casi lo mismo con las dos cuentas", () => {
+    // 900 pares parejos en 90 días: 300 al mes por cualquier camino.
+    expect(ventaRealMes({ unidades30: 300, tasaObservada: 10, demandaDiaria: 10 })).toBe(300);
+  });
+
+  it("un plan cacheado viejo (sin unidades30) cae a la cuenta anterior", () => {
+    expect(ventaRealMes({ tasaObservada: 5, demandaDiaria: 7 })).toBe(150);
+  });
+
+  it("sin tasa observada se usa la demanda diaria", () => {
+    expect(ventaRealMes({ demandaDiaria: 3 })).toBe(90);
+  });
+
+  it("cero unidades el último mes es cero, no el promedio de la ventana", () => {
+    // Un SKU que vendió fuerte hace dos meses y se murió: la referencia
+    // tiene que decir 0, si no el usuario cree que sigue vendiendo.
+    expect(ventaRealMes({ unidades30: 0, tasaObservada: 20, demandaDiaria: 20 })).toBe(0);
   });
 });

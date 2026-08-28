@@ -147,7 +147,7 @@ export interface RenglonCompra {
   demandaDiaria: number;
   /** venta mensual de MELI (demanda corregida × 30) */
   ventaMes: number;
-  /** venta mensual REALMENTE observada en MELI (tasa observada × 30) */
+  /** venta mensual REALMENTE observada en MELI (últimos 30 días, sin corrección) */
   ventaMesReal: number;
   /** venta mensual de Amazon corregida por agotamiento (la que usa el cálculo) */
   ventaMesAmazon: number;
@@ -255,6 +255,28 @@ export interface SugerenciaCompra {
 
 function clave(modelo: string, color: string): string {
   return `${modelo.trim().toUpperCase()}|${color.trim().toUpperCase()}`;
+}
+
+/**
+ * Lo que un SKU vendió DE VERDAD el último mes, sin corrección alguna: el
+ * mismo número que enseñan MELI y la pestaña de Ventas.
+ *
+ * `tasaObservada` promedia la ventana entera del motor (90 días por
+ * defecto), así que multiplicarla por 30 no da "el último mes" sino un
+ * tercio de los tres meses. Para un modelo estable da casi lo mismo; para
+ * uno que acaba de despegar o que estuvo agotado y volvió, se queda corto
+ * a la mitad o peor. Se usan las unidades del bucket "Últimos 30 días".
+ *
+ * Los planes cacheados antes de este cambio no traen `unidades30`: para
+ * ellos se cae a la cuenta vieja hasta que el latido los recalcule.
+ */
+export function ventaRealMes(l: {
+  unidades30?: number;
+  tasaObservada?: number;
+  demandaDiaria: number;
+}): number {
+  if (l.unidades30 != null) return l.unidades30;
+  return (l.tasaObservada ?? l.demandaDiaria) * 30;
 }
 
 /**
@@ -543,8 +565,14 @@ export async function sugerirCompra(
     g.demandaDiaria += l.demandaDiaria;
     g.ventaMes += l.demandaDiaria * 30;
     // Lo REALMENTE vendido, sin corrección ni tendencia: la referencia para
-    // que el usuario verifique cuánto está estirando el cálculo.
-    g.ventaMesReal += (l.tasaObservada ?? l.demandaDiaria) * 30;
+    // que el usuario verifique cuánto está estirando el cálculo. Son las
+    // unidades de los ÚLTIMOS 30 DÍAS, no `tasaObservada × 30`: esa tasa
+    // reparte la venta entre los 90 días de la ventana, así que un modelo
+    // que despegó este mes (GT135: 1,302 pares en 30 días, 42 en los 60
+    // anteriores) aparecía en 446 y no cuadraba con la pestaña de Ventas
+    // ni con MELI. Los planes cacheados viejos no traen el dato: para
+    // ellos se cae al cálculo anterior hasta que el latido los recalcule.
+    g.ventaMesReal += ventaRealMes(l);
     if (talla) {
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
     }
@@ -552,7 +580,7 @@ export async function sugerirCompra(
     const d = filaDetalle(l.sku, modelo, color, talla || "");
     d.sku = l.sku; // el nombre real de MELI gana sobre uno construido
     d.ventaMesMeli += l.demandaDiaria * 30;
-    d.ventaMesRealMeli += (l.tasaObservada ?? l.demandaDiaria) * 30;
+    d.ventaMesRealMeli += ventaRealMes(l);
   }
 
   // El inventario se suma aparte: hay SKUs con producto en bodega que el plan
