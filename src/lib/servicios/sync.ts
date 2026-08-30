@@ -56,10 +56,47 @@ export function detectarSkusFantasma(
 }
 import { invalidar } from "./cache";
 
+/**
+ * Días de órdenes que se bajan cuando YA hay historial guardado.
+ *
+ * Bajar los 90 días completos cada mañana costaba ~78 mil órdenes en
+ * páginas de 51 — unas 1,500 llamadas en fila — y se comía casi entero el
+ * presupuesto de 300 s de Vercel (las corridas medían 205-291 s). Las
+ * ventas viejas ya están en `ventas_diarias` y no cambian; lo que sí se
+ * mueve son los últimos días: órdenes que entran tarde, cancelaciones y
+ * SKUs renombrados. Con esta ventana se recogen igual, en una fracción del
+ * tiempo. La primera corrida —o una cuenta sin historial— sigue bajando
+ * todo.
+ */
+export const DIAS_VENTAS_INCREMENTAL = 10;
+
+/**
+ * Desde qué día bajar órdenes. Con historial previo basta la ventana corta;
+ * sin él hay que bajar todo, porque no habría con qué llenar el pasado.
+ */
+export function ventanaVentas(
+  hoy: string,
+  dias: number,
+  diasVentas: number,
+  hayHistorialPrevio: boolean,
+): { desdeVentas: string; ventasCompletas: boolean } {
+  if (!hayHistorialPrevio) {
+    return { desdeVentas: sumarDias(hoy, -dias), ventasCompletas: true };
+  }
+  // Nunca más ancha que la ventana completa: pedir 90 días de "incremental"
+  // no tendría sentido.
+  const corta = Math.min(diasVentas, dias);
+  return { desdeVentas: sumarDias(hoy, -corta), ventasCompletas: corta >= dias };
+}
+
 export interface ResultadoSync {
   skus: number;
   conStock: number;
   ventas: number;
+  /** desde qué día se bajaron órdenes en esta corrida */
+  desdeVentas?: string;
+  /** true si se bajó la ventana completa en vez de la incremental */
+  ventasCompletas?: boolean;
   ordenes: number;
   operaciones: number;
   ventasSinSku: number;
@@ -186,7 +223,7 @@ export async function guardarVentasDiarias(
 async function ejecutarSincronizacion(
   db: DB,
   accountId: string,
-  opts?: { diasHistoria?: number; soloStock?: boolean },
+  opts?: { diasHistoria?: number; soloStock?: boolean; diasVentas?: number },
 ): Promise<ResultadoSync> {
   const t0 = Date.now();
   const logId = await registrarSync(db, accountId, opts?.soloStock ? "stock" : "completa");
@@ -275,6 +312,36 @@ async function ejecutarSincronizacion(
     const dias = opts?.diasHistoria ?? 90;
     const desde = sumarDias(hoy, -dias);
 
+    // ---- Hasta dónde bajar órdenes --------------------------------------
+    //
+    // Las ventas viejas ya están guardadas y no cambian: volver a bajarlas
+    // cada mañana era el 80% del tiempo de la corrida. Solo se re-leen los
+    // últimos días, que es donde entran órdenes tardías, cancelaciones y
+    // renombres. Se comprueba contra la BASE, no contra una suposición: si
+    // no hay historial más viejo que la ventana corta, se baja todo.
+    let desdeVentas = desde;
+    let ventasCompletas = true;
+    if (!opts?.soloStock) {
+      const corta = sumarDias(hoy, -Math.min(opts?.diasVentas ?? DIAS_VENTAS_INCREMENTAL, dias));
+      // ¿Ya hay ventas guardadas ANTES del arranque de la ventana corta?
+      // Se comprueba contra la BASE, no contra una suposición: si el pasado
+      // no estuviera cubierto, la ventana corta lo dejaría vacío para siempre.
+      const { data: previa } = await db
+        .from("ventas_diarias")
+        .select("fecha")
+        .eq("account_id", accountId)
+        .gte("fecha", desde)
+        .lt("fecha", corta)
+        .limit(1)
+        .maybeSingle();
+      ({ desdeVentas, ventasCompletas } = ventanaVentas(
+        hoy,
+        dias,
+        opts?.diasVentas ?? DIAS_VENTAS_INCREMENTAL,
+        Boolean(previa?.fecha),
+      ));
+    }
+
     let ventas: Awaited<ReturnType<typeof obtenerVentas>>["ventas"] = [];
     let ventasTruncadas = false;
     let ordenesLeidas = 0;
@@ -289,7 +356,7 @@ async function ejecutarSincronizacion(
         if (!c.variationId) mapaItemSku.set(c.itemId, c.sku);
       }
 
-      const r = await obtenerVentas(cliente, sellerId, desde, hoy, mapaItemSku);
+      const r = await obtenerVentas(cliente, sellerId, desdeVentas, hoy, mapaItemSku);
       ventas = r.ventas;
       ventasTruncadas = r.truncado;
       ordenesLeidas = r.ordenesLeidas;
@@ -475,6 +542,8 @@ async function ejecutarSincronizacion(
         skus: filasSku.length,
         conStock: stock.length,
         ventas: 0,
+        desdeVentas,
+        ventasCompletas,
         ordenes: 0,
         operaciones: 0,
         ventasSinSku: 0,
@@ -508,7 +577,10 @@ async function ejecutarSincronizacion(
       // La ventana completa se reconcilia: cancelaciones y renombres fuera.
       // Solo con la foto COMPLETA: si MELI truncó la descarga, borrar contra
       // una foto incompleta destruiría ventas reales.
-      ventasTruncadas ? undefined : { accountId, desde, hasta: hoy },
+      // El borrado de residuos se limita a la ventana que SÍ se bajó: fuera
+      // de ella no hay foto fresca con qué comparar y borrar sería destruir
+      // ventas reales.
+      ventasTruncadas ? undefined : { accountId, desde: desdeVentas, hasta: hoy },
     );
     if (ventasTruncadas) {
       errores.push(
@@ -608,6 +680,8 @@ async function ejecutarSincronizacion(
       skus: filasSku.length,
       conStock: stock.length,
       ventas: ventas.length,
+      desdeVentas,
+      ventasCompletas,
       ordenes: ordenesLeidas,
       operaciones,
       ventasSinSku: sinSku,
@@ -638,7 +712,7 @@ async function ejecutarSincronizacion(
 export async function sincronizar(
   db: DB,
   accountId: string,
-  opts?: { diasHistoria?: number; soloStock?: boolean },
+  opts?: { diasHistoria?: number; soloStock?: boolean; diasVentas?: number },
 ): Promise<ResultadoSync> {
   return conCandado(
     db,

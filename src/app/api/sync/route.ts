@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
     const resultado = await sincronizar(admin, cuenta.id, {
       diasHistoria: body?.diasHistoria,
       soloStock: body?.soloStock === true,
+      // Por omisión solo se re-leen los últimos días de órdenes: lo viejo ya
+      // está guardado. `ventasCompletas: true` fuerza la ventana entera para
+      // cuando se sospecha que el historial quedó chueco.
+      diasVentas: body?.ventasCompletas === true ? body?.diasHistoria ?? 90 : body?.diasVentas,
     });
     // Lo que haya quedado sin SKU se resuelve solo, en segundo plano. Las
     // cookies van de respaldo: sin CRON_SECRET, la sesión del que sincroniza
