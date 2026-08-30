@@ -46,7 +46,15 @@ export async function GET(req: NextRequest) {
   });
 
   const url = new URL(authUrl);
-  url.searchParams.set("service_id", process.env.TIKTOK_SERVICE_ID ?? "");
+
+  // La URL del panel casi siempre YA trae su service_id. Solo se agrega
+  // cuando falta: escribirlo siempre lo dejaba vacío en cuanto la variable
+  // no estuviera puesta, y TikTok rechazaba la autorización sin decir por qué.
+  const servicio = process.env.TIKTOK_SERVICE_ID;
+  if (servicio && !url.searchParams.get("service_id")) {
+    url.searchParams.set("service_id", servicio);
+  }
+
   url.searchParams.set("state", state);
   return NextResponse.redirect(url);
 }
