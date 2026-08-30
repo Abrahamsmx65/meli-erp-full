@@ -76,6 +76,18 @@ guárdala numerada.
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.
+- **TikTok Shop es ENVÍO PROPIO y lleva su PROPIO inventario.** No es Full ni
+  FBA ni las cajas de Industher: es un cuarto almacén, con kardex nuestro en
+  `tiktok_movimientos` (esa tabla es la fuente de verdad; `tiktok_inventario`
+  solo guarda el saldo ya sumado). Un pedido pagado sin despachar APARTA, no
+  descuenta; el saldo baja hasta que el envío se confirma
+  (`AWAITING_COLLECTION` en adelante). Lo que se le publica a TikTok es
+  `saldo - apartado`, nunca negativo, y se le ESCRIBE por API en cada
+  movimiento del kardex y cada hora en el cron — si no se publica, la tienda
+  sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
+  único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
+  salida por SKU.
+
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
@@ -109,8 +121,10 @@ guárdala numerada.
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
+| TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
+| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-panel.ts` para la pantalla) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
-| Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
+| Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
 
@@ -120,6 +134,9 @@ guárdala numerada.
   service-role la lee. No agregues políticas.
 - `es_mi_cuenta()` debe seguir ejecutable por `authenticated` (RLS la usa);
   `anon` no. No cambies eso.
+- `tiktok_tokens` también tiene RLS con **cero políticas**, por lo mismo que
+  `meli_tokens`. En el entorno solo van las credenciales de la APP
+  (`TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET`), nunca las de la tienda.
 - No uses `sheet_to_json` de SheetJS (CVE de prototype pollution en 0.18.5).
   `leer-hoja.ts` lee celda por celda.
 - El webhook de MELI **debe contestar 200 en < 500 ms**: guarda y procesa
