@@ -106,6 +106,9 @@ Copia `.env.example` a `.env.local` (y cárgalas en Vercel):
 | `MELI_REDIRECT_URI` | idéntica a la registrada arriba |
 | `CRON_SECRET` | invéntalo, largo y aleatorio |
 | `NEXT_PUBLIC_APP_URL` | la URL pública de tu app |
+| `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET` | tu app de TikTok Shop Partner (opcional) |
+| `TIKTOK_AUTH_URL` | la URL de autorización que da el panel de esa app |
+| `TIKTOK_SERVICE_ID` | el service_id de la app, si su URL lo pide |
 
 ### 4. Deploy
 

@@ -56,6 +56,12 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   skus: ["id"],
   skus_pendientes: ["account_id", "item_id", "variation_id"],
   stock_full: ["account_id", "sku"],
+  tiktok_inventario: ["account_id", "sku"],
+  tiktok_mapeo_sku: ["account_id", "sku_tiktok"],
+  tiktok_movimientos: ["id"],
+  tiktok_orden_items: ["account_id", "line_item_id"],
+  tiktok_ordenes: ["account_id", "order_id"],
+  tiktok_skus: ["account_id", "sku_id"],
   // Las tablas que SIEMPRE se leen por rango de fecha van ordenadas con la
   // fecha ADELANTE: así el plan usa el índice (account_id, fecha) de la
   // migración 0021 y no recorre el índice completo de la llave primaria
@@ -67,6 +73,7 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   stock_operaciones: ["account_id", "fecha", "operation_id"],
   stock_snapshots: ["account_id", "fecha", "sku"],
   ventas_diarias: ["account_id", "fecha", "sku"],
+  tiktok_ventas_diarias: ["account_id", "fecha", "sku"],
 };
 
 export async function traerTodo<T>(

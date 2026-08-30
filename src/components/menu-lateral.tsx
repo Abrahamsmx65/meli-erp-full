@@ -80,6 +80,13 @@ const GRUPOS: Grupo[] = [
     ],
   },
   {
+    titulo: "TikTok Shop",
+    entradas: [
+      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
+    ],
+  },
+  {
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },

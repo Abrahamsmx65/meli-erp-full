@@ -1,0 +1,268 @@
+/**
+ * Las rutas del API de TikTok Shop que este ERP usa, ya envueltas.
+ *
+ * Se separan del cliente para que quien lea el servicio vea el negocio
+ * ("trae los pedidos que se movieron desde ayer") y no el ruido de la
+ * paginación por token, que TikTok hace distinto en cada familia de rutas.
+ */
+import type { Cliente } from "./client";
+
+// ---------------------------------------------------------------------------
+// Autorización
+// ---------------------------------------------------------------------------
+
+export interface TiendaAutorizada {
+  id: string;
+  cipher: string;
+  nombre: string | null;
+  region: string | null;
+}
+
+/** Las tiendas que autorizaron esta app. Es la única ruta sin shop_cipher. */
+export async function tiendasAutorizadas(c: Cliente): Promise<TiendaAutorizada[]> {
+  const d = await c.llamar<any>("GET", "/authorization/202309/shops", { conCipher: false });
+  return (d?.shops ?? []).map((s: any) => ({
+    id: String(s.id),
+    cipher: String(s.cipher ?? ""),
+    nombre: s.name ?? null,
+    region: s.region ?? null,
+  }));
+}
+
+export interface BodegaTikTok {
+  id: string;
+  nombre: string | null;
+  tipo: string | null;
+  predeterminada: boolean;
+}
+
+/**
+ * Las bodegas de la tienda. Hace falta una para poder ESCRIBIR inventario:
+ * el API de existencias no acepta un número a secas, siempre va contra una
+ * bodega concreta.
+ */
+export async function bodegas(c: Cliente): Promise<BodegaTikTok[]> {
+  const d = await c.llamar<any>("GET", "/logistics/202309/warehouses");
+  return (d?.warehouses ?? []).map((w: any) => ({
+    id: String(w.id),
+    nombre: w.name ?? null,
+    tipo: w.type ?? null,
+    predeterminada: Boolean(w.is_default),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
+
+export interface SkuTikTok {
+  skuId: string;
+  productId: string;
+  sellerSku: string | null;
+  titulo: string | null;
+  talla: string | null;
+  precio: number | null;
+  estado: string | null;
+  /** Lo que TikTok dice tener publicado ahora mismo, sumando bodegas. */
+  disponibleEnTikTok: number | null;
+}
+
+/**
+ * Todo el catálogo de la tienda, página por página.
+ *
+ * El `seller_sku` es el amarre con el ERP y casi siempre viene; la talla se
+ * saca de las ventanas de venta (`sales_attributes`) solo para poder mostrar
+ * algo legible cuando el seller_sku viene vacío. NUNCA se deduce el SKU de
+ * ahí: un SKU inventado descuenta del par equivocado.
+ */
+export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
+  const salida: SkuTikTok[] = [];
+  let token: string | undefined;
+
+  for (let pagina = 0; pagina < tope; pagina++) {
+    const d = await c.llamar<any>("POST", "/product/202309/products/search", {
+      params: { page_size: 100, page_token: token },
+      cuerpo: { status: "ALL" },
+    });
+    if (!d) break;
+
+    for (const p of d.products ?? []) {
+      for (const s of p.skus ?? []) {
+        const tallas = (s.sales_attributes ?? [])
+          .map((a: any) => a?.value_name)
+          .filter(Boolean)
+          .join(" / ");
+        const inventario = (s.inventory ?? []).reduce(
+          (a: number, i: any) => a + (Number(i?.quantity) || 0),
+          0,
+        );
+        salida.push({
+          skuId: String(s.id),
+          productId: String(p.id),
+          sellerSku: s.seller_sku ? String(s.seller_sku) : null,
+          titulo: p.title ?? null,
+          talla: tallas || null,
+          precio: s.price?.sale_price != null ? Number(s.price.sale_price) : null,
+          estado: p.status ?? null,
+          disponibleEnTikTok: (s.inventory ?? []).length ? inventario : null,
+        });
+      }
+    }
+
+    token = d.next_page_token || undefined;
+    if (!token) break;
+  }
+
+  return salida;
+}
+
+// ---------------------------------------------------------------------------
+// Pedidos
+// ---------------------------------------------------------------------------
+
+export interface RenglonTikTok {
+  lineItemId: string;
+  skuId: string | null;
+  sellerSku: string | null;
+  titulo: string | null;
+  cantidad: number;
+  precio: number | null;
+  estado: string | null;
+}
+
+export interface PedidoTikTok {
+  orderId: string;
+  estado: string;
+  creadoEn: string | null;
+  actualizadoEn: string | null;
+  enviadoEn: string | null;
+  total: number | null;
+  moneda: string | null;
+  paqueteria: string | null;
+  guia: string | null;
+  renglones: RenglonTikTok[];
+}
+
+function iso(segundos: unknown): string | null {
+  const n = Number(segundos);
+  return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null;
+}
+
+/**
+ * Los pedidos que se MOVIERON desde `desde` (epoch en segundos).
+ *
+ * Se busca por fecha de actualización, no de creación, justamente porque lo
+ * que importa aquí es el cambio de estado: un pedido de hace una semana que
+ * hoy se envió tiene que aparecer hoy, o su salida nunca se registraría.
+ */
+export async function pedidosActualizados(
+  c: Cliente,
+  desde: number,
+  hasta: number,
+  tope = 40,
+): Promise<PedidoTikTok[]> {
+  const salida: PedidoTikTok[] = [];
+  let token: string | undefined;
+
+  for (let pagina = 0; pagina < tope; pagina++) {
+    const d = await c.llamar<any>("POST", "/order/202309/orders/search", {
+      params: { page_size: 50, page_token: token, sort_field: "update_time", sort_order: "ASC" },
+      cuerpo: { update_time_ge: desde, update_time_lt: hasta },
+    });
+    if (!d) break;
+
+    for (const o of d.orders ?? []) {
+      const renglones: RenglonTikTok[] = (o.line_items ?? []).map((li: any) => ({
+        lineItemId: String(li.id),
+        skuId: li.sku_id ? String(li.sku_id) : null,
+        sellerSku: li.seller_sku ? String(li.seller_sku) : null,
+        titulo: li.product_name ?? null,
+        // TikTok manda un renglón POR PAR: cada line_item es una pieza.
+        cantidad: 1,
+        precio: li.sale_price != null ? Number(li.sale_price) : null,
+        // El estado del renglón manda sobre el del pedido: en un envío
+        // parcial son distintos, y descontar por el del pedido sacaría del
+        // almacén pares que siguen ahí.
+        estado: li.display_status ?? o.status ?? null,
+      }));
+
+      salida.push({
+        orderId: String(o.id),
+        estado: String(o.status ?? ""),
+        creadoEn: iso(o.create_time),
+        actualizadoEn: iso(o.update_time),
+        enviadoEn: iso(o.rts_time ?? o.collection_time),
+        total: o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
+        moneda: o.payment?.currency ?? null,
+        paqueteria: o.shipping_provider ?? null,
+        guia: o.tracking_number ?? null,
+        renglones,
+      });
+    }
+
+    token = d.next_page_token || undefined;
+    if (!token) break;
+  }
+
+  return salida;
+}
+
+// ---------------------------------------------------------------------------
+// Escribir la disponibilidad. Es el punto del sistema.
+// ---------------------------------------------------------------------------
+
+export interface StockAEscribir {
+  productId: string;
+  skuId: string;
+  cantidad: number;
+}
+
+export interface ResultadoPublicacion {
+  publicados: number;
+  fallidos: { skuId: string; error: string }[];
+}
+
+/**
+ * Escribe el disponible en TikTok.
+ *
+ * El API es POR PRODUCTO y acepta varios SKUs del mismo producto en una
+ * llamada, así que se agrupan: un modelo con doce tallas se publica de una
+ * vez en lugar de doce. Un producto que falle no detiene a los demás — se
+ * anota y la siguiente corrida lo vuelve a intentar, porque el disponible se
+ * calcula del kardex cada vez y no se pierde nada.
+ */
+export async function publicarStock(
+  c: Cliente,
+  warehouseId: string,
+  cambios: StockAEscribir[],
+): Promise<ResultadoPublicacion> {
+  const porProducto = new Map<string, StockAEscribir[]>();
+  for (const s of cambios) {
+    const lista = porProducto.get(s.productId);
+    if (lista) lista.push(s);
+    else porProducto.set(s.productId, [s]);
+  }
+
+  let publicados = 0;
+  const fallidos: { skuId: string; error: string }[] = [];
+
+  for (const [productId, skus] of porProducto) {
+    if (c.msRestantes() < 10_000) break;
+    try {
+      await c.llamar("POST", `/product/202309/products/${productId}/inventory/update`, {
+        cuerpo: {
+          skus: skus.map((s) => ({
+            id: s.skuId,
+            inventory: [{ warehouse_id: warehouseId, quantity: s.cantidad }],
+          })),
+        },
+      });
+      publicados += skus.length;
+    } catch (err) {
+      const mensaje = (err as Error).message;
+      for (const s of skus) fallidos.push({ skuId: s.skuId, error: mensaje });
+    }
+  }
+
+  return { publicados, fallidos };
+}
