@@ -46,8 +46,8 @@ export type Formato = "lista" | "tabla" | "matriz" | "omitida" | "sin_datos";
 
 /**
  * Solo las pestañas cuyo nombre es un código de diseño (empieza con dígito:
- * 362, 499, 416…) son inventario. Las demás —TOTALES, CONSECUTIVO TOTALES,
- * RETIRO— son resúmenes o apartados: leerlas contaría todo dos o tres veces.
+ * 362, 499, 416…) son inventario. TOTALES y CONSECUTIVO TOTALES son resúmenes
+ * (leerlas contaría todo dos veces) y RETIRO NO se suma: lo decidió el dueño.
  */
 export function esHojaDeDiseno(nombre: string): boolean {
   return /^\d/.test(nombre.trim());

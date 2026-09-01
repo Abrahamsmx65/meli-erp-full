@@ -129,8 +129,12 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   redondea ARRIBA a decena y se topa ABAJO por lo que hay en bodega. Menos de
   una decena en bodega = no se manda. Motor puro en `yapanizcel/plan.ts`.
 - **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
-  una pestaña por diseño; `yapanizcel/sheets.ts` acepta tabla o matriz). Se
+  una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
+  encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se
   REEMPLAZA completo en cada lectura. Recibir un pedido NO crea existencias.
+  **Solo cuentan las pestañas cuyo nombre empieza con número** (el diseño):
+  TOTALES y CONSECUTIVO TOTALES son resúmenes y RETIRO no se suma, por
+  decisión del dueño. Fixture real en `fixtures/yz-inventario.xlsx`.
 - **El amarre de SKUs va por niveles y los inseguros solo se PROPONEN**
   (`yapanizcel/sku.ts`): exacto → canónico → aplastado se aplican solos; la
   letra suelta de más (`499N` vs `499`) y las piezas en otro orden se sugieren
