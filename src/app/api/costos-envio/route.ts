@@ -5,7 +5,12 @@ import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { calcularCostos, leerRevision, sincronizarMedidas } from "@/lib/servicios/costos-envio";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// Cada pasada es CORTA a propósito. La primera versión hacía todo el trabajo
+// en una sola petición de varios minutos y el navegador la abortaba con un
+// "load failed" seco, aunque el servidor seguía trabajando bien: se veía como
+// que fallaba cuando en realidad estaba avanzando. Ahora cada llamada hace un
+// pedazo de ~40 s, contesta cuánto falta, y la pantalla vuelve a llamar.
+export const maxDuration = 120;
 
 /** La revisión guardada: qué mide cada publicación y cuánto cobra de más. */
 export async function GET() {
@@ -55,10 +60,10 @@ export async function POST(req: NextRequest) {
     const medidas =
       cuerpo.medidas === false
         ? null
-        : await sincronizarMedidas(cliente, supabase, cuenta.id, { limiteMs: 130_000 });
+        : await sincronizarMedidas(cliente, supabase, cuenta.id, { limiteMs: 22_000 });
 
     const costos = await calcularCostos(cliente, supabase, cuenta.id, cuenta.meli_user_id, {
-      limiteMs: Math.max(30_000, 260_000 - (Date.now() - arranque)),
+      limiteMs: Math.max(10_000, 45_000 - (Date.now() - arranque)),
     });
 
     return NextResponse.json({
