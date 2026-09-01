@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface Estado {
   conectado: boolean;
@@ -24,8 +24,15 @@ interface Estado {
 export function EstadoConexion() {
   const [e, setE] = useState<Estado | null>(null);
   const router = useRouter();
+  const ruta = usePathname();
+
+  // El link sin contraseña no trae sesión: preguntar por /api/estado desde
+  // ahí solo daría 401 cada 30 segundos, y esa barra habla de Mercado Libre,
+  // que no es asunto de quien entra a trabajar el contenido.
+  const publica = ruta.startsWith("/contenido/");
 
   useEffect(() => {
+    if (publica) return;
     let vivo = true;
 
     async function consultar() {
@@ -55,9 +62,9 @@ export function EstadoConexion() {
       vivo = false;
       clearInterval(t);
     };
-  }, [router]);
+  }, [router, publica]);
 
-  if (!e) return null;
+  if (publica || !e) return null;
 
   const hace = (iso: string | null) => {
     if (!iso) return "nunca";

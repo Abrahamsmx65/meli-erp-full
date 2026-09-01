@@ -21,15 +21,18 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { claveGrupoFba, desglosarAmazon } from "./fba";
 
-/** Primer y último modelo GT que se trabaja en Amazon. Lo fijó el dueño. */
+/**
+ * Del GT054 para arriba, sin tope: lo que se publique mañana (GT301, GT450…)
+ * entra solo, marcado como nuevo. Lo viejo (GT053 para abajo) se queda fuera,
+ * y lo que sobre se quita a mano desde la pantalla.
+ */
 export const GT_MIN = 54;
-export const GT_MAX = 300;
 
-/** Los que no son GT y sí van en la lista. Nada más viejo ni más nuevo. */
+/** Los que no son GT y sí van en la lista. */
 export const MODELOS_EXTRA = new Set(["MY2307", "G650"]);
 
-/** GT + dos o tres dígitos + una letra opcional de variante (GT148G). */
-const RE_GT = /^GT(\d{2,3})[A-Z]?$/;
+/** GT + dos a cuatro dígitos + una letra opcional de variante (GT148G). */
+const RE_GT = /^GT(\d{2,4})[A-Z]?$/;
 
 /** Dominio de Amazon por país de la cuenta, para armar el link al producto. */
 const DOMINIOS: Record<string, string> = {
@@ -50,8 +53,7 @@ export function enRangoContenido(modelo: string): boolean {
   if (MODELOS_EXTRA.has(m)) return true;
   const g = RE_GT.exec(m);
   if (!g) return false;
-  const n = Number(g[1]);
-  return n >= GT_MIN && n <= GT_MAX;
+  return Number(g[1]) >= GT_MIN;
 }
 
 /** El modelo de un SKU de Amazon, entendiendo el orden invertido. */
@@ -92,12 +94,17 @@ export interface ColorModelo {
 export interface ModeloContenido {
   modelo: string;
   titulo: string | null;
+  /** El ASIN al que apunta el link: el PADRE cuando ya se resolvió. */
   asin: string | null;
   url: string | null;
+  /** Los otros padres, si el modelo resultó tener más de una publicación. */
+  padresExtra: string[];
   skus: number;
   activos: number;
   activo: boolean;
   colores: ColorModelo[];
+  /** Todavía no se le ha anotado nada: llegó desde la última vez. */
+  nuevo: boolean;
   categoria: string | null;
   prioridad: number;
   imagenes: boolean;
@@ -123,7 +130,14 @@ export interface TotalesContenido {
   conImagenes: number;
   conAplus: number;
   sinCategoria: number;
+  nuevos: number;
   eliminados: number;
+}
+
+/** Lo que sabemos del padre de un ASIN hijo. */
+export interface Padre {
+  parentAsin: string | null;
+  titulo: string | null;
 }
 
 export interface ContenidoAmazon {
@@ -174,8 +188,9 @@ export function armarContenido(
   anotaciones: AnotacionModelo[],
   categorias: Omit<CategoriaStore, "modelos">[],
   pais: string | null,
-  opciones: { verEliminados?: boolean } = {},
+  opciones: { verEliminados?: boolean; padres?: Map<string, Padre> } = {},
 ): Omit<ContenidoAmazon, "faltaMigracion" | "sinRefrescar"> {
+  const padres = opciones.padres ?? new Map<string, Padre>();
   interface Color {
     color: string;
     imagenUrl: string | null;
@@ -247,27 +262,47 @@ export function armarContenido(
       })
       .sort((x, y) => x.color.localeCompare(y.color, "es"));
 
-    // El link del renglón abre el color con más publicaciones vivas: así cae
-    // en una página que existe aunque el modelo tenga colores apagados.
-    const representativo =
-      [...colores].sort(
-        (a, b) => b.activos - a.activos || a.color.localeCompare(b.color, "es"),
-      )[0] ?? null;
+    // El color con más publicaciones vivas: así el link cae en una página que
+    // existe aunque el modelo tenga colores apagados.
+    const ordenados = [...colores].sort(
+      (a, b) => b.activos - a.activos || a.color.localeCompare(b.color, "es"),
+    );
+    const representativo = ordenados[0] ?? null;
+
+    // El renglón es la PUBLICACIÓN PADRE, no una talla suelta: /dp/{padre}
+    // abre la página con todas sus variantes. Los colores son hijos del mismo
+    // padre, así que se cuenta cuántos apunta cada uno y gana el de más.
+    const votos = new Map<string, number>();
+    for (const c of ordenados) {
+      const p = c.asin ? padres.get(c.asin)?.parentAsin : null;
+      if (p) votos.set(p, (votos.get(p) ?? 0) + 1);
+    }
+    const porVotos = [...votos.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const padre = porVotos[0]?.[0] ?? null;
+    const tituloPadre = padre
+      ? (ordenados.map((c) => (c.asin ? padres.get(c.asin) : null)).find((p) => p?.parentAsin === padre)
+          ?.titulo ?? null)
+      : null;
 
     const a = anotado.get(modelo);
     if (a?.categoria && !a.eliminado) {
       usoCategoria.set(a.categoria, (usoCategoria.get(a.categoria) ?? 0) + 1);
     }
 
+    const asin = padre ?? representativo?.asin ?? null;
+
     return {
       modelo,
-      titulo: m.titulo,
-      asin: representativo?.asin ?? null,
-      url: representativo?.url ?? null,
+      // El título del padre viene limpio; el del hijo trae color y talla.
+      titulo: tituloPadre ?? m.titulo,
+      asin,
+      url: urlAmazon(asin, pais),
+      padresExtra: porVotos.slice(1).map(([p]) => p),
       skus: m.skus,
       activos: m.activos,
       activo: m.activos > 0,
       colores,
+      nuevo: a === undefined,
       categoria: a?.categoria ?? null,
       prioridad: a?.prioridad ?? 0,
       imagenes: a?.imagenes ?? false,
@@ -300,6 +335,7 @@ export function armarContenido(
       conImagenes: vivos.filter((m) => m.imagenes).length,
       conAplus: vivos.filter((m) => m.aplus).length,
       sinCategoria: vivos.filter((m) => !m.categoria).length,
+      nuevos: vivos.filter((m) => m.nuevo).length,
       eliminados: todos.length - vivos.length,
     },
   };
@@ -372,7 +408,7 @@ export async function cargarContenidoAmazon(
   pais: string | null,
   opciones: { verEliminados?: boolean } = {},
 ): Promise<ContenidoAmazon> {
-  const [catalogo, anotaciones, categorias] = await Promise.all([
+  const [catalogo, anotaciones, categorias, padres] = await Promise.all([
     leerCatalogo(db, amazonAccountId),
     db
       .from("amazon_contenido")
@@ -382,6 +418,7 @@ export async function cargarContenidoAmazon(
       .from("amazon_categorias_store")
       .select("nombre, creada, imagenes, pagina_store, notas")
       .eq("account_id", amazonAccountId),
+    leerPadres(db, amazonAccountId),
   ]);
 
   // Mientras la migración 0032 no esté aplicada la pantalla sirve de todos
@@ -407,10 +444,42 @@ export async function cargarContenidoAmazon(
       notas: c.notas ?? "",
     })),
     pais,
-    opciones,
+    { ...opciones, padres },
   );
 
   return { ...armado, faltaMigracion, sinRefrescar: catalogo.sinRefrescar };
+}
+
+/**
+ * El mapa hijo→padre que ya se resolvió. Si la tabla todavía no existe (falta
+ * la migración 0033), la pantalla sigue sirviendo con los links a los hijos.
+ */
+async function leerPadres(db: DB, amazonAccountId: string): Promise<Map<string, Padre>> {
+  const filas = await traerTodo<any>(db, "amazon_padres", "asin, parent_asin, titulo", (q) =>
+    q.eq("account_id", amazonAccountId),
+  ).catch(() => [] as any[]);
+
+  return new Map(
+    filas.map((f) => [
+      String(f.asin ?? ""),
+      { parentAsin: f.parent_asin ?? null, titulo: f.titulo ?? null } as Padre,
+    ]),
+  );
+}
+
+/**
+ * Un ASIN por modelo y color: los únicos cuyo padre vale la pena preguntar.
+ * Las imágenes y el padre son del color, no de la talla, así que resolver los
+ * cuarenta hijos de un modelo sería tirar cuota a la basura.
+ */
+export async function asinsRepresentativos(db: DB, amazonAccountId: string): Promise<string[]> {
+  const catalogo = await leerCatalogo(db, amazonAccountId);
+  const armado = armarContenido(catalogo.filas, [], [], null, { verEliminados: true });
+  const asins = new Set<string>();
+  for (const m of armado.modelos) {
+    for (const c of m.colores) if (c.asin) asins.add(c.asin);
+  }
+  return [...asins];
 }
 
 /**

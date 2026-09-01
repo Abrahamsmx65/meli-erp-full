@@ -48,12 +48,18 @@ describe("enRangoContenido", () => {
     expect(enRangoContenido("GT053")).toBe(false);
   });
 
-  it("GT300 entra: es el último del rango", () => {
+  it("GT300 entra", () => {
     expect(enRangoContenido("GT300")).toBe(true);
   });
 
-  it("GT301 queda fuera: es más nuevo", () => {
-    expect(enRangoContenido("GT301")).toBe(false);
+  // Lo nuevo tiene que entrar SOLO: si el rango tuviera tope, cada modelo
+  // que se publique quedaría invisible hasta que alguien tocara el código.
+  it("GT301 entra: lo que se publique después no se queda fuera", () => {
+    expect(enRangoContenido("GT301")).toBe(true);
+  });
+
+  it("GT1000 entra: el día que se les acaben los tres dígitos", () => {
+    expect(enRangoContenido("GT1000")).toBe(true);
   });
 
   it("GT148G entra: la letra es variante, no otro modelo", () => {
@@ -127,7 +133,6 @@ describe("armarContenido", () => {
     fila("G650-BLK-RED-27-MX"),
     fila("MY2307-BLUE-25-MX"),
     fila("GT053-BLK-25-MX"),
-    fila("GT301-BLK-25-MX"),
   ];
 
   const armar = (
@@ -136,10 +141,10 @@ describe("armarContenido", () => {
     opciones = {},
   ) => armarContenido(filas, anotaciones, [], "MX", opciones);
 
-  it("deja fuera lo que no está en el rango", () => {
-    const modelos = armar().modelos.map((m) => m.modelo);
+  it("deja fuera lo viejo y deja entrar lo nuevo", () => {
+    const modelos = armar([...catalogo, fila("GT450-BLK-25-MX")]).modelos.map((m) => m.modelo);
     expect(modelos).not.toContain("GT053");
-    expect(modelos).not.toContain("GT301");
+    expect(modelos).toContain("GT450");
     expect(modelos).toEqual(expect.arrayContaining(["GT128", "GT148G", "G650", "MY2307"]));
   });
 
@@ -207,6 +212,62 @@ describe("armarContenido", () => {
   it("con verEliminados sí sale", () => {
     const r = armar(catalogo, [anotacion("G650", { eliminado: true })], { verEliminados: true });
     expect(r.modelos.map((m) => m.modelo)).toContain("G650");
+  });
+
+  // Lo que ya se anotó no se pierde cuando llegan productos nuevos: la lista
+  // se deriva del catálogo y las anotaciones viven aparte, por modelo.
+  it("marca como nuevo al que no tiene ni una anotación", () => {
+    const r = armar(catalogo, [anotacion("GT128", { imagenes: true })]);
+    expect(r.modelos.find((m) => m.modelo === "GT128")!.nuevo).toBe(false);
+    expect(r.modelos.find((m) => m.modelo === "G650")!.nuevo).toBe(true);
+    expect(r.totales.nuevos).toBe(3);
+  });
+
+  it("un modelo que ya se palomeó deja de ser nuevo sin perder lo palomeado", () => {
+    const conNuevo = [...catalogo, fila("GT450-BLK-25-MX")];
+    const antes = armar(conNuevo).modelos.find((m) => m.modelo === "GT450")!;
+    expect(antes).toMatchObject({ nuevo: true, aplus: false });
+
+    const despues = armar(conNuevo, [anotacion("GT450", { aplus: true, prioridad: 3 })]).modelos.find(
+      (m) => m.modelo === "GT450",
+    )!;
+    expect(despues).toMatchObject({ nuevo: false, aplus: true, prioridad: 3 });
+  });
+
+  it("el link abre la publicación PADRE cuando ya se resolvió", () => {
+    const padres = new Map([
+      ["A-GT128-23-BLK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128" }],
+      ["A-GT128-23-PINK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128" }],
+    ]);
+    const gt128 = armarContenido(catalogo, [], [], "MX", { padres }).modelos.find(
+      (m) => m.modelo === "GT128",
+    )!;
+    expect(gt128.asin).toBe("B0PADRE128");
+    expect(gt128.url).toBe("https://www.amazon.com.mx/dp/B0PADRE128");
+    expect(gt128.titulo).toBe("GETAC Zuecos GT128");
+    expect(gt128.padresExtra).toEqual([]);
+  });
+
+  it("sin padre resuelto, el link sigue cayendo en un hijo vivo", () => {
+    const gt128 = armar().modelos.find((m) => m.modelo === "GT128")!;
+    expect(gt128.asin).toBe("A-GT128-23-BLK-MX");
+    expect(gt128.padresExtra).toEqual([]);
+  });
+
+  it("si un modelo trae dos padres, gana el de más colores y el otro se anota", () => {
+    const filas = [
+      fila("GT160-BLK-25-MX"),
+      fila("GT160-NAVY-25-MX"),
+      fila("GT160-RED-25-MX"),
+    ];
+    const padres = new Map([
+      ["A-GT160-BLK-25-MX", { parentAsin: "B0UNO", titulo: null }],
+      ["A-GT160-NAVY-25-MX", { parentAsin: "B0UNO", titulo: null }],
+      ["A-GT160-RED-25-MX", { parentAsin: "B0DOS", titulo: null }],
+    ]);
+    const gt160 = armarContenido(filas, [], [], "MX", { padres }).modelos[0];
+    expect(gt160.asin).toBe("B0UNO");
+    expect(gt160.padresExtra).toEqual(["B0DOS"]);
   });
 
   it("cuenta cuántos modelos usa cada categoría de la store", () => {

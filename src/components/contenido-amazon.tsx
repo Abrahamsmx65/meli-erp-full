@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   CategoriaStore,
   ModeloContenido,
@@ -55,6 +55,8 @@ export function ContenidoAmazonPanel({
   verEliminados,
   sinRefrescar,
   soloLectura,
+  token,
+  linkPublico,
 }: {
   modelos: ModeloContenido[];
   categorias: CategoriaStore[];
@@ -62,8 +64,25 @@ export function ContenidoAmazonPanel({
   verEliminados: boolean;
   sinRefrescar: boolean;
   soloLectura: boolean;
+  /** Puesto = se entró con el link sin contraseña, no con sesión. */
+  token?: string;
+  /** El link para compartir; solo lo ve el dueño. */
+  linkPublico?: string | null;
 }) {
   const router = useRouter();
+
+  // Las dos puertas a la misma pantalla: la del dueño (con sesión) y la del
+  // link sin contraseña. Cambia a dónde se guarda, no qué se guarda.
+  const publico = Boolean(token);
+  const rutaGuardar = publico ? `/api/contenido-publico/${token}` : "/api/amazon/contenido";
+  const rutaCategorias = publico
+    ? `/api/contenido-publico/${token}`
+    : "/api/amazon/contenido/categorias";
+  const rutaImagenes = (modelo: string) =>
+    publico
+      ? `/api/contenido-publico/${token}/imagenes/${encodeURIComponent(modelo)}`
+      : `/api/amazon/contenido/${encodeURIComponent(modelo)}/imagenes`;
+  const base = publico ? `/contenido/${token}` : "/amazon/contenido";
 
   const [filas, setFilas] = useState(modelos);
   const [cats, setCats] = useState(categorias);
@@ -72,8 +91,19 @@ export function ContenidoAmazonPanel({
   const [zip, setZip] = useState<string | null>(null);
   const [refrescando, setRefrescando] = useState(false);
 
+  // El link se guarda como ruta y se completa con el origen ya montado: el
+  // servidor no conoce el dominio y armarlo aquí evita el brinco de hidratación.
+  const [rutaLink, setRutaLink] = useState(linkPublico ?? null);
+  const [origen, setOrigen] = useState("");
+  const [rotando, setRotando] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => setOrigen(window.location.origin), []);
+  const link = rutaLink ? `${origen}${rutaLink}` : null;
+
   const [busqueda, setBusqueda] = useState("");
-  const [filtro, setFiltro] = useState<"todos" | "activos" | "sinAplus" | "sinCategoria">("todos");
+  const [filtro, setFiltro] = useState<
+    "todos" | "nuevos" | "activos" | "sinAplus" | "sinCategoria"
+  >("todos");
   const [nuevaCategoria, setNuevaCategoria] = useState("");
 
   const marcar = (clave: string, e: Estado) => setEstado((s) => ({ ...s, [clave]: e }));
@@ -88,10 +118,10 @@ export function ContenidoAmazonPanel({
     marcar(modelo, "guardando");
     setAviso(null);
     try {
-      const r = await fetch("/api/amazon/contenido", {
+      const r = await fetch(rutaGuardar, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ modelo, ...cambios }),
+        body: JSON.stringify({ tipo: "modelo", modelo, ...cambios }),
       });
       if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo guardar.");
       marcar(modelo, "ok");
@@ -109,10 +139,10 @@ export function ContenidoAmazonPanel({
     marcar(clave, "guardando");
     setAviso(null);
     try {
-      const r = await fetch("/api/amazon/contenido/categorias", {
+      const r = await fetch(rutaCategorias, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nombre, ...cambios }),
+        body: JSON.stringify({ tipo: "categoria", nombre, ...cambios }),
       });
       if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo guardar.");
       marcar(clave, "ok");
@@ -155,7 +185,7 @@ export function ContenidoAmazonPanel({
     setZip(modelo);
     setAviso(null);
     try {
-      const r = await fetch(`/api/amazon/contenido/${encodeURIComponent(modelo)}/imagenes`);
+      const r = await fetch(rutaImagenes(modelo));
       if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudieron traer las imágenes.");
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
@@ -168,6 +198,26 @@ export function ContenidoAmazonPanel({
       setAviso((err as Error).message);
     } finally {
       setZip(null);
+    }
+  }
+
+  /** Genera un link nuevo y deja muerto el anterior. */
+  async function regenerarLink() {
+    if (!confirm("El link de ahora dejará de funcionar y habrá que mandar el nuevo. ¿Seguimos?")) {
+      return;
+    }
+    setRotando(true);
+    setAviso(null);
+    try {
+      const r = await fetch("/api/amazon/contenido/acceso", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error ?? "No se pudo generar.");
+      setRutaLink(`/contenido/${j.token}`);
+      setCopiado(false);
+    } catch (err) {
+      setAviso((err as Error).message);
+    } finally {
+      setRotando(false);
     }
   }
 
@@ -206,6 +256,7 @@ export function ContenidoAmazonPanel({
     const q = busqueda.trim().toUpperCase();
     return filas.filter((m) => {
       if (m.eliminado && !verEliminados) return false;
+      if (filtro === "nuevos" && !m.nuevo) return false;
       if (filtro === "activos" && !m.activo) return false;
       if (filtro === "sinAplus" && m.aplus) return false;
       if (filtro === "sinCategoria" && m.categoria) return false;
@@ -224,6 +275,45 @@ export function ContenidoAmazonPanel({
         <div className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
           {aviso}
         </div>
+      ) : null}
+
+      {!publico && link ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">Acceso sin contraseña</h2>
+          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            Este link abre SOLO esta sección, sin pedir usuario ni contraseña. Quien lo tenga
+            puede palomear, anotar, quitar modelos y bajar imágenes; no ve nada más del sistema.
+            Si se te sale de las manos, genera otro y el anterior deja de servir.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={link}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-[18rem] flex-1 rounded-lg border px-2 py-1.5 font-mono text-xs"
+              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(link).then(() => setCopiado(true));
+              }}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+              style={{ background: "var(--acento)" }}
+            >
+              {copiado ? "Copiado ✓" : "Copiar"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void regenerarLink()}
+              disabled={rotando}
+              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+            >
+              {rotando ? "Generando…" : "Generar otro"}
+            </button>
+          </div>
+        </section>
       ) : null}
 
       {sinRefrescar ? (
@@ -379,21 +469,24 @@ export function ContenidoAmazonPanel({
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           >
             <option value="todos">Todos</option>
+            <option value="nuevos">Nuevos</option>
             <option value="activos">Solo activos</option>
             <option value="sinAplus">Sin contenido A+</option>
             <option value="sinCategoria">Sin categoría</option>
           </select>
-          <button
-            type="button"
-            onClick={() => void actualizarCatalogo()}
-            disabled={refrescando}
-            className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-            style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-          >
-            {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
-          </button>
+          {publico ? null : (
+            <button
+              type="button"
+              onClick={() => void actualizarCatalogo()}
+              disabled={refrescando}
+              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+            >
+              {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
+            </button>
+          )}
           <Link
-            href={verEliminados ? "/amazon/contenido" : "/amazon/contenido?eliminados=1"}
+            href={verEliminados ? base : `${base}?eliminados=1`}
             className="text-sm underline"
             style={{ color: "var(--ink-2)" }}
           >
@@ -457,9 +550,19 @@ export function ContenidoAmazonPanel({
                         {m.activo ? "Activo" : "Inactivo"}
                       </span>
                       <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-                        {m.activos}/{m.skus} SKUs · {m.colores.length}{" "}
-                        {m.colores.length === 1 ? "color" : "colores"}
+                        {m.activos}/{m.skus} SKUs
                       </span>
+                      {m.nuevo ? (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                          style={{
+                            background: "color-mix(in oklab, var(--acento) 18%, transparent)",
+                            color: "var(--acento)",
+                          }}
+                        >
+                          Nuevo
+                        </span>
+                      ) : null}
                     </div>
                     {m.titulo ? (
                       <div
@@ -515,15 +618,30 @@ export function ContenidoAmazonPanel({
                   </td>
                   <td>
                     {m.url ? (
-                      <a
-                        href={m.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm underline"
-                        style={{ color: "var(--acento)" }}
-                      >
-                        Ver ↗
-                      </a>
+                      <span className="flex items-center gap-2">
+                        <a
+                          href={m.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm underline"
+                          style={{ color: "var(--acento)" }}
+                        >
+                          Ver ↗
+                        </a>
+                        {m.padresExtra.map((p, i) => (
+                          <a
+                            key={p}
+                            href={`https://www.amazon.com.mx/dp/${p}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs underline"
+                            style={{ color: "var(--ink-2)" }}
+                            title="Este modelo tiene más de una publicación"
+                          >
+                            +{i + 2}
+                          </a>
+                        ))}
+                      </span>
                     ) : (
                       <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
                         sin ASIN

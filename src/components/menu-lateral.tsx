@@ -113,6 +113,11 @@ export function MenuLateral({ pendientes }: { pendientes?: number }) {
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
   const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+
+  // El link sin contraseña abre SOLO la sección de contenido: quien entra por
+  // ahí no tiene sesión y no debe ver siquiera los nombres del resto del ERP.
+  if (ruta.startsWith("/contenido/")) return null;
+
   const activo = (href: string) => {
     if (href === "/") return ruta === "/";
     if (!ruta.startsWith(href)) return false;

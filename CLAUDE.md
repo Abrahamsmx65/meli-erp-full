@@ -130,7 +130,8 @@ guárdala numerada.
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
-| Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes por modelo en `src/lib/amazon/catalogo.ts`) |
+| Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes y padres en `src/lib/amazon/catalogo.ts`) |
+| Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-panel.ts` para la pantalla) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
@@ -140,6 +141,12 @@ guárdala numerada.
 
 - El registro está **cerrado**: tabla `usuarios_permitidos` + trigger sobre
   `auth.users`. Para dar acceso a alguien, inserta su correo ahí.
+- **La única pantalla sin sesión es `/contenido/{token}`** (la sección de
+  contenido de Amazon, para quien la trabaja sin cuenta en el ERP). El token
+  vive en `contenido_acceso`, que tiene RLS con **cero políticas** como
+  `meli_tokens`; del otro lado se lee y escribe con service_role, así que el
+  token es la única puerta: se compara en tiempo constante y SOLO en
+  `acceso-contenido.ts`. Ahí no van más tablas que las de esa sección.
 - `meli_tokens` tiene RLS con **cero políticas** a propósito: solo el
   service-role la lee. No agregues políticas.
 - `es_mi_cuenta()` debe seguir ejecutable por `authenticated` (RLS la usa);

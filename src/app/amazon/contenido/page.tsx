@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 import { cargarContenidoAmazon } from "@/lib/servicios/contenido-amazon";
+import { tokenDeCuenta } from "@/lib/servicios/acceso-contenido";
 import { ContenidoAmazonPanel } from "@/components/contenido-amazon";
 import { Ficha } from "@/components/tiles";
 
@@ -35,16 +36,22 @@ export default async function Contenido({
     );
   }
 
-  const { modelos, categorias, totales, faltaMigracion, sinRefrescar } =
-    await cargarContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados });
+  const [contenido, token] = await Promise.all([
+    cargarContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados }),
+    // El token vive en una tabla sin políticas (solo service_role); esta
+    // página ya confirmó la sesión, así que puede enseñárselo al dueño.
+    tokenDeCuenta(cuenta.id),
+  ]);
+  const { modelos, categorias, totales, faltaMigracion, sinRefrescar } = contenido;
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold">Contenido en Amazon</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Los modelos que tenemos publicados, del GT054 al GT300 más MY2307 y G650: sus
-          categorías en la store, sus imágenes y su contenido A+.
+          Los productos que tenemos publicados en Amazon, del GT054 en adelante más MY2307 y
+          G650: sus categorías en la store, sus imágenes y su contenido A+. Lo que se publique
+          después entra solo, marcado como nuevo.
         </p>
       </div>
 
@@ -59,9 +66,14 @@ export default async function Contenido({
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Ficha titulo="Modelos" valor={totales.modelos} />
+        <Ficha titulo="Productos" valor={totales.modelos} />
+        <Ficha
+          titulo="Nuevos"
+          valor={totales.nuevos}
+          tono={totales.nuevos > 0 ? "alerta" : "neutro"}
+          nota="sin anotar todavía"
+        />
         <Ficha titulo="Activos" valor={totales.activos} tono="bien" />
-        <Ficha titulo="Inactivos" valor={totales.inactivos} tono="alerta" />
         <Ficha
           titulo="Con imágenes"
           valor={totales.conImagenes}
@@ -81,6 +93,7 @@ export default async function Contenido({
         verEliminados={verEliminados}
         sinRefrescar={sinRefrescar}
         soloLectura={faltaMigracion}
+        linkPublico={token ? `/contenido/${token}` : null}
       />
     </div>
   );

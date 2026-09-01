@@ -52,6 +52,11 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/api/meli/skus-pendientes") ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
+    // El acceso sin contraseña a la sección de contenido: la puerta es el
+    // token del link, que valida `acceso-contenido.ts`. Sin esto el link
+    // rebotaría al login, que es justo lo que no debe pedir.
+    ruta.startsWith("/contenido/") ||
+    ruta.startsWith("/api/contenido-publico/") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {

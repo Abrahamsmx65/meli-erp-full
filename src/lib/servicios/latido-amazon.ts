@@ -9,6 +9,7 @@ import {
   sincronizarVentas,
 } from "../amazon/sync";
 import { sincronizarEconomia } from "../amazon/economia";
+import { sincronizarPadres } from "./padres-amazon";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -75,6 +76,14 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_listados", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarListados(admin, cliente);
+    });
+
+    // El ASIN padre de cada publicación, para que la sección de contenido
+    // hable de productos y no de tallas sueltas. Resuelve por tandas y solo
+    // lo que falta: cuando ya está todo resuelto, es una consulta y se sale.
+    await paso(admin, cuenta.accountId, "cron_padres", 55 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarPadres(admin, cliente);
     });
 
     // La economía por producto (SKU Economics vía Data Kiosk): cada paso es
