@@ -73,6 +73,20 @@ guárdala numerada.
   amarrar por item+variación contra el catálogo (`claveItem`, como hacen
   `obtenerVentas` y `recalcularDiaVentas`). Descartar renglones sin
   seller_sku deja el panel con muchas menos ventas que MELI.
+- **El costo de envío sale de las medidas que MELI capturó, y se equivoca.**
+  En Full, MELI MIDE la caja al recibirla y guarda el resultado en los
+  atributos `PACKAGE_*` de la publicación (`PACKAGE_DATA_SOURCE = MEASUREMENT`)
+  o, en las publicaciones con variantes dentro, en el `/user-products/{id}` de
+  cada variante (ahí NO hay atributos ni en el item ni en la variación). Con
+  esas medidas calcula el peso facturable y el costo. Cuando mide mal, esa
+  talla paga de más en cada venta: en el GT229, quince tallas de 27 × 24 × 10
+  pagan $88.50 y dos que quedaron como 11 × 29 × 37 y 28 × 25 × 25 pagan
+  $139.50 y $190. El simulador es
+  `/users/{id}/shipping_options/free?dimensions=AltoxAnchoxLargo,gramos`, y
+  **solo acepta enteros** (con decimales contesta 400). La verdad de qué mide
+  la caja son las hermanas del mismo modelo: se ordenan los tres lados de
+  mayor a menor (MELI permuta los ejes y eso NO es un error) y se saca la
+  mediana lado por lado.
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.
@@ -158,6 +172,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
