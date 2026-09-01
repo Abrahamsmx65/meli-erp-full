@@ -147,6 +147,8 @@ export interface TotalesContenido {
 export interface Padre {
   parentAsin: string | null;
   titulo: string | null;
+  /** La foto MAIN del padre: la miniatura del renglón. */
+  imagenUrl: string | null;
 }
 
 export interface ContenidoAmazon {
@@ -353,7 +355,13 @@ export function armarContenido(
       activos,
       activo: activos > 0,
       colores,
-      imagenUrl: colores.map((c) => c.imagenUrl).find(Boolean) ?? null,
+      imagenUrl:
+        miembros
+          .flatMap((m) => m.colores)
+          .map((c) => (c.asin ? padres.get(c.asin)?.imagenUrl : null))
+          .find(Boolean) ??
+        colores.map((c) => c.imagenUrl).find(Boolean) ??
+        null,
       nuevo: anots.length === 0,
       categoria,
       prioridad: Math.max(0, ...anots.map((a) => a.prioridad)),
@@ -498,14 +506,21 @@ export async function cargarContenidoAmazon(
  * la migración 0033), la pantalla sigue sirviendo con los links a los hijos.
  */
 async function leerPadres(db: DB, amazonAccountId: string): Promise<Map<string, Padre>> {
-  const filas = await traerTodo<any>(db, "amazon_padres", "asin, parent_asin, titulo", (q) =>
-    q.eq("account_id", amazonAccountId),
+  const filas = await traerTodo<any>(
+    db,
+    "amazon_padres",
+    "asin, parent_asin, titulo, imagen_url",
+    (q) => q.eq("account_id", amazonAccountId),
   ).catch(() => [] as any[]);
 
   return new Map(
     filas.map((f) => [
       String(f.asin ?? ""),
-      { parentAsin: f.parent_asin ?? null, titulo: f.titulo ?? null } as Padre,
+      {
+        parentAsin: f.parent_asin ?? null,
+        titulo: f.titulo ?? null,
+        imagenUrl: f.imagen_url ?? null,
+      } as Padre,
     ]),
   );
 }

@@ -236,8 +236,8 @@ describe("armarContenido", () => {
 
   it("el link abre la publicación PADRE cuando ya se resolvió", () => {
     const padres = new Map([
-      ["A-GT128-23-BLK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128" }],
-      ["A-GT128-23-PINK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128" }],
+      ["A-GT128-23-BLK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128", imagenUrl: "https://img/padre128.jpg" }],
+      ["A-GT128-23-PINK-MX", { parentAsin: "B0PADRE128", titulo: "GETAC Zuecos GT128", imagenUrl: "https://img/padre128.jpg" }],
     ]);
     const gt128 = armarContenido(catalogo, [], [], "MX", { padres }).modelos.find(
       (m) => m.modelo === "GT128",
@@ -246,6 +246,8 @@ describe("armarContenido", () => {
     expect(gt128.url).toBe("https://www.amazon.com.mx/dp/B0PADRE128");
     expect(gt128.titulo).toBe("GETAC Zuecos GT128");
     expect(gt128.codigos).toEqual(["GT128"]);
+    // La miniatura es la foto MAIN del padre (el reporte de MX no trae fotos).
+    expect(gt128.imagenUrl).toBe("https://img/padre128.jpg");
   });
 
   it("sin padre resuelto, el link sigue cayendo en un hijo vivo", () => {
@@ -264,9 +266,9 @@ describe("armarContenido", () => {
     fila("GT120-GREY-25-MX"),
   ];
   const padresHermanos = new Map([
-    ["A-GT117-BLK-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia" }],
-    ["A-GT118-NAVY-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia" }],
-    ["A-GT119-RED-25-MX", { parentAsin: "B0FAMILIA", titulo: null }],
+    ["A-GT117-BLK-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia", imagenUrl: null }],
+    ["A-GT118-NAVY-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia", imagenUrl: null }],
+    ["A-GT119-RED-25-MX", { parentAsin: "B0FAMILIA", titulo: null, imagenUrl: "https://img/familia.jpg" }],
   ]);
 
   it("los códigos que comparten padre se fusionan en un solo renglón", () => {
@@ -275,6 +277,7 @@ describe("armarContenido", () => {
     expect(grupo.codigos).toEqual(["GT117", "GT118", "GT119"]);
     expect(grupo.asin).toBe("B0FAMILIA");
     expect(grupo.titulo).toBe("GETAC Zuecos Familia");
+    expect(grupo.imagenUrl).toBe("https://img/familia.jpg");
     expect(grupo.skus).toBe(4);
     expect(grupo.colores.map((c) => `${c.modelo} ${c.color}`)).toEqual([
       "GT117 BLK",
