@@ -16,6 +16,8 @@
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
+import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
@@ -187,6 +189,8 @@ export async function recalcularSaldos(
 
 export interface ResultadoSync {
   conectado: boolean;
+  /** la foto de la bodega TikTok en Industher, si el API ya la reporta */
+  bodega: ResultadoBodegaTikTok | null;
   pedidos: number;
   salidas: number;
   devoluciones: number;
@@ -199,6 +203,7 @@ export interface ResultadoSync {
 
 const VACIO: ResultadoSync = {
   conectado: false,
+  bodega: null,
   pedidos: 0,
   salidas: 0,
   devoluciones: 0,
@@ -283,6 +288,28 @@ export async function sincronizarTikTok(
     (mapeoRaw ?? []).map((m: any) => [String(m.sku_tiktok).toUpperCase(), m.sku_interno]),
   );
   const amarrar = (sellerSku: string | null) => amarrarSkuTikTok(sellerSku, indice, manual);
+
+  // ---- 0. El saldo físico, desde la bodega TikTok de Industher ---------
+  // Primero se refresca la foto del 3PL (si su API está configurado) y
+  // luego se lleva al kardex. Si Industher falla, la foto anterior sigue
+  // sirviendo: se avisa y lo demás continúa.
+  let bodega: ResultadoBodegaTikTok | null = null;
+  if (configuracionIndusther()) {
+    try {
+      await sincronizarInventarioIndusther(admin, accountId);
+    } catch (err) {
+      avisos.push(`Industher: ${(err as Error).message}`);
+    }
+  }
+  try {
+    bodega = await sincronizarSaldoDesdeBodega(admin, accountId);
+    if (!bodega.almacen) {
+      avisos.push("Industher todavía no reporta una bodega llamada TikTok.");
+      bodega = null;
+    }
+  } catch (err) {
+    avisos.push(`Bodega TikTok: ${(err as Error).message}`);
+  }
 
   // ---- 1. Catálogo de TikTok -------------------------------------------
   let skusCatalogo = 0;
@@ -460,6 +487,7 @@ export async function sincronizarTikTok(
       publicados: pub.publicados,
       skusCatalogo,
       sinAmarre,
+      bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
       busquedaPedidos: diag,
       avisos,
@@ -468,6 +496,7 @@ export async function sincronizarTikTok(
 
   return {
     conectado: true,
+    bodega,
     pedidos: pedidos.length,
     salidas,
     devoluciones,

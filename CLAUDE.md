@@ -73,6 +73,20 @@ guárdala numerada.
   amarrar por item+variación contra el catálogo (`claveItem`, como hacen
   `obtenerVentas` y `recalcularDiaVentas`). Descartar renglones sin
   seller_sku deja el panel con muchas menos ventas que MELI.
+- **El costo de envío sale de las medidas que MELI capturó, y se equivoca.**
+  En Full, MELI MIDE la caja al recibirla y guarda el resultado en los
+  atributos `PACKAGE_*` de la publicación (`PACKAGE_DATA_SOURCE = MEASUREMENT`)
+  o, en las publicaciones con variantes dentro, en el `/user-products/{id}` de
+  cada variante (ahí NO hay atributos ni en el item ni en la variación). Con
+  esas medidas calcula el peso facturable y el costo. Cuando mide mal, esa
+  talla paga de más en cada venta: en el GT229, quince tallas de 27 × 24 × 10
+  pagan $88.50 y dos que quedaron como 11 × 29 × 37 y 28 × 25 × 25 pagan
+  $139.50 y $190. El simulador es
+  `/users/{id}/shipping_options/free?dimensions=AltoxAnchoxLargo,gramos`, y
+  **solo acepta enteros** (con decimales contesta 400). La verdad de qué mide
+  la caja son las hermanas del mismo modelo: se ordenan los tres lados de
+  mayor a menor (MELI permuta los ejes y eso NO es un error) y se saca la
+  mediana lado por lado.
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.
@@ -87,6 +101,15 @@ guárdala numerada.
   sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
   único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
   salida por SKU.
+  **El saldo físico NO se captura: sale de la bodega "TikTok" de Industher**
+  (mismo API; `esAlmacenTikTok` en `tiktok/bodega.ts`). La foto entra al kardex
+  como un `ajuste` fechado a la hora de la foto y solo donde difiere del saldo
+  que había a esa hora; las salidas confirmadas después de la foto se restan
+  encima hasta que la siguiente foto las absorbe. Se cuentan cajas FÍSICAS
+  (disponibles + apartadas). Esa bodega NO surte a Full
+  (`almacenes_activos.surte_full = false`, se inserta sola al detectarla). A
+  TikTok solo se le escribe un SKU que alguna vez se contó (entrada o ajuste):
+  uno con puras salidas se queda con el número que TikTok ya tiene.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
@@ -162,6 +185,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
@@ -172,7 +196,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes y padres en `src/lib/amazon/catalogo.ts`) |
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
-| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-panel.ts` para la pantalla) |
+| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |

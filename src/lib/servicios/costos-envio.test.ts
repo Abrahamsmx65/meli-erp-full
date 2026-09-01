@@ -1,0 +1,185 @@
+import { describe, expect, it } from "vitest";
+import {
+  armarRevision,
+  claveTarifa,
+  dimensionesParaMeli,
+  ladosOrdenados,
+  medidaDeConsenso,
+  medidasDeAtributos,
+  numeroDeAtributo,
+  puedeCobrarDeMas,
+  type VarianteEnvio,
+} from "./costos-envio";
+
+/**
+ * El caso real que destapó esto: el GT229. Quince tallas miden ~27 × 24 × 10
+ * cm y su envío cuesta $88.50; dos quedaron mal medidas en Full y cuestan
+ * $139.50 y $190. Los números de aquí son los que contestaron MELI y su
+ * simulador el 1 de septiembre de 2026.
+ */
+const GT229: [string, number, number, number, number][] = [
+  // sku-corto, alto, ancho, largo, peso
+  ["BLK-23", 10, 26, 26, 440],
+  ["BLK-24", 10, 20.8, 26.2, 460],
+  ["BLK-25", 10.3, 23.7, 27.5, 500],
+  ["BLK-26", 7.2, 22.6, 27.4, 600],
+  ["BLK-27", 10.2, 25.5, 27.9, 540],
+  ["BLK-28", 8.6, 23, 30.6, 600],
+  ["DK-23", 10.6, 22, 26.2, 450],
+  ["DK-24", 9.8, 24, 25.6, 480],
+  ["DK-25", 11.2, 23.8, 27.4, 520],
+  ["DK-26", 36.6, 29.4, 11.2, 530], // mal medida: la caja "parada"
+  ["DK-27", 9.6, 25, 29.8, 560],
+  ["DK-28", 9.8, 24.6, 31.8, 600],
+  ["TAB-23", 11.2, 23.4, 29.6, 440],
+  ["TAB-24", 25.2, 25.4, 28.4, 480], // mal medida: 25 cm de alto
+  ["TAB-25", 9.8, 24.2, 28.6, 520],
+  ["TAB-26", 9, 23.6, 27.2, 620],
+  ["TAB-27", 10.2, 29.6, 30.2, 560],
+  ["TAB-28", 11.6, 23.2, 32.4, 600],
+];
+
+function variantesGT229(costos: Record<string, [number, number]> = {}): VarianteEnvio[] {
+  return GT229.map(([corto, alto, ancho, largo, peso]) => {
+    const [costo, normal] = costos[corto] ?? [88.5, 88.5];
+    return {
+      sku: `GT229-${corto}-MX`,
+      itemId: `MLM${corto}`,
+      inventoryId: `INV${corto}`,
+      modelo: "GT229",
+      color: corto.split("-")[0],
+      talla: corto.split("-")[1],
+      medida: { alto, ancho, largo, peso },
+      fuente: "MEASUREMENT",
+      medidaVendedor: null,
+      precio: 499,
+      tipoPublicacion: "gold_pro",
+      envioGratis: true,
+      estado: "active",
+      costo,
+      costoNormal: normal,
+      pesoFacturable: null,
+    };
+  });
+}
+
+describe("lectura de los atributos de MELI", () => {
+  it("lee el número venga en texto o en value_struct, y el peso siempre en gramos", () => {
+    expect(numeroDeAtributo({ id: "PACKAGE_LENGTH", value_name: "26.2 cm" })).toBe(26.2);
+    expect(
+      numeroDeAtributo({ id: "PACKAGE_WIDTH", value_struct: { number: 20.8, unit: "cm" } }),
+    ).toBe(20.8);
+    expect(numeroDeAtributo({ id: "PACKAGE_WEIGHT", value_name: "1.2 kg" }, true)).toBe(1200);
+    expect(numeroDeAtributo({ id: "PACKAGE_WEIGHT", value_name: "440 g" }, true)).toBe(440);
+    expect(numeroDeAtributo(undefined)).toBeNull();
+  });
+
+  it("separa las medidas de MELI de las que declaró el vendedor", () => {
+    const { medida, medidaVendedor, fuente } = medidasDeAtributos([
+      { id: "PACKAGE_HEIGHT", value_name: "10 cm" },
+      { id: "PACKAGE_WIDTH", value_name: "26 cm" },
+      { id: "PACKAGE_LENGTH", value_name: "26 cm" },
+      { id: "PACKAGE_WEIGHT", value_name: "440 g" },
+      { id: "PACKAGE_DATA_SOURCE", value_name: "MEASUREMENT" },
+      { id: "SELLER_PACKAGE_HEIGHT", value_name: "26 cm" },
+      { id: "SELLER_PACKAGE_WIDTH", value_name: "26 cm" },
+      { id: "SELLER_PACKAGE_LENGTH", value_name: "10 cm" },
+      { id: "SELLER_PACKAGE_WEIGHT", value_name: "440 g" },
+    ]);
+    expect(medida).toEqual({ alto: 10, ancho: 26, largo: 26, peso: 440 });
+    expect(medidaVendedor).toEqual({ alto: 26, ancho: 26, largo: 10, peso: 440 });
+    expect(fuente).toBe("MEASUREMENT");
+  });
+
+  it("una publicación sin medidas completas no inventa ninguna", () => {
+    const { medida } = medidasDeAtributos([{ id: "PACKAGE_HEIGHT", value_name: "10 cm" }]);
+    expect(medida).toBeNull();
+  });
+});
+
+describe("comparación entre hermanas", () => {
+  it("los ejes permutados son la MISMA caja", () => {
+    expect(ladosOrdenados({ alto: 10, ancho: 26, largo: 26, peso: 440 })).toEqual([26, 26, 10]);
+    expect(ladosOrdenados({ alto: 26, ancho: 26, largo: 10, peso: 440 })).toEqual([26, 26, 10]);
+  });
+
+  it("el consenso es una caja de pantufla, no la promedia con las mal medidas", () => {
+    const consenso = medidaDeConsenso(variantesGT229())!;
+    // Mediana lado por lado: una caja de pantufla de 27.9 × 23.8 × 10 cm.
+    // Ni la de 36.6 cm de alto ni la de 25.2 la mueven, que es justo el punto.
+    expect(consenso.largo).toBe(27.9);
+    expect(consenso.ancho).toBe(23.8);
+    expect(consenso.alto).toBe(10);
+    expect(consenso.peso).toBe(520);
+  });
+
+  it("sin al menos tres hermanas no hay consenso que valga", () => {
+    expect(medidaDeConsenso(variantesGT229().slice(0, 2))).toBeNull();
+  });
+
+  it("solo se le pregunta el costo a las cajas que se pasan del consenso", () => {
+    const consenso = medidaDeConsenso(variantesGT229())!;
+    const caja = (alto: number, ancho: number, largo: number, peso: number) => ({
+      alto,
+      ancho,
+      largo,
+      peso,
+    });
+    // Las dos mal medidas se pasan.
+    expect(puedeCobrarDeMas(caja(36.6, 29.4, 11.2, 530), consenso)).toBe(true);
+    expect(puedeCobrarDeMas(caja(25.2, 25.4, 28.4, 480), consenso)).toBe(true);
+    // La comparación es lado por lado y NO por volumen, a propósito: una caja
+    // más chica de volumen pero más larga puede caer en otro escalón de
+    // tarifa. Prefiere gastar una llamada de más a dejar pasar un cobro.
+    expect(puedeCobrarDeMas(caja(10, 26, 26, 440), consenso)).toBe(true);
+    // La que cabe entera dentro del consenso no puede costar más: no se pregunta.
+    expect(puedeCobrarDeMas(caja(9, 23, 27, 500), consenso)).toBe(false);
+    // Y medio centímetro es ruido de medición, no un error de captura.
+    expect(puedeCobrarDeMas(caja(10.3, 24.2, 28.3, 535), consenso)).toBe(false);
+  });
+});
+
+describe("formato que pide el simulador de MELI", () => {
+  it("redondea hacia arriba: con decimales el API contesta 400", () => {
+    expect(dimensionesParaMeli({ alto: 10.3, ancho: 23.7, largo: 27.5, peso: 500 })).toBe(
+      "11x24x28,500",
+    );
+    expect(dimensionesParaMeli({ alto: 10, ancho: 26, largo: 26, peso: 440 })).toBe("10x26x26,440");
+  });
+
+  it("la clave de la caché junta caja, precio y tipo de publicación", () => {
+    expect(claveTarifa({ alto: 10, ancho: 26, largo: 26, peso: 440 }, 499, "gold_pro")).toBe(
+      "10x26x26,440|499|gold_pro",
+    );
+  });
+});
+
+describe("revisión del modelo", () => {
+  const revision = armarRevision(
+    variantesGT229({ "DK-26": [139.5, 88.5], "TAB-24": [190, 88.5] }),
+  )[0];
+
+  it("señala exactamente las dos variantes que cobran de más", () => {
+    expect(revision.malas.map((v) => v.sku)).toEqual(["GT229-TAB-24-MX", "GT229-DK-26-MX"]);
+    expect(revision.malas[0].sobrecosto).toBe(101.5);
+    expect(revision.malas[1].sobrecosto).toBe(51);
+    expect(revision.sobrecosto).toBe(152.5);
+  });
+
+  it("le pone a cada variante la medida real de sus hermanas", () => {
+    const mala = revision.malas.find((v) => v.sku === "GT229-DK-26-MX")!;
+    expect(mala.medida).toEqual({ alto: 36.6, ancho: 29.4, largo: 11.2, peso: 530 });
+    expect(mala.medidaReal).toEqual(revision.medidaReal);
+    expect(revision.hermanas).toBe(18);
+  });
+
+  it("sin envío gratis el sobrecosto lo paga el comprador: se marca, pero no cuenta como dinero propio", () => {
+    const variantes = variantesGT229({ "DK-26": [139.5, 88.5] }).map((v) =>
+      v.sku === "GT229-DK-26-MX" ? { ...v, envioGratis: false } : v,
+    );
+    const revision = armarRevision(variantes)[0];
+    expect(revision.malas.map((v) => v.sku)).toEqual(["GT229-DK-26-MX"]);
+    expect(revision.malas[0].sobrecosto).toBe(51);
+    expect(revision.sobrecosto).toBe(0);
+  });
+});
