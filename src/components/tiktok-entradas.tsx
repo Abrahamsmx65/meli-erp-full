@@ -90,9 +90,9 @@ export function EntradasTikTok() {
     <section className="tarjeta p-4">
       <h2 className="text-sm font-semibold">Corregir a mano</h2>
       <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-        El saldo normal llega solo de Industher. Esto es para lo que la bodega todavía no
-        refleja (una merma, un par que regresó); la siguiente foto de Industher vuelve a mandar.
-        Se le publica a TikTok en el mismo clic.
+        Las entradas llegan solas de Industher y las salidas las ponen los pedidos. Esto es para
+        lo demás: una merma, un par que regresó, un conteo. Se le publica a TikTok en el mismo
+        clic.
         {ayuda ? ` ${ayuda}.` : ""}
       </p>
 

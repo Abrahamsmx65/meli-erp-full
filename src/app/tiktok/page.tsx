@@ -67,9 +67,9 @@ export default async function TikTok({
         <div>
           <h1 className="text-xl font-semibold">Almacén TikTok Shop</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Envío propio. El saldo físico llega solo de la bodega TikTok de Industher; el ERP le
-            resta lo pagado sin salir y le escribe a TikTok el disponible. Última sincronización:{" "}
-            {cuando(p.ultimaSync)}.
+            Envío propio. Lo que entra a la bodega TikTok de Industher entra solo; un pedido pagado
+            aparta y el envío confirmado descuenta. El disponible se le escribe a TikTok. Última
+            sincronización: {cuando(p.ultimaSync)}.
           </p>
         </div>
         {p.conectado ? <AccionesTikTok porPublicar={p.totales.porPublicar} /> : null}

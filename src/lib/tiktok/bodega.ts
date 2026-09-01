@@ -1,22 +1,23 @@
 /**
- * El saldo físico del almacén de TikTok sale de INDUSTHER, no de capturas.
+ * Lo que ENTRA al almacén de TikTok sale de Industher; lo que SALE, no.
  *
- * El 3PL dio de alta una bodega propia para TikTok en su sistema, y su API
- * la reporta igual que a las demás: en cajas, con corrida o talla única. Eso
- * es la verdad física — nadie más cuenta esos pares — y el ERP la toma tal
- * cual. Lo que el ERP AGREGA es lo que el 3PL no sabe: qué pedidos de TikTok
- * están pagados sin salir (apartado) y qué envíos se confirmaron después de
- * la última foto (salidas).
+ * El 3PL dio de alta una bodega propia para TikTok en su sistema y ahí solo
+ * registra lo que le llega: nunca descuenta un pedido. Los pedidos los
+ * descuenta este ERP — un pago aparta, un envío confirmado resta. Por eso el
+ * número de Industher NO es una foto del estante (después de vender 30 pares
+ * sigue diciendo lo mismo), es un ACUMULADO DE ENTRADAS, y así se lee:
  *
- * La foto entra al kardex como un AJUSTE fechado en el momento de la foto:
- * pisa el saldo a esa hora, y las salidas posteriores se le restan encima.
- * Así una venta confirmada a las 13:50 con foto de las 14:00 no se descuenta
- * dos veces (la foto ya la trae), y una confirmada a las 14:05 sí se resta
- * hasta que la siguiente foto la absorba.
+ *   base registrada = Σ entradas de Industher − Σ retiros de Industher
+ *   sube el acumulado  →  ENTRADA por la diferencia
+ *   baja el acumulado  →  RETIRO por la diferencia (el 3PL sacó o corrigió)
+ *
+ * Tomarlo como foto absoluta —"pisar" el saldo— habría vuelto a publicar
+ * los pares ya vendidos en cada sincronización. Aquí nada pisa: se suma la
+ * diferencia y las salidas del kardex quedan intactas.
  */
 import { canonizar } from "../importar/sku";
 import type { CajaConstruida } from "../importar/cajas";
-import { saldosDesdeMovimientos, type Movimiento } from "./kardex";
+import type { Movimiento } from "./kardex";
 
 /** Cómo se reconoce la bodega de TikTok en Industher: "Tik Tok", "TIKTOK", "TikTok Shop"… */
 export function esAlmacenTikTok(nombre: string | null | undefined): boolean {
@@ -24,14 +25,14 @@ export function esAlmacenTikTok(nombre: string | null | undefined): boolean {
   return c === "TIKTOK" || c.startsWith("TIKTOK");
 }
 
+/** Prefijo de la referencia con la que Industher firma sus movimientos. */
+export const REFERENCIA_INDUSTHER = "industher:";
+
 /**
- * Pares FÍSICOS por SKU a partir de las cajas de la bodega de TikTok.
- *
- * Se cuentan las cajas físicas (disponibles + apartadas), no solo las
- * disponibles: en esta bodega "apartada" no significa "para un envío a
- * Full", y lo que TikTok tiene apartado el ERP ya lo resta por su lado
- * con los pedidos pagados. Restarlo dos veces dejaría de ofrecer pares
- * que sí están en el estante.
+ * Pares acumulados por SKU en la bodega de TikTok, a partir de sus cajas.
+ * Se cuentan las cajas físicas (disponibles + apartadas): en esta bodega
+ * "apartada" no significa "para un envío a Full", y lo que TikTok tiene
+ * apartado el ERP ya lo resta por su lado con los pedidos pagados.
  */
 export function paresPorSkuDesdeCajas(cajas: CajaConstruida[]): Map<string, number> {
   const pares = new Map<string, number>();
@@ -46,9 +47,9 @@ export function paresPorSkuDesdeCajas(cajas: CajaConstruida[]): Map<string, numb
   return pares;
 }
 
-export interface AjusteDesdeFoto {
+export interface MovimientoDesdeIndusther {
   sku: string;
-  tipo: "ajuste";
+  tipo: "entrada" | "merma";
   cantidad: number;
   referencia: string;
   motivo: string;
@@ -56,43 +57,53 @@ export interface AjusteDesdeFoto {
 }
 
 /**
- * Qué ajustes hay que registrar para que el kardex, A LA HORA DE LA FOTO,
- * diga lo mismo que Industher.
+ * Cuánto de lo que Industher reporta todavía no está en el kardex.
  *
- * Solo se escribe un ajuste donde haya diferencia: escribir 300 renglones
- * idénticos cada hora enterraría las ventas en la bitácora. La comparación
- * es contra el saldo QUE HABÍA a la hora de la foto (movimientos hasta esa
- * fecha), no contra el de ahora: una salida registrada después de la foto
- * tiene que seguir restando después del ajuste, no borrar la diferencia.
- *
- * Un SKU que el kardex tenía y la bodega ya no reporta baja a 0: si no está
- * en la foto, no está en el estante.
+ * La base es lo que Industher YA metió antes (sus propias entradas menos sus
+ * propios retiros, reconocidos por la referencia). Las salidas de pedidos y
+ * las correcciones a mano no entran en la base: no son de Industher y no
+ * deben cambiar cuánto se le reconoce.
  */
-export function ajustesDesdeFoto(
+export function movimientosDesdeAcumulado(
   paresEnBodega: Map<string, number>,
   movimientos: Movimiento[],
   fechaFoto: string,
-): AjusteDesdeFoto[] {
-  const hastaLaFoto = movimientos.filter((m) => (m.fecha ?? "") <= fechaFoto);
-  const saldosEntonces = saldosDesdeMovimientos(hastaLaFoto);
-  const referencia = `industher:${fechaFoto}`;
-
-  const skus = new Set<string>([...paresEnBodega.keys(), ...saldosEntonces.keys()]);
-  const ajustes: AjusteDesdeFoto[] = [];
-
-  for (const sku of skus) {
-    const enBodega = paresEnBodega.get(sku) ?? 0;
-    const enKardex = saldosEntonces.get(sku) ?? 0;
-    if (enBodega === enKardex) continue;
-    ajustes.push({
-      sku,
-      tipo: "ajuste",
-      cantidad: enBodega,
-      referencia,
-      motivo: "Foto de la bodega TikTok en Industher",
-      fecha: fechaFoto,
-    });
+): MovimientoDesdeIndusther[] {
+  const base = new Map<string, number>();
+  for (const m of movimientos) {
+    if (!m.referencia?.startsWith(REFERENCIA_INDUSTHER)) continue;
+    const signo = m.tipo === "entrada" ? 1 : m.tipo === "merma" ? -1 : 0;
+    if (!signo) continue;
+    base.set(m.sku, (base.get(m.sku) ?? 0) + signo * m.cantidad);
   }
 
-  return ajustes.sort((a, b) => a.sku.localeCompare(b.sku, "es"));
+  const referencia = `${REFERENCIA_INDUSTHER}${fechaFoto}`;
+  const skus = new Set<string>([...paresEnBodega.keys(), ...base.keys()]);
+  const salida: MovimientoDesdeIndusther[] = [];
+
+  for (const sku of skus) {
+    const delta = (paresEnBodega.get(sku) ?? 0) - (base.get(sku) ?? 0);
+    if (delta === 0) continue;
+    salida.push(
+      delta > 0
+        ? {
+            sku,
+            tipo: "entrada",
+            cantidad: delta,
+            referencia,
+            motivo: "Entrada a la bodega TikTok (Industher)",
+            fecha: fechaFoto,
+          }
+        : {
+            sku,
+            tipo: "merma",
+            cantidad: -delta,
+            referencia,
+            motivo: "Industher reportó menos en la bodega TikTok",
+            fecha: fechaFoto,
+          },
+    );
+  }
+
+  return salida.sort((a, b) => a.sku.localeCompare(b.sku, "es"));
 }

@@ -101,15 +101,15 @@ guárdala numerada.
   sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
   único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
   salida por SKU.
-  **El saldo físico NO se captura: sale de la bodega "TikTok" de Industher**
-  (mismo API; `esAlmacenTikTok` en `tiktok/bodega.ts`). La foto entra al kardex
-  como un `ajuste` fechado a la hora de la foto y solo donde difiere del saldo
-  que había a esa hora; las salidas confirmadas después de la foto se restan
-  encima hasta que la siguiente foto las absorbe. Se cuentan cajas FÍSICAS
-  (disponibles + apartadas). Esa bodega NO surte a Full
-  (`almacenes_activos.surte_full = false`, se inserta sola al detectarla). A
-  TikTok solo se le escribe un SKU que alguna vez se contó (entrada o ajuste):
-  uno con puras salidas se queda con el número que TikTok ya tiene.
+  **Industher SOLO SUMA en la bodega "TikTok", nunca descuenta pedidos**: su
+  número es un acumulado de entradas, no una foto del estante. Entra al
+  kardex como ENTRADA por diferencia contra lo ya reconocido (movimientos con
+  referencia `industher:*`; si baja, RETIRO); NUNCA como ajuste absoluto, que
+  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
+  FÍSICAS. Esa bodega NO surte a Full (`almacenes_activos.surte_full =
+  false`, se inserta sola). A TikTok solo se le escribe un SKU que alguna vez
+  se contó (entrada o ajuste): uno con puras salidas se queda con el número
+  que TikTok ya tiene.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya

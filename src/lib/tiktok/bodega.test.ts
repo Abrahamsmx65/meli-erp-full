@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CajaConstruida } from "../importar/cajas";
-import { ajustesDesdeFoto, esAlmacenTikTok, paresPorSkuDesdeCajas } from "./bodega";
-import type { Movimiento } from "./kardex";
+import {
+  esAlmacenTikTok,
+  movimientosDesdeAcumulado,
+  paresPorSkuDesdeCajas,
+  REFERENCIA_INDUSTHER,
+} from "./bodega";
+import { saldosDesdeMovimientos, type Movimiento } from "./kardex";
 
 describe("esAlmacenTikTok", () => {
   it("reconoce cómo lo escriba el 3PL", () => {
@@ -62,64 +67,67 @@ describe("paresPorSkuDesdeCajas", () => {
     ]);
     expect(pares.get("A")).toBe(8);
   });
-
-  it("una caja sin existencia no aporta", () => {
-    const pares = paresPorSkuDesdeCajas([
-      caja({ cajasDisponibles: 0, detalle: [{ sku: "A", piezas: 3, talla: "25", origen: "exacto" }] }),
-    ]);
-    expect(pares.has("A")).toBe(false);
-  });
 });
 
-describe("ajustesDesdeFoto", () => {
+describe("movimientosDesdeAcumulado", () => {
   const FOTO = "2026-09-02T14:00:00.000Z";
+  const ref = (f: string) => `${REFERENCIA_INDUSTHER}${f}`;
 
-  it("escribe un ajuste solo donde la bodega y el kardex difieren", () => {
-    const movs: Movimiento[] = [
-      { sku: "A", tipo: "entrada", cantidad: 10, fecha: "2026-09-01T10:00:00Z" },
-      { sku: "B", tipo: "entrada", cantidad: 5, fecha: "2026-09-01T10:00:00Z" },
-    ];
-    const ajustes = ajustesDesdeFoto(new Map([["A", 10], ["B", 7]]), movs, FOTO);
-    expect(ajustes).toEqual([
-      {
-        sku: "B",
-        tipo: "ajuste",
-        cantidad: 7,
-        referencia: `industher:${FOTO}`,
-        motivo: "Foto de la bodega TikTok en Industher",
-        fecha: FOTO,
-      },
+  it("la primera vez, todo lo de Industher entra como entrada", () => {
+    const m = movimientosDesdeAcumulado(new Map([["A", 100]]), [], FOTO);
+    expect(m).toEqual([
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref(FOTO), motivo: "Entrada a la bodega TikTok (Industher)", fecha: FOTO },
     ]);
   });
 
-  it("compara contra el saldo A LA HORA DE LA FOTO: una salida posterior no borra la diferencia", () => {
+  it("LA REGLA: vender no cambia lo que Industher reporta, y no se vuelve a sumar", () => {
     const movs: Movimiento[] = [
-      { sku: "A", tipo: "entrada", cantidad: 10, fecha: "2026-09-01T10:00:00Z" },
-      // Se confirmó un envío DESPUÉS de la foto: el kardex dice 9 ahora,
-      // pero a la hora de la foto decía 10, igual que la bodega. Sin ajuste.
-      { sku: "A", tipo: "salida", cantidad: 1, fecha: "2026-09-02T15:00:00Z" },
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 30, referencia: "5770", fecha: "2026-09-01T18:00:00Z" },
     ];
-    expect(ajustesDesdeFoto(new Map([["A", 10]]), movs, FOTO)).toEqual([]);
+    // Industher sigue diciendo 100: no descuenta pedidos. Nada nuevo que meter.
+    expect(movimientosDesdeAcumulado(new Map([["A", 100]]), movs, FOTO)).toEqual([]);
+    // Y el saldo real sigue siendo 70.
+    expect(saldosDesdeMovimientos(movs).get("A")).toBe(70);
   });
 
-  it("una salida ANTES de la foto ya viene descontada en la bodega: tampoco ajusta", () => {
+  it("si Industher sube, entra solo la diferencia", () => {
     const movs: Movimiento[] = [
-      { sku: "A", tipo: "entrada", cantidad: 10, fecha: "2026-09-01T10:00:00Z" },
-      { sku: "A", tipo: "salida", cantidad: 1, fecha: "2026-09-02T13:50:00Z" },
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 30, referencia: "5770", fecha: "2026-09-01T18:00:00Z" },
     ];
-    // La bodega ya empacó ese par: reporta 9. El kardex a las 14:00 dice 9.
-    expect(ajustesDesdeFoto(new Map([["A", 9]]), movs, FOTO)).toEqual([]);
+    const m = movimientosDesdeAcumulado(new Map([["A", 120]]), movs, FOTO);
+    expect(m).toEqual([expect.objectContaining({ sku: "A", tipo: "entrada", cantidad: 20 })]);
+    expect(saldosDesdeMovimientos([...movs, m[0]]).get("A")).toBe(90);
   });
 
-  it("lo que la bodega ya no reporta baja a cero", () => {
-    const movs: Movimiento[] = [{ sku: "Z", tipo: "entrada", cantidad: 4, fecha: "2026-09-01T10:00:00Z" }];
-    const ajustes = ajustesDesdeFoto(new Map(), movs, FOTO);
-    expect(ajustes).toHaveLength(1);
-    expect(ajustes[0]).toMatchObject({ sku: "Z", cantidad: 0 });
+  it("si Industher baja (sacó o corrigió), se retira la diferencia", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+    ];
+    const m = movimientosDesdeAcumulado(new Map([["A", 90]]), movs, FOTO);
+    expect(m).toEqual([expect.objectContaining({ sku: "A", tipo: "merma", cantidad: 10 })]);
   });
 
-  it("la referencia identifica la foto: la misma foto no se aplica dos veces", () => {
-    const a = ajustesDesdeFoto(new Map([["A", 3]]), [], FOTO);
-    expect(a[0].referencia).toBe(`industher:${FOTO}`);
+  it("las correcciones a mano no cuentan como base de Industher", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+      // Alguien capturó una merma a mano: no es de Industher, no cambia lo que se le reconoce.
+      { sku: "A", tipo: "merma", cantidad: 2, referencia: null, fecha: "2026-09-01T19:00:00Z" },
+    ];
+    expect(movimientosDesdeAcumulado(new Map([["A", 100]]), movs, FOTO)).toEqual([]);
+    expect(saldosDesdeMovimientos(movs).get("A")).toBe(98);
+  });
+
+  it("lo que Industher ya no reporta se retira completo", () => {
+    const movs: Movimiento[] = [
+      { sku: "Z", tipo: "entrada", cantidad: 4, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+    ];
+    const m = movimientosDesdeAcumulado(new Map(), movs, FOTO);
+    expect(m).toEqual([expect.objectContaining({ sku: "Z", tipo: "merma", cantidad: 4 })]);
+  });
+
+  it("la referencia lleva la fecha de la foto: la misma foto no se aplica dos veces", () => {
+    expect(movimientosDesdeAcumulado(new Map([["A", 3]]), [], FOTO)[0].referencia).toBe(ref(FOTO));
   });
 });

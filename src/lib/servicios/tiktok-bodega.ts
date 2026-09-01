@@ -1,5 +1,7 @@
 /**
- * Lleva la foto de la bodega TikTok de Industher al kardex.
+ * Lleva lo que Industher acumula en la bodega TikTok al kardex, como
+ * ENTRADAS por diferencia. Industher no descuenta pedidos; eso lo hace el
+ * kardex con los envíos confirmados de TikTok.
  *
  * Reutiliza el mismo armado de cajas que el plan de Full (`construirCajas`),
  * filtrado a la bodega de TikTok: así el amarre caja → SKU de MELI es el
@@ -9,7 +11,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import type { Corrida, FilaExistencia } from "../importar/excel";
-import { ajustesDesdeFoto, esAlmacenTikTok, paresPorSkuDesdeCajas } from "../tiktok/bodega";
+import { esAlmacenTikTok, movimientosDesdeAcumulado, paresPorSkuDesdeCajas } from "../tiktok/bodega";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
 
@@ -20,7 +22,8 @@ export interface ResultadoBodegaTikTok {
   cajas: number;
   skus: number;
   pares: number;
-  ajustes: number;
+  entradas: number;
+  retiros: number;
   sinAmarre: number;
 }
 
@@ -35,7 +38,8 @@ export async function sincronizarSaldoDesdeBodega(
     cajas: 0,
     skus: 0,
     pares: 0,
-    ajustes: 0,
+    entradas: 0,
+    retiros: 0,
     sinAmarre: 0,
   };
 
@@ -68,7 +72,7 @@ export async function sincronizarSaldoDesdeBodega(
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
-    traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, cantidad, fecha, id", eq),
+    traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, cantidad, fecha, referencia, id", eq),
   ]);
 
   const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({
@@ -108,11 +112,12 @@ export async function sincronizarSaldoDesdeBodega(
     tipo: m.tipo,
     cantidad: m.cantidad,
     fecha: m.fecha,
+    referencia: m.referencia ?? null,
   }));
 
-  const ajustes = ajustesDesdeFoto(pares, movimientos, fechaFoto);
-  if (ajustes.length) {
-    await registrarMovimientos(db, accountId, ajustes);
+  const nuevos = movimientosDesdeAcumulado(pares, movimientos, fechaFoto);
+  if (nuevos.length) {
+    await registrarMovimientos(db, accountId, nuevos);
   }
 
   return {
@@ -121,7 +126,8 @@ export async function sincronizarSaldoDesdeBodega(
     cajas: resultado.cajas.reduce((a, c) => a + c.cajasDisponibles + (c.cajasApartadas ?? 0), 0),
     skus: pares.size,
     pares: [...pares.values()].reduce((a, b) => a + b, 0),
-    ajustes: ajustes.length,
+    entradas: nuevos.filter((m) => m.tipo === "entrada").length,
+    retiros: nuevos.filter((m) => m.tipo === "merma").length,
     sinAmarre: resultado.sinAmarre.length,
   };
 }
