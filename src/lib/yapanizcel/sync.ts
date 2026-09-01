@@ -26,6 +26,7 @@ import {
 } from "../meli/sync";
 import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
+import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
 export function diaLocal(iso: string): string {
@@ -410,15 +411,77 @@ export function agregarVentas(
   }));
 }
 
+export interface ResultadoVentas {
+  tramos: { desde: string; hasta: string; ordenes: number; renglones: number; sinSku: number; truncado: boolean }[];
+  /** true cuando el horizonte completo (90 días) ya está cubierto. */
+  completo: boolean;
+  estado: EstadoVentas;
+}
+
+async function leerEstado(admin: DB, accountId: string): Promise<EstadoVentas> {
+  const { data } = await admin
+    .from("yz_sync_estado")
+    .select("ventas_desde, ventas_hasta")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  return { desde: data?.ventas_desde ?? null, hasta: data?.ventas_hasta ?? null };
+}
+
+async function guardarEstado(admin: DB, accountId: string, e: EstadoVentas): Promise<void> {
+  await admin
+    .from("yz_sync_estado")
+    .upsert(
+      { account_id: accountId, ventas_desde: e.desde, ventas_hasta: e.hasta, actualizado_en: new Date().toISOString() },
+      { onConflict: "account_id" },
+    );
+}
+
+/** Baja UN tramo de ventas y lo escribe completo (borra y reescribe el rango). */
+async function sincronizarTramo(
+  admin: DB,
+  accountId: string,
+  cliente: MeliClient,
+  meliUserId: number,
+  mapa: Map<string, string>,
+  tramo: Tramo,
+): Promise<ResultadoVentas["tramos"][number]> {
+  const { ordenes, sinSku, truncado } = await leerOrdenes(cliente, meliUserId, tramo.desde, tramo.hasta, mapa);
+  const netos = await completarNetos(admin, accountId, cliente, ordenes);
+  const filas = agregarVentas(ordenes, netos);
+
+  // El tramo se RECALCULA completo: si MELI reintenta o corrige una orden,
+  // no se cuenta dos veces. Primero se vacía, luego se escribe.
+  const { error } = await admin
+    .from("yz_ventas_diarias")
+    .delete()
+    .eq("account_id", accountId)
+    .gte("fecha", tramo.desde)
+    .lte("fecha", tramo.hasta);
+  if (error) throw new Error(`No se pudo limpiar el tramo de ventas: ${error.message}`);
+
+  await upsertEnTandas(
+    admin,
+    "yz_ventas_diarias",
+    filas.map((f) => ({ account_id: accountId, ...f })),
+    "account_id,sku,fecha",
+  );
+
+  return { desde: tramo.desde, hasta: tramo.hasta, ordenes: ordenes.length, renglones: filas.length, sinSku, truncado };
+}
+
+/**
+ * Ventas por tramos, con presupuesto de tiempo. Hace los tramos que
+ * alcancen y deja apuntado hasta dónde llegó; la siguiente llamada sigue.
+ */
 export async function sincronizarVentas(
   admin: DB,
   accountId: string,
   cliente: MeliClient,
   meliUserId: number,
-  dias: number,
-): Promise<{ ordenes: number; renglones: number; sinSku: number; truncado: boolean }> {
-  const hasta = hoyLocal();
-  const desde = restarDias(hasta, dias - 1);
+  opts: { limiteMs: number; t0?: number },
+): Promise<ResultadoVentas> {
+  const t0 = opts.t0 ?? Date.now();
+  const hoy = hoyLocal();
 
   const { data: skus } = await admin
     .from("yz_skus")
@@ -431,28 +494,20 @@ export async function sincronizarVentas(
     if (!mapa.has(s.item_id)) mapa.set(s.item_id, s.sku);
   }
 
-  const { ordenes, sinSku, truncado } = await leerOrdenes(cliente, meliUserId, desde, hasta, mapa);
-  const netos = await completarNetos(admin, accountId, cliente, ordenes);
-  const filas = agregarVentas(ordenes, netos);
+  let estado = await leerEstado(admin, accountId);
+  const plan = planearTramos(estado, hoy);
+  const hechos: ResultadoVentas["tramos"] = [];
 
-  // La ventana se RECALCULA completa: si MELI reintenta o corrige una orden,
-  // no se cuenta dos veces. Primero se vacía, luego se escribe.
-  const { error } = await admin
-    .from("yz_ventas_diarias")
-    .delete()
-    .eq("account_id", accountId)
-    .gte("fecha", desde)
-    .lte("fecha", hasta);
-  if (error) throw new Error(`No se pudo limpiar la ventana de ventas: ${error.message}`);
+  for (const tramo of plan) {
+    // Siempre se hace al menos el primero (el reciente): si no, una cuenta
+    // con el catálogo lento nunca vería una venta.
+    if (hechos.length && Date.now() - t0 > opts.limiteMs) break;
+    hechos.push(await sincronizarTramo(admin, accountId, cliente, meliUserId, mapa, tramo));
+    estado = avanzarEstado(estado, tramo);
+    await guardarEstado(admin, accountId, estado);
+  }
 
-  await upsertEnTandas(
-    admin,
-    "yz_ventas_diarias",
-    filas.map((f) => ({ account_id: accountId, ...f })),
-    "account_id,sku,fecha",
-  );
-
-  return { ordenes: ordenes.length, renglones: filas.length, sinSku, truncado };
+  return { tramos: hechos, completo: hechos.length === plan.length, estado };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,49 +515,53 @@ export async function sincronizarVentas(
 // ---------------------------------------------------------------------------
 export interface ResumenSync {
   cuenta: string;
-  catalogo: ResumenCatalogo;
-  stock: { skus: number; errores: number };
-  ventas: { ordenes: number; renglones: number; sinSku: number; truncado: boolean };
+  catalogo: ResumenCatalogo | null;
+  stock: { skus: number; errores: number } | null;
+  ventas: ResultadoVentas;
+  /** false = quedaron tramos de ventas por bajar: hay que volver a llamar. */
+  completo: boolean;
   ms: number;
 }
 
 /**
- * Sincronización completa de la cuenta. `diasVentas` es 90 la primera vez y
- * bastan 7 en el cron diario: los días anteriores ya están recalculados.
+ * Sincronización de la cuenta, con presupuesto de tiempo.
+ *
+ * `continuar: true` salta catálogo y stock (ya se hicieron en la llamada
+ * anterior) y solo sigue con los tramos de ventas que faltan. La pantalla
+ * y el cron llaman en bucle hasta que `completo` sea true.
  */
 export async function sincronizar(
   admin: DB,
   accountId: string,
-  opts?: { diasVentas?: number; limiteUserProductsMs?: number },
+  opts?: { presupuestoMs?: number; continuar?: boolean; limiteUserProductsMs?: number },
 ): Promise<ResumenSync> {
   const t0 = Date.now();
+  const presupuesto = opts?.presupuestoMs ?? 200_000;
   const cliente = await clienteDeCuenta(admin, accountId);
   const usuario = await obtenerUsuario(cliente);
 
-  // ¿Primera vez? Sin ventas guardadas, se bajan 90 días.
-  const { count } = await admin
-    .from("yz_ventas_diarias")
-    .select("*", { count: "exact", head: true })
-    .eq("account_id", accountId);
-  const diasVentas = opts?.diasVentas ?? ((count ?? 0) > 0 ? 7 : 90);
+  let catalogo: ResumenCatalogo | null = null;
+  let stock: { skus: number; errores: number } | null = null;
+  try {
+    if (!opts?.continuar) {
+      catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs ?? 45_000);
+      stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
+    }
+    const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto, t0 });
 
-  const catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs);
-  const stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
-  const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, diasVentas);
-
-  const resumen: ResumenSync = {
-    cuenta: usuario.nickname,
-    catalogo,
-    stock,
-    ventas,
-    ms: Date.now() - t0,
-  };
-
-  await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
-  await admin
-    .from("yz_cuentas")
-    .update({ nickname: usuario.nickname, actualizado_en: new Date().toISOString() })
-    .eq("id", accountId);
-
-  return resumen;
+    const resumen: ResumenSync = { cuenta: usuario.nickname, catalogo, stock, ventas, completo: ventas.completo, ms: Date.now() - t0 };
+    await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
+    await admin
+      .from("yz_cuentas")
+      .update({ nickname: usuario.nickname, actualizado_en: new Date().toISOString() })
+      .eq("id", accountId);
+    return resumen;
+  } catch (err) {
+    await admin.from("yz_sync_log").insert({
+      account_id: accountId,
+      ok: false,
+      detalle: { error: (err as Error).message, catalogo, stock, ms: Date.now() - t0 },
+    });
+    throw err;
+  }
 }

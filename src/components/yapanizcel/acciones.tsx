@@ -41,6 +41,7 @@ const btnSecundario = { border: "1px solid var(--borde)", color: "var(--ink-1)" 
 export function BotonSincronizar() {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
+  const [progreso, setProgreso] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,22 +49,47 @@ export function BotonSincronizar() {
     setOcupado(true);
     setAviso(null);
     setError(null);
+    setProgreso("Bajando catálogo y stock…");
     try {
-      const r = await fetch("/api/yapanizcel/sincronizar", { method: "POST" });
-      const j = await leer(r);
-      if (!r.ok) throw new Error(j.error ?? "Falló la sincronización.");
-      const s = j.resumen;
+      let continuar = false;
+      let cuenta = "";
+      let catalogo: { skus: number; pendientes: number } | null = null;
+      let ordenes = 0;
+      let tramos = 0;
+      let estado: { desde: string | null; hasta: string | null } = { desde: null, hasta: null };
+      // Tramos hasta que el servidor diga que ya cubrió el horizonte. Tope
+      // de vueltas por si algo se atora: nunca un bucle infinito.
+      for (let vuelta = 0; vuelta < 20; vuelta++) {
+        const r = await fetch("/api/yapanizcel/sincronizar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ continuar }),
+        });
+        const j = await leer(r);
+        if (!r.ok) throw new Error(j.error ?? "Falló la sincronización.");
+        const s = j.resumen;
+        cuenta = s.cuenta;
+        if (s.catalogo) catalogo = s.catalogo;
+        for (const t of s.ventas.tramos) {
+          ordenes += t.ordenes;
+          tramos++;
+        }
+        estado = s.ventas.estado;
+        if (s.completo) break;
+        continuar = true;
+        setProgreso(`Ventas cubiertas del ${estado.desde} al ${estado.hasta}; sigo hacia atrás…`);
+        router.refresh();
+      }
+      setProgreso(null);
       setAviso(
-        `Listo (${s.cuenta}): ${s.catalogo.skus} SKUs` +
-          (s.catalogo.pendientes ? ` (${s.catalogo.pendientes} pendientes de SKU, se resuelven solos)` : "") +
-          `, ${s.stock.skus} con stock leído, ${s.ventas.ordenes} órdenes.` +
-          (s.ventas.sinSku ? ` ${s.ventas.sinSku} renglones de orden sin SKU.` : ""),
+        `Listo (${cuenta}): ` +
+          (catalogo ? `${catalogo.skus} SKUs` + (catalogo.pendientes ? ` (${catalogo.pendientes} pendientes de SKU, se resuelven solos en segundo plano)` : "") + ", " : "") +
+          `${ordenes} órdenes en ${tramos} tramos; ventas cubiertas del ${estado.desde} al ${estado.hasta}.`,
       );
-      // Los SKUs pendientes se resuelven en segundo plano.
-      fetch("/api/yapanizcel/skus-pendientes", { method: "POST" }).catch(() => {});
       router.refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setProgreso(null);
+      setError((e as Error).message + " Vuelve a darle: retoma donde se quedó.");
     } finally {
       setOcupado(false);
     }
@@ -74,6 +100,11 @@ export function BotonSincronizar() {
       <button onClick={correr} disabled={ocupado} className={btn} style={btnPrimario}>
         {ocupado ? "Sincronizando…" : "Sincronizar con Mercado Libre"}
       </button>
+      {progreso ? (
+        <p className="mt-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          {progreso}
+        </p>
+      ) : null}
       <Mensajes aviso={aviso} error={error} />
     </div>
   );

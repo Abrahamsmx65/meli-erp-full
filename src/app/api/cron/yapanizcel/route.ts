@@ -24,7 +24,14 @@ export async function GET(req: NextRequest) {
   for (const c of cuentas ?? []) {
     const r: Record<string, unknown> = { cuenta: c.nickname };
     try {
-      r.meli = await sincronizar(admin, c.id);
+      // Tramos hasta que se acabe el presupuesto de la función; lo que falte
+      // lo recoge el siguiente cron (o el botón de la pantalla).
+      const t0 = Date.now();
+      let resumen = await sincronizar(admin, c.id, { presupuestoMs: 150_000 });
+      while (!resumen.completo && Date.now() - t0 < 200_000) {
+        resumen = await sincronizar(admin, c.id, { presupuestoMs: 200_000 - (Date.now() - t0), continuar: true });
+      }
+      r.meli = resumen;
     } catch (err) {
       r.meli = { error: (err as Error).message };
       await admin.from("yz_sync_log").insert({ account_id: c.id, ok: false, detalle: { error: (err as Error).message } });
