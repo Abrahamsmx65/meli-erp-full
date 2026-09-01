@@ -48,6 +48,9 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/login") ||
     ruta.startsWith("/api/cron") ||
     ruta.startsWith("/api/meli/callback") ||
+    // El de TikTok también: el rebote al login tira el ?code= de la URL y
+    // el usuario aterriza en el callback sin nada que canjear.
+    ruta.startsWith("/api/tiktok/callback") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
     ruta.startsWith("/api/videos/procesar") ||
