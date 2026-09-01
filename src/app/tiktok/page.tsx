@@ -174,7 +174,12 @@ export default async function TikTok({
                         {r.titulo}
                       </span>
                     ) : null}
-                    {!r.publicable ? (
+                    {!r.contado ? (
+                      <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
+                        sin conteo inicial: a TikTok no se le escribe hasta capturar una entrada o
+                        un ajuste
+                      </span>
+                    ) : !r.publicable ? (
                       <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
                         sin publicación en TikTok
                       </span>

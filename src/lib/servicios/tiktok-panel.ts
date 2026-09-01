@@ -8,6 +8,7 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { disponibleParaCompradores } from "../tiktok/kardex";
+import { skusContados } from "./tiktok";
 
 /** Ventana con la que se mide qué tan rápido se vende cada talla. */
 export const DIAS_VENTA = 30;
@@ -30,6 +31,8 @@ export interface RenglonTikTok {
   enRojo: boolean;
   /** tiene publicación en TikTok a la cual escribirle */
   publicable: boolean;
+  /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
+  contado: boolean;
 }
 
 export interface MovimientoPanel {
@@ -73,7 +76,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes] = await Promise.all([
+  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -99,6 +102,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .order("inicio", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    skusContados(db, accountId),
   ]);
 
   const tienda = tiendaRes.data ?? null;
@@ -121,7 +125,9 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       const disponible = disponibleParaCompradores(r.saldo, r.apartado);
       const vendidas = ventas30.get(r.sku) ?? 0;
       const porDia = vendidas / DIAS_VENTA;
+      const contado = contados.has(r.sku);
       return {
+        contado,
         sku: r.sku,
         titulo: titulos.get(r.sku) ?? null,
         saldo: r.saldo,
@@ -132,7 +138,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         ventas30: vendidas,
         diasCobertura: porDia > 0 ? disponible / porDia : null,
         enRojo: r.saldo < 0,
-        publicable: conPublicacion.has(r.sku),
+        publicable: conPublicacion.has(r.sku) && contado,
       };
     })
     // Lo urgente arriba: primero lo que TikTok todavía no sabe, y dentro de

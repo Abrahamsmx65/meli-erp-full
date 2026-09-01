@@ -18,7 +18,14 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
-import { bodegas, catalogo, pedidosActualizados, publicarStock, tiendasAutorizadas } from "../tiktok/api";
+import {
+  bodegas,
+  catalogo,
+  pedidosActualizados,
+  publicarStock,
+  tiendasAutorizadas,
+  type DiagnosticoPedidos,
+} from "../tiktok/api";
 import {
   Cliente,
   configuracionTikTok,
@@ -41,7 +48,7 @@ import {
  * Cuánto hacia atrás mira la primera sincronización de una tienda recién
  * conectada. Después de esa, se arranca desde donde quedó el cursor.
  */
-const DIAS_PRIMERA_CORRIDA = 30;
+const DIAS_PRIMERA_CORRIDA = 90;
 
 /** Un traslape sobre el cursor, para no perder un pedido que se movió justo
  *  mientras corría la sincronización anterior. Repetirlo no cuesta: el
@@ -238,11 +245,31 @@ export async function sincronizarTikTok(
   accountId: string,
   opciones: { limiteMs?: number } = {},
 ): Promise<ResultadoSync> {
-  const cliente = await clienteDeCuenta(admin, accountId, opciones.limiteMs);
+  let cliente = await clienteDeCuenta(admin, accountId, opciones.limiteMs);
   if (!cliente) return { ...VACIO, avisos: ["TikTok Shop no está conectado."] };
 
   const avisos: string[] = [];
   const inicio = new Date().toISOString();
+
+  // Si la conexión quedó a medias (sin cipher o sin bodega), se intenta
+  // completar aquí con el token guardado. Sin cipher no vale la pena seguir:
+  // todas las rutas de tienda contestarían 106013.
+  if (!cliente.tienda.shopCipher || !cliente.tienda.warehouseId) {
+    const r = await resolverTienda(admin, accountId);
+    avisos.push(...r.avisos);
+    cliente = (await clienteDeCuenta(admin, accountId, opciones.limiteMs)) ?? cliente;
+    if (!cliente.tienda.shopCipher) {
+      await admin.from("tiktok_sync_log").insert({
+        account_id: accountId,
+        tarea: "sincronizar",
+        inicio,
+        fin: new Date().toISOString(),
+        estado: "sin tienda",
+        detalle: { avisos },
+      });
+      return { ...VACIO, conectado: true, avisos };
+    }
+  }
 
   // El catálogo del ERP, para amarrar. Se lee una vez y sirve a todo.
   const [skusErp, mapeoRaw] = await Promise.all([
@@ -294,17 +321,29 @@ export async function sincronizarTikTok(
     .eq("tarea", "pedidos")
     .maybeSingle();
 
-  const desdeMs = estado?.cursor_ts
-    ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
-    : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
+  // Mientras la tabla de pedidos siga vacía se mira la ventana completa
+  // aunque ya haya cursor: una primera corrida que no trajo nada (permisos a
+  // medias, ventana corta) no debe dejar el cursor adelante para siempre.
+  const { count: yaGuardados } = await admin
+    .from("tiktok_ordenes")
+    .select("order_id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+
+  const desdeMs =
+    estado?.cursor_ts && (yaGuardados ?? 0) > 0
+      ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
+      : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
   const hastaMs = Date.now();
 
+  const diag: DiagnosticoPedidos = { totalCount: null, paginas: 0, llaves: [] };
   let pedidos: Awaited<ReturnType<typeof pedidosActualizados>> = [];
   try {
     pedidos = await pedidosActualizados(
       cliente,
       Math.floor(desdeMs / 1000),
       Math.floor(hastaMs / 1000),
+      40,
+      diag,
     );
   } catch (err) {
     avisos.push(`Pedidos: ${(err as Error).message}`);
@@ -414,7 +453,17 @@ export async function sincronizarTikTok(
     inicio,
     fin: new Date().toISOString(),
     estado: avisos.length ? "con avisos" : "ok",
-    detalle: { pedidos: pedidos.length, salidas, devoluciones, publicados: pub.publicados, avisos },
+    detalle: {
+      pedidos: pedidos.length,
+      salidas,
+      devoluciones,
+      publicados: pub.publicados,
+      skusCatalogo,
+      sinAmarre,
+      ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
+      busquedaPedidos: diag,
+      avisos,
+    },
   });
 
   return {
@@ -467,17 +516,23 @@ export async function publicarDisponibilidad(
     };
   }
 
-  const [inv, skusTikTok] = await Promise.all([
+  const [inv, skusTikTok, contados] = await Promise.all([
     traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado", (q) =>
       q.eq("account_id", accountId),
     ),
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
+    skusContados(admin, accountId),
   ]);
 
+  // SEGURO: solo se le escribe a TikTok un SKU que alguna vez se CONTÓ (una
+  // entrada o un ajuste). Un SKU que solo tiene salidas —vendió antes de que
+  // se capturara su existencia— tendría saldo negativo y disponible 0, y
+  // publicarle 0 apagaría una publicación que TikTok sí estaba vendiendo.
+  // Hasta que se cuente, TikTok se queda con su propio número.
   const cambios = cambiosAPublicar(
-    (inv ?? []).map((r: any) => ({
+    (inv ?? []).filter((r: any) => contados.has(r.sku)).map((r: any) => ({
       sku: r.sku,
       saldo: r.saldo,
       apartado: r.apartado,
@@ -559,18 +614,87 @@ export async function publicarDisponibilidad(
 // Conexión de la tienda
 // ---------------------------------------------------------------------------
 
+export interface TiendaResuelta {
+  shopId: string | null;
+  bodega: string | null;
+  avisos: string[];
+}
+
 /**
- * Después de autorizar, guarda la tienda: su cipher y su bodega.
- * Sin el cipher las rutas de tienda contestan 105002; sin la bodega no se
- * puede escribir existencia. Se resuelven las dos aquí, de una vez.
+ * Resuelve lo que la tienda necesita para operar: su `shop_cipher` y su
+ * bodega. Sin el cipher las rutas de tienda contestan 105002 / 106013; sin
+ * la bodega no se puede escribir existencia.
+ *
+ * Va aparte de la autorización a propósito: si la primera vez falló (la app
+ * sin permisos, TikTok caído), la sincronización lo vuelve a intentar sola
+ * con el token que ya está guardado, en vez de exigir volver a autorizar
+ * para algo que no depende de la autorización.
+ */
+export async function resolverTienda(admin: any, accountId: string): Promise<TiendaResuelta> {
+  const avisos: string[] = [];
+  let shopId: string | null = null;
+  let cipher: string | null = null;
+  let bodega: string | null = null;
+
+  const sinCipher = await clienteDeCuenta(admin, accountId, 60_000);
+  if (!sinCipher) return { shopId, bodega, avisos: ["TikTok Shop no está conectado."] };
+
+  try {
+    const tiendas = await tiendasAutorizadas(sinCipher);
+    const t = tiendas[0];
+    if (t) {
+      shopId = t.id;
+      cipher = t.cipher;
+      await admin
+        .from("tiktok_tienda")
+        .update({
+          shop_id: t.id,
+          shop_cipher: t.cipher,
+          nombre: t.nombre,
+          region: t.region ?? "MX",
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("account_id", accountId);
+    } else {
+      avisos.push("La app quedó autorizada pero TikTok no reporta ninguna tienda.");
+    }
+  } catch (err) {
+    avisos.push(`No se pudo leer la tienda: ${(err as Error).message}`);
+  }
+
+  if (cipher) {
+    try {
+      // Cliente nuevo: ya con el cipher recién guardado.
+      const conCipher = await clienteDeCuenta(admin, accountId, 60_000);
+      const lista = conCipher ? await bodegas(conCipher) : [];
+      // La predeterminada, y si no hay, la primera.
+      bodega = (lista.find((b) => b.predeterminada) ?? lista[0])?.id ?? null;
+      if (bodega) {
+        await admin.from("tiktok_tienda").update({ warehouse_id: bodega }).eq("account_id", accountId);
+      } else {
+        avisos.push("TikTok no reporta bodegas: hay que darla de alta en el centro de vendedores.");
+      }
+    } catch (err) {
+      avisos.push(`No se pudo leer la bodega: ${(err as Error).message}`);
+    }
+  }
+
+  return { shopId, bodega, avisos };
+}
+
+/**
+ * Después de autorizar: guarda los tokens, deja la tienda activa y resuelve
+ * cipher y bodega. Cada intento queda en la bitácora con sus avisos, porque
+ * el mensaje de la pantalla se pierde en cuanto se recarga y "no funciona"
+ * sin ese dato es imposible de seguir.
  */
 export async function completarConexion(
   admin: any,
   accountId: string,
-  app: CredencialesApp,
+  _app: CredencialesApp,
   tokens: { access_token: string; refresh_token: string; access_token_expire_in: number; refresh_token_expire_in: number },
-): Promise<{ shopId: string | null; bodega: string | null; avisos: string[] }> {
-  const avisos: string[] = [];
+): Promise<TiendaResuelta> {
+  const inicio = new Date().toISOString();
 
   await admin.from("tiktok_tokens").upsert(
     {
@@ -589,78 +713,31 @@ export async function completarConexion(
     { onConflict: "account_id" },
   );
 
-  const cliente = new Cliente(
-    app,
-    {
-      accountId,
-      shopId: null,
-      shopCipher: null,
-      warehouseId: null,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiraEn: new Date(tokens.access_token_expire_in * 1000).toISOString(),
-    },
-    Date.now() + 60_000,
-  );
+  const r = await resolverTienda(admin, accountId);
 
-  let shopId: string | null = null;
-  let cipher: string | null = null;
-  let nombre: string | null = null;
-  let region: string | null = null;
-  try {
-    const tiendas = await tiendasAutorizadas(cliente);
-    const t = tiendas[0];
-    if (t) {
-      shopId = t.id;
-      cipher = t.cipher;
-      nombre = t.nombre;
-      region = t.region;
-    } else {
-      avisos.push("La app quedó autorizada pero TikTok no reporta ninguna tienda.");
-    }
-  } catch (err) {
-    avisos.push(`No se pudo leer la tienda: ${(err as Error).message}`);
-  }
+  await admin.from("tiktok_sync_log").insert({
+    account_id: accountId,
+    tarea: "conectar",
+    inicio,
+    fin: new Date().toISOString(),
+    estado: r.avisos.length ? "con avisos" : "ok",
+    detalle: { shopId: r.shopId, bodega: r.bodega, avisos: r.avisos },
+  });
 
-  await admin
-    .from("tiktok_tienda")
-    .update({
-      shop_id: shopId,
-      shop_cipher: cipher,
-      nombre,
-      region: region ?? "MX",
-      actualizado_en: new Date().toISOString(),
-    })
-    .eq("account_id", accountId);
-
-  let bodega: string | null = null;
-  if (cipher) {
-    try {
-      const conCipher = await clienteDeCuenta(admin, accountId, 60_000);
-      if (conCipher) {
-        const lista = await bodegas(conCipher);
-        // La predeterminada, y si no hay, la primera de vendedor.
-        bodega = (lista.find((b) => b.predeterminada) ?? lista[0])?.id ?? null;
-        if (bodega) {
-          await admin
-            .from("tiktok_tienda")
-            .update({ warehouse_id: bodega })
-            .eq("account_id", accountId);
-        } else {
-          avisos.push("TikTok no reporta bodegas: hay que darla de alta en el centro de vendedores.");
-        }
-      }
-    } catch (err) {
-      avisos.push(`No se pudo leer la bodega: ${(err as Error).message}`);
-    }
-  }
-
-  return { shopId, bodega, avisos };
+  return r;
 }
 
 // ---------------------------------------------------------------------------
 // Auxiliares
 // ---------------------------------------------------------------------------
+
+/** Los SKUs con al menos una entrada o un ajuste: los que alguien ya contó. */
+export async function skusContados(db: DB, accountId: string): Promise<Set<string>> {
+  const filas = await traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, id", (q) =>
+    q.eq("account_id", accountId).in("tipo", ["entrada", "ajuste"]),
+  );
+  return new Set((filas ?? []).map((f: any) => f.sku as string));
+}
 
 /** Las referencias que el kardex YA tiene, como `tipo|referencia|sku`. */
 async function referenciasRegistradas(
