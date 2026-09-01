@@ -367,12 +367,13 @@ export function armarContenido(
   const vivos = todos.filter((m) => !m.eliminado);
   const visibles = opciones.verEliminados ? todos : vivos;
 
-  // Primero lo que trae prioridad puesta, luego lo activo, luego por modelo.
+  // Primero lo que trae prioridad puesta; lo demás en puro orden alfabético.
+  // Los inactivos NO se van al fondo a propósito: quien trabaja la lista busca
+  // por código (GT155, GT156, GT158…) y un hueco en la secuencia despista más
+  // de lo que ayuda ver los activos juntos — el estado ya lo dice el chip.
   visibles.sort(
     (a, b) =>
-      b.prioridad - a.prioridad ||
-      Number(b.activo) - Number(a.activo) ||
-      a.modelo.localeCompare(b.modelo, "es", { numeric: true }),
+      b.prioridad - a.prioridad || a.modelo.localeCompare(b.modelo, "es", { numeric: true }),
   );
 
   return {
