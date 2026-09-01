@@ -53,7 +53,17 @@ export async function GET(req: NextRequest) {
   const jar = await cookies();
   const esperado = jar.get("tiktok_state")?.value;
   if (!esperado || esperado !== state) {
-    return destino("El enlace de autorización expiró o no corresponde a esta sesión.");
+    // Sin cookie casi siempre significa que la autorización se hizo desde
+    // el panel de TikTok y no desde el botón del ERP: ese camino no puede
+    // amarrarse a una sesión, y decir "expiró" mandaba a reintentar lo mismo.
+    return destino(
+      !esperado
+        ? "Esta autorización no salió del ERP (llegó sin la cookie de seguridad). " +
+          "No autorices desde el panel de TikTok: entra a Almacén TikTok y usa el botón " +
+          "Conectar TikTok Shop, en este mismo navegador."
+        : "El enlace de autorización expiró o no corresponde a esta sesión. " +
+          "Vuelve a Almacén TikTok y dale otra vez a Conectar TikTok Shop.",
+    );
   }
   jar.delete("tiktok_state");
 

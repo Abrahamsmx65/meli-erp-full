@@ -21,6 +21,8 @@ export interface ImagenCatalogo {
 export interface PadreCatalogo {
   parentAsin: string | null;
   titulo: string | null;
+  /** La foto MAIN del padre: la miniatura de la sección de contenido. */
+  imagenUrl: string | null;
 }
 
 /** Tope duro de Amazon: 20 identificadores por llamada. */
@@ -146,12 +148,12 @@ export async function imagenesDeAsins(
 }
 
 /**
- * El ASIN PADRE de cada hijo, con el título del padre.
+ * El ASIN PADRE de cada hijo, con el título y la foto MAIN del padre.
  *
  * Dos pasadas: la primera pregunta por los hijos (`relationships`) y la
- * segunda por los padres distintos que salieron, solo para su nombre — el
- * título del hijo trae el color y la talla pegados y no sirve para encabezar
- * un producto.
+ * segunda por los padres distintos que salieron, para su nombre y su foto —
+ * el título del hijo trae el color y la talla pegados, y el reporte de
+ * listados de MX no trae imágenes, así que la miniatura sale de aquí.
  *
  * Un hijo que Amazon devuelva sin padre entra igual al mapa con
  * `parentAsin: null`: así queda anotado que ya se preguntó y no se vuelve a
@@ -172,20 +174,27 @@ export async function resolverPadres(
         .filter((r) => (r.type ?? "").toUpperCase() === "VARIATION")
         .flatMap((r) => r.parentAsins ?? [])
         .find(Boolean) ?? null;
-    salida.set(asin, { parentAsin: padre, titulo: null });
+    salida.set(asin, { parentAsin: padre, titulo: null, imagenUrl: null });
   }
 
   const padres = [...new Set([...salida.values()].map((p) => p.parentAsin).filter(Boolean))] as string[];
   if (!padres.length) return salida;
 
-  const titulos = new Map<string, string>();
-  for (const item of await porLotes(cliente, padres, "summaries")) {
-    const nombre = delMarketplace(item.summaries, cliente.cuenta.marketplaceId)?.itemName;
-    if (item.asin && nombre) titulos.set(item.asin, nombre);
+  const datos = new Map<string, { titulo: string | null; imagenUrl: string | null }>();
+  for (const item of await porLotes(cliente, padres, "summaries,images")) {
+    if (!item.asin) continue;
+    const nombre = delMarketplace(item.summaries, cliente.cuenta.marketplaceId)?.itemName ?? null;
+    const fotos = delMarketplace(item.images, cliente.cuenta.marketplaceId)?.images ?? [];
+    const main =
+      fotos.find((f) => (f.variant ?? "").toUpperCase() === "MAIN" && f.link) ??
+      fotos.find((f) => f.link);
+    datos.set(item.asin, { titulo: nombre, imagenUrl: main?.link ?? null });
   }
 
   for (const [asin, p] of salida) {
-    if (p.parentAsin) salida.set(asin, { ...p, titulo: titulos.get(p.parentAsin) ?? null });
+    if (!p.parentAsin) continue;
+    const d = datos.get(p.parentAsin);
+    salida.set(asin, { ...p, titulo: d?.titulo ?? null, imagenUrl: d?.imagenUrl ?? null });
   }
 
   return salida;

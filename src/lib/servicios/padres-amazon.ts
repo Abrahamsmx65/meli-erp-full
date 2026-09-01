@@ -37,15 +37,22 @@ export async function sincronizarPadres(
 
   const [representativos, yaResueltos] = await Promise.all([
     asinsRepresentativos(admin, accountId),
-    admin.from("amazon_padres").select("asin").eq("account_id", accountId),
+    admin.from("amazon_padres").select("asin, parent_asin, imagen_url").eq("account_id", accountId),
   ]);
 
   // Sin la tabla (falta la migración 0033) no se pregunta nada: resolver para
   // no poder guardar sería quemar cuota de Amazon en cada corrida.
   if (yaResueltos.error) return { estado: "al_dia" };
 
-  const conocidos = new Set(((yaResueltos.data ?? []) as any[]).map((f) => String(f.asin ?? "")));
-  const pendientes = representativos.filter((a) => !conocidos.has(a)).slice(0, POR_CORRIDA);
+  const filas = (yaResueltos.data ?? []) as any[];
+  const conocidos = new Set(filas.map((f) => String(f.asin ?? "")));
+  const nuevos = representativos.filter((a) => !conocidos.has(a));
+  // Los que se resolvieron antes de que se guardara la foto del padre se
+  // vuelven a preguntar, para que la miniatura se rellene sola.
+  const sinFoto = filas
+    .filter((f) => f.parent_asin && !f.imagen_url)
+    .map((f) => String(f.asin));
+  const pendientes = [...new Set([...nuevos, ...sinFoto])].slice(0, POR_CORRIDA);
   if (!pendientes.length) return { estado: "al_dia" };
 
   const resueltos = await resolverPadres(cliente, pendientes);
@@ -58,6 +65,7 @@ export async function sincronizarPadres(
       asin,
       parent_asin: p.parentAsin,
       titulo: p.titulo,
+      imagen_url: p.imagenUrl,
       resuelto_en: ahora,
     })),
   );

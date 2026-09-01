@@ -96,6 +96,11 @@ export default async function TikTok({
             falta al conectar es lo importante — que el disponible se le escriba a TikTok solo, y
             que los envíos confirmados descuenten sin capturarlos.
           </p>
+          <p className="mt-2 text-sm font-medium">
+            La conexión se inicia SOLO desde este botón. Si autorizas desde el panel de
+            TikTok (partner.tiktokshop.com), TikTok te regresa sin forma de amarrarlo a tu
+            sesión y no queda conectado.
+          </p>
           <a
             href="/api/tiktok/conectar"
             className="mt-3 inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
