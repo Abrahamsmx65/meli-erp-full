@@ -112,6 +112,41 @@ guárdala numerada.
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
   AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras).
 
+## ERP YAPANIZCEL (fundas) — sección aparte, mismo proyecto
+
+Segundo negocio: fundas para celular en OTRA cuenta de Mercado Libre. Vive en
+`/yapanizcel/*`, `src/lib/yapanizcel/` y tablas con prefijo `yz_`. No comparte
+ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
+
+- **Cuenta y app de MELI propias.** Credenciales en `MELI_YZ_CLIENT_ID` /
+  `MELI_YZ_CLIENT_SECRET`; tokens en `yz_tokens` (RLS con cero políticas, como
+  `meli_tokens`). Redirect URI: `/api/yapanizcel/meli/callback`. La RLS usa
+  `es_mi_cuenta_yz()`, aparte de `es_mi_cuenta()` a propósito.
+- **No hay cajas ni corridas.** La funda es unidad suelta. El SKU es
+  `DISEÑO-MODELO(-COLOR)` donde "modelo" es el del CELULAR y "diseño" el de la
+  funda (499, 501…). Los pedidos a China se ven POR DISEÑO.
+- **A Full se manda en DECENAS CERRADAS** (`multiplo_envio`, 10): la falta se
+  redondea ARRIBA a decena y se topa ABAJO por lo que hay en bodega. Menos de
+  una decena en bodega = no se manda. Motor puro en `yapanizcel/plan.ts`.
+- **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
+  una pestaña por diseño; `yapanizcel/sheets.ts` acepta tabla o matriz). Se
+  REEMPLAZA completo en cada lectura. Recibir un pedido NO crea existencias.
+- **El amarre de SKUs va por niveles y los inseguros solo se PROPONEN**
+  (`yapanizcel/sku.ts`): exacto → canónico → aplastado se aplican solos; la
+  letra suelta de más (`499N` vs `499`) y las piezas en otro orden se sugieren
+  en `/yapanizcel/skus` y se confirman con un clic (escribe `yz_mapeo_skus`).
+  Un empate NUNCA se resuelve solo. Ignorados en `yz_skus_ignorados`.
+- **Costos por MODELO desde un Excel** (MODELO, COSTO) en `yz_costos`; se
+  buscan por el diseño del SKU (`costoDeSku`). Sin costo = ganancia no
+  calculable, nunca costo 0.
+- **Ganancia sobre el neto real** (`net_received_amount`, caché en
+  `yz_ordenes_neto`, re-lectura de órdenes recientes por cargos diferidos).
+  Los días con neto incompleto se marcan como estimados.
+- **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
+  en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
+- Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
+  `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado).
+
 ## Dónde está cada cosa
 
 | Qué                              | Dónde                                       |
@@ -135,6 +170,7 @@ guárdala numerada.
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-panel.ts` para la pantalla) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
+| ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron

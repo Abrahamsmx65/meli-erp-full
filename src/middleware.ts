@@ -50,6 +50,10 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/api/meli/callback") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
+    // Las mismas dos puertas para la cuenta de YAPANIZCEL: el callback de
+    // MELI y el resolutor de SKUs que se relanza solo con CRON_SECRET.
+    ruta.startsWith("/api/yapanizcel/meli/callback") ||
+    ruta.startsWith("/api/yapanizcel/skus-pendientes") ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
     // El acceso sin contraseña a la sección de contenido: la puerta es el

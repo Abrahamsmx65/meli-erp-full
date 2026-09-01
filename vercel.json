@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/tiktok",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel",
+      "schedule": "30 14 * * *"
     }
   ]
 }
