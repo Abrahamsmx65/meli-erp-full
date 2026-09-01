@@ -1,0 +1,434 @@
+/**
+ * Contenido de la marca en Amazon: qué modelos hay que trabajar.
+ *
+ * La lista NO se guarda en ningún lado: se arma en cada visita desde el
+ * catálogo de Amazon (`amazon_listings`) recortada al rango que el negocio
+ * trabaja hoy — del GT054 al GT300, más MY2307 y G650. Lo viejo y lo nuevo
+ * quedan fuera a propósito; lo que sobre dentro del rango se oculta desde la
+ * pantalla (`amazon_contenido.eliminado`), nunca borrando el catálogo.
+ *
+ * Un modelo tiene un ASIN POR TALLA Y COLOR (Amazon numera cada hijo), así
+ * que aquí se agrupa dos veces: por modelo para la lista, y por color dentro
+ * del modelo, que es el nivel en el que las imágenes y el contenido A+ son
+ * los mismos.
+ *
+ * Mientras el catálogo no se haya refrescado ni una vez, se cae a
+ * `amazon_skus` (lo que ya vendió alguna vez) para que la pantalla sirva
+ * desde el primer día.
+ *
+ * Este módulo no escribe nada.
+ */
+import { traerTodo, type DB } from "../datos/repos";
+import { claveGrupoFba, desglosarAmazon } from "./fba";
+
+/** Primer y último modelo GT que se trabaja en Amazon. Lo fijó el dueño. */
+export const GT_MIN = 54;
+export const GT_MAX = 300;
+
+/** Los que no son GT y sí van en la lista. Nada más viejo ni más nuevo. */
+export const MODELOS_EXTRA = new Set(["MY2307", "G650"]);
+
+/** GT + dos o tres dígitos + una letra opcional de variante (GT148G). */
+const RE_GT = /^GT(\d{2,3})[A-Z]?$/;
+
+/** Dominio de Amazon por país de la cuenta, para armar el link al producto. */
+const DOMINIOS: Record<string, string> = {
+  MX: "www.amazon.com.mx",
+  US: "www.amazon.com",
+  CA: "www.amazon.ca",
+  BR: "www.amazon.com.br",
+  ES: "www.amazon.es",
+};
+
+export function dominioAmazon(pais: string | null | undefined): string {
+  return DOMINIOS[(pais ?? "MX").trim().toUpperCase()] ?? DOMINIOS.MX;
+}
+
+/** ¿Este modelo entra a la lista de contenido? */
+export function enRangoContenido(modelo: string): boolean {
+  const m = (modelo ?? "").trim().toUpperCase();
+  if (MODELOS_EXTRA.has(m)) return true;
+  const g = RE_GT.exec(m);
+  if (!g) return false;
+  const n = Number(g[1]);
+  return n >= GT_MIN && n <= GT_MAX;
+}
+
+/** El modelo de un SKU de Amazon, entendiendo el orden invertido. */
+export function modeloDeSku(sku: string): string {
+  return (desglosarAmazon(sku).modelo ?? sku).trim().toUpperCase();
+}
+
+/**
+ * Link al producto. Solo tenemos ASINs HIJOS (uno por talla y color): Amazon
+ * redirige /dp/{hijo} a la página de variaciones con esa variante puesta, así
+ * que sirve — pero el hijo tiene que estar ACTIVO o la página sale "no
+ * disponible".
+ */
+export function urlAmazon(asin: string | null, pais: string | null): string | null {
+  return asin ? `https://${dominioAmazon(pais)}/dp/${asin}` : null;
+}
+
+/** Un renglón de catálogo, venga de amazon_listings o de amazon_skus. */
+export interface FilaCatalogo {
+  sellerSku: string;
+  asin: string | null;
+  titulo: string | null;
+  /** Active | Inactive | Incomplete | null */
+  estado: string | null;
+  imagenUrl: string | null;
+}
+
+export interface ColorModelo {
+  /** Tal como lo escribió Amazon: "BLK", "DK BROWN", "BLK/RED". */
+  color: string;
+  asin: string | null;
+  url: string | null;
+  imagenUrl: string | null;
+  skus: number;
+  activos: number;
+}
+
+export interface ModeloContenido {
+  modelo: string;
+  titulo: string | null;
+  asin: string | null;
+  url: string | null;
+  skus: number;
+  activos: number;
+  activo: boolean;
+  colores: ColorModelo[];
+  categoria: string | null;
+  prioridad: number;
+  imagenes: boolean;
+  aplus: boolean;
+  notas: string;
+  eliminado: boolean;
+}
+
+export interface CategoriaStore {
+  nombre: string;
+  creada: boolean;
+  imagenes: boolean;
+  paginaStore: boolean;
+  notas: string;
+  /** Cuántos modelos vivos la tienen asignada. */
+  modelos: number;
+}
+
+export interface TotalesContenido {
+  modelos: number;
+  activos: number;
+  inactivos: number;
+  conImagenes: number;
+  conAplus: number;
+  sinCategoria: number;
+  eliminados: number;
+}
+
+export interface ContenidoAmazon {
+  modelos: ModeloContenido[];
+  categorias: CategoriaStore[];
+  totales: TotalesContenido;
+  /** true si todavía no se aplicó la migración 0032. */
+  faltaMigracion: boolean;
+  /** true si el catálogo nunca se ha traído: los datos salen de las ventas. */
+  sinRefrescar: boolean;
+}
+
+export interface AnotacionModelo {
+  modelo: string;
+  categoria: string | null;
+  prioridad: number;
+  imagenes: boolean;
+  aplus: boolean;
+  notas: string;
+  eliminado: boolean;
+}
+
+/** Una talla dentro de un color, para elegir el ASIN representativo. */
+interface Talla {
+  asin: string | null;
+  talla: number;
+  sellerSku: string;
+  activo: boolean;
+}
+
+/** Las tallas ordenadas: primero las activas, luego de la más chica a la más grande. */
+function mejor(tallas: Talla[]): Talla | null {
+  const orden = [...tallas].sort(
+    (a, b) =>
+      Number(b.activo) - Number(a.activo) ||
+      a.talla - b.talla ||
+      a.sellerSku.localeCompare(b.sellerSku),
+  );
+  return orden.find((t) => t.asin) ?? orden[0] ?? null;
+}
+
+/**
+ * Arma la lista a partir de las piezas ya leídas. Separado de la lectura para
+ * poder probarlo sin base de datos.
+ */
+export function armarContenido(
+  filas: FilaCatalogo[],
+  anotaciones: AnotacionModelo[],
+  categorias: Omit<CategoriaStore, "modelos">[],
+  pais: string | null,
+  opciones: { verEliminados?: boolean } = {},
+): Omit<ContenidoAmazon, "faltaMigracion" | "sinRefrescar"> {
+  interface Color {
+    color: string;
+    imagenUrl: string | null;
+    skus: number;
+    activos: number;
+    tallas: Talla[];
+  }
+  interface Acumulado {
+    titulo: string | null;
+    skus: number;
+    activos: number;
+    colores: Map<string, Color>;
+  }
+  const porModelo = new Map<string, Acumulado>();
+
+  for (const f of filas) {
+    const sku = (f.sellerSku ?? "").trim();
+    if (!sku) continue;
+    const d = desglosarAmazon(sku);
+    const modelo = (d.modelo ?? sku).trim().toUpperCase();
+    if (!enRangoContenido(modelo)) continue;
+
+    const activo = f.estado === "Active";
+    const m =
+      porModelo.get(modelo) ??
+      ({ titulo: null, skus: 0, activos: 0, colores: new Map<string, Color>() } as Acumulado);
+    m.skus += 1;
+    if (activo) m.activos += 1;
+    // El título más largo es el que trae la descripción completa; los cortos
+    // vienen recortados por Amazon.
+    if (f.titulo && (!m.titulo || f.titulo.length > m.titulo.length)) m.titulo = f.titulo;
+
+    const color = (d.color ?? "").trim().toUpperCase() || "ÚNICO";
+    // BLK/RED, BLK-RED y BLK RED son un solo color escrito por tres manos.
+    const clave = claveGrupoFba(modelo, color);
+    const c =
+      m.colores.get(clave) ??
+      ({ color, imagenUrl: null, skus: 0, activos: 0, tallas: [] } as Color);
+    c.skus += 1;
+    if (activo) c.activos += 1;
+    if (f.imagenUrl && !c.imagenUrl) c.imagenUrl = f.imagenUrl;
+    const talla = Number(d.talla);
+    c.tallas.push({
+      asin: f.asin,
+      // Las tallas que no son número van al final, no al principio.
+      talla: Number.isFinite(talla) ? talla : 999,
+      sellerSku: sku,
+      activo,
+    });
+    m.colores.set(clave, c);
+    porModelo.set(modelo, m);
+  }
+
+  const anotado = new Map(anotaciones.map((a) => [a.modelo.trim().toUpperCase(), a]));
+  const usoCategoria = new Map<string, number>();
+
+  const todos: ModeloContenido[] = [...porModelo.entries()].map(([modelo, m]) => {
+    const colores: ColorModelo[] = [...m.colores.values()]
+      .map((c) => {
+        const t = mejor(c.tallas);
+        return {
+          color: c.color,
+          asin: t?.asin ?? null,
+          url: urlAmazon(t?.asin ?? null, pais),
+          imagenUrl: c.imagenUrl,
+          skus: c.skus,
+          activos: c.activos,
+        };
+      })
+      .sort((x, y) => x.color.localeCompare(y.color, "es"));
+
+    // El link del renglón abre el color con más publicaciones vivas: así cae
+    // en una página que existe aunque el modelo tenga colores apagados.
+    const representativo =
+      [...colores].sort(
+        (a, b) => b.activos - a.activos || a.color.localeCompare(b.color, "es"),
+      )[0] ?? null;
+
+    const a = anotado.get(modelo);
+    if (a?.categoria && !a.eliminado) {
+      usoCategoria.set(a.categoria, (usoCategoria.get(a.categoria) ?? 0) + 1);
+    }
+
+    return {
+      modelo,
+      titulo: m.titulo,
+      asin: representativo?.asin ?? null,
+      url: representativo?.url ?? null,
+      skus: m.skus,
+      activos: m.activos,
+      activo: m.activos > 0,
+      colores,
+      categoria: a?.categoria ?? null,
+      prioridad: a?.prioridad ?? 0,
+      imagenes: a?.imagenes ?? false,
+      aplus: a?.aplus ?? false,
+      notas: a?.notas ?? "",
+      eliminado: a?.eliminado ?? false,
+    };
+  });
+
+  const vivos = todos.filter((m) => !m.eliminado);
+  const visibles = opciones.verEliminados ? todos : vivos;
+
+  // Primero lo que trae prioridad puesta, luego lo activo, luego por modelo.
+  visibles.sort(
+    (a, b) =>
+      b.prioridad - a.prioridad ||
+      Number(b.activo) - Number(a.activo) ||
+      a.modelo.localeCompare(b.modelo, "es"),
+  );
+
+  return {
+    modelos: visibles,
+    categorias: categorias
+      .map((c) => ({ ...c, modelos: usoCategoria.get(c.nombre) ?? 0 }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    totales: {
+      modelos: vivos.length,
+      activos: vivos.filter((m) => m.activo).length,
+      inactivos: vivos.filter((m) => !m.activo).length,
+      conImagenes: vivos.filter((m) => m.imagenes).length,
+      conAplus: vivos.filter((m) => m.aplus).length,
+      sinCategoria: vivos.filter((m) => !m.categoria).length,
+      eliminados: todos.length - vivos.length,
+    },
+  };
+}
+
+/** Los renglones del catálogo, con respaldo si nunca se ha refrescado. */
+async function leerCatalogo(
+  db: DB,
+  amazonAccountId: string,
+  soloModelo?: string,
+): Promise<{ filas: FilaCatalogo[]; sinRefrescar: boolean }> {
+  // Para un solo modelo se acota en Postgres (son diez mil publicaciones);
+  // el prefijo basta porque el modelo siempre es el primer pedazo del SKU.
+  const acotar = (q: any) => {
+    const c = q.eq("account_id", amazonAccountId);
+    return soloModelo ? c.ilike("seller_sku", `${soloModelo}-%`) : c;
+  };
+  const filtro = soloModelo ? (sku: string) => modeloDeSku(sku) === soloModelo : null;
+
+  const listings = await traerTodo<any>(
+    db,
+    "amazon_listings",
+    "seller_sku, asin, titulo, estado, imagen_url",
+    acotar,
+  ).catch(() => [] as any[]);
+
+  const usables = listings.filter((f) => !filtro || filtro(String(f.seller_sku ?? "")));
+  if (usables.length) {
+    return {
+      sinRefrescar: false,
+      filas: usables.map((f) => ({
+        sellerSku: String(f.seller_sku ?? ""),
+        asin: f.asin ?? null,
+        titulo: f.titulo ?? null,
+        estado: f.estado ?? null,
+        imagenUrl: f.imagen_url ?? null,
+      })),
+    };
+  }
+
+  // Respaldo: lo que ya vendió alguna vez. Sirve desde el primer deploy,
+  // antes de que el catálogo se haya traído ni una vez.
+  const skus = await traerTodo<any>(
+    db,
+    "amazon_skus",
+    "seller_sku, asin, titulo, estado, activo",
+    acotar,
+  ).catch(() => [] as any[]);
+
+  return {
+    sinRefrescar: true,
+    filas: skus
+      .filter((f) => !filtro || filtro(String(f.seller_sku ?? "")))
+      .map((f) => ({
+        sellerSku: String(f.seller_sku ?? ""),
+        asin: f.asin ?? null,
+        titulo: f.titulo ?? null,
+        // `activo` trae default true y quedó desalineado; solo vale cuando no
+        // hay estado que consultar.
+        estado: f.estado ?? (f.activo === true ? "Active" : null),
+        imagenUrl: null,
+      })),
+  };
+}
+
+/** Lee de la base y arma la pantalla. */
+export async function cargarContenidoAmazon(
+  db: DB,
+  amazonAccountId: string,
+  pais: string | null,
+  opciones: { verEliminados?: boolean } = {},
+): Promise<ContenidoAmazon> {
+  const [catalogo, anotaciones, categorias] = await Promise.all([
+    leerCatalogo(db, amazonAccountId),
+    db
+      .from("amazon_contenido")
+      .select("modelo, categoria, prioridad, imagenes, aplus, notas, eliminado")
+      .eq("account_id", amazonAccountId),
+    db
+      .from("amazon_categorias_store")
+      .select("nombre, creada, imagenes, pagina_store, notas")
+      .eq("account_id", amazonAccountId),
+  ]);
+
+  // Mientras la migración 0032 no esté aplicada la pantalla sirve de todos
+  // modos: se ve el catálogo y no se puede palomear nada.
+  const faltaMigracion = Boolean(anotaciones.error ?? categorias.error);
+
+  const armado = armarContenido(
+    catalogo.filas,
+    ((anotaciones.data ?? []) as any[]).map((a) => ({
+      modelo: String(a.modelo ?? ""),
+      categoria: a.categoria ?? null,
+      prioridad: Number(a.prioridad ?? 0),
+      imagenes: a.imagenes === true,
+      aplus: a.aplus === true,
+      notas: a.notas ?? "",
+      eliminado: a.eliminado === true,
+    })),
+    ((categorias.data ?? []) as any[]).map((c) => ({
+      nombre: String(c.nombre ?? ""),
+      creada: c.creada === true,
+      imagenes: c.imagenes === true,
+      paginaStore: c.pagina_store === true,
+      notas: c.notas ?? "",
+    })),
+    pais,
+    opciones,
+  );
+
+  return { ...armado, faltaMigracion, sinRefrescar: catalogo.sinRefrescar };
+}
+
+/**
+ * Los colores de un modelo con su ASIN: uno por color, el de una publicación
+ * viva si la hay. Las imágenes son del color, no de la talla, así que pedirle
+ * a Amazon los cuarenta hijos sería tirar cuota a la basura.
+ */
+export async function coloresDeModelo(
+  db: DB,
+  amazonAccountId: string,
+  modelo: string,
+  pais: string | null,
+): Promise<ColorModelo[]> {
+  const objetivo = modelo.trim().toUpperCase();
+  if (!enRangoContenido(objetivo)) return [];
+
+  const catalogo = await leerCatalogo(db, amazonAccountId, objetivo);
+
+  const armado = armarContenido(catalogo.filas, [], [], pais, { verEliminados: true });
+  return armado.modelos.find((m) => m.modelo === objetivo)?.colores ?? [];
+}

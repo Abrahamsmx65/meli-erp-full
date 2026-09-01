@@ -88,6 +88,15 @@ guárdala numerada.
   único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
   salida por SKU.
 
+- **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
+  `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
+  vendió— y `amazon_resumen_skus` la usa como universo de claves del plan de
+  FBA: cada fila cuenta como UNA TALLA de su grupo modelo+color. Meterle ahí
+  las publicaciones sin venta le agrega tallas con venta 0, y la regla de la
+  corrida despareja las lee como hermanas al día (`sanas.length >
+  agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
+  completo (activos, inactivos, precio, imagen principal) vive aparte y solo
+  lo lee la sección de contenido.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
@@ -121,6 +130,7 @@ guárdala numerada.
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
+| Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes por modelo en `src/lib/amazon/catalogo.ts`) |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-panel.ts` para la pantalla) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |

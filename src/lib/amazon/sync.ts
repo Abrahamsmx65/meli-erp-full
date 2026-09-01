@@ -15,6 +15,7 @@
 import type { Cliente } from "./spapi";
 import { DIAS_VIGENCIA_ENVIO_FBA } from "../servicios/fba-en-camino";
 import {
+  CATALOGO,
   INVENTARIO_FBA,
   LEDGER_INVENTARIO,
   PAGOS,
@@ -418,6 +419,152 @@ export async function sincronizarInventario(
   );
 
   return { estado: "cargado", skus: inventario.length };
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo de publicaciones: qué existe en la cuenta y si sigue vivo
+// ---------------------------------------------------------------------------
+
+/**
+ * El primer valor que no venga vacío de entre varias columnas posibles.
+ * Los encabezados del reporte de listados cambian de un marketplace a otro
+ * (`asin1` en unos, `asin` en otros; `item-name` o `product-name`).
+ */
+function campo(fila: Record<string, string>, ...nombres: string[]): string {
+  for (const n of nombres) {
+    const v = fila[n];
+    if (v !== undefined && v !== "") return v;
+  }
+  return "";
+}
+
+/**
+ * Debajo de esto, el reporte llegó truncado y no se cree que las demás
+ * publicaciones hayan desaparecido: la cuenta trae más de diez mil.
+ */
+const MINIMO_PARA_LIMPIAR = 500;
+
+/** Cada cuánto vale la pena volver a pedir el catálogo completo. */
+const FRESCURA_LISTADOS_MS = 12 * 3_600_000;
+
+export interface ResultadoListados {
+  estado: "solicitado" | "procesando" | "cargado" | "vacio" | "reintentar" | "al_dia";
+  publicaciones?: number;
+}
+
+/**
+ * Refresca el catálogo de publicaciones de Amazon (activas, inactivas e
+ * incompletas) en `amazon_listings`.
+ *
+ * Va en tabla APARTE y no en `amazon_skus` a propósito: esa se llena de rebote
+ * con el reporte de ÓRDENES —solo lo que ya vendió— y `amazon_resumen_skus`
+ * la usa como universo de claves del plan de FBA. Meterle las publicaciones
+ * sin venta le agregaría tallas con venta 0 a cada grupo modelo|color, y la
+ * regla de la corrida despareja las contaría como hermanas al día: media
+ * corrida dejaría de viajar. Aquí no la lee nadie más que la sección de
+ * contenido.
+ */
+export async function sincronizarListados(
+  admin: any,
+  cliente: Cliente,
+  opciones: { forzar?: boolean } = {},
+): Promise<ResultadoListados> {
+  const accountId = cliente.cuenta.accountId;
+
+  const { data: fila } = await admin
+    .from("amazon_sync_estado")
+    .select("datos")
+    .eq("account_id", accountId)
+    .eq("tarea", "cron_listados")
+    .maybeSingle();
+  const datos = (fila?.datos ?? {}) as { reportId?: string; pedidoEn?: string; cargadoEn?: string };
+  const pendiente = typeof datos.reportId === "string" && datos.reportId !== "";
+
+  const anotar = (nuevos: Record<string, unknown>) =>
+    admin.from("amazon_sync_estado").upsert({
+      account_id: accountId,
+      tarea: "cron_listados",
+      datos: nuevos,
+      actualizado_en: new Date().toISOString(),
+    });
+
+  // Nada pendiente y el catálogo está fresco: no se gasta cuota. El botón de
+  // la pantalla manda `forzar` para saltarse esto.
+  if (!pendiente && !opciones.forzar) {
+    const edad = datos.cargadoEn ? Date.now() - Date.parse(datos.cargadoEn) : Infinity;
+    if (edad < FRESCURA_LISTADOS_MS) return { estado: "al_dia" };
+  }
+
+  // Paso 1: pedir el reporte y recogerlo en la siguiente corrida.
+  if (!pendiente) {
+    const reportId = await solicitarReporte(cliente, CATALOGO, cliente.cuenta.marketplaceId);
+    if (!reportId) return { estado: "reintentar" };
+    await anotar({ ...datos, reportId, pedidoEn: new Date().toISOString() });
+    return { estado: "solicitado" };
+  }
+
+  // Paso 2: recoger el que quedó pendiente.
+  const st = await estadoReporte(cliente, datos.reportId!);
+  const olvidar = { cargadoEn: datos.cargadoEn };
+
+  if (st.estado === "procesando") {
+    const edad = datos.pedidoEn ? Date.now() - Date.parse(datos.pedidoEn) : Infinity;
+    if (edad > PACIENCIA_REPORTE_MS) {
+      await anotar(olvidar);
+      return { estado: "reintentar" };
+    }
+    return { estado: "procesando" };
+  }
+
+  if (st.estado === "fallido" || st.estado === "vacio") {
+    await anotar(olvidar);
+    return { estado: st.estado === "vacio" ? "vacio" : "reintentar" };
+  }
+
+  const filas = await descargarReporte(cliente, st.documentId);
+  if (filas.length === 0) {
+    await anotar(olvidar);
+    return { estado: "vacio" };
+  }
+
+  const ahora = new Date().toISOString();
+
+  const catalogo = new Map<string, any>();
+  for (const f of filas) {
+    const sku = campo(f, "seller-sku", "sku").trim();
+    if (!sku) continue;
+    const precio = campo(f, "price");
+    catalogo.set(sku, {
+      account_id: accountId,
+      seller_sku: sku,
+      asin: campo(f, "asin1", "asin") || null,
+      titulo: campo(f, "item-name", "product-name") || null,
+      // Un precio vacío (las publicaciones incompletas) no es un precio de 0.
+      precio: precio === "" ? null : decimal(precio),
+      cantidad: entero(campo(f, "quantity")),
+      estado: campo(f, "status", "listing-status") || null,
+      canal: campo(f, "fulfillment-channel") || null,
+      imagen_url: campo(f, "image-url") || null,
+      actualizado_en: ahora,
+    });
+  }
+
+  const listados = [...catalogo.values()];
+  await guardarEnLotes(admin, "amazon_listings", listados);
+
+  // Lo que Amazon ya no reporta se borró de verdad; si se queda, la pantalla
+  // muestra publicaciones fantasma para siempre. Solo cuando el reporte llegó
+  // completo, para no vaciar la tabla por un archivo truncado.
+  if (listados.length >= MINIMO_PARA_LIMPIAR) {
+    await admin
+      .from("amazon_listings")
+      .delete()
+      .eq("account_id", accountId)
+      .lt("actualizado_en", ahora);
+  }
+
+  await anotar({ cargadoEn: ahora });
+  return { estado: "cargado", publicaciones: listados.length };
 }
 
 // ---------------------------------------------------------------------------

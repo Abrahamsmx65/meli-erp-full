@@ -31,6 +31,15 @@ export const PAGOS = "GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2";
  */
 export const LEDGER_INVENTARIO = "GET_LEDGER_SUMMARY_VIEW_DATA";
 
+/**
+ * Catálogo completo de publicaciones: TODO lo que existe en la cuenta, haya
+ * vendido o no, con su ASIN, su título, su precio, su estado (Active /
+ * Inactive / Incomplete) y la URL de su imagen principal. Es la única fuente
+ * que dice si una publicación sigue viva: `amazon_skus` se llenaba de rebote
+ * con el reporte de ÓRDENES, que solo conoce lo que ya se vendió.
+ */
+export const CATALOGO = "GET_MERCHANT_LISTINGS_ALL_DATA";
+
 export interface ReporteListo {
   reportId: string;
   documentId: string;
