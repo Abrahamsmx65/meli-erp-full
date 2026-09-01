@@ -88,9 +88,11 @@ export function EntradasTikTok() {
 
   return (
     <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Capturar movimientos</h2>
+      <h2 className="text-sm font-semibold">Corregir a mano</h2>
       <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-        Lo que entra sube el disponible y se le publica a TikTok en el mismo clic.
+        El saldo normal llega solo de Industher. Esto es para lo que la bodega todavía no
+        refleja (una merma, un par que regresó); la siguiente foto de Industher vuelve a mandar.
+        Se le publica a TikTok en el mismo clic.
         {ayuda ? ` ${ayuda}.` : ""}
       </p>
 
