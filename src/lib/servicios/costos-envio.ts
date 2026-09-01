@@ -446,14 +446,19 @@ export async function sincronizarMedidas(
   let leidos = 0;
   let pendientes = 0;
 
-  for (const [up, grupo] of cola) {
+  // De cinco en cinco. La nota vieja decía "~1/s" y de ahí venía la idea de
+  // preguntar de una en una, pero medido contra la cuenta real: de 20
+  // llamadas simultáneas pasaron 16 y 4 contestaron 429. Cinco en vuelo
+  // avanza cinco veces más rápido y los rebotes ocasionales los absorbe el
+  // reintento con espera del cliente, que respeta el Retry-After de MELI.
+  await enLotes(cola, 5, async ([up, grupo]) => {
     if (Date.now() - arranque > limite) {
       pendientes += grupo.length;
-      continue;
+      return;
     }
     try {
       const cuerpo = await cliente.get<{ attributes?: AtributoCrudo[] }>(`/user-products/${up}`, undefined, {
-        reintentos: 2,
+        reintentos: 3,
       });
       leidos++;
       const m = medidasDeAtributos(cuerpo?.attributes);
@@ -462,7 +467,7 @@ export async function sincronizarMedidas(
       // Una que MELI no contesta se queda pendiente y se reintenta después.
       pendientes += grupo.length;
     }
-  }
+  });
 
   // ------------------------------------------------------------------ guardar
   const ahora = new Date().toISOString();

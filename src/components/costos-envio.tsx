@@ -120,41 +120,66 @@ export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] })
     return base;
   }, [modelos, conProblema, busqueda]);
 
+  const recargar = async () => {
+    const r = await fetch("/api/costos-envio");
+    const j = await r.json();
+    if (!r.ok) throw new Error(j?.error ?? "No se pudo leer la revisión.");
+    setModelos(j.modelos as ModeloRevisado[]);
+  };
+
   /**
    * Revisar es releer las medidas y preguntarle los costos que falten al
-   * simulador de MELI. La primera vez son miles de llamadas y no caben en una
-   * sola función, así que se llama otra vez mientras queden pendientes.
+   * simulador de MELI.
+   *
+   * Va en pasadas cortas y no en una sola petición larga: la primera versión
+   * hacía todo de un tirón y el navegador cortaba la conexión a los pocos
+   * minutos con un "load failed", aunque el servidor seguía trabajando bien.
+   * Cada pasada avanza un pedazo, contesta cuánto falta y se guarda; si una
+   * se cae, se reintenta sin perder lo andado.
    */
   const revisar = async () => {
     setRevisando(true);
     setError(null);
-    let pendientes = 0;
+    let fallos = 0;
+
     try {
-      for (let pasada = 0; pasada < 15; pasada++) {
+      for (let pasada = 0; pasada < 400; pasada++) {
+        let respuesta: { pendientes?: number } | null = null;
+        try {
+          const r = await fetch("/api/costos-envio", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ medidas: true }),
+          });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j?.error ?? "No se pudo revisar.");
+          respuesta = j;
+          fallos = 0;
+        } catch (err) {
+          // Un corte de red no tira la revisión: lo hecho ya está guardado.
+          fallos++;
+          if (fallos >= 3) throw err;
+          setAviso(`Se cortó la conexión, reintentando (${fallos} de 3)…`);
+          continue;
+        }
+
+        const faltan = Number(respuesta?.pendientes ?? 0);
         setAviso(
-          pasada === 0
-            ? "Leyendo las medidas de todas las publicaciones…"
-            : `Sigue: quedan ${pendientes} por leer (pasada ${pasada + 1})…`,
+          faltan
+            ? `Leyendo las medidas de MELI… faltan ${faltan.toLocaleString("es-MX")}`
+            : "Actualizando la pantalla…",
         );
-        const r = await fetch("/api/costos-envio", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ medidas: true }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.error ?? "No se pudo revisar.");
-        pendientes = Number(j.pendientes ?? 0);
-        if (!pendientes) break;
+        // Cada tantas pasadas se refresca la tabla para ver el avance.
+        if (pasada % 5 === 4) await recargar();
+        if (!faltan) break;
       }
 
-      setAviso("Actualizando la pantalla…");
-      const r = await fetch("/api/costos-envio");
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "No se pudo leer la revisión.");
-      setModelos(j.modelos as ModeloRevisado[]);
+      await recargar();
       setAviso(null);
     } catch (err) {
-      setError((err as Error).message);
+      setError(
+        `${(err as Error).message} — lo que ya se revisó quedó guardado; puedes darle otra vez.`,
+      );
       setAviso(null);
     } finally {
       setRevisando(false);
