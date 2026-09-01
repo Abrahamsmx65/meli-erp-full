@@ -499,9 +499,8 @@ export async function sincronizarVentas(
   const hechos: ResultadoVentas["tramos"] = [];
 
   for (const tramo of plan) {
-    // Siempre se hace al menos el primero (el reciente): si no, una cuenta
-    // con el catálogo lento nunca vería una venta.
-    if (hechos.length && Date.now() - t0 > opts.limiteMs) break;
+    // Lo que no quepa en el presupuesto lo hace la siguiente llamada.
+    if (Date.now() - t0 > opts.limiteMs) break;
     hechos.push(await sincronizarTramo(admin, accountId, cliente, meliUserId, mapa, tramo));
     estado = avanzarEstado(estado, tramo);
     await guardarEstado(admin, accountId, estado);
@@ -518,7 +517,9 @@ export interface ResumenSync {
   catalogo: ResumenCatalogo | null;
   stock: { skus: number; errores: number } | null;
   ventas: ResultadoVentas;
-  /** false = quedaron tramos de ventas por bajar: hay que volver a llamar. */
+  /** Lo que se quedó sin hacer por tiempo; la siguiente llamada lo pide con `continuar`. */
+  pendiente: { stock: boolean; ventas: boolean };
+  /** false = hay que volver a llamar. */
   completo: boolean;
   ms: number;
 }
@@ -526,30 +527,50 @@ export interface ResumenSync {
 /**
  * Sincronización de la cuenta, con presupuesto de tiempo.
  *
- * `continuar: true` salta catálogo y stock (ya se hicieron en la llamada
- * anterior) y solo sigue con los tramos de ventas que faltan. La pantalla
- * y el cron llaman en bucle hasta que `completo` sea true.
+ * Primera llamada: catálogo, stock y los tramos de ventas que quepan.
+ * `continuar: true` salta el catálogo; `conStock` repite el stock solo si la
+ * llamada anterior lo dejó pendiente. La pantalla y el cron llaman en bucle
+ * hasta que `completo` sea true. Nada aquí puede pasarse de los 300 s de
+ * Vercel: cada fase mira el reloj antes de empezar.
  */
 export async function sincronizar(
   admin: DB,
   accountId: string,
-  opts?: { presupuestoMs?: number; continuar?: boolean; limiteUserProductsMs?: number },
+  opts?: { presupuestoMs?: number; continuar?: boolean; conStock?: boolean; limiteUserProductsMs?: number },
 ): Promise<ResumenSync> {
   const t0 = Date.now();
   const presupuesto = opts?.presupuestoMs ?? 200_000;
+  const transcurrido = () => Date.now() - t0;
   const cliente = await clienteDeCuenta(admin, accountId);
   const usuario = await obtenerUsuario(cliente);
 
   let catalogo: ResumenCatalogo | null = null;
   let stock: { skus: number; errores: number } | null = null;
+  let stockPendiente = false;
   try {
     if (!opts?.continuar) {
-      catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs ?? 45_000);
-      stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
+      catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs ?? 30_000);
+    }
+    const tocaStock = !opts?.continuar || Boolean(opts?.conStock);
+    if (tocaStock) {
+      // El stock son cientos de llamadas: solo si queda más de la mitad del tiempo.
+      if (transcurrido() < presupuesto * 0.5) {
+        stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
+      } else {
+        stockPendiente = true;
+      }
     }
     const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto, t0 });
 
-    const resumen: ResumenSync = { cuenta: usuario.nickname, catalogo, stock, ventas, completo: ventas.completo, ms: Date.now() - t0 };
+    const resumen: ResumenSync = {
+      cuenta: usuario.nickname,
+      catalogo,
+      stock,
+      ventas,
+      pendiente: { stock: stockPendiente, ventas: !ventas.completo },
+      completo: ventas.completo && !stockPendiente,
+      ms: transcurrido(),
+    };
     await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
     await admin
       .from("yz_cuentas")
@@ -560,7 +581,7 @@ export async function sincronizar(
     await admin.from("yz_sync_log").insert({
       account_id: accountId,
       ok: false,
-      detalle: { error: (err as Error).message, catalogo, stock, ms: Date.now() - t0 },
+      detalle: { error: (err as Error).message, catalogo, stock, ms: transcurrido() },
     });
     throw err;
   }

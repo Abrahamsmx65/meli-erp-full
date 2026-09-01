@@ -17,13 +17,20 @@
  *              sufijo de sitio (-MX). Seguro: no cambia ninguna letra.
  *   aplastado  igual, ignorando también dónde caen los separadores
  *              ("IP15PM" contra "IP-15-PM"). Seguro por lo mismo.
+ *   prefijo_nc igual si se ignora una N o una C SUELTA antes del diseño
+ *              ("N-462-A06" contra "462-A06", "C-367-PocoC40" contra
+ *              "367-PocoC40", "499N-…" contra "499-…"). Se aplica solo por
+ *              decisión del dueño: en su catálogo esa N o C es la misma funda.
  *   -- de aquí para abajo son SUGERENCIAS, no amarres --
- *   nucleo     igual si se ignora una letra suelta ("499N" contra "499").
- *              NO se aplica solo: esa N puede ser un producto distinto.
+ *   prefijo    igual si se ignora CUALQUIER prefijo corto ("CH-650-i11",
+ *              "R-514-…"). Esos sí pueden ser otra cosa: se proponen.
+ *   nucleo     igual si se ignora cualquier letra suelta en cualquier lugar.
  *   ordenado   las mismas piezas en otro orden.
  *
- * Los tres primeros se aplican solos. Los dos últimos se proponen en la
+ * Los cuatro primeros se aplican solos. Los demás se proponen en la
  * pantalla de SKUs y se confirman con un clic, que escribe un mapeo manual.
+ * Un empate (dos SKUs de MELI para la misma clave) NUNCA se resuelve solo,
+ * ni en un nivel automático.
  */
 
 /** Sufijos de sitio que algunas cuentas le pegan al SKU. En bodega no existen. */
@@ -88,6 +95,44 @@ export function claveNucleo(s: string): string {
     .join("");
 }
 
+/**
+ * Quita el prefijo suelto que va antes del número de diseño, si lo hay.
+ *
+ * En el sheet y en MELI el mismo diseño aparece como "N-462-A06" y
+ * "462-A06", o "C-367-PocoC40" y "367-PocoC40"; a veces la letra va pegada
+ * ("499N-…"). `letras` limita qué prefijos se quitan: con ["N", "C"] solo
+ * esos (nivel automático); sin límite, cualquier prefijo de hasta dos
+ * letras (nivel de sugerencia).
+ */
+export function piezasSinPrefijo(s: string, letras?: readonly string[]): string[] {
+  // Se trabaja con las partes separadas por guion, no con las piezas: en
+  // "650-i11" la i va DESPUÉS del guion y es parte del modelo; en "499N-…"
+  // la N va pegada al número ANTES del guion. Las piezas no distinguen eso.
+  const partes = claveCanonica(s).split("-").filter(Boolean);
+  const admitido = (l: string) => (letras ? letras.includes(l) : /^[A-Z]{1,2}$/.test(l));
+  if (partes.length >= 2) {
+    if (/^[A-Z]{1,2}$/.test(partes[0]) && /^\d/.test(partes[1]) && admitido(partes[0])) {
+      partes.shift();
+    } else {
+      const m = partes[0].match(/^(\d+)([A-Z])$/);
+      if (m && admitido(m[2])) partes[0] = m[1];
+    }
+  }
+  return piezas(partes.join("-"));
+}
+
+export const PREFIJOS_AUTOMATICOS: readonly string[] = ["N", "C"];
+
+/** Clave sin la N o la C suelta antes del diseño. Nivel automático. */
+export function clavePrefijoNC(s: string): string {
+  return piezasSinPrefijo(s, PREFIJOS_AUTOMATICOS).join("");
+}
+
+/** Clave sin cualquier prefijo corto antes del diseño. Solo se propone. */
+export function clavePrefijo(s: string): string {
+  return piezasSinPrefijo(s).join("");
+}
+
 /** Clave con las piezas ordenadas: atrapa el mismo SKU escrito al revés. */
 export function claveOrdenada(s: string): string {
   return [...piezas(s)].sort().join("-");
@@ -102,6 +147,8 @@ export type NivelAmarre =
   | "exacto"
   | "canonico"
   | "aplastado"
+  | "prefijo_nc"
+  | "prefijo"
   | "nucleo"
   | "ordenado"
   | "sin_amarre";
@@ -112,6 +159,7 @@ export const NIVELES_AUTOMATICOS: ReadonlySet<NivelAmarre> = new Set<NivelAmarre
   "exacto",
   "canonico",
   "aplastado",
+  "prefijo_nc",
 ]);
 
 export function esAutomatico(nivel: NivelAmarre): boolean {
@@ -137,6 +185,8 @@ export interface IndiceSkus {
   exactos: Set<string>;
   canonicos: Map<string, string[]>;
   aplastados: Map<string, string[]>;
+  prefijosNC: Map<string, string[]>;
+  prefijos: Map<string, string[]>;
   nucleos: Map<string, string[]>;
   ordenados: Map<string, string[]>;
 }
@@ -153,6 +203,8 @@ export function construirIndice(skusMeli: Iterable<string>): IndiceSkus {
     exactos: new Set(),
     canonicos: new Map(),
     aplastados: new Map(),
+    prefijosNC: new Map(),
+    prefijos: new Map(),
     nucleos: new Map(),
     ordenados: new Map(),
   };
@@ -162,6 +214,8 @@ export function construirIndice(skusMeli: Iterable<string>): IndiceSkus {
     idx.exactos.add(sku);
     agregar(idx.canonicos, claveCanonica(sku), sku);
     agregar(idx.aplastados, claveAplastada(sku), sku);
+    agregar(idx.prefijosNC, clavePrefijoNC(sku), sku);
+    agregar(idx.prefijos, clavePrefijo(sku), sku);
     agregar(idx.nucleos, claveNucleo(sku), sku);
     agregar(idx.ordenados, claveOrdenada(sku), sku);
   }
@@ -194,6 +248,8 @@ export function amarrar(
   const escalones: [NivelAmarre, Map<string, string[]>, string][] = [
     ["canonico", indice.canonicos, claveCanonica(sku)],
     ["aplastado", indice.aplastados, claveAplastada(sku)],
+    ["prefijo_nc", indice.prefijosNC, clavePrefijoNC(sku)],
+    ["prefijo", indice.prefijos, clavePrefijo(sku)],
     ["nucleo", indice.nucleos, claveNucleo(sku)],
     ["ordenado", indice.ordenados, claveOrdenada(sku)],
   ];

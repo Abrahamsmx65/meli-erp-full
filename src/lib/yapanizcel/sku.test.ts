@@ -72,17 +72,20 @@ describe("amarrar", () => {
     expect(r.skuMeli).toBe("499-IP15PM");
   });
 
-  it("la N de más NO se amarra sola: se propone", () => {
+  it("la N o la C de más antes del diseño se amarran solas (decisión del dueño)", () => {
     const r = amarrar("499N-IP15PM", indice);
+    expect(r.nivel).toBe("prefijo_nc");
+    expect(esAutomatico(r.nivel)).toBe(true);
+    expect(r.skuMeli).toBe("499-IP15PM");
+    expect(amarrar("499C-IP15PM", indice).skuMeli).toBe("499-IP15PM");
+  });
+
+  it("una letra suelta en OTRO lugar solo se propone", () => {
+    const r = amarrar("499-IP15PM-X", indice);
     expect(r.nivel).toBe("nucleo");
     expect(esAutomatico(r.nivel)).toBe(false);
     expect(r.skuMeli).toBeNull();
     expect(r.candidatos).toEqual(["499-IP15PM"]);
-  });
-
-  it("la C de más tampoco", () => {
-    expect(amarrar("499C-IP15PM", indice).skuMeli).toBeNull();
-    expect(amarrar("499C-IP15PM", indice).candidatos).toEqual(["499-IP15PM"]);
   });
 
   it("el mapeo manual manda sobre todo", () => {
@@ -127,5 +130,59 @@ describe("desglosar", () => {
       modelo: "A54",
       color: "NEGRO",
     });
+  });
+});
+
+describe("prefijo N o C antes del diseño (caso real del sheet)", () => {
+  const catalogo = ["N-367-E14", "367-PocoC40", "462-A06", "C-362-PocoM6pro-blk", "650-i11", "514-Rmn10pro"];
+  const indice = construirIndice(catalogo);
+
+  it("bodega con N- y MELI sin ella: se amarra solo", () => {
+    const r = amarrar("N-462-A06", indice);
+    expect(r.nivel).toBe("prefijo_nc");
+    expect(esAutomatico(r.nivel)).toBe(true);
+    expect(r.skuMeli).toBe("462-A06");
+  });
+
+  it("bodega con C- y MELI sin ella: se amarra solo", () => {
+    expect(amarrar("C-367-PocoC40", indice).skuMeli).toBe("367-PocoC40");
+    expect(amarrar("c-367-PocoC40", indice).skuMeli).toBe("367-PocoC40");
+  });
+
+  it("al revés también: bodega sin la N y MELI con ella", () => {
+    expect(amarrar("367-E14", indice).skuMeli).toBe("N-367-E14");
+    expect(amarrar("362-PocoM6pro-blk", indice).skuMeli).toBe("C-362-PocoM6pro-blk");
+  });
+
+  it("la letra pegada al número (499N-) cuenta igual", () => {
+    const idx = construirIndice(["499-IP15PM"]);
+    const r = amarrar("499N-IP15PM", idx);
+    expect(r.nivel).toBe("prefijo_nc");
+    expect(r.skuMeli).toBe("499-IP15PM");
+  });
+
+  it("otros prefijos (CH-, R-, S-) solo se proponen", () => {
+    const r = amarrar("CH-650-i11", indice);
+    expect(r.nivel).toBe("prefijo");
+    expect(r.skuMeli).toBeNull();
+    expect(r.candidatos).toEqual(["650-i11"]);
+    expect(amarrar("R-514-Rmn10pro", indice).skuMeli).toBeNull();
+  });
+
+  it("si MELI tiene las dos versiones, es empate y no se decide solo", () => {
+    const idx = construirIndice(["N-462-A06", "462-A06"]);
+    const r = amarrar("n-462-a06", idx);
+    // Canónico empata exacto con N-462-A06: ese sí es seguro.
+    expect(r.nivel).toBe("canonico");
+    expect(r.skuMeli).toBe("N-462-A06");
+    const r2 = amarrar("C-462-A06", idx);
+    expect(r2.ambiguo).toBe(true);
+    expect(r2.skuMeli).toBeNull();
+    expect(r2.candidatos).toHaveLength(2);
+  });
+
+  it("una C dentro del modelo (PocoC40) no se toca", () => {
+    const idx = construirIndice(["367-Poco40"]);
+    expect(amarrar("367-PocoC40", idx).nivel).not.toBe("prefijo_nc");
   });
 });

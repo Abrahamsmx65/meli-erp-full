@@ -18,17 +18,17 @@ export default async function SkusYz() {
     todo<{ sku: string }>(supabase, "yz_skus", "sku", (q) => q.eq("account_id", cuenta.id).order("sku")),
   ]);
 
-  const automaticos = inv.niveles.exacto + inv.niveles.canonico + inv.niveles.aplastado;
+  const automaticos = inv.niveles.exacto + inv.niveles.canonico + inv.niveles.aplastado + inv.niveles.prefijo_nc;
 
   return (
     <div className="flex flex-col gap-6">
       <Encabezado
         titulo="SKUs · amarre bodega ↔ Mercado Libre"
-        texto="El sheet se llena a mano: sobra una N, sobra una C, se cuela un guion. Lo que solo cambia de mayúsculas o guiones se amarra solo. Una letra de más o las piezas en otro orden se PROPONEN y se confirman con un clic: esa N puede ser otro producto y el sistema no adivina."
+        texto="El sheet se llena a mano: sobra una N o una C antes del diseño, se cuela un guion, cambian las mayúsculas. Todo eso se amarra solo. Otros prefijos (CH, R, S), una letra suelta en otro lugar o las piezas en otro orden se PROPONEN y se confirman con un clic: el sistema no adivina."
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Ficha titulo="Amarrados solos" valor={automaticos} nota="exacto, mayúsculas o guiones" tono="bien" />
+        <Ficha titulo="Amarrados solos" valor={automaticos} nota={`exacto, mayúsculas, guiones, N o C (${inv.niveles.prefijo_nc})`} tono="bien" />
         <Ficha titulo="Confirmados a mano" valor={inv.niveles.manual} />
         <Ficha titulo="Con sugerencia" valor={inv.sugeridos} nota="una letra de más u otro orden" tono={inv.sugeridos ? "alerta" : "neutro"} />
         <Ficha titulo="Sin amarrar" valor={inv.sinAmarrar.renglones} nota={`${n(inv.sinAmarrar.unidades)} unidades bloqueadas`} tono={inv.sinAmarrar.renglones ? "critico" : "bien"} />

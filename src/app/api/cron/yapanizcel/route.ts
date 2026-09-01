@@ -29,7 +29,11 @@ export async function GET(req: NextRequest) {
       const t0 = Date.now();
       let resumen = await sincronizar(admin, c.id, { presupuestoMs: 150_000 });
       while (!resumen.completo && Date.now() - t0 < 200_000) {
-        resumen = await sincronizar(admin, c.id, { presupuestoMs: 200_000 - (Date.now() - t0), continuar: true });
+        resumen = await sincronizar(admin, c.id, {
+          presupuestoMs: 200_000 - (Date.now() - t0),
+          continuar: true,
+          conStock: resumen.pendiente.stock,
+        });
       }
       r.meli = resumen;
     } catch (err) {

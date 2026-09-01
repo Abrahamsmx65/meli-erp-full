@@ -52,6 +52,7 @@ export function BotonSincronizar() {
     setProgreso("Bajando catálogo y stock…");
     try {
       let continuar = false;
+      let conStock = false;
       let cuenta = "";
       let catalogo: { skus: number; pendientes: number } | null = null;
       let ordenes = 0;
@@ -63,7 +64,7 @@ export function BotonSincronizar() {
         const r = await fetch("/api/yapanizcel/sincronizar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continuar }),
+          body: JSON.stringify({ continuar, conStock }),
         });
         const j = await leer(r);
         if (!r.ok) throw new Error(j.error ?? "Falló la sincronización.");
@@ -77,7 +78,12 @@ export function BotonSincronizar() {
         estado = s.ventas.estado;
         if (s.completo) break;
         continuar = true;
-        setProgreso(`Ventas cubiertas del ${estado.desde} al ${estado.hasta}; sigo hacia atrás…`);
+        conStock = Boolean(s.pendiente?.stock);
+        setProgreso(
+          conStock
+            ? "Catálogo listo; ahora el stock en Full y las ventas…"
+            : `Ventas cubiertas del ${estado.desde ?? "…"} al ${estado.hasta ?? "…"}; sigo hacia atrás…`,
+        );
         router.refresh();
       }
       setProgreso(null);

@@ -18,9 +18,10 @@ export async function POST(req: NextRequest) {
   if (!ctx.ok) return ctx.respuesta;
   const body = await req.json().catch(() => ({}));
   const continuar = Boolean(body?.continuar);
+  const conStock = Boolean(body?.conStock);
 
   try {
-    const resumen = await sincronizar(clienteAdmin(), ctx.cuenta.id, { presupuestoMs: 200_000, continuar });
+    const resumen = await sincronizar(clienteAdmin(), ctx.cuenta.id, { presupuestoMs: 180_000, continuar, conStock });
     dispararPendientes(req);
     return NextResponse.json({ ok: true, resumen });
   } catch (err) {

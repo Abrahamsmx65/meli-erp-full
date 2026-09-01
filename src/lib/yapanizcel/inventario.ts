@@ -49,7 +49,7 @@ export async function cargarInventarioAmarrado(db: DB, accountId: string): Promi
   const renglones: RenglonBodega[] = [];
   const porSkuMeli = new Map<string, number>();
   const niveles: Record<NivelAmarre, number> = {
-    manual: 0, exacto: 0, canonico: 0, aplastado: 0, nucleo: 0, ordenado: 0, sin_amarre: 0,
+    manual: 0, exacto: 0, canonico: 0, aplastado: 0, prefijo_nc: 0, prefijo: 0, nucleo: 0, ordenado: 0, sin_amarre: 0,
   };
   let sinRenglones = 0;
   let sinUnidades = 0;
