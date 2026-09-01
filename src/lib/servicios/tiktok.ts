@@ -18,7 +18,14 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
-import { bodegas, catalogo, pedidosActualizados, publicarStock, tiendasAutorizadas } from "../tiktok/api";
+import {
+  bodegas,
+  catalogo,
+  pedidosActualizados,
+  publicarStock,
+  tiendasAutorizadas,
+  type DiagnosticoPedidos,
+} from "../tiktok/api";
 import {
   Cliente,
   configuracionTikTok,
@@ -41,7 +48,7 @@ import {
  * Cuánto hacia atrás mira la primera sincronización de una tienda recién
  * conectada. Después de esa, se arranca desde donde quedó el cursor.
  */
-const DIAS_PRIMERA_CORRIDA = 30;
+const DIAS_PRIMERA_CORRIDA = 90;
 
 /** Un traslape sobre el cursor, para no perder un pedido que se movió justo
  *  mientras corría la sincronización anterior. Repetirlo no cuesta: el
@@ -314,17 +321,29 @@ export async function sincronizarTikTok(
     .eq("tarea", "pedidos")
     .maybeSingle();
 
-  const desdeMs = estado?.cursor_ts
-    ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
-    : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
+  // Mientras la tabla de pedidos siga vacía se mira la ventana completa
+  // aunque ya haya cursor: una primera corrida que no trajo nada (permisos a
+  // medias, ventana corta) no debe dejar el cursor adelante para siempre.
+  const { count: yaGuardados } = await admin
+    .from("tiktok_ordenes")
+    .select("order_id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+
+  const desdeMs =
+    estado?.cursor_ts && (yaGuardados ?? 0) > 0
+      ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
+      : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
   const hastaMs = Date.now();
 
+  const diag: DiagnosticoPedidos = { totalCount: null, paginas: 0, llaves: [] };
   let pedidos: Awaited<ReturnType<typeof pedidosActualizados>> = [];
   try {
     pedidos = await pedidosActualizados(
       cliente,
       Math.floor(desdeMs / 1000),
       Math.floor(hastaMs / 1000),
+      40,
+      diag,
     );
   } catch (err) {
     avisos.push(`Pedidos: ${(err as Error).message}`);
@@ -434,7 +453,17 @@ export async function sincronizarTikTok(
     inicio,
     fin: new Date().toISOString(),
     estado: avisos.length ? "con avisos" : "ok",
-    detalle: { pedidos: pedidos.length, salidas, devoluciones, publicados: pub.publicados, avisos },
+    detalle: {
+      pedidos: pedidos.length,
+      salidas,
+      devoluciones,
+      publicados: pub.publicados,
+      skusCatalogo,
+      sinAmarre,
+      ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
+      busquedaPedidos: diag,
+      avisos,
+    },
   });
 
   return {
@@ -487,17 +516,23 @@ export async function publicarDisponibilidad(
     };
   }
 
-  const [inv, skusTikTok] = await Promise.all([
+  const [inv, skusTikTok, contados] = await Promise.all([
     traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado", (q) =>
       q.eq("account_id", accountId),
     ),
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
+    skusContados(admin, accountId),
   ]);
 
+  // SEGURO: solo se le escribe a TikTok un SKU que alguna vez se CONTÓ (una
+  // entrada o un ajuste). Un SKU que solo tiene salidas —vendió antes de que
+  // se capturara su existencia— tendría saldo negativo y disponible 0, y
+  // publicarle 0 apagaría una publicación que TikTok sí estaba vendiendo.
+  // Hasta que se cuente, TikTok se queda con su propio número.
   const cambios = cambiosAPublicar(
-    (inv ?? []).map((r: any) => ({
+    (inv ?? []).filter((r: any) => contados.has(r.sku)).map((r: any) => ({
       sku: r.sku,
       saldo: r.saldo,
       apartado: r.apartado,
@@ -695,6 +730,14 @@ export async function completarConexion(
 // ---------------------------------------------------------------------------
 // Auxiliares
 // ---------------------------------------------------------------------------
+
+/** Los SKUs con al menos una entrada o un ajuste: los que alguien ya contó. */
+export async function skusContados(db: DB, accountId: string): Promise<Set<string>> {
+  const filas = await traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, id", (q) =>
+    q.eq("account_id", accountId).in("tipo", ["entrada", "ajuste"]),
+  );
+  return new Set((filas ?? []).map((f: any) => f.sku as string));
+}
 
 /** Las referencias que el kardex YA tiene, como `tipo|referencia|sku`. */
 async function referenciasRegistradas(

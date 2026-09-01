@@ -155,11 +155,20 @@ function iso(segundos: unknown): string | null {
  * que importa aquí es el cambio de estado: un pedido de hace una semana que
  * hoy se envió tiene que aparecer hoy, o su salida nunca se registraría.
  */
+export interface DiagnosticoPedidos {
+  /** Lo que TikTok dice que hay en la ventana, aunque no lo traiga todo. */
+  totalCount: number | null;
+  paginas: number;
+  /** Llaves de la primera respuesta: para ver de un vistazo si cambió la forma. */
+  llaves: string[];
+}
+
 export async function pedidosActualizados(
   c: Cliente,
   desde: number,
   hasta: number,
   tope = 40,
+  diag?: DiagnosticoPedidos,
 ): Promise<PedidoTikTok[]> {
   const salida: PedidoTikTok[] = [];
   let token: string | undefined;
@@ -170,6 +179,14 @@ export async function pedidosActualizados(
       cuerpo: { update_time_ge: desde, update_time_lt: hasta },
     });
     if (!d) break;
+
+    if (diag) {
+      diag.paginas++;
+      if (pagina === 0) {
+        diag.llaves = Object.keys(d);
+        diag.totalCount = d.total_count != null ? Number(d.total_count) : null;
+      }
+    }
 
     for (const o of d.orders ?? []) {
       const renglones: RenglonTikTok[] = (o.line_items ?? []).map((li: any) => ({
