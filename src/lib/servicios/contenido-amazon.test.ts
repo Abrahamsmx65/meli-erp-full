@@ -245,29 +245,67 @@ describe("armarContenido", () => {
     expect(gt128.asin).toBe("B0PADRE128");
     expect(gt128.url).toBe("https://www.amazon.com.mx/dp/B0PADRE128");
     expect(gt128.titulo).toBe("GETAC Zuecos GT128");
-    expect(gt128.padresExtra).toEqual([]);
+    expect(gt128.codigos).toEqual(["GT128"]);
   });
 
   it("sin padre resuelto, el link sigue cayendo en un hijo vivo", () => {
     const gt128 = armar().modelos.find((m) => m.modelo === "GT128")!;
     expect(gt128.asin).toBe("A-GT128-23-BLK-MX");
-    expect(gt128.padresExtra).toEqual([]);
+    expect(gt128.codigos).toEqual(["GT128"]);
   });
 
-  it("si un modelo trae dos padres, gana el de más colores y el otro se anota", () => {
-    const filas = [
-      fila("GT160-BLK-25-MX"),
-      fila("GT160-NAVY-25-MX"),
-      fila("GT160-RED-25-MX"),
-    ];
-    const padres = new Map([
-      ["A-GT160-BLK-25-MX", { parentAsin: "B0UNO", titulo: null }],
-      ["A-GT160-NAVY-25-MX", { parentAsin: "B0UNO", titulo: null }],
-      ["A-GT160-RED-25-MX", { parentAsin: "B0DOS", titulo: null }],
+  // El caso GT117…GT122: en Amazon varios códigos de bodega viven en la misma
+  // publicación padre. Para quien trabaja el contenido son UNA página.
+  const filasHermanos = [
+    fila("GT117-BLK-25-MX"),
+    fila("GT117-BLK-26-MX"),
+    fila("GT118-NAVY-25-MX", "Inactive"),
+    fila("GT119-RED-25-MX"),
+    fila("GT120-GREY-25-MX"),
+  ];
+  const padresHermanos = new Map([
+    ["A-GT117-BLK-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia" }],
+    ["A-GT118-NAVY-25-MX", { parentAsin: "B0FAMILIA", titulo: "GETAC Zuecos Familia" }],
+    ["A-GT119-RED-25-MX", { parentAsin: "B0FAMILIA", titulo: null }],
+  ]);
+
+  it("los códigos que comparten padre se fusionan en un solo renglón", () => {
+    const r = armarContenido(filasHermanos, [], [], "MX", { padres: padresHermanos });
+    const grupo = r.modelos.find((m) => m.modelo === "GT117")!;
+    expect(grupo.codigos).toEqual(["GT117", "GT118", "GT119"]);
+    expect(grupo.asin).toBe("B0FAMILIA");
+    expect(grupo.titulo).toBe("GETAC Zuecos Familia");
+    expect(grupo.skus).toBe(4);
+    expect(grupo.colores.map((c) => `${c.modelo} ${c.color}`)).toEqual([
+      "GT117 BLK",
+      "GT118 NAVY",
+      "GT119 RED",
     ]);
-    const gt160 = armarContenido(filas, [], [], "MX", { padres }).modelos[0];
-    expect(gt160.asin).toBe("B0UNO");
-    expect(gt160.padresExtra).toEqual(["B0DOS"]);
+    // GT120 no tiene padre resuelto: sigue siendo su propio renglón.
+    expect(r.modelos.find((m) => m.modelo === "GT120")!.codigos).toEqual(["GT120"]);
+    expect(r.totales.modelos).toBe(2);
+  });
+
+  it("lo palomeado en cualquier código del grupo vale para el grupo entero", () => {
+    const r = armarContenido(
+      filasHermanos,
+      [anotacion("GT119", { aplus: true, prioridad: 4, categoria: "CLOGS" })],
+      [{ nombre: "CLOGS", creada: false, imagenes: false, paginaStore: false, notas: "" }],
+      "MX",
+      { padres: padresHermanos },
+    );
+    const grupo = r.modelos.find((m) => m.modelo === "GT117")!;
+    expect(grupo).toMatchObject({ aplus: true, prioridad: 4, categoria: "CLOGS", nuevo: false });
+    // La categoría cuenta UNA vez por publicación, no por código.
+    expect(r.categorias[0].modelos).toBe(1);
+  });
+
+  it("quitar cualquier código del grupo oculta el renglón completo", () => {
+    const r = armarContenido(filasHermanos, [anotacion("GT118", { eliminado: true })], [], "MX", {
+      padres: padresHermanos,
+    });
+    expect(r.modelos.map((m) => m.modelo)).not.toContain("GT117");
+    expect(r.totales.eliminados).toBe(1);
   });
 
   it("cuenta cuántos modelos usa cada categoría de la store", () => {

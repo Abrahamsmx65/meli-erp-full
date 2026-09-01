@@ -15,7 +15,7 @@ import type { DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
 import { imagenesDeAsins, type ImagenCatalogo } from "../amazon/catalogo";
-import { coloresDeModelo, enRangoContenido } from "./contenido-amazon";
+import { enRangoContenido, etiquetaGrupo, grupoDeModelo } from "./contenido-amazon";
 
 /**
  * El presupuesto REAL: la función muere a los 60 s en el plan Hobby, así que
@@ -62,10 +62,15 @@ export async function armarZipDeModelo(
     return { ok: false, error: "Ese modelo no está en la lista de contenido.", status: 400 };
   }
 
-  const colores = await coloresDeModelo(db, cuenta.id, modelo, cuenta.pais);
-  if (!colores.length) {
+  // El ZIP es de la PUBLICACIÓN completa: si GT117…GT122 comparten padre,
+  // pedir cualquiera de ellos baja las fotos de todos sus colores.
+  const grupo = await grupoDeModelo(db, cuenta.id, modelo, cuenta.pais);
+  const colores = grupo?.colores ?? [];
+  if (!grupo || !colores.length) {
     return { ok: false, error: `No encontré ${modelo} en el catálogo de Amazon.`, status: 404 };
   }
+  const etiqueta = etiquetaGrupo(grupo.codigos);
+  const varios = grupo.codigos.length > 1;
 
   // Hasta aquí no hicieron falta las credenciales de SP-API; ahora sí.
   const admin = clienteAdmin();
@@ -92,7 +97,9 @@ export async function armarZipDeModelo(
   const pendientes: Pendiente[] = [];
 
   for (const c of colores) {
-    const carpeta = nombreArchivo(c.color) || "COLOR";
+    // Cuando la publicación junta varios códigos, la carpeta dice de cuál es.
+    const nombreColor = varios ? `${c.modelo} ${c.color}` : c.color;
+    const carpeta = nombreArchivo(nombreColor) || "COLOR";
     const suyas = c.asin ? (porAsin.get(c.asin) ?? []) : [];
 
     if (suyas.length) {
@@ -100,24 +107,24 @@ export async function armarZipDeModelo(
         const orden = String(i + 1).padStart(2, "0");
         pendientes.push({
           carpeta,
-          nombre: `${nombreArchivo(`${modelo} ${c.color}`)} ${orden} ${img.variante}${extension(img.link)}`,
+          nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} ${orden} ${img.variante}${extension(img.link)}`,
           link: img.link,
         });
       });
     } else if (c.imagenUrl) {
-      avisos.push(`${c.color}: Amazon no devolvió sus fotos; va solo la principal del listado.`);
+      avisos.push(`${nombreColor}: Amazon no devolvió sus fotos; va solo la principal del listado.`);
       pendientes.push({
         carpeta,
-        nombre: `${nombreArchivo(`${modelo} ${c.color}`)} 01 MAIN${extension(c.imagenUrl)}`,
+        nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} 01 MAIN${extension(c.imagenUrl)}`,
         link: c.imagenUrl,
       });
     } else {
-      avisos.push(`${c.color}: no encontré ninguna imagen${c.asin ? ` de ${c.asin}` : ""}.`);
+      avisos.push(`${nombreColor}: no encontré ninguna imagen${c.asin ? ` de ${c.asin}` : ""}.`);
     }
   }
 
   const zip = new JSZip();
-  const raiz = zip.folder(modelo) ?? zip;
+  const raiz = zip.folder(nombreArchivo(etiqueta) || modelo) ?? zip;
   let bajadas = 0;
   let bytes = 0;
 
@@ -147,11 +154,11 @@ export async function armarZipDeModelo(
   }
 
   if (bajadas === 0) {
-    return { ok: false, error: `No encontré imágenes de ${modelo} en Amazon.`, status: 404 };
+    return { ok: false, error: `No encontré imágenes de ${etiqueta} en Amazon.`, status: 404 };
   }
 
-  if (avisos.length) raiz.file("LEEME.txt", `${modelo}\n\n${avisos.join("\n")}\n`);
+  if (avisos.length) raiz.file("LEEME.txt", `${etiqueta}\n\n${avisos.join("\n")}\n`);
 
   const contenido = await zip.generateAsync({ type: "nodebuffer" });
-  return { ok: true, zip: contenido, nombre: `${modelo} imagenes.zip` };
+  return { ok: true, zip: contenido, nombre: `${nombreArchivo(etiqueta) || modelo} imagenes.zip` };
 }

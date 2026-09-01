@@ -100,6 +100,10 @@ export function ContenidoAmazonPanel({
   useEffect(() => setOrigen(window.location.origin), []);
   const link = rutaLink ? `${origen}${rutaLink}` : null;
 
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+  const [categoriaMasiva, setCategoriaMasiva] = useState("");
+  const [asignando, setAsignando] = useState(false);
+
   const [busqueda, setBusqueda] = useState("");
   const [filtro, setFiltro] = useState<
     "todos" | "nuevos" | "activos" | "sinAplus" | "sinCategoria"
@@ -113,21 +117,54 @@ export function ContenidoAmazonPanel({
    * dueño va a pulsar ▲ cinco veces seguidas y el palomeo no puede titubear.
    * Por eso la lista se filtra y se cuenta aquí, no en el servidor.
    */
-  async function guardar(modelo: string, cambios: Partial<ModeloContenido>) {
-    setFilas((l) => l.map((m) => (m.modelo === modelo ? { ...m, ...cambios } : m)));
-    marcar(modelo, "guardando");
+  async function guardar(fila: ModeloContenido, cambios: Partial<ModeloContenido>) {
+    setFilas((l) => l.map((m) => (m.modelo === fila.modelo ? { ...m, ...cambios } : m)));
+    marcar(fila.modelo, "guardando");
     setAviso(null);
+    try {
+      // La anotación se escribe en TODOS los códigos de la publicación:
+      // palomear GT117-GT122 palomea a los seis.
+      const r = await fetch(rutaGuardar, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tipo: "modelo", modelos: fila.codigos, ...cambios }),
+      });
+      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo guardar.");
+      marcar(fila.modelo, "ok");
+    } catch (err) {
+      marcar(fila.modelo, "error");
+      setAviso((err as Error).message);
+    }
+  }
+
+  /** La categoría de un jalón para todos los renglones seleccionados. */
+  async function asignarMasivo(categoria: string | null) {
+    const elegidos = filas.filter((m) => seleccion.has(m.modelo));
+    if (!elegidos.length) return;
+    setAsignando(true);
+    setAviso(null);
+    setFilas((l) => l.map((m) => (seleccion.has(m.modelo) ? { ...m, categoria } : m)));
     try {
       const r = await fetch(rutaGuardar, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tipo: "modelo", modelo, ...cambios }),
+        body: JSON.stringify({
+          tipo: "modelo",
+          modelos: elegidos.flatMap((m) => m.codigos),
+          categoria: categoria ?? "",
+        }),
       });
-      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo guardar.");
-      marcar(modelo, "ok");
+      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo asignar.");
+      setAviso(
+        categoria
+          ? `Listo: ${elegidos.length} con categoría ${categoria}.`
+          : `Listo: ${elegidos.length} sin categoría.`,
+      );
+      setSeleccion(new Set());
     } catch (err) {
-      marcar(modelo, "error");
       setAviso((err as Error).message);
+    } finally {
+      setAsignando(false);
     }
   }
 
@@ -494,12 +531,73 @@ export function ContenidoAmazonPanel({
           </Link>
         </header>
 
+        {seleccion.size > 0 ? (
+          <div
+            className="flex flex-wrap items-center gap-3 border-b px-4 py-3 hairline"
+            style={{ background: "color-mix(in oklab, var(--acento) 8%, transparent)" }}
+          >
+            <span className="text-sm font-medium">
+              {seleccion.size} seleccionado{seleccion.size === 1 ? "" : "s"}
+            </span>
+            <select
+              value={categoriaMasiva}
+              onChange={(e) => setCategoriaMasiva(e.target.value)}
+              className="rounded border px-2 py-1 text-sm"
+              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            >
+              <option value="">— elegir categoría —</option>
+              {cats.map((c) => (
+                <option key={c.nombre} value={c.nombre}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void asignarMasivo(categoriaMasiva || null)}
+              disabled={soloLectura || asignando || (!categoriaMasiva && true)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+              style={{ background: "var(--acento)" }}
+            >
+              {asignando ? "Asignando…" : "Ponerles esa categoría"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void asignarMasivo(null)}
+              disabled={soloLectura || asignando}
+              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+            >
+              Quitarles la categoría
+            </button>
+            <button
+              type="button"
+              onClick={() => setSeleccion(new Set())}
+              className="ml-auto text-xs underline"
+              style={{ color: "var(--ink-2)" }}
+            >
+              Limpiar selección
+            </button>
+          </div>
+        ) : null}
+
         <div className="max-h-[46rem] overflow-auto">
           <table className="datos">
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer"
+                    checked={visibles.length > 0 && visibles.every((m) => seleccion.has(m.modelo))}
+                    onChange={(e) =>
+                      setSeleccion(e.target.checked ? new Set(visibles.map((m) => m.modelo)) : new Set())
+                    }
+                    title="Seleccionar todos los visibles"
+                  />
+                </th>
                 <th className="num">Prio</th>
-                <th>Modelo</th>
+                <th>Modelos</th>
                 <th>Publicación</th>
                 <th>Categoría</th>
                 <th>Imágenes</th>
@@ -513,10 +611,25 @@ export function ContenidoAmazonPanel({
             <tbody>
               {visibles.map((m) => (
                 <tr key={m.modelo} style={m.eliminado ? { opacity: 0.55 } : undefined}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer"
+                      checked={seleccion.has(m.modelo)}
+                      onChange={(e) =>
+                        setSeleccion((sel) => {
+                          const nuevo = new Set(sel);
+                          if (e.target.checked) nuevo.add(m.modelo);
+                          else nuevo.delete(m.modelo);
+                          return nuevo;
+                        })
+                      }
+                    />
+                  </td>
                   <td className="num whitespace-nowrap">
                     <button
                       type="button"
-                      onClick={() => void guardar(m.modelo, { prioridad: Math.max(0, m.prioridad - 1) })}
+                      onClick={() => void guardar(m, { prioridad: Math.max(0, m.prioridad - 1) })}
                       disabled={soloLectura || m.prioridad <= 0}
                       className="px-1 disabled:opacity-30"
                       title="Bajar prioridad"
@@ -526,7 +639,7 @@ export function ContenidoAmazonPanel({
                     <span className="cifra px-1">{m.prioridad}</span>
                     <button
                       type="button"
-                      onClick={() => void guardar(m.modelo, { prioridad: Math.min(5, m.prioridad + 1) })}
+                      onClick={() => void guardar(m, { prioridad: Math.min(5, m.prioridad + 1) })}
                       disabled={soloLectura || m.prioridad >= 5}
                       className="px-1 disabled:opacity-30"
                       title="Subir prioridad"
@@ -534,8 +647,22 @@ export function ContenidoAmazonPanel({
                       ▲
                     </button>
                   </td>
-                  <td className="font-medium whitespace-nowrap">
-                    {m.modelo} <Marca estado={estado[m.modelo]} />
+                  <td className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {m.imagenUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={m.imagenUrl}
+                          alt=""
+                          loading="lazy"
+                          className="h-10 w-10 shrink-0 rounded object-cover"
+                          style={{ border: "1px solid var(--borde)" }}
+                        />
+                      ) : null}
+                      <span className="max-w-[10rem]">
+                        {m.codigos.join(" · ")} <Marca estado={estado[m.modelo]} />
+                      </span>
+                    </div>
                   </td>
                   <td>
                     <div className="flex items-center gap-2">
@@ -578,7 +705,7 @@ export function ContenidoAmazonPanel({
                     <select
                       value={m.categoria ?? ""}
                       disabled={soloLectura}
-                      onChange={(e) => void guardar(m.modelo, { categoria: e.target.value || null })}
+                      onChange={(e) => void guardar(m, { categoria: e.target.value || null })}
                       className="rounded border px-2 py-1 text-sm"
                       style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                     >
@@ -594,14 +721,14 @@ export function ContenidoAmazonPanel({
                     <Palomeo
                       valor={m.imagenes}
                       deshabilitado={soloLectura}
-                      onCambio={(v) => void guardar(m.modelo, { imagenes: v })}
+                      onCambio={(v) => void guardar(m, { imagenes: v })}
                     />
                   </td>
                   <td>
                     <Palomeo
                       valor={m.aplus}
                       deshabilitado={soloLectura}
-                      onCambio={(v) => void guardar(m.modelo, { aplus: v })}
+                      onCambio={(v) => void guardar(m, { aplus: v })}
                     />
                   </td>
                   <td>
@@ -609,7 +736,7 @@ export function ContenidoAmazonPanel({
                       defaultValue={m.notas}
                       disabled={soloLectura}
                       onBlur={(e) => {
-                        if (e.target.value !== m.notas) void guardar(m.modelo, { notas: e.target.value });
+                        if (e.target.value !== m.notas) void guardar(m, { notas: e.target.value });
                       }}
                       placeholder="—"
                       className="w-full min-w-[9rem] rounded border px-2 py-1 text-sm"
@@ -618,30 +745,15 @@ export function ContenidoAmazonPanel({
                   </td>
                   <td>
                     {m.url ? (
-                      <span className="flex items-center gap-2">
-                        <a
-                          href={m.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm underline"
-                          style={{ color: "var(--acento)" }}
-                        >
-                          Ver ↗
-                        </a>
-                        {m.padresExtra.map((p, i) => (
-                          <a
-                            key={p}
-                            href={`https://www.amazon.com.mx/dp/${p}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs underline"
-                            style={{ color: "var(--ink-2)" }}
-                            title="Este modelo tiene más de una publicación"
-                          >
-                            +{i + 2}
-                          </a>
-                        ))}
-                      </span>
+                      <a
+                        href={m.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm underline"
+                        style={{ color: "var(--acento)" }}
+                      >
+                        Ver ↗
+                      </a>
                     ) : (
                       <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
                         sin ASIN
@@ -656,13 +768,13 @@ export function ContenidoAmazonPanel({
                       className="rounded border px-2 py-1 text-xs disabled:opacity-50"
                       style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
                     >
-                      {zip === m.modelo ? "armando…" : "ZIP"}
+                      {zip === m.modelo ? "armando…" : "⬇ Bajar fotos"}
                     </button>
                   </td>
                   <td>
                     <button
                       type="button"
-                      onClick={() => void guardar(m.modelo, { eliminado: !m.eliminado })}
+                      onClick={() => void guardar(m, { eliminado: !m.eliminado })}
                       disabled={soloLectura}
                       className="text-xs underline disabled:opacity-50"
                       style={{ color: "var(--ink-2)" }}

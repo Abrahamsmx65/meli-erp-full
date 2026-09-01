@@ -33,22 +33,42 @@ function traducir(error: { message: string; code?: string }, tabla: string): Gua
   return mal(error.message, 500);
 }
 
+/** Cuántos códigos puede tocar una sola petición (grupos y asignación masiva). */
+const TOPE_MODELOS = 300;
+
 /**
- * Guarda lo que se le anota a un modelo. Solo escribe las columnas que vengan
- * en el cuerpo: mandar solo la prioridad no puede borrar las notas.
+ * Guarda lo que se le anota a uno o VARIOS modelos: la misma anotación se
+ * escribe en todos los códigos que vengan. Es lo que mantiene de acuerdo a los
+ * grupos (GT117…GT122 comparten publicación: palomear el grupo palomea a
+ * todos) y lo que hace posible asignar la categoría en masa. Solo escribe las
+ * columnas que vengan en el cuerpo: mandar solo la prioridad no borra las
+ * notas.
  */
 export async function guardarModelo(db: DB, accountId: string, body: any): Promise<Guardado> {
-  const modelo = typeof body?.modelo === "string" ? body.modelo.trim().toUpperCase() : "";
-  if (!modelo) return mal("Falta el modelo.");
-  if (!enRangoContenido(modelo)) {
-    return mal(`${modelo} no está en la lista de contenido (del GT054 en adelante, MY2307 y G650).`);
+  const crudos: unknown[] = Array.isArray(body?.modelos)
+    ? body.modelos
+    : typeof body?.modelo === "string"
+      ? [body.modelo]
+      : [];
+  const modelos = [
+    ...new Set(
+      crudos
+        .filter((m): m is string => typeof m === "string")
+        .map((m) => m.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ].slice(0, TOPE_MODELOS);
+  if (!modelos.length) return mal("Falta el modelo.");
+  const fuera = modelos.find((m) => !enRangoContenido(m));
+  if (fuera) {
+    return mal(`${fuera} no está en la lista de contenido (del GT054 en adelante, MY2307 y G650).`);
   }
 
-  const fila: Record<string, unknown> = {
+  const base: Record<string, unknown> = {
     account_id: accountId,
-    modelo,
     actualizado_en: new Date().toISOString(),
   };
+  const fila = base;
 
   if ("categoria" in body) {
     const c = typeof body.categoria === "string" ? body.categoria.trim() : "";
@@ -67,7 +87,7 @@ export async function guardarModelo(db: DB, accountId: string, body: any): Promi
 
   const { error } = await db
     .from("amazon_contenido")
-    .upsert(fila, { onConflict: "account_id,modelo" });
+    .upsert(modelos.map((modelo) => ({ ...fila, modelo })), { onConflict: "account_id,modelo" });
   return error ? traducir(error, "amazon_contenido") : BIEN;
 }
 

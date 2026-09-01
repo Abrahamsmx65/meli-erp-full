@@ -82,6 +82,8 @@ export interface FilaCatalogo {
 }
 
 export interface ColorModelo {
+  /** El código de bodega al que pertenece (en un grupo hay varios). */
+  modelo: string;
   /** Tal como lo escribió Amazon: "BLK", "DK BROWN", "BLK/RED". */
   color: string;
   asin: string | null;
@@ -92,17 +94,24 @@ export interface ColorModelo {
 }
 
 export interface ModeloContenido {
+  /** El primer código del grupo: es la llave del renglón. */
   modelo: string;
+  /**
+   * TODOS los códigos de bodega que viven en la misma publicación padre
+   * (GT117…GT122 pueden ser un solo listado en Amazon). Con uno solo, el
+   * renglón es ese modelo a secas.
+   */
+  codigos: string[];
   titulo: string | null;
   /** El ASIN al que apunta el link: el PADRE cuando ya se resolvió. */
   asin: string | null;
   url: string | null;
-  /** Los otros padres, si el modelo resultó tener más de una publicación. */
-  padresExtra: string[];
   skus: number;
   activos: number;
   activo: boolean;
   colores: ColorModelo[];
+  /** La foto principal, para la miniatura del renglón. */
+  imagenUrl: string | null;
   /** Todavía no se le ha anotado nada: llegó desde la última vez. */
   nuevo: boolean;
   categoria: string | null;
@@ -247,11 +256,23 @@ export function armarContenido(
   const anotado = new Map(anotaciones.map((a) => [a.modelo.trim().toUpperCase(), a]));
   const usoCategoria = new Map<string, number>();
 
-  const todos: ModeloContenido[] = [...porModelo.entries()].map(([modelo, m]) => {
+  // Primero cada código de bodega por separado, con su padre elegido…
+  interface Codigo {
+    modelo: string;
+    titulo: string | null;
+    tituloPadre: string | null;
+    padre: string | null;
+    colores: ColorModelo[];
+    skus: number;
+    activos: number;
+  }
+
+  const codigos: Codigo[] = [...porModelo.entries()].map(([modelo, m]) => {
     const colores: ColorModelo[] = [...m.colores.values()]
       .map((c) => {
         const t = mejor(c.tallas);
         return {
+          modelo,
           color: c.color,
           asin: t?.asin ?? null,
           url: urlAmazon(t?.asin ?? null, pais),
@@ -262,53 +283,84 @@ export function armarContenido(
       })
       .sort((x, y) => x.color.localeCompare(y.color, "es"));
 
-    // El color con más publicaciones vivas: así el link cae en una página que
-    // existe aunque el modelo tenga colores apagados.
-    const ordenados = [...colores].sort(
-      (a, b) => b.activos - a.activos || a.color.localeCompare(b.color, "es"),
-    );
-    const representativo = ordenados[0] ?? null;
-
-    // El renglón es la PUBLICACIÓN PADRE, no una talla suelta: /dp/{padre}
-    // abre la página con todas sus variantes. Los colores son hijos del mismo
-    // padre, así que se cuenta cuántos apunta cada uno y gana el de más.
+    // El padre lo eligen los colores por mayoría: casi siempre es uno solo.
     const votos = new Map<string, number>();
-    for (const c of ordenados) {
+    for (const c of colores) {
       const p = c.asin ? padres.get(c.asin)?.parentAsin : null;
       if (p) votos.set(p, (votos.get(p) ?? 0) + 1);
     }
-    const porVotos = [...votos.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const padre = porVotos[0]?.[0] ?? null;
+    const padre =
+      [...votos.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
     const tituloPadre = padre
-      ? (ordenados.map((c) => (c.asin ? padres.get(c.asin) : null)).find((p) => p?.parentAsin === padre)
+      ? (colores.map((c) => (c.asin ? padres.get(c.asin) : null)).find((p) => p?.parentAsin === padre)
           ?.titulo ?? null)
       : null;
 
-    const a = anotado.get(modelo);
-    if (a?.categoria && !a.eliminado) {
-      usoCategoria.set(a.categoria, (usoCategoria.get(a.categoria) ?? 0) + 1);
+    return { modelo, titulo: m.titulo, tituloPadre, padre, colores, skus: m.skus, activos: m.activos };
+  });
+
+  // …y luego los códigos que viven en la MISMA publicación padre se fusionan
+  // en un renglón: GT117…GT122 pueden ser un solo listado en Amazon, y para
+  // quien trabaja el contenido son UNA página, no seis. Sin padre resuelto,
+  // cada código es su propio renglón.
+  const grupos = new Map<string, Codigo[]>();
+  for (const c of codigos) {
+    const llave = c.padre ?? `~solo~${c.modelo}`;
+    grupos.set(llave, [...(grupos.get(llave) ?? []), c]);
+  }
+
+  const todos: ModeloContenido[] = [...grupos.values()].map((miembros) => {
+    miembros.sort((a, b) => a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
+    const lider = miembros[0];
+    const claves = miembros.map((m) => m.modelo);
+
+    const colores = miembros
+      .flatMap((m) => m.colores)
+      .sort(
+        (x, y) =>
+          x.modelo.localeCompare(y.modelo, "es", { numeric: true }) ||
+          x.color.localeCompare(y.color, "es"),
+      );
+
+    // Las anotaciones de todos los miembros, fusionadas: lo palomeado en
+    // cualquiera vale para el grupo (el A+ es de la publicación, no del
+    // código), y al guardar se escribe en todos para que no haya desacuerdo.
+    const anots = claves
+      .map((c) => anotado.get(c))
+      .filter((a): a is AnotacionModelo => a !== undefined);
+    const categoria = anots.map((a) => a.categoria).find((c) => c) ?? null;
+    const notas = anots.map((a) => a.notas).find((n) => n !== "") ?? "";
+    const eliminado = anots.some((a) => a.eliminado);
+    if (categoria && !eliminado) {
+      usoCategoria.set(categoria, (usoCategoria.get(categoria) ?? 0) + 1);
     }
 
-    const asin = padre ?? representativo?.asin ?? null;
+    const representativo =
+      [...colores].sort((a, b) => b.activos - a.activos || a.color.localeCompare(b.color, "es"))[0] ??
+      null;
+    const asin = lider.padre ?? representativo?.asin ?? null;
+    const activos = miembros.reduce((s, m) => s + m.activos, 0);
 
     return {
-      modelo,
+      modelo: lider.modelo,
+      codigos: claves,
       // El título del padre viene limpio; el del hijo trae color y talla.
-      titulo: tituloPadre ?? m.titulo,
+      titulo: miembros.map((m) => m.tituloPadre).find(Boolean) ??
+        miembros.map((m) => m.titulo).find(Boolean) ?? null,
       asin,
       url: urlAmazon(asin, pais),
-      padresExtra: porVotos.slice(1).map(([p]) => p),
-      skus: m.skus,
-      activos: m.activos,
-      activo: m.activos > 0,
+      skus: miembros.reduce((s, m) => s + m.skus, 0),
+      activos,
+      activo: activos > 0,
       colores,
-      nuevo: a === undefined,
-      categoria: a?.categoria ?? null,
-      prioridad: a?.prioridad ?? 0,
-      imagenes: a?.imagenes ?? false,
-      aplus: a?.aplus ?? false,
-      notas: a?.notas ?? "",
-      eliminado: a?.eliminado ?? false,
+      imagenUrl: colores.map((c) => c.imagenUrl).find(Boolean) ?? null,
+      nuevo: anots.length === 0,
+      categoria,
+      prioridad: Math.max(0, ...anots.map((a) => a.prioridad)),
+      imagenes: anots.some((a) => a.imagenes),
+      aplus: anots.some((a) => a.aplus),
+      notas,
+      eliminado,
     };
   });
 
@@ -320,7 +372,7 @@ export function armarContenido(
     (a, b) =>
       b.prioridad - a.prioridad ||
       Number(b.activo) - Number(a.activo) ||
-      a.modelo.localeCompare(b.modelo, "es"),
+      a.modelo.localeCompare(b.modelo, "es", { numeric: true }),
   );
 
   return {
@@ -345,15 +397,8 @@ export function armarContenido(
 async function leerCatalogo(
   db: DB,
   amazonAccountId: string,
-  soloModelo?: string,
 ): Promise<{ filas: FilaCatalogo[]; sinRefrescar: boolean }> {
-  // Para un solo modelo se acota en Postgres (son diez mil publicaciones);
-  // el prefijo basta porque el modelo siempre es el primer pedazo del SKU.
-  const acotar = (q: any) => {
-    const c = q.eq("account_id", amazonAccountId);
-    return soloModelo ? c.ilike("seller_sku", `${soloModelo}-%`) : c;
-  };
-  const filtro = soloModelo ? (sku: string) => modeloDeSku(sku) === soloModelo : null;
+  const acotar = (q: any) => q.eq("account_id", amazonAccountId);
 
   const listings = await traerTodo<any>(
     db,
@@ -362,11 +407,10 @@ async function leerCatalogo(
     acotar,
   ).catch(() => [] as any[]);
 
-  const usables = listings.filter((f) => !filtro || filtro(String(f.seller_sku ?? "")));
-  if (usables.length) {
+  if (listings.length) {
     return {
       sinRefrescar: false,
-      filas: usables.map((f) => ({
+      filas: listings.map((f) => ({
         sellerSku: String(f.seller_sku ?? ""),
         asin: f.asin ?? null,
         titulo: f.titulo ?? null,
@@ -387,9 +431,7 @@ async function leerCatalogo(
 
   return {
     sinRefrescar: true,
-    filas: skus
-      .filter((f) => !filtro || filtro(String(f.seller_sku ?? "")))
-      .map((f) => ({
+    filas: skus.map((f) => ({
         sellerSku: String(f.seller_sku ?? ""),
         asin: f.asin ?? null,
         titulo: f.titulo ?? null,
@@ -483,21 +525,35 @@ export async function asinsRepresentativos(db: DB, amazonAccountId: string): Pro
 }
 
 /**
- * Los colores de un modelo con su ASIN: uno por color, el de una publicación
- * viva si la hay. Las imágenes son del color, no de la talla, así que pedirle
- * a Amazon los cuarenta hijos sería tirar cuota a la basura.
+ * El grupo (publicación padre) al que pertenece un modelo, con los colores de
+ * TODOS sus códigos: el ZIP de imágenes baja la publicación completa, no un
+ * código suelto. Un color trae un solo ASIN representativo — las imágenes son
+ * del color, no de la talla, y pedirle a Amazon los cuarenta hijos sería
+ * tirar cuota a la basura.
  */
-export async function coloresDeModelo(
+export async function grupoDeModelo(
   db: DB,
   amazonAccountId: string,
   modelo: string,
   pais: string | null,
-): Promise<ColorModelo[]> {
+): Promise<{ codigos: string[]; colores: ColorModelo[] } | null> {
   const objetivo = modelo.trim().toUpperCase();
-  if (!enRangoContenido(objetivo)) return [];
+  if (!enRangoContenido(objetivo)) return null;
 
-  const catalogo = await leerCatalogo(db, amazonAccountId, objetivo);
+  // El grupo puede juntar códigos que no comparten prefijo (GT117 y GT118):
+  // hay que armar el catálogo completo, igual que la pantalla.
+  const [catalogo, padres] = await Promise.all([
+    leerCatalogo(db, amazonAccountId),
+    leerPadres(db, amazonAccountId),
+  ]);
 
-  const armado = armarContenido(catalogo.filas, [], [], pais, { verEliminados: true });
-  return armado.modelos.find((m) => m.modelo === objetivo)?.colores ?? [];
+  const armado = armarContenido(catalogo.filas, [], [], pais, { verEliminados: true, padres });
+  const fila = armado.modelos.find((m) => m.codigos.includes(objetivo));
+  return fila ? { codigos: fila.codigos, colores: fila.colores } : null;
+}
+
+/** "GT117" solo, o "GT117-GT122" cuando la publicación junta varios códigos. */
+export function etiquetaGrupo(codigos: string[]): string {
+  if (codigos.length <= 1) return codigos[0] ?? "";
+  return `${codigos[0]}-${codigos[codigos.length - 1]}`;
 }
