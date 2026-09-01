@@ -96,15 +96,18 @@ export function BotonSheets({ configurado }: { configurado: boolean }) {
       const j = await leer(r);
       if (!r.ok) throw new Error(j.error ?? "No se pudo leer el sheet.");
       const hojas = (j.hojas as { nombre: string; formato: string; renglones: number }[])
-        .map((h) => `${h.nombre}: ${h.formato === "sin_datos" ? "sin datos reconocibles" : `${h.renglones} renglones (${h.formato})`}`);
+        .filter((h) => h.formato !== "omitida")
+        .map((h) => `${h.nombre}: ${h.formato === "sin_datos" ? "sin datos reconocibles" : `${h.renglones} renglones`}`);
+      const omitidas = (j.hojas as { nombre: string; formato: string }[]).filter((h) => h.formato === "omitida").map((h) => h.nombre);
+      if (omitidas.length) hojas.unshift(`Pestañas omitidas (no son diseño): ${omitidas.join(", ")}`);
       setAviso(
         modo === "sync"
           ? `Bodega actualizada: ${j.renglones} SKUs, ${j.unidades.toLocaleString("es-MX")} unidades en ${j.hojas.length} pestañas.`
           : `Se leerían ${j.renglones} SKUs y ${j.unidades.toLocaleString("es-MX")} unidades. Nada se guardó.`,
       );
-      const avisos = (j.avisos as ({ hoja: string; fila: number | null; mensaje: string } | string)[]).map((a) =>
-        typeof a === "string" ? a : `${a.hoja}${a.fila ? ` · fila ${a.fila}` : ""}: ${a.mensaje}`,
-      );
+      const avisos = (j.avisos as ({ hoja: string; fila: number | null; mensaje: string } | string)[])
+        .map((a) => (typeof a === "string" ? a : `${a.hoja}${a.fila ? ` · fila ${a.fila}` : ""}: ${a.mensaje}`))
+        .filter((a) => !a.includes("Pestaña omitida"));
       setDetalle([...hojas, ...avisos.slice(0, 30)]);
       if (modo === "sync") router.refresh();
     } catch (e) {

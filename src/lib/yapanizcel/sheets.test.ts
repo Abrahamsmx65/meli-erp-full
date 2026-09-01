@@ -87,7 +87,7 @@ describe("leerInventario", () => {
     ]);
     expect(r.filas).toHaveLength(1);
     expect(r.filas[0].cantidad).toBe(15);
-    expect(r.hojas.map((h) => h.formato)).toEqual(["tabla", "tabla", "sin_datos"]);
+    expect(r.hojas.map((h) => h.formato)).toEqual(["tabla", "tabla", "omitida"]);
     expect(r.avisos.some((a) => a.mensaje.includes("se sumó"))).toBe(true);
   });
 });

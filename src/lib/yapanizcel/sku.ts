@@ -231,19 +231,17 @@ export interface Desglose {
 /**
  * Saca diseño / modelo de celular / color de un SKU.
  *
- * El diseño es lo que la pantalla de pedidos a China agrupa ("ver todo el
- * 499 junto"), así que es lo único que se deduce con confianza: es la
- * primera pieza, que en este catálogo es el número del diseño. Lo demás se
- * parte por guiones tal cual viene.
- *
- * Cuando el dato viene del sheet (que ya trae diseño y modelo en columnas
- * propias), se usa ESE y no esto: siempre gana el dato real.
+ * Con el sheet real a la vista (362-Rmn13-5G-blue, 367-A24-4G, 437-A11plus-blk,
+ * 412-iPad10-blue): el diseño es la primera pieza; el color, cuando existe, es
+ * la ÚLTIMA pieza y va en puras letras (blue, blk, navy, transparente); todo lo
+ * de en medio es el modelo del celular, con sus sufijos (5G, 4G, plus, pro).
+ * "4G" o "2024" al final no son colores: llevan dígitos.
  */
 export function desglosar(sku: string): Desglose {
   const partes = claveCanonica(sku).split("-").filter(Boolean);
-  return {
-    diseno: partes[0] ?? "",
-    modelo: partes[1] ?? "",
-    color: partes.slice(2).join("-"),
-  };
+  const diseno = partes[0] ?? "";
+  const resto = partes.slice(1);
+  let color = "";
+  if (resto.length >= 2 && /^[A-Z]+$/.test(resto[resto.length - 1])) color = resto.pop()!;
+  return { diseno, modelo: resto.join("-"), color };
 }

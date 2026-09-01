@@ -19,7 +19,7 @@
  * renglón, para que se vea en pantalla qué se quedó fuera.
  */
 import ExcelJS from "exceljs";
-import { canonizar } from "./sku";
+import { canonizar, desglosar } from "./sku";
 
 export interface FilaInventario {
   skuBodega: string;
@@ -39,7 +39,18 @@ export interface Aviso {
 export interface ResultadoInventario {
   filas: FilaInventario[];
   avisos: Aviso[];
-  hojas: { nombre: string; formato: "tabla" | "matriz" | "sin_datos"; renglones: number }[];
+  hojas: { nombre: string; formato: Formato; renglones: number }[];
+}
+
+export type Formato = "lista" | "tabla" | "matriz" | "omitida" | "sin_datos";
+
+/**
+ * Solo las pestañas cuyo nombre es un código de diseño (empieza con dígito:
+ * 362, 499, 416…) son inventario. Las demás —TOTALES, CONSECUTIVO TOTALES,
+ * RETIRO— son resúmenes o apartados: leerlas contaría todo dos o tres veces.
+ */
+export function esHojaDeDiseno(nombre: string): boolean {
+  return /^\d/.test(nombre.trim());
 }
 
 /** Una hoja como matriz de textos, tal como la entrega ExcelJS. */
@@ -219,14 +230,57 @@ export function armarSkuBodega(diseno: string, modelo: string, color: string): s
   return [canonizar(diseno), canonizar(modelo), canonizar(color)].filter(Boolean).join("-");
 }
 
+const ENC_SKU_SUELTO = [...ENCABEZADOS.sku, ...ENCABEZADOS.modelo, ...ENCABEZADOS.cantidad, "TOTAL", "TOTALES"];
+
+/**
+ * Formato LISTA: el que usa el sheet de verdad. Sin encabezados; cada renglón
+ * trae el SKU completo (362-Rmn13-5G-blue) en la primera celda con texto y la
+ * cantidad en la siguiente celda con número. Lo que haya más a la derecha
+ * (notas como "mandar a amazon") se ignora. Un renglón con SKU y sin número
+ * se avisa: casi siempre es un título o un SKU al que se les olvidó la cifra.
+ */
+function leerLista(nombre: string, celdas: Celdas): { filas: FilaInventario[]; avisos: Aviso[] } {
+  const filas: FilaInventario[] = [];
+  const avisos: Aviso[] = [];
+  const disenoHoja = canonizar(nombre);
+
+  for (let r = 0; r < celdas.length; r++) {
+    const f = celdas[r] ?? [];
+    const i = f.findIndex((c) => c && c.trim());
+    if (i < 0) continue;
+    const sku = f[i].trim();
+    if (numero(sku) != null) continue; // un número suelto no es un SKU
+    if (esEncabezado(sku, ENC_SKU_SUELTO)) continue;
+
+    const resto = f.slice(i + 1);
+    const j = resto.findIndex((c) => c && c.trim());
+    const cantidad = j >= 0 ? numero(resto[j]) : null;
+    if (cantidad == null) {
+      avisos.push({ hoja: nombre, fila: r + 1, mensaje: `"${sku}" sin cantidad${j >= 0 ? ` (dice "${resto[j].trim()}")` : ""}; se omitió.` });
+      continue;
+    }
+
+    const d = desglosar(sku);
+    filas.push({
+      skuBodega: sku,
+      hoja: nombre,
+      diseno: disenoHoja || d.diseno,
+      modelo: d.modelo,
+      color: d.color,
+      cantidad: Math.max(0, Math.round(cantidad)),
+    });
+  }
+  return { filas, avisos };
+}
+
 /**
  * Lee una hoja. El nombre de la pestaña es el diseño, salvo que la hoja
- * traiga su propia columna de diseño.
+ * traiga su propia columna de diseño. Prueba tabla, luego matriz, luego lista.
  */
 export function leerHoja(nombre: string, celdas: Celdas): {
   filas: FilaInventario[];
   avisos: Aviso[];
-  formato: "tabla" | "matriz" | "sin_datos";
+  formato: Formato;
 } {
   const filas: FilaInventario[] = [];
   const avisos: Aviso[] = [];
@@ -242,7 +296,7 @@ export function leerHoja(nombre: string, celdas: Celdas): {
       const diseno = cols.diseno != null && (f[cols.diseno] ?? "").trim() ? (f[cols.diseno] ?? "").trim() : disenoHoja;
       const cantidadTxt = f[cols.cantidad!] ?? "";
 
-      if (!sku && !modelo) continue; // renglón vacío o de título
+      if (!sku && !modelo) continue;
       if (/^total/i.test(modelo) || /^total/i.test(sku)) continue;
 
       const cantidad = numero(cantidadTxt);
@@ -251,12 +305,13 @@ export function leerHoja(nombre: string, celdas: Celdas): {
         continue;
       }
 
+      const d = sku ? desglosar(sku) : null;
       filas.push({
         skuBodega: sku || armarSkuBodega(diseno, modelo, color),
         hoja: nombre,
         diseno: canonizar(diseno),
-        modelo: canonizar(modelo) || (sku ? "" : ""),
-        color: canonizar(color),
+        modelo: canonizar(modelo) || d?.modelo || "",
+        color: canonizar(color) || d?.color || "",
         cantidad: Math.max(0, Math.round(cantidad)),
       });
     }
@@ -290,16 +345,31 @@ export function leerHoja(nombre: string, celdas: Celdas): {
     return { filas, avisos, formato: "matriz" };
   }
 
-  return { filas, avisos: [{ hoja: nombre, fila: null, mensaje: "No se reconoció ni tabla (MODELO/COLOR/CANTIDAD) ni matriz (modelos abajo, colores a la derecha)." }], formato: "sin_datos" };
+  const lista = leerLista(nombre, celdas);
+  if (lista.filas.length) return { ...lista, formato: "lista" };
+
+  return {
+    filas,
+    avisos: [...lista.avisos, { hoja: nombre, fila: null, mensaje: "No se reconoció ningún renglón con SKU y cantidad." }],
+    formato: "sin_datos",
+  };
 }
 
-/** Lee todas las pestañas y junta. Un SKU repetido entre pestañas se SUMA y se avisa. */
+/**
+ * Lee todas las pestañas de diseño y junta. Las que no son diseño se
+ * reportan como omitidas. Un SKU repetido se SUMA y se avisa.
+ */
 export function leerInventario(hojas: { nombre: string; celdas: Celdas }[]): ResultadoInventario {
   const porSku = new Map<string, FilaInventario>();
   const avisos: Aviso[] = [];
   const resumen: ResultadoInventario["hojas"] = [];
 
   for (const h of hojas) {
+    if (!esHojaDeDiseno(h.nombre)) {
+      resumen.push({ nombre: h.nombre, formato: "omitida", renglones: 0 });
+      avisos.push({ hoja: h.nombre, fila: null, mensaje: "Pestaña omitida: su nombre no es un código de diseño (no empieza con número)." });
+      continue;
+    }
     const r = leerHoja(h.nombre, h.celdas);
     avisos.push(...r.avisos);
     resumen.push({ nombre: h.nombre, formato: r.formato, renglones: r.filas.length });

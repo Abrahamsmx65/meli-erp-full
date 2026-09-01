@@ -24,7 +24,11 @@ export interface ResultadoCostos {
 }
 
 const ENC_MODELO = ["MODELO", "MODELOS", "DISENO", "DISEÑO", "CLAVE", "SKU", "NUMERO", "NO", "NUM", "CODIGO"];
-const ENC_COSTO = ["COSTO", "COSTOS", "COSTO UNITARIO", "PRECIO", "PRECIO UNITARIO", "UNITARIO", "MXN", "COSTO MXN"];
+/** Encabezados que SIEMPRE son costo por unidad. */
+const ENC_UNITARIO = ["COSTO UNITARIO", "PRECIO UNITARIO", "UNITARIO", "VALOR", "VALOR UNITARIO", "COSTO MXN", "COSTO UNIT"];
+/** Encabezados que son costo por unidad… salvo que al lado haya CANTIDAD: ahí es el total. */
+const ENC_COSTO = ["COSTO", "COSTOS", "PRECIO"];
+const ENC_CANTIDAD = ["CANTIDAD", "CANT", "UNIDADES", "PIEZAS", "EXISTENCIA", "EXISTENCIAS", "STOCK"];
 
 function numero(s: string): number | null {
   const limpio = String(s ?? "").replace(/[$,\s]/g, "");
@@ -33,34 +37,58 @@ function numero(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function leerCostosDeCeldas(celdas: string[][]): ResultadoCostos {
-  let colModelo = -1;
-  let colCosto = -1;
-  let filaEnc = -1;
+function es(celda: string, opciones: string[]): boolean {
+  const k = canonizar(celda);
+  return opciones.some((e) => k === canonizar(e));
+}
 
-  for (let r = 0; r < Math.min(celdas.length, 15) && filaEnc < 0; r++) {
+/**
+ * Encuentra las columnas de modelo y costo.
+ *
+ * La pestaña TOTALES del sheet de inventario trae `| CANTIDAD | VALOR | COSTO`
+ * con el modelo en la primera columna SIN encabezado: ahí VALOR es el costo
+ * por unidad y COSTO es cantidad × valor. Por eso, cuando hay una columna de
+ * cantidad, se prefiere la unitaria; y si no hay encabezado de modelo, se
+ * toma la primera columna a la izquierda del costo.
+ */
+function encontrarColumnas(celdas: string[][]): { fila: number; modelo: number; costo: number } | null {
+  for (let r = 0; r < Math.min(celdas.length, 15); r++) {
     const f = celdas[r] ?? [];
-    let m = -1;
-    let c = -1;
+    let modelo = -1;
+    let unitario = -1;
+    let costo = -1;
+    let cantidad = -1;
     f.forEach((celda, i) => {
-      const k = canonizar(celda);
-      if (m < 0 && ENC_MODELO.some((e) => k === canonizar(e))) m = i;
-      else if (c < 0 && ENC_COSTO.some((e) => k === canonizar(e))) c = i;
+      if (!celda) return;
+      if (modelo < 0 && es(celda, ENC_MODELO)) modelo = i;
+      else if (unitario < 0 && es(celda, ENC_UNITARIO)) unitario = i;
+      else if (costo < 0 && es(celda, ENC_COSTO)) costo = i;
+      else if (cantidad < 0 && es(celda, ENC_CANTIDAD)) cantidad = i;
     });
-    if (m >= 0 && c >= 0) {
-      colModelo = m;
-      colCosto = c;
-      filaEnc = r;
+    const colCosto = unitario >= 0 && (cantidad >= 0 || costo < 0) ? unitario : costo >= 0 ? costo : unitario;
+    if (colCosto < 0) continue;
+    if (modelo < 0) {
+      // Sin encabezado de modelo: la primera columna vacía o de texto a la izquierda.
+      modelo = 0;
+      for (let c = 0; c < colCosto; c++) {
+        if (!f[c] || (!es(f[c], ENC_UNITARIO) && !es(f[c], ENC_COSTO) && !es(f[c], ENC_CANTIDAD))) {
+          modelo = c;
+          break;
+        }
+      }
+      if (modelo === colCosto) continue;
     }
+    return { fila: r, modelo, costo: colCosto };
   }
+  return null;
+}
 
-  // Sin encabezados reconocibles: se asume la forma más simple, dos
-  // columnas (modelo, costo) desde el primer renglón con un número a la derecha.
-  if (filaEnc < 0) {
-    colModelo = 0;
-    colCosto = 1;
-    filaEnc = -1;
-  }
+export function leerCostosDeCeldas(celdas: string[][]): ResultadoCostos {
+  const enc = encontrarColumnas(celdas);
+  // Sin encabezados reconocibles: la forma más simple, dos columnas (modelo, costo).
+  const colModelo = enc?.modelo ?? 0;
+  const colCosto = enc?.costo ?? 1;
+  const filaEnc = enc?.fila ?? -1;
 
   const filas: FilaCosto[] = [];
   const avisos: string[] = [];
@@ -71,11 +99,13 @@ export function leerCostosDeCeldas(celdas: string[][]): ResultadoCostos {
     const etiqueta = (f[colModelo] ?? "").trim();
     const costoTxt = f[colCosto] ?? "";
     if (!etiqueta) continue;
+    if (/^total/i.test(etiqueta)) continue;
     const costo = numero(costoTxt);
     if (costo == null) {
-      if (costoTxt.trim()) avisos.push(`Fila ${r + 1}: costo no numérico "${costoTxt}".`);
+      if (costoTxt.trim()) avisos.push(`Fila ${r + 1}: "${etiqueta}" con costo no numérico "${costoTxt}".`);
       continue;
     }
+    if (costo <= 0) continue;
     const modelo = claveCanonica(etiqueta);
     if (!modelo) continue;
     if (vistos.has(modelo)) {
@@ -89,14 +119,39 @@ export function leerCostosDeCeldas(celdas: string[][]): ResultadoCostos {
   }
 
   if (!filas.length) {
-    throw new Error("No se encontró ningún renglón con modelo y costo. Se esperan dos columnas: MODELO y COSTO.");
+    throw new Error("No se encontró ningún renglón con modelo y costo. Se esperan dos columnas: MODELO y COSTO (o la pestaña TOTALES del sheet de inventario).");
   }
   return { filas, avisos };
 }
 
+/**
+ * Lee el Excel de costos (MODELO, COSTO).
+ *
+ * El sheet de inventario trae una pestaña TOTALES con valores por diseño,
+ * pero la operación decidió que de ahí NO se toma información: los costos
+ * viven en su propio Excel. Si llega ese archivo por error, se rechaza en
+ * vez de leerlo a medias.
+ */
 export async function leerCostos(buffer: ArrayBuffer | Buffer, nombre?: string): Promise<ResultadoCostos> {
+  const primeraHoja = await nombrePrimeraHoja(buffer);
+  if (primeraHoja && /TOTAL/i.test(primeraHoja)) {
+    throw new Error(
+      `La primera pestaña del archivo se llama "${primeraHoja}": parece el sheet de inventario. Los costos van en un Excel aparte con dos columnas, MODELO y COSTO.`,
+    );
+  }
   const celdas = await leerCeldas(buffer, { nombre });
   return leerCostosDeCeldas(celdas);
+}
+
+async function nombrePrimeraHoja(buffer: ArrayBuffer | Buffer): Promise<string | null> {
+  try {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as ArrayBuffer);
+    return wb.worksheets[0]?.name ?? null;
+  } catch {
+    return null; // .xls o .csv: no hay nombres de hoja que revisar
+  }
 }
 
 /**
