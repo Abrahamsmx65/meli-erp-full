@@ -1,9 +1,10 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { esCron } from "@/lib/yapanizcel/api";
 import { sincronizar } from "@/lib/yapanizcel/sync";
 import { sincronizarInventarioDesdeSheets } from "@/lib/yapanizcel/inventario";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
+import { correrPendientes as resolverPendientesLuego } from "@/lib/yapanizcel/pendientes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -51,18 +52,10 @@ export async function GET(req: NextRequest) {
     resultados.push(r);
   }
 
-  // Los SKUs que quedaron pendientes se resuelven en segundo plano.
+  // Los SKUs que quedaron pendientes se resuelven después de contestar, en
+  // este mismo proceso; el cron de cada hora sigue como red de seguridad.
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
-  const secreto = process.env.CRON_SECRET;
-  if (secreto) {
-    // Se espera la respuesta (202 inmediato): un fetch sin esperar no sale
-    // de la función antes de que Vercel la congele.
-    await fetch(`${origen}/api/yapanizcel/skus-pendientes`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${secreto}` },
-      signal: AbortSignal.timeout(8_000),
-    }).catch(() => {});
-  }
+  after(() => resolverPendientesLuego(origen));
 
   return NextResponse.json({ ok: true, resultados });
 }
