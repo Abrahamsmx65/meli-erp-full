@@ -60,3 +60,16 @@ describe("timestamp", () => {
     expect(timestamp(1_700_000_000_500)).toBe(1_700_000_000);
   });
 });
+
+describe("firma de webhook", () => {
+  it("es HMAC-SHA256 de app_key + cuerpo, con el app_secret", async () => {
+    const { firmaDeWebhook, firmaValida } = await import("./firma");
+    const f = firmaDeWebhook("KEY", '{"type":1}', "SECRET");
+    expect(f).toMatch(/^[0-9a-f]{64}$/);
+    expect(firmaValida(f, f)).toBe(true);
+    expect(firmaValida(f.slice(0, -1) + "0", f)).toBe(false);
+    expect(firmaValida(null, f)).toBe(false);
+    // Cambiar un byte del cuerpo cambia la firma.
+    expect(firmaDeWebhook("KEY", '{"type":2}', "SECRET")).not.toBe(f);
+  });
+});

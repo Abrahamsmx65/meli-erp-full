@@ -174,3 +174,40 @@ describe("cambiosAPublicar", () => {
     expect(cambios).toEqual([{ sku: "A", de: 3, a: 0 }]);
   });
 });
+
+describe("escriturasContraTikTok", () => {
+  it("escribe solo donde TikTok dice otra cosa que el kardex", async () => {
+    const { escriturasContraTikTok } = await import("./kardex");
+    const e = escriturasContraTikTok(
+      [
+        { skuId: "s1", productId: "p", skuInterno: "A", cantidadTikTok: 5 },
+        { skuId: "s2", productId: "p", skuInterno: "B", cantidadTikTok: 3 },
+        { skuId: "s3", productId: "p", skuInterno: "C", cantidadTikTok: null },
+      ],
+      new Map([["A", 5], ["B", 7], ["C", 0]]),
+    );
+    expect(e).toEqual([
+      { skuId: "s2", productId: "p", skuInterno: "B", de: 3, a: 7 },
+      { skuId: "s3", productId: "p", skuInterno: "C", de: null, a: 0 },
+    ]);
+  });
+
+  it("si alguien editó el stock en el Seller Center, lo corrige", async () => {
+    const { escriturasContraTikTok } = await import("./kardex");
+    const e = escriturasContraTikTok(
+      [{ skuId: "s1", productId: "p", skuInterno: "A", cantidadTikTok: 99 }],
+      new Map([["A", 4]]),
+    );
+    expect(e).toEqual([{ skuId: "s1", productId: "p", skuInterno: "A", de: 99, a: 4 }]);
+  });
+
+  it("un SKU que el kardex no conoce no se toca", async () => {
+    const { escriturasContraTikTok } = await import("./kardex");
+    expect(
+      escriturasContraTikTok(
+        [{ skuId: "s1", productId: "p", skuInterno: "Z", cantidadTikTok: 12 }],
+        new Map(),
+      ),
+    ).toEqual([]);
+  });
+});

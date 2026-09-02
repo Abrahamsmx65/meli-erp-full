@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { claveOrdenada, indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "@/lib/importar/sku";
-import { publicarDisponibilidad, registrarMovimientos } from "@/lib/servicios/tiktok";
+import { registrarMovimientos, sincronizarTikTok } from "@/lib/servicios/tiktok";
 import { cargarPanelTikTok } from "@/lib/servicios/tiktok-panel";
 import type { TipoMovimiento } from "@/lib/tiktok/kardex";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
@@ -99,12 +99,15 @@ export async function POST(req: NextRequest) {
     const r = await registrarMovimientos(supabase, cuenta.id, movimientos, user.id);
 
     // Y aquí es donde la entrada se vuelve inventario que un comprador puede
-    // ver. La publicación necesita los tokens de la tienda, así que va con
-    // service_role.
+    // ver. REGLA DE ORO: nunca se le escribe a TikTok sin antes leer sus
+    // pedidos recientes — si no, una captura pisaría las ventas de los
+    // últimos minutos. Por eso va la sincronización de pedidos completa (sin
+    // catálogo ni Industher), que termina publicando.
     let publicacion: unknown = null;
     if (body?.publicar !== false) {
       try {
-        publicacion = await publicarDisponibilidad(clienteAdmin(), cuenta.id);
+        const r = await sincronizarTikTok(clienteAdmin(), cuenta.id, { soloPedidos: true });
+        publicacion = { publicados: r.publicados, avisos: r.avisos };
       } catch (err) {
         publicacion = { error: (err as Error).message };
       }

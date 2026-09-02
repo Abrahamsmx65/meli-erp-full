@@ -15,7 +15,7 @@
  *   6. Todo eso se envuelve con el app_secret a los dos lados.
  *   7. HMAC-SHA256 de esa cadena, con el app_secret de llave, en hexadecimal.
  */
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * Los dos que NUNCA entran en la firma. `access_token` va en el encabezado
@@ -58,4 +58,23 @@ export function firmar(
 /** TikTok pide el timestamp en SEGUNDOS, no en milisegundos. */
 export function timestamp(ahora = Date.now()): number {
   return Math.floor(ahora / 1000);
+}
+
+/**
+ * Firma de los AVISOS que TikTok manda al webhook. Distinta de la de las
+ * peticiones: aquí no hay ruta ni parámetros, es HMAC-SHA256 con el
+ * app_secret sobre `app_key + cuerpo crudo`, y viaja en el encabezado
+ * `Authorization`. Se compara en tiempo constante: un aviso sin firma
+ * válida es de cualquiera, no de TikTok.
+ */
+export function firmaDeWebhook(appKey: string, cuerpoCrudo: string, appSecret: string): string {
+  return createHmac("sha256", appSecret).update(`${appKey}${cuerpoCrudo}`).digest("hex");
+}
+
+export function firmaValida(recibida: string | null | undefined, esperada: string): boolean {
+  if (!recibida) return false;
+  const a = Buffer.from(recibida, "utf8");
+  const b = Buffer.from(esperada, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
