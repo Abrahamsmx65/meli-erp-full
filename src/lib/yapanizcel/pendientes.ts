@@ -89,14 +89,15 @@ export async function resolverPendientes(admin: DB, opts?: { presupuestoMs?: num
         .limit(2000);
       if (!pendientes?.length) continue;
 
-      // Un user product por consulta, tres en vuelo: MELI tolera eso sin
-      // contestar 429 y rinde el triple que ir de uno en uno.
+      // Un user product por consulta, DOS en vuelo. Con tres MELI ya
+      // contesta 429 en una de cada diez; el cliente reintenta con pausa
+      // (backoff), así que un 429 suelto no tumba la consulta.
       const ups = [...new Set(pendientes.map((f) => f.user_product_id as string))];
       const skuPorUp = new Map<string, string | null>();
-      await enLotes(ups, 3, async (up) => {
+      await enLotes(ups, 2, async (up) => {
         if (Date.now() - t0 > presupuesto) return;
         try {
-          const cuerpo = await cliente.get<{ attributes?: unknown[] }>(`/user-products/${up}`, undefined, { reintentos: 1 });
+          const cuerpo = await cliente.get<{ attributes?: unknown[] }>(`/user-products/${up}`);
           skuPorUp.set(up, extraerSku(cuerpo as never));
         } catch (err) {
           skuPorUp.set(up, null);
