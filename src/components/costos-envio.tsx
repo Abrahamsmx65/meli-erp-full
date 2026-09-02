@@ -87,10 +87,19 @@ function Tabla({ variantes, malas }: { variantes: VarianteRevisada[]; malas: Set
   );
 }
 
-export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] }) {
+export function CostosEnvio({
+  modelos: inicial,
+  evidencias: evidenciasIniciales,
+}: {
+  modelos: ModeloRevisado[];
+  /** modelo → link público de su ficha de evidencia (la que se le manda a MELI) */
+  evidencias: Record<string, string>;
+}) {
   const [modelos, setModelos] = useState(inicial);
+  const [evidencias, setEvidencias] = useState(evidenciasIniciales);
   const [busqueda, setBusqueda] = useState("");
   const [revisando, setRevisando] = useState(false);
+  const [generando, setGenerando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
@@ -125,6 +134,44 @@ export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] })
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error ?? "No se pudo leer la revisión.");
     setModelos(j.modelos as ModeloRevisado[]);
+    setEvidencias((j.evidencias ?? {}) as Record<string, string>);
+  };
+
+  /**
+   * Las fichas de evidencia: una imagen por modelo con la foto real de la
+   * publicación y la tabla de lo que MELI midió en cada talla, subida a un
+   * link público para pegarlo en la solicitud. Va por pasadas como la
+   * revisión; las fichas que no cambiaron no se vuelven a subir.
+   */
+  const generarEvidencias = async () => {
+    setGenerando(true);
+    setError(null);
+    try {
+      let hechas = 0;
+      for (let pasada = 0; pasada < 60; pasada++) {
+        const r = await fetch("/api/costos-envio/evidencia", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error ?? "No se pudieron generar las evidencias.");
+        hechas += Number(j.generadas ?? 0);
+        const faltan = Number(j.pendientes ?? 0);
+        setAviso(
+          faltan
+            ? `Dibujando las fichas de evidencia… faltan ${faltan}`
+            : `Listo: ${hechas} fichas nuevas, ${Number(j.sinCambio ?? 0)} ya estaban al día.`,
+        );
+        if (!faltan) break;
+      }
+      await recargar();
+    } catch (err) {
+      setError((err as Error).message);
+      setAviso(null);
+    } finally {
+      setGenerando(false);
+    }
   };
 
   /**
@@ -199,6 +246,20 @@ export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] })
             {revisando ? "Revisando…" : "Revisar de nuevo"}
           </button>
           <a
+            href="/api/costos-envio/excel?formato=meli"
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
+            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+          >
+            Excel para MELI (Item ID · Site · medidas · link)
+          </a>
+          <button
+            onClick={generarEvidencias}
+            disabled={generando || revisando}
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline disabled:opacity-60"
+          >
+            {generando ? "Dibujando evidencias…" : "Generar imágenes de evidencia"}
+          </button>
+          <a
             href="/api/costos-envio/excel"
             className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
           >
@@ -265,6 +326,7 @@ export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] })
       {filtrados.map((m) => {
         const malas = new Set(m.malas.map((v) => v.sku));
         const abierto = abiertos[m.modelo] ?? false;
+        const evidencia = evidencias[m.modelo];
         return (
           <section key={m.modelo} className="tarjeta overflow-hidden">
             <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
@@ -294,6 +356,22 @@ export function CostosEnvio({ modelos: inicial }: { modelos: ModeloRevisado[] })
               >
                 Excel
               </a>
+              {m.medidaReal && (
+                <a
+                  href={evidencia ?? `/api/costos-envio/evidencia?modelo=${encodeURIComponent(m.modelo)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hairline"
+                  style={evidencia ? { borderColor: "var(--acento)", color: "var(--acento)" } : { color: "var(--ink-2)" }}
+                  title={
+                    evidencia
+                      ? "El link público de la ficha, el que va en el Excel para MELI"
+                      : "Vista previa de la ficha; el link público sale al generar las evidencias"
+                  }
+                >
+                  {evidencia ? "Evidencia (link)" : "Evidencia (vista previa)"}
+                </a>
+              )}
             </header>
             <Tabla variantes={abierto ? m.variantes : m.malas} malas={malas} />
           </section>
