@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bajarADecena, calcularPlan, subirADecena, ventana, type ParametrosPlan } from "./plan";
+import { bajarADecena, bloques, calcularPlan, subirADecena, ventana, type ParametrosPlan } from "./plan";
 
 const P: ParametrosPlan = { diasVenta: 30, diasObjetivo: 30, multiploEnvio: 10, minimoEnvio: 10 };
 const HOY = "2026-09-01";
@@ -36,6 +36,18 @@ describe("decenas cerradas", () => {
 describe("ventana", () => {
   it("cubre exactamente N días terminando en `hasta`", () => {
     expect(ventana("2026-09-01", 30)).toEqual({ desde: "2026-08-03", hasta: "2026-09-01" });
+  });
+
+  it("se parte en última semana, la anterior y el resto", () => {
+    expect(bloques("2026-08-03", "2026-09-01")).toEqual([
+      { desde: "2026-08-26", hasta: "2026-09-01" },
+      { desde: "2026-08-19", hasta: "2026-08-25" },
+      { desde: "2026-08-03", hasta: "2026-08-18" },
+    ]);
+    expect(bloques("2026-08-23", "2026-09-01")).toEqual([
+      { desde: "2026-08-26", hasta: "2026-09-01" },
+      { desde: "2026-08-23", hasta: "2026-08-25" },
+    ]);
   });
 });
 
@@ -194,7 +206,7 @@ describe("calcularPlan", () => {
 
   it("la corrección por agotamiento tiene tope", () => {
     const ds = dias(30);
-    // Stock solo 1 día, vendió 5 ese día. Sin tope diría 150 al mes.
+    // Stock solo 1 día (el más viejo), vendió 5 ese día. Sin tope diría 150 al mes.
     const ventas = [{ sku: "A", fecha: ds[0], unidades: 5 }];
     const snapshots = ds.map((fecha, i) => ({ sku: "A", fecha, disponible: i === 0 ? 5 : 0 }));
     const plan = calcularPlan({
@@ -207,9 +219,50 @@ describe("calcularPlan", () => {
       parametros: P,
       hasta: HOY,
     });
-    // piso = 30/3 = 10 días → 0.5 al día → 15 → 20.
-    expect(plan.lineas[0].diasConStock).toBe(10);
-    expect(plan.lineas[0].mandar).toBe(20);
+    // Solo el bloque del resto (16 días) tiene stock: piso 16/3 = 6 días →
+    // 5/6 = 0.83 al día → 25 → 30. Los otros dos bloques no cuentan como cero.
+    expect(plan.lineas[0].diasConStock).toBe(6);
+    expect(plan.lineas[0].mandar).toBe(30);
+    expect(plan.lineas[0].tendencia).toBeNull();
+  });
+
+  it("inclina hacia lo reciente cuando el nivel cambió (caso 601-iPad10)", () => {
+    const ds = dias(30);
+    // 16 días a 35, luego 14 días a 65. Promedio plano: 49. Reciente: 65.
+    const ventas = ds.map((fecha, i) => ({ sku: "A", fecha, unidades: i < 16 ? 35 : 65 }));
+    const plan = calcularPlan({
+      skus: ["A"],
+      ventas,
+      snapshots: [],
+      stock: [],
+      bodega: [{ skuMeli: "A", unidades: 5000 }],
+      enCamino: [],
+      parametros: P,
+      hasta: HOY,
+    });
+    const l = plan.lineas[0];
+    // 0.5×65 + 0.3×65 + 0.2×35 = 59
+    expect(l.ventaDiaria).toBeCloseTo(59, 5);
+    expect(l.tendencia).toBeCloseTo(0, 5);
+    expect(l.mandar).toBe(1770);
+  });
+
+  it("reporta la tendencia de la última semana contra la anterior, acotada", () => {
+    const ds = dias(30);
+    const ventas = ds.map((fecha, i) => ({ sku: "A", fecha, unidades: i >= 23 ? 20 : 10 }));
+    const plan = calcularPlan({ skus: ["A"], ventas, snapshots: [], stock: [], bodega: [], enCamino: [], parametros: P, hasta: HOY });
+    // +100% real, acotado a +50%.
+    expect(plan.lineas[0].tendencia).toBeCloseTo(0.5, 5);
+    const bajando = ds.map((fecha, i) => ({ sku: "A", fecha, unidades: i >= 23 ? 5 : 10 }));
+    const plan2 = calcularPlan({ skus: ["A"], ventas: bajando, snapshots: [], stock: [], bodega: [], enCamino: [], parametros: P, hasta: HOY });
+    // −50% real, acotado a −30%.
+    expect(plan2.lineas[0].tendencia).toBeCloseTo(-0.3, 5);
+  });
+
+  it("por omisión la ventana termina AYER, no hoy", () => {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const plan = calcularPlan({ skus: [], ventas: [], snapshots: [], stock: [], bodega: [], enCamino: [], parametros: P });
+    expect(plan.hasta < hoy).toBe(true);
   });
 
   it("ignora ventas fuera de la ventana", () => {

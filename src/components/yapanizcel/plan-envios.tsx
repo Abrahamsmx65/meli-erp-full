@@ -137,6 +137,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
               <th className="px-3 py-2">Título</th>
               <th className="px-3 py-2 text-right">Vend.</th>
               <th className="px-3 py-2 text-right">Venta/día</th>
+              <th className="px-3 py-2 text-right">Tend.</th>
               <th className="px-3 py-2 text-right">En Full</th>
               <th className="px-3 py-2 text-right">Transf.+camino</th>
               <th className="px-3 py-2 text-right">Cobertura</th>
@@ -150,7 +151,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           <tbody>
             {visibles.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={13} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
                   Nada que mandar con los datos de hoy.
                 </td>
               </tr>
@@ -168,6 +169,13 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                   <td className="num px-3 py-1.5 text-right" title={l.porCalendario ? "Sin fotos suficientes: días de calendario" : `${l.diasConStock} días con stock`}>
                     {l.ventaDiaria.toFixed(1)}
                     {l.porCalendario ? "" : "*"}
+                  </td>
+                  <td
+                    className="num px-3 py-1.5 text-right text-xs"
+                    title="Última semana contra la anterior"
+                    style={{ color: l.tendencia == null ? "var(--ink-muted)" : l.tendencia >= 0.1 ? "var(--exito-texto)" : l.tendencia <= -0.1 ? "var(--estado-critico)" : "var(--ink-2)" }}
+                  >
+                    {l.tendencia == null ? "—" : `${l.tendencia >= 0 ? "+" : ""}${Math.round(l.tendencia * 100)}%`}
                   </td>
                   <td className="num px-3 py-1.5 text-right">{n(l.enFull)}</td>
                   <td className="num px-3 py-1.5 text-right">{n(l.enTransferencia + l.enCamino)}</td>
@@ -190,7 +198,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         </table>
       </div>
       <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-        * venta diaria corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
+        Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias). * corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
       </p>
 
       <h2 className="mt-2 font-semibold">Envíos registrados</h2>

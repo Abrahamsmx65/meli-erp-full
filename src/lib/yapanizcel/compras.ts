@@ -53,7 +53,8 @@ export interface ResumenDisenos {
 
 async function cargarBase(db: DB, accountId: string) {
   const p = await leerParametros(db, accountId);
-  const hasta = hoyMx();
+  // Hasta AYER: hoy va a medias.
+  const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
   const [skus, ventas, stock, inventario, { enCamino }, mapeos, costosFilas] = await Promise.all([

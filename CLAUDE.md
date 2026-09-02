@@ -180,6 +180,10 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 - **A Full se manda en DECENAS CERRADAS** (`multiplo_envio`, 10): la falta se
   redondea ARRIBA a decena y se topa ABAJO por lo que hay en bodega. Menos de
   una decena en bodega = no se manda. Motor puro en `yapanizcel/plan.ts`.
+  La venta diaria pesa 50% la última semana, 30% la anterior y 20% el resto
+  de la ventana (cada bloque ÷ sus días con stock; un bloque sin stock no
+  cuenta como cero, se deja fuera), y la ventana termina AYER: hoy va a
+  medias. Verificado con 601-iPad10 (pasó de 35 a 65 al día a media ventana).
 - **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
   una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
   encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se

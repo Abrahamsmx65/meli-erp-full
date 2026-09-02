@@ -7,17 +7,28 @@
  *
  * La cuenta, por SKU:
  *
- *     venta diaria = unidades vendidas ÷ días que DE VERDAD hubo stock
+ *     venta diaria = mezcla de tres bloques: última semana (50%), la
+ *                    anterior (30%) y el resto de la ventana (20%), cada
+ *                    uno = unidades ÷ días que DE VERDAD hubo stock
  *     objetivo     = venta diaria × días de cobertura (30)
  *     posición     = en Full + en transferencia + envíos ya registrados
  *     falta        = objetivo − posición
  *     mandar       = falta redondeada ARRIBA a decena, topada por bodega
  *
+ * Por qué bloques y no un promedio plano: un modelo que pasó de 35 a 65 al
+ * día a media ventana (601-iPad10 en agosto) promedia 53 y se repone corto.
+ * Inclinar hacia lo reciente lo pone en 62. La tendencia (última semana
+ * contra la anterior) se muestra aparte, para que se vea por qué.
+ *
+ * La ventana termina AYER: el día de hoy va a medias y contarlo entero
+ * bajaba la venta diaria de todos los SKUs cada mañana.
+ *
  * Lo de "días que de verdad hubo stock" importa: si algo estuvo agotado 20
  * de los últimos 30 días, sus 10 ventas no son 0.33 al día, son 1 al día, y
  * reponer por 0.33 lo deja agotado otra vez. La corrección solo se aplica
  * cuando hay fotos diarias suficientes para saberlo; si no las hay, se dice
- * y se usa el calendario.
+ * y se usa el calendario. Un bloque sin un solo día con stock no dice nada
+ * y se deja fuera de la mezcla (no cuenta como cero).
  *
  * Este archivo es motor puro: recibe datos y devuelve el plan. No sabe de
  * Supabase ni de HTTP, así que se puede probar a fondo sin levantar nada.
@@ -28,6 +39,12 @@ export const TOPE_CORRECCION = 3;
 
 /** Mínimo de fotos diarias para creerle a la corrección por agotamiento. */
 export const COBERTURA_MINIMA_SNAPSHOTS = 0.5;
+
+/** Pesos de los bloques: última semana, la anterior, el resto. */
+export const PESOS_BLOQUES = [0.5, 0.3, 0.2] as const;
+/** Tope a la tendencia que se reporta: −30% … +50%, como en el calzado. */
+export const TENDENCIA_MIN = -0.3;
+export const TENDENCIA_MAX = 0.5;
 
 export interface VentaDia {
   sku: string;
@@ -82,6 +99,8 @@ export interface LineaPlan {
   /** true si la venta diaria se calculó con el calendario por falta de fotos. */
   porCalendario: boolean;
   ventaDiaria: number;
+  /** Última semana contra la anterior (0.1 = +10%); null si falta un bloque. */
+  tendencia: number | null;
   enFull: number;
   enTransferencia: number;
   enCamino: number;
@@ -113,12 +132,37 @@ function diaISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function sumarDias(dia: string, n: number): string {
+  const d = new Date(`${dia}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return diaISO(d);
+}
+
 /** Los días de la ventana, del más viejo al más nuevo. */
 export function ventana(hasta: string, dias: number): { desde: string; hasta: string } {
-  const fin = new Date(`${hasta}T00:00:00.000Z`);
-  const ini = new Date(fin);
-  ini.setUTCDate(ini.getUTCDate() - (dias - 1));
-  return { desde: diaISO(ini), hasta: diaISO(fin) };
+  return { desde: sumarDias(hasta, -(dias - 1)), hasta };
+}
+
+/** Ayer, en el huso del negocio: el último día COMPLETO. */
+export function ayerDe(hoy: string): string {
+  return sumarDias(hoy, -1);
+}
+
+/**
+ * Los tres bloques de la ventana: última semana, la anterior y el resto.
+ * Con ventanas cortas (menos de 21 días) los bloques se acortan en orden.
+ */
+export function bloques(desde: string, hasta: string): { desde: string; hasta: string }[] {
+  const out: { desde: string; hasta: string }[] = [];
+  let fin = hasta;
+  for (const largo of [7, 7]) {
+    if (fin < desde) break;
+    const ini = sumarDias(fin, -(largo - 1));
+    out.push({ desde: ini < desde ? desde : ini, hasta: fin });
+    fin = sumarDias(out[out.length - 1].desde, -1);
+  }
+  if (fin >= desde) out.push({ desde, hasta: fin });
+  return out;
 }
 
 function agrupar<T>(filas: T[], llave: (f: T) => string): Map<string, T[]> {
@@ -161,11 +205,11 @@ export function calcularPlan(datos: {
   bodega: EnBodega[];
   enCamino: EnCamino[];
   parametros: ParametrosPlan;
-  /** Último día que cuenta. Por omisión, hoy. */
+  /** Último día que cuenta (completo). Por omisión, AYER. */
   hasta?: string;
 }): Plan {
   const p = datos.parametros;
-  const { desde, hasta } = ventana(datos.hasta ?? diaISO(new Date()), p.diasVenta);
+  const { desde, hasta } = ventana(datos.hasta ?? ayerDe(diaISO(new Date())), p.diasVenta);
 
   const enRango = (f: string) => f >= desde && f <= hasta;
 
@@ -188,31 +232,57 @@ export function calcularPlan(datos: {
 
   const lineas: LineaPlan[] = [];
 
+  const losBloques = bloques(desde, hasta);
+  const diasDe = (b: { desde: string; hasta: string }) =>
+    Math.round((Date.parse(b.hasta) - Date.parse(b.desde)) / 86_400_000) + 1;
+
   for (const sku of datos.skus) {
     const ventas = ventasPorSku.get(sku) ?? [];
     const vendidas = ventas.reduce((a, v) => a + (v.unidades ?? 0), 0);
 
     // Días con stock: se miden con las fotos diarias. Un día con existencia
     // en cero no pudo vender, y contarlo como día de venta baja la demanda
-    // justo de lo que más falta hace.
+    // justo de lo que más falta hace. Un día sin foto pero CON venta sí
+    // tuvo stock: la venta lo demuestra.
     const snaps = snapsPorSku.get(sku) ?? [];
     const diasDeFoto = new Set(snaps.map((s) => s.fecha)).size;
-    const hayFotosSuficientes = diasDeFoto >= p.diasVenta * COBERTURA_MINIMA_SNAPSHOTS;
-
-    // Un día sin foto pero CON venta sí tuvo stock: la venta lo demuestra.
-    const diasConVenta = new Set(ventas.filter((v) => (v.unidades ?? 0) > 0).map((v) => v.fecha));
-    const diasConStockMedidos = new Set([
+    const porCalendario = diasDeFoto < p.diasVenta * COBERTURA_MINIMA_SNAPSHOTS;
+    const conStock = new Set([
       ...snaps.filter((s) => (s.disponible ?? 0) > 0).map((s) => s.fecha),
-      ...diasConVenta,
-    ]).size;
+      ...ventas.filter((v) => (v.unidades ?? 0) > 0).map((v) => v.fecha),
+    ]);
 
-    const porCalendario = !hayFotosSuficientes;
-    const piso = Math.max(1, Math.ceil(p.diasVenta / TOPE_CORRECCION));
-    const diasConStock = porCalendario
-      ? p.diasVenta
-      : Math.max(piso, Math.min(p.diasVenta, diasConStockMedidos || p.diasVenta));
+    // Tasa de cada bloque, con su propio piso: sin él, un bloque con stock
+    // de dos días se dispararía y el tope global quedaría sin efecto.
+    const tasas: (number | null)[] = losBloques.map((b) => {
+      const dias = diasDe(b);
+      const unidades = ventas.filter((v) => v.fecha >= b.desde && v.fecha <= b.hasta).reduce((a, v) => a + (v.unidades ?? 0), 0);
+      if (porCalendario) return unidades / dias;
+      const medidos = [...conStock].filter((f) => f >= b.desde && f <= b.hasta).length;
+      if (medidos === 0) return null; // sin stock todo el bloque: no dice nada
+      const piso = Math.max(1, Math.ceil(dias / TOPE_CORRECCION));
+      return unidades / Math.max(piso, Math.min(dias, medidos));
+    });
 
-    const ventaDiaria = diasConStock > 0 ? vendidas / diasConStock : 0;
+    let sumaPesos = 0;
+    let sumaTasas = 0;
+    let diasConStock = 0;
+    tasas.forEach((t, i) => {
+      if (t == null) return;
+      const w = PESOS_BLOQUES[i] ?? 0;
+      sumaPesos += w;
+      sumaTasas += w * t;
+      const b = losBloques[i];
+      diasConStock += porCalendario
+        ? diasDe(b)
+        : Math.max(Math.max(1, Math.ceil(diasDe(b) / TOPE_CORRECCION)), Math.min(diasDe(b), [...conStock].filter((f) => f >= b.desde && f <= b.hasta).length));
+    });
+    const ventaDiaria = sumaPesos > 0 ? sumaTasas / sumaPesos : 0;
+
+    let tendencia: number | null = null;
+    if (tasas[0] != null && tasas[1] != null && tasas[1] > 0) {
+      tendencia = Math.max(TENDENCIA_MIN, Math.min(TENDENCIA_MAX, tasas[0] / tasas[1] - 1));
+    }
 
     const st = stockPorSku.get(sku);
     const enFull = st?.disponible ?? 0;
@@ -233,8 +303,6 @@ export function calcularPlan(datos: {
       motivo = "sin_inventario";
     } else {
       const querido = subirADecena(falta, p.multiploEnvio);
-      // Lo que sí sale con lo que hay: bajar a decena, porque mandar 7 no es
-      // una decena cerrada aunque sea lo único que quede.
       const tope = bajarADecena(enBodega, p.multiploEnvio);
       mandar = Math.min(querido, tope);
 
@@ -252,6 +320,7 @@ export function calcularPlan(datos: {
       diasConStock,
       porCalendario,
       ventaDiaria,
+      tendencia,
       enFull,
       enTransferencia,
       enCamino,

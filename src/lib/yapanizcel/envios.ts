@@ -70,7 +70,8 @@ export interface PlanConDetalle extends Plan {
 
 export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<PlanConDetalle> {
   const parametros = await leerParametros(db, accountId);
-  const hasta = hoyMx();
+  // Hasta AYER: hoy va a medias y contarlo entero baja la venta de todos.
+  const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, parametros.diasVenta - 1);
 
   const [skus, ventas, snapshots, stock, inventario, { enCamino }] = await Promise.all([

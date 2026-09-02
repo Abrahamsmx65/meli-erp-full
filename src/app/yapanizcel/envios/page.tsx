@@ -22,7 +22,7 @@ export default async function EnviosYz() {
     <div className="flex flex-col gap-6">
       <Encabezado
         titulo="Envíos a Full · YAPANIZCEL"
-        texto={`Con la venta de los últimos ${plan.parametros.diasVenta} días (${plan.desde} → ${plan.hasta}) y lo que hay en Full, esto es lo que hay que mandar para dejar ${plan.parametros.diasObjetivo} días de cobertura, en decenas cerradas y topado por lo que hay en bodega.`}
+        texto={`Con la venta de los últimos ${plan.parametros.diasVenta} días completos (${plan.desde} → ${plan.hasta}), pesando más lo reciente, y lo que hay en Full, esto es lo que hay que mandar para dejar ${plan.parametros.diasObjetivo} días de cobertura, en decenas cerradas y topado por lo que hay en bodega.`}
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
