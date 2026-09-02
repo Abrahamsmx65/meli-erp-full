@@ -139,13 +139,19 @@ export async function cargarMonitorAmazon(
     )
       .then((x: any) => (x?.data?.fecha as string | undefined) ?? null)
       .catch(() => null),
-    // La economía por producto del Data Kiosk. Sin tabla o sin datos: [].
-    traerTodo<any>(
-      db,
-      "amazon_economia",
-      "seller_sku, fecha, unidades, ventas, tarifas, publicidad, neto",
-      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
-    ).catch(() => [] as any[]),
+    // La economía por producto del Data Kiosk, YA SUMADA por SKU en la base
+    // (`amazon_economia_por_sku`): por día son ~154 mil renglones en 30 días
+    // y la lectura paginada no alcanzaba a terminar, así que la economía se
+    // quedaba vacía sin decirlo. Sumada son ~6 mil en un viaje.
+    Promise.resolve(
+      (db as any).rpc("amazon_economia_por_sku", {
+        p_account: amazonAccountId,
+        p_desde: r.desde,
+        p_hasta: r.hasta,
+      }),
+    )
+      .then((x: any) => (x?.data ?? []) as any[])
+      .catch(() => [] as any[]),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
@@ -218,7 +224,8 @@ export async function cargarMonitorAmazon(
     reg.publicidad += Number(e.publicidad) || 0;
     reg.neto += Number(e.neto) || 0;
     econPorModelo.set(modelo, reg);
-    if (!econHasta || e.fecha > econHasta) econHasta = e.fecha;
+    const hastaSku = e.ultima_fecha as string | null;
+    if (hastaSku && (!econHasta || hastaSku > econHasta)) econHasta = hastaSku;
   }
 
   const categorias = new Map<

@@ -101,10 +101,15 @@ guárdala numerada.
   sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
   único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
   salida por SKU.
-  **Industher SOLO SUMA en la bodega "TikTok", nunca descuenta pedidos**: su
-  número es un acumulado de entradas, no una foto del estante. Entra al
-  kardex como ENTRADA por diferencia contra lo ya reconocido (movimientos con
-  referencia `industher:*`; si baja, RETIRO); NUNCA como ajuste absoluto, que
+  **Industher SUMA en la bodega "TikTok" y descuenta SOLO lo que el ERP le
+  manda**: después de cada corte el ERP le manda las salidas
+  (`tiktok-3pl.ts`, `INDUSTHER_SALIDAS_URL`, referencia `TT-CORTE-n`,
+  idempotente; el endpoint lo publica el 3PL, que es de otra persona) y las
+  guarda en `tiktok_salidas_3pl`. Su número entra al kardex como ENTRADA por
+  diferencia contra lo ya reconocido (movimientos `industher:*` MENOS las
+  salidas que el 3PL ya confirmó); una BAJA se atribuye primero a las salidas
+  pendientes de ese SKU y solo el resto es merma (`conciliarAcumulado`):
+  una salida nunca se descuenta dos veces. NUNCA como ajuste absoluto, que
   volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
   FÍSICAS. Esa bodega NO surte a Full (`almacenes_activos.surte_full =
   false`, se inserta sola). A TikTok solo se le escribe un SKU que alguna vez

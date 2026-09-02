@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sincronizarTikTok } from "@/lib/servicios/tiktok";
+import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
 
@@ -36,7 +37,14 @@ export async function GET(req: NextRequest) {
   for (const c of cuentas ?? []) {
     try {
       const r = await sincronizarTikTok(admin, c.id);
-      resultados.push({ cuenta: c.nickname, ok: true, ...r });
+      // Las salidas que el 3PL todavía no confirma se vuelven a mandar.
+      let al3pl: unknown = null;
+      try {
+        al3pl = await empujarSalidasAl3pl(admin, c.id);
+      } catch (err) {
+        al3pl = { error: (err as Error).message };
+      }
+      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }

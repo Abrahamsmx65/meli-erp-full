@@ -36,6 +36,7 @@ import {
 } from "../tiktok/despacho";
 import { efectoDeEstado } from "../tiktok/kardex";
 import { clienteDeCuenta, sincronizarPedidosPorId } from "./tiktok";
+import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
 const ESTADOS_DESPACHABLES = new Set(["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION"]);
@@ -47,6 +48,8 @@ export interface ResultadoCorte {
   pares: number;
   errores: { orderId: string; error: string }[];
   publicados: number;
+  /** cómo le fue a la salida hacia el 3PL */
+  al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
 }
 
 /** El primer horario que todavía no pasó; si todos pasaron, el último. */
@@ -151,7 +154,7 @@ export async function hacerCorte(
 
   // Pares del corte, de los renglones ya guardados.
   const items = confirmados.length
-    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, cantidad", (q) =>
+    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
         q.eq("account_id", accountId).in("order_id", confirmados),
       )
     : [];
@@ -188,7 +191,21 @@ export async function hacerCorte(
     publicados = r.publicados;
   }
 
-  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados };
+  // Y las mismas salidas, al 3PL: que Industher también baje su número. Se
+  // registran por (pedido, SKU) y se mandan; lo que no confirme se reintenta
+  // en el cron. Un renglón sin SKU del ERP no se manda: el 3PL no lo conoce.
+  const porPedidoYSku = new Map<string, { orderId: string; sku: string; pares: number }>();
+  for (const i of items ?? []) {
+    if (!i.sku_interno || efectoDeEstado(i.estado) === "reversa") continue;
+    const k = `${i.order_id}|${i.sku_interno}`;
+    const prev = porPedidoYSku.get(k) ?? { orderId: i.order_id, sku: i.sku_interno, pares: 0 };
+    prev.pares += i.cantidad ?? 0;
+    porPedidoYSku.set(k, prev);
+  }
+  await registrarSalidasDeCorte(admin, accountId, corte.id, [...porPedidoYSku.values()]);
+  const al3pl = await empujarSalidasAl3pl(admin, accountId, corte.id);
+
+  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, al3pl };
 }
 
 // ---------------------------------------------------------------------------

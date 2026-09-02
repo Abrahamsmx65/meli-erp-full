@@ -49,6 +49,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
       if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
       if (j.errores?.length) partes.push(`${j.errores.length} pedidos no entraron (abajo el motivo).`);
+      if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
+      else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
+      else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
       setAviso(partes.join(" "));
       router.refresh();
     } catch (e) {
@@ -151,6 +154,14 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   style={{ background: "var(--acento)" }}
                 >
                   <Printer size={14} /> Etiquetas PDF
+                </a>
+                <a
+                  href={`/api/tiktok/cortes/${c.id}/salidas`}
+                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--grid)" }}
+                  title="Las salidas del corte para el 3PL (CSV)"
+                >
+                  Salidas 3PL
                 </a>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/lista`}

@@ -11,7 +11,8 @@ import { traerTodo, type DB } from "../datos/repos";
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import type { Corrida, FilaExistencia } from "../importar/excel";
-import { esAlmacenTikTok, movimientosDesdeAcumulado, paresPorSkuDesdeCajas } from "../tiktok/bodega";
+import { conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas } from "../tiktok/bodega";
+import { confirmarSalidasAtribuidas, estadoSalidas3pl } from "./tiktok-3pl";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
 
@@ -115,9 +116,14 @@ export async function sincronizarSaldoDesdeBodega(
     referencia: m.referencia ?? null,
   }));
 
-  const nuevos = movimientosDesdeAcumulado(pares, movimientos, fechaFoto);
+  // Lo que el 3PL ya descontó por nuestra cuenta no es merma ni entrada.
+  const salidas = await estadoSalidas3pl(db, accountId);
+  const { movimientos: nuevos, atribuidas } = conciliarAcumulado(pares, movimientos, fechaFoto, salidas);
   if (nuevos.length) {
     await registrarMovimientos(db, accountId, nuevos);
+  }
+  if (atribuidas.size) {
+    await confirmarSalidasAtribuidas(db, accountId, atribuidas);
   }
 
   return {
