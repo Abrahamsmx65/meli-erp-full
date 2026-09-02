@@ -48,10 +48,28 @@ export async function middleware(request: NextRequest) {
     ruta.startsWith("/login") ||
     ruta.startsWith("/api/cron") ||
     ruta.startsWith("/api/meli/callback") ||
+    // El de TikTok también: el rebote al login tira el ?code= de la URL y
+    // el usuario aterriza en el callback sin nada que canjear.
+    ruta.startsWith("/api/tiktok/callback") ||
+    // Los avisos de TikTok llegan sin sesión; la ruta verifica su firma.
+    ruta.startsWith("/api/tiktok/webhook") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
+    // Las mismas dos puertas para la cuenta de YAPANIZCEL: el callback de
+    // MELI y el resolutor de SKUs que se relanza solo con CRON_SECRET.
+    ruta.startsWith("/api/yapanizcel/meli/callback") ||
+    ruta.startsWith("/api/yapanizcel/skus-pendientes") ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
+    // El acceso sin contraseña a la sección de contenido: la puerta es el
+    // token del link, que valida `acceso-contenido.ts`. Sin esto el link
+    // rebotaría al login, que es justo lo que no debe pedir.
+    ruta.startsWith("/contenido/") ||
+    // La estación de preparar pedidos de TikTok, para los empleados: la
+    // puerta es el token de la URL (acceso-preparar.ts), no la sesión.
+    ruta.startsWith("/preparar/") ||
+    ruta.startsWith("/api/preparar-publico/") ||
+    ruta.startsWith("/api/contenido-publico/") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {

@@ -23,7 +23,11 @@ export function claveGrupoFba(modelo: string, color: string): string {
  * del color (GT128-23-BLK-MX). Si el desglose normal no encuentra talla,
  * se busca el token que parece talla en cualquier posición.
  */
-function desglosarAmazon(sku: string): { modelo: string | null; color: string | null; talla: string | null } {
+export function desglosarAmazon(sku: string): {
+  modelo: string | null;
+  color: string | null;
+  talla: string | null;
+} {
   const d = desglosarSku(sku);
   if (d.talla) return d;
   const t = claveComparacion(sku).split("-");

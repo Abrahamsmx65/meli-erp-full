@@ -10,17 +10,21 @@ import {
   Boxes,
   Clapperboard,
   Container,
+  Images,
   LayoutList,
   LogOut,
   Megaphone,
   Menu,
   Package,
   PackageCheck,
+  Printer,
   ReceiptText,
   RefreshCw,
+  Scale,
   Settings,
   Ship,
   ShoppingCart,
+  Smartphone,
   Tags,
   Truck,
   Upload,
@@ -66,6 +70,7 @@ const GRUPOS: Grupo[] = [
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
+      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
       { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
@@ -76,7 +81,16 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
       { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
       { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
+    ],
+  },
+  {
+    titulo: "TikTok Shop",
+    entradas: [
+      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
     ],
   },
   {
@@ -85,6 +99,17 @@ const GRUPOS: Grupo[] = [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
       { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
+    ],
+  },
+  {
+    titulo: "YAPANIZCEL · Fundas",
+    entradas: [
+      { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
+      { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
+      { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
+      { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
+      { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
+      { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
   },
   {
@@ -104,6 +129,11 @@ export function MenuLateral({ pendientes }: { pendientes?: number }) {
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
   const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+
+  // El link sin contraseña abre SOLO la sección de contenido: quien entra por
+  // ahí no tiene sesión y no debe ver siquiera los nombres del resto del ERP.
+  if (ruta.startsWith("/contenido/")) return null;
+
   const activo = (href: string) => {
     if (href === "/") return ruta === "/";
     if (!ruta.startsWith(href)) return false;

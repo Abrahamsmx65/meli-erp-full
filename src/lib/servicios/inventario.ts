@@ -52,6 +52,13 @@ export interface ResumenInventario {
   porAlmacen: { almacen: string; cajas: number; pares: number }[];
   porPedido: { pedido: string; cajas: number; pares: number; almacenes: string[] }[];
   /**
+   * Cajas EXACTAS por modelo en las bodegas de México: cada caja se cuenta
+   * una sola vez. Una caja de corrida trae varias tallas, pero todas del
+   * mismo modelo y color, así que a nivel familia el número sí es de verdad
+   * (a nivel talla no lo sería: la misma caja aparecería en cada talla).
+   */
+  cajasPorModelo: Record<string, number>;
+  /**
    * Las tablas crudas que ya se leyeron, para que quien necesite ambas cosas
    * (la página de pedidos usa inventario Y sugerencia de compra) no vuelva a
    * pedirlas a la base: era el doble de viajes por cada clic.
@@ -341,6 +348,19 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
 
   renglones.sort((a, b) => b.total - a.total);
 
+  // Cada caja se cuenta UNA vez, en su familia. El modelo se toma del SKU que
+  // trae la caja y no del renglón del almacén: el reporte de Industher escribe
+  // el modelo a su manera y la familia tiene que llamarse igual que en los
+  // renglones, o la tabla mostraría familias en cero.
+  const modeloDeSku = new Map(renglones.map((r) => [r.sku, r.modelo]));
+  const cajasPorModelo: Record<string, number> = {};
+  for (const c of catalogo.cajas) {
+    if (!c.cajasDisponibles) continue;
+    const sku = c.detalle[0]?.sku;
+    const modelo = (sku ? modeloDeSku.get(sku) : null) ?? c.modelo;
+    cajasPorModelo[modelo] = (cajasPorModelo[modelo] ?? 0) + c.cajasDisponibles;
+  }
+
   // --- Agregados -----------------------------------------------------------
   const porAlmacen = new Map<string, { cajas: number; pares: number }>();
   const porPedido = new Map<string, { cajas: number; pares: number; almacenes: Set<string> }>();
@@ -390,43 +410,71 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
         almacenes: [...v.almacenes].sort(),
       }))
       .sort((a, b) => b.pares - a.pares),
+    cajasPorModelo,
     crudos: { corridas: corridasRaw, skus },
   };
 }
 
-/** Un renglón del resumen "todo lo que ya está en México", por SKU. */
+/** Una talla suelta dentro de una familia. */
 export interface TotalMexicoSku {
   sku: string;
-  modelo: string;
   color: string;
   talla: string;
-  /** cajas en bodega que contienen este SKU */
-  cajas: number;
   /** pares en cajas cerradas, sumando TODAS las bodegas de México */
   pares: number;
 }
 
+/** Una familia entera (GT114, GT128…) con todo lo que hay de ella en México. */
+export interface FamiliaMexico {
+  modelo: string;
+  /** cajas en bodega, contadas una sola vez */
+  cajas: number;
+  /** pares en cajas cerradas, todas las bodegas juntas */
+  pares: number;
+  /** cuántos colores distintos hay con existencia */
+  colores: number;
+  /** el desglose por talla y color, para abrir el renglón */
+  detalle: TotalMexicoSku[];
+}
+
 /**
- * Lo que ya está aterrizado en México, junto: todas las bodegas sumadas en un
- * solo número por SKU, sin lo que viene de China.
+ * Lo que ya está aterrizado en México, junto por familia: GT114 va todo
+ * junto, GT128 va todo junto, sin importar talla ni color. Todas las bodegas
+ * suman en un solo número y lo que viene de China no entra: todavía no se
+ * puede mandar a ningún lado.
  *
- * Ojo con las cajas: como las cajas de corrida son mixtas, una misma caja
- * cuenta en cada talla que trae. La columna dice "en cuántas cajas aparece
- * este SKU", NO cajas exclusivas — sumar la columna entera contaría de más.
- * Los pares sí son exactos y sí se pueden sumar.
+ * Las cajas se cuentan una sola vez porque una caja de corrida, aunque traiga
+ * varias tallas, es siempre de un solo modelo. Ese es justo el número que a
+ * nivel talla no se puede dar.
  */
-export function totalesMexicoPorSku(renglones: RenglonInventario[]): TotalMexicoSku[] {
-  return renglones
-    .map((r) => ({
-      sku: r.sku,
-      modelo: r.modelo,
-      color: r.color,
-      talla: r.talla,
-      cajas: r.pedidos
-        .filter((p) => p.almacen !== ALMACEN_CHINA)
-        .reduce((a, p) => a + p.cajas, 0),
-      pares: r.enBodega,
-    }))
-    .filter((r) => r.pares > 0 || r.cajas > 0)
-    .sort((a, b) => b.pares - a.pares);
+export function familiasMexico(
+  renglones: RenglonInventario[],
+  cajasPorModelo: Record<string, number>,
+): FamiliaMexico[] {
+  const familias = new Map<string, FamiliaMexico>();
+
+  for (const r of renglones) {
+    if (r.enBodega <= 0) continue;
+    const modelo = r.modelo || "(sin modelo)";
+    const f =
+      familias.get(modelo) ??
+      { modelo, cajas: cajasPorModelo[modelo] ?? 0, pares: 0, colores: 0, detalle: [] };
+    f.pares += r.enBodega;
+    f.detalle.push({ sku: r.sku, color: r.color, talla: r.talla, pares: r.enBodega });
+    familias.set(modelo, f);
+  }
+
+  for (const f of familias.values()) {
+    f.colores = new Set(f.detalle.map((d) => d.color)).size;
+    // Dentro de la familia se lee por color y luego por talla, como está el
+    // producto en el rack: no por cantidad.
+    f.detalle.sort(
+      (a, b) =>
+        a.color.localeCompare(b.color, "es") ||
+        (Number(a.talla) || 0) - (Number(b.talla) || 0) ||
+        a.talla.localeCompare(b.talla, "es"),
+    );
+  }
+
+  return [...familias.values()].sort((a, b) => b.pares - a.pares);
 }

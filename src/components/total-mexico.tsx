@@ -1,74 +1,88 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
-import type { TotalMexicoSku } from "@/lib/servicios/inventario";
+import type { FamiliaMexico } from "@/lib/servicios/inventario";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
-type Orden = "pares-desc" | "pares-asc" | "cajas-desc" | "cajas-asc" | "sku-asc" | "sku-desc";
+type Orden = "pares-desc" | "pares-asc" | "cajas-desc" | "cajas-asc" | "modelo-asc" | "modelo-desc";
 
 const ORDENES: { valor: Orden; texto: string }[] = [
   { valor: "pares-desc", texto: "Más pares primero" },
   { valor: "pares-asc", texto: "Menos pares primero" },
   { valor: "cajas-desc", texto: "Más cajas primero" },
   { valor: "cajas-asc", texto: "Menos cajas primero" },
-  { valor: "sku-asc", texto: "SKU A → Z" },
-  { valor: "sku-desc", texto: "SKU Z → A" },
+  { valor: "modelo-asc", texto: "Modelo A → Z" },
+  { valor: "modelo-desc", texto: "Modelo Z → A" },
 ];
 
 function comparar(orden: Orden) {
-  return (a: TotalMexicoSku, b: TotalMexicoSku): number => {
+  return (a: FamiliaMexico, b: FamiliaMexico): number => {
     switch (orden) {
       case "pares-desc":
-        return b.pares - a.pares || a.sku.localeCompare(b.sku, "es");
+        return b.pares - a.pares || a.modelo.localeCompare(b.modelo, "es");
       case "pares-asc":
-        return a.pares - b.pares || a.sku.localeCompare(b.sku, "es");
+        return a.pares - b.pares || a.modelo.localeCompare(b.modelo, "es");
       case "cajas-desc":
         return b.cajas - a.cajas || b.pares - a.pares;
       case "cajas-asc":
         return a.cajas - b.cajas || a.pares - b.pares;
-      case "sku-desc":
-        return b.sku.localeCompare(a.sku, "es");
+      case "modelo-desc":
+        return b.modelo.localeCompare(a.modelo, "es");
       default:
-        return a.sku.localeCompare(b.sku, "es");
+        return a.modelo.localeCompare(b.modelo, "es");
     }
   };
 }
 
 /**
- * Total de lo que ya está en México, por SKU.
+ * Cuánto hay de cada familia aquí en México.
  *
- * La tabla grande de abajo separa bodega de China y desglosa por pedido, que
- * es lo correcto para decidir; esta es la pregunta simple de todos los días:
- * "de este SKU, ¿cuánto tengo aquí?". Todas las bodegas van sumadas en un
- * solo número y lo que viene de China no entra: todavía no se puede mandar.
+ * La tabla de abajo desglosa talla por talla, que es lo que se necesita para
+ * decidir un envío. Esta contesta la pregunta de todos los días — "de GT114,
+ * ¿cuánto tengo?" — con la familia entera junta: todos sus colores y todas
+ * sus tallas en un solo renglón, todas las bodegas sumadas, y sin lo que
+ * viene de China porque todavía no se puede mandar. El desglose sigue ahí,
+ * abriendo el renglón.
  */
-export function TotalMexico({ renglones }: { renglones: TotalMexicoSku[] }) {
+export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
   const [busqueda, setBusqueda] = useState("");
   const [orden, setOrden] = useState<Orden>("pares-desc");
+  const [abierta, setAbierta] = useState<string | null>(null);
 
   const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
 
-  const filtrados = useMemo(
+  const filtradas = useMemo(
     () =>
-      renglones
-        .filter((r) => coincide(`${r.sku} ${r.modelo} ${r.color} ${r.talla}`, terminos))
+      familias
+        .filter(
+          (f) =>
+            coincide(f.modelo, terminos) ||
+            f.detalle.some((d) => coincide(`${d.sku} ${f.modelo} ${d.color} ${d.talla}`, terminos)),
+        )
         .sort(comparar(orden)),
-    [renglones, terminos, orden],
+    [familias, terminos, orden],
   );
 
-  const pares = useMemo(() => filtrados.reduce((a, r) => a + r.pares, 0), [filtrados]);
+  const totales = useMemo(
+    () => ({
+      cajas: filtradas.reduce((a, f) => a + f.cajas, 0),
+      pares: filtradas.reduce((a, f) => a + f.pares, 0),
+    }),
+    [filtradas],
+  );
 
   return (
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-col gap-3 border-b p-4 hairline">
         <div>
-          <h2 className="text-sm font-semibold">Total en México por SKU</h2>
+          <h2 className="text-sm font-semibold">Total en México por familia</h2>
           <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-            Todas las bodegas sumadas en un solo número. No incluye lo que viene de China.
+            Cada modelo con todos sus colores y tallas juntos, todas las bodegas sumadas.
+            No incluye lo que viene de China. Abre un renglón para ver el desglose.
           </p>
         </div>
 
@@ -77,9 +91,9 @@ export function TotalMexico({ renglones }: { renglones: TotalMexicoSku[] }) {
             type="search"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por SKU, modelo, color o talla…"
+            placeholder="Buscar familia, color, talla o SKU…"
             className="min-w-[18rem] flex-1"
-            aria-label="Buscar SKU en el total de México"
+            aria-label="Buscar familia en el total de México"
           />
           <select
             value={orden}
@@ -97,8 +111,9 @@ export function TotalMexico({ renglones }: { renglones: TotalMexicoSku[] }) {
         </div>
 
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          <strong className="cifra">{n(filtrados.length)}</strong> SKUs ·{" "}
-          <strong className="cifra">{n(pares)}</strong> pares en México
+          <strong className="cifra">{n(filtradas.length)}</strong> familias ·{" "}
+          <strong className="cifra">{n(totales.cajas)}</strong> cajas ·{" "}
+          <strong className="cifra">{n(totales.pares)}</strong> pares en México
         </p>
       </header>
 
@@ -106,36 +121,60 @@ export function TotalMexico({ renglones }: { renglones: TotalMexicoSku[] }) {
         <table className="datos">
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Modelo</th>
-              <th>Color</th>
-              <th className="num">Talla</th>
+              <th>Familia</th>
+              <th className="num">Colores</th>
+              <th className="num">Tallas</th>
               <th className="num">Cajas</th>
               <th className="num">Pares</th>
             </tr>
           </thead>
           <tbody>
-            {filtrados.slice(0, 500).map((r) => (
-              <tr key={r.sku}>
-                <td className="text-sm font-medium">{r.sku}</td>
-                <td className="text-sm">{r.modelo}</td>
-                <td className="text-sm">{r.color}</td>
-                <td className="num cifra text-sm">{r.talla}</td>
-                <td className="num cifra">{r.cajas ? n(r.cajas) : "—"}</td>
-                <td className="num cifra font-semibold">{n(r.pares)}</td>
-              </tr>
-            ))}
+            {filtradas.map((f) => {
+              const abierto = abierta === f.modelo;
+              return (
+                <Fragment key={f.modelo}>
+                  <tr>
+                    <td>
+                      <button
+                        onClick={() => setAbierta(abierto ? null : f.modelo)}
+                        className="font-semibold"
+                        style={{ color: "var(--acento)" }}
+                        aria-expanded={abierto}
+                      >
+                        {f.modelo} {abierto ? "▴" : "▾"}
+                      </button>
+                    </td>
+                    <td className="num cifra text-sm">{n(f.colores)}</td>
+                    <td className="num cifra text-sm">{n(f.detalle.length)}</td>
+                    <td className="num cifra">{f.cajas ? n(f.cajas) : "—"}</td>
+                    <td className="num cifra font-semibold">{n(f.pares)}</td>
+                  </tr>
+
+                  {abierto
+                    ? f.detalle.map((d) => (
+                        <tr key={d.sku}>
+                          <td className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
+                            {d.sku}
+                          </td>
+                          <td className="text-xs" colSpan={2} style={{ color: "var(--ink-2)" }}>
+                            {d.color} · talla {d.talla}
+                          </td>
+                          <td />
+                          <td className="num cifra text-xs">{n(d.pares)}</td>
+                        </tr>
+                      ))
+                    : null}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
-        {filtrados.length > 500 ? (
-          <>Se muestran los primeros 500 de {n(filtrados.length)}. Afina la búsqueda para ver el resto. · </>
-        ) : null}
-        Las cajas de corrida traen varias tallas, así que una misma caja cuenta en cada
-        talla que contiene: la columna dice en cuántas cajas aparece el SKU. Los pares no
-        se repiten.
+        Las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero
+        todas del mismo modelo, así que por familia el número es exacto. Por eso el
+        desglose de adentro solo muestra pares.
       </footer>
     </section>
   );

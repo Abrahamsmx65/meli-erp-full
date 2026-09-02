@@ -26,6 +26,7 @@ const CUOTAS: Record<string, [number, number]> = {
   getReportDocument: [0.0167, 15],
   getShipments: [2, 30],
   getShipmentItems: [2, 30],
+  searchCatalogItems: [2, 2],
 };
 
 export interface CuentaAmazon {
