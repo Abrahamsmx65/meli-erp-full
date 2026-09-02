@@ -120,6 +120,14 @@ guárdala numerada.
   `app_key + cuerpo`, se guarda y se procesa con `after()`), y (4) el envío se
   confirma DESDE EL ERP (`confirmarEnvio`: TikTok envía por paquete) y
   descuenta en el mismo clic. Cron cada 15 min como red de seguridad.
+  **Despacho por CORTES** (`tiktok-despacho.ts`, `/tiktok/despacho`): "hacer
+  corte" confirma en TikTok todos los pendientes de un jalón (TikTok no da la
+  guía hasta confirmar), guarda el corte con sus pedidos (`tiktok_cortes`,
+  `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
+  de TikTok unidas con `pdf-lib` en orden modelo → color → talla y "#n · SKU"
+  estampado abajo a la derecha (nada más se toca), y la lista de empaque en
+  el mismo orden con los mismos números. El siguiente corte solo toma lo que
+  no tiene corte.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
@@ -213,7 +221,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes y padres en `src/lib/amazon/catalogo.ts`) |
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
-| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla) |
+| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |

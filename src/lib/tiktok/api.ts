@@ -399,3 +399,10 @@ export async function proveedoresDeEnvio(c: Cliente): Promise<ProveedorEnvio[]> 
     nombre: String(p.name ?? p.id),
   }));
 }
+
+/** Qué renglones del pedido van en un paquete (para pedidos de varios paquetes). */
+export async function renglonesDelPaquete(c: Cliente, packageId: string): Promise<string[]> {
+  const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}`);
+  const ids = d?.order_line_item_ids ?? d?.line_item_ids ?? [];
+  return (ids as unknown[]).map(String);
+}
