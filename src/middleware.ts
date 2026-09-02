@@ -51,6 +51,8 @@ export async function middleware(request: NextRequest) {
     // El de TikTok también: el rebote al login tira el ?code= de la URL y
     // el usuario aterriza en el callback sin nada que canjear.
     ruta.startsWith("/api/tiktok/callback") ||
+    // Los avisos de TikTok llegan sin sesión; la ruta verifica su firma.
+    ruta.startsWith("/api/tiktok/webhook") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
     // Las mismas dos puertas para la cuenta de YAPANIZCEL: el callback de

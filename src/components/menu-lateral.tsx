@@ -17,6 +17,7 @@ import {
   Menu,
   Package,
   PackageCheck,
+  Printer,
   ReceiptText,
   RefreshCw,
   Scale,
@@ -88,6 +89,7 @@ const GRUPOS: Grupo[] = [
     titulo: "TikTok Shop",
     entradas: [
       { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
       { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
     ],
   },
