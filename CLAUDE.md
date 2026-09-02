@@ -189,7 +189,9 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   decisión del dueño. Fixture real en `fixtures/yz-inventario.xlsx`.
 - **El amarre de SKUs va por niveles y los inseguros solo se PROPONEN**
   (`yapanizcel/sku.ts`): exacto → canónico → aplastado se aplican solos; la
-  letra suelta de más (`499N` vs `499`) y las piezas en otro orden se sugieren
+  N o C antes del diseño (`N-462-A06` = `462-A06`) y el color escrito distinto
+  (black/blk, navy/blue, fucsia/fuchsia; `FAMILIAS_COLOR`) se amarran solos
+  por decisión del dueño; otros prefijos (CH-, R-) y las piezas en otro orden se sugieren
   en `/yapanizcel/skus` y se confirman con un clic (escribe `yz_mapeo_skus`).
   Un empate NUNCA se resuelve solo. Ignorados en `yz_skus_ignorados`.
 - **Costos por MODELO desde un Excel** (MODELO, COSTO) en `yz_costos`; se

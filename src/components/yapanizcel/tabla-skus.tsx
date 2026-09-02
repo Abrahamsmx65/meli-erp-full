@@ -12,6 +12,7 @@ const ETIQUETA: Record<NivelAmarre, string> = {
   canonico: "Mayúsculas/guiones",
   aplastado: "Guion movido",
   prefijo_nc: "N o C de más",
+  color: "Color escrito distinto",
   prefijo: "Prefijo distinto",
   nucleo: "Letra de más",
   ordenado: "Otro orden",

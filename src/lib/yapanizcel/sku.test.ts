@@ -204,3 +204,38 @@ describe("prefijo N o C antes del diseño (caso real del sheet)", () => {
     expect(amarrar("367-PocoC40", idx).nivel).not.toBe("prefijo_nc");
   });
 });
+
+describe("color escrito distinto (black/blk, navy/blue)", () => {
+  const indice = construirIndice(["380-A11-blk", "412-A11-navy", "439-S25-fuchsia", "N-462-A06-blue"]);
+
+  it("black amarra con blk", () => {
+    const r = amarrar("380-A11-black", indice);
+    expect(r.nivel).toBe("color");
+    expect(esAutomatico(r.nivel)).toBe(true);
+    expect(r.skuMeli).toBe("380-A11-blk");
+  });
+
+  it("blue amarra con navy y fucsia con fuchsia", () => {
+    expect(amarrar("412-A11-blue", indice).skuMeli).toBe("412-A11-navy");
+    expect(amarrar("439-S25-fucsia", indice).skuMeli).toBe("439-S25-fuchsia");
+  });
+
+  it("se combina con la N de más", () => {
+    expect(amarrar("462-A06-navy", indice).skuMeli).toBe("N-462-A06-blue");
+  });
+
+  it("si MELI tiene navy Y blue del mismo modelo, es empate", () => {
+    const idx = construirIndice(["412-A11-navy", "412-A11-blue"]);
+    // "blue" existe tal cual: exacto, no hay duda.
+    expect(amarrar("412-A11-blue", idx).nivel).toBe("exacto");
+    // "azul" no existe y las dos son de su familia: empate.
+    const r = amarrar("412-A11-azul", idx);
+    expect(r.ambiguo).toBe(true);
+    expect(r.skuMeli).toBeNull();
+  });
+
+  it("gold no es beige ni mint es green: sin amarre", () => {
+    const idx = construirIndice(["380-A11-gold"]);
+    expect(amarrar("380-A11-beige", idx).skuMeli).toBeNull();
+  });
+});

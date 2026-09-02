@@ -21,13 +21,17 @@
  *              ("N-462-A06" contra "462-A06", "C-367-PocoC40" contra
  *              "367-PocoC40", "499N-…" contra "499-…"). Se aplica solo por
  *              decisión del dueño: en su catálogo esa N o C es la misma funda.
+ *   color      igual si el color se escribe distinto pero es el mismo:
+ *              black/blk/negro, blue/blu/navy/azul, fuchsia/fucsia… Familias
+ *              CONFIRMADAS por el dueño (black↔blk, navy↔blue); se aplica
+ *              solo, y si hay dos candidatos sigue siendo empate.
  *   -- de aquí para abajo son SUGERENCIAS, no amarres --
  *   prefijo    igual si se ignora CUALQUIER prefijo corto ("CH-650-i11",
  *              "R-514-…"). Esos sí pueden ser otra cosa: se proponen.
  *   nucleo     igual si se ignora cualquier letra suelta en cualquier lugar.
  *   ordenado   las mismas piezas en otro orden.
  *
- * Los cuatro primeros se aplican solos. Los demás se proponen en la
+ * Los cinco primeros se aplican solos. Los demás se proponen en la
  * pantalla de SKUs y se confirman con un clic, que escribe un mapeo manual.
  * Un empate (dos SKUs de MELI para la misma clave) NUNCA se resuelve solo,
  * ni en un nivel automático.
@@ -123,6 +127,45 @@ export function piezasSinPrefijo(s: string, letras?: readonly string[]): string[
 
 export const PREFIJOS_AUTOMATICOS: readonly string[] = ["N", "C"];
 
+/**
+ * Familias de color: cómo se escribe el mismo color en bodega y en MELI.
+ * La primera de cada lista es la forma con la que se compara. Solo entran
+ * pares que el dueño confirmó o que son la misma palabra en dos idiomas;
+ * nada de adivinar (gold no es beige, mint no es green).
+ */
+export const FAMILIAS_COLOR: readonly (readonly string[])[] = [
+  ["BLK", "BLACK", "NEGRO", "NEGRA"],
+  ["BLUE", "BLU", "BL", "NAVY", "AZUL"],
+  ["FUCHSIA", "FUCSIA"],
+  ["TRANSPARENT", "TRANSPARENTE", "CLEAR"],
+  ["PURPLE", "MORADO", "MORADA", "LILA", "LILAC"],
+  ["PINK", "ROSA", "ROSADO"],
+  ["RED", "ROJO", "ROJA"],
+  ["WHITE", "BLANCO", "BLANCA"],
+  ["GREEN", "VERDE"],
+  ["GREY", "GRAY", "GRIS"],
+  ["GOLD", "DORADO", "ORO"],
+  ["SILVER", "PLATA", "PLATEADO"],
+  ["BROWN", "CAFE"],
+  ["YELLOW", "AMARILLO"],
+  ["ORANGE", "NARANJA"],
+];
+
+const COLOR_CANONICO: ReadonlyMap<string, string> = new Map(
+  FAMILIAS_COLOR.flatMap((familia) => familia.map((c) => [c, familia[0]] as [string, string])),
+);
+
+/** Clave sin prefijo N/C y con el color de la última pieza llevado a su familia. */
+export function claveColor(s: string): string {
+  const p = piezasSinPrefijo(s, PREFIJOS_AUTOMATICOS);
+  if (p.length >= 2) {
+    const ultima = p[p.length - 1];
+    const familia = COLOR_CANONICO.get(ultima);
+    if (familia) p[p.length - 1] = familia;
+  }
+  return p.join("");
+}
+
 /** Clave sin la N o la C suelta antes del diseño. Nivel automático. */
 export function clavePrefijoNC(s: string): string {
   return piezasSinPrefijo(s, PREFIJOS_AUTOMATICOS).join("");
@@ -148,6 +191,7 @@ export type NivelAmarre =
   | "canonico"
   | "aplastado"
   | "prefijo_nc"
+  | "color"
   | "prefijo"
   | "nucleo"
   | "ordenado"
@@ -160,6 +204,7 @@ export const NIVELES_AUTOMATICOS: ReadonlySet<NivelAmarre> = new Set<NivelAmarre
   "canonico",
   "aplastado",
   "prefijo_nc",
+  "color",
 ]);
 
 export function esAutomatico(nivel: NivelAmarre): boolean {
@@ -186,6 +231,7 @@ export interface IndiceSkus {
   canonicos: Map<string, string[]>;
   aplastados: Map<string, string[]>;
   prefijosNC: Map<string, string[]>;
+  colores: Map<string, string[]>;
   prefijos: Map<string, string[]>;
   nucleos: Map<string, string[]>;
   ordenados: Map<string, string[]>;
@@ -204,6 +250,7 @@ export function construirIndice(skusMeli: Iterable<string>): IndiceSkus {
     canonicos: new Map(),
     aplastados: new Map(),
     prefijosNC: new Map(),
+    colores: new Map(),
     prefijos: new Map(),
     nucleos: new Map(),
     ordenados: new Map(),
@@ -215,6 +262,7 @@ export function construirIndice(skusMeli: Iterable<string>): IndiceSkus {
     agregar(idx.canonicos, claveCanonica(sku), sku);
     agregar(idx.aplastados, claveAplastada(sku), sku);
     agregar(idx.prefijosNC, clavePrefijoNC(sku), sku);
+    agregar(idx.colores, claveColor(sku), sku);
     agregar(idx.prefijos, clavePrefijo(sku), sku);
     agregar(idx.nucleos, claveNucleo(sku), sku);
     agregar(idx.ordenados, claveOrdenada(sku), sku);
@@ -249,6 +297,7 @@ export function amarrar(
     ["canonico", indice.canonicos, claveCanonica(sku)],
     ["aplastado", indice.aplastados, claveAplastada(sku)],
     ["prefijo_nc", indice.prefijosNC, clavePrefijoNC(sku)],
+    ["color", indice.colores, claveColor(sku)],
     ["prefijo", indice.prefijos, clavePrefijo(sku)],
     ["nucleo", indice.nucleos, claveNucleo(sku)],
     ["ordenado", indice.ordenados, claveOrdenada(sku)],
