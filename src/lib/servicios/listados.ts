@@ -300,7 +300,7 @@ export interface PlanUnificacion {
 
 /** Reenvía un atributo tal cual vino: en el PUT de variantes hay que mandar
  *  el arreglo completo, y lo que no cambia debe regresar idéntico. */
-function pasarAtributo(a: AtributoCrudo): Record<string, unknown> {
+export function pasarAtributo(a: AtributoCrudo): Record<string, unknown> {
   const out: Record<string, unknown> = { id: a.id };
   if (a.value_id != null) out.value_id = a.value_id;
   if (a.value_name != null) out.value_name = a.value_name;
@@ -410,7 +410,7 @@ export function armarPlanUnificacion(
 
 /** Baja publicaciones COMPLETAS (sin proyección: recortaría los atributos
  *  de las variantes, la misma trampa documentada en meli/sync.ts). */
-async function traerItemsCrudos(
+export async function traerItemsCrudos(
   c: MeliClient,
   ids: string[],
 ): Promise<{ items: Map<string, ItemCrudo>; lotesFallidos: number }> {
@@ -509,7 +509,7 @@ export interface ResultadoUnificacion {
 
 /** El mensaje real de MELI, no el "HTTP 400" genérico: sin él no se puede
  *  saber si rechazó el valor, el atributo o la publicación entera. */
-function mensajeMeli(err: unknown): string {
+export function mensajeMeli(err: unknown): string {
   if (err instanceof MeliError) {
     const c = err.cuerpo as { message?: string; cause?: { code?: string; message?: string }[] } | undefined;
     const causas = Array.isArray(c?.cause)
