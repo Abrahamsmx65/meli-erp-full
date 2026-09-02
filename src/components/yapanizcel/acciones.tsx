@@ -272,7 +272,7 @@ export function FormularioParametros({
     <form onSubmit={enviar} className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
         {campo("diasVenta", "Días de venta que se miden", "La ventana con la que se calcula la venta diaria (30).")}
-        {campo("diasObjetivo", "Días de cobertura en Full", "Cuántos días de venta se quieren dejar en Full (30).")}
+        {campo("diasObjetivo", "Días de cobertura en Full", "Cuántos días de venta se quieren dejar en Full (15: el espacio en Full es poco).")}
         {campo("multiploEnvio", "Múltiplo de envío", "Las unidades se mandan en múltiplos de esto (10 = decenas cerradas).")}
         {campo("minimoEnvio", "Mínimo por SKU", "Debajo de esto no se manda nada de ese SKU.")}
         {campo("diasCaducidadEnvio", "Días que cuenta un envío", "Un envío registrado deja de contar como «en camino» después de estos días.")}

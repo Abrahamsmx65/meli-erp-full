@@ -177,7 +177,8 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 - **No hay cajas ni corridas.** La funda es unidad suelta. El SKU es
   `DISEÑO-MODELO(-COLOR)` donde "modelo" es el del CELULAR y "diseño" el de la
   funda (499, 501…). Los pedidos a China se ven POR DISEÑO.
-- **A Full se manda en DECENAS CERRADAS** (`multiplo_envio`, 10): la falta se
+- **A Full se manda en DECENAS CERRADAS** (`multiplo_envio`, 10) y para
+  **15 días de cobertura** (`dias_objetivo`; hay poco espacio en Full): la falta se
   redondea ARRIBA a decena y se topa ABAJO por lo que hay en bodega. Menos de
   una decena en bodega = no se manda. Motor puro en `yapanizcel/plan.ts`.
   La venta diaria pesa 50% la última semana, 30% la anterior y 20% el resto

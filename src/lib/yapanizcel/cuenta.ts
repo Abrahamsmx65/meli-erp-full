@@ -124,7 +124,10 @@ export interface ParametrosYz {
 
 export const PARAMETROS_POR_OMISION: ParametrosYz = {
   diasVenta: 30,
-  diasObjetivo: 30,
+  // 15 días de cobertura en Full, no 30: el espacio en Full es poco y el
+  // dueño prefiere mandar seguido a tener de más. La venta se sigue midiendo
+  // con 30 días para que una semana rara no mueva el cálculo.
+  diasObjetivo: 15,
   // A Full se manda en DECENAS CERRADAS: es regla de la operación, no un
   // redondeo cosmético.
   multiploEnvio: 10,

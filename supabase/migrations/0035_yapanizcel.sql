@@ -272,7 +272,7 @@ create table if not exists yz_envio_lineas (
 create table if not exists yz_parametros (
   account_id            uuid primary key references yz_cuentas (id) on delete cascade,
   dias_venta            int not null default 30,  -- ventana que mide la venta
-  dias_objetivo         int not null default 30,  -- cobertura que se quiere dejar en Full
+  dias_objetivo         int not null default 15,  -- cobertura que se quiere dejar en Full (poco espacio en Full)
   multiplo_envio        int not null default 10,  -- decenas cerradas
   minimo_envio          int not null default 10,  -- nada de mandar de a 1
   dias_caducidad_envio  int not null default 10,  -- cuándo deja de contar un envío
