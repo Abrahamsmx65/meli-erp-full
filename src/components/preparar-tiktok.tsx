@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Circle, ScanLine } from "lucide-react";
+import { CheckCircle2, Circle, ScanLine, Volume2, VolumeX } from "lucide-react";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
-import { avanzar, darPorBueno, estadoInicial, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
 
 /**
  * Pitidos sin archivos: agudo si bien —uno por par: dos pares, dos
@@ -35,6 +35,27 @@ function pitar(bien: boolean, veces = 1) {
 }
 
 /**
+ * La bocina dice cuántos pares y de qué, con la voz en español del propio
+ * navegador. Corta lo que estuviera diciendo: el siguiente escaneo manda.
+ */
+function hablar(texto: string) {
+  try {
+    const s = window.speechSynthesis;
+    if (!s) return;
+    s.cancel();
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = "es-MX";
+    const voz = s.getVoices().find((v) => v.lang.toLowerCase().startsWith("es-mx")) ??
+      s.getVoices().find((v) => v.lang.toLowerCase().startsWith("es"));
+    if (voz) u.voice = voz;
+    u.rate = 1.05;
+    s.speak(u);
+  } catch {
+    /* sin voz, sin drama */
+  }
+}
+
+/**
  * La estación de preparar: un solo campo que recibe lo que dispare el
  * escáner (el escáner teclea el código y manda Enter). La lógica de qué
  * sigue vive en `avanzar`, probada aparte; aquí solo se muestra y se guarda.
@@ -54,7 +75,29 @@ export function PrepararTikTok({
   const [preparados, setPreparados] = useState<Set<number>>(new Set(preparadosIniciales));
   const [codigo, setCodigo] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [voz, setVoz] = useState(true);
   const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      setVoz(localStorage.getItem("tiktok-voz") !== "no");
+      // Algunos navegadores cargan las voces tarde: pedirlas una vez las despierta.
+      window.speechSynthesis?.getVoices();
+    } catch {
+      /* sin localStorage, la voz queda encendida */
+    }
+  }, []);
+
+  function alternarVoz() {
+    setVoz((v) => {
+      try {
+        localStorage.setItem("tiktok-voz", v ? "no" : "si");
+      } catch {
+        /* nada */
+      }
+      return !v;
+    });
+  }
 
   useEffect(() => {
     input.current?.focus();
@@ -64,10 +107,23 @@ export function PrepararTikTok({
     setCodigo("");
     if (siguiente.error) {
       pitar(false);
+      if (voz) hablar("No cuadra");
       setEstado(siguiente);
       return;
     }
     pitar(true, siguiente.pitidos);
+
+    // Al identificar el paquete (llegar a "producto" desde otro paso o con
+    // otro paquete), la bocina dice cuántos pares y de qué.
+    const recienIdentificado =
+      siguiente.paso === "producto" &&
+      siguiente.paquete &&
+      (estado.paso !== "producto" || estado.paquete?.numero !== siguiente.paquete.numero);
+    if (voz && recienIdentificado && siguiente.paquete) {
+      window.setTimeout(() => hablar(fraseParaVoz(siguiente.paquete as NonNullable<typeof siguiente.paquete>)), siguiente.pitidos * 160);
+    } else if (voz && siguiente.paso === "listo") {
+      hablar("Listo");
+    }
 
     if (siguiente.paso === "listo" && siguiente.paquete) {
       setGuardando(true);
@@ -108,11 +164,24 @@ export function PrepararTikTok({
   return (
     <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
       <section className="tarjeta p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Corte #{numero}</h2>
-          <span className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
-            {hechos} / {paquetes.length} preparados
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={alternarVoz}
+              aria-pressed={voz}
+              title={voz ? "Silenciar la voz" : "Encender la voz"}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-xs"
+              style={{ borderColor: "var(--grid)", color: voz ? "var(--acento)" : "var(--ink-2)" }}
+            >
+              {voz ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              {voz ? "Voz" : "Sin voz"}
+            </button>
+            <span className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
+              {hechos} / {paquetes.length} preparados
+            </span>
+          </div>
         </div>
 
         <div

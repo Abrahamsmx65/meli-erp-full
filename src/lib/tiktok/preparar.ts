@@ -17,7 +17,7 @@
  * Es una función pura sobre el estado: el navegador le manda cada código y
  * ella dice qué sigue, qué falló y cuántas veces pitar.
  */
-import { codigoDeHoja, parsearCodigoDeHoja, type PaqueteNumerado } from "./despacho";
+import { codigoDeHoja, parsearCodigoDeHoja, partirSku, type PaqueteNumerado } from "./despacho";
 
 export type Paso = "inicio" | "etiqueta" | "producto" | "listo";
 
@@ -210,4 +210,30 @@ export function darPorBueno(estado: EstadoEscaneo): EstadoEscaneo {
   const faltantes = estado.faltantes.map((x) => (!x.fnsku ? { ...x, faltan: 0 } : x));
   const escaneos = [...estado.escaneos, ...manuales.map((m) => `MANUAL:${m.sku}×${m.faltan}`)];
   return cerrarSiListo({ ...estado, faltantes, escaneos, pitidos: 1 });
+}
+
+// ---------------------------------------------------------------------------
+// Lo que dice la bocina
+// ---------------------------------------------------------------------------
+
+/** "GT135" → "G T 135": las letras sueltas se leen letra por letra, el número de corrido. */
+function modeloHablado(modelo: string): string {
+  return modelo.replace(/([A-Z]+)(\d+)/i, (_m, letras: string, num: string) => `${letras.split("").join(" ")} ${num}`);
+}
+
+/**
+ * La frase que se lee en voz alta al identificar el paquete: cuántos pares
+ * y de qué. Corta, porque el que empaca ya tiene la caja en la mano.
+ */
+export function fraseParaVoz(p: PaqueteNumerado): string {
+  return p.pares
+    .map((x) => {
+      const { modelo, color, talla } = partirSku(x.sku);
+      const n = x.pares;
+      const pedazos = [`${n} ${n === 1 ? "par" : "pares"}`, modeloHablado(modelo)];
+      if (color) pedazos.push(color.toLowerCase());
+      if (talla) pedazos.push(`talla ${talla}`);
+      return pedazos.join(", ");
+    })
+    .join(". ");
 }

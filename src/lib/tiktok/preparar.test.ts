@@ -141,3 +141,20 @@ describe("sin FNSKU: solo lo cierra 'Dar por bueno'", () => {
     expect(bloqueado.error).toMatch(/sí tiene FNSKU/);
   });
 });
+
+describe("la bocina", () => {
+  it("dice cuántos pares y de qué, con el modelo letra por letra", async () => {
+    const { fraseParaVoz } = await import("./preparar");
+    const [dos] = numerarPaquetes([
+      { orderId: "x", packageId: "p", destinatario: null, pares: [{ sku: "GT135-DK BROWN-26", pares: 2, fnsku: "F" }] },
+    ]);
+    expect(fraseParaVoz(dos)).toBe("2 pares, G T 135, dk brown, talla 26");
+  });
+  it("con dos productos los dice uno tras otro", async () => {
+    const { fraseParaVoz } = await import("./preparar");
+    const [p] = numerarPaquetes([
+      { orderId: "x", packageId: "p", destinatario: null, pares: [{ sku: "GT114-BEIGE-23-MX", pares: 1, fnsku: "A" }, { sku: "GT114-BLK-25-MX", pares: 1, fnsku: "B" }] },
+    ]);
+    expect(fraseParaVoz(p)).toBe("1 par, G T 114, beige, talla 23. 1 par, G T 114, blk, talla 25");
+  });
+});
