@@ -5,6 +5,7 @@ import {
   datosEvidencia,
   filasSolicitudMeli,
   huellaEvidencia,
+  medidaEntera,
   rutaEvidencia,
   siteDeItem,
   textoCaja,
@@ -67,10 +68,13 @@ describe("el Excel que pide MELI", () => {
       expect(f.largo).toBeGreaterThanOrEqual(f.ancho);
       expect(f.ancho).toBeGreaterThanOrEqual(f.alto);
       expect(f.alto).toBeLessThan(12); // la caja acostada, no la parada
-      expect(Number.isInteger(f.peso)).toBe(true);
+      // El formato de MELI no acepta decimales: cm y g completos, hacia abajo.
+      for (const n of [f.largo, f.ancho, f.alto, f.peso]) expect(Number.isInteger(n)).toBe(true);
       expect(f.malas).toBe(1);
       expect(f.evidencia).toBe("");
     }
+    // El consenso es 27.5 × 24.2 × 10 y 520 g: se pide 27 × 24 × 10, no 28.
+    expect([filas[0].largo, filas[0].ancho, filas[0].alto, filas[0].peso]).toEqual([27, 24, 10, 520]);
     expect(filas[0].skus).toEqual(["GT229-TAB-24"]);
     expect(filas[0].sobrecosto).toBeCloseTo(101.5);
     expect(filas[1].skus).toEqual(["GT229-DK-26"]);
@@ -102,6 +106,15 @@ describe("el Excel que pide MELI", () => {
     expect(filasSolicitudMeli(armarRevision(sinItem), "MLM").map((f) => f.itemId)).toEqual(["MLM300"]);
   });
 
+  it("redondea hacia abajo, nunca hacia arriba", () => {
+    expect(medidaEntera({ largo: 27.9, ancho: 24.01, alto: 10, peso: 519.6 })).toEqual({
+      largo: 27,
+      ancho: 24,
+      alto: 10,
+      peso: 519,
+    });
+  });
+
   it("el site sale del prefijo del Item ID y si no, del de la cuenta", () => {
     expect(siteDeItem("MLM1234567", "MLA")).toBe("MLM");
     expect(siteDeItem("mlb99", "MLM")).toBe("MLB");
@@ -123,6 +136,8 @@ describe("la ficha de evidencia", () => {
     expect(d.itemsMalos).toEqual(["MLM300", "MLM200"]);
     expect(d.hermanas).toBe(9);
     expect(d.fecha).toContain("2026");
+    // La ficha enseña la misma medida entera que va en el Excel.
+    expect(d.medidaReal).toEqual({ largo: 27, ancho: 24, alto: 10, peso: 520 });
     // La caja parada se enseña ya acostada: los lados de mayor a menor.
     expect(d.renglones[1].medida).toBe("36.6 × 29.4 × 11.2");
     expect(d.renglones[0].midioMeli).toBe(true);

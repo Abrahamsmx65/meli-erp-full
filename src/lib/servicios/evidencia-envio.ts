@@ -49,8 +49,22 @@ export interface FilaSolicitudMeli {
   sobrecosto: number;
 }
 
-/** Un decimal: las medidas de consenso son medianas de lo que midió MELI. */
+/** Un decimal, para enseñar lo que MELI tiene registrado tal cual. */
 const unDecimal = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * La medida que se le PIDE a MELI va en centímetros y gramos completos,
+ * redondeados hacia abajo: su formato no acepta decimales, y una caja de
+ * 27.5 se pide como 27, nunca como 28 (pedir de más es pagar de más).
+ */
+export function medidaEntera(m: Medida): Medida {
+  return {
+    largo: Math.floor(m.largo),
+    ancho: Math.floor(m.ancho),
+    alto: Math.floor(m.alto),
+    peso: Math.floor(m.peso),
+  };
+}
 
 /**
  * El site sale del prefijo del Item ID (MLM1234 → MLM). Se prefiere al de la
@@ -85,14 +99,15 @@ export function filasSolicitudMeli(
       if (lista) lista.push(v);
       else porItem.set(v.itemId, [v]);
     }
+    const entera = medidaEntera(m.medidaReal);
     for (const [itemId, malas] of porItem) {
       salida.push({
         itemId,
         site: siteDeItem(itemId, site),
-        largo: unDecimal(m.medidaReal.largo),
-        alto: unDecimal(m.medidaReal.alto),
-        ancho: unDecimal(m.medidaReal.ancho),
-        peso: Math.round(m.medidaReal.peso),
+        largo: entera.largo,
+        alto: entera.alto,
+        ancho: entera.ancho,
+        peso: entera.peso,
         evidencia: evidencias.get(m.modelo) ?? "",
         modelo: m.modelo,
         skus: malas.map((v) => v.sku),
@@ -129,6 +144,7 @@ export interface DatosEvidencia {
    * huella es la URL; al dibujar se sustituye por la imagen ya bajada (data URI).
    */
   imagen: string | null;
+  /** la medida que se pide, ya en cm y g enteros (la misma del Excel) */
   medidaReal: Medida;
   /** cuántas publicaciones sostienen la medida de consenso */
   hermanas: number;
@@ -186,7 +202,7 @@ export function datosEvidencia(
   return {
     modelo: m.modelo,
     imagen,
-    medidaReal: m.medidaReal,
+    medidaReal: medidaEntera(m.medidaReal),
     hermanas: m.hermanas,
     costoNormal: m.costoNormal,
     renglones: [...malas, ...buenas.slice(0, cupo)],

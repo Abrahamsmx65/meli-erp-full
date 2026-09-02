@@ -35,6 +35,8 @@ const NEGRITA = "Condensada";
 const pesos = (n: number | null) =>
   n == null ? "—" : `$${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// La medida real ya llega en enteros (la misma que va en el Excel); esto
+// solo evita que un número salga con cola de coma flotante.
 const unDecimal = (n: number) => String(Math.round(n * 10) / 10);
 
 /** Cajita isométrica con los tres lados rotulados. */
@@ -172,7 +174,7 @@ export function FichaEvidencia({ d }: { d: DatosEvidencia }) {
             {`Medida real de la caja: ${unDecimal(m.largo)} × ${unDecimal(m.ancho)} × ${unDecimal(m.alto)} cm · ${Math.round(m.peso)} g`}
           </div>
           <div style={{ display: "flex", color: TINTA_2 }}>
-            {`Todas las tallas del modelo ${d.modelo} van en la misma caja. Mercado Libre midió ${d.hermanas} publicaciones al recibirlas en Full y esa es la medida que se repite (mediana lado por lado).`}
+            {`Todas las tallas del modelo ${d.modelo} van en la misma caja. Mercado Libre midió ${d.hermanas} publicaciones al recibirlas en Full y esa es la medida que se repite (mediana lado por lado, en centímetros completos).`}
           </div>
           <div style={{ display: "flex", marginTop: 12, color: ROJO, fontFamily: NEGRITA }}>
             {`${malas} ${malas === 1 ? "publicación quedó registrada" : "publicaciones quedaron registradas"} con otra medida y ${malas === 1 ? "cobra" : "cobran"} un envío mayor en cada venta`}
