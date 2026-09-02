@@ -356,8 +356,6 @@ async function procesarPedidos(
     );
   }
 
-  await reconstruirVentasDiarias(admin, accountId);
-
   return {
     salidas: movimientos.filter((m) => m.tipo === "salida").length,
     devoluciones: movimientos.filter((m) => m.tipo === "devolucion").length,
@@ -391,6 +389,7 @@ export async function sincronizarPedidosPorId(
 
   const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
   await recalcularSaldos(admin, accountId);
+  if (pedidos.length) await reconstruirVentasDiarias(admin, accountId).catch(() => undefined);
   const pub = await publicarDisponibilidad(admin, accountId, cliente);
   avisos.push(...pub.avisos);
 
@@ -521,6 +520,15 @@ export async function sincronizarTikTok(
 
   const procesado = await procesarPedidos(admin, accountId, pedidos, amarrar);
   const { salidas, devoluciones, sinAmarre } = procesado;
+
+  // Las ventas por día se rehacen en CADA corrida, traiga o no pedidos: si
+  // solo se rehicieran con pedidos nuevos, una corrección (como la del día
+  // en hora de México) esperaría hasta la siguiente venta para verse.
+  try {
+    await reconstruirVentasDiarias(admin, accountId);
+  } catch (err) {
+    avisos.push(`Ventas por día: ${(err as Error).message}`);
+  }
 
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
