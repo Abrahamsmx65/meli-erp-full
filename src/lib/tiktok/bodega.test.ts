@@ -131,3 +131,47 @@ describe("movimientosDesdeAcumulado", () => {
     expect(movimientosDesdeAcumulado(new Map([["A", 3]]), [], FOTO)[0].referencia).toBe(ref(FOTO));
   });
 });
+
+describe("conciliarAcumulado: cuando el 3PL descuenta lo que le mandamos", () => {
+  const FOTO = "2026-09-03T14:00:00.000Z";
+  const ref = (f: string) => `${REFERENCIA_INDUSTHER}${f}`;
+  const entrada100: Movimiento[] = [
+    { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+    { sku: "A", tipo: "salida", cantidad: 3, referencia: "5770", fecha: "2026-09-02T10:00:00Z" },
+  ];
+  const vacio = () => new Map<string, number>();
+
+  it("el 3PL bajó a 97 por nuestras 3 salidas pendientes: se atribuyen, no es merma", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["A", 97]]), entrada100, FOTO, { confirmadas: vacio(), pendientes: new Map([["A", 3]]) });
+    expect(r.movimientos).toEqual([]);
+    expect(r.atribuidas.get("A")).toBe(3);
+  });
+
+  it("bajó 5 con solo 3 pendientes: 3 se atribuyen y 2 son merma", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["A", 95]]), entrada100, FOTO, { confirmadas: vacio(), pendientes: new Map([["A", 3]]) });
+    expect(r.atribuidas.get("A")).toBe(3);
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku: "A", tipo: "merma", cantidad: 2 })]);
+  });
+
+  it("con el ack del endpoint (3 confirmadas) y el 3PL en 97, no hay nada que mover", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["A", 97]]), entrada100, FOTO, { confirmadas: new Map([["A", 3]]), pendientes: vacio() });
+    expect(r.movimientos).toEqual([]);
+    expect(r.atribuidas.size).toBe(0);
+  });
+
+  it("si el 3PL todavía NO descontó (sigue en 100) y nada está confirmado, tampoco se mueve nada", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["A", 100]]), entrada100, FOTO, { confirmadas: vacio(), pendientes: new Map([["A", 3]]) });
+    expect(r.movimientos).toEqual([]);
+    expect(r.atribuidas.size).toBe(0);
+  });
+
+  it("una subida sigue siendo entrada aunque haya salidas pendientes", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["A", 120]]), entrada100, FOTO, { confirmadas: vacio(), pendientes: new Map([["A", 3]]) });
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku: "A", tipo: "entrada", cantidad: 20 })]);
+  });
+});
