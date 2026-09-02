@@ -144,6 +144,16 @@ guárdala numerada.
   `tiktok_preparaciones.escaneos`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
+  `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
+  del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
+  solo la diferencia entra al kardex como `ajuste` con referencia
+  `conteo:<fecha>`, y en el mismo clic se publica a TikTok pasando por
+  `sincronizarTikTok` con `soloPedidos` (regla de oro). Contar un MODELO
+  COMPLETO deja en cero lo que no apareció, con confirmación explícita.
+  La sincronización lleva candado (`candados_trabajo`, recurso
+  `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
+  simula el corte; Pendientes grita los saldos negativos.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya

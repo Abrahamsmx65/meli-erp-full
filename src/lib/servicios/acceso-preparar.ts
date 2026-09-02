@@ -10,9 +10,11 @@
  * `acceso-contenido.ts`.
  *
  * Alcance, acotado a propósito: con el link se ven los cortes de TikTok
- * (número, renglones, SKU, pedido, destinatario) y se marcan paquetes como
- * preparados. No alcanza ventas, inventario, costos, ni hacer cortes, ni
- * ninguna otra pantalla.
+ * (número, renglones, SKU, pedido, destinatario), se marcan paquetes como
+ * preparados y se hace el CONTEO CÍCLICO del almacén de TikTok (escribe
+ * `ajuste` en el kardex de TikTok y publica el disponible, decisión del
+ * dueño: los que cuentan son los que empacan). No alcanza ventas, costos,
+ * los otros almacenes, ni hacer cortes, ni ninguna otra pantalla.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { clienteAdmin } from "../supabase/server";

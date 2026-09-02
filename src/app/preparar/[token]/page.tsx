@@ -28,7 +28,12 @@ export default async function CortesPublicos({ params }: { params: Promise<{ tok
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
       <h1 className="text-xl font-semibold">Preparar pedidos · TikTok</h1>
-      <p className="text-sm" style={{ color: "var(--ink-2)" }}>Elige el corte que vas a preparar.</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm" style={{ color: "var(--ink-2)" }}>Elige el corte que vas a preparar.</p>
+        <Link href={`/preparar/${token}/conteo`} className="text-sm underline" style={{ color: "var(--acento)" }}>
+          Conteo cíclico →
+        </Link>
+      </div>
       <ul className="tarjeta divide-y overflow-hidden">
         {(cortes ?? []).map((c: any) => {
           const h = hechos.get(c.id) ?? 0;
