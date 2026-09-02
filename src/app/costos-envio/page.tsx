@@ -2,6 +2,7 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { leerRevision } from "@/lib/servicios/costos-envio";
+import { leerEvidencias } from "@/lib/servicios/evidencia-envio-generar";
 import { CostosEnvio } from "@/components/costos-envio";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,10 @@ export default async function PaginaCostosEnvio() {
     );
   }
 
-  const modelos = await leerRevision(supabase, cuenta.id);
+  const [modelos, evidencias] = await Promise.all([
+    leerRevision(supabase, cuenta.id),
+    leerEvidencias(supabase, cuenta.id),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,11 +37,12 @@ export default async function PaginaCostosEnvio() {
           tallas pagan $88.50 y dos pagan $139.50 y $190 por la misma pantufla. Aquí se
           compara cada publicación contra sus hermanas del mismo modelo —que son la misma
           caja— y sale la lista de las que están mal, con las dos medidas juntas para
-          abrir el caso.
+          abrir el caso. Para la solicitud, MELI pide su Excel (Item ID, Site y la medida
+          correcta) y un link a una imagen de evidencia por modelo: las dos cosas salen de aquí.
         </p>
       </div>
 
-      <CostosEnvio modelos={modelos} />
+      <CostosEnvio modelos={modelos} evidencias={Object.fromEntries(evidencias)} />
     </div>
   );
 }

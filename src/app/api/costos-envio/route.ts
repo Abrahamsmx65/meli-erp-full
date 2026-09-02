@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { calcularCostos, leerRevision, sincronizarMedidas } from "@/lib/servicios/costos-envio";
+import { leerEvidencias } from "@/lib/servicios/evidencia-envio-generar";
 
 export const dynamic = "force-dynamic";
 // Cada pasada es CORTA a propósito. La primera versión hacía todo el trabajo
@@ -23,8 +24,11 @@ export async function GET() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
 
-  const modelos = await leerRevision(supabase, cuenta.id);
-  return NextResponse.json({ ok: true, modelos });
+  const [modelos, evidencias] = await Promise.all([
+    leerRevision(supabase, cuenta.id),
+    leerEvidencias(supabase, cuenta.id),
+  ]);
+  return NextResponse.json({ ok: true, modelos, evidencias: Object.fromEntries(evidencias) });
 }
 
 /**

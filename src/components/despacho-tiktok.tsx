@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Printer, Scissors } from "lucide-react";
+import Link from "next/link";
+import { FileText, Printer, ScanLine, Scissors } from "lucide-react";
 
 export interface CorteResumen {
   id: number;
@@ -12,6 +13,8 @@ export interface CorteResumen {
   pares: number;
   handover: string;
   errores: { orderId: string; error: string }[];
+  /** paquetes que ya pasaron los tres escaneos */
+  preparados: number;
 }
 
 function cuando(iso: string): string {
@@ -98,7 +101,8 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         <h2 className="px-4 pt-4 text-sm font-semibold">Cortes</h2>
         <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
           Etiquetas y lista van en orden de modelo → color → talla, con el mismo número en las dos.
-          En la etiqueta el número y el SKU van abajo a la derecha.
+          En la etiqueta, abajo a la derecha, van el número, el SKU con su cantidad y el código de
+          barras del producto (FNSKU). En la lista, cada renglón trae su código para escanear.
         </p>
         <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
           {cortes.map((c) => (
@@ -109,6 +113,15 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
                     {cuando(c.creadoEn)} · {c.pedidos} pedidos · {c.pares} pares ·{" "}
                     {c.handover === "DROP_OFF" ? "a la paquetería" : "pasa el repartidor"}
+                  </span>
+                  <span
+                    className="ml-2 rounded-full px-2 text-[11px] font-semibold"
+                    style={{
+                      background: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      color: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
+                    }}
+                  >
+                    {c.preparados} / {c.pedidos} preparados
                   </span>
                 </div>
                 {c.errores?.length ? (
@@ -122,6 +135,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
+                <Link
+                  href={`/tiktok/despacho/${c.id}/preparar`}
+                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
+                  style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                >
+                  <ScanLine size={14} /> Preparar pedidos
+                </Link>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/etiquetas`}
                   target="_blank"

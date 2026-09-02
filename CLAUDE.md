@@ -128,6 +128,12 @@ guárdala numerada.
   estampado abajo a la derecha (nada más se toca), y la lista de empaque en
   el mismo orden con los mismos números. El siguiente corte solo toma lo que
   no tiene corte.
+  **Preparar pedido** (`tiktok/preparar.ts`, estación en
+  `/tiktok/despacho/[id]/preparar`): tres escaneos por paquete, en orden —
+  hoja (`TT{corte}-{n}`, impreso en la lista), etiqueta (FNSKU de Amazon,
+  impreso como barras en la guía; sin FNSKU va el código de hoja) y producto
+  (FNSKU de la caja, una vez por par). Solo si cuadran los tres se guarda en
+  `tiktok_preparaciones`. El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
@@ -211,6 +217,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
+| Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |

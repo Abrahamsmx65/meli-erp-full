@@ -17,7 +17,7 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, { data: cortesRaw }] = await Promise.all([
+  const [pendientes, { data: cortesRaw }, { data: prepRaw }] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
@@ -25,7 +25,12 @@ export default async function Despacho() {
       .eq("account_id", cuenta.id)
       .order("numero", { ascending: false })
       .limit(30),
+    supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
   ]);
+  const preparadosPorCorte = new Map<number, number>();
+  for (const r of prepRaw ?? []) {
+    preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
+  }
 
   const cortes: CorteResumen[] = (cortesRaw ?? []).map((c: any) => ({
     id: c.id,
@@ -35,6 +40,7 @@ export default async function Despacho() {
     pares: c.pares,
     handover: c.handover,
     errores: c.errores ?? [],
+    preparados: preparadosPorCorte.get(c.id) ?? 0,
   }));
 
   return (
