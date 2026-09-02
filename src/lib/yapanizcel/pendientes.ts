@@ -14,7 +14,7 @@
  */
 import { extraerSku } from "../meli/sync";
 import { enLotes } from "../meli/client";
-import { upsertEnTandas, type DB } from "../datos/repos";
+import type { DB } from "../datos/repos";
 import { clienteDeCuenta } from "./cuenta";
 import { clienteAdmin } from "../supabase/server";
 import { desglosar } from "./sku";
@@ -148,7 +148,25 @@ export async function resolverPendientes(admin: DB, opts?: { presupuestoMs?: num
         resueltas.push({ item_id: fila.item_id, variation_id: fila.variation_id });
       }
 
-      if (filasSku.length) await upsertEnTandas(admin, "yz_skus", filasSku, "account_id,sku");
+      // Dos variantes pueden traer el MISMO SKU (capturado de más en la
+      // publicación). Postgres rechaza un upsert que toque dos veces el mismo
+      // renglón, y un lote rechazado tiraba toda la pasada. Se deja UNA por
+      // SKU (la que tenga inventory_id, luego la activa) y, si el SKU ya
+      // existe de otra variante, se conserva el que ya estaba.
+      const puntaje = (f: Record<string, unknown>) =>
+        (f.inventory_id ? 2 : 0) + (f.estado === "active" ? 1 : 0);
+      const porSku = new Map<string, Record<string, unknown>>();
+      for (const f of filasSku) {
+        const previa = porSku.get(f.sku as string);
+        if (!previa || puntaje(f) > puntaje(previa)) porSku.set(f.sku as string, f);
+      }
+      const unicas = [...porSku.values()];
+      for (let i = 0; i < unicas.length; i += 500) {
+        const { error } = await admin
+          .from("yz_skus")
+          .upsert(unicas.slice(i, i + 500), { onConflict: "account_id,sku", ignoreDuplicates: true });
+        if (error) throw new Error(`yz_skus: ${error.message}`);
+      }
       for (const r of resueltas) {
         await admin
           .from("yz_skus_pendientes")
