@@ -110,6 +110,16 @@ guárdala numerada.
   false`, se inserta sola). A TikTok solo se le escribe un SKU que alguna vez
   se contó (entrada o ajuste): uno con puras salidas se queda con el número
   que TikTok ya tiene.
+  **Tiempo real:** TikTok ya aparta solo al vender; la única forma de vender
+  de más es que el ERP le escriba un número viejo. Por eso (1) NUNCA se le
+  escribe sin antes leer sus pedidos recientes (`sincronizarTikTok` con
+  `soloPedidos`, también desde la captura a mano); (2) se reconcilia contra
+  lo que TikTok DICE tener (`tiktok_skus.cantidad_tiktok`, del catálogo), no
+  contra lo último escrito: una edición en el Seller Center se corrige sola;
+  (3) los avisos de TikTok entran por `/api/tiktok/webhook` (firma HMAC sobre
+  `app_key + cuerpo`, se guarda y se procesa con `after()`), y (4) el envío se
+  confirma DESDE EL ERP (`confirmarEnvio`: TikTok envía por paquete) y
+  descuenta en el mismo clic. Cron cada 15 min como red de seguridad.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
