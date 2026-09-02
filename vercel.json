@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/yapanizcel/skus-pendientes",
-      "schedule": "15 * * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }

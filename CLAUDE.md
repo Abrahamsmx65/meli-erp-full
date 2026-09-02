@@ -207,7 +207,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   cron llaman en bucle con `continuar: true` hasta que `completo` sea true.
 - Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
   `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con
-  cron propio CADA HORA porque MELI entrega ~1 user product por segundo y el
+  cron propio CADA 10 MINUTOS porque MELI entrega ~1 user product por segundo y el
   catálogo trae ~15 mil variantes sin SKU en la publicación.
 
 ## Dónde está cada cosa
