@@ -335,6 +335,8 @@ export async function publicarStock(
 export interface OpcionesEnvio {
   /** PICKUP: pasa el repartidor. DROP_OFF: se lleva a la paquetería. */
   handover: "PICKUP" | "DROP_OFF";
+  /** Con PICKUP: el horario elegido; sin él TikTok lo trata como drop-off. */
+  horario?: HorarioRecoleccion | null;
   /** Solo cuando la paquetería es propia (shipping_type SELLER). */
   guia?: string | null;
   proveedorId?: string | null;
@@ -365,6 +367,9 @@ export async function enviarPaquete(
   opciones: OpcionesEnvio,
 ): Promise<void> {
   const cuerpo: Record<string, unknown> = { handover_method: opciones.handover };
+  if (opciones.handover === "PICKUP" && opciones.horario) {
+    cuerpo.pickup_slot = { start_time: opciones.horario.inicio, end_time: opciones.horario.fin };
+  }
   if (opciones.guia && opciones.proveedorId) {
     cuerpo.self_shipment = {
       tracking_number: opciones.guia,
@@ -405,4 +410,49 @@ export async function renglonesDelPaquete(c: Cliente, packageId: string): Promis
   const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}`);
   const ids = d?.order_line_item_ids ?? d?.line_item_ids ?? [];
   return (ids as unknown[]).map(String);
+}
+
+export interface HorarioRecoleccion {
+  inicio: number;
+  fin: number;
+}
+
+export interface OpcionesDeEntrega {
+  /** null = TikTok no lo dijo */
+  puedeRecoleccion: boolean | null;
+  puedeDropOff: boolean | null;
+  horarios: HorarioRecoleccion[];
+  /** las llaves de la respuesta, para saber qué contestó cuando algo no cuadre */
+  llaves: string[];
+}
+
+/**
+ * Cómo se puede entregar un paquete y en qué horarios pasa la paquetería.
+ * TikTok exige el horario para RECOLECCIÓN: mandar PICKUP sin horario lo
+ * acepta pero lo trata como entrega en paquetería, y la guía sale como
+ * drop-off. Y si `puedeRecoleccion` es false, la tienda o la paquetería no
+ * tienen recolección habilitada y no hay horario que valga.
+ */
+export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<OpcionesDeEntrega> {
+  const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}/handover_time_slots`);
+  const listas: any[] = [
+    ...(d?.pickup_time_slots ?? []),
+    ...(d?.time_slots ?? []),
+    ...(d?.slots ?? []),
+  ];
+  const horarios = listas
+    .filter((s) => s && (s.avaliable ?? s.available ?? true) !== false)
+    .map((s) => ({ inicio: Number(s.start_time), fin: Number(s.end_time) }))
+    .filter((s) => Number.isFinite(s.inicio) && Number.isFinite(s.fin));
+  return {
+    puedeRecoleccion: typeof d?.can_pickup === "boolean" ? d.can_pickup : null,
+    puedeDropOff: typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null,
+    horarios,
+    llaves: d ? Object.keys(d) : [],
+  };
+}
+
+/** Solo los horarios (compatibilidad). */
+export async function horariosDeRecoleccion(c: Cliente, packageId: string): Promise<HorarioRecoleccion[]> {
+  return (await opcionesDeEntrega(c, packageId)).horarios;
 }

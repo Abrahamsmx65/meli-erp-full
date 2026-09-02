@@ -30,8 +30,8 @@ export default async function Preparar({ params }: { params: Promise<{ id: strin
         <div>
           <h1 className="text-xl font-semibold">Preparar pedidos · Corte #{corte.numero}</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Tres escaneos por paquete: la hoja, la etiqueta y el producto. Nada se da por
-            preparado si no cuadran los tres.
+            Escanea la etiqueta, luego el producto (un escaneo por par). Nada se da por
+            preparado si no cuadra todo; lo que no tiene FNSKU se cierra a mano y queda registrado.
           </p>
         </div>
         <Link href="/tiktok/despacho" className="text-sm underline" style={{ color: "var(--ink-2)" }}>

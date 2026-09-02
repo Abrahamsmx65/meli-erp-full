@@ -122,18 +122,23 @@ guárdala numerada.
   descuenta en el mismo clic. Cron cada 15 min como red de seguridad.
   **Despacho por CORTES** (`tiktok-despacho.ts`, `/tiktok/despacho`): "hacer
   corte" confirma en TikTok todos los pendientes de un jalón (TikTok no da la
-  guía hasta confirmar), guarda el corte con sus pedidos (`tiktok_cortes`,
+  guía hasta confirmar; para RECOLECCIÓN hay que mandar también un
+  `pickup_slot` de `handover_time_slots`, si no TikTok lo vuelve drop-off), guarda el corte con sus pedidos (`tiktok_cortes`,
   `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
   de TikTok unidas con `pdf-lib` en orden modelo → color → talla y "#n · SKU"
   estampado abajo a la derecha (nada más se toca), y la lista de empaque en
   el mismo orden con los mismos números. El siguiente corte solo toma lo que
   no tiene corte.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
-  `/tiktok/despacho/[id]/preparar`): tres escaneos por paquete, en orden —
-  hoja (`TT{corte}-{n}`, impreso en la lista), etiqueta (FNSKU de Amazon,
-  impreso como barras en la guía; sin FNSKU va el código de hoja) y producto
-  (FNSKU de la caja, una vez por par). Solo si cuadran los tres se guarda en
-  `tiktok_preparaciones`. El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
+  Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
+  guía y caja llevan el mismo código) — elige el siguiente paquete sin
+  preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
+  caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
+  solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
+  `tiktok_preparaciones.escaneos`. Decisión del dueño: la etiqueta lleva el
+  FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
+  El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
@@ -237,12 +242,16 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 
 - El registro está **cerrado**: tabla `usuarios_permitidos` + trigger sobre
   `auth.users`. Para dar acceso a alguien, inserta su correo ahí.
-- **La única pantalla sin sesión es `/contenido/{token}`** (la sección de
-  contenido de Amazon, para quien la trabaja sin cuenta en el ERP). El token
-  vive en `contenido_acceso`, que tiene RLS con **cero políticas** como
-  `meli_tokens`; del otro lado se lee y escribe con service_role, así que el
-  token es la única puerta: se compara en tiempo constante y SOLO en
-  `acceso-contenido.ts`. Ahí no van más tablas que las de esa sección.
+- **Solo dos pantallas van sin sesión**, las dos con el mismo patrón:
+  `/contenido/{token}` (la sección de contenido de Amazon) y
+  `/preparar/{token}` (la estación de preparar pedidos de TikTok, para los
+  empleados que empacan). El token vive en `contenido_acceso` /
+  `tiktok_acceso`, tablas con RLS y **cero políticas** como `meli_tokens`; del
+  otro lado se lee y escribe con service_role, así que el token es la única
+  puerta: se compara en tiempo constante y SOLO en `acceso-contenido.ts` /
+  `acceso-preparar.ts`. Cada una alcanza nada más las tablas de su sección
+  (la de preparar: cortes y pedidos de TikTok para leer, preparaciones para
+  escribir).
 - `meli_tokens` tiene RLS con **cero políticas** a propósito: solo el
   service-role la lee. No agregues políticas.
 - `es_mi_cuenta()` debe seguir ejecutable por `authenticated` (RLS la usa);

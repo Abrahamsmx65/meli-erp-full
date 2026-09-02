@@ -102,7 +102,8 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
           Etiquetas y lista van en orden de modelo → color → talla, con el mismo número en las dos.
           En la etiqueta, abajo a la derecha, van el número, el SKU con su cantidad y el código de
-          barras del producto (FNSKU). En la lista, cada renglón trae su código para escanear.
+          barras del producto (FNSKU). En la lista, cada renglón trae ese mismo FNSKU para
+          escanear: hoja, etiqueta y caja llevan el mismo código.
         </p>
         <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
           {cortes.map((c) => (

@@ -65,6 +65,10 @@ export async function middleware(request: NextRequest) {
     // token del link, que valida `acceso-contenido.ts`. Sin esto el link
     // rebotaría al login, que es justo lo que no debe pedir.
     ruta.startsWith("/contenido/") ||
+    // La estación de preparar pedidos de TikTok, para los empleados: la
+    // puerta es el token de la URL (acceso-preparar.ts), no la sesión.
+    ruta.startsWith("/preparar/") ||
+    ruta.startsWith("/api/preparar-publico/") ||
     ruta.startsWith("/api/contenido-publico/") ||
     ruta.startsWith("/auth");
 

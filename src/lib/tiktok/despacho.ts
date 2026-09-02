@@ -16,9 +16,10 @@ export interface ParDespacho {
 }
 
 /**
- * El código que va en el renglón de la lista de empaque: identifica al
- * paquete dentro del corte. Corto, sin caracteres raros, para que el
- * escáner lo lea a la primera.
+ * Identificador del paquete dentro del corte (`TT7-12`). La lista y la
+ * etiqueta llevan como código de barras el FNSKU del producto —decisión del
+ * dueño: hoja, guía y caja con el mismo código—; este se usa solo cuando el
+ * producto no tiene FNSKU, y la estación lo acepta siempre.
  */
 export function codigoDeHoja(corte: number, numero: number): string {
   return `TT${corte}-${numero}`;

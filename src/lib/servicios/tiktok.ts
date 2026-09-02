@@ -18,6 +18,7 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { agregarVentasDiarias } from "../tiktok/ventas";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
@@ -25,6 +26,7 @@ import {
   catalogo,
   enviarPaquete,
   etiquetaDePaquete,
+  horariosDeRecoleccion,
   paquetesDePedido,
   pedidosActualizados,
   pedidosPorId,
@@ -354,8 +356,6 @@ async function procesarPedidos(
     );
   }
 
-  await recalcularVentasDiarias(admin, accountId, pedidos, amarrar);
-
   return {
     salidas: movimientos.filter((m) => m.tipo === "salida").length,
     devoluciones: movimientos.filter((m) => m.tipo === "devolucion").length,
@@ -389,6 +389,7 @@ export async function sincronizarPedidosPorId(
 
   const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
   await recalcularSaldos(admin, accountId);
+  if (pedidos.length) await reconstruirVentasDiarias(admin, accountId).catch(() => undefined);
   const pub = await publicarDisponibilidad(admin, accountId, cliente);
   avisos.push(...pub.avisos);
 
@@ -519,6 +520,15 @@ export async function sincronizarTikTok(
 
   const procesado = await procesarPedidos(admin, accountId, pedidos, amarrar);
   const { salidas, devoluciones, sinAmarre } = procesado;
+
+  // Las ventas por día se rehacen en CADA corrida, traiga o no pedidos: si
+  // solo se rehicieran con pedidos nuevos, una corrección (como la del día
+  // en hora de México) esperaría hasta la siguiente venta para verse.
+  try {
+    await reconstruirVentasDiarias(admin, accountId);
+  } catch (err) {
+    avisos.push(`Ventas por día: ${(err as Error).message}`);
+  }
 
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
@@ -739,7 +749,16 @@ export async function confirmarEnvio(
   }
 
   for (const p of paquetes) {
-    await enviarPaquete(cliente, p.id, opciones);
+    let horario = opciones.horario ?? null;
+    if (opciones.handover === "PICKUP" && !horario) {
+      try {
+        const lista = await horariosDeRecoleccion(cliente, p.id);
+        horario = lista.sort((a, b) => a.inicio - b.inicio).find((h) => h.fin > Date.now() / 1000) ?? lista[0] ?? null;
+      } catch {
+        horario = null;
+      }
+    }
+    await enviarPaquete(cliente, p.id, { ...opciones, horario });
   }
 
   const r = await sincronizarPedidosPorId(admin, accountId, [orderId]);
@@ -951,51 +970,57 @@ async function referenciasRegistradas(
   return claves;
 }
 
-/** Ventas por SKU y día, para que TikTok entre a la vista de canales. */
-async function recalcularVentasDiarias(
-  db: DB,
-  accountId: string,
-  pedidos: Awaited<ReturnType<typeof pedidosActualizados>>,
-  amarrar: (s: string | null) => { skuInterno: string | null },
-): Promise<void> {
-  // Un pedido cuenta como venta desde que se paga; solo se descartan los
-  // que nunca llegaron a pagarse y los cancelados.
-  const NO_CUENTAN = new Set(["UNPAID", "CANCELLED", "CANCEL"]);
-  const acumulado = new Map<string, { unidades: number; ordenes: Set<string>; importe: number }>();
+/**
+ * Ventas por SKU y día, reconstruidas COMPLETAS desde los pedidos guardados.
+ *
+ * Antes se acumulaban por ventana de sincronización y con el día en UTC:
+ * una corrida de 15 minutos pisaba el renglón del día con lo poco que veía,
+ * y un pedido de la noche caía en el día siguiente. Ahora se rehace todo
+ * (unos cientos de pedidos al mes) con el día de México, y lo que ya no
+ * corresponde se borra.
+ */
+export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
+  const eq = (q: any) => q.eq("account_id", accountId);
+  const [ordenes, items, actuales] = await Promise.all([
+    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion", eq),
+    traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
+    traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
+  ]);
 
-  for (const p of pedidos) {
-    if (NO_CUENTAN.has(p.estado.toUpperCase())) continue;
-    const fecha = (p.creadoEn ?? p.actualizadoEn)?.slice(0, 10);
-    if (!fecha) continue;
+  const ventas = agregarVentasDiarias(
+    (ordenes ?? []).map((o: any) => ({
+      orderId: o.order_id,
+      estado: o.estado,
+      creadoEn: o.fecha_creacion,
+      actualizadoEn: o.fecha_actualizacion,
+    })),
+    (items ?? []).map((i: any) => ({
+      orderId: i.order_id,
+      skuInterno: i.sku_interno ?? null,
+      cantidad: i.cantidad ?? 0,
+      precio: i.precio != null ? Number(i.precio) : null,
+      estado: i.estado ?? null,
+    })),
+  );
 
-    for (const r of p.renglones) {
-      if (NO_CUENTAN.has(String(r.estado ?? "").toUpperCase())) continue;
-      const sku = amarrar(r.sellerSku).skuInterno;
-      if (!sku) continue;
-      const clave = `${sku}|${fecha}`;
-      const acc = acumulado.get(clave) ?? { unidades: 0, ordenes: new Set<string>(), importe: 0 };
-      acc.unidades += r.cantidad;
-      acc.ordenes.add(p.orderId);
-      acc.importe += (r.precio ?? 0) * r.cantidad;
-      acumulado.set(clave, acc);
-    }
+  if (ventas.length) {
+    await guardarEnLotes(
+      db,
+      "tiktok_ventas_diarias",
+      ventas.map((v) => ({ account_id: accountId, ...v })),
+      "account_id,sku,fecha",
+    );
   }
 
-  if (!acumulado.size) return;
+  // Lo que ya no sale de los pedidos (un día en UTC de antes, un pedido
+  // cancelado después) se borra: la tabla dice lo mismo que los pedidos.
+  const vigentes = new Set(ventas.map((v) => `${v.sku}|${v.fecha}`));
+  const sobrantes = (actuales ?? []).filter((a: any) => !vigentes.has(`${a.sku}|${a.fecha}`));
+  for (const a of sobrantes) {
+    await db.from("tiktok_ventas_diarias").delete().eq("account_id", accountId).eq("sku", a.sku).eq("fecha", a.fecha);
+  }
 
-  const filas = [...acumulado].map(([clave, acc]) => {
-    const [sku, fecha] = clave.split("|");
-    return {
-      account_id: accountId,
-      sku,
-      fecha,
-      unidades: acc.unidades,
-      ordenes: acc.ordenes.size,
-      importe: acc.importe,
-    };
-  });
-
-  await guardarEnLotes(db, "tiktok_ventas_diarias", filas, "account_id,sku,fecha");
+  return ventas.length;
 }
 
 /** Supabase se atraganta con upserts enormes; se mandan de 500 en 500. */
