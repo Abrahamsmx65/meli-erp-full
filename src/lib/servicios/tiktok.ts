@@ -23,10 +23,16 @@ import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
   bodegas,
   catalogo,
+  enviarPaquete,
+  etiquetaDePaquete,
+  paquetesDePedido,
   pedidosActualizados,
+  pedidosPorId,
   publicarStock,
   tiendasAutorizadas,
   type DiagnosticoPedidos,
+  type OpcionesEnvio,
+  type PedidoTikTok,
 } from "../tiktok/api";
 import {
   Cliente,
@@ -37,8 +43,8 @@ import {
 } from "../tiktok/client";
 import {
   apartadosPorSku,
-  cambiosAPublicar,
   disponibleParaCompradores,
+  escriturasContraTikTok,
   movimientosPendientes,
   saldosDesdeMovimientos,
   type Movimiento,
@@ -245,10 +251,154 @@ export async function clienteDeCuenta(
  * si el API se cae a la mitad, lo ya bajado no se pierde y la próxima corrida
  * retoma desde el cursor.
  */
+/**
+ * El amarre TikTok -> ERP de una cuenta: catálogo real de MELI más los
+ * amarres a mano. Se arma una vez por corrida y sirve a todo.
+ */
+async function amarradorDeCuenta(admin: any, accountId: string) {
+  const [skusErp, mapeoRaw] = await Promise.all([
+    traerTodo<any>(admin, "skus", "sku", (q) => q.eq("account_id", accountId).eq("activo", true)),
+    traerTodo<any>(admin, "tiktok_mapeo_sku", "sku_tiktok, sku_interno", (q) =>
+      q.eq("account_id", accountId),
+    ),
+  ]);
+  const indice = indexarCatalogo(skusErp ?? []);
+  const manual = new Map(
+    (mapeoRaw ?? []).map((m: any) => [String(m.sku_tiktok).toUpperCase(), m.sku_interno]),
+  );
+  return (sellerSku: string | null) => amarrarSkuTikTok(sellerSku, indice, manual);
+}
+
+/**
+ * Guarda pedidos y renglones, y lleva al kardex lo que ya salió. Es el mismo
+ * camino para la corrida completa, para un aviso del webhook y para la
+ * confirmación de envío desde el ERP: un solo lugar donde un pedido se
+ * vuelve movimiento.
+ */
+async function procesarPedidos(
+  admin: any,
+  accountId: string,
+  pedidos: PedidoTikTok[],
+  amarrar: (s: string | null) => { skuInterno: string | null },
+): Promise<{ salidas: number; devoluciones: number; sinAmarre: number }> {
+  if (!pedidos.length) return { salidas: 0, devoluciones: 0, sinAmarre: 0 };
+
+  await admin.from("tiktok_ordenes").upsert(
+    pedidos.map((p) => ({
+      account_id: accountId,
+      order_id: p.orderId,
+      estado: p.estado,
+      fecha_creacion: p.creadoEn,
+      fecha_actualizacion: p.actualizadoEn,
+      fecha_envio: p.enviadoEn,
+      total: p.total,
+      moneda: p.moneda,
+      paqueteria: p.paqueteria,
+      guia: p.guia,
+      shipping_type: p.shippingType,
+      paquetes: p.paquetes,
+      detalle: { destinatario: p.destinatario },
+      sincronizado_en: new Date().toISOString(),
+    })),
+    { onConflict: "account_id,order_id" },
+  );
+
+  const renglones: RenglonPedido[] = [];
+  const filasItems: any[] = [];
+  let sinAmarre = 0;
+
+  for (const p of pedidos) {
+    for (const r of p.renglones) {
+      const a = amarrar(r.sellerSku);
+      if (!a.skuInterno) sinAmarre++;
+      filasItems.push({
+        account_id: accountId,
+        line_item_id: r.lineItemId,
+        order_id: p.orderId,
+        sku_id: r.skuId,
+        seller_sku: r.sellerSku,
+        sku_interno: a.skuInterno,
+        titulo: r.titulo,
+        cantidad: r.cantidad,
+        precio: r.precio,
+        estado: r.estado,
+      });
+      renglones.push({
+        orderId: p.orderId,
+        skuInterno: a.skuInterno,
+        cantidad: r.cantidad,
+        estado: r.estado,
+        fecha: p.enviadoEn ?? p.actualizadoEn ?? p.creadoEn,
+      });
+    }
+  }
+
+  await guardarEnLotes(admin, "tiktok_orden_items", filasItems, "account_id,line_item_id");
+
+  const ordenIds = [...new Set(pedidos.map((p) => p.orderId))];
+  const yaRegistrados = await referenciasRegistradas(admin, accountId, ordenIds);
+  const { movimientos } = movimientosPendientes(renglones, yaRegistrados);
+
+  if (movimientos.length) {
+    await registrarMovimientos(
+      admin,
+      accountId,
+      movimientos.map((m) => ({
+        sku: m.sku,
+        tipo: m.tipo,
+        cantidad: m.cantidad,
+        motivo: m.motivo,
+        referencia: m.referencia,
+        fecha: m.fecha,
+      })),
+    );
+  }
+
+  await recalcularVentasDiarias(admin, accountId, pedidos, amarrar);
+
+  return {
+    salidas: movimientos.filter((m) => m.tipo === "salida").length,
+    devoluciones: movimientos.filter((m) => m.tipo === "devolucion").length,
+    sinAmarre,
+  };
+}
+
+/**
+ * Pedidos concretos, de inmediato: lo que dispara un aviso de TikTok o una
+ * confirmación de envío. Jala, mueve el kardex y republica. No toca el
+ * catálogo ni Industher: eso lo hace la corrida completa.
+ */
+export async function sincronizarPedidosPorId(
+  admin: any,
+  accountId: string,
+  ids: string[],
+): Promise<{ pedidos: number; salidas: number; devoluciones: number; publicados: number; avisos: string[] }> {
+  const cliente = await clienteDeCuenta(admin, accountId, 60_000);
+  if (!cliente || !cliente.tienda.shopCipher) {
+    return { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["TikTok Shop no está conectado."] };
+  }
+  const avisos: string[] = [];
+  const amarrar = await amarradorDeCuenta(admin, accountId);
+
+  let pedidos: PedidoTikTok[] = [];
+  try {
+    pedidos = await pedidosPorId(cliente, [...new Set(ids)]);
+  } catch (err) {
+    avisos.push(`Pedidos: ${(err as Error).message}`);
+  }
+
+  const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
+  await recalcularSaldos(admin, accountId);
+  const pub = await publicarDisponibilidad(admin, accountId, cliente);
+  avisos.push(...pub.avisos);
+
+  return { pedidos: pedidos.length, salidas: r.salidas, devoluciones: r.devoluciones, publicados: pub.publicados, avisos };
+}
+
 export async function sincronizarTikTok(
   admin: any,
   accountId: string,
-  opciones: { limiteMs?: number } = {},
+  opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
 ): Promise<ResultadoSync> {
   let cliente = await clienteDeCuenta(admin, accountId, opciones.limiteMs);
   if (!cliente) return { ...VACIO, avisos: ["TikTok Shop no está conectado."] };
@@ -276,32 +426,21 @@ export async function sincronizarTikTok(
     }
   }
 
-  // El catálogo del ERP, para amarrar. Se lee una vez y sirve a todo.
-  const [skusErp, mapeoRaw] = await Promise.all([
-    traerTodo<any>(admin, "skus", "sku", (q) => q.eq("account_id", accountId).eq("activo", true)),
-    traerTodo<any>(admin, "tiktok_mapeo_sku", "sku_tiktok, sku_interno", (q) =>
-      q.eq("account_id", accountId),
-    ),
-  ]);
-  const indice = indexarCatalogo(skusErp ?? []);
-  const manual = new Map(
-    (mapeoRaw ?? []).map((m: any) => [String(m.sku_tiktok).toUpperCase(), m.sku_interno]),
-  );
-  const amarrar = (sellerSku: string | null) => amarrarSkuTikTok(sellerSku, indice, manual);
+  const amarrar = await amarradorDeCuenta(admin, accountId);
 
   // ---- 0. El saldo físico, desde la bodega TikTok de Industher ---------
   // Primero se refresca la foto del 3PL (si su API está configurado) y
   // luego se lleva al kardex. Si Industher falla, la foto anterior sigue
   // sirviendo: se avisa y lo demás continúa.
   let bodega: ResultadoBodegaTikTok | null = null;
-  if (configuracionIndusther()) {
+  if (!opciones.soloPedidos && configuracionIndusther()) {
     try {
       await sincronizarInventarioIndusther(admin, accountId);
     } catch (err) {
       avisos.push(`Industher: ${(err as Error).message}`);
     }
   }
-  try {
+  if (!opciones.soloPedidos) try {
     bodega = await sincronizarSaldoDesdeBodega(admin, accountId);
     if (!bodega.almacen) {
       avisos.push("Industher todavía no reporta una bodega llamada TikTok.");
@@ -313,7 +452,7 @@ export async function sincronizarTikTok(
 
   // ---- 1. Catálogo de TikTok -------------------------------------------
   let skusCatalogo = 0;
-  try {
+  if (!opciones.soloPedidos) try {
     const lista = await catalogo(cliente);
     skusCatalogo = lista.length;
     if (lista.length) {
@@ -330,6 +469,8 @@ export async function sincronizarTikTok(
           estado: s.estado,
           sku_interno: a.skuInterno,
           origen_amarre: a.origen,
+          // Lo que TikTok DICE tener. Contra esto se reconcilia.
+          cantidad_tiktok: s.disponibleEnTikTok,
           activo: true,
           actualizado_en: new Date().toISOString(),
         };
@@ -376,84 +517,8 @@ export async function sincronizarTikTok(
     avisos.push(`Pedidos: ${(err as Error).message}`);
   }
 
-  let sinAmarre = 0;
-  let salidas = 0;
-  let devoluciones = 0;
-
-  if (pedidos.length) {
-    await admin.from("tiktok_ordenes").upsert(
-      pedidos.map((p) => ({
-        account_id: accountId,
-        order_id: p.orderId,
-        estado: p.estado,
-        fecha_creacion: p.creadoEn,
-        fecha_actualizacion: p.actualizadoEn,
-        fecha_envio: p.enviadoEn,
-        total: p.total,
-        moneda: p.moneda,
-        paqueteria: p.paqueteria,
-        guia: p.guia,
-        sincronizado_en: new Date().toISOString(),
-      })),
-      { onConflict: "account_id,order_id" },
-    );
-
-    const renglones: RenglonPedido[] = [];
-    const filasItems: any[] = [];
-
-    for (const p of pedidos) {
-      for (const r of p.renglones) {
-        const a = amarrar(r.sellerSku);
-        if (!a.skuInterno) sinAmarre++;
-        filasItems.push({
-          account_id: accountId,
-          line_item_id: r.lineItemId,
-          order_id: p.orderId,
-          sku_id: r.skuId,
-          seller_sku: r.sellerSku,
-          sku_interno: a.skuInterno,
-          titulo: r.titulo,
-          cantidad: r.cantidad,
-          precio: r.precio,
-          estado: r.estado,
-        });
-        renglones.push({
-          orderId: p.orderId,
-          skuInterno: a.skuInterno,
-          cantidad: r.cantidad,
-          estado: r.estado,
-          fecha: p.enviadoEn ?? p.actualizadoEn ?? p.creadoEn,
-        });
-      }
-    }
-
-    await guardarEnLotes(admin, "tiktok_orden_items", filasItems, "account_id,line_item_id");
-
-    // ---- 3. Del pedido al kardex ---------------------------------------
-    const ordenIds = [...new Set(pedidos.map((p) => p.orderId))];
-    const yaRegistrados = await referenciasRegistradas(admin, accountId, ordenIds);
-    const { movimientos } = movimientosPendientes(renglones, yaRegistrados);
-
-    salidas = movimientos.filter((m) => m.tipo === "salida").length;
-    devoluciones = movimientos.filter((m) => m.tipo === "devolucion").length;
-
-    if (movimientos.length) {
-      await registrarMovimientos(
-        admin,
-        accountId,
-        movimientos.map((m) => ({
-          sku: m.sku,
-          tipo: m.tipo,
-          cantidad: m.cantidad,
-          motivo: m.motivo,
-          referencia: m.referencia,
-          fecha: m.fecha,
-        })),
-      );
-    }
-
-    await recalcularVentasDiarias(admin, accountId, pedidos, amarrar);
-  }
+  const procesado = await procesarPedidos(admin, accountId, pedidos, amarrar);
+  const { salidas, devoluciones, sinAmarre } = procesado;
 
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
@@ -549,7 +614,7 @@ export async function publicarDisponibilidad(
     traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado", (q) =>
       q.eq("account_id", accountId),
     ),
-    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno", (q) =>
+    traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
     skusContados(admin, accountId),
@@ -560,41 +625,31 @@ export async function publicarDisponibilidad(
   // se capturara su existencia— tendría saldo negativo y disponible 0, y
   // publicarle 0 apagaría una publicación que TikTok sí estaba vendiendo.
   // Hasta que se cuente, TikTok se queda con su propio número.
-  const cambios = cambiosAPublicar(
-    (inv ?? []).filter((r: any) => contados.has(r.sku)).map((r: any) => ({
-      sku: r.sku,
-      saldo: r.saldo,
-      apartado: r.apartado,
-      disponible: disponibleParaCompradores(r.saldo, r.apartado),
-      publicado: r.publicado ?? null,
-    })),
+  const disponibles = new Map<string, number>();
+  for (const r of inv ?? []) {
+    if (!contados.has(r.sku)) continue;
+    disponibles.set(r.sku, disponibleParaCompradores(r.saldo, r.apartado));
+  }
+
+  // Se compara contra lo que TikTok DICE tener (cantidad_tiktok, del
+  // catálogo), no contra lo último que escribimos: si alguien editó el stock
+  // en el Seller Center, aquí se corrige.
+  const escrituras = escriturasContraTikTok(
+    (skusTikTok ?? [])
+      .filter((s: any) => s.sku_interno && s.product_id)
+      .map((s: any) => ({
+        skuId: s.sku_id,
+        productId: s.product_id,
+        skuInterno: s.sku_interno,
+        cantidadTikTok: s.cantidad_tiktok ?? null,
+      })),
+    disponibles,
   );
 
-  // Un SKU interno puede estar en varias publicaciones de TikTok; todas
-  // tienen que recibir el mismo número.
-  const porSkuInterno = new Map<string, { skuId: string; productId: string }[]>();
-  for (const s of skusTikTok ?? []) {
-    if (!s.sku_interno || !s.product_id) continue;
-    const lista = porSkuInterno.get(s.sku_interno);
-    const dato = { skuId: s.sku_id, productId: s.product_id };
-    if (lista) lista.push(dato);
-    else porSkuInterno.set(s.sku_interno, [dato]);
-  }
+  const conPublicacion = new Set((skusTikTok ?? []).map((s: any) => s.sku_interno).filter(Boolean));
+  const sinProducto = [...disponibles.keys()].filter((sku) => !conPublicacion.has(sku)).length;
 
-  const aEscribir: { productId: string; skuId: string; cantidad: number; sku: string }[] = [];
-  let sinProducto = 0;
-  for (const c of cambios) {
-    const destinos = porSkuInterno.get(c.sku);
-    if (!destinos?.length) {
-      sinProducto++;
-      continue;
-    }
-    for (const d of destinos) {
-      aEscribir.push({ productId: d.productId, skuId: d.skuId, cantidad: c.a, sku: c.sku });
-    }
-  }
-
-  if (!aEscribir.length) {
+  if (!escrituras.length) {
     return {
       publicados: 0,
       fallidos: 0,
@@ -605,22 +660,31 @@ export async function publicarDisponibilidad(
     };
   }
 
-  const res = await publicarStock(cliente, cliente.tienda.warehouseId, aEscribir);
+  const res = await publicarStock(
+    cliente,
+    cliente.tienda.warehouseId,
+    escrituras.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
+  );
 
-  // Solo se marca como publicado lo que TikTok aceptó de verdad.
+  // Solo se da por escrito lo que TikTok aceptó de verdad: cantidad_tiktok
+  // queda igual al número que se mandó, y `publicado` en el inventario.
   const fallados = new Set(res.fallidos.map((f) => f.skuId));
-  const confirmados = new Map<string, number>();
-  for (const e of aEscribir) {
-    if (fallados.has(e.skuId)) continue;
-    confirmados.set(e.sku, e.cantidad);
-  }
+  const ahora = new Date().toISOString();
+  const okSkus = escrituras.filter((e) => !fallados.has(e.skuId));
 
-  if (confirmados.size) {
-    const ahora = new Date().toISOString();
+  if (okSkus.length) {
+    await guardarEnLotes(
+      admin,
+      "tiktok_skus",
+      okSkus.map((e) => ({ account_id: accountId, sku_id: e.skuId, cantidad_tiktok: e.a })),
+      "account_id,sku_id",
+    );
+    const porInterno = new Map<string, number>();
+    for (const e of okSkus) porInterno.set(e.skuInterno, e.a);
     await guardarEnLotes(
       admin,
       "tiktok_inventario",
-      [...confirmados].map(([sku, cantidad]) => ({
+      [...porInterno].map(([sku, cantidad]) => ({
         account_id: accountId,
         sku,
         publicado: cantidad,
@@ -636,7 +700,106 @@ export async function publicarDisponibilidad(
   }
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
 
-  return { publicados: confirmados.size, fallidos: res.fallidos.length, sinProducto, avisos };
+  return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos };
+}
+
+// ---------------------------------------------------------------------------
+// Envío desde el ERP y avisos de TikTok
+// ---------------------------------------------------------------------------
+
+export interface ResultadoEnvio {
+  paquetes: string[];
+  salidas: number;
+  publicados: number;
+  avisos: string[];
+}
+
+/**
+ * Confirma en TikTok el envío de un pedido y descuenta en el mismo acto.
+ *
+ * TikTok envía por paquete: se confirman todos los del pedido y en seguida
+ * se vuelve a leer el pedido, que ya viene en AWAITING_COLLECTION, y eso es
+ * lo que genera la salida en el kardex y la republicación. Si TikTok rechaza
+ * el envío (dirección, guía, paquete ya enviado), el mensaje llega tal cual.
+ */
+export async function confirmarEnvio(
+  admin: any,
+  accountId: string,
+  orderId: string,
+  opciones: OpcionesEnvio,
+): Promise<ResultadoEnvio> {
+  const cliente = await clienteDeCuenta(admin, accountId, 60_000);
+  if (!cliente || !cliente.tienda.shopCipher) {
+    throw new Error("TikTok Shop no está conectado.");
+  }
+
+  const paquetes = await paquetesDePedido(cliente, orderId);
+  if (!paquetes.length) {
+    throw new Error("TikTok no tiene ningún paquete para este pedido; no se puede confirmar el envío.");
+  }
+
+  for (const p of paquetes) {
+    await enviarPaquete(cliente, p.id, opciones);
+  }
+
+  const r = await sincronizarPedidosPorId(admin, accountId, [orderId]);
+
+  await admin.from("tiktok_sync_log").insert({
+    account_id: accountId,
+    tarea: "enviar",
+    inicio: new Date().toISOString(),
+    fin: new Date().toISOString(),
+    estado: r.avisos.length ? "con avisos" : "ok",
+    detalle: { orderId, paquetes: paquetes.map((p) => p.id), opciones, ...r },
+  });
+
+  return { paquetes: paquetes.map((p) => p.id), salidas: r.salidas, publicados: r.publicados, avisos: r.avisos };
+}
+
+/** La guía en PDF del primer paquete del pedido. */
+export async function etiquetaDePedido(admin: any, accountId: string, orderId: string): Promise<string | null> {
+  const cliente = await clienteDeCuenta(admin, accountId, 60_000);
+  if (!cliente || !cliente.tienda.shopCipher) return null;
+  const paquetes = await paquetesDePedido(cliente, orderId);
+  if (!paquetes.length) return null;
+  return etiquetaDePaquete(cliente, paquetes[0].id);
+}
+
+/**
+ * Procesa los avisos de TikTok que siguen sin atender: jala esos pedidos,
+ * mueve el kardex y republica. Idempotente: un aviso repetido no descuenta
+ * dos veces (índice único del kardex) y se marca procesado igual.
+ */
+export async function procesarWebhooksPendientes(
+  admin: any,
+  accountId: string,
+): Promise<{ avisos: number; pedidos: number; salidas: number; publicados: number }> {
+  const { data: pendientes } = await admin
+    .from("tiktok_webhooks")
+    .select("id, order_id")
+    .eq("account_id", accountId)
+    .is("procesado_en", null)
+    .order("recibido_en", { ascending: true })
+    .limit(100);
+
+  const lista = (pendientes ?? []) as { id: number; order_id: string | null }[];
+  if (!lista.length) return { avisos: 0, pedidos: 0, salidas: 0, publicados: 0 };
+
+  const ids = [...new Set(lista.map((w) => w.order_id).filter(Boolean))] as string[];
+  let r = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] as string[] };
+  let error: string | null = null;
+  try {
+    if (ids.length) r = await sincronizarPedidosPorId(admin, accountId, ids);
+  } catch (err) {
+    error = (err as Error).message;
+  }
+
+  await admin
+    .from("tiktok_webhooks")
+    .update({ procesado_en: new Date().toISOString(), error })
+    .in("id", lista.map((w) => w.id));
+
+  return { avisos: lista.length, pedidos: r.pedidos, salidas: r.salidas, publicados: r.publicados };
 }
 
 // ---------------------------------------------------------------------------

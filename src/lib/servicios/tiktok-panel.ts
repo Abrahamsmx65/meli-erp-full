@@ -20,7 +20,7 @@ export interface RenglonTikTok {
   apartado: number;
   /** saldo - apartado: lo que se le puede ofrecer a un comprador */
   disponible: number;
-  /** lo último que TikTok confirmó tener; null si nunca se le escribió */
+  /** lo que TikTok DICE tener publicado (su catálogo); null si no se sabe */
   publicado: number | null;
   /** true si TikTok trae un número distinto al que le toca */
   desfasado: boolean;
@@ -83,7 +83,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .eq("account_id", accountId)
       .maybeSingle(),
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, publicado", eq),
-    traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno", (q) =>
+    traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok", (q) =>
       eq(q).eq("activo", true),
     ),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
@@ -109,10 +109,17 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
 
   const titulos = new Map<string, string>();
   const conPublicacion = new Set<string>();
+  // Lo que TikTok DICE tener por SKU del ERP. Si un SKU está en varias
+  // publicaciones, la más baja: es la que primero se agotaría.
+  const enTikTok = new Map<string, number>();
   for (const s of skusTikTok ?? []) {
     if (!s.sku_interno) continue;
     conPublicacion.add(s.sku_interno);
     if (s.titulo && !titulos.has(s.sku_interno)) titulos.set(s.sku_interno, s.titulo);
+    if (s.cantidad_tiktok != null) {
+      const previo = enTikTok.get(s.sku_interno);
+      enTikTok.set(s.sku_interno, previo == null ? s.cantidad_tiktok : Math.min(previo, s.cantidad_tiktok));
+    }
   }
 
   const ventas30 = new Map<string, number>();
@@ -133,8 +140,8 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         saldo: r.saldo,
         apartado: r.apartado,
         disponible,
-        publicado: r.publicado ?? null,
-        desfasado: (r.publicado ?? null) !== disponible,
+        publicado: enTikTok.get(r.sku) ?? null,
+        desfasado: (enTikTok.get(r.sku) ?? null) !== disponible,
         ventas30: vendidas,
         diasCobertura: porDia > 0 ? disponible / porDia : null,
         enRojo: r.saldo < 0,

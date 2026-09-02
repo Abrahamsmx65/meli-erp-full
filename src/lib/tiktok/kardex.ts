@@ -273,3 +273,51 @@ export function cambiosAPublicar(renglones: RenglonInventarioTikTok[]): CambioAP
   }
   return cambios;
 }
+
+// ---------------------------------------------------------------------------
+// Reconciliar contra lo que TikTok DICE tener, no contra lo que escribimos
+// ---------------------------------------------------------------------------
+
+export interface PublicacionTikTok {
+  skuId: string;
+  productId: string;
+  skuInterno: string;
+  /** lo que TikTok reporta en su catálogo; null si no lo dijo */
+  cantidadTikTok: number | null;
+}
+
+export interface EscrituraTikTok {
+  skuId: string;
+  productId: string;
+  skuInterno: string;
+  de: number | null;
+  a: number;
+}
+
+/**
+ * Qué publicaciones hay que escribir para que TikTok diga lo mismo que el
+ * kardex. Se compara publicación por publicación contra el número REAL que
+ * TikTok reporta —no contra lo último que el ERP escribió— porque cualquiera
+ * puede editar el stock en el Seller Center y el ERP tiene que corregirlo,
+ * no ignorarlo. Solo se consideran los SKUs que el kardex conoce y que
+ * alguna vez se contaron: a los demás no se les toca su número.
+ */
+export function escriturasContraTikTok(
+  publicaciones: PublicacionTikTok[],
+  disponibles: Map<string, number>,
+): EscrituraTikTok[] {
+  const salida: EscrituraTikTok[] = [];
+  for (const p of publicaciones) {
+    const objetivo = disponibles.get(p.skuInterno);
+    if (objetivo === undefined) continue;
+    if (p.cantidadTikTok === objetivo) continue;
+    salida.push({
+      skuId: p.skuId,
+      productId: p.productId,
+      skuInterno: p.skuInterno,
+      de: p.cantidadTikTok,
+      a: objetivo,
+    });
+  }
+  return salida;
+}

@@ -130,6 +130,11 @@ export interface RenglonTikTok {
   estado: string | null;
 }
 
+export interface PaqueteTikTok {
+  id: string;
+  estado: string | null;
+}
+
 export interface PedidoTikTok {
   orderId: string;
   estado: string;
@@ -140,12 +145,78 @@ export interface PedidoTikTok {
   moneda: string | null;
   paqueteria: string | null;
   guia: string | null;
+  /** TIKTOK = guía de TikTok; SELLER = paquetería propia con guía nuestra */
+  shippingType: string | null;
+  /** TikTok envía por PAQUETE, no por pedido; aquí van los del pedido */
+  paquetes: PaqueteTikTok[];
+  destinatario: string | null;
   renglones: RenglonTikTok[];
 }
 
 function iso(segundos: unknown): string | null {
   const n = Number(segundos);
   return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null;
+}
+
+/** Un pedido tal como lo manda TikTok, a nuestra forma. */
+export function normalizarPedido(o: any): PedidoTikTok {
+  const renglones: RenglonTikTok[] = (o.line_items ?? []).map((li: any) => ({
+    lineItemId: String(li.id),
+    skuId: li.sku_id ? String(li.sku_id) : null,
+    sellerSku: li.seller_sku ? String(li.seller_sku) : null,
+    titulo: li.product_name ?? null,
+    // TikTok manda un renglón POR PAR: cada line_item es una pieza.
+    cantidad: 1,
+    precio: li.sale_price != null ? Number(li.sale_price) : null,
+    // El estado del renglón manda sobre el del pedido: en un envío
+    // parcial son distintos, y descontar por el del pedido sacaría del
+    // almacén pares que siguen ahí.
+    estado: li.display_status ?? o.status ?? null,
+  }));
+
+  const paquetes: PaqueteTikTok[] = (o.packages ?? []).map((p: any) => ({
+    id: String(p.id),
+    estado: p.status ?? null,
+  }));
+
+  const dest = o.recipient_address;
+  const destinatario = dest
+    ? [dest.name, dest.district_info?.map?.((d: any) => d.address_name).slice(-2).join(", ")]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+
+  return {
+    orderId: String(o.id),
+    estado: String(o.status ?? ""),
+    creadoEn: iso(o.create_time),
+    actualizadoEn: iso(o.update_time),
+    enviadoEn: iso(o.rts_time ?? o.collection_time),
+    total: o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
+    moneda: o.payment?.currency ?? null,
+    paqueteria: o.shipping_provider ?? null,
+    guia: o.tracking_number ?? null,
+    shippingType: o.shipping_type ?? null,
+    paquetes,
+    destinatario: destinatario || null,
+    renglones,
+  };
+}
+
+/**
+ * Pedidos concretos, por id. Es lo que usa el webhook (TikTok avisa de UN
+ * pedido) y la confirmación de envío desde el ERP.
+ */
+export async function pedidosPorId(c: Cliente, ids: string[]): Promise<PedidoTikTok[]> {
+  const salida: PedidoTikTok[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const d = await c.llamar<any>("GET", "/order/202309/orders", {
+      params: { ids: ids.slice(i, i + 50).join(",") },
+    });
+    if (!d) break;
+    for (const o of d.orders ?? []) salida.push(normalizarPedido(o));
+  }
+  return salida;
 }
 
 /**
@@ -188,34 +259,7 @@ export async function pedidosActualizados(
       }
     }
 
-    for (const o of d.orders ?? []) {
-      const renglones: RenglonTikTok[] = (o.line_items ?? []).map((li: any) => ({
-        lineItemId: String(li.id),
-        skuId: li.sku_id ? String(li.sku_id) : null,
-        sellerSku: li.seller_sku ? String(li.seller_sku) : null,
-        titulo: li.product_name ?? null,
-        // TikTok manda un renglón POR PAR: cada line_item es una pieza.
-        cantidad: 1,
-        precio: li.sale_price != null ? Number(li.sale_price) : null,
-        // El estado del renglón manda sobre el del pedido: en un envío
-        // parcial son distintos, y descontar por el del pedido sacaría del
-        // almacén pares que siguen ahí.
-        estado: li.display_status ?? o.status ?? null,
-      }));
-
-      salida.push({
-        orderId: String(o.id),
-        estado: String(o.status ?? ""),
-        creadoEn: iso(o.create_time),
-        actualizadoEn: iso(o.update_time),
-        enviadoEn: iso(o.rts_time ?? o.collection_time),
-        total: o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
-        moneda: o.payment?.currency ?? null,
-        paqueteria: o.shipping_provider ?? null,
-        guia: o.tracking_number ?? null,
-        renglones,
-      });
-    }
+    for (const o of d.orders ?? []) salida.push(normalizarPedido(o));
 
     token = d.next_page_token || undefined;
     if (!token) break;
@@ -282,4 +326,76 @@ export async function publicarStock(
   }
 
   return { publicados, fallidos };
+}
+
+// ---------------------------------------------------------------------------
+// Envío desde el ERP. TikTok envía por PAQUETE.
+// ---------------------------------------------------------------------------
+
+export interface OpcionesEnvio {
+  /** PICKUP: pasa el repartidor. DROP_OFF: se lleva a la paquetería. */
+  handover: "PICKUP" | "DROP_OFF";
+  /** Solo cuando la paquetería es propia (shipping_type SELLER). */
+  guia?: string | null;
+  proveedorId?: string | null;
+}
+
+/**
+ * Los paquetes de un pedido. Con guía de TikTok el paquete ya existe; con
+ * paquetería propia a veces hay que crearlo primero.
+ */
+export async function paquetesDePedido(c: Cliente, orderId: string): Promise<PaqueteTikTok[]> {
+  const [p] = await pedidosPorId(c, [orderId]);
+  if (p?.paquetes.length) return p.paquetes;
+
+  const d = await c.llamar<any>("POST", "/fulfillment/202309/packages", {
+    cuerpo: { order_id: orderId },
+  });
+  const id = d?.package_id ?? d?.id;
+  return id ? [{ id: String(id), estado: null }] : [];
+}
+
+/**
+ * Confirma el envío de un paquete. Con guía de TikTok basta decir cómo se
+ * entrega; con paquetería propia hay que darle guía y proveedor.
+ */
+export async function enviarPaquete(
+  c: Cliente,
+  packageId: string,
+  opciones: OpcionesEnvio,
+): Promise<void> {
+  const cuerpo: Record<string, unknown> = { handover_method: opciones.handover };
+  if (opciones.guia && opciones.proveedorId) {
+    cuerpo.self_shipment = {
+      tracking_number: opciones.guia,
+      shipping_provider_id: opciones.proveedorId,
+    };
+  }
+  await c.llamar("POST", `/fulfillment/202309/packages/${packageId}/ship`, { cuerpo });
+}
+
+/** La guía en PDF del paquete (la que se pega en la caja). */
+export async function etiquetaDePaquete(c: Cliente, packageId: string): Promise<string | null> {
+  const d = await c.llamar<any>(
+    "GET",
+    `/fulfillment/202309/packages/${packageId}/shipping_documents`,
+    { params: { document_type: "SHIPPING_LABEL", document_size: "A6" } },
+  );
+  return d?.doc_url ?? null;
+}
+
+export interface ProveedorEnvio {
+  id: string;
+  nombre: string;
+}
+
+/** Las paqueterías que TikTok acepta para envío propio (Estafeta, DHL…). */
+export async function proveedoresDeEnvio(c: Cliente): Promise<ProveedorEnvio[]> {
+  const d = await c.llamar<any>("GET", "/logistics/202309/shipping_providers", {
+    params: { delivery_option_id: undefined },
+  });
+  return (d?.shipping_providers ?? []).map((p: any) => ({
+    id: String(p.id),
+    nombre: String(p.name ?? p.id),
+  }));
 }

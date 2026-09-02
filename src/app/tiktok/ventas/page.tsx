@@ -3,6 +3,7 @@ import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { efectoDeEstado } from "@/lib/tiktok/kardex";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { PedidosTikTok, type PedidoPorEnviar } from "@/components/tiktok-pedidos";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export default async function VentasTikTok({
     traerTodo<any>(supabase, "tiktok_ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
       q.eq("account_id", cuenta.id).gte("fecha", rango.desde).lte("fecha", rango.hasta),
     ),
-    traerTodo<any>(supabase, "tiktok_ordenes", "order_id, estado, fecha_creacion, total, guia", (q) =>
+    traerTodo<any>(supabase, "tiktok_ordenes", "order_id, estado, fecha_creacion, total, guia, shipping_type, detalle", (q) =>
       q.eq("account_id", cuenta.id),
     ),
     traerTodo<any>(supabase, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
@@ -87,13 +88,25 @@ export default async function VentasTikTok({
   const paresPorEnviar = porEnviar.reduce((a, i) => a + (i.cantidad ?? 0), 0);
   const pedidosPorEnviar = new Set(porEnviar.map((i) => i.order_id));
 
-  const detallePorEnviar = new Map<string, { sku: string; pares: number }>();
+  // Pedido por pedido, para empacar y confirmar desde aquí.
+  const itemsPorPedido = new Map<string, Map<string, number>>();
   for (const i of porEnviar) {
     const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
-    const acc = detallePorEnviar.get(sku) ?? { sku, pares: 0 };
-    acc.pares += i.cantidad ?? 0;
-    detallePorEnviar.set(sku, acc);
+    const m = itemsPorPedido.get(i.order_id) ?? new Map<string, number>();
+    m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
+    itemsPorPedido.set(i.order_id, m);
   }
+  const pedidosPorEnviar: PedidoPorEnviar[] = (ordenes ?? [])
+    .filter((o) => itemsPorPedido.has(o.order_id))
+    .map((o) => ({
+      orderId: o.order_id,
+      estado: o.estado,
+      creadoEn: o.fecha_creacion ?? null,
+      destinatario: o.detalle?.destinatario ?? null,
+      shippingType: o.shipping_type ?? null,
+      renglones: [...(itemsPorPedido.get(o.order_id) ?? new Map())].map(([sku, pares]) => ({ sku, pares })),
+    }))
+    .sort((a, b) => (a.creadoEn ?? "").localeCompare(b.creadoEn ?? ""));
 
   const porEstado = new Map<string, number>();
   for (const o of ordenes ?? []) {
@@ -124,35 +137,7 @@ export default async function VentasTikTok({
         <Ficha titulo="Pares apartados" valor={n(paresPorEnviar)} nota="ya tienen dueño" />
       </div>
 
-      {detallePorEnviar.size ? (
-        <section className="tarjeta overflow-hidden">
-          <h2 className="px-4 pt-4 text-sm font-semibold">Qué hay que empacar</h2>
-          <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
-            Estos pares siguen en el almacén pero ya están apartados. Salen del disponible en
-            cuanto confirmes el envío en TikTok.
-          </p>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
-                  <th className="px-4 py-2 font-semibold">SKU</th>
-                  <th className="px-4 py-2 text-right font-semibold">Pares</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...detallePorEnviar.values()]
-                  .sort((a, b) => b.pares - a.pares)
-                  .map((d) => (
-                    <tr key={d.sku} className="hairline">
-                      <td className="px-4 py-2 font-medium">{d.sku}</td>
-                      <td className="num px-4 py-2 text-right">{n(d.pares)}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+      <PedidosTikTok pedidos={pedidosPorEnviar} />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="tarjeta overflow-hidden">

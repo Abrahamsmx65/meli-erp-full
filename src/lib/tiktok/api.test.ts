@@ -158,3 +158,40 @@ describe("publicarStock", () => {
     expect(r.publicados).toBe(0);
   });
 });
+
+describe("normalizarPedido: lo que hace falta para enviar desde el ERP", () => {
+  it("trae el tipo de envío y los paquetes", async () => {
+    const { normalizarPedido } = await import("./api");
+    const p = normalizarPedido({
+      id: "1",
+      status: "AWAITING_SHIPMENT",
+      shipping_type: "TIKTOK",
+      packages: [{ id: "pk1", status: "TO_FULFILL" }],
+      recipient_address: { name: "Ana", district_info: [{ address_name: "CDMX" }, { address_name: "Coyoacán" }] },
+      line_items: [],
+    });
+    expect(p.shippingType).toBe("TIKTOK");
+    expect(p.paquetes).toEqual([{ id: "pk1", estado: "TO_FULFILL" }]);
+    expect(p.destinatario).toBe("Ana · CDMX, Coyoacán");
+  });
+});
+
+describe("enviarPaquete", () => {
+  it("con guía de TikTok solo dice cómo se entrega", async () => {
+    const { enviarPaquete } = await import("./api");
+    const { cliente, llamadas } = clienteFalso([{}]);
+    await enviarPaquete(cliente, "pk1", { handover: "PICKUP" });
+    expect(llamadas[0].ruta).toBe("/fulfillment/202309/packages/pk1/ship");
+    expect(llamadas[0].opciones.cuerpo).toEqual({ handover_method: "PICKUP" });
+  });
+
+  it("con paquetería propia manda guía y proveedor", async () => {
+    const { enviarPaquete } = await import("./api");
+    const { cliente, llamadas } = clienteFalso([{}]);
+    await enviarPaquete(cliente, "pk1", { handover: "DROP_OFF", guia: "ABC123", proveedorId: "77" });
+    expect(llamadas[0].opciones.cuerpo).toEqual({
+      handover_method: "DROP_OFF",
+      self_shipment: { tracking_number: "ABC123", shipping_provider_id: "77" },
+    });
+  });
+});
