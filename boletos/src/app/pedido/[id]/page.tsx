@@ -20,7 +20,8 @@ export default async function PaginaPedido({
   const { nuevo } = await searchParams;
   const datos = await obtenerPedido(id);
   if (!datos) notFound();
-  const { pedido, evento, boletos } = datos;
+  const { pedido, evento, boletos, renglones } = datos;
+  const nombreTipo = new Map(renglones.map((r) => [r.tipo_id, r.tipo ?? "Entrada"]));
 
   return (
     <>
@@ -35,43 +36,53 @@ export default async function PaginaPedido({
         <section className="tarjeta p-6">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--tinta-suave)" }}>
-                Pedido
-              </div>
-              <h1 className="mono text-2xl font-bold">{pedido.referencia}</h1>
+              <div className="text-xs font-bold uppercase tracking-[.2em]" style={{ color: "var(--tinta-suave)" }}>Pedido</div>
+              <h1 className="mono text-2xl font-bold" style={{ color: "var(--vino)" }}>{pedido.referencia}</h1>
             </div>
             <Pastilla estado={pedido.estado} />
           </div>
           <dl className="mt-4 grid gap-1 text-sm" style={{ color: "var(--tinta-2)" }}>
-            <div className="flex justify-between"><dt>Evento</dt><dd className="text-right font-semibold" style={{ color: "var(--tinta)" }}>{evento.nombre}</dd></div>
-            <div className="flex justify-between"><dt>Fecha</dt><dd className="text-right">{fechaLarga(evento.fecha)}</dd></div>
-            <div className="flex justify-between"><dt>A nombre de</dt><dd className="text-right">{pedido.nombre}</dd></div>
-            <div className="flex justify-between"><dt>Boletos</dt><dd className="text-right">{pedido.cantidad}</dd></div>
-            <div className="flex justify-between text-base"><dt>Total</dt><dd className="text-right font-extrabold" style={{ color: "var(--tinta)" }}>{pesos(pedido.total)}</dd></div>
+            <div className="flex justify-between gap-4"><dt>Evento</dt><dd className="serif text-right text-lg font-semibold" style={{ color: "var(--tinta)" }}>{evento.nombre}</dd></div>
+            <div className="flex justify-between gap-4"><dt>Fecha</dt><dd className="text-right">{fechaLarga(evento.fecha)}</dd></div>
+            {evento.lugar && <div className="flex justify-between gap-4"><dt>Lugar</dt><dd className="text-right">{evento.lugar}</dd></div>}
+            <div className="flex justify-between gap-4"><dt>A nombre de</dt><dd className="text-right">{pedido.nombre}</dd></div>
+          </dl>
+          <div className="separador-oro my-3" />
+          <dl className="grid gap-1 text-sm">
+            {renglones.map((r) => (
+              <div key={r.id} className="flex justify-between"><dt>{r.cantidad} × {r.tipo ?? "Boleto"}</dt><dd>{pesos(r.cantidad * r.precio_unitario)}</dd></div>
+            ))}
+            {pedido.donativos > 0 && evento.donativo_monto && (
+              <div className="flex justify-between"><dt>{pedido.donativos} × {evento.donativo_nombre ?? "Donativo"}</dt><dd>{pesos(pedido.donativos * evento.donativo_monto)}</dd></div>
+            )}
+            <div className="mt-1 flex justify-between border-t pt-2 text-base" style={{ borderColor: "var(--borde)" }}>
+              <dt className="font-semibold">Total</dt>
+              <dd className="serif text-2xl font-bold" style={{ color: "var(--vino)" }}>{pesos(pedido.total)}</dd>
+            </div>
           </dl>
         </section>
 
         {pedido.estado === "cancelado" && (
-          <div className="aviso aviso-mal">Este pedido fue cancelado. Si crees que es un error, contacta al organizador.</div>
+          <div className="aviso aviso-mal">Este pedido fue cancelado. Si crees que es un error, contacta a las organizadoras.</div>
         )}
 
         {(pedido.estado === "pendiente" || pedido.estado === "por_confirmar") && (
           <>
             <section className="tarjeta p-6">
-              <h2 className="text-lg font-bold">1. Transfiere {pesos(pedido.total)}</h2>
+              <h2 className="serif text-2xl font-semibold" style={{ color: "var(--vino)" }}>1. Transfiere {pesos(pedido.total)}</h2>
               <p className="mt-1 text-sm" style={{ color: "var(--tinta-2)" }}>
                 Pon esta referencia como <strong>concepto</strong> para que ubiquemos tu pago:
               </p>
-              <div className="mono my-3 rounded-xl py-3 text-center text-3xl font-bold tracking-widest" style={{ background: "var(--plano)" }}>
+              <div className="mono my-3 rounded-xl py-3 text-center text-3xl font-bold tracking-widest" style={{ background: "var(--vino-suave)", color: "var(--vino)" }}>
                 {pedido.referencia}
               </div>
-              <pre className="whitespace-pre-wrap rounded-xl p-4 text-sm" style={{ background: "var(--fondo)", fontFamily: "inherit" }}>
-                {evento.datos_transferencia || "El organizador aún no capturó los datos bancarios."}
+              <pre className="whitespace-pre-wrap rounded-xl p-4 text-sm" style={{ background: "var(--plano)", fontFamily: "inherit" }}>
+                {evento.datos_transferencia || "Las organizadoras te compartirán los datos bancarios."}
               </pre>
             </section>
 
             <section className="tarjeta p-6">
-              <h2 className="text-lg font-bold">2. Avísanos que ya pagaste</h2>
+              <h2 className="serif text-2xl font-semibold" style={{ color: "var(--vino)" }}>2. Avísanos que ya pagaste</h2>
               {pedido.estado === "por_confirmar" && (
                 <div className="aviso aviso-alerta my-3">
                   Ya recibimos tu aviso. Estamos revisando la transferencia; en cuanto la confirmemos te llegan tus boletos.
@@ -86,18 +97,19 @@ export default async function PaginaPedido({
 
         {pedido.estado === "pagado" && (
           <section className="tarjeta p-6">
-            <h2 className="text-lg font-bold">Tus boletos</h2>
+            <h2 className="serif text-2xl font-semibold" style={{ color: "var(--vino)" }}>{boletos.length > 0 ? "Tus boletos" : "¡Gracias!"}</h2>
             <p className="mt-1 text-sm" style={{ color: "var(--tinta-2)" }}>
-              También te los mandamos a {pedido.correo}. Cada QR entra una sola vez.
+              {boletos.length > 0 ? <>También te los mandamos a {pedido.correo}. Cada QR entra una sola vez.</> : <>Tu pago quedó confirmado.</>}
             </p>
             <ul className="mt-4 grid gap-2">
               {boletos.map((b) => (
-                <li key={b.id} className="flex items-center justify-between rounded-xl border p-3" style={{ borderColor: "var(--borde)" }}>
-                  <span className="mono">{formatearFolio(b.folio)}</span>
+                <li key={b.id} className="flex items-center justify-between gap-2 rounded-xl border p-3" style={{ borderColor: "var(--borde)" }}>
+                  <div>
+                    <div className="font-bold">{b.tipo_id ? nombreTipo.get(b.tipo_id) : "Entrada"}</div>
+                    <div className="mono text-xs" style={{ color: "var(--tinta-suave)" }}>{formatearFolio(b.folio)}</div>
+                  </div>
                   <Pastilla estado={b.estado} />
-                  <Link className="boton boton-suave !py-2 !px-3 text-sm" href={`/boleto/${b.codigo}`}>
-                    Ver QR
-                  </Link>
+                  <Link className="boton boton-suave !px-3 !py-2 text-sm" href={`/boleto/${b.codigo}`}>Ver QR</Link>
                 </li>
               ))}
             </ul>

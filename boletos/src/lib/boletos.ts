@@ -9,7 +9,7 @@ export async function usarBoleto(texto: string, usuario: string): Promise<Escane
     return {
       resultado: "no_existe",
       boleto_id: null, folio: null, nombre: null, correo: null,
-      cantidad: null, evento: null, usado_en: null, usado_por: null,
+      cantidad: null, evento: null, tipo: null, usado_en: null, usado_por: null,
     };
   }
   const { data, error } = await clienteAdmin().rpc("ev_usar_boleto", { p_codigo: codigo, p_usuario: usuario });
@@ -23,6 +23,7 @@ export interface BoletoCompleto {
   boleto: Boleto;
   pedido: Pedido;
   evento: Evento;
+  tipo: string | null;
 }
 
 export async function obtenerBoleto(codigo: string): Promise<BoletoCompleto | null> {
@@ -31,12 +32,16 @@ export async function obtenerBoleto(codigo: string): Promise<BoletoCompleto | nu
   const db = clienteAdmin();
   const { data: b } = await db.from("ev_boletos").select("*").eq("codigo", c).maybeSingle();
   if (!b) return null;
-  const { data: p } = await db.from("ev_pedidos").select("*").eq("id", b.pedido_id).single();
-  const { data: e } = await db.from("ev_eventos").select("*").eq("id", b.evento_id).single();
+  const [{ data: p }, { data: e }, { data: t }] = await Promise.all([
+    db.from("ev_pedidos").select("*").eq("id", b.pedido_id).single(),
+    db.from("ev_eventos").select("*").eq("id", b.evento_id).single(),
+    b.tipo_id ? db.from("ev_tipos_boleto").select("nombre").eq("id", b.tipo_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
   return {
     boleto: b as Boleto,
-    pedido: { ...(p as Pedido), total: Number(p!.total) },
-    evento: { ...(e as Evento), precio: Number(e!.precio) },
+    pedido: { ...(p as Pedido), total: Number(p!.total), donativos: Number(p!.donativos ?? 0) },
+    evento: { ...(e as Evento), precio: Number(e!.precio), donativo_monto: e!.donativo_monto == null ? null : Number(e!.donativo_monto) },
+    tipo: (t as { nombre: string } | null)?.nombre ?? null,
   };
 }
 
@@ -55,13 +60,14 @@ export interface BoletoConPersona extends Boleto {
   correo: string;
   referencia: string;
   estado_pedido: string;
+  tipo: string | null;
 }
 
 export async function listarBoletos(eventoId?: string, busqueda?: string): Promise<BoletoConPersona[]> {
   const db = clienteAdmin();
   let q = db
     .from("ev_boletos")
-    .select("*, ev_pedidos!inner(nombre, correo, referencia, estado)")
+    .select("*, ev_pedidos!inner(nombre, correo, referencia, estado), ev_tipos_boleto(nombre)")
     .order("folio", { ascending: true })
     .limit(2000);
   if (eventoId) q = q.eq("evento_id", eventoId);
@@ -72,10 +78,14 @@ export async function listarBoletos(eventoId?: string, busqueda?: string): Promi
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map((fila) => {
-    const { ev_pedidos, ...b } = fila as Boleto & {
+    const { ev_pedidos, ev_tipos_boleto, ...b } = fila as Boleto & {
       ev_pedidos: { nombre: string; correo: string; referencia: string; estado: string };
+      ev_tipos_boleto: { nombre: string } | null;
     };
-    return { ...b, nombre: ev_pedidos.nombre, correo: ev_pedidos.correo, referencia: ev_pedidos.referencia, estado_pedido: ev_pedidos.estado };
+    return {
+      ...b, nombre: ev_pedidos.nombre, correo: ev_pedidos.correo, referencia: ev_pedidos.referencia,
+      estado_pedido: ev_pedidos.estado, tipo: ev_tipos_boleto?.nombre ?? null,
+    };
   });
 }
 

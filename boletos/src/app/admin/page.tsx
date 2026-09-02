@@ -29,7 +29,7 @@ export default async function PanelPedidos({ searchParams }: { searchParams: Pro
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">Pedidos</h1>
+        <h1 className="serif text-3xl font-bold">Pedidos</h1>
         <form className="flex flex-wrap gap-2" method="get">
           <select name="evento" defaultValue={f.evento ?? ""} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--borde)" }}>
             <option value="">Todos los eventos</option>
@@ -83,7 +83,7 @@ export default async function PanelPedidos({ searchParams }: { searchParams: Pro
                   <div className="text-xs" style={{ color: "var(--tinta-suave)" }}>{p.correo}{p.telefono && ` · ${p.telefono}`}</div>
                 </td>
                 <td className="text-sm">{nombreEvento.get(p.evento_id) ?? "—"}</td>
-                <td className="text-right">{p.cantidad}</td>
+                <td className="text-right"><div>{p.cantidad}</div><div className="text-xs" style={{ color: "var(--tinta-suave)" }}>{p.desglose}</div></td>
                 <td className="text-right font-semibold">{pesos(p.total)}</td>
                 <td><Pastilla estado={p.estado} />{p.comprobante_ruta && <div className="mt-1 text-xs" style={{ color: "var(--tinta-suave)" }}>📎 comprobante</div>}</td>
                 <td className="text-sm whitespace-nowrap">{fechaCorta(p.creado_en)}</td>

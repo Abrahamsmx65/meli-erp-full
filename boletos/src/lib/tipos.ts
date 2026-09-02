@@ -12,7 +12,33 @@ export interface Evento {
   maximo_por_pedido: number;
   datos_transferencia: string;
   activo: boolean;
+  imagen_url: string | null;
+  informes: string | null;
+  donativo_nombre: string | null;
+  donativo_monto: number | null;
+  donativo_descripcion: string | null;
   creado_en: string;
+}
+
+export interface TipoBoleto {
+  id: string;
+  evento_id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
+  limite: number | null;
+  orden: number;
+  activo: boolean;
+}
+
+export interface Renglon {
+  id: string;
+  pedido_id: string;
+  tipo_id: string;
+  cantidad: number;
+  precio_unitario: number;
+  /** Nombre del tipo, cuando se trae con join. */
+  tipo?: string;
 }
 
 export interface Pedido {
@@ -24,6 +50,7 @@ export interface Pedido {
   telefono: string | null;
   cantidad: number;
   total: number;
+  donativos: number;
   estado: EstadoPedido;
   comprobante_ruta: string | null;
   aviso_pago_en: string | null;
@@ -40,6 +67,7 @@ export interface Boleto {
   folio: number;
   pedido_id: string;
   evento_id: string;
+  tipo_id: string | null;
   codigo: string;
   estado: EstadoBoleto;
   usado_en: string | null;
@@ -57,6 +85,7 @@ export interface Escaneo {
   correo: string | null;
   cantidad: number | null;
   evento: string | null;
+  tipo: string | null;
   usado_en: string | null;
   usado_por: string | null;
 }

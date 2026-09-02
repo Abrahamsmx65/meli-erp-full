@@ -73,12 +73,16 @@ Proyecto nuevo apuntando a este repositorio con **Root Directory = `boletos`**.
 Framework Next.js, sin más ajustes. La cámara del escáner exige HTTPS, que
 Vercel da por omisión.
 
-### 5. Primer evento
+### 5. El evento
 
-Entra a `/admin/eventos` → *Nuevo evento*: nombre, fecha, precio, capacidad y
-los **datos para transferir** (banco, CLABE, beneficiario) tal como quieres
-que los vea el comprador. Comparte el enlace `/evento/{id}` o la página
-principal `/`, que lista los eventos con venta abierta.
+`Jalá le Zibug 2026` ya está dado de alta (16 de septiembre 2026, 10:30 AM,
+Hacienda del Ciervo #16, Cibeles) con dos tipos de boleto —Kit de Jalá $350 y
+Acompañante $150— y el donativo opcional del Misheberaj ($1,000). Lugares NO
+asignados: el **límite total de boletos** (capacidad) y, si se quiere, el
+límite por tipo se cambian en `/admin/eventos`. Ahí mismo van los **datos para
+transferir** (banco, CLABE, beneficiario).
+
+Con un solo evento abierto, la portada `/` manda directo a su página.
 
 ## Cómo está armado
 
@@ -96,6 +100,8 @@ src/app/admin/escanear      escáner con la cámara del celular
 src/lib/pedidos.ts          crear pedido, avisar pago, confirmar, emitir y enviar boletos
 src/lib/boletos.ts          escaneo (ev_usar_boleto), consulta, deshacer entrada
 src/lib/codigos.ts          referencia, código del boleto, lectura del QR (puro, con pruebas)
+src/lib/carrito.ts          lo que pide el comprador por tipo + donativo (puro, con pruebas)
+src/lib/eventos.ts          eventos, tipos de boleto y cupo
 src/lib/correo.ts           Resend por fetch + plantilla
 supabase/migrations/        esquema completo
 ```
@@ -107,8 +113,12 @@ supabase/migrations/        esquema completo
   `service_role`. El pedido se abre con su `id` (UUID aleatorio) y el boleto
   con su `codigo` (20 caracteres de un alfabeto sin 0/O/1/I/L, ~99 bits). Quien
   tiene el enlace tiene el boleto, igual que un boleto de papel.
-- **La capacidad la cuida la base** (`ev_crear_pedido` bloquea el evento y
-  suma lo pedido) y **el escaneo es atómico** (`ev_usar_boleto` con
+- **Tipos de boleto con precio propio** (`ev_tipos_boleto`) y renglones por
+  pedido (`ev_pedido_renglones`); cada boleto emitido sabe su tipo, y el
+  escáner lo grita en la puerta (quién lleva kit).
+- **La capacidad la cuida la base** (`ev_crear_pedido` bloquea el evento,
+  recalcula el total con los precios vigentes y suma lo pedido, total y por
+  tipo) y **el escaneo es atómico** (`ev_usar_boleto` con
   `for update`): dos celulares escaneando el mismo QR a la vez no dejan pasar
   a dos personas.
 - **Todo pedido no cancelado ocupa lugar**, incluso sin pagar. Si alguien

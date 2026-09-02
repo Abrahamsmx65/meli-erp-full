@@ -6,7 +6,7 @@ export default async function Cuenta() {
   return (
     <div className="mx-auto grid max-w-md gap-5">
       <div>
-        <h1 className="text-2xl font-extrabold">Mi cuenta</h1>
+        <h1 className="serif text-3xl font-bold">Mi cuenta</h1>
         <p className="text-sm" style={{ color: "var(--tinta-suave)" }}>{admin?.correo}</p>
       </div>
       <div className="tarjeta p-6">

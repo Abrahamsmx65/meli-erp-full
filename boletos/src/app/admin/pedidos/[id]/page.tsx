@@ -12,7 +12,8 @@ export default async function DetallePedido({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const datos = await obtenerPedido(id);
   if (!datos) notFound();
-  const { pedido, evento, boletos } = datos;
+  const { pedido, evento, boletos, renglones } = datos;
+  const nombreTipo = new Map(renglones.map((r) => [r.tipo_id, r.tipo ?? "Entrada"]));
   const comprobante = await urlComprobante(pedido.comprobante_ruta);
   const base = (process.env.NEXT_PUBLIC_URL_BASE ?? "").replace(/\/+$/, "");
 
@@ -34,7 +35,8 @@ export default async function DetallePedido({ params }: { params: Promise<{ id: 
             <Dato t="Teléfono" v={pedido.telefono ?? "—"} />
             <Dato t="Evento" v={evento.nombre} />
             <Dato t="Fecha del evento" v={fechaLarga(evento.fecha)} />
-            <Dato t="Boletos" v={String(pedido.cantidad)} />
+            <Dato t="Boletos" v={renglones.map((r) => `${r.cantidad} ${r.tipo ?? "boleto"}`).join(" · ") || "Ninguno"} />
+            {pedido.donativos > 0 && <Dato t={evento.donativo_nombre ?? "Donativo"} v={`${pedido.donativos} × ${pesos(evento.donativo_monto ?? 0)}`} />}
             <Dato t="Total" v={pesos(pedido.total)} />
             <Dato t="Avisó que pagó" v={fechaCorta(pedido.aviso_pago_en)} />
             <Dato t="Pago confirmado" v={pedido.pagado_en ? `${fechaCorta(pedido.pagado_en)} · ${pedido.confirmado_por ?? ""}` : "—"} />
@@ -70,6 +72,7 @@ export default async function DetallePedido({ params }: { params: Promise<{ id: 
               {boletos.map((b) => (
                 <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={{ borderColor: "var(--borde)" }}>
                   <span className="mono font-semibold">{formatearFolio(b.folio)}</span>
+                  <span className="font-semibold">{b.tipo_id ? nombreTipo.get(b.tipo_id) : "Entrada"}</span>
                   <span className="mono text-xs" style={{ color: "var(--tinta-suave)" }}>{b.codigo}</span>
                   <Pastilla estado={b.estado} />
                   {b.usado_en && <span className="text-xs" style={{ color: "var(--tinta-suave)" }}>entró {fechaCorta(b.usado_en)}</span>}

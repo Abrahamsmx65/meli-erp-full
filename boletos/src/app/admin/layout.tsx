@@ -29,9 +29,9 @@ export default async function LayoutAdmin({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b" style={{ background: "var(--tinta)", borderColor: "transparent", color: "#fff" }}>
+      <header className="sticky top-0 z-10 border-b" style={{ background: "var(--vino)", borderColor: "transparent", color: "#fff" }}>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
-          <Link href="/admin" className="font-extrabold">🎟️ Boletos</Link>
+          <Link href="/admin" className="caligrafia text-2xl leading-none">Jalá le Zibug</Link>
           <nav className="flex flex-wrap gap-1 text-sm">
             {ENLACES.map((e) => (
               <Link key={e.href} href={e.href} className="rounded-lg px-3 py-1.5 hover:bg-white/10">

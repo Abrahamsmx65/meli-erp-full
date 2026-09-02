@@ -100,6 +100,11 @@ export function Escaner() {
         {resultado && !("error" in resultado) && info && (
           <>
             <div className="text-2xl font-extrabold">{info.titulo}</div>
+            {resultado.tipo && (
+              <div className="mt-2 inline-block rounded-full px-3 py-1 text-sm font-bold uppercase tracking-widest" style={{ background: "rgba(255,255,255,.2)" }}>
+                {resultado.tipo}
+              </div>
+            )}
             {resultado.nombre && (
               <div className="mt-2 text-lg font-semibold">{resultado.nombre}</div>
             )}

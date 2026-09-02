@@ -30,7 +30,7 @@ export default async function Asistentes({ searchParams }: { searchParams: Promi
       <div className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-extrabold">Asistentes</h1>
+            <h1 className="serif text-3xl font-bold">Asistentes</h1>
             <p className="text-sm" style={{ color: "var(--tinta-suave)" }}>{usados} ya entraron · {validos} por llegar</p>
           </div>
           <form className="flex flex-wrap gap-2" method="get">
@@ -44,12 +44,13 @@ export default async function Asistentes({ searchParams }: { searchParams: Promi
         </div>
         <div className="tarjeta overflow-x-auto">
           <table className="tabla">
-            <thead><tr><th>Folio</th><th>Persona</th><th>Pedido</th><th>Estado</th><th>Entró</th><th></th></tr></thead>
+            <thead><tr><th>Folio</th><th>Tipo</th><th>Persona</th><th>Pedido</th><th>Estado</th><th>Entró</th><th></th></tr></thead>
             <tbody>
-              {boletos.length === 0 && <tr><td colSpan={6} className="py-10 text-center" style={{ color: "var(--tinta-suave)" }}>Todavía no hay boletos emitidos.</td></tr>}
+              {boletos.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: "var(--tinta-suave)" }}>Todavía no hay boletos emitidos.</td></tr>}
               {boletos.map((b) => (
                 <tr key={b.id}>
                   <td className="mono font-semibold">{formatearFolio(b.folio)}</td>
+                  <td className="font-semibold">{b.tipo ?? "—"}</td>
                   <td><div className="font-semibold">{b.nombre}</div><div className="text-xs" style={{ color: "var(--tinta-suave)" }}>{b.correo}</div></td>
                   <td className="mono text-sm">{b.referencia}</td>
                   <td><Pastilla estado={b.estado} /></td>

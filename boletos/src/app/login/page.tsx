@@ -5,8 +5,8 @@ export default async function PaginaLogin({ searchParams }: { searchParams: Prom
   return (
     <main className="mx-auto grid min-h-dvh max-w-sm content-center gap-6 px-4">
       <div className="text-center">
-        <div className="text-3xl">🎟️</div>
-        <h1 className="mt-2 text-2xl font-extrabold">Panel del organizador</h1>
+        <div className="caligrafia text-5xl" style={{ color: "var(--vino)" }}>Jalá le Zibug</div>
+        <h1 className="serif mt-2 text-2xl font-semibold">Panel del organizador</h1>
         <p className="text-sm" style={{ color: "var(--tinta-suave)" }}>
           Entra con tu correo y contraseña.
         </p>

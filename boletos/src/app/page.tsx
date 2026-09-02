@@ -1,11 +1,13 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { EncabezadoPublico } from "@/components/encabezado-publico";
 import { listarEventos } from "@/lib/eventos";
-import { fechaLarga, pesos } from "@/lib/formato";
+import { fechaLarga } from "@/lib/formato";
 import { supabaseConfigurado } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
 
+/** Con un solo evento abierto, la portada ES el evento. */
 export default async function Inicio() {
   if (!supabaseConfigurado()) {
     return (
@@ -18,45 +20,25 @@ export default async function Inicio() {
     );
   }
   const eventos = await listarEventos(true);
+  if (eventos.length === 1) redirect(`/evento/${eventos[0].id}`);
 
   return (
     <>
       <EncabezadoPublico />
       <main className="mx-auto max-w-3xl px-4 pb-16">
-        <h1 className="mb-1 text-3xl font-extrabold tracking-tight">Próximos eventos</h1>
-        <p className="mb-8" style={{ color: "var(--tinta-suave)" }}>
-          Elige tu evento, aparta tus boletos y paga por transferencia. Tus boletos con QR llegan a tu correo.
-        </p>
-
+        <h1 className="serif mb-6 text-4xl font-semibold" style={{ color: "var(--vino)" }}>Próximos eventos</h1>
         {eventos.length === 0 && (
           <div className="tarjeta p-8 text-center" style={{ color: "var(--tinta-suave)" }}>
             Por ahora no hay eventos con venta abierta.
           </div>
         )}
-
         <div className="grid gap-4">
           {eventos.map((e) => (
             <Link key={e.id} href={`/evento/${e.id}`} className="tarjeta block p-6 transition hover:shadow-md">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-bold">{e.nombre}</h2>
-                  <p className="mt-1 text-sm" style={{ color: "var(--tinta-2)" }}>
-                    {fechaLarga(e.fecha)}
-                    {e.lugar && <> · {e.lugar}</>}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-extrabold">{pesos(e.precio)}</div>
-                  <div className="text-xs" style={{ color: "var(--tinta-suave)" }}>
-                    {e.disponibles > 0 ? `${e.disponibles} lugares` : "Agotado"}
-                  </div>
-                </div>
-              </div>
-              {e.descripcion && (
-                <p className="mt-3 line-clamp-2 text-sm" style={{ color: "var(--tinta-2)" }}>
-                  {e.descripcion}
-                </p>
-              )}
+              <h2 className="serif text-2xl font-semibold">{e.nombre}</h2>
+              <p className="mt-1 text-sm" style={{ color: "var(--tinta-2)" }}>
+                {fechaLarga(e.fecha)}{e.lugar && <> · {e.lugar}</>}
+              </p>
             </Link>
           ))}
         </div>
