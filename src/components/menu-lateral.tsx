@@ -19,7 +19,6 @@ import {
   PackageCheck,
   Printer,
   ReceiptText,
-  Scale,
   RefreshCw,
   Scale,
   Settings,
