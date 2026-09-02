@@ -1,7 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { pendientesDeCorte } from "@/lib/servicios/tiktok-despacho";
-import { DespachoTikTok, type CorteResumen } from "@/components/tiktok-despacho";
+import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 
 export const dynamic = "force-dynamic";
 
