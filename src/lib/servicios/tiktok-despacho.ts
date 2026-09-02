@@ -13,8 +13,10 @@
  * TikTok no entrega la guía hasta que el envío está confirmado, así que
  * confirmar primero no es una decisión: es el único orden posible.
  */
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { traerTodo, type DB } from "../datos/repos";
+import { codificar128 } from "../etiquetas/code128";
+import { buscarAmazon, mapaAmazon } from "../etiquetas/resolver";
 import {
   enviarPaquete,
   etiquetaDePaquete,
@@ -24,6 +26,8 @@ import {
 } from "../tiktok/api";
 import {
   agruparPorModelo,
+  codigoDeEtiqueta,
+  codigoDeHoja,
   numerarPaquetes,
   textoDeEtiqueta,
   type PaqueteDespacho,
@@ -191,6 +195,11 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     itemsPorOrden.set(i.order_id, l);
   }
 
+  // El FNSKU es el código de barras que ya trae la caja del zapato (las
+  // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
+  const amazon = await mapaAmazon(admin);
+  const fnskuDe = (sku: string) => buscarAmazon(amazon, sku)?.fnsku ?? null;
+
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
   const paquetes: PaqueteDespacho[] = [];
 
@@ -215,7 +224,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         const sku = r.sku_interno ?? r.seller_sku ?? "(sin SKU)";
         porSku.set(sku, (porSku.get(sku) ?? 0) + (r.cantidad ?? 1));
       }
-      return [...porSku].map(([sku, pares]) => ({ sku, pares }));
+      return [...porSku].map(([sku, pares]) => ({ sku, pares, fnsku: fnskuDe(sku) }));
     };
 
     if (ids.length <= 1) {
@@ -261,7 +270,26 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
-const ESTAMPA = { margen: 6, tamano: 7 };
+const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120 };
+
+/** Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son blancas ahí). */
+function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number) {
+  const barras = codificar128(texto);
+  const modulo = anchoTotal / barras.modulos;
+  let cursor = x;
+  let esBarra = true;
+  for (const a of barras.anchos) {
+    const ancho = a * modulo;
+    if (esBarra) page.drawRectangle({ x: cursor, y, width: ancho, height: alto, color: rgb(0, 0, 0) });
+    cursor += ancho;
+    esBarra = !esBarra;
+  }
+}
+
+/** Ancho natural de un Code 128 a ~0.75 pt por módulo, topado. */
+function anchoBarras(texto: string, tope: number): number {
+  return Math.min(tope, codificar128(texto).modulos * 0.75);
+}
 
 export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
   const corte = await cargarCorte(admin, accountId, corteId);
@@ -272,20 +300,34 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   const fuente = await doc.embedFont(StandardFonts.HelveticaBold);
   doc.setTitle(`Corte ${corte.numero} · etiquetas TikTok`);
 
-  const estampar = (pagina: any, texto: string) => {
-    const ancho = fuente.widthOfTextAtSize(texto, ESTAMPA.tamano);
+  // Abajo a la derecha: el código de barras del producto (FNSKU) y, debajo,
+  // "#n · SKU ×cantidad · FNSKU". Lo demás de la guía no se toca.
+  const estampar = (pagina: PDFPage, texto: string, codigo: string) => {
     const { width } = pagina.getSize();
+    const anchoTexto = fuente.widthOfTextAtSize(texto, ESTAMPA.tamano);
+    const anchoCodigo = anchoBarras(codigo, ESTAMPA.barrasAnchoMax);
+    const derecha = width - ESTAMPA.margen;
     pagina.drawText(texto, {
-      x: Math.max(ESTAMPA.margen, width - ESTAMPA.margen - ancho),
+      x: Math.max(ESTAMPA.margen, derecha - anchoTexto),
       y: ESTAMPA.margen,
       size: ESTAMPA.tamano,
       font: fuente,
       color: rgb(0, 0, 0),
     });
+    dibujarBarras(
+      pagina,
+      codigo,
+      Math.max(ESTAMPA.margen, derecha - anchoCodigo),
+      ESTAMPA.margen + ESTAMPA.tamano + 3,
+      anchoCodigo,
+      ESTAMPA.barrasAlto,
+    );
   };
 
   for (const p of corte.paquetes) {
-    const texto = textoDeEtiqueta(p);
+    const codigo = codigoDeEtiqueta(p, corte.numero);
+    const fnsku = p.pares.find((x) => x.fnsku)?.fnsku;
+    const texto = fnsku ? `${textoDeEtiqueta(p)} · ${fnsku}` : textoDeEtiqueta(p);
     let bytes: Uint8Array | null = null;
     let error: string | null = null;
 
@@ -305,7 +347,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
       const copias = await doc.copyPages(origen, origen.getPageIndices());
       for (const pagina of copias) {
         doc.addPage(pagina);
-        estampar(pagina, texto);
+        estampar(pagina, texto, codigo);
       }
       continue;
     }
@@ -317,7 +359,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
       const w = img.width * escala;
       const h = img.height * escala;
       pagina.drawImage(img, { x: (A6[0] - w) / 2, y: A6[1] - h, width: w, height: h });
-      estampar(pagina, texto);
+      estampar(pagina, texto, codigo);
       continue;
     }
 
@@ -325,7 +367,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const pagina = doc.addPage(A6);
     pagina.drawText(`SIN GUÍA — pedido ${p.orderId}`, { x: 20, y: A6[1] - 60, size: 12, font: fuente });
     pagina.drawText(error ?? "formato desconocido", { x: 20, y: A6[1] - 80, size: 8, font: fuente });
-    estampar(pagina, texto);
+    estampar(pagina, texto, codigo);
   }
 
   return doc.save();
@@ -355,7 +397,14 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   doc.setTitle(`Corte ${corte.numero} · lista de empaque`);
 
   const CARTA: [number, number] = [612, 792];
-  const M = 40;
+  const M = 36;
+  const ANCHO = CARTA[0] - 2 * M;
+  // Columnas: # | código (barras) | SKU × cant. | FNSKU | pedido | destinatario | ☐
+  const COL = [26, 118, 150, 70, 110, ANCHO - 26 - 118 - 150 - 70 - 110 - 18, 18];
+  const FILA = 34;
+  const gris = rgb(0.45, 0.45, 0.45);
+  const linea = rgb(0.75, 0.75, 0.75);
+
   let pagina = doc.addPage(CARTA);
   let y = CARTA[1] - M;
 
@@ -364,31 +413,99 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   });
   const totalPares = grupos.reduce((a, g) => a + g.pares, 0);
 
-  const linea = (texto: string, size: number, f = normal, x = M) => {
-    if (y < M + size) {
-      pagina = doc.addPage(CARTA);
-      y = CARTA[1] - M;
-    }
-    pagina.drawText(texto, { x, y, size, font: f });
-    y -= size + 4;
+  const nuevaPagina = () => {
+    pagina = doc.addPage(CARTA);
+    y = CARTA[1] - M;
+  };
+  const texto = (t: string, x: number, size: number, f = normal, color = rgb(0, 0, 0)) =>
+    pagina.drawText(t, { x, y, size, font: f, color });
+  const recorta = (t: string, ancho: number, size: number, f = normal) => {
+    let s = t;
+    while (s.length > 1 && f.widthOfTextAtSize(s, size) > ancho - 4) s = s.slice(0, -1);
+    return s === t ? t : s.slice(0, -1) + "…";
   };
 
-  linea(`Corte #${corte.numero} · TikTok Shop`, 16, negrita);
-  linea(`${fecha} · ${corte.paquetes.length} paquetes · ${totalPares} pares`, 10);
-  y -= 6;
-  linea("Resumen por modelo", 11, negrita);
-  for (const g of grupos) linea(`${g.modelo}: ${g.pares} pares en ${g.paquetes.length} paquetes`, 10);
-  y -= 8;
+  const encabezado = () => {
+    const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
+    const titulos = ["#", "Código", "SKU × cant.", "FNSKU", "Pedido", "Destinatario", ""];
+    titulos.forEach((t, i) => pagina.drawText(t, { x: xs[i] + 2, y, size: 8, font: negrita, color: gris }));
+    y -= 4;
+    pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
+    y -= FILA;
+  };
+
+  texto(`Corte #${corte.numero} · TikTok Shop · lista de empaque`, M, 15, negrita);
+  y -= 16;
+  texto(`${fecha}   ·   ${corte.paquetes.length} paquetes   ·   ${totalPares} pares`, M, 9, normal, gris);
+  y -= 14;
+  texto("Resumen: " + grupos.map((g) => `${g.modelo} ${g.pares}`).join("   ·   "), M, 9);
+  y -= 22;
 
   for (const g of grupos) {
-    y -= 4;
-    linea(`${g.modelo} — ${g.pares} pares`, 12, negrita);
+    if (y < M + FILA * 3) nuevaPagina();
+    texto(`${g.modelo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}`, M, 11, negrita);
+    y -= 14;
+    encabezado();
+
     for (const p of g.paquetes) {
+      if (y < M) {
+        nuevaPagina();
+        encabezado();
+      }
+      const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
+      const codigo = codigoDeHoja(corte.numero, p.numero);
       const skus = p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ");
-      const dest = p.destinatario ? `  ·  ${p.destinatario}` : "";
-      linea(`#${p.numero}   ${skus}   ·  pedido ${p.orderId}${dest}`, 9);
+      const fnsku = p.pares.map((x) => x.fnsku).filter(Boolean).join(", ") || "—";
+      const arriba = y + FILA - 12;
+
+      pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
+      dibujarBarras(pagina, codigo, xs[1] + 2, y + 9, anchoBarras(codigo, COL[1] - 6), 18);
+      pagina.drawText(codigo, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
+      pagina.drawText(recorta(skus, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
+      pagina.drawText(recorta(fnsku, COL[3], 7.5), { x: xs[3] + 2, y: arriba, size: 7.5, font: normal });
+      pagina.drawText(p.orderId, { x: xs[4] + 2, y: arriba, size: 7.5, font: normal });
+      pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: xs[5] + 2, y: arriba, size: 7.5, font: normal, color: gris });
+      pagina.drawRectangle({ x: xs[6] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+
+      pagina.drawLine({ start: { x: M, y: y - 2 }, end: { x: M + ANCHO, y: y - 2 }, thickness: 0.4, color: linea });
+      y -= FILA;
     }
+    y -= 10;
   }
 
   return doc.save();
+}
+
+// ---------------------------------------------------------------------------
+// Preparar: la constancia de los tres escaneos
+// ---------------------------------------------------------------------------
+
+/** Los números de renglón que ya se prepararon en un corte. */
+export async function preparadosDelCorte(db: DB, accountId: string, corteId: number): Promise<Set<number>> {
+  const filas = await traerTodo<any>(db, "tiktok_preparaciones", "numero, id", (q) =>
+    q.eq("account_id", accountId).eq("corte_id", corteId),
+  );
+  return new Set((filas ?? []).map((f: any) => Number(f.numero)));
+}
+
+export async function marcarPreparado(
+  db: DB,
+  accountId: string,
+  corteId: number,
+  datos: { numero: number; orderId: string; packageId: string; escaneos: string[]; usuario?: string | null },
+): Promise<void> {
+  const { error } = await db.from("tiktok_preparaciones").upsert(
+    {
+      account_id: accountId,
+      corte_id: corteId,
+      order_id: datos.orderId,
+      package_id: datos.packageId ?? "",
+      numero: datos.numero,
+      escaneos: datos.escaneos,
+      preparado_en: new Date().toISOString(),
+      preparado_por: datos.usuario ?? null,
+    },
+    { onConflict: "account_id,order_id,package_id" },
+  );
+  if (error) throw new Error(`No se pudo guardar la preparación: ${error.message}`);
 }

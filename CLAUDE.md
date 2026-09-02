@@ -128,6 +128,12 @@ guárdala numerada.
   estampado abajo a la derecha (nada más se toca), y la lista de empaque en
   el mismo orden con los mismos números. El siguiente corte solo toma lo que
   no tiene corte.
+  **Preparar pedido** (`tiktok/preparar.ts`, estación en
+  `/tiktok/despacho/[id]/preparar`): tres escaneos por paquete, en orden —
+  hoja (`TT{corte}-{n}`, impreso en la lista), etiqueta (FNSKU de Amazon,
+  impreso como barras en la guía; sin FNSKU va el código de hoja) y producto
+  (FNSKU de la caja, una vez por par). Solo si cuadran los tres se guarda en
+  `tiktok_preparaciones`. El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya

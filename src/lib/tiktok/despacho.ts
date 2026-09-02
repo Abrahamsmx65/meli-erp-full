@@ -11,6 +11,23 @@ export interface ParDespacho {
   /** SKU del ERP (MODELO-COLOR-TALLA); si no se amarró, el de TikTok */
   sku: string;
   pares: number;
+  /** el código de barras que trae la caja del zapato (FNSKU de Amazon); null si no se conoce */
+  fnsku?: string | null;
+}
+
+/**
+ * El código que va en el renglón de la lista de empaque: identifica al
+ * paquete dentro del corte. Corto, sin caracteres raros, para que el
+ * escáner lo lea a la primera.
+ */
+export function codigoDeHoja(corte: number, numero: number): string {
+  return `TT${corte}-${numero}`;
+}
+
+export function parsearCodigoDeHoja(codigo: string): { corte: number; numero: number } | null {
+  const m = /^TT(\d+)-(\d+)$/i.exec(String(codigo ?? "").trim());
+  if (!m) return null;
+  return { corte: Number(m[1]), numero: Number(m[2]) };
 }
 
 export interface PaqueteDespacho {
@@ -78,10 +95,19 @@ export function numerarPaquetes(paquetes: PaqueteDespacho[]): PaqueteNumerado[] 
   });
 }
 
-/** El texto que va abajo a la derecha de la etiqueta: "#12 · GT135-DK BROWN-26". */
+/** El texto que va abajo a la derecha de la etiqueta: "#12 · GT135-DK BROWN-26 ×2". */
 export function textoDeEtiqueta(p: PaqueteNumerado): string {
   const skus = p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(" · ");
   return `#${p.numero} · ${skus}`;
+}
+
+/**
+ * El código de barras de la etiqueta: el FNSKU del producto, que es el
+ * mismo que trae la caja del zapato. Si el producto no tiene FNSKU
+ * conocido, va el código de hoja, que al menos identifica el paquete.
+ */
+export function codigoDeEtiqueta(p: PaqueteNumerado, corte: number): string {
+  return p.pares.find((x) => x.fnsku)?.fnsku ?? codigoDeHoja(corte, p.numero);
 }
 
 export interface GrupoModelo {
