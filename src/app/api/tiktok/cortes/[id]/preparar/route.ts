@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
+import { pinSupervisorValido } from "@/lib/servicios/acceso-preparar";
 import { marcarPreparado } from "@/lib/servicios/tiktok-despacho";
 import { clienteServidor } from "@/lib/supabase/server";
 
@@ -25,12 +26,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "Faltan datos del paquete." }, { status: 400 });
   }
 
+  // Sin escanear: solo con la clave de supervisor, y queda registrado así.
+  let escaneos: string[] = Array.isArray(body?.escaneos) ? body.escaneos.map(String).slice(0, 50) : [];
+  if (body?.sinEscanear) {
+    if (!(await pinSupervisorValido(cuenta.id, String(body?.pin ?? "")))) {
+      return NextResponse.json({ error: "Clave incorrecta." }, { status: 403 });
+    }
+    escaneos = ["SUPERVISOR:sin escanear"];
+  }
+
   try {
     await marcarPreparado(supabase, cuenta.id, corteId, {
       numero,
       orderId,
       packageId: String(body?.packageId ?? ""),
-      escaneos: Array.isArray(body?.escaneos) ? body.escaneos.map(String).slice(0, 50) : [],
+      escaneos,
       usuario: user.id,
     });
     return NextResponse.json({ ok: true });

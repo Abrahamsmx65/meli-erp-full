@@ -108,6 +108,36 @@ export function PrepararTikTok({
   }
 
   const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados));
+
+  /**
+   * Sin escanear, con la clave del supervisor: para cuando el código no se
+   * deja leer. El servidor valida la clave y lo deja registrado como
+   * SUPERVISOR en la constancia, no como escaneo.
+   */
+  async function confirmarConClave(p: PaqueteNumerado) {
+    const pin = window.prompt(`Confirmar #${p.numero} sin escanear. Clave de supervisor:`);
+    if (pin == null) return;
+    setGuardando(true);
+    try {
+      const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, sinEscanear: true, pin }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+      pitar(true, 1);
+      if (voz) hablar(`${p.numero} confirmado con clave`);
+      setPreparados((prev) => new Set([...prev, p.numero]));
+      setEstado({ ...estadoInicial(), indicacion: `#${p.numero} confirmado con clave, sin escanear. Escanea la siguiente etiqueta.` });
+    } catch (e) {
+      pitar(false);
+      setEstado({ ...estado, error: (e as Error).message });
+    } finally {
+      setGuardando(false);
+      input.current?.focus();
+    }
+  }
   const manual = () => aplicar(darPorBueno(estado));
   const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.fnsku && f.faltan > 0);
 
@@ -193,6 +223,17 @@ export function PrepararTikTok({
             Reiniciar
           </button>
         </form>
+        {estado.paquete && estado.paso !== "inicio" && estado.paso !== "listo" ? (
+          <button
+            type="button"
+            onClick={() => confirmarConClave(estado.paquete as PaqueteNumerado)}
+            disabled={guardando}
+            className="mt-3 mr-2 rounded-lg border px-3 py-2 text-sm"
+            style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+          >
+            Confirmar #{estado.paquete.numero} sin escanear (clave)
+          </button>
+        ) : null}
         {hayManuales ? (
           <button
             type="button"
@@ -228,6 +269,18 @@ export function PrepararTikTok({
                 <span className="min-w-0 flex-1 truncate">
                   {p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
                 </span>
+                {!hecho ? (
+                  <button
+                    type="button"
+                    onClick={() => confirmarConClave(p)}
+                    disabled={guardando}
+                    title="Dar por preparado sin escanear, con la clave de supervisor"
+                    className="rounded border px-1.5 py-0.5 text-xs"
+                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                  >
+                    Clave
+                  </button>
+                ) : null}
               </li>
             );
           })}

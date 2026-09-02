@@ -145,7 +145,11 @@ guárdala numerada.
   preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
   caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
   solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
-  `tiktok_preparaciones.escaneos`. Decisión del dueño: la etiqueta lleva el
+  `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
+  preparado SIN escanear solo con la CLAVE DE SUPERVISOR
+  (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
+  el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
+  como `SUPERVISOR:` en la constancia. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y

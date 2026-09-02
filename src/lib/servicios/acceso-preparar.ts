@@ -40,6 +40,20 @@ export async function cuentaPorTokenPreparar(token: string): Promise<{ id: strin
   return fila ? { id: String(fila.account_id) } : null;
 }
 
+/**
+ * ¿La clave de supervisor es la de esta cuenta? Es la que permite dar un
+ * paquete por preparado SIN escanear. Sin clave capturada en la base, nada
+ * pasa: contesta false siempre.
+ */
+export async function pinSupervisorValido(accountId: string, pin: string): Promise<boolean> {
+  const dado = String(pin ?? "").trim();
+  if (!dado || dado.length > 64) return false;
+  const admin = clienteAdmin();
+  const { data } = await admin.from("tiktok_acceso").select("pin_supervisor").eq("account_id", accountId).maybeSingle();
+  const real = String((data as any)?.pin_supervisor ?? "").trim();
+  return real.length > 0 && igual(real, dado);
+}
+
 /** El token vigente de una cuenta, para enseñárselo al dueño. */
 export async function tokenPreparar(accountId: string): Promise<string | null> {
   const admin = clienteAdmin();
