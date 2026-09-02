@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { urlBase } from "@/lib/config";
 import { Pastilla } from "@/components/pastilla";
 import { formatearFolio } from "@/lib/codigos";
 import { fechaCorta, fechaLarga, pesos } from "@/lib/formato";
@@ -15,7 +16,7 @@ export default async function DetallePedido({ params }: { params: Promise<{ id: 
   const { pedido, evento, boletos, renglones } = datos;
   const nombreTipo = new Map(renglones.map((r) => [r.tipo_id, r.tipo ?? "Entrada"]));
   const comprobante = await urlComprobante(pedido.comprobante_ruta);
-  const base = (process.env.NEXT_PUBLIC_URL_BASE ?? "").replace(/\/+$/, "");
+  const base = await urlBase();
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">

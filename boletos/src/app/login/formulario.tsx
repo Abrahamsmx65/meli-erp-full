@@ -14,12 +14,15 @@ export function FormularioLogin({ volver }: { volver: string }) {
     setCargando(true);
     setError(null);
     const form = new FormData(e.currentTarget);
+    // Se puede entrar con un nombre de usuario corto ("Diana"): por dentro
+    // es una cuenta con correo ficticio @boletos.local.
+    const usuario = String(form.get("correo")).trim().toLowerCase();
     const { error } = await clienteNavegador().auth.signInWithPassword({
-      email: String(form.get("correo")),
+      email: usuario.includes("@") ? usuario : `${usuario}@boletos.local`,
       password: String(form.get("clave")),
     });
     if (error) {
-      setError("Correo o contraseña incorrectos.");
+      setError("Usuario o contraseña incorrectos.");
       setCargando(false);
       return;
     }
@@ -30,8 +33,8 @@ export function FormularioLogin({ volver }: { volver: string }) {
   return (
     <form onSubmit={entrar} className="grid gap-4">
       <label className="campo">
-        Correo
-        <input name="correo" type="email" required autoComplete="username" />
+        Usuario o correo
+        <input name="correo" type="text" required autoComplete="username" />
       </label>
       <label className="campo">
         Contraseña

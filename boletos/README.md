@@ -48,7 +48,9 @@ insert into ev_administradores (correo, nombre) values ('otro@correo.com', 'Su n
 ```
 
 y luego crea su usuario en Supabase → Authentication → Users → *Add user*.
-Cada quien cambia su contraseña en `/admin/cuenta`.
+Cada quien cambia su contraseña en `/admin/cuenta`. Un usuario "corto" (sin
+correo real, como `Diana`) es por dentro `diana@boletos.local`: el login
+completa el dominio solo.
 
 ### 3. Variables de entorno
 
@@ -58,11 +60,16 @@ Copia `.env.example` a `.env.local` (o a las variables del proyecto en Vercel):
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Del proyecto de Supabase (Settings → API) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Llave de servicio. **Nunca** al navegador |
-| `NEXT_PUBLIC_URL_BASE` | URL pública del sitio; va dentro de cada QR y en los correos |
+| `URL_BASE` | Opcional. Si falta, se toma de cada petición (host) |
 | `SMTP_USUARIO`, `SMTP_CLAVE` | Tu Gmail y su *contraseña de aplicación*: el camino simple, sin dominio |
 | `RESEND_API_KEY` | Alternativa: [Resend](https://resend.com) con dominio verificado |
 | `CORREO_REMITENTE` | Cómo aparece el remitente (con SMTP puede omitirse) |
 | `CORREO_ORGANIZADOR` | Opcional: copia oculta de cada pedido nuevo |
+
+Todas menos las tres de Supabase pueden capturarse también en la tabla
+`ev_config` (`clave`, `valor`) en vez de en Vercel: así **en Vercel solo hace
+falta `SUPABASE_SERVICE_ROLE_KEY`** (la URL y la llave pública ya van en el
+código). Si una clave existe en los dos lados, gana la variable de entorno.
 
 Sin correo configurado el sistema funciona igual (los boletos se ven en su
 página y desde el panel se puede copiar el enlace), solo no manda correos.

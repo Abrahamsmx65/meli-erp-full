@@ -8,7 +8,7 @@ export default async function PaginaLogin({ searchParams }: { searchParams: Prom
         <div className="caligrafia text-5xl" style={{ color: "var(--vino)" }}>Jalá le Zibug</div>
         <h1 className="serif mt-2 text-2xl font-semibold">Panel del organizador</h1>
         <p className="text-sm" style={{ color: "var(--tinta-suave)" }}>
-          Entra con tu correo y contraseña.
+          Entra con tu usuario y contraseña.
         </p>
       </div>
       <div className="tarjeta p-6">

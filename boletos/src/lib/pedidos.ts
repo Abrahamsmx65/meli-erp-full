@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generarCodigoBoleto, generarReferencia, formatearFolio, urlBoleto } from "./codigos";
 import { carritoVacio, type Carrito } from "./carrito";
+import { urlBase } from "./config";
 import { enviarCorreo, escapar, plantilla } from "./correo";
 import { fechaLarga, pesos } from "./formato";
 import { qrPng } from "./qr";
@@ -76,9 +77,8 @@ export async function crearPedido(datos: DatosComprador, carrito: Carrito): Prom
   if (completo) {
     await enviarCorreo({
       para: pedido.correo,
-      copia: process.env.CORREO_ORGANIZADOR || undefined,
       asunto: `Tu pedido ${pedido.referencia} · ${completo.evento.nombre}`,
-      html: correoInstrucciones(completo.pedido, completo.evento, completo.renglones),
+      html: correoInstrucciones(completo.pedido, completo.evento, completo.renglones, await urlBase()),
     });
   }
   return pedido;
@@ -97,8 +97,7 @@ function lineasHtml(pedido: Pedido, evento: Evento, renglones: Renglon[]): strin
   return `<table style="width:100%;border-collapse:collapse;font-size:15px">${filas.join("")}</table>`;
 }
 
-export function correoInstrucciones(pedido: Pedido, evento: Evento, renglones: Renglon[]): string {
-  const base = (process.env.NEXT_PUBLIC_URL_BASE ?? "").replace(/\/+$/, "");
+export function correoInstrucciones(pedido: Pedido, evento: Evento, renglones: Renglon[], base: string): string {
   const enlace = `${base}/pedido/${pedido.id}`;
   return plantilla(
     `Recibimos tu pedido, ${pedido.nombre.split(" ")[0]}`,
@@ -224,17 +223,18 @@ export async function enviarBoletos(pedidoId: string): Promise<boolean> {
   const nombreTipo = new Map<string, string>();
   for (const r of renglones) if (r.tipo) nombreTipo.set(r.tipo_id, r.tipo);
 
+  const base = await urlBase();
   const adjuntos = await Promise.all(
     boletos.map(async (b) => ({
       filename: `boleto-${formatearFolio(b.folio).slice(1)}.png`,
-      content: await qrPng(b.codigo),
+      content: await qrPng(b.codigo, base),
     })),
   );
 
   const enviado = await enviarCorreo({
     para: pedido.correo,
     asunto: boletos.length > 0 ? `Tus boletos para ${evento.nombre} · ${pedido.referencia}` : `Gracias por tu donativo · ${pedido.referencia}`,
-    html: correoBoletos(pedido, evento, boletos, nombreTipo),
+    html: correoBoletos(pedido, evento, boletos, nombreTipo, base),
     adjuntos,
   });
 
@@ -247,8 +247,7 @@ export async function enviarBoletos(pedidoId: string): Promise<boolean> {
   return enviado.enviado;
 }
 
-export function correoBoletos(pedido: Pedido, evento: Evento, boletos: Boleto[], nombreTipo: Map<string, string>): string {
-  const base = (process.env.NEXT_PUBLIC_URL_BASE ?? "").replace(/\/+$/, "");
+export function correoBoletos(pedido: Pedido, evento: Evento, boletos: Boleto[], nombreTipo: Map<string, string>, base: string): string {
   const lista = boletos
     .map(
       (b) => `<div style="border:1px dashed #c9a86a;border-radius:12px;padding:14px;margin:10px 0;text-align:center">
@@ -256,7 +255,7 @@ export function correoBoletos(pedido: Pedido, evento: Evento, boletos: Boleto[],
         <div style="font-size:18px;font-weight:700;color:#7a1f3d">${escapar((b.tipo_id && nombreTipo.get(b.tipo_id)) || "Entrada")}</div>
         <img src="${base}/api/qr/${b.codigo}" width="220" height="220" alt="QR del boleto ${formatearFolio(b.folio)}" style="display:block;margin:8px auto"/>
         <div style="font-family:monospace;font-size:13px;letter-spacing:1px">${b.codigo}</div>
-        <a href="${urlBoleto(b.codigo)}" style="color:#7a1f3d;font-size:13px">Abrir boleto</a>
+        <a href="${urlBoleto(b.codigo, base)}" style="color:#7a1f3d;font-size:13px">Abrir boleto</a>
       </div>`,
     )
     .join("");

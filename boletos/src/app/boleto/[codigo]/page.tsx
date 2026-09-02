@@ -4,6 +4,7 @@ import { Pastilla } from "@/components/pastilla";
 import { obtenerBoleto } from "@/lib/boletos";
 import { formatearFolio } from "@/lib/codigos";
 import { fechaCorta, fechaLarga } from "@/lib/formato";
+import { urlBase } from "@/lib/config";
 import { qrSvg } from "@/lib/qr";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export default async function PaginaBoleto({ params }: { params: Promise<{ codig
   const datos = await obtenerBoleto(codigo);
   if (!datos) notFound();
   const { boleto, pedido, evento, tipo } = datos;
-  const svg = await qrSvg(boleto.codigo);
+  const svg = await qrSvg(boleto.codigo, await urlBase());
   const activo = boleto.estado === "valido" && pedido.estado === "pagado";
 
   return (

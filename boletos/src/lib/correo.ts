@@ -10,6 +10,7 @@
  * curso; el boleto siempre se puede ver en su página.
  */
 import nodemailer from "nodemailer";
+import { leerConfig } from "./config";
 
 export interface Adjunto {
   filename: string;
@@ -29,24 +30,29 @@ export interface ResultadoCorreo {
   error?: string;
 }
 
+type Cfg = Awaited<ReturnType<typeof leerConfig>>;
+
 export async function enviarCorreo(c: Correo): Promise<ResultadoCorreo> {
-  if (process.env.SMTP_USUARIO && process.env.SMTP_CLAVE) return enviarPorSmtp(c);
-  if (process.env.RESEND_API_KEY) return enviarPorResend(c);
+  const cfg = await leerConfig();
+  const copia = c.copia ?? cfg.CORREO_ORGANIZADOR;
+  if (cfg.SMTP_USUARIO && cfg.SMTP_CLAVE) return enviarPorSmtp({ ...c, copia }, cfg);
+  if (cfg.RESEND_API_KEY) return enviarPorResend({ ...c, copia }, cfg);
   console.warn(`[correo] Sin SMTP ni Resend configurados; no se envió "${c.asunto}" a ${c.para}`);
   return { enviado: false, error: "Correo no configurado" };
 }
 
-async function enviarPorSmtp(c: Correo): Promise<ResultadoCorreo> {
-  const usuario = process.env.SMTP_USUARIO!;
+async function enviarPorSmtp(c: Correo, cfg: Cfg): Promise<ResultadoCorreo> {
+  const usuario = cfg.SMTP_USUARIO!;
+  const puerto = cfg.SMTP_PUERTO ?? "465";
   const transporte = nodemailer.createTransport({
-    host: process.env.SMTP_HOST ?? "smtp.gmail.com",
-    port: Number(process.env.SMTP_PUERTO ?? 465),
-    secure: (process.env.SMTP_PUERTO ?? "465") === "465",
-    auth: { user: usuario, pass: process.env.SMTP_CLAVE! },
+    host: cfg.SMTP_HOST ?? "smtp.gmail.com",
+    port: Number(puerto),
+    secure: puerto === "465",
+    auth: { user: usuario, pass: cfg.SMTP_CLAVE! },
   });
   try {
     await transporte.sendMail({
-      from: process.env.CORREO_REMITENTE || usuario,
+      from: cfg.CORREO_REMITENTE || usuario,
       to: c.para,
       bcc: c.copia || undefined,
       subject: c.asunto,
@@ -60,9 +66,9 @@ async function enviarPorSmtp(c: Correo): Promise<ResultadoCorreo> {
   }
 }
 
-async function enviarPorResend(c: Correo): Promise<ResultadoCorreo> {
-  const key = process.env.RESEND_API_KEY!;
-  const remitente = process.env.CORREO_REMITENTE;
+async function enviarPorResend(c: Correo, cfg: Cfg): Promise<ResultadoCorreo> {
+  const key = cfg.RESEND_API_KEY!;
+  const remitente = cfg.CORREO_REMITENTE;
   if (!remitente) return { enviado: false, error: "Falta CORREO_REMITENTE" };
 
   const cuerpo: Record<string, unknown> = {

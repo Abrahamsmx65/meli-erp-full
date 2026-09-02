@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { urlBase } from "@/lib/config";
 import { obtenerEvento } from "@/lib/eventos";
 import { paraInputFecha } from "@/lib/formato";
 import { FormularioEvento } from "./formulario";
@@ -18,7 +19,7 @@ export default async function EditarEvento({
   const nuevo = id === "nuevo";
   const evento = nuevo ? null : await obtenerEvento(id);
   if (!nuevo && !evento) notFound();
-  const base = (process.env.NEXT_PUBLIC_URL_BASE ?? "").replace(/\/+$/, "");
+  const base = await urlBase();
 
   return (
     <div className="mx-auto grid max-w-3xl gap-5">

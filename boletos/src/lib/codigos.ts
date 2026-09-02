@@ -45,7 +45,7 @@ export function esCodigoBoleto(texto: string): boolean {
 }
 
 /** Dirección que va dentro del QR: cualquier cámara la abre. */
-export function urlBoleto(codigo: string, base = process.env.NEXT_PUBLIC_URL_BASE ?? ""): string {
+export function urlBoleto(codigo: string, base: string): string {
   return `${base.replace(/\/+$/, "")}/boleto/${codigo}`;
 }
 
