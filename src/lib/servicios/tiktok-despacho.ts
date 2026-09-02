@@ -20,7 +20,7 @@ import { buscarAmazon, mapaAmazon } from "../etiquetas/resolver";
 import {
   enviarPaquete,
   etiquetaDePaquete,
-  horariosDeRecoleccion,
+  opcionesDeEntrega,
   paquetesDePedido,
   renglonesDelPaquete,
   type HorarioRecoleccion,
@@ -106,12 +106,20 @@ export async function hacerCorte(
         let horario: HorarioRecoleccion | null = null;
         if (opciones.handover === "PICKUP") {
           try {
-            horario = primerHorario(await horariosDeRecoleccion(cliente, pk.id));
+            const e = await opcionesDeEntrega(cliente, pk.id);
+            horario = primerHorario(e.horarios);
+            if (!horario) {
+              // Que quede escrito QUÉ contestó TikTok: es lo único que permite
+              // saber si es la tienda (sin recolección habilitada), la
+              // paquetería, o la forma de la respuesta.
+              const porque =
+                e.puedeRecoleccion === false
+                  ? "TikTok dice que este paquete NO admite recolección (can_pickup=false): la paquetería o la tienda no la tienen habilitada"
+                  : `TikTok no ofreció horarios (contestó: ${e.llaves.join(", ") || "vacío"})`;
+              errores.push({ orderId: p.orderId, error: `${porque}. Se mandó como recolección sin horario; puede salir como drop-off.` });
+            }
           } catch (err) {
             errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó de todas formas.` });
-          }
-          if (!horario) {
-            errores.push({ orderId: p.orderId, error: "TikTok no ofreció horario de recolección; puede salir como drop-off." });
           }
         }
         try {

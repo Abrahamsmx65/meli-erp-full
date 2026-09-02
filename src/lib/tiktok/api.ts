@@ -417,20 +417,42 @@ export interface HorarioRecoleccion {
   fin: number;
 }
 
+export interface OpcionesDeEntrega {
+  /** null = TikTok no lo dijo */
+  puedeRecoleccion: boolean | null;
+  puedeDropOff: boolean | null;
+  horarios: HorarioRecoleccion[];
+  /** las llaves de la respuesta, para saber qué contestó cuando algo no cuadre */
+  llaves: string[];
+}
+
 /**
- * Los horarios en que la paquetería puede pasar por un paquete. TikTok los
- * exige para RECOLECCIÓN: mandar PICKUP sin horario lo acepta pero lo trata
- * como entrega en paquetería, y la guía sale como drop-off.
+ * Cómo se puede entregar un paquete y en qué horarios pasa la paquetería.
+ * TikTok exige el horario para RECOLECCIÓN: mandar PICKUP sin horario lo
+ * acepta pero lo trata como entrega en paquetería, y la guía sale como
+ * drop-off. Y si `puedeRecoleccion` es false, la tienda o la paquetería no
+ * tienen recolección habilitada y no hay horario que valga.
  */
-export async function horariosDeRecoleccion(c: Cliente, packageId: string): Promise<HorarioRecoleccion[]> {
+export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<OpcionesDeEntrega> {
   const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}/handover_time_slots`);
   const listas: any[] = [
     ...(d?.pickup_time_slots ?? []),
     ...(d?.time_slots ?? []),
     ...(d?.slots ?? []),
   ];
-  return listas
+  const horarios = listas
     .filter((s) => s && (s.avaliable ?? s.available ?? true) !== false)
     .map((s) => ({ inicio: Number(s.start_time), fin: Number(s.end_time) }))
     .filter((s) => Number.isFinite(s.inicio) && Number.isFinite(s.fin));
+  return {
+    puedeRecoleccion: typeof d?.can_pickup === "boolean" ? d.can_pickup : null,
+    puedeDropOff: typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null,
+    horarios,
+    llaves: d ? Object.keys(d) : [],
+  };
+}
+
+/** Solo los horarios (compatibilidad). */
+export async function horariosDeRecoleccion(c: Cliente, packageId: string): Promise<HorarioRecoleccion[]> {
+  return (await opcionesDeEntrega(c, packageId)).horarios;
 }
