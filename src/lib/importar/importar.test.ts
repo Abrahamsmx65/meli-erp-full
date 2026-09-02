@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { importarCorridas, importarExistencias } from "./excel";
+import { importarCorridas, importarExistencias, type FilaExistencia } from "./excel";
 import { construirCajas } from "./cajas";
 import { canonizar, construirSkuMeli, construirIndice, normalizarTalla } from "./sku";
 
@@ -159,6 +159,41 @@ describe("armado del catálogo de cajas (datos reales)", () => {
 
     const amarrada = r.cajas.find((c) => c.detalle.some((d) => d.origen === "manual"));
     expect(amarrada).toBeDefined();
+  });
+});
+
+describe("la bodega de TikTok no es bodega de calzado", () => {
+  const fila = (almacen: string): FilaExistencia => ({
+    almacen,
+    codigoAlmacen: "",
+    skuCaja: "GT135-DK-23",
+    pedido: "IN10001",
+    modelo: "GT135",
+    color: "DK",
+    talla: "23",
+    contenedor: "",
+    cajasFisicas: 3,
+    cajasApartadas: 0,
+    enCamino: 0,
+    cajasDisponibles: 3,
+    paresPorCaja: 12,
+    paresDisponibles: 0,
+  });
+
+  it("se descarta aunque no se pida filtro de almacén o venga en la lista", () => {
+    const filas = [fila("Industher"), fila("TIKTOK"), fila("Tik Tok Shop")];
+    for (const opts of [{}, { almacenes: ["Industher", "TIKTOK", "Tik Tok Shop"] }]) {
+      const r = construirCajas(filas, [], opts);
+      expect(r.cajas.map((c) => c.almacen)).toEqual(["Industher"]);
+    }
+  });
+
+  it("solo el kardex de TikTok la pide expresamente", () => {
+    const r = construirCajas([fila("Industher"), fila("TIKTOK")], [], {
+      almacenes: ["TIKTOK"],
+      incluirTikTok: true,
+    });
+    expect(r.cajas.map((c) => c.almacen)).toEqual(["TIKTOK"]);
   });
 });
 

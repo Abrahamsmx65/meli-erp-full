@@ -10,6 +10,7 @@
  * queda aquí es ver lo que hay y tapar los huecos viejos.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { esAlmacenTikTok } from "../importar/cajas";
 
 export interface CorridaVista {
   pedido: string;
@@ -78,6 +79,8 @@ export async function cargarCorridas(db: DB, accountId: string): Promise<Resumen
   const existeCorrida = new Set(corridasRaw.map((c) => k(c.pedido ?? "", c.modelo ?? "", c.color ?? "")));
 
   for (const e of existRaw) {
+    // La bodega de TikTok es inventario de esa tienda, no cajas de calzado.
+    if (esAlmacenTikTok(e.almacen)) continue;
     const cajas = e.cajas_disponibles ?? 0;
     if (cajas <= 0) continue;
 

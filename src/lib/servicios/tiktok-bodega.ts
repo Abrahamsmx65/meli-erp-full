@@ -58,6 +58,7 @@ export async function paresEnBodegaTikTok(db: DB, accountId: string): Promise<{ 
     indice: skus.length ? construirIndice(skus.map((s: any) => s.sku)) : null,
     mapeoManual: new Map((mapeoRaw ?? []).map((m: any) => [m.sku_construido, m.sku_meli])),
     almacenes: [almacen],
+    incluirTikTok: true,
   });
   return { almacen, pares: paresPorSkuDesdeCajas(r.cajas) };
 }
@@ -93,14 +94,14 @@ export async function sincronizarSaldoDesdeBodega(
     .sort()
     .at(-1) as string;
 
-  // La bodega de TikTok NO surte a Full. Se deja dicho en almacenes_activos
-  // la primera vez que aparece (sin pisar lo que alguien haya decidido a
-  // mano después).
+  // La bodega de TikTok NO surte a Full, nunca. Se pisa cada vez: el RPC de
+  // existencias da de alta los almacenes nuevos con surte_full = true y un
+  // "solo si no existe" dejaba a TikTok surtiendo a Full (pasó en producción).
   await db
     .from("almacenes_activos")
     .upsert(
       { account_id: accountId, almacen, surte_full: false },
-      { onConflict: "account_id,almacen", ignoreDuplicates: true },
+      { onConflict: "account_id,almacen" },
     );
 
   const [skus, corridasRaw, mapeoRaw, movsRaw] = await Promise.all([
@@ -139,6 +140,7 @@ export async function sincronizarSaldoDesdeBodega(
     indice: skus.length ? construirIndice(skus.map((s: any) => s.sku)) : null,
     mapeoManual: new Map((mapeoRaw ?? []).map((m: any) => [m.sku_construido, m.sku_meli])),
     almacenes: [almacen],
+    incluirTikTok: true,
   });
 
   const pares = paresPorSkuDesdeCajas(resultado.cajas);

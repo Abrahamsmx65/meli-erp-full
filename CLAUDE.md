@@ -111,8 +111,12 @@ guárdala numerada.
   pendientes de ese SKU y solo el resto es merma (`conciliarAcumulado`):
   una salida nunca se descuenta dos veces. NUNCA como ajuste absoluto, que
   volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
-  FÍSICAS. Esa bodega NO surte a Full (`almacenes_activos.surte_full =
-  false`, se inserta sola). A TikTok solo se le escribe un SKU que alguna vez
+  FÍSICAS. **Esa bodega NO existe para el calzado**: `construirCajas` la
+  descarta siempre (`esAlmacenTikTok`, salvo `incluirTikTok` que solo usa el
+  kardex de TikTok), /corridas la ignora y un trigger deja
+  `almacenes_activos.surte_full = false` pase lo que pase (migración 0045;
+  antes el RPC la daba de alta en `true` y sus cajas entraron a bodega, al
+  plan de Full y al pedido a China). A TikTok solo se le escribe un SKU que alguna vez
   se contó (entrada o ajuste): uno con puras salidas se queda con el número
   que TikTok ya tiene.
   **Tiempo real:** TikTok ya aparta solo al vender; la única forma de vender

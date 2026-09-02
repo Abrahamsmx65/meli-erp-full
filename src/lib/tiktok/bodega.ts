@@ -15,15 +15,11 @@
  * los pares ya vendidos en cada sincronización. Aquí nada pisa: se suma la
  * diferencia y las salidas del kardex quedan intactas.
  */
-import { canonizar } from "../importar/sku";
-import type { CajaConstruida } from "../importar/cajas";
+import { esAlmacenTikTok, type CajaConstruida } from "../importar/cajas";
 import type { Movimiento } from "./kardex";
 
-/** Cómo se reconoce la bodega de TikTok en Industher: "Tik Tok", "TIKTOK", "TikTok Shop"… */
-export function esAlmacenTikTok(nombre: string | null | undefined): boolean {
-  const c = canonizar(String(nombre ?? "")).replace(/-/g, "");
-  return c === "TIKTOK" || c.startsWith("TIKTOK");
-}
+/** Cómo se reconoce la bodega de TikTok en Industher (vive junto al armado de cajas, que la excluye). */
+export { esAlmacenTikTok };
 
 /** Prefijo de la referencia con la que Industher firma sus movimientos. */
 export const REFERENCIA_INDUSTHER = "industher:";
