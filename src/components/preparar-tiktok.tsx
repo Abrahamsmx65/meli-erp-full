@@ -65,11 +65,14 @@ export function PrepararTikTok({
   numero,
   paquetes,
   preparadosIniciales,
+  urlGuardar,
 }: {
   corteId: number;
   numero: number;
   paquetes: PaqueteNumerado[];
   preparadosIniciales: number[];
+  /** a dónde se manda la constancia; con sesión o con el link de empleados */
+  urlGuardar?: string;
 }) {
   const [estado, setEstado] = useState<EstadoEscaneo>(estadoInicial());
   const [preparados, setPreparados] = useState<Set<number>>(new Set(preparadosIniciales));
@@ -128,7 +131,7 @@ export function PrepararTikTok({
     if (siguiente.paso === "listo" && siguiente.paquete) {
       setGuardando(true);
       try {
-        const r = await fetch(`/api/tiktok/cortes/${corteId}/preparar`, {
+        const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

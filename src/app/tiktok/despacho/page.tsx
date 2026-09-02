@@ -2,6 +2,8 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { pendientesDeCorte } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
+import { EnlacePreparar } from "@/components/enlace-preparar";
+import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,7 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, { data: cortesRaw }, { data: prepRaw }] = await Promise.all([
+  const [pendientes, { data: cortesRaw }, { data: prepRaw }, token] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
@@ -26,7 +28,9 @@ export default async function Despacho() {
       .order("numero", { ascending: false })
       .limit(30),
     supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
+    tokenPreparar(cuenta.id),
   ]);
+  const origen = process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app";
   const preparadosPorCorte = new Map<number, number>();
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
@@ -53,6 +57,7 @@ export default async function Despacho() {
         </p>
       </div>
       <DespachoTikTok pendientes={pendientes.length} cortes={cortes} />
+      <EnlacePreparar tokenInicial={token} origen={origen} />
     </div>
   );
 }

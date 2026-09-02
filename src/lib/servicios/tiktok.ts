@@ -25,6 +25,7 @@ import {
   catalogo,
   enviarPaquete,
   etiquetaDePaquete,
+  horariosDeRecoleccion,
   paquetesDePedido,
   pedidosActualizados,
   pedidosPorId,
@@ -739,7 +740,16 @@ export async function confirmarEnvio(
   }
 
   for (const p of paquetes) {
-    await enviarPaquete(cliente, p.id, opciones);
+    let horario = opciones.horario ?? null;
+    if (opciones.handover === "PICKUP" && !horario) {
+      try {
+        const lista = await horariosDeRecoleccion(cliente, p.id);
+        horario = lista.sort((a, b) => a.inicio - b.inicio).find((h) => h.fin > Date.now() / 1000) ?? lista[0] ?? null;
+      } catch {
+        horario = null;
+      }
+    }
+    await enviarPaquete(cliente, p.id, { ...opciones, horario });
   }
 
   const r = await sincronizarPedidosPorId(admin, accountId, [orderId]);

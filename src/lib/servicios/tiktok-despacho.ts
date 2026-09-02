@@ -20,8 +20,10 @@ import { buscarAmazon, mapaAmazon } from "../etiquetas/resolver";
 import {
   enviarPaquete,
   etiquetaDePaquete,
+  horariosDeRecoleccion,
   paquetesDePedido,
   renglonesDelPaquete,
+  type HorarioRecoleccion,
   type OpcionesEnvio,
 } from "../tiktok/api";
 import {
@@ -45,6 +47,14 @@ export interface ResultadoCorte {
   pares: number;
   errores: { orderId: string; error: string }[];
   publicados: number;
+}
+
+/** El primer horario que todavía no pasó; si todos pasaron, el último. */
+export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccion | null {
+  if (!horarios.length) return null;
+  const ahora = Math.floor(Date.now() / 1000);
+  const ordenados = [...horarios].sort((a, b) => a.inicio - b.inicio);
+  return ordenados.find((h) => h.fin > ahora) ?? ordenados[ordenados.length - 1];
 }
 
 /** Los pedidos que entrarían en el siguiente corte. */
@@ -90,8 +100,22 @@ export async function hacerCorte(
       const paquetes = await paquetesDePedido(cliente, p.orderId);
       if (!paquetes.length) throw new Error("TikTok no tiene paquete para este pedido.");
       for (const pk of paquetes) {
+        // Recolección: hay que decirle a TikTok CUÁNDO. Sin horario acepta
+        // la petición pero la vuelve drop-off, que es justo lo que pasó en
+        // el primer corte. Se toma el primer horario que ofrezca.
+        let horario: HorarioRecoleccion | null = null;
+        if (opciones.handover === "PICKUP") {
+          try {
+            horario = primerHorario(await horariosDeRecoleccion(cliente, pk.id));
+          } catch (err) {
+            errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó de todas formas.` });
+          }
+          if (!horario) {
+            errores.push({ orderId: p.orderId, error: "TikTok no ofreció horario de recolección; puede salir como drop-off." });
+          }
+        }
         try {
-          await enviarPaquete(cliente, pk.id, { handover: opciones.handover });
+          await enviarPaquete(cliente, pk.id, { handover: opciones.handover, horario });
         } catch (err) {
           // Si TikTok dice que ya estaba enviado, no es error: es que alguien
           // lo confirmó a mano en el Seller Center.
