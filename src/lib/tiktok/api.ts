@@ -444,9 +444,15 @@ export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<
     .filter((s) => s && (s.avaliable ?? s.available ?? true) !== false)
     .map((s) => ({ inicio: Number(s.start_time), fin: Number(s.end_time) }))
     .filter((s) => Number.isFinite(s.inicio) && Number.isFinite(s.fin));
+  // Cuando la recolección no está disponible, TikTok NO manda can_pickup en
+  // false: simplemente contesta { can_drop_off: true } y nada más. Se leyó
+  // así en producción (paquete J&T MX, Naucalpan). Así que "no viene" con
+  // drop-off presente = no hay recolección.
+  const canPickup = typeof d?.can_pickup === "boolean" ? d.can_pickup : null;
+  const canDropOff = typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null;
   return {
-    puedeRecoleccion: typeof d?.can_pickup === "boolean" ? d.can_pickup : null,
-    puedeDropOff: typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null,
+    puedeRecoleccion: canPickup ?? (canDropOff === true && !horarios.length ? false : null),
+    puedeDropOff: canDropOff,
     horarios,
     llaves: d ? Object.keys(d) : [],
   };

@@ -104,26 +104,28 @@ export async function hacerCorte(
         // la petición pero la vuelve drop-off, que es justo lo que pasó en
         // el primer corte. Se toma el primer horario que ofrezca.
         let horario: HorarioRecoleccion | null = null;
+        let handover = opciones.handover;
         if (opciones.handover === "PICKUP") {
           try {
             const e = await opcionesDeEntrega(cliente, pk.id);
             horario = primerHorario(e.horarios);
             if (!horario) {
-              // Que quede escrito QUÉ contestó TikTok: es lo único que permite
-              // saber si es la tienda (sin recolección habilitada), la
-              // paquetería, o la forma de la respuesta.
+              // Sin horario no hay recolección posible. Se manda como
+              // drop-off A PROPÓSITO y se deja escrito por qué, en vez de
+              // mandar PICKUP a ciegas y que TikTok lo convierta en silencio.
+              handover = "DROP_OFF";
               const porque =
                 e.puedeRecoleccion === false
-                  ? "TikTok dice que este paquete NO admite recolección (can_pickup=false): la paquetería o la tienda no la tienen habilitada"
-                  : `TikTok no ofreció horarios (contestó: ${e.llaves.join(", ") || "vacío"})`;
-              errores.push({ orderId: p.orderId, error: `${porque}. Se mandó como recolección sin horario; puede salir como drop-off.` });
+                  ? "TikTok no ofrece recolección para este paquete (solo drop-off): hay que habilitarla en el Seller Center para esta dirección y paquetería"
+                  : `TikTok no ofreció horarios de recolección (contestó: ${e.llaves.join(", ") || "vacío"})`;
+              errores.push({ orderId: p.orderId, error: `${porque}. Salió como DROP-OFF.` });
             }
           } catch (err) {
-            errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó de todas formas.` });
+            errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó como recolección sin horario.` });
           }
         }
         try {
-          await enviarPaquete(cliente, pk.id, { handover: opciones.handover, horario });
+          await enviarPaquete(cliente, pk.id, { handover, horario });
         } catch (err) {
           // Si TikTok dice que ya estaba enviado, no es error: es que alguien
           // lo confirmó a mano en el Seller Center.
