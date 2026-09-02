@@ -86,7 +86,7 @@ export default async function VentasTikTok({
   // Lo que falta despachar, que es la lista de trabajo del día.
   const porEnviar = (items ?? []).filter((i) => efectoDeEstado(i.estado) === "apartado");
   const paresPorEnviar = porEnviar.reduce((a, i) => a + (i.cantidad ?? 0), 0);
-  const pedidosPorEnviar = new Set(porEnviar.map((i) => i.order_id));
+  const idsPorEnviar = new Set(porEnviar.map((i) => i.order_id));
 
   // Pedido por pedido, para empacar y confirmar desde aquí.
   const itemsPorPedido = new Map<string, Map<string, number>>();
@@ -130,9 +130,9 @@ export default async function VentasTikTok({
         <Ficha titulo="Importe" valor={pesos(importe)} nota="precio de venta" />
         <Ficha
           titulo="Pedidos por enviar"
-          valor={pedidosPorEnviar.size}
+          valor={idsPorEnviar.size}
           nota="pagados, sin despachar"
-          tono={pedidosPorEnviar.size ? "alerta" : "bien"}
+          tono={idsPorEnviar.size ? "alerta" : "bien"}
         />
         <Ficha titulo="Pares apartados" valor={n(paresPorEnviar)} nota="ya tienen dueño" />
       </div>
