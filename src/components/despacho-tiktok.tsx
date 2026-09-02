@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Printer, ScanLine, Scissors } from "lucide-react";
+import { Eye, FileText, Printer, ScanLine, Scissors } from "lucide-react";
 
 export interface CorteResumen {
   id: number;
@@ -33,6 +33,23 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [simulacion, setSimulacion] = useState<any>(null);
+  const [simulando, setSimulando] = useState(false);
+
+  async function simular() {
+    setSimulando(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/tiktok/cortes/simular");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo simular.");
+      setSimulacion(j);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSimulando(false);
+    }
+  }
 
   async function hacerCorte() {
     setOcupado(true);
@@ -86,6 +103,16 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               <option value="DROP_OFF">Los llevo a la paquetería</option>
             </select>
             <button
+              onClick={simular}
+              disabled={simulando || !pendientes}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--grid)" }}
+              title="Ver qué haría el corte sin confirmar nada"
+            >
+              <Eye size={14} />
+              {simulando ? "Simulando…" : "Simular"}
+            </button>
+            <button
               onClick={hacerCorte}
               disabled={ocupado || !pendientes}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
@@ -98,6 +125,42 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         </div>
         {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
         {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+
+        {simulacion ? (
+          <div className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--grid)" }}>
+            <div className="flex items-center justify-between">
+              <span className="font-semibold">
+                Simulación: {simulacion.pedidos.length} pedidos · {simulacion.totalPares} pares
+              </span>
+              <button onClick={() => setSimulacion(null)} className="text-xs underline" style={{ color: "var(--ink-2)" }}>
+                cerrar
+              </button>
+            </div>
+            <ul className="mt-2 flex flex-col gap-1">
+              {simulacion.pedidos.map((p: any) => (
+                <li key={p.orderId} className="flex flex-wrap items-center gap-2">
+                  <span className="cifra text-xs" style={{ color: "var(--ink-2)" }}>{p.orderId}</span>
+                  <span>{p.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}</span>
+                  <span
+                    className="rounded-full px-2 text-[11px] font-semibold"
+                    style={{
+                      background: p.recoleccion === true ? "var(--acento-suave)" : p.recoleccion === false ? "color-mix(in oklab, var(--estado-alerta) 18%, transparent)" : "var(--grid)",
+                      color: p.recoleccion === true ? "var(--exito-texto)" : "var(--ink-2)",
+                    }}
+                  >
+                    {p.recoleccion === true ? "recolección disponible" : p.recoleccion === false ? "solo drop-off" : "sin dato"}
+                  </span>
+                  {p.aviso ? <span className="text-xs" style={{ color: "var(--ink-2)" }}>{p.aviso}</span> : null}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+              Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
+              {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
+            </div>
+            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>Nada de esto se ha confirmado. Es solo lo que pasaría.</p>
+          </div>
+        ) : null}
       </section>
 
       <section className="tarjeta overflow-hidden">

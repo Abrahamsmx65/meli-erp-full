@@ -36,6 +36,7 @@ import {
 } from "../tiktok/despacho";
 import { efectoDeEstado } from "../tiktok/kardex";
 import { clienteDeCuenta, sincronizarPedidosPorId } from "./tiktok";
+import { urlSalidasIndusther } from "./tiktok-3pl";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
@@ -560,4 +561,81 @@ export async function marcarPreparado(
     { onConflict: "account_id,order_id,package_id" },
   );
   if (error) throw new Error(`No se pudo guardar la preparación: ${error.message}`);
+}
+
+
+// ---------------------------------------------------------------------------
+// Simular el corte: qué pasaría, sin tocar nada
+// ---------------------------------------------------------------------------
+
+export interface SimulacionCorte {
+  pedidos: {
+    orderId: string;
+    estado: string;
+    paquetes: number;
+    /** true = TikTok ofrece recolección con horario; false = solo drop-off; null = no se pudo saber */
+    recoleccion: boolean | null;
+    pares: { sku: string; pares: number }[];
+    aviso: string | null;
+  }[];
+  totalPares: number;
+  /** lo que se le mandaría al 3PL */
+  salidasAl3pl: { sku: string; pares: number }[];
+  endpoint3pl: string | null;
+}
+
+export async function simularCorte(admin: any, accountId: string): Promise<SimulacionCorte> {
+  const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+  if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+
+  const pendientes = await pendientesDeCorte(admin, accountId);
+  const ids = pendientes.map((p) => p.orderId);
+  const items = ids.length
+    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
+        q.eq("account_id", accountId).in("order_id", ids),
+      )
+    : [];
+
+  const porOrden = new Map<string, Map<string, number>>();
+  for (const i of items ?? []) {
+    if (efectoDeEstado(i.estado) === "reversa") continue;
+    const m = porOrden.get(i.order_id) ?? new Map<string, number>();
+    const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
+    m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
+    porOrden.set(i.order_id, m);
+  }
+
+  const salida: SimulacionCorte["pedidos"] = [];
+  const al3pl = new Map<string, number>();
+
+  for (const p of pendientes) {
+    let paquetes = 0;
+    let recoleccion: boolean | null = null;
+    let aviso: string | null = null;
+    if (cliente.msRestantes() > 15_000) {
+      try {
+        const pks = await paquetesDePedido(cliente, p.orderId);
+        paquetes = pks.length;
+        if (pks[0] && efectoDeEstado(p.estado) !== "salida") {
+          const e = await opcionesDeEntrega(cliente, pks[0].id);
+          recoleccion = e.puedeRecoleccion === true || e.horarios.length > 0 ? true : e.puedeRecoleccion === false ? false : null;
+          if (recoleccion === false) aviso = "TikTok solo ofrece drop-off para este paquete";
+        } else if (efectoDeEstado(p.estado) === "salida") {
+          aviso = "Ya está confirmado en TikTok; solo entra al corte para etiqueta y lista";
+        }
+      } catch (err) {
+        aviso = (err as Error).message;
+      }
+    }
+    const pares = [...(porOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
+    for (const x of pares) if (!x.sku.startsWith("(")) al3pl.set(x.sku, (al3pl.get(x.sku) ?? 0) + x.pares);
+    salida.push({ orderId: p.orderId, estado: p.estado, paquetes, recoleccion, pares, aviso });
+  }
+
+  return {
+    pedidos: salida,
+    totalPares: salida.reduce((a, p) => a + p.pares.reduce((b, x) => b + x.pares, 0), 0),
+    salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
+    endpoint3pl: urlSalidasIndusther(),
+  };
 }

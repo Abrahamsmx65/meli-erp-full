@@ -28,6 +28,40 @@ export interface ResultadoBodegaTikTok {
   sinAmarre: number;
 }
 
+/**
+ * Solo LEER cuántos pares por SKU reporta Industher en la bodega TikTok,
+ * sin mover el kardex: para el panel de desfases y la simulación.
+ */
+export async function paresEnBodegaTikTok(db: DB, accountId: string): Promise<{ almacen: string | null; pares: Map<string, number> }> {
+  const eq = (q: any) => q.eq("account_id", accountId);
+  const existRaw = await traerTodo<any>(
+    db,
+    "existencias",
+    "almacen, codigo_almacen, sku_caja, pedido, modelo, color, talla, contenedor, cajas_fisicas, cajas_apartadas, en_camino, cajas_disponibles, pares_por_caja",
+    eq,
+  );
+  const filas = (existRaw ?? []).filter((e: any) => esAlmacenTikTok(e.almacen));
+  if (!filas.length) return { almacen: null, pares: new Map() };
+  const almacen: string = filas[0].almacen;
+  const [skus, corridasRaw, mapeoRaw] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
+    traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
+    traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
+  ]);
+  const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({ pedido: c.pedido, modelo: c.modelo, color: c.color, tallas: c.tallas ?? {}, total: c.total ?? 0 }));
+  const existencias: FilaExistencia[] = filas.map((e: any) => ({
+    almacen: e.almacen, codigoAlmacen: e.codigo_almacen ?? "", skuCaja: e.sku_caja, pedido: e.pedido ?? "", modelo: e.modelo, color: e.color ?? "",
+    talla: e.talla, contenedor: e.contenedor ?? "", cajasFisicas: e.cajas_fisicas ?? 0, cajasApartadas: e.cajas_apartadas ?? 0, enCamino: e.en_camino ?? 0,
+    cajasDisponibles: e.cajas_disponibles ?? 0, paresPorCaja: e.pares_por_caja ?? 0, paresDisponibles: 0,
+  }));
+  const r = construirCajas(existencias, corridas, {
+    indice: skus.length ? construirIndice(skus.map((s: any) => s.sku)) : null,
+    mapeoManual: new Map((mapeoRaw ?? []).map((m: any) => [m.sku_construido, m.sku_meli])),
+    almacenes: [almacen],
+  });
+  return { almacen, pares: paresPorSkuDesdeCajas(r.cajas) };
+}
+
 export async function sincronizarSaldoDesdeBodega(
   db: DB,
   accountId: string,

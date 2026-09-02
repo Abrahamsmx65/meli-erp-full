@@ -9,6 +9,8 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { disponibleParaCompradores } from "../tiktok/kardex";
 import { skusContados } from "./tiktok";
+import { paresEnBodegaTikTok } from "./tiktok-bodega";
+import { estadoSalidas3pl } from "./tiktok-3pl";
 
 /** Ventana con la que se mide qué tan rápido se vende cada talla. */
 export const DIAS_VENTA = 30;
@@ -184,4 +186,86 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     pendientes,
     ultimaSync: syncRes.data?.fin ?? null,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// Desfases: dónde TikTok, el kardex y el 3PL no dicen lo mismo, y por qué
+// ---------------------------------------------------------------------------
+
+export interface Desfase {
+  sku: string;
+  /** kardex */
+  saldo: number;
+  apartado: number;
+  disponible: number;
+  contado: boolean;
+  /** lo que TikTok dice tener; null si no hay publicación */
+  enTikTok: number | null;
+  /** lo que Industher reporta en la bodega TikTok; null si no la reporta */
+  en3pl: number | null;
+  /** salidas que el 3PL todavía no confirma */
+  salidasPendientes3pl: number;
+  razones: string[];
+}
+
+export interface PanelDesfases {
+  bodega3pl: string | null;
+  desfases: Desfase[];
+  revisados: number;
+}
+
+export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDesfases> {
+  const eq = (q: any) => q.eq("account_id", accountId);
+  const [inv, skusTikTok, contados, bodega, salidas] = await Promise.all([
+    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
+    traerTodo<any>(db, "tiktok_skus", "sku_interno, cantidad_tiktok, estado", (q) => eq(q).eq("activo", true)),
+    skusContados(db, accountId),
+    paresEnBodegaTikTok(db, accountId),
+    estadoSalidas3pl(db, accountId),
+  ]);
+
+  const enTikTok = new Map<string, number>();
+  for (const s of skusTikTok ?? []) {
+    if (!s.sku_interno || s.cantidad_tiktok == null || s.estado !== "ACTIVATE") continue;
+    const previo = enTikTok.get(s.sku_interno);
+    enTikTok.set(s.sku_interno, previo == null ? s.cantidad_tiktok : Math.min(previo, s.cantidad_tiktok));
+  }
+
+  const kardex = new Map<string, { saldo: number; apartado: number }>();
+  for (const r of inv ?? []) kardex.set(r.sku, { saldo: r.saldo, apartado: r.apartado });
+
+  const todos = new Set<string>([...kardex.keys(), ...bodega.pares.keys(), ...enTikTok.keys()]);
+  const desfases: Desfase[] = [];
+
+  for (const sku of todos) {
+    const k = kardex.get(sku) ?? { saldo: 0, apartado: 0 };
+    const disponible = disponibleParaCompradores(k.saldo, k.apartado);
+    const contado = contados.has(sku);
+    const tt = enTikTok.has(sku) ? (enTikTok.get(sku) as number) : null;
+    const tresPl = bodega.almacen ? (bodega.pares.get(sku) ?? 0) : null;
+    const pend = salidas.pendientes.get(sku) ?? 0;
+    const razones: string[] = [];
+
+    if (k.saldo < 0) razones.push("Kardex en negativo: se vendió sin entrada");
+    if (tt !== null && contado && tt !== disponible) {
+      razones.push(`TikTok dice ${tt} y le toca ${disponible} (se corrige al publicar)`);
+    }
+    if (tt !== null && !contado && (k.saldo !== 0 || k.apartado !== 0)) {
+      razones.push("Sin conteo inicial: TikTok se queda con su número");
+    }
+    if (tresPl !== null && enTikTok.has(sku)) {
+      // El 3PL debe traer el físico: saldo del kardex + lo que le falta descontar.
+      const esperado = k.saldo + pend;
+      if (tresPl !== esperado) razones.push(`Industher reporta ${tresPl}; por kardex debería ser ${esperado}`);
+    }
+    if (pend > 0) razones.push(`${pend} pares de salidas sin confirmar en el 3PL`);
+
+    if (razones.length) {
+      desfases.push({ sku, saldo: k.saldo, apartado: k.apartado, disponible, contado, enTikTok: tt, en3pl: tresPl, salidasPendientes3pl: pend, razones });
+    }
+  }
+
+  desfases.sort((a, b) => b.razones.length - a.razones.length || a.sku.localeCompare(b.sku, "es"));
+  return { bodega3pl: bodega.almacen, desfases, revisados: todos.size };
 }

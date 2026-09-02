@@ -15,7 +15,7 @@
  * El paso 5 es el que hace que esto sirva: sin él el kardex sería un cuaderno
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { agregarVentasDiarias } from "../tiktok/ventas";
@@ -363,6 +363,48 @@ async function procesarPedidos(
   };
 }
 
+/** El recurso del candado: una sola sincronización de TikTok por cuenta a la vez. */
+const CANDADO_TIKTOK = "tiktok-sync";
+
+/**
+ * Corre una tarea con el candado de TikTok. Cron, webhook, botón y corte
+ * pueden coincidir; el kardex aguanta (es idempotente), pero dos corridas
+ * encimadas duplican llamadas a TikTok y pueden cruzar escrituras. Con
+ * `esperarMs` la tarea espera un rato a que el candado se libere (el corte
+ * y el webhook lo necesitan); sin él, se rinde de inmediato (el cron: la
+ * siguiente corrida lo recoge).
+ */
+async function conCandadoTikTok<T>(
+  admin: any,
+  accountId: string,
+  ttlSegundos: number,
+  esperarMs: number,
+  tarea: () => Promise<T>,
+): Promise<T | null> {
+  const limite = Date.now() + esperarMs;
+  let token = await adquirirCandado(admin, accountId, CANDADO_TIKTOK, ttlSegundos);
+  while (!token && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 2_000));
+    token = await adquirirCandado(admin, accountId, CANDADO_TIKTOK, ttlSegundos);
+  }
+  if (!token) return null;
+  try {
+    return await tarea();
+  } finally {
+    await liberarCandado(admin, accountId, CANDADO_TIKTOK, token).catch(() => false);
+  }
+}
+
+export interface ResultadoPedidosPorId {
+  pedidos: number;
+  salidas: number;
+  devoluciones: number;
+  publicados: number;
+  avisos: string[];
+  /** true si no se pudo correr porque otra sincronización tenía el candado */
+  ocupado?: boolean;
+}
+
 /**
  * Pedidos concretos, de inmediato: lo que dispara un aviso de TikTok o una
  * confirmación de envío. Jala, mueve el kardex y republica. No toca el
@@ -372,7 +414,18 @@ export async function sincronizarPedidosPorId(
   admin: any,
   accountId: string,
   ids: string[],
-): Promise<{ pedidos: number; salidas: number; devoluciones: number; publicados: number; avisos: string[] }> {
+): Promise<ResultadoPedidosPorId> {
+  const r = await conCandadoTikTok(admin, accountId, 120, 30_000, () =>
+    sincronizarPedidosPorIdSinCandado(admin, accountId, ids),
+  );
+  return r ?? { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["Otra sincronización de TikTok está en curso; se reintenta."], ocupado: true };
+}
+
+async function sincronizarPedidosPorIdSinCandado(
+  admin: any,
+  accountId: string,
+  ids: string[],
+): Promise<ResultadoPedidosPorId> {
   const cliente = await clienteDeCuenta(admin, accountId, 60_000);
   if (!cliente || !cliente.tienda.shopCipher) {
     return { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["TikTok Shop no está conectado."] };
@@ -397,6 +450,19 @@ export async function sincronizarPedidosPorId(
 }
 
 export async function sincronizarTikTok(
+  admin: any,
+  accountId: string,
+  opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
+): Promise<ResultadoSync> {
+  // El botón y la captura a mano esperan un poco; el cron se rinde y vuelve
+  // en 15 minutos.
+  const r = await conCandadoTikTok(admin, accountId, 290, opciones.soloPedidos ? 30_000 : 0, () =>
+    sincronizarTikTokSinCandado(admin, accountId, opciones),
+  );
+  return r ?? { ...VACIO, conectado: true, avisos: ["Otra sincronización de TikTok está en curso."] };
+}
+
+async function sincronizarTikTokSinCandado(
   admin: any,
   accountId: string,
   opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
@@ -805,13 +871,17 @@ export async function procesarWebhooksPendientes(
   if (!lista.length) return { avisos: 0, pedidos: 0, salidas: 0, publicados: 0 };
 
   const ids = [...new Set(lista.map((w) => w.order_id).filter(Boolean))] as string[];
-  let r = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] as string[] };
+  let r: ResultadoPedidosPorId = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] };
   let error: string | null = null;
   try {
     if (ids.length) r = await sincronizarPedidosPorId(admin, accountId, ids);
   } catch (err) {
     error = (err as Error).message;
   }
+
+  // Si otra corrida tenía el candado, los avisos se quedan sin procesar y
+  // los recoge la siguiente (el cron drena los pendientes).
+  if (r.ocupado) return { avisos: lista.length, pedidos: 0, salidas: 0, publicados: 0 };
 
   await admin
     .from("tiktok_webhooks")
