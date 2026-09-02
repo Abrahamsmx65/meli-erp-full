@@ -130,9 +130,9 @@ guárdala numerada.
   no tiene corte.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
-  Amazon, impreso como barras en la guía) — elige el siguiente paquete sin
-  preparar con ese producto y pita UNA VEZ POR PAR — o por la hoja
-  (`TT{corte}-{n}`, impreso en la lista); luego el PRODUCTO (FNSKU de la
+  Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
+  guía y caja llevan el mismo código) — elige el siguiente paquete sin
+  preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
   caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
   solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
   `tiktok_preparaciones.escaneos`. Decisión del dueño: la etiqueta lleva el

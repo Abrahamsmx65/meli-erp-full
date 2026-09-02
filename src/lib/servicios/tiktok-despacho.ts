@@ -27,7 +27,6 @@ import {
 import {
   agruparPorModelo,
   codigoDeEtiqueta,
-  codigoDeHoja,
   numerarPaquetes,
   textoDeEtiqueta,
   type PaqueteDespacho,
@@ -399,7 +398,7 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   const CARTA: [number, number] = [612, 792];
   const M = 36;
   const ANCHO = CARTA[0] - 2 * M;
-  // Columnas: # | código (barras) | SKU × cant. | FNSKU | pedido | destinatario | ☐
+  // Columnas: # | FNSKU (barras, el mismo de la etiqueta y de la caja) | SKU × cant. | FNSKU | pedido | destinatario | ☐
   const COL = [26, 118, 150, 70, 110, ANCHO - 26 - 118 - 150 - 70 - 110 - 18, 18];
   const FILA = 34;
   const gris = rgb(0.45, 0.45, 0.45);
@@ -427,7 +426,7 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
 
   const encabezado = () => {
     const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-    const titulos = ["#", "Código", "SKU × cant.", "FNSKU", "Pedido", "Destinatario", ""];
+    const titulos = ["#", "Escanear (FNSKU)", "SKU × cant.", "FNSKU", "Pedido", "Destinatario", ""];
     titulos.forEach((t, i) => pagina.drawText(t, { x: xs[i] + 2, y, size: 8, font: negrita, color: gris }));
     y -= 4;
     pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
@@ -453,7 +452,9 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
         encabezado();
       }
       const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-      const codigo = codigoDeHoja(corte.numero, p.numero);
+      // El mismo código que la etiqueta y que la caja del zapato: el FNSKU.
+      // Escanear el renglón o la guía es lo mismo para la estación.
+      const codigo = codigoDeEtiqueta(p, corte.numero);
       const skus = p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ");
       const fnsku = p.pares.map((x) => x.fnsku).filter(Boolean).join(", ") || "—";
       const arriba = y + FILA - 12;
