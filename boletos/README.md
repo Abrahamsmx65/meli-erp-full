@@ -59,11 +59,13 @@ Copia `.env.example` a `.env.local` (o a las variables del proyecto en Vercel):
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Del proyecto de Supabase (Settings → API) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Llave de servicio. **Nunca** al navegador |
 | `NEXT_PUBLIC_URL_BASE` | URL pública del sitio; va dentro de cada QR y en los correos |
-| `RESEND_API_KEY`, `CORREO_REMITENTE` | Cuenta de [Resend](https://resend.com) con dominio verificado |
+| `SMTP_USUARIO`, `SMTP_CLAVE` | Tu Gmail y su *contraseña de aplicación*: el camino simple, sin dominio |
+| `RESEND_API_KEY` | Alternativa: [Resend](https://resend.com) con dominio verificado |
+| `CORREO_REMITENTE` | Cómo aparece el remitente (con SMTP puede omitirse) |
 | `CORREO_ORGANIZADOR` | Opcional: copia oculta de cada pedido nuevo |
 
-Sin Resend el sistema funciona igual (los boletos se ven en su página y desde
-el panel se puede copiar el enlace), solo no manda correos.
+Sin correo configurado el sistema funciona igual (los boletos se ven en su
+página y desde el panel se puede copiar el enlace), solo no manda correos.
 
 ### 4. Despliegue en Vercel
 

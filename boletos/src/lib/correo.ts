@@ -1,8 +1,15 @@
 /**
- * Correo saliente por Resend (https://resend.com), llamando su API directo
- * con fetch. Si no hay RESEND_API_KEY, no truena: se registra en consola y
- * el pedido sigue su curso; el boleto siempre se puede ver en su página.
+ * Correo saliente. Dos caminos, se usa el que esté configurado:
+ *
+ * 1. SMTP (`SMTP_USUARIO` + `SMTP_CLAVE`): tu propio Gmail con "contraseña de
+ *    aplicación". Para uso personal es lo más simple: no necesita dominio.
+ *    Gmail permite ~500 correos al día, de sobra para un evento.
+ * 2. Resend (`RESEND_API_KEY`): servicio con dominio propio verificado.
+ *
+ * Si no hay ninguno, no truena: se registra en consola y el pedido sigue su
+ * curso; el boleto siempre se puede ver en su página.
  */
+import nodemailer from "nodemailer";
 
 export interface Adjunto {
   filename: string;
@@ -23,12 +30,40 @@ export interface ResultadoCorreo {
 }
 
 export async function enviarCorreo(c: Correo): Promise<ResultadoCorreo> {
-  const key = process.env.RESEND_API_KEY;
-  const remitente = process.env.CORREO_REMITENTE;
-  if (!key || !remitente) {
-    console.warn(`[correo] Sin RESEND_API_KEY/CORREO_REMITENTE; no se envió "${c.asunto}" a ${c.para}`);
-    return { enviado: false, error: "Correo no configurado" };
+  if (process.env.SMTP_USUARIO && process.env.SMTP_CLAVE) return enviarPorSmtp(c);
+  if (process.env.RESEND_API_KEY) return enviarPorResend(c);
+  console.warn(`[correo] Sin SMTP ni Resend configurados; no se envió "${c.asunto}" a ${c.para}`);
+  return { enviado: false, error: "Correo no configurado" };
+}
+
+async function enviarPorSmtp(c: Correo): Promise<ResultadoCorreo> {
+  const usuario = process.env.SMTP_USUARIO!;
+  const transporte = nodemailer.createTransport({
+    host: process.env.SMTP_HOST ?? "smtp.gmail.com",
+    port: Number(process.env.SMTP_PUERTO ?? 465),
+    secure: (process.env.SMTP_PUERTO ?? "465") === "465",
+    auth: { user: usuario, pass: process.env.SMTP_CLAVE! },
+  });
+  try {
+    await transporte.sendMail({
+      from: process.env.CORREO_REMITENTE || usuario,
+      to: c.para,
+      bcc: c.copia || undefined,
+      subject: c.asunto,
+      html: c.html,
+      attachments: c.adjuntos?.map((a) => ({ filename: a.filename, content: a.content })),
+    });
+    return { enviado: true };
+  } catch (e) {
+    console.error("[correo] SMTP no pudo enviar:", e);
+    return { enviado: false, error: String(e) };
   }
+}
+
+async function enviarPorResend(c: Correo): Promise<ResultadoCorreo> {
+  const key = process.env.RESEND_API_KEY!;
+  const remitente = process.env.CORREO_REMITENTE;
+  if (!remitente) return { enviado: false, error: "Falta CORREO_REMITENTE" };
 
   const cuerpo: Record<string, unknown> = {
     from: remitente,
