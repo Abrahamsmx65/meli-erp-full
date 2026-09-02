@@ -11,8 +11,8 @@ export default async function Inicio() {
     return (
       <main className="mx-auto max-w-3xl p-6">
         <div className="aviso aviso-alerta">
-          Falta configurar Supabase. Copia <code>.env.example</code> a <code>.env.local</code> y llena las
-          variables.
+          Falta configurar el servidor: hace falta <code>SUPABASE_SERVICE_ROLE_KEY</code> en las variables de
+          entorno (ver <code>.env.example</code>).
         </div>
       </main>
     );

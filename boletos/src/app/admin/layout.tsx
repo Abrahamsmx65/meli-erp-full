@@ -40,7 +40,8 @@ export default async function LayoutAdmin({ children }: { children: React.ReactN
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3 text-xs opacity-80">
-            <span className="hidden sm:inline">{admin.correo}</span>
+            <Link href="/admin/cuenta" className="hidden rounded-lg px-2 py-1 hover:bg-white/10 sm:inline">{admin.correo}</Link>
+            <Link href="/admin/cuenta" className="rounded-lg px-2 py-1 hover:bg-white/10 sm:hidden">Cuenta</Link>
             <form action={accionSalir}>
               <button className="rounded-lg px-2 py-1 hover:bg-white/10">Salir</button>
             </form>

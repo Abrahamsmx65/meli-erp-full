@@ -32,22 +32,23 @@ npm run build
 
 ### 1. Base de datos
 
-Aplica `supabase/migrations/0001_boletos_inicial.sql` en un proyecto de
-Supabase (SQL Editor o CLI). Puede ser un proyecto nuevo o uno existente: todas
-las tablas y funciones llevan prefijo `ev_` y el bucket se llama
-`ev-comprobantes`, así que no chocan con nada.
+Proyecto de Supabase **`boletos-eventos`** (`dggekhkkcbhpizrriwmi`, aparte del
+ERP). Las migraciones de `supabase/migrations/` **ya están aplicadas**; si
+agregas una, aplícala y guárdala numerada. Todas las tablas y funciones llevan
+prefijo `ev_` y el bucket se llama `ev-comprobantes`.
 
 ### 2. Administrador
 
-En Supabase → Authentication → Users → *Add user*, crea tu usuario con correo
-y contraseña (desactiva *Allow new users to sign up* en Authentication →
-Providers → Email para que nadie más se registre). Luego, en el SQL Editor:
+El registro está **cerrado** con un trigger sobre `auth.users`: solo puede
+tener cuenta un correo que esté antes en `ev_administradores`, y solo esos
+correos entran al panel. Para dar acceso a alguien más:
 
 ```sql
-insert into ev_administradores (correo, nombre) values ('tu@correo.com', 'Tu nombre');
+insert into ev_administradores (correo, nombre) values ('otro@correo.com', 'Su nombre');
 ```
 
-Solo los correos en esa tabla entran al panel, aunque tengan cuenta.
+y luego crea su usuario en Supabase → Authentication → Users → *Add user*.
+Cada quien cambia su contraseña en `/admin/cuenta`.
 
 ### 3. Variables de entorno
 
