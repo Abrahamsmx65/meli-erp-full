@@ -307,3 +307,10 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
   (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
   el historial de git (commits e861525…6b75355) por si MELI publica el API.
+
+## Proyecto aparte: `boletos/` (venta de boletos para eventos)
+
+Sistema **independiente** del ERP que vive en la carpeta `boletos/` con su
+propio `package.json`, su propia migración (tablas con prefijo `ev_`) y su
+propio despliegue en Vercel (Root Directory = `boletos`). No comparte tablas ni
+código con el ERP ni con YAPANIZCEL. Léase `boletos/README.md`.

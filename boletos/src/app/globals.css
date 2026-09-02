@@ -1,0 +1,73 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+/* Paleta: crema cálido, tinta verde-pizarra y acento verde azulado. Los
+   colores de estado siempre van acompañados de texto: nunca cargan el
+   significado solos. */
+:root {
+  color-scheme: light;
+  --fondo: hsl(45 33% 98%);
+  --plano: hsl(42 25% 94%);
+  --tinta: hsl(198 28% 15%);
+  --tinta-2: hsl(198 14% 34%);
+  --tinta-suave: hsl(198 10% 47%);
+  --borde: hsl(39 18% 84%);
+  --acento: hsl(174 42% 29%);
+  --acento-suave: hsl(174 36% 90%);
+  --bien: #0ca30c;
+  --alerta: #d9950f;
+  --mal: #d03b3b;
+  --bien-suave: #e4f6e4;
+  --alerta-suave: #fff1d6;
+  --mal-suave: #fbe3e3;
+}
+
+html { font-family: Manrope, system-ui, sans-serif; background: var(--fondo); color: var(--tinta); }
+body { margin: 0; min-height: 100dvh; }
+.mono { font-family: "DM Mono", ui-monospace, monospace; }
+
+.tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 16px; }
+.boton {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  background: var(--acento); color: #fff; font-weight: 600; border-radius: 12px;
+  padding: .75rem 1.25rem; border: 0; cursor: pointer; text-decoration: none;
+  transition: filter .15s, transform .05s;
+}
+.boton:hover { filter: brightness(1.08); }
+.boton:active { transform: translateY(1px); }
+.boton:disabled { opacity: .55; cursor: not-allowed; }
+.boton-suave { background: var(--acento-suave); color: var(--acento); }
+.boton-peligro { background: var(--mal-suave); color: var(--mal); }
+.boton-fantasma { background: transparent; color: var(--tinta-2); border: 1px solid var(--borde); }
+
+.campo { display: grid; gap: .35rem; font-size: .9rem; color: var(--tinta-2); font-weight: 500; }
+.campo input, .campo select, .campo textarea {
+  font: inherit; color: var(--tinta); background: #fff; border: 1px solid var(--borde);
+  border-radius: 10px; padding: .7rem .85rem; width: 100%;
+}
+.campo input:focus, .campo select:focus, .campo textarea:focus { outline: 2px solid var(--acento); outline-offset: 1px; border-color: transparent; }
+
+.pastilla { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; padding: .2rem .6rem; border-radius: 999px; }
+.pastilla-pendiente { background: var(--plano); color: var(--tinta-2); }
+.pastilla-por_confirmar { background: var(--alerta-suave); color: #8a5a00; }
+.pastilla-pagado, .pastilla-valido { background: var(--bien-suave); color: #0a6b0a; }
+.pastilla-cancelado { background: var(--mal-suave); color: var(--mal); }
+.pastilla-usado { background: var(--acento-suave); color: var(--acento); }
+
+.tabla { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.tabla th { text-align: left; font-weight: 600; color: var(--tinta-suave); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; padding: .6rem .75rem; border-bottom: 1px solid var(--borde); }
+.tabla td { padding: .65rem .75rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
+.tabla tr:last-child td { border-bottom: 0; }
+.tabla tr:hover td { background: var(--fondo); }
+
+.aviso { border-radius: 12px; padding: .8rem 1rem; font-size: .92rem; }
+.aviso-mal { background: var(--mal-suave); color: #8a1f1f; }
+.aviso-bien { background: var(--bien-suave); color: #0a5a0a; }
+.aviso-alerta { background: var(--alerta-suave); color: #7a4d00; }
+
+.boleto-borde { border: 2px dashed var(--borde); border-radius: 18px; }
+
+@media print {
+  .no-imprimir { display: none !important; }
+  body { background: #fff; }
+}
