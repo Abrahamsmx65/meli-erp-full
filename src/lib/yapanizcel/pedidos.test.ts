@@ -47,3 +47,32 @@ describe("leerPedidoDeCeldas", () => {
     expect(() => leerPedidoDeCeldas([["a", "b"], ["c", "d"]])).toThrow(/encabezados/);
   });
 });
+
+describe("pedido real de la fábrica (Internet_82143_499_Magsafe_with_glass.xls)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { leerPedido } = await import("./pedidos");
+  const r = await leerPedido(readFileSync("fixtures/yz-pedido.xls"), "pedido.xls");
+
+  it("saca folio, diseño y fecha de las celdas sueltas", () => {
+    expect(r.folio).toBe("82143");
+    expect(r.diseno).toBe("499");
+    expect(r.fechaPedido).toBe("2026-07-20");
+  });
+
+  it("lee las 14 líneas y 11,000 unidades, sin el TOTAL", () => {
+    expect(r.lineas).toHaveLength(14);
+    expect(r.unidades).toBe(11000);
+  });
+
+  it("arma el SKU como en bodega y toma el costo del SET, no de la funda sola", () => {
+    expect(r.lineas[0]).toEqual({
+      skuBodega: "499-I17PROMAX",
+      diseno: "499",
+      modelo: "I17PROMAX",
+      color: "",
+      cantidad: 3000,
+      costoUnitario: 6.75,
+    });
+    expect(r.lineas.find((l) => l.skuBodega === "499-I17E")?.cantidad).toBe(600);
+  });
+});

@@ -7,6 +7,7 @@ import {
   construirIndice,
   desglosar,
   esAutomatico,
+  esCalzado,
   piezas,
 } from "./sku";
 
@@ -123,6 +124,23 @@ describe("amarrar", () => {
 });
 
 describe("desglosar", () => {
+  it("el prefijo N, C o CH no es el diseño", () => {
+    expect(desglosar("N-675-A17-purple")).toEqual({ diseno: "675", modelo: "A17", color: "PURPLE" });
+    expect(desglosar("C-450-Rmn10pro")).toEqual({ diseno: "450", modelo: "RMN10PRO", color: "" });
+    expect(desglosar("CH-650-i16promax").diseno).toBe("650");
+    expect(desglosar("499N-i13").diseno).toBe("499");
+    // 333A es un diseño propio: se conserva.
+    expect(desglosar("333A-y6s-transparent").diseno).toBe("333A");
+  });
+
+  it("distingue el calzado que vive en la misma cuenta", () => {
+    expect(esCalzado("GT074")).toBe(true);
+    expect(esCalzado("G650")).toBe(true);
+    expect(esCalzado("MY2304")).toBe(true);
+    expect(esCalzado("499")).toBe(false);
+    expect(esCalzado("GLASS")).toBe(false);
+  });
+
   it("saca el diseño, que es lo que agrupa los pedidos a China", () => {
     expect(desglosar("499-IP15PM").diseno).toBe("499");
     expect(desglosar("610-A54-NEGRO")).toEqual({

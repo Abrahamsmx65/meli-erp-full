@@ -116,7 +116,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
 
   const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
-  const disenoDe = new Map(skus.map((s) => [s.sku, s.diseno || desglosar(s.sku).diseno]));
+  const disenoDe = new Map(skus.map((s) => [s.sku, desglosar(s.sku).diseno]));
 
   const m: Monitor = {
     rango,

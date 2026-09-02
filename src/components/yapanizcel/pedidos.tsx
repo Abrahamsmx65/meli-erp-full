@@ -45,6 +45,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
       setLineas(j.lineas);
       setAvisos(j.avisos ?? []);
       if (j.folio && !folio) setFolio(j.folio);
+      if (j.fechaPedido && !fechaPedido) setFechaPedido(j.fechaPedido);
       setAviso(`Se leyeron ${j.lineas.length} líneas, ${n(j.unidades)} unidades. Revisa y confirma.`);
     } catch (err) {
       setError((err as Error).message);

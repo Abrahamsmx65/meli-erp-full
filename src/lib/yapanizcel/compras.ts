@@ -13,7 +13,7 @@ import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado } from "./inventario";
 import { leerParametros } from "./cuenta";
-import { amarrar, construirIndice, desglosar, type IndiceSkus } from "./sku";
+import { amarrar, construirIndice, desglosar, esCalzado, type IndiceSkus } from "./sku";
 
 /** Días que se quieren cubrir con un pedido: producción + tránsito + piso. */
 export const DIAS_OBJETIVO_PEDIDO = 30 + 30 + 60;
@@ -125,6 +125,8 @@ export async function resumenDisenos(db: DB, accountId: string): Promise<Resumen
   for (const s of b.skus) {
     const v = calcularVariante(s, b);
     const d = v.diseno;
+    // El calzado de esta cuenta no se pide desde aquí.
+    if (!d || esCalzado(d)) continue;
     const acc = porDiseno.get(d) ?? { variantes: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
     acc.variantes++;
     acc.vendidas30 += v.vendidas30;
@@ -138,7 +140,7 @@ export async function resumenDisenos(db: DB, accountId: string): Promise<Resumen
     ...a,
     cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
   }));
-  disenos.sort((x, y) => y.sugerido - x.sugerido || y.vendidas30 - x.vendidas30);
+  disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
   return { disenos };
 }
 
@@ -146,8 +148,10 @@ function calcularVariante(
   s: { sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null },
   b: Awaited<ReturnType<typeof cargarBase>>,
 ): VarianteCompra & { diseno: string } {
+  // Siempre se desglosa del SKU, no de lo guardado: lo guardado puede venir
+  // de una versión vieja del desglose (con "N" como diseño).
   const d = desglosar(s.sku);
-  const diseno = s.diseno || d.diseno;
+  const diseno = d.diseno;
   const vendidas30 = b.vendidas.get(s.sku) ?? 0;
   const ventaDiaria = vendidas30 / b.p.diasVenta;
   const st = b.stockPor.get(s.sku);
@@ -164,8 +168,8 @@ function calcularVariante(
     diseno,
     skuMeli: s.sku,
     titulo: s.titulo,
-    modelo: s.modelo || d.modelo,
-    color: s.color || d.color,
+    modelo: d.modelo,
+    color: d.color,
     vendidas30,
     ventaDiaria,
     enFull,
@@ -187,7 +191,13 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string): 
   const variantes = b.skus
     .map((s) => calcularVariante(s, b))
     .filter((v) => v.diseno === clave)
-    .sort((x, y) => y.vendidas30 - x.vendidas30 || x.skuMeli.localeCompare(y.skuMeli));
+    // Por modelo (con números en orden natural: i13, i14, i15pro…) y luego color.
+    .sort(
+      (x, y) =>
+        x.modelo.localeCompare(y.modelo, "es", { numeric: true }) ||
+        x.color.localeCompare(y.color, "es") ||
+        x.skuMeli.localeCompare(y.skuMeli),
+    );
   if (!variantes.length) return null;
 
   return {

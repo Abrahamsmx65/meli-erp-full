@@ -23,20 +23,51 @@ export interface LineaPedido {
 
 export interface PedidoLeido {
   folio: string | null;
+  /** El diseño del pedido, si el archivo lo dice arriba ("款號 #499"). */
+  diseno: string | null;
+  fechaPedido: string | null;
   lineas: LineaPedido[];
   avisos: string[];
   unidades: number;
 }
 
+/**
+ * Encabezados que se reconocen. El pedido real de la fábrica (fixture
+ * `yz-pedido.xls`) viene bilingüe: "款號 #499" arriba (el diseño), "Model",
+ * "Total" (la cantidad), "壳Case RMB" (el costo de la funda sola), "一套 Set"
+ * (funda + caja: el costo que cuenta) y "Amount" (el importe, que no se lee).
+ * Lo chino se canoniza fuera y quedan "CASE-RMB" y "SET".
+ */
 const ENC = {
   sku: ["SKU", "CLAVE", "CODIGO", "CODE", "ITEM", "ITEM NO", "MODEL NO", "REF"],
   diseno: ["DISENO", "DISEÑO", "DESIGN"],
   modelo: ["MODELO", "MODEL", "PHONE MODEL", "CELULAR"],
   color: ["COLOR", "COLOUR"],
-  cantidad: ["CANTIDAD", "CANT", "QTY", "QUANTITY", "PCS", "PIEZAS", "PZAS", "UNIDADES"],
-  costo: ["COSTO", "COSTO UNITARIO", "PRECIO", "UNIT PRICE", "PRICE", "USD", "COSTO USD", "PRECIO UNITARIO"],
-  folio: ["PEDIDO", "FOLIO", "ORDER", "ORDER NO", "PO", "INVOICE", "INVOICE NO"],
+  cantidad: ["CANTIDAD", "CANT", "QTY", "QUANTITY", "PCS", "PIEZAS", "PZAS", "UNIDADES", "TOTAL"],
+  // Primero el costo del conjunto; el de la funda sola solo si no hay otro.
+  costo: ["SET", "COSTO", "COSTO UNITARIO", "PRECIO", "UNIT PRICE", "PRICE", "USD", "COSTO USD", "PRECIO UNITARIO", "CASE RMB", "CASE"],
+  folio: ["PEDIDO", "FOLIO", "ORDER", "ORDER NO", "ORDER NUMBER", "PO", "INVOICE", "INVOICE NO"],
 };
+
+/** "款號 #499", "#499", "DISEÑO 499", "Design: 499N" -> "499" / "499N". */
+function disenoEnTexto(texto: string): string | null {
+  const m = texto.match(/(?:#|款號|DISE[ÑN]O|DESIGN|MODELO)\s*#?\s*:?\s*(\d{2,}[A-Z]?)\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** "Order number 訂單號 : 821", "PEDIDO: IN10151" -> "821" / "IN10151". */
+function folioEnTexto(texto: string): string | null {
+  const m = texto.match(/(?:ORDER\s*(?:NUMBER|NO\.?|#)?|PEDIDO|FOLIO|PO|INVOICE(?:\s*NO\.?)?)[^A-Z0-9]*([A-Z0-9][A-Z0-9\-\/]{1,})/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** "Date : 20/7/2026" -> "2026-07-20". Día/mes/año, como escribe la fábrica. */
+function fechaEnTexto(texto: string): string | null {
+  const m = texto.match(/(?:DATE|FECHA)\s*:?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i);
+  if (!m) return null;
+  const [, d, mes, y] = m;
+  return `${y}-${mes.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
 
 function es(celda: string, opciones: string[]): boolean {
   const c = canonizar(celda);
@@ -55,6 +86,19 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
   let cols: Record<keyof typeof ENC, number> | null = null;
   let filaEnc = -1;
   let folio: string | null = null;
+  let disenoArchivo: string | null = null;
+  let fechaPedido: string | null = null;
+
+  // Lo que va suelto en las celdas de arriba y a la derecha: diseño, folio
+  // y fecha. Se busca en TODO el archivo porque la fábrica los pone al lado
+  // de la tabla, no encima.
+  for (const f of celdas) {
+    const texto = f.filter(Boolean).join("  ");
+    if (!texto) continue;
+    disenoArchivo ??= disenoEnTexto(texto);
+    folio ??= folioEnTexto(texto);
+    fechaPedido ??= fechaEnTexto(texto);
+  }
 
   for (let r = 0; r < Math.min(celdas.length, 25); r++) {
     const f = celdas[r] ?? [];
@@ -62,25 +106,35 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     f.forEach((celda, i) => {
       if (!celda) return;
       for (const k of Object.keys(ENC) as (keyof typeof ENC)[]) {
-        if (c[k] < 0 && es(celda, ENC[k])) {
-          c[k] = i;
-          return;
-        }
+        if (c[k] >= 0 || !es(celda, ENC[k])) continue;
+        // Para el costo gana el encabezado que aparece PRIMERO en la lista
+        // (SET antes que CASE), no el que aparece primero en el archivo.
+        if (k === "costo" && c.costo >= 0) continue;
+        c[k] = i;
+        return;
       }
     });
+    // Si hay varias columnas de costo, prefiere la mejor de la lista.
     if (c.cantidad >= 0 && (c.sku >= 0 || c.modelo >= 0)) {
+      let mejor = -1;
+      let mejorPos = Infinity;
+      f.forEach((celda, i) => {
+        if (!celda) return;
+        const pos = ENC.costo.findIndex((e) => es(celda, [e]));
+        if (pos >= 0 && pos < mejorPos) {
+          mejorPos = pos;
+          mejor = i;
+        }
+      });
+      c.costo = mejor;
       cols = c;
       filaEnc = r;
       break;
     }
-    // "PEDIDO: IN10151" o "Folio IN10151" en algún renglón de arriba.
-    const texto = f.join(" ");
-    const m = texto.match(/(?:PEDIDO|FOLIO|ORDER|PO|INVOICE)\s*(?:NO\.?|#|:)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]{2,})/i);
-    if (m && !folio) folio = m[1].toUpperCase();
   }
 
   if (!cols) {
-    throw new Error("No se encontró el renglón de encabezados. Se esperan columnas como SKU (o MODELO) y CANTIDAD.");
+    throw new Error("No se encontró el renglón de encabezados. Se esperan columnas como SKU (o MODELO / Model) y CANTIDAD (o Total / Qty).");
   }
 
   const lineas: LineaPedido[] = [];
@@ -95,7 +149,7 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     const disenoCol = cols.diseno >= 0 ? (f[cols.diseno] ?? "").trim() : "";
     const cantTxt = f[cols.cantidad] ?? "";
     if (!sku && !modelo) continue;
-    if (/^total/i.test(sku) || /^total/i.test(modelo)) continue;
+    if (/^total/i.test(sku) || /^total/i.test(modelo) || /^total/i.test((f[0] ?? "").trim())) continue;
 
     const cantidad = numero(cantTxt);
     if (cantidad == null) {
@@ -104,7 +158,13 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     }
     if (cols.folio >= 0 && !folio && (f[cols.folio] ?? "").trim()) folio = (f[cols.folio] ?? "").trim().toUpperCase();
 
-    const skuBodega = sku ? claveCanonica(sku) : [canonizar(disenoCol), canonizar(modelo), canonizar(color)].filter(Boolean).join("-");
+    // El modelo se pega sin espacios ni guiones ("I17 Pro Max" -> I17PROMAX),
+    // que es como lo escriben en bodega y en MELI (499-i17promax).
+    const modeloPegado = canonizar(modelo).replace(/-/g, "");
+    const diseno = canonizar(disenoCol) || disenoArchivo || "";
+    const skuBodega = sku
+      ? claveCanonica(sku)
+      : [diseno, modeloPegado, canonizar(color)].filter(Boolean).join("-");
     if (!skuBodega) continue;
     const d = desglosar(skuBodega);
     const costo = cols.costo >= 0 ? numero(f[cols.costo] ?? "") : null;
@@ -118,16 +178,19 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     vistos.set(skuBodega, lineas.length);
     lineas.push({
       skuBodega,
-      diseno: canonizar(disenoCol) || d.diseno,
-      modelo: canonizar(modelo) || d.modelo,
+      diseno: diseno || d.diseno,
+      modelo: modeloPegado || d.modelo,
       color: canonizar(color) || d.color,
       cantidad: Math.max(0, Math.round(cantidad)),
       costoUnitario: costo,
     });
   }
 
-  if (!lineas.length) throw new Error("El archivo se leyó pero no traía ninguna línea con SKU y cantidad.");
-  return { folio, lineas, avisos, unidades: lineas.reduce((a, l) => a + l.cantidad, 0) };
+  if (!lineas.length) throw new Error("El archivo se leyó pero no traía ninguna línea con modelo y cantidad.");
+  if (!disenoArchivo && lineas.some((l) => !l.diseno)) {
+    avisos.push("El archivo no dice de qué diseño es (se esperaba algo como \"#499\" arriba): revisa los SKUs antes de confirmar.");
+  }
+  return { folio, diseno: disenoArchivo, fechaPedido, lineas, avisos, unidades: lineas.reduce((a, l) => a + l.cantidad, 0) };
 }
 
 export async function leerPedido(buffer: ArrayBuffer | Buffer, nombre?: string): Promise<PedidoLeido> {

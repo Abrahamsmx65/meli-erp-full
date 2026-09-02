@@ -288,16 +288,36 @@ export interface Desglose {
  * Saca diseño / modelo de celular / color de un SKU.
  *
  * Con el sheet real a la vista (362-Rmn13-5G-blue, 367-A24-4G, 437-A11plus-blk,
- * 412-iPad10-blue): el diseño es la primera pieza; el color, cuando existe, es
- * la ÚLTIMA pieza y va en puras letras (blue, blk, navy, transparente); todo lo
- * de en medio es el modelo del celular, con sus sufijos (5G, 4G, plus, pro).
- * "4G" o "2024" al final no son colores: llevan dígitos.
+ * 412-iPad10-blue): el diseño es la primera pieza NUMÉRICA; el color, cuando
+ * existe, es la ÚLTIMA pieza y va en puras letras (blue, blk, navy,
+ * transparente); todo lo de en medio es el modelo del celular, con sus
+ * sufijos (5G, 4G, plus, pro). "4G" o "2024" al final no son colores.
+ *
+ * El prefijo suelto de una o dos letras antes del número (N-675-A17,
+ * C-450-Rmn10pro, CH-650-i16promax) NO es el diseño: el diseño es 675, 450,
+ * 650. Igual la N o la C pegadas al número (499N-…). Una letra distinta
+ * pegada (333A, 314A) sí se conserva: son diseños propios.
  */
 export function desglosar(sku: string): Desglose {
   const partes = claveCanonica(sku).split("-").filter(Boolean);
+  if (partes.length >= 2 && /^[A-Z]{1,2}$/.test(partes[0]) && /^\d/.test(partes[1])) {
+    partes.shift();
+  } else if (partes.length) {
+    const m = partes[0].match(/^(\d+)([NC])$/);
+    if (m) partes[0] = m[1];
+  }
   const diseno = partes[0] ?? "";
   const resto = partes.slice(1);
   let color = "";
   if (resto.length >= 2 && /^[A-Z]+$/.test(resto[resto.length - 1])) color = resto.pop()!;
   return { diseno, modelo: resto.join("-"), color };
+}
+
+/**
+ * Diseños que NO son fundas: el calzado que también vive en esta cuenta
+ * (GT074, G650, MY2304). En la pantalla de pedidos a China estorban, por
+ * decisión del dueño. "GLASS" (micas) no es calzado y se queda.
+ */
+export function esCalzado(diseno: string): boolean {
+  return /^(GT?\d|MY\d)/.test(canonizar(diseno));
 }

@@ -51,7 +51,7 @@ export default async function InventarioYz() {
     .map((s) => ({
       skuMeli: s.sku,
       titulo: s.titulo,
-      diseno: s.diseno || desglosar(s.sku).diseno,
+      diseno: desglosar(s.sku).diseno,
       enFull: stockPor.get(s.sku)?.disponible ?? 0,
       enTransferencia: stockPor.get(s.sku)?.en_transferencia ?? 0,
       enCamino: camino.get(s.sku) ?? 0,
