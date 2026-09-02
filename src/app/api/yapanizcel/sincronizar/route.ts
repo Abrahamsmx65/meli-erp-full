@@ -22,18 +22,31 @@ export async function POST(req: NextRequest) {
 
   try {
     const resumen = await sincronizar(clienteAdmin(), ctx.cuenta.id, { presupuestoMs: 180_000, continuar, conStock });
-    dispararPendientes(req);
+    await dispararPendientes(req);
     return NextResponse.json({ ok: true, resumen });
   } catch (err) {
-    dispararPendientes(req);
+    await dispararPendientes(req);
     return errorJson(err);
   }
 }
 
-/** Los SKUs que quedaron pendientes se resuelven en segundo plano, con o sin éxito de lo demás. */
-function dispararPendientes(req: NextRequest): void {
+/**
+ * Los SKUs que quedaron pendientes se resuelven en segundo plano, con o sin
+ * éxito de lo demás. Se ESPERA la respuesta (contesta 202 de inmediato):
+ * Vercel congela la función en cuanto devuelve, y un fetch sin esperar se
+ * quedaba sin salir. Así fue como el resolutor pasó horas sin correr.
+ */
+async function dispararPendientes(req: NextRequest): Promise<void> {
   const secreto = process.env.CRON_SECRET;
   if (!secreto) return;
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
-  fetch(`${origen}/api/yapanizcel/skus-pendientes`, { method: "POST", headers: { authorization: `Bearer ${secreto}` } }).catch(() => {});
+  try {
+    await fetch(`${origen}/api/yapanizcel/skus-pendientes`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${secreto}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    // Lo recoge el cron.
+  }
 }

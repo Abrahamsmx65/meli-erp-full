@@ -55,7 +55,13 @@ export async function GET(req: NextRequest) {
   const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
   const secreto = process.env.CRON_SECRET;
   if (secreto) {
-    fetch(`${origen}/api/yapanizcel/skus-pendientes`, { method: "POST", headers: { authorization: `Bearer ${secreto}` } }).catch(() => {});
+    // Se espera la respuesta (202 inmediato): un fetch sin esperar no sale
+    // de la función antes de que Vercel la congele.
+    await fetch(`${origen}/api/yapanizcel/skus-pendientes`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${secreto}` },
+      signal: AbortSignal.timeout(8_000),
+    }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true, resultados });

@@ -210,8 +210,11 @@ export interface OrdenLeida {
 
 /**
  * Baja las órdenes pagadas del periodo, con sus renglones ya amarrados a SKU
- * y con los ids de pago (de ahí sale el neto). Ventanas de 7 días porque el
- * offset de MELI topa en 10 000.
+ * y con los ids de pago (de ahí sale el neto).
+ *
+ * Se recorre en ventanas de UN día: el offset de MELI topa en 10 000 por
+ * búsqueda y esta cuenta vende ~9 500 órdenes por semana, así que la ventana
+ * de 7 días que usa el calzado aquí se quedaba corta y perdía órdenes.
  */
 export async function leerOrdenes(
   cliente: MeliClient,
@@ -230,7 +233,7 @@ export async function leerOrdenes(
   const fin = new Date(`${hasta}T23:59:59.999-06:00`);
   while (cursor < fin) {
     const sig = new Date(cursor);
-    sig.setUTCDate(sig.getUTCDate() + 7);
+    sig.setUTCDate(sig.getUTCDate() + 1);
     ventanas.push([cursor.toISOString(), new Date(Math.min(+sig, +fin)).toISOString()]);
     cursor = sig;
   }
