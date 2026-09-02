@@ -43,7 +43,9 @@ export async function middleware(request: NextRequest) {
     user = data.user;
   }
 
-  const ruta = request.nextUrl.pathname;
+  // Diagonales repetidas ("//preparar/…", cuando la URL base trae diagonal
+  // final) se aplastan: la ruta pública es la misma.
+  const ruta = request.nextUrl.pathname.replace(/\/{2,}/g, "/");
   const publica =
     ruta.startsWith("/login") ||
     ruta.startsWith("/api/cron") ||

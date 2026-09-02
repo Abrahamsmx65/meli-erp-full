@@ -30,7 +30,9 @@ export default async function Despacho() {
     supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
     tokenPreparar(cuenta.id),
   ]);
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app";
+  // Sin la diagonal final: con ella el link salía como "//preparar/…" y el
+  // middleware no lo reconocía como ruta pública (pedía contraseña).
+  const origen = (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app").replace(/\/+$/, "");
   const preparadosPorCorte = new Map<number, number>();
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
