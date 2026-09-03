@@ -1,12 +1,14 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   Barcode,
   Boxes,
+  ChevronDown,
   Clapperboard,
   Container,
   Images,
@@ -31,8 +33,10 @@ import {
 
 /**
  * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
- * secciones con etiqueta gris, entradas compactas (ícono + nombre; la
- * explicación va en el tooltip) y la activa en azul con fondo azul claro.
+ * secciones DESPLEGABLES (se abren y cierran con un clic; se recuerda cuáles
+ * quedaron abiertas), entradas compactas (ícono + nombre; la explicación va
+ * en el tooltip) y la activa en azul con fondo azul claro. La entrada que se
+ * acaba de picar muestra un circulito mientras llega la página.
  *
  * El sistema dejó de ser "un planeador de envíos" para ser varias cosas, y la
  * navegación tiene que reflejarlo. Envíos a Full es ahora UNA sección, no la
@@ -123,6 +127,26 @@ const GRUPOS: Grupo[] = [
   },
 ];
 
+const LLAVE_ABIERTOS = "menu-secciones-abiertas";
+
+/** Qué secciones están abiertas, recordado en el navegador. */
+function leerAbiertos(): Record<string, boolean> | null {
+  try {
+    const raw = window.localStorage.getItem(LLAVE_ABIERTOS);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarAbiertos(v: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(LLAVE_ABIERTOS, JSON.stringify(v));
+  } catch {
+    /* sin almacenamiento: se olvida al recargar, nada más */
+  }
+}
+
 export function MenuLateral({
   pendientes,
   abierto,
@@ -144,6 +168,38 @@ export function MenuLateral({
     return !todos.some((otro) => otro !== href && otro.startsWith(href) && ruta.startsWith(otro));
   };
 
+  const grupoActivo = GRUPOS.find((g) => g.entradas.some((e) => activo(e.href)))?.titulo ?? null;
+
+  // Al arrancar, todas abiertas (el servidor no sabe qué recordó el
+  // navegador); en cuanto monta se aplica lo recordado. La sección de la
+  // página actual siempre queda abierta, para que se vea dónde estás.
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    const guardado = leerAbiertos();
+    setAbiertos((prev) => ({ ...(guardado ?? prev) }));
+    setListo(true);
+  }, []);
+  useEffect(() => {
+    if (!listo || !grupoActivo) return;
+    setAbiertos((prev) => {
+      if (prev[grupoActivo] !== false) return prev;
+      const v = { ...prev, [grupoActivo]: true };
+      guardarAbiertos(v);
+      return v;
+    });
+  }, [listo, grupoActivo]);
+
+  const estaAbierto = (titulo: string) => !listo || abiertos[titulo] !== false;
+
+  function alternar(titulo: string) {
+    setAbiertos((prev) => {
+      const v = { ...prev, [titulo]: !estaAbierto(titulo) };
+      guardarAbiertos(v);
+      return v;
+    });
+  }
+
   return (
     <>
       <nav
@@ -157,54 +213,85 @@ export function MenuLateral({
           color: "var(--sidebar-texto)",
         }}
       >
-        {GRUPOS.map((g) => (
-          <div key={g.titulo ?? "principal"} className="mb-3 px-3">
-            {g.titulo ? (
-              <div
-                className="mb-1 px-2.5 pt-1 text-[11px] font-semibold"
-                style={{ color: "var(--ink-muted)" }}
-              >
-                {g.titulo}
-              </div>
-            ) : null}
-
-            <ul className="flex flex-col gap-px">
-              {g.entradas.map((e) => {
-                const act = activo(e.href);
-                const Icono = e.icono;
-                return (
-                  <li key={e.href}>
-                    <Link
-                      href={e.href}
-                      onClick={cerrar}
-                      title={e.ayuda}
-                      aria-current={act ? "page" : undefined}
-                      className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
-                      style={{
-                        background: act ? "var(--sidebar-activo)" : "transparent",
-                        color: act ? "var(--acento)" : "var(--sidebar-texto)",
-                        fontWeight: act ? 600 : 500,
-                        boxShadow: act ? "inset 3px 0 0 var(--acento)" : "none",
-                      }}
-                    >
-                      <Icono
-                        size={16}
-                        strokeWidth={act ? 2.2 : 1.8}
+        {GRUPOS.map((g) => {
+          const titulo = g.titulo ?? "principal";
+          const desplegado = estaAbierto(titulo);
+          const contieneActivo = titulo === grupoActivo;
+          const idLista = `menu-${titulo.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+          return (
+            <div key={titulo} className="mb-1 px-3">
+              {g.titulo ? (
+                <button
+                  type="button"
+                  onClick={() => alternar(titulo)}
+                  aria-expanded={desplegado}
+                  aria-controls={idLista}
+                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold"
+                  style={{ color: contieneActivo && !desplegado ? "var(--acento)" : "var(--ink-muted)" }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {g.titulo}
+                    {contieneActivo && !desplegado ? (
+                      <span
                         aria-hidden="true"
-                        className="shrink-0"
-                        style={{ color: act ? "var(--acento)" : "var(--ink-2)" }}
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ background: "var(--acento)" }}
                       />
-                      <span className="min-w-0 flex-1 truncate">{e.texto}</span>
-                      {e.href === "/pendientes" && pendientes ? (
-                        <span className="insignia">{pendientes > 99 ? "99+" : pendientes}</span>
-                      ) : null}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+                    ) : null}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                    className="transition-transform duration-200"
+                    style={{ transform: desplegado ? "rotate(0deg)" : "rotate(-90deg)" }}
+                  />
+                </button>
+              ) : null}
+
+              <ul
+                id={idLista}
+                hidden={!desplegado}
+                className="flex flex-col gap-px pb-2"
+              >
+                {g.entradas.map((e) => {
+                  const act = activo(e.href);
+                  const Icono = e.icono;
+                  return (
+                    <li key={e.href}>
+                      <Link
+                        href={e.href}
+                        onClick={cerrar}
+                        title={e.ayuda}
+                        aria-current={act ? "page" : undefined}
+                        className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
+                        style={{
+                          background: act ? "var(--sidebar-activo)" : "transparent",
+                          color: act ? "var(--acento)" : "var(--sidebar-texto)",
+                          fontWeight: act ? 600 : 500,
+                          boxShadow: act ? "inset 3px 0 0 var(--acento)" : "none",
+                        }}
+                      >
+                        <Icono
+                          size={16}
+                          strokeWidth={act ? 2.2 : 1.8}
+                          aria-hidden="true"
+                          className="shrink-0"
+                          style={{ color: act ? "var(--acento)" : "var(--ink-2)" }}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{e.texto}</span>
+                        {e.href === "/pendientes" && pendientes ? (
+                          <span className="insignia">{pendientes > 99 ? "99+" : pendientes}</span>
+                        ) : null}
+                        <Cargandito />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
 
         <div className="mx-3 mt-1 border-t pt-3 md:hidden" style={{ borderColor: "var(--sidebar-borde)" }}>
           <a
@@ -228,4 +315,15 @@ export function MenuLateral({
       ) : null}
     </>
   );
+}
+
+/**
+ * Circulito en la entrada que se acaba de picar, mientras el servidor arma
+ * la página. Va DENTRO del Link: `useLinkStatus` solo sabe del Link que lo
+ * envuelve.
+ */
+function Cargandito() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return <span className="girando shrink-0 text-[14px]" aria-label="Cargando" role="status" />;
 }

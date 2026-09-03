@@ -360,6 +360,11 @@
     background: var(--surface-2);
   }
 
+  .seccion-menu:hover {
+    background: var(--surface-2);
+    color: var(--ink-1);
+  }
+
   .salir:hover {
     background: var(--marca-suave);
     color: #fff;
@@ -381,6 +386,23 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Circulito de carga: anillo azul que gira. Tamaño por font-size. */
+  .girando {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    border-radius: 999px;
+    border: 0.14em solid var(--acento-suave);
+    border-top-color: var(--acento);
+    animation: girar 0.7s linear infinite;
+  }
+
+  @keyframes girar {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   /* Aparición suave del contenido al navegar. */
   .aparece {
     animation: aparecer 0.25s ease-out both;
@@ -400,6 +422,9 @@
   @media (prefers-reduced-motion: reduce) {
     .aparece {
       animation: none;
+    }
+    .girando {
+      animation-duration: 1.6s;
     }
     button {
       transition: none;
