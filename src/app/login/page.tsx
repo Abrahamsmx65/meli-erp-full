@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clienteNavegador } from "@/lib/supabase/client";
 
@@ -14,6 +14,18 @@ function FormularioLogin() {
   const modo = "entrar" as const;
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+
+  // Las pantallas sin contraseña (link de empleados, sección de contenido)
+  // nunca deben quedarse en el login: si alguien llegó aquí con ese destino
+  // (un link viejo con doble diagonal, una pestaña guardada), se le manda
+  // directo. El servidor ya las deja pasar; esto es para el que se quedó
+  // parado en esta página.
+  useEffect(() => {
+    const destino = (params.get("destino") ?? "").replace(/\/{2,}/g, "/");
+    if (destino.startsWith("/preparar/") || destino.startsWith("/contenido/")) {
+      router.replace(destino);
+    }
+  }, [params, router]);
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
