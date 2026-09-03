@@ -314,3 +314,8 @@ Sistema **independiente** del ERP que vive en la carpeta `boletos/` con su
 propio `package.json`, su propia migración (tablas con prefijo `ev_`) y su
 propio despliegue en Vercel (Root Directory = `boletos`). No comparte tablas ni
 código con el ERP ni con YAPANIZCEL. Léase `boletos/README.md`.
+
+**No se mezclan.** Una tarea del ERP no toca `boletos/` y una de boletos no
+toca el ERP: ni código, ni commits, ni explicaciones. Por eso `vitest.config.ts`
+y `tsconfig.json` de la raíz excluyen `boletos/`: sus pruebas y tipos se corren
+desde su propia carpeta con sus propias dependencias.
