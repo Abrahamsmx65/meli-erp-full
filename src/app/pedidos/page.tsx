@@ -25,7 +25,7 @@ export default async function Pedidos() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           Para saber qué pedirle a China hace falta ver primero cuánto se vende y
           cuánto hay en Full.
@@ -88,7 +88,7 @@ export default async function Pedidos() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Pedidos a China</h1>
+        <h1 className="titulo-pagina">Pedidos a China</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Qué conviene pedir, mirando al mismo tiempo lo que se vende en Mercado
           Libre, lo que hay en Full, lo que hay en bodega y lo que ya viene en el

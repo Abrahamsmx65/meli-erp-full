@@ -41,7 +41,7 @@ export default async function Ventas({
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           Las ventas salen de tu cuenta de Mercado Libre; primero hay que conectarla en
           Ajustes.
@@ -56,7 +56,7 @@ export default async function Ventas({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Ventas</h1>
+        <h1 className="titulo-pagina">Ventas</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           En vivo: los avisos de Mercado Libre actualizan estos números solos. Todo lo
           demás corre sobre el periodo elegido, comparado contra el periodo anterior

@@ -12,7 +12,7 @@ export default async function Productos() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           Los productos salen del catálogo de Mercado Libre; primero hay que conectarlo.
         </p>
@@ -26,7 +26,7 @@ export default async function Productos() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Productos y costos</h1>
+        <h1 className="titulo-pagina">Productos y costos</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La categoría (corcho, EVA, pantufla…) y el costo final por par en MXN, por
           modelo y color — el costo es el mismo para todas las tallas. Con esto la

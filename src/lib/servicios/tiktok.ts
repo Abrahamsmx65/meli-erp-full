@@ -15,9 +15,10 @@
  * El paso 5 es el que hace que esto sirva: sin él el kardex sería un cuaderno
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { agregarVentasDiarias } from "../tiktok/ventas";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
@@ -27,6 +28,7 @@ import {
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
+  liquidacionDePedido,
   paquetesDePedido,
   pedidosActualizados,
   pedidosPorId,
@@ -299,6 +301,7 @@ async function procesarPedidos(
       guia: p.guia,
       shipping_type: p.shippingType,
       paquetes: p.paquetes,
+      es_muestra: p.esMuestra,
       detalle: { destinatario: p.destinatario },
       sincronizado_en: new Date().toISOString(),
     })),
@@ -363,6 +366,48 @@ async function procesarPedidos(
   };
 }
 
+/** El recurso del candado: una sola sincronización de TikTok por cuenta a la vez. */
+const CANDADO_TIKTOK = "tiktok-sync";
+
+/**
+ * Corre una tarea con el candado de TikTok. Cron, webhook, botón y corte
+ * pueden coincidir; el kardex aguanta (es idempotente), pero dos corridas
+ * encimadas duplican llamadas a TikTok y pueden cruzar escrituras. Con
+ * `esperarMs` la tarea espera un rato a que el candado se libere (el corte
+ * y el webhook lo necesitan); sin él, se rinde de inmediato (el cron: la
+ * siguiente corrida lo recoge).
+ */
+async function conCandadoTikTok<T>(
+  admin: any,
+  accountId: string,
+  ttlSegundos: number,
+  esperarMs: number,
+  tarea: () => Promise<T>,
+): Promise<T | null> {
+  const limite = Date.now() + esperarMs;
+  let token = await adquirirCandado(admin, accountId, CANDADO_TIKTOK, ttlSegundos);
+  while (!token && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 2_000));
+    token = await adquirirCandado(admin, accountId, CANDADO_TIKTOK, ttlSegundos);
+  }
+  if (!token) return null;
+  try {
+    return await tarea();
+  } finally {
+    await liberarCandado(admin, accountId, CANDADO_TIKTOK, token).catch(() => false);
+  }
+}
+
+export interface ResultadoPedidosPorId {
+  pedidos: number;
+  salidas: number;
+  devoluciones: number;
+  publicados: number;
+  avisos: string[];
+  /** true si no se pudo correr porque otra sincronización tenía el candado */
+  ocupado?: boolean;
+}
+
 /**
  * Pedidos concretos, de inmediato: lo que dispara un aviso de TikTok o una
  * confirmación de envío. Jala, mueve el kardex y republica. No toca el
@@ -372,7 +417,18 @@ export async function sincronizarPedidosPorId(
   admin: any,
   accountId: string,
   ids: string[],
-): Promise<{ pedidos: number; salidas: number; devoluciones: number; publicados: number; avisos: string[] }> {
+): Promise<ResultadoPedidosPorId> {
+  const r = await conCandadoTikTok(admin, accountId, 120, 30_000, () =>
+    sincronizarPedidosPorIdSinCandado(admin, accountId, ids),
+  );
+  return r ?? { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["Otra sincronización de TikTok está en curso; se reintenta."], ocupado: true };
+}
+
+async function sincronizarPedidosPorIdSinCandado(
+  admin: any,
+  accountId: string,
+  ids: string[],
+): Promise<ResultadoPedidosPorId> {
   const cliente = await clienteDeCuenta(admin, accountId, 60_000);
   if (!cliente || !cliente.tienda.shopCipher) {
     return { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["TikTok Shop no está conectado."] };
@@ -397,6 +453,19 @@ export async function sincronizarPedidosPorId(
 }
 
 export async function sincronizarTikTok(
+  admin: any,
+  accountId: string,
+  opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
+): Promise<ResultadoSync> {
+  // El botón y la captura a mano esperan un poco; el cron se rinde y vuelve
+  // en 15 minutos.
+  const r = await conCandadoTikTok(admin, accountId, 290, opciones.soloPedidos ? 30_000 : 0, () =>
+    sincronizarTikTokSinCandado(admin, accountId, opciones),
+  );
+  return r ?? { ...VACIO, conectado: true, avisos: ["Otra sincronización de TikTok está en curso."] };
+}
+
+async function sincronizarTikTokSinCandado(
   admin: any,
   accountId: string,
   opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
@@ -482,6 +551,18 @@ export async function sincronizarTikTok(
     avisos.push(`Catálogo: ${(err as Error).message}`);
   }
 
+  // ---- 1b. Renglones que se quedaron sin amarre --------------------------
+  // Un SKU que no se pudo amarrar cuando llegó el pedido (un modelo que
+  // MELI no tiene, un amarre a mano que se capturó después) se vuelve a
+  // intentar aquí; si ahora sí, el pedido se reprocesa para que su salida
+  // entre al kardex y, si ya está en un corte, se le mande al 3PL.
+  let reamarrados = 0;
+  if (!opciones.soloPedidos) try {
+    reamarrados = await reamarrarPendientes(admin, accountId, cliente, amarrar);
+  } catch (err) {
+    avisos.push(`Re-amarre: ${(err as Error).message}`);
+  }
+
   // ---- 2. Pedidos que se movieron ---------------------------------------
   const { data: estado } = await admin
     .from("tiktok_sync_estado")
@@ -530,6 +611,14 @@ export async function sincronizarTikTok(
     avisos.push(`Ventas por día: ${(err as Error).message}`);
   }
 
+  // ---- 3. Lo que TikTok liquida por cada pedido entregado -------------
+  let liquidados = 0;
+  if (!opciones.soloPedidos) try {
+    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Liquidaciones: ${(err as Error).message}`);
+  }
+
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
   await recalcularSaldos(admin, accountId);
@@ -562,6 +651,8 @@ export async function sincronizarTikTok(
       publicados: pub.publicados,
       skusCatalogo,
       sinAmarre,
+      liquidados,
+      reamarrados,
       bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
       busquedaPedidos: diag,
@@ -805,13 +896,17 @@ export async function procesarWebhooksPendientes(
   if (!lista.length) return { avisos: 0, pedidos: 0, salidas: 0, publicados: 0 };
 
   const ids = [...new Set(lista.map((w) => w.order_id).filter(Boolean))] as string[];
-  let r = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] as string[] };
+  let r: ResultadoPedidosPorId = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] };
   let error: string | null = null;
   try {
     if (ids.length) r = await sincronizarPedidosPorId(admin, accountId, ids);
   } catch (err) {
     error = (err as Error).message;
   }
+
+  // Si otra corrida tenía el candado, los avisos se quedan sin procesar y
+  // los recoge la siguiente (el cron drena los pendientes).
+  if (r.ocupado) return { avisos: lista.length, pedidos: 0, salidas: 0, publicados: 0 };
 
   await admin
     .from("tiktok_webhooks")
@@ -982,7 +1077,7 @@ async function referenciasRegistradas(
 export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [ordenes, items, actuales] = await Promise.all([
-    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion", eq),
+    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra", eq),
     traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
   ]);
@@ -993,6 +1088,7 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
       estado: o.estado,
       creadoEn: o.fecha_creacion,
       actualizadoEn: o.fecha_actualizacion,
+      esMuestra: Boolean(o.es_muestra),
     })),
     (items ?? []).map((i: any) => ({
       orderId: i.order_id,
@@ -1021,6 +1117,128 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
   }
 
   return ventas.length;
+}
+
+/**
+ * Vuelve a amarrar los renglones de pedido que quedaron sin SKU interno.
+ * Los que ahora sí amarran se reprocesan por id (kardex idempotente) y, si
+ * su pedido ya salió en un corte, sus salidas se registran y se empujan al
+ * 3PL. Devuelve cuántos renglones se resolvieron.
+ */
+export async function reamarrarPendientes(
+  db: DB,
+  accountId: string,
+  cliente: Cliente,
+  amarrar: (s: string | null) => { skuInterno: string | null },
+): Promise<number> {
+  const pendientes = await traerTodo<any>(db, "tiktok_orden_items", "line_item_id, order_id, seller_sku", (q) =>
+    q.eq("account_id", accountId).is("sku_interno", null).not("seller_sku", "is", null),
+  );
+  const ordenes = new Set<string>();
+  let resueltos = 0;
+  for (const it of pendientes ?? []) {
+    const a = amarrar(it.seller_sku);
+    if (!a.skuInterno) continue;
+    ordenes.add(it.order_id);
+    resueltos++;
+  }
+  if (!ordenes.size) return 0;
+
+  // Reprocesar los pedidos: procesarPedidos vuelve a escribir los renglones
+  // (ya con SKU) y lleva al kardex lo que falte. El índice único evita
+  // descontar dos veces lo que ya estaba.
+  const ids = [...ordenes];
+  const pedidos = await pedidosPorId(cliente, ids);
+  await procesarPedidos(db, accountId, pedidos, amarrar);
+
+  // Los que ya están en un corte: sus salidas al 3PL, que en su momento no
+  // se pudieron registrar porque no tenían SKU.
+  const { data: enCorte } = await db
+    .from("tiktok_ordenes")
+    .select("order_id, corte_id")
+    .eq("account_id", accountId)
+    .in("order_id", ids)
+    .not("corte_id", "is", null);
+  const cortes = new Set<number>();
+  for (const o of (enCorte ?? []) as { order_id: string; corte_id: number }[]) {
+    const { data: items } = await db
+      .from("tiktok_orden_items")
+      .select("sku_interno, cantidad")
+      .eq("account_id", accountId)
+      .eq("order_id", o.order_id)
+      .not("sku_interno", "is", null);
+    const porSku = new Map<string, number>();
+    for (const i of (items ?? []) as { sku_interno: string; cantidad: number }[]) {
+      porSku.set(i.sku_interno, (porSku.get(i.sku_interno) ?? 0) + (i.cantidad ?? 0));
+    }
+    await registrarSalidasDeCorte(
+      db,
+      accountId,
+      o.corte_id,
+      [...porSku].map(([sku, pares]) => ({ orderId: o.order_id, sku, pares })),
+    );
+    cortes.add(o.corte_id);
+  }
+  for (const c of cortes) await empujarSalidasAl3pl(db, accountId, c).catch(() => undefined);
+
+  return resueltos;
+}
+
+/** Estados en los que TikTok ya puede haber liquidado el pedido. */
+const ESTADOS_LIQUIDABLES = ["DELIVERED", "COMPLETED"];
+/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno). */
+const LIQUIDACIONES_POR_CORRIDA = 25;
+/** Un pedido sin liquidar se vuelve a preguntar cada día, no cada 15 min. */
+const REINTENTO_LIQUIDACION_MS = 24 * 3_600_000;
+
+/**
+ * Pregunta a finanzas de TikTok cuánto liquidó por cada pedido entregado
+ * que todavía no tiene neto. Las muestras no se preguntan (liquidan 0). Si
+ * TikTok contesta que no hay permiso, se avisa una vez y se deja de
+ * insistir en esta corrida.
+ */
+export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[]): Promise<number> {
+  const limite = new Date(Date.now() - REINTENTO_LIQUIDACION_MS).toISOString();
+  const { data } = await db
+    .from("tiktok_ordenes")
+    .select("order_id, liquidacion_intento_en")
+    .eq("account_id", accountId)
+    .eq("es_muestra", false)
+    .in("estado", ESTADOS_LIQUIDABLES)
+    .is("neto_recibido", null)
+    .or(`liquidacion_intento_en.is.null,liquidacion_intento_en.lt.${limite}`)
+    .order("fecha_creacion", { ascending: true })
+    .limit(LIQUIDACIONES_POR_CORRIDA);
+  const pendientes = (data ?? []) as { order_id: string }[];
+  let liquidados = 0;
+  for (const p of pendientes) {
+    if (cliente.msRestantes() < 10_000) break;
+    const ahora = new Date().toISOString();
+    try {
+      const liq = await liquidacionDePedido(cliente, p.order_id);
+      await db
+        .from("tiktok_ordenes")
+        .update(
+          liq
+            ? { neto_recibido: liq.neto, liquidado_en: ahora, liquidacion: liq.crudo, liquidacion_intento_en: ahora }
+            : { liquidacion_intento_en: ahora },
+        )
+        .eq("account_id", accountId)
+        .eq("order_id", p.order_id);
+      if (liq) liquidados++;
+    } catch (err) {
+      await db.from("tiktok_ordenes").update({ liquidacion_intento_en: ahora }).eq("account_id", accountId).eq("order_id", p.order_id);
+      const e = err as ErrorTikTok;
+      // Sin permiso de finanzas (o ruta que no existe): no tiene caso seguir
+      // pedido por pedido. Se dice una vez.
+      if (e instanceof ErrorTikTok && (e.codigo === 105005 || e.codigo === 105002 || e.codigo === 404)) {
+        avisos.push(`Finanzas de TikTok: ${e.message}. Falta el permiso de finanzas en la app o volver a autorizar la tienda.`);
+        break;
+      }
+      avisos.push(`Liquidación ${p.order_id}: ${(err as Error).message}`);
+    }
+  }
+  return liquidados;
 }
 
 /** Supabase se atraganta con upserts enormes; se mandan de 500 en 500. */

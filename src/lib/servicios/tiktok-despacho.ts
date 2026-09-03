@@ -28,14 +28,14 @@ import {
 } from "../tiktok/api";
 import {
   agruparPorModelo,
-  codigoDeEtiqueta,
+  renglonesDeEtiqueta,
   numerarPaquetes,
-  textoDeEtiqueta,
   type PaqueteDespacho,
   type PaqueteNumerado,
 } from "../tiktok/despacho";
 import { efectoDeEstado } from "../tiktok/kardex";
 import { clienteDeCuenta, sincronizarPedidosPorId } from "./tiktok";
+import { urlSalidasIndusther } from "./tiktok-3pl";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
@@ -320,7 +320,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
-const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120 };
+const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
 
 /** Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son blancas ahí). */
 function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number) {
@@ -350,34 +350,38 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   const fuente = await doc.embedFont(StandardFonts.HelveticaBold);
   doc.setTitle(`Corte ${corte.numero} · etiquetas TikTok`);
 
-  // Abajo a la derecha: el código de barras del producto (FNSKU) y, debajo,
-  // "#n · SKU ×cantidad · FNSKU". Lo demás de la guía no se toca.
-  const estampar = (pagina: PDFPage, texto: string, codigo: string) => {
+  // Abajo a la derecha: UN RENGLÓN POR PRODUCTO del paquete, cada uno con
+  // su código de barras (FNSKU) y debajo "#n · SKU ×cantidad". Un pedido
+  // con dos productos lleva dos códigos apilados: el escáner lee cada uno
+  // por separado. Lo demás de la guía no se toca.
+  const estampar = (pagina: PDFPage, p: PaqueteNumerado) => {
     const { width } = pagina.getSize();
-    const anchoTexto = fuente.widthOfTextAtSize(texto, ESTAMPA.tamano);
-    const anchoCodigo = anchoBarras(codigo, ESTAMPA.barrasAnchoMax);
     const derecha = width - ESTAMPA.margen;
-    pagina.drawText(texto, {
-      x: Math.max(ESTAMPA.margen, derecha - anchoTexto),
-      y: ESTAMPA.margen,
-      size: ESTAMPA.tamano,
-      font: fuente,
-      color: rgb(0, 0, 0),
+    const renglones = renglonesDeEtiqueta(p, corte.numero);
+    const altoRenglon = ESTAMPA.tamano + 3 + ESTAMPA.barrasAlto + 4;
+    // Hasta 3 renglones apilados en la columna de la derecha; del cuarto en
+    // adelante se abre otra columna a la izquierda (y otra más si hace
+    // falta), para que un pedido grande no se salga de la guía.
+    const anchoColumna = ESTAMPA.barrasAnchoMax + 10;
+    renglones.forEach((r, i) => {
+      const columna = Math.floor(i / ESTAMPA.porColumna);
+      const fila = i % ESTAMPA.porColumna;
+      const bordeDerecho = derecha - columna * anchoColumna;
+      const base = ESTAMPA.margen + fila * altoRenglon;
+      const anchoTexto = fuente.widthOfTextAtSize(r.texto, ESTAMPA.tamano);
+      const anchoCodigo = anchoBarras(r.codigo, ESTAMPA.barrasAnchoMax);
+      pagina.drawText(r.texto, {
+        x: Math.max(ESTAMPA.margen, bordeDerecho - anchoTexto),
+        y: base,
+        size: ESTAMPA.tamano,
+        font: fuente,
+        color: rgb(0, 0, 0),
+      });
+      dibujarBarras(pagina, r.codigo, Math.max(ESTAMPA.margen, bordeDerecho - anchoCodigo), base + ESTAMPA.tamano + 3, anchoCodigo, ESTAMPA.barrasAlto);
     });
-    dibujarBarras(
-      pagina,
-      codigo,
-      Math.max(ESTAMPA.margen, derecha - anchoCodigo),
-      ESTAMPA.margen + ESTAMPA.tamano + 3,
-      anchoCodigo,
-      ESTAMPA.barrasAlto,
-    );
   };
 
   for (const p of corte.paquetes) {
-    const codigo = codigoDeEtiqueta(p, corte.numero);
-    const fnsku = p.pares.find((x) => x.fnsku)?.fnsku;
-    const texto = fnsku ? `${textoDeEtiqueta(p)} · ${fnsku}` : textoDeEtiqueta(p);
     let bytes: Uint8Array | null = null;
     let error: string | null = null;
 
@@ -397,7 +401,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
       const copias = await doc.copyPages(origen, origen.getPageIndices());
       for (const pagina of copias) {
         doc.addPage(pagina);
-        estampar(pagina, texto, codigo);
+        estampar(pagina, p);
       }
       continue;
     }
@@ -409,7 +413,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
       const w = img.width * escala;
       const h = img.height * escala;
       pagina.drawImage(img, { x: (A6[0] - w) / 2, y: A6[1] - h, width: w, height: h });
-      estampar(pagina, texto, codigo);
+      estampar(pagina, p);
       continue;
     }
 
@@ -417,7 +421,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const pagina = doc.addPage(A6);
     pagina.drawText(`SIN GUÍA — pedido ${p.orderId}`, { x: 20, y: A6[1] - 60, size: 12, font: fuente });
     pagina.drawText(error ?? "formato desconocido", { x: 20, y: A6[1] - 80, size: 8, font: fuente });
-    estampar(pagina, texto, codigo);
+    estampar(pagina, p);
   }
 
   return doc.save();
@@ -498,29 +502,51 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
     encabezado();
 
     for (const p of g.paquetes) {
-      if (y < M) {
+      const renglones = renglonesDeEtiqueta(p, corte.numero);
+      // El paquete completo cabe en la página o se pasa entero a la siguiente.
+      if (y - FILA * (renglones.length - 1) < M) {
         nuevaPagina();
         encabezado();
       }
       const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-      // El mismo código que la etiqueta y que la caja del zapato: el FNSKU.
-      // Escanear el renglón o la guía es lo mismo para la estación.
-      const codigo = codigoDeEtiqueta(p, corte.numero);
-      const skus = p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ");
-      const fnsku = p.pares.map((x) => x.fnsku).filter(Boolean).join(", ") || "—";
-      const arriba = y + FILA - 12;
+      const yArribaPaquete = y + FILA - 4;
 
-      pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
-      dibujarBarras(pagina, codigo, xs[1] + 2, y + 9, anchoBarras(codigo, COL[1] - 6), 18);
-      pagina.drawText(codigo, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
-      pagina.drawText(recorta(skus, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
-      pagina.drawText(recorta(fnsku, COL[3], 7.5), { x: xs[3] + 2, y: arriba, size: 7.5, font: normal });
-      pagina.drawText(p.orderId, { x: xs[4] + 2, y: arriba, size: 7.5, font: normal });
-      pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: xs[5] + 2, y: arriba, size: 7.5, font: normal, color: gris });
-      pagina.drawRectangle({ x: xs[6] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+      // UN RENGLÓN POR PRODUCTO, cada uno con su código: el mismo que lleva
+      // la guía y la caja del zapato (FNSKU). El "#n" grande solo en el primero.
+      renglones.forEach((r, i) => {
+        const arriba = y + FILA - 12;
+        const etiquetaSku = r.pares > 1 ? `${r.sku} ×${r.pares}` : r.sku;
+        if (i === 0) pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
+        else pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 8, font: normal, color: gris });
+        dibujarBarras(pagina, r.codigo, xs[1] + 2, y + 9, anchoBarras(r.codigo, COL[1] - 6), 18);
+        pagina.drawText(r.codigo, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
+        pagina.drawText(recorta(etiquetaSku, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
+        pagina.drawText(r.esHoja ? "—" : r.codigo, { x: xs[3] + 2, y: arriba, size: 7.5, font: normal });
+        if (i === 0) {
+          pagina.drawText(p.orderId, { x: xs[4] + 2, y: arriba, size: 7.5, font: normal });
+          pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: xs[5] + 2, y: arriba, size: 7.5, font: normal, color: gris });
+          pagina.drawRectangle({ x: xs[6] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+        }
+        if (i < renglones.length - 1) {
+          pagina.drawLine({ start: { x: M + COL[0], y: y - 2 }, end: { x: M + ANCHO, y: y - 2 }, thickness: 0.3, color: linea });
+        }
+        y -= FILA;
+      });
 
-      pagina.drawLine({ start: { x: M, y: y - 2 }, end: { x: M + ANCHO, y: y - 2 }, thickness: 0.4, color: linea });
-      y -= FILA;
+      // Un paquete con varios productos va dentro de un recuadro negro:
+      // todo lo de adentro se empaca junto, en la misma caja.
+      if (renglones.length > 1) {
+        pagina.drawRectangle({
+          x: M - 2,
+          y: y + FILA - 4,
+          width: ANCHO + 4,
+          height: yArribaPaquete - (y + FILA - 4),
+          borderColor: rgb(0, 0, 0),
+          borderWidth: 1.2,
+        });
+      } else {
+        pagina.drawLine({ start: { x: M, y: y + FILA - 2 }, end: { x: M + ANCHO, y: y + FILA - 2 }, thickness: 0.4, color: linea });
+      }
     }
     y -= 10;
   }
@@ -560,4 +586,81 @@ export async function marcarPreparado(
     { onConflict: "account_id,order_id,package_id" },
   );
   if (error) throw new Error(`No se pudo guardar la preparación: ${error.message}`);
+}
+
+
+// ---------------------------------------------------------------------------
+// Simular el corte: qué pasaría, sin tocar nada
+// ---------------------------------------------------------------------------
+
+export interface SimulacionCorte {
+  pedidos: {
+    orderId: string;
+    estado: string;
+    paquetes: number;
+    /** true = TikTok ofrece recolección con horario; false = solo drop-off; null = no se pudo saber */
+    recoleccion: boolean | null;
+    pares: { sku: string; pares: number }[];
+    aviso: string | null;
+  }[];
+  totalPares: number;
+  /** lo que se le mandaría al 3PL */
+  salidasAl3pl: { sku: string; pares: number }[];
+  endpoint3pl: string | null;
+}
+
+export async function simularCorte(admin: any, accountId: string): Promise<SimulacionCorte> {
+  const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+  if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+
+  const pendientes = await pendientesDeCorte(admin, accountId);
+  const ids = pendientes.map((p) => p.orderId);
+  const items = ids.length
+    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
+        q.eq("account_id", accountId).in("order_id", ids),
+      )
+    : [];
+
+  const porOrden = new Map<string, Map<string, number>>();
+  for (const i of items ?? []) {
+    if (efectoDeEstado(i.estado) === "reversa") continue;
+    const m = porOrden.get(i.order_id) ?? new Map<string, number>();
+    const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
+    m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
+    porOrden.set(i.order_id, m);
+  }
+
+  const salida: SimulacionCorte["pedidos"] = [];
+  const al3pl = new Map<string, number>();
+
+  for (const p of pendientes) {
+    let paquetes = 0;
+    let recoleccion: boolean | null = null;
+    let aviso: string | null = null;
+    if (cliente.msRestantes() > 15_000) {
+      try {
+        const pks = await paquetesDePedido(cliente, p.orderId);
+        paquetes = pks.length;
+        if (pks[0] && efectoDeEstado(p.estado) !== "salida") {
+          const e = await opcionesDeEntrega(cliente, pks[0].id);
+          recoleccion = e.puedeRecoleccion === true || e.horarios.length > 0 ? true : e.puedeRecoleccion === false ? false : null;
+          if (recoleccion === false) aviso = "TikTok solo ofrece drop-off para este paquete";
+        } else if (efectoDeEstado(p.estado) === "salida") {
+          aviso = "Ya está confirmado en TikTok; solo entra al corte para etiqueta y lista";
+        }
+      } catch (err) {
+        aviso = (err as Error).message;
+      }
+    }
+    const pares = [...(porOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
+    for (const x of pares) if (!x.sku.startsWith("(")) al3pl.set(x.sku, (al3pl.get(x.sku) ?? 0) + x.pares);
+    salida.push({ orderId: p.orderId, estado: p.estado, paquetes, recoleccion, pares, aviso });
+  }
+
+  return {
+    pedidos: salida,
+    totalPares: salida.reduce((a, p) => a + p.pares.reduce((b, x) => b + x.pares, 0), 0),
+    salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
+    endpoint3pl: urlSalidasIndusther(),
+  };
 }

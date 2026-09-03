@@ -25,7 +25,7 @@ export default async function Skus() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-xl font-semibold">Todos los SKUs</h1>
+        <h1 className="titulo-pagina">Todos los SKUs</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           {plan.lineas.length} SKUs analizados sobre {p.diasHistoria} días de historia. La demanda
           está corregida por los días en que el producto estuvo agotado.

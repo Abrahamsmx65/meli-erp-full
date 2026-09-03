@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   armarContenido,
+  asinsDeGrupo,
   enRangoContenido,
   modeloDeSku,
   urlAmazon,
@@ -320,5 +321,53 @@ describe("armarContenido", () => {
     );
     expect(r.categorias[0].modelos).toBe(2);
     expect(r.totales.sinCategoria).toBe(2);
+  });
+});
+
+describe("asinsDeGrupo", () => {
+  const catalogo: FilaCatalogo[] = [
+    fila("GT128-24-BLK-MX", "Inactive"),
+    fila("GT128-23-PINK-MX"),
+    fila("GT128-23-BLK-MX"),
+    fila("GT128-25-BLK-MX", "Active", { asin: null }),
+    fila("GT117-NAVY-26-MX"),
+    fila("GT129-BLK-23-MX"),
+  ];
+
+  it("trae TODOS los hijos del grupo, ordenados modelo → color → talla", () => {
+    const lista = asinsDeGrupo(catalogo, ["GT128", "GT117"]);
+    expect(lista.map((a) => a.sellerSku)).toEqual([
+      "GT117-NAVY-26-MX",
+      "GT128-23-BLK-MX",
+      "GT128-24-BLK-MX",
+      "GT128-25-BLK-MX",
+      "GT128-23-PINK-MX",
+    ]);
+  });
+
+  it("no recorta a un representativo por color: el A+ se aplica por ASIN hijo", () => {
+    const lista = asinsDeGrupo(catalogo, ["GT128"]);
+    expect(lista.filter((a) => a.color === "BLK")).toHaveLength(3);
+  });
+
+  it("un SKU sin ASIN sale con la celda vacía para que se vea qué falta", () => {
+    const lista = asinsDeGrupo(catalogo, ["GT128"]);
+    const sinAsin = lista.find((a) => a.sellerSku === "GT128-25-BLK-MX");
+    expect(sinAsin?.asin).toBeNull();
+    expect(sinAsin?.talla).toBe("25");
+  });
+
+  it("deja fuera los códigos que no son del grupo", () => {
+    const lista = asinsDeGrupo(catalogo, ["GT128"]);
+    expect(lista.some((a) => a.modelo === "GT129")).toBe(false);
+  });
+
+  it("apunta el padre cuando ya se resolvió", () => {
+    const padres = new Map([
+      ["A-GT128-23-BLK-MX", { parentAsin: "PADRE1", titulo: null, imagenUrl: null }],
+    ]);
+    const lista = asinsDeGrupo(catalogo, ["GT128"], padres);
+    expect(lista.find((a) => a.sellerSku === "GT128-23-BLK-MX")?.padre).toBe("PADRE1");
+    expect(lista.find((a) => a.sellerSku === "GT128-24-BLK-MX")?.padre).toBeNull();
   });
 });

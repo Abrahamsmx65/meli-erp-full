@@ -13,7 +13,18 @@
  */
 import type { Caja } from "../engine/types";
 import { claveCorrida, type Aviso, type Corrida, type FilaExistencia } from "./excel";
-import { amarrarSku, type IndiceSkus, type OrigenAmarre } from "./sku";
+import { amarrarSku, canonizar, type IndiceSkus, type OrigenAmarre } from "./sku";
+
+/**
+ * Cómo se reconoce la bodega de TikTok en Industher: "Tik Tok", "TIKTOK",
+ * "TikTok Shop"… Esa bodega es el inventario de la tienda de TikTok: NUNCA
+ * cuenta como bodega de calzado (ni surte a Full, ni descuenta lo que se
+ * pide a China, ni se enseña en /inventario). Solo la lee el kardex de TikTok.
+ */
+export function esAlmacenTikTok(nombre: string | null | undefined): boolean {
+  const c = canonizar(String(nombre ?? "")).replace(/-/g, "");
+  return c === "TIKTOK" || c.startsWith("TIKTOK");
+}
 
 export interface ItemCaja {
   sku: string;
@@ -83,6 +94,11 @@ export interface OpcionesCajas {
   mapeoManual?: Map<string, string>;
   /** solo estos almacenes surten a Full. Vacío = todos. */
   almacenes?: string[];
+  /**
+   * La bodega de TikTok se descarta SIEMPRE, aunque venga en `almacenes` o
+   * `almacenes` esté vacío. Solo el kardex de TikTok la pide expresamente.
+   */
+  incluirTikTok?: boolean;
 }
 
 export function construirCajas(
@@ -105,6 +121,7 @@ export function construirCajas(
   // por contenedor, pero para planear da igual de qué pallet salgan.
   const agrupado = new Map<string, FilaExistencia[]>();
   for (const f of existencias) {
+    if (!opts.incluirTikTok && esAlmacenTikTok(f.almacen)) continue;
     if (filtroAlmacen && !filtroAlmacen.has(f.almacen.toLowerCase())) continue;
     const k = `${f.almacen}||${f.skuCaja}||${f.talla}`;
     const l = agrupado.get(k);

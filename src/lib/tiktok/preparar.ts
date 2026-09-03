@@ -217,7 +217,7 @@ export function darPorBueno(estado: EstadoEscaneo): EstadoEscaneo {
 // ---------------------------------------------------------------------------
 
 /** "GT135" → "G T 135": las letras sueltas se leen letra por letra, el número de corrido. */
-function modeloHablado(modelo: string): string {
+export function modeloHablado(modelo: string): string {
   return modelo.replace(/([A-Z]+)(\d+)/i, (_m, letras: string, num: string) => `${letras.split("").join(" ")} ${num}`);
 }
 

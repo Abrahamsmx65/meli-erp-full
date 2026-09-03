@@ -111,8 +111,12 @@ guárdala numerada.
   pendientes de ese SKU y solo el resto es merma (`conciliarAcumulado`):
   una salida nunca se descuenta dos veces. NUNCA como ajuste absoluto, que
   volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
-  FÍSICAS. Esa bodega NO surte a Full (`almacenes_activos.surte_full =
-  false`, se inserta sola). A TikTok solo se le escribe un SKU que alguna vez
+  FÍSICAS. **Esa bodega NO existe para el calzado**: `construirCajas` la
+  descarta siempre (`esAlmacenTikTok`, salvo `incluirTikTok` que solo usa el
+  kardex de TikTok), /corridas la ignora y un trigger deja
+  `almacenes_activos.surte_full = false` pase lo que pase (migración 0045;
+  antes el RPC la daba de alta en `true` y sus cajas entraron a bodega, al
+  plan de Full y al pedido a China). A TikTok solo se le escribe un SKU que alguna vez
   se contó (entrada o ajuste): uno con puras salidas se queda con el número
   que TikTok ya tiene.
   **Tiempo real:** TikTok ya aparta solo al vender; la única forma de vender
@@ -141,9 +145,43 @@ guárdala numerada.
   preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
   caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
   solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
-  `tiktok_preparaciones.escaneos`. Decisión del dueño: la etiqueta lleva el
+  `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
+  preparado SIN escanear solo con la CLAVE DE SUPERVISOR
+  (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
+  el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
+  como `SUPERVISOR:` en la constancia. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
+  `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
+  del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
+  solo la diferencia entra al kardex como `ajuste` con referencia
+  `conteo:<fecha>`, y en el mismo clic se publica a TikTok pasando por
+  `sincronizarTikTok` con `soloPedidos` (regla de oro). Contar un MODELO
+  COMPLETO deja en cero lo que no apareció, con confirmación explícita.
+  La sincronización lleva candado (`candados_trabajo`, recurso
+  `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
+  simula el corte; Pendientes grita los saldos negativos.
+  **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
+  canónico → aplastado → ordenado → PROPIO: un SKU con forma
+  MODELO-COLOR-TALLA que MELI no tiene (el MY2304 morado solo se vende en
+  TikTok) se acepta tal cual, con su `-MX`, porque ese par también sale de
+  la bodega. Industher lo construye SIN sufijo (`MY2304-PURPLE-23`) y
+  `aliasDesdeTikTok` lo lleva al nombre de TikTok: un solo renglón en el
+  kardex para los dos lados.
+  Lo que quedó sin amarre se reintenta en cada corrida
+  (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
+  manda al 3PL en ese momento.
+  **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
+  total $0): se despachan y descuentan como cualquier pedido, pero NO son
+  venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
+  **Lo recibido** sale de finanzas de TikTok por pedido
+  (`liquidacionDePedido`, `/finance/202309/orders/{id}/statement_transactions`),
+  solo para entregados, 25 por corrida, reintento diario; queda en
+  `neto_recibido` con el crudo en `liquidacion`. Hasta que TikTok liquida,
+  la pantalla dice "sin liquidar", nunca estima. Ventas por MODELO
+  (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
+  renglones.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
@@ -289,3 +327,15 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
   (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
   el historial de git (commits e861525…6b75355) por si MELI publica el API.
+
+## Proyecto aparte: `boletos/` (venta de boletos para eventos)
+
+Sistema **independiente** del ERP que vive en la carpeta `boletos/` con su
+propio `package.json`, su propia migración (tablas con prefijo `ev_`) y su
+propio despliegue en Vercel (Root Directory = `boletos`). No comparte tablas ni
+código con el ERP ni con YAPANIZCEL. Léase `boletos/README.md`.
+
+**No se mezclan.** Una tarea del ERP no toca `boletos/` y una de boletos no
+toca el ERP: ni código, ni commits, ni explicaciones. Por eso `vitest.config.ts`
+y `tsconfig.json` de la raíz excluyen `boletos/`: sus pruebas y tipos se corren
+desde su propia carpeta con sus propias dependencias.

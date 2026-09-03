@@ -82,6 +82,10 @@ export function ContenidoAmazonPanel({
     publico
       ? `/api/contenido-publico/${token}/imagenes/${encodeURIComponent(modelo)}`
       : `/api/amazon/contenido/${encodeURIComponent(modelo)}/imagenes`;
+  const rutaAsins = (modelo: string) =>
+    publico
+      ? `/api/contenido-publico/${token}/asins/${encodeURIComponent(modelo)}`
+      : `/api/amazon/contenido/${encodeURIComponent(modelo)}/asins`;
   const base = publico ? `/contenido/${token}` : "/amazon/contenido";
 
   const [filas, setFilas] = useState(modelos);
@@ -89,6 +93,7 @@ export function ContenidoAmazonPanel({
   const [estado, setEstado] = useState<Record<string, Estado>>({});
   const [aviso, setAviso] = useState<string | null>(null);
   const [zip, setZip] = useState<string | null>(null);
+  const [excel, setExcel] = useState<string | null>(null);
   const [refrescando, setRefrescando] = useState(false);
 
   // El link se guarda como ruta y se completa con el origen ya montado: el
@@ -217,24 +222,53 @@ export function ContenidoAmazonPanel({
     }
   }
 
+  /** Baja un archivo por fetch para poder avisar si el servidor contesta mal. */
+  async function bajarArchivo(ruta: string, nombre: string, siFalla: string) {
+    const r = await fetch(ruta);
+    if (!r.ok) throw new Error((await r.json())?.error ?? siFalla);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   /** Trae el ZIP por fetch para poder avisar mientras Amazon contesta. */
   async function descargar(modelo: string) {
     setZip(modelo);
     setAviso(null);
     try {
-      const r = await fetch(rutaImagenes(modelo));
-      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudieron traer las imágenes.");
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${modelo} imagenes.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await bajarArchivo(
+        rutaImagenes(modelo),
+        `${modelo} imagenes.zip`,
+        "No se pudieron traer las imágenes.",
+      );
     } catch (err) {
       setAviso((err as Error).message);
     } finally {
       setZip(null);
+    }
+  }
+
+  /**
+   * El Excel con todos los ASINs de la publicación: se le pega al contenido
+   * A+ cuando se crea en Seller Central.
+   */
+  async function descargarAsins(modelo: string) {
+    setExcel(modelo);
+    setAviso(null);
+    try {
+      await bajarArchivo(
+        rutaAsins(modelo),
+        `${modelo} ASINs.xlsx`,
+        "No se pudo armar el Excel de ASINs.",
+      );
+    } catch (err) {
+      setAviso((err as Error).message);
+    } finally {
+      setExcel(null);
     }
   }
 
@@ -605,6 +639,7 @@ export function ContenidoAmazonPanel({
                 <th>Notas</th>
                 <th>Amazon</th>
                 <th>Fotos</th>
+                <th>ASINs</th>
                 <th />
               </tr>
             </thead>
@@ -769,6 +804,18 @@ export function ContenidoAmazonPanel({
                       style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
                     >
                       {zip === m.modelo ? "armando…" : "⬇ Bajar fotos"}
+                    </button>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => void descargarAsins(m.modelo)}
+                      disabled={excel !== null}
+                      title="Todos los ASINs de la publicación, para pegarlos al contenido A+"
+                      className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                    >
+                      {excel === m.modelo ? "armando…" : "⬇ Excel ASINs"}
                     </button>
                   </td>
                   <td>

@@ -11,6 +11,8 @@ export interface PedidoPorEnviar {
   destinatario: string | null;
   /** TIKTOK = guía de TikTok; SELLER = paquetería propia */
   shippingType: string | null;
+  /** solicitud de muestra gratis: se manda igual, no es venta */
+  esMuestra?: boolean;
   renglones: { sku: string; pares: number }[];
 }
 
@@ -89,6 +91,11 @@ export function PedidosTikTok({ pedidos }: { pedidos: PedidoPorEnviar[] }) {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold">
                     Pedido {p.orderId}
+                    {p.esMuestra ? (
+                      <span className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
+                        Muestra
+                      </span>
+                    ) : null}
                     <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
                       {cuando(p.creadoEn)}
                       {propio ? " · paquetería propia" : " · guía de TikTok"}

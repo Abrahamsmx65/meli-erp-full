@@ -1,59 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Circle, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
-
-/**
- * Pitidos sin archivos: agudo si bien —uno por par: dos pares, dos
- * pitidos, para que se oiga cuántos van en la caja—, grave y doble si mal.
- */
-function pitar(bien: boolean, veces = 1) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const tono = (f: number, t0: number, dur: number) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.frequency.value = f;
-      o.connect(g);
-      g.connect(ctx.destination);
-      g.gain.setValueAtTime(0.15, ctx.currentTime + t0);
-      o.start(ctx.currentTime + t0);
-      o.stop(ctx.currentTime + t0 + dur);
-    };
-    if (bien) {
-      const n = Math.min(Math.max(1, veces), 6);
-      for (let i = 0; i < n; i++) tono(1200, i * 0.16, 0.09);
-    } else {
-      tono(300, 0, 0.15);
-      tono(300, 0.2, 0.15);
-    }
-  } catch {
-    /* sin audio, sin drama */
-  }
-}
-
-/**
- * La bocina dice cuántos pares y de qué, con la voz en español del propio
- * navegador. Corta lo que estuviera diciendo: el siguiente escaneo manda.
- */
-function hablar(texto: string) {
-  try {
-    const s = window.speechSynthesis;
-    if (!s) return;
-    s.cancel();
-    const u = new SpeechSynthesisUtterance(texto);
-    u.lang = "es-MX";
-    const voz = s.getVoices().find((v) => v.lang.toLowerCase().startsWith("es-mx")) ??
-      s.getVoices().find((v) => v.lang.toLowerCase().startsWith("es"));
-    if (voz) u.voice = voz;
-    u.rate = 1.05;
-    s.speak(u);
-  } catch {
-    /* sin voz, sin drama */
-  }
-}
+import { hablar, pitar } from "./sonido-tiktok";
 
 /**
  * La estación de preparar: un solo campo que recibe lo que dispare el
@@ -79,6 +30,10 @@ export function PrepararTikTok({
   const [codigo, setCodigo] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [voz, setVoz] = useState(true);
+  // En una tablet, el escáner teclea solo: el campo recibe el código sin que
+  // haga falta el teclado en pantalla, que tapa todo. Se apaga con
+  // inputMode="none" y se enciende solo cuando alguien quiere teclear.
+  const [teclado, setTeclado] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -157,6 +112,36 @@ export function PrepararTikTok({
   }
 
   const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados));
+
+  /**
+   * Sin escanear, con la clave del supervisor: para cuando el código no se
+   * deja leer. El servidor valida la clave y lo deja registrado como
+   * SUPERVISOR en la constancia, no como escaneo.
+   */
+  async function confirmarConClave(p: PaqueteNumerado) {
+    const pin = window.prompt(`Confirmar #${p.numero} sin escanear. Clave de supervisor:`);
+    if (pin == null) return;
+    setGuardando(true);
+    try {
+      const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, sinEscanear: true, pin }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+      pitar(true, 1);
+      if (voz) hablar(`${p.numero} confirmado con clave`);
+      setPreparados((prev) => new Set([...prev, p.numero]));
+      setEstado({ ...estadoInicial(), indicacion: `#${p.numero} confirmado con clave, sin escanear. Escanea la siguiente etiqueta.` });
+    } catch (e) {
+      pitar(false);
+      setEstado({ ...estado, error: (e as Error).message });
+    } finally {
+      setGuardando(false);
+      input.current?.focus();
+    }
+  }
   const manual = () => aplicar(darPorBueno(estado));
   const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.fnsku && f.faltan > 0);
 
@@ -224,6 +209,7 @@ export function PrepararTikTok({
           <input
             ref={input}
             value={codigo}
+            inputMode={teclado ? "text" : "none"}
             onChange={(e) => setCodigo(e.target.value)}
             placeholder="Escanea aquí"
             autoComplete="off"
@@ -235,6 +221,19 @@ export function PrepararTikTok({
           </button>
           <button
             type="button"
+            onClick={() => {
+              setTeclado((t) => !t);
+              window.setTimeout(() => input.current?.focus(), 0);
+            }}
+            aria-pressed={teclado}
+            title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
+            className="rounded-lg border px-2 py-2 text-sm"
+            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+          >
+            <Keyboard size={16} />
+          </button>
+          <button
+            type="button"
             onClick={() => setEstado(estadoInicial())}
             className="rounded-lg border px-3 py-2 text-sm"
             style={{ borderColor: "var(--grid)" }}
@@ -242,6 +241,17 @@ export function PrepararTikTok({
             Reiniciar
           </button>
         </form>
+        {estado.paquete && estado.paso !== "inicio" && estado.paso !== "listo" ? (
+          <button
+            type="button"
+            onClick={() => confirmarConClave(estado.paquete as PaqueteNumerado)}
+            disabled={guardando}
+            className="mt-3 mr-2 rounded-lg border px-3 py-2 text-sm"
+            style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+          >
+            Confirmar #{estado.paquete.numero} sin escanear (clave)
+          </button>
+        ) : null}
         {hayManuales ? (
           <button
             type="button"
@@ -277,6 +287,18 @@ export function PrepararTikTok({
                 <span className="min-w-0 flex-1 truncate">
                   {p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
                 </span>
+                {!hecho ? (
+                  <button
+                    type="button"
+                    onClick={() => confirmarConClave(p)}
+                    disabled={guardando}
+                    title="Dar por preparado sin escanear, con la clave de supervisor"
+                    className="rounded border px-1.5 py-0.5 text-xs"
+                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                  >
+                    Clave
+                  </button>
+                ) : null}
               </li>
             );
           })}

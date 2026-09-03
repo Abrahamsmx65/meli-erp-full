@@ -1,9 +1,10 @@
 /**
- * La respuesta HTTP del ZIP de imágenes, compartida por la ruta con sesión y
- * la del link sin contraseña.
+ * Las respuestas HTTP del ZIP de imágenes y del Excel de ASINs, compartidas
+ * por la ruta con sesión y la del link sin contraseña.
  */
 import { NextResponse } from "next/server";
 import type { ResultadoZip } from "./contenido-imagenes";
+import type { ResultadoExcel } from "./contenido-asins";
 
 export function respuestaZip(r: ResultadoZip): NextResponse {
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
@@ -18,6 +19,24 @@ export function respuestaZip(r: ResultadoZip): NextResponse {
   return new NextResponse(cuerpo, {
     headers: {
       "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${r.nombre}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+/** La respuesta HTTP del Excel de ASINs, para las mismas dos puertas. */
+export function respuestaExcel(r: ResultadoExcel): NextResponse {
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+
+  const cuerpo = r.excel.buffer.slice(
+    r.excel.byteOffset,
+    r.excel.byteOffset + r.excel.byteLength,
+  ) as ArrayBuffer;
+
+  return new NextResponse(cuerpo, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename="${r.nombre}"`,
       "Cache-Control": "no-store",
     },

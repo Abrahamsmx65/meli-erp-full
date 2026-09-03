@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { sincronizarTikTok } from "@/lib/servicios/tiktok";
+import { procesarWebhooksPendientes, sincronizarTikTok } from "@/lib/servicios/tiktok";
 import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
@@ -37,6 +37,12 @@ export async function GET(req: NextRequest) {
   for (const c of cuentas ?? []) {
     try {
       const r = await sincronizarTikTok(admin, c.id);
+      // Avisos que quedaron sin procesar porque el candado estaba tomado.
+      try {
+        await procesarWebhooksPendientes(admin, c.id);
+      } catch {
+        /* el siguiente cron lo vuelve a intentar */
+      }
       // Las salidas que el 3PL todavía no confirma se vuelven a mandar.
       let al3pl: unknown = null;
       try {

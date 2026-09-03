@@ -111,6 +111,33 @@ export function codigoDeEtiqueta(p: PaqueteNumerado, corte: number): string {
   return p.pares.find((x) => x.fnsku)?.fnsku ?? codigoDeHoja(corte, p.numero);
 }
 
+export interface RenglonDeEtiqueta {
+  sku: string;
+  pares: number;
+  /** "#7 · GT134-NAVY-24-MX ×2" */
+  texto: string;
+  /** FNSKU del producto, o el código de hoja si no tiene */
+  codigo: string;
+  /** true si el código es el de hoja (no hay FNSKU) */
+  esHoja: boolean;
+}
+
+/**
+ * Un renglón POR SKU del paquete, cada uno con su propio código: un pedido
+ * con dos productos lleva dos códigos en la guía y dos renglones en la
+ * hoja. El primero lleva el "#n"; los demás lo repiten en gris en la hoja
+ * y lo omiten en la guía para no repetir.
+ */
+export function renglonesDeEtiqueta(p: PaqueteNumerado, corte: number): RenglonDeEtiqueta[] {
+  return p.pares.map((x, i) => ({
+    sku: x.sku,
+    pares: x.pares,
+    texto: `${i === 0 ? `#${p.numero} · ` : ""}${x.sku}${x.pares > 1 ? ` ×${x.pares}` : ""}`,
+    codigo: x.fnsku ?? codigoDeHoja(corte, p.numero),
+    esHoja: !x.fnsku,
+  }));
+}
+
 export interface GrupoModelo {
   modelo: string;
   pares: number;

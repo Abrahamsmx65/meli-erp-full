@@ -42,7 +42,7 @@ export default async function ContenidoPublico({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Contenido en Amazon</h1>
+        <h1 className="titulo-pagina">Contenido en Amazon</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Los productos que tenemos publicados: sus categorías en la store, sus imágenes y su
           contenido A+. Lo que palomees aquí se guarda solo.
