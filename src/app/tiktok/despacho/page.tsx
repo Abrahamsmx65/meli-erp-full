@@ -30,9 +30,15 @@ export default async function Despacho() {
     supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
     tokenPreparar(cuenta.id),
   ]);
-  // Sin la diagonal final: con ella el link salía como "//preparar/…" y el
-  // middleware no lo reconocía como ruta pública (pedía contraseña).
-  const origen = (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app").replace(/\/+$/, "");
+  // El link de los empleados va SIEMPRE al dominio de producción que Vercel
+  // reporta (VERCEL_PROJECT_PRODUCTION_URL), no a lo que diga la variable
+  // de la app: los otros dominios del proyecto (git-main, getac) están
+  // detrás de la autenticación de Vercel y ahí el link pediría contraseña.
+  // Sin diagonal final: con ella salía "//preparar/…" y rebotaba al login.
+  const dominioVercel = (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "").trim();
+  const origen = (
+    dominioVercel ? `https://${dominioVercel}` : (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app")
+  ).replace(/\/+$/, "");
   const preparadosPorCorte = new Map<number, number>();
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
