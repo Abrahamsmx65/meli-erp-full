@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Circle, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
 import { hablar, pitar } from "./sonido-tiktok";
@@ -30,6 +30,10 @@ export function PrepararTikTok({
   const [codigo, setCodigo] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [voz, setVoz] = useState(true);
+  // En una tablet, el escáner teclea solo: el campo recibe el código sin que
+  // haga falta el teclado en pantalla, que tapa todo. Se apaga con
+  // inputMode="none" y se enciende solo cuando alguien quiere teclear.
+  const [teclado, setTeclado] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -205,6 +209,7 @@ export function PrepararTikTok({
           <input
             ref={input}
             value={codigo}
+            inputMode={teclado ? "text" : "none"}
             onChange={(e) => setCodigo(e.target.value)}
             placeholder="Escanea aquí"
             autoComplete="off"
@@ -213,6 +218,19 @@ export function PrepararTikTok({
           />
           <button type="submit" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--grid)" }}>
             Enter
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTeclado((t) => !t);
+              window.setTimeout(() => input.current?.focus(), 0);
+            }}
+            aria-pressed={teclado}
+            title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
+            className="rounded-lg border px-2 py-2 text-sm"
+            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+          >
+            <Keyboard size={16} />
           </button>
           <button
             type="button"

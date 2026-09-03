@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ScanLine, Volume2, VolumeX } from "lucide-react";
+import { Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
 import {
   ajustesDeConteo,
   escanearConteo,
@@ -27,6 +27,10 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
   const [modelo, setModelo] = useState<string>("");
   const [confirmaCeros, setConfirmaCeros] = useState(false);
   const [voz, setVoz] = useState(true);
+  // En una tablet, el escáner teclea solo: el campo recibe el código sin que
+  // haga falta el teclado en pantalla, que tapa todo. Se apaga con
+  // inputMode="none" y se enciende solo cuando alguien quiere teclear.
+  const [teclado, setTeclado] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -178,6 +182,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           <input
             ref={input}
             value={codigo}
+            inputMode={teclado ? "text" : "none"}
             onChange={(e) => setCodigo(e.target.value)}
             placeholder="Escanea aquí (o teclea el SKU)"
             autoComplete="off"
@@ -186,6 +191,19 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           />
           <button type="submit" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--grid)" }}>
             Enter
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTeclado((t) => !t);
+              window.setTimeout(() => input.current?.focus(), 0);
+            }}
+            aria-pressed={teclado}
+            title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
+            className="rounded-lg border px-2 py-2 text-sm"
+            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+          >
+            <Keyboard size={16} />
           </button>
         </form>
         <button
