@@ -162,6 +162,13 @@ guárdala numerada.
   La sincronización lleva candado (`candados_trabajo`, recurso
   `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
   simula el corte; Pendientes grita los saldos negativos.
+  **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
+  canónico → aplastado → ordenado → PROPIO: un SKU con forma
+  MODELO-COLOR-TALLA que MELI no tiene (el MY2304 morado solo se vende en
+  TikTok) se acepta tal cual, porque ese par también sale de la bodega.
+  Lo que quedó sin amarre se reintenta en cada corrida
+  (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
+  manda al 3PL en ese momento.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.

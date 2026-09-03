@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { indexarCatalogo } from "../etiquetas/resolver";
-import { amarrarSkuTikTok } from "./amarre";
+import { amarrarSkuTikTok, pareceSkuDeCalzado } from "./amarre";
 
 const indice = indexarCatalogo([
   { sku: "GT135-DK BROWN-26" },
@@ -41,5 +41,17 @@ describe("amarrarSkuTikTok", () => {
     });
     expect(amarrarSkuTikTok("", indice, new Map()).skuInterno).toBeNull();
     expect(amarrarSkuTikTok(null, indice, new Map()).skuInterno).toBeNull();
+  });
+});
+
+describe("SKU propio de TikTok (no está en MELI)", () => {
+  it("un MODELO-COLOR-TALLA que MELI no tiene se acepta tal cual, como propio", () => {
+    expect(amarrarSkuTikTok("MY2304-PURPLE-25-MX", indice, new Map())).toEqual({ skuInterno: "MY2304-PURPLE-25-MX", origen: "propio" });
+    expect(amarrarSkuTikTok("gt134-navy / red-24-mx", indice, new Map()).origen).toBe("propio");
+  });
+  it("lo que no tiene forma de calzado se queda sin amarrar", () => {
+    expect(amarrarSkuTikTok("caja-regalo", indice, new Map())).toEqual({ skuInterno: null, origen: null });
+    expect(pareceSkuDeCalzado("GT150-Camel-MX26")).toBe(false);
+    expect(pareceSkuDeCalzado("MY2304-PURPLE-25")).toBe(true);
   });
 });

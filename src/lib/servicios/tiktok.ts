@@ -18,6 +18,7 @@
 import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { agregarVentasDiarias } from "../tiktok/ventas";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
@@ -550,6 +551,18 @@ async function sincronizarTikTokSinCandado(
     avisos.push(`Catálogo: ${(err as Error).message}`);
   }
 
+  // ---- 1b. Renglones que se quedaron sin amarre --------------------------
+  // Un SKU que no se pudo amarrar cuando llegó el pedido (un modelo que
+  // MELI no tiene, un amarre a mano que se capturó después) se vuelve a
+  // intentar aquí; si ahora sí, el pedido se reprocesa para que su salida
+  // entre al kardex y, si ya está en un corte, se le mande al 3PL.
+  let reamarrados = 0;
+  if (!opciones.soloPedidos) try {
+    reamarrados = await reamarrarPendientes(admin, accountId, cliente, amarrar);
+  } catch (err) {
+    avisos.push(`Re-amarre: ${(err as Error).message}`);
+  }
+
   // ---- 2. Pedidos que se movieron ---------------------------------------
   const { data: estado } = await admin
     .from("tiktok_sync_estado")
@@ -639,6 +652,7 @@ async function sincronizarTikTokSinCandado(
       skusCatalogo,
       sinAmarre,
       liquidados,
+      reamarrados,
       bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
       busquedaPedidos: diag,
@@ -1103,6 +1117,71 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
   }
 
   return ventas.length;
+}
+
+/**
+ * Vuelve a amarrar los renglones de pedido que quedaron sin SKU interno.
+ * Los que ahora sí amarran se reprocesan por id (kardex idempotente) y, si
+ * su pedido ya salió en un corte, sus salidas se registran y se empujan al
+ * 3PL. Devuelve cuántos renglones se resolvieron.
+ */
+export async function reamarrarPendientes(
+  db: DB,
+  accountId: string,
+  cliente: Cliente,
+  amarrar: (s: string | null) => { skuInterno: string | null },
+): Promise<number> {
+  const pendientes = await traerTodo<any>(db, "tiktok_orden_items", "line_item_id, order_id, seller_sku", (q) =>
+    q.eq("account_id", accountId).is("sku_interno", null).not("seller_sku", "is", null),
+  );
+  const ordenes = new Set<string>();
+  let resueltos = 0;
+  for (const it of pendientes ?? []) {
+    const a = amarrar(it.seller_sku);
+    if (!a.skuInterno) continue;
+    ordenes.add(it.order_id);
+    resueltos++;
+  }
+  if (!ordenes.size) return 0;
+
+  // Reprocesar los pedidos: procesarPedidos vuelve a escribir los renglones
+  // (ya con SKU) y lleva al kardex lo que falte. El índice único evita
+  // descontar dos veces lo que ya estaba.
+  const ids = [...ordenes];
+  const pedidos = await pedidosPorId(cliente, ids);
+  await procesarPedidos(db, accountId, pedidos, amarrar);
+
+  // Los que ya están en un corte: sus salidas al 3PL, que en su momento no
+  // se pudieron registrar porque no tenían SKU.
+  const { data: enCorte } = await db
+    .from("tiktok_ordenes")
+    .select("order_id, corte_id")
+    .eq("account_id", accountId)
+    .in("order_id", ids)
+    .not("corte_id", "is", null);
+  const cortes = new Set<number>();
+  for (const o of (enCorte ?? []) as { order_id: string; corte_id: number }[]) {
+    const { data: items } = await db
+      .from("tiktok_orden_items")
+      .select("sku_interno, cantidad")
+      .eq("account_id", accountId)
+      .eq("order_id", o.order_id)
+      .not("sku_interno", "is", null);
+    const porSku = new Map<string, number>();
+    for (const i of (items ?? []) as { sku_interno: string; cantidad: number }[]) {
+      porSku.set(i.sku_interno, (porSku.get(i.sku_interno) ?? 0) + (i.cantidad ?? 0));
+    }
+    await registrarSalidasDeCorte(
+      db,
+      accountId,
+      o.corte_id,
+      [...porSku].map(([sku, pares]) => ({ orderId: o.order_id, sku, pares })),
+    );
+    cortes.add(o.corte_id);
+  }
+  for (const c of cortes) await empujarSalidasAl3pl(db, accountId, c).catch(() => undefined);
+
+  return resueltos;
 }
 
 /** Estados en los que TikTok ya puede haber liquidado el pedido. */

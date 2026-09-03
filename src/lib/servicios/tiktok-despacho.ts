@@ -320,7 +320,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
-const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120 };
+const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
 
 /** Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son blancas ahí). */
 function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number) {
@@ -359,19 +359,25 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const derecha = width - ESTAMPA.margen;
     const renglones = renglonesDeEtiqueta(p, corte.numero);
     const altoRenglon = ESTAMPA.tamano + 3 + ESTAMPA.barrasAlto + 4;
-    // El primer renglón (con el "#n") queda hasta abajo; los demás suben.
+    // Hasta 3 renglones apilados en la columna de la derecha; del cuarto en
+    // adelante se abre otra columna a la izquierda (y otra más si hace
+    // falta), para que un pedido grande no se salga de la guía.
+    const anchoColumna = ESTAMPA.barrasAnchoMax + 10;
     renglones.forEach((r, i) => {
-      const base = ESTAMPA.margen + (renglones.length - 1 - i) * altoRenglon;
+      const columna = Math.floor(i / ESTAMPA.porColumna);
+      const fila = i % ESTAMPA.porColumna;
+      const bordeDerecho = derecha - columna * anchoColumna;
+      const base = ESTAMPA.margen + fila * altoRenglon;
       const anchoTexto = fuente.widthOfTextAtSize(r.texto, ESTAMPA.tamano);
       const anchoCodigo = anchoBarras(r.codigo, ESTAMPA.barrasAnchoMax);
       pagina.drawText(r.texto, {
-        x: Math.max(ESTAMPA.margen, derecha - anchoTexto),
+        x: Math.max(ESTAMPA.margen, bordeDerecho - anchoTexto),
         y: base,
         size: ESTAMPA.tamano,
         font: fuente,
         color: rgb(0, 0, 0),
       });
-      dibujarBarras(pagina, r.codigo, Math.max(ESTAMPA.margen, derecha - anchoCodigo), base + ESTAMPA.tamano + 3, anchoCodigo, ESTAMPA.barrasAlto);
+      dibujarBarras(pagina, r.codigo, Math.max(ESTAMPA.margen, bordeDerecho - anchoCodigo), base + ESTAMPA.tamano + 3, anchoCodigo, ESTAMPA.barrasAlto);
     });
   };
 
