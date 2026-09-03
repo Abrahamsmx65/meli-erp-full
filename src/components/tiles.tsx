@@ -1,6 +1,7 @@
 /**
  * Fichas de cifra. Cuando el dato es UN número, un número grande se lee
- * mejor que cualquier gráfica.
+ * mejor que cualquier gráfica. La ficha lleva una línea de color arriba
+ * solo cuando el tono dice algo (crítico, alerta, bien); la neutra va limpia.
  */
 export function Ficha({
   titulo,
@@ -23,18 +24,22 @@ export function Ficha({
           : "var(--ink-1)";
 
   return (
-    <div className="tarjeta p-4">
-      <div
-        className="text-[10px] font-extrabold uppercase tracking-[0.12em]"
-        style={{ color: "var(--ink-muted)" }}
-      >
+    <div className="tarjeta relative overflow-hidden p-4">
+      {tono !== "neutro" ? (
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-[3px]"
+          style={{ background: color }}
+        />
+      ) : null}
+      <div className="text-[12px] font-medium" style={{ color: "var(--ink-2)" }}>
         {titulo}
       </div>
-      <div className="cifra mt-2.5 text-[26px] leading-none font-medium" style={{ color }}>
+      <div className="cifra mt-2 text-[28px] leading-none font-semibold" style={{ color }}>
         {typeof valor === "number" ? valor.toLocaleString("es-MX") : valor}
       </div>
       {nota ? (
-        <div className="mt-1.5 text-xs font-medium" style={{ color: "var(--ink-2)" }}>
+        <div className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
           {nota}
         </div>
       ) : null}

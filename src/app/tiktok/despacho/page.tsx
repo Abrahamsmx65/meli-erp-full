@@ -14,7 +14,7 @@ export default async function Despacho() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre primero</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
       </div>
     );
   }
@@ -52,7 +52,7 @@ export default async function Despacho() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Despacho TikTok Shop</h1>
+        <h1 className="titulo-pagina">Despacho TikTok Shop</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La rutina de la mañana: un corte confirma todo lo pendiente y deja listas las etiquetas y
           la lista de empaque, en orden de modelo.

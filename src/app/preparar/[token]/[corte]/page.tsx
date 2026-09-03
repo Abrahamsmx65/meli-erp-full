@@ -25,7 +25,7 @@ export default async function EstacionPublica({ params }: { params: Promise<{ to
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Preparar pedidos · Corte #{datos.numero}</h1>
+          <h1 className="titulo-pagina">Preparar pedidos · Corte #{datos.numero}</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Escanea la etiqueta, luego el producto (un escaneo por par).
           </p>

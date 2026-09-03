@@ -22,14 +22,17 @@ export function TablaInventario({
   renglones,
   soloBodega,
   almacenes,
+  busquedaInicial = "",
 }: {
   renglones: RenglonInventario[];
+  /** texto con el que arranca el buscador (viene de la barra superior) */
+  busquedaInicial?: string;
   /** true = la vista de Bodega: sin columnas de MELI, solo bodega y China */
   soloBodega?: boolean;
   /** los almacenes que existen, para poder filtrar por bodega */
   almacenes?: string[];
 }) {
-  const [busqueda, setBusqueda] = useState("");
+  const [busqueda, setBusqueda] = useState(busquedaInicial);
   const [soloConExistencia, setSoloConExistencia] = useState(true);
   const [almacen, setAlmacen] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);

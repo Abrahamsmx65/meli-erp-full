@@ -50,7 +50,7 @@ export default async function TikTok({
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre primero</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           TikTok Shop cuelga de la misma cuenta del ERP: el catálogo de SKUs con el que se
           amarran sus publicaciones sale de ahí.
@@ -65,7 +65,7 @@ export default async function TikTok({
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Almacén TikTok Shop</h1>
+          <h1 className="titulo-pagina">Almacén TikTok Shop</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Envío propio. Lo que entra a la bodega TikTok de Industher entra solo; un pedido pagado
             aparta y el envío confirmado descuenta. El disponible se le escribe a TikTok. Última

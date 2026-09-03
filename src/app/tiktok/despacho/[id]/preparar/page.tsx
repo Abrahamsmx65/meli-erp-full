@@ -28,7 +28,7 @@ export default async function Preparar({ params }: { params: Promise<{ id: strin
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Preparar pedidos · Corte #{corte.numero}</h1>
+          <h1 className="titulo-pagina">Preparar pedidos · Corte #{corte.numero}</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Escanea la etiqueta, luego el producto (un escaneo por par). Nada se da por
             preparado si no cuadra todo; lo que no tiene FNSKU se cierra a mano y queda registrado.

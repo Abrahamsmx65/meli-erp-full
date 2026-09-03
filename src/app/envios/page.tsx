@@ -142,7 +142,7 @@ export default async function Plan() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Plan de envío</h1>
+          <h1 className="titulo-pagina">Plan de envío</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Próximo envío {r.proximoEnvio} · cobertura objetivo {p.horizonteDias} días ·
             lead time {p.leadTimeDias} días · {p.enviosPorSemana} envíos por semana
@@ -336,7 +336,7 @@ function Bienvenida({
 }) {
   return (
     <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-      <h1 className="text-lg font-semibold">{titulo}</h1>
+      <h1 className="titulo-seccion">{titulo}</h1>
       <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
         {texto}
       </p>

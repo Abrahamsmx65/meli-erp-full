@@ -20,7 +20,7 @@ export default async function ConteoPublico({ params }: { params: Promise<{ toke
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Conteo cíclico · TikTok</h1>
+          <h1 className="titulo-pagina">Conteo cíclico · TikTok</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Escanea el FNSKU de cada par. Si cuentas un modelo completo, elígelo arriba.
           </p>

@@ -1,177 +1,399 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 /* ==========================================================================
-   Tokens de diseño.
-   Paleta portada de la maqueta visual aprobada por el usuario: fondo crema
-   cálido, tinta verde-pizarra, acento verde azulado con ámbar de apoyo, y
-   barra lateral oscura fija. Los colores de estado vienen de una paleta
-   fija validada para daltonismo y NUNCA cargan el significado solos:
-   siempre van con ícono y etiqueta.
+   Tokens de diseño — lenguaje de marketplace.
+
+   La app se ve como el panel de vendedor de Mercado Libre: barra superior
+   amarilla, fondo gris neutro, tarjetas blancas con sombra corta, azul para
+   acciones y enlaces, verde / naranja / rojo para estados. Todo lo que antes
+   era crema y verde-pizarra ahora es blanco y gris; los NOMBRES de los tokens
+   se conservan para que las ~1000 referencias del código sigan valiendo.
+
+   Los colores de estado NUNCA cargan el significado solos: siempre van con
+   ícono y etiqueta (ver `components/estado.tsx`).
    ========================================================================== */
 :root {
   color-scheme: light;
 
-  --surface-1: hsl(45 33% 98%);
-  --plane: hsl(42 25% 94%);
-  --ink-1: hsl(198 28% 15%);
-  --ink-2: hsl(198 14% 34%);
-  --ink-muted: hsl(198 10% 47%);
-  --grid: hsl(39 18% 86%);
-  --axis: hsl(39 12% 70%);
-  --borde: hsl(39 18% 84%);
+  /* superficies */
+  --surface-1: #ffffff;
+  --surface-2: #f5f5f5;
+  --plane: #ebebeb;
 
-  --estado-bien: #0ca30c;
-  --estado-alerta: #fab219;
-  --estado-serio: #ec835a;
-  --estado-critico: #d03b3b;
+  /* tinta */
+  --ink-1: #1a1a1a;
+  --ink-2: #666666;
+  --ink-muted: #8c8c8c;
 
-  --acento: hsl(174 42% 29%);
-  --acento-suave: hsl(174 36% 90%);
-  --exito-texto: hsl(157 46% 28%);
+  /* líneas */
+  --grid: #eeeeee;
+  --axis: #cccccc;
+  --borde: #e3e3e3;
 
-  --ambar: hsl(37 91% 57%);
-  --sidebar: hsl(197 31% 13%);
-  --sidebar-borde: hsl(197 22% 23%);
-  --sidebar-texto: hsl(42 25% 94%);
-  --sidebar-activo: hsl(197 24% 20%);
-  --sombra-panel: 0 8px 24px hsl(198 28% 15% / 0.04);
+  /* estados */
+  --estado-bien: #00a650;
+  --estado-alerta: #e0a100;
+  --estado-serio: #ff7733;
+  --estado-critico: #f23d4f;
 
-  --fuente-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --fuente-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* acción */
+  --acento: #3483fa;
+  --acento-hover: #2968c8;
+  --acento-suave: #e3edfb;
+  --exito-texto: #00854a;
+
+  /* marca */
+  --ambar: #ffe600;
+  --ambar-tinta: #2d3277;
+  --sidebar: #ffffff;
+  --sidebar-borde: #e3e3e3;
+  --sidebar-texto: #333333;
+  --sidebar-activo: #e3edfb;
+
+  --sombra-panel: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
+
+  --radio: 6px;
+
+  --fuente-sans: "Inter", "Proxima Nova", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-mono: "Inter", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --surface-1: hsl(197 27% 13%);
-    --plane: hsl(197 31% 9%);
-    --ink-1: hsl(42 25% 94%);
-    --ink-2: hsl(42 12% 72%);
-    --ink-muted: hsl(42 8% 58%);
-    --grid: hsl(197 18% 22%);
-    --axis: hsl(197 14% 32%);
-    --borde: hsl(197 18% 24%);
-    --acento: hsl(174 42% 46%);
-    --acento-suave: hsl(174 42% 18%);
-    --exito-texto: hsl(157 46% 52%);
-    --sidebar: hsl(197 36% 7%);
-    --sidebar-borde: hsl(197 22% 17%);
-    --sidebar-activo: hsl(197 24% 14%);
-    --sombra-panel: 0 8px 24px hsl(0 0% 0% / 0.25);
+/* ---------------------------------------------------------------------------
+   Base. Va en la capa `base` para que las utilidades de Tailwind (px-2,
+   rounded-full, text-xs…) sigan ganando cuando un componente las ponga.
+--------------------------------------------------------------------------- */
+@layer base {
+  html,
+  body {
+    background: var(--plane);
+    color: var(--ink-1);
+    font-family: var(--fuente-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--ambar);
+    color: #1a1a1a;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.01em;
+    color: var(--ink-1);
+  }
+
+  input,
+  select,
+  textarea {
+    background: var(--surface-1);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio);
+    padding: 0.5rem 0.75rem;
+    color: var(--ink-1);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--ink-muted);
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover {
+    border-color: #c9c9c9;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--acento);
+    box-shadow: 0 0 0 3px var(--acento-suave);
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--acento);
+    padding: 0;
+    box-shadow: none;
+  }
+
+  button {
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      transform 0.1s ease;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--acento);
+    outline-offset: 2px;
+    border-radius: var(--radio);
+  }
+
+  /* Enlaces subrayados dentro del contenido: azul de acción, como en MELI. */
+  a.underline {
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+
+  hr {
+    border-color: var(--borde);
+  }
+
+  /* barra de desplazamiento fina, como en los paneles de vendedor */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c9c9c9 transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9c9c9;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #adadad;
   }
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --surface-1: hsl(197 27% 13%);
-  --plane: hsl(197 31% 9%);
-  --ink-1: hsl(42 25% 94%);
-  --ink-2: hsl(42 12% 72%);
-  --ink-muted: hsl(42 8% 58%);
-  --grid: hsl(197 18% 22%);
-  --axis: hsl(197 14% 32%);
-  --borde: hsl(197 18% 24%);
-  --acento: hsl(174 42% 46%);
-  --acento-suave: hsl(174 42% 18%);
-  --exito-texto: hsl(157 46% 52%);
-  --sidebar: hsl(197 36% 7%);
-  --sidebar-borde: hsl(197 22% 17%);
-  --sidebar-activo: hsl(197 24% 14%);
-  --sombra-panel: 0 8px 24px hsl(0 0% 0% / 0.25);
-}
+/* ---------------------------------------------------------------------------
+   Componentes compartidos.
+--------------------------------------------------------------------------- */
+@layer components {
+  /* Cifras alineadas: las columnas de números tienen que poder compararse de
+     un vistazo sin que los dígitos bailen. Ya no van en mono — MELI y Amazon
+     los ponen en la misma letra del texto, con dígitos tabulares. */
+  .cifra {
+    font-family: var(--fuente-sans);
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum", "cv11";
+    letter-spacing: -0.01em;
+  }
 
-html,
-body {
-  background: var(--plane);
-  color: var(--ink-1);
-  font-family: var(--fuente-sans);
-  -webkit-font-smoothing: antialiased;
-}
+  /* La tarjeta de MELI: blanca, esquinas de 6 px, sombra corta y sin borde. */
+  .tarjeta {
+    background: var(--surface-1);
+    border: 1px solid transparent;
+    border-radius: var(--radio);
+    box-shadow: var(--sombra-panel);
+  }
 
-/* Cifras alineadas y en mono: las columnas de números tienen que poder
-   compararse de un vistazo sin que los dígitos bailen. */
-.cifra {
-  font-family: var(--fuente-mono);
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-  letter-spacing: -0.02em;
-}
+  .hairline {
+    border-color: var(--grid);
+  }
 
-.tarjeta {
-  background: var(--surface-1);
-  border: 1px solid var(--borde);
-  border-radius: 12px;
-  box-shadow: var(--sombra-panel);
-}
+  /* Título de página: una sola voz en todo el ERP. */
+  .titulo-pagina {
+    font-size: 1.5rem;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink-1);
+  }
 
-.hairline {
-  border-color: var(--borde);
-}
+  .titulo-seccion {
+    font-size: 1.125rem;
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
 
-/* Barra de cobertura: extremo de dato redondeado 4px, anclado a la base. */
-.barra {
-  border-radius: 0 4px 4px 0;
-  height: 8px;
-}
+  /* Botones. Los componentes viejos arman los suyos con utilidades e inline
+     styles; estas clases son para los nuevos y para los del armazón. */
+  .boton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-radius: var(--radio);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    white-space: nowrap;
+  }
 
-table.datos {
-  border-collapse: separate;
-  border-spacing: 0;
-  width: 100%;
-}
+  .boton-primario {
+    background: var(--acento);
+    color: #fff;
+  }
+  .boton-primario:not(:disabled):hover {
+    background: var(--acento-hover);
+  }
 
-table.datos th {
-  font-weight: 700;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-muted);
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--grid);
-  position: sticky;
-  top: 0;
-  background: var(--surface-1);
-  z-index: 1;
-}
+  .boton-secundario {
+    background: var(--acento-suave);
+    color: var(--acento);
+  }
+  .boton-secundario:not(:disabled):hover {
+    background: #d1e2fb;
+  }
 
-table.datos td {
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid var(--grid);
-  font-size: 0.875rem;
-}
+  .boton-fantasma {
+    background: transparent;
+    color: var(--acento);
+  }
+  .boton-fantasma:not(:disabled):hover {
+    background: var(--acento-suave);
+  }
 
-table.datos tbody tr:hover {
-  background: color-mix(in oklab, var(--ink-1) 4%, transparent);
-}
+  .boton:disabled {
+    opacity: 0.55;
+  }
 
-.num {
-  text-align: right;
-}
+  /* Los botones viejos: azul lleno (text-white + background acento) y de
+     borde. Se les da el hover de MELI sin tocar cada componente. */
+  button.text-white:not(:disabled):hover {
+    filter: brightness(0.92);
+  }
 
-input,
-select,
-textarea {
-  background: var(--surface-1);
-  border: 1px solid var(--borde);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  color: var(--ink-1);
-  font-size: 0.875rem;
-}
+  button.border {
+    background: var(--surface-1);
+    color: var(--acento);
+    border-color: var(--borde);
+  }
+  button.border:not(:disabled):hover {
+    background: var(--acento-suave);
+    border-color: var(--acento-suave);
+  }
 
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 2px solid var(--acento);
-  outline-offset: 1px;
-}
+  /* Enlaces que se pintan como botón azul (Link con text-white). */
+  a.text-white:hover {
+    filter: brightness(0.92);
+  }
 
-button:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--acento);
-  outline-offset: 2px;
+  /* Barra de cobertura: extremo de dato redondeado 4px, anclado a la base. */
+  .barra {
+    border-radius: 0 4px 4px 0;
+    height: 8px;
+  }
+
+  /* Tablas de datos, al estilo de los listados de vendedor: encabezado
+     gris en caja alta chica, renglones separados por líneas finas, hover
+     azul muy claro. */
+  table.datos {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+  }
+
+  table.datos th {
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.01em;
+    color: var(--ink-2);
+    text-align: left;
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--borde);
+    position: sticky;
+    top: 0;
+    background: var(--surface-1);
+    z-index: 1;
+    white-space: nowrap;
+  }
+
+  table.datos td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--grid);
+    font-size: 0.875rem;
+    vertical-align: middle;
+  }
+
+  table.datos tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  table.datos tbody tr:hover {
+    background: #f7f9fc;
+  }
+
+  .num {
+    text-align: right;
+  }
+
+  /* Chips de estado / filtro. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 999px;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .entrada-menu:hover {
+    background: var(--surface-2);
+  }
+
+  /* Insignia roja de conteo (pendientes). */
+  .insignia {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 999px;
+    padding: 0 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    background: var(--estado-critico);
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Aparición suave del contenido al navegar. */
+  .aparece {
+    animation: aparecer 0.25s ease-out both;
+  }
+
+  @keyframes aparecer {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aparece {
+      animation: none;
+    }
+    button {
+      transition: none;
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -185,7 +407,8 @@ a:focus-visible {
 --------------------------------------------------------------------------- */
 @media print {
   .no-imprimir,
-  nav[aria-label="Secciones"] {
+  nav[aria-label="Secciones"],
+  header[aria-label="Barra superior"] {
     display: none !important;
   }
 

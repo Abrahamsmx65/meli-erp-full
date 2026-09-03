@@ -23,7 +23,7 @@ export default async function Contenedores() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           Los contenedores cuelgan de los pedidos a China, y esos viven en tu
           cuenta.
@@ -45,7 +45,7 @@ export default async function Contenedores() {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h1 className="text-xl font-bold tracking-tight">Contenedores</h1>
+        <h1 className="titulo-pagina">Contenedores</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Cada contenedor con nuestro propio ID. Confirmar la llegada no suma
           inventario: las existencias llegan solas del API de Industher.

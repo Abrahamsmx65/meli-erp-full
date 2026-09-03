@@ -17,7 +17,7 @@ export default async function Desfases() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Desfases TikTok</h1>
+        <h1 className="titulo-pagina">Desfases TikTok</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Tres números por SKU —lo que dice TikTok, lo que dice el kardex y lo que reporta Industher— y
           la razón de cada diferencia. Si esta lista está vacía, todo cuadra.

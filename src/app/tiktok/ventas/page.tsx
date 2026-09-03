@@ -48,7 +48,7 @@ export default async function VentasTikTok({
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre primero</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           TikTok Shop cuelga de la misma cuenta del ERP.
         </p>
@@ -117,7 +117,7 @@ export default async function VentasTikTok({
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Ventas TikTok Shop</h1>
+          <h1 className="titulo-pagina">Ventas TikTok Shop</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             {rango.desde} → {rango.hasta}
           </p>

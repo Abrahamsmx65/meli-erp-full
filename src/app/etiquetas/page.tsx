@@ -13,7 +13,7 @@ export default async function PaginaEtiquetas() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           El código Full de cada producto sale del catálogo de Mercado Libre, así que
           primero hay que conectarlo.
@@ -46,7 +46,7 @@ export default async function PaginaEtiquetas() {
   return (
     <div className="flex flex-col gap-6">
       <div className="no-imprimir">
-        <h1 className="text-xl font-semibold">Etiquetas</h1>
+        <h1 className="titulo-pagina">Etiquetas</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La etiqueta que pide Mercado Envíos Full, la de Amazon (FNSKU) o las dos
           por par, generadas desde aquí en PDF o TXT para la térmica. Solo hace

@@ -39,7 +39,7 @@ export default async function Pendientes() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-xl font-semibold">Pendientes por resolver</h1>
+        <h1 className="titulo-pagina">Pendientes por resolver</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Inventario que existe en bodega pero que el sistema todavía no puede planear.
           Nada de esto se descarta en silencio.
