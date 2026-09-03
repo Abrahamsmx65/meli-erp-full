@@ -162,6 +162,16 @@ guárdala numerada.
   La sincronización lleva candado (`candados_trabajo`, recurso
   `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
   simula el corte; Pendientes grita los saldos negativos.
+  **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
+  total $0): se despachan y descuentan como cualquier pedido, pero NO son
+  venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
+  **Lo recibido** sale de finanzas de TikTok por pedido
+  (`liquidacionDePedido`, `/finance/202309/orders/{id}/statement_transactions`),
+  solo para entregados, 25 por corrida, reintento diario; queda en
+  `neto_recibido` con el crudo en `liquidacion`. Hasta que TikTok liquida,
+  la pantalla dice "sin liquidar", nunca estima. Ventas por MODELO
+  (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
+  renglones.
 
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya

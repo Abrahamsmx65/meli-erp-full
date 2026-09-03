@@ -27,6 +27,7 @@ import {
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
+  liquidacionDePedido,
   paquetesDePedido,
   pedidosActualizados,
   pedidosPorId,
@@ -299,6 +300,7 @@ async function procesarPedidos(
       guia: p.guia,
       shipping_type: p.shippingType,
       paquetes: p.paquetes,
+      es_muestra: p.esMuestra,
       detalle: { destinatario: p.destinatario },
       sincronizado_en: new Date().toISOString(),
     })),
@@ -596,6 +598,14 @@ async function sincronizarTikTokSinCandado(
     avisos.push(`Ventas por día: ${(err as Error).message}`);
   }
 
+  // ---- 3. Lo que TikTok liquida por cada pedido entregado -------------
+  let liquidados = 0;
+  if (!opciones.soloPedidos) try {
+    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Liquidaciones: ${(err as Error).message}`);
+  }
+
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
   await recalcularSaldos(admin, accountId);
@@ -628,6 +638,7 @@ async function sincronizarTikTokSinCandado(
       publicados: pub.publicados,
       skusCatalogo,
       sinAmarre,
+      liquidados,
       bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
       busquedaPedidos: diag,
@@ -1052,7 +1063,7 @@ async function referenciasRegistradas(
 export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [ordenes, items, actuales] = await Promise.all([
-    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion", eq),
+    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra", eq),
     traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
   ]);
@@ -1063,6 +1074,7 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
       estado: o.estado,
       creadoEn: o.fecha_creacion,
       actualizadoEn: o.fecha_actualizacion,
+      esMuestra: Boolean(o.es_muestra),
     })),
     (items ?? []).map((i: any) => ({
       orderId: i.order_id,
@@ -1091,6 +1103,63 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
   }
 
   return ventas.length;
+}
+
+/** Estados en los que TikTok ya puede haber liquidado el pedido. */
+const ESTADOS_LIQUIDABLES = ["DELIVERED", "COMPLETED"];
+/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno). */
+const LIQUIDACIONES_POR_CORRIDA = 25;
+/** Un pedido sin liquidar se vuelve a preguntar cada día, no cada 15 min. */
+const REINTENTO_LIQUIDACION_MS = 24 * 3_600_000;
+
+/**
+ * Pregunta a finanzas de TikTok cuánto liquidó por cada pedido entregado
+ * que todavía no tiene neto. Las muestras no se preguntan (liquidan 0). Si
+ * TikTok contesta que no hay permiso, se avisa una vez y se deja de
+ * insistir en esta corrida.
+ */
+export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[]): Promise<number> {
+  const limite = new Date(Date.now() - REINTENTO_LIQUIDACION_MS).toISOString();
+  const { data } = await db
+    .from("tiktok_ordenes")
+    .select("order_id, liquidacion_intento_en")
+    .eq("account_id", accountId)
+    .eq("es_muestra", false)
+    .in("estado", ESTADOS_LIQUIDABLES)
+    .is("neto_recibido", null)
+    .or(`liquidacion_intento_en.is.null,liquidacion_intento_en.lt.${limite}`)
+    .order("fecha_creacion", { ascending: true })
+    .limit(LIQUIDACIONES_POR_CORRIDA);
+  const pendientes = (data ?? []) as { order_id: string }[];
+  let liquidados = 0;
+  for (const p of pendientes) {
+    if (cliente.msRestantes() < 10_000) break;
+    const ahora = new Date().toISOString();
+    try {
+      const liq = await liquidacionDePedido(cliente, p.order_id);
+      await db
+        .from("tiktok_ordenes")
+        .update(
+          liq
+            ? { neto_recibido: liq.neto, liquidado_en: ahora, liquidacion: liq.crudo, liquidacion_intento_en: ahora }
+            : { liquidacion_intento_en: ahora },
+        )
+        .eq("account_id", accountId)
+        .eq("order_id", p.order_id);
+      if (liq) liquidados++;
+    } catch (err) {
+      await db.from("tiktok_ordenes").update({ liquidacion_intento_en: ahora }).eq("account_id", accountId).eq("order_id", p.order_id);
+      const e = err as ErrorTikTok;
+      // Sin permiso de finanzas (o ruta que no existe): no tiene caso seguir
+      // pedido por pedido. Se dice una vez.
+      if (e instanceof ErrorTikTok && (e.codigo === 105005 || e.codigo === 105002 || e.codigo === 404)) {
+        avisos.push(`Finanzas de TikTok: ${e.message}. Falta el permiso de finanzas en la app o volver a autorizar la tienda.`);
+        break;
+      }
+      avisos.push(`Liquidación ${p.order_id}: ${(err as Error).message}`);
+    }
+  }
+  return liquidados;
 }
 
 /** Supabase se atraganta con upserts enormes; se mandan de 500 en 500. */

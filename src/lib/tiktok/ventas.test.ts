@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarVentasDiarias, diaMx } from "./ventas";
+import { agregarVentasDiarias, diaMx, modeloDeSku, muestrasEnRango, resumenPorModelo } from "./ventas";
 
 describe("diaMx", () => {
   it("un pedido de las 20:19 hora México del día 1 es del día 1, aunque en UTC ya sea día 2", () => {
@@ -37,5 +37,44 @@ describe("agregarVentasDiarias", () => {
   it("no cuenta cancelados, sin pagar ni renglones sin SKU", () => {
     const v = agregarVentasDiarias(ordenes, renglones);
     expect(v.reduce((a, x) => a + x.unidades, 0)).toBe(4);
+  });
+});
+
+describe("muestras y resumen por modelo", () => {
+  const ordenes = [
+    { orderId: "v1", estado: "IN_TRANSIT", creadoEn: "2026-09-02T15:00:00Z", esMuestra: false, netoRecibido: 800 },
+    { orderId: "v2", estado: "AWAITING_SHIPMENT", creadoEn: "2026-09-02T16:00:00Z", esMuestra: false, netoRecibido: null },
+    { orderId: "m1", estado: "IN_TRANSIT", creadoEn: "2026-09-02T17:00:00Z", esMuestra: true, netoRecibido: null },
+    { orderId: "fuera", estado: "IN_TRANSIT", creadoEn: "2026-08-20T17:00:00Z", esMuestra: false, netoRecibido: 100 },
+  ];
+  const renglones = [
+    { orderId: "v1", skuInterno: "GT134-BLK-24-MX", cantidad: 1, precio: 600, estado: "IN_TRANSIT" },
+    { orderId: "v1", skuInterno: "GT150-CAMEL-25-MX", cantidad: 1, precio: 400, estado: "IN_TRANSIT" },
+    { orderId: "v2", skuInterno: "GT134-BLK-26-MX", cantidad: 2, precio: 500, estado: "AWAITING_SHIPMENT" },
+    { orderId: "m1", skuInterno: "GT134-BLK-23-MX", cantidad: 1, precio: 0, estado: "IN_TRANSIT" },
+    { orderId: "fuera", skuInterno: "GT134-BLK-23-MX", cantidad: 1, precio: 500, estado: "IN_TRANSIT" },
+  ];
+  const rango = { desde: "2026-09-01", hasta: "2026-09-03" };
+
+  it("la muestra no es venta: ni en el día ni en el modelo", () => {
+    const dia = agregarVentasDiarias(ordenes, renglones);
+    expect(dia.find((v) => v.sku === "GT134-BLK-23-MX" && v.fecha === "2026-09-02")).toBeUndefined();
+    expect(muestrasEnRango(ordenes, rango).map((o) => o.orderId)).toEqual(["m1"]);
+  });
+
+  it("agrupa por modelo, reparte el neto por precio y cuenta lo sin liquidar", () => {
+    const r = resumenPorModelo(ordenes, renglones, rango);
+    expect(r.map((m) => m.modelo)).toEqual(["GT134", "GT150"]);
+    const gt134 = r[0];
+    expect(gt134.unidades).toBe(3);
+    expect(gt134.pedidos).toBe(2);
+    expect(gt134.cobrado).toBe(1600);
+    // v1 liquidó 800 sobre 1000 cobrados: al GT134 (600) le tocan 480
+    expect(gt134.recibido).toBeCloseTo(480);
+    expect(gt134.cobradoLiquidado).toBe(600);
+    expect(gt134.sinLiquidar).toBe(1);
+    expect(gt134.tallas.map((t) => [t.sku, t.unidades])).toEqual([["GT134-BLK-24-MX", 1], ["GT134-BLK-26-MX", 2]]);
+    expect(r[1].recibido).toBeCloseTo(320);
+    expect(modeloDeSku("gt134-blk-24-mx")).toBe("GT134");
   });
 });
