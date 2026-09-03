@@ -305,3 +305,22 @@ describe("calcularPlan", () => {
     expect(plan.skus).toBe(2);
   });
 });
+
+describe("renglones equivalentes desde bloques agregados", () => {
+  it("un bloque de U unidades en D días con venta da la misma venta diaria que los días reales", () => {
+    const ds = dias(30);
+    const reales = ds.map((fecha, i) => ({ sku: "A", fecha, unidades: i >= 23 ? 20 : i >= 16 ? 10 : 5 }));
+    // Como lo entrega agregados.ts: por bloque, D renglones de U/D.
+    const equivalentes = [
+      ...Array.from({ length: 7 }, (_, k) => ({ sku: "A", fecha: ds[29 - k], unidades: 140 / 7 })),
+      ...Array.from({ length: 7 }, (_, k) => ({ sku: "A", fecha: ds[22 - k], unidades: 70 / 7 })),
+      ...Array.from({ length: 16 }, (_, k) => ({ sku: "A", fecha: ds[15 - k], unidades: 80 / 16 })),
+    ];
+    const base = { skus: ["A"], snapshots: [], stock: [], bodega: [], enCamino: [], parametros: P, hasta: HOY };
+    const a = calcularPlan({ ...base, ventas: reales }).lineas[0];
+    const b = calcularPlan({ ...base, ventas: equivalentes }).lineas[0];
+    expect(b.ventaDiaria).toBeCloseTo(a.ventaDiaria, 6);
+    expect(b.vendidas).toBeCloseTo(a.vendidas, 6);
+    expect(b.tendencia).toBeCloseTo(a.tendencia!, 6);
+  });
+});

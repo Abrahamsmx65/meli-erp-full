@@ -7,6 +7,7 @@ import { TablaSkus } from "@/components/yapanizcel/tabla-skus";
 import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export default async function SkusYz() {
   const supabase = await clienteServidor();

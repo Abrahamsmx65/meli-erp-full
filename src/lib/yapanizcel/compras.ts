@@ -9,6 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { costoDeSku } from "./costos";
+import { cargarVentasAgregadas } from "./agregados";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado } from "./inventario";
@@ -57,13 +58,11 @@ async function cargarBase(db: DB, accountId: string) {
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [skus, ventas, stock, inventario, { enCamino }, mapeos, costosFilas] = await Promise.all([
+  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, costosFilas] = await Promise.all([
     todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null }>(
       db, "yz_skus", "sku, titulo, diseno, modelo, color", (q) => q.eq("account_id", accountId),
     ),
-    todo<{ sku: string; unidades: number }>(db, "yz_ventas_diarias", "sku, unidades", (q) =>
-      q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
-    ),
+    cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, p.diasCaducidadEnvio),
@@ -76,8 +75,7 @@ async function cargarBase(db: DB, accountId: string) {
   const porBodega = new Map(inventario.renglones.map((r) => [r.skuBodega, r.skuMeli]));
   const pedidos = await cargarPedidosEnCamino(db, accountId, { indice, manual, porBodega });
 
-  const vendidas = new Map<string, number>();
-  for (const v of ventas) vendidas.set(v.sku, (vendidas.get(v.sku) ?? 0) + v.unidades);
+  const vendidas = agregadas.totales;
   const stockPor = new Map(stock.map((s) => [s.sku, s]));
   const caminoFull = new Map<string, number>();
   for (const c of enCamino) caminoFull.set(c.skuMeli, (caminoFull.get(c.skuMeli) ?? 0) + c.unidades);
@@ -119,8 +117,15 @@ export async function cargarPedidosEnCamino(
   return out;
 }
 
-export async function resumenDisenos(db: DB, accountId: string): Promise<ResumenDisenos> {
-  const b = await cargarBase(db, accountId);
+export type Base = Awaited<ReturnType<typeof cargarBase>>;
+
+/** Una sola carga de base para toda la pantalla (resumen + detalle). */
+export async function cargarBaseCompras(db: DB, accountId: string): Promise<Base> {
+  return cargarBase(db, accountId);
+}
+
+export async function resumenDisenos(db: DB, accountId: string, base?: Base): Promise<ResumenDisenos> {
+  const b = base ?? (await cargarBase(db, accountId));
   const porDiseno = new Map<string, { variantes: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
 
   for (const s of b.skus) {
@@ -141,6 +146,8 @@ export async function resumenDisenos(db: DB, accountId: string): Promise<Resumen
     ...a,
     cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
   }));
+  // Los diseños sin ninguna publicación que venda ni existencia no estorban.
+  
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
   return { disenos };
 }
@@ -186,8 +193,8 @@ function calcularVariante(
   };
 }
 
-export async function detalleDiseno(db: DB, accountId: string, diseno: string): Promise<DisenoCompra | null> {
-  const b = await cargarBase(db, accountId);
+export async function detalleDiseno(db: DB, accountId: string, diseno: string, base?: Base): Promise<DisenoCompra | null> {
+  const b = base ?? (await cargarBase(db, accountId));
   const clave = diseno.trim().toUpperCase();
   const variantes = b.skus
     .map((s) => calcularVariante(s, b))
@@ -209,4 +216,17 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string): 
     sugerido: variantes.reduce((a, v) => a + v.sugerido, 0),
     costoEstimado: variantes.reduce((a, v) => a + v.sugerido * (v.costoUnitario ?? 0), 0),
   };
+}
+
+/** Todas las variantes (sin calzado), para el Excel de todos los diseños. */
+export function todasLasVariantes(b: Base): (VarianteCompra & { diseno: string })[] {
+  return b.skus
+    .map((s) => calcularVariante(s, b))
+    .filter((v) => v.diseno && !esCalzado(v.diseno))
+    .sort(
+      (x, y) =>
+        x.diseno.localeCompare(y.diseno, "es", { numeric: true }) ||
+        x.modelo.localeCompare(y.modelo, "es", { numeric: true }) ||
+        x.color.localeCompare(y.color, "es"),
+    );
 }

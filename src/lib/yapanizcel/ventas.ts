@@ -71,52 +71,75 @@ function vacio(): Totales {
   return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, unidadesSinCosto: 0 };
 }
 
-interface Venta {
+interface FilaResumen {
   sku: string;
-  fecha: string;
   unidades: number;
   ordenes: number;
   importe: number;
   comision: number;
-  neto: number | null;
+  neto: number;
+  unidades_sin_neto: number;
 }
 
-function acumular(t: Totales, v: Venta, costoUnit: number | null): void {
-  t.unidades += v.unidades;
-  t.ordenes += v.ordenes;
-  t.importe += v.importe;
-  t.comision += v.comision;
-  const netoReal = v.neto != null;
-  const neto = netoReal ? Number(v.neto) : v.importe - v.comision;
-  t.neto += neto;
-  if (!netoReal) t.unidadesEstimadas += v.unidades;
-  if (costoUnit == null) {
-    t.unidadesSinCosto += v.unidades;
-  } else {
-    t.costo += costoUnit * v.unidades;
+async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Promise<T[]> {
+  const out: T[] = [];
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await db.rpc(fn, args).range(desde, desde + 999);
+    if (error) throw new Error(`${fn}: ${error.message}`);
+    const lote = (data ?? []) as T[];
+    out.push(...lote);
+    if (lote.length < 1000) break;
   }
+  return out;
+}
+
+function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null): void {
+  t.unidades += Number(f.unidades);
+  t.ordenes += Number(f.ordenes);
+  t.importe += Number(f.importe);
+  t.comision += Number(f.comision);
+  t.neto += Number(f.neto);
+  t.unidadesEstimadas += Number(f.unidades_sin_neto ?? 0);
+  if (costoUnit == null) t.unidadesSinCosto += Number(f.unidades);
+  else t.costo += costoUnit * Number(f.unidades);
   t.ganancia = t.neto - t.costo;
 }
 
+/**
+ * Las sumas se hacen EN la base (yz_ventas_resumen / yz_ventas_por_dia):
+ * un periodo de 30 días son ~126 mil renglones diarios y traerlos a la
+ * página la tumbaba por tiempo.
+ */
 export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Promise<Monitor> {
   const dias = Math.round((Date.parse(rango.hasta) - Date.parse(rango.desde)) / 86_400_000) + 1;
   const anterior: Rango = { hasta: restarDias(rango.desde, 1), desde: restarDias(rango.desde, dias) };
   const hoy = hoyMx();
   const ayer = restarDias(hoy, 1);
-  const desdeTodo = [anterior.desde, rango.desde, ayer].sort()[0];
-  const hastaTodo = [rango.hasta, hoy].sort().at(-1)!;
 
-  const [ventas, skus, costosFilas] = await Promise.all([
-    todo<Venta>(db, "yz_ventas_diarias", "sku, fecha, unidades, ordenes, importe, comision, neto", (q) =>
-      q.eq("account_id", accountId).gte("fecha", desdeTodo).lte("fecha", hastaTodo),
-    ),
-    todo<{ sku: string; titulo: string | null; diseno: string | null }>(db, "yz_skus", "sku, titulo, diseno", (q) => q.eq("account_id", accountId)),
+  const resumen = (desde: string, hasta: string) =>
+    rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, costosFilas] = await Promise.all([
+    resumen(rango.desde, rango.hasta),
+    resumen(anterior.desde, anterior.hasta),
+    resumen(hoy, hoy),
+    resumen(ayer, ayer),
+    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
+    todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
     todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
   ]);
 
   const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
-  const disenoDe = new Map(skus.map((s) => [s.sku, desglosar(s.sku).diseno]));
+  const cacheCosto = new Map<string, number | null>();
+  const costoDe = (sku: string) => {
+    let c = cacheCosto.get(sku);
+    if (c === undefined) {
+      c = costoDeSku(sku, costos);
+      cacheCosto.set(sku, c);
+    }
+    return c;
+  };
 
   const m: Monitor = {
     rango,
@@ -130,41 +153,26 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     skusSinCosto: 0,
   };
 
+  for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku));
+  for (const f of rAyer) sumarResumen(m.ayer, f, costoDe(f.sku));
+  for (const f of rAnterior) sumarResumen(m.anterior, f, costoDe(f.sku));
+
   const porSku = new Map<string, FilaVentas>();
   const porDiseno = new Map<string, FilaVentas>();
-  const porDia = new Map<string, DiaVentas>();
-  const cacheCosto = new Map<string, number | null>();
   const sinCosto = new Set<string>();
+  for (const f of rPeriodo) {
+    const costoUnit = costoDe(f.sku);
+    if (costoUnit == null) sinCosto.add(f.sku);
+    sumarResumen(m.periodo, f, costoUnit);
 
-  for (const v of ventas) {
-    let costoUnit = cacheCosto.get(v.sku);
-    if (costoUnit === undefined) {
-      costoUnit = costoDeSku(v.sku, costos);
-      cacheCosto.set(v.sku, costoUnit);
-    }
-    if (costoUnit == null) sinCosto.add(v.sku);
-
-    if (v.fecha === hoy) acumular(m.hoy, v, costoUnit);
-    if (v.fecha === ayer) acumular(m.ayer, v, costoUnit);
-    if (v.fecha >= anterior.desde && v.fecha <= anterior.hasta) acumular(m.anterior, v, costoUnit);
-
-    if (v.fecha < rango.desde || v.fecha > rango.hasta) continue;
-    acumular(m.periodo, v, costoUnit);
-
-    const diseno = disenoDe.get(v.sku) ?? desglosar(v.sku).diseno;
-    const fs = porSku.get(v.sku) ?? { ...vacio(), clave: v.sku, titulo: titulos.get(v.sku), diseno, precioPromedio: 0, margen: null, costoUnitario: costoUnit };
-    acumular(fs, v, costoUnit);
-    porSku.set(v.sku, fs);
+    const diseno = desglosar(f.sku).diseno;
+    const fs = porSku.get(f.sku) ?? { ...vacio(), clave: f.sku, titulo: titulos.get(f.sku), diseno, precioPromedio: 0, margen: null, costoUnitario: costoUnit };
+    sumarResumen(fs, f, costoUnit);
+    porSku.set(f.sku, fs);
 
     const fd = porDiseno.get(diseno) ?? { ...vacio(), clave: diseno, diseno, precioPromedio: 0, margen: null, costoUnitario: null };
-    acumular(fd, v, costoUnit);
+    sumarResumen(fd, f, costoUnit);
     porDiseno.set(diseno, fd);
-
-    const d = porDia.get(v.fecha) ?? { fecha: v.fecha, unidades: 0, importe: 0, neto: 0 };
-    d.unidades += v.unidades;
-    d.importe += v.importe;
-    d.neto += v.neto != null ? Number(v.neto) : v.importe - v.comision;
-    porDia.set(v.fecha, d);
   }
 
   const cerrar = (f: FilaVentas): FilaVentas => ({
@@ -175,7 +183,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
 
   m.porSku = [...porSku.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
   m.porDiseno = [...porDiseno.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
-  m.porDia = [...porDia.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  m.porDia = porDiaFilas.map((d) => ({ fecha: d.fecha, unidades: Number(d.unidades), importe: Number(d.importe), neto: Number(d.neto) }));
   m.skusSinCosto = sinCosto.size;
   return m;
 }

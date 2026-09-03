@@ -6,6 +6,7 @@ import { BotonSheets, BotonSincronizar, FormularioParametros, SubirCostos } from
 import { Encabezado } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export default async function AjustesYz({ searchParams }: { searchParams: Promise<{ ok?: string; error?: string }> }) {
   const sp = await searchParams;

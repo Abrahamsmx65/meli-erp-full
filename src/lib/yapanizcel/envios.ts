@@ -11,6 +11,7 @@ import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
 import { calcularPlan, type EnCamino, type LineaPlan, type Plan } from "./plan";
+import { cargarVentasAgregadas } from "./agregados";
 
 export interface EnvioRegistrado {
   id: string;
@@ -74,14 +75,9 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, parametros.diasVenta - 1);
 
-  const [skus, ventas, snapshots, stock, inventario, { enCamino }] = await Promise.all([
+  const [skus, agregadas, stock, inventario, { enCamino }] = await Promise.all([
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
-    todo<{ sku: string; fecha: string; unidades: number }>(db, "yz_ventas_diarias", "sku, fecha, unidades", (q) =>
-      q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
-    ),
-    todo<{ sku: string; fecha: string; disponible: number }>(db, "yz_stock_snapshots", "sku, fecha, disponible", (q) =>
-      q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
-    ),
+    cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, parametros.diasCaducidadEnvio),
@@ -89,8 +85,8 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
 
   const plan = calcularPlan({
     skus: skus.map((s) => s.sku),
-    ventas,
-    snapshots,
+    ventas: agregadas.ventas,
+    snapshots: agregadas.snapshots,
     stock: stock.map((s) => ({ sku: s.sku, disponible: s.disponible, enTransferencia: s.en_transferencia })),
     bodega: [...inventario.porSkuMeli].map(([skuMeli, unidades]) => ({ skuMeli, unidades })),
     enCamino,

@@ -6,6 +6,7 @@ import { cargarEnvios } from "@/lib/yapanizcel/envios";
 import { cargarPedidosEnCamino } from "@/lib/yapanizcel/compras";
 import { hoyMx, restarDias, todo } from "@/lib/yapanizcel/db";
 import { construirIndice, desglosar } from "@/lib/yapanizcel/sku";
+import { cargarVentasAgregadas } from "@/lib/yapanizcel/agregados";
 import { Ficha } from "@/components/tiles";
 import { BotonSheets } from "@/components/yapanizcel/acciones";
 import { TablaInventarioYz, type RenglonInv } from "@/components/yapanizcel/tabla-inventario";
@@ -13,6 +14,7 @@ import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export default async function InventarioYz() {
   const supabase = await clienteServidor();
@@ -20,14 +22,14 @@ export default async function InventarioYz() {
   if (!cuenta) return <SinCuenta />;
 
   const p = await leerParametros(supabase, cuenta.id);
-  const hasta = hoyMx();
+  const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [inv, skus, stock, ventas, { enCamino }, mapeos, sync] = await Promise.all([
+  const [inv, skus, stock, agregadas, { enCamino }, mapeos, sync] = await Promise.all([
     cargarInventarioAmarrado(supabase, cuenta.id),
     todo<{ sku: string; titulo: string | null; diseno: string | null }>(supabase, "yz_skus", "sku, titulo, diseno", (q) => q.eq("account_id", cuenta.id)),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(supabase, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", cuenta.id)),
-    todo<{ sku: string; unidades: number }>(supabase, "yz_ventas_diarias", "sku, unidades", (q) => q.eq("account_id", cuenta.id).gte("fecha", desde).lte("fecha", hasta)),
+    cargarVentasAgregadas(supabase, cuenta.id, desde, hasta),
     cargarEnvios(supabase, cuenta.id, p.diasCaducidadEnvio),
     todo<{ sku_bodega: string; sku_meli: string }>(supabase, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", cuenta.id)),
     supabase.from("yz_inventario_sync").select("corrido_en, hojas, renglones, unidades, avisos").eq("account_id", cuenta.id).maybeSingle(),
@@ -40,8 +42,7 @@ export default async function InventarioYz() {
   });
 
   const stockPor = new Map(stock.map((s) => [s.sku, s]));
-  const vend = new Map<string, number>();
-  for (const v of ventas) vend.set(v.sku, (vend.get(v.sku) ?? 0) + v.unidades);
+  const vend = agregadas.totales;
   const camino = new Map<string, number>();
   for (const c of enCamino) camino.set(c.skuMeli, (camino.get(c.skuMeli) ?? 0) + c.unidades);
   const bodegaSkus = new Map<string, string[]>();

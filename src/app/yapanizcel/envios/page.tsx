@@ -7,6 +7,7 @@ import { PlanEnvios, type LineaPantalla } from "@/components/yapanizcel/plan-env
 import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export default async function EnviosYz() {
   const supabase = await clienteServidor();

@@ -5,6 +5,7 @@ import { ListadosYz } from "@/components/yapanizcel/listados";
 import { Encabezado, SinCuenta } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export default async function ListadosPagina() {
   const supabase = await clienteServidor();

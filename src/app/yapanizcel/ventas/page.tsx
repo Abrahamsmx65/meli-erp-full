@@ -7,6 +7,7 @@ import { FiltroFechas } from "@/components/filtro-fechas";
 import { Encabezado, SinCuenta, n, pesos } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 function pct(x: number | null): string {
   return x == null ? "—" : `${Math.round(x * 100)}%`;
