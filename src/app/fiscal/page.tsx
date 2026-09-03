@@ -10,7 +10,7 @@ export default async function Fiscal() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           Los datos fiscales viven en las publicaciones de Mercado Libre; primero hay que
           conectarlo.
@@ -22,7 +22,7 @@ export default async function Fiscal() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Datos fiscales</h1>
+        <h1 className="titulo-pagina">Datos fiscales</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Solo los SKUs que <strong>no</strong> tienen la información fiscal cargada en MELI
           (clave SAT, IVA, IEPS y unidad), agrupados por modelo: se captura una vez y el ERP

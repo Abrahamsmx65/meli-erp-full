@@ -91,7 +91,7 @@ export default async function Videos() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-xl font-semibold">Videos de producto</h1>
+        <h1 className="titulo-pagina">Videos de producto</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Clips verticales 9:16 listos para los Clips de Mercado Libre: del
           producto tal cual (directo de tus fotos reales) o en modo UGC, con una

@@ -38,7 +38,7 @@ export default async function DetalleSku({
           ← Volver a Envíos a Full
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">{h.sku}</h1>
+          <h1 className="titulo-pagina">{h.sku}</h1>
           <Estado estado={l.estado} />
         </div>
         {h.titulo ? (

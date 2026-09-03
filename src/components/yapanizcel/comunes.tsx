@@ -17,7 +17,7 @@ export function dias(x: number): string {
 export function SinCuenta() {
   return (
     <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-      <h1 className="text-lg font-semibold">Conecta la cuenta de YAPANIZCEL</h1>
+      <h1 className="titulo-seccion">Conecta la cuenta de YAPANIZCEL</h1>
       <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
         Es otra cuenta de Mercado Libre, con su propia aplicación. Se conecta una sola vez
         desde Ajustes de fundas.
@@ -33,7 +33,7 @@ export function Encabezado({ titulo, texto, children }: { titulo: string; texto?
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold">{titulo}</h1>
+        <h1 className="titulo-pagina">{titulo}</h1>
         {texto ? (
           <p className="mt-0.5 max-w-3xl text-sm" style={{ color: "var(--ink-2)" }}>
             {texto}

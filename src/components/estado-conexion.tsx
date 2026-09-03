@@ -14,7 +14,7 @@ interface Estado {
 }
 
 /**
- * Barra de estado de la conexión con Mercado Libre.
+ * Estado de la conexión con Mercado Libre, en la barra superior.
  *
  * Ahora que la sincronización es por webhooks, el usuario ya no pica botones:
  * los datos cambian solos. Pero "solo" no puede significar "a ciegas" — si el
@@ -29,7 +29,8 @@ export function EstadoConexion() {
   // El link sin contraseña no trae sesión: preguntar por /api/estado desde
   // ahí solo daría 401 cada 30 segundos, y esa barra habla de Mercado Libre,
   // que no es asunto de quien entra a trabajar el contenido.
-  const publica = ruta.startsWith("/contenido/");
+  const publica =
+    ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
 
   useEffect(() => {
     if (publica) return;
@@ -79,38 +80,57 @@ export function EstadoConexion() {
     ? Date.now() - new Date(e.ultimaSync).getTime() > 26 * 3600 * 1000
     : true;
 
+  const vivo = e.conectado && !viejo;
+
   return (
     <div
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-5 py-1.5 text-xs"
-      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+      className="flex items-center gap-2 text-[12px] font-medium"
+      style={{ color: "var(--marca-texto)" }}
+      aria-live="polite"
     >
-      <span className="inline-flex items-center gap-1.5">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
+        style={{ background: "var(--marca-suave)" }}
+        title={
+          e.planGeneradoEn
+            ? `Plan ${e.planVigente ? "al día" : "desactualizado"} · ${hace(e.planGeneradoEn)}`
+            : undefined
+        }
+      >
         <span
           aria-hidden="true"
-          style={{ color: e.conectado && !viejo ? "var(--exito-texto)" : "var(--estado-alerta)" }}
-        >
-          {e.conectado && !viejo ? "●" : "■"}
-        </span>
+          className="inline-block h-2 w-2 rounded-full"
+          style={{
+            background: vivo ? "#2ecc71" : "#ff9f43",
+            boxShadow: vivo ? "0 0 0 3px rgba(46,204,113,.25)" : "none",
+          }}
+        />
         {!e.conectado
-          ? "Mercado Libre sin conectar"
+          ? "MELI sin conectar"
           : e.enVivo
             ? `MELI en vivo · ${hace(e.ultimaSync)}`
-            : `MELI ${hace(e.ultimaSync)}`}
+            : `MELI · ${hace(e.ultimaSync)}`}
+        {e.ultimaSyncAmazon ? (
+          <span style={{ color: "rgba(255,255,255,.6)" }}>· Amazon {hace(e.ultimaSyncAmazon)}</span>
+        ) : null}
       </span>
 
-      {e.ultimaSyncAmazon ? (
-        <span style={{ color: "var(--ink-2)" }}>Amazon {hace(e.ultimaSyncAmazon)}</span>
-      ) : null}
-
-      {e.planGeneradoEn ? (
-        <span style={{ color: e.planVigente ? "var(--ink-muted)" : "var(--estado-alerta)" }}>
-          Plan {e.planVigente ? "al día" : "desactualizado"} · {hace(e.planGeneradoEn)}
+      {e.planGeneradoEn && !e.planVigente ? (
+        <span
+          className="hidden rounded-full px-2.5 py-1 lg:inline-flex"
+          style={{ background: "rgba(255,159,67,.22)", color: "#ffd2a8" }}
+        >
+          Plan desactualizado
         </span>
       ) : null}
 
       {e.avisosPendientes > 0 ? (
-        <a href="/pendientes" className="underline" style={{ color: "var(--estado-alerta)" }}>
-          {e.avisosPendientes} pendientes por resolver
+        <a
+          href="/pendientes"
+          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
+          style={{ background: "var(--estado-critico)", color: "#fff" }}
+        >
+          <span className="cifra">{e.avisosPendientes}</span> pendientes
         </a>
       ) : null}
     </div>

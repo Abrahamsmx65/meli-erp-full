@@ -14,7 +14,7 @@ export default async function PaginaCostosEnvio() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
           Ir a Ajustes
         </Link>
@@ -30,7 +30,7 @@ export default async function PaginaCostosEnvio() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Costos de envío</h1>
+        <h1 className="titulo-pagina">Costos de envío</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           En Full, MELI mide la caja al recibirla y con esa medida cobra el envío de cada
           venta. Cuando mide mal, esa talla cobra de más para siempre: en el GT229 quince

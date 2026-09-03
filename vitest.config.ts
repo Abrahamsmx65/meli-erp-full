@@ -1,12 +1,12 @@
-import { configDefaults, defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
 /**
- * Las pruebas del ERP. `boletos/` es un proyecto aparte con su propio
- * package.json, sus dependencias y su propio vitest: aquí no se toca, igual
- * que en tsconfig.json.
+ * Solo las pruebas del ERP. `boletos/` es un proyecto independiente con su
+ * propio package.json y su propio vitest: desde la raíz no tiene instaladas
+ * sus dependencias (nodemailer, qrcode) y sus pruebas tronaban el build.
  */
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, "boletos/**"],
+    exclude: ["**/node_modules/**", "boletos/**", ".next/**"],
   },
 });

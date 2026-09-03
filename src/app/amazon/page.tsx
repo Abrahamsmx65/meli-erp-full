@@ -58,7 +58,7 @@ export default async function Amazon({
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Amazon no está conectado</h1>
+        <h1 className="titulo-seccion">Amazon no está conectado</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           No hay ninguna cuenta de Amazon asociada a este usuario. El conector
           vive en la carpeta <code>CODIGO</code> y se configura con{" "}
@@ -86,7 +86,7 @@ export default async function Amazon({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Envíos a FBA</h1>
+        <h1 className="titulo-pagina">Envíos a FBA</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Existencias en FBA de {cuenta.nombre ?? "tu cuenta"} y qué cajas completas
           mandar. Las ventas de Amazon viven en su propio panel, en Ventas Amazon.

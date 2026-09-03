@@ -143,6 +143,8 @@ export interface PedidoTikTok {
   enviadoEn: string | null;
   total: number | null;
   moneda: string | null;
+  /** solicitud de muestra gratis de un creador: se despacha, no es venta */
+  esMuestra: boolean;
   paqueteria: string | null;
   guia: string | null;
   /** TIKTOK = guía de TikTok; SELLER = paquetería propia con guía nuestra */
@@ -194,6 +196,12 @@ export function normalizarPedido(o: any): PedidoTikTok {
     enviadoEn: iso(o.rts_time ?? o.collection_time),
     total: o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
     moneda: o.payment?.currency ?? null,
+    // TikTok marca las muestras con is_sample_order; por si un día no lo
+    // manda, un pedido de $0 también es muestra: nadie regala un par sin
+    // que sea eso.
+    esMuestra:
+      o.is_sample_order === true ||
+      (o.payment?.total_amount != null && Number(o.payment.total_amount) === 0),
     paqueteria: o.shipping_provider ?? null,
     guia: o.tracking_number ?? null,
     shippingType: o.shipping_type ?? null,
@@ -461,4 +469,71 @@ export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<
 /** Solo los horarios (compatibilidad). */
 export async function horariosDeRecoleccion(c: Cliente, packageId: string): Promise<HorarioRecoleccion[]> {
   return (await opcionesDeEntrega(c, packageId)).horarios;
+}
+
+// ---------------------------------------------------------------------------
+// Finanzas: lo que TikTok liquida por un pedido
+// ---------------------------------------------------------------------------
+
+export interface LiquidacionTikTok {
+  /** lo que entra a la cuenta por el pedido: ingreso − comisiones − envío */
+  neto: number;
+  ingreso: number | null;
+  comisiones: number | null;
+  envio: number | null;
+  moneda: string | null;
+  statementId: string | null;
+  crudo: unknown;
+}
+
+function numero(x: unknown): number | null {
+  if (x == null || x === "") return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Saca el neto de la respuesta de finanzas sin casarse con una forma exacta:
+ * si el nivel de arriba trae `settlement_amount` se usa; si no, se suman las
+ * transacciones. Se guarda el crudo para poder afinarlo después.
+ */
+export function interpretarLiquidacion(d: any): LiquidacionTikTok | null {
+  if (!d || typeof d !== "object") return null;
+  const arriba = numero(d.settlement_amount);
+  const lista: any[] = Array.isArray(d.transactions)
+    ? d.transactions
+    : Array.isArray(d.statement_transactions)
+      ? d.statement_transactions
+      : [];
+  const suma = (campo: string): number | null => {
+    let hay = false;
+    let total = 0;
+    for (const t of lista) {
+      const n = numero(t?.[campo]);
+      if (n == null) continue;
+      hay = true;
+      total += n;
+    }
+    return hay ? total : null;
+  };
+  const neto = arriba ?? suma("settlement_amount");
+  if (neto == null) return null;
+  return {
+    neto,
+    ingreso: numero(d.revenue_amount) ?? suma("revenue_amount"),
+    comisiones: numero(d.fee_amount) ?? suma("fee_amount"),
+    envio: numero(d.shipping_cost_amount) ?? suma("shipping_cost_amount"),
+    moneda: d.currency ?? lista[0]?.currency ?? null,
+    statementId: d.statement_id ?? lista[0]?.statement_id ?? null,
+    crudo: d,
+  };
+}
+
+/**
+ * La liquidación de un pedido. null = TikTok todavía no lo liquida (no
+ * está en ningún estado de cuenta) o no contestó nada usable.
+ */
+export async function liquidacionDePedido(c: Cliente, orderId: string): Promise<LiquidacionTikTok | null> {
+  const d = await c.llamar<any>("GET", `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
+  return interpretarLiquidacion(d);
 }

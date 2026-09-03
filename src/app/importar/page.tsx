@@ -40,7 +40,7 @@ export default function Importar() {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Importar inventario</h1>
+        <h1 className="titulo-pagina">Importar inventario</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Todo llega solo cada mañana: las existencias de bodega desde el API de
           Industher y las corridas desde tu Google Sheets. Los botones de abajo

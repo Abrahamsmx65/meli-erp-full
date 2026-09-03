@@ -48,7 +48,7 @@ export default async function Publicidad({
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
           La publicidad sale de tu cuenta de Mercado Libre; primero hay que conectarla
           en Ajustes.
@@ -63,7 +63,7 @@ export default async function Publicidad({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Publicidad</h1>
+        <h1 className="titulo-pagina">Publicidad</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Product Ads por modelo: qué se vendió, qué se ganó y cuánto costó la
           publicidad por unidad vendida en el periodo ({dias} días · {rango.desde} →{" "}

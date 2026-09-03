@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { catalogo, pedidosActualizados, publicarStock } from "./api";
+import { interpretarLiquidacion } from "./api";
 import type { Cliente } from "./client";
 
 function clienteFalso(respuestas: any[], msRestantes = 100_000) {
@@ -193,5 +194,14 @@ describe("enviarPaquete", () => {
       handover_method: "DROP_OFF",
       self_shipment: { tracking_number: "ABC123", shipping_provider_id: "77" },
     });
+  });
+});
+
+describe("interpretarLiquidacion", () => {
+  it("usa el total de arriba si viene, si no suma las transacciones; nada usable = null", () => {
+    expect(interpretarLiquidacion({ settlement_amount: "412.30", revenue_amount: "500", fee_amount: "-87.7", currency: "MXN", statement_id: "s1" })).toMatchObject({ neto: 412.3, ingreso: 500, comisiones: -87.7, moneda: "MXN", statementId: "s1" });
+    expect(interpretarLiquidacion({ transactions: [{ settlement_amount: "100", currency: "MXN" }, { settlement_amount: "-20" }] })).toMatchObject({ neto: 80, moneda: "MXN" });
+    expect(interpretarLiquidacion({ transactions: [] })).toBeNull();
+    expect(interpretarLiquidacion(null)).toBeNull();
   });
 });

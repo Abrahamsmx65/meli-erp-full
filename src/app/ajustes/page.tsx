@@ -40,7 +40,7 @@ export default async function Ajustes({
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
-      <h1 className="text-xl font-semibold">Ajustes</h1>
+      <h1 className="titulo-pagina">Ajustes</h1>
 
       {sp.ok ? (
         <div className="tarjeta p-4 text-sm" style={{ color: "var(--exito-texto)" }}>

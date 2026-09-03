@@ -14,7 +14,7 @@ export default function Sincronizar() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 py-6">
       <div>
-        <h1 className="text-xl font-semibold">Sincronizar con Mercado Libre</h1>
+        <h1 className="titulo-pagina">Sincronizar con Mercado Libre</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           Trae tu catálogo completo, el stock disponible y en transferencia en
           Full, las ventas de los últimos 90 días y el historial de movimientos

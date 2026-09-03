@@ -14,7 +14,7 @@ export default async function Despacho() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre primero</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
       </div>
     );
   }
@@ -30,9 +30,15 @@ export default async function Despacho() {
     supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
     tokenPreparar(cuenta.id),
   ]);
-  // Sin la diagonal final: con ella el link salía como "//preparar/…" y el
-  // middleware no lo reconocía como ruta pública (pedía contraseña).
-  const origen = (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app").replace(/\/+$/, "");
+  // El link de los empleados va SIEMPRE al dominio de producción que Vercel
+  // reporta (VERCEL_PROJECT_PRODUCTION_URL), no a lo que diga la variable
+  // de la app: los otros dominios del proyecto (git-main, getac) están
+  // detrás de la autenticación de Vercel y ahí el link pediría contraseña.
+  // Sin diagonal final: con ella salía "//preparar/…" y rebotaba al login.
+  const dominioVercel = (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "").trim();
+  const origen = (
+    dominioVercel ? `https://${dominioVercel}` : (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app")
+  ).replace(/\/+$/, "");
   const preparadosPorCorte = new Map<number, number>();
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
@@ -52,7 +58,7 @@ export default async function Despacho() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Despacho TikTok Shop</h1>
+        <h1 className="titulo-pagina">Despacho TikTok Shop</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La rutina de la mañana: un corte confirma todo lo pendiente y deja listas las etiquetas y
           la lista de empaque, en orden de modelo.
