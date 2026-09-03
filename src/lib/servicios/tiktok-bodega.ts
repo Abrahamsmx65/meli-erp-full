@@ -11,7 +11,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import type { Corrida, FilaExistencia } from "../importar/excel";
-import { conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas } from "../tiktok/bodega";
+import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas } from "../tiktok/bodega";
 import { confirmarSalidasAtribuidas, estadoSalidas3pl } from "./tiktok-3pl";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
@@ -43,10 +43,11 @@ export async function paresEnBodegaTikTok(db: DB, accountId: string): Promise<{ 
   const filas = (existRaw ?? []).filter((e: any) => esAlmacenTikTok(e.almacen));
   if (!filas.length) return { almacen: null, pares: new Map() };
   const almacen: string = filas[0].almacen;
-  const [skus, corridasRaw, mapeoRaw] = await Promise.all([
+  const [skus, corridasRaw, mapeoRaw, ttSkus] = await Promise.all([
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
+    traerTodo<any>(db, "tiktok_skus", "seller_sku", (q) => eq(q).eq("activo", true)),
   ]);
   const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({ pedido: c.pedido, modelo: c.modelo, color: c.color, tallas: c.tallas ?? {}, total: c.total ?? 0 }));
   const existencias: FilaExistencia[] = filas.map((e: any) => ({
@@ -60,7 +61,7 @@ export async function paresEnBodegaTikTok(db: DB, accountId: string): Promise<{ 
     almacenes: [almacen],
     incluirTikTok: true,
   });
-  return { almacen, pares: paresPorSkuDesdeCajas(r.cajas) };
+  return { almacen, pares: paresPorSkuDesdeCajas(r.cajas, aliasDesdeTikTok((ttSkus ?? []).map((t: any) => t.seller_sku))) };
 }
 
 export async function sincronizarSaldoDesdeBodega(
@@ -104,12 +105,14 @@ export async function sincronizarSaldoDesdeBodega(
       { onConflict: "account_id,almacen" },
     );
 
-  const [skus, corridasRaw, mapeoRaw, movsRaw] = await Promise.all([
+  const [skus, corridasRaw, mapeoRaw, movsRaw, ttSkus] = await Promise.all([
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
     traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, cantidad, fecha, referencia, id", eq),
+    traerTodo<any>(db, "tiktok_skus", "seller_sku", (q) => eq(q).eq("activo", true)),
   ]);
+  const alias = aliasDesdeTikTok((ttSkus ?? []).map((t: any) => t.seller_sku));
 
   const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({
     pedido: c.pedido,
@@ -143,7 +146,7 @@ export async function sincronizarSaldoDesdeBodega(
     incluirTikTok: true,
   });
 
-  const pares = paresPorSkuDesdeCajas(resultado.cajas);
+  const pares = paresPorSkuDesdeCajas(resultado.cajas, alias);
   const movimientos: Movimiento[] = (movsRaw ?? []).map((m: any) => ({
     sku: m.sku,
     tipo: m.tipo,

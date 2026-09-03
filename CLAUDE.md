@@ -165,7 +165,10 @@ guárdala numerada.
   **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
   canónico → aplastado → ordenado → PROPIO: un SKU con forma
   MODELO-COLOR-TALLA que MELI no tiene (el MY2304 morado solo se vende en
-  TikTok) se acepta tal cual, porque ese par también sale de la bodega.
+  TikTok) se acepta tal cual, con su `-MX`, porque ese par también sale de
+  la bodega. Industher lo construye SIN sufijo (`MY2304-PURPLE-23`) y
+  `aliasDesdeTikTok` lo lleva al nombre de TikTok: un solo renglón en el
+  kardex para los dos lados.
   Lo que quedó sin amarre se reintenta en cada corrida
   (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
   manda al 3PL en ese momento.

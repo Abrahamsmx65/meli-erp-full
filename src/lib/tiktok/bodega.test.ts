@@ -6,6 +6,7 @@ import {
   paresPorSkuDesdeCajas,
   REFERENCIA_INDUSTHER,
 } from "./bodega";
+import { aliasDesdeTikTok } from "./bodega";
 import { saldosDesdeMovimientos, type Movimiento } from "./kardex";
 
 describe("esAlmacenTikTok", () => {
@@ -173,5 +174,19 @@ describe("conciliarAcumulado: cuando el 3PL descuenta lo que le mandamos", () =>
     const { conciliarAcumulado } = await import("./bodega");
     const r = conciliarAcumulado(new Map([["A", 120]]), entrada100, FOTO, { confirmadas: vacio(), pendientes: new Map([["A", 3]]) });
     expect(r.movimientos).toEqual([expect.objectContaining({ sku: "A", tipo: "entrada", cantidad: 20 })]);
+  });
+});
+
+describe("alias hacia el SKU de TikTok", () => {
+  it("lo construido sin -MX que TikTok vende con -MX cae en el nombre de TikTok; lo de MELI no se toca", () => {
+    const alias = aliasDesdeTikTok(["MY2304-PURPLE-23-MX", "GT134-BLK-24-MX"]);
+    const cajas: any[] = [
+      { cajasDisponibles: 2, cajasApartadas: 0, detalle: [{ sku: "MY2304-PURPLE-23", piezas: 3, talla: "23", origen: "sin_amarre" }] },
+      { cajasDisponibles: 1, cajasApartadas: 0, detalle: [{ sku: "GT134-BLK-24", piezas: 1, talla: "24", origen: "exacto" }] },
+    ];
+    const pares = paresPorSkuDesdeCajas(cajas, alias);
+    expect(pares.get("MY2304-PURPLE-23-MX")).toBe(6);
+    expect(pares.get("MY2304-PURPLE-23")).toBeUndefined();
+    expect(pares.get("GT134-BLK-24")).toBe(1);
   });
 });

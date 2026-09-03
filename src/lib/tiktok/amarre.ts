@@ -14,7 +14,11 @@
  *   6. propio         (no está en MELI pero tiene la forma MODELO-COLOR-TALLA:
  *                      TikTok tiene su propio almacén y puede vender un
  *                      modelo que en MELI no existe —el MY2304 morado—; ese
- *                      par también sale de la bodega y tiene que descontarse)
+ *                      par también sale de la bodega y tiene que descontarse.
+ *                      Se guarda como lo escribe TikTok, con su -MX; la
+ *                      bodega, que lo construye sin sufijo, se amarra a ESTE
+ *                      nombre en `tiktok/bodega.ts` para que los dos lados
+ *                      caigan en el mismo SKU)
  *
  * Lo que no cae en ninguno se queda SIN amarrar a propósito. Un SKU adivinado
  * descontaría del par equivocado y dejaría dos publicaciones mal a la vez.
@@ -52,9 +56,14 @@ export function amarrarSkuTikTok(
   const ordenado = indice.ordenado.get(claveOrdenada(crudo));
   if (ordenado) return { skuInterno: ordenado.sku, origen: "ordenado" };
 
-  if (pareceSkuDeCalzado(crudo)) return { skuInterno: crudo.toUpperCase(), origen: "propio" };
+  if (pareceSkuDeCalzado(crudo)) return { skuInterno: skuPropio(crudo), origen: "propio" };
 
   return { skuInterno: null, origen: null };
+}
+
+/** "my2304-purple-25-mx" → "MY2304-PURPLE-25-MX": tal cual lo escribe TikTok, en mayúsculas y sin espacios sobrantes. */
+export function skuPropio(sku: string): string {
+  return sku.trim().toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
 }
 
 /**

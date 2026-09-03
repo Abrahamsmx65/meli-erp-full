@@ -16,6 +16,7 @@
  * diferencia y las salidas del kardex quedan intactas.
  */
 import { esAlmacenTikTok, type CajaConstruida } from "../importar/cajas";
+import { claveComparacion } from "../importar/sku";
 import type { Movimiento } from "./kardex";
 
 /** Cómo se reconoce la bodega de TikTok en Industher (vive junto al armado de cajas, que la excluye). */
@@ -30,17 +31,34 @@ export const REFERENCIA_INDUSTHER = "industher:";
  * "apartada" no significa "para un envío a Full", y lo que TikTok tiene
  * apartado el ERP ya lo resta por su lado con los pedidos pagados.
  */
-export function paresPorSkuDesdeCajas(cajas: CajaConstruida[]): Map<string, number> {
+export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: Map<string, string>): Map<string, number> {
   const pares = new Map<string, number>();
   for (const caja of cajas) {
     const fisicas = (caja.cajasDisponibles ?? 0) + (caja.cajasApartadas ?? 0);
     if (fisicas <= 0) continue;
     for (const it of caja.detalle ?? []) {
       if (!it.sku || it.piezas <= 0) continue;
-      pares.set(it.sku, (pares.get(it.sku) ?? 0) + it.piezas * fisicas);
+      // Lo que MELI no tiene sale construido sin sufijo ("MY2304-PURPLE-23");
+      // si TikTok lo vende con otro nombre ("MY2304-PURPLE-23-MX"), es el
+      // mismo par y se lleva a ESE nombre: un solo renglón en el kardex.
+      const sinMeli = it.origen === "sin_amarre" || it.origen === "sin_catalogo";
+      const sku = (sinMeli && alias?.get(claveComparacion(it.sku))) || it.sku;
+      pares.set(sku, (pares.get(sku) ?? 0) + it.piezas * fisicas);
     }
   }
   return pares;
+}
+
+/** clave canónica → SKU tal cual lo escribe TikTok, para los modelos que MELI no tiene. */
+export function aliasDesdeTikTok(sellerSkus: (string | null | undefined)[]): Map<string, string> {
+  const alias = new Map<string, string>();
+  for (const s of sellerSkus) {
+    const sku = String(s ?? "").trim().toUpperCase();
+    if (!sku) continue;
+    const clave = claveComparacion(sku);
+    if (!alias.has(clave)) alias.set(clave, sku);
+  }
+  return alias;
 }
 
 export interface MovimientoDesdeIndusther {

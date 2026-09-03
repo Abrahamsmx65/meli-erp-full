@@ -47,7 +47,7 @@ describe("amarrarSkuTikTok", () => {
 describe("SKU propio de TikTok (no está en MELI)", () => {
   it("un MODELO-COLOR-TALLA que MELI no tiene se acepta tal cual, como propio", () => {
     expect(amarrarSkuTikTok("MY2304-PURPLE-25-MX", indice, new Map())).toEqual({ skuInterno: "MY2304-PURPLE-25-MX", origen: "propio" });
-    expect(amarrarSkuTikTok("gt134-navy / red-24-mx", indice, new Map()).origen).toBe("propio");
+    expect(amarrarSkuTikTok("gt134-navy / red-24-mx", indice, new Map())).toEqual({ skuInterno: "GT134-NAVY / RED-24-MX", origen: "propio" });
   });
   it("lo que no tiene forma de calzado se queda sin amarrar", () => {
     expect(amarrarSkuTikTok("caja-regalo", indice, new Map())).toEqual({ skuInterno: null, origen: null });
