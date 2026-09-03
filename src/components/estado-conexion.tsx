@@ -85,12 +85,12 @@ export function EstadoConexion() {
   return (
     <div
       className="flex items-center gap-2 text-[12px] font-medium"
-      style={{ color: "var(--ambar-tinta)" }}
+      style={{ color: "var(--marca-texto)" }}
       aria-live="polite"
     >
       <span
         className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
-        style={{ background: "rgba(255,255,255,.55)" }}
+        style={{ background: "var(--marca-suave)" }}
         title={
           e.planGeneradoEn
             ? `Plan ${e.planVigente ? "al día" : "desactualizado"} · ${hace(e.planGeneradoEn)}`
@@ -101,8 +101,8 @@ export function EstadoConexion() {
           aria-hidden="true"
           className="inline-block h-2 w-2 rounded-full"
           style={{
-            background: vivo ? "var(--estado-bien)" : "var(--estado-serio)",
-            boxShadow: vivo ? "0 0 0 3px rgba(0,166,80,.18)" : "none",
+            background: vivo ? "#2ecc71" : "#ff9f43",
+            boxShadow: vivo ? "0 0 0 3px rgba(46,204,113,.25)" : "none",
           }}
         />
         {!e.conectado
@@ -111,16 +111,14 @@ export function EstadoConexion() {
             ? `MELI en vivo · ${hace(e.ultimaSync)}`
             : `MELI · ${hace(e.ultimaSync)}`}
         {e.ultimaSyncAmazon ? (
-          <span style={{ color: "color-mix(in oklab, var(--ambar-tinta) 60%, transparent)" }}>
-            · Amazon {hace(e.ultimaSyncAmazon)}
-          </span>
+          <span style={{ color: "rgba(255,255,255,.6)" }}>· Amazon {hace(e.ultimaSyncAmazon)}</span>
         ) : null}
       </span>
 
       {e.planGeneradoEn && !e.planVigente ? (
         <span
           className="hidden rounded-full px-2.5 py-1 lg:inline-flex"
-          style={{ background: "rgba(255,255,255,.55)", color: "#8a5a00" }}
+          style={{ background: "rgba(255,159,67,.22)", color: "#ffd2a8" }}
         >
           Plan desactualizado
         </span>

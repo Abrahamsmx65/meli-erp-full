@@ -8,10 +8,11 @@ import { MenuLateral } from "@/components/menu-lateral";
 import { EstadoConexion } from "@/components/estado-conexion";
 
 /**
- * Armazón de la app: barra superior amarilla, menú lateral blanco y el área
- * de trabajo sobre gris. Es el mismo esqueleto del panel de vendedor de
- * Mercado Libre, que es donde el dueño pasa el resto del día: así la
- * herramienta se siente parte del mismo escritorio y no un sistema aparte.
+ * Armazón de la app: barra superior azul marino, menú lateral blanco y el
+ * área de trabajo sobre gris frío. Es el esqueleto de un panel de vendedor
+ * (Seller Central, el de MELI), que es donde el dueño pasa el resto del día:
+ * así la herramienta se siente parte del mismo escritorio y no un sistema
+ * aparte.
  *
  * Las pantallas SIN sesión (login, el link de contenido de Amazon y la
  * estación de preparar pedidos) reciben solo la franja de marca: quien entra
@@ -35,7 +36,7 @@ export function Armazon({ children }: { children: React.ReactNode }) {
         <header
           aria-label="Barra superior"
           className="no-imprimir flex h-12 items-center px-5"
-          style={{ background: "var(--ambar)" }}
+          style={{ background: "linear-gradient(90deg, var(--marca), var(--marca-2))" }}
         >
           <Logo />
         </header>
@@ -60,22 +61,22 @@ export function Armazon({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Logo({ claro }: { claro?: boolean }) {
+function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2.5" aria-label="GETAC, inicio">
       <span
         className="flex h-8 w-8 items-center justify-center rounded-lg"
-        style={{ background: claro ? "#fff" : "var(--ambar-tinta)", color: claro ? "var(--ambar-tinta)" : "var(--ambar)" }}
+        style={{ background: "var(--acento)", color: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}
       >
         <Package size={18} strokeWidth={2.5} />
       </span>
       <span className="leading-none">
-        <span className="block text-[15px] font-extrabold tracking-tight" style={{ color: "var(--ambar-tinta)" }}>
+        <span className="block text-[15px] font-extrabold tracking-tight" style={{ color: "var(--marca-texto)" }}>
           GETAC
         </span>
         <span
           className="mt-0.5 block text-[9px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "color-mix(in oklab, var(--ambar-tinta) 70%, transparent)" }}
+          style={{ color: "rgba(255,255,255,.6)" }}
         >
           Control de inventario
         </span>
@@ -85,7 +86,7 @@ function Logo({ claro }: { claro?: boolean }) {
 }
 
 /**
- * La barra amarilla. Lleva el logo, el buscador de SKUs (va directo a Bodega
+ * La barra superior. Lleva el logo, el buscador de SKUs (va directo a Bodega
  * con el filtro puesto), el estado de la conexión con MELI y la salida.
  */
 function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => void }) {
@@ -103,14 +104,17 @@ function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => voi
     <header
       aria-label="Barra superior"
       className="no-imprimir sticky top-0 z-40 flex h-14 items-center gap-3 px-4 md:gap-5 md:px-5"
-      style={{ background: "var(--ambar)", boxShadow: "0 1px 0 rgba(0,0,0,.08)" }}
+      style={{
+        background: "linear-gradient(90deg, var(--marca), var(--marca-2))",
+        boxShadow: "0 1px 0 rgba(0,0,0,.2), 0 2px 8px rgba(15,27,45,.18)",
+      }}
     >
       <button
         onClick={alternar}
         aria-label={abierto ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={abierto}
         className="-ml-1 rounded-md p-1.5 lg:hidden"
-        style={{ color: "var(--ambar-tinta)" }}
+        style={{ color: "var(--marca-texto)" }}
       >
         {abierto ? <X size={20} /> : <Menu size={20} />}
       </button>
@@ -130,19 +134,17 @@ function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => voi
           onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar SKU, modelo o color en bodega…"
           aria-label="Buscar en bodega"
-          className="h-9 w-full rounded-r-none border-0 pr-2 shadow-sm"
-          style={{ boxShadow: "0 1px 2px rgba(0,0,0,.2)", borderRadius: "var(--radio) 0 0 var(--radio)" }}
+          className="h-9 w-full rounded-r-none border-0 pr-2"
+          style={{ borderRadius: "var(--radio) 0 0 var(--radio)" }}
         />
         <button
           type="submit"
           aria-label="Buscar"
           className="flex h-9 w-11 shrink-0 items-center justify-center"
           style={{
-            background: "#fff",
-            color: "var(--ink-2)",
-            borderLeft: "1px solid var(--grid)",
+            background: "var(--acento)",
+            color: "#fff",
             borderRadius: "0 var(--radio) var(--radio) 0",
-            boxShadow: "0 1px 2px rgba(0,0,0,.2)",
           }}
         >
           <Search size={17} strokeWidth={2.2} />
@@ -153,8 +155,8 @@ function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => voi
         <EstadoConexion />
         <a
           href="/api/salir"
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold"
-          style={{ color: "var(--ambar-tinta)" }}
+          className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-semibold"
+          style={{ color: "rgba(255,255,255,.85)" }}
           title="Cerrar sesión"
         >
           <LogOut size={15} strokeWidth={2.2} />

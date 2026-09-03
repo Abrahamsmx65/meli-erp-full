@@ -4,9 +4,10 @@
 /* ==========================================================================
    Tokens de diseño — lenguaje de marketplace.
 
-   La app se ve como el panel de vendedor de Mercado Libre: barra superior
-   amarilla, fondo gris neutro, tarjetas blancas con sombra corta, azul para
-   acciones y enlaces, verde / naranja / rojo para estados. Todo lo que antes
+   La app se ve como un panel de vendedor (Seller Central / MELI): barra
+   superior azul marino profundo, fondo gris frío, tarjetas blancas con
+   sombra corta, azul para acciones y enlaces, verde / naranja / rojo para
+   estados. Todo lo que antes
    era crema y verde-pizarra ahora es blanco y gris; los NOMBRES de los tokens
    se conservan para que las ~1000 referencias del código sigan valiendo.
 
@@ -18,8 +19,8 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #f5f5f5;
-  --plane: #ebebeb;
+  --surface-2: #f4f6f9;
+  --plane: #eef1f5;
 
   /* tinta */
   --ink-1: #1a1a1a;
@@ -27,9 +28,9 @@
   --ink-muted: #8c8c8c;
 
   /* líneas */
-  --grid: #eeeeee;
-  --axis: #cccccc;
-  --borde: #e3e3e3;
+  --grid: #edf0f4;
+  --axis: #c9cfd8;
+  --borde: #e1e5eb;
 
   /* estados */
   --estado-bien: #00a650;
@@ -38,18 +39,23 @@
   --estado-critico: #f23d4f;
 
   /* acción */
-  --acento: #3483fa;
-  --acento-hover: #2968c8;
-  --acento-suave: #e3edfb;
+  --acento: #2f6df6;
+  --acento-hover: #2457c9;
+  --acento-suave: #e6eefe;
   --exito-texto: #00854a;
 
-  /* marca */
-  --ambar: #ffe600;
-  --ambar-tinta: #2d3277;
+  /* marca: la barra superior, azul marino profundo con un degradado sutil */
+  --marca: #0f1b2d;
+  --marca-2: #16264a;
+  --marca-texto: #ffffff;
+  --marca-suave: rgba(255, 255, 255, 0.12);
+  --marca-suave-2: rgba(255, 255, 255, 0.2);
+  /* resalte de renglones (antes ámbar): azul muy claro */
+  --ambar: #2f6df6;
   --sidebar: #ffffff;
-  --sidebar-borde: #e3e3e3;
-  --sidebar-texto: #333333;
-  --sidebar-activo: #e3edfb;
+  --sidebar-borde: #e1e5eb;
+  --sidebar-texto: #333d4d;
+  --sidebar-activo: #e6eefe;
 
   --sombra-panel: 0 1px 2px rgba(0, 0, 0, 0.12);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
@@ -76,8 +82,8 @@
   }
 
   ::selection {
-    background: var(--ambar);
-    color: #1a1a1a;
+    background: #cfe0ff;
+    color: #0f1b2d;
   }
 
   h1,
@@ -253,7 +259,7 @@
     color: var(--acento);
   }
   .boton-secundario:not(:disabled):hover {
-    background: #d1e2fb;
+    background: #d6e3fd;
   }
 
   .boton-fantasma {
@@ -331,7 +337,7 @@
   }
 
   table.datos tbody tr:hover {
-    background: #f7f9fc;
+    background: #f5f8fd;
   }
 
   .num {
@@ -352,6 +358,11 @@
 
   .entrada-menu:hover {
     background: var(--surface-2);
+  }
+
+  .salir:hover {
+    background: var(--marca-suave);
+    color: #fff;
   }
 
   /* Insignia roja de conteo (pendientes). */
