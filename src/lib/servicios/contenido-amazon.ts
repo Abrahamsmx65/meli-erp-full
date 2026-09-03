@@ -568,6 +568,86 @@ export async function grupoDeModelo(
   return fila ? { codigos: fila.codigos, colores: fila.colores } : null;
 }
 
+/** Un ASIN hijo del catálogo, con su talla y color: un renglón del Excel de ASINs. */
+export interface AsinModelo {
+  modelo: string;
+  color: string;
+  talla: string;
+  sellerSku: string;
+  asin: string | null;
+  estado: string | null;
+  /** El ASIN padre cuando ya se resolvió (migración 0033). */
+  padre: string | null;
+}
+
+/**
+ * TODOS los ASINs hijos de los códigos de un grupo, uno por talla y color,
+ * ordenados modelo → color → talla. Es la lista que se le pega al contenido
+ * A+ cuando se crea: Amazon aplica el A+ por ASIN hijo, así que aquí no se
+ * recorta a un representativo por color como en las imágenes. Los SKUs sin
+ * ASIN también salen (con la celda vacía) para que se vea qué falta.
+ */
+export function asinsDeGrupo(
+  filas: FilaCatalogo[],
+  codigos: string[],
+  padres: Map<string, Padre> = new Map(),
+): AsinModelo[] {
+  const objetivo = new Set(codigos.map((c) => c.trim().toUpperCase()));
+  const lista: AsinModelo[] = [];
+  for (const f of filas) {
+    const sku = (f.sellerSku ?? "").trim();
+    if (!sku) continue;
+    const d = desglosarAmazon(sku);
+    const modelo = (d.modelo ?? sku).trim().toUpperCase();
+    if (!objetivo.has(modelo)) continue;
+    const asin = (f.asin ?? "").trim() || null;
+    lista.push({
+      modelo,
+      color: (d.color ?? "").trim().toUpperCase() || "ÚNICO",
+      talla: (d.talla ?? "").trim(),
+      sellerSku: sku,
+      asin,
+      estado: f.estado ?? null,
+      padre: asin ? (padres.get(asin)?.parentAsin ?? null) : null,
+    });
+  }
+  const numTalla = (t: string) => {
+    const n = Number(t);
+    return Number.isFinite(n) && t !== "" ? n : 999;
+  };
+  return lista.sort(
+    (a, b) =>
+      a.modelo.localeCompare(b.modelo, "es", { numeric: true }) ||
+      claveGrupoFba(a.modelo, a.color).localeCompare(claveGrupoFba(b.modelo, b.color), "es") ||
+      numTalla(a.talla) - numTalla(b.talla) ||
+      a.sellerSku.localeCompare(b.sellerSku, "es"),
+  );
+}
+
+/**
+ * Los ASINs de la PUBLICACIÓN completa a la que pertenece un modelo: pedir
+ * GT117 trae también los de GT118…GT122 si comparten padre, igual que el ZIP
+ * de fotos. `null` si el modelo no está en la lista de contenido.
+ */
+export async function asinsDeModelo(
+  db: DB,
+  amazonAccountId: string,
+  modelo: string,
+  pais: string | null,
+): Promise<{ codigos: string[]; asins: AsinModelo[] } | null> {
+  const objetivo = modelo.trim().toUpperCase();
+  if (!enRangoContenido(objetivo)) return null;
+
+  const [catalogo, padres] = await Promise.all([
+    leerCatalogo(db, amazonAccountId),
+    leerPadres(db, amazonAccountId),
+  ]);
+  const armado = armarContenido(catalogo.filas, [], [], pais, { verEliminados: true, padres });
+  const fila = armado.modelos.find((m) => m.codigos.includes(objetivo));
+  if (!fila) return null;
+  return { codigos: fila.codigos, asins: asinsDeGrupo(catalogo.filas, fila.codigos, padres) };
+}
+
 /** "GT117" solo, o "GT117-GT122" cuando la publicación junta varios códigos. */
 export function etiquetaGrupo(codigos: string[]): string {
   if (codigos.length <= 1) return codigos[0] ?? "";
