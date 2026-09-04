@@ -38,6 +38,14 @@ function n(x: number): string {
  * corrida CALCULADA según lo que falta de cada talla, no la histórica),
  * más las cajas unitalla cuando el volumen las justifica. El Excel del
  * modelo sale de aquí, listo para mandar.
+ *
+ * El stock y la venta del renglón del modelo suman TODOS sus colores, no
+ * solo los que piden caja: antes el GT114 enseñaba "bodega 10 mil" cuando
+ * en /inventario había 51 mil, porque el DK BROWN, el BEIGE y los demás
+ * colores con inventario de sobra no pedían nada y se quedaban fuera de la
+ * suma. El cálculo por color siempre descontó su stock completo; lo que
+ * engañaba era el número del renglón. Las cajas y los pares a pedir sí son
+ * solo de los colores que piden.
  */
 export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -46,7 +54,10 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
     const porModelo = new Map<
       string,
       {
+        /** colores que piden caja */
         colores: Renglon[];
+        /** colores del mismo modelo que NO piden: su stock sí cuenta arriba */
+        sinPedido: Renglon[];
         cajas: number;
         pares: number;
         bodega: number;
@@ -60,13 +71,10 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       }
     >();
     for (const r of renglones) {
-      if (r.cajasSugeridas <= 0) continue;
       const m =
         porModelo.get(r.modelo) ??
-        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0 };
-      m.colores.push(r);
-      m.cajas += r.cajasSugeridas;
-      m.pares += r.paresSugeridos;
+        { colores: [], sinPedido: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0 };
+      // Todo color del modelo cuenta en stock y venta, pida o no pida.
       m.bodega += r.enBodega;
       m.meli += r.enFull + r.enTransferencia;
       m.amazon += r.enFba;
@@ -75,9 +83,18 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       m.vAmz += r.ventaMesAmazon;
       m.vReal += r.ventaMesReal ?? r.ventaMes;
       m.vAmzReal += r.ventaMesRealAmazon ?? r.ventaMesAmazon;
+      if (r.cajasSugeridas > 0) {
+        m.colores.push(r);
+        m.cajas += r.cajasSugeridas;
+        m.pares += r.paresSugeridos;
+      } else {
+        m.sinPedido.push(r);
+      }
       porModelo.set(r.modelo, m);
     }
+    // Solo se listan los modelos que piden algo: la sección es el pedido.
     return [...porModelo.entries()]
+      .filter(([, m]) => m.cajas > 0)
       .map(([modelo, m]) => ({ modelo, ...m }))
       .sort((a, b) => b.cajas - a.cajas);
   }, [renglones]);
@@ -101,8 +118,12 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         <thead>
           <tr>
             <th>Modelo</th>
-            <th className="num">Colores</th>
-            <th className="num">Bodega</th>
+            <th className="num" title="Colores que piden caja / colores del modelo">
+              Colores
+            </th>
+            <th className="num" title="Pares en cajas cerradas de TODOS los colores del modelo">
+              Bodega
+            </th>
             <th className="num">MELI</th>
             <th className="num">Amazon</th>
             <th className="num">De China</th>
@@ -139,7 +160,11 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                   </span>
                   {m.modelo}
                 </td>
-                <td className="num cifra">{m.colores.length}</td>
+                <td className="num cifra">
+                  {m.sinPedido.length
+                    ? `${m.colores.length} de ${m.colores.length + m.sinPedido.length}`
+                    : m.colores.length}
+                </td>
                 <td className="num cifra">{n(m.bodega)}</td>
                 <td className="num cifra">{n(m.meli)}</td>
                 <td className="num cifra">{n(m.amazon)}</td>
@@ -192,9 +217,14 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 </td>
               </tr>
 
-              {abierto === m.modelo
-                ? m.colores.map((c) => <DetalleColor key={c.color} r={c} />)
-                : null}
+              {abierto === m.modelo ? (
+                <>
+                  {m.colores.map((c) => (
+                    <DetalleColor key={c.color} r={c} />
+                  ))}
+                  {m.sinPedido.length ? <ColoresSinPedido colores={m.sinPedido} /> : null}
+                </>
+              ) : null}
             </Fragment>
           ))}
         </tbody>
@@ -268,6 +298,39 @@ function DetalleColor({ r }: { r: Renglon }) {
           <p className="text-sm" style={{ color: "var(--ink-2)" }}>
             {r.motivo}
           </p>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Los colores del modelo que NO piden caja. Su stock ya está sumado en el
+ * renglón del modelo; aquí se ve dónde está para que el total cuadre con
+ * /inventario a simple vista.
+ */
+function ColoresSinPedido({ colores }: { colores: Renglon[] }) {
+  const ordenados = [...colores].sort((a, b) => b.enBodega - a.enBodega);
+  return (
+    <tr style={{ background: "var(--surface-2)" }}>
+      <td colSpan={13} className="p-4">
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">
+            Sin pedido: {ordenados.length} {ordenados.length === 1 ? "color" : "colores"} con
+            stock de sobra
+          </span>
+          <ul className="flex flex-col gap-0.5" style={{ color: "var(--ink-2)" }}>
+            {ordenados.map((r) => (
+              <li key={r.color} className="text-xs">
+                <span className="font-medium" style={{ color: "var(--ink)" }}>
+                  {r.color || "(sin color)"}
+                </span>{" "}
+                · bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
+                {n(r.enFba)} · de China {n(r.enCamino)}
+                {r.coberturaDias != null ? ` · aguanta ${n(r.coberturaDias)} días` : ""}
+              </li>
+            ))}
+          </ul>
         </div>
       </td>
     </tr>
