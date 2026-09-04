@@ -84,6 +84,9 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     // de publicaciones. Solo lo que falta; al día es una consulta y se sale.
     // Cada 10 minutos: la primera carga son miles de SKUs y cada paso
     // cuesta ~7 s del presupuesto; a 600 por paso queda en un par de horas.
+    // pg_cron también lo dispara cada 10 min (/api/cron/amazon?tarea=fnskus,
+    // migración 0048) para que avance con la app cerrada; el mismo nombre de
+    // tarea en amazon_sync_log hace que los dos no se pisen.
     await paso(admin, cuenta.accountId, "cron_fnskus", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarFnskus(admin, cliente);
