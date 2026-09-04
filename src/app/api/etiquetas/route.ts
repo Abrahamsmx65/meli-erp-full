@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { resolverEtiquetas, claveOrdenada } from "@/lib/etiquetas/resolver";
-import { claveComparacion } from "@/lib/importar/sku";
+import { claveAplastada, claveComparacion } from "@/lib/importar/sku";
 
 export const dynamic = "force-dynamic";
 
@@ -98,40 +98,81 @@ export async function GET(req: NextRequest) {
     variante: variante(s.color, s.talla),
   }));
 
-  // Productos solo-de-Amazon (las fundas: SKUs que empiezan con número y no
-  // existen en MELI). El FNSKU casi nunca viene en el listado: se completa
-  // con el inventario FBA. Si Amazon no está conectado, esto sale vacío.
-  const yaVistos = new Set(deMeli.flatMap((s) => [claveComparacion(s.sku), claveOrdenada(s.sku)]));
+  // Productos solo-de-Amazon: las fundas (SKUs que empiezan con número) y
+  // el calzado que se vende en Amazon sin publicación en MELI. El universo
+  // es el inventario FBA, que es de donde sale el FNSKU de TODO lo que
+  // Amazon ya recibió, haya vendido o no; `amazon_skus` solo conoce lo que
+  // ya vendió y por eso los productos nuevos no aparecían aquí. El título
+  // se completa con el catálogo (`amazon_listings`) o con lo vendido.
+  // Si Amazon no está conectado, esto sale vacío.
+  const yaVistos = new Set(
+    deMeli.flatMap((s) => [claveComparacion(s.sku), claveOrdenada(s.sku), claveAplastada(s.sku)]),
+  );
   let deAmazon: typeof deMeli = [];
   try {
-    const { data: am } = await supabase
-      .from("amazon_skus")
-      .select("seller_sku, fnsku, titulo")
-      .eq("activo", true)
-      .or(`seller_sku.ilike.${patron},titulo.ilike.${patron}`)
-      .limit(30);
+    const [{ data: inv }, { data: lst }, { data: am }] = await Promise.all([
+      supabase
+        .from("amazon_inventario")
+        .select("seller_sku, fnsku")
+        .not("fnsku", "is", null)
+        .ilike("seller_sku", patron)
+        .limit(30),
+      supabase
+        .from("amazon_listings")
+        .select("seller_sku, titulo")
+        .or(`seller_sku.ilike.${patron},titulo.ilike.${patron}`)
+        .limit(30),
+      supabase
+        .from("amazon_skus")
+        .select("seller_sku, fnsku, titulo")
+        .or(`seller_sku.ilike.${patron},titulo.ilike.${patron}`)
+        .limit(30),
+    ]);
 
-    const sinFnsku = (am ?? []).filter((a) => !a.fnsku).map((a) => a.seller_sku);
     const fnskus = new Map<string, string>();
+    const titulos = new Map<string, string>();
+    for (const i of inv ?? []) if (i.fnsku) fnskus.set(i.seller_sku, i.fnsku);
+    for (const l of lst ?? []) if (l.titulo) titulos.set(l.seller_sku, l.titulo);
+    for (const a of am ?? []) {
+      if (a.fnsku && !fnskus.has(a.seller_sku)) fnskus.set(a.seller_sku, a.fnsku);
+      if (a.titulo && !titulos.has(a.seller_sku)) titulos.set(a.seller_sku, a.titulo);
+    }
+
+    // Lo que se encontró por título (o por SKU en el catálogo) todavía no
+    // tiene FNSKU: se le busca en el inventario.
+    const candidatos = [
+      ...new Set([
+        ...(inv ?? []).map((i) => i.seller_sku),
+        ...(lst ?? []).map((l) => l.seller_sku),
+        ...(am ?? []).map((a) => a.seller_sku),
+      ]),
+    ];
+    const sinFnsku = candidatos.filter((c) => !fnskus.has(c));
     if (sinFnsku.length) {
-      const { data: inv } = await supabase
+      const { data: mas } = await supabase
         .from("amazon_inventario")
         .select("seller_sku, fnsku")
         .in("seller_sku", sinFnsku);
-      for (const i of inv ?? []) if (i.fnsku) fnskus.set(i.seller_sku, i.fnsku);
+      for (const i of mas ?? []) if (i.fnsku) fnskus.set(i.seller_sku, i.fnsku);
     }
 
-    deAmazon = (am ?? [])
-      .map((a) => ({
-        sku: a.seller_sku,
+    deAmazon = candidatos
+      .map((sku) => ({
+        sku,
         codigoFull: null,
-        fnsku: a.fnsku ?? fnskus.get(a.seller_sku) ?? null,
-        titulo: a.titulo ?? null,
+        fnsku: fnskus.get(sku) ?? null,
+        titulo: titulos.get(sku) ?? null,
         variante: "",
       }))
       // Sin FNSKU no hay etiqueta que imprimir; y los que ya salieron por
       // MELI (el mismo calzado dado de alta en los dos lados) no se repiten.
-      .filter((a) => a.fnsku && !yaVistos.has(claveComparacion(a.sku)) && !yaVistos.has(claveOrdenada(a.sku)));
+      .filter(
+        (a) =>
+          a.fnsku &&
+          !yaVistos.has(claveComparacion(a.sku)) &&
+          !yaVistos.has(claveOrdenada(a.sku)) &&
+          !yaVistos.has(claveAplastada(a.sku)),
+      );
   } catch {
     deAmazon = [];
   }
