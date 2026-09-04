@@ -43,59 +43,115 @@ export function claveOrdenada(s: string): string {
   return claveComparacion(s).split("-").sort().join("-");
 }
 
+/** Lo que se sabe de un SKU de Amazon, venga de la tabla que venga. */
+export interface FilaAmazon {
+  sku: string;
+  fnsku: string | null;
+  titulo: string | null;
+}
+
 /**
- * Los datos de Amazon por clave de SKU: FNSKU (del inventario FBA), el SKU
- * real de Amazon y su título (del catálogo de reportes). Cada clave entra
- * dos veces: canónica y con los pedazos ordenados. Si Amazon no está
- * conectado o las tablas están vacías, el mapa sale vacío y las etiquetas
- * de Amazon simplemente no están disponibles.
+ * Indexa los SKUs de Amazon con los tres amarres del ERP: canónico, con los
+ * pedazos ordenados y aplastado (sin separadores: "MILITARY GREEN" y
+ * "MILITARYGREEN" son el mismo color). Solo entra lo que tiene FNSKU; el
+ * título se toma de la primera fila que lo traiga.
+ */
+export function indexarAmazon(filas: FilaAmazon[]): Map<string, DatoAmazon> {
+  const titulos = new Map<string, string>();
+  for (const f of filas) {
+    if (f.titulo && !titulos.has(f.sku)) titulos.set(f.sku, f.titulo);
+  }
+
+  const mapa = new Map<string, DatoAmazon>();
+  const anotar = (clave: string, dato: DatoAmazon) => {
+    if (clave && !mapa.has(clave)) mapa.set(clave, dato);
+  };
+  for (const f of filas) {
+    if (!f.fnsku) continue;
+    const dato: DatoAmazon = { fnsku: f.fnsku, sku: f.sku, titulo: titulos.get(f.sku) ?? null };
+    anotar(claveComparacion(f.sku), dato);
+    anotar(claveOrdenada(f.sku), dato);
+    anotar(claveAplastada(f.sku), dato);
+  }
+  return mapa;
+}
+
+/**
+ * Los datos de Amazon por clave de SKU. El FNSKU sale del inventario FBA
+ * (`amazon_inventario`, lo que Amazon tiene o tuvo hace poco) y del
+ * catálogo (`amazon_listings.fnsku`, preguntado por SKU al API de
+ * publicaciones: cubre lo agotado y lo nuevo sin inventario); el título,
+ * del catálogo completo o, si falta, de lo que ya vendió (`amazon_skus`).
+ * Un producto que solo existe en Amazon y nunca ha vendido tiene FNSKU y
+ * título igual: no depende de MELI ni de las órdenes. Si Amazon no está conectado o las tablas están vacías, el
+ * mapa sale vacío y las etiquetas de Amazon simplemente no están
+ * disponibles.
  */
 export async function mapaAmazon(db: DB): Promise<Map<string, DatoAmazon>> {
   try {
-    const [inventario, catalogo] = await Promise.all([
+    const vacio = () => [] as { seller_sku: string; fnsku: string | null; titulo: string | null }[];
+    const [inventario, listings, catalogo] = await Promise.all([
       traerTodo<{ seller_sku: string; fnsku: string | null }>(
         db,
         "amazon_inventario",
         "seller_sku, fnsku",
         (q) => q,
       ),
+      // `fnsku` llegó con la migración 0047: si aún no está, se lee sin él.
+      traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
+        db,
+        "amazon_listings",
+        "seller_sku, fnsku, titulo",
+        (q) => q,
+      ).catch(() =>
+        traerTodo<{ seller_sku: string; titulo: string | null }>(
+          db,
+          "amazon_listings",
+          "seller_sku, titulo",
+          (q) => q,
+        )
+          .then((f) => f.map((x) => ({ ...x, fnsku: null })))
+          .catch(vacio),
+      ),
       traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
         db,
         "amazon_skus",
         "seller_sku, fnsku, titulo",
         (q) => q,
-      ).catch(() => [] as { seller_sku: string; fnsku: string | null; titulo: string | null }[]),
+      ).catch(vacio),
     ]);
 
-    const titulos = new Map<string, string>();
-    for (const f of catalogo ?? []) {
-      if (f.titulo && !titulos.has(f.seller_sku)) titulos.set(f.seller_sku, f.titulo);
-    }
-
-    const mapa = new Map<string, DatoAmazon>();
-    const anotar = (clave: string, dato: DatoAmazon) => {
-      if (!mapa.has(clave)) mapa.set(clave, dato);
-    };
-    const registrar = (sku: string, fnsku: string | null) => {
-      if (!fnsku) return;
-      const dato: DatoAmazon = { fnsku, sku, titulo: titulos.get(sku) ?? null };
-      anotar(claveComparacion(sku), dato);
-      anotar(claveOrdenada(sku), dato);
-    };
-    for (const f of inventario ?? []) registrar(f.seller_sku, f.fnsku);
-    for (const f of catalogo ?? []) registrar(f.seller_sku, f.fnsku);
-    return mapa;
+    // El orden importa: la primera fila con título gana, y el catálogo
+    // trae el título tal como está publicado hoy.
+    return indexarAmazon([
+      ...(inventario ?? []).map((f) => ({ sku: f.seller_sku, fnsku: f.fnsku ?? null, titulo: null })),
+      ...(listings ?? []).map((f) => ({
+        sku: f.seller_sku,
+        fnsku: f.fnsku ?? null,
+        titulo: f.titulo ?? null,
+      })),
+      ...(catalogo ?? []).map((f) => ({
+        sku: f.seller_sku,
+        fnsku: f.fnsku ?? null,
+        titulo: f.titulo ?? null,
+      })),
+    ]);
   } catch {
     return new Map();
   }
 }
 
-/** Busca el dato de Amazon de un SKU de MELI, con las dos claves. */
+/** Busca el dato de Amazon de un SKU (de MELI, de bodega o tecleado), con los tres amarres. */
 export function buscarAmazon(
   mapa: Map<string, DatoAmazon>,
   sku: string,
 ): DatoAmazon | null {
-  return mapa.get(claveComparacion(sku)) ?? mapa.get(claveOrdenada(sku)) ?? null;
+  return (
+    mapa.get(claveComparacion(sku)) ??
+    mapa.get(claveOrdenada(sku)) ??
+    mapa.get(claveAplastada(sku)) ??
+    null
+  );
 }
 
 /* ---- Amarre de variantes de pedido (modelo + color + talla) -------------- */

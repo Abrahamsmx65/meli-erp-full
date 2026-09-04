@@ -9,6 +9,7 @@ import {
   sincronizarVentas,
 } from "../amazon/sync";
 import { sincronizarEconomia } from "../amazon/economia";
+import { sincronizarFnskus } from "../amazon/fnskus";
 import { sincronizarPadres } from "./padres-amazon";
 
 /**
@@ -76,6 +77,14 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     await paso(admin, cuenta.accountId, "cron_listados", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarListados(admin, cliente);
+    });
+
+    // El FNSKU de las publicaciones que el reporte de inventario FBA no
+    // trae (sin inventario: agotadas o nuevas), preguntado por SKU al API
+    // de publicaciones. Solo lo que falta; al día es una consulta y se sale.
+    await paso(admin, cuenta.accountId, "cron_fnskus", 55 * 60_000, async () => {
+      const cliente = new Cliente(cuenta, limite);
+      return sincronizarFnskus(admin, cliente);
     });
 
     // El ASIN padre de cada publicación, para que la sección de contenido
