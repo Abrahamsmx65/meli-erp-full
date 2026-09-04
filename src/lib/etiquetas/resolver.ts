@@ -78,11 +78,12 @@ export function indexarAmazon(filas: FilaAmazon[]): Map<string, DatoAmazon> {
 
 /**
  * Los datos de Amazon por clave de SKU. El FNSKU sale del inventario FBA
- * (`amazon_inventario`, que lo trae para TODO lo que Amazon ya recibió);
- * el título, del catálogo completo (`amazon_listings`) o, si falta, de lo
- * que ya vendió (`amazon_skus`). Un producto que solo existe en Amazon y
- * nunca ha vendido tiene FNSKU y título igual: no depende de MELI ni de
- * las órdenes. Si Amazon no está conectado o las tablas están vacías, el
+ * (`amazon_inventario`, lo que Amazon tiene o tuvo hace poco) y del
+ * catálogo (`amazon_listings.fnsku`, preguntado por SKU al API de
+ * publicaciones: cubre lo agotado y lo nuevo sin inventario); el título,
+ * del catálogo completo o, si falta, de lo que ya vendió (`amazon_skus`).
+ * Un producto que solo existe en Amazon y nunca ha vendido tiene FNSKU y
+ * título igual: no depende de MELI ni de las órdenes. Si Amazon no está conectado o las tablas están vacías, el
  * mapa sale vacío y las etiquetas de Amazon simplemente no están
  * disponibles.
  */
@@ -96,12 +97,22 @@ export async function mapaAmazon(db: DB): Promise<Map<string, DatoAmazon>> {
         "seller_sku, fnsku",
         (q) => q,
       ),
-      traerTodo<{ seller_sku: string; titulo: string | null }>(
+      // `fnsku` llegó con la migración 0047: si aún no está, se lee sin él.
+      traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
         db,
         "amazon_listings",
-        "seller_sku, titulo",
+        "seller_sku, fnsku, titulo",
         (q) => q,
-      ).catch(vacio),
+      ).catch(() =>
+        traerTodo<{ seller_sku: string; titulo: string | null }>(
+          db,
+          "amazon_listings",
+          "seller_sku, titulo",
+          (q) => q,
+        )
+          .then((f) => f.map((x) => ({ ...x, fnsku: null })))
+          .catch(vacio),
+      ),
       traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
         db,
         "amazon_skus",
@@ -113,8 +124,12 @@ export async function mapaAmazon(db: DB): Promise<Map<string, DatoAmazon>> {
     // El orden importa: la primera fila con título gana, y el catálogo
     // trae el título tal como está publicado hoy.
     return indexarAmazon([
-      ...(listings ?? []).map((f) => ({ sku: f.seller_sku, fnsku: null, titulo: f.titulo ?? null })),
       ...(inventario ?? []).map((f) => ({ sku: f.seller_sku, fnsku: f.fnsku ?? null, titulo: null })),
+      ...(listings ?? []).map((f) => ({
+        sku: f.seller_sku,
+        fnsku: f.fnsku ?? null,
+        titulo: f.titulo ?? null,
+      })),
       ...(catalogo ?? []).map((f) => ({
         sku: f.seller_sku,
         fnsku: f.fnsku ?? null,

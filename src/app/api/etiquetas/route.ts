@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
         .limit(30),
       supabase
         .from("amazon_listings")
-        .select("seller_sku, titulo")
+        .select("seller_sku, fnsku, titulo")
         .or(`seller_sku.ilike.${patron},titulo.ilike.${patron}`)
         .limit(30),
       supabase
@@ -132,14 +132,17 @@ export async function GET(req: NextRequest) {
     const fnskus = new Map<string, string>();
     const titulos = new Map<string, string>();
     for (const i of inv ?? []) if (i.fnsku) fnskus.set(i.seller_sku, i.fnsku);
-    for (const l of lst ?? []) if (l.titulo) titulos.set(l.seller_sku, l.titulo);
+    for (const l of lst ?? []) {
+      if (l.titulo) titulos.set(l.seller_sku, l.titulo);
+      if (l.fnsku && !fnskus.has(l.seller_sku)) fnskus.set(l.seller_sku, l.fnsku);
+    }
     for (const a of am ?? []) {
       if (a.fnsku && !fnskus.has(a.seller_sku)) fnskus.set(a.seller_sku, a.fnsku);
       if (a.titulo && !titulos.has(a.seller_sku)) titulos.set(a.seller_sku, a.titulo);
     }
 
-    // Lo que se encontró por título (o por SKU en el catálogo) todavía no
-    // tiene FNSKU: se le busca en el inventario.
+    // Lo que se encontró por título (o por SKU en el catálogo) y aún no
+    // tiene FNSKU se busca en el inventario FBA y en el catálogo.
     const candidatos = [
       ...new Set([
         ...(inv ?? []).map((i) => i.seller_sku),
@@ -149,11 +152,13 @@ export async function GET(req: NextRequest) {
     ];
     const sinFnsku = candidatos.filter((c) => !fnskus.has(c));
     if (sinFnsku.length) {
-      const { data: mas } = await supabase
-        .from("amazon_inventario")
-        .select("seller_sku, fnsku")
-        .in("seller_sku", sinFnsku);
-      for (const i of mas ?? []) if (i.fnsku) fnskus.set(i.seller_sku, i.fnsku);
+      const [{ data: mas }, { data: masCat }] = await Promise.all([
+        supabase.from("amazon_inventario").select("seller_sku, fnsku").in("seller_sku", sinFnsku),
+        supabase.from("amazon_listings").select("seller_sku, fnsku").in("seller_sku", sinFnsku),
+      ]);
+      for (const i of [...(mas ?? []), ...(masCat ?? [])]) {
+        if (i.fnsku && !fnskus.has(i.seller_sku)) fnskus.set(i.seller_sku, i.fnsku);
+      }
     }
 
     deAmazon = candidatos

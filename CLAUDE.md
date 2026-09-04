@@ -183,6 +183,17 @@ guárdala numerada.
   (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
   renglones.
 
+- **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
+  `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
+  trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
+  se pregunta por SKU al API de publicaciones (`amazon/fnskus.ts`,
+  `searchListingsItems`, 20 por llamada, montado en el latido) y cubre lo
+  agotado ("Inactive") y lo nuevo sin primer envío. Ese API exige el Seller
+  ID en `amazon_accounts.selling_partner_id` (Merchant Token, capturado a
+  mano): sin él el paso contesta `sin_seller_id` y no pregunta nada. Un
+  producto que NO está en MELI y SÍ en Amazon (MY2304-PURPLE) saca su
+  etiqueta de aquí; el amarre del SKU es canónico → ordenado → aplastado y
+  `-ME`/`-MEX` cuentan como sufijo de sitio igual que `-MX`.
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
   vendió— y `amazon_resumen_skus` la usa como universo de claves del plan de
