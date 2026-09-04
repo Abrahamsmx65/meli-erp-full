@@ -251,7 +251,8 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
 - **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en
-  180 días no se ofrece a Full ni se pide a China; su diseño sí sale. Guardas:
+  180 días no se ofrece a Full ni se pide a China; su diseño sí sale, salvo
+  que TODOS sus SKUs estén descontinuados (entonces la familia desaparece). Guardas:
   publicado hace menos de 180 días (`yz_skus.publicado_en`) no se juzga, y sin
   180 días de historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
 - **La sincronización va por tramos de 7 días con presupuesto de tiempo**

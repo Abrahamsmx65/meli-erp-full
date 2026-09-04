@@ -152,11 +152,15 @@ export async function resumenDisenos(db: DB, accountId: string, base?: Base): Pr
     porDiseno.set(d, acc);
   }
 
-  const disenos = [...porDiseno].map(([diseno, a]) => ({
-    diseno,
-    ...a,
-    cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
-  }));
+  const disenos = [...porDiseno]
+    // Una familia con TODOS sus SKUs descontinuados (las micas 5D que ya no
+    // se venden) tampoco se muestra: no hay nada que pedir de ella.
+    .filter(([, a]) => a.variantes > 0)
+    .map(([diseno, a]) => ({
+      diseno,
+      ...a,
+      cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
+    }));
   // Los diseños sin ninguna publicación que venda ni existencia no estorban.
   
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
