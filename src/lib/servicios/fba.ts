@@ -1,4 +1,4 @@
-import type { RenglonAmazon } from "./amazon";
+import { cuentaAmazon, type RenglonAmazon } from "./amazon";
 import { desglosarSku } from "./sync";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
@@ -322,20 +322,37 @@ export async function amazonParaCompras(
 
   const desde = new Date(Date.now() - VENTANA_VENTA_AMZ * 86_400_000).toISOString().slice(0, 10);
   try {
+    // Las lecturas van FILTRADAS por la cuenta de Amazon. Sin el filtro,
+    // Postgres no podía usar el índice (account_id, fecha, …) que ordena la
+    // paginación y volvía a ordenar ~80 mil fotos en disco EN CADA PÁGINA:
+    // hasta 7 s por página, ~100 páginas por clic en /pedidos, y la base
+    // entera lenta para todos mientras tanto. Hay una sola cuenta, así que
+    // el resultado es el mismo. Si no se puede saber la cuenta (o la base
+    // simulada de las pruebas no la tiene), se lee sin filtro, como antes.
+    let cuentaId: string | null = null;
+    try {
+      cuentaId = (await cuentaAmazon(db))?.id ?? null;
+    } catch {
+      cuentaId = null;
+    }
+    const porCuenta = (q: any) => (cuentaId ? q.eq("account_id", cuentaId) : q);
+
     const [ventas, inventario, entrantes, fotos] = await Promise.all([
       // `fecha` va en el select para que la paginación ordene por una llave
       // ÚNICA (seller_sku solo empata entre días y duplicaba filas).
       traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
-        q.gte("fecha", desde),
+        porCuenta(q).gte("fecha", desde),
       ),
-      traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) => q),
+      traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) =>
+        porCuenta(q),
+      ),
       // El detalle de envíos entrantes, para NO contar como stock lo que
       // lleva semanas atorado camino a FBA (mismo criterio que el plan).
       traerTodo<any>(
         db,
         "amazon_envios_entrantes",
         "shipment_id, seller_sku, nombre, estado, enviado, recibido, vigente",
-        (q) => q,
+        (q) => porCuenta(q),
       ).catch(() => [] as any[]),
       // Las fotos diarias del inventario, para saber qué días estuvo en
       // cero cada SKU. Si aún no hay fotos, la corrección simplemente no
@@ -344,7 +361,7 @@ export async function amazonParaCompras(
         db,
         "amazon_inventario_snapshots",
         "seller_sku, fecha, disponible",
-        (q) => q.gte("fecha", desde),
+        (q) => porCuenta(q).gte("fecha", desde),
       ).catch(() => [] as any[]),
     ]);
     const enCamino = resumirEnCamino(entrantes);

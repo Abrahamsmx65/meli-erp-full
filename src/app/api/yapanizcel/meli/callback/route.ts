@@ -76,3 +76,19 @@ export async function GET(req: NextRequest) {
     return destino((err as Error).message);
   }
 }
+
+/**
+ * Los AVISOS (webhooks) de la app de MELI de YAPANIZCEL llegan aquí por
+ * POST: en el Dev Center la URL de notificaciones quedó apuntando al
+ * callback. Sin este manejador Next contestaba 405, MELI lo tomaba como
+ * fallo y REINTENTABA cada aviso una y otra vez: ~2 millones de POST al
+ * día contra esta ruta, que pasaban por el middleware y saturaban todo.
+ *
+ * YAPANIZCEL no procesa avisos (sincroniza por cron y por tramos), así que
+ * el aviso se acepta y se descarta: un 200 rápido es lo único que hace que
+ * MELI deje de insistir. Lo correcto de fondo es quitar o cambiar la URL
+ * de notificaciones en la app de MELI de YAPANIZCEL.
+ */
+export async function POST() {
+  return NextResponse.json({ ok: true }, { status: 200 });
+}
