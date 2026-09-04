@@ -21,6 +21,33 @@ export const maxDuration = 300;
  * valida que el aviso venga con la forma que MELI usa y que el vendedor sea
  * uno de los nuestros. Lo demás se descarta sin ruido.
  */
+/**
+ * Qué cuenta es cada vendedor de MELI, recordado en memoria cinco minutos.
+ *
+ * A esta ruta llegan ~1 millón de avisos al día, y el 96 % son de un
+ * vendedor que NO es una cuenta de calzado (la cuenta de YAPANIZCEL tiene
+ * su propia app y aquí no se procesa): cada uno hacía un viaje a la base
+ * solo para descartarse. En una base chica, ese goteo constante —10 por
+ * segundo, día y noche— le quitaba CPU a las pantallas del usuario.
+ * `null` también se recuerda: es justo el caso que más se repite.
+ */
+const cacheCuentas = new Map<number, { en: number; id: string | null }>();
+const VIDA_CACHE_CUENTAS_MS = 5 * 60_000;
+
+async function cuentaDelVendedor(admin: ReturnType<typeof clienteAdmin>, meliUserId: number) {
+  const guardada = cacheCuentas.get(meliUserId);
+  if (guardada && Date.now() - guardada.en < VIDA_CACHE_CUENTAS_MS) return guardada.id;
+
+  const { data: cuenta } = await admin
+    .from("meli_accounts")
+    .select("id")
+    .eq("meli_user_id", meliUserId)
+    .maybeSingle();
+  const id = (cuenta?.id as string | undefined) ?? null;
+  cacheCuentas.set(meliUserId, { en: Date.now(), id });
+  return id;
+}
+
 export async function POST(req: NextRequest) {
   let cuerpo: Record<string, unknown>;
   try {
@@ -41,15 +68,11 @@ export async function POST(req: NextRequest) {
   try {
     const admin = clienteAdmin();
 
-    const { data: cuenta } = await admin
-      .from("meli_accounts")
-      .select("id")
-      .eq("meli_user_id", meliUserId)
-      .maybeSingle();
+    const accountId = await cuentaDelVendedor(admin, meliUserId);
 
     // Aviso de un vendedor que no es nuestro: 200 y a otra cosa, para que
     // MELI no lo reintente eternamente.
-    if (!cuenta) return NextResponse.json({ ok: true }, { status: 200 });
+    if (!accountId) return NextResponse.json({ ok: true }, { status: 200 });
 
     // Solo órdenes, catálogo y stock mueven algo en el sistema. Los demás
     // temas (shipments, payments, messages…) son el 60% del volumen y el
@@ -59,7 +82,7 @@ export async function POST(req: NextRequest) {
       topic === "orders" || topic === "orders_v2" || topic === "items" || topic.includes("stock");
 
     await admin.from("webhooks_meli").insert({
-      account_id: cuenta.id,
+      account_id: accountId,
       meli_user_id: meliUserId,
       topic,
       resource,
@@ -70,7 +93,6 @@ export async function POST(req: NextRequest) {
     // Con la respuesta ya entregada: si el latido lleva más de una hora sin
     // correr (app cerrada), este aviso lo enciende. El candado de latido()
     // evita que dos avisos simultáneos lo dupliquen.
-    const accountId = cuenta.id;
     after(async () => {
       if (await latidoApagado(admin, accountId)) {
         await latido(admin, accountId);

@@ -84,6 +84,15 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+/**
+ * Las rutas que reciben tráfico de MÁQUINAS (los avisos de MELI y TikTok,
+ * los cron de Vercel) no pasan por aquí: no traen sesión que refrescar y
+ * ya se autentican solas (firma, CRON_SECRET, vendedor conocido). Son
+ * millones de peticiones al día; correr el middleware en cada una era
+ * puro costo.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/meli/webhook|api/tiktok/webhook|api/yapanizcel/meli/callback|api/cron/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };
