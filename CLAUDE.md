@@ -183,6 +183,17 @@ guárdala numerada.
   (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
   renglones.
 
+- **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
+  `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
+  trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
+  se pregunta por SKU al API de publicaciones (`amazon/fnskus.ts`,
+  `searchListingsItems`, 20 por llamada, montado en el latido) y cubre lo
+  agotado ("Inactive") y lo nuevo sin primer envío. Ese API exige el Seller
+  ID en `amazon_accounts.selling_partner_id` (Merchant Token, capturado a
+  mano): sin él el paso contesta `sin_seller_id` y no pregunta nada. Un
+  producto que NO está en MELI y SÍ en Amazon (MY2304-PURPLE) saca su
+  etiqueta de aquí; el amarre del SKU es canónico → ordenado → aplastado y
+  `-ME`/`-MEX` cuentan como sufijo de sitio igual que `-MX`.
 - **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
   `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
   vendió— y `amazon_resumen_skus` la usa como universo de claves del plan de
@@ -253,7 +264,8 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 - **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en
   180 días no se ofrece a Full ni se pide a China; su diseño sí sale, salvo
   que TODOS sus SKUs estén descontinuados (entonces la familia desaparece). Guardas:
-  publicado hace menos de 180 días (`yz_skus.publicado_en`) no se juzga, y sin
+  publicado hace menos de 180 días o sin fecha (`yz_skus.publicado_en`, que la
+  sincronización fija con `yz_fijar_publicado`) no se juzga, y sin
   180 días de historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
 - **La sincronización va por tramos de 7 días con presupuesto de tiempo**
   (`yapanizcel/tramos.ts` + `yz_sync_estado`): el catálogo es grande (~18 mil

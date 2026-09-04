@@ -23,13 +23,24 @@ describe("decidirDescontinuados", () => {
       HOY,
     );
     expect(r.activo).toBe(true);
-    expect([...r.skus].sort()).toEqual(["MUERTO", "SIN-FECHA"]);
+    // SIN-FECHA no se juzga: puede ser nueva.
+    expect([...r.skus].sort()).toEqual(["MUERTO"]);
   });
 
-  it("una venta justo hace 180 días todavía cuenta", () => {
-    const r = decidirDescontinuados([{ sku: "A", publicadoEn: null }], new Map([["A", "2026-03-07"]]), "2026-01-01", HOY);
+  it("los últimos 180 días son [hoy − 179, hoy]: una venta en el primer día cuenta", () => {
+    // HOY = 3 sep → la ventana arranca el 8 de marzo.
+    const vieja = { sku: "A", publicadoEn: "2025-01-01T00:00:00Z" };
+    const r = decidirDescontinuados([vieja], new Map([["A", "2026-03-08"]]), "2026-01-01", HOY);
     expect(r.skus.has("A")).toBe(false);
-    const r2 = decidirDescontinuados([{ sku: "A", publicadoEn: null }], new Map([["A", "2026-03-06"]]), "2026-01-01", HOY);
+    const r2 = decidirDescontinuados([vieja], new Map([["A", "2026-03-07"]]), "2026-01-01", HOY);
     expect(r2.skus.has("A")).toBe(true);
+  });
+
+  it("se enciende en cuanto el historial cubre exactamente el horizonte", () => {
+    // La sincronización guarda desde hoy − 179: eso YA es el horizonte completo.
+    const r = decidirDescontinuados([{ sku: "A", publicadoEn: null }], new Map(), "2026-03-08", HOY);
+    expect(r.activo).toBe(true);
+    const r2 = decidirDescontinuados([{ sku: "A", publicadoEn: null }], new Map(), "2026-03-09", HOY);
+    expect(r2.activo).toBe(false);
   });
 });

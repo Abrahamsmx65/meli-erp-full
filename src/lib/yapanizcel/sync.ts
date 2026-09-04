@@ -114,6 +114,18 @@ export async function sincronizarCatalogo(
     await upsertEnTandas(admin, "yz_skus_pendientes", pendientes, "account_id,item_id,variation_id");
   }
 
+  // La fecha de publicación, para TODAS las variantes de cada publicación:
+  // las que se resolvieron por user product no pasan por aquí y sin fecha
+  // no se puede saber si son nuevas o muertas (regla de descontinuados).
+  const fechas = new Map<string, string>();
+  for (const f of filas) if (f.dateCreated) fechas.set(f.itemId, f.dateCreated);
+  for (const v of diag.variantesSinSku) if (v.dateCreated) fechas.set(v.itemId, v.dateCreated);
+  const items = [...fechas].map(([item_id, publicado_en]) => ({ item_id, publicado_en }));
+  for (let i = 0; i < items.length; i += 500) {
+    const { error } = await admin.rpc("yz_fijar_publicado", { p_account: accountId, p_items: items.slice(i, i + 500) });
+    if (error) throw new Error(`yz_fijar_publicado: ${error.message}`);
+  }
+
   return { skus: registros.length, pendientes: pendientes.length, repetidos: diag.skusRepetidos.length };
 }
 

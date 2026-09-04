@@ -8,7 +8,8 @@
  *
  * Dos guardas para no matar lo que apenas nace o lo que no se puede juzgar:
  *   · una publicación con menos de 180 días de publicada no se descontinúa
- *     (todavía no tuvo tiempo de vender);
+ *     (todavía no tuvo tiempo de vender), y sin fecha tampoco: la
+ *     sincronización la pone para todas las variantes de cada publicación;
  *   · si el historial de ventas guardado no cubre 180 días todavía, no se
  *     descontinúa nadie: sin historial no hay veredicto.
  */
@@ -33,13 +34,19 @@ export function decidirDescontinuados(
   hoy: string,
   dias = DIAS_SIN_VENTA,
 ): Descontinuados {
-  const corte = restarDias(hoy, dias);
+  // "Los últimos 180 días" son [hoy − 179, hoy]: el horizonte que guarda la
+  // sincronización. El historial está completo cuando arranca en ese día o
+  // antes (no un día antes, que era lo que pedía la primera versión y por
+  // eso la regla nunca se encendía).
+  const corte = restarDias(hoy, dias - 1);
   const activo = Boolean(historialDesde && historialDesde <= corte);
   const out = new Set<string>();
   if (activo) {
     for (const s of skus) {
+      // Sin fecha de publicación no se puede distinguir "nueva" de "muerta":
+      // no se juzga. La fecha la pone la sincronización (yz_fijar_publicado).
       const publicada = s.publicadoEn ? s.publicadoEn.slice(0, 10) : null;
-      if (publicada && publicada > corte) continue; // nueva: aún no se juzga
+      if (!publicada || publicada >= corte) continue;
       const ultima = ultimaVenta.get(s.sku);
       if (!ultima || ultima < corte) out.add(s.sku);
     }
