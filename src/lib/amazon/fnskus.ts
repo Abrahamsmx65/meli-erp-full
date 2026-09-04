@@ -85,6 +85,9 @@ export async function sincronizarFnskus(admin: any, cliente: Cliente): Promise<R
 
   // Lo que nunca se ha preguntado va primero; lo que Amazon contestó sin
   // FNSKU se vuelve a preguntar pasada una semana (pudo entrar a FBA).
+  // Dentro de eso, primero lo de FBA y por estado (Active, Inactive,
+  // Incomplete: el orden alfabético coincide con el que importa): lo que
+  // se puede etiquetar hoy sale antes que las publicaciones a medias.
   const { data, error } = await admin
     .from("amazon_listings")
     .select("seller_sku")
@@ -94,6 +97,8 @@ export async function sincronizarFnskus(admin: any, cliente: Cliente): Promise<R
       `fnsku_consultado_en.is.null,fnsku_consultado_en.lt.${new Date(Date.now() - REINTENTO_MS).toISOString()}`,
     )
     .order("fnsku_consultado_en", { ascending: true, nullsFirst: true })
+    .order("canal", { ascending: true, nullsFirst: false })
+    .order("estado", { ascending: true, nullsFirst: false })
     .order("seller_sku", { ascending: true })
     .limit(POR_CORRIDA);
   // Sin las columnas (falta la migración 0047) no se pregunta nada.

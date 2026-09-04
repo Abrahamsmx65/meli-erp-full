@@ -82,7 +82,9 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     // El FNSKU de las publicaciones que el reporte de inventario FBA no
     // trae (sin inventario: agotadas o nuevas), preguntado por SKU al API
     // de publicaciones. Solo lo que falta; al día es una consulta y se sale.
-    await paso(admin, cuenta.accountId, "cron_fnskus", 55 * 60_000, async () => {
+    // Cada 10 minutos: la primera carga son miles de SKUs y cada paso
+    // cuesta ~7 s del presupuesto; a 600 por paso queda en un par de horas.
+    await paso(admin, cuenta.accountId, "cron_fnskus", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarFnskus(admin, cliente);
     });
