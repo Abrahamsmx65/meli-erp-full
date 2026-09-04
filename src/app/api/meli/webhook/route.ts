@@ -32,6 +32,7 @@ export const maxDuration = 300;
  * `null` también se recuerda: es justo el caso que más se repite.
  */
 const cacheCuentas = new Map<number, { en: number; id: string | null }>();
+let ajenosVistos = 0;
 const VIDA_CACHE_CUENTAS_MS = 5 * 60_000;
 
 async function cuentaDelVendedor(admin: ReturnType<typeof clienteAdmin>, meliUserId: number) {
@@ -71,8 +72,17 @@ export async function POST(req: NextRequest) {
     const accountId = await cuentaDelVendedor(admin, meliUserId);
 
     // Aviso de un vendedor que no es nuestro: 200 y a otra cosa, para que
-    // MELI no lo reintente eternamente.
-    if (!accountId) return NextResponse.json({ ok: true }, { status: 200 });
+    // MELI no lo reintente eternamente. Se deja rastro de UNO de cada 200
+    // (quién, de qué app y de qué tema) para poder ver en los logs de
+    // Vercel de dónde viene un aluvión de avisos ajenos y cortarlo en MELI.
+    if (!accountId) {
+      if (++ajenosVistos % 200 === 1) {
+        console.log(
+          `aviso ajeno: user ${meliUserId} app ${String(cuerpo.application_id ?? "?")} topic ${topic} (${ajenosVistos} vistos en esta instancia)`,
+        );
+      }
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
 
     // Solo órdenes, catálogo y stock mueven algo en el sistema. Los demás
     // temas (shipments, payments, messages…) son el 60% del volumen y el
