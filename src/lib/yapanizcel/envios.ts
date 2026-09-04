@@ -12,6 +12,7 @@ import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
 import { calcularPlan, type EnCamino, type LineaPlan, type Plan } from "./plan";
 import { cargarVentasAgregadas } from "./agregados";
+import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
 
 export interface EnvioRegistrado {
   id: string;
@@ -67,6 +68,7 @@ export interface PlanConDetalle extends Plan {
   titulos: Map<string, string | null>;
   inventario: InventarioAmarrado;
   parametros: Awaited<ReturnType<typeof leerParametros>>;
+  descontinuados: Descontinuados;
 }
 
 export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<PlanConDetalle> {
@@ -75,16 +77,18 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, parametros.diasVenta - 1);
 
-  const [skus, agregadas, stock, inventario, { enCamino }] = await Promise.all([
+  const [skus, agregadas, stock, inventario, { enCamino }, descontinuados] = await Promise.all([
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
     cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, parametros.diasCaducidadEnvio),
+    cargarDescontinuados(db, accountId),
   ]);
 
   const plan = calcularPlan({
-    skus: skus.map((s) => s.sku),
+    // Un SKU descontinuado (sin venta en 180 días) ya no se ofrece.
+    skus: skus.map((s) => s.sku).filter((sku) => !descontinuados.skus.has(sku)),
     ventas: agregadas.ventas,
     snapshots: agregadas.snapshots,
     stock: stock.map((s) => ({ sku: s.sku, disponible: s.disponible, enTransferencia: s.en_transferencia })),
@@ -94,7 +98,7 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
     hasta,
   });
 
-  return { ...plan, titulos: new Map(skus.map((s) => [s.sku, s.titulo])), inventario, parametros };
+  return { ...plan, titulos: new Map(skus.map((s) => [s.sku, s.titulo])), inventario, parametros, descontinuados };
 }
 
 /** Registra un envío con las líneas que el usuario confirmó. */

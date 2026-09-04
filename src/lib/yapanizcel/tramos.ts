@@ -8,7 +8,7 @@
  *   1. Recalcula lo RECIENTE: los últimos 7 días ya cubiertos más todo lo
  *      nuevo hasta hoy. Así una orden que cambió o un neto que llegó
  *      diferido se corrigen solos.
- *   2. Extiende HACIA ATRÁS, de 7 en 7, hasta cubrir el horizonte (90 días).
+ *   2. Extiende HACIA ATRÁS, de 7 en 7, hasta cubrir el horizonte (180 días).
  *
  * Los tramos son contiguos por construcción: el reciente arranca 6 días
  * antes del último cubierto, y cada tramo hacia atrás termina el día
@@ -33,7 +33,8 @@ function sumarDias(dia: string, n: number): string {
 }
 
 export const DIAS_TRAMO = 7;
-export const DIAS_HORIZONTE = 90;
+/** 180 días: medio año, lo que hace falta para saber qué SKU ya no vende. */
+export const DIAS_HORIZONTE = 180;
 
 export function planearTramos(estado: EstadoVentas, hoy: string, horizonte = DIAS_HORIZONTE): Tramo[] {
   const objetivoDesde = sumarDias(hoy, -(horizonte - 1));

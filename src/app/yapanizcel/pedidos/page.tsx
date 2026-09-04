@@ -97,6 +97,12 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
             </table>
           </div>
 
+          {detalle.descontinuadas.length ? (
+            <details className="text-sm" style={{ color: "var(--ink-2)" }}>
+              <summary>{detalle.descontinuadas.length} SKUs descontinuados (sin venta en 180 días), fuera del pedido</summary>
+              <p className="num mt-1 text-xs">{detalle.descontinuadas.join(", ")}</p>
+            </details>
+          ) : null}
           <h3 className="mt-2 font-semibold">Cargar pedido del diseño {detalle.diseno}</h3>
           <CargarPedido
             key={detalle.diseno}
@@ -110,6 +116,16 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
         </section>
       ) : (
         <section className="flex flex-col gap-3">
+          {!resumen.descontinuados.activo ? (
+            <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+              La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año; hoy llega
+              {resumen.descontinuados.historialDesde ? ` hasta el ${resumen.descontinuados.historialDesde}` : " a nada"}. Sincroniza para completarlo.
+            </p>
+          ) : (
+            <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+              {resumen.descontinuados.skus.size} SKUs descontinuados (sin una venta en 180 días) no se muestran ni se piden; su diseño sí.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Ficha titulo="Diseños" valor={resumen.disenos.length} />
             <Ficha titulo="Con algo que pedir" valor={resumen.disenos.filter((d) => d.sugerido > 0).length} tono="alerta" />
@@ -126,6 +142,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
                 <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
                   <th className="px-3 py-2">Diseño</th>
                   <th className="px-3 py-2 text-right">Variantes</th>
+                  <th className="px-3 py-2 text-right">Descont.</th>
                   <th className="px-3 py-2 text-right">Vend. 30 d</th>
                   <th className="px-3 py-2 text-right">Existencia total</th>
                   <th className="px-3 py-2 text-right">Cobertura</th>
@@ -136,7 +153,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
               <tbody>
                 {resumen.disenos.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                    <td colSpan={8} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
                       Sin catálogo todavía: sincroniza en Ajustes de fundas.
                     </td>
                   </tr>
@@ -149,6 +166,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
                       </Link>
                     </td>
                     <td className="num px-3 py-1.5 text-right">{d.variantes}</td>
+                    <td className="num px-3 py-1.5 text-right" style={{ color: "var(--ink-muted)" }}>{d.descontinuadas || ""}</td>
                     <td className="num px-3 py-1.5 text-right">{n(d.vendidas30)}</td>
                     <td className="num px-3 py-1.5 text-right">{n(d.posicionTotal)}</td>
                     <td className="num px-3 py-1.5 text-right" style={{ color: Number.isFinite(d.cobertura) && d.cobertura < 45 ? "var(--estado-critico)" : undefined }}>

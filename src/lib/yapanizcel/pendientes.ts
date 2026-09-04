@@ -143,6 +143,7 @@ export async function resolverPendientes(admin: DB, opts?: { presupuestoMs?: num
           diseno: d.diseno || null,
           modelo: d.modelo || null,
           color: d.color || null,
+          publicado_en: fila.publicado_en ?? null,
           actualizado_en: ahora,
         });
         resueltas.push({ item_id: fila.item_id, variation_id: fila.variation_id });

@@ -89,6 +89,7 @@ export async function sincronizarCatalogo(
       diseno: d.diseno || null,
       modelo: d.modelo || null,
       color: d.color || null,
+      publicado_en: f.dateCreated ?? null,
       actualizado_en: ahora,
     };
   });
@@ -107,6 +108,7 @@ export async function sincronizarCatalogo(
       logistica: v.logistica,
       estado: v.estado,
       precio: v.precio,
+      publicado_en: v.dateCreated ?? null,
     }));
   if (pendientes.length) {
     await upsertEnTandas(admin, "yz_skus_pendientes", pendientes, "account_id,item_id,variation_id");

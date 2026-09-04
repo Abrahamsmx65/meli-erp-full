@@ -250,10 +250,14 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   Los días con neto incompleto se marcan como estimados.
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
+- **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en
+  180 días no se ofrece a Full ni se pide a China; su diseño sí sale. Guardas:
+  publicado hace menos de 180 días (`yz_skus.publicado_en`) no se juzga, y sin
+  180 días de historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
 - **La sincronización va por tramos de 7 días con presupuesto de tiempo**
   (`yapanizcel/tramos.ts` + `yz_sync_estado`): el catálogo es grande (~18 mil
   variantes) y una sola llamada no cabe en los 300 s de Vercel. Cada corrida
-  recalcula lo reciente y extiende hacia atrás hasta 90 días; la pantalla y el
+  recalcula lo reciente y extiende hacia atrás hasta 180 días; la pantalla y el
   cron llaman en bucle con `continuar: true` hasta que `completo` sea true.
 - Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
   `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con

@@ -10,6 +10,7 @@
 import type { DB } from "../datos/repos";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
+import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado } from "./inventario";
@@ -42,6 +43,8 @@ export interface VarianteCompra {
 export interface DisenoCompra {
   diseno: string;
   variantes: VarianteCompra[];
+  /** SKUs del diseño sin venta en 180 días: no se piden ni se muestran. */
+  descontinuadas: string[];
   vendidas30: number;
   posicionTotal: number;
   sugerido: number;
@@ -49,7 +52,8 @@ export interface DisenoCompra {
 }
 
 export interface ResumenDisenos {
-  disenos: { diseno: string; variantes: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
+  disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
+  descontinuados: Descontinuados;
 }
 
 async function cargarBase(db: DB, accountId: string) {
@@ -58,7 +62,7 @@ async function cargarBase(db: DB, accountId: string) {
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, costosFilas] = await Promise.all([
+  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, costosFilas, descontinuados] = await Promise.all([
     todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null }>(
       db, "yz_skus", "sku, titulo, diseno, modelo, color", (q) => q.eq("account_id", accountId),
     ),
@@ -68,6 +72,7 @@ async function cargarBase(db: DB, accountId: string) {
     cargarEnvios(db, accountId, p.diasCaducidadEnvio),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
     todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
+    cargarDescontinuados(db, accountId),
   ]);
 
   const indice = construirIndice(skus.map((s) => s.sku));
@@ -81,7 +86,7 @@ async function cargarBase(db: DB, accountId: string) {
   for (const c of enCamino) caminoFull.set(c.skuMeli, (caminoFull.get(c.skuMeli) ?? 0) + c.unidades);
   const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
 
-  return { p, skus, vendidas, stockPor, inventario, caminoFull, pedidos, costos };
+  return { p, skus, vendidas, stockPor, inventario, caminoFull, pedidos, costos, descontinuados };
 }
 
 /**
@@ -126,14 +131,20 @@ export async function cargarBaseCompras(db: DB, accountId: string): Promise<Base
 
 export async function resumenDisenos(db: DB, accountId: string, base?: Base): Promise<ResumenDisenos> {
   const b = base ?? (await cargarBase(db, accountId));
-  const porDiseno = new Map<string, { variantes: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
 
   for (const s of b.skus) {
     const v = calcularVariante(s, b);
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
-    const acc = porDiseno.get(d) ?? { variantes: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
+    const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
+    // Un SKU descontinuado no se pide, pero su familia sigue saliendo.
+    if (b.descontinuados.skus.has(s.sku)) {
+      acc.descontinuadas++;
+      porDiseno.set(d, acc);
+      continue;
+    }
     acc.variantes++;
     acc.vendidas30 += v.vendidas30;
     acc.posicionTotal += v.posicionTotal;
@@ -149,7 +160,7 @@ export async function resumenDisenos(db: DB, accountId: string, base?: Base): Pr
   // Los diseños sin ninguna publicación que venda ni existencia no estorban.
   
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
-  return { disenos };
+  return { disenos, descontinuados: b.descontinuados };
 }
 
 function calcularVariante(
@@ -196,9 +207,10 @@ function calcularVariante(
 export async function detalleDiseno(db: DB, accountId: string, diseno: string, base?: Base): Promise<DisenoCompra | null> {
   const b = base ?? (await cargarBase(db, accountId));
   const clave = diseno.trim().toUpperCase();
-  const variantes = b.skus
-    .map((s) => calcularVariante(s, b))
-    .filter((v) => v.diseno === clave)
+  const delDiseno = b.skus.map((s) => calcularVariante(s, b)).filter((v) => v.diseno === clave);
+  const descontinuadas = delDiseno.filter((v) => b.descontinuados.skus.has(v.skuMeli)).map((v) => v.skuMeli).sort();
+  const variantes = delDiseno
+    .filter((v) => !b.descontinuados.skus.has(v.skuMeli))
     // Por modelo (con números en orden natural: i13, i14, i15pro…) y luego color.
     .sort(
       (x, y) =>
@@ -206,11 +218,12 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string, b
         x.color.localeCompare(y.color, "es") ||
         x.skuMeli.localeCompare(y.skuMeli),
     );
-  if (!variantes.length) return null;
+  if (!variantes.length && !descontinuadas.length) return null;
 
   return {
     diseno: clave,
     variantes,
+    descontinuadas,
     vendidas30: variantes.reduce((a, v) => a + v.vendidas30, 0),
     posicionTotal: variantes.reduce((a, v) => a + v.posicionTotal, 0),
     sugerido: variantes.reduce((a, v) => a + v.sugerido, 0),
@@ -221,6 +234,7 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string, b
 /** Todas las variantes (sin calzado), para el Excel de todos los diseños. */
 export function todasLasVariantes(b: Base): (VarianteCompra & { diseno: string })[] {
   return b.skus
+    .filter((s) => !b.descontinuados.skus.has(s.sku))
     .map((s) => calcularVariante(s, b))
     .filter((v) => v.diseno && !esCalzado(v.diseno))
     .sort(

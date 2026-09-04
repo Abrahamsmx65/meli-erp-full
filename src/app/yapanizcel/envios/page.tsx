@@ -33,6 +33,11 @@ export default async function EnviosYz() {
         <Ficha titulo="Sin amarrar" valor={plan.inventario.sinAmarrar.renglones} nota={`${n(plan.inventario.sinAmarrar.unidades)} unidades que el plan no ve`} tono={plan.inventario.sinAmarrar.renglones ? "critico" : "bien"} />
       </div>
 
+      {plan.descontinuados.activo && plan.descontinuados.skus.size ? (
+        <p className="text-sm" style={{ color: "var(--ink-muted)" }}>
+          {plan.descontinuados.skus.size} SKUs descontinuados (sin una venta en 180 días) no se ofrecen aquí.
+        </p>
+      ) : null}
       {plan.inventario.sinAmarrar.renglones ? (
         <p className="text-sm">
           Hay inventario en bodega que el plan no puede usar porque su SKU no está amarrado.{" "}
