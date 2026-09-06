@@ -256,11 +256,11 @@ export async function traerAnunciosAds(
 
   const anuncios: AnuncioAds[] = [];
   const limite = 50; // el máximo que acepta el API
-  let offset = 0;
-  let total = Infinity;
+  // Tope duro: 400 páginas son 20 mil anuncios, muy por encima del catálogo.
+  const MAX_PAGINAS = 400;
 
-  while (offset < total) {
-    const pos = offset;
+  for (let numPagina = 0; numPagina < MAX_PAGINAS; numPagina++) {
+    const pos = numPagina * limite;
     const pagina = await conRutas(rutas, (ruta) =>
       cliente.get<RespuestaAds>(
         ruta,
@@ -293,9 +293,11 @@ export async function traerAnunciosAds(
       });
     }
 
-    total = pagina.paging?.total ?? offset + filas.length;
-    offset += limite;
-    if (!filas.length) break; // por si el paging viene mentiroso
+    // Se sigue mientras la página venga LLENA. Antes se confiaba en
+    // `paging.total`, y cuando MELI no lo manda (o lo manda en cero) la
+    // lectura se cortaba en los primeros 50 anuncios y el panel enseñaba
+    // una fracción del gasto sin avisar de nada.
+    if (filas.length < limite) break;
   }
 
   return anuncios;
