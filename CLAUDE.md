@@ -206,6 +206,27 @@ guárdala numerada.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
+  **El costo se CALCULA en /costos** (`engine/costos.ts`, la hoja "Numeros"
+  del dueño, tabla `costos_producto` + constantes en `costos_parametros`):
+  aduana = pesos por m³ (4920) × CBM por par; costo total = USD × TDC +
+  aduana, y ese total se copia solo a `productos_config.costo_mxn` al
+  guardar (una sola verdad). Ganancia MELI = precio − 15 % − envío −
+  retención (10.5 % del precio SIN IVA) − costo. Amazon y TikTok se sugieren
+  para ganar LO MISMO que el precio relámpago de MELI: PVP Amazon =
+  (costo + ganancia + FBA) ÷ (1 − 15 % − retención), ×1.12 para el deal;
+  TikTok = (costo + ganancia + $6) ÷ (1 − 5 % − afiliado − retención), ×1.06
+  en oferta. Verificado contra la hoja (MY2307, GT104, GT135).
+- **Modelos nuevos** (`/modelos-nuevos`, tabla `modelos_nuevos`,
+  `engine/modelos-nuevos.ts`): seguimiento por MODELO de lo que le falta a un
+  listado nuevo. Categoría y precio NO viven ahí (son los de Costos); sí la
+  llegada (ETA del contenedor vía `pedido_lineas` → `contenedor_lineas`, o
+  fecha a mano), las imágenes de China (recibidas / mandadas a cargar), y la
+  última revisión en vivo (`revision` JSON, `modelos-nuevos-revisar.ts`):
+  fotos por publicación en MELI (`/items?attributes=pictures,video_id`, el
+  CLIP no se ve por API), fotos por color en Amazon (Catalog Items) y A+
+  publicado (A+ Content API `contentPublishRecords`, un ASIN por llamada; si
+  la app no tiene el rol, se avisa y el A+ se palomea a mano). Clip de MELI,
+  video de Amazon y "A+ mandado a cargar" son palomeos manuales.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.
@@ -288,6 +309,8 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Costos de producto (hoja Numeros) | `src/lib/engine/costos.ts` (puro) + `src/lib/servicios/costos-producto.ts` + `/costos` + `/api/costos/*` |
+| Modelos nuevos (seguimiento y revisión MELI/Amazon) | `src/lib/engine/modelos-nuevos.ts` (puro) + `src/lib/servicios/modelos-nuevos.ts`, `modelos-nuevos-revisar.ts`, `src/lib/amazon/aplus.ts` + `/modelos-nuevos` + `/api/modelos-nuevos/*` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
@@ -303,7 +326,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
-| Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
+| Páginas                          | `src/app/{envios,inventario,productos,costos,modelos-nuevos,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
 

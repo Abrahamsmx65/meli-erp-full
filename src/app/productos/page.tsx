@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarProductos } from "@/lib/servicios/productos";
@@ -26,11 +27,17 @@ export default async function Productos() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="titulo-pagina">Productos y costos</h1>
+        <h1 className="titulo-pagina">Productos</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La categoría (corcho, EVA, pantufla…) y el costo final por par en MXN, por
-          modelo y color — el costo es el mismo para todas las tallas. Con esto la
+          modelo — el costo es el mismo para todos los colores y tallas. Con esto la
           sección de Ventas calcula la ganancia contra lo que MELI de verdad deposita.
+          El costo se calcula en{" "}
+          <Link href="/costos" className="underline" style={{ color: "var(--acento)" }}>
+            Costos de producto
+          </Link>{" "}
+          (USD × tipo de cambio + aduana por CBM) y se copia aquí solo; capturarlo a mano
+          también vale.
         </p>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           <strong className="cifra">{conCosto}</strong> de{" "}

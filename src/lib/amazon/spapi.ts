@@ -28,6 +28,7 @@ const CUOTAS: Record<string, [number, number]> = {
   getShipmentItems: [2, 30],
   searchCatalogItems: [2, 2],
   searchListingsItems: [5, 5],
+  searchContentPublishRecords: [10, 10],
 };
 
 export interface CuentaAmazon {

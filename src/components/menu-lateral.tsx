@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Barcode,
   Boxes,
+  Calculator,
   ChevronDown,
   Clapperboard,
   Container,
@@ -24,6 +25,7 @@ import {
   Ship,
   ShoppingCart,
   Smartphone,
+  Sparkles,
   Tags,
   Truck,
   Upload,
@@ -61,7 +63,9 @@ const GRUPOS: Grupo[] = [
     titulo: "Inventario",
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
-      { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
+      { href: "/productos", texto: "Productos", icono: Tags, ayuda: "Categoría y costo aterrizado por modelo" },
+      { href: "/costos", texto: "Costos de producto", icono: Calculator, ayuda: "Costo, aduana por CBM y ganancia por marketplace" },
+      { href: "/modelos-nuevos", texto: "Modelos nuevos", icono: Sparkles, ayuda: "Precio, categoría, imágenes, videos, A+ y llegada" },
     ],
   },
   {
