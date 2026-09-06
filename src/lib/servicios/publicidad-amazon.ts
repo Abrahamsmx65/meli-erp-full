@@ -12,7 +12,7 @@
  * reporte de economía (mismos días), no con las del periodo completo — la
  * misma decisión que ya tomó el monitor de Amazon.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { desglosarSku } from "./sync";
 import { configPorProducto } from "./productos";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
@@ -217,15 +217,15 @@ export async function cargarPublicidadAmazon(
   // renglones en 30 días (154 páginas de mil) y la lectura no alcanzaba a
   // terminar; el error se tragaba y el panel decía "sin datos" con $319 mil
   // de publicidad cargados. Sumada son ~6 mil renglones en un viaje.
-  const leerEconomia = async (): Promise<{ filas: EconomiaSku[]; error: string | null }> => {
-    const { data, error } = await (db as any).rpc("amazon_economia_por_sku", {
+  // Por PÁGINAS: el API corta en 1,000 renglones y la suma trae ~6 mil SKUs;
+  // sin paginar, el gasto de publicidad llegaba recortado y el total salía
+  // chico sin avisar.
+  const leerEconomia = () =>
+    traerRpcTodo<EconomiaSku>(db, "amazon_economia_por_sku", {
       p_account: amazonAccountId,
       p_desde: r.desde,
       p_hasta: r.hasta,
     });
-    if (!error) return { filas: (data ?? []) as EconomiaSku[], error: null };
-    return { filas: [], error: error.message ?? String(error) };
-  };
 
   const [ventas, economia, config] = await Promise.all([
     traerTodo<VentaAmazon>(

@@ -145,6 +145,47 @@ export async function traerTodo<T>(
   return paginas.flat();
 }
 
+/**
+ * Lo mismo que `traerTodo` pero para una FUNCIÓN de la base (rpc): trae
+ * todos sus renglones, en páginas.
+ *
+ * El API de Supabase corta la respuesta en 1,000 renglones aunque la función
+ * devuelva más, y lo hace SIN avisar: las sumas por SKU de Amazon (5,966 de
+ * economía, 1,911 de compras) llegaban recortadas y los totales del panel
+ * salían chicos. Pedir por páginas hasta que una venga incompleta es la
+ * única forma de no depender de ese tope.
+ *
+ * La función DEBE traer su propio ORDER BY: sin orden, dos páginas pueden
+ * repetir un renglón y saltarse otro (igual que en las tablas).
+ */
+export async function traerRpcTodo<T>(
+  db: DB,
+  funcion: string,
+  parametros: Record<string, unknown>,
+  paso = 1000,
+): Promise<{ filas: T[]; error: string | null }> {
+  const filas: T[] = [];
+
+  for (let pagina = 0; ; pagina++) {
+    const desde = pagina * paso;
+    const { data, error } = await (db as any)
+      .rpc(funcion, parametros)
+      .range(desde, desde + paso - 1);
+
+    if (error) {
+      return { filas, error: error.message ?? String(error) };
+    }
+
+    const lote = (data ?? []) as T[];
+    filas.push(...lote);
+    if (lote.length < paso) return { filas, error: null };
+
+    // Tope de seguridad: 200 páginas son 200 mil renglones; si se llega ahí
+    // es que algo se salió de control y es mejor parar que colgar la página.
+    if (pagina >= 199) return { filas, error: null };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Cuenta
 // ---------------------------------------------------------------------------

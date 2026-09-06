@@ -41,7 +41,7 @@ export function desglosarAmazon(sku: string): {
   }
   return d;
 }
-import { traerTodo, type DB } from "../datos/repos";
+import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 
 /** Días de venta que el stock en FBA debe cubrir. */
 export const OBJETIVO_DIAS_FBA = 30;
@@ -323,12 +323,16 @@ async function resumenComprasEnBase(
   desde: string,
 ): Promise<{ seller_sku: string; unidades: number | string; dias_agotado: number }[] | null> {
   try {
-    const { data, error } = await (db as any).rpc("amazon_compras_por_sku", {
-      p_account: cuentaId,
-      p_desde: desde,
-    });
-    if (error || !Array.isArray(data)) return null;
-    return data;
+    // Por PÁGINAS: el API corta en 1,000 renglones y la suma trae ~1,900
+    // SKUs; sin paginar, Planificación China perdía la venta de casi mil
+    // SKUs sin avisar.
+    const { filas, error } = await traerRpcTodo<{
+      seller_sku: string;
+      unidades: number | string;
+      dias_agotado: number;
+    }>(db, "amazon_compras_por_sku", { p_account: cuentaId, p_desde: desde });
+    if (error) return null;
+    return filas;
   } catch {
     return null;
   }
