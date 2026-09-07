@@ -55,6 +55,21 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   const [asignando, setAsignando] = useState<Pedido | null>(null);
   const [editando, setEditando] = useState<Pedido | null>(null);
   const [borrando, setBorrando] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [soloEstado, setSoloEstado] = useState("");
+
+  // Filtro por modelo, número de pedido o número de contenedor: cada palabra
+  // tiene que aparecer en alguno de los tres.
+  const palabras = busqueda.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  const visibles = pedidos.filter((p) => {
+    if (soloEstado === "vivos" && (p.estado === "recibido" || p.estado === "cancelado")) return false;
+    if (soloEstado && soloEstado !== "vivos" && p.estado !== soloEstado) return false;
+    if (!palabras.length) return true;
+    const texto = [p.pedido, p.proveedor ?? "", ...p.modelosLista, ...p.contenedores.map((c) => c.numero)]
+      .join(" ")
+      .toUpperCase();
+    return palabras.every((w) => texto.includes(w));
+  });
 
   async function eliminar(p: Pedido) {
     const seguro = window.confirm(
@@ -79,8 +94,8 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
     return (
       <section className="tarjeta p-6 text-center">
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          Todavía no hay pedidos cargados. Sube una proforma arriba y aparecerá aquí
-          con sus corridas ya dadas de alta.
+          Todavía no hay pedidos cargados. Sube una proforma en Cargar pedidos y
+          aparecerá aquí con sus corridas ya dadas de alta.
         </p>
       </section>
     );
@@ -89,8 +104,36 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   return (
     <>
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-3 hairline">
-          <h2 className="text-sm font-semibold">Pedidos cargados</h2>
+        <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
+          <h2 className="text-sm font-semibold">
+            Pedidos cargados
+            <span className="ml-2 cifra font-normal" style={{ color: "var(--ink-muted)" }}>
+              {visibles.length === pedidos.length ? pedidos.length : `${visibles.length} de ${pedidos.length}`}
+            </span>
+          </h2>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por modelo, pedido o contenedor…"
+            className="min-w-64 flex-1 rounded-lg border px-3 py-1.5 text-sm md:max-w-md"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            aria-label="Filtrar pedidos"
+          />
+          <select
+            value={soloEstado}
+            onChange={(e) => setSoloEstado(e.target.value)}
+            className="rounded-lg border px-2 py-1.5 text-sm"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            aria-label="Filtrar por estado"
+          >
+            <option value="">Todos los estados</option>
+            <option value="vivos">Solo vivos</option>
+            <option value="creado">Sin embarcar</option>
+            <option value="con_contenedor">Parcialmente embarcados</option>
+            <option value="en_transito">En tránsito</option>
+            <option value="recibido">Recibidos</option>
+            <option value="cancelado">Cancelados</option>
+          </select>
         </header>
 
         <div className="overflow-auto">
@@ -108,7 +151,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
               </tr>
             </thead>
             <tbody>
-              {pedidos.map((p) => {
+              {visibles.map((p) => {
                 const pendientes = Math.max(0, p.cajas - p.cajasAsignadas);
                 const e = ETIQUETA_ESTADO[p.estado] ?? ETIQUETA_ESTADO.creado;
                 return (
@@ -202,6 +245,11 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
               })}
             </tbody>
           </table>
+          {!visibles.length ? (
+            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+              Ningún pedido coincide con la búsqueda.
+            </p>
+          ) : null}
         </div>
       </section>
 

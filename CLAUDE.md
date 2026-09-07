@@ -58,6 +58,18 @@ guárdala numerada.
   y tiene tres niveles: manual → exacto → canónico → aplastado.
 - **Envíos a Full por bodega:** Caseshop + Industher salen juntos, EnvioPack
   aparte. Configurado en `almacenes_activos.grupo_envio`.
+- **El packing list de la fábrica arma el contenedor** (`/contenedores`): un
+  bloque por color con la corrida en filas de talla; "IN10079-3" es el pedido
+  IN10079 en su tercer embarque parcial (el sufijo se quita). Se amarra por
+  pedido + modelo + color aplastado + talla contra `pedido_lineas`; lo que no
+  amarra se enseña y NO se guarda. Subirlo dos veces al mismo contenedor no
+  duplica: lo de ese contenedor se reemplaza. El pedido tiene que estar
+  cargado antes (Cargar pedidos).
+- **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock
+  actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
+  modelo + color comparando el SKU completo sin talla ni sufijo
+  (`claveProductoDeSku`), porque `skus.modelo` parte mal los modelos con
+  guion (GT104-1).
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
@@ -297,6 +309,9 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Cargar pedidos (muchas proformas, lista con filtros) y faltantes contra el sheet de pendientes (`PEDIDOS_SHEET_URL`, pestaña por `gid`, AR* ignorados) | `src/app/pedidos/cargar` + `components/cargar-pedidos-lote.tsx` + `src/lib/servicios/pedidos-sheet.ts` |
+| Packing list de la fábrica → contenedor (lector + amarre pedido/modelo/color/talla) | `src/lib/importar/packing-list.ts` + `src/lib/servicios/packing-list.ts` + `/api/contenedores/packing-list` |
+| Productos nuevos en camino (pedidos sin stock nunca; fotos en MELI y Amazon, mínimo 2) | `src/lib/servicios/productos-nuevos.ts` + `src/app/pedidos/nuevos` + `/api/pedidos/nuevos/fotos` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
@@ -312,7 +327,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
-| Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
+| Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,pedidos/cargar,pedidos/nuevos,contenedores,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
 

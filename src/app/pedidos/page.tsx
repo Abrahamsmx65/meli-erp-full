@@ -6,8 +6,6 @@ import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
 import { sugerirCompra } from "@/lib/servicios/compras";
 import { Ficha } from "@/components/tiles";
-import { CargarPedido } from "@/components/cargar-pedido";
-import { ListaPedidos } from "@/components/lista-pedidos";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
 import { amazonParaCompras } from "@/lib/servicios/fba";
 
@@ -92,7 +90,11 @@ export default async function Pedidos() {
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Qué conviene pedir, mirando al mismo tiempo lo que se vende en Mercado
           Libre, lo que hay en Full, lo que hay en bodega y lo que ya viene en el
-          barco. Y abajo, los pedidos vivos con su contenedor.
+          barco. Los pedidos se cargan y se ven en{" "}
+          <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
+            Cargar pedidos
+          </Link>
+          .
         </p>
       </div>
 
@@ -175,9 +177,13 @@ export default async function Pedidos() {
 
       <PedidoPorModelo renglones={compra.renglones} />
 
-      <CargarPedido />
-
-      <ListaPedidos pedidos={pedidos} />
+      <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        Los pedidos cargados, con su contenedor y sus filtros, viven ahora en{" "}
+        <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
+          Cargar pedidos
+        </Link>
+        .
+      </p>
     </div>
   );
 }
