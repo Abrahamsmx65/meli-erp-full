@@ -1,6 +1,7 @@
+import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { hacerCorte } from "@/lib/servicios/tiktok-despacho";
+import { hacerCorte, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +20,15 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   try {
-    const r = await hacerCorte(clienteAdmin(), cuenta.id, {
+    const admin = clienteAdmin();
+    const r = await hacerCorte(admin, cuenta.id, {
       handover: body?.handover === "DROP_OFF" ? "DROP_OFF" : "PICKUP",
       creadoPor: user.id,
+    });
+    // Las guías se bajan y se guardan en cuanto se contesta: cuando el
+    // usuario pida el PDF ya está armado.
+    after(async () => {
+      await pdfEtiquetasDelCorte(admin, cuenta.id, r.corteId).catch(() => undefined);
     });
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {

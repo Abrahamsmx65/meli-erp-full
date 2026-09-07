@@ -52,6 +52,21 @@ export interface ResultadoCorte {
   al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
 }
 
+/** Corre `fn` sobre `items` con a lo más `n` a la vez, en orden de arranque. */
+async function enParalelo<T>(items: T[], n: number, fn: (item: T, i: number) => Promise<void>): Promise<void> {
+  let siguiente = 0;
+  const obreros = Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (siguiente < items.length) {
+      const i = siguiente++;
+      await fn(items[i], i);
+    }
+  });
+  await Promise.all(obreros);
+}
+
+/** Bucket privado donde se guardan las guías (una por paquete) y el PDF del corte. */
+export const BUCKET_GUIAS = "tiktok-guias";
+
 /** El primer horario que todavía no pasó; si todos pasaron, el último. */
 export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccion | null {
   if (!horarios.length) return null;
@@ -91,15 +106,18 @@ export async function hacerCorte(
   let dropOff = 0;
   const confirmados: string[] = [];
 
-  for (const p of pendientes) {
+  // Con 200 pedidos, uno por uno no cabe en el tiempo de Vercel: se
+  // confirman VARIOS a la vez (cada pedido son 2 o 3 llamadas a TikTok).
+  // El orden de `confirmados` no importa: el corte se numera después.
+  await enParalelo(pendientes, 6, async (p) => {
     if (cliente.msRestantes() < 30_000) {
       errores.push({ orderId: p.orderId, error: "Se acabó el tiempo; entra al siguiente corte." });
-      continue;
+      return;
     }
     // Lo que ya salió (sin corte) no se vuelve a confirmar: solo se agrupa.
     if (efectoDeEstado(p.estado) === "salida") {
       confirmados.push(p.orderId);
-      continue;
+      return;
     }
     try {
       const paquetes = await paquetesDePedido(cliente, p.orderId);
@@ -140,7 +158,7 @@ export async function hacerCorte(
     } catch (err) {
       errores.push({ orderId: p.orderId, error: (err as Error).message });
     }
-  }
+  });
 
   // El número del corte: consecutivo por cuenta.
   const { data: ultimo } = await admin
@@ -341,10 +359,58 @@ function anchoBarras(texto: string, tope: number): number {
   return Math.min(tope, codificar128(texto).modulos * 0.75);
 }
 
+/** Lee un archivo del bucket de guías; null si no existe. */
+async function leerGuia(admin: any, ruta: string): Promise<Uint8Array | null> {
+  const { data, error } = await admin.storage.from(BUCKET_GUIAS).download(ruta);
+  if (error || !data) return null;
+  return new Uint8Array(await data.arrayBuffer());
+}
+
+async function guardarGuia(admin: any, ruta: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  await admin.storage.from(BUCKET_GUIAS).upload(ruta, bytes, { contentType, upsert: true }).catch(() => undefined);
+}
+
+/**
+ * La guía de un paquete: primero del bucket (ya se bajó una vez), si no,
+ * de TikTok, y se guarda para la próxima. Las URLs de TikTok caducan y
+ * bajar 170 guías en cada impresión no cabe en el tiempo de Vercel.
+ */
+async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageId: string): Promise<{ bytes: Uint8Array | null; error: string | null }> {
+  const ruta = `${accountId}/${packageId}.pdf`;
+  const guardada = await leerGuia(admin, ruta);
+  if (guardada?.length) return { bytes: guardada, error: null };
+  try {
+    const url = await etiquetaDePaquete(cliente, packageId);
+    if (!url) throw new Error("TikTok no devolvió la guía");
+    const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!r.ok) throw new Error(`descarga ${r.status}`);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (esPdf(bytes) || esPng(bytes) || esJpg(bytes)) await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
+    return { bytes, error: null };
+  } catch (err) {
+    return { bytes: null, error: (err as Error).message };
+  }
+}
+
 export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
+  // El PDF del corte ya armado: reimprimir es leer un archivo.
+  const rutaCorte = `${accountId}/corte-${corteId}.pdf`;
+  const listo = await leerGuia(admin, rutaCorte);
+  if (listo?.length) return listo;
+
   const corte = await cargarCorte(admin, accountId, corteId);
   const cliente = await clienteDeCuenta(admin, accountId, 240_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+
+  // Todas las guías primero, varias a la vez; el armado va después, en orden.
+  const guias = new Map<string, { bytes: Uint8Array | null; error: string | null }>();
+  await enParalelo(corte.paquetes, 8, async (p) => {
+    if (!p.packageId) {
+      guias.set(`${p.orderId}|${p.packageId}`, { bytes: null, error: "sin paquete en TikTok" });
+      return;
+    }
+    guias.set(`${p.orderId}|${p.packageId}`, await bytesDeGuia(admin, cliente, accountId, p.packageId));
+  });
 
   const doc = await PDFDocument.create();
   const fuente = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -381,20 +447,12 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     });
   };
 
+  let sinGuia = 0;
   for (const p of corte.paquetes) {
-    let bytes: Uint8Array | null = null;
-    let error: string | null = null;
-
-    try {
-      if (!p.packageId) throw new Error("sin paquete en TikTok");
-      const url = await etiquetaDePaquete(cliente, p.packageId);
-      if (!url) throw new Error("TikTok no devolvió la guía");
-      const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-      if (!r.ok) throw new Error(`descarga ${r.status}`);
-      bytes = new Uint8Array(await r.arrayBuffer());
-    } catch (err) {
-      error = (err as Error).message;
-    }
+    const g = guias.get(`${p.orderId}|${p.packageId}`) ?? { bytes: null, error: "sin guía" };
+    const bytes = g.bytes;
+    const error = g.error;
+    if (!bytes) sinGuia++;
 
     if (bytes && esPdf(bytes)) {
       const origen = await PDFDocument.load(bytes, { ignoreEncryption: true });
@@ -424,7 +482,11 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     estampar(pagina, p);
   }
 
-  return doc.save();
+  const salida = await doc.save();
+  // Solo se guarda el PDF del corte si salió completo: con una guía que
+  // TikTok no dio, la siguiente impresión la vuelve a intentar.
+  if (!sinGuia) await guardarGuia(admin, rutaCorte, salida, "application/pdf");
+  return salida;
 }
 
 function esPdf(b: Uint8Array): boolean {
