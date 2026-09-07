@@ -151,9 +151,10 @@ export function SubirPackingList() {
     <section className="tarjeta p-4">
       <h2 className="font-semibold">Subir un packing list</h2>
       <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-        Sube el packing list de la fábrica tal como te llega. De ahí salen el número
-        de contenedor, los pedidos y las cajas de cada modelo y color; el ERP los
-        amarra con los pedidos ya cargados y te enseña cómo quedó antes de guardar.
+        Sube el packing list de la fábrica tal como te llega. De ahí salen nuestro ID
+        (la referencia del embarque, S259-2026), el número de la naviera (MIEU…), los
+        pedidos y las cajas de cada modelo y color; el ERP los amarra con los pedidos
+        ya cargados y te enseña cómo quedó antes de guardar.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -213,7 +214,7 @@ export function SubirPackingList() {
                       previsualizar(archivo, form.numero.trim());
                     }
                   }}
-                  placeholder="MIEU3920536 o C-2026-01"
+                  placeholder="S259-2026"
                   className="w-full rounded-lg border px-2 py-1.5 text-sm"
                   style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                 />

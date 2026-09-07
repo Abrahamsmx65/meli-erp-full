@@ -83,7 +83,8 @@ describe("casarPackingList", () => {
     const db = baseSimulada(pedidoIN10079());
     const c = await casarPackingList(db, CUENTA, packing, null);
 
-    expect(c.numero).toBe("MIEU3920536");
+    // Nuestro ID es la referencia del embarque; el ISO es el de la naviera.
+    expect(c.numero).toBe("S259-2026");
     expect(c.contenedorExistente).toBe(false);
     expect(c.lineas).toHaveLength(14);
     expect(c.lineas.every((l) => l.estado === "ok")).toBe(true);
@@ -134,7 +135,7 @@ describe("casarPackingList", () => {
   it("subir dos veces al mismo contenedor no cuenta lo suyo como 'en otros'", async () => {
     const packing = await importarPackingList(buf, { nombre: "x.xls" });
     const base = pedidoIN10079();
-    base.contenedores = [{ id: "c1", account_id: CUENTA, numero: "MIEU3920536" }];
+    base.contenedores = [{ id: "c1", account_id: CUENTA, numero: "S259-2026" }];
     base.contenedor_lineas = [{ pedido_linea_id: "GT221-M BROWN", contenedor_id: "c1", cajas: 40 }];
     const c = await casarPackingList(baseSimulada(base), CUENTA, packing, null);
 

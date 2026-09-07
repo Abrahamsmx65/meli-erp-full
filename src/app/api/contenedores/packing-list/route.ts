@@ -55,7 +55,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  const numero = texto("numero") || packing.contenedor || "";
+  // Nuestro ID = la referencia del embarque (S259-2026); el ISO del
+  // contenedor es el número de la naviera.
+  const numero = texto("numero") || packing.referencia || packing.contenedor || "";
 
   try {
     const casado = await casarPackingList(supabase, cuenta.id, packing, numero);

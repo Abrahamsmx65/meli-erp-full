@@ -58,7 +58,9 @@ guárdala numerada.
   y tiene tres niveles: manual → exacto → canónico → aplastado.
 - **Envíos a Full por bodega:** Caseshop + Industher salen juntos, EnvioPack
   aparte. Configurado en `almacenes_activos.grupo_envio`.
-- **El packing list de la fábrica arma el contenedor** (`/contenedores`): un
+- **El packing list de la fábrica arma el contenedor** (`/contenedores`):
+  NUESTRO ID es la referencia del embarque (S259-2026) y el ISO del
+  contenedor (MIEU3920536) es el número de la naviera. Un
   bloque por color con la corrida en filas de talla; "IN10079-3" es el pedido
   IN10079 en su tercer embarque parcial (el sufijo se quita). Se amarra por
   pedido + modelo + color aplastado + talla contra `pedido_lineas`; lo que no

@@ -148,7 +148,9 @@ export async function casarPackingList(
   packing: PackingList,
   numeroCrudo: string | null | undefined,
 ): Promise<PackingCasado> {
-  const numero = (numeroCrudo || packing.contenedor || "").trim().toUpperCase();
+  // Nuestro ID es la referencia del embarque (S259-2026); el número ISO del
+  // contenedor (MIEU3920536) es el de la naviera y va aparte.
+  const numero = (numeroCrudo || packing.referencia || packing.contenedor || "").trim().toUpperCase();
   const avisos = [...packing.avisos];
 
   const { data: existente } = numero
