@@ -8,6 +8,7 @@
  * falta es la sugerencia. No hay cajas ni corridas: se pide por unidad.
  */
 import type { DB } from "../datos/repos";
+import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
@@ -62,7 +63,7 @@ async function cargarBase(db: DB, accountId: string) {
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, costosFilas, descontinuados] = await Promise.all([
+  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, mapaUnificado, descontinuados] = await Promise.all([
     todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null }>(
       db, "yz_skus", "sku, titulo, diseno, modelo, color", (q) => q.eq("account_id", accountId),
     ),
@@ -71,7 +72,8 @@ async function cargarBase(db: DB, accountId: string) {
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, p.diasCaducidadEnvio),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
-    todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
+    // Costos de Productos y costos (calzado y fundas juntos); yz_costos de respaldo.
+    mapaCostosUnificado(db, { yzAccountId: accountId }),
     cargarDescontinuados(db, accountId),
   ]);
 
@@ -84,7 +86,7 @@ async function cargarBase(db: DB, accountId: string) {
   const stockPor = new Map(stock.map((s) => [s.sku, s]));
   const caminoFull = new Map<string, number>();
   for (const c of enCamino) caminoFull.set(c.skuMeli, (caminoFull.get(c.skuMeli) ?? 0) + c.unidades);
-  const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
+  const costos = soloCostos(mapaUnificado);
 
   return { p, skus, vendidas, stockPor, inventario, caminoFull, pedidos, costos, descontinuados };
 }

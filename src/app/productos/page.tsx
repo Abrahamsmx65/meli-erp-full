@@ -28,9 +28,10 @@ export default async function Productos() {
       <div>
         <h1 className="titulo-pagina">Productos y costos</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          La categoría (corcho, EVA, pantufla…) y el costo final por par en MXN, por
-          modelo y color — el costo es el mismo para todas las tallas. Con esto la
-          sección de Ventas calcula la ganancia contra lo que MELI de verdad deposita.
+          La categoría (corcho, EVA, pantufla, fundas…) y el costo final por pieza en
+          MXN, por modelo de calzado o diseño de funda — el mismo para todas las tallas,
+          colores y modelos de celular. Es el ÚNICO lugar de costos: de aquí sacan la
+          ganancia Ventas de MELI, Ventas de fundas, Amazon y los cortes.
         </p>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
           <strong className="cifra">{conCosto}</strong> de{" "}

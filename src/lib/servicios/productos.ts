@@ -11,14 +11,20 @@
  * le gana a la del modelo.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { desglosar as desglosarFunda, esCalzado } from "../yapanizcel/sku";
+
+export type Negocio = "calzado" | "fundas";
 
 export interface ProductoConfig {
   modelo: string;
   titulo: string | null;
   colores: number;
+  /** SKUs del modelo (tallas × colores en calzado; variantes en fundas) */
   tallas: number;
   categoria: string | null;
   costoMxn: number | null;
+  /** de qué catálogo sale: el de calzado (MELI) o el de fundas (YAPANIZCEL) */
+  negocio: Negocio;
 }
 
 export interface CatalogoProductos {
@@ -33,10 +39,41 @@ export interface ConfigProducto {
   costo: number | null;
 }
 
+/**
+ * Los diseños de fundas de YAPANIZCEL (yz_skus), para capturarles costo en
+ * el mismo lugar que al calzado. Decisión del dueño: un solo Productos y
+ * costos para todo. Sin cuenta de fundas, lista vacía.
+ */
+async function disenosDeFundas(db: DB): Promise<Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>> {
+  const salida = new Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>();
+  try {
+    const { data: cuenta } = await db.from("yz_cuentas").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+    if (!cuenta?.id) return salida;
+    const skus = await traerTodo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", cuenta.id));
+    for (const s of skus) {
+      const d = desglosarFunda(s.sku);
+      const diseno = d.diseno.toUpperCase();
+      // Sin diseño numérico no es una funda; el calzado que vive en esa
+      // cuenta ya está listado por su propio catálogo.
+      if (!diseno || esCalzado(diseno)) continue;
+      const p = salida.get(diseno) ?? { titulo: null, colores: new Set<string>(), tallas: 0 };
+      p.tallas += 1;
+      if (d.color) p.colores.add(d.color);
+      if (!p.titulo && s.titulo) p.titulo = s.titulo;
+      salida.set(diseno, p);
+    }
+  } catch {
+    // Sin tablas de fundas (otra base) no pasa nada: solo calzado.
+  }
+  return salida;
+}
+
 export async function cargarProductos(db: DB, accountId: string): Promise<CatalogoProductos> {
-  const skus = await traerTodo<any>(db, "skus", "sku, modelo, color, titulo", (q) =>
-    q.eq("account_id", accountId).eq("activo", true),
-  );
+  const [skus, fundas, { config, faltaMigracion }] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku, modelo, color, titulo", (q) => q.eq("account_id", accountId).eq("activo", true)),
+    disenosDeFundas(db),
+    leerConfig(db, accountId),
+  ]);
 
   const porModelo = new Map<
     string,
@@ -52,21 +89,23 @@ export async function cargarProductos(db: DB, accountId: string): Promise<Catalo
     porModelo.set(modelo, p);
   }
 
-  const { config, faltaMigracion } = await leerConfig(db, accountId);
+  const armar = (modelo: string, p: { titulo: string | null; colores: Set<string>; tallas: number }, negocio: Negocio): ProductoConfig => {
+    const c = config.get(modelo) ?? config.get(modelo.toUpperCase());
+    return {
+      modelo,
+      titulo: p.titulo,
+      colores: p.colores.size,
+      tallas: p.tallas,
+      categoria: c?.categoria ?? null,
+      costoMxn: c?.costo ?? null,
+      negocio,
+    };
+  };
 
-  const productos: ProductoConfig[] = [...porModelo.entries()]
-    .map(([modelo, p]) => {
-      const c = config.get(modelo);
-      return {
-        modelo,
-        titulo: p.titulo,
-        colores: p.colores.size,
-        tallas: p.tallas,
-        categoria: c?.categoria ?? null,
-        costoMxn: c?.costo ?? null,
-      };
-    })
-    .sort((a, b) => a.modelo.localeCompare(b.modelo));
+  const productos: ProductoConfig[] = [
+    ...[...porModelo.entries()].map(([modelo, p]) => armar(modelo, p, "calzado")),
+    ...[...fundas.entries()].filter(([d]) => !porModelo.has(d)).map(([d, p]) => armar(d, p, "fundas")),
+  ].sort((a, b) => a.negocio.localeCompare(b.negocio) || a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
 
   const categorias = [...new Set(productos.map((p) => p.categoria).filter(Boolean))] as string[];
   categorias.sort();
