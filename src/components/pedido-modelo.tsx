@@ -59,8 +59,11 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         vAmzReal: number;
       }
     >();
+    // El modelo se suma COMPLETO, con todos sus colores — también los que no
+    // llevan cajas en este pedido. Antes solo se sumaban los colores con
+    // cajas y el "vendido real" salía corto: el GT110 enseñaba la venta de 4
+    // de sus colores y parecía que el sistema perdía ventas.
     for (const r of renglones) {
-      if (r.cajasSugeridas <= 0) continue;
       const m =
         porModelo.get(r.modelo) ??
         { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0 };
@@ -77,9 +80,20 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       m.vAmzReal += r.ventaMesRealAmazon ?? r.ventaMesAmazon;
       porModelo.set(r.modelo, m);
     }
-    return [...porModelo.entries()]
-      .map(([modelo, m]) => ({ modelo, ...m }))
-      .sort((a, b) => b.cajas - a.cajas);
+    return (
+      [...porModelo.entries()]
+        .map(([modelo, m]) => ({ modelo, ...m }))
+        // La tabla sigue siendo el PEDIDO: un modelo sin cajas no aparece.
+        .filter((m) => m.cajas > 0)
+        .map((m) => ({
+          ...m,
+          // Los colores con cajas primero; los demás abajo, de referencia.
+          colores: [...m.colores].sort(
+            (a, b) => b.cajasSugeridas - a.cajasSugeridas || a.color.localeCompare(b.color),
+          ),
+        }))
+        .sort((a, b) => b.cajas - a.cajas)
+    );
   }, [renglones]);
 
   if (!modelos.length) return null;
@@ -108,7 +122,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
             <th className="num">De China</th>
             <th
               className="num"
-              title="Unidades realmente vendidas en MELI en los últimos 30 días, sin corrección (solo los colores con cajas en el pedido)"
+              title="Unidades realmente vendidas en MELI en los últimos 30 días, sin corrección (todos los colores del modelo)"
             >
               Vendido MELI real
             </th>
