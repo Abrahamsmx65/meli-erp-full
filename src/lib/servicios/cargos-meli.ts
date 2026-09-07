@@ -147,20 +147,25 @@ export async function leerCargosDelPeriodo(cliente: MeliClient, periodo: string)
   let clave: string | null = null;
   let claves: string[] = [];
   let errorPeriodos: string | null = null;
+  let crudoPeriodos: unknown = null;
   try {
-    const crudo = await conRutas(
+    // MELI topa `limit` en 12: un año de periodos por llamada.
+    crudoPeriodos = await conRutas(
       ["/billing/integration/monthly/periods", "/billing/integration/periods"],
-      (ruta) => cliente.get<unknown>(ruta, { group: "ML", document_type: "BILL", limit: 24, offset: 0 }),
+      (ruta) => cliente.get<unknown>(ruta, { group: "ML", document_type: "BILL", limit: 12, offset: 0 }),
     );
-    ({ clave, claves } = claveDePeriodo(crudo, periodo));
+    ({ clave, claves } = claveDePeriodo(crudoPeriodos, periodo));
   } catch (err) {
     errorPeriodos = (err as Error).message;
   }
   if (!clave) {
     const muestra = claves.length ? ` Periodos que MELI lista: ${claves.slice(0, 12).join(", ")}.` : "";
     const detalle = errorPeriodos ? ` La lista de periodos falló: ${errorPeriodos}.` : "";
+    // Sin clave reconocida, la respuesta cruda (recortada) es la pista para
+    // aprender el formato de MELI.
+    const crudoTexto = crudoPeriodos ? ` Respuesta de MELI: ${JSON.stringify(crudoPeriodos).slice(0, 600)}` : "";
     throw new MeliError(
-      `MELI no lista un periodo de facturación para ${periodo}.${muestra}${detalle}`,
+      `MELI no lista un periodo de facturación para ${periodo}.${muestra}${detalle}${crudoTexto}`,
       404,
       { claves },
       "/billing/integration/monthly/periods",
