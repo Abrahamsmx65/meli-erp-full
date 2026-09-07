@@ -10,6 +10,7 @@ import {
 import { cargarPublicidad } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -237,66 +238,11 @@ export default async function Ventas({
           <h2 className="text-base font-semibold">Por modelo</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Todas las tallas y colores de cada modelo, juntos, en el periodo elegido,
-            contra el periodo anterior del mismo largo.
+            contra el periodo anterior del mismo largo. Busca por modelo o SKU, filtra por
+            categoría y da clic en una columna para ordenar.
           </p>
         </header>
-        <div className="max-h-[36rem] overflow-auto">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th className="num">Colores</th>
-                <th className="num">Hoy</th>
-                <th className="num">Periodo</th>
-                <th className="num">Previo</th>
-                <th className="num">Cambio</th>
-                <th className="num">Importe</th>
-                <th className="num">Ganancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {m.porModelo.map((f) => {
-                const delta = f.unidades7 - f.unidades7Prev;
-                return (
-                  <tr key={f.modelo}>
-                    <td className="font-medium">{f.modelo}</td>
-                    <td className="num cifra">{f.colores}</td>
-                    <td className="num cifra">{n(f.unidadesHoy)}</td>
-                    <td className="num cifra font-semibold">{n(f.unidades7)}</td>
-                    <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
-                      {n(f.unidades7Prev)}
-                    </td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color:
-                          delta > 0
-                            ? "var(--exito-texto)"
-                            : delta < 0
-                              ? "var(--estado-critico)"
-                              : "var(--ink-muted)",
-                      }}
-                    >
-                      {delta > 0 ? `+${n(delta)}` : n(delta)}
-                    </td>
-                    <td className="num cifra">{pesos(f.importe7)}</td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color:
-                          f.ganancia7 != null && f.ganancia7 < 0
-                            ? "var(--estado-critico)"
-                            : "var(--ink-1)",
-                      }}
-                    >
-                      {f.ganancia7 == null ? "—" : pesos(f.ganancia7)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <TablaModelosVentas filas={m.porModelo} />
       </section>
     </div>
   );

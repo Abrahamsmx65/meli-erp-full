@@ -26,6 +26,10 @@ export interface FilaModelo {
   importe7: number;
   unidadesHoy: number;
   colores: number;
+  /** categoría capturada en Productos y costos; null = sin categoría */
+  categoria: string | null;
+  /** venta neta del periodo (depósito real donde ya llegó, importe − comisión donde no) */
+  neto7: number;
   /** neto - costo, solo de los colores con costo capturado; null = sin costo */
   ganancia7: number | null;
 }
@@ -275,6 +279,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   // Ganancia = (importe - comisión de MELI) - costo × unidades. Solo se
   // calcula donde hay costo capturado; el resto se reporta como cobertura.
   const gananciaPorModelo = new Map<string, number>();
+  const netoPorModelo = new Map<string, number>();
   const modeloConCosto = new Set<string>();
   const categorias = new Map<string, { unidades7: number; importe7: number; neto7: number; ganancia7: number; conCosto: boolean }>();
   let ganancia7 = 0;
@@ -293,6 +298,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     cat.unidades7 += pr.d7;
     cat.importe7 += pr.importe7;
     cat.neto7 += pr.neto7;
+    netoPorModelo.set(pr.modelo, (netoPorModelo.get(pr.modelo) ?? 0) + pr.neto7);
 
     if (cfg?.costo != null && pr.d7 > 0) {
       costoProductoP += cfg.costo * pr.d7;
@@ -401,10 +407,12 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       importe7: m.importe7,
       unidadesHoy: m.unidadesHoy,
       colores: m.colores.size,
+      categoria: config.get(modelo)?.categoria ?? null,
+      neto7: netoPorModelo.get(modelo) ?? 0,
       ganancia7: modeloConCosto.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
     }))
-    .sort((a, b) => b.unidades7 - a.unidades7)
-    .slice(0, 150);
+    // Todos los modelos: la tabla se filtra y se ordena en pantalla.
+    .sort((a, b) => b.unidades7 - a.unidades7);
 
   const monitor: Monitor = {
     hoy: resumen(hoy, hoy),
