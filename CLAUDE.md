@@ -206,6 +206,29 @@ guárdala numerada.
   (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
   renglones.
 
+- **La ganancia de MELI se cuenta con dinero real, orden por orden**
+  (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
+  (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −
+  devoluciones − costo por modelo − publicidad (Product Ads + a mano) −
+  gastos de Full (facturación de MELI, `meli_cargos`, + a mano en
+  `gastos_meli`) − otros = utilidad neta. Todo se suma en CENTAVOS enteros
+  y el total del mes sale de las ÓRDENES, no de los renglones diarios (que
+  reparten y redondean). Las órdenes CANCELADAS no existen para el corte;
+  las DEVUELTAS sí vendieron y la devolución se resta aparte, una sola vez
+  (si Mercado Pago ya bajó el neto, solo se resta lo que falte). Para eso
+  cada orden se REVISA después de vendida (`devoluciones.ts`): las
+  cancelaciones en bloque (`/orders/search` con status cancelled, y ese día
+  se vuelve a barrer para que sus renglones salgan de la venta) y el pago
+  de cada orden a los 10 y a los 40 días (`/collections/{pago}`: estado,
+  `transaction_amount_refunded`, neto de hoy), montado en el latido y
+  completo al hacer el corte. Un corte (`cortes_meli`) congela el estado de
+  resultados en jsonb y su PDF (`corte-meli-pdf.ts`) se rehace de ahí; el
+  del mismo mes se reemplaza. El corte DECLARA lo que le falta para ser
+  exacto (neto estimado, modelos sin costo, órdenes sin revisar, ads o
+  facturación sin leer) en `avisos`; nunca rellena con estimaciones
+  calladas. De la facturación de MELI solo se restan las clases `full` y
+  `otro` (`clasificarCargo`): comisión y envío ya van en el neto, Product
+  Ads ya cuenta por el API de publicidad, los pagos son abonos.
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
@@ -319,6 +342,7 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
+| Corte mensual MELI (estado de resultados al centavo, PDF, gastos a mano, facturación de MELI, revisión de devoluciones y cancelaciones) | `src/lib/servicios/corte-meli.ts` (+ `corte-meli-pdf.ts`, `cargos-meli.ts`, `devoluciones.ts`) + `src/app/ventas/cortes` + `/api/ventas/*` |
 | Monitor de ventas MELI / Amazon  | `src/lib/servicios/ventas-monitor.ts`, `amazon-monitor.ts` (filtro de fechas en `components/filtro-fechas.tsx`) |
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
