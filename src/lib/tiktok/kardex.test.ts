@@ -8,6 +8,7 @@ import {
   saldosDesdeMovimientos,
   type Movimiento,
   type RenglonPedido,
+  frenarSubidasSinCausa,
 } from "./kardex";
 
 describe("efectoDeEstado", () => {
@@ -209,5 +210,16 @@ describe("escriturasContraTikTok", () => {
         new Map(),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("frenarSubidasSinCausa", () => {
+  const e = (sku: string, de: number | null, a: number) => ({ skuId: sku, productId: "p", skuInterno: sku, de, a });
+  it("bajar siempre pasa; subir solo con causa o cuando se leyeron todos los pedidos", () => {
+    const escrituras = [e("A", 5, 3), e("B", 2, 6), e("C", 1, 4), e("D", null, 9)];
+    const r = frenarSubidasSinCausa(escrituras, new Set(["C"]), false);
+    expect(r.permitidas.map((x) => x.skuInterno)).toEqual(["A", "C", "D"]);
+    expect(r.frenadas.map((x) => x.skuInterno)).toEqual(["B"]);
+    expect(frenarSubidasSinCausa(escrituras, new Set(), true).frenadas).toEqual([]);
   });
 });

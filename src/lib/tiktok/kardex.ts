@@ -321,3 +321,31 @@ export function escriturasContraTikTok(
   }
   return salida;
 }
+
+/**
+ * Una SUBIDA del número publicado (TikTok tiene menos de lo que el kardex
+ * dice disponible) solo se manda con causa: una entrada, devolución o
+ * ajuste al kardex, o un pedido cancelado, desde la última vez que se le
+ * escribió a ese SKU. Sin causa, lo más probable es que el ERP todavía no
+ * se haya enterado de un pedido (un aviso atorado, una corrida encimada) y
+ * subirle el número a TikTok es regalarle un par que ya se vendió: así se
+ * sobrevendió el MY2304 morado el 3 de septiembre. Bajar siempre se puede.
+ *
+ * `todasConCausa` = true cuando el que llama acaba de leer TODOS los
+ * pedidos (la corrida completa, sin avisos pendientes): ahí el disponible
+ * es la verdad y una subida corrige un número bajo en el Seller Center.
+ */
+export function frenarSubidasSinCausa(
+  escrituras: EscrituraTikTok[],
+  conCausa: Set<string>,
+  todasConCausa: boolean,
+): { permitidas: EscrituraTikTok[]; frenadas: EscrituraTikTok[] } {
+  const permitidas: EscrituraTikTok[] = [];
+  const frenadas: EscrituraTikTok[] = [];
+  for (const e of escrituras) {
+    const sube = e.de != null && e.a > e.de;
+    if (!sube || todasConCausa || conCausa.has(e.skuInterno)) permitidas.push(e);
+    else frenadas.push(e);
+  }
+  return { permitidas, frenadas };
+}

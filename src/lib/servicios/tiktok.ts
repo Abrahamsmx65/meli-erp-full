@@ -49,6 +49,7 @@ import {
   apartadosPorSku,
   disponibleParaCompradores,
   escriturasContraTikTok,
+  frenarSubidasSinCausa,
   movimientosPendientes,
   saldosDesdeMovimientos,
   type Movimiento,
@@ -635,7 +636,8 @@ async function sincronizarTikTokSinCandado(
   );
 
   // ---- 4. Escribirle la disponibilidad a TikTok -------------------------
-  const pub = await publicarDisponibilidad(admin, accountId, cliente);
+  // Aquí se acaban de leer todos los pedidos: las subidas van con causa.
+  const pub = await publicarDisponibilidad(admin, accountId, cliente, { pedidosCompletos: true });
   avisos.push(...pub.avisos);
 
   await admin.from("tiktok_sync_log").insert({
@@ -697,6 +699,10 @@ export async function publicarDisponibilidad(
   admin: any,
   accountId: string,
   clienteDado?: Cliente | null,
+  opciones: {
+    /** true solo desde la corrida completa: acaba de leer todos los pedidos */
+    pedidosCompletos?: boolean;
+  } = {},
 ): Promise<ResultadoPublicar> {
   const cliente = clienteDado ?? (await clienteDeCuenta(admin, accountId));
   if (!cliente) {
@@ -712,7 +718,7 @@ export async function publicarDisponibilidad(
   }
 
   const [inv, skusTikTok, contados] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado", (q) =>
+    traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado, publicado_en", (q) =>
       q.eq("account_id", accountId),
     ),
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok", (q) =>
@@ -750,28 +756,46 @@ export async function publicarDisponibilidad(
   const conPublicacion = new Set((skusTikTok ?? []).map((s: any) => s.sku_interno).filter(Boolean));
   const sinProducto = [...disponibles.keys()].filter((sku) => !conPublicacion.has(sku)).length;
 
-  if (!escrituras.length) {
+  // SEGURO 2: una SUBIDA solo se manda con causa (ver frenarSubidasSinCausa).
+  // Con avisos de TikTok sin procesar, ni la corrida completa sube: puede
+  // haber un pedido que todavía no está en el apartado.
+  const subidas = escrituras.filter((e) => e.de != null && e.a > e.de);
+  let frenadas: typeof escrituras = [];
+  let permitidas = escrituras;
+  if (subidas.length) {
+    const { count: avisosPendientes } = await admin
+      .from("tiktok_webhooks")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .is("procesado_en", null);
+    const todasConCausa = Boolean(opciones.pedidosCompletos) && !(avisosPendientes ?? 0);
+    const conCausa = todasConCausa ? new Set<string>() : await causasDeSubida(admin, accountId, subidas.map((e) => e.skuInterno), inv ?? []);
+    ({ permitidas, frenadas } = frenarSubidasSinCausa(escrituras, conCausa, todasConCausa));
+  }
+
+  if (!permitidas.length) {
     return {
       publicados: 0,
       fallidos: 0,
       sinProducto,
-      avisos: sinProducto
-        ? [`${sinProducto} SKU con existencia no tienen publicación en TikTok.`]
-        : [],
+      avisos: [
+        ...(sinProducto ? [`${sinProducto} SKU con existencia no tienen publicación en TikTok.`] : []),
+        ...(frenadas.length ? [`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`] : []),
+      ],
     };
   }
 
   const res = await publicarStock(
     cliente,
     cliente.tienda.warehouseId,
-    escrituras.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
+    permitidas.map((e) => ({ productId: e.productId, skuId: e.skuId, cantidad: e.a })),
   );
 
   // Solo se da por escrito lo que TikTok aceptó de verdad: cantidad_tiktok
   // queda igual al número que se mandó, y `publicado` en el inventario.
   const fallados = new Set(res.fallidos.map((f) => f.skuId));
   const ahora = new Date().toISOString();
-  const okSkus = escrituras.filter((e) => !fallados.has(e.skuId));
+  const okSkus = permitidas.filter((e) => !fallados.has(e.skuId));
 
   if (okSkus.length) {
     await guardarEnLotes(
@@ -800,8 +824,62 @@ export async function publicarDisponibilidad(
     avisos.push(`TikTok rechazó ${res.fallidos.length} SKU: ${res.fallidos[0].error}`);
   }
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
+  if (frenadas.length) {
+    avisos.push(`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`);
+  }
 
   return { publicados: okSkus.length, fallidos: res.fallidos.length, sinProducto, avisos };
+}
+
+/**
+ * Qué SKUs tienen una razón real para SUBIR su número en TikTok desde la
+ * última vez que se les escribió: una entrada, devolución o ajuste en el
+ * kardex, o un pedido cancelado (se soltó lo apartado). Nunca se escribió =
+ * primera vez, cuenta como causa.
+ */
+async function causasDeSubida(
+  db: DB,
+  accountId: string,
+  skus: string[],
+  inventario: { sku: string; publicado_en: string | null }[],
+): Promise<Set<string>> {
+  const causa = new Set<string>();
+  const desdeDe = new Map<string, string | null>();
+  for (const r of inventario) if (skus.includes(r.sku)) desdeDe.set(r.sku, r.publicado_en ?? null);
+  for (const sku of skus) {
+    if (!desdeDe.has(sku) || desdeDe.get(sku) == null) causa.add(sku);
+  }
+  const pendientes = skus.filter((s) => !causa.has(s));
+  if (!pendientes.length) return causa;
+  const desdeMin = [...desdeDe.values()].filter(Boolean).sort()[0] as string;
+
+  const [{ data: movs }, { data: cancelados }] = await Promise.all([
+    db
+      .from("tiktok_movimientos")
+      .select("sku, fecha")
+      .eq("account_id", accountId)
+      .in("sku", pendientes)
+      .in("tipo", ["entrada", "devolucion", "ajuste"])
+      .gt("fecha", desdeMin),
+    db
+      .from("tiktok_ordenes")
+      .select("order_id, fecha_actualizacion, tiktok_orden_items!inner(sku_interno)")
+      .eq("account_id", accountId)
+      .in("estado", ["CANCELLED", "CANCEL"])
+      .gt("fecha_actualizacion", desdeMin)
+      .in("tiktok_orden_items.sku_interno", pendientes),
+  ]);
+  for (const m of (movs ?? []) as { sku: string; fecha: string }[]) {
+    const desde = desdeDe.get(m.sku);
+    if (desde && m.fecha > desde) causa.add(m.sku);
+  }
+  for (const o of (cancelados ?? []) as any[]) {
+    for (const it of o.tiktok_orden_items ?? []) {
+      const desde = desdeDe.get(it.sku_interno);
+      if (desde && o.fecha_actualizacion > desde) causa.add(it.sku_interno);
+    }
+  }
+  return causa;
 }
 
 // ---------------------------------------------------------------------------

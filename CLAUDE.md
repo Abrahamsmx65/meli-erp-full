@@ -125,6 +125,13 @@ guárdala numerada.
   `soloPedidos`, también desde la captura a mano); (2) se reconcilia contra
   lo que TikTok DICE tener (`tiktok_skus.cantidad_tiktok`, del catálogo), no
   contra lo último escrito: una edición en el Seller Center se corrige sola;
+  (2b) una SUBIDA del número solo se manda con causa —entrada, devolución,
+  ajuste o pedido cancelado desde la última escritura a ese SKU
+  (`frenarSubidasSinCausa`, `causasDeSubida`)— salvo en la corrida completa
+  sin avisos pendientes, que acaba de leer todos los pedidos; bajar siempre
+  se puede. Sin esto, un aviso atorado o una corrida encimada le regalaba a
+  TikTok pares ya vendidos (así se sobrevendió el MY2304 morado el 3 de
+  septiembre);
   (3) los avisos de TikTok entran por `/api/tiktok/webhook` (firma HMAC sobre
   `app_key + cuerpo`, se guarda y se procesa con `after()`), y (4) el envío se
   confirma DESDE EL ERP (`confirmarEnvio`: TikTok envía por paquete) y
