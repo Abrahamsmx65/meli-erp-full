@@ -702,7 +702,14 @@ function EditarRenglones({
       `${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}`;
     try {
       // En serie para que un error diga exactamente en qué renglón se
-      // detuvo: primero las ediciones, luego las bajas, al final los nuevos.
+      // detuvo: primero las bajas (así un renombre puede ocupar el lugar
+      // de un renglón que se quita), luego las ediciones, al final los nuevos.
+      for (const l of lineas) {
+        if (!quitar.has(l.id)) continue;
+        const r = await fetch(`/api/pedidos/${pedido.id}/lineas?linea=${l.id}`, { method: "DELETE" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(`${nombre(l)}: ${j.error}`);
+      }
       for (const l of lineas) {
         if (quitar.has(l.id) || !cambiado(l)) continue;
         const v = efectivo(l);
@@ -718,12 +725,6 @@ function EditarRenglones({
             paresPorCaja: v.paresPorCaja,
           }),
         });
-        const j = await r.json();
-        if (!r.ok) throw new Error(`${nombre(l)}: ${j.error}`);
-      }
-      for (const l of lineas) {
-        if (!quitar.has(l.id)) continue;
-        const r = await fetch(`/api/pedidos/${pedido.id}/lineas?linea=${l.id}`, { method: "DELETE" });
         const j = await r.json();
         if (!r.ok) throw new Error(`${nombre(l)}: ${j.error}`);
       }

@@ -201,14 +201,33 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     );
   }
 
+  // Un renglón que pasa de talla única a corrida toma la receta de la
+  // corrida del pedido si ya existe; si no, queda sin receta (caja opaca)
+  // hasta capturarla en Corridas.
+  let tallasCorrida: Record<string, number> | null = null;
+  if (!talla && linea.talla) {
+    const { data: corrida } = await c.supabase
+      .from("corridas")
+      .select("tallas, total")
+      .eq("account_id", c.cuenta.id)
+      .eq("pedido", c.pedido.pedido)
+      .eq("modelo", modelo)
+      .eq("color", color)
+      .maybeSingle();
+    tallasCorrida = (corrida?.tallas ?? {}) as Record<string, number>;
+    if (corrida) {
+      paresPorCaja =
+        corrida.total ?? Object.values(tallasCorrida).reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+  }
+
   const pares = cajas * paresPorCaja;
   const cambios: Record<string, unknown> = { modelo, color, talla, cajas, pares, pares_por_caja: paresPorCaja };
   // En renglones de talla única, `tallas` guarda los pares TOTALES de esa
   // talla: se actualiza junto con los pares para que el "en camino" por
-  // talla siga exacto. Un renglón que pasa de talla única a corrida se
-  // queda sin receta hasta que exista su corrida.
+  // talla siga exacto.
   if (talla) cambios.tallas = { [talla]: pares };
-  else if (linea.talla) cambios.tallas = {};
+  else if (tallasCorrida) cambios.tallas = tallasCorrida;
 
   const { error } = await c.supabase.from("pedido_lineas").update(cambios).eq("id", linea.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
