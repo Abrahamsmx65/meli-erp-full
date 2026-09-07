@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, FileText, Printer, ScanLine, Scissors } from "lucide-react";
+import { Eye, FileText, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 
 export interface CorteResumen {
   id: number;
@@ -30,6 +30,7 @@ function cuando(iso: string): string {
 export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cortes: CorteResumen[] }) {
   const router = useRouter();
   const [handover, setHandover] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
+  const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +210,39 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
+                {c.pedidos > 0 && c.preparados < c.pedidos ? (
+                  <button
+                    type="button"
+                    disabled={preparandoTodo === c.id}
+                    onClick={async () => {
+                      const faltan = c.pedidos - c.preparados;
+                      const pin = window.prompt(
+                        `Dar por preparado TODO el corte #${c.numero} sin escanear (faltan ${faltan}). Clave de supervisor:`,
+                      );
+                      if (pin == null) return;
+                      setPreparandoTodo(c.id);
+                      try {
+                        const r = await fetch(`/api/tiktok/cortes/${c.id}/preparar-todo`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ pin }),
+                        });
+                        const j = await r.json();
+                        if (!r.ok) throw new Error(j.error ?? "No se pudo.");
+                        router.refresh();
+                      } catch (e) {
+                        alert((e as Error).message);
+                      } finally {
+                        setPreparandoTodo(null);
+                      }
+                    }}
+                    title="Da por preparados todos los paquetes pendientes del corte, con constancia SUPERVISOR"
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                  >
+                    <ShieldCheck size={14} /> {preparandoTodo === c.id ? "Preparando…" : "Todo con clave"}
+                  </button>
+                ) : null}
                 <a
                   href={`/api/tiktok/cortes/${c.id}/etiquetas`}
                   target="_blank"

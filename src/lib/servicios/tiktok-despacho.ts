@@ -711,6 +711,41 @@ export async function marcarPreparado(
 }
 
 
+/**
+ * Da por preparados TODOS los paquetes pendientes de un corte, sin escanear.
+ * Solo con la clave de supervisor (la valida la ruta): para cuando ya se
+ * verificó de otra forma o el escáner no está. Cada paquete queda con
+ * constancia SUPERVISOR, igual que el "sin escanear" individual.
+ */
+export async function prepararCorteCompleto(
+  admin: any,
+  accountId: string,
+  corteId: number,
+  usuario?: string | null,
+): Promise<{ preparados: number; yaEstaban: number }> {
+  const corte = await cargarCorte(admin, accountId, corteId);
+  const hechos = await preparadosDelCorte(admin, accountId, corteId);
+  const pendientes = corte.paquetes.filter((p) => !hechos.has(p.numero));
+  const ahora = new Date().toISOString();
+  if (pendientes.length) {
+    const { error } = await admin.from("tiktok_preparaciones").upsert(
+      pendientes.map((p) => ({
+        account_id: accountId,
+        corte_id: corteId,
+        order_id: p.orderId,
+        package_id: p.packageId ?? "",
+        numero: p.numero,
+        escaneos: ["SUPERVISOR:corte completo sin escanear"],
+        preparado_en: ahora,
+        preparado_por: usuario ?? null,
+      })),
+      { onConflict: "account_id,order_id,package_id", ignoreDuplicates: true },
+    );
+    if (error) throw new Error(`No se pudo preparar el corte: ${error.message}`);
+  }
+  return { preparados: pendientes.length, yaEstaban: hechos.size };
+}
+
 // ---------------------------------------------------------------------------
 // Simular el corte: qué pasaría, sin tocar nada
 // ---------------------------------------------------------------------------
