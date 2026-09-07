@@ -1,0 +1,161 @@
+/**
+ * El orden del despacho: por modelo, luego color, luego talla.
+ *
+ * Es el orden en que se camina la bodega: todos los GT135 juntos, dentro
+ * de ellos por color, y dentro del color de la talla chica a la grande. La
+ * lista de empaque y el PDF de etiquetas van en ESTE orden y con LOS MISMOS
+ * números, para que la etiqueta #12 sea el renglón #12 sin buscar.
+ */
+
+export interface ParDespacho {
+  /** SKU del ERP (MODELO-COLOR-TALLA); si no se amarró, el de TikTok */
+  sku: string;
+  pares: number;
+  /** el código de barras que trae la caja del zapato (FNSKU de Amazon); null si no se conoce */
+  fnsku?: string | null;
+}
+
+/**
+ * Identificador del paquete dentro del corte (`TT7-12`). La lista y la
+ * etiqueta llevan como código de barras el FNSKU del producto —decisión del
+ * dueño: hoja, guía y caja con el mismo código—; este se usa solo cuando el
+ * producto no tiene FNSKU, y la estación lo acepta siempre.
+ */
+export function codigoDeHoja(corte: number, numero: number): string {
+  return `TT${corte}-${numero}`;
+}
+
+export function parsearCodigoDeHoja(codigo: string): { corte: number; numero: number } | null {
+  const m = /^TT(\d+)-(\d+)$/i.exec(String(codigo ?? "").trim());
+  if (!m) return null;
+  return { corte: Number(m[1]), numero: Number(m[2]) };
+}
+
+export interface PaqueteDespacho {
+  orderId: string;
+  packageId: string;
+  destinatario: string | null;
+  pares: ParDespacho[];
+}
+
+export interface PaqueteNumerado extends PaqueteDespacho {
+  /** el número que se imprime en la etiqueta y en la lista */
+  numero: number;
+  modelo: string;
+  color: string;
+  talla: string;
+}
+
+/** MODELO-COLOR-TALLA → sus tres pedazos; lo que no cuadre se va al final. */
+export function partirSku(sku: string): { modelo: string; color: string; talla: string } {
+  const partes = String(sku ?? "").trim().split("-").filter(Boolean);
+  // Sufijo de país al final (GT135-DK BROWN-26-MX): fuera.
+  if (partes.length >= 4 && /^(MX|MLM|US)$/i.test(partes[partes.length - 1])) partes.pop();
+  if (partes.length < 3) {
+    return { modelo: partes[0] ?? "", color: partes.slice(1).join("-"), talla: "" };
+  }
+  return {
+    modelo: partes[0],
+    color: partes.slice(1, -1).join("-"),
+    talla: partes[partes.length - 1],
+  };
+}
+
+function tallaNumerica(t: string): number {
+  const n = Number(String(t).replace(",", "."));
+  return Number.isFinite(n) ? n : 999;
+}
+
+function compararSku(a: string, b: string): number {
+  const x = partirSku(a);
+  const y = partirSku(b);
+  return (
+    x.modelo.localeCompare(y.modelo, "es") ||
+    x.color.localeCompare(y.color, "es") ||
+    tallaNumerica(x.talla) - tallaNumerica(y.talla) ||
+    a.localeCompare(b, "es")
+  );
+}
+
+/**
+ * Ordena y numera los paquetes. El paquete se ordena por su PRIMER par (ya
+ * ordenado); un paquete con dos tallas cae donde cae la menor.
+ */
+export function numerarPaquetes(paquetes: PaqueteDespacho[]): PaqueteNumerado[] {
+  const conOrden = paquetes.map((p) => ({
+    ...p,
+    pares: [...p.pares].sort((a, b) => compararSku(a.sku, b.sku)),
+  }));
+  conOrden.sort(
+    (a, b) =>
+      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") || a.orderId.localeCompare(b.orderId),
+  );
+  return conOrden.map((p, i) => {
+    const primero = partirSku(p.pares[0]?.sku ?? "");
+    return { ...p, numero: i + 1, ...primero };
+  });
+}
+
+/** El texto que va abajo a la derecha de la etiqueta: "#12 · GT135-DK BROWN-26 ×2". */
+export function textoDeEtiqueta(p: PaqueteNumerado): string {
+  const skus = p.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(" · ");
+  return `#${p.numero} · ${skus}`;
+}
+
+/**
+ * El código de barras de la etiqueta: el FNSKU del producto, que es el
+ * mismo que trae la caja del zapato. Si el producto no tiene FNSKU
+ * conocido, va el código de hoja, que al menos identifica el paquete.
+ */
+export function codigoDeEtiqueta(p: PaqueteNumerado, corte: number): string {
+  return p.pares.find((x) => x.fnsku)?.fnsku ?? codigoDeHoja(corte, p.numero);
+}
+
+export interface RenglonDeEtiqueta {
+  sku: string;
+  pares: number;
+  /** "#7 · GT134-NAVY-24-MX ×2" */
+  texto: string;
+  /** FNSKU del producto, o el código de hoja si no tiene */
+  codigo: string;
+  /** true si el código es el de hoja (no hay FNSKU) */
+  esHoja: boolean;
+}
+
+/**
+ * Un renglón POR SKU del paquete, cada uno con su propio código: un pedido
+ * con dos productos lleva dos códigos en la guía y dos renglones en la
+ * hoja. El primero lleva el "#n"; los demás lo repiten en gris en la hoja
+ * y lo omiten en la guía para no repetir.
+ */
+export function renglonesDeEtiqueta(p: PaqueteNumerado, corte: number): RenglonDeEtiqueta[] {
+  return p.pares.map((x, i) => ({
+    sku: x.sku,
+    pares: x.pares,
+    texto: `${i === 0 ? `#${p.numero} · ` : ""}${x.sku}${x.pares > 1 ? ` ×${x.pares}` : ""}`,
+    codigo: x.fnsku ?? codigoDeHoja(corte, p.numero),
+    esHoja: !x.fnsku,
+  }));
+}
+
+export interface GrupoModelo {
+  modelo: string;
+  pares: number;
+  paquetes: PaqueteNumerado[];
+}
+
+/** La lista de empaque: por modelo, en el mismo orden y con los mismos números. */
+export function agruparPorModelo(numerados: PaqueteNumerado[]): GrupoModelo[] {
+  const grupos: GrupoModelo[] = [];
+  for (const p of numerados) {
+    const ultimo = grupos[grupos.length - 1];
+    const pares = p.pares.reduce((a, x) => a + x.pares, 0);
+    if (ultimo && ultimo.modelo === p.modelo) {
+      ultimo.paquetes.push(p);
+      ultimo.pares += pares;
+    } else {
+      grupos.push({ modelo: p.modelo, pares, paquetes: [p] });
+    }
+  }
+  return grupos;
+}

@@ -1,36 +1,42 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   Barcode,
   Boxes,
+  ChevronDown,
   Clapperboard,
   Container,
+  Images,
+  LayoutList,
   LogOut,
   Megaphone,
-  Menu,
-  Package,
   PackageCheck,
+  Printer,
   ReceiptText,
   RefreshCw,
+  Scale,
   Settings,
   Ship,
   ShoppingCart,
+  Smartphone,
   Tags,
   Truck,
   Upload,
   Warehouse,
-  X,
   type LucideIcon,
 } from "lucide-react";
 
 /**
- * Menú lateral, con el lenguaje visual de la maqueta aprobada: barra oscura
- * fija, secciones etiquetadas y entrada activa marcada con la barra ámbar.
+ * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
+ * secciones DESPLEGABLES (se abren y cierran con un clic; se recuerda cuáles
+ * quedaron abiertas), entradas compactas (ícono + nombre; la explicación va
+ * en el tooltip) y la activa en azul con fondo azul claro. La entrada que se
+ * acaba de picar muestra un circulito mientras llega la página.
  *
  * El sistema dejó de ser "un planeador de envíos" para ser varias cosas, y la
  * navegación tiene que reflejarlo. Envíos a Full es ahora UNA sección, no la
@@ -62,8 +68,10 @@ const GRUPOS: Grupo[] = [
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
+      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
       { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
@@ -74,7 +82,18 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
       { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
       { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
+    ],
+  },
+  {
+    titulo: "TikTok Shop",
+    entradas: [
+      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
+      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
+      { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
     ],
   },
   {
@@ -83,6 +102,18 @@ const GRUPOS: Grupo[] = [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
       { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
+    ],
+  },
+  {
+    titulo: "YAPANIZCEL · Fundas",
+    entradas: [
+      { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
+      { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
+      { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
+      { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
+      { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
+      { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
+      { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
   },
   {
@@ -96,183 +127,203 @@ const GRUPOS: Grupo[] = [
   },
 ];
 
-export function MenuLateral({ pendientes }: { pendientes?: number }) {
+const LLAVE_ABIERTOS = "menu-secciones-abiertas";
+
+/** Qué secciones están abiertas, recordado en el navegador. */
+function leerAbiertos(): Record<string, boolean> | null {
+  try {
+    const raw = window.localStorage.getItem(LLAVE_ABIERTOS);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarAbiertos(v: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(LLAVE_ABIERTOS, JSON.stringify(v));
+  } catch {
+    /* sin almacenamiento: se olvida al recargar, nada más */
+  }
+}
+
+export function MenuLateral({
+  pendientes,
+  abierto,
+  cerrar,
+}: {
+  pendientes?: number;
+  /** cajón abierto en pantallas chicas */
+  abierto: boolean;
+  cerrar: () => void;
+}) {
   const ruta = usePathname();
-  const [abierto, setAbierto] = useState(false);
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
   const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+
   const activo = (href: string) => {
     if (href === "/") return ruta === "/";
     if (!ruta.startsWith(href)) return false;
     return !todos.some((otro) => otro !== href && otro.startsWith(href) && ruta.startsWith(otro));
   };
 
+  const grupoActivo = GRUPOS.find((g) => g.entradas.some((e) => activo(e.href)))?.titulo ?? null;
+
+  // Al arrancar, todas abiertas (el servidor no sabe qué recordó el
+  // navegador); en cuanto monta se aplica lo recordado. La sección de la
+  // página actual siempre queda abierta, para que se vea dónde estás.
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    const guardado = leerAbiertos();
+    setAbiertos((prev) => ({ ...(guardado ?? prev) }));
+    setListo(true);
+  }, []);
+  useEffect(() => {
+    if (!listo || !grupoActivo) return;
+    setAbiertos((prev) => {
+      if (prev[grupoActivo] !== false) return prev;
+      const v = { ...prev, [grupoActivo]: true };
+      guardarAbiertos(v);
+      return v;
+    });
+  }, [listo, grupoActivo]);
+
+  const estaAbierto = (titulo: string) => !listo || abiertos[titulo] !== false;
+
+  function alternar(titulo: string) {
+    setAbiertos((prev) => {
+      const v = { ...prev, [titulo]: !estaAbierto(titulo) };
+      guardarAbiertos(v);
+      return v;
+    });
+  }
+
   return (
     <>
-      {/* Barra superior solo en pantallas chicas */}
-      <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-3 lg:hidden"
-        style={{ background: "var(--sidebar)", borderColor: "var(--sidebar-borde)", color: "var(--sidebar-texto)" }}
-      >
-        <button
-          onClick={() => setAbierto((v) => !v)}
-          aria-label="Abrir menú"
-          aria-expanded={abierto}
-          className="rounded-md border p-1.5"
-          style={{ borderColor: "var(--sidebar-borde)" }}
-        >
-          <Menu size={16} />
-        </button>
-        <span
-          className="flex h-7 w-7 items-center justify-center rounded-lg"
-          style={{ background: "var(--ambar)", color: "hsl(198 28% 15%)" }}
-        >
-          <Package size={15} strokeWidth={2.5} />
-        </span>
-        <span className="text-sm font-extrabold tracking-tight">GETAC</span>
-      </div>
-
       <nav
         aria-label="Secciones"
         className={`${
-          abierto ? "block" : "hidden"
-        } fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto px-3 py-5 lg:sticky lg:top-0 lg:block lg:h-screen`}
+          abierto ? "translate-x-0" : "-translate-x-full"
+        } fixed top-14 bottom-0 left-0 z-30 w-64 overflow-y-auto pt-3 pb-6 transition-transform duration-200 lg:sticky lg:z-0 lg:h-[calc(100vh-3.5rem)] lg:w-60 lg:shrink-0 lg:translate-x-0 lg:pt-4`}
         style={{
           background: "var(--sidebar)",
           borderRight: "1px solid var(--sidebar-borde)",
           color: "var(--sidebar-texto)",
         }}
       >
-        <div className="mb-6 flex items-center justify-between px-2">
-          <div className="flex items-center gap-3">
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-lg"
-              style={{ background: "var(--ambar)", color: "hsl(198 28% 15%)" }}
-            >
-              <Package size={19} strokeWidth={2.5} />
-            </span>
-            <span>
-              <span className="block text-[15px] font-extrabold tracking-tight">GETAC</span>
-              <span
-                className="block text-[9px] font-bold uppercase tracking-[0.18em]"
-                style={{ color: "color-mix(in oklab, var(--sidebar-texto) 55%, transparent)" }}
-              >
-                Control de inventario
-              </span>
-            </span>
-          </div>
-          <button
-            onClick={() => setAbierto(false)}
-            aria-label="Cerrar menú"
-            className="rounded-md p-1 lg:hidden"
-            style={{ color: "color-mix(in oklab, var(--sidebar-texto) 70%, transparent)" }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {GRUPOS.map((g) => (
-          <div key={g.titulo ?? "principal"} className="mb-4">
-            {g.titulo ? (
-              <div
-                className="mb-1.5 px-2 text-[9px] font-extrabold uppercase tracking-[0.14em]"
-                style={{ color: "color-mix(in oklab, var(--sidebar-texto) 38%, transparent)" }}
-              >
-                {g.titulo}
-              </div>
-            ) : null}
-
-            <ul className="flex flex-col gap-0.5">
-              {g.entradas.map((e) => {
-                const act = activo(e.href);
-                const Icono = e.icono;
-                return (
-                  <li key={e.href}>
-                    <Link
-                      href={e.href}
-                      onClick={() => setAbierto(false)}
-                      aria-current={act ? "page" : undefined}
-                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors"
-                      style={{
-                        background: act ? "var(--sidebar-activo)" : "transparent",
-                        color: act
-                          ? "var(--ambar)"
-                          : "color-mix(in oklab, var(--sidebar-texto) 78%, transparent)",
-                        fontWeight: act ? 700 : 500,
-                        boxShadow: act ? "inset 3px 0 0 var(--ambar)" : "none",
-                      }}
-                    >
-                      <Icono
-                        size={15}
-                        strokeWidth={1.9}
+        {GRUPOS.map((g) => {
+          const titulo = g.titulo ?? "principal";
+          const desplegado = estaAbierto(titulo);
+          const contieneActivo = titulo === grupoActivo;
+          const idLista = `menu-${titulo.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+          return (
+            <div key={titulo} className="mb-1 px-3">
+              {g.titulo ? (
+                <button
+                  type="button"
+                  onClick={() => alternar(titulo)}
+                  aria-expanded={desplegado}
+                  aria-controls={idLista}
+                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold"
+                  style={{ color: contieneActivo && !desplegado ? "var(--acento)" : "var(--ink-muted)" }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {g.titulo}
+                    {contieneActivo && !desplegado ? (
+                      <span
                         aria-hidden="true"
-                        className="mt-0.5 shrink-0"
-                        style={{
-                          color: act
-                            ? "var(--ambar)"
-                            : "color-mix(in oklab, var(--sidebar-texto) 55%, transparent)",
-                        }}
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ background: "var(--acento)" }}
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5 text-[13px]">
-                          {e.texto}
-                          {e.href === "/pendientes" && pendientes ? (
-                            <span
-                              className="cifra rounded-full px-1.5 text-[10px] font-semibold"
-                              style={{ background: "#c9564b", color: "#fff7eb" }}
-                            >
-                              {pendientes > 99 ? "99+" : pendientes}
-                            </span>
-                          ) : null}
-                        </span>
-                        {e.ayuda ? (
-                          <span
-                            className="block text-[10px] leading-tight"
-                            style={{
-                              color: "color-mix(in oklab, var(--sidebar-texto) 42%, transparent)",
-                            }}
-                          >
-                            {e.ayuda}
-                          </span>
-                        ) : null}
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+                    ) : null}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                    className="transition-transform duration-200"
+                    style={{ transform: desplegado ? "rotate(0deg)" : "rotate(-90deg)" }}
+                  />
+                </button>
+              ) : null}
 
-        <div className="mt-2 border-t pt-3" style={{ borderColor: "var(--sidebar-borde)" }}>
+              <ul
+                id={idLista}
+                hidden={!desplegado}
+                className="flex flex-col gap-px pb-2"
+              >
+                {g.entradas.map((e) => {
+                  const act = activo(e.href);
+                  const Icono = e.icono;
+                  return (
+                    <li key={e.href}>
+                      <Link
+                        href={e.href}
+                        onClick={cerrar}
+                        title={e.ayuda}
+                        aria-current={act ? "page" : undefined}
+                        className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
+                        style={{
+                          background: act ? "var(--sidebar-activo)" : "transparent",
+                          color: act ? "var(--acento)" : "var(--sidebar-texto)",
+                          fontWeight: act ? 600 : 500,
+                          boxShadow: act ? "inset 3px 0 0 var(--acento)" : "none",
+                        }}
+                      >
+                        <Icono
+                          size={16}
+                          strokeWidth={act ? 2.2 : 1.8}
+                          aria-hidden="true"
+                          className="shrink-0"
+                          style={{ color: act ? "var(--acento)" : "var(--ink-2)" }}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{e.texto}</span>
+                        {e.href === "/pendientes" && pendientes ? (
+                          <span className="insignia">{pendientes > 99 ? "99+" : pendientes}</span>
+                        ) : null}
+                        <Cargandito />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+
+        <div className="mx-3 mt-1 border-t pt-3 md:hidden" style={{ borderColor: "var(--sidebar-borde)" }}>
           <a
             href="/api/salir"
-            className="flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors"
-            style={{ color: "color-mix(in oklab, var(--sidebar-texto) 72%, transparent)" }}
+            className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium"
+            style={{ color: "var(--sidebar-texto)" }}
           >
-            <LogOut size={15} strokeWidth={1.9} className="mt-0.5 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">Cerrar sesión</span>
-              <span
-                className="block text-[10px] leading-tight"
-                style={{ color: "color-mix(in oklab, var(--sidebar-texto) 42%, transparent)" }}
-              >
-                Para entrar con otra cuenta de MELI
-              </span>
-            </span>
+            <LogOut size={16} strokeWidth={1.8} className="shrink-0" style={{ color: "var(--ink-2)" }} />
+            Cerrar sesión
           </a>
         </div>
       </nav>
 
       {abierto ? (
         <div
-          className="fixed inset-0 z-30 lg:hidden"
+          className="fixed inset-0 top-14 z-20 lg:hidden"
           style={{ background: "rgba(0,0,0,.45)" }}
-          onClick={() => setAbierto(false)}
+          onClick={cerrar}
           aria-hidden="true"
         />
       ) : null}
     </>
   );
+}
+
+/**
+ * Circulito en la entrada que se acaba de picar, mientras el servidor arma
+ * la página. Va DENTRO del Link: `useLinkStatus` solo sabe del Link que lo
+ * envuelve.
+ */
+function Cargandito() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return <span className="girando shrink-0 text-[14px]" aria-label="Cargando" role="status" />;
 }

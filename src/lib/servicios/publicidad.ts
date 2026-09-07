@@ -48,12 +48,8 @@ export interface FilaPublicidad {
 
 export interface Publicidad {
   filas: FilaPublicidad[];
-  /** qué ajustar hoy, con la razón y los anuncios sobre los que actuar */
-  sugerencias: SugerenciaAds[];
-  /** campañas de Product Ads, editables desde el panel */
-  campanas: CampanaAds[];
-  /** anuncios por modelo, para los botones de pausar/encender de la tabla */
-  itemsDeModelo: Map<string, ItemDeModelo[]>;
+  /** qué hacer hoy con cada modelo, para ejecutarlo a mano en MELI */
+  recomendaciones: RecomendacionAds[];
   totales: {
     gastoAds: number;
     ventaAds: number;
@@ -122,23 +118,19 @@ export type AccionSugerida =
   | "subir"
   | "activar";
 
-export interface SugerenciaAds {
+/**
+ * Una línea de la lista de recomendaciones: qué modelo, qué hacer y por qué,
+ * para ejecutarlo a mano en la consola de Product Ads. El API de MELI no
+ * deja escribir publicidad (niega la escritura aunque el token traiga el
+ * permiso), así que el ERP recomienda y el clic va en Mercado Libre.
+ */
+export interface RecomendacionAds {
   modelo: string;
   accion: AccionSugerida;
+  /** qué hacer, en una frase corta e imperativa */
+  queHacer: string;
+  /** por qué, con los números que lo sostienen */
   razon: string;
-  /** días de venta que cubre el stock de Full (disponible + en camino); null = sin ventas y sin stock */
-  coberturaDias: number | null;
-  /** ROAS actual del periodo (venta por ads ÷ gasto); null = sin gasto */
-  roasActual: number | null;
-  /** ROAS mínimo para no perder dinero (venta ÷ ganancia); null = sin costo capturado */
-  roasEquilibrio: number | null;
-  /** ACOS objetivo sano en % (= margen sobre la venta); null = sin costo */
-  acosObjetivoPct: number | null;
-  gastoAds: number;
-  /** anuncios del modelo sobre los que se puede actuar */
-  items: ItemDeModelo[];
-  /** true cuando nace de una pausa hecha desde el ERP (recordatorio) */
-  recordatorio: boolean;
 }
 
 interface VentaDiaria {
@@ -264,11 +256,11 @@ export async function traerAnunciosAds(
 
   const anuncios: AnuncioAds[] = [];
   const limite = 50; // el máximo que acepta el API
-  let offset = 0;
-  let total = Infinity;
+  // Tope duro: 400 páginas son 20 mil anuncios, muy por encima del catálogo.
+  const MAX_PAGINAS = 400;
 
-  while (offset < total) {
-    const pos = offset;
+  for (let numPagina = 0; numPagina < MAX_PAGINAS; numPagina++) {
+    const pos = numPagina * limite;
     const pagina = await conRutas(rutas, (ruta) =>
       cliente.get<RespuestaAds>(
         ruta,
@@ -301,9 +293,11 @@ export async function traerAnunciosAds(
       });
     }
 
-    total = pagina.paging?.total ?? offset + filas.length;
-    offset += limite;
-    if (!filas.length) break; // por si el paging viene mentiroso
+    // Se sigue mientras la página venga LLENA. Antes se confiaba en
+    // `paging.total`, y cuando MELI no lo manda (o lo manda en cero) la
+    // lectura se cortaba en los primeros 50 anuncios y el panel enseñaba
+    // una fracción del gasto sin avisar de nada.
+    if (filas.length < limite) break;
   }
 
   return anuncios;
@@ -353,155 +347,9 @@ export async function traerCampanasAds(
   return campanas;
 }
 
-interface IntentoEscritura {
-  ruta: string;
-  cuerpo: unknown;
-  /** header Api-Version del intento (el API de ads enruta por versión) */
-  version?: "1" | "2";
-}
-
-/**
- * Escribe probando formas candidatas EN ORDEN (cada una con SU cuerpo). Un
- * 404, 405 o 503 (rutas viejas apagadas o método no soportado) pasa a la
- * siguiente; cualquier otra respuesta viene del recurso real y se propaga
- * tal cual — un 400 con su mensaje es ORO: dice qué le falta al cuerpo. Si
- * ninguna contesta, el error resume qué dijo cada ruta para converger a la
- * buena de un vistazo. Reintentos cortos (1): esto corre detrás de un botón.
- */
-async function escribirConRutas(
-  cliente: MeliClient,
-  intentos: IntentoEscritura[],
-): Promise<void> {
-  const resumen: string[] = [];
-  for (const { ruta, cuerpo, version } of intentos) {
-    try {
-      await cliente.put(ruta, cuerpo, {
-        headers: { "Api-Version": version ?? "2" },
-        reintentos: 1,
-      });
-      return;
-    } catch (err) {
-      if (
-        err instanceof MeliError &&
-        (err.status === 404 || err.status === 405 || err.status === 503)
-      ) {
-        resumen.push(`${err.status} en ${ruta.split("?")[0]} (v${version ?? "2"})`);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new MeliError(
-    `MELI no aceptó el cambio por ninguna ruta: ${resumen.join(" · ")}`,
-    404,
-    null,
-    intentos[0]?.ruta,
-  );
-}
-
-/**
- * Pausa o enciende un anuncio (PUT, Api-Version 2). El recurso nuevo de
- * modificación no está documentado en abierto, así que se prueban las
- * formas plausibles: el anuncio DEBAJO de su campaña, la modificación en
- * LOTE sobre la colección de anuncios, y las formas por item (las por item
- * con advertiser ya contestaron 404 en MLM; quedan al final por si MELI
- * las enciende).
- */
-export async function cambiarEstadoAnuncio(
-  cliente: MeliClient,
-  siteId: string,
-  itemId: string,
-  estado: "active" | "paused",
-  campanaId?: string | null,
-): Promise<void> {
-  const adv = await resolverAdvertiser(cliente, siteId);
-  const base = `/advertising/${adv.siteId}`;
-  const conAdv = `${base}/advertisers/${adv.advertiserId}`;
-  const porItem = { status: estado };
-  const enLote = { ads: [{ item_id: itemId, status: estado }] };
-
-  // La ruta real de CAMPAÑAS resultó ser /advertising/{site}/product_ads/
-  // campaigns/{id} (sin advertiser): la de anuncios casi seguro es su
-  // gemela ads/{item} — el 503 que daba era el servicio rechazando sin
-  // permiso de escritura, no una ruta muerta. Después, el segmento items/
-  // y las formas con Api-Version 1, de respaldo.
-  const intentos: IntentoEscritura[] = [
-    {
-      ruta: `${base}/product_ads/ads/${itemId}?advertiser_id=${adv.advertiserId}`,
-      cuerpo: porItem,
-    },
-    { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem },
-    { ruta: `${base}/product_ads/ads/${itemId}?channel=marketplace`, cuerpo: porItem },
-  ];
-  if (campanaId) {
-    intentos.push(
-      { ruta: `${base}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
-      { ruta: `${conAdv}/product_ads/campaigns/${campanaId}/items/${itemId}`, cuerpo: porItem },
-    );
-  }
-  intentos.push(
-    { ruta: `${base}/product_ads/items/${itemId}`, cuerpo: porItem },
-    { ruta: `${base}/product_ads/ads/${itemId}`, cuerpo: porItem, version: "1" },
-    { ruta: `${conAdv}/product_ads/ads`, cuerpo: enLote },
-  );
-  await escribirConRutas(cliente, intentos);
-}
-
-/** Cambia presupuesto diario y/o ACOS objetivo de una campaña (PUT). */
-export async function modificarCampanaAds(
-  cliente: MeliClient,
-  siteId: string,
-  campanaId: string,
-  cambios: { presupuesto?: number; acosObjetivo?: number },
-): Promise<void> {
-  const cuerpo: Record<string, number> = {};
-  if (cambios.presupuesto != null) cuerpo.budget = cambios.presupuesto;
-  if (cambios.acosObjetivo != null) cuerpo.acos_target = cambios.acosObjetivo;
-  if (!Object.keys(cuerpo).length) return;
-
-  const adv = await resolverAdvertiser(cliente, siteId);
-  const base = `/advertising/${adv.siteId}`;
-  // La ruta REAL, confirmada con la cuenta: el servicio mclics.campaigns
-  // contesta en /advertising/{site}/product_ads/campaigns/{id} (sin
-  // advertiser en el camino). SIN advertiser_id contestó 401 "no permission
-  // to write" aun con el scope de ads en el token: el permiso se evalúa en
-  // el contexto del advertiser, así que va primero la forma que lo carga
-  // como parámetro.
-  const rutas = [
-    `${base}/product_ads/campaigns/${campanaId}?advertiser_id=${adv.advertiserId}`,
-    `${base}/product_ads/campaigns/${campanaId}`,
-    `${base}/advertisers/${adv.advertiserId}/product_ads/campaigns/${campanaId}`,
-    `/advertising/product_ads/campaigns/${campanaId}`,
-  ];
-  await escribirConRutas(
-    cliente,
-    rutas.map((ruta) => ({ ruta, cuerpo })),
-  );
-}
-
-/**
- * Traduce el error de escritura de Product Ads a una instrucción accionable.
- * El caso estrella: 401 "User does not have permission to write" — la app
- * de MELI tiene permiso de LECTURA de ads pero no de ESCRITURA; se arregla
- * en el DevCenter y reconectando, no en el código.
- */
-export function mensajeErrorEscrituraAds(err: unknown): string {
-  if (err instanceof MeliError && err.status === 401) {
-    return (
-      "MELI negó la ESCRITURA en Product Ads aunque el token ya trae el " +
-      "permiso de ads (verificado en /api/publicidad/diagnostico): el " +
-      "bloqueo es el rol del usuario sobre el advertiser en Mercado Ads. " +
-      "Revisa en la consola de Publicidad (configuración → usuarios del " +
-      "advertiser) que tu cuenta sea administrador; si ya lo es, pide a " +
-      "soporte de developers de MELI que habiliten la administración de " +
-      "Product Ads por API para tu cuenta."
-    );
-  }
-  return err instanceof Error ? err.message : "MELI no aceptó el cambio.";
-}
 
 // ---------------------------------------------------------------------------
-// Sugerencias (puro, para poder probarlo sin red)
+// Recomendaciones (puro, para poder probarlo sin red)
 // ---------------------------------------------------------------------------
 
 /** Debajo de esto, la publicidad solo acelera el quiebre de stock. */
@@ -519,40 +367,47 @@ const PRIORIDAD_ACCION: Record<AccionSugerida, number> = {
 };
 
 /**
- * Cruza el panel de publicidad con el stock de Full y el margen para sugerir
- * ajustes. Reglas, en orden (una por modelo, gana la más urgente):
+ * Cruza el panel de publicidad con el stock de Full y el margen para decir
+ * qué hacer con cada modelo. UNA recomendación por modelo, la más urgente:
  *
- * 1. Anuncio activo con stock agotado o cobertura corta → PAUSAR: pagar por
+ * 1. Anuncio prendido con stock agotado o por agotarse -> PAUSAR: pagar por
  *    acelerar un quiebre es regalar el gasto (esas ventas caían solas).
- * 2. Anuncio pausado DESDE EL ERP cuyo stock ya se repuso → ENCENDER (el
- *    recordatorio que pediste al rellenar).
- * 3. Gasto sin una sola venta del modelo en el periodo → APAGAR.
- * 4. TACOS por arriba del margen → BAJAR: está comprando ventas con pérdida;
- *    se sugiere el ACOS objetivo sano (= margen) y el ROAS de equilibrio.
- * 5. Mucho stock y ads usando menos de la mitad del margen → SUBIR
- *    presupuesto: el costo real es el capital parado.
- * 6. Vende ≥1/día, stock de sobra y sin anuncio → ACTIVAR (candidato).
+ * 2. Anuncio pausado con el stock ya repuesto -> ENCENDER.
+ * 3. Gasta sin vender, en un modelo que YA vendía antes -> APAGAR (un
+ *    lanzamiento nuevo está en rampa, a ese no se le dice nada).
+ * 4. Los ads se llevan más que el margen -> BAJAR, con el ACOS objetivo sano.
+ * 5. Mucho stock y ads usando menos de la mitad del margen -> SUBIR.
+ * 6. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
+ *
+ * El texto sale listo para ejecutarse a mano en la consola de Product Ads:
+ * el API de MELI no acepta escrituras de publicidad de esta cuenta.
  */
-export function armarSugerencias(opts: {
+export function armarRecomendaciones(opts: {
   filas: FilaPublicidad[];
-  /** modelo → pares en Full (disponible + en camino) */
+  /** modelo -> pares en Full (disponible + en camino) */
   stockDeModelo: Map<string, number>;
   /** días del periodo, para el ritmo diario */
   dias: number;
   itemsDeModelo: Map<string, ItemDeModelo[]>;
-  /** item_ids pausados desde el ERP y aún sin reactivar */
-  pausadosDesdeErp: Set<string>;
   /**
    * modelos que YA vendían antes del periodo. Un modelo que gasta sin vender
    * pero que nunca ha vendido es un LANZAMIENTO en rampa, no un anuncio
    * muerto: a ese no se le sugiere apagar (verificado con GT190).
    */
   modelosConHistoria?: Set<string>;
-}): SugerenciaAds[] {
-  const { filas, stockDeModelo, dias, itemsDeModelo, pausadosDesdeErp } = opts;
+}): RecomendacionAds[] {
+  const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
   const modelosConHistoria = opts.modelosConHistoria ?? null;
-  const sugerencias: SugerenciaAds[] = [];
-  const dEnteros = (x: number) => Math.round(x).toLocaleString("es-MX");
+  const recomendaciones: RecomendacionAds[] = [];
+  const num = (x: number) => Math.round(x).toLocaleString("es-MX");
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+  // Para ordenar por lo que está en juego sin cargarlo en el tipo.
+  const peso = new Map<RecomendacionAds, number>();
+  const agregar = (r: RecomendacionAds, enJuego: number) => {
+    recomendaciones.push(r);
+    peso.set(r, enJuego);
+  };
 
   for (const f of filas) {
     const stock = stockDeModelo.get(f.modelo) ?? 0;
@@ -560,51 +415,44 @@ export function armarSugerencias(opts: {
     const cobertura = ritmo > 0 ? stock / ritmo : null;
     const items = itemsDeModelo.get(f.modelo) ?? [];
     const activos = items.filter((i) => i.estado !== "paused");
-    const pausadosErp = items.filter(
-      (i) => i.estado === "paused" && pausadosDesdeErp.has(i.itemId),
-    );
-
+    const pausados = items.filter((i) => i.estado === "paused");
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
-    const base = {
-      modelo: f.modelo,
-      coberturaDias: cobertura,
-      roasActual: f.gastoAds > 0 && f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null,
-      roasEquilibrio: margen != null && margen > 0 ? 1 / margen : null,
-      acosObjetivoPct: margen != null ? margen * 100 : null,
-      gastoAds: f.gastoAds,
-      items,
-      recordatorio: false,
-    };
+    const cobertext =
+      cobertura != null
+        ? `${num(cobertura)} días de stock (${num(stock)} pares)`
+        : `${num(stock)} pares en Full`;
 
     // 1. Stock agotado o por agotarse con el anuncio prendido.
     const sinStock = stock <= 0;
     const coberturaCorta = cobertura != null && cobertura < COBERTURA_CORTA_DIAS;
     if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta)) {
-      sugerencias.push({
-        ...base,
-        accion: "pausar",
-        items: activos,
-        razon: sinStock
-          ? "Sin stock en Full: el anuncio está pagando por ventas que no puede surtir."
-          : `Quedan ~${dEnteros(cobertura!)} días de stock (${dEnteros(stock)} pares): la publicidad solo acelera el quiebre; esas ventas caían solas.`,
-      });
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "pausar",
+          queHacer: "Pausar el anuncio",
+          razon: sinStock
+            ? `Sin stock en Full y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
+            : `Quedan ${cobertext} y ya lleva $${num(f.gastoAds)} en ads: esas ventas caen solas, la publicidad solo acelera el quiebre.`,
+        },
+        f.gastoAds,
+      );
       continue;
     }
 
-    // 2. Pausado desde el ERP y el stock ya volvió: el recordatorio.
+    // 2. Anuncio pausado con el stock ya repuesto.
     const stockRecuperado =
       cobertura != null ? cobertura >= COBERTURA_CORTA_DIAS : stock > 0;
-    if (pausadosErp.length > 0 && stockRecuperado) {
-      sugerencias.push({
-        ...base,
-        accion: "encender",
-        items: pausadosErp,
-        recordatorio: true,
-        razon:
-          cobertura != null
-            ? `Lo pausaste por falta de stock y ya hay ~${dEnteros(cobertura)} días de cobertura (${dEnteros(stock)} pares): recuerda encenderlo.`
-            : `Lo pausaste por falta de stock y ya hay ${dEnteros(stock)} pares en Full: recuerda encenderlo.`,
-      });
+    if (pausados.length > 0 && stockRecuperado) {
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "encender",
+          queHacer: "Encender el anuncio",
+          razon: `Está pausado y ya hay ${cobertext}: si lo pausaste por falta de stock, ya se puede prender.`,
+        },
+        f.importe,
+      );
       continue;
     }
 
@@ -612,22 +460,30 @@ export function armarSugerencias(opts: {
     // lanzamiento nuevo con ads y cero ventas está en rampa, no muerto.
     const yaVendia = modelosConHistoria == null || modelosConHistoria.has(f.modelo);
     if (f.gastoAds > 0 && f.unidades === 0 && yaVendia) {
-      sugerencias.push({
-        ...base,
-        accion: "apagar",
-        items: activos,
-        razon: `Gastó $${dEnteros(f.gastoAds)} sin una sola venta del modelo en el periodo, y el modelo ya vendía antes: el anuncio no está trabajando.`,
-      });
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "apagar",
+          queHacer: "Apagar el anuncio",
+          razon: `Gastó $${num(f.gastoAds)} sin una sola venta en el periodo y el modelo ya vendía antes: el anuncio no está trabajando.`,
+        },
+        f.gastoAds,
+      );
       continue;
     }
 
     // 4. Los ads se comen más que el margen.
     if (margen != null && f.tacos != null && f.gastoAds > 0 && f.tacos > margen) {
-      sugerencias.push({
-        ...base,
-        accion: "bajar",
-        razon: `Los ads se llevan el ${Math.round(f.tacos * 100)}% de la venta y el margen es ${Math.round(margen * 100)}%: está comprando ventas con pérdida. Sube el ROAS objetivo a ≥${base.roasEquilibrio!.toFixed(1)} (ACOS ≤${Math.round(margen * 100)}%).`,
-      });
+      const acosSano = Math.round(margen * 100);
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "bajar",
+          queHacer: `Bajar el gasto: ACOS objetivo a ${acosSano}% (ROAS ${(1 / margen).toFixed(1)})`,
+          razon: `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen)}: cada venta por publicidad sale con pérdida.`,
+        },
+        f.gastoAds,
+      );
       continue;
     }
 
@@ -640,11 +496,15 @@ export function armarSugerencias(opts: {
       cobertura > COBERTURA_LARGA_DIAS &&
       f.tacos < margen / 2
     ) {
-      sugerencias.push({
-        ...base,
-        accion: "subir",
-        razon: `Hay ~${dEnteros(cobertura)} días de stock y los ads solo usan ${Math.round(f.tacos * 100)}% de un margen de ${Math.round(margen * 100)}%: espacio para subir presupuesto o aflojar el ACOS objetivo hasta ${Math.round(margen * 100)}%.`,
-      });
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "subir",
+          queHacer: `Subir el presupuesto (hasta ${Math.round(margen * 100)}% de ACOS)`,
+          razon: `Hay ${cobertext} parados y los ads solo usan ${pct(f.tacos)} de un margen de ${pct(margen)}: cabe más inversión sin perder.`,
+        },
+        f.importe,
+      );
       continue;
     }
 
@@ -656,22 +516,36 @@ export function armarSugerencias(opts: {
       stock > 0 &&
       (cobertura == null || cobertura > COBERTURA_LARGA_DIAS)
     ) {
-      sugerencias.push({
-        ...base,
-        accion: "activar",
-        razon: `Vende ~${dEnteros(ritmo)} al día sin publicidad y hay stock de sobra: candidato a Product Ads.`,
-      });
+      agregar(
+        {
+          modelo: f.modelo,
+          accion: "activar",
+          queHacer: "Crear anuncio (candidato)",
+          razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en Product Ads.`,
+        },
+        f.importe,
+      );
     }
   }
 
-  const ordenadas = sugerencias.sort(
-    (a, b) =>
-      PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion] ||
-      b.gastoAds - a.gastoAds,
+  // Los candidatos a activar pueden ser docenas: se queda con los 5 que más
+  // venden ANTES de ordenar, para que el recorte no dependa del alfabeto.
+  const mejoresCandidatos = new Set(
+    recomendaciones
+      .filter((r) => r.accion === "activar")
+      .sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0))
+      .slice(0, 5),
   );
-  // Los candidatos a activar pueden ser docenas: solo los 5 que más venden.
-  let candidatos = 0;
-  return ordenadas.filter((s) => s.accion !== "activar" || ++candidatos <= 5);
+
+  return recomendaciones
+    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
+    // En orden alfabético de modelo, como el resto de las tablas: la lista se
+    // recorre buscando el modelo, no leyendo un ranking.
+    .sort(
+      (a, b) =>
+        a.modelo.localeCompare(b.modelo, "es") ||
+        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -822,10 +696,8 @@ export function armarPublicidad(opts: {
 
   return {
     filas,
-    // Las llena la carga completa (necesitan stock, campañas y pausas).
-    sugerencias: [],
-    campanas: [],
-    itemsDeModelo: new Map(),
+    // Las llena la carga completa: necesitan el stock de Full.
+    recomendaciones: [],
     totales: {
       gastoAds,
       ventaAds,
@@ -901,7 +773,7 @@ export async function cargarPublicidad(
     }
   };
 
-  const [ventas, skus, config, stock, pausas, cliente] = await Promise.all([
+  const [ventas, skus, config, stock, cliente] = await Promise.all([
     leerVentas(),
     traerTodo<{ sku: string; modelo: string | null; item_id: string | null }>(
       db,
@@ -910,24 +782,13 @@ export async function cargarPublicidad(
       (q) => q.eq("account_id", cuenta.id).eq("activo", true),
     ),
     configPorProducto(db, cuenta.id),
-    // El stock de Full (disponible + en camino), para las sugerencias.
+    // El stock de Full (disponible + en camino), para las recomendaciones.
     traerTodo<{ sku: string; disponible: number | null; en_transferencia: number | null }>(
       db,
       "stock_full",
       "sku, disponible, en_transferencia",
       (q) => q.eq("account_id", cuenta.id),
     ).catch(() => []),
-    // Anuncios pausados desde el ERP y aún sin reactivar (los recordatorios).
-    // Si la migración no ha corrido, simplemente no hay recordatorios.
-    Promise.resolve(
-      db
-        .from("publicidad_pausas")
-        .select("item_id")
-        .eq("account_id", cuenta.id)
-        .is("reactivado_en", null),
-    )
-      .then((x: any) => (x?.data ?? []) as { item_id: string }[])
-      .catch(() => [] as { item_id: string }[]),
     // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
     // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
     // tabla se ve vacía aunque la cuenta esté conectada.
@@ -958,7 +819,6 @@ export async function cargarPublicidad(
   for (const [modelo, cfg] of config) costoDeModelo.set(modelo, cfg.costo);
 
   let anuncios: AnuncioAds[] = [];
-  let campanasBase: Omit<CampanaAds, "gasto" | "anuncios">[] = [];
   let errorAds: string | null = null;
   if (!cliente) {
     errorAds =
@@ -966,14 +826,7 @@ export async function cargarPublicidad(
   } else {
     try {
       const adv = await resolverAdvertiser(cliente, cuenta.site_id);
-      // Las campañas son lo editable; si su lectura falla, el panel de
-      // anuncios sigue sirviendo (por eso se tolera aparte).
-      [anuncios, campanasBase] = await Promise.all([
-        traerAnunciosAds(cliente, adv, r),
-        traerCampanasAds(cliente, adv).catch(
-          () => [] as Omit<CampanaAds, "gasto" | "anuncios">[],
-        ),
-      ]);
+      anuncios = await traerAnunciosAds(cliente, adv, r);
     } catch (err) {
       // 403 = a la app le falta el permiso de Product Ads en MELI. Se enseña
       // el motivo en el panel en vez de un panel vacío sin explicación.
@@ -1007,7 +860,7 @@ export async function cargarPublicidad(
     errorAds,
   });
 
-  // --- Anuncios por modelo, para los botones de pausar/encender ------------
+  // --- Anuncios por modelo, para saber cuáles están pausados ---------------
   const itemsDeModelo = new Map<string, ItemDeModelo[]>();
   for (const an of anuncios) {
     const modelos = modelosDeItem.get(an.itemId) ?? [];
@@ -1023,26 +876,8 @@ export async function cargarPublicidad(
       itemsDeModelo.set(modelo, lista);
     }
   }
-  datos.itemsDeModelo = itemsDeModelo;
 
-  // --- Campañas con su gasto del periodo -----------------------------------
-  const gastoPorCampana = new Map<string, { gasto: number; anuncios: number }>();
-  for (const an of anuncios) {
-    if (!an.campanaId) continue;
-    const g = gastoPorCampana.get(an.campanaId) ?? { gasto: 0, anuncios: 0 };
-    g.gasto += an.gasto;
-    g.anuncios += 1;
-    gastoPorCampana.set(an.campanaId, g);
-  }
-  datos.campanas = campanasBase
-    .map((c) => ({
-      ...c,
-      gasto: gastoPorCampana.get(c.id)?.gasto ?? 0,
-      anuncios: gastoPorCampana.get(c.id)?.anuncios ?? 0,
-    }))
-    .sort((a, b) => b.gasto - a.gasto);
-
-  // --- Sugerencias: publicidad × stock × margen ----------------------------
+  // --- Recomendaciones: publicidad × stock × margen ------------------------
   const stockDeModelo = new Map<string, number>();
   for (const s of stock) {
     const modelo = modeloDeSku.get(s.sku);
@@ -1052,12 +887,11 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
-  datos.sugerencias = armarSugerencias({
+  datos.recomendaciones = armarRecomendaciones({
     filas: datos.filas,
     stockDeModelo,
     dias: diasDeRango(r),
     itemsDeModelo,
-    pausadosDesdeErp: new Set(pausas.map((p) => p.item_id)),
     modelosConHistoria,
   });
 

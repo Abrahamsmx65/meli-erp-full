@@ -73,9 +73,145 @@ guárdala numerada.
   amarrar por item+variación contra el catálogo (`claveItem`, como hacen
   `obtenerVentas` y `recalcularDiaVentas`). Descartar renglones sin
   seller_sku deja el panel con muchas menos ventas que MELI.
+- **El costo de envío sale de las medidas que MELI capturó, y se equivoca.**
+  En Full, MELI MIDE la caja al recibirla y guarda el resultado en los
+  atributos `PACKAGE_*` de la publicación (`PACKAGE_DATA_SOURCE = MEASUREMENT`)
+  o, en las publicaciones con variantes dentro, en el `/user-products/{id}` de
+  cada variante (ahí NO hay atributos ni en el item ni en la variación). Con
+  esas medidas calcula el peso facturable y el costo. Cuando mide mal, esa
+  talla paga de más en cada venta: en el GT229, quince tallas de 27 × 24 × 10
+  pagan $88.50 y dos que quedaron como 11 × 29 × 37 y 28 × 25 × 25 pagan
+  $139.50 y $190. El simulador es
+  `/users/{id}/shipping_options/free?dimensions=AltoxAnchoxLargo,gramos`, y
+  **solo acepta enteros** (con decimales contesta 400). La verdad de qué mide
+  la caja son las hermanas del mismo modelo: se ordenan los tres lados de
+  mayor a menor (MELI permuta los ejes y eso NO es un error) y se saca la
+  mediana lado por lado.
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.
+- **TikTok Shop es ENVÍO PROPIO y lleva su PROPIO inventario.** No es Full ni
+  FBA ni las cajas de Industher: es un cuarto almacén, con kardex nuestro en
+  `tiktok_movimientos` (esa tabla es la fuente de verdad; `tiktok_inventario`
+  solo guarda el saldo ya sumado). Un pedido pagado sin despachar APARTA, no
+  descuenta; el saldo baja hasta que el envío se confirma
+  (`AWAITING_COLLECTION` en adelante). Lo que se le publica a TikTok es
+  `saldo - apartado`, nunca negativo, y se le ESCRIBE por API en cada
+  movimiento del kardex y cada hora en el cron — si no se publica, la tienda
+  sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
+  único sobre `(account_id, tipo, referencia, sku)`: una orden genera una sola
+  salida por SKU.
+  **Industher SUMA en la bodega "TikTok" y descuenta SOLO lo que el ERP le
+  manda**: después de cada corte el ERP le manda las salidas
+  (`tiktok-3pl.ts`, `INDUSTHER_SALIDAS_URL`, referencia `TT-CORTE-n`,
+  idempotente; el endpoint lo publica el 3PL, que es de otra persona) y las
+  guarda en `tiktok_salidas_3pl`. Su número entra al kardex como ENTRADA por
+  diferencia contra lo ya reconocido (movimientos `industher:*` MENOS las
+  salidas que el 3PL ya confirmó); una BAJA se atribuye primero a las salidas
+  pendientes de ese SKU y solo el resto es merma (`conciliarAcumulado`):
+  una salida nunca se descuenta dos veces. NUNCA como ajuste absoluto, que
+  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
+  FÍSICAS. **Esa bodega NO existe para el calzado**: `construirCajas` la
+  descarta siempre (`esAlmacenTikTok`, salvo `incluirTikTok` que solo usa el
+  kardex de TikTok), /corridas la ignora y un trigger deja
+  `almacenes_activos.surte_full = false` pase lo que pase (migración 0045;
+  antes el RPC la daba de alta en `true` y sus cajas entraron a bodega, al
+  plan de Full y al pedido a China). A TikTok solo se le escribe un SKU que alguna vez
+  se contó (entrada o ajuste): uno con puras salidas se queda con el número
+  que TikTok ya tiene.
+  **Tiempo real:** TikTok ya aparta solo al vender; la única forma de vender
+  de más es que el ERP le escriba un número viejo. Por eso (1) NUNCA se le
+  escribe sin antes leer sus pedidos recientes (`sincronizarTikTok` con
+  `soloPedidos`, también desde la captura a mano); (2) se reconcilia contra
+  lo que TikTok DICE tener (`tiktok_skus.cantidad_tiktok`, del catálogo), no
+  contra lo último escrito: una edición en el Seller Center se corrige sola;
+  el camino del aviso (`sincronizarPedidosPorId`) lee el pedido que avisó
+  MÁS la ventana desde el cursor, y el cursor solo avanza si la ventana se
+  leyó bien; (2b) una SUBIDA del número solo se manda con causa —entrada, devolución,
+  ajuste o pedido cancelado desde la última escritura a ese SKU
+  (`frenarSubidasSinCausa`, `causasDeSubida`)— salvo en la corrida completa
+  sin avisos pendientes, que acaba de leer todos los pedidos; bajar siempre
+  se puede. Sin esto, un aviso atorado o una corrida encimada le regalaba a
+  TikTok pares ya vendidos (así se sobrevendió el MY2304 morado el 3 de
+  septiembre);
+  (3) los avisos de TikTok entran por `/api/tiktok/webhook` (firma HMAC sobre
+  `app_key + cuerpo`, se guarda y se procesa con `after()`), y (4) el envío se
+  confirma DESDE EL ERP (`confirmarEnvio`: TikTok envía por paquete) y
+  descuenta en el mismo clic. Cron cada 15 min como red de seguridad.
+  **Despacho por CORTES** (`tiktok-despacho.ts`, `/tiktok/despacho`): "hacer
+  corte" confirma en TikTok todos los pendientes de un jalón (TikTok no da la
+  guía hasta confirmar; para RECOLECCIÓN hay que mandar también un
+  `pickup_slot` de `handover_time_slots`, si no TikTok lo vuelve drop-off), guarda el corte con sus pedidos (`tiktok_cortes`,
+  `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
+  de TikTok unidas con `pdf-lib` en orden modelo → color → talla y "#n · SKU"
+  estampado abajo a la derecha (nada más se toca), y la lista de empaque en
+  el mismo orden con los mismos números. El siguiente corte solo toma lo que
+  no tiene corte.
+  **Preparar pedido** (`tiktok/preparar.ts`, estación en
+  `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
+  Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
+  guía y caja llevan el mismo código) — elige el siguiente paquete sin
+  preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
+  caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
+  solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
+  `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
+  preparado SIN escanear solo con la CLAVE DE SUPERVISOR
+  (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
+  el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
+  como `SUPERVISOR:` en la constancia. Decisión del dueño: la etiqueta lleva el
+  FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
+  El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
+  `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
+  del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
+  solo la diferencia entra al kardex como `ajuste` con referencia
+  `conteo:<fecha>`, y en el mismo clic se publica a TikTok pasando por
+  `sincronizarTikTok` con `soloPedidos` (regla de oro). Contar un MODELO
+  COMPLETO deja en cero lo que no apareció, con confirmación explícita.
+  La sincronización lleva candado (`candados_trabajo`, recurso
+  `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
+  simula el corte; Pendientes grita los saldos negativos.
+  **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
+  canónico → aplastado → ordenado → PROPIO: un SKU con forma
+  MODELO-COLOR-TALLA que MELI no tiene (el MY2304 morado solo se vende en
+  TikTok) se acepta tal cual, con su `-MX`, porque ese par también sale de
+  la bodega. Industher lo construye SIN sufijo (`MY2304-PURPLE-23`) y
+  `aliasDesdeTikTok` lo lleva al nombre de TikTok: un solo renglón en el
+  kardex para los dos lados.
+  Lo que quedó sin amarre se reintenta en cada corrida
+  (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
+  manda al 3PL en ese momento.
+  **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
+  total $0): se despachan y descuentan como cualquier pedido, pero NO son
+  venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
+  **Lo recibido** sale de finanzas de TikTok por pedido
+  (`liquidacionDePedido`, `/finance/202309/orders/{id}/statement_transactions`),
+  solo para entregados, 25 por corrida, reintento diario; queda en
+  `neto_recibido` con el crudo en `liquidacion`. Hasta que TikTok liquida,
+  la pantalla dice "sin liquidar", nunca estima. Ventas por MODELO
+  (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
+  renglones.
+
+- **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
+  `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
+  trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
+  se pregunta por SKU al API de publicaciones (`amazon/fnskus.ts`,
+  `searchListingsItems`, 20 por llamada, montado en el latido) y cubre lo
+  agotado ("Inactive") y lo nuevo sin primer envío. Ese API exige el Seller
+  ID en `amazon_accounts.selling_partner_id` (Merchant Token, capturado a
+  mano): sin él el paso contesta `sin_seller_id` y no pregunta nada. Un
+  producto que NO está en MELI y SÍ en Amazon (MY2304-PURPLE) saca su
+  etiqueta de aquí; el amarre del SKU es canónico → ordenado → aplastado y
+  `-ME`/`-MEX` cuentan como sufijo de sitio igual que `-MX`.
+- **El catálogo de Amazon (`amazon_listings`) NO se mezcla con `amazon_skus`.**
+  `amazon_skus` se llena de rebote con el reporte de ÓRDENES —solo lo que ya
+  vendió— y `amazon_resumen_skus` la usa como universo de claves del plan de
+  FBA: cada fila cuenta como UNA TALLA de su grupo modelo+color. Meterle ahí
+  las publicaciones sin venta le agrega tallas con venta 0, y la regla de la
+  corrida despareja las lee como hermanas al día (`sanas.length >
+  agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
+  completo (activos, inactivos, precio, imagen principal) vive aparte y solo
+  lo lee la sección de contenido.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
@@ -91,6 +227,65 @@ guárdala numerada.
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
   AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras).
 
+## ERP YAPANIZCEL (fundas) — sección aparte, mismo proyecto
+
+Segundo negocio: fundas para celular en OTRA cuenta de Mercado Libre. Vive en
+`/yapanizcel/*`, `src/lib/yapanizcel/` y tablas con prefijo `yz_`. No comparte
+ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
+
+- **Cuenta y app de MELI propias.** Credenciales en `MELI_YZ_CLIENT_ID` /
+  `MELI_YZ_CLIENT_SECRET`; tokens en `yz_tokens` (RLS con cero políticas, como
+  `meli_tokens`). Redirect URI: `/api/yapanizcel/meli/callback`. La RLS usa
+  `es_mi_cuenta_yz()`, aparte de `es_mi_cuenta()` a propósito.
+- **No hay cajas ni corridas.** La funda es unidad suelta. El SKU es
+  `DISEÑO-MODELO(-COLOR)` donde "modelo" es el del CELULAR y "diseño" el de la
+  funda (499, 501…). Los pedidos a China se ven POR DISEÑO.
+- **A Full se manda en DECENAS CERRADAS** (`multiplo_envio`, 10) y para
+  **15 días de cobertura** (`dias_objetivo`; hay poco espacio en Full): la falta se
+  redondea ARRIBA a decena y se topa ABAJO por lo que hay en bodega. Menos de
+  una decena en bodega = no se manda. Motor puro en `yapanizcel/plan.ts`.
+  La venta diaria pesa 50% la última semana, 30% la anterior y 20% el resto
+  de la ventana (cada bloque ÷ sus días con stock; un bloque sin stock no
+  cuenta como cero, se deja fuera), y la ventana termina AYER: hoy va a
+  medias. Verificado con 601-iPad10 (pasó de 35 a 65 al día a media ventana).
+- **El inventario de bodega viene de un Google Sheets** (`YAPANIZCEL_SHEET_URL`,
+  una pestaña por diseño, SKU completo en la columna A y cantidad en la B, sin
+  encabezados; `yapanizcel/sheets.ts` también acepta tabla o matriz). Se
+  REEMPLAZA completo en cada lectura. Recibir un pedido NO crea existencias.
+  **Solo cuentan las pestañas cuyo nombre empieza con número** (el diseño):
+  TOTALES y CONSECUTIVO TOTALES son resúmenes y RETIRO no se suma, por
+  decisión del dueño. Fixture real en `fixtures/yz-inventario.xlsx`.
+- **El amarre de SKUs va por niveles y los inseguros solo se PROPONEN**
+  (`yapanizcel/sku.ts`): exacto → canónico → aplastado se aplican solos; la
+  N o C antes del diseño (`N-462-A06` = `462-A06`) y el color escrito distinto
+  (black/blk, navy/blue, fucsia/fuchsia; `FAMILIAS_COLOR`) se amarran solos
+  por decisión del dueño; otros prefijos (CH-, R-) y las piezas en otro orden se sugieren
+  en `/yapanizcel/skus` y se confirman con un clic (escribe `yz_mapeo_skus`).
+  Un empate NUNCA se resuelve solo. Ignorados en `yz_skus_ignorados`.
+- **Costos por MODELO desde un Excel** (MODELO, COSTO) en `yz_costos`; se
+  buscan por el diseño del SKU (`costoDeSku`). Sin costo = ganancia no
+  calculable, nunca costo 0.
+- **Ganancia sobre el neto real** (`net_received_amount`, caché en
+  `yz_ordenes_neto`, re-lectura de órdenes recientes por cargos diferidos).
+  Los días con neto incompleto se marcan como estimados.
+- **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
+  en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
+- **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en
+  180 días no se ofrece a Full ni se pide a China; su diseño sí sale, salvo
+  que TODOS sus SKUs estén descontinuados (entonces la familia desaparece). Guardas:
+  publicado hace menos de 180 días o sin fecha (`yz_skus.publicado_en`, que la
+  sincronización fija con `yz_fijar_publicado`) no se juzga, y sin
+  180 días de historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
+- **La sincronización va por tramos de 7 días con presupuesto de tiempo**
+  (`yapanizcel/tramos.ts` + `yz_sync_estado`): el catálogo es grande (~18 mil
+  variantes) y una sola llamada no cabe en los 300 s de Vercel. Cada corrida
+  recalcula lo reciente y extiende hacia atrás hasta 180 días; la pantalla y el
+  cron llaman en bucle con `continuar: true` hasta que `completo` sea true.
+- Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
+  `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con
+  cron propio CADA 10 MINUTOS porque MELI entrega ~1 user product por segundo y el
+  catálogo trae ~15 mil variantes sin SKU en la publicación.
+
 ## Dónde está cada cosa
 
 | Qué                              | Dónde                                       |
@@ -102,6 +297,8 @@ guárdala numerada.
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
+| Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
+| Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |
 | Corridas desde Google Sheets     | `src/lib/servicios/corridas-sheets.ts` + `/api/corridas/sheets` (URL en `CORRIDAS_SHEET_URL`) |
 | Envíos a Full registrados        | `src/lib/servicios/envios-registrados.ts`   |
@@ -109,17 +306,35 @@ guárdala numerada.
 | Etiquetas (ZPL, PDF, resolución) | `src/lib/etiquetas/` (`zpl.ts`, `pdf.ts`, `resolver.ts`, `code128.ts`) |
 | ZIP de etiquetas por pedido      | `src/app/api/pedidos/[id]/etiquetas/route.ts` |
 | Sincronización con Amazon        | `src/lib/amazon/` (`sync.ts`, `spapi.ts`, `reportes.ts`) |
+| Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes y padres en `src/lib/amazon/catalogo.ts`) |
+| Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
+| TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
+| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
-| Páginas                          | `src/app/{envios,inventario,ventas,amazon,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
+| ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
+| Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
 
 - El registro está **cerrado**: tabla `usuarios_permitidos` + trigger sobre
   `auth.users`. Para dar acceso a alguien, inserta su correo ahí.
+- **Solo dos pantallas van sin sesión**, las dos con el mismo patrón:
+  `/contenido/{token}` (la sección de contenido de Amazon) y
+  `/preparar/{token}` (la estación de preparar pedidos de TikTok, para los
+  empleados que empacan). El token vive en `contenido_acceso` /
+  `tiktok_acceso`, tablas con RLS y **cero políticas** como `meli_tokens`; del
+  otro lado se lee y escribe con service_role, así que el token es la única
+  puerta: se compara en tiempo constante y SOLO en `acceso-contenido.ts` /
+  `acceso-preparar.ts`. Cada una alcanza nada más las tablas de su sección
+  (la de preparar: cortes y pedidos de TikTok para leer, preparaciones para
+  escribir).
 - `meli_tokens` tiene RLS con **cero políticas** a propósito: solo el
   service-role la lee. No agregues políticas.
 - `es_mi_cuenta()` debe seguir ejecutable por `authenticated` (RLS la usa);
   `anon` no. No cambies eso.
+- `tiktok_tokens` también tiene RLS con **cero políticas**, por lo mismo que
+  `meli_tokens`. En el entorno solo van las credenciales de la APP
+  (`TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET`), nunca las de la tienda.
 - No uses `sheet_to_json` de SheetJS (CVE de prototype pollution en 0.18.5).
   `leer-hoja.ts` lee celda por celda.
 - El webhook de MELI **debe contestar 200 en < 500 ms**: guarda y procesa
@@ -138,3 +353,15 @@ guárdala numerada.
   `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
   (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
   el historial de git (commits e861525…6b75355) por si MELI publica el API.
+
+## Proyecto aparte: `boletos/` (venta de boletos para eventos)
+
+Sistema **independiente** del ERP que vive en la carpeta `boletos/` con su
+propio `package.json`, su propia migración (tablas con prefijo `ev_`) y su
+propio despliegue en Vercel (Root Directory = `boletos`). No comparte tablas ni
+código con el ERP ni con YAPANIZCEL. Léase `boletos/README.md`.
+
+**No se mezclan.** Una tarea del ERP no toca `boletos/` y una de boletos no
+toca el ERP: ni código, ni commits, ni explicaciones. Por eso `vitest.config.ts`
+y `tsconfig.json` de la raíz excluyen `boletos/`: sus pruebas y tipos se corren
+desde su propia carpeta con sus propias dependencias.

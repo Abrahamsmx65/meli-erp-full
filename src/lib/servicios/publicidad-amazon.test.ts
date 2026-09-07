@@ -22,7 +22,8 @@ const eco = (
   extra?: Partial<{ unidades: number; ventas: number; fecha: string }>,
 ) => ({
   seller_sku,
-  fecha: extra?.fecha ?? "2026-08-01",
+  // La base ya la entrega sumada por SKU, con el último día que trae datos.
+  ultima_fecha: extra?.fecha ?? "2026-08-01",
   unidades: extra?.unidades ?? 0,
   ventas: extra?.ventas ?? 0,
   publicidad,
@@ -95,5 +96,20 @@ describe("armarPublicidadAmazon", () => {
     // (4000 − 100×10) + (6000 − 200×10) = 3000 + 4000.
     expect(p.totales.ganancia).toBe(7000);
     expect(p.totales.coberturaCosto).toBe(1);
+  });
+});
+
+describe("armarPublicidadAmazon · lectura fallida", () => {
+  it("un error de la economía se dice, no se disfraza de 'sin datos'", () => {
+    const p = armarPublicidadAmazon({
+      ventas: [venta("GT114-BLK-28-MX", 5, 2500)],
+      economia: [],
+      costoDeModelo: new Map(),
+      errorEconomia: "statement timeout",
+    });
+    expect(p.aviso).toContain("No se pudo leer");
+    expect(p.aviso).toContain("statement timeout");
+    // Las ventas del periodo sí quedan completas.
+    expect(p.totales.unidades).toBe(5);
   });
 });

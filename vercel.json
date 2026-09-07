@@ -7,6 +7,18 @@
     {
       "path": "/api/meli/skus-pendientes",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/tiktok",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/yapanizcel",
+      "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/api/yapanizcel/skus-pendientes",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

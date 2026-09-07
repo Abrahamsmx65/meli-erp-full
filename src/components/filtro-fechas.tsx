@@ -23,6 +23,8 @@ export function FiltroFechas({
   const inicioMes = `${hoy.slice(0, 8)}01`;
 
   const atajos: { texto: string; desde: string; hasta: string }[] = [
+    { texto: "Hoy", desde: hoy, hasta: hoy },
+    { texto: "Ayer", desde: hace(1), hasta: hace(1) },
     { texto: "7 días", desde: hace(6), hasta: hoy },
     { texto: "15 días", desde: hace(14), hasta: hoy },
     { texto: "30 días", desde: hace(29), hasta: hoy },

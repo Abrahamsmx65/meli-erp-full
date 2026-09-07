@@ -43,15 +43,35 @@ export async function middleware(request: NextRequest) {
     user = data.user;
   }
 
-  const ruta = request.nextUrl.pathname;
+  // Diagonales repetidas ("//preparar/…", cuando la URL base trae diagonal
+  // final) se aplastan: la ruta pública es la misma.
+  const ruta = request.nextUrl.pathname.replace(/\/{2,}/g, "/");
   const publica =
     ruta.startsWith("/login") ||
     ruta.startsWith("/api/cron") ||
     ruta.startsWith("/api/meli/callback") ||
+    // El de TikTok también: el rebote al login tira el ?code= de la URL y
+    // el usuario aterriza en el callback sin nada que canjear.
+    ruta.startsWith("/api/tiktok/callback") ||
+    // Los avisos de TikTok llegan sin sesión; la ruta verifica su firma.
+    ruta.startsWith("/api/tiktok/webhook") ||
     ruta.startsWith("/api/meli/webhook") ||
     ruta.startsWith("/api/meli/skus-pendientes") ||
+    // Las mismas dos puertas para la cuenta de YAPANIZCEL: el callback de
+    // MELI y el resolutor de SKUs que se relanza solo con CRON_SECRET.
+    ruta.startsWith("/api/yapanizcel/meli/callback") ||
+    ruta.startsWith("/api/yapanizcel/skus-pendientes") ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
+    // El acceso sin contraseña a la sección de contenido: la puerta es el
+    // token del link, que valida `acceso-contenido.ts`. Sin esto el link
+    // rebotaría al login, que es justo lo que no debe pedir.
+    ruta.startsWith("/contenido/") ||
+    // La estación de preparar pedidos de TikTok, para los empleados: la
+    // puerta es el token de la URL (acceso-preparar.ts), no la sesión.
+    ruta.startsWith("/preparar/") ||
+    ruta.startsWith("/api/preparar-publico/") ||
+    ruta.startsWith("/api/contenido-publico/") ||
     ruta.startsWith("/auth");
 
   if (!user && !publica) {
@@ -64,6 +84,15 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+/**
+ * Las rutas que reciben tráfico de MÁQUINAS (los avisos de MELI y TikTok,
+ * los cron de Vercel) no pasan por aquí: no traen sesión que refrescar y
+ * ya se autentican solas (firma, CRON_SECRET, vendedor conocido). Son
+ * millones de peticiones al día; correr el middleware en cada una era
+ * puro costo.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/meli/webhook|api/tiktok/webhook|api/yapanizcel/meli/callback|api/cron/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

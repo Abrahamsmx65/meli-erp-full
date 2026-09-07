@@ -52,11 +52,14 @@ export function construirSkuMeli(modelo: string, color: string, talla: string | 
 /**
  * Sufijos de país/sitio que muchas cuentas le pegan al final del SKU
  * (GT110-NAVY-26-MX). En bodega no existen, así que hay que ignorarlos al
- * comparar o no empata absolutamente nada.
+ * comparar o no empata absolutamente nada. En Amazon el mismo sufijo quedó
+ * capturado a mano de varias formas (GT190-BLK-23-ME, GT144-BLK-26-MEX):
+ * son el mismo par y sin esto su FNSKU no se encontraba.
  */
 const SUFIJOS_SITIO = new Set([
   "MX", "MLM", "AR", "MLA", "BR", "MLB", "CL", "MLC",
   "CO", "MCO", "PE", "MPE", "UY", "MLU", "US", "MX1",
+  "ME", "MEX",
 ]);
 
 /**

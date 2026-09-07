@@ -26,6 +26,8 @@ const CUOTAS: Record<string, [number, number]> = {
   getReportDocument: [0.0167, 15],
   getShipments: [2, 30],
   getShipmentItems: [2, 30],
+  searchCatalogItems: [2, 2],
+  searchListingsItems: [5, 5],
 };
 
 export interface CuentaAmazon {
@@ -33,6 +35,13 @@ export interface CuentaAmazon {
   nombre: string | null;
   marketplaceId: string;
   region: string;
+  /**
+   * El Seller ID (Merchant Token) de la cuenta. No sale de ningún reporte
+   * ni del token: se captura una vez en `amazon_accounts.selling_partner_id`
+   * (Seller Central → Configuración → Información de la cuenta → Merchant
+   * Token). Sin él no se puede usar el API de publicaciones.
+   */
+  sellingPartnerId: string | null;
   clientId: string;
   clientSecret: string;
   refreshToken: string;
@@ -53,7 +62,7 @@ export async function cuentasAmazon(admin: any): Promise<CuentaAmazon[]> {
   const { data, error } = await admin
     .from("amazon_accounts")
     .select(
-      "id, nombre, marketplace_id, region, amazon_tokens(refresh_token, lwa_client_id, lwa_client_secret)",
+      "id, nombre, marketplace_id, region, selling_partner_id, amazon_tokens(refresh_token, lwa_client_id, lwa_client_secret)",
     );
   if (error) throw new Error(`amazon_accounts: ${error.message}`);
 
@@ -67,6 +76,7 @@ export async function cuentasAmazon(admin: any): Promise<CuentaAmazon[]> {
       nombre: c.nombre ?? null,
       marketplaceId: c.marketplace_id,
       region: c.region ?? "na",
+      sellingPartnerId: (c.selling_partner_id ?? "").trim() || null,
       clientId: t.lwa_client_id,
       clientSecret: t.lwa_client_secret,
       refreshToken: t.refresh_token,

@@ -1,9 +1,10 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { cargarInventario } from "@/lib/servicios/inventario";
+import { cargarInventario, familiasMexico } from "@/lib/servicios/inventario";
 import { configPorProducto } from "@/lib/servicios/productos";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
+import { TotalMexico } from "@/components/total-mexico";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -16,14 +17,20 @@ function pesos(x: number): string {
   return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
-export default async function Inventario() {
+export default async function Inventario({
+  searchParams,
+}: {
+  searchParams?: Promise<{ q?: string }>;
+}) {
+  // El buscador de la barra superior aterriza aquí con el texto ya puesto.
+  const busquedaInicial = (await searchParams)?.q ?? "";
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
           Ir a Ajustes
         </Link>
@@ -52,6 +59,7 @@ export default async function Inventario() {
     valorEnCamino += r.enCamino * costo;
   }
 
+  const familias = familiasMexico(inv.renglones, inv.cajasPorModelo);
   const skusBodega = inv.renglones.filter((r) => r.enBodega + r.enCamino > 0).length;
   const cajasBodega = inv.porAlmacen.reduce((a, x) => a + x.cajas, 0);
 
@@ -59,7 +67,7 @@ export default async function Inventario() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Bodega</h1>
+          <h1 className="titulo-pagina">Bodega</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Lo que está en cajas cerradas en tu bodega y lo que viene de China. Lo de
             Mercado Libre vive en su propia sección.
@@ -179,7 +187,10 @@ export default async function Inventario() {
         </section>
       ) : null}
 
+      <TotalMexico familias={familias} />
+
       <TablaInventario
+        busquedaInicial={busquedaInicial}
         renglones={inv.renglones}
         soloBodega
         almacenes={inv.porAlmacen.map((a) => a.almacen)}

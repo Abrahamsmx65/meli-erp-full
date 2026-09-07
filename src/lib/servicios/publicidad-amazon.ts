@@ -12,7 +12,7 @@
  * reporte de economía (mismos días), no con las del periodo completo — la
  * misma decisión que ya tomó el monitor de Amazon.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { desglosarSku } from "./sync";
 import { configPorProducto } from "./productos";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
@@ -55,16 +55,26 @@ export interface PublicidadAmazon {
   };
   /** hasta qué fecha hay economía cargada; null = nada en el rango */
   economiaHasta: string | null;
-  /** aviso cuando el rango no tiene datos de economía */
+  /**
+   * Por qué no hay gasto de ads: el rango sin datos todavía, o un error al
+   * leerlos. null = hay economía. Nunca se calla un fallo: enseñar "sin
+   * datos" cuando la lectura truena esconde el problema.
+   */
   aviso: string | null;
 }
 
-interface FilaEconomia {
+/**
+ * Economía de un SKU en el periodo, YA SUMADA (la función
+ * `amazon_economia_por_sku` de la base la agrega: por día son ~154 mil
+ * renglones por rango, imposibles de bajar en una pantalla).
+ */
+export interface EconomiaSku {
   seller_sku: string;
-  fecha: string;
   unidades: number | null;
   ventas: number | null;
   publicidad: number | null;
+  /** último día con datos de ese SKU, para saber hasta dónde llega el reporte */
+  ultima_fecha: string | null;
 }
 
 interface VentaAmazon {
@@ -76,8 +86,10 @@ interface VentaAmazon {
 
 export function armarPublicidadAmazon(opts: {
   ventas: VentaAmazon[];
-  economia: FilaEconomia[];
+  economia: EconomiaSku[];
   costoDeModelo: Map<string, number | null>;
+  /** mensaje de error si la economía no se pudo leer */
+  errorEconomia?: string | null;
 }): PublicidadAmazon {
   const { ventas, economia, costoDeModelo } = opts;
 
@@ -117,7 +129,8 @@ export function armarPublicidadAmazon(opts: {
     a.conAds = true;
     a.unidadesEco += Number(e.unidades) || 0;
     a.ventasEco += Number(e.ventas) || 0;
-    if (!economiaHasta || e.fecha > economiaHasta) economiaHasta = e.fecha;
+    const hasta = e.ultima_fecha;
+    if (hasta && (!economiaHasta || hasta > economiaHasta)) economiaHasta = hasta;
   }
 
   const filas: FilaPublicidadAmazon[] = [...porModelo.entries()]
@@ -177,9 +190,11 @@ export function armarPublicidadAmazon(opts: {
       ventasEconomia: ventasEco,
     },
     economiaHasta,
-    aviso: economia.length
-      ? null
-      : "El rango no tiene datos de SKU Economics todavía: el gasto de publicidad de Amazon llega con unos días de retraso por el Data Kiosk.",
+    aviso: opts.errorEconomia
+      ? `No se pudo leer la economía por SKU de Amazon: ${opts.errorEconomia}`
+      : economia.length
+        ? null
+        : "El rango no tiene datos de SKU Economics todavía: el gasto de publicidad de Amazon llega con unos días de retraso por el Data Kiosk.",
   };
 }
 
@@ -198,6 +213,20 @@ export async function cargarPublicidadAmazon(
   const guardado = cacheAmz.get(claveCache);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
 
+  // La economía se pide YA SUMADA por SKU a la base: por día son ~154 mil
+  // renglones en 30 días (154 páginas de mil) y la lectura no alcanzaba a
+  // terminar; el error se tragaba y el panel decía "sin datos" con $319 mil
+  // de publicidad cargados. Sumada son ~6 mil renglones en un viaje.
+  // Por PÁGINAS: el API corta en 1,000 renglones y la suma trae ~6 mil SKUs;
+  // sin paginar, el gasto de publicidad llegaba recortado y el total salía
+  // chico sin avisar.
+  const leerEconomia = () =>
+    traerRpcTodo<EconomiaSku>(db, "amazon_economia_por_sku", {
+      p_account: amazonAccountId,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
+    });
+
   const [ventas, economia, config] = await Promise.all([
     traerTodo<VentaAmazon>(
       db,
@@ -205,12 +234,7 @@ export async function cargarPublicidadAmazon(
       "seller_sku, fecha, unidades, importe",
       (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
     ),
-    traerTodo<FilaEconomia>(
-      db,
-      "amazon_economia",
-      "seller_sku, fecha, unidades, ventas, publicidad",
-      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
-    ).catch(() => [] as FilaEconomia[]),
+    leerEconomia(),
     // Costos y categorías viven con la cuenta de MELI: mismos productos.
     meliAccountId ? configPorProducto(db, meliAccountId) : Promise.resolve(new Map()),
   ]);
@@ -218,7 +242,13 @@ export async function cargarPublicidadAmazon(
   const costoDeModelo = new Map<string, number | null>();
   for (const [modelo, cfg] of config) costoDeModelo.set(modelo, cfg.costo);
 
-  const datos = armarPublicidadAmazon({ ventas, economia, costoDeModelo });
-  cacheAmz.set(claveCache, { en: Date.now(), datos });
+  const datos = armarPublicidadAmazon({
+    ventas,
+    economia: economia.filas,
+    costoDeModelo,
+    errorEconomia: economia.error,
+  });
+  // Un panel con la economía rota no se cachea: al recargar debe reintentar.
+  if (!economia.error) cacheAmz.set(claveCache, { en: Date.now(), datos });
   return datos;
 }

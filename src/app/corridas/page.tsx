@@ -14,7 +14,7 @@ export default async function Corridas() {
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="text-lg font-semibold">Conecta Mercado Libre</h1>
+        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
         <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
           Ir a Ajustes
         </Link>
@@ -28,7 +28,7 @@ export default async function Corridas() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Corridas</h1>
+        <h1 className="titulo-pagina">Corridas</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Qué tallas trae cada caja. Es lo que convierte &quot;40 cajas de GT104 negro&quot; en
           &quot;3 pares del 25, 6 del 26, 15 del 27…&quot;, y sin eso el planeador no puede

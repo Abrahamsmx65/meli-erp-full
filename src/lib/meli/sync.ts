@@ -37,6 +37,7 @@ interface VariacionMeli {
 interface ItemMeli {
   id: string;
   title?: string;
+  date_created?: string;
   category_id?: string | null;
   status?: string;
   price?: number;
@@ -69,6 +70,8 @@ export interface FilaSku {
   logistica: string | null;
   estado: string | null;
   precio: number | null;
+  /** cuándo se publicó (date_created de MELI); distingue "nuevo" de "muerto" */
+  dateCreated?: string | null;
 }
 
 /**
@@ -91,6 +94,7 @@ export interface VarianteSinSku {
   logistica: string | null;
   estado: string | null;
   precio: number | null;
+  dateCreated?: string | null;
 }
 
 export interface DiagnosticoCatalogo {
@@ -375,6 +379,7 @@ export async function detallarItems(
             userProductId: v.user_product_id ?? null,
             inventoryId: v.inventory_id ?? null,
             titulo: item.title ?? "",
+            dateCreated: item.date_created ?? null,
             logistica,
             estado: item.status ?? null,
             precio: v.price ?? item.price ?? null,
@@ -389,6 +394,7 @@ export async function detallarItems(
           inventoryId: v.inventory_id ?? null,
           userProductId: v.user_product_id ?? null,
           titulo: item.title ?? "",
+          dateCreated: item.date_created ?? null,
           logistica,
           estado: item.status ?? null,
           precio: v.price ?? item.price ?? null,
@@ -404,6 +410,7 @@ export async function detallarItems(
             userProductId: item.user_product_id,
             inventoryId: item.inventory_id ?? null,
             titulo: item.title ?? "",
+            dateCreated: item.date_created ?? null,
             logistica,
             estado: item.status ?? null,
             precio: item.price ?? null,
@@ -419,6 +426,7 @@ export async function detallarItems(
         inventoryId: item.inventory_id ?? null,
         userProductId: item.user_product_id ?? null,
         titulo: item.title ?? "",
+        dateCreated: item.date_created ?? null,
         logistica,
         estado: item.status ?? null,
         precio: item.price ?? null,

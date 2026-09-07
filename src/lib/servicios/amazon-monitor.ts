@@ -7,7 +7,7 @@
  * comisiones y fletes de Amazon no llegan por los reportes que se
  * sincronizan hoy, así que no se descuentan; la nota de la pantalla lo dice.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { desglosarSku } from "./sync";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
@@ -139,13 +139,17 @@ export async function cargarMonitorAmazon(
     )
       .then((x: any) => (x?.data?.fecha as string | undefined) ?? null)
       .catch(() => null),
-    // La economía por producto del Data Kiosk. Sin tabla o sin datos: [].
-    traerTodo<any>(
-      db,
-      "amazon_economia",
-      "seller_sku, fecha, unidades, ventas, tarifas, publicidad, neto",
-      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
-    ).catch(() => [] as any[]),
+    // La economía por producto del Data Kiosk, YA SUMADA por SKU en la base
+    // (`amazon_economia_por_sku`): por día son ~154 mil renglones en 30 días
+    // y la lectura paginada no alcanzaba a terminar, así que la economía se
+    // quedaba vacía sin decirlo. Sumada son ~6 mil en un viaje.
+    traerRpcTodo<any>(db, "amazon_economia_por_sku", {
+      p_account: amazonAccountId,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
+    })
+      .then((x) => x.filas)
+      .catch(() => [] as any[]),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
@@ -218,7 +222,8 @@ export async function cargarMonitorAmazon(
     reg.publicidad += Number(e.publicidad) || 0;
     reg.neto += Number(e.neto) || 0;
     econPorModelo.set(modelo, reg);
-    if (!econHasta || e.fecha > econHasta) econHasta = e.fecha;
+    const hastaSku = e.ultima_fecha as string | null;
+    if (hastaSku && (!econHasta || hastaSku > econHasta)) econHasta = hastaSku;
   }
 
   const categorias = new Map<

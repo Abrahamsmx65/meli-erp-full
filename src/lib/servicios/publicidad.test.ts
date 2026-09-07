@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   armarPublicidad,
-  armarSugerencias,
+  armarRecomendaciones,
   COBERTURA_CORTA_DIAS,
   type AnuncioAds,
   type FilaPublicidad,
@@ -225,7 +225,7 @@ describe("armarPublicidad", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Sugerencias
+// Recomendaciones
 // ---------------------------------------------------------------------------
 
 const fila = (modelo: string, extra?: Partial<FilaPublicidad>): FilaPublicidad => ({
@@ -253,68 +253,51 @@ const item = (itemId: string, estado: string | null = "active"): ItemDeModelo =>
   compartido: false,
 });
 
-describe("armarSugerencias", () => {
+describe("armarRecomendaciones", () => {
   const dias = 30; // ritmo de la fila base: 2/día
 
   it("pide pausar cuando la cobertura es corta y el anuncio sigue prendido", () => {
-    const s = armarSugerencias({
+    const r = armarRecomendaciones({
       filas: [fila("GT122")],
       stockDeModelo: new Map([["GT122", 10]]), // 5 días al ritmo de 2/día
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s).toHaveLength(1);
-    expect(s[0].accion).toBe("pausar");
-    expect(s[0].items).toEqual([item("MLM1")]);
-    expect(Math.round(s[0].coberturaDias!)).toBe(5);
+    expect(r).toHaveLength(1);
+    expect(r[0].accion).toBe("pausar");
+    expect(r[0].queHacer).toBe("Pausar el anuncio");
+    expect(r[0].razon).toContain("5 días de stock");
   });
 
   it("pide pausar cuando el stock está agotado", () => {
-    const s = armarSugerencias({
+    const r = armarRecomendaciones({
       filas: [fila("GT122")],
       stockDeModelo: new Map(),
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s[0].accion).toBe("pausar");
-    expect(s[0].razon).toContain("Sin stock");
+    expect(r[0].accion).toBe("pausar");
+    expect(r[0].razon).toContain("Sin stock");
   });
 
-  it("recuerda encender lo pausado desde el ERP cuando el stock vuelve", () => {
-    const s = armarSugerencias({
+  it("pide encender un anuncio pausado cuando el stock ya volvió", () => {
+    const r = armarRecomendaciones({
       filas: [fila("GT122", { gastoAds: 0, tacos: 0, ventaAds: 0 })],
       stockDeModelo: new Map([["GT122", 200]]), // 100 días: repuesto
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1", "paused")]]]),
-      pausadosDesdeErp: new Set(["MLM1"]),
     });
-    expect(s[0].accion).toBe("encender");
-    expect(s[0].recordatorio).toBe(true);
-    expect(s[0].items).toEqual([item("MLM1", "paused")]);
+    expect(r[0].accion).toBe("encender");
   });
 
-  it("NO recuerda encender si el stock sigue corto", () => {
-    const s = armarSugerencias({
+  it("NO pide encender si el stock sigue corto", () => {
+    const r = armarRecomendaciones({
       filas: [fila("GT122", { gastoAds: 0, tacos: 0, ventaAds: 0 })],
       stockDeModelo: new Map([["GT122", COBERTURA_CORTA_DIAS * 2 - 10]]), // < 14 días a 2/día
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1", "paused")]]]),
-      pausadosDesdeErp: new Set(["MLM1"]),
     });
-    expect(s).toHaveLength(0);
-  });
-
-  it("no molesta con anuncios pausados a mano fuera del ERP", () => {
-    const s = armarSugerencias({
-      filas: [fila("GT122", { gastoAds: 0, tacos: 0, ventaAds: 0 })],
-      stockDeModelo: new Map([["GT122", 500]]),
-      dias,
-      itemsDeModelo: new Map([["GT122", [item("MLM1", "paused")]]]),
-      pausadosDesdeErp: new Set(), // pausado en la consola de MELI, no aquí
-    });
-    expect(s).toHaveLength(0);
+    expect(r).toHaveLength(0);
   });
 
   it("pide apagar lo que gasta sin vender SOLO si el modelo ya vendía antes", () => {
@@ -323,10 +306,9 @@ describe("armarSugerencias", () => {
       stockDeModelo: new Map([["GT122", 100]]),
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set<string>(),
     };
     // Con historia: el anuncio no trabaja, apagar.
-    const conHistoria = armarSugerencias({
+    const conHistoria = armarRecomendaciones({
       filas,
       ...comun,
       modelosConHistoria: new Set(["GT122"]),
@@ -334,7 +316,7 @@ describe("armarSugerencias", () => {
     expect(conHistoria[0].accion).toBe("apagar");
 
     // Sin historia (el caso GT190): es un lanzamiento en rampa, no se regaña.
-    const lanzamiento = armarSugerencias({
+    const lanzamiento = armarRecomendaciones({
       filas,
       ...comun,
       modelosConHistoria: new Set(),
@@ -342,50 +324,48 @@ describe("armarSugerencias", () => {
     expect(lanzamiento).toHaveLength(0);
   });
 
-  it("pide bajar cuando el TACOS rebasa el margen, con el ROAS de equilibrio", () => {
+  it("pide bajar cuando el TACOS rebasa el margen, con el ACOS sano en el texto", () => {
     // margen 30% (9000/30000), TACOS 40%.
-    const s = armarSugerencias({
+    const r = armarRecomendaciones({
       filas: [fila("GT122", { gastoAds: 12000, tacos: 0.4 })],
       stockDeModelo: new Map([["GT122", 100]]), // 50 días: no es problema de stock
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s[0].accion).toBe("bajar");
-    expect(s[0].roasEquilibrio).toBeCloseTo(1 / 0.3, 1);
-    expect(s[0].acosObjetivoPct).toBeCloseTo(30);
+    expect(r[0].accion).toBe("bajar");
+    expect(r[0].queHacer).toContain("30%");
+    expect(r[0].queHacer).toContain("3.3"); // ROAS de equilibrio 1/0.3
   });
 
   it("pide subir cuando sobra stock y los ads usan poco margen", () => {
     // Cobertura 100 días, TACOS 5% contra margen 30%.
-    const s = armarSugerencias({
+    const r = armarRecomendaciones({
       filas: [fila("GT122")],
       stockDeModelo: new Map([["GT122", 200]]),
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s[0].accion).toBe("subir");
+    expect(r[0].accion).toBe("subir");
+    expect(r[0].queHacer).toContain("presupuesto");
   });
 
   it("propone activar ads al que vende solo con stock de sobra, máximo 5", () => {
     const filas = Array.from({ length: 7 }, (_, i) =>
       fila(`GT${100 + i}`, { gastoAds: 0, tacos: 0, ventaAds: 0, anuncios: 0 }),
     );
-    const s = armarSugerencias({
+    const r = armarRecomendaciones({
       filas,
       stockDeModelo: new Map(filas.map((f) => [f.modelo, 500])),
       dias,
       itemsDeModelo: new Map(),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s.every((x) => x.accion === "activar")).toBe(true);
-    expect(s).toHaveLength(5);
+    expect(r.every((x) => x.accion === "activar")).toBe(true);
+    expect(r).toHaveLength(5);
   });
 
-  it("ordena lo urgente primero: pausar antes que subir", () => {
-    const s = armarSugerencias({
-      filas: [fila("AAA"), fila("ZZZ")],
+  it("ordena alfabéticamente por modelo, no por urgencia", () => {
+    const r = armarRecomendaciones({
+      filas: [fila("ZZZ"), fila("AAA")],
       stockDeModelo: new Map([
         ["AAA", 200], // subir
         ["ZZZ", 4], // pausar
@@ -395,8 +375,8 @@ describe("armarSugerencias", () => {
         ["AAA", [item("MLM1")]],
         ["ZZZ", [item("MLM2")]],
       ]),
-      pausadosDesdeErp: new Set(),
     });
-    expect(s.map((x) => x.accion)).toEqual(["pausar", "subir"]);
+    expect(r.map((x) => x.modelo)).toEqual(["AAA", "ZZZ"]);
+    expect(r.map((x) => x.accion)).toEqual(["subir", "pausar"]);
   });
 });

@@ -1,4 +1,4 @@
-import type { RenglonAmazon } from "./amazon";
+import { cuentaAmazon, type RenglonAmazon } from "./amazon";
 import { desglosarSku } from "./sync";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
@@ -23,7 +23,11 @@ export function claveGrupoFba(modelo: string, color: string): string {
  * del color (GT128-23-BLK-MX). Si el desglose normal no encuentra talla,
  * se busca el token que parece talla en cualquier posición.
  */
-function desglosarAmazon(sku: string): { modelo: string | null; color: string | null; talla: string | null } {
+export function desglosarAmazon(sku: string): {
+  modelo: string | null;
+  color: string | null;
+  talla: string | null;
+} {
   const d = desglosarSku(sku);
   if (d.talla) return d;
   const t = claveComparacion(sku).split("-");
@@ -37,7 +41,7 @@ function desglosarAmazon(sku: string): { modelo: string | null; color: string | 
   }
   return d;
 }
-import { traerTodo, type DB } from "../datos/repos";
+import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 
 /** Días de venta que el stock en FBA debe cubrir. */
 export const OBJETIVO_DIAS_FBA = 30;
@@ -308,6 +312,32 @@ export function limpiarCacheAmazonCompras(): void {
   cacheAmazonCompras.clear();
 }
 
+/**
+ * La suma en la base. Devuelve null si la función no existe todavía, si
+ * la base no sabe de RPC (las pruebas) o si truena: el llamador cae al
+ * camino renglón por renglón.
+ */
+async function resumenComprasEnBase(
+  db: DB,
+  cuentaId: string,
+  desde: string,
+): Promise<{ seller_sku: string; unidades: number | string; dias_agotado: number }[] | null> {
+  try {
+    // Por PÁGINAS: el API corta en 1,000 renglones y la suma trae ~1,900
+    // SKUs; sin paginar, Planificación China perdía la venta de casi mil
+    // SKUs sin avisar.
+    const { filas, error } = await traerRpcTodo<{
+      seller_sku: string;
+      unidades: number | string;
+      dias_agotado: number;
+    }>(db, "amazon_compras_por_sku", { p_account: cuentaId, p_desde: desde });
+    if (error) return null;
+    return filas;
+  } catch {
+    return null;
+  }
+}
+
 export async function amazonParaCompras(
   db: DB,
 ): Promise<Map<string, AmazonCompraSku>> {
@@ -318,53 +348,91 @@ export async function amazonParaCompras(
 
   const desde = new Date(Date.now() - VENTANA_VENTA_AMZ * 86_400_000).toISOString().slice(0, 10);
   try {
+    // Las lecturas van FILTRADAS por la cuenta de Amazon. Sin el filtro,
+    // Postgres no podía usar el índice (account_id, fecha, …) que ordena la
+    // paginación y volvía a ordenar ~80 mil fotos en disco EN CADA PÁGINA:
+    // hasta 7 s por página, ~100 páginas por clic en /pedidos, y la base
+    // entera lenta para todos mientras tanto. Hay una sola cuenta, así que
+    // el resultado es el mismo. Si no se puede saber la cuenta (o la base
+    // simulada de las pruebas no la tiene), se lee sin filtro, como antes.
+    let cuentaId: string | null = null;
+    try {
+      cuentaId = (await cuentaAmazon(db))?.id ?? null;
+    } catch {
+      cuentaId = null;
+    }
+    const porCuenta = (q: any) => (cuentaId ? q.eq("account_id", cuentaId) : q);
+
+    // La venta por SKU y los días agotado se piden YA SUMADOS a la base
+    // (`amazon_compras_por_sku`, migración 0050): bajar 30 días de ventas
+    // diarias y de fotos del inventario renglón por renglón eran más de
+    // cien viajes al API por clic, y /pedidos moría a los 60 s de Vercel
+    // con la base cargada. Si la función no existe (o la base simulada de
+    // las pruebas no la tiene), se cae al camino viejo, renglón por renglón.
+    const resumen = cuentaId ? await resumenComprasEnBase(db, cuentaId, desde) : null;
+
     const [ventas, inventario, entrantes, fotos] = await Promise.all([
-      // `fecha` va en el select para que la paginación ordene por una llave
-      // ÚNICA (seller_sku solo empata entre días y duplicaba filas).
-      traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
-        q.gte("fecha", desde),
+      resumen
+        ? Promise.resolve([] as any[])
+        : // `fecha` va en el select para que la paginación ordene por una
+          // llave ÚNICA (seller_sku solo empata entre días y duplicaba filas).
+          traerTodo<any>(db, "amazon_ventas_diarias", "seller_sku, unidades, fecha", (q) =>
+            porCuenta(q).gte("fecha", desde),
+          ),
+      traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) =>
+        porCuenta(q),
       ),
-      traerTodo<any>(db, "amazon_inventario", "seller_sku, disponible, en_transferencia", (q) => q),
       // El detalle de envíos entrantes, para NO contar como stock lo que
       // lleva semanas atorado camino a FBA (mismo criterio que el plan).
       traerTodo<any>(
         db,
         "amazon_envios_entrantes",
         "shipment_id, seller_sku, nombre, estado, enviado, recibido, vigente",
-        (q) => q,
+        (q) => porCuenta(q),
       ).catch(() => [] as any[]),
       // Las fotos diarias del inventario, para saber qué días estuvo en
       // cero cada SKU. Si aún no hay fotos, la corrección simplemente no
       // aplica (venta corregida = observada).
-      traerTodo<any>(
-        db,
-        "amazon_inventario_snapshots",
-        "seller_sku, fecha, disponible",
-        (q) => q.gte("fecha", desde),
-      ).catch(() => [] as any[]),
+      resumen
+        ? Promise.resolve([] as any[])
+        : traerTodo<any>(
+            db,
+            "amazon_inventario_snapshots",
+            "seller_sku, fecha, disponible",
+            (q) => porCuenta(q).gte("fecha", desde),
+          ).catch(() => [] as any[]),
     ]);
     const enCamino = resumirEnCamino(entrantes);
 
     // Unidades por SKU y en qué fechas vendió (si vendió, ese día SÍ tuvo
     // stock aunque la foto lo marque en cero: se agotó a media jornada).
     const ventaSku = new Map<string, { unidades: number; fechas: Set<string> }>();
-    for (const v of ventas) {
-      const sku = String(v.seller_sku ?? "");
-      if (!esCalzado(sku)) continue;
-      const e = ventaSku.get(sku) ?? { unidades: 0, fechas: new Set<string>() };
-      e.unidades += v.unidades ?? 0;
-      if ((v.unidades ?? 0) > 0) e.fechas.add(String(v.fecha ?? ""));
-      ventaSku.set(sku, e);
-    }
-
     // Días agotado = fotos con disponible en cero y sin venta ese día.
     const diasAgotado = new Map<string, number>();
-    for (const f of fotos) {
-      const sku = String(f.seller_sku ?? "");
-      if (!esCalzado(sku)) continue;
-      if ((f.disponible ?? 0) > 0) continue;
-      if (ventaSku.get(sku)?.fechas.has(String(f.fecha ?? ""))) continue;
-      diasAgotado.set(sku, (diasAgotado.get(sku) ?? 0) + 1);
+
+    if (resumen) {
+      for (const r of resumen) {
+        const sku = String(r.seller_sku ?? "");
+        if (!esCalzado(sku)) continue;
+        ventaSku.set(sku, { unidades: Number(r.unidades) || 0, fechas: new Set<string>() });
+        if ((r.dias_agotado ?? 0) > 0) diasAgotado.set(sku, Number(r.dias_agotado));
+      }
+    } else {
+      for (const v of ventas) {
+        const sku = String(v.seller_sku ?? "");
+        if (!esCalzado(sku)) continue;
+        const e = ventaSku.get(sku) ?? { unidades: 0, fechas: new Set<string>() };
+        e.unidades += v.unidades ?? 0;
+        if ((v.unidades ?? 0) > 0) e.fechas.add(String(v.fecha ?? ""));
+        ventaSku.set(sku, e);
+      }
+      for (const f of fotos) {
+        const sku = String(f.seller_sku ?? "");
+        if (!esCalzado(sku)) continue;
+        if ((f.disponible ?? 0) > 0) continue;
+        if (ventaSku.get(sku)?.fechas.has(String(f.fecha ?? ""))) continue;
+        diasAgotado.set(sku, (diasAgotado.get(sku) ?? 0) + 1);
+      }
     }
 
     const mapa = new Map<string, AmazonCompraSku>();
