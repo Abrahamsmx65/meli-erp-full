@@ -58,6 +58,13 @@ guárdala numerada.
   y tiene tres niveles: manual → exacto → canónico → aplastado.
 - **Envíos a Full por bodega:** Caseshop + Industher salen juntos, EnvioPack
   aparte. Configurado en `almacenes_activos.grupo_envio`.
+- **Un almacén nuevo de Industher entra surtiendo a Full** (el RPC
+  `reemplazar_existencias` lo da de alta con `surte_full = true`), y por eso
+  ya se colaron dos que NO son cajas de calzado: "TikTok" y "Naucalpan"
+  (pares sueltos, 1 par por "caja"; decisión del dueño: no se suman en
+  bodega). El trigger `tiktok_nunca_surte_full` (migraciones 0045 y 0053)
+  los deja en `false` pase lo que pase. Si Industher reporta otra bodega
+  que no deba sumar, se agrega ahí.
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
