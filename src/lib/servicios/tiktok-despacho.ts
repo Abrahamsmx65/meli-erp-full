@@ -366,8 +366,13 @@ async function leerGuia(admin: any, ruta: string): Promise<Uint8Array | null> {
   return new Uint8Array(await data.arrayBuffer());
 }
 
-async function guardarGuia(admin: any, ruta: string, bytes: Uint8Array, contentType: string): Promise<void> {
-  await admin.storage.from(BUCKET_GUIAS).upload(ruta, bytes, { contentType, upsert: true }).catch(() => undefined);
+async function guardarGuia(admin: any, ruta: string, bytes: Uint8Array, contentType: string): Promise<string | null> {
+  try {
+    const { error } = await admin.storage.from(BUCKET_GUIAS).upload(ruta, bytes, { contentType, upsert: true });
+    return error ? String(error.message ?? error) : null;
+  } catch (err) {
+    return (err as Error).message;
+  }
 }
 
 /**
@@ -493,7 +498,23 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   const salida = await doc.save();
   // Solo se guarda el PDF del corte si salió completo: con una guía que
   // TikTok no dio, la siguiente impresión la vuelve a intentar.
-  if (!sinGuia) await guardarGuia(admin, rutaCorte, salida, "application/pdf");
+  const errorGuardado = sinGuia ? null : await guardarGuia(admin, rutaCorte, salida, "application/pdf");
+
+  // Bitácora: cuántas guías faltaron y por qué, y si el bucket falló. Es lo
+  // que permite ver desde la base qué pasó con una impresión.
+  const motivos = new Map<string, number>();
+  for (const g of guias.values()) if (g.error) motivos.set(g.error, (motivos.get(g.error) ?? 0) + 1);
+  await admin
+    .from("tiktok_sync_log")
+    .insert({
+      account_id: accountId,
+      tarea: "guias",
+      inicio: new Date().toISOString(),
+      fin: new Date().toISOString(),
+      estado: sinGuia || errorGuardado ? "con avisos" : "ok",
+      detalle: { corteId, paquetes: corte.paquetes.length, sinGuia, motivos: Object.fromEntries(motivos), errorGuardado },
+    })
+    .then(() => undefined, () => undefined);
   return salida;
 }
 
