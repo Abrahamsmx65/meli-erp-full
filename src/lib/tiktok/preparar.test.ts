@@ -158,3 +158,16 @@ describe("la bocina", () => {
     expect(fraseParaVoz(p)).toBe("1 par, G T 114, beige, talla 23. 1 par, G T 114, blk, talla 25");
   });
 });
+
+describe("producto sin FNSKU: el SKU es el código", () => {
+  it("escanear el SKU identifica el paquete y cierra el par, sin Dar por bueno", () => {
+    // #4 = c: GT150-CAMEL-27 sin FNSKU
+    let e = avanzar(estadoInicial(), "gt150-camel-27", CORTE, paquetes, nadie);
+    expect(e.error).toBeNull();
+    expect(e.paquete?.numero).toBe(4);
+    expect(e.paso).toBe("producto");
+    e = avanzar(e, "GT150-CAMEL-27", CORTE, paquetes, nadie);
+    expect(e.paso).toBe("listo");
+    expect(e.escaneos).toEqual(["GT150-CAMEL-27", "GT150-CAMEL-27"]);
+  });
+});

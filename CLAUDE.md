@@ -170,8 +170,11 @@ guárdala numerada.
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
   guía y caja llevan el mismo código) — elige el siguiente paquete sin
   preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
-  caja, un escaneo por par). Lo que no tiene FNSKU no lo cierra el escáner:
-  solo "Dar por bueno sin escanear", registrado como `MANUAL:` en
+  caja, un escaneo por par). Lo que no tiene FNSKU (un modelo que no está
+  en Amazon, como el MY2304 camel, la mayoría de la venta de TikTok) lleva
+  como código el SKU MISMO en Code 128 (`codigoDeSku`), en la hoja y en la
+  guía, y el escáner lo acepta como producto; si tampoco se puede escanear,
+  "Dar por bueno sin escanear", registrado como `MANUAL:` en
   `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
   (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en

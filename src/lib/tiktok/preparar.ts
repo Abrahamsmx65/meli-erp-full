@@ -17,13 +17,15 @@
  * Es una función pura sobre el estado: el navegador le manda cada código y
  * ella dice qué sigue, qué falló y cuántas veces pitar.
  */
-import { codigoDeHoja, parsearCodigoDeHoja, partirSku, type PaqueteNumerado } from "./despacho";
+import { codigoDeHoja, codigoDeSku, parsearCodigoDeHoja, partirSku, type PaqueteNumerado } from "./despacho";
 
 export type Paso = "inicio" | "etiqueta" | "producto" | "listo";
 
 export interface Faltante {
-  /** null = no se puede verificar por escáner */
+  /** FNSKU del producto; null = Amazon no lo tiene y el código es el SKU */
   fnsku: string | null;
+  /** lo que se escanea: el FNSKU o, sin él, el SKU mismo */
+  codigo: string;
   sku: string;
   faltan: number;
 }
@@ -68,8 +70,18 @@ function totalPares(p: PaqueteNumerado): number {
   return p.pares.reduce((a, x) => a + x.pares, 0);
 }
 
+/** El código que identifica el producto: FNSKU o, sin él, el SKU (igual que en la hoja y la guía). */
+function codigoDe(x: { sku: string; fnsku?: string | null }): string {
+  return x.fnsku ? limpiar(x.fnsku) : limpiar(codigoDeSku(x.sku));
+}
+
 function faltantesDe(p: PaqueteNumerado): Faltante[] {
-  return p.pares.map((x) => ({ fnsku: x.fnsku ? limpiar(x.fnsku) : null, sku: x.sku, faltan: x.pares }));
+  return p.pares.map((x) => ({ fnsku: x.fnsku ? limpiar(x.fnsku) : null, codigo: codigoDe(x), sku: x.sku, faltan: x.pares }));
+}
+
+/** ¿Este código es el de alguno de los productos del paquete? */
+function llevaCodigo(p: PaqueteNumerado, codigo: string): boolean {
+  return p.pares.some((x) => codigoDe(x) === codigo);
 }
 
 /** Al identificar el paquete (por etiqueta o por hoja + etiqueta): a escanear producto. */
@@ -84,7 +96,7 @@ function aProducto(p: PaqueteNumerado, escaneos: string[]): EstadoEscaneo {
     escaneos,
     indicacion:
       `#${p.numero}: ${describir(p)}. Escanea el producto (${total} ${total === 1 ? "par" : "pares"})` +
-      (sinFnsku.length ? `. Sin FNSKU, se cierra con "Dar por bueno": ${sinFnsku.join(", ")}` : "") +
+      (sinFnsku.length ? `. Sin FNSKU, se escanea el código del SKU (hoja o guía) o "Dar por bueno": ${sinFnsku.join(", ")}` : "") +
       ".",
     error: null,
     pitidos: Math.max(1, total),
@@ -102,7 +114,7 @@ function cerrarSiListo(estado: EstadoEscaneo): EstadoEscaneo {
       const n = verificables.reduce((a, x) => a + x.faltan, 0);
       partes.push(`faltan ${n} ${n === 1 ? "par" : "pares"} por escanear`);
     }
-    if (manuales.length) partes.push(`sin FNSKU: ${manuales.map((x) => x.sku).join(", ")} (Dar por bueno)`);
+    if (manuales.length) partes.push(`sin FNSKU: ${manuales.map((x) => x.sku).join(", ")} (código del SKU o Dar por bueno)`);
     return { ...estado, indicacion: `#${p.numero}: ${partes.join("; ")}.`, error: null };
   }
   return {
@@ -153,14 +165,12 @@ export function avanzar(
     };
   }
 
-  // Sin paquete elegido: el código es una etiqueta (FNSKU). El paquete es
-  // el SIGUIENTE sin preparar que lleve ese producto, en el orden de la pila.
+  // Sin paquete elegido: el código es una etiqueta (FNSKU o SKU). El paquete
+  // es el SIGUIENTE sin preparar que lleve ese producto, en el orden de la pila.
   if (estado.paso === "inicio" || estado.paso === "listo" || !estado.paquete) {
-    const p = paquetes.find(
-      (x) => !yaPreparados.has(x.numero) && x.pares.some((y) => y.fnsku && limpiar(y.fnsku) === codigo),
-    );
+    const p = paquetes.find((x) => !yaPreparados.has(x.numero) && llevaCodigo(x, codigo));
     if (!p) {
-      const alguno = paquetes.some((x) => x.pares.some((y) => y.fnsku && limpiar(y.fnsku) === codigo));
+      const alguno = paquetes.some((x) => llevaCodigo(x, codigo));
       return conError(
         estado,
         alguno
@@ -174,17 +184,17 @@ export function avanzar(
   const p = estado.paquete;
 
   if (estado.paso === "etiqueta") {
-    const cuadra = p.pares.some((x) => x.fnsku && limpiar(x.fnsku) === codigo);
+    const cuadra = llevaCodigo(p, codigo);
     if (!cuadra) return conError(estado, `Esa etiqueta no es del #${p.numero}. Escaneaste "${codigo}".`);
     return aProducto(p, [...estado.escaneos, codigo]);
   }
 
   if (estado.paso === "producto") {
-    const f = estado.faltantes.find((x) => x.fnsku === codigo && x.faltan > 0);
+    const f = estado.faltantes.find((x) => x.codigo === codigo && x.faltan > 0);
     if (!f) {
       const esperados = estado.faltantes
-        .filter((x) => x.faltan > 0 && x.fnsku)
-        .map((x) => `${x.sku} (${x.fnsku})`);
+        .filter((x) => x.faltan > 0)
+        .map((x) => `${x.sku} (${x.codigo})`);
       return conError(
         estado,
         `Ese producto no va en el #${p.numero}. Escaneaste "${codigo}"` +

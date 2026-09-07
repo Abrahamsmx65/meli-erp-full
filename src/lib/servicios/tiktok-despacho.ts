@@ -612,7 +612,7 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
         dibujarBarras(pagina, r.codigo, xs[1] + 2, y + 9, anchoBarras(r.codigo, COL[1] - 6), 18);
         pagina.drawText(r.codigo, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
         pagina.drawText(recorta(etiquetaSku, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
-        pagina.drawText(r.esHoja ? "—" : r.codigo, { x: xs[3] + 2, y: arriba, size: 7.5, font: normal });
+        pagina.drawText(r.esHoja ? "SKU (sin FNSKU)" : r.codigo, { x: xs[3] + 2, y: arriba, size: 7.5, font: normal, color: r.esHoja ? gris : rgb(0, 0, 0) });
         if (i === 0) {
           pagina.drawText(p.orderId, { x: xs[4] + 2, y: arriba, size: 7.5, font: normal });
           pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: xs[5] + 2, y: arriba, size: 7.5, font: normal, color: gris });

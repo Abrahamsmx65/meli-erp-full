@@ -189,7 +189,7 @@ export function PrepararTikTok({
                 return (
                   <li key={x.sku}>
                     <span className="font-medium">{x.sku}</span> × {x.pares}
-                    {x.fnsku ? <span style={{ color: "var(--ink-2)" }}> · {x.fnsku}</span> : <span style={{ color: "var(--estado-alerta)" }}> · sin FNSKU</span>}
+                    {x.fnsku ? <span style={{ color: "var(--ink-2)" }}> · {x.fnsku}</span> : <span style={{ color: "var(--estado-alerta)" }}> · sin FNSKU: escanea el código del SKU</span>}
                     {f && estado.paso === "producto" ? <span style={{ color: "var(--ink-2)" }}> · faltan {f.faltan}</span> : null}
                   </li>
                 );
@@ -260,7 +260,7 @@ export function PrepararTikTok({
             className="mt-3 rounded-lg border px-3 py-2 text-sm font-medium"
             style={{ borderColor: "var(--estado-alerta)", color: "var(--estado-alerta)" }}
           >
-            Dar por bueno sin escanear (queda registrado como manual)
+            Dar por bueno sin escanear los que no tienen FNSKU (queda registrado como manual)
           </button>
         ) : null}
         <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>

@@ -116,10 +116,15 @@ export interface RenglonDeEtiqueta {
   pares: number;
   /** "#7 · GT134-NAVY-24-MX ×2" */
   texto: string;
-  /** FNSKU del producto, o el código de hoja si no tiene */
+  /** FNSKU del producto o, si Amazon no lo tiene, el SKU mismo en Code 128 */
   codigo: string;
-  /** true si el código es el de hoja (no hay FNSKU) */
+  /** true si el código es el SKU (el producto no tiene FNSKU) */
   esHoja: boolean;
+}
+
+/** El SKU como código de barras: mayúsculas, sin espacios sobrantes. */
+export function codigoDeSku(sku: string): string {
+  return String(sku ?? "").trim().toUpperCase().replace(/\s*\/\s*/g, "/").replace(/\s+/g, " ");
 }
 
 /**
@@ -127,13 +132,18 @@ export interface RenglonDeEtiqueta {
  * con dos productos lleva dos códigos en la guía y dos renglones en la
  * hoja. El primero lleva el "#n"; los demás lo repiten en gris en la hoja
  * y lo omiten en la guía para no repetir.
+ *
+ * Sin FNSKU (un modelo que no está en Amazon, como el MY2304 camel, que es
+ * la mayoría de la venta de TikTok) el código es el SKU MISMO: identifica
+ * el producto igual, se escanea de la hoja o de la guía, y la caja se
+ * puede etiquetar con ese mismo código.
  */
-export function renglonesDeEtiqueta(p: PaqueteNumerado, corte: number): RenglonDeEtiqueta[] {
+export function renglonesDeEtiqueta(p: PaqueteNumerado, _corte: number): RenglonDeEtiqueta[] {
   return p.pares.map((x, i) => ({
     sku: x.sku,
     pares: x.pares,
     texto: `${i === 0 ? `#${p.numero} · ` : ""}${x.sku}${x.pares > 1 ? ` ×${x.pares}` : ""}`,
-    codigo: x.fnsku ?? codigoDeHoja(corte, p.numero),
+    codigo: x.fnsku ?? codigoDeSku(x.sku),
     esHoja: !x.fnsku,
   }));
 }
