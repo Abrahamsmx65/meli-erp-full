@@ -337,6 +337,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 /** Tamaño A6 en puntos, por si la guía llega como imagen y hay que darle hoja. */
 const A6: [number, number] = [297.64, 419.53];
 
+/** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
+const VERSION_ESTAMPA = 2;
+
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
 const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
 
@@ -405,8 +408,10 @@ async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageI
 }
 
 export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
-  // El PDF del corte ya armado: reimprimir es leer un archivo.
-  const rutaCorte = `${accountId}/corte-${corteId}.pdf`;
+  // El PDF del corte ya armado: reimprimir es leer un archivo. La versión
+  // del estampado va en el nombre: si cambia lo que se imprime abajo a la
+  // derecha, los cortes viejos se rearman con las guías ya guardadas.
+  const rutaCorte = `${accountId}/corte-${corteId}-e${VERSION_ESTAMPA}.pdf`;
   const listo = await leerGuia(admin, rutaCorte);
   if (listo?.length) return listo;
 
