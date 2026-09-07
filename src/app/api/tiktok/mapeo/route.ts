@@ -95,3 +95,38 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, skuInterno });
 }
+
+/**
+ * Quita un amarre manual. La publicación queda sin SKU del ERP y la
+ * siguiente corrida la re-amarra con la escalera normal (o la deja en
+ * Pendientes si no alcanza): deshacer nunca deja nada amarrado a ciegas.
+ */
+export async function DELETE(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+
+  const cuenta = await cuentaActiva(supabase);
+  if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
+
+  const body = await req.json().catch(() => ({}));
+  const skuTikTok = String(body?.skuTikTok ?? "").trim();
+  if (!skuTikTok) return NextResponse.json({ error: "Falta el SKU de TikTok." }, { status: 400 });
+
+  const { error } = await supabase
+    .from("tiktok_mapeo_sku")
+    .delete()
+    .eq("account_id", cuenta.id)
+    .eq("sku_tiktok", skuTikTok);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await supabase
+    .from("tiktok_skus")
+    .update({ sku_interno: null, origen_amarre: null })
+    .eq("account_id", cuenta.id)
+    .eq("seller_sku", skuTikTok);
+
+  return NextResponse.json({ ok: true });
+}

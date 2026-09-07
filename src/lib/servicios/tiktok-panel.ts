@@ -60,6 +60,15 @@ export interface PendienteTikTok {
   sugerencias: string[];
 }
 
+export interface AmarreManual {
+  skuTikTok: string;
+  skuInterno: string;
+  nota: string | null;
+  creadoEn: string | null;
+  /** null = se ve sano; texto = por qué conviene revisarlo */
+  aviso: string | null;
+}
+
 export interface PanelTikTok {
   conectado: boolean;
   tienda: { nombre: string | null; shopId: string | null; bodega: string | null } | null;
@@ -76,6 +85,8 @@ export interface PanelTikTok {
   movimientos: MovimientoPanel[];
   /** SKUs de TikTok que no se pudieron amarrar al catálogo del ERP */
   pendientes: PendienteTikTok[];
+  /** amarres capturados a mano: mandan sobre todo y por eso se enseñan siempre */
+  amarres: AmarreManual[];
   ultimaSync: string | null;
 }
 
@@ -83,7 +94,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados, catalogoMeli] = await Promise.all([
+  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados, catalogoMeli, mapeosRaw] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -111,6 +122,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .maybeSingle(),
     skusContados(db, accountId),
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
+    traerTodo<any>(db, "tiktok_mapeo_sku", "sku_tiktok, sku_interno, nota, creado_en", eq),
   ]);
 
   const tienda = tiendaRes.data ?? null;
@@ -188,6 +200,23 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       sugerencias: s.seller_sku ? sugerirParecidos(String(s.seller_sku), objetivos) : [],
     }));
 
+  // Los amarres a mano mandan sobre la normalización PARA SIEMPRE: por eso
+  // se enseñan todos, con un aviso cuando algo huele a viejo (la publicación
+  // ya no existe o el destino quedó sin vida). Un renombre en la bodega o en
+  // TikTok se detecta aquí, no semanas después en un desfase.
+  const pubsActivas = new Set(sellerSkus.map((x: string) => x.toUpperCase()));
+  const vivos = new Map<string, any>((inv ?? []).map((x: any) => [String(x.sku).toUpperCase(), x]));
+  const amarres: AmarreManual[] = (mapeosRaw ?? [])
+    .map((m: any): AmarreManual => {
+      const destino = vivos.get(String(m.sku_interno).toUpperCase());
+      const conVida = destino && ((destino.saldo ?? 0) !== 0 || (destino.apartado ?? 0) !== 0 || (ventas30.get(destino.sku) ?? 0) !== 0);
+      let aviso: string | null = null;
+      if (!pubsActivas.has(String(m.sku_tiktok).toUpperCase())) aviso = "la publicación ya no existe en TikTok";
+      else if (!conVida) aviso = "el destino no tiene saldo, apartado ni venta: puede ser un nombre viejo";
+      return { skuTikTok: m.sku_tiktok, skuInterno: m.sku_interno, nota: m.nota ?? null, creadoEn: m.creado_en ?? null, aviso };
+    })
+    .sort((a, b) => (a.aviso ? -1 : 1) - (b.aviso ? -1 : 1) || a.skuTikTok.localeCompare(b.skuTikTok, "es"));
+
   return {
     conectado: Boolean(tienda?.activo && tienda?.shop_cipher),
     tienda: tienda
@@ -205,6 +234,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     },
     movimientos: (movsRes.data ?? []) as MovimientoPanel[],
     pendientes,
+    amarres,
     ultimaSync: syncRes.data?.fin ?? null,
   };
 }

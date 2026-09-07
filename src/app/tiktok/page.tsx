@@ -5,6 +5,7 @@ import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { PendientesTikTok } from "@/components/tiktok-pendientes";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
+import { AmarresTikTok } from "@/components/amarres-tiktok";
 import { LigarTikTok } from "@/components/ligar-tiktok";
 import { Ficha } from "@/components/tiles";
 
@@ -149,6 +150,8 @@ export default async function TikTok({
       <PendientesTikTok pendientes={p.pendientes} />
 
       <AliasAmazonTikTok alias={alias} />
+
+      <AmarresTikTok amarres={p.amarres} />
 
       <EntradasTikTok />
 
