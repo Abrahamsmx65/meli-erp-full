@@ -34,6 +34,7 @@ const PATRONES = [
 ];
 
 const INICIO_B = 104;
+const INICIO_C = 105;
 const FIN = 106;
 
 export interface Barras {
@@ -56,6 +57,22 @@ export interface Barras {
  */
 export function codificar128(texto: string): Barras {
   if (!texto) throw new Error("No hay nada que codificar.");
+
+  // Puros dígitos en cantidad par (un número de pedido de TikTok, 18
+  // dígitos): juego C, dos dígitos por símbolo, la mitad de ancho.
+  if (/^\d+$/.test(texto) && texto.length % 2 === 0) {
+    const pares: number[] = [];
+    for (let i = 0; i < texto.length; i += 2) pares.push(Number(texto.slice(i, i + 2)));
+    let suma = INICIO_C;
+    pares.forEach((v, i) => {
+      suma += v * (i + 1);
+    });
+    const verificador = suma % 103;
+    const simbolos = [INICIO_C, ...pares, verificador, FIN];
+    const anchos: number[] = [];
+    for (const sym of simbolos) for (const d of PATRONES[sym]) anchos.push(Number(d));
+    return { anchos, modulos: anchos.reduce((a, b) => a + b, 0), verificador };
+  }
 
   const valores: number[] = [];
   for (const ch of texto) {

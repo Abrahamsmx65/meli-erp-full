@@ -1,14 +1,16 @@
 /**
  * La estación de "Preparar pedido".
  *
- * Se puede empezar por la ETIQUETA (lo normal: se toma la guía de arriba
- * de la pila, se escanea, y el sistema dice qué va adentro) o por la HOJA
- * (el renglón de la lista). Después se escanea el PRODUCTO, una vez por
- * par: dos pares, dos escaneos. Solo con todo cuadrado queda preparado.
+ * Se empieza por el PEDIDO (el número de pedido, código de barras del
+ * renglón de la hoja: ese paquete exacto) o por la ETIQUETA (FNSKU: el
+ * siguiente paquete sin preparar que lleve ese producto). Después se
+ * escanea el PRODUCTO, una vez por par: dos pares, dos escaneos. Solo con
+ * todo cuadrado queda preparado.
  *
- *   etiqueta (FNSKU)  → el siguiente paquete sin preparar que lleve ese producto
- *   hoja (TT7-12)     → ese paquete exacto
- *   producto (FNSKU)  → descuenta un par de lo que falta
+ *   pedido (18 dígitos) → ese paquete exacto, a producto
+ *   hoja (TT7-12)       → ese paquete exacto, a producto
+ *   etiqueta (FNSKU)    → el siguiente paquete sin preparar que lleve ese producto
+ *   producto (FNSKU)    → descuenta un par de lo que falta
  *
  * Un par cuyo producto no tiene FNSKU en Amazon no se puede verificar con
  * el escáner: se queda pendiente y solo lo cierra el botón "Dar por bueno
@@ -17,15 +19,13 @@
  * Es una función pura sobre el estado: el navegador le manda cada código y
  * ella dice qué sigue, qué falló y cuántas veces pitar.
  */
-import { codigoDeHoja, codigoDeSku, parsearCodigoDeHoja, partirSku, type PaqueteNumerado } from "./despacho";
+import { codigoDeHoja, parsearCodigoDeHoja, parsearCodigoDeOrden, partirSku, type PaqueteNumerado } from "./despacho";
 
 export type Paso = "inicio" | "etiqueta" | "producto" | "listo";
 
 export interface Faltante {
-  /** FNSKU del producto; null = Amazon no lo tiene y el código es el SKU */
+  /** FNSKU del producto; null = no se puede verificar por escáner */
   fnsku: string | null;
-  /** lo que se escanea: el FNSKU o, sin él, el SKU mismo */
-  codigo: string;
   sku: string;
   faltan: number;
 }
@@ -48,7 +48,7 @@ export function estadoInicial(): EstadoEscaneo {
     paquete: null,
     faltantes: [],
     escaneos: [],
-    indicacion: "Escanea la etiqueta (o el renglón de la hoja).",
+    indicacion: "Escanea el pedido en la hoja (o el FNSKU de la etiqueta).",
     error: null,
     pitidos: 0,
   };
@@ -70,18 +70,13 @@ function totalPares(p: PaqueteNumerado): number {
   return p.pares.reduce((a, x) => a + x.pares, 0);
 }
 
-/** El código que identifica el producto: FNSKU o, sin él, el SKU (igual que en la hoja y la guía). */
-function codigoDe(x: { sku: string; fnsku?: string | null }): string {
-  return x.fnsku ? limpiar(x.fnsku) : limpiar(codigoDeSku(x.sku));
-}
-
 function faltantesDe(p: PaqueteNumerado): Faltante[] {
-  return p.pares.map((x) => ({ fnsku: x.fnsku ? limpiar(x.fnsku) : null, codigo: codigoDe(x), sku: x.sku, faltan: x.pares }));
+  return p.pares.map((x) => ({ fnsku: x.fnsku ? limpiar(x.fnsku) : null, sku: x.sku, faltan: x.pares }));
 }
 
-/** ¿Este código es el de alguno de los productos del paquete? */
+/** ¿Este FNSKU es el de alguno de los productos del paquete? */
 function llevaCodigo(p: PaqueteNumerado, codigo: string): boolean {
-  return p.pares.some((x) => codigoDe(x) === codigo);
+  return p.pares.some((x) => x.fnsku && limpiar(x.fnsku) === codigo);
 }
 
 /** Al identificar el paquete (por etiqueta o por hoja + etiqueta): a escanear producto. */
@@ -96,7 +91,7 @@ function aProducto(p: PaqueteNumerado, escaneos: string[]): EstadoEscaneo {
     escaneos,
     indicacion:
       `#${p.numero}: ${describir(p)}. Escanea el producto (${total} ${total === 1 ? "par" : "pares"})` +
-      (sinFnsku.length ? `. Sin FNSKU, se escanea el código del SKU (hoja o guía) o "Dar por bueno": ${sinFnsku.join(", ")}` : "") +
+      (sinFnsku.length ? `. Sin FNSKU, se cierra con "Dar por bueno": ${sinFnsku.join(", ")}` : "") +
       ".",
     error: null,
     pitidos: Math.max(1, total),
@@ -114,7 +109,7 @@ function cerrarSiListo(estado: EstadoEscaneo): EstadoEscaneo {
       const n = verificables.reduce((a, x) => a + x.faltan, 0);
       partes.push(`faltan ${n} ${n === 1 ? "par" : "pares"} por escanear`);
     }
-    if (manuales.length) partes.push(`sin FNSKU: ${manuales.map((x) => x.sku).join(", ")} (código del SKU o Dar por bueno)`);
+    if (manuales.length) partes.push(`sin FNSKU: ${manuales.map((x) => x.sku).join(", ")} (Dar por bueno)`);
     return { ...estado, indicacion: `#${p.numero}: ${partes.join("; ")}.`, error: null };
   }
   return {
@@ -135,38 +130,32 @@ export function avanzar(
   const codigo = limpiar(codigoCrudo);
   if (!codigo) return estado;
 
-  const hoja = parsearCodigoDeHoja(codigo);
-
-  // La etiqueta de un producto SIN FNSKU lleva el código de hoja: en el paso
-  // "etiqueta" ese código ES la etiqueta del paquete ya elegido.
-  if (
-    hoja &&
-    estado.paso === "etiqueta" &&
-    estado.paquete?.numero === hoja.numero &&
-    !estado.paquete.pares.some((x) => x.fnsku)
-  ) {
-    return aProducto(estado.paquete, [...estado.escaneos, codigo]);
+  // El NÚMERO DE PEDIDO (el código de barras del renglón de la hoja) elige
+  // ese paquete exacto y pasa directo a pedir sus productos. Es el camino
+  // principal cuando hay muchos paquetes del mismo producto: el que empaca
+  // escanea la hoja del pedido que tiene enfrente, y el sistema le pide los
+  // FNSKU de ESE pedido, no del "siguiente" que lleve ese producto.
+  const orden = parsearCodigoDeOrden(codigo);
+  if (orden) {
+    const candidatos = paquetes.filter((x) => x.orderId === orden);
+    if (!candidatos.length) return conError(estado, `El pedido ${orden} no está en este corte.`);
+    const p = candidatos.find((x) => !yaPreparados.has(x.numero));
+    if (!p) return conError(estado, `El pedido ${orden} ya está preparado.`);
+    return aProducto(p, [codigo]);
   }
 
-  // Un renglón de la hoja elige ese paquete exacto, desde cualquier paso.
+  // El código de hoja (TTn-m) hace lo mismo: ese paquete exacto, a producto.
+  const hoja = parsearCodigoDeHoja(codigo);
   if (hoja) {
     if (hoja.corte !== corte) return conError(estado, `Ese renglón es del corte #${hoja.corte}, no del #${corte}.`);
     const p = paquetes.find((x) => x.numero === hoja.numero);
     if (!p) return conError(estado, `No hay renglón #${hoja.numero} en este corte.`);
     if (yaPreparados.has(p.numero)) return conError(estado, `El #${p.numero} ya está preparado.`);
-    return {
-      paso: "etiqueta",
-      paquete: p,
-      faltantes: [],
-      escaneos: [codigo],
-      indicacion: `#${p.numero}: ${describir(p)}. Ahora escanea la ETIQUETA.`,
-      error: null,
-      pitidos: 1,
-    };
+    return aProducto(p, [codigo]);
   }
 
-  // Sin paquete elegido: el código es una etiqueta (FNSKU o SKU). El paquete
-  // es el SIGUIENTE sin preparar que lleve ese producto, en el orden de la pila.
+  // Sin paquete elegido: el código es una etiqueta (FNSKU). El paquete es
+  // el SIGUIENTE sin preparar que lleve ese producto, en el orden de la pila.
   if (estado.paso === "inicio" || estado.paso === "listo" || !estado.paquete) {
     const p = paquetes.find((x) => !yaPreparados.has(x.numero) && llevaCodigo(x, codigo));
     if (!p) {
@@ -175,7 +164,7 @@ export function avanzar(
         estado,
         alguno
           ? `Todos los paquetes con "${codigo}" ya están preparados.`
-          : `"${codigo}" no es etiqueta ni renglón de este corte.`,
+          : `"${codigo}" no es FNSKU, pedido ni renglón de este corte.`,
       );
     }
     return aProducto(p, [codigo]);
@@ -190,11 +179,11 @@ export function avanzar(
   }
 
   if (estado.paso === "producto") {
-    const f = estado.faltantes.find((x) => x.codigo === codigo && x.faltan > 0);
+    const f = estado.faltantes.find((x) => x.fnsku === codigo && x.faltan > 0);
     if (!f) {
       const esperados = estado.faltantes
-        .filter((x) => x.faltan > 0)
-        .map((x) => `${x.sku} (${x.codigo})`);
+        .filter((x) => x.faltan > 0 && x.fnsku)
+        .map((x) => `${x.sku} (${x.fnsku})`);
       return conError(
         estado,
         `Ese producto no va en el #${p.numero}. Escaneaste "${codigo}"` +

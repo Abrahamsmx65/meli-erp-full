@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorModelo, numerarPaquetes, partirSku, renglonesDeEtiqueta, textoDeEtiqueta } from "./despacho";
+import { agruparPorModelo, codigoDeOrden, numerarPaquetes, parsearCodigoDeOrden, partirSku, renglonesDeEtiqueta, textoDeEtiqueta } from "./despacho";
 
 describe("partirSku", () => {
   it("separa modelo, color y talla, con el color de varias palabras", () => {
@@ -69,7 +69,7 @@ describe("agruparPorModelo", () => {
 });
 
 describe("renglonesDeEtiqueta", () => {
-  it("un paquete con dos productos da dos renglones, cada uno con su FNSKU; sin FNSKU va el SKU mismo", () => {
+  it("un paquete con dos productos da dos renglones, cada uno con su FNSKU; sin FNSKU va el código de hoja", () => {
     const [p] = numerarPaquetes([
       {
         orderId: "o", packageId: "pk", destinatario: null,
@@ -81,7 +81,16 @@ describe("renglonesDeEtiqueta", () => {
     ]);
     expect(renglonesDeEtiqueta(p, 5)).toEqual([
       { sku: "GT134-NAVY-24-MX", pares: 1, texto: "#1 · GT134-NAVY-24-MX", codigo: "X004KYMZZB", esHoja: false },
-      { sku: "GT134-NAVY-RED-24-MX", pares: 2, texto: "GT134-NAVY-RED-24-MX ×2", codigo: "GT134-NAVY-RED-24-MX", esHoja: true },
+      { sku: "GT134-NAVY-RED-24-MX", pares: 2, texto: "GT134-NAVY-RED-24-MX ×2", codigo: "TT5-1", esHoja: true },
     ]);
+  });
+});
+
+describe("código de orden", () => {
+  it("el número de pedido va tal cual y se reconoce por sus 18 dígitos", () => {
+    expect(codigoDeOrden("585899174098143165")).toBe("585899174098143165");
+    expect(parsearCodigoDeOrden("585899174098143165")).toBe("585899174098143165");
+    expect(parsearCodigoDeOrden("X004KYMZZ1")).toBeNull();
+    expect(parsearCodigoDeOrden("TT8-12")).toBeNull();
   });
 });

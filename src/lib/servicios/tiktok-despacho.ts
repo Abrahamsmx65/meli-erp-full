@@ -16,7 +16,8 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { traerTodo, type DB } from "../datos/repos";
 import { codificar128 } from "../etiquetas/code128";
-import { buscarAmazon, mapaAmazon } from "../etiquetas/resolver";
+import { mapaAmazon } from "../etiquetas/resolver";
+import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import {
   enviarPaquete,
   etiquetaDePaquete,
@@ -28,6 +29,7 @@ import {
 } from "../tiktok/api";
 import {
   agruparPorModelo,
+  codigoDeOrden,
   renglonesDeEtiqueta,
   numerarPaquetes,
   type PaqueteDespacho,
@@ -62,6 +64,19 @@ async function enParalelo<T>(items: T[], n: number, fn: (item: T, i: number) => 
     }
   });
   await Promise.all(obreros);
+}
+
+/** Las equivalencias de color TikTok → Amazon de la cuenta, ya indexadas. */
+export async function aliasAmazonDeCuenta(db: DB, accountId: string): Promise<Map<string, string>> {
+  const filas = await traerTodo<any>(db, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) =>
+    q.eq("account_id", accountId),
+  ).catch(() => [] as any[]);
+  const alias: AliasColorAmazon[] = (filas ?? []).map((f: any) => ({
+    modelo: String(f.modelo),
+    colorTikTok: String(f.color_tiktok),
+    colorAmazon: String(f.color_amazon),
+  }));
+  return indexarAlias(alias);
 }
 
 /** Bucket privado donde se guardan las guías (una por paquete) y el PDF del corte. */
@@ -265,8 +280,8 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
   // El FNSKU es el código de barras que ya trae la caja del zapato (las
   // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
-  const amazon = await mapaAmazon(admin);
-  const fnskuDe = (sku: string) => buscarAmazon(amazon, sku)?.fnsku ?? null;
+  const [amazon, alias] = await Promise.all([mapaAmazon(admin), aliasAmazonDeCuenta(admin, accountId)]);
+  const fnskuDe = (sku: string) => resolverFnsku(amazon, alias, sku);
 
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
   const paquetes: PaqueteDespacho[] = [];
@@ -338,7 +353,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
-const VERSION_ESTAMPA = 2;
+const VERSION_ESTAMPA = 3;
 
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
 const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
@@ -549,8 +564,8 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   const CARTA: [number, number] = [612, 792];
   const M = 36;
   const ANCHO = CARTA[0] - 2 * M;
-  // Columnas: # | FNSKU (barras, el mismo de la etiqueta y de la caja) | SKU × cant. | FNSKU | pedido | destinatario | ☐
-  const COL = [26, 118, 150, 70, 110, ANCHO - 26 - 118 - 150 - 70 - 110 - 18, 18];
+  // Columnas: # | PEDIDO en barras (se escanea primero) | SKU × cant. | FNSKU (barras: la caja) | destinatario | ☐
+  const COL = [26, 128, 150, 128, ANCHO - 26 - 128 - 150 - 128 - 18, 18];
   const FILA = 34;
   const gris = rgb(0.45, 0.45, 0.45);
   const linea = rgb(0.75, 0.75, 0.75);
@@ -577,7 +592,7 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
 
   const encabezado = () => {
     const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-    const titulos = ["#", "Escanear (FNSKU)", "SKU × cant.", "FNSKU", "Pedido", "Destinatario", ""];
+    const titulos = ["#", "1. Pedido (escanear)", "SKU × cant.", "2. Producto (FNSKU)", "Destinatario", ""];
     titulos.forEach((t, i) => pagina.drawText(t, { x: xs[i] + 2, y, size: 8, font: negrita, color: gris }));
     y -= 4;
     pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
@@ -607,21 +622,32 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
       const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
       const yArribaPaquete = y + FILA - 4;
 
-      // UN RENGLÓN POR PRODUCTO, cada uno con su código: el mismo que lleva
-      // la guía y la caja del zapato (FNSKU). El "#n" grande solo en el primero.
+      // UN RENGLÓN POR PRODUCTO. En el primero va el NÚMERO DE PEDIDO en
+      // barras (se escanea primero: elige ese paquete exacto aunque haya
+      // veinte iguales); en cada renglón, el FNSKU en barras (el de la caja).
+      const codigoOrden = codigoDeOrden(p.orderId);
       renglones.forEach((r, i) => {
         const arriba = y + FILA - 12;
         const etiquetaSku = r.pares > 1 ? `${r.sku} ×${r.pares}` : r.sku;
-        if (i === 0) pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
-        else pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 8, font: normal, color: gris });
-        dibujarBarras(pagina, r.codigo, xs[1] + 2, y + 9, anchoBarras(r.codigo, COL[1] - 6), 18);
-        pagina.drawText(r.codigo, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
-        pagina.drawText(recorta(etiquetaSku, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
-        pagina.drawText(r.esHoja ? "SKU (sin FNSKU)" : r.codigo, { x: xs[3] + 2, y: arriba, size: 7.5, font: normal, color: r.esHoja ? gris : rgb(0, 0, 0) });
         if (i === 0) {
-          pagina.drawText(p.orderId, { x: xs[4] + 2, y: arriba, size: 7.5, font: normal });
-          pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: xs[5] + 2, y: arriba, size: 7.5, font: normal, color: gris });
-          pagina.drawRectangle({ x: xs[6] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+          pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
+          if (codigoOrden) {
+            dibujarBarras(pagina, codigoOrden, xs[1] + 2, y + 9, anchoBarras(codigoOrden, COL[1] - 6), 18);
+            pagina.drawText(p.orderId, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
+          }
+        } else {
+          pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 8, font: normal, color: gris });
+        }
+        pagina.drawText(recorta(etiquetaSku, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
+        if (!r.esHoja) {
+          dibujarBarras(pagina, r.codigo, xs[3] + 2, y + 9, anchoBarras(r.codigo, COL[3] - 6), 18);
+          pagina.drawText(r.codigo, { x: xs[3] + 2, y: y + 1, size: 6, font: normal, color: gris });
+        } else {
+          pagina.drawText("sin FNSKU (Dar por bueno)", { x: xs[3] + 2, y: arriba, size: 7, font: normal, color: gris });
+        }
+        if (i === 0) {
+          pagina.drawText(recorta(p.destinatario ?? "", COL[4], 7.5), { x: xs[4] + 2, y: arriba, size: 7.5, font: normal, color: gris });
+          pagina.drawRectangle({ x: xs[5] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
         }
         if (i < renglones.length - 1) {
           pagina.drawLine({ start: { x: M + COL[0], y: y - 2 }, end: { x: M + ANCHO, y: y - 2 }, thickness: 0.3, color: linea });

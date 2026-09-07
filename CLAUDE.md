@@ -170,11 +170,15 @@ guárdala numerada.
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
   guía y caja llevan el mismo código) — elige el siguiente paquete sin
   preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
-  caja, un escaneo por par). Lo que no tiene FNSKU (un modelo que no está
-  en Amazon, como el MY2304 camel, la mayoría de la venta de TikTok) lleva
-  como código el SKU MISMO en Code 128 (`codigoDeSku`), en la hoja y en la
-  guía, y el escáner lo acepta como producto; si tampoco se puede escanear,
-  "Dar por bueno sin escanear", registrado como `MANUAL:` en
+  caja, un escaneo por par). El camino principal con muchos paquetes del
+  mismo producto es empezar por el PEDIDO: el renglón de la hoja lleva el
+  NÚMERO DE PEDIDO en Code 128 (juego C, `codigoDeOrden`), escanearlo
+  elige ese paquete exacto y pasa a pedir sus FNSKU. El código de producto
+  es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta de
+  Amazon); si TikTok llama al color distinto (MY2304 CAMEL = BROWN en
+  Amazon), la equivalencia por modelo en `tiktok_alias_amazon`
+  (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Sin FNSKU
+  solo queda "Dar por bueno sin escanear", registrado como `MANUAL:` en
   `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
   (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en

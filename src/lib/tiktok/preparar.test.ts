@@ -13,6 +13,10 @@ const paquetes = numerarPaquetes([
   },
 ]);
 // Orden esperado: #1 a (BEIGE-23), #2 d (BEIGE-23), #3 b (BLK-25 ×2), #4 c (GT150), #5 e (GT160)
+const paquetesConOrden = numerarPaquetes([
+  { orderId: "585899174098143100", packageId: "pa", destinatario: null, pares: [{ sku: "GT114-BEIGE-23", pares: 1, fnsku: "X001AAA" }] },
+  { orderId: "585899174098143165", packageId: "pd", destinatario: null, pares: [{ sku: "GT114-BEIGE-23", pares: 1, fnsku: "X001AAA" }] },
+]);
 const CORTE = 7;
 const nadie = new Set<number>();
 
@@ -58,15 +62,29 @@ describe("empezar por la etiqueta (lo normal)", () => {
   it("un código que no es de nada avisa sin avanzar", () => {
     const e = avanzar(estadoInicial(), "ZZZ", CORTE, paquetes, nadie);
     expect(e.paso).toBe("inicio");
-    expect(e.error).toMatch(/no es etiqueta ni renglón/);
+    expect(e.error).toMatch(/no es FNSKU, pedido ni renglón/);
   });
 });
 
-describe("empezar por la hoja también sirve", () => {
-  it("hoja → etiqueta → producto → listo", () => {
+describe("empezar por el pedido (la hoja) es el camino principal", () => {
+  it("número de pedido → producto → listo, con el paquete EXACTO aunque haya otros iguales", () => {
+    // a y d llevan el mismo producto; escanear el pedido "d" tiene que ir al #2, no al #1
+    let e = avanzar(estadoInicial(), "585899174098143165", CORTE, paquetesConOrden, nadie);
+    expect(e.paso).toBe("producto");
+    expect(e.paquete?.orderId).toBe("585899174098143165");
+    expect(e.pitidos).toBe(1);
+    e = avanzar(e, "X001AAA", CORTE, paquetesConOrden, nadie);
+    expect(e.paso).toBe("listo");
+  });
+
+  it("un pedido que no está en el corte, o ya preparado, no entra", () => {
+    expect(avanzar(estadoInicial(), "999999999999999999", CORTE, paquetesConOrden, nadie).error).toMatch(/no está en este corte/);
+    const num = paquetesConOrden.find((p) => p.orderId === "585899174098143165")!.numero;
+    expect(avanzar(estadoInicial(), "585899174098143165", CORTE, paquetesConOrden, new Set([num])).error).toMatch(/ya está preparado/);
+  });
+
+  it("hoja (TTn-m) → producto → listo", () => {
     let e = avanzar(estadoInicial(), "TT7-3", CORTE, paquetes, nadie);
-    expect(e.paso).toBe("etiqueta");
-    e = avanzar(e, "X001BBB", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
     expect(e.pitidos).toBe(2);
     e = avanzar(e, "X001BBB", CORTE, paquetes, nadie);
@@ -74,11 +92,11 @@ describe("empezar por la hoja también sirve", () => {
     expect(e.paso).toBe("listo");
   });
 
-  it("una etiqueta de otro producto no avanza", () => {
+  it("un producto de otro paquete no avanza", () => {
     let e = avanzar(estadoInicial(), "TT7-1", CORTE, paquetes, nadie);
     e = avanzar(e, "X001BBB", CORTE, paquetes, nadie);
-    expect(e.paso).toBe("etiqueta");
-    expect(e.error).toMatch(/no es del #1/);
+    expect(e.paso).toBe("producto");
+    expect(e.error).toMatch(/no va en el #1/);
   });
 
   it("hoja de otro corte, ya preparada o inexistente, no entra", () => {
@@ -107,9 +125,8 @@ describe("lo que no debe pasar en el producto", () => {
 });
 
 describe("sin FNSKU: solo lo cierra 'Dar por bueno'", () => {
-  it("paquete entero sin FNSKU: hoja, etiqueta (código de hoja), y el botón", () => {
+  it("paquete entero sin FNSKU: hoja y el botón", () => {
     let e = avanzar(estadoInicial(), "TT7-4", CORTE, paquetes, nadie);
-    e = avanzar(e, "TT7-4", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
     expect(e.indicacion).toMatch(/Dar por bueno/);
     // El escáner no puede cerrarlo.
@@ -159,15 +176,3 @@ describe("la bocina", () => {
   });
 });
 
-describe("producto sin FNSKU: el SKU es el código", () => {
-  it("escanear el SKU identifica el paquete y cierra el par, sin Dar por bueno", () => {
-    // #4 = c: GT150-CAMEL-27 sin FNSKU
-    let e = avanzar(estadoInicial(), "gt150-camel-27", CORTE, paquetes, nadie);
-    expect(e.error).toBeNull();
-    expect(e.paquete?.numero).toBe(4);
-    expect(e.paso).toBe("producto");
-    e = avanzar(e, "GT150-CAMEL-27", CORTE, paquetes, nadie);
-    expect(e.paso).toBe("listo");
-    expect(e.escaneos).toEqual(["GT150-CAMEL-27", "GT150-CAMEL-27"]);
-  });
-});
