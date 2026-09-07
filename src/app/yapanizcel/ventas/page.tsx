@@ -10,6 +10,10 @@ import { TablaVentasYz } from "@/components/yapanizcel/tabla-ventas";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+function pct(x: number | null): string {
+  return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
+}
+
 function notaGanancia(t: Totales): string {
   const partes = [`neto ${pesos(t.neto)}`, `costo ${pesos(t.costo)}`];
   if (t.unidadesSinCosto) partes.push(`${n(t.unidadesSinCosto)} u. sin costo`);
@@ -30,7 +34,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
     <div className="flex flex-col gap-6">
       <Encabezado
         titulo="Ventas · YAPANIZCEL"
-        texto="Unidades, ventas, comisión de Mercado Libre, neto real depositado y ganancia contra el costo cargado. Los netos marcados con * todavía se están estimando (los cargos llegan diferidos)."
+        texto="Unidades, ventas, comisión de Mercado Libre, neto real depositado (ya sin comisión, envío de Full ni retenciones) y ganancia contra el costo cargado. Lo marcado con * aún no tiene depósito real y se estima con el porcentaje observado."
       />
       <FiltroFechas base="/yapanizcel/ventas" desde={rango.desde} hasta={rango.hasta} hoy={hoyMx()} />
 
@@ -42,9 +46,25 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
           valor={n(m.periodo.unidades)}
           nota={`${pesos(m.periodo.importe)}${variacion != null ? ` · ${variacion >= 0 ? "+" : ""}${Math.round(variacion * 100)}% vs anterior` : ""}`}
         />
-        <Ficha titulo="Neto depositado" valor={pesos(m.periodo.neto)} nota={`comisión ${pesos(m.periodo.comision)}`} />
+        <Ficha
+          titulo="Neto depositado"
+          valor={pesos(m.periodo.neto)}
+          nota={`${pct(m.periodo.importe > 0 ? m.periodo.neto / m.periodo.importe : null)} de la venta · ${pesos(m.periodo.neto - m.periodo.netoEstimado)} real${m.periodo.netoEstimado > 0 ? ` + ${pesos(m.periodo.netoEstimado)} estimado` : ""}`}
+          tono={m.periodo.netoEstimado > m.periodo.neto * 0.5 ? "alerta" : "neutro"}
+        />
         <Ficha titulo="Ganancia" valor={pesos(m.periodo.ganancia)} nota={notaGanancia(m.periodo)} tono={m.periodo.unidadesSinCosto ? "alerta" : m.periodo.ganancia >= 0 ? "bien" : "critico"} />
       </div>
+
+      {m.periodo.netoEstimado > 0 ? (
+        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          {m.estimacion.ratio != null
+            ? `El neto sin depósito real se estima con el ${pct(m.estimacion.ratio)} observado en ${n(m.estimacion.ordenesConNeto)} órdenes con depósito de Mercado Pago (${m.estimacion.desde} → ${m.estimacion.hasta}): ese porcentaje ya trae comisión, envío de Full y retenciones. `
+            : "Todavía no hay suficientes órdenes con depósito real para estimar: el neto pendiente se muestra como importe − comisión, SIN envío ni retenciones. "}
+          {m.estimacion.ordenesPendientes > 0
+            ? `Faltan ${n(m.estimacion.ordenesPendientes)} órdenes del periodo por leer en Mercado Pago; se completan solas en segundo plano.`
+            : ""}
+        </p>
+      ) : null}
 
       {m.skusSinCosto ? (
         <p className="text-sm" style={{ color: "var(--estado-serio)" }}>

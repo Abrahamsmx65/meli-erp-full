@@ -36,6 +36,8 @@ export interface Totales {
   ganancia: number;
   /** Unidades cuyo neto todavía no se sabe (se estimó). */
   unidadesEstimadas: number;
+  /** Parte del neto que es estimación (importe sin depósito real × porcentaje observado). */
+  netoEstimado: number;
   /** Unidades sin costo cargado (la ganancia no las cuenta como costo 0). */
   unidadesSinCosto: number;
 }
@@ -66,10 +68,21 @@ export interface Monitor {
   porDiseno: FilaVentas[];
   porDia: DiaVentas[];
   skusSinCosto: number;
+  /** Con qué se estima el neto que falta: lo observado en las órdenes con depósito real. */
+  estimacion: {
+    /** neto ÷ total observado (0-1); null = sin órdenes con neto en la ventana */
+    ratio: number | null;
+    ordenesConNeto: number;
+    /** órdenes del periodo que siguen sin depósito real (se completan solas) */
+    ordenesPendientes: number;
+    /** de dónde salió el porcentaje */
+    desde: string;
+    hasta: string;
+  };
 }
 
 function vacio(): Totales {
-  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, unidadesSinCosto: 0 };
+  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, netoEstimado: 0, unidadesSinCosto: 0 };
 }
 
 interface FilaResumen {
@@ -78,8 +91,23 @@ interface FilaResumen {
   ordenes: number;
   importe: number;
   comision: number;
+  /** solo el neto REAL (renglones con depósito conocido) */
   neto: number;
   unidades_sin_neto: number;
+  importe_sin_neto: number;
+  comision_sin_neto: number;
+}
+
+/**
+ * El neto que falta se estima con el porcentaje observado (neto ÷ venta de
+ * las órdenes que ya tienen depósito real), que ya trae envío de Full y
+ * retenciones. Sin porcentaje observado, importe − comisión, que es lo
+ * único que se sabe. Pura, para probarla.
+ */
+export function estimarNeto(importeSinNeto: number, comisionSinNeto: number, ratio: number | null): number {
+  if (importeSinNeto <= 0) return 0;
+  if (ratio == null || !(ratio > 0) || ratio > 1) return importeSinNeto - comisionSinNeto;
+  return importeSinNeto * ratio;
 }
 
 async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Promise<T[]> {
@@ -94,12 +122,14 @@ async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Pr
   return out;
 }
 
-function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null): void {
+function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null, ratio: number | null): void {
   t.unidades += Number(f.unidades);
   t.ordenes += Number(f.ordenes);
   t.importe += Number(f.importe);
   t.comision += Number(f.comision);
-  t.neto += Number(f.neto);
+  const estimado = estimarNeto(Number(f.importe_sin_neto ?? 0), Number(f.comision_sin_neto ?? 0), ratio);
+  t.neto += Number(f.neto) + estimado;
+  t.netoEstimado += estimado;
   t.unidadesEstimadas += Number(f.unidades_sin_neto ?? 0);
   if (costoUnit == null) t.unidadesSinCosto += Number(f.unidades);
   else t.costo += costoUnit * Number(f.unidades);
@@ -120,18 +150,32 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   const resumen = (desde: string, hasta: string) =>
     rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta });
 
-  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado] = await Promise.all([
+  // El porcentaje observado sale de las últimas 8 semanas de órdenes con
+  // depósito real (ventana ancha para que no la muevan unos cuantos días).
+  const ventanaRatio = { desde: restarDias(hoy, 59), hasta: hoy };
+  const observados = async (desde: string, hasta: string) => {
+    const { data, error } = await db.rpc("yz_netos_observados", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+    if (error) throw new Error(`yz_netos_observados: ${error.message}`);
+    const f: any = Array.isArray(data) ? data[0] : data;
+    return { ordenes: Number(f?.ordenes_con_neto ?? 0), total: Number(f?.total ?? 0), neto: Number(f?.neto ?? 0), pendientes: Number(f?.ordenes_pendientes ?? 0) };
+  };
+
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado, obsVentana, obsPeriodo] = await Promise.all([
     resumen(rango.desde, rango.hasta),
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
     resumen(ayer, ayer),
-    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
+    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number; importe_sin_neto: number; comision_sin_neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
     // Los costos viven en Productos y costos (calzado y fundas juntos);
     // yz_costos queda de respaldo.
     mapaCostosUnificado(db, { yzAccountId: accountId }),
+    observados(ventanaRatio.desde, ventanaRatio.hasta),
+    observados(rango.desde, rango.hasta),
   ]);
 
+  // Con menos de 50 órdenes observadas el porcentaje no es de fiar.
+  const ratio = obsVentana.ordenes >= 50 && obsVentana.total > 0 ? obsVentana.neto / obsVentana.total : null;
   const costos = soloCostos(mapaUnificado);
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
   const cacheCosto = new Map<string, number | null>();
@@ -154,11 +198,12 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     porDiseno: [],
     porDia: [],
     skusSinCosto: 0,
+    estimacion: { ratio, ordenesConNeto: obsVentana.ordenes, ordenesPendientes: obsPeriodo.pendientes, ...ventanaRatio },
   };
 
-  for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku));
-  for (const f of rAyer) sumarResumen(m.ayer, f, costoDe(f.sku));
-  for (const f of rAnterior) sumarResumen(m.anterior, f, costoDe(f.sku));
+  for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku), ratio);
+  for (const f of rAyer) sumarResumen(m.ayer, f, costoDe(f.sku), ratio);
+  for (const f of rAnterior) sumarResumen(m.anterior, f, costoDe(f.sku), ratio);
 
   const porSku = new Map<string, FilaVentas>();
   const porDiseno = new Map<string, FilaVentas>();
@@ -166,15 +211,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   for (const f of rPeriodo) {
     const costoUnit = costoDe(f.sku);
     if (costoUnit == null) sinCosto.add(f.sku);
-    sumarResumen(m.periodo, f, costoUnit);
+    sumarResumen(m.periodo, f, costoUnit, ratio);
 
     const diseno = desglosar(f.sku).diseno;
     const fs = porSku.get(f.sku) ?? { ...vacio(), clave: f.sku, titulo: titulos.get(f.sku), diseno, precioPromedio: 0, margen: null, costoUnitario: costoUnit };
-    sumarResumen(fs, f, costoUnit);
+    sumarResumen(fs, f, costoUnit, ratio);
     porSku.set(f.sku, fs);
 
     const fd = porDiseno.get(diseno) ?? { ...vacio(), clave: diseno, diseno, precioPromedio: 0, margen: null, costoUnitario: null };
-    sumarResumen(fd, f, costoUnit);
+    sumarResumen(fd, f, costoUnit, ratio);
     porDiseno.set(diseno, fd);
   }
 
@@ -186,7 +231,12 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
 
   m.porSku = [...porSku.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
   m.porDiseno = [...porDiseno.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
-  m.porDia = porDiaFilas.map((d) => ({ fecha: d.fecha, unidades: Number(d.unidades), importe: Number(d.importe), neto: Number(d.neto) }));
+  m.porDia = porDiaFilas.map((d) => ({
+    fecha: d.fecha,
+    unidades: Number(d.unidades),
+    importe: Number(d.importe),
+    neto: Number(d.neto) + estimarNeto(Number(d.importe_sin_neto ?? 0), Number(d.comision_sin_neto ?? 0), ratio),
+  }));
   m.skusSinCosto = sinCosto.size;
   return m;
 }

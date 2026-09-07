@@ -27,6 +27,7 @@ import {
 import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
+import { registrarOrdenes } from "./netos";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
 export function diaLocal(iso: string): string {
@@ -344,6 +345,10 @@ export async function completarNetos(
     }
   }
 
+  // TODAS las órdenes del tramo quedan registradas (pagos y renglones):
+  // las que no alcancen aquí las completa el trabajo de fondo (netos.ts).
+  await registrarOrdenes(admin, accountId, ordenes);
+
   const ayer = restarDias(hoyLocal(), 1);
   const hace3h = Date.now() - 3 * 3_600_000;
   const porPedir: OrdenLeida[] = [];
@@ -376,6 +381,7 @@ export async function completarNetos(
         fecha: o.fecha,
         total: o.total,
         neto,
+        neto_en: new Date().toISOString(),
         actualizado_en: new Date().toISOString(),
       });
     } catch {
