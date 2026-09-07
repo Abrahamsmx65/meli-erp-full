@@ -326,6 +326,9 @@ function Cascada({ e }: { e: EstadoResultados }) {
     { etiqueta: "Comisión de MELI", nota: "sale fee de cada orden", monto: -e.comision, tipo: "resta" },
     { etiqueta: "Envíos y otros cargos", nota: "envío de Full, retenciones de ISR/IVA: diferencia contra el depósito", monto: -e.enviosYOtros, tipo: "resta" },
     { etiqueta: "Neto depositado por Mercado Pago", nota: e.netoEstimado > 0 ? `${pesos(e.netoEstimado)} todavía estimado (sin depósito real)` : "depósito real de todas las órdenes", monto: e.netoDepositado, tipo: "total" },
+    ...(e.cargosFacturados?.ordenes
+      ? [{ etiqueta: "Comisión y envío cobrados aparte", nota: `${n(e.cargosFacturados.ordenes)} órdenes depositadas completas por ${pesos(e.cargosFacturados.base)}: MELI las cobra por facturación${e.cargosFacturados.ratio != null ? ` (estimado al ${((1 - e.cargosFacturados.ratio) * 100).toFixed(1)}%)` : ""}`, monto: -e.cargosFacturados.monto, tipo: "resta" as const }]
+      : []),
     { etiqueta: "Devoluciones", nota: `${n(e.devoluciones.ordenes)} órdenes devueltas o con contracargo`, monto: -e.devoluciones.monto, tipo: "resta" },
     { etiqueta: "Costo de producto", nota: `${n(e.unidadesConCosto)} de ${n(e.unidades)} pares con costo capturado`, monto: -e.costoProducto, tipo: "resta" },
     { etiqueta: "Utilidad bruta", monto: e.utilidadBruta, tipo: "total" },
