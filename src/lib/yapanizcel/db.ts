@@ -34,3 +34,16 @@ export function restarDias(dia: string, n: number): string {
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
+
+/** Una función de la base que devuelve tabla, completa, por páginas de 1000. */
+export async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>, pagina = 1000): Promise<T[]> {
+  const out: T[] = [];
+  for (let desde = 0; ; desde += pagina) {
+    const { data, error } = await db.rpc(fn, args).range(desde, desde + pagina - 1);
+    if (error) throw new Error(`${fn}: ${error.message}`);
+    const lote = (data ?? []) as T[];
+    out.push(...lote);
+    if (lote.length < pagina) break;
+  }
+  return out;
+}

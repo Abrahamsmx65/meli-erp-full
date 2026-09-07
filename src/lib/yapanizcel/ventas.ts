@@ -10,7 +10,7 @@
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
 import { costoDeSku } from "./costos";
-import { hoyMx, restarDias, todo } from "./db";
+import { hoyMx, restarDias, rpcTodo, todo } from "./db";
 import { desglosar } from "./sku";
 
 export interface Rango {
@@ -108,18 +108,6 @@ export function estimarNeto(importeSinNeto: number, comisionSinNeto: number, rat
   if (importeSinNeto <= 0) return 0;
   if (ratio == null || !(ratio > 0) || ratio > 1) return importeSinNeto - comisionSinNeto;
   return importeSinNeto * ratio;
-}
-
-async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Promise<T[]> {
-  const out: T[] = [];
-  for (let desde = 0; ; desde += 1000) {
-    const { data, error } = await db.rpc(fn, args).range(desde, desde + 999);
-    if (error) throw new Error(`${fn}: ${error.message}`);
-    const lote = (data ?? []) as T[];
-    out.push(...lote);
-    if (lote.length < 1000) break;
-  }
-  return out;
 }
 
 function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null, ratio: number | null): void {
