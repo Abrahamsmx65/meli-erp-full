@@ -17,7 +17,6 @@ import {
   guardarCorte,
   ordenesPorDiaDesdeRpc,
   rangoDelPeriodo,
-  ratioObservadoDesdeRpc,
   type EstadoResultados,
   type OrdenDelCorte,
   type VentaDelCorte,
@@ -123,7 +122,7 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   };
 
   const args = { p_account: cuenta.id, p_desde: desde, p_hasta: hasta };
-  const [ordenesPorDia, ventasOrdenes, ventasDiarias, skus, config, gastos, cargos, progreso, estadoSync, obs, ads, ratioNormal] = await Promise.all([
+  const [ordenesPorDia, ventasOrdenes, ventasDiarias, skus, config, gastos, cargos, progreso, estadoSync, obs, ads] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     rpcTodo<VentaDelCorte>(db, "yz_cortes_ventas_desde_ordenes", args),
     rpcTodo<VentaDelCorte>(db, "yz_ventas_renglones", args),
@@ -135,7 +134,6 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     db.from("yz_sync_estado").select("ventas_desde, ordenes_registradas_desde").eq("account_id", cuenta.id).maybeSingle(),
     observados(restarDias(hoy, 59), hoy),
     adsPorDiseno(db, cuenta, { desde, hasta }).catch((err) => ({ porDiseno: new Map<string, number>(), sinAmarre: 0, error: (err as Error).message })),
-    ratioObservadoDesdeRpc(db, "yz_cortes_ratio_observado", cuenta.id, restarDias(hoy, 59), hoy).catch(() => null),
   ]);
 
   const registradasDesde: string | null = estadoSync.data?.ordenes_registradas_desde ?? null;
@@ -176,7 +174,6 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     cargosLeidos: progreso.completo,
     cargosAvance: { offset: progreso.offset, total: progreso.total },
     ratioEstimacion: ratio,
-    ratioNormal,
     avisosExtra,
   });
 }

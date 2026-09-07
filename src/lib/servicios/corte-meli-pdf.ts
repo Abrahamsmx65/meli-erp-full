@@ -163,12 +163,9 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
   type Renglon = { etiqueta: string; monto: number; tipo: "base" | "resta" | "total" | "final"; nota?: string };
   const cascada: Renglon[] = [
     { etiqueta: "Venta bruta", monto: e.ventaBruta, tipo: "base", nota: "precio × pares de las órdenes pagadas" },
-    { etiqueta: "Comisión de MELI", monto: -e.comision, tipo: "resta", nota: "cargo por venta (sale fee)" },
+    { etiqueta: "Comisión de MELI", monto: -e.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas` : ""}` },
     { etiqueta: "Envíos y otros cargos", monto: -e.enviosYOtros, tipo: "resta", nota: "envío de Full, retenciones de ISR/IVA: la diferencia contra el depósito" },
     { etiqueta: "Neto depositado por Mercado Pago", monto: e.netoDepositado, tipo: "total", nota: e.netoEstimado > 0 ? `${pesosPdf(e.netoEstimado)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes" },
-    ...(e.cargosFacturados?.ordenes
-      ? [{ etiqueta: "Comisión y envío cobrados aparte", monto: -e.cargosFacturados.monto, tipo: "resta" as const, nota: `${enteros(e.cargosFacturados.ordenes)} órdenes depositadas completas por ${pesosPdf(e.cargosFacturados.base)}: MELI las cobra por facturación${e.cargosFacturados.ratio != null ? ` (estimado al ${((1 - e.cargosFacturados.ratio) * 100).toFixed(1)}%)` : ""}` }]
-      : []),
     { etiqueta: "Devoluciones", monto: -e.devoluciones.monto, tipo: "resta", nota: `${enteros(e.devoluciones.ordenes)} órdenes devueltas o con contracargo` },
     { etiqueta: "Costo de producto", monto: -e.costoProducto, tipo: "resta", nota: `${enteros(e.unidadesConCosto)} de ${enteros(e.unidades)} pares con costo capturado` },
     { etiqueta: "Utilidad bruta", monto: e.utilidadBruta, tipo: "total" },
