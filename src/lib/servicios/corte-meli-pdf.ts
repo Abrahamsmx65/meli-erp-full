@@ -54,11 +54,12 @@ function ansi(t: string): string {
     .replace(/[^\x00-\xff–—‘’“”•…]/g, "?");
 }
 
-export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boolean }): Promise<Uint8Array> {
+export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boolean; negocio?: string }): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
-  const titulo = `Corte ${nombreDelPeriodo(e.periodo)} · Mercado Libre`;
+  const negocio = opts?.negocio ?? "Mercado Libre";
+  const titulo = `Corte ${nombreDelPeriodo(e.periodo)} · ${negocio}`;
   doc.setTitle(titulo);
   doc.setAuthor(e.cuenta ?? "ERP");
 
@@ -113,7 +114,7 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
   nuevaPagina();
   pagina.drawRectangle({ x: 0, y: CARTA[1] - 118, width: CARTA[0], height: 118, color: MARINO });
   pagina.drawRectangle({ x: 0, y: CARTA[1] - 122, width: CARTA[0], height: 4, color: ACENTO });
-  texto("CORTE MENSUAL · MERCADO LIBRE", M, CARTA[1] - 38, 9, negrita, rgb(0.7, 0.78, 0.95));
+  texto(`CORTE MENSUAL · ${negocio.toUpperCase()}`, M, CARTA[1] - 38, 9, negrita, rgb(0.7, 0.78, 0.95));
   texto(nombreDelPeriodo(e.periodo), M, CARTA[1] - 74, 30, negrita, BLANCO);
   texto(`Del ${fechaLarga(e.desde)} al ${fechaLarga(e.hasta)} · ${e.dias} días`, M, CARTA[1] - 96, 10, normal, rgb(0.85, 0.88, 0.95));
   if (e.cuenta) textoDer(e.cuenta, M + ANCHO, CARTA[1] - 38, 11, negrita, BLANCO);

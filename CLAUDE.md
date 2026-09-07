@@ -343,6 +343,21 @@ login, la base y el deploy.
   variantes) y una sola llamada no cabe en los 300 s de Vercel. Cada corrida
   recalcula lo reciente y extiende hacia atrás hasta 180 días; la pantalla y el
   cron llaman en bucle con `continuar: true` hasta que `completo` sea true.
+- **Corte mensual de fundas** (`yapanizcel/corte.ts`, `/yapanizcel/cortes`,
+  `/api/yapanizcel/{cortes,revisar,cargos,gastos}`): el MISMO motor y la
+  misma pantalla que el de calzado (`armarEstadoResultados`, `CorteVista`,
+  `pdfDelCorte` con `negocio`), pero armado desde las ÓRDENES registradas
+  (`ventasDesdeOrdenes`: canceladas fuera, un día con alguna orden cobrada
+  sin neto se deja sin neto y el motor lo estima con el ratio observado).
+  Mientras `yz_sync_estado.ordenes_registradas_desde` no llegue al inicio
+  del mes, la venta sale de `yz_ventas_diarias` y el corte lo declara.
+  Revisión de devoluciones/cancelaciones en `yapanizcel/devoluciones.ts`
+  (sin re-barrer días: marcar la orden basta), Product Ads por diseño en
+  `yapanizcel/publicidad.ts` (gasto del anuncio repartido parejo entre los
+  diseños de la publicación), facturación en `yz_cargos` con el almacén
+  `almacenYz` (bitácora en `yz_sync_log`, tarea `cargos`), gastos a mano en
+  `yz_gastos`, cortes en `yz_cortes`. Todo el fondo (netos, revisión,
+  facturación) corre en el cron de `/api/yapanizcel/netos` cada 10 min.
 - Cron diario en `/api/cron/yapanizcel`; SKUs pendientes en
   `/api/yapanizcel/skus-pendientes` (mismo mecanismo que el de calzado), con
   cron propio CADA 10 MINUTOS porque MELI entrega ~1 user product por segundo y el

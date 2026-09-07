@@ -230,6 +230,14 @@ export interface EntradaCorte {
   errorAds: string | null;
   gastos: GastoManual[];
   cargos: CargoMeli[];
+  /**
+   * Con qué se estima el neto de los renglones sin depósito real: neto ÷
+   * venta observado en las órdenes que sí lo tienen (0-1). null = importe −
+   * comisión, que es lo único que se sabe.
+   */
+  ratioEstimacion?: number | null;
+  /** avisos extra del que arma la entrada (p. ej. órdenes registradas a medias) */
+  avisosExtra?: string[];
   /** true si el API de facturación de MELI ya se leyó COMPLETO para el periodo */
   cargosLeidos: boolean;
   /** avance de la lectura de facturación, para el aviso: renglones leídos y declarados */
@@ -237,8 +245,12 @@ export interface EntradaCorte {
 }
 
 export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
-  const avisos: string[] = [];
+  const avisos: string[] = [...(e.avisosExtra ?? [])];
   const modeloDe = (sku: string): string => e.modeloDeSku.get(sku) ?? sku.split("-")[0] ?? sku;
+  const ratio = e.ratioEstimacion != null && e.ratioEstimacion > 0 && e.ratioEstimacion <= 1 ? e.ratioEstimacion : null;
+  /** Neto estimado de lo que no tiene depósito real, en centavos. */
+  const estimar = (importeCent: number, comisionCent: number): number =>
+    ratio != null ? Math.round(importeCent * ratio) : importeCent - comisionCent;
 
   // --- Órdenes: el neto real, las cancelaciones y las devoluciones --------
   interface DiaOrdenes { neto: number; ordenes: number }
@@ -302,7 +314,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     m.unidades += v.unidades ?? 0;
     m.importe += importe;
     m.comision += comision;
-    m.neto += netoFila ?? importe - comision;
+    m.neto += netoFila ?? estimar(importe, comision);
     porModelo.set(modelo, m);
   }
 
@@ -341,7 +353,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       real = true;
       importeConNetoReal += f.importe;
     } else {
-      const estimado = f.importeSinNeto - f.comisionSinNeto;
+      const estimado = estimar(f.importeSinNeto, f.comisionSinNeto);
       netoDia = f.netoFilas + estimado;
       netoEstimado += estimado;
       importeConNetoReal += f.importe - f.importeSinNeto;
@@ -455,7 +467,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (ventaBruta > 0 && coberturaNetoReal < 0.999) {
     avisos.push(
-      `El ${Math.round((1 - coberturaNetoReal) * 100)}% de la venta todavía no tiene el depósito real de Mercado Pago: su neto está estimado como importe − comisión. El latido lo completa solo.`,
+      ratio != null
+        ? `El ${Math.round((1 - coberturaNetoReal) * 100)}% de la venta todavía no tiene el depósito real de Mercado Pago: su neto está estimado con el ${(ratio * 100).toFixed(1)}% observado en las órdenes con depósito (ya trae envío y retenciones). Se completa solo en segundo plano.`
+        : `El ${Math.round((1 - coberturaNetoReal) * 100)}% de la venta todavía no tiene el depósito real de Mercado Pago: su neto está estimado como importe − comisión. El latido lo completa solo.`,
     );
   }
   if (diasDescuadrados.length) {
@@ -550,8 +564,8 @@ async function leerVentas(db: DB, accountId: string, desde: string, hasta: strin
   }
 }
 
-export async function gastosDelRango(db: DB, accountId: string, desde: string, hasta: string): Promise<GastoManual[]> {
-  const filas = await traerTodo<any>(db, "gastos_meli", "id, fecha, concepto, categoria, monto", (q) =>
+export async function gastosDelRango(db: DB, accountId: string, desde: string, hasta: string, tabla = "gastos_meli"): Promise<GastoManual[]> {
+  const filas = await traerTodo<any>(db, tabla, "id, fecha, concepto, categoria, monto", (q) =>
     q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
   ).catch(() => [] as any[]);
   return filas
@@ -642,18 +656,20 @@ export interface CorteGuardado {
   exacto: boolean;
 }
 
-export async function hacerCorte(
+/** Congela un estado de resultados como el corte del periodo (el del mismo mes se reemplaza). */
+export async function guardarCorte(
   db: DB,
-  cuenta: Cuenta,
+  accountId: string,
   periodo: string,
+  estado: EstadoResultados,
   creadoPor: string | null,
-): Promise<{ id: number; estado: EstadoResultados }> {
-  const estado = await cargarEstadoResultados(db, cuenta, periodo);
+  tabla = "cortes_meli",
+): Promise<number> {
   const { data, error } = await db
-    .from("cortes_meli")
+    .from(tabla)
     .upsert(
       {
-        account_id: cuenta.id,
+        account_id: accountId,
         periodo,
         desde: estado.desde,
         hasta: estado.hasta,
@@ -666,12 +682,23 @@ export async function hacerCorte(
     .select("id")
     .single();
   if (error || !data) throw new Error(`No se pudo guardar el corte: ${error?.message ?? "sin id"}`);
-  return { id: Number(data.id), estado };
+  return Number(data.id);
 }
 
-export async function listarCortes(db: DB, accountId: string): Promise<CorteGuardado[]> {
+export async function hacerCorte(
+  db: DB,
+  cuenta: Cuenta,
+  periodo: string,
+  creadoPor: string | null,
+): Promise<{ id: number; estado: EstadoResultados }> {
+  const estado = await cargarEstadoResultados(db, cuenta, periodo);
+  const id = await guardarCorte(db, cuenta.id, periodo, estado, creadoPor);
+  return { id, estado };
+}
+
+export async function listarCortes(db: DB, accountId: string, tabla = "cortes_meli"): Promise<CorteGuardado[]> {
   const { data } = await db
-    .from("cortes_meli")
+    .from(tabla)
     .select("id, periodo, desde, hasta, creado_en, resumen")
     .eq("account_id", accountId)
     .order("periodo", { ascending: false })
@@ -693,9 +720,10 @@ export async function cargarCorteGuardado(
   db: DB,
   accountId: string,
   id: number,
+  tabla = "cortes_meli",
 ): Promise<{ estado: EstadoResultados; creadoEn: string } | null> {
   const { data } = await db
-    .from("cortes_meli")
+    .from(tabla)
     .select("resumen, creado_en")
     .eq("account_id", accountId)
     .eq("id", id)

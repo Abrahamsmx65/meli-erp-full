@@ -80,6 +80,9 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   stock_operaciones: ["account_id", "fecha", "operation_id"],
   stock_snapshots: ["account_id", "fecha", "sku"],
   ventas_diarias: ["account_id", "fecha", "sku"],
+  yz_cargos: ["account_id", "detalle_id"],
+  yz_gastos: ["id"],
+  yz_cortes: ["id"],
   tiktok_ventas_diarias: ["account_id", "fecha", "sku"],
 };
 
