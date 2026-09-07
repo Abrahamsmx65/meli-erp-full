@@ -28,6 +28,7 @@ import {
   Tags,
   Truck,
   Upload,
+  Wallet,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -69,6 +70,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/ventas/cortes", texto: "Cortes y ganancia", icono: Wallet, ayuda: "Estado de resultados del mes y PDF" },
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },

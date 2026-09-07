@@ -7,8 +7,10 @@ import {
   normalizarRango,
   type Movimiento,
 } from "@/lib/servicios/ventas-monitor";
+import { cargarPublicidad } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +52,20 @@ export default async function Ventas({
     );
   }
 
-  const m = await cargarMonitor(supabase, cuenta.id, rango);
+  // La publicidad del mismo periodo, para que la ganancia del panel ya la
+  // tenga descontada: recibo − costo − publicidad. Si Product Ads no
+  // contesta, el panel lo dice y la ganancia se muestra sin ads.
+  const [m, ads] = await Promise.all([
+    cargarMonitor(supabase, cuenta.id, rango),
+    cargarPublicidad(supabase, cuenta, rango).catch((err) => ({
+      totales: { gastoAds: 0 },
+      errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
+    })),
+  ]);
+  const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
+  const gananciaConAds = gastoAds == null ? null : m.desglose.gananciaReal - gastoAds;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
+  const mesDelRango = rango.hasta.slice(0, 7);
 
   return (
     <div className="flex flex-col gap-6">
@@ -90,13 +104,13 @@ export default async function Ventas({
         />
         <Ficha
           titulo="Ganancia del periodo"
-          valor={m.coberturaCosto > 0 ? pesos(m.ganancia7) : "—"}
+          valor={m.coberturaCosto > 0 ? pesos(gananciaConAds ?? m.ganancia7) : "—"}
           nota={
             m.coberturaCosto > 0
-              ? `Neto de MELI − costo · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo`
+              ? `Neto de MELI − costo${gastoAds != null ? " − publicidad" : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo`
               : "Captura costos en Productos y costos"
           }
-          tono={m.coberturaCosto > 0 && m.ganancia7 < 0 ? "critico" : "neutro"}
+          tono={m.coberturaCosto > 0 && (gananciaConAds ?? m.ganancia7) < 0 ? "critico" : "neutro"}
         />
       </div>
 
@@ -104,12 +118,17 @@ export default async function Ventas({
       <section className="tarjeta p-4">
         <h2 className="text-sm font-semibold">A dónde se fue el dinero del periodo</h2>
         <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-          El neto es el depósito REAL de Mercado Pago donde ya llegó (
-          {Math.round(m.desglose.coberturaNetoReal * 100)}% del importe del periodo);
-          donde aún no, se usa importe − comisión. La publicidad de MELI tiene su
-          propia sección: Publicidad.
+          La cuenta es: lo que Mercado Pago DEPOSITÓ por cada orden (ya sin comisión,
+          envío de Full ni retenciones) − costo del producto − publicidad = ganancia. El
+          neto es el depósito real donde ya llegó ({Math.round(m.desglose.coberturaNetoReal * 100)}%
+          del importe del periodo); donde aún no, se estima como importe − comisión.
+          Devoluciones, cancelaciones tardías y gastos de Full entran en el corte del mes:{" "}
+          <Link href={`/ventas/cortes?mes=${mesDelRango}`} style={{ color: "var(--acento)" }}>
+            Cortes y ganancia
+          </Link>
+          .
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
           <Ficha titulo="Venta bruta" valor={pesos(m.desglose.bruto)} nota="Precio × unidades" />
           <Ficha
             titulo="Comisión MELI"
@@ -138,11 +157,27 @@ export default async function Ventas({
             nota={`${Math.round(m.coberturaCosto * 100)}% de la venta con costo capturado`}
           />
           <Ficha
-            titulo="Ganancia real"
+            titulo="Ganancia bruta"
             valor={m.coberturaCosto > 0 ? pesos(m.desglose.gananciaReal) : "—"}
             nota="Neto − costo de producto"
+            tono={m.coberturaCosto > 0 && m.desglose.gananciaReal < 0 ? "critico" : "neutro"}
+          />
+          <Ficha
+            titulo="Publicidad"
+            valor={gastoAds != null ? pesos(-gastoAds) : "—"}
+            nota={ads.errorAds ?? "Product Ads del periodo"}
+            tono={(gastoAds ?? 0) > 0 ? "alerta" : "neutro"}
+          />
+          <Ficha
+            titulo="Ganancia después de ads"
+            valor={m.coberturaCosto > 0 && gananciaConAds != null ? pesos(gananciaConAds) : "—"}
+            nota={gastoAds != null ? "Neto − costo − publicidad" : "Sin dato de publicidad"}
             tono={
-              m.coberturaCosto > 0 ? (m.desglose.gananciaReal < 0 ? "critico" : "bien") : "neutro"
+              m.coberturaCosto > 0 && gananciaConAds != null
+                ? gananciaConAds < 0
+                  ? "critico"
+                  : "bien"
+                : "neutro"
             }
           />
         </div>

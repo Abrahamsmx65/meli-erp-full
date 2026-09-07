@@ -1,6 +1,7 @@
 import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
 import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
+import { revisarPendientes } from "./devoluciones";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
@@ -108,6 +109,17 @@ export async function latido(
         }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);
+      }
+    }
+
+    // Revisión de devoluciones y cancelaciones: unas órdenes por latido, a
+    // los 10 y a los 40 días de vendidas, para que el corte del mes sea
+    // exacto. Un tropiezo aquí tampoco tumba el latido.
+    if (Date.now() < finDrenado - 45_000) {
+      try {
+        await revisarPendientes(admin, accountId, finDrenado - 15_000);
+      } catch (err) {
+        console.error("revisarPendientes:", (err as Error).message);
       }
     }
 

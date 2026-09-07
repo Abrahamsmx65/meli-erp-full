@@ -20,7 +20,7 @@ import { traerTodo, type DB } from "../datos/repos";
  * item+variación → SKU, desde el catálogo ya sincronizado. Es la misma
  * convención de clave que usa `obtenerVentas` en la sincronización completa.
  */
-async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
+export async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
   const filas = await traerTodo<{ sku: string; item_id: string | null; variation_id: string | null }>(
     db,
     "skus",
@@ -412,7 +412,7 @@ interface ResultadoDia {
   totalSegunMeli: number | null;
 }
 
-async function recalcularDiaVentas(
+export async function recalcularDiaVentas(
   db: DB,
   accountId: string,
   cliente: MeliClient,
@@ -732,6 +732,9 @@ async function netosDelDia(
         account_id: accountId,
         order_id: id,
         payment_id: o.paymentIds[0],
+        // Todos los pagos de la orden: la revisión de devoluciones los
+        // relee uno por uno (un reembolso puede caer en el segundo pago).
+        payment_ids: o.paymentIds,
         fecha: o.dia,
         total: o.total,
         neto,
