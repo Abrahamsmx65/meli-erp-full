@@ -64,6 +64,211 @@ export const VOZ_FLUIDA =
   "pronunciations (say 'sandalias', never 'sandals'; 'ampollas', never 'ampolas'), " +
   "and pronounce every Spanish word completely and correctly";
 
+// ---------------------------------------------------------------------------
+// Rasgos del producto: lo que el TÍTULO dice que el producto ES. Con ellos
+// el guion habla del frío si son pantuflas térmicas, de la lluvia si son
+// impermeables, del trabajo si traen casquillo — nunca de ocasiones
+// genéricas que no le corresponden al producto.
+// ---------------------------------------------------------------------------
+
+const DETECTORES_RASGOS: { rasgo: string; regex: RegExp }[] = [
+  { rasgo: "frio", regex: /t[ée]rmic|borreg|invierno|fr[íi]o|polar|afelpad|peluch|calientit|forr(o|ad)|abrigad/i },
+  { rasgo: "calor", regex: /fresc[ao]|verano|playa|ventilad|para calor/i },
+  { rasgo: "lluvia", regex: /impermeable|waterproof|lluvia|contra agua/i },
+  { rasgo: "navidad", regex: /navid|christmas|reno|noel|nieve|festiv/i },
+  { rasgo: "seguridad", regex: /casquillo|diel[ée]ctric|seguridad|industrial/i },
+  { rasgo: "confort", regex: /memory foam|acolchad|confort|ortop[ée]dic|descanso|plantilla suave|gel/i },
+  { rasgo: "antiderrapante", regex: /antiderrapante|antidesliz/i },
+  { rasgo: "piel", regex: /piel genuina|100 ?% piel|cuero genuino|piel aut[ée]ntica/i },
+];
+
+/** Qué rasgos trae el producto según su título/modelo. */
+export function detectarRasgos(texto: string): string[] {
+  return DETECTORES_RASGOS.filter((d) => d.regex.test(texto)).map((d) => d.rasgo);
+}
+
+/** Conceptos incompatibles: pantuflas de frío jamás van a la alberca. */
+const CONFLICTOS_RASGO: Record<string, string[]> = {
+  frio: ["calor"],
+  navidad: ["calor"],
+  calor: ["frio", "navidad"],
+};
+
+/** GANCHOS originales por rasgo (los primeros 2 segundos del guion). */
+const GANCHOS_RASGO: Record<string, string[]> = {
+  frio: [
+    "Bajó la temperatura y yo subí de nivel.",
+    "El frío llegó sin avisar; yo sí estaba preparada.",
+    "Hay dos tipos de personas en invierno: las que sufren el piso helado… y yo.",
+    "Mis pies no vuelven a pasar frío este año, lo juré.",
+    "Diciembre a las 6 de la mañana no me vuelve a agarrar desprevenida.",
+    "¿Sienten ese friíto? Yo ya no.",
+  ],
+  calor: [
+    "Con este calorón, esto es lo ÚNICO que aguanto en los pies.",
+    "35 grados y mis pies frescos como lechuga, les cuento.",
+    "El verano exige pies libres; yo obedezco.",
+    "Si el clima está de playa, los pies también.",
+    "Contra el calor no se lucha: se viste uno inteligente.",
+  ],
+  lluvia: [
+    "Empezó la temporada de lluvias y por fin no me importa.",
+    "Charco que veo, charco que piso. Sin miedo.",
+    "El pronóstico dice tormenta; mis pies dicen 'qué bueno'.",
+    "Antes le sacaba la vuelta a la lluvia; ahora hasta se me antoja.",
+    "Se mojó TODO… menos mis calcetines.",
+  ],
+  navidad: [
+    "Ya huele a ponche, a tamales… y a regalos bien elegidos.",
+    "Este año el intercambio lo gano yo, se los adelanto.",
+    "Diciembre es de posadas, y a las posadas se va calientito.",
+    "¿Ya tienen el regalo de mamá? Porque yo ya, y van a querer copiarme.",
+    "La temporada más bonita del año merece los pies más consentidos.",
+    "Santa ya no tiene que traerlos: ya llegaron.",
+  ],
+  seguridad: [
+    "En mi trabajo los errores cuestan; el calzado no puede ser uno.",
+    "Antes de tocar una herramienta, revisa lo que traes en los pies.",
+    "El equipo de seguridad empieza desde abajo, literal.",
+    "Un buen día de chamba empieza con buen calzado; uno malo, con el equivocado.",
+    "Esto no es moda: es lo que me deja volver entero a casa.",
+  ],
+  confort: [
+    "Mis pies llevaban años pidiendo esto y yo sin escuchar.",
+    "La comodidad no se presume… bueno, sí, ahorita.",
+    "Probé mil cosas para el dolor de pies; la respuesta era más simple.",
+    "Caminar debería sentirse así SIEMPRE.",
+    "Hay compras de gusto y compras de calidad de vida. Esta es la segunda.",
+  ],
+  antiderrapante: [
+    "Piso mojado, jabón, prisa… y yo tan tranquila.",
+    "El resbalón que NO me di, gracias a esto.",
+    "En mi casa ya nadie patina, y les digo por qué.",
+  ],
+  piel: [
+    "Piel de verdad se nota a un metro de distancia.",
+    "Lo barato se cuartea; la piel genuina envejece bonito.",
+    "Tócenlos… bueno no pueden, pero créanme: es piel piel.",
+  ],
+};
+
+/** MOTIVOS originales por rasgo (el porqué comprar, en español). */
+const MOTIVOS_RASGO: Record<string, string[]> = {
+  frio: [
+    "La borrega de adentro es calientita de verdad, no de foto.",
+    "Guardan el calor sin que sude el pie: el equilibrio perfecto.",
+    "El piso helado de la madrugada ya no se siente NADA.",
+    "Son como traer los pies en cobija, pero pudiendo caminar.",
+    "Aguantan el invierno entero sin aplastarse ni deformarse.",
+    "Del sillón a la cama sin que se enfríe ni un dedo.",
+    "El forro abriga hasta en los días de 5 grados.",
+    "Té caliente en la mano, pies calientes abajo: felicidad completa.",
+    "Para las noches de diciembre no existe nada mejor.",
+    "Se sienten calientitas desde el segundo uno, sin 'entrar en calor'.",
+  ],
+  calor: [
+    "El pie respira todo el día: cero sudor, cero olores.",
+    "Ligeras como andar descalza, pero con suela de verdad.",
+    "El material no se calienta ni dejándolas al sol.",
+    "Frescura de alberca en plena ciudad.",
+    "Ni con 40 grados se sienten pegajosas.",
+  ],
+  lluvia: [
+    "El agua resbala y el pie queda seco, aunque llueva parejo.",
+    "Pisé tres charcos de camino y llegué con calcetines secos.",
+    "La suela agarra en piso mojado como si nada.",
+    "Se secan rapidísimo: mañana están listas otra vez.",
+    "La costura sellada no deja pasar ni una gota.",
+    "Temporada de lluvias completa y siguen como nuevas.",
+  ],
+  navidad: [
+    "Es EL regalo que sí se usa: diario, no una vez al año.",
+    "Calientitas para las posadas y presentables para la cena.",
+    "El intercambio tiene presupuesto, y estas entran perfecto.",
+    "A la abuela le regalé unas iguales y no se las quita.",
+    "Vienen tan bonitas que ni hay que envolverlas… bueno, sí.",
+    "Diciembre es frío, cena y familia: van con las tres cosas.",
+  ],
+  seguridad: [
+    "El casquillo protege sin que la bota pese como ladrillo.",
+    "Cumplen norma y aun así llegas a casa con pies vivos.",
+    "El antiderrapante agarra en aceite, agua y polvo fino.",
+    "Costura reforzada: seis meses de obra y ni una despegada.",
+    "La inversión que se paga con cada golpe que NO llega.",
+  ],
+  confort: [
+    "La plantilla abraza el arco justo donde duele el día.",
+    "Es memory foam de verdad: recuerda tu pisada, no la caja.",
+    "Ocho horas de pie y la espalda ni se quejó.",
+    "Amortiguan cada paso; las rodillas lo agradecen a gritos.",
+    "Se sienten hechas a la medida desde el primer día.",
+  ],
+  antiderrapante: [
+    "La suela se aferra al piso mojado como llanta nueva.",
+    "Regadera, cocina o patio: cero patinadas.",
+    "Diseñadas para pisos donde otros se van de lado.",
+  ],
+  piel: [
+    "Piel genuina que se amolda al pie y dura años, no meses.",
+    "Envejecen bonito: cada uso las deja mejor.",
+    "El olor y el tacto de la piel real no se imitan.",
+  ],
+};
+
+/** CIERRES originales por rasgo (el remate del guion). */
+const CIERRES_RASGO: Record<string, string[]> = {
+  frio: [
+    "Que dure el frío: ya estoy lista.",
+    "Invierno: 0. Mis pies: 1.",
+    "Calientitos los pies, contenta la vida.",
+    "Este invierno se pasa rico.",
+  ],
+  calor: [
+    "Al calor se le gana desde los pies.",
+    "Verano resuelto.",
+    "Frescos hasta septiembre, mínimo.",
+  ],
+  lluvia: [
+    "Que llueva: traigo ventaja.",
+    "Lluvia sí, pies mojados no.",
+    "La temporada de aguas ya no me asusta.",
+  ],
+  navidad: [
+    "Feliz Navidad… para mis pies primero.",
+    "Regalo resuelto, diciembre feliz.",
+    "En esta casa, la Navidad llega calientita.",
+    "Apúntenlo en la carta de deseos.",
+  ],
+  seguridad: [
+    "Trabaja duro, pisa seguro.",
+    "La seguridad no es gasto, es regreso a casa.",
+    "Equipo completo, turno tranquilo.",
+  ],
+  confort: [
+    "Mis pies por fin viven bien.",
+    "La comodidad ya no se negocia.",
+    "Caminar volvió a dar gusto.",
+  ],
+  antiderrapante: [
+    "Firmes en cualquier piso.",
+    "Cero resbalones este año: la meta.",
+  ],
+  piel: [
+    "Calidad de la de antes.",
+    "Piel real, compra real.",
+  ],
+};
+
+/** Mezcla el material del rasgo (con doble peso) con el material base. */
+function conRasgos(
+  mapa: Record<string, string[]>,
+  rasgos: string[],
+  base: string[],
+): string[] {
+  const propios = rasgos.flatMap((r) => mapa[r] ?? []);
+  return propios.length ? [...propios, ...propios, ...base] : base;
+}
+
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
   // (el paso cae en múltiplos del largo y nunca toca un elemento).
@@ -180,6 +385,8 @@ export interface Concepto {
   publicos: Publico[];
   /** Solo aparece para calzado de niños (presenta la mamá). */
   soloNinos?: boolean;
+  /** Rasgos del producto con los que este concepto tiene afinidad. */
+  rasgos?: string[];
   /** Quién graba (EN, por público, varias variantes). */
   perfiles: Record<Publico, string[]>;
   /** Cuadro inicial del video (EN): qué se ve cuando arranca. */
@@ -208,6 +415,7 @@ const TODOS: TipoCalzado[] = [
 const CONCEPTOS: Concepto[] = [
   {
     id: "llegue-a-casa",
+    rasgos: ["confort", "frio"],
     etiqueta: "Llegué a casa",
     tipos: ["pantufla"],
     publicos: ["mujer", "hombre"],
@@ -527,6 +735,7 @@ const CONCEPTOS: Concepto[] = [
   },
   {
     id: "dia-de-alberca",
+    rasgos: ["calor"],
     etiqueta: "Día de alberca",
     tipos: ["sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -647,6 +856,7 @@ const CONCEPTOS: Concepto[] = [
   },
   {
     id: "todo-el-dia-de-pie",
+    rasgos: ["confort"],
     etiqueta: "Trabajo de pie todo el día",
     tipos: ["tenis", "zapato", "mocasin"],
     publicos: ["mujer", "hombre"],
@@ -688,6 +898,7 @@ const CONCEPTOS: Concepto[] = [
   },
   {
     id: "aguantan-trabajo",
+    rasgos: ["seguridad"],
     etiqueta: "Aguantan el trabajo",
     tipos: ["bota_industrial"],
     publicos: ["hombre"],
@@ -725,6 +936,7 @@ const CONCEPTOS: Concepto[] = [
   },
   {
     id: "dia-de-lluvia",
+    rasgos: ["lluvia"],
     etiqueta: "Día de lluvia",
     tipos: ["bota", "bota_industrial", "tenis"],
     publicos: ["mujer", "hombre"],
@@ -766,6 +978,7 @@ const CONCEPTOS: Concepto[] = [
   },
   {
     id: "se-los-regale",
+    rasgos: ["navidad"],
     etiqueta: "Se los regalé",
     tipos: "todos",
     publicos: ["mujer", "hombre"],
@@ -929,28 +1142,45 @@ export function armarConceptoUGC(datos: {
   tipo: TipoCalzado;
   genero: Genero;
   semilla: number;
+  /** Título/modelo del producto: de aquí salen sus RASGOS (térmico, impermeable…). */
+  texto?: string;
 }): ConceptoArmado {
   const publico = publicoDe(datos.genero);
   const esNinos = datos.genero === "nino";
+  const rasgos = detectarRasgos(datos.texto ?? "");
+  const prohibidos = rasgos.flatMap((r) => CONFLICTOS_RASGO[r] ?? []);
   const candidatos = CONCEPTOS.filter(
     (c) =>
       aplicaTipo(c, datos.tipo) &&
       c.publicos.includes(publico) &&
-      Boolean(c.soloNinos) === esNinos,
+      Boolean(c.soloNinos) === esNinos &&
+      // Un producto de frío jamás cuenta un día de alberca (y viceversa).
+      !(c.rasgos ?? []).some((r) => prohibidos.includes(r)),
   );
   // Red de seguridad: unboxing (adultos) o el concepto de mamá (niños).
-  const pool = candidatos.length
+  let pool = candidatos.length
     ? candidatos
     : CONCEPTOS.filter((c) => c.id === (esNinos ? "para-mis-hijos" : "recien-llegaron"));
+  // Afinidad: los conceptos que hablan del rasgo del producto pesan doble
+  // (aprox. la mitad de las tiradas), sin matar la variedad del resto.
+  const afines = pool.filter((c) => (c.rasgos ?? []).some((r) => rasgos.includes(r)));
+  if (afines.length && afines.length < pool.length) {
+    const peso = Math.max(1, Math.round(pool.length / afines.length) - 1);
+    pool = [...pool, ...Array.from({ length: peso }, () => afines).flat()];
+  }
   const concepto = elegir(pool, datos.semilla, 11);
 
   const perfiles = concepto.perfiles[publico];
   const perfil = elegir(perfiles.length ? perfiles : concepto.perfiles.mujer, datos.semilla, 31);
   const escena = elegir(concepto.escenas, datos.semilla, 13);
   const narrativaBase = elegir(concepto.narrativas, datos.semilla, 17);
-  const hook = elegir(concepto.hooks, datos.semilla, 19);
-  const motivo = elegir(concepto.motivos ?? MOTIVOS[datos.tipo], datos.semilla, 23);
-  const cierre = elegir(concepto.cierres, datos.semilla, 29);
+  const hook = elegir(conRasgos(GANCHOS_RASGO, rasgos, concepto.hooks), datos.semilla, 19);
+  const motivo = elegir(
+    conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]),
+    datos.semilla,
+    23,
+  );
+  const cierre = elegir(conRasgos(CIERRES_RASGO, rasgos, concepto.cierres), datos.semilla, 29);
 
   const promptImagen =
     `Photo edit task: keep the EXACT footwear from the provided photo completely ` +

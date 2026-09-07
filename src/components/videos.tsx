@@ -577,6 +577,8 @@ export function GeneradorVideo({
     formato: Formato;
     guion: string;
     hayAudio: boolean;
+    /** Título+modelo del producto: de aquí salen sus rasgos (térmico, impermeable…). */
+    texto: string;
   }) {
     if (datos.formato === "studio") {
       // El Studio arma su propio guion y visuales; aquí van las
@@ -585,6 +587,7 @@ export function GeneradorVideo({
         tipo: datos.tipo,
         genero: datos.genero,
         semilla: datos.semilla,
+        texto: datos.texto,
       });
       setConcepto(c.etiqueta);
       setPromptImagen("");
@@ -612,7 +615,11 @@ export function GeneradorVideo({
           `y movimientos reales y fluidos, en una sola locación con acciones ` +
           `variadas (lo muestra de cerca, se lo pone, camina). El producto es el ` +
           `calzado adjunto y debe verse EXACTAMENTE como en las fotos, sin ` +
-          `rediseñarlo ni inventarle detalles. ` +
+          `rediseñarlo ni inventarle detalles. El producto exacto es: ` +
+          `"${datos.texto.slice(0, 90)}" — el guion, la escena y la ocasión deben ` +
+          `corresponder a SUS características reales (térmico→frío/invierno, ` +
+          `impermeable→lluvia, casquillo→trabajo, fresco→calor), nunca a ` +
+          `ocasiones genéricas que no le correspondan. ` +
           `Audio — la voz dice este guion EXACTO, palabra por palabra y letra ` +
           `por letra, en español nativo de México, sin traducirlo, cambiarlo ni ` +
           `inventar palabras: "${datos.guion || c.guionSugerido}".`,
@@ -624,6 +631,7 @@ export function GeneradorVideo({
         tipo: datos.tipo,
         genero: datos.genero,
         semilla: datos.semilla,
+        texto: datos.texto,
       });
       setConcepto(c.etiqueta);
       if (datos.hayAudio) {
@@ -672,7 +680,7 @@ export function GeneradorVideo({
     const g = detectarGenero(texto);
     const gu =
       formato === "ugc" || formato === "studio"
-        ? armarConceptoUGC({ tipo: t, genero: g, semilla }).guionSugerido
+        ? armarConceptoUGC({ tipo: t, genero: g, semilla, texto }).guionSugerido
         : guionInicial(t);
     setTipo(t);
     setGenero(g);
@@ -687,6 +695,7 @@ export function GeneradorVideo({
       formato,
       guion: gu,
       hayAudio: Boolean(audio),
+      texto,
     });
 
     setCargandoFotos(true);
@@ -726,11 +735,12 @@ export function GeneradorVideo({
     const s = cambios.semilla ?? semilla;
     const f = cambios.formato ?? formato;
     const conAudio = cambios.hayAudio ?? Boolean(audio);
+    const texto = pub ? `${pub.titulo} ${pub.modelo}` : "";
     // El guion se rehace si cambió el tipo o el formato; en UGC también con
     // el 🎲 y el género — el motor sugiere un concepto y guion nuevos.
     const guionBase =
       f === "ugc" || f === "studio"
-        ? armarConceptoUGC({ tipo: t, genero: g, semilla: s }).guionSugerido
+        ? armarConceptoUGC({ tipo: t, genero: g, semilla: s, texto }).guionSugerido
         : guionInicial(t);
     const rehacerGuion =
       cambios.tipo !== undefined ||
@@ -761,6 +771,7 @@ export function GeneradorVideo({
       formato: f,
       guion: gu,
       hayAudio: conAudio,
+      texto,
     });
   }
 

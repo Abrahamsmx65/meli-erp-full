@@ -18,6 +18,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   // -------------------------------------------------------------------------
   {
     id: "domingo-de-pelis",
+    rasgos: ["frio", "confort"],
     etiqueta: "Domingo de pelis",
     tipos: ["pantufla"],
     publicos: ["mujer", "hombre"],
@@ -88,6 +89,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "invierno-en-casa",
+    rasgos: ["frio"],
     etiqueta: "Frío en casa",
     tipos: ["pantufla"],
     publicos: ["mujer", "hombre"],
@@ -270,6 +272,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "piso-frio",
+    rasgos: ["frio"],
     etiqueta: "El piso está helado",
     tipos: ["pantufla"],
     publicos: ["mujer", "hombre"],
@@ -340,6 +343,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "vacaciones-playa",
+    rasgos: ["calor"],
     etiqueta: "Modo vacaciones",
     tipos: ["sandalia", "sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -375,6 +379,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "tarde-de-terraza",
+    rasgos: ["calor"],
     etiqueta: "Tarde de terraza",
     tipos: ["sandalia"],
     publicos: ["mujer", "hombre"],
@@ -616,6 +621,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "calor-de-ciudad",
+    rasgos: ["calor"],
     etiqueta: "Ola de calor",
     tipos: ["sandalia", "sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -654,6 +660,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   // -------------------------------------------------------------------------
   {
     id: "dia-de-playa",
+    rasgos: ["calor"],
     etiqueta: "Día de playa",
     tipos: ["sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -689,6 +696,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "regadera-del-gym",
+    rasgos: ["antiderrapante"],
     etiqueta: "Regadera del gym",
     tipos: ["sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -764,6 +772,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "parque-acuatico",
+    rasgos: ["calor"],
     etiqueta: "Parque acuático",
     tipos: ["sandalia_agua"],
     publicos: ["mujer", "hombre"],
@@ -799,6 +808,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "lavando-el-coche",
+    rasgos: ["antiderrapante"],
     etiqueta: "Lavando el coche",
     tipos: ["sandalia_agua"],
     publicos: ["hombre", "mujer"],
@@ -833,6 +843,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "jardin-mojado",
+    rasgos: ["antiderrapante"],
     etiqueta: "El jardín en la mañana",
     tipos: ["sandalia_agua", "pantufla"],
     publicos: ["mujer", "hombre"],
@@ -981,6 +992,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "look-de-otono",
+    rasgos: ["frio"],
     etiqueta: "Ya es clima de botas",
     tipos: ["bota"],
     publicos: ["mujer"],
@@ -1083,6 +1095,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "primera-lluvia",
+    rasgos: ["lluvia"],
     etiqueta: "Empezó a llover",
     tipos: ["bota", "bota_industrial"],
     publicos: ["mujer", "hombre"],
@@ -1189,6 +1202,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "clima-loco",
+    rasgos: ["lluvia"],
     etiqueta: "El clima está loco",
     tipos: ["bota", "tenis"],
     publicos: ["mujer", "hombre"],
@@ -1227,6 +1241,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   // -------------------------------------------------------------------------
   {
     id: "dia-en-la-obra",
+    rasgos: ["seguridad"],
     etiqueta: "Día en la obra",
     tipos: ["bota_industrial"],
     publicos: ["hombre", "mujer"],
@@ -1261,6 +1276,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "taller-mecanico",
+    rasgos: ["seguridad"],
     etiqueta: "En el taller",
     tipos: ["bota_industrial"],
     publicos: ["hombre"],
@@ -1300,6 +1316,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "turno-en-bodega",
+    rasgos: ["seguridad"],
     etiqueta: "Turno en la bodega",
     tipos: ["bota_industrial", "tenis"],
     publicos: ["hombre", "mujer"],
@@ -1334,6 +1351,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "jornada-de-12-horas",
+    rasgos: ["confort", "seguridad"],
     etiqueta: "Jornada de 12 horas",
     tipos: ["bota_industrial", "tenis", "zapato"],
     publicos: ["hombre", "mujer"],
@@ -1368,6 +1386,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "casquillo-a-prueba",
+    rasgos: ["seguridad"],
     etiqueta: "El casquillo a prueba",
     tipos: ["bota_industrial"],
     publicos: ["hombre"],
@@ -1447,6 +1466,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "equipo-nuevo-de-trabajo",
+    rasgos: ["seguridad"],
     etiqueta: "Estrenando equipo de trabajo",
     tipos: ["bota_industrial"],
     publicos: ["hombre", "mujer"],
@@ -1481,6 +1501,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "fin-de-turno",
+    rasgos: ["seguridad"],
     etiqueta: "Fin del turno",
     tipos: ["bota_industrial", "tenis", "zapato"],
     publicos: ["hombre", "mujer"],
@@ -1518,6 +1539,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   // -------------------------------------------------------------------------
   {
     id: "diez-mil-pasos",
+    rasgos: ["confort"],
     etiqueta: "Reto de 10 mil pasos",
     tipos: ["tenis"],
     publicos: ["mujer", "hombre"],
@@ -1728,6 +1750,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "chamba-de-pie",
+    rasgos: ["confort"],
     etiqueta: "Chamba de pie todo el día",
     tipos: ["tenis", "zapato", "mocasin"],
     publicos: ["mujer", "hombre"],
@@ -3162,6 +3185,7 @@ export const CONCEPTOS_EXTRA: Concepto[] = [
   },
   {
     id: "regalo-acertado",
+    rasgos: ["navidad"],
     etiqueta: "El regalo que sí atiné",
     tipos: "todos",
     publicos: ["mujer", "hombre"],

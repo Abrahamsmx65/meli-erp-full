@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   armarConceptoUGC,
+  detectarRasgos,
   promptUGCConVozIA,
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
@@ -163,6 +164,54 @@ describe("motor de conceptos UGC", () => {
       ),
     );
     expect(ids.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("los rasgos del producto salen del título", () => {
+    expect(detectarRasgos("Pantuflas Térmicas Borrega Frío Invierno")).toContain("frio");
+    expect(detectarRasgos("Bota Industrial Casquillo Dieléctrica")).toContain("seguridad");
+    expect(detectarRasgos("Sandalias Frescas Verano Playa")).toContain("calor");
+    expect(detectarRasgos("Bota Impermeable Lluvia")).toContain("lluvia");
+    expect(detectarRasgos("Pantufla Navideña de Reno")).toContain("navidad");
+    expect(detectarRasgos("Zapato Casual Negro")).toEqual([]);
+  });
+
+  it("unas pantuflas de frío hablan del frío, jamás de la alberca", () => {
+    const texto = "Pantuflas Térmicas Borrega Frío Invierno Calientitas";
+    const ids = new Set<string>();
+    let guiones = "";
+    for (let i = 0; i < 300; i++) {
+      const c = armarConceptoUGC({ tipo: "pantufla", genero: "mujer", semilla: (i + 0.5) / 300, texto });
+      ids.add(c.id);
+      guiones += ` ${c.guionSugerido}`;
+    }
+    // Los conceptos de calor quedan PROHIBIDOS para producto de frío.
+    expect(ids.has("dia-de-alberca")).toBe(false);
+    expect(ids.has("calor-de-ciudad")).toBe(false);
+    // Los conceptos afines al frío sí aparecen.
+    expect(ids.has("invierno-en-casa") || ids.has("piso-frio")).toBe(true);
+    // Y el material del rasgo domina los guiones: se habla de frío.
+    expect(guiones).toMatch(/fr[íi]o|friíto|calientit|invierno|helado|diciembre/i);
+    // Sigue habiendo variedad, no un solo concepto en bucle.
+    expect(ids.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("unas sandalias de playa jamás cuentan el invierno", () => {
+    const texto = "Sandalias Frescas Verano Playa Mujer";
+    const ids = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      ids.add(
+        armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: (i + 0.5) / 300, texto }).id,
+      );
+    }
+    expect(ids.has("invierno-en-casa")).toBe(false);
+    expect(ids.has("piso-frio")).toBe(false);
+    expect(ids.has("look-de-otono")).toBe(false);
+  });
+
+  it("sin texto del producto el motor sigue igual que siempre (determinista)", () => {
+    const a = armarConceptoUGC({ tipo: "tenis", genero: "hombre", semilla: 0.42 });
+    const b = armarConceptoUGC({ tipo: "tenis", genero: "hombre", semilla: 0.42, texto: "" });
+    expect(a).toEqual(b);
   });
 
   it("la concordancia de género gramatical sale bien armada", () => {
