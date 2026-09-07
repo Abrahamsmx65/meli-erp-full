@@ -117,11 +117,60 @@ async function conRutas<T>(rutas: string[], pedir: (ruta: string) => Promise<T>)
   throw ultimo ?? new MeliError("Sin ruta que responda.", 404, null, rutas[0]);
 }
 
+/**
+ * MELI le pone su propia clave a cada periodo de facturación (no acepta
+ * "2026-09": contesta 422 "Invalid format for value"). La clave sale de la
+ * lista de periodos: se busca el que EMPIEZA en el mes pedido, o el que
+ * trae el mes en su clave. Devuelve también las claves que vinieron, para
+ * que el error diga qué formato usa MELI si ninguna amarra.
+ */
+export function claveDePeriodo(crudo: unknown, periodo: string): { clave: string | null; claves: string[] } {
+  const raiz: any = crudo && typeof crudo === "object" ? crudo : {};
+  const lista: any[] = Array.isArray(raiz.results) ? raiz.results : Array.isArray(raiz.periods) ? raiz.periods : Array.isArray(raiz) ? raiz : [];
+  const claves: string[] = [];
+  let clave: string | null = null;
+  for (const r of lista) {
+    const per: any = r?.period && typeof r.period === "object" ? r.period : r ?? {};
+    const k = per.key ?? r?.key ?? per.period_key ?? per.id;
+    if (k == null) continue;
+    const key = String(k);
+    claves.push(key);
+    const desde = String(per.date_from ?? per.from ?? per.start_date ?? r?.date_from ?? "");
+    if (!clave && (desde.startsWith(periodo) || key.startsWith(periodo) || key.includes(periodo))) clave = key;
+  }
+  return { clave, claves };
+}
+
 /** Todos los renglones facturados del periodo (YYYY-MM), paginados. */
 export async function leerCargosDelPeriodo(cliente: MeliClient, periodo: string): Promise<CargoMeli[]> {
+  // 1. La clave del periodo, de la lista de periodos de MELI.
+  let clave: string | null = null;
+  let claves: string[] = [];
+  let errorPeriodos: string | null = null;
+  try {
+    const crudo = await conRutas(
+      ["/billing/integration/monthly/periods", "/billing/integration/periods"],
+      (ruta) => cliente.get<unknown>(ruta, { group: "ML", document_type: "BILL", limit: 24, offset: 0 }),
+    );
+    ({ clave, claves } = claveDePeriodo(crudo, periodo));
+  } catch (err) {
+    errorPeriodos = (err as Error).message;
+  }
+  if (!clave) {
+    const muestra = claves.length ? ` Periodos que MELI lista: ${claves.slice(0, 12).join(", ")}.` : "";
+    const detalle = errorPeriodos ? ` La lista de periodos falló: ${errorPeriodos}.` : "";
+    throw new MeliError(
+      `MELI no lista un periodo de facturación para ${periodo}.${muestra}${detalle}`,
+      404,
+      { claves },
+      "/billing/integration/monthly/periods",
+    );
+  }
+
+  // 2. Los renglones de ese periodo.
   const rutas = [
-    `/billing/integration/periods/key/${periodo}/group/ML/details`,
-    `/billing/integration/monthly/periods/key/${periodo}/group/ML/details`,
+    `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
+    `/billing/integration/monthly/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
   ];
   const limite = 150;
   const cargos: CargoMeli[] = [];

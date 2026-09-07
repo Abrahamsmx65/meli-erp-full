@@ -54,3 +54,27 @@ describe("extraerCargos", () => {
     expect(cargos[0].detalleId).toBe("2026-08:0:Servicio:10");
   });
 });
+
+describe("claveDePeriodo", () => {
+  it("toma la clave del periodo que empieza en el mes pedido", async () => {
+    const { claveDePeriodo } = await import("./cargos-meli");
+    const crudo = {
+      results: [
+        { period: { key: "2026-08-01T00:00:00.000-04:00", date_from: "2026-08-01T00:00:00.000-04:00", date_to: "2026-08-31T23:59:59.000-04:00" } },
+        { period: { key: "2026-09-01T00:00:00.000-04:00", date_from: "2026-09-01T00:00:00.000-04:00" } },
+      ],
+    };
+    expect(claveDePeriodo(crudo, "2026-09")).toEqual({
+      clave: "2026-09-01T00:00:00.000-04:00",
+      claves: ["2026-08-01T00:00:00.000-04:00", "2026-09-01T00:00:00.000-04:00"],
+    });
+    expect(claveDePeriodo(crudo, "2026-07").clave).toBeNull();
+  });
+
+  it("acepta claves numéricas amarrando por date_from, y listas planas", async () => {
+    const { claveDePeriodo } = await import("./cargos-meli");
+    expect(claveDePeriodo({ results: [{ key: 4471, date_from: "2026-09-01" }] }, "2026-09")).toEqual({ clave: "4471", claves: ["4471"] });
+    expect(claveDePeriodo([{ period: { key: "SEP-2026-09" } }], "2026-09").clave).toBe("SEP-2026-09");
+    expect(claveDePeriodo(null, "2026-09")).toEqual({ clave: null, claves: [] });
+  });
+});
