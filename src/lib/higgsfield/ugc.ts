@@ -1144,6 +1144,8 @@ export function armarConceptoUGC(datos: {
   semilla: number;
   /** Título/modelo del producto: de aquí salen sus RASGOS (térmico, impermeable…). */
   texto?: string;
+  /** Guion largo (video de 30 s): gancho + TRES motivos + cierre. */
+  largo?: boolean;
 }): ConceptoArmado {
   const publico = publicoDe(datos.genero);
   const esNinos = datos.genero === "nino";
@@ -1182,6 +1184,15 @@ export function armarConceptoUGC(datos: {
   );
   const cierre = elegir(conRasgos(CIERRES_RASGO, rasgos, concepto.cierres), datos.semilla, 29);
 
+  // Para 30 segundos el guion lleva TRES motivos distintos (sin repetir).
+  const motivosPool = conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]);
+  const motivosLargos: string[] = [motivo];
+  for (const sal of [41, 43, 47, 53, 59]) {
+    if (motivosLargos.length >= 3) break;
+    const extra = elegir(motivosPool, datos.semilla, sal);
+    if (!motivosLargos.includes(extra)) motivosLargos.push(extra);
+  }
+
   const promptImagen =
     `Photo edit task: keep the EXACT footwear from the provided photo completely ` +
     `untouched and build a realistic scene around it. The scene: ${perfil}, ${ESTILO_PERSONA}, ${escena}, ` +
@@ -1196,7 +1207,12 @@ export function armarConceptoUGC(datos: {
     `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}, ${ESTILO_PERSONA}. ` +
     `${narrativaBase}.` + IMPERFECCIONES;
 
-  const guionSugerido = llenar(`${hook} ${motivo} ${cierre}`, datos.tipo);
+  const guionSugerido = llenar(
+    datos.largo
+      ? `${hook} ${motivosLargos.join(" ")} ${cierre}`
+      : `${hook} ${motivo} ${cierre}`,
+    datos.tipo,
+  );
 
   return { id: concepto.id, etiqueta: concepto.etiqueta, promptImagen, narrativa, guionSugerido };
 }
