@@ -353,6 +353,9 @@ async function generarEstudio(
   // sobre el video terminado (la IA los escribe con faltas; el ERP no).
   const guion =
     body?.subtitulos === "si" ? String(body?.guion ?? "").trim().slice(0, 600) : "";
+  // 30 segundos van con Seedance 2.5 (duración nativa 4-30, una sola
+  // generación); 15 se queda en 2.0, que ya está probado.
+  const duracionVideo = rapido && body?.duracion === "30" ? 30 : 15;
   // Audio APROBADO (el usuario ya lo escuchó y verificó las palabras): el
   // folio va de referencia de voz al video y la URL se guarda para que el
   // vigilante ponga ESA pista exacta en el archivo final.
@@ -417,7 +420,8 @@ async function generarEstudio(
       // ella y el vigilante la pone como pista final del archivo.
       if (audioJobId) medias.push({ value: audioJobId, role: "audio_references" });
       params = {
-        model: "seedance_2_0",
+        // 2.5 con referencias (omni_reference) para 30 s; 2.0 para 15.
+        model: duracionVideo === 30 ? "seedance_2_5" : "seedance_2_0",
         prompt:
           instrucciones +
           (conPersonaje
@@ -427,11 +431,12 @@ async function generarEstudio(
             ? " El AUDIO adjunto es la voz final del video: la persona dice EXACTAMENTE esas palabras, con lip sync perfecto a ese audio, sin cambiar ni una palabra."
             : ""),
         aspect_ratio: "9:16",
-        duration: 15,
-        // El modo std es el de calidad (fast recorta); la resolución la
-        // elige el usuario: 1080p, o 720p para ahorrar créditos.
+        duration: duracionVideo,
+        // La resolución la elige el usuario: 1080p, o 720p para ahorrar.
+        // En 2.0 el modo std es el de calidad; en 2.5 el modo dice cómo se
+        // generan las referencias (omni_reference = imágenes/audio).
         resolution: resolucion,
-        mode: "std",
+        mode: duracionVideo === 30 ? "omni_reference" : "std",
         generate_audio: true,
         medias,
       };
@@ -492,11 +497,20 @@ async function generarEstudio(
       titulo,
       imagen_url: fotos[0],
       prompt: instrucciones || `Marketing Studio · ${modo}`,
-      preset: rapido ? "Studio · Rápido" : `Studio · ${modo}`,
-      modelo: rapido ? "seedance-2.0" : "marketing-studio",
+      preset: rapido
+        ? duracionVideo === 30
+          ? "Studio · Rápido · 30 s"
+          : "Studio · Rápido"
+        : `Studio · ${modo}`,
+      modelo: rapido
+        ? duracionVideo === 30
+          ? "seedance-2.5"
+          : "seedance-2.0"
+        : "marketing-studio",
       formato: "studio",
       etapa: "video",
-      duracion: 15,
+      duracion: duracionVideo,
+      resolucion,
       request_id: requestId,
       estado: "enviado",
       guion: guion || null,

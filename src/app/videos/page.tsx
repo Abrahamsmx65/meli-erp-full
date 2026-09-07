@@ -191,8 +191,8 @@ export default async function Videos() {
                     formato === "studio" && generando
                       ? v.modelo === "voice-change"
                         ? "Cambiando la voz; visuales intactos (~2-5 min)"
-                        : v.modelo === "seedance-2.0"
-                          ? "Seedance genera el video directo de tus fotos (~5 min)"
+                        : v.modelo === "seedance-2.0" || v.modelo === "seedance-2.5"
+                          ? "Seedance genera el video directo de tus fotos (~5-10 min)"
                           : "El Studio arma guion, visuales y video (10-30 min)"
                       : esClip && generando
                         ? (v.etapa as string) === "imagen"
@@ -240,7 +240,7 @@ export default async function Videos() {
                         <div className="text-xs font-medium">
                           {(v.preset as string) ?? "propia"}
                           {formato === "studio"
-                            ? " · Studio · 15 s"
+                            ? ` · Studio · ${(v.duracion as number) ?? 15} s`
                             : formato === "clip"
                               ? " · 9:16 · 10 s"
                               : formato === "hablado"

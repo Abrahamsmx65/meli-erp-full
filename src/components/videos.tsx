@@ -434,6 +434,8 @@ export function GeneradorVideo({
   const [avataresPorTipo, setAvataresPorTipo] = useState<Record<string, string>>({});
   // Calidad del video (1080p default; 720p sale más barato).
   const [resolucionEstudio, setResolucionEstudio] = useState<"1080p" | "720p">("1080p");
+  // Duración: 15 s (Seedance 2.0) o 30 s (Seedance 2.5, cuesta más).
+  const [duracionEstudio, setDuracionEstudio] = useState<"15" | "30">("15");
   // Saldo de créditos de la cuenta y costo estimado del próximo video.
   const [saldo, setSaldo] = useState<number | null>(null);
   const [costoVideo, setCostoVideo] = useState<number | null>(null);
@@ -518,7 +520,7 @@ export function GeneradorVideo({
     void (async () => {
       try {
         const r = await fetch(
-          `/api/videos/estudio?costo=${motorEstudio}&res=${resolucionEstudio}`,
+          `/api/videos/estudio?costo=${motorEstudio}&res=${resolucionEstudio}&dur=${duracionEstudio}`,
         );
         const j = await leerJson(r);
         if (!vivo || !r.ok) return;
@@ -531,7 +533,7 @@ export function GeneradorVideo({
     return () => {
       vivo = false;
     };
-  }, [formato, cuentaConectada, motorEstudio, resolucionEstudio]);
+  }, [formato, cuentaConectada, motorEstudio, resolucionEstudio, duracionEstudio]);
 
   // Las voces reales del catálogo (para la prueba de audio del motor rápido).
   useEffect(() => {
@@ -579,7 +581,9 @@ export function GeneradorVideo({
     hayAudio: boolean;
     /** Título+modelo del producto: de aquí salen sus rasgos (térmico, impermeable…). */
     texto: string;
+    duracion?: "15" | "30";
   }) {
+    const dur = datos.duracion ?? duracionEstudio;
     if (datos.formato === "studio") {
       // El Studio arma su propio guion y visuales; aquí van las
       // INSTRUCCIONES: concepto, idioma, energía del personaje y candado.
@@ -588,6 +592,7 @@ export function GeneradorVideo({
         genero: datos.genero,
         semilla: datos.semilla,
         texto: datos.texto,
+        largo: dur === "30",
       });
       setConcepto(c.etiqueta);
       setPromptImagen("");
@@ -599,7 +604,7 @@ export function GeneradorVideo({
             : "UGC",
       );
       setPromptVideo(
-        `Video UGC vertical 9:16 de 15 segundos, TODO en español de México. ` +
+        `Video UGC vertical 9:16 de ${dur} segundos, TODO en español de México. ` +
           `Voz y acento: hablante NATIVO de español mexicano de clase ` +
           `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
           `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
@@ -680,7 +685,13 @@ export function GeneradorVideo({
     const g = detectarGenero(texto);
     const gu =
       formato === "ugc" || formato === "studio"
-        ? armarConceptoUGC({ tipo: t, genero: g, semilla, texto }).guionSugerido
+        ? armarConceptoUGC({
+            tipo: t,
+            genero: g,
+            semilla,
+            texto,
+            largo: formato === "studio" && duracionEstudio === "30",
+          }).guionSugerido
         : guionInicial(t);
     setTipo(t);
     setGenero(g);
@@ -740,7 +751,13 @@ export function GeneradorVideo({
     // el 🎲 y el género — el motor sugiere un concepto y guion nuevos.
     const guionBase =
       f === "ugc" || f === "studio"
-        ? armarConceptoUGC({ tipo: t, genero: g, semilla: s, texto }).guionSugerido
+        ? armarConceptoUGC({
+            tipo: t,
+            genero: g,
+            semilla: s,
+            texto,
+            largo: f === "studio" && duracionEstudio === "30",
+          }).guionSugerido
         : guionInicial(t);
     const rehacerGuion =
       cambios.tipo !== undefined ||
@@ -981,6 +998,7 @@ export function GeneradorVideo({
             formato: "studio",
             motor: motorEstudio,
             resolucion: resolucionEstudio,
+            duracion: duracionEstudio,
             subtitulos,
             // Con subtítulos del ERP, el guion exacto viaja aparte: el
             // vigilante lo quema sobre el video terminado, sin faltas.
@@ -1353,6 +1371,40 @@ export function GeneradorVideo({
                     {s.etiqueta}
                   </option>
                 ))}
+              </select>
+              <select
+                value={duracionEstudio}
+                onChange={(e) => {
+                  const d = e.target.value as "15" | "30";
+                  setDuracionEstudio(d);
+                  setAudioPrueba(null);
+                  setUsarVoz(false);
+                  // El guion sugerido crece o se encoge con la duración.
+                  const texto = pub ? `${pub.titulo} ${pub.modelo}` : "";
+                  const gu = armarConceptoUGC({
+                    tipo,
+                    genero,
+                    semilla,
+                    texto,
+                    largo: d === "30",
+                  }).guionSugerido;
+                  setGuion(gu);
+                  regenerarPrompt({
+                    tipo,
+                    genero,
+                    escenaId,
+                    semilla,
+                    formato,
+                    guion: gu,
+                    hayAudio: Boolean(audio),
+                    texto,
+                    duracion: d,
+                  });
+                }}
+                className="px-2 py-1.5 text-sm"
+              >
+                <option value="15">Duración: 15 s</option>
+                <option value="30">Duración: 30 s (cuesta más)</option>
               </select>
               <select
                 value={resolucionEstudio}

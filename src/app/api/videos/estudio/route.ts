@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     const costo = req.nextUrl.searchParams.get("costo");
     if (costo) {
       const resolucion = req.nextUrl.searchParams.get("res") === "720p" ? "720p" : "1080p";
+      const treinta = req.nextUrl.searchParams.get("dur") === "30";
       const params: Record<string, unknown> =
         costo === "completo"
           ? {
@@ -48,12 +49,13 @@ export async function GET(req: NextRequest) {
               get_cost: true,
             }
           : {
-              model: "seedance_2_0",
+              // 30 s van con Seedance 2.5 (duración nativa); 15 con 2.0.
+              model: treinta ? "seedance_2_5" : "seedance_2_0",
               prompt: "Video de producto (consulta de costo)",
               aspect_ratio: "9:16",
-              duration: 15,
+              duration: treinta ? 30 : 15,
               resolution: resolucion,
-              mode: "std",
+              mode: treinta ? "omni_reference" : "std",
               generate_audio: true,
               get_cost: true,
             };
