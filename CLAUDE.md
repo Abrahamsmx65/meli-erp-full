@@ -250,7 +250,8 @@ guárdala numerada.
   completo (activos, inactivos, precio, imagen principal) vive aparte y solo
   lo lee la sección de contenido.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
-  MXN final, en `productos_config`. La ganancia de MELI usa el neto real
+  MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
+  (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
@@ -268,7 +269,15 @@ guárdala numerada.
 
 Segundo negocio: fundas para celular en OTRA cuenta de Mercado Libre. Vive en
 `/yapanizcel/*`, `src/lib/yapanizcel/` y tablas con prefijo `yz_`. No comparte
-ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
+tablas con el ERP de calzado, con UNA excepción decidida por el dueño: los
+COSTOS. `productos_config` (Productos y costos, en Bodega) es la fuente
+única de costo y categoría de TODO —modelos de calzado y diseños de funda—
+y de ahí leen Ventas de MELI, Ventas de fundas, el pedido a China de
+fundas, Amazon y los cortes (`servicios/costos-unificados.ts`:
+`modeloUnificado`, `configDeSku`, `mapaCostosUnificado`). `yz_costos` queda
+como respaldo de lectura y el Excel de costos de fundas escribe en los dos
+lados (categoría "Fundas" solo a los renglones nuevos). Sí comparte el
+login, la base y el deploy.
 
 - **Cuenta y app de MELI propias.** Credenciales en `MELI_YZ_CLIENT_ID` /
   `MELI_YZ_CLIENT_SECRET`; tokens en `yz_tokens` (RLS con cero políticas, como
@@ -299,9 +308,10 @@ ni una tabla con el ERP de calzado; sí comparte el login, la base y el deploy.
   por decisión del dueño; otros prefijos (CH-, R-) y las piezas en otro orden se sugieren
   en `/yapanizcel/skus` y se confirman con un clic (escribe `yz_mapeo_skus`).
   Un empate NUNCA se resuelve solo. Ignorados en `yz_skus_ignorados`.
-- **Costos por MODELO desde un Excel** (MODELO, COSTO) en `yz_costos`; se
-  buscan por el diseño del SKU (`costoDeSku`). Sin costo = ganancia no
-  calculable, nunca costo 0.
+- **Costos por diseño** en Productos y costos (`productos_config`, ver
+  arriba); el Excel (MODELO, COSTO) de Ajustes de fundas sigue funcionando y
+  escribe ahí también. Se buscan por la clave completa y luego por el diseño
+  del SKU (`costoDeSku`). Sin costo = ganancia no calculable, nunca costo 0.
 - **Ganancia sobre el neto real** (`net_received_amount`, caché en
   `yz_ordenes_neto`, re-lectura de órdenes recientes por cargos diferidos).
   Los días con neto incompleto se marcan como estimados.

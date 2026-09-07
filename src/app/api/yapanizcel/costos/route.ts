@@ -2,6 +2,35 @@ import { NextResponse, type NextRequest } from "next/server";
 import { upsertEnTandas } from "@/lib/datos/repos";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
 import { leerCostos } from "@/lib/yapanizcel/costos";
+import { cuentaCalzadoId } from "@/lib/servicios/costos-unificados";
+import type { DB } from "@/lib/datos/repos";
+
+/**
+ * Productos y costos (productos_config) es la fuente unificada de costos:
+ * lo que entra por aquí también se escribe allá, sin pisar la categoría
+ * que ya tenga el renglón (a los nuevos se les pone "Fundas").
+ */
+async function espejoEnProductosConfig(db: DB, filas: { modelo: string; costo: number }[]): Promise<void> {
+  const meliId = await cuentaCalzadoId(db);
+  if (!meliId || !filas.length) return;
+  const ahora = new Date().toISOString();
+  const modelos = filas.map((f) => f.modelo.toUpperCase());
+  await upsertEnTandas(
+    db,
+    "productos_config",
+    filas.map((f) => ({ account_id: meliId, modelo: f.modelo.toUpperCase(), color: "", costo_mxn: f.costo, actualizado_en: ahora })),
+    "account_id,modelo,color",
+  );
+  for (let i = 0; i < modelos.length; i += 200) {
+    await db
+      .from("productos_config")
+      .update({ categoria: "Fundas" })
+      .eq("account_id", meliId)
+      .eq("color", "")
+      .is("categoria", null)
+      .in("modelo", modelos.slice(i, i + 200));
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,6 +55,7 @@ export async function POST(req: NextRequest) {
       r.filas.map((f) => ({ account_id: ctx.cuenta.id, modelo: f.modelo, etiqueta: f.etiqueta, costo: f.costo, actualizado_en: ahora })),
       "account_id,modelo",
     );
+    await espejoEnProductosConfig(ctx.db, r.filas.filter((f) => f.costo > 0));
     return NextResponse.json({ ok: true, modelos: r.filas.length, avisos: r.avisos });
   } catch (err) {
     return errorJson(err, 400);
@@ -46,5 +76,6 @@ export async function PUT(req: NextRequest) {
     .from("yz_costos")
     .upsert({ account_id: ctx.cuenta.id, modelo, etiqueta: modelo, costo, actualizado_en: new Date().toISOString() }, { onConflict: "account_id,modelo" });
   if (error) return errorJson(error);
+  if (costo > 0) await espejoEnProductosConfig(ctx.db, [{ modelo, costo }]);
   return NextResponse.json({ ok: true });
 }

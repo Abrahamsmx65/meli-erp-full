@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ProductoConfig } from "@/lib/servicios/productos";
+import type { Negocio, ProductoConfig } from "@/lib/servicios/productos";
 
 /**
  * Captura de categoría y costo por producto.
@@ -21,10 +21,12 @@ export function TablaProductos({
   const [estado, setEstado] = useState<Record<string, "guardando" | "ok" | "error">>({});
   const [busqueda, setBusqueda] = useState("");
   const [soloSinCosto, setSoloSinCosto] = useState(false);
+  const [negocio, setNegocio] = useState<Negocio | "">("");
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toUpperCase();
     return filas.filter((p) => {
+      if (negocio && p.negocio !== negocio) return false;
       if (soloSinCosto && p.costoMxn != null) return false;
       if (!q) return true;
       return (
@@ -33,7 +35,7 @@ export function TablaProductos({
         (p.titulo ?? "").toUpperCase().includes(q)
       );
     });
-  }, [filas, busqueda, soloSinCosto]);
+  }, [filas, busqueda, soloSinCosto, negocio]);
 
   const clave = (p: ProductoConfig) => p.modelo;
 
@@ -74,6 +76,27 @@ export function TablaProductos({
           className="min-w-[16rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
+        <div className="flex items-center gap-1 text-xs">
+          {([
+            ["", "Todo"],
+            ["calzado", "Calzado"],
+            ["fundas", "Fundas"],
+          ] as [Negocio | "", string][]).map(([valor, texto]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setNegocio(valor)}
+              className="rounded-full border px-3 py-1 font-medium"
+              style={
+                negocio === valor
+                  ? { background: "var(--acento)", color: "#fff", borderColor: "var(--acento)" }
+                  : { borderColor: "var(--borde)" }
+              }
+            >
+              {texto} ({valor ? filas.filter((p) => p.negocio === valor).length : filas.length})
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
           <input
             type="checkbox"
@@ -89,11 +112,12 @@ export function TablaProductos({
           <thead>
             <tr>
               <th>Modelo</th>
+              <th>Negocio</th>
               <th>Producto</th>
               <th className="num">Colores</th>
-              <th className="num">Tallas</th>
+              <th className="num">SKUs</th>
               <th>Categoría</th>
-              <th className="num">Costo (MXN/par)</th>
+              <th className="num">Costo (MXN/pieza)</th>
               <th></th>
             </tr>
           </thead>
@@ -104,6 +128,9 @@ export function TablaProductos({
               return (
                 <tr key={k}>
                   <td className="font-medium">{p.modelo}</td>
+                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    {p.negocio === "fundas" ? "Fundas" : "Calzado"}
+                  </td>
                   <td
                     className="max-w-72 truncate text-xs"
                     style={{ color: "var(--ink-2)" }}
@@ -119,7 +146,7 @@ export function TablaProductos({
                       value={p.categoria ?? ""}
                       onChange={(e) => actualizar(k, { categoria: e.target.value })}
                       onBlur={() => guardar({ ...p })}
-                      placeholder="corcho, EVA, pantufla…"
+                      placeholder={p.negocio === "fundas" ? "Fundas, micas…" : "corcho, EVA, pantufla…"}
                       className="w-36 rounded-lg border px-2 py-1 text-sm"
                       style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                     />

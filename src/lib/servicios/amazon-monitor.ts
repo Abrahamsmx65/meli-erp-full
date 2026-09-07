@@ -8,7 +8,7 @@
  * sincronizan hoy, así que no se descuentan; la nota de la pantalla lo dice.
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
-import { desglosarSku } from "./sync";
+import { modeloUnificado } from "./costos-unificados";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
 
@@ -117,7 +117,8 @@ export async function cargarMonitorAmazon(
       (q) => q.eq("account_id", amazonAccountId).gte("fecha", prevDesde),
     ),
     // El costo y la categoría son los mismos productos físicos: viven con la
-    // cuenta de MELI en Productos y costos.
+    // cuenta de MELI en Productos y costos, calzado y fundas juntos (los SKUs
+    // de funda que se venden en Amazon, 437-RmPad-2-navy, amarran por diseño).
     meliAccountId ? configPorProducto(db, meliAccountId) : Promise.resolve(new Map()),
     // El NETO real del reporte de pagos de Amazon (comisiones, envíos e
     // impuestos ya descontados), por día de liquidación. Si la tabla no
@@ -171,7 +172,7 @@ export async function cargarMonitorAmazon(
   >();
 
   for (const v of ventas) {
-    const modelo = (desglosarSku(String(v.seller_sku ?? "")).modelo ?? String(v.seller_sku ?? "")).toUpperCase();
+    const modelo = modeloUnificado(String(v.seller_sku ?? ""));
     const m = modelos.get(modelo) ?? { unidades: 0, unidadesPrev: 0, importe: 0, unidadesHoy: 0 };
     if (v.fecha >= r.desde && v.fecha <= r.hasta) {
       m.unidades += v.unidades ?? 0;
@@ -199,7 +200,7 @@ export async function cargarMonitorAmazon(
       otrosCargos += Number(p.neto) || 0;
       continue;
     }
-    const modelo = (desglosarSku(skuPago).modelo ?? skuPago).toUpperCase();
+    const modelo = modeloUnificado(skuPago);
     const reg = pagosPorModelo.get(modelo) ?? { neto: 0, unidades: 0 };
     reg.neto += Number(p.neto) || 0;
     reg.unidades += p.unidades ?? 0;
@@ -213,7 +214,7 @@ export async function cargarMonitorAmazon(
   >();
   let econHasta: string | null = null;
   for (const e of economiaFilas) {
-    const modelo = (desglosarSku(String(e.seller_sku ?? "")).modelo ?? String(e.seller_sku ?? "")).toUpperCase();
+    const modelo = modeloUnificado(String(e.seller_sku ?? ""));
     const reg =
       econPorModelo.get(modelo) ?? { unidades: 0, ventas: 0, tarifas: 0, publicidad: 0, neto: 0 };
     reg.unidades += Number(e.unidades) || 0;

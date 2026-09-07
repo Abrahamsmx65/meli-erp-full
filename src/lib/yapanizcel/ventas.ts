@@ -8,6 +8,7 @@
  * importe − comisión y se marca como estimado.
  */
 import type { DB } from "../datos/repos";
+import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
 import { costoDeSku } from "./costos";
 import { hoyMx, restarDias, todo } from "./db";
 import { desglosar } from "./sku";
@@ -119,17 +120,19 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   const resumen = (desde: string, hasta: string) =>
     rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta });
 
-  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, costosFilas] = await Promise.all([
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado] = await Promise.all([
     resumen(rango.desde, rango.hasta),
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
     resumen(ayer, ayer),
     rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
-    todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
+    // Los costos viven en Productos y costos (calzado y fundas juntos);
+    // yz_costos queda de respaldo.
+    mapaCostosUnificado(db, { yzAccountId: accountId }),
   ]);
 
-  const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
+  const costos = soloCostos(mapaUnificado);
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
   const cacheCosto = new Map<string, number | null>();
   const costoDe = (sku: string) => {
