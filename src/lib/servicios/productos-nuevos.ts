@@ -61,6 +61,28 @@ export function claveProducto(modelo: string, color: string): string {
 }
 
 /**
+ * Los pedazos del color, sin la anotación entre paréntesis de la proforma
+ * ("BLK/BLK/BLK (NEGRO)") y con los repetidos seguidos colapsados. La
+ * fábrica escribe el color por partes (corte/forro/suela: "BLK/BLK/RED") y
+ * en MELI y Amazon el mismo producto quedó como "BLK / RED", "BLK-BLK" o
+ * "BLK" según la época: colapsando repetidos, todos caen en el mismo lugar.
+ */
+function tokensLaxos(tokens: string[]): string[] {
+  const salida: string[] = [];
+  for (const t of tokens) {
+    if (t && salida[salida.length - 1] !== t) salida.push(t);
+  }
+  return salida;
+}
+
+/** Como `claveProducto`, pero con el color laxo: segundo nivel de amarre. */
+export function claveProductoLaxa(modelo: string, color: string): string {
+  const sinNota = (color || "").replace(/\([^)]*\)/g, " ");
+  const tokens = claveComparacion(sinNota).split("-").filter(Boolean);
+  return `${canonizar(modelo)}|${tokensLaxos(tokens).join("")}`;
+}
+
+/**
  * De un SKU (de MELI, Amazon o bodega) a la clave de su producto: se quita
  * el sufijo de sitio, se quita el token de talla esté donde esté, y el resto
  * es modelo + color. Devuelve null si no tiene forma de SKU de calzado.
@@ -77,6 +99,16 @@ export function claveProductoDeSku(sku: string): string | null {
   const sinTalla = tokens.filter((t, i) => i === 0 || !esTalla(t));
   if (sinTalla.length < 2) return null;
   return `${sinTalla[0]}|${sinTalla.slice(1).join("")}`;
+}
+
+/** Como `claveProductoDeSku`, con el color laxo (repetidos colapsados). */
+export function claveProductoLaxaDeSku(sku: string): string | null {
+  const estricta = claveProductoDeSku(sku);
+  if (!estricta) return null;
+  const tokens = claveComparacion(sku).split("-").filter(Boolean);
+  const esTalla = (t: string) => /^\d{1,2}(\.\d)?$/.test(t) && Number(t) >= 14 && Number(t) <= 50;
+  const color = tokens.filter((t, i) => i > 0 && !esTalla(t));
+  return `${tokens[0]}|${tokensLaxos(color).join("")}`;
 }
 
 interface PedidoCrudo {
@@ -187,6 +219,23 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   const productos = agruparProductosDePedidos(pedidos, (lineasRaw ?? []) as LineaCruda[]);
   if (!productos.size) return { productos: [], amazonConectado: false };
 
+  // Dos niveles de amarre SKU → producto: exacto y, si no hay, laxo (color
+  // sin anotación y sin repetidos). Un SKU puede caer en varios productos
+  // laxos; se le da a todos, que para esto son el mismo zapato.
+  const porLaxa = new Map<string, ProductoNuevo[]>();
+  for (const p of productos.values()) {
+    const k = claveProductoLaxa(p.modelo, p.color);
+    porLaxa.set(k, [...(porLaxa.get(k) ?? []), p]);
+  }
+  const productosDeSku = (sku: string): ProductoNuevo[] => {
+    const estricta = claveProductoDeSku(sku);
+    if (!estricta) return [];
+    const exacto = productos.get(estricta);
+    if (exacto) return [exacto];
+    const laxa = claveProductoLaxaDeSku(sku);
+    return laxa ? (porLaxa.get(laxa) ?? []) : [];
+  };
+
   // --- Publicaciones de MELI, por producto --------------------------------
   const skus = await traerTodo<{
     sku: string;
@@ -196,16 +245,14 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
 
   const skusPorProducto = new Map<string, string[]>();
   for (const s of skus) {
-    const clave = claveProductoDeSku(s.sku);
-    if (!clave) continue;
-    const prod = productos.get(clave);
-    if (!prod) continue;
-    prod.meli.publicaciones.push({
-      sku: s.sku,
-      itemId: s.item_id ?? null,
-      variationId: s.variation_id == null ? null : String(s.variation_id),
-    });
-    skusPorProducto.set(clave, [...(skusPorProducto.get(clave) ?? []), s.sku]);
+    for (const prod of productosDeSku(s.sku)) {
+      prod.meli.publicaciones.push({
+        sku: s.sku,
+        itemId: s.item_id ?? null,
+        variationId: s.variation_id == null ? null : String(s.variation_id),
+      });
+      skusPorProducto.set(prod.clave, [...(skusPorProducto.get(prod.clave) ?? []), s.sku]);
+    }
   }
 
   // --- Publicaciones de Amazon, por producto ------------------------------
@@ -227,12 +274,10 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
         (q) => q.eq("account_id", cuentaAmz.id),
       ).catch(() => [] as { seller_sku: string; asin: string | null }[]);
       for (const f of [...listings, ...vendidos]) {
-        const clave = claveProductoDeSku(f.seller_sku);
-        if (!clave) continue;
-        const prod = productos.get(clave);
-        if (!prod) continue;
-        if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
-        if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
+        for (const prod of productosDeSku(f.seller_sku)) {
+          if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
+          if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
+        }
       }
     }
   } catch {
@@ -255,8 +300,7 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
       .in("sku", grupo);
     for (const s of data ?? []) {
       if ((s.total ?? 0) > 0 || (s.disponible ?? 0) > 0 || (s.en_transferencia ?? 0) > 0) {
-        const clave = claveProductoDeSku(s.sku);
-        if (clave) conStock.add(clave);
+        for (const prod of productosDeSku(s.sku)) conStock.add(prod.clave);
       }
     }
   }
@@ -270,8 +314,7 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
         .in("seller_sku", grupo);
       for (const s of data ?? []) {
         if ((s.total ?? 0) > 0 || (s.disponible ?? 0) > 0) {
-          const clave = claveProductoDeSku(s.seller_sku);
-          if (clave) conStock.add(clave);
+          for (const prod of productosDeSku(s.seller_sku)) conStock.add(prod.clave);
         }
       }
     }
@@ -311,11 +354,11 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
       "sku_caja, cajas_fisicas",
       (q) => q.eq("account_id", accountId).gt("cajas_fisicas", 0),
     ).catch(() => [] as { sku_caja: string; cajas_fisicas: number | null }[]);
-    const porClave = new Map(nuevos.map((p) => [p.clave, p]));
+    const nuevosSet = new Set(nuevos.map((p) => p.clave));
     for (const e of existencias) {
-      const clave = claveProductoDeSku(e.sku_caja);
-      const prod = clave ? porClave.get(clave) : null;
-      if (prod) prod.enBodega += e.cajas_fisicas ?? 0;
+      for (const prod of productosDeSku(e.sku_caja)) {
+        if (nuevosSet.has(prod.clave)) prod.enBodega += e.cajas_fisicas ?? 0;
+      }
     }
   }
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agruparProductosDePedidos, claveProducto, claveProductoDeSku } from "./productos-nuevos";
+import {
+  agruparProductosDePedidos,
+  claveProducto,
+  claveProductoDeSku,
+  claveProductoLaxa,
+  claveProductoLaxaDeSku,
+} from "./productos-nuevos";
 
 describe("claveProductoDeSku", () => {
   it("quita talla y sufijo de sitio, y aplasta el color", () => {
@@ -48,5 +54,28 @@ describe("agruparProductosDePedidos", () => {
     expect(mb.cajas).toBe(50);
     expect(mb.pares).toBe(1200);
     expect(mb.pedidos.map((p) => p.pedido)).toEqual(["IN10079", "IN10136"]);
+  });
+});
+
+describe("amarre laxo: el color por partes de la proforma contra el SKU publicado", () => {
+  it("BLK/BLK/BLK (NEGRO) del pedido cae donde GT134-BLK / BLK, GT134-BLK-BLK y GT134-BLK", () => {
+    const pedido = claveProductoLaxa("GT134", "BLK/BLK/BLK (NEGRO)");
+    expect(pedido).toBe("GT134|BLK");
+    expect(claveProductoLaxaDeSku("GT134-BLK / BLK-23-MX")).toBe(pedido);
+    expect(claveProductoLaxaDeSku("GT134-BLK-BLK-25-MX")).toBe(pedido);
+    expect(claveProductoLaxaDeSku("GT134-BLK-29-MX")).toBe(pedido);
+  });
+
+  it("BLK/BLK/RED cae donde GT134-BLK / RED y no donde el negro", () => {
+    const pedido = claveProductoLaxa("GT134", "BLK/BLK/RED");
+    expect(pedido).toBe("GT134|BLKRED");
+    expect(claveProductoLaxaDeSku("GT134-BLK / RED-24-MX")).toBe(pedido);
+    expect(claveProductoLaxaDeSku("GT134-BLK-RED-24-MX")).toBe(pedido);
+    expect(claveProductoLaxaDeSku("GT134-BLK / BLK-24-MX")).not.toBe(pedido);
+  });
+
+  it("el amarre exacto sigue mandando cuando existe", () => {
+    expect(claveProductoDeSku("GT134-BLK / RED-24-MX")).toBe("GT134|BLKRED");
+    expect(claveProducto("GT134", "BLK / RED")).toBe("GT134|BLKRED");
   });
 });

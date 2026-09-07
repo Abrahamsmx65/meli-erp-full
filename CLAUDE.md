@@ -71,7 +71,11 @@ guárdala numerada.
   actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
   modelo + color comparando el SKU completo sin talla ni sufijo
   (`claveProductoDeSku`), porque `skus.modelo` parte mal los modelos con
-  guion (GT104-1).
+  guion (GT104-1). Segundo nivel LAXO (`claveProductoLaxa`): la proforma
+  escribe el color por partes con anotación ("BLK/BLK/RED", "BLK/BLK/BLK
+  (NEGRO)") y MELI/Amazon lo tienen como "BLK / RED", "BLK-BLK" o "BLK";
+  sin paréntesis y con repetidos seguidos colapsados caen en el mismo lugar
+  (verificado con GT134).
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
