@@ -109,7 +109,7 @@ export async function hacerCorte(
   // Con 200 pedidos, uno por uno no cabe en el tiempo de Vercel: se
   // confirman VARIOS a la vez (cada pedido son 2 o 3 llamadas a TikTok).
   // El orden de `confirmados` no importa: el corte se numera después.
-  await enParalelo(pendientes, 6, async (p) => {
+  await enParalelo(pendientes, 4, async (p) => {
     if (cliente.msRestantes() < 30_000) {
       errores.push({ orderId: p.orderId, error: "Se acabó el tiempo; entra al siguiente corte." });
       return;
@@ -379,17 +379,24 @@ async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageI
   const ruta = `${accountId}/${packageId}.pdf`;
   const guardada = await leerGuia(admin, ruta);
   if (guardada?.length) return { bytes: guardada, error: null };
-  try {
-    const url = await etiquetaDePaquete(cliente, packageId);
-    if (!url) throw new Error("TikTok no devolvió la guía");
-    const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-    if (!r.ok) throw new Error(`descarga ${r.status}`);
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    if (esPdf(bytes) || esPng(bytes) || esJpg(bytes)) await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
-    return { bytes, error: null };
-  } catch (err) {
-    return { bytes: null, error: (err as Error).message };
+  let error = "sin guía";
+  // Dos intentos con pausa: TikTok limita las llamadas y la guía de un
+  // paquete recién confirmado a veces tarda unos segundos en existir.
+  for (let intento = 0; intento < 2; intento++) {
+    try {
+      const url = await etiquetaDePaquete(cliente, packageId);
+      if (!url) throw new Error("TikTok no devolvió la guía");
+      const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      if (!r.ok) throw new Error(`descarga ${r.status}`);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      if (esPdf(bytes) || esPng(bytes) || esJpg(bytes)) await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
+      return { bytes, error: null };
+    } catch (err) {
+      error = (err as Error).message;
+      if (intento === 0) await new Promise((res) => setTimeout(res, 2500));
+    }
   }
+  return { bytes: null, error };
 }
 
 export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
@@ -404,7 +411,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
 
   // Todas las guías primero, varias a la vez; el armado va después, en orden.
   const guias = new Map<string, { bytes: Uint8Array | null; error: string | null }>();
-  await enParalelo(corte.paquetes, 8, async (p) => {
+  await enParalelo(corte.paquetes, 3, async (p) => {
     if (!p.packageId) {
       guias.set(`${p.orderId}|${p.packageId}`, { bytes: null, error: "sin paquete en TikTok" });
       return;
@@ -478,7 +485,8 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     // Sin guía: una hoja que lo diga, para que la numeración no se corra.
     const pagina = doc.addPage(A6);
     pagina.drawText(`SIN GUÍA — pedido ${p.orderId}`, { x: 20, y: A6[1] - 60, size: 12, font: fuente });
-    pagina.drawText(error ?? "formato desconocido", { x: 20, y: A6[1] - 80, size: 8, font: fuente });
+    pagina.drawText((error ?? "formato desconocido").slice(0, 90), { x: 20, y: A6[1] - 80, size: 7, font: fuente });
+    pagina.drawText("Vuelve a pedir el PDF: solo se bajan las que faltan.", { x: 20, y: A6[1] - 96, size: 7, font: fuente });
     estampar(pagina, p);
   }
 
