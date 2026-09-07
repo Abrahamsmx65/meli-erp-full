@@ -43,7 +43,8 @@ export async function registrarOrdenes(admin: DB, accountId: string, ordenes: Or
       payment_ids: o.pagos,
       fecha: o.fecha,
       total: o.total,
-      renglones: o.renglones.map((r) => ({ sku: r.sku, importe: redondea(r.importe) })),
+      // Con unidades y comisión: el corte del mes se arma desde las órdenes.
+      renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: redondea(r.importe), comision: redondea(r.comision) })),
     })),
     "account_id,order_id",
   );

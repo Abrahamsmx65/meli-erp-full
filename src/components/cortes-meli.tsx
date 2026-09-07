@@ -27,11 +27,14 @@ function pesos(x: number): string {
 }
 
 export function AccionesCorte({
+  apiBase,
   periodo,
   pendientes,
   cargosLeidos,
   corteId,
 }: {
+  /** base del API: "/api/ventas" (calzado) o "/api/yapanizcel" (fundas) */
+  apiBase: string;
   periodo: string;
   pendientes: number;
   cargosLeidos: boolean;
@@ -47,7 +50,7 @@ export function AccionesCorte({
     setAviso(null);
     setError(null);
     try {
-      const ruta = tarea === "corte" ? "/api/ventas/cortes" : tarea === "revisar" ? "/api/ventas/revisar" : "/api/ventas/cargos";
+      const ruta = `${apiBase}/${tarea === "corte" ? "cortes" : tarea === "revisar" ? "revisar" : "cargos"}`;
       const r = await fetch(ruta, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,11 +95,11 @@ export function AccionesCorte({
         <button type="button" className="boton boton-secundario" disabled={ocupado != null} onClick={() => correr("cargos")}>
           {ocupado === "cargos" ? "Leyendo…" : cargosLeidos ? "Releer facturación de MELI" : "Leer facturación de MELI"}
         </button>
-        <a className="boton boton-fantasma" href={`/api/ventas/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
+        <a className="boton boton-fantasma" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
           PDF de vista previa
         </a>
         {corteId ? (
-          <a className="boton boton-fantasma" href={`/api/ventas/cortes/${corteId}/pdf`} target="_blank" rel="noreferrer">
+          <a className="boton boton-fantasma" href={`${apiBase}/cortes/${corteId}/pdf`} target="_blank" rel="noreferrer">
             PDF del corte guardado
           </a>
         ) : null}
@@ -121,7 +124,7 @@ const NOMBRE_CATEGORIA: Record<GastoManual["categoria"], string> = {
   otro: "Otro gasto",
 };
 
-export function GastosDelMes({ gastos, desde, hasta }: { gastos: GastoManual[]; desde: string; hasta: string }) {
+export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: string; gastos: GastoManual[]; desde: string; hasta: string }) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +138,7 @@ export function GastosDelMes({ gastos, desde, hasta }: { gastos: GastoManual[]; 
     setOcupado(true);
     setError(null);
     try {
-      const r = await fetch("/api/ventas/gastos", {
+      const r = await fetch(`${apiBase}/gastos`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fecha, concepto, categoria, monto: Number(monto) }),
@@ -157,7 +160,7 @@ export function GastosDelMes({ gastos, desde, hasta }: { gastos: GastoManual[]; 
     setOcupado(true);
     setError(null);
     try {
-      const r = await fetch("/api/ventas/gastos", {
+      const r = await fetch(`${apiBase}/gastos`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),

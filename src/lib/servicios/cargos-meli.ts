@@ -234,6 +234,20 @@ export interface ProgresoCargos {
   actualizadoEn: string | null;
 }
 
+/**
+ * Dónde vive cada cosa: la cuenta de calzado guarda en meli_cargos y su
+ * avance en sync_log; la de fundas en yz_cargos y yz_sync_log. La lectura
+ * del API es la misma.
+ */
+export interface AlmacenCargos {
+  cliente: MeliClient;
+  tabla: string;
+  leerProgreso(periodo: string): Promise<ProgresoCargos>;
+  guardarProgreso(p: ProgresoCargos, extra?: Record<string, unknown>): Promise<void>;
+  /** periodos con lectura a medias (offset > 0 y no completo), el más reciente primero */
+  pendientes(): Promise<string[]>;
+}
+
 /** El avance de la lectura de detalles del periodo (bitácora en sync_log). */
 export async function progresoCargos(db: DB, accountId: string, periodo: string): Promise<ProgresoCargos> {
   const { data } = await db
@@ -245,28 +259,67 @@ export async function progresoCargos(db: DB, accountId: string, periodo: string)
     .order("inicio", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const d: any = data?.detalle ?? {};
+  return progresoDeDetalle(periodo, data?.detalle, data?.fin ?? null);
+}
+
+export function progresoDeDetalle(periodo: string, detalle: unknown, actualizadoEn: string | null): ProgresoCargos {
+  const d: any = detalle ?? {};
   return {
     periodo,
     clave: typeof d.clave === "string" ? d.clave : null,
     offset: Number(d.offset) || 0,
     total: d.total == null ? null : Number(d.total),
     completo: Boolean(d.completo),
-    actualizadoEn: data?.fin ?? null,
+    actualizadoEn,
   };
 }
 
-async function guardarProgreso(db: DB, accountId: string, p: ProgresoCargos, extra?: Record<string, unknown>): Promise<void> {
-  await db.from("sync_log").insert({
-    account_id: accountId,
-    tarea: "cargos_meli",
-    estado: "ok",
-    fin: new Date().toISOString(),
-    detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, ...extra },
-  });
+/** El almacén de la cuenta de calzado (meli_cargos + sync_log). */
+export async function almacenMeli(admin: DB, accountId: string): Promise<AlmacenCargos | null> {
+  const cliente = await clienteDeCuenta(admin, accountId);
+  if (!cliente) return null;
+  return {
+    cliente,
+    tabla: "meli_cargos",
+    leerProgreso: (periodo) => progresoCargos(admin, accountId, periodo),
+    guardarProgreso: async (p, extra) => {
+      await admin.from("sync_log").insert({
+        account_id: accountId,
+        tarea: "cargos_meli",
+        estado: "ok",
+        fin: new Date().toISOString(),
+        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, ...extra },
+      });
+    },
+    pendientes: async () => {
+      const { data } = await admin
+        .from("sync_log")
+        .select("detalle")
+        .eq("account_id", accountId)
+        .eq("tarea", "cargos_meli")
+        .order("inicio", { ascending: false })
+        .limit(12);
+      return periodosPendientes((data ?? []).map((f: any) => f.detalle));
+    },
+  };
 }
 
-async function guardarCargos(admin: DB, accountId: string, periodo: string, cargos: CargoMeli[]): Promise<void> {
+/** De la bitácora (más reciente primero), los periodos cuya ÚLTIMA huella quedó a medias. */
+export function periodosPendientes(detalles: unknown[]): string[] {
+  const vistos = new Set<string>();
+  const salida: string[] = [];
+  for (const d of detalles as any[]) {
+    const periodo = typeof d?.periodo === "string" ? d.periodo : null;
+    if (!periodo || vistos.has(periodo)) continue;
+    vistos.add(periodo);
+    if (d.completo) continue;
+    if (!(Number(d.offset) > 0)) continue; // nunca arrancó bien: no insistir solo
+    salida.push(periodo);
+  }
+  return salida;
+}
+
+async function guardarCargos(admin: DB, accountId: string, tabla: string, periodo: string, cargos: CargoMeli[]): Promise<void> {
   if (!cargos.length) return;
   const filas = cargos.map((c) => ({
     account_id: accountId,
@@ -281,7 +334,7 @@ async function guardarCargos(admin: DB, accountId: string, periodo: string, carg
     leido_en: new Date().toISOString(),
   }));
   for (let i = 0; i < filas.length; i += 500) {
-    const { error } = await admin.from("meli_cargos").upsert(filas.slice(i, i + 500), { onConflict: "account_id,detalle_id" });
+    const { error } = await admin.from(tabla).upsert(filas.slice(i, i + 500), { onConflict: "account_id,detalle_id" });
     if (error) throw new Error(`No se pudieron guardar los cargos: ${error.message}`);
   }
 }
@@ -306,20 +359,24 @@ const LIMITE_DETALLES = 150;
  *
  * El endpoint de detalles tiene cuota de 5 llamadas por minuto y un mes
  * trae decenas de miles de renglones (comisión y envío de cada orden), así
- * que la lectura es REANUDABLE: el avance queda en sync_log y el latido la
- * continúa cada minuto hasta completarla. Al empezar de cero se borra lo
- * del periodo; las páginas se guardan conforme llegan.
+ * que la lectura es REANUDABLE: el avance queda en la bitácora del almacén
+ * y el latido o el cron la continúan hasta completarla. Al empezar de cero
+ * se borra lo del periodo; las páginas se guardan conforme llegan.
  */
-export async function sincronizarCargos(admin: DB, accountId: string, periodo: string, finMs = Date.now() + 100_000): Promise<ResultadoCargos> {
-  const cliente = await clienteDeCuenta(admin, accountId);
-  if (!cliente) return { cargos: 0, full: 0, total: null, completo: false, error: "No hay cuenta de MELI conectada." };
-
+export async function sincronizarCargosCon(
+  admin: DB,
+  accountId: string,
+  periodo: string,
+  almacen: AlmacenCargos,
+  finMs = Date.now() + 100_000,
+): Promise<ResultadoCargos> {
+  const { cliente, tabla } = almacen;
   const totalesGuardados = async (): Promise<{ cargos: number; full: number }> => {
-    const filas = await cargosGuardados(admin, accountId, periodo);
+    const filas = await cargosGuardados(admin, accountId, periodo, tabla);
     return { cargos: filas.length, full: filas.filter((c) => c.clase === "full").reduce((a, c) => a + c.monto, 0) };
   };
 
-  const progreso = await progresoCargos(admin, accountId, periodo);
+  const progreso = await almacen.leerProgreso(periodo);
   if (progreso.completo) {
     // Releer desde cero: el usuario lo pidió a propósito.
     progreso.completo = false;
@@ -336,17 +393,17 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
 
   // Al arrancar de cero: fuera lo viejo del periodo, y el resumen si existe.
   if (progreso.offset === 0) {
-    await admin.from("meli_cargos").delete().eq("account_id", accountId).eq("periodo", periodo);
+    await admin.from(tabla).delete().eq("account_id", accountId).eq("periodo", periodo);
     try {
       const crudo = await cliente.get<unknown>(
         `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/summary`,
         { document_type: "BILL" },
         { reintentos: 0 },
       );
-      await guardarCargos(admin, accountId, periodo, extraerResumen(crudo, periodo));
-      await guardarProgreso(admin, accountId, progreso, { resumen: JSON.stringify(crudo).slice(0, 2000) });
+      await guardarCargos(admin, accountId, tabla, periodo, extraerResumen(crudo, periodo));
+      await almacen.guardarProgreso(progreso, { resumen: JSON.stringify(crudo).slice(0, 2000) });
     } catch (err) {
-      await guardarProgreso(admin, accountId, progreso, { resumenError: (err as Error).message.slice(0, 300) });
+      await almacen.guardarProgreso(progreso, { resumenError: (err as Error).message.slice(0, 300) });
     }
   }
 
@@ -364,7 +421,7 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
       const e = err as MeliError;
       if (e instanceof MeliError && e.status === 429) {
         // Cuota agotada: si cabe un minuto de espera, se espera; si no, el
-        // latido retoma donde se quedó.
+        // fondo retoma donde se quedó.
         if (Date.now() + 62_000 < finMs) {
           await dormir(62_000);
           continue;
@@ -377,7 +434,7 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
     }
     paginas++;
     const lote = extraerCargos(crudo, periodo);
-    await guardarCargos(admin, accountId, periodo, lote);
+    await guardarCargos(admin, accountId, tabla, periodo, lote);
     if (typeof crudo?.total === "number") progreso.total = crudo.total;
     else if (typeof crudo?.paging?.total === "number") progreso.total = crudo.paging.total;
     progreso.offset += lote.length;
@@ -388,41 +445,36 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
     if (Date.now() + PASO_CUOTA_MS >= finMs) break;
     await dormir(PASO_CUOTA_MS);
   }
-  await guardarProgreso(admin, accountId, progreso, { paginas, error });
+  await almacen.guardarProgreso(progreso, { paginas, error });
   return { ...(await totalesGuardados()), total: progreso.total, completo: progreso.completo, error };
 }
 
-/**
- * Continúa en el latido la lectura de cargos que quedó a medias (la más
- * reciente sin completar). Devuelve null si no hay nada pendiente.
- */
+/** La cuenta de calzado: lee (o sigue leyendo) los cargos del periodo. */
+export async function sincronizarCargos(admin: DB, accountId: string, periodo: string, finMs = Date.now() + 100_000): Promise<ResultadoCargos> {
+  const almacen = await almacenMeli(admin, accountId);
+  if (!almacen) return { cargos: 0, full: 0, total: null, completo: false, error: "No hay cuenta de MELI conectada." };
+  return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
+}
+
+/** Continúa la lectura de cargos que quedó a medias (la más reciente). null = nada pendiente. */
+export async function continuarCargosCon(admin: DB, accountId: string, almacen: AlmacenCargos, finMs: number): Promise<ResultadoCargos | null> {
+  const [periodo] = await almacen.pendientes();
+  if (!periodo) return null;
+  return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
+}
+
+/** La cuenta de calzado, montada en el latido. */
 export async function continuarCargosPendientes(admin: DB, accountId: string, finMs: number): Promise<ResultadoCargos | null> {
-  const { data } = await admin
-    .from("sync_log")
-    .select("detalle")
-    .eq("account_id", accountId)
-    .eq("tarea", "cargos_meli")
-    .order("inicio", { ascending: false })
-    .limit(12);
-  const vistos = new Set<string>();
-  for (const f of data ?? []) {
-    const d: any = f.detalle ?? {};
-    const periodo = typeof d.periodo === "string" ? d.periodo : null;
-    if (!periodo || vistos.has(periodo)) continue;
-    vistos.add(periodo);
-    // Solo la ÚLTIMA huella de cada periodo dice si quedó a medias.
-    if (d.completo) continue;
-    if (!(Number(d.offset) > 0)) continue; // nunca arrancó bien: no insistir solo
-    return sincronizarCargos(admin, accountId, periodo, finMs);
-  }
-  return null;
+  const almacen = await almacenMeli(admin, accountId);
+  if (!almacen) return null;
+  return continuarCargosCon(admin, accountId, almacen, finMs);
 }
 
 /** Los cargos guardados del periodo. */
-export async function cargosGuardados(db: DB, accountId: string, periodo: string): Promise<CargoMeli[]> {
+export async function cargosGuardados(db: DB, accountId: string, periodo: string, tabla = "meli_cargos"): Promise<CargoMeli[]> {
   const filas = await traerTodo<any>(
     db,
-    "meli_cargos",
+    tabla,
     "detalle_id, periodo, fecha, tipo, subtipo, descripcion, monto, clase",
     (q) => q.eq("account_id", accountId).eq("periodo", periodo),
   ).catch(() => [] as any[]);
