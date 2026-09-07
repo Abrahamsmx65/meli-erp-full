@@ -5,6 +5,8 @@ import {
   claveProductoDeSku,
   claveProductoLaxa,
   claveProductoLaxaDeSku,
+  partesLaxasDeSku,
+  tokensColorLaxos,
 } from "./productos-nuevos";
 
 describe("claveProductoDeSku", () => {
@@ -88,5 +90,20 @@ describe("sinónimos de color verificados", () => {
 
   it("LIGHT de Amazon es LT en MELI", () => {
     expect(claveProductoDeSku("GT110-LIGHT BROWN-26-MX")).toBe(claveProductoDeSku("GT110-LT BROWN-26-MX"));
+  });
+});
+
+describe("amarre por contención (GT157: la proforma dice BROWN, MELI dice DK BROWN)", () => {
+  it("los pedazos del color del pedido caben en los del SKU", () => {
+    const pedido = tokensColorLaxos("BROWN");
+    const sku = partesLaxasDeSku("GT157-DK BROWN-30-MX")!;
+    expect(sku.modelo).toBe("GT157");
+    expect(sku.color).toEqual(["DK", "BROWN"]);
+    expect(pedido.every((t) => sku.color.includes(t))).toBe(true);
+  });
+
+  it("NAVY no cabe en DK BROWN", () => {
+    const sku = partesLaxasDeSku("GT157-DK BROWN-30-MX")!;
+    expect(tokensColorLaxos("NAVY").every((t) => sku.color.includes(t))).toBe(false);
   });
 });
