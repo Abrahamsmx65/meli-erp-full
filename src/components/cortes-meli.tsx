@@ -68,7 +68,9 @@ export function AccionesCorte({
           `Revisadas ${j.revisadas} órdenes: ${j.canceladas} canceladas y ${j.devueltas} devueltas${j.diasRebarridos?.length ? `; ${j.diasRebarridos.length} días re-barridos` : ""}. ${j.quedan > 0 ? `Faltan ${j.quedan}: vuelve a darle.` : "No falta ninguna."}`,
         );
       } else {
-        setAviso(`MELI entregó ${j.cargos} renglones facturados del periodo; de Full: ${pesos(j.full)}.`);
+        setAviso(
+          `Facturación de MELI: ${j.cargos} renglones guardados${j.total != null ? ` de ${j.total}` : ""}${j.completo ? " (completo)" : " — sigue en segundo plano, MELI da 5 páginas por minuto"}; de Full hasta ahora: ${pesos(j.full)}.${j.error ? ` ${j.error}` : ""}`,
+        );
       }
       router.refresh();
     } catch (e) {

@@ -177,7 +177,7 @@ export default async function Cortes({ searchParams }: { searchParams: Promise<{
                 {e.cargosPorTipo.map((k) => (
                   <tr key={k.tipo}>
                     <td className="font-medium">{k.tipo}</td>
-                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad (API)", pago: "Pago / abono" } as Record<string, string>)[k.clase] ?? k.clase}</td>
+                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad (API)", pago: "Pago / abono", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
                     <td className="num cifra">{n(k.renglones)}</td>
                     <td className="num cifra">{pesos(k.monto)}</td>
                   </tr>

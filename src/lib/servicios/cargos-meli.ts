@@ -18,7 +18,7 @@ import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
 import { clienteDeCuenta } from "./webhooks";
 
-export type ClaseCargo = "full" | "publicidad" | "venta" | "pago" | "otro";
+export type ClaseCargo = "full" | "publicidad" | "venta" | "pago" | "otro" | "resumen";
 
 export interface CargoMeli {
   detalleId: string;
@@ -141,9 +141,10 @@ export function claveDePeriodo(crudo: unknown, periodo: string): { clave: string
   return { clave, claves };
 }
 
-/** Todos los renglones facturados del periodo (YYYY-MM), paginados. */
-export async function leerCargosDelPeriodo(cliente: MeliClient, periodo: string): Promise<CargoMeli[]> {
-  // 1. La clave del periodo, de la lista de periodos de MELI.
+const dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** La clave del periodo en MELI (2026-09 → "2026-09-01"), de su lista de periodos. */
+export async function resolverClavePeriodo(cliente: MeliClient, periodo: string): Promise<string> {
   let clave: string | null = null;
   let claves: string[] = [];
   let errorPeriodos: string | null = null;
@@ -161,8 +162,6 @@ export async function leerCargosDelPeriodo(cliente: MeliClient, periodo: string)
   if (!clave) {
     const muestra = claves.length ? ` Periodos que MELI lista: ${claves.slice(0, 12).join(", ")}.` : "";
     const detalle = errorPeriodos ? ` La lista de periodos falló: ${errorPeriodos}.` : "";
-    // Sin clave reconocida, la respuesta cruda (recortada) es la pista para
-    // aprender el formato de MELI.
     const crudoTexto = crudoPeriodos ? ` Respuesta de MELI: ${JSON.stringify(crudoPeriodos).slice(0, 600)}` : "";
     throw new MeliError(
       `MELI no lista un periodo de facturación para ${periodo}.${muestra}${detalle}${crudoTexto}`,
@@ -171,50 +170,104 @@ export async function leerCargosDelPeriodo(cliente: MeliClient, periodo: string)
       "/billing/integration/monthly/periods",
     );
   }
+  return clave;
+}
 
-  // 2. Los renglones de ese periodo.
-  const rutas = [
-    `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
-    `/billing/integration/monthly/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
-  ];
-  const limite = 150;
-  const cargos: CargoMeli[] = [];
-  const vistos = new Set<string>();
-  for (let pagina = 0; pagina < 200; pagina++) {
-    const crudo = await conRutas(rutas, (ruta) =>
-      cliente.get<unknown>(ruta, { document_type: "BILL", limit: limite, offset: pagina * limite }),
-    );
-    const lote = extraerCargos(crudo, periodo);
-    for (const c of lote) {
-      if (vistos.has(c.detalleId)) continue;
-      vistos.add(c.detalleId);
-      cargos.push(c);
+/**
+ * El resumen del periodo, por si MELI ya trae ahí los totales por tipo de
+ * cargo. Lo que se reconozca como Full/publicidad/venta/pago se clasifica;
+ * lo demás entra como "resumen": se enseña pero NUNCA se resta (un total
+ * global tomado como gasto duplicaría todo el mes).
+ */
+export function extraerResumen(crudo: unknown, periodo: string): CargoMeli[] {
+  const salida: CargoMeli[] = [];
+  const recorrer = (nodo: unknown, etiqueta: string, profundidad: number) => {
+    if (profundidad > 5 || nodo == null) return;
+    if (Array.isArray(nodo)) {
+      nodo.forEach((x, i) => recorrer(x, `${etiqueta}[${i}]`, profundidad + 1));
+      return;
     }
-    if (lote.length < limite) break;
-  }
-  return cargos;
+    if (typeof nodo !== "object") return;
+    const o = nodo as Record<string, unknown>;
+    const monto = numero(o.amount) ?? numero(o.total_amount) ?? numero(o.detail_amount) ?? numero(o.value);
+    const nombre = texto(o.detail_type) ?? texto(o.type) ?? texto(o.description) ?? texto(o.name) ?? texto(o.concept) ?? etiqueta;
+    if (monto != null) {
+      const clase = clasificarCargo(nombre);
+      salida.push({
+        detalleId: `resumen:${periodo}:${nombre}`.slice(0, 200),
+        periodo,
+        fecha: null,
+        tipo: nombre,
+        subtipo: "resumen",
+        descripcion: texto(o.description) ?? null,
+        monto,
+        clase: clase === "otro" ? "resumen" : clase,
+      });
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (v && typeof v === "object") recorrer(v, k, profundidad + 1);
+      else if (typeof v === "number" && /amount|total|charge|fee|cost|bonus|discount/i.test(k) && !["amount", "total_amount", "detail_amount", "value"].includes(k)) {
+        const clase = clasificarCargo(k);
+        salida.push({
+          detalleId: `resumen:${periodo}:${etiqueta}.${k}`.slice(0, 200),
+          periodo,
+          fecha: null,
+          tipo: `${etiqueta}.${k}`,
+          subtipo: "resumen",
+          descripcion: null,
+          monto: v,
+          clase: clase === "otro" ? "resumen" : clase,
+        });
+      }
+    }
+  };
+  recorrer(crudo, "resumen", 0);
+  return salida;
 }
 
-export interface ResultadoCargos {
-  cargos: number;
-  /** suma de los cargos de clase full */
-  full: number;
-  error: string | null;
+export interface ProgresoCargos {
+  periodo: string;
+  clave: string | null;
+  offset: number;
+  total: number | null;
+  completo: boolean;
+  actualizadoEn: string | null;
 }
 
-/** Lee los cargos del periodo y los guarda (reemplaza lo del periodo). */
-export async function sincronizarCargos(admin: DB, accountId: string, periodo: string): Promise<ResultadoCargos> {
-  const cliente = await clienteDeCuenta(admin, accountId);
-  if (!cliente) return { cargos: 0, full: 0, error: "No hay cuenta de MELI conectada." };
-  let cargos: CargoMeli[];
-  try {
-    cargos = await leerCargosDelPeriodo(cliente, periodo);
-  } catch (err) {
-    const e = err as MeliError;
-    const detalle = e instanceof MeliError ? ` (HTTP ${e.status})` : "";
-    return { cargos: 0, full: 0, error: `MELI no entregó la facturación del periodo${detalle}: ${e.message}` };
-  }
-  await admin.from("meli_cargos").delete().eq("account_id", accountId).eq("periodo", periodo);
+/** El avance de la lectura de detalles del periodo (bitácora en sync_log). */
+export async function progresoCargos(db: DB, accountId: string, periodo: string): Promise<ProgresoCargos> {
+  const { data } = await db
+    .from("sync_log")
+    .select("detalle, fin")
+    .eq("account_id", accountId)
+    .eq("tarea", "cargos_meli")
+    .eq("detalle->>periodo", periodo)
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const d: any = data?.detalle ?? {};
+  return {
+    periodo,
+    clave: typeof d.clave === "string" ? d.clave : null,
+    offset: Number(d.offset) || 0,
+    total: d.total == null ? null : Number(d.total),
+    completo: Boolean(d.completo),
+    actualizadoEn: data?.fin ?? null,
+  };
+}
+
+async function guardarProgreso(db: DB, accountId: string, p: ProgresoCargos, extra?: Record<string, unknown>): Promise<void> {
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: "cargos_meli",
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, ...extra },
+  });
+}
+
+async function guardarCargos(admin: DB, accountId: string, periodo: string, cargos: CargoMeli[]): Promise<void> {
+  if (!cargos.length) return;
   const filas = cargos.map((c) => ({
     account_id: accountId,
     periodo,
@@ -228,13 +281,141 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
     leido_en: new Date().toISOString(),
   }));
   for (let i = 0; i < filas.length; i += 500) {
-    const { error } = await admin
-      .from("meli_cargos")
-      .upsert(filas.slice(i, i + 500), { onConflict: "account_id,detalle_id" });
-    if (error) return { cargos: 0, full: 0, error: `No se pudieron guardar los cargos: ${error.message}` };
+    const { error } = await admin.from("meli_cargos").upsert(filas.slice(i, i + 500), { onConflict: "account_id,detalle_id" });
+    if (error) throw new Error(`No se pudieron guardar los cargos: ${error.message}`);
   }
-  const full = cargos.filter((c) => c.clase === "full").reduce((a, c) => a + c.monto, 0);
-  return { cargos: cargos.length, full, error: null };
+}
+
+export interface ResultadoCargos {
+  /** renglones guardados del periodo (acumulado) */
+  cargos: number;
+  /** suma de los cargos de clase full guardados */
+  full: number;
+  /** renglones que MELI declara para el periodo; null = no lo dijo */
+  total: number | null;
+  completo: boolean;
+  error: string | null;
+}
+
+/** Segundos entre páginas: el endpoint de detalles da 5 llamadas por minuto. */
+const PASO_CUOTA_MS = 12_500;
+const LIMITE_DETALLES = 150;
+
+/**
+ * Lee (o sigue leyendo) los cargos del periodo hasta agotar `finMs`.
+ *
+ * El endpoint de detalles tiene cuota de 5 llamadas por minuto y un mes
+ * trae decenas de miles de renglones (comisión y envío de cada orden), así
+ * que la lectura es REANUDABLE: el avance queda en sync_log y el latido la
+ * continúa cada minuto hasta completarla. Al empezar de cero se borra lo
+ * del periodo; las páginas se guardan conforme llegan.
+ */
+export async function sincronizarCargos(admin: DB, accountId: string, periodo: string, finMs = Date.now() + 100_000): Promise<ResultadoCargos> {
+  const cliente = await clienteDeCuenta(admin, accountId);
+  if (!cliente) return { cargos: 0, full: 0, total: null, completo: false, error: "No hay cuenta de MELI conectada." };
+
+  const totalesGuardados = async (): Promise<{ cargos: number; full: number }> => {
+    const filas = await cargosGuardados(admin, accountId, periodo);
+    return { cargos: filas.length, full: filas.filter((c) => c.clase === "full").reduce((a, c) => a + c.monto, 0) };
+  };
+
+  const progreso = await progresoCargos(admin, accountId, periodo);
+  if (progreso.completo) {
+    // Releer desde cero: el usuario lo pidió a propósito.
+    progreso.completo = false;
+    progreso.offset = 0;
+    progreso.total = null;
+  }
+
+  try {
+    if (!progreso.clave) progreso.clave = await resolverClavePeriodo(cliente, periodo);
+  } catch (err) {
+    return { ...(await totalesGuardados()), total: null, completo: false, error: (err as Error).message };
+  }
+  const clave = progreso.clave;
+
+  // Al arrancar de cero: fuera lo viejo del periodo, y el resumen si existe.
+  if (progreso.offset === 0) {
+    await admin.from("meli_cargos").delete().eq("account_id", accountId).eq("periodo", periodo);
+    try {
+      const crudo = await cliente.get<unknown>(
+        `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/summary`,
+        { document_type: "BILL" },
+        { reintentos: 0 },
+      );
+      await guardarCargos(admin, accountId, periodo, extraerResumen(crudo, periodo));
+      await guardarProgreso(admin, accountId, progreso, { resumen: JSON.stringify(crudo).slice(0, 2000) });
+    } catch (err) {
+      await guardarProgreso(admin, accountId, progreso, { resumenError: (err as Error).message.slice(0, 300) });
+    }
+  }
+
+  let error: string | null = null;
+  let paginas = 0;
+  while (Date.now() < finMs) {
+    let crudo: any;
+    try {
+      crudo = await cliente.get<unknown>(
+        `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
+        { document_type: "BILL", limit: LIMITE_DETALLES, offset: progreso.offset },
+        { reintentos: 0 },
+      );
+    } catch (err) {
+      const e = err as MeliError;
+      if (e instanceof MeliError && e.status === 429) {
+        // Cuota agotada: si cabe un minuto de espera, se espera; si no, el
+        // latido retoma donde se quedó.
+        if (Date.now() + 62_000 < finMs) {
+          await dormir(62_000);
+          continue;
+        }
+        error = "MELI limita este endpoint a 5 llamadas por minuto: la lectura sigue sola en segundo plano.";
+        break;
+      }
+      error = e.message;
+      break;
+    }
+    paginas++;
+    const lote = extraerCargos(crudo, periodo);
+    await guardarCargos(admin, accountId, periodo, lote);
+    if (typeof crudo?.total === "number") progreso.total = crudo.total;
+    else if (typeof crudo?.paging?.total === "number") progreso.total = crudo.paging.total;
+    progreso.offset += lote.length;
+    if (lote.length < LIMITE_DETALLES || (progreso.total != null && progreso.offset >= progreso.total)) {
+      progreso.completo = true;
+      break;
+    }
+    if (Date.now() + PASO_CUOTA_MS >= finMs) break;
+    await dormir(PASO_CUOTA_MS);
+  }
+  await guardarProgreso(admin, accountId, progreso, { paginas, error });
+  return { ...(await totalesGuardados()), total: progreso.total, completo: progreso.completo, error };
+}
+
+/**
+ * Continúa en el latido la lectura de cargos que quedó a medias (la más
+ * reciente sin completar). Devuelve null si no hay nada pendiente.
+ */
+export async function continuarCargosPendientes(admin: DB, accountId: string, finMs: number): Promise<ResultadoCargos | null> {
+  const { data } = await admin
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", "cargos_meli")
+    .order("inicio", { ascending: false })
+    .limit(12);
+  const vistos = new Set<string>();
+  for (const f of data ?? []) {
+    const d: any = f.detalle ?? {};
+    const periodo = typeof d.periodo === "string" ? d.periodo : null;
+    if (!periodo || vistos.has(periodo)) continue;
+    vistos.add(periodo);
+    // Solo la ÚLTIMA huella de cada periodo dice si quedó a medias.
+    if (d.completo) continue;
+    if (!(Number(d.offset) > 0)) continue; // nunca arrancó bien: no insistir solo
+    return sincronizarCargos(admin, accountId, periodo, finMs);
+  }
+  return null;
 }
 
 /** Los cargos guardados del periodo. */

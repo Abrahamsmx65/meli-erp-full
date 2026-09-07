@@ -32,7 +32,7 @@
  * estima como importe − comisión y el corte lo declara.
  */
 import { traerTodo, type Cuenta, type DB } from "../datos/repos";
-import { cargosGuardados, type CargoMeli, type ClaseCargo } from "./cargos-meli";
+import { cargosGuardados, progresoCargos, type CargoMeli, type ClaseCargo } from "./cargos-meli";
 import { configPorProducto, type ConfigProducto } from "./productos";
 import { cargarPublicidad } from "./publicidad";
 import { fechaMx } from "./ventas-monitor";
@@ -230,8 +230,10 @@ export interface EntradaCorte {
   errorAds: string | null;
   gastos: GastoManual[];
   cargos: CargoMeli[];
-  /** true si el API de facturación de MELI ya se leyó para el periodo */
+  /** true si el API de facturación de MELI ya se leyó COMPLETO para el periodo */
   cargosLeidos: boolean;
+  /** avance de la lectura de facturación, para el aviso: renglones leídos y declarados */
+  cargosAvance?: { offset: number; total: number | null };
 }
 
 export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
@@ -468,8 +470,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (e.errorAds) avisos.push(`Publicidad: ${e.errorAds} Solo cuenta lo capturado a mano.`);
   if (!e.cargosLeidos) {
+    const av = e.cargosAvance;
     avisos.push(
-      "No se han leído los cargos facturados por MELI del periodo (almacenamiento de Full, etc.): los gastos de Full solo incluyen lo capturado a mano.",
+      av && av.offset > 0
+        ? `La facturación de MELI va a medias: ${av.offset.toLocaleString("es-MX")}${av.total != null ? ` de ${av.total.toLocaleString("es-MX")}` : ""} renglones leídos (MELI da 5 llamadas por minuto; el latido la sigue solo). Los gastos de Full pueden estar incompletos.`
+        : "No se han leído los cargos facturados por MELI del periodo (almacenamiento de Full, etc.): los gastos de Full solo incluyen lo capturado a mano.",
     );
   }
   if (devOrdenes > 0) {
@@ -582,7 +587,7 @@ export async function ordenesDelRango(db: DB, accountId: string, desde: string, 
 
 export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
-  const [ventas, skus, config, gastos, cargos, ordenes, publicidad] = await Promise.all([
+  const [ventas, skus, config, gastos, cargos, ordenes, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
@@ -594,6 +599,7 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
       sinAmarre: { gasto: 0 },
       errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
     })),
+    progresoCargos(db, cuenta.id, periodo).catch(() => ({ periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: null })),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -615,7 +621,8 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     errorAds: publicidad.errorAds,
     gastos,
     cargos,
-    cargosLeidos: cargos.length > 0,
+    cargosLeidos: progreso.completo,
+    cargosAvance: { offset: progreso.offset, total: progreso.total },
   });
 }
 
