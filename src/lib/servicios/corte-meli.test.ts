@@ -201,3 +201,22 @@ describe("armarEstadoResultados", () => {
     expect(e.enviosYOtros).toBe(20);
   });
 });
+
+describe("estimación con porcentaje observado", () => {
+  it("estima lo que no tiene depósito con el ratio y no con importe − comisión", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [
+          { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 200, comision: 30, neto: 0 },
+        ],
+        ratioEstimacion: 0.54,
+        avisosExtra: ["aviso propio"],
+      }),
+    );
+    expect(e.netoDepositado).toBe(108);
+    expect(e.netoEstimado).toBe(108);
+    expect(e.porModelo[0].neto).toBe(108);
+    expect(e.avisos[0]).toBe("aviso propio");
+    expect(e.avisos.some((a) => a.includes("54.0% observado"))).toBe(true);
+  });
+});

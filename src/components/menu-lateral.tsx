@@ -113,6 +113,7 @@ const GRUPOS: Grupo[] = [
     titulo: "YAPANIZCEL · Fundas",
     entradas: [
       { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
+      { href: "/yapanizcel/cortes", texto: "Cortes fundas", icono: Wallet, ayuda: "Estado de resultados del mes y PDF" },
       { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
       { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
       { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
