@@ -165,6 +165,11 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         sugerencias: conPublicacion.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })
+    // Un renglón muerto —sin saldo, sin apartado, sin venta, sin publicación
+    // ligada y sin rojo— es un nombre viejo (un SKU que la bodega renombró,
+    // un duplicado ya fusionado). Enseñarlo solo estorba, y sus sugerencias
+    // invitan a ligar publicaciones vivas a un renglón vacío.
+    .filter((r: RenglonTikTok) => r.saldo !== 0 || r.apartado !== 0 || r.ventas30 !== 0 || r.publicable || r.enRojo)
     // Lo urgente arriba: primero lo que TikTok todavía no sabe, y dentro de
     // eso lo que más se vende, que es donde un desfase cuesta dinero.
     .sort((a, b) => {
