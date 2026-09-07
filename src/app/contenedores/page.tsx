@@ -3,6 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
 import { TablaContenedores } from "@/components/tabla-contenedores";
+import { SubirPackingList } from "@/components/subir-packing-list";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -47,8 +48,9 @@ export default async function Contenedores() {
       <header>
         <h1 className="titulo-pagina">Contenedores</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Cada contenedor con nuestro propio ID. Confirmar la llegada no suma
-          inventario: las existencias llegan solas del API de Industher.
+          Cada contenedor con nuestro propio ID. Sube el packing list de la fábrica y
+          el contenedor se arma solo. Confirmar la llegada no suma inventario: las
+          existencias llegan solas del API de Industher.
         </p>
       </header>
 
@@ -61,6 +63,8 @@ export default async function Contenedores() {
         <Ficha titulo="Recibidos" valor={n(contenedores.length - enCamino.length)} />
         <Ficha titulo="Total" valor={n(contenedores.length)} />
       </div>
+
+      <SubirPackingList />
 
       <TablaContenedores contenedores={contenedores} />
     </div>

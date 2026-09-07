@@ -24,6 +24,7 @@ import {
   Ship,
   ShoppingCart,
   Smartphone,
+  Sparkles,
   Tags,
   Truck,
   Upload,
@@ -100,6 +101,8 @@ const GRUPOS: Grupo[] = [
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
+      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
       { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
     ],
