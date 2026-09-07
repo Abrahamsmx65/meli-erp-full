@@ -229,6 +229,13 @@ guárdala numerada.
   calladas. De la facturación de MELI solo se restan las clases `full` y
   `otro` (`clasificarCargo`): comisión y envío ya van en el neto, Product
   Ads ya cuenta por el API de publicidad, los pagos son abonos.
+  **Ventas en REVENTA** (MELI compra y revende; desde el 27 ago 2026, la
+  mitad de las órdenes de calzado): la orden llega con `unit_price` YA NETO
+  de comisión y envío (MELI los absorbe), `sale_fee` 0 y Mercado Pago la
+  deposita completa (neto = total). Verificado con la orden
+  2000014843734267: "Recibes $176.80" de $208. No cuestan nada más; el
+  corte las cuenta (`reventa`) y explica por qué la comisión se ve baja.
+  NUNCA estimarles un cargo aparte.
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que

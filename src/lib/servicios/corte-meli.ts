@@ -132,11 +132,12 @@ export interface EstadoResultados {
   cancelaciones: { ordenes: number; importe: number };
   devoluciones: { ordenes: number; monto: number };
   /**
-   * Comisión y envío que MELI cobra APARTE (por facturación) a las órdenes
-   * que Mercado Pago depositó completas. Estimado con el ratio observado en
-   * las órdenes normales hasta que la facturación del periodo lo confirme.
+   * Ventas en REVENTA (MELI compra y revende, verificado con la orden
+   * 2000014843734267 del 3 sep 2026): el importe de la orden ya viene neto
+   * de comisión y envío, que MELI absorbe, y Mercado Pago lo deposita
+   * completo. Por eso no traen comisión y no se les descuenta nada más.
    */
-  cargosFacturados: { ordenes: number; base: number; monto: number; estimado: boolean; ratio: number | null };
+  reventa: { ordenes: number; importe: number };
 
   costoProducto: number;
   unidadesConCosto: number;
@@ -233,9 +234,13 @@ export interface DiaOrdenesAgregado {
   pendientes: number;
   /** órdenes vivas sin renglones (solo fundas) */
   sinRenglones?: number;
-  /** órdenes depositadas COMPLETAS (neto ≥ 99% del total): MELI cobra su comisión y envío aparte */
+  /**
+   * Órdenes en REVENTA (MELI compra y revende): se depositan completas
+   * (neto ≥ 99% del total) porque su importe YA viene neto de comisión y
+   * envío, que MELI absorbe. No cuestan nada más.
+   */
   sinDescOrdenes?: number;
-  /** la venta de esas órdenes */
+  /** la venta (ya neta) de esas órdenes */
   sinDescTotal?: number;
 }
 
@@ -307,12 +312,7 @@ export interface EntradaCorte {
   ratioEstimacion?: number | null;
   /** avisos extra del que arma la entrada (p. ej. órdenes registradas a medias) */
   avisosExtra?: string[];
-  /**
-   * Neto ÷ venta observado en las órdenes NORMALES (las que sí traen comisión
-   * y envío descontados en el pago), para estimar lo que MELI cobra aparte a
-   * las órdenes depositadas completas. null = sin dato.
-   */
-  ratioNormal?: number | null;
+
   /** true si el API de facturación de MELI ya se leyó COMPLETO para el periodo */
   cargosLeidos: boolean;
   /** avance de la lectura de facturación, para el aviso: renglones leídos y declarados */
@@ -518,16 +518,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     cargosTipo.set(tipo, k);
   }
 
-  // --- Comisión y envío cobrados aparte ------------------------------------
-  // Una orden depositada completa no costó cero: MELI le cobra comisión y
-  // envío por facturación. Hasta que la factura lo confirme, se estima con
-  // lo que Mercado Pago descuenta a las órdenes normales.
-  const ratioNormal = e.ratioNormal != null && e.ratioNormal > 0 && e.ratioNormal < 1 ? e.ratioNormal : null;
-  const cargosFacturados = sinDescTotal > 0 && ratioNormal != null ? Math.round(sinDescTotal * (1 - ratioNormal)) : 0;
-
   // --- La cuenta -----------------------------------------------------------
   const enviosYOtros = ventaBruta - comision - netoDepositado;
-  const utilidadBruta = netoDepositado - cargosFacturados - devMonto - costoProducto;
+  const utilidadBruta = netoDepositado - devMonto - costoProducto;
   const publicidadTotal = publicidad.ads + publicidad.manual;
   const fullTotal = full.cargosMeli + full.manual;
   const otrosTotal = otros.cargosMeli + otros.manual;
@@ -555,9 +548,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (sinDescOrdenes > 0) {
     avisos.push(
-      ratioNormal != null
-        ? `${sinDescOrdenes.toLocaleString("es-MX")} órdenes por ${p(sinDescTotal).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} se depositaron COMPLETAS: MELI les cobra comisión y envío aparte, por facturación. Se estimó con el ${((1 - ratioNormal) * 100).toFixed(1)}% que Mercado Pago descuenta a las órdenes normales; la facturación del periodo lo confirmará.`
-        : `${sinDescOrdenes.toLocaleString("es-MX")} órdenes se depositaron COMPLETAS (MELI les cobra comisión y envío aparte) y no hay órdenes normales con qué estimar ese cargo: la utilidad está inflada hasta leer la facturación.`,
+      `${sinDescOrdenes.toLocaleString("es-MX")} órdenes por ${p(sinDescTotal).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} fueron ventas en REVENTA (MELI compra y revende): su importe ya viene neto de comisión y envío, que MELI absorbe, y se depositó completo. Por eso la comisión del mes se ve baja: no es un error.`,
     );
   }
   if (pendientes > 0) {
@@ -586,7 +577,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
 
   const exacto =
-    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && !e.errorAds && e.cargosLeidos && diasDescuadrados.length === 0 && sinDescOrdenes === 0;
+    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && !e.errorAds && e.cargosLeidos && diasDescuadrados.length === 0;
 
   const dias = Math.max(1, Math.round((Date.parse(e.hasta) - Date.parse(e.desde)) / 86_400_000) + 1);
   return {
@@ -606,7 +597,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     coberturaNetoReal,
     cancelaciones: { ordenes: cancelOrdenes, importe: p(cancelImporte) },
     devoluciones: { ordenes: devOrdenes, monto: p(devMonto) },
-    cargosFacturados: { ordenes: sinDescOrdenes, base: p(sinDescTotal), monto: p(cargosFacturados), estimado: sinDescOrdenes > 0, ratio: ratioNormal },
+    reventa: { ordenes: sinDescOrdenes, importe: p(sinDescTotal) },
     costoProducto: p(costoProducto),
     unidadesConCosto,
     coberturaCosto,
@@ -717,8 +708,7 @@ export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: stri
 
 export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
-  const hoy = fechaMx(0);
-  const [ventas, skus, config, gastos, cargos, ordenesPorDia, publicidad, progreso, ratioNormal] = await Promise.all([
+  const [ventas, skus, config, gastos, cargos, ordenesPorDia, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
@@ -732,8 +722,6 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
       errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
     })),
     progresoCargos(db, cuenta.id, periodo).catch(() => ({ periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: null })),
-    // Lo que Mercado Pago descuenta a las órdenes normales (últimas 8 semanas).
-    ratioObservadoDesdeRpc(db, "cortes_ratio_observado", cuenta.id, new Date(Date.parse(hoy) - 59 * 86_400_000).toISOString().slice(0, 10), hoy).catch(() => null),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -757,7 +745,6 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     cargos,
     cargosLeidos: progreso.completo,
     cargosAvance: { offset: progreso.offset, total: progreso.total },
-    ratioNormal,
   });
 }
 

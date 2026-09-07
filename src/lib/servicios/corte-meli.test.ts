@@ -221,8 +221,8 @@ describe("estimación con porcentaje observado", () => {
   });
 });
 
-describe("órdenes depositadas completas", () => {
-  it("les estima la comisión y el envío que MELI cobra aparte, con el ratio de las normales", () => {
+describe("ventas en reventa", () => {
+  it("las órdenes depositadas completas son reventa: importe ya neto, sin descuento adicional", () => {
     const e = armarEstadoResultados(
       base({
         ventas: [
@@ -236,14 +236,12 @@ describe("órdenes depositadas completas", () => {
           { orderId: 1, fecha: "2026-09-03", total: 200, neto: 200, netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2 },
           { orderId: 2, fecha: "2026-09-03", total: 200, neto: 106, netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2 },
         ],
-        ratioNormal: 0.53,
       }),
     );
     expect(e.netoDepositado).toBe(306);
-    expect(e.cargosFacturados).toEqual({ ordenes: 1, base: 200, monto: 94, estimado: true, ratio: 0.53 });
-    // utilidad bruta = 306 − 94 − costo (2 × 60.50)
-    expect(e.utilidadBruta).toBe(306 - 94 - 121);
-    expect(e.revision.exacto).toBe(false);
-    expect(e.avisos.some((a) => a.includes("depositaron COMPLETAS"))).toBe(true);
+    expect(e.reventa).toEqual({ ordenes: 1, importe: 200 });
+    // utilidad bruta = 306 − costo (2 × 60.50): la reventa no cuesta nada más
+    expect(e.utilidadBruta).toBe(306 - 121);
+    expect(e.avisos.some((a) => a.includes("REVENTA"))).toBe(true);
   });
 });
