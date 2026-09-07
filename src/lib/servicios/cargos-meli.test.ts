@@ -78,3 +78,25 @@ describe("claveDePeriodo", () => {
     expect(claveDePeriodo(null, "2026-09")).toEqual({ clave: null, claves: [] });
   });
 });
+
+describe("extraerResumen", () => {
+  it("saca montos con nombre y nunca los cuenta como gasto si no se reconocen", async () => {
+    const { extraerResumen } = await import("./cargos-meli");
+    const filas = extraerResumen(
+      {
+        summary: { charges_amount: 1000.5, bonus_amount: -20 },
+        charges: [
+          { type: "Almacenamiento Full", amount: 300 },
+          { type: "Comisión por venta", amount: 600 },
+        ],
+      },
+      "2026-08",
+    );
+    const porTipo = new Map(filas.map((f) => [f.tipo, f]));
+    expect(porTipo.get("Almacenamiento Full")).toMatchObject({ clase: "full", monto: 300, subtipo: "resumen" });
+    expect(porTipo.get("Comisión por venta")).toMatchObject({ clase: "venta", monto: 600 });
+    expect(porTipo.get("summary.charges_amount")).toMatchObject({ clase: "resumen", monto: 1000.5 });
+    expect(filas.every((f) => f.clase !== "otro")).toBe(true);
+    expect(new Set(filas.map((f) => f.detalleId)).size).toBe(filas.length);
+  });
+});
