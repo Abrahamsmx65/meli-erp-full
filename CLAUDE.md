@@ -125,7 +125,9 @@ guárdala numerada.
   `soloPedidos`, también desde la captura a mano); (2) se reconcilia contra
   lo que TikTok DICE tener (`tiktok_skus.cantidad_tiktok`, del catálogo), no
   contra lo último escrito: una edición en el Seller Center se corrige sola;
-  (2b) una SUBIDA del número solo se manda con causa —entrada, devolución,
+  el camino del aviso (`sincronizarPedidosPorId`) lee el pedido que avisó
+  MÁS la ventana desde el cursor, y el cursor solo avanza si la ventana se
+  leyó bien; (2b) una SUBIDA del número solo se manda con causa —entrada, devolución,
   ajuste o pedido cancelado desde la última escritura a ese SKU
   (`frenarSubidasSinCausa`, `causasDeSubida`)— salvo en la corrida completa
   sin avisos pendientes, que acaba de leer todos los pedidos; bajar siempre

@@ -399,6 +399,64 @@ async function conCandadoTikTok<T>(
   }
 }
 
+/**
+ * La ventana de pedidos que se MOVIERON desde el cursor (con traslape). Es
+ * la misma lectura para la corrida completa y para el camino del aviso: en
+ * los dos casos, antes de escribirle a TikTok hay que tener TODOS los
+ * pedidos recientes, no solo el que avisó; si no, el apartado va corto y
+ * el número que se publica es más alto que el real.
+ */
+async function leerVentanaDePedidos(
+  admin: any,
+  accountId: string,
+  cliente: Cliente,
+): Promise<{ pedidos: PedidoTikTok[]; desdeMs: number; hastaMs: number; diag: DiagnosticoPedidos; error: string | null }> {
+  const { data: estado } = await admin
+    .from("tiktok_sync_estado")
+    .select("cursor_ts")
+    .eq("account_id", accountId)
+    .eq("tarea", "pedidos")
+    .maybeSingle();
+
+  // Mientras la tabla de pedidos siga vacía se mira la ventana completa
+  // aunque ya haya cursor: una primera corrida que no trajo nada (permisos a
+  // medias, ventana corta) no debe dejar el cursor adelante para siempre.
+  const { count: yaGuardados } = await admin
+    .from("tiktok_ordenes")
+    .select("order_id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+
+  const desdeMs =
+    estado?.cursor_ts && (yaGuardados ?? 0) > 0
+      ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
+      : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
+  const hastaMs = Date.now();
+
+  const diag: DiagnosticoPedidos = { totalCount: null, paginas: 0, llaves: [] };
+  let pedidos: PedidoTikTok[] = [];
+  let error: string | null = null;
+  try {
+    pedidos = await pedidosActualizados(cliente, Math.floor(desdeMs / 1000), Math.floor(hastaMs / 1000), 40, diag);
+  } catch (err) {
+    error = (err as Error).message;
+  }
+  return { pedidos, desdeMs, hastaMs, diag, error };
+}
+
+/** El cursor solo avanza cuando la ventana se leyó completa: si falló, se repite. */
+async function avanzarCursorDePedidos(admin: any, accountId: string, hastaMs: number, pedidos: number): Promise<void> {
+  await admin.from("tiktok_sync_estado").upsert(
+    {
+      account_id: accountId,
+      tarea: "pedidos",
+      cursor_ts: new Date(hastaMs).toISOString(),
+      datos: { pedidos },
+      actualizado_en: new Date().toISOString(),
+    },
+    { onConflict: "account_id,tarea" },
+  );
+}
+
 export interface ResultadoPedidosPorId {
   pedidos: number;
   salidas: number;
@@ -418,9 +476,10 @@ export async function sincronizarPedidosPorId(
   admin: any,
   accountId: string,
   ids: string[],
+  opciones: { avisosEnProceso?: number[] } = {},
 ): Promise<ResultadoPedidosPorId> {
   const r = await conCandadoTikTok(admin, accountId, 120, 30_000, () =>
-    sincronizarPedidosPorIdSinCandado(admin, accountId, ids),
+    sincronizarPedidosPorIdSinCandado(admin, accountId, ids, opciones),
   );
   return r ?? { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: ["Otra sincronización de TikTok está en curso; se reintenta."], ocupado: true };
 }
@@ -429,6 +488,7 @@ async function sincronizarPedidosPorIdSinCandado(
   admin: any,
   accountId: string,
   ids: string[],
+  opciones: { avisosEnProceso?: number[] } = {},
 ): Promise<ResultadoPedidosPorId> {
   const cliente = await clienteDeCuenta(admin, accountId, 60_000);
   if (!cliente || !cliente.tienda.shopCipher) {
@@ -437,17 +497,28 @@ async function sincronizarPedidosPorIdSinCandado(
   const avisos: string[] = [];
   const amarrar = await amarradorDeCuenta(admin, accountId);
 
-  let pedidos: PedidoTikTok[] = [];
+  // Los pedidos que avisaron, MÁS todos los que se movieron desde el
+  // cursor: así el apartado queda completo antes de escribirle a TikTok,
+  // aunque un aviso venga atrasado o se haya perdido.
+  const porId = new Map<string, PedidoTikTok>();
   try {
-    pedidos = await pedidosPorId(cliente, [...new Set(ids)]);
+    for (const p of await pedidosPorId(cliente, [...new Set(ids)])) porId.set(p.orderId, p);
   } catch (err) {
     avisos.push(`Pedidos: ${(err as Error).message}`);
   }
+  const ventana = await leerVentanaDePedidos(admin, accountId, cliente);
+  for (const p of ventana.pedidos) porId.set(p.orderId, p);
+  if (ventana.error) avisos.push(`Ventana de pedidos: ${ventana.error}`);
+  const pedidos = [...porId.values()];
 
   const r = await procesarPedidos(admin, accountId, pedidos, amarrar);
   await recalcularSaldos(admin, accountId);
+  if (!ventana.error) await avanzarCursorDePedidos(admin, accountId, ventana.hastaMs, ventana.pedidos.length);
   if (pedidos.length) await reconstruirVentasDiarias(admin, accountId).catch(() => undefined);
-  const pub = await publicarDisponibilidad(admin, accountId, cliente);
+  const pub = await publicarDisponibilidad(admin, accountId, cliente, {
+    pedidosCompletos: !ventana.error,
+    avisosEnProceso: opciones.avisosEnProceso,
+  });
   avisos.push(...pub.avisos);
 
   return { pedidos: pedidos.length, salidas: r.salidas, devoluciones: r.devoluciones, publicados: pub.publicados, avisos };
@@ -565,40 +636,9 @@ async function sincronizarTikTokSinCandado(
   }
 
   // ---- 2. Pedidos que se movieron ---------------------------------------
-  const { data: estado } = await admin
-    .from("tiktok_sync_estado")
-    .select("cursor_ts")
-    .eq("account_id", accountId)
-    .eq("tarea", "pedidos")
-    .maybeSingle();
-
-  // Mientras la tabla de pedidos siga vacía se mira la ventana completa
-  // aunque ya haya cursor: una primera corrida que no trajo nada (permisos a
-  // medias, ventana corta) no debe dejar el cursor adelante para siempre.
-  const { count: yaGuardados } = await admin
-    .from("tiktok_ordenes")
-    .select("order_id", { count: "exact", head: true })
-    .eq("account_id", accountId);
-
-  const desdeMs =
-    estado?.cursor_ts && (yaGuardados ?? 0) > 0
-      ? Date.parse(estado.cursor_ts) - TRASLAPE_MS
-      : Date.now() - DIAS_PRIMERA_CORRIDA * 86_400_000;
-  const hastaMs = Date.now();
-
-  const diag: DiagnosticoPedidos = { totalCount: null, paginas: 0, llaves: [] };
-  let pedidos: Awaited<ReturnType<typeof pedidosActualizados>> = [];
-  try {
-    pedidos = await pedidosActualizados(
-      cliente,
-      Math.floor(desdeMs / 1000),
-      Math.floor(hastaMs / 1000),
-      40,
-      diag,
-    );
-  } catch (err) {
-    avisos.push(`Pedidos: ${(err as Error).message}`);
-  }
+  const ventana = await leerVentanaDePedidos(admin, accountId, cliente);
+  const { pedidos, desdeMs, hastaMs, diag } = ventana;
+  if (ventana.error) avisos.push(`Pedidos: ${ventana.error}`);
 
   const procesado = await procesarPedidos(admin, accountId, pedidos, amarrar);
   const { salidas, devoluciones, sinAmarre } = procesado;
@@ -624,20 +664,13 @@ async function sincronizarTikTokSinCandado(
   // apartados cambian con cada cancelación, y el disponible con ellos.
   await recalcularSaldos(admin, accountId);
 
-  await admin.from("tiktok_sync_estado").upsert(
-    {
-      account_id: accountId,
-      tarea: "pedidos",
-      cursor_ts: new Date(hastaMs).toISOString(),
-      datos: { pedidos: pedidos.length },
-      actualizado_en: new Date().toISOString(),
-    },
-    { onConflict: "account_id,tarea" },
-  );
+  // El cursor solo avanza si la ventana se leyó bien: si TikTok falló, la
+  // siguiente corrida vuelve a pedir el mismo tramo y no se pierde nada.
+  if (!ventana.error) await avanzarCursorDePedidos(admin, accountId, hastaMs, pedidos.length);
 
   // ---- 4. Escribirle la disponibilidad a TikTok -------------------------
-  // Aquí se acaban de leer todos los pedidos: las subidas van con causa.
-  const pub = await publicarDisponibilidad(admin, accountId, cliente, { pedidosCompletos: true });
+  // Con la ventana bien leída se tienen todos los pedidos: las subidas van con causa.
+  const pub = await publicarDisponibilidad(admin, accountId, cliente, { pedidosCompletos: !ventana.error });
   avisos.push(...pub.avisos);
 
   await admin.from("tiktok_sync_log").insert({
@@ -700,8 +733,10 @@ export async function publicarDisponibilidad(
   accountId: string,
   clienteDado?: Cliente | null,
   opciones: {
-    /** true solo desde la corrida completa: acaba de leer todos los pedidos */
+    /** true cuando se acaba de leer la ventana completa de pedidos */
     pedidosCompletos?: boolean;
+    /** avisos que ESTA corrida ya procesó (aún sin marcar): no cuentan como pendientes */
+    avisosEnProceso?: number[];
   } = {},
 ): Promise<ResultadoPublicar> {
   const cliente = clienteDado ?? (await clienteDeCuenta(admin, accountId));
@@ -763,12 +798,15 @@ export async function publicarDisponibilidad(
   let frenadas: typeof escrituras = [];
   let permitidas = escrituras;
   if (subidas.length) {
-    const { count: avisosPendientes } = await admin
+    const { data: pendientesRaw } = await admin
       .from("tiktok_webhooks")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .eq("account_id", accountId)
-      .is("procesado_en", null);
-    const todasConCausa = Boolean(opciones.pedidosCompletos) && !(avisosPendientes ?? 0);
+      .is("procesado_en", null)
+      .limit(500);
+    const enProceso = new Set(opciones.avisosEnProceso ?? []);
+    const avisosPendientes = ((pendientesRaw ?? []) as { id: number }[]).filter((w) => !enProceso.has(w.id)).length;
+    const todasConCausa = Boolean(opciones.pedidosCompletos) && !avisosPendientes;
     const conCausa = todasConCausa ? new Set<string>() : await causasDeSubida(admin, accountId, subidas.map((e) => e.skuInterno), inv ?? []);
     ({ permitidas, frenadas } = frenarSubidasSinCausa(escrituras, conCausa, todasConCausa));
   }
@@ -977,7 +1015,7 @@ export async function procesarWebhooksPendientes(
   let r: ResultadoPedidosPorId = { pedidos: 0, salidas: 0, devoluciones: 0, publicados: 0, avisos: [] };
   let error: string | null = null;
   try {
-    if (ids.length) r = await sincronizarPedidosPorId(admin, accountId, ids);
+    r = await sincronizarPedidosPorId(admin, accountId, ids, { avisosEnProceso: lista.map((w) => w.id) });
   } catch (err) {
     error = (err as Error).message;
   }
