@@ -87,6 +87,8 @@ export async function hacerCorte(
   if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
 
   const errores: { orderId: string; error: string }[] = [];
+
+  let dropOff = 0;
   const confirmados: string[] = [];
 
   for (const p of pendientes) {
@@ -116,12 +118,10 @@ export async function hacerCorte(
               // Sin horario no hay recolección posible. Se manda como
               // drop-off A PROPÓSITO y se deja escrito por qué, en vez de
               // mandar PICKUP a ciegas y que TikTok lo convierta en silencio.
+              // Es el modo normal de esta tienda (la paquetería no recoge en
+              // esa dirección): no se anota como error, solo se cuenta.
               handover = "DROP_OFF";
-              const porque =
-                e.puedeRecoleccion === false
-                  ? "TikTok no ofrece recolección para este paquete (solo drop-off): hay que habilitarla en el Seller Center para esta dirección y paquetería"
-                  : `TikTok no ofreció horarios de recolección (contestó: ${e.llaves.join(", ") || "vacío"})`;
-              errores.push({ orderId: p.orderId, error: `${porque}. Salió como DROP-OFF.` });
+              dropOff++;
             }
           } catch (err) {
             errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó como recolección sin horario.` });

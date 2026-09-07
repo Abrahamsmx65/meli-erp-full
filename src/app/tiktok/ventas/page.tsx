@@ -4,7 +4,6 @@ import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { efectoDeEstado } from "@/lib/tiktok/kardex";
 import { muestrasEnRango, pedidosDeVenta, resumenPorModelo } from "@/lib/tiktok/ventas";
 import { FiltroFechas } from "@/components/filtro-fechas";
-import { PedidosTikTok, type PedidoPorEnviar } from "@/components/tiktok-pedidos";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +90,26 @@ export default async function VentasTikTok({
     estado: (i.estado ?? null) as string | null,
   }));
   const modelos = resumenPorModelo(ordenesParaVentas, renglonesParaVentas, rango);
+
+  // Costo por MODELO (productos_config, MXN final): ganancia = recibido − costo
+  // de los pares ya liquidados. Sin costo capturado no se inventa nada.
+  const costosRaw = await traerTodo<any>(supabase, "productos_config", "modelo, costo_mxn", (q) =>
+    q.eq("account_id", cuenta.id).not("costo_mxn", "is", null),
+  );
+  const costoDe = new Map<string, number>();
+  for (const c of costosRaw ?? []) {
+    const modelo = String(c.modelo ?? "").toUpperCase();
+    if (modelo && c.costo_mxn != null && !costoDe.has(modelo)) costoDe.set(modelo, Number(c.costo_mxn));
+  }
+  const conCosto = modelos.map((m) => {
+    const costoUnitario = costoDe.get(m.modelo) ?? null;
+    const costo = costoUnitario != null ? costoUnitario * m.unidadesLiquidadas : null;
+    const ganancia = costo != null && m.unidadesLiquidadas > 0 ? m.recibido - costo : null;
+    return { ...m, costoUnitario, costo, ganancia };
+  });
+  const gananciaTotal = conCosto.reduce((a, m) => a + (m.ganancia ?? 0), 0);
+  const hayGanancia = conCosto.some((m) => m.ganancia != null);
+  const sinCosto = conCosto.filter((m) => m.costoUnitario == null).length;
   const recibido = modelos.reduce((a, m) => a + m.recibido, 0);
   const cobradoLiquidado = modelos.reduce((a, m) => a + m.cobradoLiquidado, 0);
   const comision = cobradoLiquidado > 0 ? 1 - recibido / cobradoLiquidado : null;
@@ -112,26 +131,6 @@ export default async function VentasTikTok({
   const idsPorEnviar = new Set(porEnviar.map((i) => i.order_id));
 
   // Pedido por pedido, para empacar y confirmar desde aquí.
-  const itemsPorPedido = new Map<string, Map<string, number>>();
-  for (const i of porEnviar) {
-    const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
-    const m = itemsPorPedido.get(i.order_id) ?? new Map<string, number>();
-    m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
-    itemsPorPedido.set(i.order_id, m);
-  }
-  const pedidosPorEnviar: PedidoPorEnviar[] = (ordenes ?? [])
-    .filter((o) => itemsPorPedido.has(o.order_id))
-    .map((o) => ({
-      orderId: o.order_id,
-      estado: o.estado,
-      creadoEn: o.fecha_creacion ?? null,
-      destinatario: o.detalle?.destinatario ?? null,
-      shippingType: o.shipping_type ?? null,
-      esMuestra: Boolean(o.es_muestra),
-      renglones: [...(itemsPorPedido.get(o.order_id) ?? new Map())].map(([sku, pares]) => ({ sku, pares })),
-    }))
-    .sort((a, b) => (a.creadoEn ?? "").localeCompare(b.creadoEn ?? ""));
-
   const porEstado = new Map<string, number>();
   for (const o of ordenes ?? []) {
     porEstado.set(o.estado, (porEstado.get(o.estado) ?? 0) + 1);
@@ -164,6 +163,18 @@ export default async function VentasTikTok({
           }
           tono={sinLiquidar ? "alerta" : "neutro"}
         />
+        <Ficha
+          titulo="Ganancia"
+          valor={hayGanancia ? pesos(gananciaTotal) : "—"}
+          nota={
+            hayGanancia
+              ? `recibido − costo, solo de lo liquidado${sinCosto ? ` · ${sinCosto} modelos sin costo` : ""}`
+              : sinCosto === conCosto.length && conCosto.length
+                ? "captura costos en Productos y costos"
+                : "se calcula cuando TikTok liquida"
+          }
+          tono={hayGanancia && gananciaTotal < 0 ? "critico" : "neutro"}
+        />
         <Ficha titulo="Muestras" valor={muestras.length} nota={`${paresMuestra} pares regalados, fuera de ventas`} />
         <Ficha
           titulo="Pedidos por enviar"
@@ -174,7 +185,6 @@ export default async function VentasTikTok({
         <Ficha titulo="Pares apartados" valor={n(paresPorEnviar)} nota="ya tienen dueño" />
       </div>
 
-      <PedidosTikTok pedidos={pedidosPorEnviar} />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="tarjeta overflow-hidden">
@@ -182,7 +192,8 @@ export default async function VentasTikTok({
             <h2 className="text-sm font-semibold">Ventas por modelo</h2>
             <p className="text-xs" style={{ color: "var(--ink-2)" }}>
               Cobrado es lo que pagó el cliente. Recibido es lo que TikTok ya liquidó, descontando comisiones y envío;
-              un pedido se liquida días después de entregarse. Abre un modelo para ver sus tallas.
+              un pedido se liquida días después de entregarse. Ganancia = recibido − costo del modelo (Productos y
+              costos), solo sobre los pares ya liquidados. Abre un modelo para ver sus tallas.
             </p>
           </div>
           <div className="mt-3 overflow-x-auto">
@@ -194,11 +205,13 @@ export default async function VentasTikTok({
                   <th className="px-4 py-2 text-right font-semibold">Pedidos</th>
                   <th className="px-4 py-2 text-right font-semibold">Cobrado</th>
                   <th className="px-4 py-2 text-right font-semibold">Recibido</th>
+                  <th className="px-4 py-2 text-right font-semibold">Costo</th>
+                  <th className="px-4 py-2 text-right font-semibold">Ganancia</th>
                   <th className="px-4 py-2 text-right font-semibold">Sin liquidar</th>
                 </tr>
               </thead>
               <tbody>
-                {modelos.map((m) => (
+                {conCosto.map((m) => (
                   <tr key={m.modelo} className="hairline align-top">
                     <td className="px-4 py-2">
                       <details>
@@ -220,6 +233,12 @@ export default async function VentasTikTok({
                     <td className="num px-4 py-2 text-right">{n(m.pedidos)}</td>
                     <td className="num px-4 py-2 text-right">{pesos(m.cobrado)}</td>
                     <td className="num px-4 py-2 text-right font-medium">{m.recibido ? pesos(m.recibido) : "—"}</td>
+                    <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }} title={m.costoUnitario != null ? `${pesos(m.costoUnitario)} por par` : "sin costo capturado"}>
+                      {m.costo != null && m.unidadesLiquidadas > 0 ? pesos(m.costo) : m.costoUnitario == null ? "sin costo" : "—"}
+                    </td>
+                    <td className="num px-4 py-2 text-right font-semibold" style={{ color: m.ganancia == null ? "var(--ink-2)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}>
+                      {m.ganancia != null ? pesos(m.ganancia) : "—"}
+                    </td>
                     <td className="num px-4 py-2 text-right" style={{ color: m.sinLiquidar ? "var(--estado-alerta)" : "var(--ink-2)" }}>
                       {m.sinLiquidar || "—"}
                     </td>
@@ -227,7 +246,7 @@ export default async function VentasTikTok({
                 ))}
                 {!modelos.length ? (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm" colSpan={6} style={{ color: "var(--ink-2)" }}>
+                    <td className="px-4 py-6 text-center text-sm" colSpan={8} style={{ color: "var(--ink-2)" }}>
                       Sin ventas en el rango.
                     </td>
                   </tr>

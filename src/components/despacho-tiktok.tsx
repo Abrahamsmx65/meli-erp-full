@@ -191,9 +191,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                     {c.preparados} / {c.pedidos} preparados
                   </span>
                 </div>
-                {c.errores?.length ? (
+                {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
-                    {c.errores.map((e) => (
+                    {c.errores.filter((e) => !e.error.includes("solo drop-off")).map((e) => (
                       <li key={e.orderId}>
                         Pedido {e.orderId}: {e.error}
                       </li>

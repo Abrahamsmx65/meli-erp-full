@@ -101,6 +101,8 @@ export interface ResumenModelo {
   sinLiquidar: number;
   /** cobrado de los pedidos ya liquidados, para leer la comisión real */
   cobradoLiquidado: number;
+  /** pares de los pedidos ya liquidados: contra estos se resta el costo */
+  unidadesLiquidadas: number;
   tallas: { sku: string; unidades: number; cobrado: number; recibido: number }[];
 }
 
@@ -137,7 +139,7 @@ export function resumenPorModelo(
   const de = (modelo: string) => {
     let m = modelos.get(modelo);
     if (!m) {
-      m = { modelo, unidades: 0, pedidos: 0, cobrado: 0, recibido: 0, sinLiquidar: 0, cobradoLiquidado: 0, tallas: [], pedidosSet: new Set(), sinLiquidarSet: new Set(), tallasMap: new Map() };
+      m = { modelo, unidades: 0, pedidos: 0, cobrado: 0, recibido: 0, sinLiquidar: 0, cobradoLiquidado: 0, unidadesLiquidadas: 0, tallas: [], pedidosSet: new Set(), sinLiquidarSet: new Set(), tallasMap: new Map() };
       modelos.set(modelo, m);
     }
     return m;
@@ -158,7 +160,10 @@ export function resumenPorModelo(
       m.unidades += r.cantidad;
       m.cobrado += cobrado;
       m.recibido += recibido;
-      if (liquidado) m.cobradoLiquidado += cobrado;
+      if (liquidado) {
+        m.cobradoLiquidado += cobrado;
+        m.unidadesLiquidadas += r.cantidad;
+      }
       m.pedidosSet.add(orderId);
       if (!liquidado) m.sinLiquidarSet.add(orderId);
       const t = m.tallasMap.get(r.skuInterno as string) ?? { sku: r.skuInterno as string, unidades: 0, cobrado: 0, recibido: 0 };

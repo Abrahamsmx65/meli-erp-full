@@ -533,7 +533,10 @@ export function interpretarLiquidacion(d: any): LiquidacionTikTok | null {
  * La liquidación de un pedido. null = TikTok todavía no lo liquida (no
  * está en ningún estado de cuenta) o no contestó nada usable.
  */
-export async function liquidacionDePedido(c: Cliente, orderId: string): Promise<LiquidacionTikTok | null> {
+export async function liquidacionDePedido(
+  c: Cliente,
+  orderId: string,
+): Promise<{ liquidacion: LiquidacionTikTok | null; crudo: unknown }> {
   const d = await c.llamar<any>("GET", `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
-  return interpretarLiquidacion(d);
+  return { liquidacion: interpretarLiquidacion(d), crudo: d ?? null };
 }

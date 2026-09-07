@@ -1331,13 +1331,15 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
     if (cliente.msRestantes() < 10_000) break;
     const ahora = new Date().toISOString();
     try {
-      const liq = await liquidacionDePedido(cliente, p.order_id);
+      const { liquidacion: liq, crudo } = await liquidacionDePedido(cliente, p.order_id);
+      // El crudo se guarda aunque no se haya entendido: es la única forma de
+      // ver qué contesta TikTok y afinar la lectura.
       await db
         .from("tiktok_ordenes")
         .update(
           liq
             ? { neto_recibido: liq.neto, liquidado_en: ahora, liquidacion: liq.crudo, liquidacion_intento_en: ahora }
-            : { liquidacion_intento_en: ahora },
+            : { liquidacion_intento_en: ahora, liquidacion: crudo ?? null },
         )
         .eq("account_id", accountId)
         .eq("order_id", p.order_id);

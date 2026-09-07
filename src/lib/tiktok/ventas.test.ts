@@ -72,6 +72,7 @@ describe("muestras y resumen por modelo", () => {
     // v1 liquidó 800 sobre 1000 cobrados: al GT134 (600) le tocan 480
     expect(gt134.recibido).toBeCloseTo(480);
     expect(gt134.cobradoLiquidado).toBe(600);
+    expect(gt134.unidadesLiquidadas).toBe(1);
     expect(gt134.sinLiquidar).toBe(1);
     expect(gt134.tallas.map((t) => [t.sku, t.unidades])).toEqual([["GT134-BLK-24-MX", 1], ["GT134-BLK-26-MX", 2]]);
     expect(r[1].recibido).toBeCloseTo(320);
