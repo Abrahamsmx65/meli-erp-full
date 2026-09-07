@@ -79,3 +79,14 @@ describe("amarre laxo: el color por partes de la proforma contra el SKU publicad
     expect(claveProducto("GT134", "BLK / RED")).toBe("GT134|BLKRED");
   });
 });
+
+describe("sinónimos de color verificados", () => {
+  it("DARK BROWN del pedido es DK BROWN en MELI y Amazon (GT156)", () => {
+    expect(claveProducto("GT156", "DARK BROWN")).toBe("GT156|DKBROWN");
+    expect(claveProductoDeSku("GT156-DK BROWN-25-MX")).toBe("GT156|DKBROWN");
+  });
+
+  it("LIGHT de Amazon es LT en MELI", () => {
+    expect(claveProductoDeSku("GT110-LIGHT BROWN-26-MX")).toBe(claveProductoDeSku("GT110-LT BROWN-26-MX"));
+  });
+});
