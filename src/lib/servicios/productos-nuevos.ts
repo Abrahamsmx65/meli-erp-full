@@ -101,14 +101,26 @@ export function claveProductoDeSku(sku: string): string | null {
   return `${sinTalla[0]}|${sinTalla.slice(1).join("")}`;
 }
 
-/** Como `claveProductoDeSku`, con el color laxo (repetidos colapsados). */
-export function claveProductoLaxaDeSku(sku: string): string | null {
+/** Modelo y pedazos laxos del color de un SKU; null si no tiene forma de SKU. */
+export function partesLaxasDeSku(sku: string): { modelo: string; color: string[] } | null {
   const estricta = claveProductoDeSku(sku);
   if (!estricta) return null;
   const tokens = claveComparacion(sku).split("-").filter(Boolean);
   const esTalla = (t: string) => /^\d{1,2}(\.\d)?$/.test(t) && Number(t) >= 14 && Number(t) <= 50;
   const color = tokens.filter((t, i) => i > 0 && !esTalla(t));
-  return `${tokens[0]}|${tokensLaxos(color).join("")}`;
+  return { modelo: tokens[0], color: tokensLaxos(color) };
+}
+
+/** Como `claveProductoDeSku`, con el color laxo (repetidos colapsados). */
+export function claveProductoLaxaDeSku(sku: string): string | null {
+  const partes = partesLaxasDeSku(sku);
+  return partes ? `${partes.modelo}|${partes.color.join("")}` : null;
+}
+
+/** Los pedazos laxos del color del pedido (sin anotación, sin repetidos). */
+export function tokensColorLaxos(color: string): string[] {
+  const sinNota = (color || "").replace(/\([^)]*\)/g, " ");
+  return tokensLaxos(claveComparacion(sinNota).split("-").filter(Boolean));
 }
 
 interface PedidoCrudo {
@@ -227,13 +239,30 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
     const k = claveProductoLaxa(p.modelo, p.color);
     porLaxa.set(k, [...(porLaxa.get(k) ?? []), p]);
   }
+  // Tercer nivel, POR CONTENCIÓN: la proforma del GT157 dice "BROWN" y la
+  // publicación "DK BROWN". Si dentro del mismo modelo hay UN solo producto
+  // del pedido cuyos pedazos de color caben todos en los del SKU, es ese.
+  // Con dos candidatos (BROWN y DK BROWN los dos pedidos) no se adivina.
+  const porModelo = new Map<string, { p: ProductoNuevo; tokens: string[] }[]>();
+  for (const p of productos.values()) {
+    const tokens = tokensColorLaxos(p.color);
+    if (!tokens.length) continue;
+    porModelo.set(p.modelo, [...(porModelo.get(p.modelo) ?? []), { p, tokens }]);
+  }
   const productosDeSku = (sku: string): ProductoNuevo[] => {
     const estricta = claveProductoDeSku(sku);
     if (!estricta) return [];
     const exacto = productos.get(estricta);
     if (exacto) return [exacto];
     const laxa = claveProductoLaxaDeSku(sku);
-    return laxa ? (porLaxa.get(laxa) ?? []) : [];
+    const laxos = laxa ? (porLaxa.get(laxa) ?? []) : [];
+    if (laxos.length) return laxos;
+    const partes = partesLaxasDeSku(sku);
+    if (!partes) return [];
+    const contenidos = (porModelo.get(partes.modelo) ?? []).filter(({ tokens }) =>
+      tokens.every((t) => partes.color.includes(t)),
+    );
+    return contenidos.length === 1 ? [contenidos[0].p] : [];
   };
 
   // --- Publicaciones de MELI, por producto --------------------------------
