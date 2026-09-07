@@ -4,6 +4,7 @@ import { cargarEstadoResultados, listarCortes, periodoActual, validarPeriodo } f
 import { CorteVista } from "@/components/corte-vista";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * Cortes mensuales de Mercado Libre: el estado de resultados del mes, exacto

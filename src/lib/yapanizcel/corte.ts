@@ -15,6 +15,7 @@ import {
   armarEstadoResultados,
   gastosDelRango,
   guardarCorte,
+  ordenesPorDiaDesdeRpc,
   rangoDelPeriodo,
   type EstadoResultados,
   type OrdenDelCorte,
@@ -22,7 +23,7 @@ import {
 } from "../servicios/corte-meli";
 import { mapaCostosUnificado } from "../servicios/costos-unificados";
 import { clienteDeCuenta, type CuentaYz } from "./cuenta";
-import { hoyMx, restarDias, todo } from "./db";
+import { hoyMx, restarDias, rpcTodo, todo } from "./db";
 import { adsPorDiseno } from "./publicidad";
 import { desglosar } from "./sku";
 
@@ -34,7 +35,9 @@ export interface OrdenRegistrada extends OrdenDelCorte {
 /**
  * Renglones sku|día desde las órdenes: las canceladas fuera; un día donde
  * alguna orden cobrada aún no tiene neto se deja SIN neto completo (el
- * motor lo estima), porque un neto a medias engaña más que ninguno. Pura.
+ * motor lo estima), porque un neto a medias engaña más que ninguno. Pura:
+ * es la referencia de lo que hace el RPC `yz_cortes_ventas_desde_ordenes`
+ * en la base (la página usa el RPC; 44 mil órdenes no caben en una lectura).
  */
 export function ventasDesdeOrdenes(ordenes: OrdenRegistrada[]): { ventas: VentaDelCorte[]; sinRenglones: number } {
   const filas = new Map<string, { sku: string; fecha: string; unidades: number; ordenes: number; importe: number; comision: number; neto: number }>();
@@ -65,27 +68,6 @@ export function ventasDesdeOrdenes(ordenes: OrdenRegistrada[]): { ventas: VentaD
     neto: diasIncompletos.has(f.fecha) ? 0 : Math.round(f.neto * 100) / 100,
   }));
   return { ventas, sinRenglones };
-}
-
-async function ordenesDelRangoYz(db: DB, accountId: string, desde: string, hasta: string): Promise<OrdenRegistrada[]> {
-  const filas = await todo<any>(
-    db,
-    "yz_ordenes_neto",
-    "order_id, fecha, total, neto, neto_actual, reembolsado, estado, estado_pago, revisiones, renglones",
-    (q) => q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
-  );
-  return filas.map((o) => ({
-    orderId: Number(o.order_id),
-    fecha: o.fecha,
-    total: Number(o.total) || 0,
-    neto: Number(o.neto) || 0,
-    netoActual: o.neto_actual == null ? null : Number(o.neto_actual),
-    reembolsado: Number(o.reembolsado) || 0,
-    estado: o.estado ?? null,
-    estadoPago: o.estado_pago ?? null,
-    revisiones: Number(o.revisiones) || 0,
-    renglones: Array.isArray(o.renglones) ? o.renglones : null,
-  }));
 }
 
 /** El avance de la lectura de facturación del periodo (bitácora en yz_sync_log). */
@@ -139,11 +121,11 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     return { ordenes: Number(f?.ordenes_con_neto ?? 0), total: Number(f?.total ?? 0), neto: Number(f?.neto ?? 0) };
   };
 
-  const [ordenes, ventasDiarias, skus, config, gastos, cargos, progreso, estadoSync, obs, ads] = await Promise.all([
-    ordenesDelRangoYz(db, cuenta.id, desde, hasta),
-    todo<VentaDelCorte>(db, "yz_ventas_diarias", "sku, fecha, unidades, ordenes, importe, comision, neto", (q) =>
-      q.eq("account_id", cuenta.id).gte("fecha", desde).lte("fecha", hasta),
-    ),
+  const args = { p_account: cuenta.id, p_desde: desde, p_hasta: hasta };
+  const [ordenesPorDia, ventasOrdenes, ventasDiarias, skus, config, gastos, cargos, progreso, estadoSync, obs, ads] = await Promise.all([
+    ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
+    rpcTodo<VentaDelCorte>(db, "yz_cortes_ventas_desde_ordenes", args),
+    rpcTodo<VentaDelCorte>(db, "yz_ventas_renglones", args),
     todo<{ sku: string; diseno: string | null }>(db, "yz_skus", "sku, diseno", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),
@@ -159,11 +141,11 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   const avisosExtra: string[] = [];
   let ventas: VentaDelCorte[];
   if (ordenesCompletas) {
-    const r = ventasDesdeOrdenes(ordenes);
-    ventas = r.ventas;
-    if (r.sinRenglones > 0) avisosExtra.push(`${r.sinRenglones} órdenes del mes están registradas sin sus renglones: no entran a la venta por modelo. Se corrigen solas al re-sincronizar.`);
+    ventas = ventasOrdenes.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: Number(v.neto) || 0 }));
+    const sinRenglones = ordenesPorDia.reduce((a, d) => a + (d.sinRenglones ?? 0), 0);
+    if (sinRenglones > 0) avisosExtra.push(`${sinRenglones} órdenes del mes están registradas sin sus renglones: no entran a la venta por modelo. Se corrigen solas al re-sincronizar.`);
   } else {
-    ventas = ventasDiarias.map((v) => ({ ...v, neto: v.neto ?? 0 }));
+    ventas = ventasDiarias.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: v.neto == null ? 0 : Number(v.neto) }));
     avisosExtra.push(
       `Las órdenes del mes todavía se están registrando hacia atrás (van hasta ${registradasDesde ?? "hoy"}): la venta sale de los renglones diarios y las cancelaciones tardías aún no se descuentan. El cron de netos lo completa solo.`,
     );
@@ -181,7 +163,7 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     hasta,
     cuenta: cuenta.nickname ?? "YAPANIZCEL",
     ventas,
-    ordenes,
+    ordenesPorDia,
     modeloDeSku,
     config,
     adsPorModelo: ads.porDiseno,

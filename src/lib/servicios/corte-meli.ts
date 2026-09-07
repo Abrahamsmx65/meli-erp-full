@@ -210,6 +210,60 @@ const c = (x: number | null | undefined): number => Math.round((Number(x) || 0) 
 /** De centavos a pesos con dos decimales exactos. */
 const p = (centavos: number): number => Math.round(centavos) / 100;
 
+/** Lo que el motor necesita de las órdenes de UN día, ya sumado (en pesos). */
+export interface DiaOrdenesAgregado {
+  fecha: string;
+  /** órdenes vivas (no canceladas) */
+  ordenes: number;
+  /** neto de hoy de las órdenes vivas */
+  neto: number;
+  cancelOrdenes: number;
+  cancelImporte: number;
+  devOrdenes: number;
+  devMonto: number;
+  /** todas las órdenes del día, canceladas incluidas */
+  total: number;
+  revisadas: number;
+  pendientes: number;
+  /** órdenes vivas sin renglones (solo fundas) */
+  sinRenglones?: number;
+}
+
+/**
+ * Suma las órdenes por día con la regla de la devolución: si Mercado Pago ya
+ * bajó el neto, solo se resta lo que falte. Es la referencia de lo que hacen
+ * los RPC `cortes_ordenes_por_dia` y `yz_cortes_ordenes_por_dia` en la base.
+ */
+export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string): DiaOrdenesAgregado[] {
+  const dias = new Map<string, { ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number; devOrdenes: number; devMonto: number; total: number; revisadas: number; pendientes: number }>();
+  for (const o of ordenes) {
+    if (o.fecha < desde || o.fecha > hasta) continue;
+    const d = dias.get(o.fecha) ?? { ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0, devMonto: 0, total: 0, revisadas: 0, pendientes: 0 };
+    d.total++;
+    if ((o.revisiones ?? 0) >= 1) d.revisadas++;
+    if ((o.revisiones ?? 0) < 2) d.pendientes++;
+    if (o.estado === "cancelled") {
+      d.cancelOrdenes++;
+      d.cancelImporte += c(o.total);
+    } else {
+      const netoOriginal = c(o.neto);
+      const netoHoy = o.netoActual != null ? c(o.netoActual) : netoOriginal;
+      const yaDescontado = Math.max(0, netoOriginal - netoHoy);
+      const devolucion = Math.max(0, c(o.reembolsado) - yaDescontado);
+      d.ordenes++;
+      d.neto += netoHoy;
+      if (devolucion > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
+        d.devOrdenes++;
+        d.devMonto += devolucion;
+      }
+    }
+    dias.set(o.fecha, d);
+  }
+  return [...dias.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([fecha, d]) => ({ fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte), devMonto: p(d.devMonto) }));
+}
+
 export interface EntradaCorte {
   periodo: string;
   desde: string;
@@ -218,8 +272,9 @@ export interface EntradaCorte {
   generadoEn?: string;
   /** renglones de ventas_diarias, se filtran al rango aquí */
   ventas: VentaDelCorte[];
-  /** órdenes de ordenes_neto del rango */
-  ordenes: OrdenDelCorte[];
+  /** órdenes de ordenes_neto del rango (o, en su lugar, ya sumadas por día) */
+  ordenes?: OrdenDelCorte[];
+  ordenesPorDia?: DiaOrdenesAgregado[];
   /** sku → modelo (del catálogo); lo que falte se parte por guion */
   modeloDeSku: Map<string, string>;
   /** modelo → categoría y costo (productos_config) */
@@ -253,6 +308,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     ratio != null ? Math.round(importeCent * ratio) : importeCent - comisionCent;
 
   // --- Órdenes: el neto real, las cancelaciones y las devoluciones --------
+  // Ya sumadas por día (por el RPC de la base o por agregarOrdenes), en centavos.
   interface DiaOrdenes { neto: number; ordenes: number }
   const ordenesPorDia = new Map<string, DiaOrdenes>();
   let cancelOrdenes = 0;
@@ -261,29 +317,18 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let devMonto = 0;
   let revisadas = 0;
   let pendientes = 0;
-  for (const o of e.ordenes) {
-    if (o.fecha < e.desde || o.fecha > e.hasta) continue;
-    if ((o.revisiones ?? 0) >= 1) revisadas++;
-    if ((o.revisiones ?? 0) < 2) pendientes++;
-    if (o.estado === "cancelled") {
-      cancelOrdenes++;
-      cancelImporte += c(o.total);
-      continue;
-    }
-    const netoOriginal = c(o.neto);
-    const netoHoy = o.netoActual != null ? c(o.netoActual) : netoOriginal;
-    // Si Mercado Pago ya bajó el neto por el reembolso, solo se resta lo
-    // que falte: nunca la misma devolución dos veces.
-    const yaDescontado = Math.max(0, netoOriginal - netoHoy);
-    const devolucion = Math.max(0, c(o.reembolsado) - yaDescontado);
-    const d = ordenesPorDia.get(o.fecha) ?? { neto: 0, ordenes: 0 };
-    d.neto += netoHoy;
-    d.ordenes += 1;
-    ordenesPorDia.set(o.fecha, d);
-    if (devolucion > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
-      devOrdenes++;
-      devMonto += devolucion;
-    }
+  let totalOrdenes = 0;
+  const agregados = e.ordenesPorDia ?? agregarOrdenes(e.ordenes ?? [], e.desde, e.hasta);
+  for (const d of agregados) {
+    if (d.fecha < e.desde || d.fecha > e.hasta) continue;
+    totalOrdenes += d.total;
+    revisadas += d.revisadas;
+    pendientes += d.pendientes;
+    cancelOrdenes += d.cancelOrdenes;
+    cancelImporte += c(d.cancelImporte);
+    devOrdenes += d.devOrdenes;
+    devMonto += c(d.devMonto);
+    if (d.ordenes > 0) ordenesPorDia.set(d.fecha, { neto: c(d.neto), ordenes: d.ordenes });
   }
 
   // --- Renglones diarios: bruto, comisión, unidades, y el desglose --------
@@ -546,7 +591,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     porModelo: filasModelo,
     porCategoria,
     porDia,
-    revision: { ordenes: e.ordenes.filter((o) => o.fecha >= e.desde && o.fecha <= e.hasta).length, revisadas, pendientes, exacto },
+    revision: { ordenes: totalOrdenes, revisadas, pendientes, exacto },
     avisos,
   };
 }
@@ -599,15 +644,35 @@ export async function ordenesDelRango(db: DB, accountId: string, desde: string, 
   }));
 }
 
+/** Las órdenes del rango ya sumadas por día, por el RPC de la base (una sola verificación de permiso). */
+export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: string, desde: string, hasta: string): Promise<DiaOrdenesAgregado[]> {
+  const { data, error } = await db.rpc(fn, { p_account: accountId, p_desde: desde, p_hasta: hasta });
+  if (error) throw new Error(`${fn}: ${error.message}`);
+  return ((data ?? []) as any[]).map((d) => ({
+    fecha: String(d.fecha),
+    ordenes: Number(d.ordenes) || 0,
+    neto: Number(d.neto) || 0,
+    cancelOrdenes: Number(d.cancel_ordenes) || 0,
+    cancelImporte: Number(d.cancel_importe) || 0,
+    devOrdenes: Number(d.dev_ordenes) || 0,
+    devMonto: Number(d.dev_monto) || 0,
+    total: Number(d.total) || 0,
+    revisadas: Number(d.revisadas) || 0,
+    pendientes: Number(d.pendientes) || 0,
+    sinRenglones: Number(d.sin_renglones) || 0,
+  }));
+}
+
 export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
-  const [ventas, skus, config, gastos, cargos, ordenes, publicidad, progreso] = await Promise.all([
+  const [ventas, skus, config, gastos, cargos, ordenesPorDia, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
     gastosDelRango(db, cuenta.id, desde, hasta),
     cargosGuardados(db, cuenta.id, periodo),
-    ordenesDelRango(db, cuenta.id, desde, hasta),
+    // Sumadas en la base: traer 35 mil órdenes a la página se pasaba del tiempo.
+    ordenesPorDiaDesdeRpc(db, "cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     cargarPublicidad(db, cuenta, { desde, hasta }).catch((err) => ({
       filas: [] as { modelo: string; gastoAds: number }[],
       sinAmarre: { gasto: 0 },
@@ -627,7 +692,7 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     hasta,
     cuenta: cuenta.nickname,
     ventas,
-    ordenes,
+    ordenesPorDia,
     modeloDeSku,
     config,
     adsPorModelo,
