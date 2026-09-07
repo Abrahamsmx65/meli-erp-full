@@ -5,7 +5,7 @@ import { validarPeriodo } from "@/lib/servicios/corte-meli";
 import { sesionYCuenta } from "../_comun";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /** POST { periodo } -> lee del API de facturación de MELI los cargos del periodo. */
 export async function POST(req: Request) {
@@ -14,7 +14,8 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const periodo = validarPeriodo(b?.periodo);
   if (!periodo) return NextResponse.json({ error: "Periodo inválido (YYYY-MM)." }, { status: 400 });
-  const r = await sincronizarCargos(clienteAdmin(), s.cuenta.id, periodo);
-  if (r.error) return NextResponse.json({ error: r.error, cargos: r.cargos }, { status: 502 });
+  // Hasta ~4 minutos leyendo a 5 páginas por minuto; lo que falte lo sigue el latido.
+  const r = await sincronizarCargos(clienteAdmin(), s.cuenta.id, periodo, Date.now() + 240_000);
+  if (r.error && r.cargos === 0) return NextResponse.json(r, { status: 502 });
   return NextResponse.json(r);
 }

@@ -318,7 +318,18 @@ login, la base y el deploy.
   del SKU (`costoDeSku`). Sin costo = ganancia no calculable, nunca costo 0.
 - **Ganancia sobre el neto real** (`net_received_amount`, caché en
   `yz_ordenes_neto`, re-lectura de órdenes recientes por cargos diferidos).
-  Los días con neto incompleto se marcan como estimados.
+  La cuenta vende ~1,400 órdenes al día y la sincronización solo alcanza
+  150 netos por tramo, así que CADA orden se registra al leerla (pagos y
+  renglones sku/importe en `yz_ordenes_neto`) y un trabajo de fondo
+  (`yapanizcel/netos.ts`, cron `/api/yapanizcel/netos` cada 10 min) pide
+  los netos que faltan a Mercado Pago, registra hacia atrás las órdenes
+  viejas y ASIENTA en `yz_ventas_diarias` los días que quedan completos sin
+  releer MELI. Mientras un renglón no tiene depósito real, el panel lo
+  ESTIMA con el porcentaje observado (neto ÷ venta de las órdenes con
+  depósito, últimas 8 semanas, mínimo 50 órdenes; `estimarNeto`), que ya
+  trae envío de Full y retenciones, y lo declara; nunca importe − comisión
+  como si fuera el neto (así se infló la ganancia de fundas al 86% de la
+  venta cuando el real es ~51%).
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
 - **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en

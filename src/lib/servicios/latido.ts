@@ -2,6 +2,7 @@ import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
 import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
 import { revisarPendientes } from "./devoluciones";
+import { continuarCargosPendientes } from "./cargos-meli";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
@@ -120,6 +121,16 @@ export async function latido(
         await revisarPendientes(admin, accountId, finDrenado - 15_000);
       } catch (err) {
         console.error("revisarPendientes:", (err as Error).message);
+      }
+    }
+
+    // La facturación de MELI que quedó a medias (5 páginas por minuto)
+    // avanza unas páginas por latido hasta completarse.
+    if (Date.now() < finDrenado - 40_000) {
+      try {
+        await continuarCargosPendientes(admin, accountId, finDrenado - 15_000);
+      } catch (err) {
+        console.error("continuarCargosPendientes:", (err as Error).message);
       }
     }
 
