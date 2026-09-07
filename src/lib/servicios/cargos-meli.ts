@@ -29,6 +29,32 @@ export interface CargoMeli {
   descripcion: string | null;
   monto: number;
   clase: ClaseCargo;
+  /** la orden a la que MELI amarra el cargo, si la trae */
+  ordenId?: string | null;
+  /** el renglón tal cual lo mandó MELI, para reclasificar sin volver a pedir */
+  crudo?: unknown;
+}
+
+/** Busca en el renglón un id de orden/operación de MELI (16 dígitos o más). */
+export function ordenDeCargo(r: unknown): string | null {
+  let hallado: string | null = null;
+  const recorrer = (nodo: unknown, profundidad: number) => {
+    if (hallado || nodo == null || profundidad > 5) return;
+    if (Array.isArray(nodo)) {
+      for (const x of nodo) recorrer(x, profundidad + 1);
+      return;
+    }
+    if (typeof nodo !== "object") return;
+    for (const [k, v] of Object.entries(nodo as Record<string, unknown>)) {
+      if (/order|operation|sale_id|pack_id/i.test(k) && (typeof v === "number" || typeof v === "string") && /^\d{10,}$/.test(String(v))) {
+        hallado = String(v);
+        return;
+      }
+      if (v && typeof v === "object") recorrer(v, profundidad + 1);
+    }
+  };
+  recorrer(r, 0);
+  return hallado;
 }
 
 /**
@@ -96,6 +122,8 @@ export function extraerCargos(crudo: unknown, periodo: string): CargoMeli[] {
       descripcion,
       monto,
       clase: clasificarCargo([tipo, subtipo, descripcion].filter(Boolean).join(" ")),
+      ordenId: ordenDeCargo(r),
+      crudo: r,
     });
   });
   return salida;
@@ -331,6 +359,8 @@ async function guardarCargos(admin: DB, accountId: string, tabla: string, period
     descripcion: c.descripcion,
     monto: c.monto,
     clase: c.clase,
+    orden_id: c.ordenId ?? null,
+    crudo: c.crudo ?? null,
     leido_en: new Date().toISOString(),
   }));
   for (let i = 0; i < filas.length; i += 500) {

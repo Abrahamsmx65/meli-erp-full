@@ -131,6 +131,12 @@ export interface EstadoResultados {
 
   cancelaciones: { ordenes: number; importe: number };
   devoluciones: { ordenes: number; monto: number };
+  /**
+   * Comisión y envío que MELI cobra APARTE (por facturación) a las órdenes
+   * que Mercado Pago depositó completas. Estimado con el ratio observado en
+   * las órdenes normales hasta que la facturación del periodo lo confirme.
+   */
+  cargosFacturados: { ordenes: number; base: number; monto: number; estimado: boolean; ratio: number | null };
 
   costoProducto: number;
   unidadesConCosto: number;
@@ -227,6 +233,10 @@ export interface DiaOrdenesAgregado {
   pendientes: number;
   /** órdenes vivas sin renglones (solo fundas) */
   sinRenglones?: number;
+  /** órdenes depositadas COMPLETAS (neto ≥ 99% del total): MELI cobra su comisión y envío aparte */
+  sinDescOrdenes?: number;
+  /** la venta de esas órdenes */
+  sinDescTotal?: number;
 }
 
 /**
@@ -235,10 +245,10 @@ export interface DiaOrdenesAgregado {
  * los RPC `cortes_ordenes_por_dia` y `yz_cortes_ordenes_por_dia` en la base.
  */
 export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string): DiaOrdenesAgregado[] {
-  const dias = new Map<string, { ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number; devOrdenes: number; devMonto: number; total: number; revisadas: number; pendientes: number }>();
+  const dias = new Map<string, { ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number; devOrdenes: number; devMonto: number; total: number; revisadas: number; pendientes: number; sinDescOrdenes: number; sinDescTotal: number }>();
   for (const o of ordenes) {
     if (o.fecha < desde || o.fecha > hasta) continue;
-    const d = dias.get(o.fecha) ?? { ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0, devMonto: 0, total: 0, revisadas: 0, pendientes: 0 };
+    const d = dias.get(o.fecha) ?? { ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0, devMonto: 0, total: 0, revisadas: 0, pendientes: 0, sinDescOrdenes: 0, sinDescTotal: 0 };
     d.total++;
     if ((o.revisiones ?? 0) >= 1) d.revisadas++;
     if ((o.revisiones ?? 0) < 2) d.pendientes++;
@@ -252,6 +262,10 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       const devolucion = Math.max(0, c(o.reembolsado) - yaDescontado);
       d.ordenes++;
       d.neto += netoHoy;
+      if (c(o.total) > 0 && netoHoy >= c(o.total) * 0.99) {
+        d.sinDescOrdenes++;
+        d.sinDescTotal += c(o.total);
+      }
       if (devolucion > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
         d.devOrdenes++;
         d.devMonto += devolucion;
@@ -261,7 +275,7 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
   }
   return [...dias.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([fecha, d]) => ({ fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte), devMonto: p(d.devMonto) }));
+    .map(([fecha, d]) => ({ fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte), devMonto: p(d.devMonto), sinDescTotal: p(d.sinDescTotal) }));
 }
 
 export interface EntradaCorte {
@@ -293,6 +307,12 @@ export interface EntradaCorte {
   ratioEstimacion?: number | null;
   /** avisos extra del que arma la entrada (p. ej. órdenes registradas a medias) */
   avisosExtra?: string[];
+  /**
+   * Neto ÷ venta observado en las órdenes NORMALES (las que sí traen comisión
+   * y envío descontados en el pago), para estimar lo que MELI cobra aparte a
+   * las órdenes depositadas completas. null = sin dato.
+   */
+  ratioNormal?: number | null;
   /** true si el API de facturación de MELI ya se leyó COMPLETO para el periodo */
   cargosLeidos: boolean;
   /** avance de la lectura de facturación, para el aviso: renglones leídos y declarados */
@@ -318,10 +338,14 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let revisadas = 0;
   let pendientes = 0;
   let totalOrdenes = 0;
+  let sinDescOrdenes = 0;
+  let sinDescTotal = 0;
   const agregados = e.ordenesPorDia ?? agregarOrdenes(e.ordenes ?? [], e.desde, e.hasta);
   for (const d of agregados) {
     if (d.fecha < e.desde || d.fecha > e.hasta) continue;
     totalOrdenes += d.total;
+    sinDescOrdenes += d.sinDescOrdenes ?? 0;
+    sinDescTotal += c(d.sinDescTotal);
     revisadas += d.revisadas;
     pendientes += d.pendientes;
     cancelOrdenes += d.cancelOrdenes;
@@ -494,9 +518,16 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     cargosTipo.set(tipo, k);
   }
 
+  // --- Comisión y envío cobrados aparte ------------------------------------
+  // Una orden depositada completa no costó cero: MELI le cobra comisión y
+  // envío por facturación. Hasta que la factura lo confirme, se estima con
+  // lo que Mercado Pago descuenta a las órdenes normales.
+  const ratioNormal = e.ratioNormal != null && e.ratioNormal > 0 && e.ratioNormal < 1 ? e.ratioNormal : null;
+  const cargosFacturados = sinDescTotal > 0 && ratioNormal != null ? Math.round(sinDescTotal * (1 - ratioNormal)) : 0;
+
   // --- La cuenta -----------------------------------------------------------
   const enviosYOtros = ventaBruta - comision - netoDepositado;
-  const utilidadBruta = netoDepositado - devMonto - costoProducto;
+  const utilidadBruta = netoDepositado - cargosFacturados - devMonto - costoProducto;
   const publicidadTotal = publicidad.ads + publicidad.manual;
   const fullTotal = full.cargosMeli + full.manual;
   const otrosTotal = otros.cargosMeli + otros.manual;
@@ -520,6 +551,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   if (diasDescuadrados.length) {
     avisos.push(
       `${diasDescuadrados.length} día(s) donde las órdenes y los renglones de venta no cuadran (${diasDescuadrados.slice(0, 5).join(", ")}): se usó el reparto por SKU. Vuelve a sincronizar esos días.`,
+    );
+  }
+  if (sinDescOrdenes > 0) {
+    avisos.push(
+      ratioNormal != null
+        ? `${sinDescOrdenes.toLocaleString("es-MX")} órdenes por ${p(sinDescTotal).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} se depositaron COMPLETAS: MELI les cobra comisión y envío aparte, por facturación. Se estimó con el ${((1 - ratioNormal) * 100).toFixed(1)}% que Mercado Pago descuenta a las órdenes normales; la facturación del periodo lo confirmará.`
+        : `${sinDescOrdenes.toLocaleString("es-MX")} órdenes se depositaron COMPLETAS (MELI les cobra comisión y envío aparte) y no hay órdenes normales con qué estimar ese cargo: la utilidad está inflada hasta leer la facturación.`,
     );
   }
   if (pendientes > 0) {
@@ -548,7 +586,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
 
   const exacto =
-    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && !e.errorAds && e.cargosLeidos && diasDescuadrados.length === 0;
+    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && !e.errorAds && e.cargosLeidos && diasDescuadrados.length === 0 && sinDescOrdenes === 0;
 
   const dias = Math.max(1, Math.round((Date.parse(e.hasta) - Date.parse(e.desde)) / 86_400_000) + 1);
   return {
@@ -568,6 +606,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     coberturaNetoReal,
     cancelaciones: { ordenes: cancelOrdenes, importe: p(cancelImporte) },
     devoluciones: { ordenes: devOrdenes, monto: p(devMonto) },
+    cargosFacturados: { ordenes: sinDescOrdenes, base: p(sinDescTotal), monto: p(cargosFacturados), estimado: sinDescOrdenes > 0, ratio: ratioNormal },
     costoProducto: p(costoProducto),
     unidadesConCosto,
     coberturaCosto,
@@ -660,12 +699,26 @@ export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: strin
     revisadas: Number(d.revisadas) || 0,
     pendientes: Number(d.pendientes) || 0,
     sinRenglones: Number(d.sin_renglones) || 0,
+    sinDescOrdenes: Number(d.sin_desc_ordenes) || 0,
+    sinDescTotal: Number(d.sin_desc_total) || 0,
   }));
+}
+
+/** Neto ÷ venta de las órdenes normales de una ventana (RPC); null con menos de 50 órdenes. */
+export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: string, desde: string, hasta: string): Promise<number | null> {
+  const { data, error } = await db.rpc(fn, { p_account: accountId, p_desde: desde, p_hasta: hasta });
+  if (error) throw new Error(`${fn}: ${error.message}`);
+  const f: any = Array.isArray(data) ? data[0] : data;
+  const ordenes = Number(f?.ordenes ?? 0);
+  const total = Number(f?.total ?? 0);
+  const neto = Number(f?.neto ?? 0);
+  return ordenes >= 50 && total > 0 ? neto / total : null;
 }
 
 export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
-  const [ventas, skus, config, gastos, cargos, ordenesPorDia, publicidad, progreso] = await Promise.all([
+  const hoy = fechaMx(0);
+  const [ventas, skus, config, gastos, cargos, ordenesPorDia, publicidad, progreso, ratioNormal] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
@@ -679,6 +732,8 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
       errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
     })),
     progresoCargos(db, cuenta.id, periodo).catch(() => ({ periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: null })),
+    // Lo que Mercado Pago descuenta a las órdenes normales (últimas 8 semanas).
+    ratioObservadoDesdeRpc(db, "cortes_ratio_observado", cuenta.id, new Date(Date.parse(hoy) - 59 * 86_400_000).toISOString().slice(0, 10), hoy).catch(() => null),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -702,6 +757,7 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     cargos,
     cargosLeidos: progreso.completo,
     cargosAvance: { offset: progreso.offset, total: progreso.total },
+    ratioNormal,
   });
 }
 

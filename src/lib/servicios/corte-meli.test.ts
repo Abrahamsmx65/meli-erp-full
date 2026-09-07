@@ -220,3 +220,30 @@ describe("estimación con porcentaje observado", () => {
     expect(e.avisos.some((a) => a.includes("54.0% observado"))).toBe(true);
   });
 });
+
+describe("órdenes depositadas completas", () => {
+  it("les estima la comisión y el envío que MELI cobra aparte, con el ratio de las normales", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [
+          { sku: "GT135-TABACO-25", fecha: "2026-09-03", unidades: 1, ordenes: 1, importe: 200, comision: 0, neto: 200 },
+          { sku: "GT135-TABACO-26", fecha: "2026-09-03", unidades: 1, ordenes: 1, importe: 200, comision: 30, neto: 106 },
+        ],
+        desde: "2026-09-01",
+        hasta: "2026-09-07",
+        periodo: "2026-09",
+        ordenes: [
+          { orderId: 1, fecha: "2026-09-03", total: 200, neto: 200, netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2 },
+          { orderId: 2, fecha: "2026-09-03", total: 200, neto: 106, netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2 },
+        ],
+        ratioNormal: 0.53,
+      }),
+    );
+    expect(e.netoDepositado).toBe(306);
+    expect(e.cargosFacturados).toEqual({ ordenes: 1, base: 200, monto: 94, estimado: true, ratio: 0.53 });
+    // utilidad bruta = 306 − 94 − costo (2 × 60.50)
+    expect(e.utilidadBruta).toBe(306 - 94 - 121);
+    expect(e.revision.exacto).toBe(false);
+    expect(e.avisos.some((a) => a.includes("depositaron COMPLETAS"))).toBe(true);
+  });
+});
