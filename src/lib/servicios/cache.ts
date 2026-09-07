@@ -27,6 +27,12 @@ export interface LineaGuardada {
   factorCorreccion: number;
   diasSinStock: number;
   unidadesTotales: number;
+  /**
+   * Unidades REALMENTE vendidas en los últimos 30 días (bucket más reciente
+   * del motor). Opcional porque los planes cacheados viejos no lo traen; el
+   * que lo lea debe caer a `tasaObservada × 30` cuando falte.
+   */
+  unidades30?: number;
   disponible: number;
   enTransferencia: number;
   posicion: number;
@@ -67,7 +73,7 @@ export interface CajaGuardada {
  * se marca no vigente y el latido lo recalcula solo. Sin esto, un deploy
  * que corrige el motor seguía sirviendo números del motor anterior.
  */
-export const VERSION_MOTOR = "2026-08-24.2";
+export const VERSION_MOTOR = "2026-09-07.1";
 
 export interface PlanGuardado {
   versionMotor?: string;
@@ -115,6 +121,8 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
         factorCorreccion: Number(l.demanda.factorCorreccion.toFixed(3)),
         diasSinStock: l.demanda.diasSinStock,
         unidadesTotales: l.demanda.unidadesTotales,
+        // El bucket 0 siempre es el más reciente ("Últimos 30 días").
+        unidades30: l.demanda.buckets[0]?.unidades ?? 0,
         disponible: l.disponible,
         enTransferencia: l.enTransferencia,
         posicion: l.posicion,

@@ -106,13 +106,19 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
             <th className="num">MELI</th>
             <th className="num">Amazon</th>
             <th className="num">De China</th>
-            <th className="num" title="Unidades realmente vendidas en MELI, sin corrección">
+            <th
+              className="num"
+              title="Unidades realmente vendidas en MELI en los últimos 30 días, sin corrección (solo los colores con cajas en el pedido)"
+            >
               Vendido MELI real
             </th>
             <th className="num" title="Demanda corregida por agotamiento y tendencia (la que usa el cálculo)">
               Vta MELI/mes
             </th>
-            <th className="num" title="Unidades realmente vendidas en Amazon, sin corrección">
+            <th
+              className="num"
+              title="Unidades realmente vendidas en Amazon en los últimos 30 días, sin corrección"
+            >
               Vendido AMZ real
             </th>
             <th

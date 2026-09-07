@@ -147,7 +147,7 @@ export interface RenglonCompra {
   demandaDiaria: number;
   /** venta mensual de MELI (demanda corregida × 30) */
   ventaMes: number;
-  /** venta mensual REALMENTE observada en MELI (tasa observada × 30) */
+  /** venta mensual REALMENTE observada en MELI (últimos 30 días, sin corrección) */
   ventaMesReal: number;
   /** venta mensual de Amazon corregida por agotamiento (la que usa el cálculo) */
   ventaMesAmazon: number;
@@ -221,7 +221,7 @@ export interface DetalleSkuCompra {
   talla: string;
   /** venta mensual usada por el cálculo (demanda corregida de MELI × 30) */
   ventaMesMeli: number;
-  /** venta mensual realmente observada en MELI (sin corrección) */
+  /** venta mensual realmente observada en MELI (últimos 30 días, sin corrección) */
   ventaMesRealMeli: number;
   /** venta mensual de Amazon corregida por agotamiento (la que usa el cálculo) */
   ventaMesAmazon: number;
@@ -542,9 +542,16 @@ export async function sugerirCompra(
     g.skus.add(l.sku);
     g.demandaDiaria += l.demandaDiaria;
     g.ventaMes += l.demandaDiaria * 30;
-    // Lo REALMENTE vendido, sin corrección ni tendencia: la referencia para
-    // que el usuario verifique cuánto está estirando el cálculo.
-    g.ventaMesReal += (l.tasaObservada ?? l.demandaDiaria) * 30;
+    // Lo REALMENTE vendido en los últimos 30 días, sin corrección ni
+    // tendencia: la referencia para que el usuario verifique cuánto está
+    // estirando el cálculo. El promedio de 90 días (tasa observada × 30)
+    // engañaba con los modelos en despegue: el GT110 vendió 1,348 pares el
+    // último mes pero el promedio de la ventana decía 729, y la demanda
+    // corregida se veía como un error cuando en realidad empataba con la
+    // venta real. El plan cacheado viejo no trae `unidades30`: ahí se cae
+    // al promedio de antes.
+    const real30 = l.unidades30 ?? (l.tasaObservada ?? l.demandaDiaria) * 30;
+    g.ventaMesReal += real30;
     if (talla) {
       g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
     }
@@ -552,7 +559,7 @@ export async function sugerirCompra(
     const d = filaDetalle(l.sku, modelo, color, talla || "");
     d.sku = l.sku; // el nombre real de MELI gana sobre uno construido
     d.ventaMesMeli += l.demandaDiaria * 30;
-    d.ventaMesRealMeli += (l.tasaObservada ?? l.demandaDiaria) * 30;
+    d.ventaMesRealMeli += real30;
   }
 
   // El inventario se suma aparte: hay SKUs con producto en bodega que el plan
