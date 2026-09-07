@@ -608,11 +608,24 @@ function Campo({ etiqueta, children }: { etiqueta: string; children: React.React
 
 /* -------------------------------------------------------------------------- */
 
+interface RenglonNuevo {
+  modelo: string;
+  color: string;
+  talla: string;
+  cajas: string;
+  paresPorCaja: string;
+}
+
+type Edicion = Partial<Pick<LineaPedido, "modelo" | "color" | "cajas" | "paresPorCaja">> & {
+  talla?: string;
+};
+
 /**
- * Corrección de los RENGLONES del pedido: si una parte ya no se fabricó, se
- * bajan sus cajas (los pares se recalculan solos) o se quita el renglón. El
- * piso siempre es lo ya embarcado en contenedores: eso se corrige primero
- * en la sección Contenedores.
+ * Corrección de los RENGLONES del pedido: el modelo, el color o la talla
+ * (un SKU mal capturado en la proforma), las cajas (una parte ya no se
+ * fabricó), los pares por caja de una caja de talla única, y renglones
+ * que faltaban. El piso siempre es lo ya embarcado en contenedores: eso se
+ * corrige primero en la sección Contenedores.
  */
 function EditarRenglones({
   pedido,
@@ -624,8 +637,9 @@ function EditarRenglones({
   onGuardado: () => void;
 }) {
   const [lineas, setLineas] = useState<LineaPedido[] | null>(null);
-  const [cajas, setCajas] = useState<Record<string, number>>({});
+  const [ediciones, setEdiciones] = useState<Record<string, Edicion>>({});
   const [quitar, setQuitar] = useState<Set<string>>(new Set());
+  const [nuevos, setNuevos] = useState<RenglonNuevo[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -636,11 +650,7 @@ function EditarRenglones({
       .then((r) => r.json())
       .then((j) => {
         if (!vivo) return;
-        const ls: LineaPedido[] = j.lineas ?? [];
-        setLineas(ls);
-        const inicial: Record<string, number> = {};
-        for (const l of ls) inicial[l.id] = l.cajas;
-        setCajas(inicial);
+        setLineas(j.lineas ?? []);
       })
       .catch(() => {
         if (vivo) setLineas([]);
@@ -650,41 +660,95 @@ function EditarRenglones({
     };
   }, [pedido.id]);
 
+  function editar(id: string, cambio: Edicion) {
+    setEdiciones((e) => ({ ...e, [id]: { ...e[id], ...cambio } }));
+  }
+
+  /** El renglón como quedaría con lo editado. */
+  function efectivo(l: LineaPedido) {
+    const e = ediciones[l.id] ?? {};
+    return {
+      modelo: e.modelo ?? l.modelo,
+      color: e.color ?? l.color,
+      talla: e.talla ?? (l.talla ?? ""),
+      cajas: e.cajas ?? l.cajas,
+      paresPorCaja: e.paresPorCaja ?? l.paresPorCaja,
+    };
+  }
+
+  function cambiado(l: LineaPedido): boolean {
+    const v = efectivo(l);
+    return (
+      v.modelo.trim().toUpperCase() !== l.modelo ||
+      v.color.trim().toUpperCase() !== l.color ||
+      v.talla.trim() !== (l.talla ?? "") ||
+      v.cajas !== l.cajas ||
+      v.paresPorCaja !== l.paresPorCaja
+    );
+  }
+
   const filtro = busqueda.trim().toUpperCase();
   const visibles = (lineas ?? []).filter(
     (l) => !filtro || `${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
   );
 
+  const nuevosValidos = nuevos.filter((r) => r.modelo.trim() && Number(r.cajas) > 0);
+
   async function guardar() {
     if (!lineas) return;
     setGuardando(true);
     setError(null);
+    const nombre = (l: { modelo: string; color: string; talla?: string | null }) =>
+      `${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}`;
     try {
-      // Primero las bajas de cajas, luego los renglones que se quitan; en
-      // serie para que un error diga exactamente en qué renglón se detuvo.
+      // En serie para que un error diga exactamente en qué renglón se
+      // detuvo: primero las bajas (así un renombre puede ocupar el lugar
+      // de un renglón que se quita), luego las ediciones, al final los nuevos.
       for (const l of lineas) {
-        if (quitar.has(l.id)) continue;
-        const nuevas = cajas[l.id] ?? l.cajas;
-        if (nuevas === l.cajas) continue;
+        if (!quitar.has(l.id)) continue;
+        const r = await fetch(`/api/pedidos/${pedido.id}/lineas?linea=${l.id}`, { method: "DELETE" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(`${nombre(l)}: ${j.error}`);
+      }
+      for (const l of lineas) {
+        if (quitar.has(l.id) || !cambiado(l)) continue;
+        const v = efectivo(l);
         const r = await fetch(`/api/pedidos/${pedido.id}/lineas`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lineaId: l.id, cajas: nuevas }),
+          body: JSON.stringify({
+            lineaId: l.id,
+            modelo: v.modelo,
+            color: v.color,
+            talla: v.talla,
+            cajas: v.cajas,
+            paresPorCaja: v.paresPorCaja,
+          }),
         });
         const j = await r.json();
-        if (!r.ok) {
-          throw new Error(`${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}: ${j.error}`);
-        }
+        if (!r.ok) throw new Error(`${nombre(l)}: ${j.error}`);
       }
-      for (const l of lineas) {
-        if (!quitar.has(l.id)) continue;
-        const r = await fetch(`/api/pedidos/${pedido.id}/lineas?linea=${l.id}`, {
-          method: "DELETE",
+      const sinCorrida: string[] = [];
+      for (const nvo of nuevosValidos) {
+        const r = await fetch(`/api/pedidos/${pedido.id}/lineas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            modelo: nvo.modelo,
+            color: nvo.color,
+            talla: nvo.talla,
+            cajas: Number(nvo.cajas),
+            paresPorCaja: Number(nvo.paresPorCaja) || 0,
+          }),
         });
         const j = await r.json();
-        if (!r.ok) {
-          throw new Error(`${l.modelo} ${l.color}${l.talla ? ` T${l.talla}` : ""}: ${j.error}`);
-        }
+        if (!r.ok) throw new Error(`${nombre({ modelo: nvo.modelo, color: nvo.color, talla: nvo.talla })}: ${j.error}`);
+        if (j.sinCorrida) sinCorrida.push(`${nvo.modelo} ${nvo.color}`);
+      }
+      if (sinCorrida.length) {
+        window.alert(
+          `Se agregaron, pero sin corrida (qué tallas trae la caja): ${sinCorrida.join(", ")}. Captúrala en Corridas para que el planeador pueda usarlas.`,
+        );
       }
       onGuardado();
     } catch (e) {
@@ -696,7 +760,13 @@ function EditarRenglones({
 
   const hayCambios =
     quitar.size > 0 ||
-    (lineas ?? []).some((l) => !quitar.has(l.id) && (cajas[l.id] ?? l.cajas) !== l.cajas);
+    nuevosValidos.length > 0 ||
+    (lineas ?? []).some((l) => !quitar.has(l.id) && cambiado(l));
+
+  const estiloCampo = (activo: boolean) => ({
+    borderColor: activo ? "var(--acento)" : "var(--borde)",
+    background: "var(--surface-2)",
+  });
 
   return (
     <div
@@ -706,13 +776,14 @@ function EditarRenglones({
       aria-modal="true"
       aria-label={`Renglones del pedido ${pedido.pedido}`}
     >
-      <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
+      <div className="tarjeta my-8 w-full max-w-4xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="text-lg font-semibold">Renglones del pedido {pedido.pedido}</h3>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Si una parte ya no se fabricó, baja sus cajas o quita el renglón: los pares se
-          recalculan solos y deja de contar como en camino. No se puede bajar de lo ya
-          embarcado en contenedores; eso se corrige primero en{" "}
-          <strong>Contenedores → Contenido</strong>. Las corridas no se tocan.
+          Corrige el modelo, el color o la talla si la proforma se leyó mal, baja las
+          cajas si una parte ya no se fabricó, o quita el renglón. Los pares se recalculan
+          solos. No se puede bajar de lo ya embarcado en contenedores; eso se corrige
+          primero en <strong>Contenedores → Contenido</strong>. Si cambias el modelo o el
+          color de un renglón de corrida, su corrida se renombra con él.
         </p>
 
         <input
@@ -730,6 +801,7 @@ function EditarRenglones({
                 <th>Modelo</th>
                 <th>Color</th>
                 <th>Talla</th>
+                <th className="num">Pares/caja</th>
                 <th className="num">Embarcadas</th>
                 <th className="num">Cajas</th>
                 <th className="num">Pares</th>
@@ -739,42 +811,76 @@ function EditarRenglones({
             <tbody>
               {visibles.map((l) => {
                 const marcada = quitar.has(l.id);
-                const valor = cajas[l.id] ?? l.cajas;
+                const v = efectivo(l);
+                const tachado = marcada ? { textDecoration: "line-through" as const } : undefined;
                 return (
                   <tr key={l.id} style={marcada ? { opacity: 0.5 } : undefined}>
-                    <td
-                      className="font-medium"
-                      style={marcada ? { textDecoration: "line-through" } : undefined}
-                    >
-                      {l.modelo}
+                    <td>
+                      <input
+                        value={v.modelo}
+                        disabled={marcada}
+                        onChange={(e) => editar(l.id, { modelo: e.target.value.toUpperCase() })}
+                        className="w-24 rounded border px-1.5 py-0.5 text-sm font-medium disabled:opacity-50"
+                        style={{ ...estiloCampo(v.modelo !== l.modelo), ...tachado }}
+                        aria-label={`Modelo de ${l.modelo} ${l.color}`}
+                      />
                     </td>
-                    <td style={marcada ? { textDecoration: "line-through" } : undefined}>
-                      {l.color}
+                    <td>
+                      <input
+                        value={v.color}
+                        disabled={marcada}
+                        onChange={(e) => editar(l.id, { color: e.target.value.toUpperCase() })}
+                        className="w-28 rounded border px-1.5 py-0.5 text-sm disabled:opacity-50"
+                        style={{ ...estiloCampo(v.color !== l.color), ...tachado }}
+                        aria-label={`Color de ${l.modelo} ${l.color}`}
+                      />
                     </td>
-                    <td className="cifra">
-                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                    <td>
+                      <input
+                        value={v.talla}
+                        disabled={marcada}
+                        placeholder="corrida"
+                        onChange={(e) => editar(l.id, { talla: e.target.value })}
+                        className="cifra w-16 rounded border px-1.5 py-0.5 text-sm disabled:opacity-50"
+                        style={estiloCampo(v.talla !== (l.talla ?? ""))}
+                        title="Vacío = caja de corrida; un número = caja de una sola talla"
+                        aria-label={`Talla de ${l.modelo} ${l.color}`}
+                      />
+                    </td>
+                    <td className="num">
+                      {v.talla ? (
+                        <input
+                          type="number"
+                          min={1}
+                          value={v.paresPorCaja}
+                          disabled={marcada}
+                          onChange={(e) => editar(l.id, { paresPorCaja: Math.max(0, Number(e.target.value) || 0) })}
+                          className="cifra w-16 rounded border px-1.5 py-0.5 text-right text-sm disabled:opacity-50"
+                          style={estiloCampo(v.paresPorCaja !== l.paresPorCaja)}
+                          aria-label={`Pares por caja de ${l.modelo} ${l.color}`}
+                        />
+                      ) : (
+                        <span className="cifra" title="Sale de la corrida; se edita en Corridas">
+                          {n(l.paresPorCaja)}
+                        </span>
+                      )}
                     </td>
                     <td className="num cifra">{l.yaAsignadas ? n(l.yaAsignadas) : "—"}</td>
                     <td className="num">
                       <input
                         type="number"
                         min={l.yaAsignadas}
-                        value={valor}
+                        value={v.cajas}
                         disabled={marcada}
                         onChange={(e) =>
-                          setCajas((c) => ({
-                            ...c,
-                            [l.id]: Math.max(l.yaAsignadas, Number(e.target.value) || 0),
-                          }))
+                          editar(l.id, { cajas: Math.max(l.yaAsignadas, Number(e.target.value) || 0) })
                         }
                         className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm disabled:opacity-50"
-                        style={{
-                          borderColor: valor !== l.cajas ? "var(--acento)" : "var(--borde)",
-                          background: "var(--surface-2)",
-                        }}
+                        style={estiloCampo(v.cajas !== l.cajas)}
+                        aria-label={`Cajas de ${l.modelo} ${l.color}`}
                       />
                     </td>
-                    <td className="num cifra">{n(valor * l.paresPorCaja)}</td>
+                    <td className="num cifra">{n(v.cajas * v.paresPorCaja)}</td>
                     <td>
                       <button
                         onClick={() =>
@@ -805,6 +911,82 @@ function EditarRenglones({
                   </tr>
                 );
               })}
+
+              {/* ---- Renglones nuevos ------------------------------------ */}
+              {nuevos.map((r, i) => (
+                <tr key={`nuevo-${i}`} style={{ background: "color-mix(in oklab, var(--acento) 6%, transparent)" }}>
+                  <td>
+                    <input
+                      value={r.modelo}
+                      placeholder="GT104-1"
+                      onChange={(e) => setNuevos((ns) => ns.map((x, k) => (k === i ? { ...x, modelo: e.target.value.toUpperCase() } : x)))}
+                      className="w-24 rounded border px-1.5 py-0.5 text-sm font-medium"
+                      style={estiloCampo(true)}
+                      aria-label={`Modelo del renglón nuevo ${i + 1}`}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={r.color}
+                      placeholder="BLK"
+                      onChange={(e) => setNuevos((ns) => ns.map((x, k) => (k === i ? { ...x, color: e.target.value.toUpperCase() } : x)))}
+                      className="w-28 rounded border px-1.5 py-0.5 text-sm"
+                      style={estiloCampo(true)}
+                      aria-label={`Color del renglón nuevo ${i + 1}`}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={r.talla}
+                      placeholder="corrida"
+                      onChange={(e) => setNuevos((ns) => ns.map((x, k) => (k === i ? { ...x, talla: e.target.value } : x)))}
+                      className="cifra w-16 rounded border px-1.5 py-0.5 text-sm"
+                      style={estiloCampo(true)}
+                      aria-label={`Talla del renglón nuevo ${i + 1}`}
+                    />
+                  </td>
+                  <td className="num">
+                    <input
+                      type="number"
+                      min={0}
+                      value={r.paresPorCaja}
+                      placeholder={r.talla ? "24" : "corrida"}
+                      disabled={!r.talla}
+                      title={r.talla ? "Pares por caja de esa talla" : "Sale de la corrida del pedido (si existe)"}
+                      onChange={(e) => setNuevos((ns) => ns.map((x, k) => (k === i ? { ...x, paresPorCaja: e.target.value } : x)))}
+                      className="cifra w-16 rounded border px-1.5 py-0.5 text-right text-sm disabled:opacity-50"
+                      style={estiloCampo(true)}
+                      aria-label={`Pares por caja del renglón nuevo ${i + 1}`}
+                    />
+                  </td>
+                  <td className="num cifra">—</td>
+                  <td className="num">
+                    <input
+                      type="number"
+                      min={1}
+                      value={r.cajas}
+                      onChange={(e) => setNuevos((ns) => ns.map((x, k) => (k === i ? { ...x, cajas: e.target.value } : x)))}
+                      className="cifra w-20 rounded-lg border px-2 py-1 text-right text-sm"
+                      style={estiloCampo(true)}
+                      aria-label={`Cajas del renglón nuevo ${i + 1}`}
+                    />
+                  </td>
+                  <td className="num cifra">
+                    {r.talla && Number(r.cajas) > 0 && Number(r.paresPorCaja) > 0
+                      ? n(Number(r.cajas) * Number(r.paresPorCaja))
+                      : "—"}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => setNuevos((ns) => ns.filter((_, k) => k !== i))}
+                      className="rounded-lg border px-2 py-1 text-xs font-medium"
+                      style={{ borderColor: "var(--borde)" }}
+                    >
+                      Descartar
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
           {lineas === null ? (
@@ -813,6 +995,15 @@ function EditarRenglones({
             </p>
           ) : null}
         </div>
+
+        <button
+          onClick={() => setNuevos((ns) => [...ns, { modelo: "", color: "", talla: "", cajas: "", paresPorCaja: "" }])}
+          disabled={guardando || lineas === null}
+          className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+        >
+          + Agregar renglón
+        </button>
 
         {error ? (
           <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
@@ -824,6 +1015,11 @@ function EditarRenglones({
           {quitar.size > 0 ? (
             <span className="text-sm" style={{ color: "var(--estado-critico)" }}>
               Se van a quitar {quitar.size} renglones.
+            </span>
+          ) : null}
+          {nuevosValidos.length > 0 ? (
+            <span className="text-sm" style={{ color: "var(--acento)" }}>
+              Se agregan {nuevosValidos.length} renglones.
             </span>
           ) : null}
           <div className="ml-auto flex gap-2">
