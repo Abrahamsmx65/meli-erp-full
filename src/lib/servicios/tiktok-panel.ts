@@ -8,6 +8,7 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { disponibleParaCompradores } from "../tiktok/kardex";
+import { sugerirParecidos } from "../tiktok/sugerencias";
 import { skusContados } from "./tiktok";
 import { paresEnBodegaTikTok } from "./tiktok-bodega";
 import { estadoSalidas3pl } from "./tiktok-3pl";
@@ -35,6 +36,8 @@ export interface RenglonTikTok {
   publicable: boolean;
   /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
   contado: boolean;
+  /** publicaciones de TikTok del mismo modelo y talla, para ligar a mano */
+  sugerencias: string[];
 }
 
 export interface MovimientoPanel {
@@ -53,6 +56,8 @@ export interface PendienteTikTok {
   sellerSku: string | null;
   titulo: string | null;
   talla: string | null;
+  /** SKUs del kardex o de MELI del mismo modelo y talla, para ligar a mano */
+  sugerencias: string[];
 }
 
 export interface PanelTikTok {
@@ -78,7 +83,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados] = await Promise.all([
+  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados, catalogoMeli] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -105,6 +110,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .limit(1)
       .maybeSingle(),
     skusContados(db, accountId),
+    traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
   ]);
 
   const tienda = tiendaRes.data ?? null;
@@ -123,6 +129,14 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       enTikTok.set(s.sku_interno, previo == null ? s.cantidad_tiktok : Math.min(previo, s.cantidad_tiktok));
     }
   }
+
+  // Para sugerir ligas a mano: todas las publicaciones activas por un lado,
+  // y el kardex + catálogo de MELI por el otro.
+  const sellerSkus = (skusTikTok ?? []).map((x: any) => String(x.seller_sku ?? "")).filter(Boolean);
+  const objetivos = [
+    ...(inv ?? []).map((x: any) => String(x.sku)),
+    ...(catalogoMeli ?? []).map((x: any) => String(x.sku)),
+  ];
 
   const ventas30 = new Map<string, number>();
   for (const v of ventas ?? []) {
@@ -148,6 +162,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         diasCobertura: porDia > 0 ? disponible / porDia : null,
         enRojo: r.saldo < 0,
         publicable: conPublicacion.has(r.sku) && contado,
+        sugerencias: conPublicacion.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })
     // Lo urgente arriba: primero lo que TikTok todavía no sabe, y dentro de
@@ -165,6 +180,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       sellerSku: s.seller_sku ?? null,
       titulo: s.titulo ?? null,
       talla: s.talla ?? null,
+      sugerencias: s.seller_sku ? sugerirParecidos(String(s.seller_sku), objetivos) : [],
     }));
 
   return {

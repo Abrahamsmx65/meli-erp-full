@@ -3,6 +3,7 @@ import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { claveOrdenada, indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "@/lib/importar/sku";
 import { recalcularSaldos } from "@/lib/servicios/tiktok";
+import { pareceSkuDeCalzado } from "@/lib/tiktok/amarre";
 import { clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +43,27 @@ export async function POST(req: NextRequest) {
     ix.aplastado.get(claveAplastada(skuCrudo)) ??
     ix.ordenado.get(claveOrdenada(skuCrudo));
 
-  if (!dado) {
+  // El destino también puede ser un SKU del kardex de TikTok (un modelo que
+  // MELI no tiene, con el nombre que le puso la bodega) o, si tiene la
+  // forma MODELO-COLOR-TALLA, aceptarse tal cual: TikTok es su propio
+  // almacén y no todo lo que vende está publicado en MELI.
+  let skuInterno = dado?.sku as string | undefined;
+  if (!skuInterno) {
+    const { data: enKardex } = await supabase
+      .from("tiktok_inventario")
+      .select("sku")
+      .eq("account_id", cuenta.id)
+      .ilike("sku", skuCrudo)
+      .maybeSingle();
+    skuInterno = (enKardex as any)?.sku;
+  }
+  if (!skuInterno && pareceSkuDeCalzado(skuCrudo)) skuInterno = skuCrudo.toUpperCase();
+  if (!skuInterno) {
     return NextResponse.json(
-      { error: `"${skuCrudo}" no existe en el catálogo del ERP.` },
+      { error: `"${skuCrudo}" no existe ni en el catálogo del ERP ni en el almacén de TikTok, y no tiene forma de SKU de calzado.` },
       { status: 400 },
     );
   }
-  const skuInterno = dado.sku as string;
 
   const { error } = await supabase.from("tiktok_mapeo_sku").upsert(
     {

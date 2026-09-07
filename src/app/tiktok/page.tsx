@@ -5,6 +5,7 @@ import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { PendientesTikTok } from "@/components/tiktok-pendientes";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
+import { LigarTikTok } from "@/components/ligar-tiktok";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -188,9 +189,12 @@ export default async function TikTok({
                         un ajuste
                       </span>
                     ) : !r.publicable ? (
-                      <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                        sin publicación en TikTok
-                      </span>
+                      <>
+                        <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
+                          sin publicación ligada en TikTok
+                        </span>
+                        <LigarTikTok sku={r.sku} sugerencias={r.sugerencias} />
+                      </>
                     ) : null}
                   </td>
                   <td

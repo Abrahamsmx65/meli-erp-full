@@ -66,6 +66,20 @@ export function PendientesTikTok({ pendientes }: { pendientes: PendienteTikTok[]
                 </span>
               ) : null}
             </span>
+            <span className="flex flex-wrap gap-1">
+              {(p.sugerencias ?? []).map((sug) => (
+                <button
+                  key={sug}
+                  type="button"
+                  onClick={() => setValores((v) => ({ ...v, [p.skuId]: sug }))}
+                  title="Llena el campo con esta sugerencia; Amarrar la confirma"
+                  className="rounded border px-1.5 py-0.5 text-xs"
+                  style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                >
+                  ¿{sug}?
+                </button>
+              ))}
+            </span>
             <input
               value={valores[p.skuId] ?? ""}
               onChange={(e) => setValores((v) => ({ ...v, [p.skuId]: e.target.value }))}
