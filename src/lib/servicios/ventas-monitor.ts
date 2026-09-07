@@ -3,8 +3,8 @@
  *
  * Tres preguntas, en orden de urgencia: ¿cómo va HOY?, ¿qué está subiendo y
  * qué está bajando esta semana?, y ¿por qué? La comparación es semana contra
- * semana anterior a nivel producto (modelo + color, todas las tallas juntas),
- * porque así se piensa el negocio: "el MY2307 negro" y no talla por talla.
+ * semana anterior a nivel MODELO (todos los colores y tallas juntos), porque
+ * así se piensa el negocio: "el GT114" y no color por color ni talla por talla.
  *
  * La razón de una caída se busca primero en el stock — la causa más común de
  * "vender menos" es no tener qué vender — y solo si el stock no explica nada
@@ -320,9 +320,11 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   // --- Razones: qué dice el stock de cada producto -------------------------
   // Tallas agotadas hoy, y tallas que estuvieron agotadas algún día de la
   // semana según las fotos diarias.
+  // Por MODELO completo (todos los colores y tallas): así se piensa el
+  // negocio —"el GT114"— y así se leen las listas de suben y bajan.
   const tallasDe = new Map<string, string[]>();
   for (const s of skus) {
-    const clave = `${s.modelo}|${s.color ?? ""}`;
+    const clave = s.modelo ?? s.sku.split("-")[0] ?? s.sku;
     const l = tallasDe.get(clave);
     if (l) l.push(s.sku);
     else tallasDe.set(clave, [s.sku]);
@@ -365,15 +367,17 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     return "La demanda subió.";
   };
 
-  const movimientos = [...productos.values()]
-    .filter((p) => p.d7 + p.prev7 >= 10) // sin volumen no hay tendencia que leer
-    .map((p) => ({
-      producto: `${p.modelo} ${p.color}`.trim(),
-      modelo: p.modelo,
-      color: p.color,
-      antes: p.prev7,
-      ahora: p.d7,
-      delta: p.d7 - p.prev7,
+  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
+  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
+  const movimientos = [...modelos.entries()]
+    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
+    .map(([modelo, m]) => ({
+      producto: modelo,
+      modelo,
+      color: "",
+      antes: m.unidades7Prev,
+      ahora: m.unidades7,
+      delta: m.unidades7 - m.unidades7Prev,
       razon: "",
     }));
 
@@ -381,13 +385,13 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     .filter((m) => m.delta > 0)
     .sort((a, b) => b.delta - a.delta)
     .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(`${m.modelo}|${m.color}`, true) }));
+    .map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
 
   const bajando = movimientos
     .filter((m) => m.delta < 0)
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(`${m.modelo}|${m.color}`, false) }));
+    .map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
 
   const porModelo: FilaModelo[] = [...modelos.entries()]
     .map(([modelo, m]) => ({
