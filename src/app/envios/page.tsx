@@ -8,6 +8,7 @@ import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
 import { enviosPendientesIndusther, expandirFilaMeli } from "@/lib/servicios/industher-pendientes";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { traerTodo } from "@/lib/datos/repos";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosSeparados } from "@/components/envios-separados";
@@ -27,8 +28,9 @@ function n(x: number): string {
 }
 
 export default async function Plan() {
+  const reloj = cronometro("/envios");
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
+  const cuenta = await reloj.medir("cuenta", cuentaActiva(supabase));
 
   if (!cuenta) {
     return (
@@ -48,13 +50,14 @@ export default async function Plan() {
 
   // El plan y los envíos registrados no dependen uno del otro: en paralelo.
   const [estado, enCamino, corridasRaw] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
-    enviosParaPantalla(supabase, cuenta.id),
+    reloj.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    reloj.medir("registrados", enviosParaPantalla(supabase, cuenta.id)),
     // Para repartir por talla las filas de CORRIDA de los envíos pendientes.
     traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
       q.eq("account_id", cuenta.id),
     ).catch(() => [] as any[]),
   ]);
+  reloj.fin();
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
   const r = plan.resumen;

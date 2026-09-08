@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarInventario, familiasMexico } from "@/lib/servicios/inventario";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { configPorProducto } from "@/lib/servicios/productos";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
@@ -24,8 +25,9 @@ export default async function Inventario({
 }) {
   // El buscador de la barra superior aterriza aquí con el texto ya puesto.
   const busquedaInicial = (await searchParams)?.q ?? "";
+  const reloj = cronometro("/inventario");
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
+  const cuenta = await reloj.medir("cuenta", cuentaActiva(supabase));
 
   if (!cuenta) {
     return (
@@ -39,9 +41,10 @@ export default async function Inventario({
   }
 
   const [inv, config] = await Promise.all([
-    cargarInventario(supabase, cuenta.id),
-    configPorProducto(supabase, cuenta.id),
+    reloj.medir("inventario", cargarInventario(supabase, cuenta.id)),
+    reloj.medir("config", configPorProducto(supabase, cuenta.id)),
   ]);
+  reloj.fin();
   const t = inv.totales;
 
   // El dinero parado en la bodega, a costo: pares × costo del modelo. Solo
