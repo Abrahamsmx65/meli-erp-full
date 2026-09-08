@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cuentaPorTokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { clienteAdmin } from "@/lib/supabase/server";
+import { traerTodo } from "@/lib/datos/repos";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +14,17 @@ export default async function CortesPublicos({ params }: { params: Promise<{ tok
   }
 
   const admin = clienteAdmin();
-  const [{ data: cortes }, { data: prep }] = await Promise.all([
+  const [{ data: cortes }, prep] = await Promise.all([
     admin
       .from("tiktok_cortes")
       .select("id, numero, creado_en, pedidos, pares")
       .eq("account_id", cuenta.id)
       .order("numero", { ascending: false })
       .limit(15),
-    admin.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
+    // Paginado: pasa de 1,000 renglones con el tiempo y el avance mentiría.
+    traerTodo<{ corte_id: number }>(admin, "tiktok_preparaciones", "corte_id", (q) =>
+      q.eq("account_id", cuenta.id),
+    ),
   ]);
   const hechos = new Map<number, number>();
   for (const r of prep ?? []) hechos.set(r.corte_id, (hechos.get(r.corte_id) ?? 0) + 1);

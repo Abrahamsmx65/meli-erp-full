@@ -18,6 +18,7 @@ import type { DB } from "../datos/repos";
 import { clienteDeCuenta } from "./cuenta";
 import { clienteAdmin } from "../supabase/server";
 import { desglosar } from "./sku";
+import { todo } from "./db";
 
 /**
  * Después de tantos intentos sin SELLER_SKU, el pendiente se da por
@@ -42,12 +43,15 @@ export interface ResumenPendientes {
  * el contador nunca baja aunque el catálogo avance.
  */
 export async function limpiarResueltos(admin: DB, accountId: string): Promise<number> {
-  const { data } = await admin
-    .from("yz_skus")
-    .select("item_id, variation_id")
-    .eq("account_id", accountId)
-    .not("item_id", "is", null);
-  const resueltos = data ?? [];
+  // Paginado con todo(): son ~15 mil filas; cortado en 1,000, el contador de
+  // pendientes nunca terminaba de bajar.
+  // El sku va primero SOLO para que todo() pagine con orden estable (único).
+  const resueltos = await todo<{ item_id: string | null; variation_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId).not("item_id", "is", null),
+  );
   let limpiados = 0;
   for (let i = 0; i < resueltos.length; i += 300) {
     const trozo = resueltos.slice(i, i + 300);

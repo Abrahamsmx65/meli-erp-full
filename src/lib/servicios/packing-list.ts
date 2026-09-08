@@ -14,7 +14,7 @@
  */
 import type { LineaPacking, PackingList } from "../importar/packing-list";
 import { canonizar, claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
@@ -96,12 +96,16 @@ async function cargarRenglones(db: DB, accountId: string) {
   });
 
   const ids = [...porPedidoId.keys()];
-  const { data: lineas } = ids.length
-    ? await db
-        .from("pedido_lineas")
-        .select("id, pedido_id, modelo, color, talla, cajas, pares_por_caja")
-        .in("pedido_id", ids)
-    : { data: [] as any[] };
+  // Paginado con traerTodo: con todos los pedidos vivos en el filtro, las
+  // líneas pasan de 1,000 y PostgREST cortaría ahí sin avisar.
+  const lineas = ids.length
+    ? await traerTodo<any>(
+        db,
+        "pedido_lineas",
+        "id, pedido_id, modelo, color, talla, cajas, pares_por_caja",
+        (q) => q.in("pedido_id", ids),
+      )
+    : ([] as any[]);
 
   const renglones: RenglonPedido[] = (lineas ?? []).map((l: any) => {
     const p = porPedidoId.get(l.pedido_id)!;

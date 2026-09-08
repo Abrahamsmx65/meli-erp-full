@@ -11,7 +11,7 @@
  * son unos cientos, las siguientes solo lo que se haya publicado desde
  * entonces.
  */
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
 import type { Cliente } from "../amazon/spapi";
 import { resolverPadres } from "../amazon/catalogo";
 import { asinsRepresentativos } from "./contenido-amazon";
@@ -35,16 +35,22 @@ export async function sincronizarPadres(
 ): Promise<ResultadoPadres> {
   const accountId = cliente.cuenta.accountId;
 
+  // Paginado con traerTodo: cortado en 1,000, ASINs ya resueltos volvían a
+  // entrar como "nuevos" y quemaban cuota de SP-API en cada corrida.
   const [representativos, yaResueltos] = await Promise.all([
     asinsRepresentativos(admin, accountId),
-    admin.from("amazon_padres").select("asin, parent_asin, imagen_url").eq("account_id", accountId),
+    traerTodo<{ asin: string; parent_asin: string | null; imagen_url: string | null }>(
+      admin,
+      "amazon_padres",
+      "asin, parent_asin, imagen_url",
+      (q) => q.eq("account_id", accountId),
+      // Sin la tabla (falta la migración 0033) no se pregunta nada: resolver
+      // para no poder guardar sería quemar cuota de Amazon en cada corrida.
+    ).catch(() => null),
   ]);
+  if (yaResueltos === null) return { estado: "al_dia" };
 
-  // Sin la tabla (falta la migración 0033) no se pregunta nada: resolver para
-  // no poder guardar sería quemar cuota de Amazon en cada corrida.
-  if (yaResueltos.error) return { estado: "al_dia" };
-
-  const filas = (yaResueltos.data ?? []) as any[];
+  const filas = yaResueltos as any[];
   const conocidos = new Set(filas.map((f) => String(f.asin ?? "")));
   const nuevos = representativos.filter((a) => !conocidos.has(a));
   // Los que se resolvieron antes de que se guardara la foto del padre se

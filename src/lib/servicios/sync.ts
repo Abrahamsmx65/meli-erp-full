@@ -253,12 +253,16 @@ async function ejecutarSincronizacion(
     // límite de tiempo de la función.
     const cache = new Map<string, string>();
     {
-      const { data: previos } = await db
-        .from("skus")
-        .select("sku, user_product_id")
-        .eq("account_id", accountId)
-        .not("user_product_id", "is", null);
-      for (const p of previos ?? []) {
+      // Paginado con traerTodo: son ~2,700 SKUs y la lectura directa se
+      // cortaba en 1,000 — el cache mocho volvía a preguntar ~1,700
+      // productos a MELI (a ~1/s) en cada corrida.
+      const previos = await traerTodo<{ sku: string; user_product_id: string | null }>(
+        db,
+        "skus",
+        "sku, user_product_id",
+        (q) => q.eq("account_id", accountId).not("user_product_id", "is", null),
+      );
+      for (const p of previos) {
         if (p.user_product_id && p.sku) cache.set(p.user_product_id, p.sku);
       }
     }

@@ -36,8 +36,18 @@ function baseSimulada(tablas: Record<string, Fila[]>) {
         filas = filas.filter((f) => vs.includes(f[c]));
         return q;
       },
+      // Lo que traerTodo necesita para paginar (orden estable + páginas).
+      order: (c: string) => {
+        filas = [...filas].sort((a, b) => String(a[c]).localeCompare(String(b[c])));
+        return q;
+      },
+      range: (a: number, b: number) => {
+        filas = filas.slice(a, b + 1);
+        return q;
+      },
       maybeSingle: async () => ({ data: filas[0] ?? null }),
-      then: (res: (v: { data: Fila[] }) => void) => res({ data: filas }),
+      then: (res: (v: { data: Fila[]; count: number; error: null }) => void) =>
+        res({ data: filas, count: filas.length, error: null }),
     };
     return q;
   };

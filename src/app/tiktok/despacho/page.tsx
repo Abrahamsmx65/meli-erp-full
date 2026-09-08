@@ -1,5 +1,5 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { pendientesDeCorte } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
@@ -19,7 +19,7 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, { data: cortesRaw }, { data: prepRaw }, token] = await Promise.all([
+  const [pendientes, { data: cortesRaw }, prepRaw, token] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
@@ -27,7 +27,11 @@ export default async function Despacho() {
       .eq("account_id", cuenta.id)
       .order("numero", { ascending: false })
       .limit(30),
-    supabase.from("tiktok_preparaciones").select("corte_id").eq("account_id", cuenta.id),
+    // Paginado: crece un renglón por pedido preparado y nunca se borra; sin
+    // esto, al pasar de 1,000 el avance "X de Y preparados" se quedaría corto.
+    traerTodo<{ corte_id: number }>(supabase, "tiktok_preparaciones", "corte_id", (q) =>
+      q.eq("account_id", cuenta.id),
+    ),
     tokenPreparar(cuenta.id),
   ]);
   // El link de los empleados va SIEMPRE al dominio de producción que Vercel

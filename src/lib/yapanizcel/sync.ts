@@ -27,6 +27,7 @@ import {
 import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
+import { todo } from "./db";
 import { registrarOrdenes } from "./netos";
 import { invalidarYz } from "./cache";
 
@@ -63,13 +64,18 @@ export async function sincronizarCatalogo(
   limiteUserProductsMs = 60_000,
 ): Promise<ResumenCatalogo> {
   // Los amarres user_product -> SKU ya conocidos no se vuelven a preguntar.
-  const { data: conocidos } = await admin
-    .from("yz_skus")
-    .select("user_product_id, sku")
-    .eq("account_id", accountId)
-    .not("user_product_id", "is", null);
+  // Paginado con todo(): son ~15 mil filas y una lectura directa se corta en
+  // 1,000 — con el cache mocho, cada corrida repreguntaba miles de user
+  // products al API y se comía el presupuesto de tiempo sin avanzar.
+  // El sku va primero para que todo() pagine con orden estable (único).
+  const conocidos = await todo<{ user_product_id: string | null; sku: string }>(
+    admin,
+    "yz_skus",
+    "sku, user_product_id",
+    (q) => q.eq("account_id", accountId).not("user_product_id", "is", null),
+  );
   const cache = new Map<string, string>();
-  for (const f of conocidos ?? []) if (f.user_product_id) cache.set(f.user_product_id, f.sku);
+  for (const f of conocidos) if (f.user_product_id) cache.set(f.user_product_id, f.sku);
 
   const diag = nuevoDiagnostico();
   const filas = await obtenerCatalogo(cliente, meliUserId, { diag, cache, limiteUserProductsMs });
@@ -140,15 +146,18 @@ export async function sincronizarStock(
   cliente: MeliClient,
   meliUserId: number,
 ): Promise<{ skus: number; errores: number }> {
-  const { data: skus } = await admin
-    .from("yz_skus")
-    .select("sku, inventory_id")
-    .eq("account_id", accountId);
+  // Paginado: sin esto solo 1,000 de ~15 mil SKUs refrescaban su stock Full.
+  const skus = await todo<{ sku: string; inventory_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, inventory_id",
+    (q) => q.eq("account_id", accountId),
+  );
 
   const { stock, errores } = await obtenerStockFull(
     cliente,
     meliUserId,
-    (skus ?? []).map((s) => ({ sku: s.sku, inventoryId: s.inventory_id })),
+    skus.map((s) => ({ sku: s.sku, inventoryId: s.inventory_id })),
   );
 
   const ahora = new Date().toISOString();
@@ -507,10 +516,14 @@ export async function sincronizarVentas(
   const t0 = opts.t0 ?? Date.now();
   const hoy = hoyLocal();
 
-  const { data: skus } = await admin
-    .from("yz_skus")
-    .select("sku, item_id, variation_id")
-    .eq("account_id", accountId);
+  // Paginado: el mapa item→SKU con solo 1,000 de ~15 mil filas dejaba
+  // órdenes sin amarrar y las ventas diarias salían de menos.
+  const skus = await todo<{ sku: string; item_id: string | null; variation_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId),
+  );
   const mapa = new Map<string, string>();
   for (const s of skus ?? []) {
     if (!s.item_id) continue;
