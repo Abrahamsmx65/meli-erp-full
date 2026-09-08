@@ -16,6 +16,7 @@ import {
   LogOut,
   Megaphone,
   PackageCheck,
+  PieChart,
   Printer,
   ReceiptText,
   RefreshCw,
@@ -59,6 +60,12 @@ interface Grupo {
 }
 
 const GRUPOS: Grupo[] = [
+  {
+    titulo: "Negocio",
+    entradas: [
+      { href: "/cortes", texto: "Corte general", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
+    ],
+  },
   {
     titulo: "Inventario",
     entradas: [
