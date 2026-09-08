@@ -112,3 +112,20 @@ describe("extraerResumen", () => {
     expect(new Set(filas.map((f) => f.detalleId)).size).toBe(filas.length);
   });
 });
+
+describe("partición de la lectura", () => {
+  it("arma los días del periodo y los parámetros de cada filtro", async () => {
+    const { diasDelPeriodo, paramsDeParticion, cursoresDe, SUBTIPOS_INTERES } = await import("./cargos-meli");
+    expect(diasDelPeriodo("2026-02")).toHaveLength(28);
+    expect(diasDelPeriodo("2026-08")[30]).toBe("2026-08-31");
+    expect(paramsDeParticion({ modo: "dia", param: "date_from" }, "2026-08-03")).toEqual({ date_from: "2026-08-03", date_to: "2026-08-03" });
+    expect(paramsDeParticion({ modo: "dia", param: "creation_date_from" }, "2026-08-03")).toEqual({
+      creation_date_from: "2026-08-03T00:00:00.000-06:00",
+      creation_date_to: "2026-08-03T23:59:59.999-06:00",
+    });
+    expect(paramsDeParticion({ modo: "subtipo", param: "detail_sub_type" }, "CFWA")).toEqual({ detail_sub_type: "CFWA" });
+    expect(paramsDeParticion({ modo: "ninguna" }, "")).toEqual({});
+    expect(cursoresDe({ modo: "subtipo", param: "x" }, "2026-08")).toEqual(SUBTIPOS_INTERES);
+    expect(cursoresDe({ modo: "ninguna" }, "2026-08")).toEqual([""]);
+  });
+});

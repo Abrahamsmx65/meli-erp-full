@@ -262,13 +262,61 @@ export function extraerResumen(crudo: unknown, periodo: string): CargoMeli[] {
   return salida;
 }
 
+/**
+ * Cómo se parte la lectura cuando el periodo pasa de 10 mil renglones (MELI
+ * topa offset + limit en 10_000): por DÍA (lo completo) o, si MELI no acepta
+ * filtro de fecha, por SUBTIPO de cargo (solo los tipos que interesan).
+ */
+export type ParticionCargos =
+  | { modo: "ninguna" }
+  | { modo: "dia"; param: "date_from" | "from" | "date_created_from" | "creation_date_from" }
+  | { modo: "subtipo"; param: string };
+
 export interface ProgresoCargos {
   periodo: string;
   clave: string | null;
+  /** renglones leídos del periodo (acumulado) */
   offset: number;
   total: number | null;
   completo: boolean;
   actualizadoEn: string | null;
+  particion?: ParticionCargos | null;
+  /** el día o el subtipo que se está leyendo, y el offset dentro de él */
+  cursor?: string | null;
+  offsetParticion?: number;
+}
+
+/** Los subtipos de la factura que el corte necesita cuando hay que leer por tipo. */
+export const SUBTIPOS_INTERES = ["CFWA", "CFCB", "CFPB", "PADS", "CDSD", "CESM", "CDS", "BDS", "BFF", "BV", "CFF", "CV"];
+
+/** Los días del periodo YYYY-MM. */
+export function diasDelPeriodo(periodo: string): string[] {
+  const [a, m] = periodo.split("-").map(Number);
+  const ultimo = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return Array.from({ length: ultimo }, (_, i) => `${periodo}-${String(i + 1).padStart(2, "0")}`);
+}
+
+/** Los parámetros de consulta de una partición en un cursor dado. */
+export function paramsDeParticion(part: ParticionCargos, cursor: string): Record<string, string> {
+  if (part.modo === "ninguna") return {};
+  if (part.modo === "subtipo") return { [part.param]: cursor };
+  switch (part.param) {
+    case "date_from":
+      return { date_from: cursor, date_to: cursor };
+    case "from":
+      return { from: cursor, to: cursor };
+    case "date_created_from":
+      return { date_created_from: cursor, date_created_to: cursor };
+    case "creation_date_from":
+      return { creation_date_from: `${cursor}T00:00:00.000-06:00`, creation_date_to: `${cursor}T23:59:59.999-06:00` };
+  }
+}
+
+/** Los cursores (días o subtipos) de una partición, en orden. */
+export function cursoresDe(part: ParticionCargos, periodo: string): string[] {
+  if (part.modo === "dia") return diasDelPeriodo(periodo);
+  if (part.modo === "subtipo") return SUBTIPOS_INTERES;
+  return [""];
 }
 
 /**
@@ -308,6 +356,9 @@ export function progresoDeDetalle(periodo: string, detalle: unknown, actualizado
     total: d.total == null ? null : Number(d.total),
     completo: Boolean(d.completo),
     actualizadoEn,
+    particion: d.particion && typeof d.particion === "object" ? (d.particion as ParticionCargos) : null,
+    cursor: typeof d.cursor === "string" ? d.cursor : null,
+    offsetParticion: Number(d.offsetParticion) || 0,
   };
 }
 
@@ -325,7 +376,7 @@ export async function almacenMeli(admin: DB, accountId: string): Promise<Almacen
         tarea: "cargos_meli",
         estado: "ok",
         fin: new Date().toISOString(),
-        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, ...extra },
+        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, ...extra },
       });
     },
     pendientes: async () => {
@@ -392,15 +443,68 @@ export interface ResultadoCargos {
 /** Segundos entre páginas: el endpoint de detalles da 5 llamadas por minuto. */
 const PASO_CUOTA_MS = 12_500;
 const LIMITE_DETALLES = 150;
+/** MELI: "The sum of the offset and the limit cannot exceed 10_000". */
+const TOPE_OFFSET = 10_000;
+
+const totalDe = (crudo: any): number | null =>
+  typeof crudo?.total === "number" ? crudo.total : typeof crudo?.paging?.total === "number" ? crudo.paging.total : null;
+
+/**
+ * Averigua qué filtro acepta MELI para partir un periodo grande: se pide UN
+ * renglón con cada candidato y se acepta el primero cuyo total baje del
+ * total del periodo (un parámetro desconocido lo ignora o contesta 4xx).
+ * Primero por día (lectura completa); si no, por subtipo de cargo.
+ */
+export async function sondearParticion(
+  cliente: MeliClient,
+  clave: string,
+  periodo: string,
+  totalPeriodo: number,
+  finMs: number,
+): Promise<ParticionCargos | null> {
+  const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
+  const dia = diasDelPeriodo(periodo)[0];
+  const candidatos: ParticionCargos[] = [
+    { modo: "dia", param: "date_from" },
+    { modo: "dia", param: "from" },
+    { modo: "dia", param: "date_created_from" },
+    { modo: "dia", param: "creation_date_from" },
+    { modo: "subtipo", param: "detail_sub_type" },
+    { modo: "subtipo", param: "sub_type" },
+    { modo: "subtipo", param: "charge_sub_type" },
+    { modo: "subtipo", param: "detail_type" },
+  ];
+  for (const cand of candidatos) {
+    if (Date.now() + PASO_CUOTA_MS > finMs) return null;
+    const cursor = cand.modo === "dia" ? dia : "CFWA";
+    try {
+      const crudo = await cliente.get<unknown>(ruta, { document_type: "BILL", limit: 1, offset: 0, ...paramsDeParticion(cand, cursor) }, { reintentos: 0 });
+      const t = totalDe(crudo);
+      if (t != null && t < totalPeriodo) return cand;
+    } catch (err) {
+      const e = err as MeliError;
+      if (e instanceof MeliError && e.status === 429) {
+        if (Date.now() + 62_000 > finMs) return null;
+        await dormir(62_000);
+        continue;
+      }
+      // 400/422: parámetro desconocido, siguiente candidato.
+    }
+    await dormir(PASO_CUOTA_MS);
+  }
+  return null;
+}
 
 /**
  * Lee (o sigue leyendo) los cargos del periodo hasta agotar `finMs`.
  *
- * El endpoint de detalles tiene cuota de 5 llamadas por minuto y un mes
- * trae decenas de miles de renglones (comisión y envío de cada orden), así
- * que la lectura es REANUDABLE: el avance queda en la bitácora del almacén
- * y el latido o el cron la continúan hasta completarla. Al empezar de cero
- * se borra lo del periodo; las páginas se guardan conforme llegan.
+ * El endpoint de detalles tiene cuota de 5 llamadas por minuto, topa
+ * offset + limit en 10 mil y un mes trae decenas de miles de renglones
+ * (comisión y envío de cada orden), así que la lectura es REANUDABLE y,
+ * cuando el periodo pasa de 10 mil, PARTIDA por día o por subtipo. El
+ * avance queda en la bitácora del almacén y el latido o el cron la
+ * continúan hasta completarla. Al empezar de cero se borra lo del periodo;
+ * las páginas se guardan conforme llegan.
  */
 export async function sincronizarCargosCon(
   admin: DB,
@@ -421,6 +525,9 @@ export async function sincronizarCargosCon(
     progreso.completo = false;
     progreso.offset = 0;
     progreso.total = null;
+    progreso.particion = null;
+    progreso.cursor = null;
+    progreso.offsetParticion = 0;
   }
 
   try {
@@ -429,9 +536,10 @@ export async function sincronizarCargosCon(
     return { ...(await totalesGuardados()), total: null, completo: false, error: (err as Error).message };
   }
   const clave = progreso.clave;
+  const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
 
   // Al arrancar de cero: fuera lo viejo del periodo, y el resumen si existe.
-  if (progreso.offset === 0) {
+  if (progreso.offset === 0 && !progreso.particion) {
     await admin.from(tabla).delete().eq("account_id", accountId).eq("periodo", periodo);
     try {
       const crudo = await cliente.get<unknown>(
@@ -448,12 +556,33 @@ export async function sincronizarCargosCon(
 
   let error: string | null = null;
   let paginas = 0;
+  const vistos = new Set<string>();
+  const avisos: string[] = [];
+  let particion: ParticionCargos = progreso.particion ?? { modo: "ninguna" };
+  let cursores = cursoresDe(particion, periodo);
+  let iCursor = Math.max(0, progreso.cursor ? cursores.indexOf(progreso.cursor) : 0);
+  // Sin partición, el offset del periodo ES el de la lectura: así una
+  // lectura vieja que se quedó en 9,900 no vuelve a empezar de cero.
+  let offsetParticion = progreso.offsetParticion || (particion.modo === "ninguna" ? progreso.offset : 0);
+
+  const guardar = async () => {
+    progreso.particion = particion;
+    progreso.cursor = cursores[iCursor] ?? null;
+    progreso.offsetParticion = offsetParticion;
+    await almacen.guardarProgreso(progreso, { paginas, error, avisos });
+  };
+
   while (Date.now() < finMs) {
+    if (iCursor >= cursores.length) {
+      progreso.completo = true;
+      break;
+    }
+    const cursor = cursores[iCursor];
     let crudo: any;
     try {
       crudo = await cliente.get<unknown>(
-        `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`,
-        { document_type: "BILL", limit: LIMITE_DETALLES, offset: progreso.offset },
+        ruta,
+        { document_type: "BILL", limit: LIMITE_DETALLES, offset: offsetParticion, ...paramsDeParticion(particion, cursor) },
         { reintentos: 0 },
       );
     } catch (err) {
@@ -472,20 +601,47 @@ export async function sincronizarCargosCon(
       break;
     }
     paginas++;
-    const lote = extraerCargos(crudo, periodo);
+    const lote = extraerCargos(crudo, periodo).filter((c) => !vistos.has(c.detalleId) && vistos.add(c.detalleId));
     await guardarCargos(admin, accountId, tabla, periodo, lote);
-    if (typeof crudo?.total === "number") progreso.total = crudo.total;
-    else if (typeof crudo?.paging?.total === "number") progreso.total = crudo.paging.total;
     progreso.offset += lote.length;
-    if (lote.length < LIMITE_DETALLES || (progreso.total != null && progreso.offset >= progreso.total)) {
-      progreso.completo = true;
-      break;
+    offsetParticion += LIMITE_DETALLES;
+    const totalAqui = totalDe(crudo);
+    if (particion.modo === "ninguna" && totalAqui != null) progreso.total = totalAqui;
+
+    // ¿Se acabó este cursor?
+    const agotado = lote.length < LIMITE_DETALLES || (totalAqui != null && offsetParticion >= totalAqui);
+    if (!agotado && offsetParticion + LIMITE_DETALLES > TOPE_OFFSET) {
+      if (particion.modo === "ninguna") {
+        // El periodo pasa de 10 mil: hay que partirlo.
+        await guardar();
+        const encontrada = await sondearParticion(cliente, clave, periodo, progreso.total ?? TOPE_OFFSET + 1, finMs);
+        if (!encontrada) {
+          error = "El periodo pasa de 10 mil renglones y MELI no aceptó ningún filtro para partirlo: se leyeron los primeros 10 mil.";
+          progreso.completo = true;
+          break;
+        }
+        particion = encontrada;
+        cursores = cursoresDe(particion, periodo);
+        iCursor = 0;
+        offsetParticion = 0;
+        avisos.push(`Periodo partido por ${encontrada.modo} (${encontrada.param}).`);
+        await guardar();
+        continue;
+      }
+      avisos.push(`${cursor} pasa de 10 mil renglones: se leyeron los primeros 10 mil.`);
+      iCursor++;
+      offsetParticion = 0;
+    } else if (agotado) {
+      iCursor++;
+      offsetParticion = 0;
     }
     if (Date.now() + PASO_CUOTA_MS >= finMs) break;
     await dormir(PASO_CUOTA_MS);
   }
-  await almacen.guardarProgreso(progreso, { paginas, error });
-  return { ...(await totalesGuardados()), total: progreso.total, completo: progreso.completo, error };
+  if (iCursor >= cursores.length && !error) progreso.completo = true;
+  await guardar();
+  const t = await totalesGuardados();
+  return { ...t, total: progreso.total, completo: progreso.completo, error };
 }
 
 /** La cuenta de calzado: lee (o sigue leyendo) los cargos del periodo. */
