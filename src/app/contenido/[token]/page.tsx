@@ -36,7 +36,7 @@ export default async function ContenidoPublico({
 
   const verEliminados = sp.eliminados === "1";
   const admin = clienteAdmin();
-  const { modelos, categorias, totales, faltaMigracion, sinRefrescar } =
+  const { modelos, categorias, totales, faltaMigracion, sinRefrescar, advertencias, anotacionesDisponibles } =
     await obtenerContenidoAmazon(admin, cuenta.id, cuenta.pais, { verEliminados });
 
   return (
@@ -59,31 +59,37 @@ export default async function ContenidoPublico({
         </div>
       ) : null}
 
+      {advertencias.length ? (
+        <div className="tarjeta p-4 text-sm">
+          <strong>Contenido parcial.</strong> {advertencias.join(" ")}
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Ficha titulo="Productos" valor={totales.modelos} />
-        <Ficha titulo="Nuevos" valor={totales.nuevos} tono={totales.nuevos > 0 ? "alerta" : "neutro"} />
+        <Ficha titulo="Nuevos" valor={anotacionesDisponibles ? totales.nuevos : "—"} tono={totales.nuevos > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Activos" valor={totales.activos} tono="bien" />
         <Ficha
           titulo="Con imágenes"
-          valor={totales.conImagenes}
-          nota={`faltan ${totales.modelos - totales.conImagenes}`}
+          valor={anotacionesDisponibles ? totales.conImagenes : "—"}
+          nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conImagenes}` : "No disponible"}
         />
         <Ficha
           titulo="Con A+"
-          valor={totales.conAplus}
-          nota={`faltan ${totales.modelos - totales.conAplus}`}
+          valor={anotacionesDisponibles ? totales.conAplus : "—"}
+          nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conAplus}` : "No disponible"}
         />
       </div>
 
-      <ContenidoAmazonPanel
+      {anotacionesDisponibles ? <ContenidoAmazonPanel
         modelos={modelos}
         categorias={categorias}
         totales={totales}
         verEliminados={verEliminados}
         sinRefrescar={sinRefrescar}
-        soloLectura={faltaMigracion}
+        soloLectura={faltaMigracion || advertencias.length > 0}
         token={token}
-      />
+      /> : null}
     </div>
   );
 }

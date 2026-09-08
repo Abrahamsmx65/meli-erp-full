@@ -1,16 +1,23 @@
 "use client";
 
 import { useDeferredValue, useMemo, useState } from "react";
-import type { FilaModelo } from "@/lib/servicios/ventas-monitor";
+import {
+  expandirFilaModelo,
+  prepararFilasTabla,
+  totalizarFilasTabla,
+  type ClaveTablaVentas,
+  type FilaModeloCompacta,
+} from "@/lib/servicios/ventas-tabla";
 
 /**
  * La tabla "Por modelo" del monitor de ventas, con buscador, filtro por
- * categoría y columnas ordenables. Todo en el navegador: los renglones ya
- * vienen calculados del servidor y son unos cientos, no hace falta ir por
- * ellos otra vez para reordenarlos.
+ * categoría y columnas ordenables. Las filas llegan calculadas y compactas;
+ * el trabajo derivado se difiere y el DOM se pagina para no frenar el
+ * navegador aunque aumente el catálogo.
  */
 
-type Clave = "modelo" | "categoria" | "colores" | "unidadesHoy" | "unidades7" | "unidades7Prev" | "cambio" | "importe7" | "neto7" | "publicidad7" | "ganancia7";
+type Clave = ClaveTablaVentas;
+const FILAS_POR_PAGINA = 100;
 
 const COLUMNAS: { clave: Clave; titulo: string; num: boolean }[] = [
   { clave: "modelo", titulo: "Modelo", num: false },
@@ -33,71 +40,30 @@ function pesos(x: number): string {
   return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
-function valor(f: FilaModelo, clave: Clave): string | number | null {
-  if (clave === "cambio") return f.unidades7 - f.unidades7Prev;
-  return f[clave];
-}
-
-export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
+export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
   const [orden, setOrden] = useState<{ clave: Clave; desc: boolean }>({ clave: "unidades7", desc: true });
   const [pagina, setPagina] = useState(1);
   const busquedaDiferida = useDeferredValue(busqueda);
-  const POR_PAGINA = 100;
 
   const categorias = useMemo(
-    () => [...new Set(filas.map((f) => f.categoria ?? "Sin categoría"))].sort((a, b) => a.localeCompare(b, "es")),
+    () => [...new Set(filas.map((f) => expandirFilaModelo(f).categoria ?? "Sin categoría"))].sort((a, b) => a.localeCompare(b, "es")),
     [filas],
   );
 
-  const visibles = useMemo(() => {
-    const q = busquedaDiferida.trim().toUpperCase();
-    const lista = filas.filter((f) => {
-      if (categoria && (f.categoria ?? "Sin categoría") !== categoria) return false;
-      // Busca por modelo o por el inicio de un SKU (GT114-NEGRO-25 → GT114).
-      if (q && !f.modelo.toUpperCase().includes(q) && !q.startsWith(f.modelo.toUpperCase() + "-")) return false;
-      return true;
-    });
-    const dir = orden.desc ? -1 : 1;
-    lista.sort((a, b) => {
-      const va = valor(a, orden.clave);
-      const vb = valor(b, orden.clave);
-      // Lo que no tiene dato (sin costo, sin categoría) siempre va al final.
-      if (va == null && vb == null) return a.modelo.localeCompare(b.modelo, "es");
-      if (va == null) return 1;
-      if (vb == null) return -1;
-      if (typeof va === "string" || typeof vb === "string") return dir * String(va).localeCompare(String(vb), "es");
-      return dir * (va - vb) || a.modelo.localeCompare(b.modelo, "es");
-    });
-    return lista;
-  }, [filas, busquedaDiferida, categoria, orden]);
-
-  const paginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const visibles = useMemo(
+    () => prepararFilasTabla(filas, busquedaDiferida, categoria, orden),
+    [filas, busquedaDiferida, categoria, orden],
+  );
+  const paginas = Math.max(1, Math.ceil(visibles.length / FILAS_POR_PAGINA));
   const paginaSegura = Math.min(pagina, paginas);
-  const filasPagina = useMemo(
-    () => visibles.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA),
-    [visibles, paginaSegura],
+  const renderizadas = visibles.slice(
+    (paginaSegura - 1) * FILAS_POR_PAGINA,
+    paginaSegura * FILAS_POR_PAGINA,
   );
 
-  const totales = useMemo(() => {
-    const t = { unidades7: 0, unidades7Prev: 0, importe7: 0, neto7: 0, publicidad7: 0, conAds: false, ganancia7: 0, conCosto: false };
-    for (const f of visibles) {
-      t.unidades7 += f.unidades7;
-      t.unidades7Prev += f.unidades7Prev;
-      t.importe7 += f.importe7;
-      t.neto7 += f.neto7;
-      if (f.publicidad7 != null) {
-        t.publicidad7 += f.publicidad7;
-        t.conAds = true;
-      }
-      if (f.ganancia7 != null) {
-        t.ganancia7 += f.ganancia7;
-        t.conCosto = true;
-      }
-    }
-    return t;
-  }, [visibles]);
+  const totales = useMemo(() => totalizarFilasTabla(visibles), [visibles]);
 
   const ordenarPor = (clave: Clave) => {
     setPagina(1);
@@ -165,7 +131,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
             </tr>
           </thead>
           <tbody>
-            {filasPagina.map((f) => {
+            {renderizadas.map((f) => {
               const delta = f.unidades7 - f.unidades7Prev;
               return (
                 <tr key={f.modelo}>
@@ -228,8 +194,8 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
           className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
         >
           <span style={{ color: "var(--ink-2)" }}>
-            Mostrando {(paginaSegura - 1) * POR_PAGINA + 1}–
-            {Math.min(paginaSegura * POR_PAGINA, visibles.length)} de {visibles.length}
+            Mostrando {(paginaSegura - 1) * FILAS_POR_PAGINA + 1}–
+            {Math.min(paginaSegura * FILAS_POR_PAGINA, visibles.length)} de {visibles.length}
           </span>
           <div className="flex items-center gap-2">
             <button

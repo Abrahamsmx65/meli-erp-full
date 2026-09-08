@@ -14,6 +14,7 @@ import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
+import { compactarFilasModelo } from "@/lib/servicios/ventas-tabla";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,7 @@ export default async function Ventas({
         filas: [] as FilaPublicidad[],
         totales: { gastoAds: 0 },
         errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
+        advertencias: [] as string[],
       })),
     ),
   ]);
@@ -95,6 +97,19 @@ export default async function Ventas({
       </div>
 
       <FiltroFechas base="/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+
+      {ads.errorAds || ads.advertencias.length ? (
+        <div
+          className="tarjeta p-4 text-sm"
+          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
+        >
+          <strong>Datos parciales.</strong>{" "}
+          {ads.errorAds
+            ? `${ads.errorAds} Las ventas siguen visibles, pero publicidad y ganancias después de ads se muestran como no disponibles.`
+            : ads.advertencias.join(" ")}{" "}
+          Vuelve a intentar; si continúa, revisa la conexión en Ajustes.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
@@ -264,7 +279,7 @@ export default async function Ventas({
             modelo o SKU, filtra por categoría y da clic en una columna para ordenar.
           </p>
         </header>
-        <TablaModelosVentas filas={m.porModelo} />
+        <TablaModelosVentas filas={compactarFilasModelo(m.porModelo)} />
       </section>
     </div>
   );

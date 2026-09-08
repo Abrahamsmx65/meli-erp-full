@@ -98,7 +98,8 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
     .order("id", { ascending: true })
     .limit(500);
   if (corteId != null) q = q.eq("corte_id", corteId);
-  const { data } = await q;
+  const { data, error: errorPendientes } = await q;
+  if (errorPendientes) throw new Error(`tiktok_salidas_3pl: ${errorPendientes.message}`);
   const pendientes = (data ?? []) as any[];
   if (!pendientes.length) return { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false };
 
@@ -107,7 +108,7 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
     "existencias",
     "sku_caja, almacen",
     (q) => q.eq("account_id", accountId),
-  ).catch(() => [] as { sku_caja: string | null; almacen: string | null }[]);
+  );
   const alias = aliasParaIndusther(existencias ?? []);
 
   const referencia = corteId != null ? `TT-CORTE-${corteId}` : `TT-REINTENTO-${new Date().toISOString().slice(0, 16)}`;

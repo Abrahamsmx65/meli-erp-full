@@ -59,7 +59,7 @@ export default async function Plan() {
       "almacenes_activos",
       "almacen, surte_full, grupo_envio",
       (q) => q.eq("account_id", cuenta.id),
-    ).catch(() => [] as { almacen: string; grupo_envio: string | null }[]),
+    ),
   ]);
   t.fin();
   const plan = estado.plan;
@@ -375,8 +375,22 @@ async function SeccionVerificacion({
     promesa,
     traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
       q.eq("account_id", accountId),
-    ).catch(() => [] as any[]),
+    ).catch((error: Error): null => {
+      console.error("No se pudieron leer las corridas para verificar el envío:", error.message);
+      return null;
+    }),
   ]);
+  if (corridasRaw === null) {
+    return (
+      <section className="tarjeta p-4">
+        <h2 className="text-sm font-semibold">Verificación del envío</h2>
+        <p className="mt-2 text-sm" style={{ color: "var(--estado-alerta)" }}>
+          No disponible: no se pudieron leer las corridas de caja. El plan sigue visible, pero no se
+          presenta una verificación incompleta como si hubiera pasado.
+        </p>
+      </section>
+    );
+  }
   const indicePlan = indexarCatalogo(lineasPlan);
   const corridasPendientes = (corridasRaw ?? []).map((c: any) => ({
     pedido: String(c.pedido ?? ""),

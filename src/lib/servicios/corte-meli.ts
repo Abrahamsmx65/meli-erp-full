@@ -716,7 +716,7 @@ async function leerVentas(db: DB, accountId: string, desde: string, hasta: strin
 export async function gastosDelRango(db: DB, accountId: string, desde: string, hasta: string, tabla = "gastos_meli"): Promise<GastoManual[]> {
   const filas = await traerTodo<any>(db, tabla, "id, fecha, concepto, categoria, monto", (q) =>
     q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
-  ).catch(() => [] as any[]);
+  );
   return filas
     .map((g) => ({
       id: Number(g.id),

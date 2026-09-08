@@ -42,6 +42,7 @@ export function desglosarAmazon(sku: string): {
   return d;
 }
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
+import { esErrorObjetoLegacy } from "./errores-datos";
 
 /** Días de venta que el stock en FBA debe cubrir. */
 export const OBJETIVO_DIAS_FBA = 30;
@@ -298,6 +299,7 @@ export interface AmazonCompraSku {
 export interface AmazonParaComprasResultado {
   datos: Map<string, AmazonCompraSku>;
   advertencias: string[];
+  disponible: boolean;
 }
 
 /**
@@ -331,19 +333,25 @@ async function resumenComprasEnBase(
   cuentaId: string,
   desde: string,
 ): Promise<{ seller_sku: string; unidades: number | string; dias_agotado: number }[] | null> {
+  if (typeof (db as any).rpc !== "function") return null;
   try {
     // Por PÁGINAS: el API corta en 1,000 renglones y la suma trae ~1,900
     // SKUs; sin paginar, Planificación China perdía la venta de casi mil
     // SKUs sin avisar.
-    const { filas, error } = await traerRpcTodo<{
+    const { filas, error, errorCodigo } = await traerRpcTodo<{
       seller_sku: string;
       unidades: number | string;
       dias_agotado: number;
     }>(db, "amazon_compras_por_sku", { p_account: cuentaId, p_desde: desde });
-    if (error) return null;
+    if (error) {
+      if (esErrorObjetoLegacy({ message: error, code: errorCodigo }, ["amazon_compras_por_sku"])) {
+        return null;
+      }
+      throw new Error(`amazon_compras_por_sku: ${error}`);
+    }
     return filas;
-  } catch {
-    return null;
+  } catch (error) {
+    throw error;
   }
 }
 
@@ -481,8 +489,10 @@ export async function amazonParaCompras(
         `amazonParaCompras: mapa VACÍO (ventas=${ventas.length}, inventario=${inventario.length}, entrantes=${entrantes.length})`,
       );
     }
-    const resultado = { datos: mapa, advertencias };
-    cacheAmazonCompras.set("unica", { en: Date.now(), resultado });
+    const resultado = { datos: mapa, advertencias, disponible: true };
+    if (advertencias.length === 0) {
+      cacheAmazonCompras.set("unica", { en: Date.now(), resultado });
+    }
     return resultado;
   } catch (err) {
     console.error("amazonParaCompras tronó:", (err as Error).message);

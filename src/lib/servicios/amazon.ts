@@ -69,12 +69,13 @@ export async function cuentaAmazon(db: DB): Promise<CuentaAmazon | null> {
   if (cacheCuentaAmz && Date.now() - cacheCuentaAmz.en < VIDA_CACHE_CUENTA_MS) {
     return cacheCuentaAmz.cuenta;
   }
-  const { data } = await db
+  const { data, error } = await db
     .from("amazon_accounts")
     .select("id, nombre, pais")
     .order("creado_en", { ascending: true })
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error(`amazon_accounts: ${error.message ?? String(error)}`);
   const cuenta = (data as CuentaAmazon) ?? null;
   // Un fallo pasajero no se cachea: sin cuenta, se pregunta de nuevo.
   if (cuenta) cacheCuentaAmz = { en: Date.now(), cuenta };

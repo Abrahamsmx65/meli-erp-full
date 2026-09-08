@@ -1,0 +1,2 @@
+- [GitHub branch workflow](github-branch-workflow.md) — use GitHub Git Data API for this imported private repo; local git history is not the upstream history.
+- [Next build cache](next-build-cache.md) — Webpack WasmHash can fail on a stale `.next`; clear only that generated cache and rebuild once.

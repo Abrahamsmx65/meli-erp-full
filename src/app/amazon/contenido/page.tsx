@@ -42,7 +42,15 @@ export default async function Contenido({
     // página ya confirmó la sesión, así que puede enseñárselo al dueño.
     tokenDeCuenta(cuenta.id),
   ]);
-  const { modelos, categorias, totales, faltaMigracion, sinRefrescar } = contenido;
+  const {
+    modelos,
+    categorias,
+    totales,
+    faltaMigracion,
+    sinRefrescar,
+    advertencias,
+    anotacionesDisponibles,
+  } = contenido;
 
   return (
     <div className="flex flex-col gap-6">
@@ -65,36 +73,46 @@ export default async function Contenido({
         </div>
       ) : null}
 
+      {advertencias.length ? (
+        <div
+          className="tarjeta p-4 text-sm"
+          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
+        >
+          <strong>Contenido parcial.</strong> {advertencias.join(" ")} Vuelve a intentar antes
+          de editar.
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Ficha titulo="Productos" valor={totales.modelos} />
         <Ficha
           titulo="Nuevos"
-          valor={totales.nuevos}
+          valor={anotacionesDisponibles ? totales.nuevos : "—"}
           tono={totales.nuevos > 0 ? "alerta" : "neutro"}
           nota="sin anotar todavía"
         />
         <Ficha titulo="Activos" valor={totales.activos} tono="bien" />
         <Ficha
           titulo="Con imágenes"
-          valor={totales.conImagenes}
-          nota={`faltan ${totales.modelos - totales.conImagenes}`}
+          valor={anotacionesDisponibles ? totales.conImagenes : "—"}
+          nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conImagenes}` : "No disponible"}
         />
         <Ficha
           titulo="Con A+"
-          valor={totales.conAplus}
-          nota={`faltan ${totales.modelos - totales.conAplus}`}
+          valor={anotacionesDisponibles ? totales.conAplus : "—"}
+          nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conAplus}` : "No disponible"}
         />
       </div>
 
-      <ContenidoAmazonPanel
+      {anotacionesDisponibles ? <ContenidoAmazonPanel
         modelos={modelos}
         categorias={categorias}
         totales={totales}
         verEliminados={verEliminados}
         sinRefrescar={sinRefrescar}
-        soloLectura={faltaMigracion}
+        soloLectura={faltaMigracion || advertencias.length > 0}
         linkPublico={token ? `/contenido/${token}` : null}
-      />
+      /> : null}
     </div>
   );
 }

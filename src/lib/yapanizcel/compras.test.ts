@@ -1,5 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { derivadasDeCompras, detalleDesdeCompras, resumenDesdeCompras, type ComprasCalculadas, type VarianteCalculada } from "./compras";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { leerCacheYzGuardado } from "./cache";
+import {
+  derivadasDeCompras,
+  detalleDesdeCompras,
+  obtenerCompras,
+  obtenerDetalleCompras,
+  obtenerResumenCompras,
+  resumenDesdeCompras,
+  type ComprasCalculadas,
+  type VarianteCalculada,
+} from "./compras";
+
+vi.mock("./cache", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./cache")>();
+  return { ...original, leerCacheYzGuardado: vi.fn() };
+});
+
+const leerCache = vi.mocked(leerCacheYzGuardado);
 
 function variante(sku: string, diseno: string, extra: Partial<VarianteCalculada> = {}): VarianteCalculada {
   return {
@@ -39,6 +56,39 @@ const compras: ComprasCalculadas = {
     variante("GT114-BLK-25", "GT114", { vendidas30: 5 }),
   ],
 };
+
+describe("lectores cacheados de compras", () => {
+  beforeEach(() => {
+    leerCache.mockReset();
+  });
+
+  it.each([
+    ["completo", (db: any) => obtenerCompras(db, "cuenta")],
+    ["resumen", (db: any) => obtenerResumenCompras(db, "cuenta")],
+    ["detalle", (db: any) => obtenerDetalleCompras(db, "cuenta", "499")],
+  ])("propaga un fallo al leer %s sin iniciar el cálculo", async (_nombre, leer) => {
+    const fallo = new Error("permission denied for table yz_cache");
+    leerCache.mockResolvedValue({ estado: "fallo", error: fallo });
+    const db = { from: vi.fn() };
+
+    await expect(leer(db)).rejects.toBe(fallo);
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["completo", (db: any) => obtenerCompras(db, "cuenta"), 1],
+    ["resumen", (db: any) => obtenerResumenCompras(db, "cuenta"), 1],
+    ["detalle", (db: any) => obtenerDetalleCompras(db, "cuenta", "499"), 2],
+  ])("la ausencia real de %s conserva el primer cálculo", async (_nombre, leer, lecturasEsperadas) => {
+    const inicioCalculo = new Error("inicio del cálculo");
+    leerCache.mockResolvedValue({ estado: "ausente" });
+    const db = { from: vi.fn(() => { throw inicioCalculo; }) };
+
+    await expect(leer(db)).rejects.toBe(inicioCalculo);
+    expect(leerCache).toHaveBeenCalledTimes(lecturasEsperadas);
+    expect(db.from).toHaveBeenCalledOnce();
+  });
+});
 
 describe("resumenDesdeCompras", () => {
   it("un diseño retirado completo no sale; el que sigue vendiendo sí, sin sus variantes muertas", () => {

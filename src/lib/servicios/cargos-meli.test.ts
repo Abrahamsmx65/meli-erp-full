@@ -27,6 +27,33 @@ describe("clasificarCargo", () => {
   });
 });
 
+describe("cargosGuardados", () => {
+  it("propaga una falla de Supabase en vez de devolver cargos cero", async () => {
+    const db = {
+      from: () => ({
+        select: (_columnas: string, opciones?: { head?: boolean }) => {
+          const q: any = {
+            eq: () => q,
+            order: () => q,
+            range: () => q,
+            then: (resolver: (valor: unknown) => unknown) =>
+              Promise.resolve({
+                data: null,
+                error: { message: opciones?.head ? "permission denied" : "permission denied" },
+                count: null,
+              }).then(resolver),
+          };
+          return q;
+        },
+      }),
+    } as any;
+
+    await expect(cargosGuardados(db, "meli-1", "2026-08")).rejects.toThrow(
+      "meli_cargos: permission denied",
+    );
+  });
+});
+
 describe("extraerCargos", () => {
   it("lee el formato charge_info del API de facturación", () => {
     const crudo = {

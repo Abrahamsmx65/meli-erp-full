@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
-import { mapaCostosUnificado, type MapaCostos } from "@/lib/servicios/costos-unificados";
+import { mapaCostosUnificado } from "@/lib/servicios/costos-unificados";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
 import { cargarEnvios, obtenerPlanYz } from "@/lib/yapanizcel/envios";
 import { desglosar } from "@/lib/yapanizcel/sku";
@@ -24,7 +24,7 @@ export default async function EnviosYz() {
   const plan = await obtenerPlanYz(supabase, cuenta.id);
   const [{ envios }, config] = await Promise.all([
     cargarEnvios(supabase, cuenta.id, plan.parametros.diasCaducidadEnvio),
-    mapaCostosUnificado(supabase, { yzAccountId: cuenta.id }).catch((): MapaCostos => new Map()),
+    mapaCostosUnificado(supabase, { yzAccountId: cuenta.id }),
   ]);
   // Un SKU con todo en cero (sin venta, sin stock, sin bodega, sin faltante)
   // no se puede mandar ni dice nada: fuera del viaje al navegador. Eran

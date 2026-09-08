@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { conCacheApp, leerCacheApp } from "./cache-app";
+import {
+  ErrorOperacionCacheApp,
+  conCacheApp,
+  guardarCacheApp,
+  invalidarApp,
+  leerCacheApp,
+} from "./cache-app";
 
 function dbConRespuesta(respuesta: unknown) {
   const cadena: any = {};
@@ -73,5 +79,56 @@ describe("leerCacheApp", () => {
 
     await expect(conCacheApp(db, "cuenta", "clave", 60_000, calcular)).rejects.toThrow("statement timeout");
     expect(calcular).not.toHaveBeenCalled();
+  });
+});
+
+function dbParaEscritura(respuesta: unknown) {
+  const cadena: any = {};
+  for (const metodo of ["update", "eq", "in", "like"]) cadena[metodo] = vi.fn(() => cadena);
+  cadena.upsert = vi.fn(async () => respuesta);
+  cadena.then = (resolve: (valor: unknown) => unknown) => Promise.resolve(respuesta).then(resolve);
+  return { from: vi.fn(() => cadena) } as any;
+}
+
+describe("escrituras de app_cache", () => {
+  it.each(["guardar", "invalidar"] as const)(
+    "conserva compatibilidad al %s cuando falta la tabla legacy",
+    async (operacion) => {
+      const db = dbParaEscritura({
+        error: { code: "42P01", message: 'relation "app_cache" does not exist' },
+      });
+
+      const promesa =
+        operacion === "guardar"
+          ? guardarCacheApp(db, "cuenta", "clave", { total: 1 }, 10)
+          : invalidarApp(db, "cuenta", "motivo", { prefijo: "contenido:" });
+      await expect(promesa).resolves.toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["permisos", { code: "42501", message: "permission denied for table app_cache" }],
+    ["timeout", { code: "57014", message: "canceling statement due to statement timeout" }],
+    ["red", new TypeError("fetch failed")],
+  ] as const)("clasifica fallos reales al guardar: %s", async (tipo, error) => {
+    const db = dbParaEscritura(
+      error instanceof Error ? Promise.reject(error) : { error },
+    );
+
+    const fallo = await guardarCacheApp(db, "cuenta", "clave", {}, 1).catch((e) => e);
+    expect(fallo).toBeInstanceOf(ErrorOperacionCacheApp);
+    expect(fallo).toMatchObject({ operacion: "guardar", tipo });
+  });
+
+  it.each([
+    ["permisos", { code: "42501", message: "permission denied for table app_cache" }],
+    ["timeout", { code: "57014", message: "statement timeout" }],
+    ["red", { message: "network connection failed" }],
+  ] as const)("clasifica fallos reales al invalidar: %s", async (tipo, error) => {
+    const db = dbParaEscritura({ error });
+
+    const fallo = await invalidarApp(db, "cuenta", "motivo").catch((e) => e);
+    expect(fallo).toBeInstanceOf(ErrorOperacionCacheApp);
+    expect(fallo).toMatchObject({ operacion: "invalidar", tipo });
   });
 });

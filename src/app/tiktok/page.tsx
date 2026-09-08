@@ -65,7 +65,7 @@ export default async function TikTok({
   const p = await cargarPanelTikTok(supabase, cuenta.id);
   const aliasRaw = await traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) =>
     q.eq("account_id", cuenta.id),
-  ).catch(() => [] as any[]);
+  );
   const alias = (aliasRaw ?? []).map((a: any) => ({ modelo: a.modelo, colorTikTok: a.color_tiktok, colorAmazon: a.color_amazon }));
 
   return (

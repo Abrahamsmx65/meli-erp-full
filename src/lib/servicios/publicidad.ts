@@ -19,6 +19,11 @@ import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas } from "./ventas-monitor";
+import {
+  esErrorColumnaLegacy,
+  esErrorObjetoLegacy,
+  mensajeErrorDatos,
+} from "./errores-datos";
 
 export interface FilaPublicidad {
   modelo: string;
@@ -69,6 +74,8 @@ export interface Publicidad {
   sinAmarre: { gasto: number; anuncios: number };
   /** por qué no hay datos de ads (sin permiso, sin advertiser…); null = todo bien */
   errorAds: string | null;
+  /** fuentes auxiliares que fallaron sin invalidar ventas ni gasto de ads */
+  advertencias: string[];
   /** las métricas están completas, pero no se pudo cruzar stock para recomendar */
   errorRecomendaciones: string | null;
 }
@@ -315,7 +322,7 @@ export async function traerAnunciosAds(
  * creciendo), o las tablas/función no existen todavía. Nunca se contesta con
  * datos a medias.
  */
-async function anunciosDesdeBase(
+export async function anunciosDesdeBase(
   db: DB,
   accountId: string,
   r: RangoFechas,
@@ -325,7 +332,11 @@ async function anunciosDesdeBase(
     .select("desde, hasta, actualizado_en")
     .eq("account_id", accountId)
     .maybeSingle();
-  if (error || !est) return null;
+  if (error) {
+    if (esErrorObjetoLegacy(error, ["publicidad_sync"])) return null;
+    throw new Error(`publicidad_sync: ${mensajeErrorDatos(error)}`);
+  }
+  if (!est) return null;
   if (est.desde > r.desde || est.hasta < r.hasta) return null;
 
   // El rango incluye HOY: solo sirve si la sincronización corrió hace poco
@@ -338,7 +349,10 @@ async function anunciosDesdeBase(
     p_desde: r.desde,
     p_hasta: r.hasta,
   });
-  if (errorRpc) return null;
+  if (errorRpc) {
+    if (esErrorObjetoLegacy(errorRpc, ["publicidad_resumen_items"])) return null;
+    throw new Error(`publicidad_resumen_items: ${mensajeErrorDatos(errorRpc)}`);
+  }
 
   return ((data ?? []) as any[]).map((f) => ({
     itemId: String(f.item_id),
@@ -617,8 +631,17 @@ export function armarPublicidad(opts: {
   /** modelo → costo capturado (MXN), de productos_config */
   costoDeModelo: Map<string, number | null>;
   errorAds: string | null;
+  advertencias?: string[];
 }): Publicidad {
-  const { anuncios, ventas, modelosDeItem, modeloDeSku, costoDeModelo, errorAds } = opts;
+  const {
+    anuncios,
+    ventas,
+    modelosDeItem,
+    modeloDeSku,
+    costoDeModelo,
+    errorAds,
+    advertencias = [],
+  } = opts;
 
   interface Acum {
     anuncios: number;
@@ -762,6 +785,7 @@ export function armarPublicidad(opts: {
     },
     sinAmarre,
     errorAds,
+    advertencias,
     errorRecomendaciones: null,
   };
 }
@@ -810,7 +834,8 @@ export async function cargarPublicidad(
         "sku, fecha, unidades, importe, comision, neto",
         filtro,
       );
-    } catch {
+    } catch (error) {
+      if (!esErrorColumnaLegacy(error, ["neto"])) throw error;
       try {
         return await traerTodo<VentaDiaria>(
           db,
@@ -818,7 +843,8 @@ export async function cargarPublicidad(
           "sku, fecha, unidades, importe, comision",
           filtro,
         );
-      } catch {
+      } catch (errorSinNeto) {
+        if (!esErrorColumnaLegacy(errorSinNeto, ["comision"])) throw errorSinNeto;
         return traerTodo<VentaDiaria>(db, "ventas_diarias", "sku, fecha, unidades, importe", filtro);
       }
     }
@@ -860,6 +886,9 @@ export async function cargarPublicidad(
       return { periodo, skusConHistoria };
     }
 
+    if (!esErrorObjetoLegacy(error, ["ventas_resumen_sku"])) {
+      throw new Error(`ventas_resumen_sku: ${mensajeErrorDatos(error)}`);
+    }
     const filas = await leerVentas();
     const skusConHistoria = new Set<string>();
     for (const v of filas) {
@@ -871,7 +900,7 @@ export async function cargarPublicidad(
   const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
     leerVentasAgregadas(),
     // Los anuncios desde la base, cuando la sincronización cubre el rango.
-    anunciosDesdeBase(db, cuenta.id, r).catch(() => null),
+    anunciosDesdeBase(db, cuenta.id, r),
     traerTodo<{ sku: string; modelo: string | null; item_id: string | null }>(
       db,
       "skus",
@@ -887,9 +916,9 @@ export async function cargarPublicidad(
       (q) => q.eq("account_id", cuenta.id),
     )
       .then((filas) => ({ filas, error: null as string | null }))
-      .catch((err) => ({
+      .catch((error) => ({
         filas: [] as { sku: string; disponible: number | null; en_transferencia: number | null }[],
-        error: `No se pudo leer el stock de Full: ${(err as Error).message}`,
+        error: `No se pudo leer el stock de Full: ${mensajeErrorDatos(error)}. Las recomendaciones de stock están desactivadas.`,
       })),
     // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
     // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
@@ -902,6 +931,8 @@ export async function cargarPublicidad(
       }
     })(),
   ]);
+  const stock = stockEstado.filas;
+  const advertencias = stockEstado.error ? [stockEstado.error] : [];
 
   const modeloDeSku = new Map<string, string>();
   // Una publicación puede traer variantes de VARIOS modelos: se guardan todos
@@ -961,6 +992,7 @@ export async function cargarPublicidad(
     modeloDeSku,
     costoDeModelo,
     errorAds,
+    advertencias,
   });
   datos.errorRecomendaciones = stockEstado.error;
 
@@ -983,7 +1015,7 @@ export async function cargarPublicidad(
 
   // --- Recomendaciones: publicidad × stock × margen ------------------------
   const stockDeModelo = new Map<string, number>();
-  for (const s of stockEstado.filas) {
+  for (const s of stock) {
     const modelo = modeloDeSku.get(s.sku);
     if (!modelo) continue;
     stockDeModelo.set(
@@ -991,7 +1023,7 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
-  datos.recomendaciones = datos.errorRecomendaciones
+  datos.recomendaciones = stockEstado.error
     ? []
     : armarRecomendaciones({
         filas: datos.filas,
@@ -1003,7 +1035,7 @@ export async function cargarPublicidad(
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
-  if (!errorAds && !datos.errorRecomendaciones) {
+  if (!errorAds && advertencias.length === 0) {
     cachePublicidad.set(claveCache, { en: Date.now(), datos });
   }
   return datos;

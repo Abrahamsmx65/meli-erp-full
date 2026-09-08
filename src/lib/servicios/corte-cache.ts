@@ -107,10 +107,7 @@ export async function obtenerEstadoResultadosMeli(db: DB, cuenta: Cuenta, period
 export async function obtenerEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string): Promise<EstadoResultados> {
   return obtenerConCachePorPeriodo({
     periodo,
-    leer: async () => {
-      const guardado = await leerCacheYzGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo));
-      return guardado ? { estado: "encontrado" as const, valor: guardado } : { estado: "ausente" as const };
-    },
+    leer: () => leerCacheYzGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo)),
     guardar: (datos, ms) => guardarCacheYz(db, cuenta.id, claveCorte(periodo), datos, ms),
     calcular: () => cargarEstadoResultadosYz(db, cuenta, periodo),
   });

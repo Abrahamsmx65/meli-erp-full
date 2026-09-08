@@ -211,7 +211,8 @@ export function derivadasDeCompras(c: ComprasCalculadas): { clave: string; datos
  */
 export async function obtenerCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
   const guardado = await leerCacheYzGuardado<ComprasCalculadas>(db, accountId, "compras");
-  if (guardado) return guardado.datos;
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
   return recalcularCompras(db, accountId);
 }
 
@@ -244,7 +245,8 @@ export async function recalcularCompras(db: DB, accountId: string): Promise<Comp
 /** El resumen por diseño: el renglón chico guardado, aunque esté viejo. */
 export async function obtenerResumenCompras(db: DB, accountId: string): Promise<ResumenDisenos> {
   const guardado = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
-  if (guardado) return guardado.datos;
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
   return resumenDesdeCompras(await recalcularCompras(db, accountId));
 }
 
@@ -253,11 +255,13 @@ export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: s
   const clave = diseno.trim().toUpperCase();
   if (!clave) return null;
   const guardado = await leerCacheYzGuardado<DisenoCompra>(db, accountId, claveDiseno(clave));
-  if (guardado) return guardado.datos;
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
   // Sin renglón: o el diseño no existe (o está retirado), o nunca se ha
   // calculado. El resumen guardado lo dice sin bajar el completo.
   const resumen = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
-  if (resumen && !resumen.datos.disenos.some((d) => d.diseno === clave)) return null;
+  if (resumen.estado === "fallo") throw resumen.error;
+  if (resumen.estado === "encontrado" && !resumen.valor.datos.disenos.some((d) => d.diseno === clave)) return null;
   return detalleDesdeCompras(await recalcularCompras(db, accountId), clave);
 }
 
