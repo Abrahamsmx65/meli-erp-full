@@ -36,22 +36,24 @@ export async function GET(req: NextRequest) {
   const t0 = Date.now();
   for (const c of cuentas ?? []) {
     const r: Record<string, unknown> = { cuenta: c.nickname };
+    // Presupuesto total de 240 s de los 300 de Vercel: netos hasta ~2.5
+    // minutos, devoluciones hasta 200 s, facturación hasta 240 s. Todo mira
+    // el reloj; pasarse mata la función sin guardar nada.
     try {
-      // Netos: hasta ~3 minutos; luego devoluciones y facturación con lo que quede.
-      Object.assign(r, await correrNetos(admin, c.id, Math.min(190_000, 270_000 - (Date.now() - t0))));
+      Object.assign(r, await correrNetos(admin, c.id, Math.min(150_000, 240_000 - (Date.now() - t0))));
     } catch (err) {
       r.error = (err as Error).message;
     }
-    if (Date.now() - t0 < 230_000) {
+    if (Date.now() - t0 < 185_000) {
       try {
-        r.revision = await revisarPendientesYz(admin, c.id, t0 + 250_000);
+        r.revision = await revisarPendientesYz(admin, c.id, t0 + 200_000, 60);
       } catch (err) {
         r.revisionError = (err as Error).message;
       }
     }
-    if (Date.now() - t0 < 240_000) {
+    if (Date.now() - t0 < 215_000) {
       try {
-        r.cargos = await continuarCargosCon(admin, c.id, await almacenYz(admin, c.id), t0 + 275_000);
+        r.cargos = await continuarCargosCon(admin, c.id, await almacenYz(admin, c.id), t0 + 240_000);
       } catch (err) {
         r.cargosError = (err as Error).message;
       }

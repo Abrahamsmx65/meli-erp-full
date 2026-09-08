@@ -28,15 +28,35 @@ import { leerOrdenes, type OrdenLeida } from "./sync";
 
 const redondea = (x: number) => Math.round(x * 100) / 100;
 
-/** Registra las órdenes (sin tocar el neto de las que ya lo tienen). */
-export async function registrarOrdenes(admin: DB, accountId: string, ordenes: OrdenLeida[]): Promise<void> {
-  if (!ordenes.length) return;
+/**
+ * Registra las órdenes (sin tocar el neto de las que ya lo tienen).
+ *
+ * INCREMENTAL: el tramo reciente relee 7 días (~10 mil órdenes) cada
+ * corrida y volver a escribirlas todas con sus renglones se pasaba del
+ * tiempo de Vercel; solo se escriben las que aún no están registradas con
+ * renglones. Devuelve cuántas se escribieron.
+ */
+export async function registrarOrdenes(admin: DB, accountId: string, ordenes: OrdenLeida[]): Promise<number> {
+  if (!ordenes.length) return 0;
+  const yaRegistradas = new Set<number>();
+  const ids = ordenes.map((o) => o.id);
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data } = await admin
+      .from("yz_ordenes_neto")
+      .select("order_id")
+      .eq("account_id", accountId)
+      .in("order_id", ids.slice(i, i + 500))
+      .not("renglones", "is", null);
+    for (const f of data ?? []) yaRegistradas.add(Number(f.order_id));
+  }
+  const nuevas = ordenes.filter((o) => !yaRegistradas.has(o.id));
+  if (!nuevas.length) return 0;
   // Sin la columna `neto` en el lote: el upsert solo escribe las columnas
   // que van en el cuerpo, así que una orden ya conocida conserva su neto.
   await upsertEnTandas(
     admin,
     "yz_ordenes_neto",
-    ordenes.map((o) => ({
+    nuevas.map((o) => ({
       account_id: accountId,
       order_id: o.id,
       payment_id: o.pagos[0] ?? null,
@@ -48,6 +68,7 @@ export async function registrarOrdenes(admin: DB, accountId: string, ordenes: Or
     })),
     "account_id,order_id",
   );
+  return nuevas.length;
 }
 
 /** El neto de una orden: la suma de sus pagos aprobados. null = MP no contestó. */
@@ -87,10 +108,11 @@ export function repartirNetoDelDia(
   return porSku;
 }
 
-/** Asienta en yz_ventas_diarias el neto de los días que ya quedaron completos. */
-export async function asentarNetos(admin: DB, accountId: string, dias: Iterable<string>): Promise<string[]> {
+/** Asienta en yz_ventas_diarias el neto de los días que ya quedaron completos (hasta `finMs`). */
+export async function asentarNetos(admin: DB, accountId: string, dias: Iterable<string>, finMs = Infinity): Promise<string[]> {
   const asentados: string[] = [];
   for (const fecha of [...new Set(dias)].sort()) {
+    if (Date.now() > finMs) break;
     const ordenes = await todo<{ total: number; neto: number; renglones: { sku: string; importe: number }[] | null }>(
       admin,
       "yz_ordenes_neto",
@@ -150,8 +172,10 @@ export async function completarNetosPendientes(
     await upsertEnTandas(admin, "yz_ordenes_neto", nuevas.splice(0), "account_id,order_id");
   };
 
+  // Se deja un margen al final para guardar y asentar sin que Vercel mate la función.
+  const finLectura = finMs - 25_000;
   for (const o of pendientes) {
-    if (Date.now() > finMs) break;
+    if (Date.now() > finLectura) break;
     const pagos: number[] = Array.isArray(o.payment_ids) && o.payment_ids.length ? o.payment_ids.map(Number) : o.payment_id != null ? [Number(o.payment_id)] : [];
     if (!pagos.length) continue;
     try {
@@ -170,7 +194,7 @@ export async function completarNetosPendientes(
     }
   }
   await vaciar();
-  if (dias.size) r.diasAsentados = await asentarNetos(admin, accountId, dias);
+  if (dias.size) r.diasAsentados = await asentarNetos(admin, accountId, dias, finMs);
   return r;
 }
 
@@ -226,14 +250,36 @@ export async function registrarHistoria(
   return r;
 }
 
-/** Una corrida del trabajo de fondo: historia hacia atrás (un rato) y netos pendientes (el resto). */
+/**
+ * Una corrida del trabajo de fondo: historia hacia atrás (un cuarto del
+ * tiempo) y netos pendientes (el resto). Cada etapa mira el reloj y SIEMPRE
+ * se deja bitácora, aunque una etapa truene: una función que Vercel mata
+ * por tiempo no deja rastro y así se perdieron corridas enteras.
+ */
 export async function correrNetos(admin: DB, accountId: string, presupuestoMs: number): Promise<Record<string, unknown>> {
   const t0 = Date.now();
-  const cliente = await clienteDeCuenta(admin, accountId);
-  const usuario = await obtenerUsuario(cliente);
-  const historia = await registrarHistoria(admin, accountId, cliente, usuario.id, t0 + presupuestoMs * 0.3);
-  const netos = await completarNetosPendientes(admin, accountId, cliente, t0 + presupuestoMs - 15_000);
-  const detalle = { tarea: "netos", historia, netos, ms: Date.now() - t0 };
-  await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle });
+  const detalle: Record<string, unknown> = { tarea: "netos" };
+  let ok = true;
+  try {
+    const cliente = await clienteDeCuenta(admin, accountId);
+    const usuario = await obtenerUsuario(cliente);
+    try {
+      detalle.historia = await registrarHistoria(admin, accountId, cliente, usuario.id, t0 + presupuestoMs * 0.25);
+    } catch (err) {
+      ok = false;
+      detalle.historiaError = (err as Error).message.slice(0, 300);
+    }
+    try {
+      detalle.netos = await completarNetosPendientes(admin, accountId, cliente, t0 + presupuestoMs - 5_000);
+    } catch (err) {
+      ok = false;
+      detalle.netosError = (err as Error).message.slice(0, 300);
+    }
+  } catch (err) {
+    ok = false;
+    detalle.error = (err as Error).message.slice(0, 300);
+  }
+  detalle.ms = Date.now() - t0;
+  await admin.from("yz_sync_log").insert({ account_id: accountId, ok, detalle });
   return detalle;
 }
