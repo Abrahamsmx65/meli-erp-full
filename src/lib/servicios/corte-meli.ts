@@ -532,8 +532,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   const sumaCargos = (clase: ClaseCargo) => e.cargos.filter((x) => x.clase === clase).reduce((a, x) => a + c(x.monto), 0);
 
   const adsSinAmarre = c(e.adsSinAmarre);
+  // Sin API de publicidad, la factura de MELI (PADS) es el respaldo.
+  const adsFacturados = sumaCargos("publicidad");
+  const adsDesdeFactura = Boolean(e.errorAds) && adsAmarrados + adsSinAmarre === 0 && adsFacturados > 0;
   const publicidad = {
-    ads: adsAmarrados + adsSinAmarre,
+    ads: adsDesdeFactura ? adsFacturados : adsAmarrados + adsSinAmarre,
     manual: sumaGastos("publicidad"),
     sinAmarre: adsSinAmarre,
   };
@@ -593,7 +596,19 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       `${pendientes.toLocaleString("es-MX")} órdenes del mes aún no tienen sus dos revisiones de devolución/cancelación (a los 10 y 40 días). Hacer el corte las revisa todas.`,
     );
   }
-  if (e.errorAds) avisos.push(`Publicidad: ${e.errorAds} Solo cuenta lo capturado a mano.`);
+  if (e.errorAds) {
+    avisos.push(
+      adsDesdeFactura
+        ? `Publicidad: ${e.errorAds} Se tomó el cargo de Product Ads de la factura de MELI (${p(adsFacturados).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}).`
+        : `Publicidad: ${e.errorAds} Solo cuenta lo capturado a mano.`,
+    );
+  }
+  const bonificaciones = sumaCargos("bonificacion");
+  if (bonificaciones > 0) {
+    avisos.push(
+      `MELI anuló cargos por ${p(bonificaciones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} en la factura (bonificaciones de venta y envío, casi siempre de órdenes canceladas o devueltas): no se suman como ingreso porque esas órdenes ya quedaron fuera o ya se restaron.`,
+    );
+  }
   if (!e.cargosLeidos) {
     const av = e.cargosAvance;
     avisos.push(
@@ -622,7 +637,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
 
   const exacto =
-    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && !e.errorAds && e.cargosLeidos && diasDescuadrados.length === 0;
+    pendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && (!e.errorAds || adsDesdeFactura) && e.cargosLeidos && diasDescuadrados.length === 0;
 
   const dias = Math.max(1, Math.round((Date.parse(e.hasta) - Date.parse(e.desde)) / 86_400_000) + 1);
   return {
