@@ -287,12 +287,17 @@ export function ventaDiariaCorregida(
   return Math.min(unidades / efectivos, observada * factorMax);
 }
 
-interface AmazonCompraSku {
+export interface AmazonCompraSku {
   /** venta diaria corregida por agotamiento (la que usa el cálculo) */
   ventaDiaria: number;
   /** venta diaria realmente observada (unidades / 30), sin corrección */
   ventaDiariaReal: number;
   stock: number;
+}
+
+export interface AmazonParaComprasResultado {
+  datos: Map<string, AmazonCompraSku>;
+  advertencias: string[];
 }
 
 /**
@@ -301,10 +306,14 @@ interface AmazonCompraSku {
  * (`amazon_inventario_snapshots`): un día con el SKU en cero y sin ventas
  * no cuenta como día de venta — junto a la observada, y el stock (FBA + lo
  * que viaja hacia FBA). Solo calzado. Si Amazon no está conectado o las
- * tablas están vacías, regresa un mapa vacío y el pedido se calcula solo
- * con MELI, como antes; sin fotos del inventario simplemente no se corrige.
+ * tablas están vacías, regresa un mapa vacío. Si falla una fuente opcional,
+ * conserva los datos válidos y declara la degradación; las fuentes obligatorias
+ * propagan el error para impedir que se confunda una falla con un cero real.
  */
-const cacheAmazonCompras = new Map<string, { en: number; datos: Map<string, AmazonCompraSku> }>();
+const cacheAmazonCompras = new Map<
+  string,
+  { en: number; resultado: AmazonParaComprasResultado }
+>();
 const VIDA_CACHE_AMZ_MS = 60_000;
 
 /** Solo para pruebas: olvida el minuto de caché. */
@@ -340,14 +349,15 @@ async function resumenComprasEnBase(
 
 export async function amazonParaCompras(
   db: DB,
-): Promise<Map<string, AmazonCompraSku>> {
+): Promise<AmazonParaComprasResultado> {
   // Cada clic en Planificación bajaba ~30 días de ventas de Amazon fila por
   // fila solo para sumarlas; un minuto de caché por instancia lo evita.
   const guardado = cacheAmazonCompras.get("unica");
-  if (guardado && Date.now() - guardado.en < VIDA_CACHE_AMZ_MS) return guardado.datos;
+  if (guardado && Date.now() - guardado.en < VIDA_CACHE_AMZ_MS) return guardado.resultado;
 
   const desde = new Date(Date.now() - VENTANA_VENTA_AMZ * 86_400_000).toISOString().slice(0, 10);
   try {
+    const advertencias: string[] = [];
     // Las lecturas van FILTRADAS por la cuenta de Amazon. Sin el filtro,
     // Postgres no podía usar el índice (account_id, fecha, …) que ordena la
     // paginación y volvía a ordenar ~80 mil fotos en disco EN CADA PÁGINA:
@@ -389,7 +399,12 @@ export async function amazonParaCompras(
         "amazon_envios_entrantes",
         "shipment_id, seller_sku, nombre, estado, enviado, recibido, vigente",
         (q) => porCuenta(q),
-      ).catch(() => [] as any[]),
+      ).catch((err) => {
+        advertencias.push(
+          `No se pudieron leer los envíos entrantes de Amazon: ${(err as Error).message}`,
+        );
+        return [] as any[];
+      }),
       // Las fotos diarias del inventario, para saber qué días estuvo en
       // cero cada SKU. Si aún no hay fotos, la corrección simplemente no
       // aplica (venta corregida = observada).
@@ -400,7 +415,12 @@ export async function amazonParaCompras(
             "amazon_inventario_snapshots",
             "seller_sku, fecha, disponible",
             (q) => porCuenta(q).gte("fecha", desde),
-          ).catch(() => [] as any[]),
+          ).catch((err) => {
+            advertencias.push(
+              `No se pudieron leer los días agotados de Amazon: ${(err as Error).message}`,
+            );
+            return [] as any[];
+          }),
     ]);
     const enCamino = resumirEnCamino(entrantes);
 
@@ -461,11 +481,12 @@ export async function amazonParaCompras(
         `amazonParaCompras: mapa VACÍO (ventas=${ventas.length}, inventario=${inventario.length}, entrantes=${entrantes.length})`,
       );
     }
-    cacheAmazonCompras.set("unica", { en: Date.now(), datos: mapa });
-    return mapa;
+    const resultado = { datos: mapa, advertencias };
+    cacheAmazonCompras.set("unica", { en: Date.now(), resultado });
+    return resultado;
   } catch (err) {
     console.error("amazonParaCompras tronó:", (err as Error).message);
-    return new Map();
+    throw err;
   }
 }
 

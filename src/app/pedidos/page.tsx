@@ -44,14 +44,18 @@ export default async function Pedidos() {
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
   const t = cronometro("/pedidos");
-  const [planEstado, inventario, pedidos, amazon] = await Promise.all([
+  const [planEstado, inventario, pedidos, amazonEstado] = await Promise.all([
     t.medir("plan", obtenerPlan(supabase, cuenta.id)),
     t.medir("inventario", cargarInventario(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
     // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
     t.medir(
       "amazon",
-      conCacheApp(supabase, cuenta.id, "amazon-compras", 10 * 60_000, () => amazonParaCompras(supabase)),
+      conCacheApp(supabase, cuenta.id, "amazon-compras", 10 * 60_000, () => amazonParaCompras(supabase))
+        .catch((err) => ({
+          datos: new Map(),
+          advertencias: [`No se pudieron leer ventas e inventario de Amazon: ${(err as Error).message}`],
+        })),
     ),
   ]);
 
@@ -81,7 +85,7 @@ export default async function Pedidos() {
         inventarioPorSku,
         undefined,
         inventario.crudos,
-        amazon,
+        amazonEstado.datos,
       ),
     ),
   );
@@ -137,6 +141,25 @@ export default async function Pedidos() {
           tono={cajasSinBarco > 0 ? "alerta" : "neutro"}
         />
       </div>
+
+      {amazonEstado.advertencias.length ? (
+        <div
+          role="alert"
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
+            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
+          }}
+        >
+          <strong>Amazon no está completo.</strong> La recomendación se calculó con los demás
+          datos disponibles y puede cambiar cuando se recupere la lectura.
+          <ul className="mt-1 list-disc pl-5">
+            {amazonEstado.advertencias.map((mensaje) => (
+              <li key={mensaje}>{mensaje}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {!planEstado.vigente ? (
         <p

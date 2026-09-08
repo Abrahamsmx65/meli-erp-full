@@ -63,7 +63,7 @@ describe("amazonParaCompras (con la base simulada)", () => {
       // sin fotos del inventario: la corrección no aplica (corregida = real)
     });
 
-    const mapa = await amazonParaCompras(db);
+    const { datos: mapa, advertencias } = await amazonParaCompras(db);
     expect(mapa.get("GT114-LT BROWN-26-MX")).toEqual({
       ventaDiaria: 1,
       ventaDiariaReal: 1,
@@ -71,6 +71,9 @@ describe("amazonParaCompras (con la base simulada)", () => {
     });
     expect(mapa.get("MY2307-BLK-25-MX")?.ventaDiaria).toBe(2);
     expect(mapa.has("FUNDA-999")).toBe(false);
+    expect(advertencias).toEqual([
+      "No se pudieron leer los días agotados de Amazon: amazon_inventario_snapshots: amazon_inventario_snapshots no existe",
+    ]);
   });
 
   it("los días agotado (foto en cero y sin venta) no cuentan como días de venta", async () => {
@@ -95,10 +98,42 @@ describe("amazonParaCompras (con la base simulada)", () => {
       ],
     });
 
-    const mapa = await amazonParaCompras(db);
+    const { datos: mapa, advertencias } = await amazonParaCompras(db);
     const e = mapa.get("GT114-BLK-25-MX")!;
     expect(e.ventaDiariaReal).toBe(0.5); // 15 / 30
     expect(e.ventaDiaria).toBe(1); // 15 / (30 − 15) días efectivos
+    expect(advertencias).toEqual([]);
+  });
+
+  it("declara una lectura parcial de envíos en vez de convertirla silenciosamente en cero", async () => {
+    const db = dbSimulada({
+      amazon_ventas_diarias: [
+        { seller_sku: "GT114-BLK-25-MX", unidades: 30, fecha: "2026-08-20" },
+      ],
+      amazon_inventario: [
+        { seller_sku: "GT114-BLK-25-MX", disponible: 5, en_transferencia: 7 },
+      ],
+      amazon_inventario_snapshots: [],
+    });
+
+    const { datos, advertencias } = await amazonParaCompras(db);
+
+    expect(datos.get("GT114-BLK-25-MX")?.stock).toBe(12);
+    expect(advertencias).toEqual([
+      "No se pudieron leer los envíos entrantes de Amazon: amazon_envios_entrantes: amazon_envios_entrantes no existe",
+    ]);
+  });
+
+  it("propaga la falla de una fuente obligatoria en vez de devolver un mapa vacío", async () => {
+    const db = dbSimulada({
+      amazon_inventario: [],
+      amazon_envios_entrantes: [],
+      amazon_inventario_snapshots: [],
+    });
+
+    await expect(amazonParaCompras(db)).rejects.toThrow(
+      "amazon_ventas_diarias: amazon_ventas_diarias no existe",
+    );
   });
 });
 
