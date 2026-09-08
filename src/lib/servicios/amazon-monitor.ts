@@ -9,6 +9,7 @@
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { modeloUnificado } from "./costos-unificados";
+import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
 
@@ -95,6 +96,23 @@ export interface MonitorAmazon {
  */
 const cacheMonitorAmz = new Map<string, { en: number; datos: MonitorAmazon }>();
 const VIDA_CACHE_MONITOR_MS = 60_000;
+
+/**
+ * El monitor masticado desde `app_cache` (5 min de vida): los datos solo
+ * cambian cuando el cron de Amazon sincroniza (cada 10-60 min) y bajar
+ * ~30 mil renglones de venta por render era de lo más caro que quedaba.
+ */
+export async function obtenerMonitorAmazon(
+  db: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  rango?: RangoFechas,
+): Promise<MonitorAmazon> {
+  const r = rango ?? normalizarRango();
+  return conCacheApp(db, amazonAccountId, `monitor:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, 5 * 60_000, () =>
+    cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
+  );
+}
 
 export async function cargarMonitorAmazon(
   db: DB,

@@ -1,7 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { cargarMonitorAmazon } from "@/lib/servicios/amazon-monitor";
+import { obtenerMonitorAmazon } from "@/lib/servicios/amazon-monitor";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -44,7 +44,7 @@ export default async function VentasAmazon({
   }
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const m = await cargarMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const m = await obtenerMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
 
   return (

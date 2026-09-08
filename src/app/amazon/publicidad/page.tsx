@@ -1,7 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { cargarPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
+import { obtenerPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -56,7 +56,7 @@ export default async function PublicidadAmazon({
   }
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const p = await cargarPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const p = await obtenerPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
   const t = p.totales;
 
   return (

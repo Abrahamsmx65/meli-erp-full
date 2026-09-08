@@ -6,7 +6,7 @@
 import { cuentaActiva, type Cuenta, type DB } from "../datos/repos";
 import { cuentaActiva as cuentaYz } from "../yapanizcel/cuenta";
 import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
-import { cargarMonitorAmazon } from "./amazon-monitor";
+import { obtenerMonitorAmazon } from "./amazon-monitor";
 import { cuentaAmazon } from "./amazon";
 import { armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
@@ -41,7 +41,7 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string)
       const amz = await cuentaAmazon(db);
       if (!amz) return null;
       try {
-        const [monitor, config] = await Promise.all([cargarMonitorAmazon(db, amz.id, cuenta.id, { desde, hasta }), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
+        const [monitor, config] = await Promise.all([obtenerMonitorAmazon(db, amz.id, cuenta.id, { desde, hasta }), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
         return bloqueAmazon(monitor, config);
       } catch (err) {
         avisos.push(`Amazon no se pudo cargar: ${(err as Error).message}`);

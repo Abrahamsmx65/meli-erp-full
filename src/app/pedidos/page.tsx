@@ -2,6 +2,7 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
+import { conCacheApp } from "@/lib/servicios/cache-app";
 import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
 import { sugerirCompra } from "@/lib/servicios/compras";
@@ -60,14 +61,20 @@ export default async function Pedidos() {
     ]),
   );
 
-  const compra = await sugerirCompra(
-    supabase,
-    cuenta.id,
-    planEstado.plan.lineas,
-    inventarioPorSku,
-    undefined,
-    inventario.crudos,
-    amazon,
+  // La sugerencia es 100% determinista sobre insumos que YA están cacheados
+  // (plan, inventario, sumas de Amazon): se guarda masticada en app_cache y
+  // la invalida lo mismo que invalida al plan; la media hora de vida cubre
+  // los insumos que cambian sin aviso (las sumas de Amazon del cron).
+  const compra = await conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
+    sugerirCompra(
+      supabase,
+      cuenta.id,
+      planEstado.plan.lineas,
+      inventarioPorSku,
+      undefined,
+      inventario.crudos,
+      amazon,
+    ),
   );
 
   const p = compra.parametros;

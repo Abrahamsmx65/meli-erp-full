@@ -14,6 +14,7 @@
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { desglosarSku } from "./sync";
+import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
 
@@ -201,6 +202,19 @@ export function armarPublicidadAmazon(opts: {
 /** Diez minutos de caché por instancia, como el panel de MELI. */
 const cacheAmz = new Map<string, { en: number; datos: PublicidadAmazon }>();
 const VIDA_CACHE_MS = 10 * 60_000;
+
+/** La publicidad masticada desde `app_cache` (10 min): cambia con el cron. */
+export async function obtenerPublicidadAmazon(
+  db: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  rango?: RangoFechas,
+): Promise<PublicidadAmazon> {
+  const r = rango ?? normalizarRango();
+  return conCacheApp(db, amazonAccountId, `publicidad:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, 10 * 60_000, () =>
+    cargarPublicidadAmazon(db, amazonAccountId, meliAccountId, r),
+  );
+}
 
 export async function cargarPublicidadAmazon(
   db: DB,

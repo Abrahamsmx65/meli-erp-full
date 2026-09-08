@@ -275,4 +275,11 @@ export async function invalidar(
     .from("inventario_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId);
+  // La sugerencia de compra a China se deriva del plan y del inventario:
+  // si ellos cambiaron, ella también.
+  await db
+    .from("app_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId)
+    .eq("clave", "compras-china");
 }
