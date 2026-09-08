@@ -534,7 +534,10 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   const adsSinAmarre = c(e.adsSinAmarre);
   // Sin API de publicidad, la factura de MELI (PADS) es el respaldo.
   const adsFacturados = sumaCargos("publicidad");
-  const adsDesdeFactura = Boolean(e.errorAds) && adsAmarrados + adsSinAmarre === 0 && adsFacturados > 0;
+  // …o cuando el API contesta CERO y la factura sí trae Product Ads: el
+  // permiso puede faltar sin error explícito, o el advertiser no ser el de
+  // esta cuenta.
+  const adsDesdeFactura = adsAmarrados + adsSinAmarre === 0 && adsFacturados > 0;
   const publicidad = {
     ads: adsDesdeFactura ? adsFacturados : adsAmarrados + adsSinAmarre,
     manual: sumaGastos("publicidad"),
@@ -601,6 +604,10 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       adsDesdeFactura
         ? `Publicidad: ${e.errorAds} Se tomó el cargo de Product Ads de la factura de MELI (${p(adsFacturados).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}).`
         : `Publicidad: ${e.errorAds} Solo cuenta lo capturado a mano.`,
+    );
+  } else if (adsDesdeFactura) {
+    avisos.push(
+      `El API de Product Ads contestó cero y la factura de MELI sí trae publicidad: se tomó el cargo facturado (${p(adsFacturados).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}), sin reparto por modelo.`,
     );
   }
   const bonificaciones = sumaCargos("bonificacion");

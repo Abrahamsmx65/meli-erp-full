@@ -495,11 +495,26 @@ export async function sincronizarCargos(admin: DB, accountId: string, periodo: s
   return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
 }
 
-/** Continúa la lectura de cargos que quedó a medias (la más reciente). null = nada pendiente. */
+/**
+ * Continúa la lectura de cargos que quedó a medias (la más reciente) y, si
+ * no hay nada a medias, ARRANCA sola la del mes anterior y la del mes en
+ * curso cuando nunca se han leído (o su último intento tiene más de 6 h):
+ * sin esto los gastos de Full del corte dependían de un clic.
+ * null = nada que hacer.
+ */
 export async function continuarCargosCon(admin: DB, accountId: string, almacen: AlmacenCargos, finMs: number): Promise<ResultadoCargos | null> {
-  const [periodo] = await almacen.pendientes();
-  if (!periodo) return null;
-  return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
+  const [pendiente] = await almacen.pendientes();
+  if (pendiente) return sincronizarCargosCon(admin, accountId, pendiente, almacen, finMs);
+  const hoy = new Date(Date.now() - 6 * 3_600_000);
+  const actual = hoy.toISOString().slice(0, 7);
+  const anterior = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  for (const periodo of [anterior, actual]) {
+    const p = await almacen.leerProgreso(periodo);
+    if (p.completo) continue;
+    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 6 * 3_600_000) continue;
+    return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
+  }
+  return null;
 }
 
 /** La cuenta de calzado, montada en el latido. */

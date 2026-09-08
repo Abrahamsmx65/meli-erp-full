@@ -816,8 +816,9 @@ export async function sincronizarPagos(
   // día.mes): una sola vez se tira todo lo cargado y se relee desde cero,
   // ya con el parser correcto. La marca de formato evita repetirlo; sube de
   // versión cuando cambia CÓMO se leen los renglones (v3: unidades solo del
-  // renglón Principal + cargos de cuenta como pseudo-SKUs).
-  const necesitaReset = Boolean(est) && est?.datos?.formatoPagos !== "v3";
+  // renglón Principal + cargos de cuenta como pseudo-SKUs; v4: reservas
+  // aparte y cada cargo de cuenta con su descripción).
+  const necesitaReset = Boolean(est) && est?.datos?.formatoPagos !== "v4";
   const cursorTs: string | null = necesitaReset ? null : (est?.cursor_ts ?? null);
   // La primera vez se mira 90 días atrás (Amazon guarda ~90 días de
   // reportes); después, desde el último leído con una hora de traslape.
@@ -876,7 +877,18 @@ export async function sincronizarPagos(
         const monto = decimal(f["amount"]);
         if (!monto) continue; // el renglón-resumen del settlement, sin importe
         const desc = `${f["amount-type"] ?? ""} ${f["amount-description"] ?? ""}`.toLowerCase();
-        sku = /advertis|publicidad/.test(desc) ? "(PUBLICIDAD)" : "(OTROS CARGOS)";
+        // Las RESERVAS (Current Reserve Amount / Previous Reserve Amount
+        // Balance) no son gasto: es dinero que Amazon retiene y suelta
+        // después. Mezcladas con los cargos inflaban "otros cargos" en
+        // cientos de miles. Van a su propio pseudo-SKU y el panel las enseña
+        // aparte. Los demás cargos llevan su descripción para saber qué son
+        // (Storage Fee, Subscription, FBA Inventory Reimbursement…).
+        if (/advertis|publicidad/.test(desc)) sku = "(PUBLICIDAD)";
+        else if (/reserve/.test(desc)) sku = "(RESERVA)";
+        else {
+          const etiqueta = String(f["amount-description"] ?? f["amount-type"] ?? "").trim().slice(0, 60);
+          sku = `(OTROS CARGOS) ${etiqueta || "sin descripción"}`;
+        }
       }
 
       const clave = `${settlementId}|${sku}|${fecha}`;
@@ -927,7 +939,7 @@ export async function sincronizarPagos(
       account_id: accountId,
       tarea: "cron_pagos",
       cursor_ts: ultimoCreado,
-      datos: { formatoPagos: "v3" },
+      datos: { formatoPagos: "v4" },
       actualizado_en: new Date().toISOString(),
     });
   }
