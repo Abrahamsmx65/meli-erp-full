@@ -12,6 +12,7 @@ import { armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado
 import { bloqueAmazon } from "./consolidado-amazon";
 import { cargarEstadoResultados, rangoDelPeriodo } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
+import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 
 export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
@@ -53,6 +54,50 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string)
   return armarConsolidado({ periodo, desde, hasta, bloques, avisos });
 }
 
+/** Diez minutos: el consolidado junta tres canales y el fondo escribe cada rato. */
+const VIDA_CONSOLIDADO_MS = 10 * 60_000;
+
+/**
+ * El corte general desde `consolidado_cache`: correr los TRES canales
+ * completos (calzado + fundas + Amazon) en cada visita costaba hasta 300 s
+ * de función por clic. Con el caché, el primer render de cada ventana de 10
+ * minutos paga el cálculo y lo deja guardado; los demás leen un renglón.
+ * "Hacer corte" sigue congelando el mes en `cortes_generales` como siempre.
+ */
+export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
+  try {
+    const { data } = await db
+      .from("consolidado_cache")
+      .select("datos, generado_en")
+      .eq("account_id", cuenta.id)
+      .eq("periodo", periodo)
+      .maybeSingle();
+    if (data?.datos && Date.now() - Date.parse(data.generado_en) < VIDA_CONSOLIDADO_MS) {
+      return revivirTipos(data.datos) as Consolidado;
+    }
+  } catch {
+    // Tabla aún sin migrar: se calcula como siempre.
+  }
+
+  const t0 = Date.now();
+  const consolidado = await cargarConsolidado(db, cuenta, periodo);
+  try {
+    await db.from("consolidado_cache").upsert(
+      {
+        account_id: cuenta.id,
+        periodo,
+        generado_en: new Date().toISOString(),
+        ms_calculo: Date.now() - t0,
+        datos: marcarTipos(consolidado),
+      },
+      { onConflict: "account_id,periodo" },
+    );
+  } catch {
+    // Sin guardar, el consolidado sirve igual.
+  }
+  return consolidado;
+}
+
 export interface CorteGeneralGuardado {
   id: number;
   periodo: string;
@@ -64,6 +109,16 @@ export interface CorteGeneralGuardado {
 
 export async function hacerCorteGeneral(db: DB, cuenta: Cuenta, periodo: string, creadoPor: string | null): Promise<{ id: number; consolidado: Consolidado }> {
   const consolidado = await cargarConsolidado(db, cuenta, periodo);
+  // El recién calculado también refresca el caché de la página, para que el
+  // corte se vea al instante y no hasta que caduque la ventana de 10 min.
+  try {
+    await db.from("consolidado_cache").upsert(
+      { account_id: cuenta.id, periodo, generado_en: new Date().toISOString(), ms_calculo: null, datos: marcarTipos(consolidado) },
+      { onConflict: "account_id,periodo" },
+    );
+  } catch {
+    // Sin caché, el corte guardado sigue siendo la verdad.
+  }
   const { data, error } = await db
     .from("cortes_generales")
     .upsert(
@@ -77,14 +132,21 @@ export async function hacerCorteGeneral(db: DB, cuenta: Cuenta, periodo: string,
 }
 
 export async function listarCortesGenerales(db: DB, accountId: string): Promise<CorteGeneralGuardado[]> {
-  const { data } = await db.from("cortes_generales").select("id, periodo, creado_en, resumen").eq("account_id", accountId).order("periodo", { ascending: false }).limit(36);
+  // Solo los tres números que la lista enseña, sacados DENTRO de la base:
+  // bajar el jsonb completo de 36 cortes eran varios megas por render.
+  const { data } = await db
+    .from("cortes_generales")
+    .select("id, periodo, creado_en, venta:resumen->total->ventaBruta, utilidad:resumen->total->utilidadNeta, exacto:resumen->exacto")
+    .eq("account_id", accountId)
+    .order("periodo", { ascending: false })
+    .limit(36);
   return (data ?? []).map((c: any) => ({
     id: Number(c.id),
     periodo: c.periodo,
     creadoEn: c.creado_en,
-    ventaBruta: Number(c.resumen?.total?.ventaBruta) || 0,
-    utilidadNeta: Number(c.resumen?.total?.utilidadNeta) || 0,
-    exacto: Boolean(c.resumen?.exacto),
+    ventaBruta: Number(c.venta) || 0,
+    utilidadNeta: Number(c.utilidad) || 0,
+    exacto: Boolean(c.exacto),
   }));
 }
 

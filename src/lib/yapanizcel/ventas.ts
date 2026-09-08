@@ -136,7 +136,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   const ayer = restarDias(hoy, 1);
 
   const resumen = (desde: string, hasta: string) =>
-    rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+    rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta }, ["sku"]);
 
   // El porcentaje observado sale de las últimas 8 semanas de órdenes con
   // depósito real (ventana ancha para que no la muevan unos cuantos días).
@@ -153,7 +153,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
     resumen(ayer, ayer),
-    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number; importe_sin_neto: number; comision_sin_neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
+    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number; importe_sin_neto: number; comision_sin_neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }, ["fecha"]),
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
     // Los costos viven en Productos y costos (calzado y fundas juntos);
     // yz_costos queda de respaldo.

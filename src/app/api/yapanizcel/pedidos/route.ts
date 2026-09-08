@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
+import { invalidarYz } from "@/lib/yapanizcel/cache";
 import { cambiarEstadoPedido, crearPedido, eliminarPedido, lineasDePedido } from "@/lib/yapanizcel/pedidos";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
         costoUnitario: l?.costoUnitario == null || l?.costoUnitario === "" ? null : Number(l.costoUnitario),
       })),
     );
+    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return errorJson(err, 400);
@@ -59,6 +61,7 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     await cambiarEstadoPedido(ctx.db, ctx.cuenta.id, id, estado as never);
+    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);
@@ -72,6 +75,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Falta el id." }, { status: 400 });
   try {
     await eliminarPedido(ctx.db, ctx.cuenta.id, id);
+    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);

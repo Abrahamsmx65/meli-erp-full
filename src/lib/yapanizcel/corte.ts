@@ -24,7 +24,7 @@ import {
 import { mapaCostosUnificado } from "../servicios/costos-unificados";
 import { clienteDeCuenta, type CuentaYz } from "./cuenta";
 import { hoyMx, restarDias, rpcTodo, todo } from "./db";
-import { adsPorDiseno } from "./publicidad";
+import { adsPorDisenoCacheado } from "./publicidad";
 import { desglosar } from "./sku";
 
 
@@ -121,31 +121,40 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     return { ordenes: Number(f?.ordenes_con_neto ?? 0), total: Number(f?.total ?? 0), neto: Number(f?.neto ?? 0) };
   };
 
+  // Primero el estado de sincronización: DECIDE cuál de las dos fuentes de
+  // venta se lee. Antes se bajaban las DOS en paralelo (la de renglones
+  // diarios son ~126 mil filas paginadas) y una siempre se tiraba.
+  const { data: sync } = await db
+    .from("yz_sync_estado")
+    .select("ventas_desde, ordenes_registradas_desde")
+    .eq("account_id", cuenta.id)
+    .maybeSingle();
+  const registradasDesde: string | null = sync?.ordenes_registradas_desde ?? null;
+  const ordenesCompletas = registradasDesde != null && registradasDesde <= desde;
+
   const args = { p_account: cuenta.id, p_desde: desde, p_hasta: hasta };
-  const [ordenesPorDia, ventasOrdenes, ventasDiarias, skus, config, gastos, cargos, progreso, estadoSync, obs, ads] = await Promise.all([
+  const [ordenesPorDia, ventasCrudas, skus, config, gastos, cargos, progreso, obs, ads] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
-    rpcTodo<VentaDelCorte>(db, "yz_cortes_ventas_desde_ordenes", args),
-    rpcTodo<VentaDelCorte>(db, "yz_ventas_renglones", args),
+    ordenesCompletas
+      ? rpcTodo<VentaDelCorte>(db, "yz_cortes_ventas_desde_ordenes", args, ["sku", "fecha"])
+      : rpcTodo<VentaDelCorte>(db, "yz_ventas_renglones", args, ["sku", "fecha"]),
     todo<{ sku: string; diseno: string | null }>(db, "yz_skus", "sku, diseno", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),
     cargosGuardados(db, cuenta.id, periodo, "yz_cargos"),
     progresoCargosYz(db, cuenta.id, periodo).catch(() => progresoDeDetalle(periodo, null, null)),
-    db.from("yz_sync_estado").select("ventas_desde, ordenes_registradas_desde").eq("account_id", cuenta.id).maybeSingle(),
     observados(restarDias(hoy, 59), hoy),
-    adsPorDiseno(db, cuenta, { desde, hasta }).catch((err) => ({ porDiseno: new Map<string, number>(), sinAmarre: 0, error: (err as Error).message })),
+    adsPorDisenoCacheado(db, cuenta, periodo, { desde, hasta }).catch((err) => ({ porDiseno: new Map<string, number>(), sinAmarre: 0, error: (err as Error).message })),
   ]);
 
-  const registradasDesde: string | null = estadoSync.data?.ordenes_registradas_desde ?? null;
-  const ordenesCompletas = registradasDesde != null && registradasDesde <= desde;
   const avisosExtra: string[] = [];
   let ventas: VentaDelCorte[];
   if (ordenesCompletas) {
-    ventas = ventasOrdenes.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: Number(v.neto) || 0 }));
+    ventas = ventasCrudas.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: Number(v.neto) || 0 }));
     const sinRenglones = ordenesPorDia.reduce((a, d) => a + (d.sinRenglones ?? 0), 0);
     if (sinRenglones > 0) avisosExtra.push(`${sinRenglones} órdenes del mes están registradas sin sus renglones: no entran a la venta por modelo. Se corrigen solas al re-sincronizar.`);
   } else {
-    ventas = ventasDiarias.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: v.neto == null ? 0 : Number(v.neto) }));
+    ventas = ventasCrudas.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: v.neto == null ? 0 : Number(v.neto) }));
     avisosExtra.push(
       `Las órdenes del mes todavía se están registrando hacia atrás (van hasta ${registradasDesde ?? "hoy"}): la venta sale de los renglones diarios y las cancelaciones tardías aún no se descuentan. El cron de netos lo completa solo.`,
     );

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
+import { invalidarYz } from "@/lib/yapanizcel/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -25,5 +26,6 @@ export async function POST(req: NextRequest) {
   }
   const { error } = await ctx.db.from("yz_parametros").upsert(fila, { onConflict: "account_id" });
   if (error) return errorJson(error);
+  await invalidarYz(ctx.db, ctx.cuenta.id, "Cambiaron los parámetros de fundas.", ["compras", "plan", "inventario"]);
   return NextResponse.json({ ok: true });
 }

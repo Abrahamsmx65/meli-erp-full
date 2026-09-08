@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
+import { invalidarYz } from "@/lib/yapanizcel/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
         const { error } = await db.from("yz_skus_ignorados").delete().eq("account_id", cuenta.id).eq("sku_bodega", skuBodega);
         if (error) throw new Error(error.message);
       }
+      await invalidarYz(db, cuenta.id, "Cambió un amarre de SKU.", ["compras", "plan", "inventario", "amarre"]);
       return NextResponse.json({ ok: true });
     }
 
@@ -57,7 +59,8 @@ export async function POST(req: NextRequest) {
       .from("yz_mapeo_skus")
       .upsert({ account_id: cuenta.id, sku_bodega: skuBodega, sku_meli: skuMeli, nota: String(body?.nota ?? "").trim() || null }, { onConflict: "account_id,sku_bodega" });
     if (error) throw new Error(error.message);
-    return NextResponse.json({ ok: true });
+    await invalidarYz(db, cuenta.id, "Cambió un amarre de SKU.", ["compras", "plan", "inventario", "amarre"]);
+      return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);
   }

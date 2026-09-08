@@ -28,6 +28,7 @@ import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
 import { registrarOrdenes } from "./netos";
+import { invalidarYz } from "./cache";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
 export function diaLocal(iso: string): string {
@@ -595,6 +596,9 @@ export async function sincronizar(
       ms: transcurrido(),
     };
     await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
+    // Catálogo, stock o ventas cambiaron: los resultados masticados quedaron
+    // viejos. El cron de netos los deja precalculados en su siguiente corrida.
+    await invalidarYz(admin, accountId, "Se sincronizó con Mercado Libre.", ["compras", "plan", "inventario", "amarre", "disenos"]);
     await admin
       .from("yz_cuentas")
       .update({ nickname: usuario.nickname, actualizado_en: new Date().toISOString() })

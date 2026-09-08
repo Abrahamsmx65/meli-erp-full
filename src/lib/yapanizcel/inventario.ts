@@ -9,6 +9,7 @@
 import type { DB } from "../datos/repos";
 import { upsertEnTandas } from "../datos/repos";
 import { todo } from "./db";
+import { invalidarYz } from "./cache";
 import { amarrar, construirIndice, esAutomatico, type Amarre, type NivelAmarre } from "./sku";
 import { descargarSheet, leerInventario, leerLibro, type ResultadoInventario } from "./sheets";
 
@@ -127,6 +128,9 @@ export async function sincronizarInventarioDesdeSheets(db: DB, accountId: string
     { account_id: accountId, corrido_en: ahora, hojas: r.hojas.length, renglones: r.filas.length, unidades, avisos },
     { onConflict: "account_id" },
   );
+
+  // La bodega cambió completa: todo lo masticado quedó viejo.
+  await invalidarYz(db, accountId, "Se leyó el sheet de inventario.", ["compras", "plan", "inventario", "amarre"]);
 
   return { hojas: r.hojas, renglones: r.filas.length, unidades, avisos };
 }

@@ -14,9 +14,17 @@ export async function todo<T = Record<string, any>>(
   filtrar: (q: any) => any,
   pagina = 1000,
 ): Promise<T[]> {
+  // Paginar SIN ORDER BY no es determinista en Postgres: con escrituras
+  // concurrentes (el cron de netos escribe cada 10 minutos) una fila leída
+  // en la página 0 puede reaparecer en la 3 y sumarse dos veces, o perderse.
+  // Mismo arreglo que traerTodo del calzado: orden estable por la primera
+  // columna pedida (si el llamador ya ordena, este solo queda de desempate).
+  const primera = (columnas.split(",")[0] ?? "").trim().split(":")[0]?.trim();
   const out: T[] = [];
   for (let desde = 0; ; desde += pagina) {
-    const { data, error } = await filtrar(db.from(tabla).select(columnas)).range(desde, desde + pagina - 1);
+    let q = filtrar(db.from(tabla).select(columnas));
+    if (primera) q = q.order(primera, { ascending: true });
+    const { data, error } = await q.range(desde, desde + pagina - 1);
     if (error) throw new Error(`${tabla}: ${error.message}`);
     const lote = (data ?? []) as T[];
     out.push(...lote);
@@ -35,11 +43,23 @@ export function restarDias(dia: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Una función de la base que devuelve tabla, completa, por páginas de 1000. */
-export async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>, pagina = 1000): Promise<T[]> {
+/**
+ * Una función de la base que devuelve tabla, completa, por páginas de 1000.
+ * `orden` da el orden estable entre páginas (mismo motivo que en todo()):
+ * sin él, dos páginas del mismo agregado pueden traslaparse o dejar huecos.
+ */
+export async function rpcTodo<T>(
+  db: DB,
+  fn: string,
+  args: Record<string, unknown>,
+  orden: string[] = [],
+  pagina = 1000,
+): Promise<T[]> {
   const out: T[] = [];
   for (let desde = 0; ; desde += pagina) {
-    const { data, error } = await db.rpc(fn, args).range(desde, desde + pagina - 1);
+    let q: any = db.rpc(fn, args);
+    for (const col of orden) q = q.order(col, { ascending: true });
+    const { data, error } = await q.range(desde, desde + pagina - 1);
     if (error) throw new Error(`${fn}: ${error.message}`);
     const lote = (data ?? []) as T[];
     out.push(...lote);

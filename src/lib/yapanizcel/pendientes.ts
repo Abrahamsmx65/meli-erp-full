@@ -19,6 +19,14 @@ import { clienteDeCuenta } from "./cuenta";
 import { clienteAdmin } from "../supabase/server";
 import { desglosar } from "./sku";
 
+/**
+ * Después de tantos intentos sin SELLER_SKU, el pendiente se da por
+ * incontestable y se deja de preguntar (sigue contado y visible en la
+ * tabla; la sincronización lo resuelve por su camino si algún día el SKU
+ * aparece en la publicación).
+ */
+export const TOPE_INTENTOS = 8;
+
 export interface ResumenPendientes {
   cuentas: number;
   resueltos: number;
@@ -80,10 +88,17 @@ export async function resolverPendientes(admin: DB, opts?: { presupuestoMs?: num
       const cliente = await clienteDeCuenta(admin, accountId);
       // Primero las publicaciones ACTIVAS: son las que venden y las que el
       // inventario de bodega necesita para amarrar. Las pausadas después.
+      // Lo que MELI ya contestó VARIAS veces sin SELLER_SKU se deja de
+      // preguntar: la cola llegó a 9 mil renglones con SKUs de 800+ intentos
+      // dando vueltas para siempre — cada corrida del cron (144 al día) les
+      // pedía lo mismo a MELI y quemaba minutos de función sin resolver
+      // nada. Si el vendedor captura el SKU en la publicación, la siguiente
+      // sincronización lo trae por su propio camino.
       const { data: pendientes } = await admin
         .from("yz_skus_pendientes")
         .select("*")
         .eq("account_id", accountId)
+        .lt("intentos", TOPE_INTENTOS)
         .order("estado", { ascending: true })
         .order("intentos", { ascending: true })
         .limit(2000);
@@ -186,7 +201,12 @@ export async function resolverPendientes(admin: DB, opts?: { presupuestoMs?: num
     }
   }
 
-  const { count } = await admin.from("yz_skus_pendientes").select("*", { count: "exact", head: true });
+  // Solo lo que todavía vale la pena preguntar: los incontestables (tope de
+  // intentos) ya no cuentan como trabajo por hacer.
+  const { count } = await admin
+    .from("yz_skus_pendientes")
+    .select("*", { count: "exact", head: true })
+    .lt("intentos", TOPE_INTENTOS);
   resumen.restantes = count ?? 0;
   resumen.ms = Date.now() - t0;
 

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { upsertEnTandas } from "@/lib/datos/repos";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
+import { invalidarYz } from "@/lib/yapanizcel/cache";
 import { leerCostos } from "@/lib/yapanizcel/costos";
 import { cuentaCalzadoId } from "@/lib/servicios/costos-unificados";
 import type { DB } from "@/lib/datos/repos";
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       "account_id,modelo",
     );
     await espejoEnProductosConfig(ctx.db, r.filas.filter((f) => f.costo > 0));
+    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambiaron los costos de fundas.", ["compras"]);
     return NextResponse.json({ ok: true, modelos: r.filas.length, avisos: r.avisos });
   } catch (err) {
     return errorJson(err, 400);
@@ -77,5 +79,6 @@ export async function PUT(req: NextRequest) {
     .upsert({ account_id: ctx.cuenta.id, modelo, etiqueta: modelo, costo, actualizado_en: new Date().toISOString() }, { onConflict: "account_id,modelo" });
   if (error) return errorJson(error);
   if (costo > 0) await espejoEnProductosConfig(ctx.db, [{ modelo, costo }]);
+  await invalidarYz(ctx.db, ctx.cuenta.id, "Cambiaron los costos de fundas.", ["compras"]);
   return NextResponse.json({ ok: true });
 }

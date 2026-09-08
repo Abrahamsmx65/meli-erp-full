@@ -7,6 +7,7 @@
  * dice el sheet.
  */
 import type { DB } from "../datos/repos";
+import { conCacheYz, invalidarYz } from "./cache";
 import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
@@ -101,6 +102,11 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   return { ...plan, titulos: new Map(skus.map((s) => [s.sku, s.titulo])), inventario, parametros, descontinuados };
 }
 
+/** El plan masticado desde `yz_cache`; sin renglón vigente, calcula y guarda. */
+export async function obtenerPlanYz(db: DB, accountId: string): Promise<PlanConDetalle> {
+  return conCacheYz(db, accountId, "plan", () => calcularPlanDeCuenta(db, accountId));
+}
+
 /** Registra un envío con las líneas que el usuario confirmó. */
 export async function registrarEnvio(
   db: DB,
@@ -125,6 +131,10 @@ export async function registrarEnvio(
     .insert(limpias.map((l) => ({ envio_id: cab.id, sku_meli: l.skuMeli, unidades: l.unidades })));
   if (e2) throw new Error(e2.message);
 
+  // El envío registrado cuenta como "en camino": el plan y las compras
+  // guardados quedaron viejos.
+  await invalidarYz(db, accountId, "Se registró un envío a Full.", ["plan", "compras", "inventario"]);
+
   return { id: cab.id, unidades: limpias.reduce((a, l) => a + l.unidades, 0) };
 }
 
@@ -133,6 +143,7 @@ export async function cambiarEstadoEnvio(db: DB, accountId: string, id: string, 
   if (estado === "enviado") cambios.enviado_en = new Date().toISOString();
   const { error } = await db.from("yz_envios").update(cambios).eq("account_id", accountId).eq("id", id);
   if (error) throw new Error(error.message);
+  await invalidarYz(db, accountId, "Cambió el estado de un envío a Full.", ["plan", "compras", "inventario"]);
 }
 
 /** Las líneas de un envío, para el detalle y el Excel. */

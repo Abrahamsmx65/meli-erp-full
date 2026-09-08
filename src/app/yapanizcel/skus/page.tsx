@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { cargarInventarioAmarrado } from "@/lib/yapanizcel/inventario";
+import { obtenerInventarioAmarrado } from "@/lib/yapanizcel/inventario-pantalla";
 import { todo } from "@/lib/yapanizcel/db";
 import { Ficha } from "@/components/tiles";
 import { TablaSkus } from "@/components/yapanizcel/tabla-skus";
@@ -14,8 +14,10 @@ export default async function SkusYz() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
+  // El amarre vive masticado en yz_cache ("amarre"): lo invalidan el sheet,
+  // la sincronización del catálogo y cada amarre confirmado a mano.
   const [inv, skus] = await Promise.all([
-    cargarInventarioAmarrado(supabase, cuenta.id),
+    obtenerInventarioAmarrado(supabase, cuenta.id),
     todo<{ sku: string }>(supabase, "yz_skus", "sku", (q) => q.eq("account_id", cuenta.id).order("sku")),
   ]);
 

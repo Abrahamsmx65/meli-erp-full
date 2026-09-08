@@ -54,26 +54,43 @@ export function decidirDescontinuados(
   return { skus: out, activo, historialDesde };
 }
 
+/**
+ * La última venta por SKU. Camino nuevo: `yz_ultimas_ventas`, UN solo objeto
+ * JSON con filtro de fecha — a la regla solo le importa si vendió DENTRO de
+ * la ventana, así que un SKU con ventas más viejas equivale a no aparecer.
+ * La versión anterior (`yz_ultima_venta`) agregaba TODA yz_ventas_diarias
+ * sin filtro y se paginaba: PostgREST re-ejecutaba el agregado completo
+ * ~18 veces por render. Queda de respaldo si la función nueva no existe.
+ */
+async function cargarUltimasVentas(db: DB, accountId: string, corte: string): Promise<Map<string, string>> {
+  const { data, error } = await db.rpc("yz_ultimas_ventas", { p_account: accountId, p_desde: corte });
+  if (!error && data && typeof data === "object") {
+    return new Map(Object.entries(data as Record<string, string>));
+  }
+
+  const out = new Map<string, string>();
+  for (let desde = 0; ; desde += 1000) {
+    const { data: pagina, error: e2 } = await db.rpc("yz_ultima_venta", { p_account: accountId }).range(desde, desde + 999);
+    if (e2) throw new Error(`yz_ultima_venta: ${e2.message}`);
+    const lote = (pagina ?? []) as { sku: string; ultima_venta: string }[];
+    for (const u of lote) out.set(u.sku, u.ultima_venta);
+    if (lote.length < 1000) break;
+  }
+  return out;
+}
+
 export async function cargarDescontinuados(db: DB, accountId: string): Promise<Descontinuados> {
+  const hoy = hoyMx();
+  const corte = restarDias(hoy, DIAS_SIN_VENTA - 1);
   const [skus, estado, ultimas] = await Promise.all([
     todo<{ sku: string; publicado_en: string | null }>(db, "yz_skus", "sku, publicado_en", (q) => q.eq("account_id", accountId)),
     db.from("yz_sync_estado").select("ventas_desde").eq("account_id", accountId).maybeSingle(),
-    (async () => {
-      const out: { sku: string; ultima_venta: string }[] = [];
-      for (let desde = 0; ; desde += 1000) {
-        const { data, error } = await db.rpc("yz_ultima_venta", { p_account: accountId }).range(desde, desde + 999);
-        if (error) throw new Error(`yz_ultima_venta: ${error.message}`);
-        const lote = (data ?? []) as { sku: string; ultima_venta: string }[];
-        out.push(...lote);
-        if (lote.length < 1000) break;
-      }
-      return out;
-    })(),
+    cargarUltimasVentas(db, accountId, corte),
   ]);
   return decidirDescontinuados(
     skus.map((s) => ({ sku: s.sku, publicadoEn: s.publicado_en })),
-    new Map(ultimas.map((u) => [u.sku, u.ultima_venta])),
+    ultimas,
     estado.data?.ventas_desde ?? null,
-    hoyMx(),
+    hoy,
   );
 }

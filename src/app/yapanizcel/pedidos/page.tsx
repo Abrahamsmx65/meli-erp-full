@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { DIAS_OBJETIVO_PEDIDO, cargarBaseCompras, detalleDiseno, resumenDisenos } from "@/lib/yapanizcel/compras";
+import { DIAS_OBJETIVO_PEDIDO, detalleDesdeCompras, obtenerCompras, resumenDesdeCompras } from "@/lib/yapanizcel/compras";
 import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
@@ -18,10 +18,11 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
-  // Una sola carga de base para el resumen y el detalle.
-  const base = await cargarBaseCompras(supabase, cuenta.id);
-  const [resumen, pedidos] = await Promise.all([resumenDisenos(supabase, cuenta.id, base), listarPedidos(supabase, cuenta.id)]);
-  const detalle = sp.diseno ? await detalleDiseno(supabase, cuenta.id, sp.diseno, base) : null;
+  // El cálculo completo vive masticado en yz_cache: la pantalla lee un
+  // renglón y el resumen y el detalle se derivan con puros filtros.
+  const [compras, pedidos] = await Promise.all([obtenerCompras(supabase, cuenta.id), listarPedidos(supabase, cuenta.id)]);
+  const resumen = resumenDesdeCompras(compras);
+  const detalle = sp.diseno ? detalleDesdeCompras(compras, sp.diseno) : null;
   const totalPedir = resumen.disenos.reduce((a, d) => a + d.sugerido, 0);
 
   return (

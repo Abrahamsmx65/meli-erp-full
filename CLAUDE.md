@@ -299,6 +299,28 @@ guárdala numerada.
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
   AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras).
 
+## Regla de arquitectura: datos ya masticados, decidida por el dueño
+
+**Ninguna pantalla hace trabajo pesado en el request.** El trabajo (bajar
+tablas, amarrar, agregar, optimizar) corre por atrás —latido, crons— y se
+guarda masticado; la pantalla lee un renglón. El patrón es siempre el mismo:
+tabla de caché con `vigente`/`motivo`/`datos jsonb` (`plan_cache`,
+`plan_fba_cache`, `inventario_cache`, `yz_cache` por clave,
+`consolidado_cache`), invalidación desde los syncs y las rutas que escriben,
+precálculo en el latido (calzado) o el cron de netos (fundas), y SIEMPRE el
+cálculo en vivo como respaldo si no hay renglón vigente: nunca datos a
+medias. Las agregaciones por rango de fechas van en RPCs de Postgres
+(`ventas_resumen_sku`, `publicidad_resumen_items`, `yz_ultimas_ventas`…),
+nunca bajando la tabla cruda a Node. Los RPCs y lecturas paginadas llevan
+ORDER BY estable (sin él, PostgREST duplica o pierde renglones entre
+páginas). Antes de agregar una pantalla o consulta nueva, sigue este patrón.
+
+**Los avisos de MELI de la app de YAPANIZCEL** entran (si se configuran) por
+`/api/yapanizcel/webhook`, que contesta 200 sin trabajo: la sincronización
+de fundas es por sondeo. La URL de notificaciones del devcenter NUNCA debe
+apuntar al callback del OAuth (así se llegó a ~1 millón de POST diarios que
+eran la mayor parte de la factura de Vercel).
+
 ## ERP YAPANIZCEL (fundas) — sección aparte, mismo proyecto
 
 Segundo negocio: fundas para celular en OTRA cuenta de Mercado Libre. Vive en

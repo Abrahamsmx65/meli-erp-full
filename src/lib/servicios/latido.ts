@@ -31,15 +31,17 @@ export async function latido(
 ): Promise<{ corrio: boolean; procesados: number; msPlan: number | null }> {
   const limite = Date.now() + (opts?.limiteMs ?? 240_000);
 
-  // Un latido por minuto basta: con la app abierta, /api/estado empuja cada
-  // 30 s y correr el latido completo en cada empujón competía por CPU y red
-  // con los clics del usuario en la misma instancia.
+  // Un latido cada DOS minutos basta: con ~40 mil avisos al día la condición
+  // "hay avisos" es verdadera casi siempre, así que el candado es lo único
+  // que decide la cadencia. A 60 s el latido corría 620 veces al día (6
+  // horas de función diarias, medidas en sync_log); a 120 s cuesta la mitad
+  // y las ventas siguen entrando con 2 minutos de retraso como mucho.
   const { data: vivo } = await admin
     .from("sync_log")
     .select("id, estado")
     .eq("account_id", accountId)
     .eq("tarea", "en_vivo")
-    .gte("inicio", new Date(Date.now() - 60_000).toISOString())
+    .gte("inicio", new Date(Date.now() - 120_000).toISOString())
     .limit(1);
   if (vivo?.length) return { corrio: false, procesados: 0, msPlan: null };
 

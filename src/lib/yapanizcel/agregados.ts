@@ -38,7 +38,9 @@ async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Pr
   // Las funciones devuelven una fila por SKU: caben en pocas páginas.
   const out: T[] = [];
   for (let desde = 0; ; desde += 1000) {
-    const { data, error } = await db.rpc(fn, args).range(desde, desde + 999);
+    // Orden estable entre páginas: sin él, dos páginas del mismo agregado
+    // pueden traslaparse o dejar huecos con escrituras concurrentes.
+    const { data, error } = await db.rpc(fn, args).order("sku", { ascending: true }).range(desde, desde + 999);
     if (error) throw new Error(`${fn}: ${error.message}`);
     const lote = (data ?? []) as T[];
     out.push(...lote);
@@ -52,6 +54,25 @@ export interface VentasAgregadas {
   snapshots: SnapshotDia[];
   /** unidades vendidas en toda la ventana, por SKU */
   totales: Map<string, number>;
+}
+
+/**
+ * SOLO los totales por SKU de la ventana, sin sintetizar los renglones
+ * diarios: la síntesis fabrica hasta un millón de objetos y varias pantallas
+ * (Bodega) únicamente usan el total. El motor del plan sí necesita los
+ * renglones y sigue usando cargarVentasAgregadas.
+ */
+export async function cargarTotalesVentas(db: DB, accountId: string, desde: string, hasta: string): Promise<Map<string, number>> {
+  const bs = bloques(desde, hasta);
+  const args = {
+    p_account: accountId,
+    p_desde: desde,
+    p_hasta: hasta,
+    p_b1: bs[0]?.desde ?? desde,
+    p_b2: bs[1]?.desde ?? desde,
+  };
+  const filas = await rpcTodo<FilaVentas>(db, "yz_ventas_bloques", args);
+  return new Map(filas.map((f) => [f.sku, Number(f.u_total ?? 0)]));
 }
 
 export async function cargarVentasAgregadas(db: DB, accountId: string, desde: string, hasta: string): Promise<VentasAgregadas> {

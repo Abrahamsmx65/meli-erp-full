@@ -5,6 +5,10 @@ import { correrNetos } from "@/lib/yapanizcel/netos";
 import { revisarPendientesYz } from "@/lib/yapanizcel/devoluciones";
 import { almacenYz } from "@/lib/yapanizcel/corte";
 import { continuarCargosCon } from "@/lib/servicios/cargos-meli";
+import { clavesObsoletasYz } from "@/lib/yapanizcel/cache";
+import { obtenerCompras } from "@/lib/yapanizcel/compras";
+import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
+import { obtenerInventarioAmarrado, obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -50,6 +54,28 @@ export async function GET(req: NextRequest) {
         r.cargos = await continuarCargosCon(admin, c.id, await almacenYz(admin, c.id), t0 + 275_000);
       } catch (err) {
         r.cargosError = (err as Error).message;
+      }
+    }
+
+    // Con lo que sobre del presupuesto: dejar PRECALCULADO lo que los syncs
+    // o las escrituras invalidaron (compras, plan, inventario, amarre), para
+    // que las pantallas de fundas lean un renglón masticado y nunca paguen
+    // el cálculo en el clic. obtener* calcula y guarda solo si está viejo.
+    if (Date.now() - t0 < 250_000) {
+      try {
+        const obsoletas = await clavesObsoletasYz(admin, c.id);
+        const precalculadas: string[] = [];
+        for (const clave of obsoletas) {
+          if (Date.now() - t0 > 265_000) break;
+          if (clave === "compras") await obtenerCompras(admin, c.id);
+          else if (clave === "plan") await obtenerPlanYz(admin, c.id);
+          else if (clave === "inventario") await obtenerInventarioPantalla(admin, c.id);
+          else if (clave === "amarre") await obtenerInventarioAmarrado(admin, c.id);
+          precalculadas.push(clave);
+        }
+        if (precalculadas.length) r.precalculadas = precalculadas;
+      } catch (err) {
+        r.precalculoError = (err as Error).message;
       }
     }
     resultados.push(r);

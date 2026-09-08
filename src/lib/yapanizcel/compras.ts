@@ -9,6 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
+import { conCacheYz } from "./cache";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
@@ -126,23 +127,60 @@ export async function cargarPedidosEnCamino(
 
 export type Base = Awaited<ReturnType<typeof cargarBase>>;
 
-/** Una sola carga de base para toda la pantalla (resumen + detalle). */
-export async function cargarBaseCompras(db: DB, accountId: string): Promise<Base> {
-  return cargarBase(db, accountId);
+// ---------------------------------------------------------------------------
+// El cálculo completo, UNA vez, masticado y guardado (yz_cache "compras")
+// ---------------------------------------------------------------------------
+
+export interface VarianteCalculada extends VarianteCompra {
+  diseno: string;
+  descontinuada: boolean;
 }
 
-export async function resumenDisenos(db: DB, accountId: string, base?: Base): Promise<ResumenDisenos> {
-  const b = base ?? (await cargarBase(db, accountId));
-  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+/**
+ * Todo lo que la pantalla de Pedidos a China y su Excel necesitan, ya
+ * calculado: cada variante con su posición completa y su sugerido. De aquí
+ * se DERIVAN el resumen por diseño, el detalle de un diseño y el Excel con
+ * puros filtros y sumas — nada vuelve a leer la base.
+ */
+export interface ComprasCalculadas {
+  generadoEn: string;
+  diasVenta: number;
+  descontinuados: { activo: boolean; historialDesde: string | null };
+  variantes: VarianteCalculada[];
+}
 
-  for (const s of b.skus) {
-    const v = calcularVariante(s, b);
+/** Recorre las ~18 mil variantes UNA sola vez (antes eran 2-3 pasadas por render). */
+export async function calcularCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  const b = await cargarBase(db, accountId);
+  return {
+    generadoEn: new Date().toISOString(),
+    diasVenta: b.p.diasVenta,
+    descontinuados: { activo: b.descontinuados.activo, historialDesde: b.descontinuados.historialDesde },
+    variantes: b.skus.map((s) => ({
+      ...calcularVariante(s, b),
+      descontinuada: b.descontinuados.skus.has(s.sku),
+    })),
+  };
+}
+
+/** La versión masticada desde `yz_cache`; sin renglón vigente, calcula y guarda. */
+export async function obtenerCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  return conCacheYz(db, accountId, "compras", () => calcularCompras(db, accountId));
+}
+
+/** El resumen por diseño, derivado del cálculo guardado (puro). */
+export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
+  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+  const descontinuadas = new Set<string>();
+
+  for (const v of c.variantes) {
+    if (v.descontinuada) descontinuadas.add(v.skuMeli);
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
     const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
     // Un SKU descontinuado no se pide, pero su familia sigue saliendo.
-    if (b.descontinuados.skus.has(s.sku)) {
+    if (v.descontinuada) {
       acc.descontinuadas++;
       porDiseno.set(d, acc);
       continue;
@@ -161,12 +199,14 @@ export async function resumenDisenos(db: DB, accountId: string, base?: Base): Pr
     .map(([diseno, a]) => ({
       diseno,
       ...a,
-      cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
+      cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / c.diasVenta) : Infinity,
     }));
-  // Los diseños sin ninguna publicación que venda ni existencia no estorban.
-  
+
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
-  return { disenos, descontinuados: b.descontinuados };
+  return {
+    disenos,
+    descontinuados: { skus: descontinuadas, activo: c.descontinuados.activo, historialDesde: c.descontinuados.historialDesde },
+  };
 }
 
 function calcularVariante(
@@ -210,13 +250,13 @@ function calcularVariante(
   };
 }
 
-export async function detalleDiseno(db: DB, accountId: string, diseno: string, base?: Base): Promise<DisenoCompra | null> {
-  const b = base ?? (await cargarBase(db, accountId));
+/** El detalle de un diseño, derivado del cálculo guardado (puro). */
+export function detalleDesdeCompras(c: ComprasCalculadas, diseno: string): DisenoCompra | null {
   const clave = diseno.trim().toUpperCase();
-  const delDiseno = b.skus.map((s) => calcularVariante(s, b)).filter((v) => v.diseno === clave);
-  const descontinuadas = delDiseno.filter((v) => b.descontinuados.skus.has(v.skuMeli)).map((v) => v.skuMeli).sort();
+  const delDiseno = c.variantes.filter((v) => v.diseno === clave);
+  const descontinuadas = delDiseno.filter((v) => v.descontinuada).map((v) => v.skuMeli).sort();
   const variantes = delDiseno
-    .filter((v) => !b.descontinuados.skus.has(v.skuMeli))
+    .filter((v) => !v.descontinuada)
     // Por modelo (con números en orden natural: i13, i14, i15pro…) y luego color.
     .sort(
       (x, y) =>
@@ -237,12 +277,10 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string, b
   };
 }
 
-/** Todas las variantes (sin calzado), para el Excel de todos los diseños. */
-export function todasLasVariantes(b: Base): (VarianteCompra & { diseno: string })[] {
-  return b.skus
-    .filter((s) => !b.descontinuados.skus.has(s.sku))
-    .map((s) => calcularVariante(s, b))
-    .filter((v) => v.diseno && !esCalzado(v.diseno))
+/** Todas las variantes (sin calzado ni descontinuadas), para el Excel (puro). */
+export function variantesParaExcel(c: ComprasCalculadas): VarianteCalculada[] {
+  return c.variantes
+    .filter((v) => !v.descontinuada && v.diseno && !esCalzado(v.diseno))
     .sort(
       (x, y) =>
         x.diseno.localeCompare(y.diseno, "es", { numeric: true }) ||

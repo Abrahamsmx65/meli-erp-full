@@ -11,6 +11,7 @@
  * le gana a la del modelo.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheYz } from "../yapanizcel/cache";
 import { desglosar as desglosarFunda, esCalzado } from "../yapanizcel/sku";
 
 export type Negocio = "calzado" | "fundas";
@@ -45,27 +46,35 @@ export interface ConfigProducto {
  * costos para todo. Sin cuenta de fundas, lista vacía.
  */
 async function disenosDeFundas(db: DB): Promise<Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>> {
-  const salida = new Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>();
   try {
     const { data: cuenta } = await db.from("yz_cuentas").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
-    if (!cuenta?.id) return salida;
-    const skus = await traerTodo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", cuenta.id));
-    for (const s of skus) {
-      const d = desglosarFunda(s.sku);
-      const diseno = d.diseno.toUpperCase();
-      // Sin diseño numérico no es una funda; el calzado que vive en esa
-      // cuenta ya está listado por su propio catálogo.
-      if (!diseno || esCalzado(diseno)) continue;
-      const p = salida.get(diseno) ?? { titulo: null, colores: new Set<string>(), tallas: 0 };
-      p.tallas += 1;
-      if (d.color) p.colores.add(d.color);
-      if (!p.titulo && s.titulo) p.titulo = s.titulo;
-      salida.set(diseno, p);
-    }
+    if (!cuenta?.id) return new Map();
+
+    // Masticado en yz_cache ("disenos"): armar esto baja el catálogo de
+    // fundas COMPLETO (~18 mil variantes en 15 páginas) y se estaba pagando
+    // en cada render de Productos y costos. Lo invalida la sincronización
+    // del catálogo de fundas.
+    return await conCacheYz(db, cuenta.id, "disenos", async () => {
+      const salida = new Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>();
+      const skus = await traerTodo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", cuenta.id));
+      for (const s of skus) {
+        const d = desglosarFunda(s.sku);
+        const diseno = d.diseno.toUpperCase();
+        // Sin diseño numérico no es una funda; el calzado que vive en esa
+        // cuenta ya está listado por su propio catálogo.
+        if (!diseno || esCalzado(diseno)) continue;
+        const p = salida.get(diseno) ?? { titulo: null, colores: new Set<string>(), tallas: 0 };
+        p.tallas += 1;
+        if (d.color) p.colores.add(d.color);
+        if (!p.titulo && s.titulo) p.titulo = s.titulo;
+        salida.set(diseno, p);
+      }
+      return salida;
+    });
   } catch {
     // Sin tablas de fundas (otra base) no pasa nada: solo calzado.
+    return new Map();
   }
-  return salida;
 }
 
 export async function cargarProductos(db: DB, accountId: string): Promise<CatalogoProductos> {

@@ -11,14 +11,39 @@ import type { DB } from "../datos/repos";
 import { MeliError } from "../meli/client";
 import { resolverAdvertiser, traerAnunciosAds } from "../servicios/publicidad";
 import { clienteAdmin } from "../supabase/server";
+import { guardarCacheYz, leerCacheYz } from "./cache";
 import { clienteDeCuenta, type CuentaYz } from "./cuenta";
-import { todo } from "./db";
+import { hoyMx, todo } from "./db";
 import { desglosar } from "./sku";
 
 export interface AdsPorDiseno {
   porDiseno: Map<string, number>;
   sinAmarre: number;
   error: string | null;
+}
+
+/**
+ * Los ads del periodo con caché en `yz_cache` ("ads:YYYY-MM"): el barrido a
+ * MELI (paginado de 50 en 50) corre a lo más una vez por hora para el mes en
+ * curso y UNA sola vez para meses cerrados — antes corría EN CADA render de
+ * los cortes de fundas y del corte general. Un resultado con error no se
+ * guarda: el siguiente render reintenta.
+ */
+export async function adsPorDisenoCacheado(
+  db: DB,
+  cuenta: CuentaYz,
+  periodo: string,
+  rango: { desde: string; hasta: string },
+): Promise<AdsPorDiseno> {
+  const clave = `ads:${periodo}`;
+  const esMesActual = periodo === hoyMx().slice(0, 7);
+  const guardado = await leerCacheYz<AdsPorDiseno>(db, cuenta.id, clave, esMesActual ? 3_600_000 : undefined);
+  if (guardado) return guardado;
+
+  const t0 = Date.now();
+  const datos = await adsPorDiseno(db, cuenta, rango);
+  if (!datos.error) await guardarCacheYz(db, cuenta.id, clave, datos, Date.now() - t0);
+  return datos;
 }
 
 export async function adsPorDiseno(db: DB, cuenta: CuentaYz, rango: { desde: string; hasta: string }): Promise<AdsPorDiseno> {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { calcularPlanDeCuenta, cargarEnvios } from "@/lib/yapanizcel/envios";
+import { cargarEnvios, obtenerPlanYz } from "@/lib/yapanizcel/envios";
 import { Ficha } from "@/components/tiles";
 import { PlanEnvios, type LineaPantalla } from "@/components/yapanizcel/plan-envios";
 import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
@@ -14,7 +14,9 @@ export default async function EnviosYz() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
-  const plan = await calcularPlanDeCuenta(supabase, cuenta.id);
+  // El plan vive masticado en yz_cache; la lista de envíos sí se lee fresca
+  // (es barata y cambia con cada registro).
+  const plan = await obtenerPlanYz(supabase, cuenta.id);
   const { envios } = await cargarEnvios(supabase, cuenta.id, plan.parametros.diasCaducidadEnvio);
   const lineas: LineaPantalla[] = plan.lineas.map((l) => ({ ...l, titulo: plan.titulos.get(l.sku) ?? null }));
   const sinInventario = plan.lineas.filter((l) => l.motivo === "sin_inventario").length;

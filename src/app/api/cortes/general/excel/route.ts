@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { periodoActual, validarPeriodo } from "@/lib/servicios/corte-meli";
-import { cargarConsolidado } from "@/lib/servicios/consolidado-cargar";
+import { obtenerConsolidado } from "@/lib/servicios/consolidado-cargar";
 import { excelDelConsolidado } from "@/lib/servicios/consolidado-excel";
 import { respuestaExcel, sesionYCuenta } from "@/app/api/ventas/_comun";
 
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   if (!s.ok) return s.respuesta;
   const periodo = validarPeriodo(new URL(req.url).searchParams.get("periodo")) ?? periodoActual();
   try {
-    const cns = await cargarConsolidado(s.supabase, s.cuenta, periodo);
+    const cns = await obtenerConsolidado(s.supabase, s.cuenta, periodo);
     return respuestaExcel(await excelDelConsolidado(cns), `corte-general-${periodo}.xlsx`);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

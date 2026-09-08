@@ -2,7 +2,7 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { nombreDelPeriodo, periodoActual, periodoAnterior, periodoSiguiente, validarPeriodo } from "@/lib/servicios/corte-meli";
-import { cargarConsolidado, listarCortesGenerales } from "@/lib/servicios/consolidado-cargar";
+import { listarCortesGenerales, obtenerConsolidado } from "@/lib/servicios/consolidado-cargar";
 import { NOMBRE_CANAL, type Canal } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
@@ -39,7 +39,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </div>
     );
   }
-  const [cns, cortes] = await Promise.all([cargarConsolidado(supabase, cuenta, periodo), listarCortesGenerales(supabase, cuenta.id)]);
+  // El consolidado vive en consolidado_cache (10 min): correr los tres
+  // canales completos en cada visita costaba hasta 300 s de función.
+  const [cns, cortes] = await Promise.all([obtenerConsolidado(supabase, cuenta, periodo), listarCortesGenerales(supabase, cuenta.id)]);
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   const canales: Canal[] = cns.canales.map((k) => k.canal);
 

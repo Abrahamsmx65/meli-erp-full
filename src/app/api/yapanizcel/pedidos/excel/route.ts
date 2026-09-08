@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
-import { DIAS_OBJETIVO_PEDIDO, cargarBaseCompras, todasLasVariantes } from "@/lib/yapanizcel/compras";
+import { DIAS_OBJETIVO_PEDIDO, obtenerCompras, variantesParaExcel } from "@/lib/yapanizcel/compras";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
   const diseno = (req.nextUrl.searchParams.get("diseno") ?? "").trim().toUpperCase();
 
   try {
-    const base = await cargarBaseCompras(ctx.db, ctx.cuenta.id);
-    const filas = todasLasVariantes(base).filter((v) => !diseno || v.diseno === diseno);
+    const compras = await obtenerCompras(ctx.db, ctx.cuenta.id);
+    const filas = variantesParaExcel(compras).filter((v) => !diseno || v.diseno === diseno);
 
     const libro = new ExcelJS.Workbook();
     const hoja = libro.addWorksheet(diseno ? `Pedido ${diseno}`.slice(0, 31) : "Pedido a China");
