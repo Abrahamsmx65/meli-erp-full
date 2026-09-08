@@ -14,7 +14,7 @@ import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
-import { compactarFilasModelo } from "@/lib/servicios/ventas-tabla";
+import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -279,7 +279,16 @@ export default async function Ventas({
             modelo o SKU, filtra por categoría y da clic en una columna para ordenar.
           </p>
         </header>
-        <TablaModelosVentas filas={compactarFilasModelo(m.porModelo)} />
+        <TablaModelosVentas
+          desde={rango.desde}
+          hasta={rango.hasta}
+          inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
+            busqueda: "",
+            categoria: "",
+            orden: { clave: "unidades7", desc: true },
+            pagina: 1,
+          })}
+        />
       </section>
     </div>
   );

@@ -1,12 +1,10 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   expandirFilaModelo,
-  prepararFilasTabla,
-  totalizarFilasTabla,
   type ClaveTablaVentas,
-  type FilaModeloCompacta,
+  type PaginaTablaVentas,
 } from "@/lib/servicios/ventas-tabla";
 
 /**
@@ -17,7 +15,6 @@ import {
  */
 
 type Clave = ClaveTablaVentas;
-const FILAS_POR_PAGINA = 100;
 
 const COLUMNAS: { clave: Clave; titulo: string; num: boolean }[] = [
   { clave: "modelo", titulo: "Modelo", num: false },
@@ -40,30 +37,61 @@ function pesos(x: number): string {
   return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
-export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
+export function TablaModelosVentas({
+  desde,
+  hasta,
+  inicial,
+}: {
+  desde: string;
+  hasta: string;
+  inicial: PaginaTablaVentas;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
   const [orden, setOrden] = useState<{ clave: Clave; desc: boolean }>({ clave: "unidades7", desc: true });
   const [pagina, setPagina] = useState(1);
+  const [datos, setDatos] = useState(inicial);
+  const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const primeraCarga = useRef(true);
   const busquedaDiferida = useDeferredValue(busqueda);
 
-  const categorias = useMemo(
-    () => [...new Set(filas.map((f) => expandirFilaModelo(f).categoria ?? "Sin categoría"))].sort((a, b) => a.localeCompare(b, "es")),
-    [filas],
-  );
+  useEffect(() => {
+    if (primeraCarga.current) {
+      primeraCarga.current = false;
+      return;
+    }
+    const controlador = new AbortController();
+    const parametros = new URLSearchParams({
+      desde,
+      hasta,
+      busqueda: busquedaDiferida,
+      categoria,
+      orden: orden.clave,
+      desc: String(orden.desc),
+      pagina: String(pagina),
+    });
+    setCargando(true);
+    setError(null);
+    fetch(`/api/ventas/modelos?${parametros}`, { signal: controlador.signal })
+      .then(async (respuesta) => {
+        const cuerpo = await respuesta.json();
+        if (!respuesta.ok) throw new Error(cuerpo.error ?? "No se pudo cargar la tabla.");
+        return cuerpo as PaginaTablaVentas;
+      })
+      .then(setDatos)
+      .catch((err) => {
+        if ((err as Error).name !== "AbortError") setError((err as Error).message);
+      })
+      .finally(() => {
+        if (!controlador.signal.aborted) setCargando(false);
+      });
+    return () => controlador.abort();
+  }, [desde, hasta, busquedaDiferida, categoria, orden, pagina]);
 
-  const visibles = useMemo(
-    () => prepararFilasTabla(filas, busquedaDiferida, categoria, orden),
-    [filas, busquedaDiferida, categoria, orden],
-  );
-  const paginas = Math.max(1, Math.ceil(visibles.length / FILAS_POR_PAGINA));
-  const paginaSegura = Math.min(pagina, paginas);
-  const renderizadas = visibles.slice(
-    (paginaSegura - 1) * FILAS_POR_PAGINA,
-    paginaSegura * FILAS_POR_PAGINA,
-  );
-
-  const totales = useMemo(() => totalizarFilasTabla(visibles), [visibles]);
+  const renderizadas = useMemo(() => datos.filas.map(expandirFilaModelo), [datos.filas]);
+  const { paginas, totales } = datos;
+  const paginaSegura = datos.pagina;
 
   const ordenarPor = (clave: Clave) => {
     setPagina(1);
@@ -98,15 +126,15 @@ export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
           aria-label="Categoría"
         >
           <option value="">Todas las categorías</option>
-          {categorias.map((c) => (
+          {datos.categorias.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
         <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
-          {busqueda !== busquedaDiferida ? "Actualizando… · " : ""}
-          {visibles.length} de {filas.length} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
+          {busqueda !== busquedaDiferida || cargando ? "Actualizando… · " : ""}
+          {datos.totalFiltrado} de {datos.totalCatalogo} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
           {orden.desc ? "↓" : "↑"}
         </span>
       </div>
@@ -157,7 +185,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
                 </tr>
               );
             })}
-            {visibles.length === 0 ? (
+            {datos.totalFiltrado === 0 ? (
               <tr>
                 <td colSpan={COLUMNAS.length} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
                   Ningún modelo coincide con el filtro.
@@ -165,7 +193,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
               </tr>
             ) : null}
           </tbody>
-          {visibles.length > 1 ? (
+          {datos.totalFiltrado > 1 ? (
             <tfoot>
               <tr style={{ background: "var(--surface-2)" }}>
                 <td className="font-semibold" colSpan={4}>
@@ -188,14 +216,19 @@ export function TablaModelosVentas({ filas }: { filas: FilaModeloCompacta[] }) {
           ) : null}
         </table>
       </div>
+      {error ? (
+        <p className="border-t p-3 text-sm hairline" role="alert" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </p>
+      ) : null}
       {paginas > 1 ? (
         <nav
           aria-label="Páginas de modelos"
           className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
         >
           <span style={{ color: "var(--ink-2)" }}>
-            Mostrando {(paginaSegura - 1) * FILAS_POR_PAGINA + 1}–
-            {Math.min(paginaSegura * FILAS_POR_PAGINA, visibles.length)} de {visibles.length}
+            Mostrando {(paginaSegura - 1) * datos.filasPorPagina + 1}–
+            {Math.min(paginaSegura * datos.filasPorPagina, datos.totalFiltrado)} de {datos.totalFiltrado}
           </span>
           <div className="flex items-center gap-2">
             <button
