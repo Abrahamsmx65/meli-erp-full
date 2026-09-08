@@ -270,6 +270,41 @@
     background: var(--acento-suave);
   }
 
+  /* Secundario neutro: el "botón de borde" que 71 variantes artesanales
+     re-inventaban con paddings y tokens distintos. */
+  .boton-borde {
+    background: var(--surface-1);
+    border: 1px solid var(--borde);
+    color: var(--ink-1);
+  }
+  .boton-borde:not(:disabled):hover {
+    border-color: var(--acento);
+    color: var(--acento);
+  }
+
+  /* Familia de PELIGRO: las acciones destructivas se ven distintas SIEMPRE. */
+  .boton-peligro {
+    background: transparent;
+    border: 1px solid color-mix(in oklab, var(--estado-critico) 45%, var(--borde));
+    color: var(--estado-critico);
+  }
+  .boton-peligro:not(:disabled):hover {
+    background: color-mix(in oklab, var(--estado-critico) 10%, transparent);
+  }
+  .boton-peligro-lleno {
+    background: var(--estado-critico);
+    color: #fff;
+  }
+  .boton-peligro-lleno:not(:disabled):hover {
+    filter: brightness(0.92);
+  }
+
+  /* Tamaño compacto para barras de herramientas y filas de tabla. */
+  .boton-chico {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.8rem;
+  }
+
   .boton:disabled {
     opacity: 0.55;
   }
