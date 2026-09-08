@@ -50,7 +50,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       <div>
         <h1 className="titulo-pagina">Corte general</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Calzado y fundas en Mercado Libre y Amazon, todo junto. La publicidad se descuenta al modelo que la gastó; los
+          Estado operativo al día de hoy: puede cambiar cuando Mercado Pago o Amazon terminen de asentar cargos. La publicidad se descuenta al modelo que la gastó; los
           gastos generales de cada plataforma (Full, FBA, colecta, devoluciones netas, otros cargos) se dividen entre las
           unidades vendidas en esa plataforma, así cada modelo y categoría carga su parte y la ganancia es la real.
         </p>
@@ -70,7 +70,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
           {cns.desde} → {cns.hasta}
         </span>
         <span className="ml-auto rounded-full px-3 py-1 text-xs font-semibold" style={cns.exacto ? { background: "var(--acento-suave)", color: "var(--exito-texto)" } : { background: "#fff4d6", color: "#8a5a00" }}>
-          {cns.exacto ? "Exacto" : `${cns.avisos.length} avisos`}
+          {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
         </span>
       </div>
 
@@ -78,7 +78,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha titulo="Venta bruta" valor={pesos(cns.total.ventaBruta)} nota={`${n(cns.total.unidades)} unidades · ${n(cns.total.ordenes)} órdenes`} />
-        <Ficha titulo="Neto depositado" valor={pesos(cns.total.neto)} nota={`${pct(cns.total.ventaBruta > 0 ? cns.total.neto / cns.total.ventaBruta : null)} de la venta`} />
+        <Ficha titulo="Neto después de plataforma" valor={pesos(cns.total.neto)} nota={`${pct(cns.total.coberturaNeto)} de la venta respaldada por la fuente`} />
         <Ficha titulo="Publicidad" valor={pesos(-cns.total.publicidad)} nota="por modelo + general" tono={cns.total.publicidad > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Gastos generales" valor={pesos(-cns.total.gastosGenerales)} nota="Full, FBA, devoluciones netas, otros" tono={cns.total.gastosGenerales > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Utilidad neta total" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
@@ -89,7 +89,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <header className="border-b p-4 hairline">
           <h2 className="text-base font-semibold">Por canal</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cada plataforma con su neto, su costo, su publicidad y sus gastos generales divididos entre sus unidades.
+            “Neto” es lo que queda después de cargos de plataforma. La fuente y su cobertura indican si ya está respaldado por datos reales o todavía es parcial.
           </p>
         </header>
         <div className="overflow-x-auto">
@@ -108,7 +108,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 [
                   ["Unidades", (k) => n(k.unidades), n(cns.total.unidades)],
                   ["Venta bruta", (k) => pesos(k.ventaBruta), pesos(cns.total.ventaBruta)],
-                  ["Neto depositado", (k) => pesos(k.neto), pesos(cns.total.neto)],
+                  ["Deducciones de plataforma", (k) => pesos(-k.descuentosPlataforma), pesos(-cns.total.descuentosPlataforma)],
+                  ["Neto después de plataforma", (k) => pesos(k.neto), pesos(cns.total.neto)],
+                  ["Fuente del neto", (k) => k.fuenteNeto, ""],
+                  ["Cobertura de la fuente", (k) => pct(k.coberturaNeto), pct(cns.total.coberturaNeto)],
                   ["Costo de producto", (k) => pesos(-k.costoProducto), pesos(-cns.total.costoProducto)],
                   ["Utilidad bruta", (k) => pesos(k.utilidadBruta), pesos(cns.total.neto - cns.total.costoProducto)],
                   ["Publicidad por modelo", (k) => pesos(-k.adsPorModelo), ""],
@@ -138,9 +141,41 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             </tbody>
           </table>
         </div>
-        <div className="border-t p-4 text-xs hairline" style={{ color: "var(--ink-2)" }}>
-          <strong>Gastos generales por concepto:</strong>{" "}
-          {cns.canales.flatMap((k) => k.gastos.map((g) => `${k.nombre}: ${g.concepto} ${pesos(g.monto)}`)).join(" · ") || "ninguno"}
+        <div className="grid gap-4 border-t p-4 hairline lg:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-semibold">Deducciones incluidas en el neto</h3>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+              Son informativas: ya están descontadas y no se vuelven a restar.
+            </p>
+            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+              {cns.canales.flatMap((k) =>
+                k.descuentos.map((d) => (
+                  <li key={`${k.canal}-${d.concepto}`} className="flex justify-between gap-4">
+                    <span>{k.nombre}: {d.concepto}</span>
+                    <span className="cifra shrink-0">{pesos(d.monto)}</span>
+                  </li>
+                )),
+              )}
+              {cns.canales.every((k) => k.descuentos.length === 0) ? <li>Sin desglose disponible.</li> : null}
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">Gastos descontados aparte</h3>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+              Publicidad no amarrada, Full, FBA, devoluciones netas y gastos capturados.
+            </p>
+            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+              {cns.canales.flatMap((k) =>
+                k.gastos.map((g) => (
+                  <li key={`${k.canal}-${g.concepto}`} className="flex justify-between gap-4">
+                    <span>{k.nombre}: {g.concepto}</span>
+                    <span className="cifra shrink-0">{pesos(g.monto)}</span>
+                  </li>
+                )),
+              )}
+              {cns.canales.every((k) => k.gastos.length === 0) ? <li>Sin gastos generales registrados.</li> : null}
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -238,7 +273,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Avisos ------------------------------------------------------ */}
       <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">{cns.exacto ? "Corte exacto" : "Qué le falta al corte para ser exacto"}</h2>
+          <h2 className="text-sm font-semibold">{cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}</h2>
         {cns.avisos.length ? (
           <ul className="mt-2 flex flex-col gap-1 text-sm">
             {cns.avisos.map((a, i) => (

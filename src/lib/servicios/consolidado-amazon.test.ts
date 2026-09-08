@@ -37,6 +37,9 @@ describe("bloqueAmazon", () => {
     expect(b.porModelo.find((m) => m.modelo === "GT114")!.ads).toBe(200);
     expect(b.adsPorModelo).toBe(200);
     expect(b.adsGenerales).toBe(0);
+    expect(b.descuentos).toEqual([
+      { concepto: "Tarifas Amazon: comisión, FBA y otros", monto: 1500 },
+    ]);
     // Los cargos de cuenta con nombre; el reembolso de Amazon reduce el gasto; las reservas no entran.
     expect(b.gastos).toEqual([
       { concepto: "Amazon · Storage Fee", monto: 300 },
@@ -61,5 +64,26 @@ describe("bloqueAmazon", () => {
     const b = bloqueAmazon(monitor({ economia: { ...monitor().economia!, hasta: "2026-08-29" } }), new Map([["GT114", { categoria: null, costo: 1 }], ["GT135", { categoria: null, costo: 1 }]]), { desde: "2026-08-01", hasta: "2026-08-31" });
     expect(b.exacto).toBe(false);
     expect(b.avisos.some((a) => a.includes("2026-08-29"))).toBe(true);
+  });
+
+  it("no llama exacta a una economía que llega al último día pero cubre poca venta", () => {
+    const b = bloqueAmazon(
+      monitor({
+        economia: {
+          ...monitor().economia!,
+          ventas: 800,
+          neto: 400,
+          publicidad: 80,
+          hasta: "2026-08-31",
+        },
+      }),
+      new Map([["GT114", { categoria: null, costo: 1 }], ["GT135", { categoria: null, costo: 1 }]]),
+      { desde: "2026-08-01", hasta: "2026-08-31" },
+    );
+
+    expect(b.coberturaNeto).toBeCloseTo(0.16);
+    expect(b.fuenteNeto).toContain("parcial");
+    expect(b.exacto).toBe(false);
+    expect(b.avisos.some((a) => a.includes("16%"))).toBe(true);
   });
 });

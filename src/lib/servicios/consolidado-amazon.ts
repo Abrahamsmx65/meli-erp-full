@@ -14,6 +14,12 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   const hayPagos = m.netoReal != null;
   const eco = m.economia;
   const hayEconomia = eco != null && (eco.ventas > 0 || eco.unidades > 0);
+  const coberturaEconomia =
+    hayEconomia && m.periodo.importe > 0
+      ? Math.min(1, Math.max(0, eco!.ventas / m.periodo.importe))
+      : hayEconomia
+        ? 1
+        : null;
 
   // LO QUE AMAZON VA A PAGAR por lo vendido en el mes: ventas − tarifas del
   // SKU Economics, por fecha de venta. El `neto` de Amazon ya trae restada
@@ -38,6 +44,11 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   if (fuente === "economia") {
     if (eco!.hasta && rango && eco!.hasta < rango.hasta) {
       avisos.push(`La economía por producto de Amazon llega hasta el ${eco!.hasta}: los últimos días del periodo aún no están (Amazon tarda ~2 días en asentarlos).`);
+    }
+    if (coberturaEconomia != null && coberturaEconomia < 0.98) {
+      avisos.push(
+        `SKU Economics solo cubre el ${Math.round(coberturaEconomia * 100)}% de la venta bruta del periodo. El neto, la publicidad y la utilidad de Amazon son parciales y no deben compararse contra el total vendido.`,
+      );
     }
     if (hayPagos) avisos.push(`Referencia: Amazon lleva liquidados ${redondea(m.netoReal as number).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de este periodo por fecha de depósito${m.pagosHasta ? ` (liquidaciones hasta ${m.pagosHasta})` : ""}.`);
   }
@@ -113,6 +124,30 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     ordenes: m.periodo.ordenes,
     ventaBruta: m.periodo.importe,
     neto,
+    fuenteNeto:
+      fuente === "economia"
+        ? coberturaEconomia != null && coberturaEconomia < 0.98
+          ? "SKU Economics parcial · fecha de venta"
+          : "SKU Economics · fecha de venta"
+        : fuente === "pagos"
+          ? "Liquidaciones · fecha de depósito"
+          : "Venta bruta sin descuentos",
+    coberturaNeto:
+      fuente === "economia"
+        ? coberturaEconomia
+        : fuente === "venta"
+          ? 0
+          : null,
+    descuentos:
+      fuente === "economia" && eco!.tarifas
+        ? [{
+            concepto:
+              coberturaEconomia != null && coberturaEconomia < 0.98
+                ? "Tarifas Amazon: comisión, FBA y otros (solo parte cubierta)"
+                : "Tarifas Amazon: comisión, FBA y otros",
+            monto: redondea(Math.abs(eco!.tarifas)),
+          }]
+        : [],
     devoluciones: 0,
     costoRecuperado: 0,
     costoProducto: redondea(costoProducto),
@@ -122,6 +157,11 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     gastos,
     porModelo,
     avisos,
-    exacto: fuente === "economia" && m.coberturaCosto >= 0.999 && !(eco!.hasta && rango && eco!.hasta < rango.hasta),
+    exacto:
+      fuente === "economia" &&
+      coberturaEconomia != null &&
+      coberturaEconomia >= 0.98 &&
+      m.coberturaCosto >= 0.999 &&
+      !(eco!.hasta && rango && eco!.hasta < rango.hasta),
   };
 }

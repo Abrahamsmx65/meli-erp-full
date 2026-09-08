@@ -28,8 +28,14 @@ export interface BloqueCanal {
   unidades: number;
   ordenes: number;
   ventaBruta: number;
-  /** lo depositado (neto real o estimado, según el canal) */
+  /** Neto después de cargos de plataforma. No siempre equivale a dinero ya depositado. */
   neto: number;
+  /** Fuente contable concreta usada para el neto del canal. */
+  fuenteNeto: string;
+  /** Parte de la venta bruta cubierta por la fuente contable; null cuando no son rangos comparables. */
+  coberturaNeto: number | null;
+  /** Deducciones ya incluidas en el neto; se muestran para conciliación y no se vuelven a restar. */
+  descuentos: { concepto: string; monto: number }[];
   devoluciones: number;
   costoRecuperado: number;
   costoProducto: number;
@@ -75,6 +81,7 @@ export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gasto
   nombre: string;
   gastos: { concepto: string; monto: number }[];
   gastosGenerales: number;
+  descuentosPlataforma: number;
   /** gastos generales ÷ unidades vendidas en la plataforma */
   cargoPorUnidad: number;
   utilidadBruta: number;
@@ -96,6 +103,8 @@ export interface Consolidado {
     ordenes: number;
     ventaBruta: number;
     neto: number;
+    coberturaNeto: number | null;
+    descuentosPlataforma: number;
     devoluciones: number;
     costoRecuperado: number;
     costoProducto: number;
@@ -131,6 +140,23 @@ export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCana
     ordenes: e.ordenes,
     ventaBruta: e.ventaBruta,
     neto: e.netoDepositado,
+    fuenteNeto:
+      e.coberturaNetoReal >= 0.999
+        ? "Mercado Pago por orden"
+        : "Mercado Pago por orden + estimación de pendientes",
+    coberturaNeto: e.coberturaNetoReal,
+    descuentos: [
+      ...(e.comision ? [{ concepto: "Comisión de venta de Mercado Libre", monto: e.comision }] : []),
+      ...(e.enviosYOtros
+        ? [{
+            concepto:
+              e.coberturaNetoReal >= 0.999
+                ? "Envíos, retenciones y otros descuentos"
+                : "Envíos, retenciones y otros descuentos (parcialmente estimado)",
+            monto: e.enviosYOtros,
+          }]
+        : []),
+    ],
     devoluciones: e.devoluciones.monto,
     costoRecuperado: e.devoluciones.costoRecuperado,
     costoProducto: e.costoProducto,
@@ -186,10 +212,11 @@ export function armarConsolidado(entrada: {
   const modelos = new Map<string, FilaModeloConsolidado>();
   const categorias = new Map<string, FilaCategoriaConsolidado & { conCosto: boolean; sinCosto: boolean }>();
 
-  const total = { unidades: 0, ordenes: 0, ventaBruta: 0, neto: 0, devoluciones: 0, costoRecuperado: 0, costoProducto: 0, unidadesConCosto: 0, publicidad: 0, gastosGenerales: 0, utilidadNeta: 0 };
+  const total = { unidades: 0, ordenes: 0, ventaBruta: 0, neto: 0, ventaConCoberturaNeto: 0, descuentosPlataforma: 0, devoluciones: 0, costoRecuperado: 0, costoProducto: 0, unidadesConCosto: 0, publicidad: 0, gastosGenerales: 0, utilidadNeta: 0 };
 
   for (const b of entrada.bloques) {
     const gastosGenerales = b.gastos.reduce((a, g) => a + c(g.monto), 0);
+    const descuentosPlataforma = b.descuentos.reduce((a, d) => a + c(d.monto), 0);
     const cargoPorUnidadCent = b.unidades > 0 ? gastosGenerales / b.unidades : 0;
     const publicidad = c(b.adsPorModelo) + c(b.adsGenerales);
     // La utilidad del canal: neto − devoluciones + costo recuperado − costo − publicidad − Full/otros.
@@ -202,6 +229,7 @@ export function armarConsolidado(entrada: {
       ...b,
       nombre: NOMBRE_CANAL[b.canal],
       gastosGenerales: p(gastosGenerales),
+      descuentosPlataforma: p(descuentosPlataforma),
       cargoPorUnidad: p(cargoPorUnidadCent),
       utilidadBruta: p(utilidadBruta),
       publicidad: p(publicidad),
@@ -216,6 +244,8 @@ export function armarConsolidado(entrada: {
     total.ordenes += b.ordenes;
     total.ventaBruta += c(b.ventaBruta);
     total.neto += c(b.neto);
+    if (b.coberturaNeto != null) total.ventaConCoberturaNeto += c(b.ventaBruta) * b.coberturaNeto;
+    total.descuentosPlataforma += descuentosPlataforma;
     total.devoluciones += c(b.devoluciones);
     total.costoRecuperado += c(b.costoRecuperado);
     total.costoProducto += c(b.costoProducto);
@@ -280,6 +310,8 @@ export function armarConsolidado(entrada: {
       ordenes: total.ordenes,
       ventaBruta: p(total.ventaBruta),
       neto: p(total.neto),
+      coberturaNeto: total.ventaBruta > 0 ? total.ventaConCoberturaNeto / total.ventaBruta : null,
+      descuentosPlataforma: p(total.descuentosPlataforma),
       devoluciones: p(total.devoluciones),
       costoRecuperado: p(total.costoRecuperado),
       costoProducto: p(total.costoProducto),

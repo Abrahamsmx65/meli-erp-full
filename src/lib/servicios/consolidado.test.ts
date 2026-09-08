@@ -10,6 +10,9 @@ describe("armarConsolidado", () => {
       ordenes: 10,
       ventaBruta: 2000,
       neto: 1100,
+      fuenteNeto: "Mercado Pago por orden",
+      coberturaNeto: 1,
+      descuentos: [{ concepto: "Comisión", monto: 200 }],
       devoluciones: 100,
       costoRecuperado: 60,
       costoProducto: 600,
@@ -34,6 +37,9 @@ describe("armarConsolidado", () => {
       ordenes: 5,
       ventaBruta: 1500,
       neto: 900,
+      fuenteNeto: "SKU Economics · fecha de venta",
+      coberturaNeto: 1,
+      descuentos: [{ concepto: "Tarifas Amazon", monto: 300 }],
       devoluciones: 0,
       costoRecuperado: 0,
       costoProducto: 300,
@@ -62,6 +68,8 @@ describe("armarConsolidado", () => {
 
     expect(cns.total.utilidadNeta).toBe(140 + 450);
     expect(cns.total.unidades).toBe(15);
+    expect(cns.total.coberturaNeto).toBe(1);
+    expect(cns.total.descuentosPlataforma).toBe(500);
     expect(cns.total.gananciaPorUnidad).toBe(Math.round(((140 + 450) / 15) * 100) / 100);
 
     const corcho = cns.porCategoria.find((k) => k.categoria === "Corcho")!;
@@ -93,6 +101,9 @@ describe("armarConsolidado", () => {
       cargosLeidos: true,
     });
     const b = bloqueDesdeEstado("meli_calzado", e);
+    expect(b.fuenteNeto).toBe("Mercado Pago por orden");
+    expect(b.coberturaNeto).toBe(1);
+    expect(b.descuentos.map((d) => d.monto)).toEqual([60, 100]);
     expect(b.adsPorModelo).toBe(30);
     expect(b.adsGenerales).toBe(5);
     expect(b.gastos.map((g) => g.monto)).toEqual([100, 140, 5]);
