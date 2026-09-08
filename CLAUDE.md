@@ -226,7 +226,14 @@ guárdala numerada.
   y el total del mes sale de las ÓRDENES, no de los renglones diarios (que
   reparten y redondean). Las órdenes CANCELADAS no existen para el corte;
   las DEVUELTAS sí vendieron y la devolución se resta aparte, una sola vez
-  (si Mercado Pago ya bajó el neto, solo se resta lo que falte). Para eso
+  (si Mercado Pago ya bajó el neto, solo se resta lo que falte) y el COSTO
+  de los pares devueltos se SUMA de vuelta porque regresan al stock
+  (decisión del dueño; un par dañado se captura como gasto a mano). Para
+  eso las órdenes guardan sus `renglones` (sku, unidades, importe,
+  comisión) en `ordenes_neto`/`yz_ordenes_neto`, y el RPC
+  `cortes_ordenes_por_dia` cuesta los pares devueltos contra
+  `productos_config`; una devuelta sin renglones se estima con costo ÷
+  venta del mes y la revisión le pide los renglones a MELI. Para eso
   cada orden se REVISA después de vendida (`devoluciones.ts`): las
   cancelaciones en bloque (`/orders/search` con status cancelled, y ese día
   se vuelve a barrer para que sus renglones salgan de la venta) y el pago

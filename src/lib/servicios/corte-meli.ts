@@ -130,7 +130,21 @@ export interface EstadoResultados {
   coberturaNetoReal: number;
 
   cancelaciones: { ordenes: number; importe: number };
-  devoluciones: { ordenes: number; monto: number };
+  /**
+   * Devoluciones: se resta lo reembolsado y se SUMA de vuelta el costo de
+   * los pares devueltos, que regresan al stock (decisión del dueño). Exacto
+   * cuando la orden tiene sus renglones; estimado con costo ÷ venta del mes
+   * cuando no.
+   */
+  devoluciones: {
+    ordenes: number;
+    monto: number;
+    unidades: number;
+    costoRecuperado: number;
+    /** parte del costo recuperado que es estimación (órdenes sin renglones) */
+    costoEstimado: number;
+    unidadesSinCosto: number;
+  };
   /**
    * Ventas en REVENTA (MELI compra y revende, verificado con la orden
    * 2000014843734267 del 3 sep 2026): el importe de la orden ya viene neto
@@ -242,6 +256,13 @@ export interface DiaOrdenesAgregado {
   sinDescOrdenes?: number;
   /** la venta (ya neta) de esas órdenes */
   sinDescTotal?: number;
+  /** costo (Productos y costos) de los pares de las órdenes devueltas con renglones */
+  devCosto?: number;
+  devUnidades?: number;
+  /** pares devueltos de modelos sin costo capturado */
+  devSinCostoUnidades?: number;
+  /** lo reembolsado en órdenes devueltas SIN renglones (su costo se estima) */
+  devSinRenglonesMonto?: number;
 }
 
 /**
@@ -250,10 +271,10 @@ export interface DiaOrdenesAgregado {
  * los RPC `cortes_ordenes_por_dia` y `yz_cortes_ordenes_por_dia` en la base.
  */
 export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string): DiaOrdenesAgregado[] {
-  const dias = new Map<string, { ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number; devOrdenes: number; devMonto: number; total: number; revisadas: number; pendientes: number; sinDescOrdenes: number; sinDescTotal: number }>();
+  const dias = new Map<string, { ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number; devOrdenes: number; devMonto: number; total: number; revisadas: number; pendientes: number; sinDescOrdenes: number; sinDescTotal: number; devSinRenglonesMonto: number }>();
   for (const o of ordenes) {
     if (o.fecha < desde || o.fecha > hasta) continue;
-    const d = dias.get(o.fecha) ?? { ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0, devMonto: 0, total: 0, revisadas: 0, pendientes: 0, sinDescOrdenes: 0, sinDescTotal: 0 };
+    const d = dias.get(o.fecha) ?? { ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0, devMonto: 0, total: 0, revisadas: 0, pendientes: 0, sinDescOrdenes: 0, sinDescTotal: 0, devSinRenglonesMonto: 0 };
     d.total++;
     if ((o.revisiones ?? 0) >= 1) d.revisadas++;
     if ((o.revisiones ?? 0) < 2) d.pendientes++;
@@ -274,13 +295,15 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       if (devolucion > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
         d.devOrdenes++;
         d.devMonto += devolucion;
+        // Sin renglones aquí: el costo recuperado se estima (el RPC de la base sí los tiene).
+        d.devSinRenglonesMonto += devolucion;
       }
     }
     dias.set(o.fecha, d);
   }
   return [...dias.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([fecha, d]) => ({ fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte), devMonto: p(d.devMonto), sinDescTotal: p(d.sinDescTotal) }));
+    .map(([fecha, d]) => ({ fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte), devMonto: p(d.devMonto), sinDescTotal: p(d.sinDescTotal), devSinRenglonesMonto: p(d.devSinRenglonesMonto) }));
 }
 
 export interface EntradaCorte {
@@ -340,12 +363,20 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let totalOrdenes = 0;
   let sinDescOrdenes = 0;
   let sinDescTotal = 0;
+  let devCosto = 0;
+  let devUnidades = 0;
+  let devSinCosto = 0;
+  let devSinRenglones = 0;
   const agregados = e.ordenesPorDia ?? agregarOrdenes(e.ordenes ?? [], e.desde, e.hasta);
   for (const d of agregados) {
     if (d.fecha < e.desde || d.fecha > e.hasta) continue;
     totalOrdenes += d.total;
     sinDescOrdenes += d.sinDescOrdenes ?? 0;
     sinDescTotal += c(d.sinDescTotal);
+    devCosto += c(d.devCosto);
+    devUnidades += d.devUnidades ?? 0;
+    devSinCosto += d.devSinCostoUnidades ?? 0;
+    devSinRenglones += c(d.devSinRenglonesMonto);
     revisadas += d.revisadas;
     pendientes += d.pendientes;
     cancelOrdenes += d.cancelOrdenes;
@@ -518,9 +549,15 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     cargosTipo.set(tipo, k);
   }
 
+  // --- Costo recuperado de las devoluciones --------------------------------
+  // Los pares devueltos regresan al stock: su costo no se perdió. Con
+  // renglones es exacto; sin ellos se estima con el costo ÷ venta del mes.
+  const devCostoEstimado = devSinRenglones > 0 && ventaBruta > 0 ? Math.round((devSinRenglones * costoProducto) / ventaBruta) : 0;
+  const costoRecuperado = devCosto + devCostoEstimado;
+
   // --- La cuenta -----------------------------------------------------------
   const enviosYOtros = ventaBruta - comision - netoDepositado;
-  const utilidadBruta = netoDepositado - devMonto - costoProducto;
+  const utilidadBruta = netoDepositado - devMonto + costoRecuperado - costoProducto;
   const publicidadTotal = publicidad.ads + publicidad.manual;
   const fullTotal = full.cargosMeli + full.manual;
   const otrosTotal = otros.cargosMeli + otros.manual;
@@ -565,9 +602,17 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
         : "No se han leído los cargos facturados por MELI del periodo (almacenamiento de Full, etc.): los gastos de Full solo incluyen lo capturado a mano.",
     );
   }
+  if (devCostoEstimado > 0) {
+    avisos.push(
+      `${p(devSinRenglones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de devoluciones son de órdenes sin renglones guardados: su costo recuperado se estimó con el costo ÷ venta del mes (${p(devCostoEstimado).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}). La revisión les pide los renglones a MELI y lo vuelve exacto.`,
+    );
+  }
+  if (devSinCosto > 0) {
+    avisos.push(`${devSinCosto.toLocaleString("es-MX")} pares devueltos son de modelos sin costo capturado: su costo no se pudo recuperar en la cuenta.`);
+  }
   if (devOrdenes > 0) {
     avisos.push(
-      "Los pares devueltos siguen contando su costo de producto: si volvieron al stock en buen estado, la ganancia real es mayor por ese costo.",
+      "El costo de los pares devueltos se suma de vuelta porque regresan al stock. Un par que volvió dañado o no volvió, captúralo como gasto a mano.",
     );
   }
   if (enviosYOtros > 0) {
@@ -596,7 +641,14 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     netoEstimado: p(netoEstimado),
     coberturaNetoReal,
     cancelaciones: { ordenes: cancelOrdenes, importe: p(cancelImporte) },
-    devoluciones: { ordenes: devOrdenes, monto: p(devMonto) },
+    devoluciones: {
+      ordenes: devOrdenes,
+      monto: p(devMonto),
+      unidades: devUnidades,
+      costoRecuperado: p(costoRecuperado),
+      costoEstimado: p(devCostoEstimado),
+      unidadesSinCosto: devSinCosto,
+    },
     reventa: { ordenes: sinDescOrdenes, importe: p(sinDescTotal) },
     costoProducto: p(costoProducto),
     unidadesConCosto,
@@ -692,6 +744,10 @@ export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: strin
     sinRenglones: Number(d.sin_renglones) || 0,
     sinDescOrdenes: Number(d.sin_desc_ordenes) || 0,
     sinDescTotal: Number(d.sin_desc_total) || 0,
+    devCosto: Number(d.dev_costo) || 0,
+    devUnidades: Number(d.dev_unidades) || 0,
+    devSinCostoUnidades: Number(d.dev_sin_costo_unidades) || 0,
+    devSinRenglonesMonto: Number(d.dev_sin_renglones_monto) || 0,
   }));
 }
 

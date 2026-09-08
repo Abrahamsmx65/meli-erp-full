@@ -131,6 +131,11 @@ describe("armarEstadoResultados", () => {
     expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(true);
     expect(e.devoluciones.ordenes).toBe(2);
     expect(e.devoluciones.monto).toBe(280);
+    // Sin renglones en las órdenes, el costo recuperado se estima:
+    // 280 × (costo 121 ÷ venta 400) = 84.70
+    expect(e.devoluciones.costoEstimado).toBe(84.7);
+    expect(e.devoluciones.costoRecuperado).toBe(84.7);
+    expect(e.avisos.some((a) => a.includes("costo recuperado se estimó"))).toBe(true);
     expect(e.revision.pendientes).toBe(1);
   });
 
@@ -243,5 +248,21 @@ describe("ventas en reventa", () => {
     // utilidad bruta = 306 − costo (2 × 60.50): la reventa no cuesta nada más
     expect(e.utilidadBruta).toBe(306 - 121);
     expect(e.avisos.some((a) => a.includes("REVENTA"))).toBe(true);
+  });
+});
+
+describe("costo recuperado de devoluciones", () => {
+  it("con órdenes sumadas por día (RPC) el costo de los pares devueltos es exacto y se suma de vuelta", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 4, ordenes: 4, importe: 800, comision: 120, neto: 480 }],
+        ordenesPorDia: [
+          { fecha: "2026-08-03", ordenes: 4, neto: 480, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 1, devMonto: 200, total: 4, revisadas: 4, pendientes: 0, devCosto: 60.5, devUnidades: 1, devSinCostoUnidades: 0, devSinRenglonesMonto: 0 },
+        ],
+      }),
+    );
+    expect(e.devoluciones).toEqual({ ordenes: 1, monto: 200, unidades: 1, costoRecuperado: 60.5, costoEstimado: 0, unidadesSinCosto: 0 });
+    // 480 − 200 + 60.50 − 4 × 60.50
+    expect(e.utilidadBruta).toBe(480 - 200 + 60.5 - 242);
   });
 });
