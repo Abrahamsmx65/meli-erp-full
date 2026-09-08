@@ -10,7 +10,7 @@ import type { FilaModelo } from "@/lib/servicios/ventas-monitor";
  * ellos otra vez para reordenarlos.
  */
 
-type Clave = "modelo" | "categoria" | "colores" | "unidadesHoy" | "unidades7" | "unidades7Prev" | "cambio" | "importe7" | "neto7" | "ganancia7";
+type Clave = "modelo" | "categoria" | "colores" | "unidadesHoy" | "unidades7" | "unidades7Prev" | "cambio" | "importe7" | "neto7" | "publicidad7" | "ganancia7";
 
 const COLUMNAS: { clave: Clave; titulo: string; num: boolean }[] = [
   { clave: "modelo", titulo: "Modelo", num: false },
@@ -22,6 +22,7 @@ const COLUMNAS: { clave: Clave; titulo: string; num: boolean }[] = [
   { clave: "cambio", titulo: "Cambio", num: true },
   { clave: "importe7", titulo: "Importe", num: true },
   { clave: "neto7", titulo: "Neto", num: true },
+  { clave: "publicidad7", titulo: "Publicidad", num: true },
   { clave: "ganancia7", titulo: "Ganancia", num: true },
 ];
 
@@ -70,12 +71,16 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
   }, [filas, busqueda, categoria, orden]);
 
   const totales = useMemo(() => {
-    const t = { unidades7: 0, unidades7Prev: 0, importe7: 0, neto7: 0, ganancia7: 0, conCosto: false };
+    const t = { unidades7: 0, unidades7Prev: 0, importe7: 0, neto7: 0, publicidad7: 0, conAds: false, ganancia7: 0, conCosto: false };
     for (const f of visibles) {
       t.unidades7 += f.unidades7;
       t.unidades7Prev += f.unidades7Prev;
       t.importe7 += f.importe7;
       t.neto7 += f.neto7;
+      if (f.publicidad7 != null) {
+        t.publicidad7 += f.publicidad7;
+        t.conAds = true;
+      }
       if (f.ganancia7 != null) {
         t.ganancia7 += f.ganancia7;
         t.conCosto = true;
@@ -158,6 +163,9 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
                   </td>
                   <td className="num cifra">{pesos(f.importe7)}</td>
                   <td className="num cifra">{pesos(f.neto7)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                    {f.publicidad7 == null ? "—" : pesos(f.publicidad7)}
+                  </td>
                   <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--estado-critico)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
                     {f.ganancia7 == null ? "sin costo" : pesos(f.ganancia7)}
                   </td>
@@ -188,6 +196,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
                 </td>
                 <td className="num cifra font-semibold">{pesos(totales.importe7)}</td>
                 <td className="num cifra font-semibold">{pesos(totales.neto7)}</td>
+                <td className="num cifra font-semibold">{totales.conAds ? pesos(totales.publicidad7) : "—"}</td>
                 <td className="num cifra font-semibold">{totales.conCosto ? pesos(totales.ganancia7) : "—"}</td>
               </tr>
             </tfoot>

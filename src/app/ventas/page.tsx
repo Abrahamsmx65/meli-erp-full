@@ -1,12 +1,14 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import {
+  aplicarPublicidadAlMonitor,
   cargarMonitor,
   diasDeRango,
   fechaMx,
   normalizarRango,
   type Movimiento,
 } from "@/lib/servicios/ventas-monitor";
+import type { FilaPublicidad } from "@/lib/servicios/publicidad";
 import { cargarPublicidad } from "@/lib/servicios/publicidad";
 import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
@@ -59,11 +61,12 @@ export default async function Ventas({
   // La publicidad del mismo periodo, para que la ganancia del panel ya la
   // tenga descontada: recibo − costo − publicidad. Si Product Ads no
   // contesta, el panel lo dice y la ganancia se muestra sin ads.
-  const [m, ads] = await Promise.all([
+  const [mSinAds, ads] = await Promise.all([
     t.medir("monitor", cargarMonitor(supabase, cuenta.id, rango)),
     t.medir(
       "publicidad",
       cargarPublicidad(supabase, cuenta, rango).catch((err) => ({
+        filas: [] as FilaPublicidad[],
         totales: { gastoAds: 0 },
         errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
       })),
@@ -71,6 +74,11 @@ export default async function Ventas({
   ]);
   t.fin();
   const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
+  // Las tablas por modelo y por categoría descuentan la publicidad del
+  // modelo que la gastó (la regla del corte); sin dato de ads se quedan en
+  // neto − costo y la pantalla lo dice.
+  const adsPorModelo = ads.errorAds ? null : new Map(ads.filas.map((f) => [f.modelo, f.gastoAds]));
+  const m = aplicarPublicidadAlMonitor(mSinAds, adsPorModelo);
   const gananciaConAds = gastoAds == null ? null : m.desglose.gananciaReal - gastoAds;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
   const mesDelRango = rango.hasta.slice(0, 7);
@@ -202,7 +210,9 @@ export default async function Ventas({
             <h2 className="text-base font-semibold">Por categoría</h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
               Las categorías se capturan en Productos y costos. Neto = lo que MELI
-              deposita (ya sin su comisión); ganancia = neto − costo.
+              deposita (ya sin su comisión); ganancia = neto − costo − publicidad del
+              modelo que la gastó.
+              {ads.errorAds ? " Product Ads no contestó: la ganancia va SIN publicidad." : ""}
             </p>
           </header>
           <table className="datos">
@@ -212,6 +222,7 @@ export default async function Ventas({
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
                 <th className="num">Neto</th>
+                <th className="num">Publicidad</th>
                 <th className="num">Ganancia</th>
               </tr>
             </thead>
@@ -222,6 +233,9 @@ export default async function Ventas({
                   <td className="num cifra">{n(c.unidades7)}</td>
                   <td className="num cifra">{pesos(c.importe7)}</td>
                   <td className="num cifra">{pesos(c.neto7)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                    {c.publicidad7 == null ? "—" : pesos(c.publicidad7)}
+                  </td>
                   <td
                     className="num cifra"
                     style={{
@@ -245,8 +259,9 @@ export default async function Ventas({
           <h2 className="text-base font-semibold">Por modelo</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Todas las tallas y colores de cada modelo, juntos, en el periodo elegido,
-            contra el periodo anterior del mismo largo. Busca por modelo o SKU, filtra por
-            categoría y da clic en una columna para ordenar.
+            contra el periodo anterior del mismo largo. Ganancia = neto − costo −
+            publicidad del modelo{ads.errorAds ? " (sin dato de ads ahora: va sin publicidad)" : ""}. Busca por
+            modelo o SKU, filtra por categoría y da clic en una columna para ordenar.
           </p>
         </header>
         <TablaModelosVentas filas={m.porModelo} />

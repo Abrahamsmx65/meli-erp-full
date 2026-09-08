@@ -15,8 +15,10 @@ function pct(x: number | null): string {
 }
 
 function notaGanancia(t: Totales): string {
-  const partes = [`neto ${pesos(t.neto)}`, `costo ${pesos(t.costo)}`];
-  if (t.unidadesSinCosto) partes.push(`${n(t.unidadesSinCosto)} u. sin costo`);
+  // La ganancia SOLO cubre la venta con costo cargado; lo demás se declara
+  // (antes el neto sin costo entraba como ganancia pura y la inflaba).
+  const partes = [`neto con costo ${pesos(t.netoConCosto)}`, `costo ${pesos(t.costo)}`];
+  if (t.unidadesSinCosto) partes.push(`${n(t.unidadesSinCosto)} u. (${pesos(t.netoSinCosto)}) sin costo, fuera de la cuenta`);
   return partes.join(" · ");
 }
 
@@ -68,7 +70,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
 
       {m.skusSinCosto ? (
         <p className="text-sm" style={{ color: "var(--estado-serio)" }}>
-          {m.skusSinCosto} SKUs vendieron sin costo cargado: su ganancia no se puede calcular. Captúralo en Productos y costos (Bodega), donde viven los costos de calzado y fundas.
+          {m.skusSinCosto} SKUs vendieron sin costo cargado: su ganancia no se puede calcular y su neto ({pesos(m.periodo.netoSinCosto)}) queda FUERA de la ficha de ganancia — contarlo como si costara $0 la inflaba. Captura el costo en Productos y costos (Bodega), donde viven los costos de calzado y fundas.
         </p>
       ) : null}
 

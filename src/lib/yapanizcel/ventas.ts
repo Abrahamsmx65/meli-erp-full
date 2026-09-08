@@ -40,6 +40,13 @@ export interface Totales {
   netoEstimado: number;
   /** Unidades sin costo cargado (la ganancia no las cuenta como costo 0). */
   unidadesSinCosto: number;
+  /** Neto de los SKUs CON costo cargado: la única parte con ganancia calculable. */
+  netoConCosto: number;
+  /**
+   * Neto de los SKUs SIN costo cargado. NO entra a la ganancia (contarlo
+   * como si costara $0 la inflaba); se declara aparte.
+   */
+  netoSinCosto: number;
 }
 
 export interface FilaVentas extends Totales {
@@ -82,7 +89,7 @@ export interface Monitor {
 }
 
 function vacio(): Totales {
-  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, netoEstimado: 0, unidadesSinCosto: 0 };
+  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, netoEstimado: 0, unidadesSinCosto: 0, netoConCosto: 0, netoSinCosto: 0 };
 }
 
 interface FilaResumen {
@@ -116,12 +123,22 @@ function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null, rati
   t.importe += Number(f.importe);
   t.comision += Number(f.comision);
   const estimado = estimarNeto(Number(f.importe_sin_neto ?? 0), Number(f.comision_sin_neto ?? 0), ratio);
-  t.neto += Number(f.neto) + estimado;
+  const netoFila = Number(f.neto) + estimado;
+  t.neto += netoFila;
   t.netoEstimado += estimado;
   t.unidadesEstimadas += Number(f.unidades_sin_neto ?? 0);
-  if (costoUnit == null) t.unidadesSinCosto += Number(f.unidades);
-  else t.costo += costoUnit * Number(f.unidades);
-  t.ganancia = t.neto - t.costo;
+  if (costoUnit == null) {
+    t.unidadesSinCosto += Number(f.unidades);
+    t.netoSinCosto += netoFila;
+  } else {
+    t.costo += costoUnit * Number(f.unidades);
+    t.netoConCosto += netoFila;
+  }
+  // La ganancia SOLO cubre la venta con costo cargado. Antes era
+  // neto − costo con TODO el neto adentro: el neto de miles de SKUs sin
+  // costo entraba como ganancia pura y la inflaba. Sin costo no hay
+  // ganancia calculable; se declara, nunca se rellena con cero.
+  t.ganancia = t.netoConCosto - t.costo;
 }
 
 /**

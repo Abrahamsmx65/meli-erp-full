@@ -13,6 +13,9 @@ import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
 
+/** De dónde salió la ganancia unificada de un renglón. */
+export type FuenteGanancia = "economia" | "liquidado" | "estimada";
+
 export interface FilaModeloAmazon {
   modelo: string;
   unidades: number;
@@ -23,6 +26,15 @@ export interface FilaModeloAmazon {
   /** neto real del reporte de pagos (liquidado en el periodo); null = sin dato */
   netoReal: number | null;
   gananciaReal: number | null;
+  /**
+   * LA ganancia del modelo, una sola definición (la misma del corte
+   * general): neto del SKU Economics (ventas − tarifas − publicidad, por
+   * fecha de venta) − costo. Sin economía cae a lo liquidado − costo, y sin
+   * nada a venta − costo; `gananciaFuente` dice cuál fue. null = sin costo
+   * capturado.
+   */
+  gananciaNeta: number | null;
+  gananciaFuente: FuenteGanancia | null;
   /** gasto de publicidad del periodo por modelo (SKU Economics); null = sin dato */
   publicidad: number | null;
   /** publicidad ÷ unidades netas del MISMO reporte de economía */
@@ -44,6 +56,10 @@ export interface FilaCategoriaAmazon {
   ganancia: number | null;
   netoReal: number | null;
   gananciaReal: number | null;
+  /** suma de la ganancia unificada de sus modelos (ver FilaModeloAmazon) */
+  gananciaNeta: number | null;
+  /** unidades de la categoría cuyo modelo NO tiene ganancia calculable (sin costo) */
+  unidadesSinGanancia: number;
 }
 
 export interface MonitorAmazon {
@@ -282,7 +298,7 @@ export async function cargarMonitorAmazon(
 
   const categorias = new Map<
     string,
-    { unidades: number; importe: number; ganancia: number; conCosto: boolean; netoReal: number; gananciaReal: number; conPagos: boolean }
+    { unidades: number; importe: number; ganancia: number; conCosto: boolean; netoReal: number; gananciaReal: number; conPagos: boolean; gananciaNeta: number; conGanancia: boolean; unidadesSinGanancia: number }
   >();
   let ganancia = 0;
   let unidadesConCosto = 0;
@@ -293,6 +309,7 @@ export async function cargarMonitorAmazon(
   let hayPagos = pagos.length > 0;
   const gananciaPorModelo = new Map<string, number>();
   const gananciaRealPorModelo = new Map<string, number>();
+  const gananciaNetaPorModelo = new Map<string, { valor: number; fuente: FuenteGanancia }>();
 
   const todosLosModelos = new Set([...modelos.keys(), ...pagosPorModelo.keys()]);
   for (const modelo of todosLosModelos) {
@@ -302,7 +319,7 @@ export async function cargarMonitorAmazon(
     const categoria = cfg?.categoria ?? "Sin categoría";
     const cat =
       categorias.get(categoria) ??
-      { unidades: 0, importe: 0, ganancia: 0, conCosto: false, netoReal: 0, gananciaReal: 0, conPagos: false };
+      { unidades: 0, importe: 0, ganancia: 0, conCosto: false, netoReal: 0, gananciaReal: 0, conPagos: false, gananciaNeta: 0, conGanancia: false, unidadesSinGanancia: 0 };
     cat.unidades += m.unidades;
     cat.importe += m.importe;
 
@@ -328,6 +345,30 @@ export async function cargarMonitorAmazon(
         cat.gananciaReal += gr;
       }
     }
+
+    // LA ganancia unificada del modelo (misma definición que el corte
+    // general): el neto del SKU Economics ya trae tarifas Y publicidad
+    // restadas, así que neto − costo es la cuenta completa. Sin economía,
+    // lo liquidado − costo; sin nada, venta − costo (estimada). Sin costo
+    // capturado no hay ganancia calculable: null, nunca cero.
+    const eco = econPorModelo.get(modelo);
+    if (cfg?.costo != null) {
+      let unificada: { valor: number; fuente: FuenteGanancia } | null = null;
+      if (eco && (eco.unidades > 0 || eco.ventas !== 0)) {
+        unificada = { valor: eco.neto - cfg.costo * eco.unidades, fuente: "economia" };
+      } else if (pago) {
+        unificada = { valor: pago.neto - cfg.costo * pago.unidades, fuente: "liquidado" };
+      } else if (m.unidades > 0) {
+        unificada = { valor: m.importe - cfg.costo * m.unidades, fuente: "estimada" };
+      }
+      if (unificada) {
+        gananciaNetaPorModelo.set(modelo, unificada);
+        cat.gananciaNeta += unificada.valor;
+        cat.conGanancia = true;
+      }
+    } else {
+      cat.unidadesSinGanancia += m.unidades;
+    }
     categorias.set(categoria, cat);
   }
 
@@ -345,6 +386,8 @@ export async function cargarMonitorAmazon(
         gananciaReal: gananciaRealPorModelo.has(modelo)
           ? (gananciaRealPorModelo.get(modelo) ?? 0)
           : null,
+        gananciaNeta: gananciaNetaPorModelo.get(modelo)?.valor ?? null,
+        gananciaFuente: gananciaNetaPorModelo.get(modelo)?.fuente ?? null,
         // Publicidad del SKU Economics, agregada por modelo. El por-unidad y
         // el ACOS usan unidades y ventas del MISMO reporte: mismo
         // denominador, mismos días.
@@ -376,6 +419,8 @@ export async function cargarMonitorAmazon(
       ganancia: c.conCosto ? c.ganancia : null,
       netoReal: c.conPagos ? c.netoReal : null,
       gananciaReal: c.conPagos && c.conCosto ? c.gananciaReal : null,
+      gananciaNeta: c.conGanancia ? c.gananciaNeta : null,
+      unidadesSinGanancia: c.unidadesSinGanancia,
     }))
     .filter((c) => c.unidades > 0 || (c.netoReal ?? 0) !== 0)
     .sort((a, b) => b.unidades - a.unidades);

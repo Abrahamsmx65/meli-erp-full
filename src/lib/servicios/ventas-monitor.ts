@@ -30,7 +30,9 @@ export interface FilaModelo {
   categoria: string | null;
   /** venta neta del periodo (depósito real donde ya llegó, importe − comisión donde no) */
   neto7: number;
-  /** neto - costo, solo de los colores con costo capturado; null = sin costo */
+  /** gasto en Product Ads del modelo en el periodo; null = sin dato de ads */
+  publicidad7: number | null;
+  /** neto − costo (− publicidad cuando hay dato de ads); null = sin costo */
   ganancia7: number | null;
 }
 
@@ -39,6 +41,8 @@ export interface FilaCategoria {
   unidades7: number;
   importe7: number;
   neto7: number;
+  /** gasto en Product Ads de los modelos de la categoría; null = sin dato de ads */
+  publicidad7: number | null;
   ganancia7: number | null;
 }
 
@@ -427,6 +431,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       unidades7: c.unidades7,
       importe7: c.importe7,
       neto7: c.neto7,
+      publicidad7: null,
       ganancia7: c.conCosto ? c.ganancia7 : null,
     }))
     .sort((a, b) => b.unidades7 - a.unidades7);
@@ -517,6 +522,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       colores: m.colores.size,
       categoria: config.get(modelo)?.categoria ?? null,
       neto7: netoPorModelo.get(modelo) ?? 0,
+      publicidad7: null,
       ganancia7: modeloConCosto.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
     }))
     // Todos los modelos: la tabla se filtra y se ordena en pantalla.
@@ -545,4 +551,34 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   };
   cacheMonitor.set(claveCache, { en: Date.now(), datos: monitor });
   return monitor;
+}
+
+/**
+ * Resta la publicidad por modelo a la ganancia de las tablas del monitor
+ * (pura; la página la aplica cuando Product Ads sí contestó). La regla es
+ * la del corte: la publicidad se descuenta al modelo que la gastó, y por
+ * categoría se suma la de sus modelos. Un modelo sin costo capturado sigue
+ * sin ganancia calculable (null), con o sin ads: no se inventa. Sin mapa
+ * (ads caídos) el monitor queda igual, con publicidad7 en null, y la
+ * pantalla lo declara.
+ */
+export function aplicarPublicidadAlMonitor(m: Monitor, adsPorModelo: Map<string, number> | null): Monitor {
+  if (!adsPorModelo) return m;
+
+  const porModelo: FilaModelo[] = m.porModelo.map((f) => {
+    const ads = adsPorModelo.get(f.modelo) ?? 0;
+    return { ...f, publicidad7: ads, ganancia7: f.ganancia7 == null ? null : f.ganancia7 - ads };
+  });
+
+  const adsPorCategoria = new Map<string, number>();
+  for (const f of porModelo) {
+    const cat = f.categoria ?? "Sin categoría";
+    adsPorCategoria.set(cat, (adsPorCategoria.get(cat) ?? 0) + (f.publicidad7 ?? 0));
+  }
+  const porCategoria: FilaCategoria[] = m.porCategoria.map((c) => {
+    const ads = adsPorCategoria.get(c.categoria) ?? 0;
+    return { ...c, publicidad7: ads, ganancia7: c.ganancia7 == null ? null : c.ganancia7 - ads };
+  });
+
+  return { ...m, porModelo, porCategoria };
 }

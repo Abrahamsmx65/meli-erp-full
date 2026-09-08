@@ -8,8 +8,8 @@ function monitor(extra?: Partial<MonitorAmazon>): MonitorAmazon {
     ayer: { unidades: 0, importe: 0, ordenes: 0 },
     periodo: { unidades: 10, importe: 5000, ordenes: 9 },
     porModelo: [
-      { modelo: "GT114", unidades: 6, unidadesPrev: 0, importe: 3000, unidadesHoy: 0, ganancia: null, netoReal: 1200, gananciaReal: null, publicidad: 200, publicidadPorUnidad: null, acosPct: null, economia: { unidades: 6, ventas: 3000, tarifas: 900, publicidad: 200, neto: 1900 } },
-      { modelo: "GT135", unidades: 4, unidadesPrev: 0, importe: 2000, unidadesHoy: 0, ganancia: null, netoReal: 500, gananciaReal: null, publicidad: 0, publicidadPorUnidad: null, acosPct: null, economia: { unidades: 4, ventas: 2000, tarifas: 600, publicidad: 0, neto: 1400 } },
+      { modelo: "GT114", unidades: 6, unidadesPrev: 0, importe: 3000, unidadesHoy: 0, ganancia: null, netoReal: 1200, gananciaReal: null, gananciaNeta: null, gananciaFuente: null, publicidad: 200, publicidadPorUnidad: null, acosPct: null, economia: { unidades: 6, ventas: 3000, tarifas: 900, publicidad: 200, neto: 1900 } },
+      { modelo: "GT135", unidades: 4, unidadesPrev: 0, importe: 2000, unidadesHoy: 0, ganancia: null, netoReal: 500, gananciaReal: null, gananciaNeta: null, gananciaFuente: null, publicidad: 0, publicidadPorUnidad: null, acosPct: null, economia: { unidades: 4, ventas: 2000, tarifas: 600, publicidad: 0, neto: 1400 } },
     ],
     porCategoria: [],
     ganancia: 0,
