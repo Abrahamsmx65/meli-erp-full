@@ -48,7 +48,11 @@ export default async function Pedidos() {
     t.medir("plan", obtenerPlan(supabase, cuenta.id)),
     t.medir("inventario", cargarInventario(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
-    t.medir("amazon", amazonParaCompras(supabase)),
+    // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
+    t.medir(
+      "amazon",
+      conCacheApp(supabase, cuenta.id, "amazon-compras", 10 * 60_000, () => amazonParaCompras(supabase)),
+    ),
   ]);
 
   const inventarioPorSku = new Map(
