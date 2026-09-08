@@ -52,10 +52,13 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   datos_fiscales: ["account_id", "sku"],
   existencias: ["id"],
   gastos_meli: ["id"],
+  contenedor_lineas: ["id"],
+  contenedores: ["id"],
   mapeo_sku: ["account_id", "sku_construido"],
   medidas_envio: ["account_id", "sku"],
   meli_cargos: ["account_id", "detalle_id"],
   ordenes_neto: ["account_id", "order_id"],
+  pedido_lineas: ["id"],
   pedidos: ["id"],
   productos_config: ["account_id", "modelo", "color"],
   sku_overrides: ["account_id", "sku"],
@@ -149,6 +152,34 @@ export async function traerTodo<T>(
   }
 
   return paginas.flat();
+}
+
+/**
+ * Corre `leer` sobre tandas de ids, para los .in() con muchas llaves: la URL
+ * se mantiene corta y, cuando la columna filtrada es única, ninguna tanda
+ * puede pasar del tope de filas. A lo más 6 tandas en vuelo (el mismo tope
+ * que traerTodo): con miles de ids son un puñado de viajes, no una ráfaga.
+ */
+export async function porTandas<T>(
+  ids: string[],
+  tamano: number,
+  leer: (tanda: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const tandas: string[][] = [];
+  for (let i = 0; i < ids.length; i += tamano) tandas.push(ids.slice(i, i + tamano));
+  if (!tandas.length) return [];
+
+  const salida: T[][] = new Array(tandas.length);
+  let cursor = 0;
+  const trabajador = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= tandas.length) return;
+      salida[i] = await leer(tandas[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, tandas.length) }, trabajador));
+  return salida.flat();
 }
 
 /**

@@ -9,7 +9,7 @@
  * inventario de bodega llega del API de Industher. Aquí solo se deja de
  * contar como "en camino".
  */
-import type { DB } from "../datos/repos";
+import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { recalcularEstadoPedido } from "./pedidos";
 
 export interface ContenedorVista {
@@ -28,43 +28,61 @@ export interface ContenedorVista {
 }
 
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
-  const { data: conts } = await db
-    .from("contenedores")
-    .select(
-      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, contenedor_lineas(cajas, pedido_linea_id)",
-    )
-    .eq("account_id", accountId)
-    .order("fecha_llegada_est", { ascending: true, nullsFirst: false });
+  // traerTodo pagina (PostgREST corta en 1,000 filas SIN avisar) y ordena
+  // por la llave; el orden por llegada se rehace aquí (nulos al final).
+  const conts = await traerTodo<any>(
+    db,
+    "contenedores",
+    "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas",
+    (q) => q.eq("account_id", accountId),
+  );
+  conts.sort((a, b) =>
+    String(a.fecha_llegada_est ?? "9999").localeCompare(String(b.fecha_llegada_est ?? "9999")),
+  );
 
   if (!conts?.length) return [];
 
-  // Amarrar cada renglón del contenedor con SU pedido, para decir qué trae.
-  const lineaIds = [
-    ...new Set(
-      conts.flatMap((c: any) =>
-        ((c.contenedor_lineas ?? []) as { pedido_linea_id: string }[]).map(
-          (l) => l.pedido_linea_id,
-        ),
-      ),
+  // contenedor_lineas DIRECTO, no embebido: el tope db-max-rows también
+  // corta los recursos embebidos y sin señal (HTTP 200; PostgREST #2776).
+  const contLineas = await porTandas(conts.map((c: any) => c.id as string), 200, (tanda) =>
+    traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
+      db,
+      "contenedor_lineas",
+      "contenedor_id, pedido_linea_id, cajas",
+      (q) => q.in("contenedor_id", tanda),
     ),
-  ];
+  );
 
-  const { data: lineas } = lineaIds.length
-    ? await db.from("pedido_lineas").select("id, pedido_id").in("id", lineaIds)
-    : { data: [] as { id: string; pedido_id: string }[] };
+  // Amarrar cada renglón del contenedor con SU pedido, para decir qué trae.
+  // Tandas de 500 ids: id es único, así que cada tanda regresa a lo más 500
+  // filas y ni el tope ni el largo de la URL alcanzan a morder.
+  const lineaIds = [...new Set(contLineas.map((l) => l.pedido_linea_id))];
+  const lineas = await porTandas(lineaIds, 500, async (tanda) => {
+    const { data, error } = await db.from("pedido_lineas").select("id, pedido_id").in("id", tanda);
+    if (error) throw new Error(`pedido_lineas: ${error.message}`);
+    return (data ?? []) as { id: string; pedido_id: string }[];
+  });
 
-  const pedidoIds = [...new Set((lineas ?? []).map((l) => l.pedido_id))];
-  const { data: pedidos } = pedidoIds.length
-    ? await db.from("pedidos").select("id, pedido").in("id", pedidoIds)
-    : { data: [] as { id: string; pedido: string }[] };
+  const pedidoIds = [...new Set(lineas.map((l) => l.pedido_id))];
+  const pedidos = await porTandas(pedidoIds, 500, async (tanda) => {
+    const { data, error } = await db.from("pedidos").select("id, pedido").in("id", tanda);
+    if (error) throw new Error(`pedidos: ${error.message}`);
+    return (data ?? []) as { id: string; pedido: string }[];
+  });
 
   const nombrePedido = new Map((pedidos ?? []).map((p) => [p.id, p.pedido]));
   const pedidoDeLinea = new Map((lineas ?? []).map((l) => [l.id, l.pedido_id]));
+  const lineasPorCont = new Map<string, { cajas: number | null; pedido_linea_id: string }[]>();
+  for (const cl of contLineas) {
+    const lista = lineasPorCont.get(cl.contenedor_id) ?? [];
+    lista.push(cl);
+    lineasPorCont.set(cl.contenedor_id, lista);
+  }
 
   return conts.map((c: any) => {
     const porPedido = new Map<string, number>();
     let cajas = 0;
-    for (const cl of (c.contenedor_lineas ?? []) as { cajas: number; pedido_linea_id: string }[]) {
+    for (const cl of lineasPorCont.get(c.id) ?? []) {
       cajas += cl.cajas ?? 0;
       const nombre = nombrePedido.get(pedidoDeLinea.get(cl.pedido_linea_id) ?? "");
       if (!nombre) continue;
