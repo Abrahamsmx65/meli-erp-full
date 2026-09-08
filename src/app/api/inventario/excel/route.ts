@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarInventario } from "@/lib/servicios/inventario";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { filtrarBodega } from "@/lib/reporte/filtro";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,18 +25,15 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
 
   const almacen = req.nextUrl.searchParams.get("almacen") || "";
-  const terminos = terminosDeBusqueda(req.nextUrl.searchParams.get("q"));
   const conCeros = req.nextUrl.searchParams.get("conCeros") === "1";
   const inv = await cargarInventario(supabase, cuenta.id, { sinCrudos: true });
 
-  const filas = inv.renglones.filter((r) => {
-    if (!conCeros && r.enBodega + r.enCamino <= 0) return false;
-    if (almacen && !r.pedidos.some((p) => p.almacen === almacen)) return false;
-    // El MISMO texto que filtra la pantalla (contrato de reporte/filtro.ts).
-    return coincide(
-      `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
-      terminos,
-    );
+  // LA MISMA función que filtra la pantalla (contrato de reporte/filtro.ts,
+  // con prueba de paridad): el archivo trae exactamente lo que se ve.
+  const filas = filtrarBodega(inv.renglones, {
+    q: req.nextUrl.searchParams.get("q"),
+    almacen,
+    conCeros,
   });
 
   const libro = new ExcelJS.Workbook();

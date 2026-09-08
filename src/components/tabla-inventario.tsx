@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { filtrarBodega } from "@/lib/reporte/filtro";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
 
 /**
@@ -56,29 +56,17 @@ export function TablaInventario({
   }, [busquedaInicial]);
 
   // El input pinta cada tecla al instante; el filtrado usa el valor diferido.
+  // La función es LA MISMA que usa /api/inventario/excel: pantalla y archivo
+  // no pueden diferir (contrato de reporte/filtro.ts, con prueba de paridad).
   const busquedaDiferida = useDeferredValue(busqueda);
-  const terminos = useMemo(() => terminosDeBusqueda(busquedaDiferida), [busquedaDiferida]);
-
-  // El texto de búsqueda de cada renglón se arma UNA vez, no en cada tecla.
-  const conTexto = useMemo(
-    () =>
-      renglones.map((r) => ({
-        r,
-        texto: `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
-      })),
-    [renglones],
-  );
-
   const filtrados = useMemo(
     () =>
-      conTexto
-        .filter(({ r, texto }) => {
-          if (soloConExistencia && r.enBodega + r.enCamino === 0) return false;
-          if (almacen && !r.pedidos.some((p) => p.almacen === almacen)) return false;
-          return coincide(texto, terminos);
-        })
-        .map(({ r }) => r),
-    [conTexto, terminos, soloConExistencia, almacen],
+      filtrarBodega(renglones, {
+        q: busquedaDiferida,
+        almacen,
+        conCeros: !soloConExistencia,
+      }),
+    [renglones, busquedaDiferida, soloConExistencia, almacen],
   );
 
   const totales = useMemo(
