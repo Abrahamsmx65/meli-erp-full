@@ -354,7 +354,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
-const VERSION_ESTAMPA = 4;
+const VERSION_ESTAMPA = 5;
 
 /** Dónde va el estampado: abajo a la derecha, pegado al borde. */
 const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
@@ -449,10 +449,10 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   const fuente = await doc.embedFont(StandardFonts.HelveticaBold);
   doc.setTitle(`Corte ${corte.numero} · etiquetas TikTok`);
 
-  // Abajo a la derecha: el CÓDIGO DEL PEDIDO en barras (el mismo que en la
-  // hoja: escanearlo en la estación enseña qué va adentro) y, arriba, un
-  // renglón de texto por producto con "#n · SKU ×cantidad". El FNSKU se
-  // escanea de la caja del zapato, no de la guía. Lo demás no se toca.
+  // Abajo: a la IZQUIERDA los SKU del paquete ("#n · SKU ×cantidad", un
+  // renglón por producto) y a la DERECHA el CÓDIGO DEL PEDIDO en barras (el
+  // mismo que en la hoja: escanearlo en la estación enseña qué va adentro).
+  // El FNSKU se escanea de la caja del zapato, no de la guía.
   const estampar = (pagina: PDFPage, p: PaqueteNumerado) => {
     const { width } = pagina.getSize();
     const derecha = width - ESTAMPA.margen;
@@ -460,18 +460,19 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const codigoOrden = codigoDeOrden(p.orderId);
     const codigo = codigoOrden || codigoDeHoja(corte.numero, p.numero);
     const anchoCodigo = anchoBarras(codigo, ESTAMPA.barrasAnchoMax);
-    dibujarBarras(pagina, codigo, Math.max(ESTAMPA.margen, derecha - anchoCodigo), ESTAMPA.margen, anchoCodigo, ESTAMPA.barrasAlto);
-    let y = ESTAMPA.margen + ESTAMPA.barrasAlto + 3;
-    // Los renglones de texto, del primero (con el "#n") hacia arriba.
+    dibujarBarras(pagina, codigo, Math.max(ESTAMPA.margen, derecha - anchoCodigo), ESTAMPA.margen + ESTAMPA.tamano + 2, anchoCodigo, ESTAMPA.barrasAlto);
+    const numeroOrden = `Pedido ${p.orderId}`;
+    pagina.drawText(numeroOrden, {
+      x: Math.max(ESTAMPA.margen, derecha - fuente.widthOfTextAtSize(numeroOrden, 5.5)),
+      y: ESTAMPA.margen,
+      size: 5.5,
+      font: fuente,
+      color: rgb(0, 0, 0),
+    });
+    let y = ESTAMPA.margen;
+    // Los renglones de texto a la izquierda, del primero (con el "#n") hacia arriba.
     for (const r of renglones) {
-      const anchoTexto = fuente.widthOfTextAtSize(r.texto, ESTAMPA.tamano);
-      pagina.drawText(r.texto, {
-        x: Math.max(ESTAMPA.margen, derecha - anchoTexto),
-        y,
-        size: ESTAMPA.tamano,
-        font: fuente,
-        color: rgb(0, 0, 0),
-      });
+      pagina.drawText(r.texto, { x: ESTAMPA.margen, y, size: ESTAMPA.tamano, font: fuente, color: rgb(0, 0, 0) });
       y += ESTAMPA.tamano + 2;
     }
   };
