@@ -98,6 +98,9 @@ export function AccionesCorte({
         <a className="boton boton-fantasma" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
           PDF de vista previa
         </a>
+        <a className="boton boton-fantasma" href={`${apiBase}/cortes/excel?periodo=${periodo}`}>
+          Excel con todo
+        </a>
         {corteId ? (
           <a className="boton boton-fantasma" href={`${apiBase}/cortes/${corteId}/pdf`} target="_blank" rel="noreferrer">
             PDF del corte guardado

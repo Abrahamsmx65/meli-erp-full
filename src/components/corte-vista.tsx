@@ -171,7 +171,7 @@ export function CorteVista({
                 {e.cargosPorTipo.map((k) => (
                   <tr key={k.tipo}>
                     <td className="font-medium">{k.tipo}</td>
-                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad (API)", pago: "Pago / abono", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
+                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
                     <td className="num cifra">{n(k.renglones)}</td>
                     <td className="num cifra">{pesos(k.monto)}</td>
                   </tr>
@@ -303,6 +303,10 @@ export function CorteVista({
                   <td className="num">
                     <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" style={{ color: "var(--acento)" }}>
                       PDF
+                    </a>
+                    {" · "}
+                    <a href={`${apiBase}/cortes/${c.id}/excel`} style={{ color: "var(--acento)" }}>
+                      Excel
                     </a>
                   </td>
                 </tr>

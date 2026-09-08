@@ -10,8 +10,20 @@ describe("clasificarCargo", () => {
     expect(clasificarCargo("Costo de envío")).toBe("venta");
     expect(clasificarCargo("Product Ads")).toBe("publicidad");
     expect(clasificarCargo("Pago recibido")).toBe("pago");
-    expect(clasificarCargo("Bonificación")).toBe("pago");
+    expect(clasificarCargo("Bonificación")).toBe("bonificacion");
     expect(clasificarCargo("Servicio raro")).toBe("otro");
+  });
+
+  it("reconoce los códigos de la factura de MELI México", () => {
+    expect(clasificarCargo("CHARGE CFWA Cargo por servicio de almacenamiento Full")).toBe("full");
+    expect(clasificarCargo("CHARGE CFCB Cargo por servicio de colecta Full")).toBe("full");
+    expect(clasificarCargo("CHARGE CFPB Cargo por incumplimiento en Envíos Full")).toBe("full");
+    expect(clasificarCargo("CHARGE CFF Cargo por envíos de Mercado Libre")).toBe("venta");
+    expect(clasificarCargo("CHARGE CV Cargo por venta")).toBe("venta");
+    expect(clasificarCargo("CHARGE PADS Cargo por campaña de publicidad de Product Ads")).toBe("publicidad");
+    expect(clasificarCargo("BONUS BFF Anulación del cargo por envíos de Mercado Libre")).toBe("bonificacion");
+    expect(clasificarCargo("CHARGE CDSD Cargo por devolución")).toBe("otro");
+    expect(clasificarCargo("CHARGE CESM Cargo por mantenimiento de Mi página")).toBe("otro");
   });
 });
 

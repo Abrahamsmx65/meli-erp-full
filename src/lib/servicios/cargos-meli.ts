@@ -18,7 +18,7 @@ import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
 import { clienteDeCuenta } from "./webhooks";
 
-export type ClaseCargo = "full" | "publicidad" | "venta" | "pago" | "otro" | "resumen";
+export type ClaseCargo = "full" | "publicidad" | "venta" | "pago" | "bonificacion" | "otro" | "resumen";
 
 export interface CargoMeli {
   detalleId: string;
@@ -58,22 +58,31 @@ export function ordenDeCargo(r: unknown): string | null {
 }
 
 /**
- * Clasificación por texto del tipo y la descripción del cargo:
- *  - full: almacenamiento, retiros, servicio de Full (el gasto del corte)
- *  - publicidad: Product Ads (ya se cuenta desde el API de publicidad)
- *  - venta: comisión y envío (ya vienen en el neto de Mercado Pago)
- *  - pago: abonos, pagos y bonificaciones (no son gasto)
- *  - otro: lo que no se reconoce, se enseña y cuenta como otro cargo
+ * Clasificación de un cargo facturado, por los CÓDIGOS de MELI México
+ * (verificados en la factura de septiembre 2026) y, de respaldo, por texto:
+ *  - full: CFWA almacenamiento Full, CFCB colecta Full, CFPB incumplimiento
+ *    en Envíos Full, retiros… (el gasto de Full del corte)
+ *  - publicidad: PADS, Product Ads (ya se cuenta por el API de publicidad;
+ *    de respaldo si el API falla)
+ *  - venta: CV cargo por venta, CFF/CDS cargo por envíos (ya descontados del
+ *    pago: van dentro del neto)
+ *  - bonificacion: BONUS/BV/BFF, anulaciones de cargos (no se suman: las de
+ *    órdenes canceladas ya quedaron fuera con la orden)
+ *  - pago: pagos y abonos (no son gasto)
+ *  - otro: lo demás (cargo por devolución, Mi página…): se enseña y se resta
  */
 export function clasificarCargo(texto: string): ClaseCargo {
   const t = texto
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase();
-  if (/almacen|storage|prolongad|retiro|fulfillment|servicio de full|servicio full|deposito/.test(t)) return "full";
-  if (/publicidad|product ads|anuncio|advertising/.test(t)) return "publicidad";
-  if (/comision|tarifa de venta|cargo por venta|costo de envio|costo por envio|envio|flete|shipping/.test(t)) return "venta";
-  if (/\bpago\b|abono|bonificacion|payment|credito aplicado/.test(t)) return "pago";
+  const codigo = (c: string) => new RegExp(`(^|[^a-z])${c}([^a-z]|$)`).test(t);
+  if (codigo("cfwa") || codigo("cfcb") || codigo("cfpb")) return "full";
+  if (/almacen|storage|prolongad|retiro|fulfillment|servicio de full|servicio full|colecta full|incumplimiento en envios full|deposito/.test(t)) return "full";
+  if (codigo("pads") || /publicidad|product ads|anuncio|advertising/.test(t)) return "publicidad";
+  if (codigo("bonus") || /anulacion|bonificacion/.test(t)) return "bonificacion";
+  if (codigo("cv") || codigo("cff") || codigo("cds") || /comision|tarifa de venta|cargo por venta|costo de envio|costo por envio|cargo por envio|envio|flete|shipping/.test(t)) return "venta";
+  if (/\bpago\b|abono|payment|credito aplicado/.test(t)) return "pago";
   return "otro";
 }
 

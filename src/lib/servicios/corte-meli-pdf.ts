@@ -327,7 +327,7 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
       { t: "Monto", w: ANCHO - 70 - 300 - 80, der: true },
     ];
     cabecera(colsG);
-    const clase: Record<string, string> = { full: "Full", publicidad: "Publicidad", otro: "Otro", venta: "En el neto", pago: "Pago/abono" };
+    const clase: Record<string, string> = { full: "Full", publicidad: "Publicidad", otro: "Otro", venta: "En el neto", pago: "Pago/abono", bonificacion: "Anulación", resumen: "Resumen" };
     for (const g of e.gastosManuales) fila(colsG, [fechaLarga(g.fecha), g.concepto, `${clase[g.categoria] ?? g.categoria} (a mano)`, pesosPdf(g.monto)]);
     for (const k of e.cargosPorTipo) fila(colsG, ["MELI", `${k.tipo} · ${k.renglones} renglones`, clase[k.clase] ?? k.clase, pesosPdf(k.monto)], { fondo: k.clase === "full" });
     y -= 10;
