@@ -29,6 +29,12 @@ export interface FilaModeloAmazon {
   publicidadPorUnidad: number | null;
   /** publicidad como % de la venta del reporte de economía (ACOS) */
   acosPct: number | null;
+  /**
+   * La economía del modelo en el periodo (SKU Economics, por FECHA DE VENTA):
+   * lo que Amazon va a pagar por lo vendido = ventas − tarifas (el `neto` de
+   * Amazon ya trae la publicidad restada; aquí se guarda aparte). null = sin dato.
+   */
+  economia: { unidades: number; ventas: number; tarifas: number; publicidad: number; neto: number } | null;
 }
 
 export interface FilaCategoriaAmazon {
@@ -338,6 +344,7 @@ export async function cargarMonitorAmazon(
           if (!e || e.ventas <= 0) return null;
           return (100 * e.publicidad) / e.ventas;
         })(),
+        economia: econPorModelo.has(modelo) ? { ...econPorModelo.get(modelo)! } : null,
       };
     })
     .filter((f) => f.unidades + f.unidadesPrev > 0 || (f.netoReal ?? 0) !== 0)
