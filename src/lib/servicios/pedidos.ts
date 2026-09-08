@@ -13,7 +13,7 @@
  */
 import { canonizar } from "../importar/sku";
 import type { Proforma } from "../importar/proforma";
-import type { DB } from "../datos/repos";
+import { porTandas, traerTodo, type DB } from "../datos/repos";
 
 export type EstadoPedido = "creado" | "con_contenedor" | "en_transito" | "recibido" | "cancelado";
 
@@ -171,13 +171,36 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
 
   const ids = pedidos.map((p) => p.id);
 
-  const [{ data: lineas }, { data: contenedores }] = await Promise.all([
-    db.from("pedido_lineas").select("id, pedido_id, modelo, cajas, pares").in("pedido_id", ids),
-    db
-      .from("contenedores")
-      .select("id, numero, estado, fecha_llegada_est, contenedor_lineas(cajas, pedido_linea_id)")
-      .eq("account_id", accountId),
+  // Paginado con traerTodo: PostgREST corta en 1,000 filas SIN avisar. Con
+  // ~9 líneas por pedido el corte llega alrededor de los 110 pedidos, y la
+  // lista habría empezado a reportar menos cajas y pares de los reales.
+  const [lineas, contenedores] = await Promise.all([
+    traerTodo<{ id: string; pedido_id: string; modelo: string; cajas: number | null; pares: number | null }>(
+      db,
+      "pedido_lineas",
+      "id, pedido_id, modelo, cajas, pares",
+      (q) => q.in("pedido_id", ids),
+    ),
+    traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
+      db,
+      "contenedores",
+      "id, numero, estado, fecha_llegada_est",
+      (q) => q.eq("account_id", accountId),
+    ),
   ]);
+
+  // contenedor_lineas se lee DIRECTO, no embebido en contenedores: el tope
+  // db-max-rows también corta los recursos embebidos y ahí ni siquiera hay
+  // señal (HTTP 200 sin Content-Range; PostgREST #2776). Por tandas de 200
+  // contenedores para que la URL no crezca, paginado dentro de cada tanda.
+  const contLineas = await porTandas(contenedores.map((c) => c.id), 200, (tanda) =>
+    traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
+      db,
+      "contenedor_lineas",
+      "contenedor_id, pedido_linea_id, cajas",
+      (q) => q.in("contenedor_id", tanda),
+    ),
+  );
 
   const lineasPorPedido = new Map<string, { cajas: number; pares: number; modelos: Set<string> }>();
   const pedidoDeLinea = new Map<string, string>();
@@ -198,21 +221,21 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     Map<string, { numero: string; estado: string; llegadaEst: string | null; cajas: number }>
   >();
 
-  for (const c of contenedores ?? []) {
-    for (const cl of (c.contenedor_lineas ?? []) as { cajas: number; pedido_linea_id: string }[]) {
-      const pedidoId = pedidoDeLinea.get(cl.pedido_linea_id);
-      if (!pedidoId) continue;
-      const mapa = contPorPedido.get(pedidoId) ?? new Map();
-      const prev = mapa.get(c.id) ?? {
-        numero: c.numero,
-        estado: c.estado,
-        llegadaEst: c.fecha_llegada_est,
-        cajas: 0,
-      };
-      prev.cajas += cl.cajas ?? 0;
-      mapa.set(c.id, prev);
-      contPorPedido.set(pedidoId, mapa);
-    }
+  const contPorId = new Map(contenedores.map((c) => [c.id, c]));
+  for (const cl of contLineas) {
+    const c = contPorId.get(cl.contenedor_id);
+    const pedidoId = pedidoDeLinea.get(cl.pedido_linea_id);
+    if (!c || !pedidoId) continue;
+    const mapa = contPorPedido.get(pedidoId) ?? new Map();
+    const prev = mapa.get(c.id) ?? {
+      numero: c.numero,
+      estado: c.estado,
+      llegadaEst: c.fecha_llegada_est,
+      cajas: 0,
+    };
+    prev.cajas += cl.cajas ?? 0;
+    mapa.set(c.id, prev);
+    contPorPedido.set(pedidoId, mapa);
   }
 
   return pedidos.map((p) => {
