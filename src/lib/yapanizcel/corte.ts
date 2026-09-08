@@ -95,7 +95,7 @@ export async function almacenYz(admin: DB, accountId: string): Promise<AlmacenCa
       await admin.from("yz_sync_log").insert({
         account_id: accountId,
         ok: true,
-        detalle: { tarea: "cargos", periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, ...extra },
+        detalle: { tarea: "cargos", periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, ...extra },
       });
     },
     pendientes: async () => {
