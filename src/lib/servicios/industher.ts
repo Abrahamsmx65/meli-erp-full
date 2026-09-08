@@ -16,6 +16,7 @@ import { canonizar, normalizarTalla } from "../importar/sku";
 import type { FilaExistencia } from "../importar/excel";
 import { reemplazarExistencias, type DB } from "../datos/repos";
 import { invalidar } from "./cache";
+import { invalidarApp } from "./cache-app";
 import { invalidarInventario } from "./inventario";
 
 const URL_POR_OMISION = "https://inventarios-industher.vercel.app/api/integracion/inventario";
@@ -588,6 +589,7 @@ export async function sincronizarInventarioIndusther(
 
   invalidarInventario(accountId);
   await invalidar(db, accountId, "Se sincronizó el inventario desde el API de Industher.");
+  await invalidarApp(db, accountId, "Se sincronizó el inventario desde el API de Industher.", { claves: ["tiktok-bodega"] });
 
   return {
     renglones: inv.filas.length,

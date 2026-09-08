@@ -82,6 +82,14 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
       vendidas30: vend.get(s.sku) ?? 0,
       skusBodega: bodegaSkus.get(s.sku) ?? [],
     }))
+    // Un SKU con TODO en cero (sin stock en ningún lado, sin venta, sin nada
+    // en camino) no dice nada en esta pantalla y son miles: solo engordaban
+    // el renglón guardado y el viaje al navegador. Los totales no cambian
+    // (los ceros no suman).
+    .filter(
+      (r) =>
+        r.enFull + r.enTransferencia + r.enCamino + r.enBodega + r.enCaminoChina + r.vendidas30 > 0,
+    )
     .sort((a, b) => b.vendidas30 - a.vendidas30 || a.skuMeli.localeCompare(b.skuMeli));
 
   return {

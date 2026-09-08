@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { cuentaPorToken } from "@/lib/servicios/acceso-contenido";
-import { cargarContenidoAmazon } from "@/lib/servicios/contenido-amazon";
+import { obtenerContenidoAmazon } from "@/lib/servicios/contenido-amazon";
 import { ContenidoAmazonPanel } from "@/components/contenido-amazon";
 import { Ficha } from "@/components/tiles";
 
@@ -37,7 +37,7 @@ export default async function ContenidoPublico({
   const verEliminados = sp.eliminados === "1";
   const admin = clienteAdmin();
   const { modelos, categorias, totales, faltaMigracion, sinRefrescar } =
-    await cargarContenidoAmazon(admin, cuenta.id, cuenta.pais, { verEliminados });
+    await obtenerContenidoAmazon(admin, cuenta.id, cuenta.pais, { verEliminados });
 
   return (
     <div className="flex flex-col gap-6">

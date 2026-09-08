@@ -19,6 +19,7 @@
  * Este módulo no escribe nada.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheApp } from "./cache-app";
 import { claveGrupoFba, desglosarAmazon } from "./fba";
 
 /**
@@ -453,6 +454,24 @@ async function leerCatalogo(
 }
 
 /** Lee de la base y arma la pantalla. */
+/**
+ * El contenido masticado desde `app_cache` (30 min): el catálogo completo de
+ * listings (~10 mil filas) se bajaba en cada render. Cada guardado de modelo
+ * o categoría INVALIDA el caché (contenido-escribir.ts), así que lo recién
+ * palomeado se ve al instante — la pantalla de edición nunca enseña viejo.
+ */
+export async function obtenerContenidoAmazon(
+  db: DB,
+  amazonAccountId: string,
+  pais: string | null,
+  opciones: { verEliminados?: boolean } = {},
+): Promise<ContenidoAmazon> {
+  const clave = `contenido:${pais ?? ""}:${opciones.verEliminados ? 1 : 0}`;
+  return conCacheApp(db, amazonAccountId, clave, 30 * 60_000, () =>
+    cargarContenidoAmazon(db, amazonAccountId, pais, opciones),
+  );
+}
+
 export async function cargarContenidoAmazon(
   db: DB,
   amazonAccountId: string,

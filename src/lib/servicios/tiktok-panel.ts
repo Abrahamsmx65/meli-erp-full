@@ -10,6 +10,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { disponibleParaCompradores } from "../tiktok/kardex";
 import { sugerirParecidos } from "../tiktok/sugerencias";
 import { skusContados } from "./tiktok";
+import { conCacheApp } from "./cache-app";
 import { paresEnBodegaTikTok } from "./tiktok-bodega";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 
@@ -272,7 +273,9 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
     traerTodo<any>(db, "tiktok_skus", "sku_interno, cantidad_tiktok, estado", (q) => eq(q).eq("activo", true)),
     skusContados(db, accountId),
-    paresEnBodegaTikTok(db, accountId),
+    // El armado de cajas de la bodega TikTok, masticado 15 min: la foto de
+    // Industher cambia cada 3 horas y la sincronización la invalida.
+    conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () => paresEnBodegaTikTok(db, accountId)),
     estadoSalidas3pl(db, accountId),
   ]);
 

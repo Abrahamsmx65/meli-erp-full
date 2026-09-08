@@ -7,6 +7,7 @@
  * atrás; las rutas solo se encargan de decidir quién entra y con qué cliente.
  */
 import type { DB } from "../datos/repos";
+import { invalidarApp } from "./cache-app";
 import { enRangoContenido } from "./contenido-amazon";
 
 const TOPE_NOTAS = 2000;
@@ -88,7 +89,10 @@ export async function guardarModelo(db: DB, accountId: string, body: any): Promi
   const { error } = await db
     .from("amazon_contenido")
     .upsert(modelos.map((modelo) => ({ ...fila, modelo })), { onConflict: "account_id,modelo" });
-  return error ? traducir(error, "amazon_contenido") : BIEN;
+  if (error) return traducir(error, "amazon_contenido");
+  // Lo palomeado debe verse al instante: fuera el contenido masticado.
+  await invalidarApp(db, accountId, "Se editó el contenido de Amazon.", { prefijo: "contenido:" });
+  return BIEN;
 }
 
 /** Alta, palomeos, renombrar y borrar de las categorías de la store. */
@@ -106,7 +110,9 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
       .delete()
       .eq("account_id", accountId)
       .eq("nombre", nombre);
-    return error ? traducir(error, "amazon_categorias_store") : BIEN;
+    if (error) return traducir(error, "amazon_categorias_store");
+    await invalidarApp(db, accountId, "Se editó el contenido de Amazon.", { prefijo: "contenido:" });
+    return BIEN;
   }
 
   if (accion === "renombrar") {
@@ -120,7 +126,9 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
       .eq("account_id", accountId)
       .eq("nombre", nombre);
     if (error?.code === "23505") return mal(`Ya existe una categoría "${nuevo}".`);
-    return error ? traducir(error, "amazon_categorias_store") : BIEN;
+    if (error) return traducir(error, "amazon_categorias_store");
+    await invalidarApp(db, accountId, "Se editó el contenido de Amazon.", { prefijo: "contenido:" });
+    return BIEN;
   }
 
   const fila: Record<string, unknown> = {
@@ -138,5 +146,7 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
   const { error } = await db
     .from("amazon_categorias_store")
     .upsert(fila, { onConflict: "account_id,nombre" });
-  return error ? traducir(error, "amazon_categorias_store") : BIEN;
+  if (error) return traducir(error, "amazon_categorias_store");
+  await invalidarApp(db, accountId, "Se editó el contenido de Amazon.", { prefijo: "contenido:" });
+  return BIEN;
 }

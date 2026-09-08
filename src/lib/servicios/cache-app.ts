@@ -72,16 +72,17 @@ export async function conCacheApp<T>(
   return datos;
 }
 
-/** Marca claves (o un prefijo con `like`) como obsoletas. */
+/** Marca claves exactas o todo un prefijo ("contenido:") como obsoleto. */
 export async function invalidarApp(
   db: DB,
   accountId: string,
   motivo: string,
-  claves?: readonly string[],
+  filtro?: { claves?: readonly string[]; prefijo?: string },
 ): Promise<void> {
   try {
     let q = db.from("app_cache").update({ vigente: false, motivo }).eq("account_id", accountId);
-    if (claves?.length) q = q.in("clave", [...claves]);
+    if (filtro?.claves?.length) q = q.in("clave", [...filtro.claves]);
+    else if (filtro?.prefijo) q = q.like("clave", `${filtro.prefijo}%`);
     await q;
   } catch {
     // Tabla aún sin migrar: no hay nada que invalidar.

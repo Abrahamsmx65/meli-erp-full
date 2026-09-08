@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { cargarContenidoAmazon } from "@/lib/servicios/contenido-amazon";
+import { obtenerContenidoAmazon } from "@/lib/servicios/contenido-amazon";
 import { tokenDeCuenta } from "@/lib/servicios/acceso-contenido";
 import { ContenidoAmazonPanel } from "@/components/contenido-amazon";
 import { Ficha } from "@/components/tiles";
@@ -37,7 +37,7 @@ export default async function Contenido({
   }
 
   const [contenido, token] = await Promise.all([
-    cargarContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados }),
+    obtenerContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados }),
     // El token vive en una tabla sin políticas (solo service_role); esta
     // página ya confirmó la sesión, así que puede enseñárselo al dueño.
     tokenDeCuenta(cuenta.id),

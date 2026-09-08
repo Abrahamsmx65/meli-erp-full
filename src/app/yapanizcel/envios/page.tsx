@@ -18,7 +18,12 @@ export default async function EnviosYz() {
   // (es barata y cambia con cada registro).
   const plan = await obtenerPlanYz(supabase, cuenta.id);
   const { envios } = await cargarEnvios(supabase, cuenta.id, plan.parametros.diasCaducidadEnvio);
-  const lineas: LineaPantalla[] = plan.lineas.map((l) => ({ ...l, titulo: plan.titulos.get(l.sku) ?? null }));
+  // Un SKU con todo en cero (sin venta, sin stock, sin bodega, sin faltante)
+  // no se puede mandar ni dice nada: fuera del viaje al navegador. Eran
+  // miles de renglones muertos en el payload.
+  const lineas: LineaPantalla[] = plan.lineas
+    .filter((l) => l.vendidas + l.enFull + l.enTransferencia + l.enCamino + l.enBodega + l.falta > 0)
+    .map((l) => ({ ...l, titulo: plan.titulos.get(l.sku) ?? null }));
   const sinInventario = plan.lineas.filter((l) => l.motivo === "sin_inventario").length;
 
   return (
