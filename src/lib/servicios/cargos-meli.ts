@@ -272,9 +272,6 @@ export type ParticionCargos =
   | { modo: "dia"; param: "date_from" | "from" | "date_created_from" | "creation_date_from" }
   | { modo: "subtipo"; param: string };
 
-/** Una partición ya encontrada: siempre trae el parámetro que la corta. */
-export type ParticionActiva = Exclude<ParticionCargos, { modo: "ninguna" }>;
-
 export interface ProgresoCargos {
   periodo: string;
   clave: string | null;
@@ -464,10 +461,10 @@ export async function sondearParticion(
   periodo: string,
   totalPeriodo: number,
   finMs: number,
-): Promise<ParticionActiva | null> {
+): Promise<Exclude<ParticionCargos, { modo: "ninguna" }> | null> {
   const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
   const dia = diasDelPeriodo(periodo)[0];
-  const candidatos: ParticionActiva[] = [
+  const candidatos: Exclude<ParticionCargos, { modo: "ninguna" }>[] = [
     { modo: "dia", param: "date_from" },
     { modo: "dia", param: "from" },
     { modo: "dia", param: "date_created_from" },
