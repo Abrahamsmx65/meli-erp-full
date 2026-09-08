@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { FilaModelo } from "@/lib/servicios/ventas-monitor";
 
 /**
@@ -42,6 +42,9 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
   const [orden, setOrden] = useState<{ clave: Clave; desc: boolean }>({ clave: "unidades7", desc: true });
+  const [pagina, setPagina] = useState(1);
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const POR_PAGINA = 100;
 
   const categorias = useMemo(
     () => [...new Set(filas.map((f) => f.categoria ?? "Sin categoría"))].sort((a, b) => a.localeCompare(b, "es")),
@@ -49,7 +52,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
   );
 
   const visibles = useMemo(() => {
-    const q = busqueda.trim().toUpperCase();
+    const q = busquedaDiferida.trim().toUpperCase();
     const lista = filas.filter((f) => {
       if (categoria && (f.categoria ?? "Sin categoría") !== categoria) return false;
       // Busca por modelo o por el inicio de un SKU (GT114-NEGRO-25 → GT114).
@@ -68,7 +71,14 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
       return dir * (va - vb) || a.modelo.localeCompare(b.modelo, "es");
     });
     return lista;
-  }, [filas, busqueda, categoria, orden]);
+  }, [filas, busquedaDiferida, categoria, orden]);
+
+  const paginas = Math.max(1, Math.ceil(visibles.length / POR_PAGINA));
+  const paginaSegura = Math.min(pagina, paginas);
+  const filasPagina = useMemo(
+    () => visibles.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA),
+    [visibles, paginaSegura],
+  );
 
   const totales = useMemo(() => {
     const t = { unidades7: 0, unidades7Prev: 0, importe7: 0, neto7: 0, publicidad7: 0, conAds: false, ganancia7: 0, conCosto: false };
@@ -89,8 +99,10 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
     return t;
   }, [visibles]);
 
-  const ordenarPor = (clave: Clave) =>
+  const ordenarPor = (clave: Clave) => {
+    setPagina(1);
     setOrden((o) => (o.clave === clave ? { clave, desc: !o.desc } : { clave, desc: clave !== "modelo" && clave !== "categoria" }));
+  };
 
   const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--estado-critico)" : "var(--ink-muted)");
 
@@ -100,7 +112,10 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
         <input
           type="search"
           value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setPagina(1);
+          }}
           placeholder="Modelo o SKU (GT114, GT114-NEGRO-25…)"
           className="min-w-[16rem] rounded-lg border px-2 py-1 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -108,7 +123,10 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
         />
         <select
           value={categoria}
-          onChange={(e) => setCategoria(e.target.value)}
+          onChange={(e) => {
+            setCategoria(e.target.value);
+            setPagina(1);
+          }}
           className="rounded-lg border px-2 py-1 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Categoría"
@@ -121,6 +139,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
           ))}
         </select>
         <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+          {busqueda !== busquedaDiferida ? "Actualizando… · " : ""}
           {visibles.length} de {filas.length} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
           {orden.desc ? "↓" : "↑"}
         </span>
@@ -146,7 +165,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
             </tr>
           </thead>
           <tbody>
-            {visibles.map((f) => {
+            {filasPagina.map((f) => {
               const delta = f.unidades7 - f.unidades7Prev;
               return (
                 <tr key={f.modelo}>
@@ -203,6 +222,40 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
           ) : null}
         </table>
       </div>
+      {paginas > 1 ? (
+        <nav
+          aria-label="Páginas de modelos"
+          className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
+        >
+          <span style={{ color: "var(--ink-2)" }}>
+            Mostrando {(paginaSegura - 1) * POR_PAGINA + 1}–
+            {Math.min(paginaSegura * POR_PAGINA, visibles.length)} de {visibles.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={paginaSegura === 1}
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              className="rounded-lg border px-3 py-1 disabled:opacity-40"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Anterior
+            </button>
+            <span className="cifra">
+              {paginaSegura} / {paginas}
+            </span>
+            <button
+              type="button"
+              disabled={paginaSegura === paginas}
+              onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
+              className="rounded-lg border px-3 py-1 disabled:opacity-40"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Siguiente
+            </button>
+          </div>
+        </nav>
+      ) : null}
     </div>
   );
 }
