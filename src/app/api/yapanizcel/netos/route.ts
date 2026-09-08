@@ -6,7 +6,7 @@ import { revisarPendientesYz } from "@/lib/yapanizcel/devoluciones";
 import { almacenYz } from "@/lib/yapanizcel/corte";
 import { continuarCargosCon } from "@/lib/servicios/cargos-meli";
 import { clavesObsoletasYz } from "@/lib/yapanizcel/cache";
-import { obtenerCompras } from "@/lib/yapanizcel/compras";
+import { recalcularCompras } from "@/lib/yapanizcel/compras";
 import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
 import { obtenerInventarioAmarrado, obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
 
@@ -36,9 +36,10 @@ export async function GET(req: NextRequest) {
   const t0 = Date.now();
   for (const c of cuentas ?? []) {
     const r: Record<string, unknown> = { cuenta: c.nickname };
-    // Presupuesto total de 240 s de los 300 de Vercel: netos hasta ~2.5
-    // minutos, devoluciones hasta 200 s, facturación hasta 240 s. Todo mira
-    // el reloj; pasarse mata la función sin guardar nada.
+    // Presupuesto total de ~265 s de los 300 de Vercel: netos hasta ~2.5
+    // minutos, devoluciones hasta 200 s, precálculo hasta ~235 s,
+    // facturación hasta 265 s. Todo mira el reloj; pasarse mata la función
+    // sin guardar nada.
     try {
       Object.assign(r, await correrNetos(admin, c.id, Math.min(150_000, 240_000 - (Date.now() - t0))));
     } catch (err) {
@@ -51,25 +52,20 @@ export async function GET(req: NextRequest) {
         r.revisionError = (err as Error).message;
       }
     }
-    if (Date.now() - t0 < 215_000) {
-      try {
-        r.cargos = await continuarCargosCon(admin, c.id, await almacenYz(admin, c.id), t0 + 240_000);
-      } catch (err) {
-        r.cargosError = (err as Error).message;
-      }
-    }
 
-    // Con lo que sobre del presupuesto: dejar PRECALCULADO lo que los syncs
-    // o las escrituras invalidaron (compras, plan, inventario, amarre), para
-    // que las pantallas de fundas lean un renglón masticado y nunca paguen
-    // el cálculo en el clic. obtener* calcula y guarda solo si está viejo.
-    if (Date.now() - t0 < 250_000) {
+    // Dejar PRECALCULADO lo que los syncs o las escrituras invalidaron
+    // (compras, plan, inventario, amarre), para que las pantallas de fundas
+    // lean un renglón masticado y nunca paguen el cálculo en el clic. Va
+    // ANTES de la facturación, que es reanudable y se pasea a 12.5 s por
+    // petición: cuando iba al final casi nunca le tocaba tiempo y la
+    // pantalla de Pedidos a China pagaba los 10 s del cálculo en cada sync.
+    if (Date.now() - t0 < 225_000) {
       try {
         const obsoletas = await clavesObsoletasYz(admin, c.id);
         const precalculadas: string[] = [];
         for (const clave of obsoletas) {
-          if (Date.now() - t0 > 265_000) break;
-          if (clave === "compras") await obtenerCompras(admin, c.id);
+          if (Date.now() - t0 > 235_000) break;
+          if (clave === "compras") await recalcularCompras(admin, c.id);
           else if (clave === "plan") await obtenerPlanYz(admin, c.id);
           else if (clave === "inventario") await obtenerInventarioPantalla(admin, c.id);
           else if (clave === "amarre") await obtenerInventarioAmarrado(admin, c.id);
@@ -78,6 +74,13 @@ export async function GET(req: NextRequest) {
         if (precalculadas.length) r.precalculadas = precalculadas;
       } catch (err) {
         r.precalculoError = (err as Error).message;
+      }
+    }
+    if (Date.now() - t0 < 240_000) {
+      try {
+        r.cargos = await continuarCargosCon(admin, c.id, await almacenYz(admin, c.id), t0 + 265_000);
+      } catch (err) {
+        r.cargosError = (err as Error).message;
       }
     }
     resultados.push(r);

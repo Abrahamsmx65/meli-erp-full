@@ -44,3 +44,68 @@ describe("decidirDescontinuados", () => {
     expect(r2.activo).toBe(false);
   });
 });
+
+describe("decidirDescontinuados por diseño", () => {
+  const vieja = "2025-01-01T00:00:00Z";
+  const nueva = "2026-08-01T00:00:00Z";
+
+  it("un diseño viejo donde NADIE vendió se retira completo, con sus variantes nuevas y sin fecha", () => {
+    const r = decidirDescontinuados(
+      [
+        { sku: "654-I13", publicadoEn: vieja },
+        { sku: "654-I14", publicadoEn: vieja },
+        { sku: "654-I15PRO-BLK", publicadoEn: nueva },
+        { sku: "654-A54", publicadoEn: null },
+      ],
+      new Map(),
+      "2026-03-01",
+      HOY,
+    );
+    expect([...r.disenos]).toEqual(["654"]);
+    expect([...r.skus].sort()).toEqual(["654-A54", "654-I13", "654-I14", "654-I15PRO-BLK"]);
+  });
+
+  it("si alguna variante vendió, solo se van las variantes muertas y el diseño sigue", () => {
+    const r = decidirDescontinuados(
+      [
+        { sku: "499-I13", publicadoEn: vieja },
+        { sku: "499-I14", publicadoEn: vieja },
+        { sku: "499-I15PRO", publicadoEn: nueva },
+      ],
+      new Map([["499-I14", "2026-08-30"]]),
+      "2026-03-01",
+      HOY,
+    );
+    expect(r.disenos.size).toBe(0);
+    expect([...r.skus]).toEqual(["499-I13"]);
+  });
+
+  it("un diseño con puras variantes nuevas o sin fecha es un lanzamiento: no se retira", () => {
+    const r = decidirDescontinuados(
+      [
+        { sku: "701-I15", publicadoEn: nueva },
+        { sku: "701-I16", publicadoEn: null },
+      ],
+      new Map(),
+      "2026-03-01",
+      HOY,
+    );
+    expect(r.disenos.size).toBe(0);
+    expect(r.skus.size).toBe(0);
+  });
+
+  it("el calzado de la cuenta no entra en la regla por diseño", () => {
+    const r = decidirDescontinuados(
+      [
+        { sku: "GT114-BLK-25", publicadoEn: vieja },
+        { sku: "GT114-BLK-26", publicadoEn: nueva },
+      ],
+      new Map(),
+      "2026-03-01",
+      HOY,
+    );
+    expect(r.disenos.size).toBe(0);
+    // La variante vieja sí, por la regla de variante.
+    expect([...r.skus]).toEqual(["GT114-BLK-25"]);
+  });
+});

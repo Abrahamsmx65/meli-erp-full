@@ -1,25 +1,35 @@
 /**
  * Descontinuados: SKUs que ya no se venden.
  *
- * Regla del dueño: un SKU sin UNA sola venta en los últimos 180 días (medio
- * año) se da por descontinuado: no se ofrece para mandar a Full ni se pide
- * a China, y no aparece en esas pantallas. Solo el SKU: su diseño (la
- * familia) sigue saliendo con los demás.
+ * Regla del dueño, en dos niveles:
+ *   · VARIANTE: un SKU sin UNA sola venta en los últimos 180 días (medio
+ *     año) se da por descontinuado: no se ofrece para mandar a Full ni se
+ *     pide a China, y no aparece en esas pantallas. Si su diseño (la
+ *     familia) sigue vendiendo con otras variantes, el diseño sigue saliendo.
+ *   · DISEÑO: si NINGUNA variante del diseño vendió en 180 días, se retira
+ *     el diseño COMPLETO, con todo y las variantes que por sí solas no se
+ *     juzgarían (publicadas hace poco o sin fecha): una funda nueva de un
+ *     diseño muerto no lo revive.
  *
- * Dos guardas para no matar lo que apenas nace o lo que no se puede juzgar:
+ * Guardas para no matar lo que apenas nace o lo que no se puede juzgar:
  *   · una publicación con menos de 180 días de publicada no se descontinúa
- *     (todavía no tuvo tiempo de vender), y sin fecha tampoco: la
+ *     sola (todavía no tuvo tiempo de vender), y sin fecha tampoco: la
  *     sincronización la pone para todas las variantes de cada publicación;
+ *   · un diseño cuyas variantes son TODAS nuevas o sin fecha es un
+ *     lanzamiento, no un muerto: no se retira;
  *   · si el historial de ventas guardado no cubre 180 días todavía, no se
  *     descontinúa nadie: sin historial no hay veredicto.
  */
 import type { DB } from "../datos/repos";
 import { hoyMx, restarDias, todo } from "./db";
+import { desglosar, esCalzado } from "./sku";
 
 export const DIAS_SIN_VENTA = 180;
 
 export interface Descontinuados {
   skus: Set<string>;
+  /** Diseños retirados completos (ninguna variante vendió en 180 días). */
+  disenos: Set<string>;
   /** false mientras el historial guardado no llegue a 180 días. */
   activo: boolean;
   /** desde cuándo hay ventas guardadas */
@@ -41,17 +51,40 @@ export function decidirDescontinuados(
   const corte = restarDias(hoy, dias - 1);
   const activo = Boolean(historialDesde && historialDesde <= corte);
   const out = new Set<string>();
-  if (activo) {
-    for (const s of skus) {
-      // Sin fecha de publicación no se puede distinguir "nueva" de "muerta":
-      // no se juzga. La fecha la pone la sincronización (yz_fijar_publicado).
-      const publicada = s.publicadoEn ? s.publicadoEn.slice(0, 10) : null;
-      if (!publicada || publicada >= corte) continue;
-      const ultima = ultimaVenta.get(s.sku);
-      if (!ultima || ultima < corte) out.add(s.sku);
-    }
+  const disenos = new Set<string>();
+  if (!activo) return { skus: out, disenos, activo, historialDesde };
+
+  const vendio = (sku: string) => {
+    const ultima = ultimaVenta.get(sku);
+    return Boolean(ultima && ultima >= corte);
+  };
+
+  // Por diseño: ¿alguna variante vendió? ¿alguna es vieja (juzgable)?
+  const familias = new Map<string, { skus: string[]; vendio: boolean; vieja: boolean }>();
+  for (const s of skus) {
+    // Sin fecha de publicación no se puede distinguir "nueva" de "muerta":
+    // no se juzga sola. La fecha la pone la sincronización (yz_fijar_publicado).
+    const publicada = s.publicadoEn ? s.publicadoEn.slice(0, 10) : null;
+    const vieja = Boolean(publicada && publicada < corte);
+    if (vieja && !vendio(s.sku)) out.add(s.sku);
+
+    const diseno = desglosar(s.sku).diseno;
+    if (!diseno || esCalzado(diseno)) continue;
+    const f = familias.get(diseno) ?? { skus: [], vendio: false, vieja: false };
+    f.skus.push(s.sku);
+    if (vendio(s.sku)) f.vendio = true;
+    if (vieja) f.vieja = true;
+    familias.set(diseno, f);
   }
-  return { skus: out, activo, historialDesde };
+
+  // Un diseño viejo donde NADIE vendió se va completo, con sus variantes
+  // nuevas o sin fecha incluidas.
+  for (const [diseno, f] of familias) {
+    if (f.vendio || !f.vieja) continue;
+    disenos.add(diseno);
+    for (const sku of f.skus) out.add(sku);
+  }
+  return { skus: out, disenos, activo, historialDesde };
 }
 
 /**

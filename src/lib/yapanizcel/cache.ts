@@ -47,20 +47,38 @@ export async function guardarCacheYz(
   datos: unknown,
   msCalculo: number,
 ): Promise<void> {
-  const { error } = await db.from("yz_cache").upsert(
-    {
-      account_id: accountId,
-      clave,
-      generado_en: new Date().toISOString(),
-      vigente: true,
-      motivo: null,
-      ms_calculo: msCalculo,
-      datos: marcarTipos(datos),
-    },
-    { onConflict: "account_id,clave" },
-  );
-  // Sin guardar, el dato sirve igual: solo se pierde el ahorro.
-  if (error) console.error(`yz_cache (${clave}):`, error.message);
+  await guardarCacheYzLote(db, accountId, [{ clave, datos }], msCalculo);
+}
+
+/**
+ * Varios renglones de un mismo cálculo, de un jalón (en tandas de 100):
+ * así se guardan las vistas DERIVADAS de un resultado grande (el resumen
+ * y cada diseño de compras), que la pantalla lee chiquitas en vez de
+ * bajar el cálculo completo en cada clic.
+ */
+export async function guardarCacheYzLote(
+  db: DB,
+  accountId: string,
+  filas: { clave: string; datos: unknown }[],
+  msCalculo: number,
+): Promise<void> {
+  const generadoEn = new Date().toISOString();
+  for (let i = 0; i < filas.length; i += 100) {
+    const { error } = await db.from("yz_cache").upsert(
+      filas.slice(i, i + 100).map((f) => ({
+        account_id: accountId,
+        clave: f.clave,
+        generado_en: generadoEn,
+        vigente: true,
+        motivo: null,
+        ms_calculo: msCalculo,
+        datos: marcarTipos(f.datos),
+      })),
+      { onConflict: "account_id,clave" },
+    );
+    // Sin guardar, el dato sirve igual: solo se pierde el ahorro.
+    if (error) console.error(`yz_cache (${filas[i]?.clave}…):`, error.message);
+  }
 }
 
 /**
@@ -98,9 +116,17 @@ export async function invalidarYz(
   claves?: readonly string[],
 ): Promise<void> {
   try {
-    let q = db.from("yz_cache").update({ vigente: false, motivo }).eq("account_id", accountId);
-    if (claves?.length) q = q.in("clave", [...claves]);
-    await q;
+    if (!claves?.length) {
+      await db.from("yz_cache").update({ vigente: false, motivo }).eq("account_id", accountId);
+      return;
+    }
+    // Las vistas derivadas ("compras:resumen", "compras:d:499") caen con su
+    // cálculo padre: la clave exacta O lo que empieza con "clave:".
+    const filtro = [
+      `clave.in.(${claves.map((c) => `"${c}"`).join(",")})`,
+      ...claves.map((c) => `clave.like.${c}:*`),
+    ].join(",");
+    await db.from("yz_cache").update({ vigente: false, motivo }).eq("account_id", accountId).or(filtro);
   } catch {
     // Tabla aún sin migrar: no hay nada que invalidar.
   }

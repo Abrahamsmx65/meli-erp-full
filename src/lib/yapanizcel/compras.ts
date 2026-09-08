@@ -9,7 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
-import { conCacheYz } from "./cache";
+import { guardarCacheYzLote, leerCacheYz } from "./cache";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
@@ -55,7 +55,14 @@ export interface DisenoCompra {
 
 export interface ResumenDisenos {
   disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
-  descontinuados: Descontinuados;
+  descontinuados: {
+    /** SKUs sin venta en 180 días (de diseños que siguen y de los retirados). */
+    skus: number;
+    /** Diseños retirados completos: ninguna variante vendió en 180 días. */
+    disenos: number;
+    activo: boolean;
+    historialDesde: string | null;
+  };
 }
 
 async function cargarBase(db: DB, accountId: string) {
@@ -145,7 +152,7 @@ export interface VarianteCalculada extends VarianteCompra {
 export interface ComprasCalculadas {
   generadoEn: string;
   diasVenta: number;
-  descontinuados: { activo: boolean; historialDesde: string | null };
+  descontinuados: { activo: boolean; historialDesde: string | null; disenos?: string[] };
   variantes: VarianteCalculada[];
 }
 
@@ -155,7 +162,11 @@ export async function calcularCompras(db: DB, accountId: string): Promise<Compra
   return {
     generadoEn: new Date().toISOString(),
     diasVenta: b.p.diasVenta,
-    descontinuados: { activo: b.descontinuados.activo, historialDesde: b.descontinuados.historialDesde },
+    descontinuados: {
+      activo: b.descontinuados.activo,
+      historialDesde: b.descontinuados.historialDesde,
+      disenos: [...b.descontinuados.disenos].sort(),
+    },
     variantes: b.skus.map((s) => ({
       ...calcularVariante(s, b),
       descontinuada: b.descontinuados.skus.has(s.sku),
@@ -163,18 +174,80 @@ export async function calcularCompras(db: DB, accountId: string): Promise<Compra
   };
 }
 
-/** La versión masticada desde `yz_cache`; sin renglón vigente, calcula y guarda. */
+// ---------------------------------------------------------------------------
+// Lo que lee la pantalla: vistas DERIVADAS, chiquitas, guardadas aparte
+// ---------------------------------------------------------------------------
+//
+// El cálculo completo pesa ~6.5 MB (14 mil variantes con título): bajarlo
+// de la base en cada clic era lo que tenía trabada la pantalla. Cuando se
+// calcula, se guardan también el resumen por diseño ("compras:resumen") y
+// el detalle de cada diseño ("compras:d:499"), y la pantalla lee SOLO el
+// renglón que va a pintar. Caen todos juntos con "compras" (invalidarYz
+// tumba la clave y sus derivadas) y el cron los vuelve a dejar listos.
+
+const CLAVE_RESUMEN = "compras:resumen";
+const claveDiseno = (diseno: string) => `compras:d:${diseno}`;
+/** Tope duro de vejez aunque nadie haya invalidado (red de seguridad). */
+const EDAD_MAX_MS = 6 * 3_600_000;
+
+/** Las vistas derivadas de un cálculo, para guardarlas de un jalón. */
+export function derivadasDeCompras(c: ComprasCalculadas): { clave: string; datos: unknown }[] {
+  const resumen = resumenDesdeCompras(c);
+  const filas: { clave: string; datos: unknown }[] = [{ clave: CLAVE_RESUMEN, datos: resumen }];
+  for (const d of resumen.disenos) {
+    const detalle = detalleDesdeCompras(c, d.diseno);
+    if (detalle) filas.push({ clave: claveDiseno(d.diseno), datos: detalle });
+  }
+  return filas;
+}
+
+/**
+ * El cálculo completo desde `yz_cache` (para el Excel de todos los diseños
+ * y como respaldo); sin renglón vigente, calcula y guarda TODO: el completo
+ * y sus derivadas.
+ */
 export async function obtenerCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
-  return conCacheYz(db, accountId, "compras", () => calcularCompras(db, accountId));
+  const guardado = await leerCacheYz<ComprasCalculadas>(db, accountId, "compras", EDAD_MAX_MS);
+  if (guardado) return guardado;
+  return recalcularCompras(db, accountId);
+}
+
+/** Calcula y guarda el completo y sus derivadas (lo llama el cron y el respaldo). */
+export async function recalcularCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  const t0 = Date.now();
+  const c = await calcularCompras(db, accountId);
+  const ms = Date.now() - t0;
+  await guardarCacheYzLote(db, accountId, [{ clave: "compras", datos: c }, ...derivadasDeCompras(c)], ms);
+  return c;
+}
+
+/** El resumen por diseño: un renglón chico; si no está, se recalcula todo una vez. */
+export async function obtenerResumenCompras(db: DB, accountId: string): Promise<ResumenDisenos> {
+  const guardado = await leerCacheYz<ResumenDisenos>(db, accountId, CLAVE_RESUMEN, EDAD_MAX_MS);
+  if (guardado) return guardado;
+  return resumenDesdeCompras(await recalcularCompras(db, accountId));
+}
+
+/** El detalle de UN diseño: su renglón; si no está, se recalcula todo una vez. */
+export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: string): Promise<DisenoCompra | null> {
+  const clave = diseno.trim().toUpperCase();
+  if (!clave) return null;
+  const guardado = await leerCacheYz<DisenoCompra>(db, accountId, claveDiseno(clave), EDAD_MAX_MS);
+  if (guardado) return guardado;
+  // Sin renglón: o el cálculo está viejo o el diseño no existe (o está
+  // retirado). El resumen vigente lo dice sin bajar el completo.
+  const resumen = await leerCacheYz<ResumenDisenos>(db, accountId, CLAVE_RESUMEN, EDAD_MAX_MS);
+  if (resumen && !resumen.disenos.some((d) => d.diseno === clave)) return null;
+  return detalleDesdeCompras(await recalcularCompras(db, accountId), clave);
 }
 
 /** El resumen por diseño, derivado del cálculo guardado (puro). */
 export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
   const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
-  const descontinuadas = new Set<string>();
+  let descontinuadas = 0;
 
   for (const v of c.variantes) {
-    if (v.descontinuada) descontinuadas.add(v.skuMeli);
+    if (v.descontinuada) descontinuadas++;
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
@@ -192,9 +265,11 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
     porDiseno.set(d, acc);
   }
 
+  // Un diseño retirado (ninguna variante vendió en 180 días: la regla lo
+  // marca completo, con sus variantes nuevas) o con TODOS sus SKUs
+  // descontinuados no se muestra: no hay nada que pedir de él.
+  const retirados = [...porDiseno].filter(([, a]) => a.variantes === 0).length;
   const disenos = [...porDiseno]
-    // Una familia con TODOS sus SKUs descontinuados (las micas 5D que ya no
-    // se venden) tampoco se muestra: no hay nada que pedir de ella.
     .filter(([, a]) => a.variantes > 0)
     .map(([diseno, a]) => ({
       diseno,
@@ -205,7 +280,12 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
   return {
     disenos,
-    descontinuados: { skus: descontinuadas, activo: c.descontinuados.activo, historialDesde: c.descontinuados.historialDesde },
+    descontinuados: {
+      skus: descontinuadas,
+      disenos: retirados,
+      activo: c.descontinuados.activo,
+      historialDesde: c.descontinuados.historialDesde,
+    },
   };
 }
 
@@ -250,7 +330,10 @@ function calcularVariante(
   };
 }
 
-/** El detalle de un diseño, derivado del cálculo guardado (puro). */
+/**
+ * El detalle de un diseño, derivado del cálculo guardado (puro). Un diseño
+ * retirado (sin una variante viva) no existe para la pantalla: null.
+ */
 export function detalleDesdeCompras(c: ComprasCalculadas, diseno: string): DisenoCompra | null {
   const clave = diseno.trim().toUpperCase();
   const delDiseno = c.variantes.filter((v) => v.diseno === clave);
@@ -264,7 +347,7 @@ export function detalleDesdeCompras(c: ComprasCalculadas, diseno: string): Disen
         x.color.localeCompare(y.color, "es") ||
         x.skuMeli.localeCompare(y.skuMeli),
     );
-  if (!variantes.length && !descontinuadas.length) return null;
+  if (!variantes.length) return null;
 
   return {
     diseno: clave,

@@ -384,12 +384,23 @@ login, la base y el deploy.
   venta cuando el real es ~51%).
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
-- **Descontinuados** (`yapanizcel/descontinuados.ts`): un SKU sin UNA venta en
-  180 días no se ofrece a Full ni se pide a China; su diseño sí sale, salvo
-  que TODOS sus SKUs estén descontinuados (entonces la familia desaparece). Guardas:
-  publicado hace menos de 180 días o sin fecha (`yz_skus.publicado_en`, que la
-  sincronización fija con `yz_fijar_publicado`) no se juzga, y sin
-  180 días de historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
+- **Descontinuados** (`yapanizcel/descontinuados.ts`), dos niveles decididos
+  por el dueño: un SKU sin UNA venta en 180 días no se ofrece a Full ni se
+  pide a China y su diseño sigue saliendo con las variantes vivas; pero si
+  NINGUNA variante del diseño vendió en 180 días, el diseño se retira
+  COMPLETO, con todo y sus variantes nuevas o sin fecha (`disenos` en el
+  resultado). Guardas: un SKU publicado hace menos de 180 días o sin fecha
+  (`yz_skus.publicado_en`, que la sincronización fija con
+  `yz_fijar_publicado`) no se juzga solo; un diseño con puras variantes
+  nuevas/sin fecha es lanzamiento y no se retira; y sin 180 días de
+  historial (`yz_sync_estado.ventas_desde`) no se descontinúa nadie.
+  **Pedidos a China de fundas lee vistas derivadas**: el cálculo completo
+  (`yz_cache` clave `compras`, ~6.5 MB) solo lo baja el Excel de todos los
+  diseños; la pantalla lee `compras:resumen` y `compras:d:<diseño>`
+  (`obtenerResumenCompras`/`obtenerDetalleCompras`), que se guardan junto
+  con el completo (`recalcularCompras`) y caen con él (`invalidarYz` tumba
+  la clave y su prefijo). El cron de netos las precalcula ANTES de la
+  facturación para que siempre le alcance el tiempo.
 - **La sincronización va por tramos de 7 días con presupuesto de tiempo**
   (`yapanizcel/tramos.ts` + `yz_sync_estado`): el catálogo es grande (~18 mil
   variantes) y una sola llamada no cabe en los 300 s de Vercel. Cada corrida

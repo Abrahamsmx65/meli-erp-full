@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { DIAS_OBJETIVO_PEDIDO, detalleDesdeCompras, obtenerCompras, resumenDesdeCompras } from "@/lib/yapanizcel/compras";
+import { DIAS_OBJETIVO_PEDIDO, obtenerDetalleCompras, obtenerResumenCompras } from "@/lib/yapanizcel/compras";
 import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
@@ -18,11 +18,14 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
-  // El cálculo completo vive masticado en yz_cache: la pantalla lee un
-  // renglón y el resumen y el detalle se derivan con puros filtros.
-  const [compras, pedidos] = await Promise.all([obtenerCompras(supabase, cuenta.id), listarPedidos(supabase, cuenta.id)]);
-  const resumen = resumenDesdeCompras(compras);
-  const detalle = sp.diseno ? detalleDesdeCompras(compras, sp.diseno) : null;
+  // El cálculo completo vive masticado en yz_cache y sus vistas derivadas
+  // también: la pantalla lee SOLO el resumen por diseño y, si se abrió uno,
+  // el renglón de ese diseño (nunca las 14 mil variantes).
+  const [resumen, detalle, pedidos] = await Promise.all([
+    obtenerResumenCompras(supabase, cuenta.id),
+    sp.diseno ? obtenerDetalleCompras(supabase, cuenta.id, sp.diseno) : Promise.resolve(null),
+    listarPedidos(supabase, cuenta.id),
+  ]);
   const totalPedir = resumen.disenos.reduce((a, d) => a + d.sugerido, 0);
 
   return (
@@ -124,7 +127,10 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
             </p>
           ) : (
             <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-              {resumen.descontinuados.skus.size} SKUs descontinuados (sin una venta en 180 días) no se muestran ni se piden; su diseño sí.
+              {resumen.descontinuados.skus} SKUs descontinuados (sin una venta en 180 días) no se muestran ni se piden.
+              {resumen.descontinuados.disenos
+                ? ` ${resumen.descontinuados.disenos} diseños retirados completos (ninguna variante vendió en 180 días); los demás siguen con sus variantes vivas.`
+                : " Un diseño que sigue vendiendo con otras variantes sí sale."}
             </p>
           )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
