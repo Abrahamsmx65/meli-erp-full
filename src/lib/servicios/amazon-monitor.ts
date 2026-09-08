@@ -147,6 +147,9 @@ export async function cargarMonitorAmazon(
   meliAccountId: string | null,
   rango?: RangoFechas,
 ): Promise<MonitorAmazon> {
+  const esFuenteOpcionalAusente = (err: unknown): boolean =>
+    err instanceof Error &&
+    /does not exist|42P01|42883|PGRST202|schema cache/i.test(err.message);
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
   const r = rango ?? normalizarRango();
@@ -189,7 +192,10 @@ export async function cargarMonitorAmazon(
       "amazon_pagos",
       "seller_sku, fecha, neto, unidades",
       (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
-    ).catch(() => [] as any[]),
+    ).catch((err) => {
+      if (esFuenteOpcionalAusente(err)) return [] as any[];
+      throw err;
+    }),
     Promise.resolve(
       db
         .from("amazon_pagos")
@@ -200,7 +206,10 @@ export async function cargarMonitorAmazon(
         .maybeSingle(),
     )
       .then((x: any) => (x?.data?.fecha as string | undefined) ?? null)
-      .catch(() => null),
+      .catch((err) => {
+        if (esFuenteOpcionalAusente(err)) return null;
+        throw err;
+      }),
     // La economía por producto del Data Kiosk, YA SUMADA por SKU en la base
     // (`amazon_economia_por_sku`): por día son ~154 mil renglones en 30 días
     // y la lectura paginada no alcanzaba a terminar, así que la economía se
@@ -211,7 +220,10 @@ export async function cargarMonitorAmazon(
       p_hasta: r.hasta,
     })
       .then((x) => x.filas)
-      .catch(() => [] as any[]),
+      .catch((err) => {
+        if (esFuenteOpcionalAusente(err)) return [] as any[];
+        throw err;
+      }),
   ]);
 
   const resumen = (desde: string, hasta: string): ResumenDia => {

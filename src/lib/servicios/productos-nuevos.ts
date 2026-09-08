@@ -286,32 +286,43 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   }
 
   // --- Publicaciones de Amazon, por producto ------------------------------
-  let amazonConectado = false;
-  try {
-    const cuentaAmz = await cuentaAmazon(db);
-    if (cuentaAmz) {
-      amazonConectado = true;
-      const listings = await traerTodo<{ seller_sku: string; asin: string | null }>(
+  const cuentaAmz = await cuentaAmazon(db);
+  const amazonConectado = Boolean(cuentaAmz);
+  if (cuentaAmz) {
+    const opcionalSiNoExiste = <T,>(promesa: Promise<T[]>): Promise<T[]> =>
+      promesa.catch((err) => {
+        if (
+          err instanceof Error &&
+          /does not exist|42P01|schema cache/i.test(err.message)
+        ) {
+          return [];
+        }
+        throw err;
+      });
+    const [listings, vendidos] = await Promise.all([
+      opcionalSiNoExiste(
+        traerTodo<{ seller_sku: string; asin: string | null }>(
         db,
         "amazon_listings",
         "seller_sku, asin",
         (q) => q.eq("account_id", cuentaAmz.id),
-      ).catch(() => [] as { seller_sku: string; asin: string | null }[]);
-      const vendidos = await traerTodo<{ seller_sku: string; asin: string | null }>(
+        ),
+      ),
+      opcionalSiNoExiste(
+        traerTodo<{ seller_sku: string; asin: string | null }>(
         db,
         "amazon_skus",
         "seller_sku, asin",
         (q) => q.eq("account_id", cuentaAmz.id),
-      ).catch(() => [] as { seller_sku: string; asin: string | null }[]);
-      for (const f of [...listings, ...vendidos]) {
-        for (const prod of productosDeSku(f.seller_sku)) {
-          if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
-          if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
-        }
+        ),
+      ),
+    ]);
+    for (const f of [...listings, ...vendidos]) {
+      for (const prod of productosDeSku(f.seller_sku)) {
+        if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
+        if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
       }
     }
-  } catch {
-    amazonConectado = false;
   }
 
   // --- ¿Alguna vez tuvo stock? --------------------------------------------
