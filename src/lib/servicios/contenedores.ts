@@ -9,7 +9,7 @@
  * inventario de bodega llega del API de Industher. Aquí solo se deja de
  * contar como "en camino".
  */
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
 import { recalcularEstadoPedido } from "./pedidos";
 
 export interface ContenedorVista {
@@ -28,13 +28,17 @@ export interface ContenedorVista {
 }
 
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
-  const { data: conts } = await db
-    .from("contenedores")
-    .select(
-      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, contenedor_lineas(cajas, pedido_linea_id)",
-    )
-    .eq("account_id", accountId)
-    .order("fecha_llegada_est", { ascending: true, nullsFirst: false });
+  // traerTodo pagina de a 1,000 (PostgREST corta ahí SIN avisar) y ordena
+  // por la llave; el orden por llegada se rehace aquí (nulos al final).
+  const conts = await traerTodo<any>(
+    db,
+    "contenedores",
+    "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, contenedor_lineas(cajas, pedido_linea_id)",
+    (q) => q.eq("account_id", accountId),
+  );
+  conts.sort((a, b) =>
+    String(a.fecha_llegada_est ?? "9999").localeCompare(String(b.fecha_llegada_est ?? "9999")),
+  );
 
   if (!conts?.length) return [];
 
@@ -49,14 +53,27 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     ),
   ];
 
-  const { data: lineas } = lineaIds.length
-    ? await db.from("pedido_lineas").select("id, pedido_id").in("id", lineaIds)
-    : { data: [] as { id: string; pedido_id: string }[] };
+  // Por tandas de 500 ids: cada tanda regresa a lo más 500 filas (id es
+  // único), así que ni el tope de 1,000 de PostgREST ni el largo de la URL
+  // alcanzan a morder.
+  const porTandas = async <T>(ids: string[], leer: (tanda: string[]) => Promise<T[]>) => {
+    const tandas: string[][] = [];
+    for (let i = 0; i < ids.length; i += 500) tandas.push(ids.slice(i, i + 500));
+    return (await Promise.all(tandas.map(leer))).flat();
+  };
+
+  const lineas = await porTandas(lineaIds, async (tanda) => {
+    const { data, error } = await db.from("pedido_lineas").select("id, pedido_id").in("id", tanda);
+    if (error) throw new Error(`pedido_lineas: ${error.message}`);
+    return (data ?? []) as { id: string; pedido_id: string }[];
+  });
 
   const pedidoIds = [...new Set((lineas ?? []).map((l) => l.pedido_id))];
-  const { data: pedidos } = pedidoIds.length
-    ? await db.from("pedidos").select("id, pedido").in("id", pedidoIds)
-    : { data: [] as { id: string; pedido: string }[] };
+  const pedidos = await porTandas(pedidoIds, async (tanda) => {
+    const { data, error } = await db.from("pedidos").select("id, pedido").in("id", tanda);
+    if (error) throw new Error(`pedidos: ${error.message}`);
+    return (data ?? []) as { id: string; pedido: string }[];
+  });
 
   const nombrePedido = new Map((pedidos ?? []).map((p) => [p.id, p.pedido]));
   const pedidoDeLinea = new Map((lineas ?? []).map((l) => [l.id, l.pedido_id]));

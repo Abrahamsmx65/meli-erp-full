@@ -220,15 +220,16 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   );
   if (!pedidos.length) return { productos: [], amazonConectado: false };
 
-  const { data: lineasRaw } = await db
-    .from("pedido_lineas")
-    .select("pedido_id, modelo, color, cajas, pares")
-    .in(
-      "pedido_id",
-      pedidos.map((p) => p.id),
-    );
+  // traerTodo pagina: con todos los pedidos vivos en el filtro, las líneas
+  // pasan de 1,000 y PostgREST cortaría ahí sin avisar.
+  const lineasRaw = await traerTodo<LineaCruda>(
+    db,
+    "pedido_lineas",
+    "pedido_id, modelo, color, cajas, pares",
+    (q) => q.in("pedido_id", pedidos.map((p) => p.id)),
+  );
 
-  const productos = agruparProductosDePedidos(pedidos, (lineasRaw ?? []) as LineaCruda[]);
+  const productos = agruparProductosDePedidos(pedidos, lineasRaw);
   if (!productos.size) return { productos: [], amazonConectado: false };
 
   // Dos niveles de amarre SKU → producto: exacto y, si no hay, laxo (color

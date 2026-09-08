@@ -13,7 +13,7 @@
  */
 import { canonizar } from "../importar/sku";
 import type { Proforma } from "../importar/proforma";
-import type { DB } from "../datos/repos";
+import { traerTodo, type DB } from "../datos/repos";
 
 export type EstadoPedido = "creado" | "con_contenedor" | "en_transito" | "recibido" | "cancelado";
 
@@ -171,12 +171,28 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
 
   const ids = pedidos.map((p) => p.id);
 
-  const [{ data: lineas }, { data: contenedores }] = await Promise.all([
-    db.from("pedido_lineas").select("id, pedido_id, modelo, cajas, pares").in("pedido_id", ids),
-    db
-      .from("contenedores")
-      .select("id, numero, estado, fecha_llegada_est, contenedor_lineas(cajas, pedido_linea_id)")
-      .eq("account_id", accountId),
+  // Paginado con traerTodo: PostgREST corta en 1,000 filas SIN avisar. Con
+  // ~9 líneas por pedido el corte llega alrededor de los 110 pedidos, y la
+  // lista habría empezado a reportar menos cajas y pares de los reales.
+  const [lineas, contenedores] = await Promise.all([
+    traerTodo<{ id: string; pedido_id: string; modelo: string; cajas: number | null; pares: number | null }>(
+      db,
+      "pedido_lineas",
+      "id, pedido_id, modelo, cajas, pares",
+      (q) => q.in("pedido_id", ids),
+    ),
+    traerTodo<{
+      id: string;
+      numero: string;
+      estado: string;
+      fecha_llegada_est: string | null;
+      contenedor_lineas: { cajas: number; pedido_linea_id: string }[] | null;
+    }>(
+      db,
+      "contenedores",
+      "id, numero, estado, fecha_llegada_est, contenedor_lineas(cajas, pedido_linea_id)",
+      (q) => q.eq("account_id", accountId),
+    ),
   ]);
 
   const lineasPorPedido = new Map<string, { cajas: number; pares: number; modelos: Set<string> }>();
