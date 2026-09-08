@@ -45,14 +45,13 @@ export async function POST(req: NextRequest) {
     let planId: string | null = null;
     if (body?.guardar) planId = await guardarPlan(supabase, cuenta.id, completo);
 
+    // Respuesta CHICA: el cliente solo lee ok/planId/resumen. Antes se
+    // devolvían también catálogo, cajas y líneas completos — megabytes de
+    // JSON que el botón «Archivar» descartaba en cada clic.
     return NextResponse.json({
       ok: true,
       planId,
       resumen: completo.plan.resumen,
-      catalogo: completo.catalogo,
-      cajas: completo.cajasPlaneadas,
-      lineas: completo.plan.lineas,
-      pendientes: completo.pendientes,
       avisos: completo.avisos,
     });
   } catch (err) {

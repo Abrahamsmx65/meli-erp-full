@@ -42,6 +42,11 @@ export async function GET(request: NextRequest) {
 
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const terminos = terminosDeBusqueda(q);
+  // Los MISMOS filtros que la pantalla (contrato de reporte/filtro.ts):
+  // además de la búsqueda, los chips de estado y «solo lo que sí se manda».
+  const estadosParam = (request.nextUrl.searchParams.get("estados") ?? "").trim();
+  const estadosFiltro = new Set(estadosParam ? estadosParam.split(",").filter(Boolean) : []);
+  const soloEnvio = request.nextUrl.searchParams.get("soloEnvio") === "1";
 
   const { plan } = await obtenerPlan(supabase, cuenta.id);
   const { pendientes, catalogo } = plan;
@@ -291,6 +296,8 @@ export async function GET(request: NextRequest) {
   const lineasFiltradas = plan.lineas.filter(
     (l) =>
       (!skusDelEnvio || skusDelEnvio.has(l.sku)) &&
+      (!estadosFiltro.size || estadosFiltro.has(l.estado)) &&
+      (!soloEnvio || l.enviado > 0) &&
       coincide(`${l.sku} ${l.modelo} ${l.color}`, terminos),
   );
 

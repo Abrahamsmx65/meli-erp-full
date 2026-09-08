@@ -5,6 +5,7 @@ import type { EstadoSku } from "@/lib/engine/types";
 import { Estado, colorEstado, etiquetaEstado } from "./estado";
 import { BarraCobertura } from "./tiles";
 import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { BotonDescarga } from "@/components/ui/boton-descarga";
 
 export interface FilaSkuPlan {
   sku: string;
@@ -26,6 +27,7 @@ export interface FilaSkuPlan {
 export interface FilaCajaPlan {
   codigo: string;
   skuCaja: string;
+  pedido: string;
   modelo: string;
   color: string;
   almacen: string;
@@ -33,12 +35,13 @@ export interface FilaCajaPlan {
   talla: string;
   cantidad: number;
   cajasDisponibles: number;
+  paresPorCaja: number;
   paresTotales: number;
   /** cuántas de estas cajas son OPCIONALES (rescate de tallas faltantes) */
   cantidadOpcional: number;
   /** sobrante por talla si se suben las opcionales, ya como texto */
   deMas: string;
-  aporta: { sku: string; talla: string; paresTotales: number }[];
+  aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
 }
 
 function n(x: number): string {
@@ -102,7 +105,17 @@ export function TablasPlan({
 
   const hayFiltro = terminos.length > 0 || estados.size > 0 || soloConEnvio;
 
-  const urlExcel = `/api/plan/excel${busqueda.trim() ? `?q=${encodeURIComponent(busqueda.trim())}` : ""}`;
+  // El Excel lleva LOS MISMOS filtros que la pantalla (contrato de
+  // reporte/filtro.ts): búsqueda, chips de estado y «solo lo que sí se
+  // manda». Antes solo viajaba la búsqueda y el archivo traía de más.
+  const urlExcel = useMemo(() => {
+    const p = new URLSearchParams();
+    if (busqueda.trim()) p.set("q", busqueda.trim());
+    if (estados.size) p.set("estados", [...estados].join(","));
+    if (soloConEnvio) p.set("soloEnvio", "1");
+    const qs = p.toString();
+    return `/api/plan/excel${qs ? `?${qs}` : ""}`;
+  }, [busqueda, estados, soloConEnvio]);
 
   function alternarEstado(e: EstadoSku) {
     setEstados((prev) => {
@@ -126,21 +139,15 @@ export function TablasPlan({
             className="min-w-[18rem] flex-1"
             aria-label="Buscar por SKU, modelo o color"
           />
-          <a
-            href={urlExcel}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-white whitespace-nowrap"
-            style={{ background: "var(--acento)" }}
-          >
+          <BotonDescarga href={urlExcel} variante="primario" title="Baja exactamente lo que ves: misma búsqueda y mismos filtros">
             Descargar Excel
-          </a>
-          <a
+          </BotonDescarga>
+          <BotonDescarga
             href="/api/plan/excel-simple"
-            className="rounded-lg border px-3 py-2 text-sm font-medium whitespace-nowrap"
-            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
             title="Un renglón por SKU: ventas, stock, en camino y faltante a cubrir"
           >
             Excel simple
-          </a>
+          </BotonDescarga>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -233,12 +240,12 @@ export function TablasPlan({
                 </tr>
               </thead>
               <tbody>
-                {cajasFiltradas.map((c) => (
+                {cajasFiltradas.slice(0, 500).map((c) => (
                   <tr key={c.codigo}>
                     <td>
                       <div
                         className="font-medium"
-                        style={c.cantidadOpcional > 0 ? { color: "var(--estado-critico)" } : undefined}
+                        style={c.cantidadOpcional > 0 ? { color: "var(--estado-alerta)" } : undefined}
                       >
                         {c.skuCaja}
                       </div>
@@ -246,9 +253,9 @@ export function TablasPlan({
                         {c.modelo} · {c.color}
                       </div>
                       {c.cantidadOpcional > 0 ? (
-                        <div className="text-[11px]" style={{ color: "var(--estado-critico)" }}>
+                        <div className="text-[11px]" style={{ color: "var(--estado-alerta)" }}>
                           {c.cantidadOpcional === c.cantidad
-                            ? "OPCIONAL"
+                            ? "Opcional"
                             : `${c.cantidadOpcional} de ${c.cantidad} opcionales`}
                           {c.deMas ? ` · sobra ${c.deMas}` : ""}
                         </div>
@@ -258,7 +265,7 @@ export function TablasPlan({
                     <td className="text-sm">{c.esCorrida ? "Corrida" : `Talla ${c.talla}`}</td>
                     <td
                       className="num cifra font-semibold"
-                      style={c.cantidadOpcional > 0 ? { color: "var(--estado-critico)" } : undefined}
+                      style={c.cantidadOpcional > 0 ? { color: "var(--estado-alerta)" } : undefined}
                     >
                       {c.cantidad}
                       <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
@@ -274,6 +281,11 @@ export function TablasPlan({
                 ))}
               </tbody>
             </table>
+            {cajasFiltradas.length > 500 ? (
+              <p className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+                Se muestran las primeras 500 de {cajasFiltradas.length} cajas; el Excel las trae todas.
+              </p>
+            ) : null}
           </div>
         )}
       </section>
