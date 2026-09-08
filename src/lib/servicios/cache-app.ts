@@ -9,7 +9,12 @@
  */
 import type { DB } from "../datos/repos";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
-import { esErrorObjetoLegacy, mensajeErrorDatos } from "./errores-datos";
+import {
+  esErrorObjetoLegacy,
+  mensajeErrorDatos,
+  resultadoErrorLecturaCache,
+  type ResultadoLecturaDatos,
+} from "./errores-datos";
 
 export interface GuardadoApp<T> {
   datos: T;
@@ -17,18 +22,9 @@ export interface GuardadoApp<T> {
   vigente: boolean;
 }
 
-export type ResultadoLecturaCache<T> =
-  | { estado: "encontrado"; valor: T }
-  | { estado: "ausente" }
-  | { estado: "fallo"; error: Error };
+export type ResultadoLecturaCache<T> = ResultadoLecturaDatos<T>;
 
-function falloLectura(clave: string, error: unknown): ResultadoLecturaCache<never> {
-  if (esErrorObjetoLegacy(error, ["app_cache"])) return { estado: "ausente" };
-  const detalle = mensajeErrorDatos(error);
-  const fallo = new Error(`No se pudo leer app_cache (${clave}): ${detalle}`);
-  console.error(fallo.message);
-  return { estado: "fallo", error: fallo };
-}
+export type TipoFalloCacheApp = "permisos" | "red" | "timeout" | "desconocido";
 
 /**
  * El renglón guardado TAL CUAL esté: vigente o invalidado, fresco o viejo.
@@ -46,7 +42,7 @@ export async function leerCacheAppGuardado<T>(
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
-    if (error) return falloLectura(clave, error);
+    if (error) return resultadoErrorLecturaCache("app_cache", clave, error);
     if (!data?.datos) return { estado: "ausente" };
     return {
       estado: "encontrado",
@@ -57,7 +53,7 @@ export async function leerCacheAppGuardado<T>(
       },
     };
   } catch (error) {
-    return falloLectura(clave, error);
+    return resultadoErrorLecturaCache("app_cache", clave, error);
   }
 }
 
@@ -74,14 +70,14 @@ export async function leerCacheApp<T>(
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
-    if (error) return falloLectura(clave, error);
+    if (error) return resultadoErrorLecturaCache("app_cache", clave, error);
     if (!data?.datos || data.vigente === false) return { estado: "ausente" };
     if (edadMaxMs != null && Date.now() - Date.parse(data.generado_en) > edadMaxMs) {
       return { estado: "ausente" };
     }
     return { estado: "encontrado", valor: revivirTipos(data.datos) as T };
   } catch (error) {
-    return falloLectura(clave, error);
+    return resultadoErrorLecturaCache("app_cache", clave, error);
   }
 }
 
@@ -92,19 +88,28 @@ export async function guardarCacheApp(
   datos: unknown,
   msCalculo: number,
 ): Promise<void> {
-  const { error } = await db.from("app_cache").upsert(
-    {
-      account_id: accountId,
-      clave,
-      generado_en: new Date().toISOString(),
-      vigente: true,
-      motivo: null,
-      ms_calculo: msCalculo,
-      datos: marcarTipos(datos),
-    },
-    { onConflict: "account_id,clave" },
-  );
-  if (error) console.error(`app_cache (${clave}):`, error.message);
+  try {
+    const { error } = await db.from("app_cache").upsert(
+      {
+        account_id: accountId,
+        clave,
+        generado_en: new Date().toISOString(),
+        vigente: true,
+        motivo: null,
+        ms_calculo: msCalculo,
+        datos: marcarTipos(datos),
+      },
+      { onConflict: "account_id,clave" },
+    );
+    if (error) {
+      const fallo = falloOperacion("guardar", clave, error);
+      if (fallo) throw fallo;
+    }
+  } catch (error) {
+    if (error instanceof ErrorOperacionCacheApp) throw error;
+    const fallo = falloOperacion("guardar", clave, error);
+    if (fallo) throw fallo;
+  }
 }
 
 /** Lee el resultado masticado o lo calcula y lo guarda (TTL obligatorio). */
@@ -136,8 +141,69 @@ export async function invalidarApp(
     let q = db.from("app_cache").update({ vigente: false, motivo }).eq("account_id", accountId);
     if (filtro?.claves?.length) q = q.in("clave", [...filtro.claves]);
     else if (filtro?.prefijo) q = q.like("clave", `${filtro.prefijo}%`);
-    await q;
-  } catch {
-    // Tabla aún sin migrar: no hay nada que invalidar.
+    const { error } = await q;
+    if (error) {
+      const clave = filtro?.claves?.join(",") ?? `${filtro?.prefijo ?? "*"}*`;
+      const fallo = falloOperacion("invalidar", clave, error);
+      if (fallo) throw fallo;
+    }
+  } catch (error) {
+    if (error instanceof ErrorOperacionCacheApp) throw error;
+    const clave = filtro?.claves?.join(",") ?? `${filtro?.prefijo ?? "*"}*`;
+    const fallo = falloOperacion("invalidar", clave, error);
+    if (fallo) throw fallo;
   }
+}
+
+export class ErrorOperacionCacheApp extends Error {
+  readonly name = "ErrorOperacionCacheApp";
+
+  constructor(
+    readonly operacion: OperacionCacheApp,
+    readonly tipo: TipoFalloCacheApp,
+    readonly clave: string,
+    detalle: string,
+  ) {
+    super(`No se pudo ${operacion} app_cache (${clave}) [${tipo}]: ${detalle}`);
+  }
+}
+
+function codigoError(error: unknown): string {
+  if (!error || typeof error !== "object" || !("code" in error)) return "";
+  return String((error as { code?: unknown }).code ?? "").toUpperCase();
+}
+
+export type OperacionCacheApp = "guardar" | "invalidar";
+
+function tipoFalloCache(error: unknown): TipoFalloCacheApp {
+  const codigo = codigoError(error);
+  const mensaje = mensajeErrorDatos(error).toLowerCase();
+  if (codigo === "42501" || /permission denied|not authorized|unauthorized|forbidden/.test(mensaje)) {
+    return "permisos";
+  }
+  if (codigo === "57014" || /timeout|timed out|canceling statement/.test(mensaje)) {
+    return "timeout";
+  }
+  if (
+    /fetch failed|failed to fetch|network|socket|econn|enotfound|connection|dns/.test(mensaje)
+  ) {
+    return "red";
+  }
+  return "desconocido";
+}
+
+function falloOperacion(
+  operacion: OperacionCacheApp,
+  clave: string,
+  error: unknown,
+): ErrorOperacionCacheApp | null {
+  if (esErrorObjetoLegacy(error, ["app_cache"])) return null;
+  const fallo = new ErrorOperacionCacheApp(
+    operacion,
+    tipoFalloCache(error),
+    clave,
+    mensajeErrorDatos(error),
+  );
+  console.error(fallo.message);
+  return fallo;
 }
