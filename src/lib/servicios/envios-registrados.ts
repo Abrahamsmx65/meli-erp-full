@@ -15,7 +15,7 @@
  * inventario de bodega (el inventario sale del reporte del almacén). A los
  * 7 días caducan solos y se quedan visibles como caducados.
  */
-import type { DB } from "../datos/repos";
+import { porTandas, traerTodo, type DB } from "../datos/repos";
 import type { StockFull } from "../engine/types";
 import type { EnvioSeparado } from "./envios";
 
@@ -207,18 +207,36 @@ async function leerEnvios(
 ): Promise<EnvioRegistrado[]> {
   let q = db
     .from("envios_full")
-    .select(
-      "id, folio, bodegas, cajas, pares, enviado_en, estado, envio_cajas(caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle)",
-    )
+    .select("id, folio, bodegas, cajas, pares, enviado_en, estado")
     .eq("account_id", accountId)
     .in("estado", estados)
     .order("enviado_en", { ascending: false });
   if (ultimosDias) {
     q = q.gte("enviado_en", new Date(Date.now() - ultimosDias * 86_400_000).toISOString());
   }
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) throw new Error(`envios_full: ${error.message}`);
 
-  return (data ?? []).map((e: any) => ({
+  // Las cajas se leen DIRECTO, no embebidas: el tope db-max-rows también
+  // corta los recursos embebidos SIN avisar (HTTP 200; PostgREST #2776), y
+  // un recorte aquí descontaría pares en camino del plan.
+  const envios = (data ?? []) as any[];
+  const cajasCrudas = await porTandas(envios.map((e) => e.id as string), 200, (tanda) =>
+    traerTodo<any>(
+      db,
+      "envio_cajas",
+      "envio_id, caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle",
+      (qq) => qq.in("envio_id", tanda),
+    ),
+  );
+  const cajasPorEnvio = new Map<string, any[]>();
+  for (const c of cajasCrudas) {
+    const lista = cajasPorEnvio.get(c.envio_id) ?? [];
+    lista.push(c);
+    cajasPorEnvio.set(c.envio_id, lista);
+  }
+
+  return envios.map((e: any) => ({
     id: e.id,
     folio: e.folio,
     bodegas: e.bodegas ?? [],
@@ -226,7 +244,7 @@ async function leerEnvios(
     pares: e.pares ?? 0,
     enviadoEn: e.enviado_en,
     estado: e.estado ?? "enviado",
-    detalleCajas: (e.envio_cajas ?? []).map((c: any) => ({
+    detalleCajas: (cajasPorEnvio.get(e.id) ?? []).map((c: any) => ({
       cajaCodigo: c.caja_codigo,
       almacen: c.almacen,
       skuCaja: c.sku_caja,

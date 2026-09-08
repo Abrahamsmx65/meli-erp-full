@@ -54,6 +54,7 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   gastos_meli: ["id"],
   contenedor_lineas: ["id"],
   contenedores: ["id"],
+  envio_cajas: ["id"],
   mapeo_sku: ["account_id", "sku_construido"],
   medidas_envio: ["account_id", "sku"],
   meli_cargos: ["account_id", "detalle_id"],
@@ -70,6 +71,7 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   tiktok_mapeo_sku: ["account_id", "sku_tiktok"],
   tiktok_movimientos: ["id"],
   tiktok_orden_items: ["account_id", "line_item_id"],
+  tiktok_preparaciones: ["id"],
   tiktok_ordenes: ["account_id", "order_id"],
   tiktok_skus: ["account_id", "sku_id"],
   // Las tablas que SIEMPRE se leen por rango de fecha van ordenadas con la
