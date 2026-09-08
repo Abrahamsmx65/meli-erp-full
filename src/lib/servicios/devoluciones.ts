@@ -24,6 +24,7 @@
  */
 import type { MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
+import { claveItem } from "../meli/sync";
 import { clienteDeCuenta, mapaItemSkuDe, recalcularDiaVentas } from "./webhooks";
 
 /** Días de vendida a los que toca cada revisión. */
@@ -112,6 +113,32 @@ export interface ResultadoRevision {
 interface OrdenLeida {
   status?: string;
   payments?: { id?: number }[];
+  order_items?: {
+    quantity?: number;
+    unit_price?: number;
+    sale_fee?: number;
+    item?: { id?: string; seller_sku?: string | null; seller_custom_field?: string | null; variation_id?: number | string | null };
+  }[];
+}
+
+/** Los renglones (sku, unidades, importe, comisión) de una orden leída de MELI. */
+function renglonesDe(orden: OrdenLeida, mapaItemSku: Map<string, string>): { sku: string; unidades: number; importe: number; comision: number }[] {
+  const porSku = new Map<string, { sku: string; unidades: number; importe: number; comision: number }>();
+  for (const oi of orden.order_items ?? []) {
+    const sku =
+      oi.item?.seller_sku?.trim() ||
+      oi.item?.seller_custom_field?.trim() ||
+      (oi.item?.id ? mapaItemSku.get(claveItem(oi.item.id, oi.item.variation_id)) : undefined) ||
+      (oi.item?.id ? mapaItemSku.get(oi.item.id) : undefined);
+    if (!sku) continue;
+    const u = oi.quantity ?? 0;
+    const r = porSku.get(sku) ?? { sku, unidades: 0, importe: 0, comision: 0 };
+    r.unidades += u;
+    r.importe = Math.round((r.importe + u * (oi.unit_price ?? 0)) * 100) / 100;
+    r.comision = Math.round((r.comision + u * (oi.sale_fee ?? 0)) * 100) / 100;
+    porSku.set(sku, r);
+  }
+  return [...porSku.values()];
 }
 
 /**
@@ -223,7 +250,7 @@ export async function revisarOrdenes(
   const filas = await traerTodo<any>(
     db,
     "ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, neto, estado, revisiones",
+    "order_id, payment_id, payment_ids, fecha, neto, estado, revisiones, renglones",
     (q) =>
       q
         .eq("account_id", accountId)
@@ -231,6 +258,7 @@ export async function revisarOrdenes(
         .lte("fecha", opts.hasta)
         .lt("revisiones", 2),
   );
+  let mapaItemSku: Map<string, string> | null = null;
 
   const pendientes = filas
     .filter((f) => tocaRevision(f.fecha, f.revisiones ?? 0, hoy, opts.sinEsperar))
@@ -294,17 +322,32 @@ export async function revisarOrdenes(
     // Una revisión tardía (ya pasados los 40 días) cierra las dos de un golpe.
     const revisiones = dias >= SEGUNDA_REVISION_DIAS ? 2 : Math.min(2, (f.revisiones ?? 0) + 1);
     const estadoPago = peorEstadoPago(estados);
+    const devuelta = reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back";
+
+    // Una devuelta sin renglones (de antes de guardarlos): se le piden a
+    // MELI para que el corte recupere el costo exacto de los pares.
+    const cambios: Record<string, unknown> = {
+      estado,
+      estado_pago: estadoPago,
+      reembolsado: Math.round(reembolsado * 100) / 100,
+      neto_actual: algunNeto ? Math.round(netoActual * 100) / 100 : null,
+      revisado_en: new Date().toISOString(),
+      revisiones,
+    };
+    if (devuelta && estado !== "cancelled" && !f.renglones) {
+      try {
+        if (!mapaItemSku) mapaItemSku = await mapaItemSkuDe(db, accountId);
+        const orden = await cliente.get<OrdenLeida>(`/orders/${orderId}`);
+        const renglones = renglonesDe(orden, mapaItemSku);
+        if (renglones.length) cambios.renglones = renglones;
+      } catch (err) {
+        r.errores.push(`renglones ${orderId}: ${(err as Error).message}`.slice(0, 200));
+      }
+    }
 
     const { error } = await db
       .from("ordenes_neto")
-      .update({
-        estado,
-        estado_pago: estadoPago,
-        reembolsado: Math.round(reembolsado * 100) / 100,
-        neto_actual: algunNeto ? Math.round(netoActual * 100) / 100 : null,
-        revisado_en: new Date().toISOString(),
-        revisiones,
-      })
+      .update(cambios)
       .eq("account_id", accountId)
       .eq("order_id", orderId);
     if (error) {
@@ -316,7 +359,7 @@ export async function revisarOrdenes(
     if (estado === "cancelled") {
       r.canceladas++;
       if (f.estado !== "cancelled") diasARebarrer.add(f.fecha);
-    } else if (reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back") {
+    } else if (devuelta) {
       r.devueltas++;
     }
   }

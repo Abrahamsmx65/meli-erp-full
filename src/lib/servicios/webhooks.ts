@@ -441,7 +441,7 @@ export async function recalcularDiaVentas(
   // qué peso, para repartir el depósito de la orden entre sus SKUs.
   const ordenes = new Map<
     number,
-    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; sku: string; unidades: number; importe: number; comision: number }[] }
   >();
   // Una orden nueva que entra a media paginación recorre las demás: sin
   // esto, la misma orden puede salir en dos páginas y contarse doble.
@@ -499,7 +499,7 @@ export async function recalcularDiaVentas(
         dia: fecha,
         paymentIds: (o.payments ?? []).map((p) => p.id).filter((x): x is number => x != null),
         total: o.total_amount ?? 0,
-        renglones: [] as { clave: string; importe: number }[],
+        renglones: [] as { clave: string; sku: string; unidades: number; importe: number; comision: number }[],
       };
       // Los renglones se juntan por SKU DENTRO de la orden: así "ordenes"
       // cuenta órdenes que tocaron al SKU, no renglones de item.
@@ -528,7 +528,7 @@ export async function recalcularDiaVentas(
         prev.importe += s.importe;
         prev.comision += s.comision;
         acumulado.set(clave, prev);
-        info.renglones.push({ clave, importe: s.importe });
+        info.renglones.push({ clave, sku, unidades: s.unidades, importe: s.importe, comision: s.comision });
       }
       if (info.renglones.length) ordenes.set(o.id, info);
     }
@@ -669,7 +669,7 @@ async function netosDelDia(
   cliente: MeliClient,
   ordenes: Map<
     number,
-    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
+    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; sku: string; unidades: number; importe: number; comision: number }[] }
   >,
 ): Promise<Map<string, number>> {
   const vacio = new Map<string, number>();
@@ -735,6 +735,8 @@ async function netosDelDia(
         // Todos los pagos de la orden: la revisión de devoluciones los
         // relee uno por uno (un reembolso puede caer en el segundo pago).
         payment_ids: o.paymentIds,
+        // Qué pares llevaba: con esto una devolución recupera el costo exacto.
+        renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: Math.round(r.importe * 100) / 100, comision: Math.round(r.comision * 100) / 100 })),
         fecha: o.dia,
         total: o.total,
         neto,
