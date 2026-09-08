@@ -243,6 +243,15 @@ guárdala numerada.
   2000014843734267: "Recibes $176.80" de $208. No cuestan nada más; el
   corte las cuenta (`reventa`) y explica por qué la comisión se ve baja.
   NUNCA estimarles un cargo aparte.
+- **Corte GENERAL** (`servicios/consolidado.ts`, `/cortes`, `cortes_generales`):
+  calzado en MELI + fundas en MELI + Amazon (`consolidado-amazon.ts` desde el
+  monitor de Amazon: neto liquidado o SKU Economics). Regla del dueño: la
+  publicidad se descuenta al modelo que la gastó; los GASTOS GENERALES de
+  cada plataforma (Full, colecta, FBA, otros cargos, devoluciones netas del
+  costo recuperado, ads sin amarre y a mano) se dividen entre las unidades
+  vendidas en esa plataforma (`cargoPorUnidad`) y cada modelo y categoría
+  carga su parte. El total del canal cuadra con su corte individual. Excel
+  con hoja por canal (`consolidado-excel.ts`).
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
