@@ -211,6 +211,25 @@ export async function latido(
       msPlan = r.msCalculo;
     }
 
+    // La vista de inventario (bodega + Full) también se deja precalculada
+    // cuando quedó obsoleta, para que Bodega y Planificación China lean un
+    // renglón masticado en vez de armar las cajas en cada visita.
+    if (Date.now() < limite - 15_000) {
+      try {
+        const { data: inv } = await admin
+          .from("inventario_cache")
+          .select("vigente")
+          .eq("account_id", accountId)
+          .maybeSingle();
+        if (!inv || inv.vigente === false) {
+          const { recalcularInventario } = await import("./inventario");
+          await recalcularInventario(admin, accountId);
+        }
+      } catch (err) {
+        console.error("recalcularInventario:", (err as Error).message);
+      }
+    }
+
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.

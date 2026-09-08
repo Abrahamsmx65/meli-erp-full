@@ -270,4 +270,9 @@ export async function invalidar(
     .from("plan_fba_cache")
     .update({ vigente: false, motivo })
     .eq("meli_account_id", accountId);
+  // Y la vista de inventario (bodega + Full) guardada, por lo mismo.
+  await db
+    .from("inventario_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId);
 }

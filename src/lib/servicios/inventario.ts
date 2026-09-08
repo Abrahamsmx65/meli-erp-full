@@ -10,6 +10,7 @@ import { construirCajas } from "../importar/cajas";
 import { canonizar, construirIndice } from "../importar/sku";
 import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
+import { VERSION_MOTOR } from "./cache";
 import type { Corrida, FilaExistencia } from "../importar/excel";
 
 /**
@@ -157,12 +158,58 @@ async function catalogoBodegaSinCache(db: DB, accountId: string) {
   return { catalogo, skus };
 }
 
+/** Lo que se guarda en `inventario_cache`, con la versión que lo produjo. */
+interface InventarioGuardado {
+  versionMotor: string;
+  datos: ResumenInventario;
+}
+
 export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
   const guardado = cacheInventario.get(accountId);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
 
+  // Primero el resultado masticado en la base (como plan_cache): lo escriben
+  // recalcularInventario y el latido, y lo marca obsoleto invalidar() con
+  // los mismos disparos que al plan (importar, amarres, corridas, Industher).
+  try {
+    const { data } = await db
+      .from("inventario_cache")
+      .select("datos, vigente")
+      .eq("account_id", accountId)
+      .maybeSingle();
+    const enBase = (data?.datos ?? null) as InventarioGuardado | null;
+    if (enBase?.datos && (data?.vigente ?? true) && enBase.versionMotor === VERSION_MOTOR) {
+      cacheInventario.set(accountId, { en: Date.now(), datos: enBase.datos });
+      return enBase.datos;
+    }
+  } catch {
+    // Tabla aún sin migrar o error de lectura: se calcula como siempre.
+  }
+
+  return recalcularInventario(db, accountId);
+}
+
+/** Calcula la vista completa, la guarda masticada y refresca los cachés. */
+export async function recalcularInventario(db: DB, accountId: string): Promise<ResumenInventario> {
+  const t0 = Date.now();
   const datos = await cargarInventarioSinCache(db, accountId);
   cacheInventario.set(accountId, { en: Date.now(), datos });
+
+  const guardado: InventarioGuardado = { versionMotor: VERSION_MOTOR, datos };
+  const { error } = await db.from("inventario_cache").upsert(
+    {
+      account_id: accountId,
+      generado_en: new Date().toISOString(),
+      vigente: true,
+      motivo: null,
+      ms_calculo: Date.now() - t0,
+      datos: guardado,
+    },
+    { onConflict: "account_id" },
+  );
+  // Sin guardar, el dato sirve igual: solo se pierde el ahorro.
+  if (error) console.error("No se pudo guardar el inventario en caché:", error.message);
+
   return datos;
 }
 
