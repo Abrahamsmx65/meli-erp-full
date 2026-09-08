@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+/* La fuente (Inter) llega autohospedada por next/font desde layout.tsx —
+   variable --font-inter. El @import remoto de Google Fonts que vivía aquí
+   bloqueaba el primer render de TODA la app. */
 @import "tailwindcss";
 
 /* ==========================================================================
@@ -62,7 +64,7 @@
 
   --radio: 6px;
 
-  --fuente-sans: "Inter", "Proxima Nova", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-sans: var(--font-inter, "Inter"), "Proxima Nova", -apple-system, "Segoe UI", Roboto, sans-serif;
   --fuente-mono: "Inter", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
