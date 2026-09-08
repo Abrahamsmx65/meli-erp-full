@@ -7,7 +7,7 @@
  * dice el sheet.
  */
 import type { DB } from "../datos/repos";
-import { conCacheYz, invalidarYz } from "./cache";
+import { conCacheYz, invalidarYz, recalcularCacheYz } from "./cache";
 import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
@@ -102,9 +102,14 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   return { ...plan, titulos: new Map(skus.map((s) => [s.sku, s.titulo])), inventario, parametros, descontinuados };
 }
 
-/** El plan masticado desde `yz_cache`; sin renglón vigente, calcula y guarda. */
+/** El plan masticado desde `yz_cache`, aunque esté viejo; solo sin renglón calcula. */
 export async function obtenerPlanYz(db: DB, accountId: string): Promise<PlanConDetalle> {
   return conCacheYz(db, accountId, "plan", () => calcularPlanDeCuenta(db, accountId));
+}
+
+/** Recalcula y guarda el plan (lo llama el cron de netos). */
+export async function recalcularPlanYz(db: DB, accountId: string): Promise<PlanConDetalle> {
+  return recalcularCacheYz(db, accountId, "plan", () => calcularPlanDeCuenta(db, accountId));
 }
 
 /** Registra un envío con las líneas que el usuario confirmó. */

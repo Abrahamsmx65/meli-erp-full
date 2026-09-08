@@ -168,9 +168,14 @@ export async function cargarInventario(db: DB, accountId: string): Promise<Resum
   const guardado = cacheInventario.get(accountId);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
 
-  // Primero el resultado masticado en la base (como plan_cache): lo escriben
+  // El resultado masticado en la base (como plan_cache): lo escriben
   // recalcularInventario y el latido, y lo marca obsoleto invalidar() con
   // los mismos disparos que al plan (importar, amarres, corridas, Industher).
+  // Se sirve AUNQUE esté invalidado —el latido lo recalcula solo en un par
+  // de minutos— porque hacer esperar 5 s a la pantalla de Bodega por un
+  // renglón que ya existe es cobrarle el cálculo al clic. Solo un renglón
+  // de OTRA versión del motor no sirve (sus números ya no son los del
+  // motor actual) y ahí sí se calcula.
   try {
     const { data } = await db
       .from("inventario_cache")
@@ -178,7 +183,7 @@ export async function cargarInventario(db: DB, accountId: string): Promise<Resum
       .eq("account_id", accountId)
       .maybeSingle();
     const enBase = (data?.datos ?? null) as InventarioGuardado | null;
-    if (enBase?.datos && (data?.vigente ?? true) && enBase.versionMotor === VERSION_MOTOR) {
+    if (enBase?.datos && enBase.versionMotor === VERSION_MOTOR) {
       cacheInventario.set(accountId, { en: Date.now(), datos: enBase.datos });
       return enBase.datos;
     }

@@ -1,9 +1,24 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
-import { calcularPlanDeCuenta, cambiarEstadoEnvio, registrarEnvio } from "@/lib/yapanizcel/envios";
+import { calcularPlanDeCuenta, cambiarEstadoEnvio, recalcularPlanYz, registrarEnvio } from "@/lib/yapanizcel/envios";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
+
+/**
+ * Tras registrar o cambiar un envío, el plan (que cuenta el "en camino") se
+ * recalcula en el fondo con `after()`: la pantalla lo lee masticado y el
+ * usuario quiere ver el efecto pronto. Compras e inventario los levanta el cron.
+ */
+function refrescarPlanAlFondo(db: Parameters<typeof recalcularPlanYz>[0], accountId: string): void {
+  after(async () => {
+    try {
+      await recalcularPlanYz(db, accountId);
+    } catch (err) {
+      console.error("envios: recálculo de fondo:", (err as Error).message);
+    }
+  });
+}
 
 /** El plan calculado ahora mismo. */
 export async function GET() {
@@ -37,6 +52,7 @@ export async function POST(req: NextRequest) {
       lineas.map((l: any) => ({ skuMeli: String(l?.skuMeli ?? ""), unidades: Number(l?.unidades ?? 0) })),
       { folio: body?.folio, nota: body?.nota },
     );
+    refrescarPlanAlFondo(ctx.db, ctx.cuenta.id);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return errorJson(err, 400);
@@ -54,6 +70,7 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     await cambiarEstadoEnvio(ctx.db, ctx.cuenta.id, id, estado as never);
+    refrescarPlanAlFondo(ctx.db, ctx.cuenta.id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);

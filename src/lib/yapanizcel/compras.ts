@@ -9,7 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
-import { guardarCacheYzLote, leerCacheYz } from "./cache";
+import { guardarCacheYzLote, leerCacheYzGuardado } from "./cache";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
@@ -43,6 +43,8 @@ export interface VarianteCompra {
 }
 
 export interface DisenoCompra {
+  /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
+  generadoEn?: string;
   diseno: string;
   variantes: VarianteCompra[];
   /** SKUs del diseño sin venta en 180 días: no se piden ni se muestran. */
@@ -54,6 +56,8 @@ export interface DisenoCompra {
 }
 
 export interface ResumenDisenos {
+  /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
+  generadoEn?: string;
   disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
   descontinuados: {
     /** SKUs sin venta en 180 días (de diseños que siguen y de los retirados). */
@@ -187,8 +191,6 @@ export async function calcularCompras(db: DB, accountId: string): Promise<Compra
 
 const CLAVE_RESUMEN = "compras:resumen";
 const claveDiseno = (diseno: string) => `compras:d:${diseno}`;
-/** Tope duro de vejez aunque nadie haya invalidado (red de seguridad). */
-const EDAD_MAX_MS = 6 * 3_600_000;
 
 /** Las vistas derivadas de un cálculo, para guardarlas de un jalón. */
 export function derivadasDeCompras(c: ComprasCalculadas): { clave: string; datos: unknown }[] {
@@ -203,41 +205,59 @@ export function derivadasDeCompras(c: ComprasCalculadas): { clave: string; datos
 
 /**
  * El cálculo completo desde `yz_cache` (para el Excel de todos los diseños
- * y como respaldo); sin renglón vigente, calcula y guarda TODO: el completo
- * y sus derivadas.
+ * y como respaldo). Se sirve el renglón guardado AUNQUE esté invalidado o
+ * viejo — el cron de netos lo refresca solo; el clic nunca paga el cálculo.
+ * Solo sin renglón (primera vez en la vida) se calcula aquí.
  */
 export async function obtenerCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
-  const guardado = await leerCacheYz<ComprasCalculadas>(db, accountId, "compras", EDAD_MAX_MS);
-  if (guardado) return guardado;
+  const guardado = await leerCacheYzGuardado<ComprasCalculadas>(db, accountId, "compras");
+  if (guardado) return guardado.datos;
   return recalcularCompras(db, accountId);
 }
 
-/** Calcula y guarda el completo y sus derivadas (lo llama el cron y el respaldo). */
+/**
+ * Calcula y guarda el completo y sus derivadas (lo llama el cron y el
+ * respaldo sin renglón). Un solo vuelo por cuenta: si el resumen y el
+ * detalle piden el recálculo al mismo tiempo (pasaba en la primera visita
+ * y eran 20 s en vez de 10), comparten el mismo cálculo.
+ */
+const recalculosEnVuelo = new Map<string, Promise<ComprasCalculadas>>();
+
 export async function recalcularCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
-  const t0 = Date.now();
-  const c = await calcularCompras(db, accountId);
-  const ms = Date.now() - t0;
-  await guardarCacheYzLote(db, accountId, [{ clave: "compras", datos: c }, ...derivadasDeCompras(c)], ms);
-  return c;
+  const enVuelo = recalculosEnVuelo.get(accountId);
+  if (enVuelo) return enVuelo;
+  const p = (async () => {
+    const t0 = Date.now();
+    const c = await calcularCompras(db, accountId);
+    const ms = Date.now() - t0;
+    await guardarCacheYzLote(db, accountId, [{ clave: "compras", datos: c }, ...derivadasDeCompras(c)], ms);
+    return c;
+  })();
+  recalculosEnVuelo.set(accountId, p);
+  try {
+    return await p;
+  } finally {
+    recalculosEnVuelo.delete(accountId);
+  }
 }
 
-/** El resumen por diseño: un renglón chico; si no está, se recalcula todo una vez. */
+/** El resumen por diseño: el renglón chico guardado, aunque esté viejo. */
 export async function obtenerResumenCompras(db: DB, accountId: string): Promise<ResumenDisenos> {
-  const guardado = await leerCacheYz<ResumenDisenos>(db, accountId, CLAVE_RESUMEN, EDAD_MAX_MS);
-  if (guardado) return guardado;
+  const guardado = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
+  if (guardado) return guardado.datos;
   return resumenDesdeCompras(await recalcularCompras(db, accountId));
 }
 
-/** El detalle de UN diseño: su renglón; si no está, se recalcula todo una vez. */
+/** El detalle de UN diseño: su renglón guardado, aunque esté viejo. */
 export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: string): Promise<DisenoCompra | null> {
   const clave = diseno.trim().toUpperCase();
   if (!clave) return null;
-  const guardado = await leerCacheYz<DisenoCompra>(db, accountId, claveDiseno(clave), EDAD_MAX_MS);
-  if (guardado) return guardado;
-  // Sin renglón: o el cálculo está viejo o el diseño no existe (o está
-  // retirado). El resumen vigente lo dice sin bajar el completo.
-  const resumen = await leerCacheYz<ResumenDisenos>(db, accountId, CLAVE_RESUMEN, EDAD_MAX_MS);
-  if (resumen && !resumen.disenos.some((d) => d.diseno === clave)) return null;
+  const guardado = await leerCacheYzGuardado<DisenoCompra>(db, accountId, claveDiseno(clave));
+  if (guardado) return guardado.datos;
+  // Sin renglón: o el diseño no existe (o está retirado), o nunca se ha
+  // calculado. El resumen guardado lo dice sin bajar el completo.
+  const resumen = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
+  if (resumen && !resumen.datos.disenos.some((d) => d.diseno === clave)) return null;
   return detalleDesdeCompras(await recalcularCompras(db, accountId), clave);
 }
 
@@ -279,6 +299,7 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
 
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
   return {
+    generadoEn: c.generadoEn,
     disenos,
     descontinuados: {
       skus: descontinuadas,
@@ -350,6 +371,7 @@ export function detalleDesdeCompras(c: ComprasCalculadas, diseno: string): Disen
   if (!variantes.length) return null;
 
   return {
+    generadoEn: c.generadoEn,
     diseno: clave,
     variantes,
     descontinuadas,

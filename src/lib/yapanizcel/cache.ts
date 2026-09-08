@@ -3,10 +3,14 @@
  *
  * El mismo patrón que salvó al calzado (plan_cache / inventario_cache): el
  * trabajo pesado —bajar ~18 mil variantes, amarrarlas, agregarlas— se hace
- * UNA vez, se guarda por clave, y la pantalla lee un renglón. Los syncs y
- * las escrituras invalidan (`invalidarYz`); el cron de netos deja todo
- * precalculado. Si no hay renglón vigente, el llamador calcula como siempre
- * y lo guarda: nunca datos a medias.
+ * UNA vez, se guarda por clave, y la pantalla lee un renglón.
+ *
+ * Regla de oro (decidida por el dueño): LA PANTALLA NUNCA CALCULA. Siempre
+ * sirve el último renglón guardado, aunque un sync lo haya invalidado o
+ * tenga horas; el recálculo es trabajo del fondo (el cron de netos), que
+ * refresca lo invalidado Y lo viejo. La única excepción es cuando no existe
+ * ningún renglón (la primera vez en la vida de la clave): ahí sí se calcula
+ * en el request y se guarda, porque no hay nada que servir.
  *
  * Los resultados traen Maps y Sets adentro: se aplanan con la misma marca
  * de tipos del plan de FBA y se rehidratan al leer.
@@ -14,15 +18,28 @@
 import type { DB } from "../datos/repos";
 import { marcarTipos, revivirTipos } from "../servicios/plan-fba-cache";
 
-/** Las claves fijas; las de publicidad son dinámicas ("ads:2026-09"). */
-export const CLAVES_YZ = ["compras", "plan", "inventario", "amarre"] as const;
+/** Las claves fijas que el cron refresca; las de publicidad son dinámicas ("ads:2026-09"). */
+export const CLAVES_YZ = ["compras", "plan", "inventario", "amarre", "disenos", "pedidos"] as const;
 
-export async function leerCacheYz<T>(
-  db: DB,
-  accountId: string,
-  clave: string,
-  edadMaxMs?: number,
-): Promise<T | null> {
+/**
+ * A partir de esta edad un renglón se considera para refrescar en el fondo
+ * aunque nadie lo haya invalidado (red de seguridad por si a algún escritor
+ * le falta el gancho). La pantalla lo sigue sirviendo mientras tanto.
+ */
+export const REFRESCO_YZ_MS = 4 * 3_600_000;
+
+export interface GuardadoYz<T> {
+  datos: T;
+  generadoEn: string;
+  vigente: boolean;
+}
+
+/**
+ * El renglón guardado TAL CUAL esté: vigente o invalidado, fresco o viejo.
+ * Es lo que leen las pantallas — servir un dato de hace un rato le gana a
+ * cobrarle el cálculo al clic; el fondo lo refresca solo.
+ */
+export async function leerCacheYzGuardado<T>(db: DB, accountId: string, clave: string): Promise<GuardadoYz<T> | null> {
   try {
     const { data, error } = await db
       .from("yz_cache")
@@ -31,13 +48,31 @@ export async function leerCacheYz<T>(
       .eq("clave", clave)
       .maybeSingle();
     if (error || !data?.datos) return null;
-    if (data.vigente === false) return null;
-    if (edadMaxMs != null && Date.now() - Date.parse(data.generado_en) > edadMaxMs) return null;
-    return revivirTipos(data.datos) as T;
+    return {
+      datos: revivirTipos(data.datos) as T,
+      generadoEn: data.generado_en,
+      vigente: data.vigente !== false,
+    };
   } catch {
     // Tabla aún sin migrar o error de lectura: el llamador calcula.
     return null;
   }
+}
+
+/**
+ * Solo lo VIGENTE y fresco. Para los que sí necesitan frescura estricta
+ * (p. ej. la publicidad del mes corriente), no para las pantallas.
+ */
+export async function leerCacheYz<T>(
+  db: DB,
+  accountId: string,
+  clave: string,
+  edadMaxMs?: number,
+): Promise<T | null> {
+  const g = await leerCacheYzGuardado<T>(db, accountId, clave);
+  if (!g || !g.vigente) return null;
+  if (edadMaxMs != null && Date.now() - Date.parse(g.generadoEn) > edadMaxMs) return null;
+  return g.datos;
 }
 
 export async function guardarCacheYz(
@@ -82,20 +117,27 @@ export async function guardarCacheYzLote(
 }
 
 /**
- * Lee el resultado masticado o lo calcula y lo guarda. `edadMaxMs` es el
- * tope duro de vejez aunque nadie lo haya invalidado (red de seguridad por
- * si a algún escritor le falta el gancho de invalidación).
+ * Lo que leen las pantallas: el renglón guardado aunque esté invalidado o
+ * viejo (el fondo lo refresca); solo si NO EXISTE se calcula y se guarda.
  */
 export async function conCacheYz<T>(
   db: DB,
   accountId: string,
   clave: string,
   calcular: () => Promise<T>,
-  opts?: { edadMaxMs?: number },
 ): Promise<T> {
-  const guardado = await leerCacheYz<T>(db, accountId, clave, opts?.edadMaxMs ?? 6 * 3_600_000);
-  if (guardado != null) return guardado;
+  const guardado = await leerCacheYzGuardado<T>(db, accountId, clave);
+  if (guardado != null) return guardado.datos;
+  return recalcularCacheYz(db, accountId, clave, calcular);
+}
 
+/** Calcula y guarda una clave (lo que hace el cron, y el respaldo sin renglón). */
+export async function recalcularCacheYz<T>(
+  db: DB,
+  accountId: string,
+  clave: string,
+  calcular: () => Promise<T>,
+): Promise<T> {
   const t0 = Date.now();
   const datos = await calcular();
   await guardarCacheYz(db, accountId, clave, datos, Date.now() - t0);
@@ -105,9 +147,8 @@ export async function conCacheYz<T>(
 /**
  * Marca claves como obsoletas (todas si no se pasan). Lo llaman los syncs
  * (catálogo, stock, ventas, sheet) y las rutas que escriben (amarres,
- * pedidos, envíos, costos, parámetros). El cron de netos recalcula lo
- * marcado en su siguiente corrida; mientras tanto, la primera visita paga
- * el cálculo una vez y lo deja guardado.
+ * pedidos, envíos, costos, parámetros). La pantalla sigue sirviendo el
+ * renglón invalidado; el cron de netos lo recalcula en su siguiente corrida.
  */
 export async function invalidarYz(
   db: DB,
@@ -132,17 +173,36 @@ export async function invalidarYz(
   }
 }
 
-/** Qué claves fijas están vencidas o no existen, para que el cron las deje listas. */
+/**
+ * Qué claves fijas necesitan refresco, para que el cron las deje listas:
+ * las que no existen, las invalidadas Y las que ya pasaron de
+ * `REFRESCO_YZ_MS` de edad aunque nadie las haya invalidado (antes solo se
+ * miraba `vigente` y el primer clic de la mañana pagaba el cálculo).
+ * Primero las invalidadas o faltantes, luego las más viejas.
+ */
 export async function clavesObsoletasYz(db: DB, accountId: string): Promise<string[]> {
   try {
     const { data, error } = await db
       .from("yz_cache")
-      .select("clave, vigente")
+      .select("clave, vigente, generado_en")
       .eq("account_id", accountId)
       .in("clave", [...CLAVES_YZ]);
     if (error) return [];
-    const vivas = new Set((data ?? []).filter((f: any) => f.vigente !== false).map((f: any) => f.clave));
-    return CLAVES_YZ.filter((c) => !vivas.has(c));
+    const filas = new Map((data ?? []).map((f: { clave: string; vigente: boolean | null; generado_en: string }) => [f.clave, f]));
+    const ahora = Date.now();
+    const urgentes: string[] = [];
+    const viejas: { clave: string; edad: number }[] = [];
+    for (const clave of CLAVES_YZ) {
+      const f = filas.get(clave);
+      if (!f || f.vigente === false) {
+        urgentes.push(clave);
+        continue;
+      }
+      const edad = ahora - Date.parse(f.generado_en);
+      if (edad > REFRESCO_YZ_MS) viejas.push({ clave, edad });
+    }
+    viejas.sort((a, b) => b.edad - a.edad);
+    return [...urgentes, ...viejas.map((v) => v.clave)];
   } catch {
     return [];
   }

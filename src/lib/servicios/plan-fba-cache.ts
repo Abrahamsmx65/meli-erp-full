@@ -170,10 +170,12 @@ interface GuardadoFba {
 }
 
 /**
- * Devuelve el plan de FBA: el guardado si sigue vigente y del mismo motor;
- * si no, lo recalcula y lo guarda. A diferencia del plan de Full aquí no se
- * sirve el obsoleto con aviso: el recálculo toma segundos, no minutos, y el
- * latido lo deja precalculado casi siempre (periodo por omisión).
+ * Devuelve el plan de FBA: el guardado si es del mismo motor. Para el
+ * periodo por omisión se sirve AUNQUE esté invalidado —el latido lo deja
+ * fresco en un par de minutos y hacer esperar el clic no aporta nada—; en
+ * un periodo alterno (que nadie refresca por atrás) un renglón invalidado
+ * sí se recalcula aquí, porque servirlo viejo sería dejarlo viejo para
+ * siempre.
  */
 export async function obtenerPlanFba(
   db: DB,
@@ -189,12 +191,11 @@ export async function obtenerPlanFba(
     .maybeSingle();
 
   const guardado = (data?.datos ?? null) as GuardadoFba | null;
-  if (
-    guardado &&
-    (data?.vigente ?? true) &&
+  const mismoMotor =
+    guardado != null &&
     guardado.versionMotor === VERSION_MOTOR &&
-    (guardado.cuentaMeliId ?? null) === (cuentaMeliId ?? null)
-  ) {
+    (guardado.cuentaMeliId ?? null) === (cuentaMeliId ?? null);
+  if (mismoMotor && ((data?.vigente ?? true) || dias === PERIODO_OMISION)) {
     return revivirTipos(guardado.datos) as DatosPlanFba;
   }
 

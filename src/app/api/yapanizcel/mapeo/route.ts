@@ -1,8 +1,27 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
 import { invalidarYz } from "@/lib/yapanizcel/cache";
+import { recalcularInventarioAmarrado, recalcularInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+/**
+ * Tras cambiar un amarre: se invalida todo lo que lo usa y el amarre y la
+ * bodega se recalculan en el fondo con `after()` (la pantalla de SKUs los
+ * lee masticados y el usuario que confirma quiere ver el efecto pronto, no
+ * hasta el siguiente cron). Compras y plan los levanta el cron.
+ */
+function refrescarAmarreAlFondo(db: Parameters<typeof invalidarYz>[0], accountId: string): void {
+  after(async () => {
+    try {
+      await recalcularInventarioAmarrado(db, accountId);
+      await recalcularInventarioPantalla(db, accountId);
+    } catch (err) {
+      console.error("mapeo: recálculo de fondo:", (err as Error).message);
+    }
+  });
+}
 
 /**
  * Amarre manual bodega -> MELI, y la lista de ignorados.
@@ -34,6 +53,7 @@ export async function POST(req: NextRequest) {
         if (error) throw new Error(error.message);
       }
       await invalidarYz(db, cuenta.id, "Cambió un amarre de SKU.", ["compras", "plan", "inventario", "amarre"]);
+      refrescarAmarreAlFondo(db, cuenta.id);
       return NextResponse.json({ ok: true });
     }
 
@@ -41,6 +61,8 @@ export async function POST(req: NextRequest) {
     if (!skuMeli) {
       const { error } = await db.from("yz_mapeo_skus").delete().eq("account_id", cuenta.id).eq("sku_bodega", skuBodega);
       if (error) throw new Error(error.message);
+      await invalidarYz(db, cuenta.id, "Se borró un amarre de SKU.", ["compras", "plan", "inventario", "amarre"]);
+      refrescarAmarreAlFondo(db, cuenta.id);
       return NextResponse.json({ ok: true, borrado: true });
     }
 
@@ -60,7 +82,8 @@ export async function POST(req: NextRequest) {
       .upsert({ account_id: cuenta.id, sku_bodega: skuBodega, sku_meli: skuMeli, nota: String(body?.nota ?? "").trim() || null }, { onConflict: "account_id,sku_bodega" });
     if (error) throw new Error(error.message);
     await invalidarYz(db, cuenta.id, "Cambió un amarre de SKU.", ["compras", "plan", "inventario", "amarre"]);
-      return NextResponse.json({ ok: true });
+    refrescarAmarreAlFondo(db, cuenta.id);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);
   }

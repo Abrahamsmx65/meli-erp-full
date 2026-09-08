@@ -9,7 +9,7 @@
  * cron de netos lo deja precalculado.
  */
 import type { DB } from "../datos/repos";
-import { conCacheYz } from "./cache";
+import { conCacheYz, recalcularCacheYz } from "./cache";
 import { cargarTotalesVentas } from "./agregados";
 import { cargarPedidosEnCamino } from "./compras";
 import { leerParametros } from "./cuenta";
@@ -102,12 +102,22 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
   };
 }
 
-/** La pantalla masticada desde `yz_cache`; sin renglón vigente, calcula y guarda. */
+/** La pantalla masticada desde `yz_cache`, aunque esté vieja; solo sin renglón calcula. */
 export async function obtenerInventarioPantalla(db: DB, accountId: string): Promise<InventarioPantalla> {
   return conCacheYz(db, accountId, "inventario", () => calcularInventarioPantalla(db, accountId));
+}
+
+/** Recalcula y guarda la pantalla de Bodega (lo llama el cron de netos). */
+export async function recalcularInventarioPantalla(db: DB, accountId: string): Promise<InventarioPantalla> {
+  return recalcularCacheYz(db, accountId, "inventario", () => calcularInventarioPantalla(db, accountId));
 }
 
 /** El amarre de bodega masticado, para la pantalla de SKUs. */
 export async function obtenerInventarioAmarrado(db: DB, accountId: string): Promise<InventarioAmarrado> {
   return conCacheYz(db, accountId, "amarre", () => cargarInventarioAmarrado(db, accountId));
+}
+
+/** Recalcula y guarda el amarre (lo llama el cron de netos). */
+export async function recalcularInventarioAmarrado(db: DB, accountId: string): Promise<InventarioAmarrado> {
+  return recalcularCacheYz(db, accountId, "amarre", () => cargarInventarioAmarrado(db, accountId));
 }

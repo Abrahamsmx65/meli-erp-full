@@ -9,6 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { leerHoja as leerCeldas } from "../importar/leer-hoja";
+import { conCacheYz, recalcularCacheYz } from "./cache";
 import { canonizar, claveCanonica, desglosar } from "./sku";
 import { todo } from "./db";
 
@@ -213,7 +214,7 @@ export interface PedidoResumen {
   disenos: string[];
 }
 
-export async function listarPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {
+async function calcularListaPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {
   const { data: cab } = await db
     .from("yz_pedidos")
     .select("id, folio, proveedor, estado, fecha_pedido, fecha_estimada, nota, creado_en")
@@ -225,8 +226,11 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     ? await todo<{ pedido_id: string; cantidad: number; recibido: number; diseno: string | null }>(db, "yz_pedido_lineas", "pedido_id, cantidad, recibido, diseno", (q) => q.in("pedido_id", ids))
     : [];
 
+  const porPedido = new Map<string, { pedido_id: string; cantidad: number; recibido: number; diseno: string | null }[]>();
+  for (const l of lineas) porPedido.set(l.pedido_id, [...(porPedido.get(l.pedido_id) ?? []), l]);
+
   return (cab ?? []).map((c) => {
-    const suyas = lineas.filter((l) => l.pedido_id === c.id);
+    const suyas = porPedido.get(c.id) ?? [];
     return {
       ...c,
       unidades: suyas.reduce((a, l) => a + l.cantidad, 0),
@@ -235,6 +239,19 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
       disenos: [...new Set(suyas.map((l) => l.diseno).filter(Boolean) as string[])].sort(),
     };
   });
+}
+
+/**
+ * La lista masticada desde `yz_cache` ("pedidos"), aunque esté vieja; la
+ * invalidan las rutas que escriben pedidos y el cron la refresca.
+ */
+export async function listarPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {
+  return conCacheYz(db, accountId, "pedidos", () => calcularListaPedidos(db, accountId));
+}
+
+/** Recalcula y guarda la lista (lo llama el cron de netos). */
+export async function recalcularListaPedidos(db: DB, accountId: string): Promise<PedidoResumen[]> {
+  return recalcularCacheYz(db, accountId, "pedidos", () => calcularListaPedidos(db, accountId));
 }
 
 export async function crearPedido(

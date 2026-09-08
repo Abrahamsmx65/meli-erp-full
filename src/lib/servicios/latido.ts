@@ -214,16 +214,19 @@ export async function latido(
     }
 
     // La vista de inventario (bodega + Full) también se deja precalculada
-    // cuando quedó obsoleta, para que Bodega y Planificación China lean un
-    // renglón masticado en vez de armar las cajas en cada visita.
+    // cuando quedó obsoleta O envejeció (la pantalla la sirve aunque esté
+    // invalidada, así que este es el único lugar que refresca), para que
+    // Bodega y Planificación China lean un renglón masticado en vez de
+    // armar las cajas en cada visita.
     if (Date.now() < limite - 15_000) {
       try {
         const { data: inv } = await admin
           .from("inventario_cache")
-          .select("vigente")
+          .select("vigente, generado_en")
           .eq("account_id", accountId)
           .maybeSingle();
-        if (!inv || inv.vigente === false) {
+        const viejo = inv?.generado_en ? Date.now() - Date.parse(inv.generado_en) > 4 * 3_600_000 : true;
+        if (!inv || inv.vigente === false || viejo) {
           const { recalcularInventario } = await import("./inventario");
           await recalcularInventario(admin, accountId);
         }

@@ -1,9 +1,36 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
 import { invalidarYz } from "@/lib/yapanizcel/cache";
-import { cambiarEstadoPedido, crearPedido, eliminarPedido, lineasDePedido } from "@/lib/yapanizcel/pedidos";
+import { recalcularCompras } from "@/lib/yapanizcel/compras";
+import { recalcularInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
+import { cambiarEstadoPedido, crearPedido, eliminarPedido, lineasDePedido, recalcularListaPedidos } from "@/lib/yapanizcel/pedidos";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+/**
+ * Después de escribir un pedido: la LISTA se recalcula en el momento (es
+ * una consulta, y el usuario acaba de cargar su pedido y quiere verlo) y lo
+ * pesado (compras e inventario, que cuentan el "en camino desde China") se
+ * recalcula en el fondo con `after()` para no cobrárselo al clic. Si algo
+ * falla, quedan invalidadas y el cron las levanta.
+ */
+async function refrescarTrasEscritura(ctx: { db: Parameters<typeof invalidarYz>[0]; cuenta: { id: string } }): Promise<void> {
+  await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario", "pedidos"]);
+  try {
+    await recalcularListaPedidos(ctx.db, ctx.cuenta.id);
+  } catch (err) {
+    console.error("pedidos: lista sin recalcular:", (err as Error).message);
+  }
+  after(async () => {
+    try {
+      await recalcularCompras(ctx.db, ctx.cuenta.id);
+      await recalcularInventarioPantalla(ctx.db, ctx.cuenta.id);
+    } catch (err) {
+      console.error("pedidos: recálculo de fondo:", (err as Error).message);
+    }
+  });
+}
 
 /** Detalle de un pedido: ?id= */
 export async function GET(req: NextRequest) {
@@ -43,7 +70,7 @@ export async function POST(req: NextRequest) {
         costoUnitario: l?.costoUnitario == null || l?.costoUnitario === "" ? null : Number(l.costoUnitario),
       })),
     );
-    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
+    await refrescarTrasEscritura(ctx);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return errorJson(err, 400);
@@ -61,7 +88,7 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     await cambiarEstadoPedido(ctx.db, ctx.cuenta.id, id, estado as never);
-    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
+    await refrescarTrasEscritura(ctx);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);
@@ -75,7 +102,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Falta el id." }, { status: 400 });
   try {
     await eliminarPedido(ctx.db, ctx.cuenta.id, id);
-    await invalidarYz(ctx.db, ctx.cuenta.id, "Cambió un pedido a China.", ["compras", "inventario"]);
+    await refrescarTrasEscritura(ctx);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorJson(err);

@@ -5,7 +5,7 @@ import { DIAS_OBJETIVO_PEDIDO, obtenerDetalleCompras, obtenerResumenCompras } fr
 import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
-import { Encabezado, SinCuenta, dias, n, pesos } from "@/components/yapanizcel/comunes";
+import { Encabezado, Frescura, SinCuenta, dias, n, pesos } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -52,6 +52,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
               Excel del diseño {detalle.diseno}
             </a>
           </div>
+          <Frescura generadoEn={detalle.generadoEn} />
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Ficha titulo="Variantes" valor={detalle.variantes.length} />
             <Ficha titulo="Vendidas 30 d" valor={n(detalle.vendidas30)} />
@@ -120,6 +121,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
         </section>
       ) : (
         <section className="flex flex-col gap-3">
+          <Frescura generadoEn={resumen.generadoEn} />
           {!resumen.descontinuados.activo ? (
             <p className="text-sm" style={{ color: "var(--ink-2)" }}>
               La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año; hoy llega

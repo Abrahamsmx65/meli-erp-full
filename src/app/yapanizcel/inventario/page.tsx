@@ -5,7 +5,7 @@ import { obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla"
 import { Ficha } from "@/components/tiles";
 import { BotonSheets } from "@/components/yapanizcel/acciones";
 import { TablaInventarioYz, type RenglonInv } from "@/components/yapanizcel/tabla-inventario";
-import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
+import { Encabezado, Frescura, SinCuenta, n } from "@/components/yapanizcel/comunes";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +38,7 @@ export default async function InventarioYz() {
       <div className="tarjeta p-4">
         <BotonSheets configurado={Boolean(configuracionSheets())} />
       </div>
+      <Frescura generadoEn={pantalla.generadoEn} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Ficha titulo="Unidades en bodega (amarradas)" valor={n(totalBodega)} nota={`${inv.porSkuMeli.size} SKUs de MELI`} />

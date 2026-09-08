@@ -7,8 +7,10 @@ import { almacenYz } from "@/lib/yapanizcel/corte";
 import { continuarCargosCon } from "@/lib/servicios/cargos-meli";
 import { clavesObsoletasYz } from "@/lib/yapanizcel/cache";
 import { recalcularCompras } from "@/lib/yapanizcel/compras";
-import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
-import { obtenerInventarioAmarrado, obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
+import { recalcularPlanYz } from "@/lib/yapanizcel/envios";
+import { recalcularInventarioAmarrado, recalcularInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
+import { recalcularListaPedidos } from "@/lib/yapanizcel/pedidos";
+import { recalcularDisenosFundas } from "@/lib/servicios/productos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -53,9 +55,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Dejar PRECALCULADO lo que los syncs o las escrituras invalidaron
-    // (compras, plan, inventario, amarre), para que las pantallas de fundas
-    // lean un renglón masticado y nunca paguen el cálculo en el clic. Va
+    // Dejar PRECALCULADO lo que los syncs o las escrituras invalidaron Y lo
+    // que ya envejeció (clavesObsoletasYz también mira la edad: las
+    // pantallas sirven el renglón guardado aunque esté viejo y NUNCA
+    // calculan en el clic, así que este es el único lugar que refresca). Va
     // ANTES de la facturación, que es reanudable y se pasea a 12.5 s por
     // petición: cuando iba al final casi nunca le tocaba tiempo y la
     // pantalla de Pedidos a China pagaba los 10 s del cálculo en cada sync.
@@ -66,9 +69,11 @@ export async function GET(req: NextRequest) {
         for (const clave of obsoletas) {
           if (Date.now() - t0 > 235_000) break;
           if (clave === "compras") await recalcularCompras(admin, c.id);
-          else if (clave === "plan") await obtenerPlanYz(admin, c.id);
-          else if (clave === "inventario") await obtenerInventarioPantalla(admin, c.id);
-          else if (clave === "amarre") await obtenerInventarioAmarrado(admin, c.id);
+          else if (clave === "plan") await recalcularPlanYz(admin, c.id);
+          else if (clave === "inventario") await recalcularInventarioPantalla(admin, c.id);
+          else if (clave === "amarre") await recalcularInventarioAmarrado(admin, c.id);
+          else if (clave === "disenos") await recalcularDisenosFundas(admin, c.id);
+          else if (clave === "pedidos") await recalcularListaPedidos(admin, c.id);
           precalculadas.push(clave);
         }
         if (precalculadas.length) r.precalculadas = precalculadas;
