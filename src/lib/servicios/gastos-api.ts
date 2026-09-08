@@ -26,9 +26,11 @@ export async function crearGasto(
   return { id: Number(data.id) };
 }
 
-export async function borrarGasto(db: DB, accountId: string, b: any, tabla: string): Promise<{ error?: string }> {
+export async function borrarGasto(db: DB, accountId: string, b: any, tabla: string): Promise<{ error?: string; fecha?: string }> {
   const id = Number(b?.id);
   if (!Number.isFinite(id)) return { error: "Gasto inválido." };
+  // La fecha ANTES de borrar: la ruta recalcula el corte de ese periodo.
+  const { data } = await db.from(tabla).select("fecha").eq("account_id", accountId).eq("id", id).maybeSingle();
   const { error } = await db.from(tabla).delete().eq("account_id", accountId).eq("id", id);
-  return error ? { error: error.message } : {};
+  return error ? { error: error.message } : { fecha: data?.fecha ?? undefined };
 }

@@ -104,9 +104,13 @@ const cacheMonitorAmz = new Map<string, { en: number; datos: MonitorAmazon }>();
 const VIDA_CACHE_MONITOR_MS = 60_000;
 
 /**
- * El monitor masticado desde `app_cache` (5 min de vida): los datos solo
- * cambian cuando el cron de Amazon sincroniza (cada 10-60 min) y bajar
- * ~30 mil renglones de venta por render era de lo más caro que quedaba.
+ * El monitor masticado desde `app_cache`: los datos solo cambian cuando el
+ * cron de Amazon sincroniza (cada 10-60 min) y bajar ~30 mil renglones de
+ * venta por render era de lo más caro que quedaba. Un rango que ya CERRÓ
+ * (termina antes de hoy, p. ej. un mes pasado del corte general) casi no
+ * cambia —solo alguna liquidación tardía— y su renglón vive 6 horas; el
+ * cálculo de agosto medía 42 s y con 5 minutos de vida se tiraba a la
+ * basura en cada visita. Un rango que incluye hoy vive 5 minutos.
  */
 export async function obtenerMonitorAmazon(
   db: DB,
@@ -115,7 +119,8 @@ export async function obtenerMonitorAmazon(
   rango?: RangoFechas,
 ): Promise<MonitorAmazon> {
   const r = rango ?? normalizarRango();
-  return conCacheApp(db, amazonAccountId, `monitor:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, 5 * 60_000, () =>
+  const cerrado = r.hasta < fechaMx(0);
+  return conCacheApp(db, amazonAccountId, `monitor:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
     cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
   );
 }
@@ -137,13 +142,25 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, config, pagos, ultimaLiquidacion, economiaFilas] = await Promise.all([
+  const [ventas, ventasRecientes, config, pagos, ultimaLiquidacion, economiaFilas] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
       "seller_sku, fecha, unidades, ordenes, importe",
-      (q) => q.eq("account_id", amazonAccountId).gte("fecha", prevDesde),
+      // Acotado por los DOS lados: sin el tope superior, pedir un mes viejo
+      // bajaba también todos los meses posteriores (42 s para agosto).
+      (q) => q.eq("account_id", amazonAccountId).gte("fecha", prevDesde).lte("fecha", r.hasta),
     ),
+    // Las fichas de Hoy/Ayer se enseñan aunque el rango sea un mes viejo:
+    // dos días extra, solo cuando el rango no los incluye.
+    r.hasta >= ayer
+      ? Promise.resolve([] as any[])
+      : traerTodo<any>(
+          db,
+          "amazon_ventas_diarias",
+          "seller_sku, fecha, unidades, ordenes, importe",
+          (q) => q.eq("account_id", amazonAccountId).gte("fecha", ayer).lte("fecha", hoy),
+        ),
     // El costo y la categoría son los mismos productos físicos: viven con la
     // cuenta de MELI en Productos y costos, calzado y fundas juntos (los SKUs
     // de funda que se venden en Amazon, 437-RmPad-2-navy, amarran por diseño).
@@ -185,7 +202,7 @@ export async function cargarMonitorAmazon(
     let unidades = 0;
     let importe = 0;
     let ordenes = 0;
-    for (const v of ventas) {
+    for (const v of [...ventas, ...ventasRecientes]) {
       if (v.fecha < desde || v.fecha > hasta) continue;
       unidades += v.unidades ?? 0;
       importe += v.importe ?? 0;

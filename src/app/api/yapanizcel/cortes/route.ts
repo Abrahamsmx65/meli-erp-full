@@ -4,6 +4,7 @@ import { conSesion } from "@/lib/yapanizcel/api";
 import { hacerCorteYz } from "@/lib/yapanizcel/corte";
 import { revisarPeriodoYz } from "@/lib/yapanizcel/devoluciones";
 import { rangoDelPeriodo, validarPeriodo } from "@/lib/servicios/corte-meli";
+import { guardarCorteEnCacheYz } from "@/lib/servicios/corte-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -25,6 +26,8 @@ export async function POST(req: Request) {
   }
   try {
     const { id, estado } = await hacerCorteYz(ctx.db, ctx.cuenta, periodo, ctx.userId);
+    // El corte recién calculado también es el renglón masticado del periodo.
+    await guardarCorteEnCacheYz(ctx.db, ctx.cuenta.id, periodo, estado);
     return NextResponse.json({
       id,
       periodo,

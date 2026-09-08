@@ -10,6 +10,35 @@
 import type { DB } from "../datos/repos";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 
+export interface GuardadoApp<T> {
+  datos: T;
+  generadoEn: string;
+  vigente: boolean;
+}
+
+/**
+ * El renglón guardado TAL CUAL esté: vigente o invalidado, fresco o viejo.
+ * Para los lectores que sirven lo guardado y refrescan por atrás (cortes).
+ */
+export async function leerCacheAppGuardado<T>(db: DB, accountId: string, clave: string): Promise<GuardadoApp<T> | null> {
+  try {
+    const { data, error } = await db
+      .from("app_cache")
+      .select("datos, vigente, generado_en")
+      .eq("account_id", accountId)
+      .eq("clave", clave)
+      .maybeSingle();
+    if (error || !data?.datos) return null;
+    return {
+      datos: revivirTipos(data.datos) as T,
+      generadoEn: data.generado_en,
+      vigente: data.vigente !== false,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function leerCacheApp<T>(
   db: DB,
   accountId: string,

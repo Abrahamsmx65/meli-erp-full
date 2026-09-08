@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizarCargos } from "@/lib/servicios/cargos-meli";
 import { validarPeriodo } from "@/lib/servicios/corte-meli";
+import { claveCorte } from "@/lib/servicios/corte-cache";
+import { invalidarApp } from "@/lib/servicios/cache-app";
 import { sesionYCuenta } from "../_comun";
 
 export const dynamic = "force-dynamic";
@@ -17,5 +19,7 @@ export async function POST(req: Request) {
   // Hasta ~4 minutos leyendo a 5 páginas por minuto; lo que falte lo sigue el latido.
   const r = await sincronizarCargos(clienteAdmin(), s.cuenta.id, periodo, Date.now() + 240_000);
   if (r.error && r.cargos === 0) return NextResponse.json(r, { status: 502 });
+  // Cargos nuevos = gastos de Full nuevos: el corte masticado quedó viejo.
+  await invalidarApp(s.supabase, s.cuenta.id, "Se leyó facturación del periodo.", { claves: [claveCorte(periodo)] });
   return NextResponse.json(r);
 }

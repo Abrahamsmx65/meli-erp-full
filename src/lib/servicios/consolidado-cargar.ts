@@ -10,17 +10,25 @@ import { obtenerMonitorAmazon } from "./amazon-monitor";
 import { cuentaAmazon } from "./amazon";
 import { armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
+import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { cargarEstadoResultados, rangoDelPeriodo } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 
-export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
+/**
+ * `cortesMasticados: true` (la pantalla) lee los cortes de calzado y fundas
+ * de su caché por periodo en vez de recalcularlos: el consolidado de un mes
+ * pasaba de ~42 s a lo que cueste el bloque de Amazon. «Hacer corte» los
+ * calcula frescos, porque congela.
+ */
+export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string, opts?: { cortesMasticados?: boolean }): Promise<Consolidado> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
   const avisos: string[] = [];
   const bloques: BloqueCanal[] = [];
+  const masticados = opts?.cortesMasticados === true;
 
   const [calzado, fundas, amazon] = await Promise.all([
-    cargarEstadoResultados(db, cuenta, periodo).then(
+    (masticados ? obtenerEstadoResultadosMeli(db, cuenta, periodo) : cargarEstadoResultados(db, cuenta, periodo)).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
         avisos.push(`Calzado · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
@@ -31,7 +39,8 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string)
       const yz = await cuentaYz(db);
       if (!yz) return null;
       try {
-        return bloqueDesdeEstado("meli_fundas", await cargarEstadoResultadosYz(db, yz, periodo));
+        const e = masticados ? await obtenerEstadoResultadosYz(db, yz, periodo) : await cargarEstadoResultadosYz(db, yz, periodo);
+        return bloqueDesdeEstado("meli_fundas", e);
       } catch (err) {
         avisos.push(`Fundas · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
         return null;
@@ -54,33 +63,9 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string)
   return armarConsolidado({ periodo, desde, hasta, bloques, avisos });
 }
 
-/** Diez minutos: el consolidado junta tres canales y el fondo escribe cada rato. */
-const VIDA_CONSOLIDADO_MS = 10 * 60_000;
-
-/**
- * El corte general desde `consolidado_cache`: correr los TRES canales
- * completos (calzado + fundas + Amazon) en cada visita costaba hasta 300 s
- * de función por clic. Con el caché, el primer render de cada ventana de 10
- * minutos paga el cálculo y lo deja guardado; los demás leen un renglón.
- * "Hacer corte" sigue congelando el mes en `cortes_generales` como siempre.
- */
-export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
-  try {
-    const { data } = await db
-      .from("consolidado_cache")
-      .select("datos, generado_en")
-      .eq("account_id", cuenta.id)
-      .eq("periodo", periodo)
-      .maybeSingle();
-    if (data?.datos && Date.now() - Date.parse(data.generado_en) < VIDA_CONSOLIDADO_MS) {
-      return revivirTipos(data.datos) as Consolidado;
-    }
-  } catch {
-    // Tabla aún sin migrar: se calcula como siempre.
-  }
-
+async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
   const t0 = Date.now();
-  const consolidado = await cargarConsolidado(db, cuenta, periodo);
+  const consolidado = await cargarConsolidado(db, cuenta, periodo, { cortesMasticados: true });
   try {
     await db.from("consolidado_cache").upsert(
       {
@@ -96,6 +81,47 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
     // Sin guardar, el consolidado sirve igual.
   }
   return consolidado;
+}
+
+/**
+ * El corte general desde `consolidado_cache`: correr los TRES canales
+ * completos (calzado + fundas + Amazon) en cada visita costaba hasta 300 s
+ * de función por clic. La pantalla SIEMPRE sirve el renglón guardado del
+ * periodo y el refresco corre por atrás con la misma política que los
+ * cortes por canal: mes corriente cada 10 minutos, mes cerrado casi
+ * congelado (agosto medía 42 s de cálculo y se tiraba cada 10 minutos).
+ * "Hacer corte" sigue congelando el mes en `cortes_generales` como siempre.
+ */
+export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
+  try {
+    const { data } = await db
+      .from("consolidado_cache")
+      .select("datos, generado_en")
+      .eq("account_id", cuenta.id)
+      .eq("periodo", periodo)
+      .maybeSingle();
+    if (data?.datos) {
+      if (corteNecesitaRefresco(periodo, data.generado_en, true)) {
+        try {
+          const { after } = await import("next/server");
+          after(async () => {
+            try {
+              await recalcularConsolidado(db, cuenta, periodo);
+            } catch (err) {
+              console.error(`consolidado ${periodo}: refresco de fondo:`, (err as Error).message);
+            }
+          });
+        } catch {
+          // Fuera de un request: el guardado sirve igual.
+        }
+      }
+      return revivirTipos(data.datos) as Consolidado;
+    }
+  } catch {
+    // Tabla aún sin migrar: se calcula como siempre.
+  }
+
+  return recalcularConsolidado(db, cuenta, periodo);
 }
 
 export interface CorteGeneralGuardado {

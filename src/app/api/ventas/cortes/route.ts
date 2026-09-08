@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { hacerCorte, rangoDelPeriodo, validarPeriodo } from "@/lib/servicios/corte-meli";
+import { guardarCorteEnCacheMeli } from "@/lib/servicios/corte-cache";
 import { revisarPeriodo } from "@/lib/servicios/devoluciones";
 import { sesionYCuenta } from "../_comun";
 
@@ -32,6 +33,8 @@ export async function POST(req: Request) {
 
   try {
     const { id, estado } = await hacerCorte(s.supabase, s.cuenta, periodo, s.userId);
+    // El corte recién calculado también es el renglón masticado del periodo.
+    await guardarCorteEnCacheMeli(s.supabase, s.cuenta.id, periodo, estado);
     return NextResponse.json({
       id,
       periodo,

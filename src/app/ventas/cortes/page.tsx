@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { cargarEstadoResultados, listarCortes, periodoActual, validarPeriodo } from "@/lib/servicios/corte-meli";
+import { listarCortes, periodoActual, validarPeriodo } from "@/lib/servicios/corte-meli";
+import { obtenerEstadoResultadosMeli } from "@/lib/servicios/corte-cache";
 import { CorteVista } from "@/components/corte-vista";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,9 @@ export default async function Cortes({ searchParams }: { searchParams: Promise<{
     );
   }
 
-  const [e, cortes] = await Promise.all([cargarEstadoResultados(supabase, cuenta, periodo), listarCortes(supabase, cuenta.id)]);
+  // El corte del periodo vive masticado (app_cache «corte:YYYY-MM»): cambiar
+  // de mes es leer un renglón; el refresco corre por atrás.
+  const [e, cortes] = await Promise.all([obtenerEstadoResultadosMeli(supabase, cuenta, periodo), listarCortes(supabase, cuenta.id)]);
   return (
     <CorteVista
       titulo="Cortes y ganancia"
