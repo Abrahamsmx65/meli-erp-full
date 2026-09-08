@@ -74,6 +74,8 @@ export interface ResumenInventario {
  * son instantáneos y el dato nunca envejece más de un minuto.
  */
 const cacheInventario = new Map<string, { en: number; datos: ResumenInventario }>();
+/** La versión LIGERA (sin `crudos`), para las pantallas que no los usan. */
+const cacheInventarioLigero = new Map<string, { en: number; datos: ResumenInventario }>();
 const VIDA_CACHE_MS = 60_000;
 
 /**
@@ -84,6 +86,7 @@ const VIDA_CACHE_MS = 60_000;
  */
 export function invalidarInventario(accountId: string): void {
   cacheInventario.delete(accountId);
+  cacheInventarioLigero.delete(accountId);
   cacheCatalogo.delete(accountId);
 }
 
@@ -164,9 +167,59 @@ interface InventarioGuardado {
   datos: ResumenInventario;
 }
 
-export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
+export async function cargarInventario(
+  db: DB,
+  accountId: string,
+  opts?: {
+    /**
+     * true = NO bajar `crudos` (los SKUs y corridas completos que solo usa
+     * Planificación China). La fila de `inventario_cache` los guarda y eran
+     * el costo dominante del clic en Bodega, 100 % carga muerta ahí: se
+     * proyecta el jsonb en la base y solo viajan la vista y sus totales.
+     */
+    sinCrudos?: boolean;
+  },
+): Promise<ResumenInventario> {
   const guardado = cacheInventario.get(accountId);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
+
+  if (opts?.sinCrudos) {
+    const ligero = cacheInventarioLigero.get(accountId);
+    if (ligero && Date.now() - ligero.en < VIDA_CACHE_MS) return ligero.datos;
+    try {
+      const { data } = await db
+        .from("inventario_cache")
+        .select(
+          "vm:datos->versionMotor, renglones:datos->datos->renglones, totales:datos->datos->totales, porAlmacen:datos->datos->porAlmacen, porPedido:datos->datos->porPedido, cajasPorModelo:datos->datos->cajasPorModelo",
+        )
+        .eq("account_id", accountId)
+        .maybeSingle();
+      const fila = data as
+        | {
+            vm: string | null;
+            renglones: RenglonInventario[] | null;
+            totales: ResumenInventario["totales"] | null;
+            porAlmacen: ResumenInventario["porAlmacen"] | null;
+            porPedido: ResumenInventario["porPedido"] | null;
+            cajasPorModelo: Record<string, number> | null;
+          }
+        | null;
+      if (fila?.renglones && fila.totales && fila.vm === VERSION_MOTOR) {
+        const datos: ResumenInventario = {
+          renglones: fila.renglones,
+          totales: fila.totales,
+          porAlmacen: fila.porAlmacen ?? [],
+          porPedido: fila.porPedido ?? [],
+          cajasPorModelo: fila.cajasPorModelo ?? {},
+          crudos: { corridas: [], skus: [] },
+        };
+        cacheInventarioLigero.set(accountId, { en: Date.now(), datos });
+        return datos;
+      }
+    } catch {
+      // Sin fila o error de lectura: cae al camino completo de abajo.
+    }
+  }
 
   // El resultado masticado en la base (como plan_cache): lo escriben
   // recalcularInventario y el latido, y lo marca obsoleto invalidar() con
@@ -199,6 +252,10 @@ export async function recalcularInventario(db: DB, accountId: string): Promise<R
   const t0 = Date.now();
   const datos = await cargarInventarioSinCache(db, accountId);
   cacheInventario.set(accountId, { en: Date.now(), datos });
+  cacheInventarioLigero.set(accountId, {
+    en: Date.now(),
+    datos: { ...datos, crudos: { corridas: [], skus: [] } },
+  });
 
   const guardado: InventarioGuardado = { versionMotor: VERSION_MOTOR, datos };
   const { error } = await db.from("inventario_cache").upsert(

@@ -1,34 +1,46 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import Link from "next/link";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
-import type { RenglonInventario } from "@/lib/servicios/inventario";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { filtrarBodega, textoBusquedaBodega } from "@/lib/reporte/filtro";
+import { BotonDescarga } from "@/components/ui/boton-descarga";
+
+/**
+ * El renglón que la vista de Bodega de verdad pinta. Antes viajaba
+ * `RenglonInventario` completo (13 campos, con título, inventoryId y las
+ * columnas de MELI que esta vista nunca muestra): ~40 % del payload era
+ * carga muerta. La página proyecta a esto en el servidor.
+ */
+export interface RenglonBodega {
+  sku: string;
+  modelo: string;
+  color: string;
+  talla: string;
+  enBodega: number;
+  enCamino: number;
+  pedidos: { pedido: string; almacen: string; cajas: number; pares: number }[];
+}
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
 /**
- * Tabla de inventario por SKU.
+ * Tabla de Bodega por SKU: dónde está el producto (cajas cerradas en bodega
+ * o todavía en camino de China) y de qué pedidos sale.
  *
- * Cada renglón dice dónde está el producto, no solo cuánto hay: en Full, en
- * camino a Full, en cajas en bodega, o todavía en China. Son cuatro lugares
- * distintos con cuatro tiempos de disponibilidad distintos, y confundirlos es
- * lo que hace que uno crea que tiene producto cuando en realidad está a seis
- * semanas de tenerlo.
+ * La búsqueda corre sobre un texto precalculado por renglón y con valor
+ * DIFERIDO: teclear responde al instante aunque haya miles de filas. El
+ * Excel de la vista serializa LOS MISMOS filtros: pantalla y archivo nunca
+ * difieren (contrato de reporte/filtro.ts).
  */
 export function TablaInventario({
   renglones,
-  soloBodega,
   almacenes,
   busquedaInicial = "",
 }: {
-  renglones: RenglonInventario[];
+  renglones: RenglonBodega[];
   /** texto con el que arranca el buscador (viene de la barra superior) */
   busquedaInicial?: string;
-  /** true = la vista de Bodega: sin columnas de MELI, solo bodega y China */
-  soloBodega?: boolean;
   /** los almacenes que existen, para poder filtrar por bodega */
   almacenes?: string[];
 }) {
@@ -37,31 +49,49 @@ export function TablaInventario({
   const [almacen, setAlmacen] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
 
-  const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
+  // El buscador de la barra superior navega a /inventario?q=…; sin esto, el
+  // input se quedaba con la búsqueda anterior y la nueva no hacía nada.
+  useEffect(() => {
+    setBusqueda(busquedaInicial);
+  }, [busquedaInicial]);
 
+  // El input pinta cada tecla al instante; el filtrado usa el valor diferido.
+  // La función es LA MISMA que usa /api/inventario/excel: pantalla y archivo
+  // no pueden diferir (contrato de reporte/filtro.ts, con prueba de paridad).
+  // El texto de búsqueda de cada renglón se arma UNA vez por carga, no en
+  // cada tecla (con miles de filas, reconstruirlo por pulsación se siente).
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const textos = useMemo(() => renglones.map(textoBusquedaBodega), [renglones]);
   const filtrados = useMemo(
     () =>
-      renglones.filter((r) => {
-        const relevante = soloBodega ? r.enBodega + r.enCamino : r.total;
-        if (soloConExistencia && relevante === 0) return false;
-        if (almacen && !r.pedidos.some((p) => p.almacen === almacen)) return false;
-        return coincide(
-          `${r.sku} ${r.modelo} ${r.color} ${r.talla} ${r.pedidos.map((p) => p.pedido).join(" ")}`,
-          terminos,
-        );
-      }),
-    [renglones, terminos, soloConExistencia, soloBodega, almacen],
+      filtrarBodega(
+        renglones,
+        {
+          q: busquedaDiferida,
+          almacen,
+          conCeros: !soloConExistencia,
+        },
+        textos,
+      ),
+    [renglones, textos, busquedaDiferida, soloConExistencia, almacen],
   );
 
   const totales = useMemo(
     () => ({
-      enFull: filtrados.reduce((a, r) => a + r.enFull, 0),
-      enTransferencia: filtrados.reduce((a, r) => a + r.enTransferencia, 0),
       enBodega: filtrados.reduce((a, r) => a + r.enBodega, 0),
       enCamino: filtrados.reduce((a, r) => a + r.enCamino, 0),
     }),
     [filtrados],
   );
+
+  const urlExcel = useMemo(() => {
+    const p = new URLSearchParams();
+    if (busqueda.trim()) p.set("q", busqueda.trim());
+    if (almacen) p.set("almacen", almacen);
+    if (!soloConExistencia) p.set("conCeros", "1");
+    const qs = p.toString();
+    return `/api/inventario/excel${qs ? `?${qs}` : ""}`;
+  }, [busqueda, almacen, soloConExistencia]);
 
   return (
     <section className="tarjeta overflow-hidden">
@@ -102,26 +132,14 @@ export function TablaInventario({
           >
             Solo con existencia
           </button>
-          {soloBodega ? (
-            <a
-              href={`/api/inventario/excel${almacen ? `?almacen=${encodeURIComponent(almacen)}` : ""}`}
-              className="rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap"
-              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
-            >
-              Excel de esta vista
-            </a>
-          ) : null}
+          <BotonDescarga href={urlExcel} chico title="Baja exactamente lo que ves: misma búsqueda y mismos filtros">
+            Excel de esta vista
+          </BotonDescarga>
         </div>
 
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          <strong className="cifra">{filtrados.length}</strong> SKUs
-          {!soloBodega ? (
-            <>
-              {" "}· Full <span className="cifra">{n(totales.enFull)}</span> · hacia Full{" "}
-              <span className="cifra">{n(totales.enTransferencia)}</span>
-            </>
-          ) : null}{" "}
-          · bodega <span className="cifra">{n(totales.enBodega)}</span> · China{" "}
+          <strong className="cifra">{filtrados.length}</strong> SKUs · bodega{" "}
+          <span className="cifra">{n(totales.enBodega)}</span> · en camino de China{" "}
           <span className="cifra">{n(totales.enCamino)}</span>
         </p>
       </header>
@@ -130,20 +148,14 @@ export function TablaInventario({
         <table className="datos">
           <thead>
             <tr>
-              {/* En Bodega el SKU de MELI/Full sobra: aquí se piensa en
-                  modelo + color + talla, lo de MELI vive en su sección. */}
-              {!soloBodega ? <th>SKU</th> : null}
+              {/* En Bodega el SKU de MELI/Full sobra como columna propia: aquí
+                  se piensa en modelo + color + talla; lo de MELI vive en su
+                  sección. */}
               <th>Modelo</th>
               <th>Color</th>
               <th className="num">Talla</th>
-              {!soloBodega ? (
-                <>
-                  <th className="num">En Full</th>
-                  <th className="num">Hacia Full</th>
-                </>
-              ) : null}
               <th className="num">Bodega</th>
-              <th className="num">China</th>
+              <th className="num">En camino de China</th>
               <th className="num">Total</th>
               <th>Pedidos</th>
             </tr>
@@ -154,47 +166,14 @@ export function TablaInventario({
               return (
                 <Fragment key={r.sku}>
                   <tr>
-                    {!soloBodega ? (
-                      <td>
-                        <Link
-                          href={`/sku/${encodeURIComponent(r.sku)}`}
-                          className="font-medium underline decoration-dotted underline-offset-2"
-                          style={{ color: "var(--acento)" }}
-                        >
-                          {r.sku}
-                        </Link>
-                        {r.inventoryId ? (
-                          <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                            Full: {r.inventoryId}
-                          </div>
-                        ) : null}
-                      </td>
-                    ) : null}
                     <td className="text-sm font-medium">{r.modelo}</td>
                     <td className="text-sm">{r.color}</td>
                     <td className="num cifra text-sm">{r.talla}</td>
-                    {!soloBodega ? (
-                      <>
-                        <td
-                          className="num cifra font-medium"
-                          style={{
-                            color: r.enFull === 0 ? "var(--estado-critico)" : "var(--ink-1)",
-                          }}
-                        >
-                          {n(r.enFull)}
-                        </td>
-                        <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                          {r.enTransferencia ? n(r.enTransferencia) : "—"}
-                        </td>
-                      </>
-                    ) : null}
                     <td className="num cifra">{r.enBodega ? n(r.enBodega) : "—"}</td>
                     <td className="num cifra" style={{ color: "var(--ink-2)" }}>
                       {r.enCamino ? n(r.enCamino) : "—"}
                     </td>
-                    <td className="num cifra font-semibold">
-                      {n(soloBodega ? r.enBodega + r.enCamino : r.total)}
-                    </td>
+                    <td className="num cifra font-semibold">{n(r.enBodega + r.enCamino)}</td>
                     <td className="text-xs">
                       {r.pedidos.length === 0 ? (
                         <span style={{ color: "var(--ink-muted)" }}>—</span>
@@ -205,6 +184,7 @@ export function TablaInventario({
                       ) : (
                         <button
                           onClick={() => setExpandido(abierto ? null : r.sku)}
+                          aria-expanded={abierto}
                           className="underline"
                           style={{ color: "var(--acento)" }}
                         >
@@ -217,14 +197,10 @@ export function TablaInventario({
                   {abierto
                     ? r.pedidos.map((p) => (
                         <tr key={`${r.sku}-${p.pedido}-${p.almacen}`}>
-                          <td
-                            colSpan={soloBodega ? 3 : 4}
-                            className="pl-8 text-xs"
-                            style={{ color: "var(--ink-2)" }}
-                          >
+                          <td colSpan={3} className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
                             Pedido <strong>{p.pedido}</strong> · {p.almacen}
                           </td>
-                          <td colSpan={soloBodega ? 3 : 5} className="text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td colSpan={3} className="text-xs" style={{ color: "var(--ink-2)" }}>
                             {n(p.cajas)} cajas
                           </td>
                           <td className="num cifra text-xs">{n(p.pares)} pares</td>
@@ -240,7 +216,8 @@ export function TablaInventario({
 
       {filtrados.length > 500 ? (
         <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
-          Se muestran los primeros 500 de {filtrados.length}. Afina la búsqueda para ver el resto.
+          Se muestran los primeros 500 de {filtrados.length}. Afina la búsqueda para ver el resto;
+          el Excel de esta vista los trae todos.
         </footer>
       ) : null}
     </section>

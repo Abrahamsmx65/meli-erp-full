@@ -3,13 +3,16 @@ import ExcelJS from "exceljs";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarInventario } from "@/lib/servicios/inventario";
+import { filtrarBodega } from "@/lib/reporte/filtro";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * El Excel de Bodega: los mismos renglones de la pantalla, con sus cajas por
- * pedido. `?almacen=` limita a una bodega, igual que el filtro de la vista.
+ * El Excel de Bodega: EXACTAMENTE lo que la pantalla muestra, con los mismos
+ * filtros — `?q=` (la misma búsqueda por palabras), `?almacen=` y
+ * `?conCeros=1` cuando la vista incluye los SKUs sin existencia. Antes solo
+ * respetaba el almacén y «Excel de esta vista» mentía.
  */
 export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
@@ -22,11 +25,15 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
 
   const almacen = req.nextUrl.searchParams.get("almacen") || "";
-  const inv = await cargarInventario(supabase, cuenta.id);
+  const conCeros = req.nextUrl.searchParams.get("conCeros") === "1";
+  const inv = await cargarInventario(supabase, cuenta.id, { sinCrudos: true });
 
-  const filas = inv.renglones.filter((r) => {
-    if (r.enBodega + r.enCamino <= 0) return false;
-    return !almacen || r.pedidos.some((p) => p.almacen === almacen);
+  // LA MISMA función que filtra la pantalla (contrato de reporte/filtro.ts,
+  // con prueba de paridad): el archivo trae exactamente lo que se ve.
+  const filas = filtrarBodega(inv.renglones, {
+    q: req.nextUrl.searchParams.get("q"),
+    almacen,
+    conCeros,
   });
 
   const libro = new ExcelJS.Workbook();
