@@ -177,26 +177,28 @@ export async function enviosActivos(db: DB, accountId: string): Promise<EnvioReg
 /**
  * Lo que se pinta en pantalla: los que van en camino Y los que caducaron
  * hace poco, para que se vea qué pasó con cada uno.
+ *
+ * SOLO LECTURA: la lista muestra 7 campos de cabecera, así que no baja el
+ * detalle por caja (cientos de KB que se tiraban), y ya no caduca aquí — un
+ * GET no debe escribir. La caducidad la aplica `enviosActivos`, que corre
+ * con cada recálculo del plan en el fondo (latido).
  */
 export async function enviosParaPantalla(
   db: DB,
   accountId: string,
 ): Promise<EnvioRegistrado[]> {
-  // Caducar y leer TODO en una sola pasada (antes eran tres viajes en serie).
-  const corte = new Date(Date.now() - DIAS_CADUCIDAD * 86_400_000).toISOString();
-  await db
-    .from("envios_full")
-    .update({
-      estado: "caducado",
-      notas: `Caducó a los ${DIAS_CADUCIDAD} días: el stock ya debe estar en Full`,
-    })
-    .eq("account_id", accountId)
-    .eq("estado", "enviado")
-    .lt("enviado_en", corte);
-
-  const todos = await leerEnvios(db, accountId, ["enviado", "caducado", "recibido"]);
+  const todos = await leerEnvios(db, accountId, ["enviado", "caducado", "recibido"], undefined, {
+    conDetalle: false,
+  });
   const hace30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  return todos.filter((e) => e.estado === "enviado" || e.enviadoEn >= hace30);
+  const corte = new Date(Date.now() - DIAS_CADUCIDAD * 86_400_000).toISOString();
+  return todos
+    .map((e) =>
+      // Si el fondo aún no lo marcó, la pantalla lo PINTA como caducado igual
+      // (el dato manda, no el momento del UPDATE).
+      e.estado === "enviado" && e.enviadoEn < corte ? { ...e, estado: "caducado" as const } : e,
+    )
+    .filter((e) => e.estado === "enviado" || e.enviadoEn >= hace30);
 }
 
 async function leerEnvios(
@@ -204,7 +206,9 @@ async function leerEnvios(
   accountId: string,
   estados: string[],
   ultimosDias?: number,
+  opts?: { conDetalle?: boolean },
 ): Promise<EnvioRegistrado[]> {
+  const conDetalle = opts?.conDetalle !== false;
   let q = db
     .from("envios_full")
     .select("id, folio, bodegas, cajas, pares, enviado_en, estado")
@@ -219,16 +223,19 @@ async function leerEnvios(
 
   // Las cajas se leen DIRECTO, no embebidas: el tope db-max-rows también
   // corta los recursos embebidos SIN avisar (HTTP 200; PostgREST #2776), y
-  // un recorte aquí descontaría pares en camino del plan.
+  // un recorte aquí descontaría pares en camino del plan. La pantalla no
+  // las necesita (conDetalle: false) y se ahorra el viaje completo.
   const envios = (data ?? []) as any[];
-  const cajasCrudas = await porTandas(envios.map((e) => e.id as string), 200, (tanda) =>
-    traerTodo<any>(
-      db,
-      "envio_cajas",
-      "envio_id, caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle",
-      (qq) => qq.in("envio_id", tanda),
-    ),
-  );
+  const cajasCrudas = !conDetalle
+    ? ([] as any[])
+    : await porTandas(envios.map((e) => e.id as string), 200, (tanda) =>
+        traerTodo<any>(
+          db,
+          "envio_cajas",
+          "envio_id, caja_codigo, almacen, sku_caja, pedido, cantidad, pares, detalle",
+          (qq) => qq.in("envio_id", tanda),
+        ),
+      );
   const cajasPorEnvio = new Map<string, any[]>();
   for (const c of cajasCrudas) {
     const lista = cajasPorEnvio.get(c.envio_id) ?? [];
