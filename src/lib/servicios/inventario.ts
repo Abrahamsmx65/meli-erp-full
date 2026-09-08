@@ -225,6 +225,11 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     almacenes: almacenesRaw.filter((a) => a.surte_full).map((a) => a.almacen),
   });
 
+  // Estas cajas son EXACTAMENTE las que catalogoBodega() volvería a armar
+  // leyendo las mismas tablas: se dejan servidas en su caché para que abrir
+  // Bodega y luego el plan de FBA no construya el catálogo dos veces.
+  cacheCatalogo.set(accountId, { en: Date.now(), datos: { catalogo, skus } });
+
   // --- Bodega: de cajas a pares por SKU -----------------------------------
   const bodega = new Map<
     string,

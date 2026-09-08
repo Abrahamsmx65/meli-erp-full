@@ -1,20 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import {
-  cargarAmazon,
-  cuentaAmazon,
-  estadoRecarga,
-  normalizarDias,
-  SIN_LIMITE,
-} from "@/lib/servicios/amazon";
-import { mapaCorridas, sugerirEnvioFba } from "@/lib/servicios/fba";
-import { aplicarEnCamino, enCaminoFba } from "@/lib/servicios/fba-en-camino";
-import { planFbaConCajas } from "@/lib/servicios/fba-plan";
-import { catalogoBodega } from "@/lib/servicios/inventario";
-import { separarEnvios } from "@/lib/servicios/envios";
-import { desglosarOpcionales } from "@/lib/reporte/opcionales";
-import { normalizarParametros } from "@/lib/engine/params";
-import { indexarCatalogo } from "@/lib/etiquetas/resolver";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaAmazon, estadoRecarga, normalizarDias } from "@/lib/servicios/amazon";
+import { obtenerPlanFba } from "@/lib/servicios/plan-fba-cache";
 import { CajasFba } from "@/components/cajas-fba";
 import { EnviosFba } from "@/components/envios-fba";
 import { EnviosViejosFba } from "@/components/envios-viejos-fba";
@@ -26,15 +13,6 @@ export const dynamic = "force-dynamic";
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
-
-/**
- * El bloque pesado de la página (dos agregaciones en Postgres, el catálogo
- * de bodega y el optimizador de cajas) con un minuto de caché por instancia:
- * los insumos cambian con el cron, no con cada clic, y sin esto cada visita
- * pagaba 3-5 s de cálculo completo.
- */
-const cachePlanFba = new Map<string, { en: number; datos: any }>();
-const VIDA_CACHE_PLAN_MS = 60_000;
 
 /**
  * Envíos a FBA: existencias en Amazon y qué cajas completas mandar.
@@ -68,16 +46,15 @@ export default async function Amazon({
     );
   }
 
-  const claveCache = `${cuenta.id}|${cuentaMeli?.id ?? ""}|${dias}`;
-  const guardado = cachePlanFba.get(claveCache);
-  const calculado =
-    guardado && Date.now() - guardado.en < VIDA_CACHE_PLAN_MS
-      ? guardado.datos
-      : await calcularPagina(supabase, cuenta.id, cuentaMeli?.id ?? null, dias);
-  if (calculado !== guardado?.datos) {
-    cachePlanFba.set(claveCache, { en: Date.now(), datos: calculado });
-  }
-  const { totales, recarga, enCamino, sugerencias, planFba, desglose, enviosFba } = calculado;
+  // El bloque pesado (agregaciones, catálogo de bodega y optimizador de
+  // cajas) vive precalculado en `plan_fba_cache`, como el plan de Full: la
+  // página lee un renglón y solo recalcula si algo lo invalidó. El avance de
+  // la recarga histórica sí se lee fresco: es un indicador de progreso.
+  const [calculado, recarga] = await Promise.all([
+    obtenerPlanFba(supabase, cuenta.id, cuentaMeli?.id ?? null, dias),
+    estadoRecarga(supabase, cuenta.id),
+  ]);
+  const { totales, enCamino, sugerencias, planFba, desglose, enviosFba } = calculado;
 
   const enTransito = enCamino
     ? [...(enCamino.porSku.values() as Iterable<number>)].reduce((a: number, b: number) => a + b, 0)
@@ -131,75 +108,4 @@ export default async function Amazon({
       <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>
   );
-}
-
-/** Todo el trabajo caro de la página, separado para poderlo cachear. */
-async function calcularPagina(
-  supabase: Awaited<ReturnType<typeof clienteServidor>>,
-  cuentaId: string,
-  cuentaMeliId: string | null,
-  dias: number,
-) {
-  const [{ renglones: renglonesCrudos, totales }, recarga, corridasRaw, skusMeli, bodega, paramsBd, enCamino] =
-    await Promise.all([
-      // SIN límite: con el top-500, el 64% del calzado con venta quedaba
-      // invisible para el plan (esta página no pinta renglones crudos).
-      cargarAmazon(supabase, dias, "", SIN_LIMITE),
-      estadoRecarga(supabase, cuentaId),
-      cuentaMeliId
-        ? traerTodo<any>(supabase, "corridas", "modelo, color, tallas, total, pedido", (q) =>
-            q.eq("account_id", cuentaMeliId),
-          )
-        : Promise.resolve([]),
-      // El catálogo de MELI amarra los SKUs de Amazon (escritos en otro
-      // orden) a su modelo+color real. SOLO activos: tras un renombre en
-      // MELI, el nombre viejo (apagado) ganaba el amarre exacto y la
-      // necesidad quedaba con una llave que ninguna caja usa — el SKU salía
-      // "sin caja en bodega" con la bodega llena.
-      cuentaMeliId
-        ? traerTodo<any>(supabase, "skus", "sku, modelo, color, talla", (q) =>
-            q.eq("account_id", cuentaMeliId).eq("activo", true),
-          )
-        : Promise.resolve([]),
-      cuentaMeliId ? catalogoBodega(supabase, cuentaMeliId) : Promise.resolve(null),
-      cuentaMeliId
-        ? supabase.from("parametros").select("datos").eq("account_id", cuentaMeliId).maybeSingle()
-        : Promise.resolve({ data: null }),
-      enCaminoFba(supabase, cuentaId),
-    ]);
-
-  // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
-  // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
-  // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
-  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
-
-  const indiceMeli = indexarCatalogo(skusMeli);
-  const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
-
-  // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
-  const planFba = planFbaConCajas({
-    renglones,
-    dias,
-    catalogo: bodega?.catalogo.cajas ?? [],
-    indiceMeli,
-    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
-  });
-  const desglose = desglosarOpcionales(
-    planFba.cajas.map((c) => ({
-      codigo: c.codigo,
-      cantidad: c.cantidad,
-      paresPorCaja: c.paresPorCaja,
-      cantidadOpcional: c.cantidadOpcional,
-      aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresPorCaja: a.paresPorCaja })),
-    })),
-    planFba.lineas,
-  );
-
-  // Igual que MELI: un envío sale de UNA dirección. Caseshop e Industher van
-  // juntas y EnvioPack aparte, según almacenes_activos.grupo_envio.
-  const enviosFba = cuentaMeliId
-    ? await separarEnvios(supabase, cuentaMeliId, planFba.cajas)
-    : { envios: [], sinConfigurar: [] };
-
-  return { totales, recarga, enCamino, sugerencias, planFba, desglose, enviosFba };
 }

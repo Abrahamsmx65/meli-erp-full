@@ -255,4 +255,11 @@ export async function invalidar(
     .from("plan_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId);
+  // El plan de FBA come de la misma bodega (cajas, corridas, amarres,
+  // envíos): todo lo que invalida al plan de Full lo invalida a él también.
+  // La escritura va directo aquí para no importar el módulo de FBA (ciclo).
+  await db
+    .from("plan_fba_cache")
+    .update({ vigente: false, motivo })
+    .eq("meli_account_id", accountId);
 }

@@ -172,8 +172,130 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     }
   };
 
-  const [ventas, skus, stock, snapshots, config] = await Promise.all([
-    leerVentas(),
+  /**
+   * Un renglón por SKU con las sumas que este monitor hacía en Node. La
+   * forma es la misma que devuelve el RPC `ventas_resumen_sku`; el respaldo
+   * renglón por renglón produce EXACTAMENTE lo mismo desde la tabla cruda.
+   */
+  interface AgregadoSku {
+    sku: string;
+    unidades: number;
+    ordenes: number;
+    importe: number;
+    comision: number;
+    /** neto real donde llegó y es creíble (> 0); importe − comisión donde no */
+    netoResuelto: number;
+    importeNetoReal: number;
+    comisionNetoReal: number;
+    netoReal: number;
+    unidadesHoy: number;
+    unidadesPrev: number;
+  }
+  interface Agregados {
+    porSku: AgregadoSku[];
+    porDia: Map<string, ResumenDia>;
+  }
+
+  // Sumado en Postgres: bajar decenas de miles de renglones para sumarlos
+  // aquí era el costo más alto de abrir la pantalla.
+  const agregadosDesdeRpc = async (): Promise<Agregados | null> => {
+    const hastaTotales = hoy > finRango ? hoy : finRango;
+    const [porSkuR, porDiaR] = await Promise.all([
+      db.rpc("ventas_resumen_sku", {
+        p_account: accountId,
+        p_desde: inicioSemana,
+        p_hasta: finRango,
+        p_prev_desde: previo.desde,
+        p_prev_hasta: previo.hasta,
+        p_hoy: hoy,
+      }),
+      db.rpc("ventas_totales_dia", {
+        p_account: accountId,
+        p_desde: inicioPrev,
+        p_hasta: hastaTotales,
+      }),
+    ]);
+    if (porSkuR.error || porDiaR.error) return null;
+    const porSku: AgregadoSku[] = ((porSkuR.data ?? []) as any[]).map((f) => ({
+      sku: String(f.sku),
+      unidades: Number(f.unidades) || 0,
+      ordenes: Number(f.ordenes) || 0,
+      importe: Number(f.importe) || 0,
+      comision: Number(f.comision) || 0,
+      netoResuelto: Number(f.neto_resuelto) || 0,
+      importeNetoReal: Number(f.importe_neto_real) || 0,
+      comisionNetoReal: Number(f.comision_neto_real) || 0,
+      netoReal: Number(f.neto_real) || 0,
+      unidadesHoy: Number(f.unidades_hoy) || 0,
+      unidadesPrev: Number(f.unidades_prev) || 0,
+    }));
+    const porDia = new Map<string, ResumenDia>(
+      ((porDiaR.data ?? []) as any[]).map((f) => [
+        String(f.fecha),
+        {
+          unidades: Number(f.unidades) || 0,
+          importe: Number(f.importe) || 0,
+          ordenes: Number(f.ordenes) || 0,
+        },
+      ]),
+    );
+    return { porSku, porDia };
+  };
+
+  // Respaldo renglón por renglón (si el RPC no existe todavía en la base):
+  // las mismas cuentas de siempre, solo que dejando la MISMA forma agregada.
+  const agregadosDesdeRenglones = (filas: any[]): Agregados => {
+    const porSku = new Map<string, AgregadoSku>();
+    const porDia = new Map<string, ResumenDia>();
+    for (const v of filas) {
+      const d = porDia.get(v.fecha) ?? { unidades: 0, importe: 0, ordenes: 0 };
+      d.unidades += v.unidades ?? 0;
+      d.importe += v.importe ?? 0;
+      d.ordenes += v.ordenes ?? 0;
+      porDia.set(v.fecha, d);
+
+      const a =
+        porSku.get(v.sku) ??
+        {
+          sku: v.sku,
+          unidades: 0,
+          ordenes: 0,
+          importe: 0,
+          comision: 0,
+          netoResuelto: 0,
+          importeNetoReal: 0,
+          comisionNetoReal: 0,
+          netoReal: 0,
+          unidadesHoy: 0,
+          unidadesPrev: 0,
+        };
+      if (v.fecha >= inicioSemana && v.fecha <= finRango) {
+        a.unidades += v.unidades ?? 0;
+        a.ordenes += v.ordenes ?? 0;
+        a.importe += v.importe ?? 0;
+        a.comision += v.comision ?? 0;
+        // El neto REAL depositado por MELI cuando ya se conoce; si no, la
+        // mejor aproximación: importe menos la comisión. Un neto en 0 o
+        // negativo con venta ese día NO es creíble como dato (viene de
+        // pagos rechazados cacheados antes del arreglo de multipagos).
+        const netoRealFila = v.neto != null && Number(v.neto) > 0 ? Number(v.neto) : null;
+        a.netoResuelto += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
+        if (netoRealFila != null) {
+          a.importeNetoReal += v.importe ?? 0;
+          a.comisionNetoReal += v.comision ?? 0;
+          a.netoReal += netoRealFila;
+        }
+        if (v.fecha === hoy) a.unidadesHoy += v.unidades ?? 0;
+      } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
+        a.unidadesPrev += v.unidades ?? 0;
+      }
+      porSku.set(v.sku, a);
+    }
+    return { porSku: [...porSku.values()], porDia };
+  };
+
+  const [agregados, skus, stock, snapshots, config] = await Promise.all([
+    (async () => (await agregadosDesdeRpc()) ?? agregadosDesdeRenglones(await leerVentas()))(),
     traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
@@ -203,11 +325,11 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     let unidades = 0;
     let importe = 0;
     let ordenes = 0;
-    for (const v of ventas) {
-      if (v.fecha < desde || v.fecha > hasta) continue;
-      unidades += v.unidades ?? 0;
-      importe += v.importe ?? 0;
-      ordenes += v.ordenes ?? 0;
+    for (const [fecha, d] of agregados.porDia) {
+      if (fecha < desde || fecha > hasta) continue;
+      unidades += d.unidades;
+      importe += d.importe;
+      ordenes += d.ordenes;
     }
     return { unidades, importe, ordenes };
   };
@@ -229,8 +351,8 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   let comisionConNetoReal = 0;
   let netoRealSolo = 0;
 
-  for (const v of ventas) {
-    const { modelo, color } = partes(v.sku);
+  for (const a of agregados.porSku) {
+    const { modelo, color } = partes(a.sku);
     const m =
       modelos.get(modelo) ??
       { unidades7: 0, unidades7Prev: 0, importe7: 0, unidadesHoy: 0, colores: new Set<string>() };
@@ -239,37 +361,23 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       productos.get(claveProd) ??
       { modelo, color, d7: 0, prev7: 0, importe7: 0, neto7: 0 };
 
-    if (v.fecha >= inicioSemana && v.fecha <= finRango) {
-      m.unidades7 += v.unidades ?? 0;
-      m.importe7 += v.importe ?? 0;
-      pr.d7 += v.unidades ?? 0;
-      pr.importe7 += v.importe ?? 0;
-      // Acumuladores del desglose de dinero del periodo.
-      brutoP += v.importe ?? 0;
-      comisionP += v.comision ?? 0;
-      const netoRealFila = v.neto != null && Number(v.neto) > 0 ? Number(v.neto) : null;
-      netoP += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
-      if (netoRealFila != null) {
-        brutoConNetoReal += v.importe ?? 0;
-        comisionConNetoReal += v.comision ?? 0;
-        netoRealSolo += netoRealFila;
-      }
-      // El neto REAL depositado por MELI cuando ya se conoce (incluye
-      // comisión, envío y retenciones); si no, la mejor aproximación:
-      // importe menos la comisión.
-      // Un neto en 0 o negativo con venta ese día NO es creíble como dato
-      // (viene de pagos rechazados cacheados antes del arreglo de
-      // multipagos): se usa el respaldo importe − comisión hasta que el
-      // barrido vuelva a pedir el neto real.
-      pr.neto7 +=
-        v.neto != null && Number(v.neto) > 0
-          ? Number(v.neto)
-          : (v.importe ?? 0) - (v.comision ?? 0);
-      if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
-    } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
-      m.unidades7Prev += v.unidades ?? 0;
-      pr.prev7 += v.unidades ?? 0;
-    }
+    m.unidades7 += a.unidades;
+    m.importe7 += a.importe;
+    m.unidadesHoy += a.unidadesHoy;
+    m.unidades7Prev += a.unidadesPrev;
+    pr.d7 += a.unidades;
+    pr.importe7 += a.importe;
+    pr.neto7 += a.netoResuelto;
+    pr.prev7 += a.unidadesPrev;
+
+    // Acumuladores del desglose de dinero del periodo.
+    brutoP += a.importe;
+    comisionP += a.comision;
+    netoP += a.netoResuelto;
+    brutoConNetoReal += a.importeNetoReal;
+    comisionConNetoReal += a.comisionNetoReal;
+    netoRealSolo += a.netoReal;
+
     if (color) m.colores.add(color);
     modelos.set(modelo, m);
     productos.set(claveProd, pr);

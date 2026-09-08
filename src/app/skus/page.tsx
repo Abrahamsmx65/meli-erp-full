@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { Estado, colorEstado } from "@/components/estado";
 import { BarraCobertura } from "@/components/tiles";
 
@@ -18,7 +18,15 @@ export default async function Skus() {
     return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
   }
 
-  const { plan } = await obtenerPlan(supabase, cuenta.id);
+  // Esta tabla usa solo las líneas y los parámetros del plan: se leen esas
+  // claves del caché sin bajar el JSON completo (las cajas y el catálogo
+  // pesan varios megas); sin plan guardado, obtenerPlan como siempre.
+  const parcial = await leerPlanParcial(supabase, cuenta.id, ["lineas", "parametros"]);
+  const plan = (
+    parcial?.lineas && parcial?.parametros
+      ? { lineas: parcial.lineas, parametros: parcial.parametros }
+      : (await obtenerPlan(supabase, cuenta.id)).plan
+  ) as Pick<PlanGuardado, "lineas" | "parametros">;
   const p = plan.parametros;
   const maxCobertura = Math.max(p.horizonteDias * 2, 60);
 

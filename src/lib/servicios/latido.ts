@@ -6,6 +6,7 @@ import { continuarCargosPendientes } from "./cargos-meli";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
+import { sincronizarPublicidadDiaria } from "./publicidad-sync";
 
 /** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
 export const EDAD_MAX_PLAN_MS = 3 * 60_000;
@@ -134,6 +135,35 @@ export async function latido(
       }
     }
 
+    // Product Ads se sincroniza a la base (`publicidad_diaria`) cada hora,
+    // montado en el latido: así /ventas, /publicidad y los cortes suman de
+    // la base en vez de pedirle a MELI el barrido de anuncios en cada
+    // render. Un fallo queda en sync_log (tarea ads_auto) y se reintenta a
+    // la hora; mientras la base no cubra un rango, esas pantallas siguen
+    // preguntando en vivo, así que nunca faltan datos.
+    if (Date.now() < finDrenado - 30_000) {
+      const { data: ultimaAds } = await admin
+        .from("sync_log")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("tarea", "ads_auto")
+        .gte("inicio", new Date(Date.now() - 3_600_000).toISOString())
+        .limit(1);
+      if (!ultimaAds?.length) {
+        const idAds = await registrarSync(admin, accountId, "ads_auto");
+        try {
+          const r = await sincronizarPublicidadDiaria(admin, accountId, {
+            limiteMs: Math.min(90_000, finDrenado - Date.now() - 15_000),
+          });
+          await cerrarSync(admin, idAds, "ok", r);
+        } catch (err) {
+          await cerrarSync(admin, idAds, "error", {
+            mensaje: (err as Error).message.slice(0, 300),
+          });
+        }
+      }
+    }
+
     // El inventario de bodega (API de Industher) se refresca solo cada 3
     // horas montado en el latido: con solo el cron diario, las cajas que el
     // almacén movía a media mañana no se veían hasta el día siguiente. Un
@@ -194,7 +224,7 @@ export async function latido(
     // Amazon avanza montado en este mismo latido, con su propio espaciado.
     // Un tropiezo de Amazon jamás debe tumbar el latido de MELI.
     try {
-      await latidoAmazon(admin);
+      await latidoAmazon(admin, accountId);
     } catch (err) {
       console.error("latidoAmazon:", (err as Error).message);
     }

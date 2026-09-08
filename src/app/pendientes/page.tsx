@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,11 @@ export default async function Pendientes() {
     return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
   }
 
-  const [{ plan }, { data: rojosRaw }, { data: ttSinAmarreRaw }] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
+  // Esta pantalla solo usa los pendientes del plan: se leen esas claves del
+  // caché sin bajar el JSON completo (pesa varios megas); si no hay plan
+  // guardado todavía, se cae a obtenerPlan como siempre.
+  const [parcial, { data: rojosRaw }, { data: ttSinAmarreRaw }] = await Promise.all([
+    leerPlanParcial(supabase, cuenta.id, ["pendientes"]),
     // TikTok: un saldo negativo es que se vendió algo que nunca entró al
     // kardex. No se puede frenar a TikTok, pero sí gritar aquí.
     supabase.from("tiktok_inventario").select("sku, saldo, apartado").eq("account_id", cuenta.id).lt("saldo", 0),
@@ -26,7 +29,8 @@ export default async function Pendientes() {
       .eq("estado", "ACTIVATE")
       .is("sku_interno", null),
   ]);
-  const { pendientes } = plan;
+  const pendientes = (parcial?.pendientes ??
+    (await obtenerPlan(supabase, cuenta.id)).plan.pendientes) as PlanGuardado["pendientes"];
   const { sinCorrida, sinAmarre } = pendientes;
   const rojosTikTok = (rojosRaw ?? []) as { sku: string; saldo: number; apartado: number }[];
   const tiktokSinAmarre = (ttSinAmarreRaw ?? []) as { sku_id: string; seller_sku: string | null; titulo: string | null }[];

@@ -18,7 +18,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
-import { diasDeRango, normalizarRango, type RangoFechas } from "./ventas-monitor";
+import { diasDeRango, fechaMx, normalizarRango, type RangoFechas } from "./ventas-monitor";
 
 export interface FilaPublicidad {
   modelo: string;
@@ -301,6 +301,54 @@ export async function traerAnunciosAds(
   }
 
   return anuncios;
+}
+
+/**
+ * Los anuncios del rango LEÍDOS DE LA BASE (`publicidad_diaria`, sumados por
+ * `publicidad_resumen_items`), en vez de pedírselos a MELI en cada render.
+ *
+ * Devuelve null cuando la base no puede contestar COMPLETO y hay que caer al
+ * API en vivo: la sincronización aún no cubre el rango pedido, el rango
+ * termina hoy pero la última corrida ya está vieja (el gasto de hoy sigue
+ * creciendo), o las tablas/función no existen todavía. Nunca se contesta con
+ * datos a medias.
+ */
+async function anunciosDesdeBase(
+  db: DB,
+  accountId: string,
+  r: RangoFechas,
+): Promise<AnuncioAds[] | null> {
+  const { data: est, error } = await db
+    .from("publicidad_sync")
+    .select("desde, hasta, actualizado_en")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error || !est) return null;
+  if (est.desde > r.desde || est.hasta < r.hasta) return null;
+
+  // El rango incluye HOY: solo sirve si la sincronización corrió hace poco
+  // (el latido la corre cada hora); si no, en vivo como siempre.
+  const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
+  if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
+
+  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+    p_account: accountId,
+    p_desde: r.desde,
+    p_hasta: r.hasta,
+  });
+  if (errorRpc) return null;
+
+  return ((data ?? []) as any[]).map((f) => ({
+    itemId: String(f.item_id),
+    gasto: Number(f.gasto) || 0,
+    clicks: Number(f.clicks) || 0,
+    impresiones: Number(f.impresiones) || 0,
+    unidadesAds: Number(f.unidades_ads) || 0,
+    ventaAds: Number(f.venta_ads) || 0,
+    estado: f.estado ?? null,
+    campanaId: f.campana_id ?? null,
+    titulo: f.titulo ?? null,
+  }));
 }
 
 /** Las campañas de Product Ads con su presupuesto y ACOS objetivo. */
@@ -773,8 +821,54 @@ export async function cargarPublicidad(
     }
   };
 
-  const [ventas, skus, config, stock, cliente] = await Promise.all([
-    leerVentas(),
+  /**
+   * Las ventas del periodo SUMADAS EN POSTGRES (`ventas_resumen_sku`), en
+   * vez de bajar la tabla cruda para sumarla aquí. El renglón sintético por
+   * SKU lleva `neto` en null y `comision` = importe − neto resuelto, para
+   * que armarPublicidad (importe − comisión) recupere EXACTAMENTE el neto
+   * que la base ya resolvió: real donde llegó, importe − comisión donde no.
+   * Si el RPC no existe todavía, el respaldo baja los renglones como siempre.
+   */
+  const diaAntes = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
+  const leerVentasAgregadas = async (): Promise<{
+    periodo: VentaDiaria[];
+    skusConHistoria: Set<string>;
+  }> => {
+    const { data, error } = await db.rpc("ventas_resumen_sku", {
+      p_account: cuenta.id,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
+      p_prev_desde: desdeHistoria,
+      p_prev_hasta: diaAntes,
+      p_hoy: r.hasta,
+    });
+    if (!error) {
+      const periodo: VentaDiaria[] = [];
+      const skusConHistoria = new Set<string>();
+      for (const f of (data ?? []) as any[]) {
+        const sku = String(f.sku);
+        const unidades = Number(f.unidades) || 0;
+        const importe = Number(f.importe) || 0;
+        const neto = Number(f.neto_resuelto) || 0;
+        if ((Number(f.unidades_prev) || 0) > 0) skusConHistoria.add(sku);
+        if (unidades === 0 && importe === 0 && neto === 0) continue;
+        periodo.push({ sku, fecha: r.desde, unidades, importe, comision: importe - neto, neto: null });
+      }
+      return { periodo, skusConHistoria };
+    }
+
+    const filas = await leerVentas();
+    const skusConHistoria = new Set<string>();
+    for (const v of filas) {
+      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) skusConHistoria.add(v.sku);
+    }
+    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria };
+  };
+
+  const [ventasAgregadas, deBase, skus, config, stock, cliente] = await Promise.all([
+    leerVentasAgregadas(),
+    // Los anuncios desde la base, cuando la sincronización cubre el rango.
+    anunciosDesdeBase(db, cuenta.id, r).catch(() => null),
     traerTodo<{ sku: string; modelo: string | null; item_id: string | null }>(
       db,
       "skus",
@@ -820,7 +914,10 @@ export async function cargarPublicidad(
 
   let anuncios: AnuncioAds[] = [];
   let errorAds: string | null = null;
-  if (!cliente) {
+  if (deBase) {
+    // La base cubre el rango completo y está fresca: ni una llamada a MELI.
+    anuncios = deBase;
+  } else if (!cliente) {
     errorAds =
       "No se pudieron leer los tokens de MELI: revisa que la cuenta esté conectada en Ajustes.";
   } else {
@@ -843,12 +940,10 @@ export async function cargarPublicidad(
 
   // El panel usa SOLO las ventas del periodo; las 60 días previas solo
   // marcan qué modelos ya vendían antes (para no regañar lanzamientos).
-  const ventasPeriodo = ventas.filter((v) => v.fecha >= r.desde);
+  const ventasPeriodo = ventasAgregadas.periodo;
   const modelosConHistoria = new Set<string>();
-  for (const v of ventas) {
-    if (v.fecha < r.desde && (v.unidades ?? 0) > 0) {
-      modelosConHistoria.add(modeloDeSku.get(v.sku) ?? (v.sku.split("-")[0] || v.sku));
-    }
+  for (const sku of ventasAgregadas.skusConHistoria) {
+    modelosConHistoria.add(modeloDeSku.get(sku) ?? (sku.split("-")[0] || sku));
   }
 
   const datos = armarPublicidad({
