@@ -160,13 +160,16 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
 
   // Cascada.
   seccion("De la venta a la ganancia", "Cada renglón es dinero real: lo que Mercado Pago depositó, lo que costó el producto y lo que se pagó aparte.");
-  type Renglon = { etiqueta: string; monto: number; tipo: "base" | "resta" | "total" | "final"; nota?: string };
+  type Renglon = { etiqueta: string; monto: number; tipo: "base" | "resta" | "suma" | "total" | "final"; nota?: string };
   const cascada: Renglon[] = [
     { etiqueta: "Venta bruta", monto: e.ventaBruta, tipo: "base", nota: "precio × pares de las órdenes pagadas" },
     { etiqueta: "Comisión de MELI", monto: -e.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas` : ""}` },
     { etiqueta: "Envíos y otros cargos", monto: -e.enviosYOtros, tipo: "resta", nota: "envío de Full, retenciones de ISR/IVA: la diferencia contra el depósito" },
     { etiqueta: "Neto depositado por Mercado Pago", monto: e.netoDepositado, tipo: "total", nota: e.netoEstimado > 0 ? `${pesosPdf(e.netoEstimado)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes" },
-    { etiqueta: "Devoluciones", monto: -e.devoluciones.monto, tipo: "resta", nota: `${enteros(e.devoluciones.ordenes)} órdenes devueltas o con contracargo` },
+    { etiqueta: "Devoluciones", monto: -e.devoluciones.monto, tipo: "resta", nota: `${enteros(e.devoluciones.ordenes)} órdenes devueltas o con contracargo: lo reembolsado al comprador` },
+    ...(e.devoluciones.ordenes
+      ? [{ etiqueta: "Costo recuperado de devoluciones", monto: e.devoluciones.costoRecuperado, tipo: "suma" as const, nota: `${enteros(e.devoluciones.unidades)} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${pesosPdf(e.devoluciones.costoEstimado)} estimado)` : ""}` }]
+      : []),
     { etiqueta: "Costo de producto", monto: -e.costoProducto, tipo: "resta", nota: `${enteros(e.unidadesConCosto)} de ${enteros(e.unidades)} pares con costo capturado` },
     { etiqueta: "Utilidad bruta", monto: e.utilidadBruta, tipo: "total" },
     { etiqueta: "Publicidad", monto: -e.publicidad.total, tipo: "resta", nota: `Product Ads ${pesosPdf(e.publicidad.ads)}${e.publicidad.manual ? ` + a mano ${pesosPdf(e.publicidad.manual)}` : ""}` },
@@ -184,7 +187,7 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
     if (esTotal) linea(y, LINEA, 0.8);
     const f = esTotal ? negrita : normal;
     const tam = r.tipo === "final" ? 12 : esTotal ? 10 : 9.5;
-    const color = r.tipo === "final" ? (r.monto < 0 ? ROJO : VERDE) : esTotal ? TINTA : r.tipo === "resta" ? GRIS : TINTA;
+    const color = r.tipo === "final" ? (r.monto < 0 ? ROJO : VERDE) : r.tipo === "suma" ? VERDE : esTotal ? TINTA : r.tipo === "resta" ? GRIS : TINTA;
     texto(r.etiqueta, M, y - 13, tam, f, r.tipo === "resta" ? TINTA : color);
     if (r.nota) texto(r.nota, M, y - 23, 7, normal, GRIS_CLARO);
     // Barra proporcional a la venta bruta.
@@ -195,10 +198,10 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
         y: y - 15,
         width: w,
         height: 8,
-        color: r.tipo === "resta" ? rgb(0.93, 0.62, 0.66) : r.tipo === "final" ? (r.monto < 0 ? ROJO : VERDE) : r.tipo === "total" ? ACENTO : rgb(0.75, 0.78, 0.84),
+        color: r.tipo === "resta" ? rgb(0.93, 0.62, 0.66) : r.tipo === "suma" ? rgb(0.72, 0.89, 0.78) : r.tipo === "final" ? (r.monto < 0 ? ROJO : VERDE) : r.tipo === "total" ? ACENTO : rgb(0.75, 0.78, 0.84),
       });
     }
-    textoDer(pesosPdf(r.monto), M + ANCHO, y - 13, tam, f, color);
+    textoDer((r.tipo === "suma" ? "+" : "") + pesosPdf(r.monto), M + ANCHO, y - 13, tam, f, color);
     y -= alto;
   }
   y -= 8;
@@ -324,7 +327,7 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
       { t: "Monto", w: ANCHO - 70 - 300 - 80, der: true },
     ];
     cabecera(colsG);
-    const clase: Record<string, string> = { full: "Full", publicidad: "Publicidad", otro: "Otro", venta: "En el neto", pago: "Pago/abono" };
+    const clase: Record<string, string> = { full: "Full", publicidad: "Publicidad", otro: "Otro", venta: "En el neto", pago: "Pago/abono", bonificacion: "Anulación", resumen: "Resumen" };
     for (const g of e.gastosManuales) fila(colsG, [fechaLarga(g.fecha), g.concepto, `${clase[g.categoria] ?? g.categoria} (a mano)`, pesosPdf(g.monto)]);
     for (const k of e.cargosPorTipo) fila(colsG, ["MELI", `${k.tipo} · ${k.renglones} renglones`, clase[k.clase] ?? k.clase, pesosPdf(k.monto)], { fondo: k.clase === "full" });
     y -= 10;

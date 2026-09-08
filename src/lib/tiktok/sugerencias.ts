@@ -7,7 +7,7 @@
  * que no filtra: se enseñan los candidatos y la persona decide. Un empate
  * nunca se resuelve solo.
  */
-import { canonizar } from "../importar/sku";
+import { canonizar, claveComparacion } from "../importar/sku";
 import { partirSku } from "./despacho";
 
 function tallaDigitos(talla: string | null | undefined): string {
@@ -23,13 +23,18 @@ function pedazos(sku: string): { modelo: string; talla: string } {
 export function sugerirParecidos(sku: string, candidatos: string[], tope = 4): string[] {
   const base = pedazos(sku);
   if (!base.modelo || !base.talla) return [];
-  const propio = canonizar(sku);
-  const salida: string[] = [];
+  // El del MISMO nombre también se sugiere, y primero: si el renglón está
+  // sin ligar a pesar de llamarse igual, es que la publicación quedó
+  // amarrada a otro lado (a un nombre viejo, al de MELI) y ligarla aquí es
+  // justo la corrección.
+  const propio = claveComparacion(sku);
+  const iguales: string[] = [];
+  const parecidos: string[] = [];
   for (const c of candidatos) {
-    if (!c || canonizar(c) === propio) continue;
+    if (!c || c === sku) continue;
     const p = pedazos(c);
-    if (p.modelo === base.modelo && p.talla === base.talla) salida.push(c);
-    if (salida.length >= tope) break;
+    if (p.modelo !== base.modelo || p.talla !== base.talla) continue;
+    (claveComparacion(c) === propio ? iguales : parecidos).push(c);
   }
-  return salida;
+  return [...iguales, ...parecidos].slice(0, tope);
 }

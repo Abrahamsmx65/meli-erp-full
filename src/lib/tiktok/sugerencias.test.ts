@@ -16,4 +16,10 @@ describe("sugerirParecidos", () => {
     expect(sugerirParecidos("MY2304-BROWN-27", pubs)).toEqual(["MY2304-CAMEL-27-MX"]);
     expect(sugerirParecidos("GT160-BLK-23", pubs)).toEqual([]);
   });
+  it("el del mismo nombre canónico sí se sugiere, y primero (publicación amarrada a otro lado)", () => {
+    const conGemelo = ["GT102-NAVY-24-MX", "GT102-WHITE-24-MX"];
+    expect(sugerirParecidos("GT102-WHITE-24", conGemelo)).toEqual(["GT102-WHITE-24-MX", "GT102-NAVY-24-MX"]);
+    // el idéntico exacto no se sugiere a sí mismo
+    expect(sugerirParecidos("GT102-WHITE-24-MX", conGemelo)).toEqual(["GT102-NAVY-24-MX"]);
+  });
 });

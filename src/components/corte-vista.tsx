@@ -171,7 +171,7 @@ export function CorteVista({
                 {e.cargosPorTipo.map((k) => (
                   <tr key={k.tipo}>
                     <td className="font-medium">{k.tipo}</td>
-                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad (API)", pago: "Pago / abono", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
+                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
                     <td className="num cifra">{n(k.renglones)}</td>
                     <td className="num cifra">{pesos(k.monto)}</td>
                   </tr>
@@ -304,6 +304,10 @@ export function CorteVista({
                     <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" style={{ color: "var(--acento)" }}>
                       PDF
                     </a>
+                    {" · "}
+                    <a href={`${apiBase}/cortes/${c.id}/excel`} style={{ color: "var(--acento)" }}>
+                      Excel
+                    </a>
                   </td>
                 </tr>
               ))}
@@ -321,12 +325,15 @@ export function CorteVista({
 
 
 function Cascada({ e }: { e: EstadoResultados }) {
-  const filas: { etiqueta: string; nota?: string; monto: number; tipo: "base" | "resta" | "total" | "final" }[] = [
+  const filas: { etiqueta: string; nota?: string; monto: number; tipo: "base" | "resta" | "suma" | "total" | "final" }[] = [
     { etiqueta: "Venta bruta", nota: "precio × pares de las órdenes pagadas", monto: e.ventaBruta, tipo: "base" },
     { etiqueta: "Comisión de MELI", nota: `sale fee de cada orden${e.reventa?.ordenes ? `; ${n(e.reventa.ordenes)} ventas en reventa por ${pesos(e.reventa.importe)} ya vienen netas (MELI absorbe comisión y envío)` : ""}`, monto: -e.comision, tipo: "resta" },
     { etiqueta: "Envíos y otros cargos", nota: "envío de Full, retenciones de ISR/IVA: diferencia contra el depósito", monto: -e.enviosYOtros, tipo: "resta" },
     { etiqueta: "Neto depositado por Mercado Pago", nota: e.netoEstimado > 0 ? `${pesos(e.netoEstimado)} todavía estimado (sin depósito real)` : "depósito real de todas las órdenes", monto: e.netoDepositado, tipo: "total" },
-    { etiqueta: "Devoluciones", nota: `${n(e.devoluciones.ordenes)} órdenes devueltas o con contracargo`, monto: -e.devoluciones.monto, tipo: "resta" },
+    { etiqueta: "Devoluciones", nota: `${n(e.devoluciones.ordenes)} órdenes devueltas o con contracargo: lo reembolsado al comprador`, monto: -e.devoluciones.monto, tipo: "resta" },
+    ...(e.devoluciones.ordenes
+      ? [{ etiqueta: "Costo recuperado de devoluciones", nota: `${n(e.devoluciones.unidades)} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${pesos(e.devoluciones.costoEstimado)} estimado)` : ""}`, monto: e.devoluciones.costoRecuperado, tipo: "suma" as const }]
+      : []),
     { etiqueta: "Costo de producto", nota: `${n(e.unidadesConCosto)} de ${n(e.unidades)} pares con costo capturado`, monto: -e.costoProducto, tipo: "resta" },
     { etiqueta: "Utilidad bruta", monto: e.utilidadBruta, tipo: "total" },
     { etiqueta: "Publicidad", nota: `Product Ads ${pesos(e.publicidad.ads)}${e.publicidad.manual ? ` + a mano ${pesos(e.publicidad.manual)}` : ""}${e.publicidad.sinAmarre ? ` (incluye ${pesos(e.publicidad.sinAmarre)} de anuncios sin amarre a modelo)` : ""}`, monto: -e.publicidad.total, tipo: "resta" },
@@ -340,7 +347,7 @@ function Cascada({ e }: { e: EstadoResultados }) {
       <tbody>
         {filas.map((f) => {
           const total = f.tipo === "total" || f.tipo === "final";
-          const color = f.tipo === "final" ? (f.monto < 0 ? "var(--estado-critico)" : "var(--exito-texto)") : total ? "var(--ink-1)" : "var(--ink-2)";
+          const color = f.tipo === "final" ? (f.monto < 0 ? "var(--estado-critico)" : "var(--exito-texto)") : f.tipo === "suma" ? "var(--exito-texto)" : total ? "var(--ink-1)" : "var(--ink-2)";
           return (
             <tr key={f.etiqueta} style={total ? { background: "var(--surface-2)" } : undefined}>
               <td className={total ? "font-semibold" : ""} style={{ color: f.tipo === "final" ? color : undefined }}>
@@ -352,9 +359,10 @@ function Cascada({ e }: { e: EstadoResultados }) {
                 ) : null}
               </td>
               <td className="hidden w-[40%] md:table-cell">
-                <div className="h-2 rounded-full" style={{ width: `${Math.min(100, Math.abs(f.monto) * escala)}%`, background: f.tipo === "resta" ? "#f3b3ba" : f.tipo === "final" ? color : f.tipo === "total" ? "var(--acento)" : "var(--axis)" }} />
+                <div className="h-2 rounded-full" style={{ width: `${Math.min(100, Math.abs(f.monto) * escala)}%`, background: f.tipo === "resta" ? "#f3b3ba" : f.tipo === "suma" ? "#b7e4c7" : f.tipo === "final" ? color : f.tipo === "total" ? "var(--acento)" : "var(--axis)" }} />
               </td>
               <td className={`num cifra ${total ? "font-semibold" : ""}`} style={{ color, fontSize: f.tipo === "final" ? "1.1rem" : undefined }}>
+                {f.tipo === "suma" ? "+" : ""}
                 {pesos(f.monto)}
               </td>
             </tr>

@@ -29,3 +29,13 @@ export function respuestaPdf(bytes: Uint8Array, nombre: string): NextResponse {
     },
   });
 }
+
+export function respuestaExcel(buffer: Buffer, nombre: string): NextResponse {
+  return new NextResponse(new Uint8Array(buffer), {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${nombre}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
