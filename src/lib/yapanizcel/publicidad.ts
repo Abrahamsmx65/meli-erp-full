@@ -10,6 +10,7 @@
 import type { DB } from "../datos/repos";
 import { MeliError } from "../meli/client";
 import { resolverAdvertiser, traerAnunciosAds } from "../servicios/publicidad";
+import { clienteAdmin } from "../supabase/server";
 import { clienteDeCuenta, type CuentaYz } from "./cuenta";
 import { todo } from "./db";
 import { desglosar } from "./sku";
@@ -20,16 +21,19 @@ export interface AdsPorDiseno {
   error: string | null;
 }
 
-export async function adsPorDiseno(admin: DB, cuenta: CuentaYz, rango: { desde: string; hasta: string }): Promise<AdsPorDiseno> {
+export async function adsPorDiseno(db: DB, cuenta: CuentaYz, rango: { desde: string; hasta: string }): Promise<AdsPorDiseno> {
   const salida: AdsPorDiseno = { porDiseno: new Map(), sinAmarre: 0, error: null };
   let cliente;
   try {
-    cliente = await clienteDeCuenta(admin, cuenta.id);
+    // Los tokens viven en yz_tokens, con RLS y cero políticas: SOLO el
+    // service role los lee. Con el cliente de la sesión la cuenta "no
+    // estaba conectada" aunque sí lo estuviera.
+    cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
   } catch (err) {
     salida.error = (err as Error).message;
     return salida;
   }
-  const skus = await todo<{ sku: string; item_id: string | null; diseno: string | null }>(admin, "yz_skus", "sku, item_id, diseno", (q) =>
+  const skus = await todo<{ sku: string; item_id: string | null; diseno: string | null }>(db, "yz_skus", "sku, item_id, diseno", (q) =>
     q.eq("account_id", cuenta.id).not("item_id", "is", null),
   );
   const disenosDeItem = new Map<string, Set<string>>();
