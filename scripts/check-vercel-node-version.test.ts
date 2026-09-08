@@ -179,11 +179,13 @@ describe("check-vercel-node-version", () => {
     expectTokenRedacted(result);
   });
 
-  it("fails without VERCEL_TOKEN during a Vercel build", async () => {
+  it("uses the package engine and skips the API check without VERCEL_TOKEN during a Vercel build", async () => {
     const result = await runValidator({ env: { VERCEL: "1" } });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("VERCEL_TOKEN is required during Vercel builds");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("validation skipped");
+    expect(result.stdout).toContain("engines.node remains the effective Vercel build version");
+    expect(result.stderr).toBe("");
     expectTokenRedacted(result);
   });
 

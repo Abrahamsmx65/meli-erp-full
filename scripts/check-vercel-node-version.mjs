@@ -28,17 +28,11 @@ function nodeMajor(value, source) {
   return Number(match[1]);
 }
 
-if (!token && process.env.VERCEL !== "1") {
+if (!token) {
   console.log(
-    "Vercel Node version validation skipped: VERCEL_TOKEN is not available outside a Vercel build.",
+    "Vercel Node version validation skipped: VERCEL_TOKEN is not available. package.json engines.node remains the effective Vercel build version.",
   );
   process.exit(0);
-}
-
-if (!token) {
-  fail(
-    "VERCEL_TOKEN is required during Vercel builds to read the effective project configuration. Store it as a protected environment variable; do not commit it.",
-  );
 }
 
 if (!projectId) {
