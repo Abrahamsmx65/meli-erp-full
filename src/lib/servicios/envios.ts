@@ -52,13 +52,21 @@ export async function separarEnvios(
   db: DB,
   accountId: string,
   cajas: CajaGuardada[],
+  /**
+   * Los almacenes ya leídos, para no repetir el viaje cuando el llamador los
+   * trae en su mismo Promise.all (la página de envíos los pedía en serie,
+   * DESPUÉS de tener todo lo demás).
+   */
+  almacenesPre?: { almacen: string; grupo_envio: string | null }[],
 ): Promise<PlanDeEnvios> {
-  const almacenes = await traerTodo<any>(
-    db,
-    "almacenes_activos",
-    "almacen, surte_full, grupo_envio",
-    (q) => q.eq("account_id", accountId),
-  );
+  const almacenes =
+    almacenesPre ??
+    (await traerTodo<any>(
+      db,
+      "almacenes_activos",
+      "almacen, surte_full, grupo_envio",
+      (q) => q.eq("account_id", accountId),
+    ));
 
   const grupoDe = new Map<string, string>();
   for (const a of almacenes) {

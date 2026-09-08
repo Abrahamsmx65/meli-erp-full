@@ -28,9 +28,10 @@ function n(x: number): string {
 }
 
 export default async function Plan() {
-  const reloj = cronometro("/envios");
+  const t = cronometro("/envios");
   const supabase = await clienteServidor();
-  const cuenta = await reloj.medir("cuenta", cuentaActiva(supabase));
+  const cuenta = await cuentaActiva(supabase);
+  t.marca("cuenta");
 
   if (!cuenta) {
     return (
@@ -48,16 +49,19 @@ export default async function Plan() {
   // resto de la página pinta de inmediato.
   const pendientesPromesa = enviosPendientesIndusther(supabase, cuenta.id);
 
-  // El plan y los envíos registrados no dependen uno del otro: en paralelo.
-  const [estado, enCamino, corridasRaw] = await Promise.all([
-    reloj.medir("plan", obtenerPlan(supabase, cuenta.id)),
-    reloj.medir("registrados", enviosParaPantalla(supabase, cuenta.id)),
-    // Para repartir por talla las filas de CORRIDA de los envíos pendientes.
-    traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
-      q.eq("account_id", cuenta.id),
-    ).catch(() => [] as any[]),
+  // Todo lo independiente en UN solo Promise.all: el plan, los envíos
+  // registrados y los almacenes (que antes se leían en serie, después).
+  const [estado, enCamino, almacenesRaw] = await Promise.all([
+    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    t.medir("registrados", enviosParaPantalla(supabase, cuenta.id)),
+    traerTodo<{ almacen: string; grupo_envio: string | null }>(
+      supabase,
+      "almacenes_activos",
+      "almacen, surte_full, grupo_envio",
+      (q) => q.eq("account_id", cuenta.id),
+    ).catch(() => [] as { almacen: string; grupo_envio: string | null }[]),
   ]);
-  reloj.fin();
+  t.fin();
   const plan = estado.plan;
   const { pendientes, catalogo } = plan;
   const r = plan.resumen;
@@ -97,19 +101,8 @@ export default async function Plan() {
   }));
 
   // Las cajas del plan, repartidas en los envíos que de verdad se van a dar de
-  // alta: uno por dirección de recolección.
-  const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas);
-
-  // Insumos de la verificación (se calcula dentro del Suspense, porque
-  // necesita la respuesta del API de Industher).
-  const indicePlan = indexarCatalogo(plan.lineas);
-  const corridasPendientes = (corridasRaw ?? []).map((c: any) => ({
-    pedido: String(c.pedido ?? ""),
-    modelo: String(c.modelo ?? ""),
-    color: String(c.color ?? ""),
-    tallas: (c.tallas ?? {}) as Record<string, number>,
-  }));
-
+  // alta: uno por dirección de recolección. Los almacenes ya vienen leídos.
+  const { envios, sinConfigurar } = await separarEnvios(supabase, cuenta.id, plan.cajas, almacenesRaw);
 
   // Lo acordado: el total oficial son las cajas OBLIGATORIAS; las del rescate
   // de tallas (opcionales) se muestran aparte con su sobrante por talla, y el
@@ -125,9 +118,13 @@ export default async function Plan() {
     plan.lineas.map((l) => ({ sku: l.sku, sugerido: l.sugerido })),
   );
 
+  // UNA sola copia de las cajas viaja al navegador; la tabla del plan y las
+  // tarjetas de envío la comparten (antes se serializaba dos veces: ~medio
+  // mega duplicado en cada carga y en cada refresh).
   const filasCaja: FilaCajaPlan[] = plan.cajas.map((c) => ({
     codigo: c.codigo,
     skuCaja: c.skuCaja,
+    pedido: c.pedido,
     modelo: c.modelo,
     color: c.color,
     almacen: c.almacen,
@@ -135,10 +132,23 @@ export default async function Plan() {
     talla: c.talla,
     cantidad: c.cantidad,
     cajasDisponibles: c.cajasDisponibles,
+    paresPorCaja: c.paresPorCaja,
     paresTotales: c.paresTotales,
     cantidadOpcional: Math.min(c.cantidad, c.cantidadOpcional ?? 0),
     deMas: textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? []),
-    aporta: c.aporta.map((a) => ({ sku: a.sku, talla: a.talla, paresTotales: a.paresTotales })),
+    aporta: c.aporta.map((a) => ({
+      sku: a.sku,
+      talla: a.talla,
+      paresPorCaja: a.paresPorCaja,
+      paresTotales: a.paresTotales,
+    })),
+  }));
+
+  const grupos = envios.map((e) => ({
+    grupo: e.grupo,
+    nombre: e.nombre,
+    almacenes: e.almacenes,
+    codigos: e.cajas.map((c) => c.codigo),
   }));
 
   return (
@@ -261,43 +271,12 @@ export default async function Plan() {
         }))}
       />
 
-      <EnviosSeparados
-        envios={envios.map((e) => ({
-          grupo: e.grupo,
-          nombre: e.nombre,
-          almacenes: e.almacenes,
-          totalCajas: e.totalCajas,
-          totalPares: e.totalPares,
-          skus: e.skus,
-          porSku: e.porSku,
-          cajas: e.cajas.map((c) => ({
-            codigo: c.codigo,
-            skuCaja: c.skuCaja,
-            pedido: c.pedido,
-            modelo: c.modelo,
-            color: c.color,
-            almacen: c.almacen,
-            esCorrida: c.esCorrida,
-            talla: c.talla,
-            cantidad: c.cantidad,
-            cajasDisponibles: c.cajasDisponibles,
-            paresPorCaja: c.paresPorCaja,
-            paresTotales: c.paresTotales,
-            cantidadOpcional: c.cantidadOpcional,
-            aporta: c.aporta.map((a) => ({
-              sku: a.sku,
-              talla: a.talla,
-              paresPorCaja: a.paresPorCaja,
-              paresTotales: a.paresTotales,
-            })),
-          })),
-        }))}
-        sinConfigurar={sinConfigurar}
-      />
+      <EnviosSeparados grupos={grupos} cajas={filasCaja} sinConfigurar={sinConfigurar} />
 
       {/* ---- Doble verificación del envío ---------------------------------
            También espera al API de Industher (el solape con lo apartado):
-           llega por streaming después del resto. */}
+           llega por streaming después del resto. Las corridas para repartir
+           por talla se leen ADENTRO: no bloquean el primer pixel. */}
       {envios.length ? (
         <Suspense
           fallback={
@@ -309,8 +288,8 @@ export default async function Plan() {
           <SeccionVerificacion
             promesa={pendientesPromesa}
             envios={envios}
-            indicePlan={indicePlan}
-            corridasPendientes={corridasPendientes}
+            lineasPlan={plan.lineas}
+            accountId={cuenta.id}
           />
         </Suspense>
       ) : null}
@@ -344,11 +323,7 @@ function Bienvenida({
         {texto}
       </p>
       {cta ? (
-        <Link
-          href={cta.href}
-          className="mt-4 inline-block rounded-lg px-4 py-2 text-sm font-medium text-white"
-          style={{ background: "var(--acento)" }}
-        >
+        <Link href={cta.href} className="boton boton-primario mt-4 inline-flex">
           {cta.texto}
         </Link>
       ) : null}
@@ -372,21 +347,44 @@ async function SeccionPendientesBodega({
   promesa: ReturnType<typeof enviosPendientesIndusther>;
 }) {
   const pendientesBodega = await promesa;
-  return <PendientesIndusther envios={pendientesBodega.envios} error={pendientesBodega.error} />;
+  // Al navegador solo van los envíos de MELI y sus 5 campos de cabecera:
+  // antes viajaban TODOS los envíos con TODOS sus renglones (la prop más
+  // pesada de la página) y el filtro corría en el navegador.
+  const deMeli = pendientesBodega.envios
+    .filter((e) => e.esMeli)
+    .map((e) => ({ id: e.id, fecha: e.fecha, cajas: e.cajas, pares: e.pares, omitido: e.omitido }));
+  return <PendientesIndusther envios={deMeli} error={pendientesBodega.error} />;
 }
 
 async function SeccionVerificacion({
   promesa,
   envios,
-  indicePlan,
-  corridasPendientes,
+  lineasPlan,
+  accountId,
 }: {
   promesa: ReturnType<typeof enviosPendientesIndusther>;
   envios: Awaited<ReturnType<typeof separarEnvios>>["envios"];
-  indicePlan: ReturnType<typeof indexarCatalogo>;
-  corridasPendientes: { pedido: string; modelo: string; color: string; tallas: Record<string, number> }[];
+  lineasPlan: Parameters<typeof indexarCatalogo>[0];
+  accountId: string;
 }) {
-  const pendientesBodega = await promesa;
+  // Las corridas solo se usan aquí (repartir por talla las filas de CORRIDA
+  // de los pendientes): se leen dentro del Suspense, en paralelo con la
+  // espera del API de Industher, sin frenar el resto de la página.
+  const supabase = await clienteServidor();
+  const [pendientesBodega, corridasRaw] = await Promise.all([
+    promesa,
+    traerTodo<any>(supabase, "corridas", "pedido, modelo, color, tallas", (q) =>
+      q.eq("account_id", accountId),
+    ).catch(() => [] as any[]),
+  ]);
+  const indicePlan = indexarCatalogo(lineasPlan);
+  const corridasPendientes = (corridasRaw ?? []).map((c: any) => ({
+    pedido: String(c.pedido ?? ""),
+    modelo: String(c.modelo ?? ""),
+    color: String(c.color ?? ""),
+    tallas: (c.tallas ?? {}) as Record<string, number>,
+  }));
+
   // Doble verificación del envío: stock, cajas repetidas, cuadre de pares y
   // solape con lo que la bodega ya apartó. Los SKUs de los pendientes vienen
   // como los escribe la bodega: se amarran al SKU de MELI (y las corridas se

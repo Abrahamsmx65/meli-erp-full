@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Boton } from "@/components/ui/boton";
+import { avisar } from "@/components/ui/avisos";
+import { DialogoConfirmar } from "@/components/ui/dialogo-confirmar";
 
 interface EnvioEnCamino {
   id: string;
@@ -29,25 +32,33 @@ function hace(iso: string): string {
  *
  * Mientras estén aquí, sus cajas no cuentan como disponibles y sus pares
  * cuentan como en camino. Cuando MELI avise que llegó, un clic lo cierra;
- * si nadie lo cierra, se cierra solo a los 21 días.
+ * si nadie lo cierra, se cierra solo a los 7 días.
+ *
+ * Cerrar un envío actualiza la fila EN EL MOMENTO (tras confirmar el
+ * servidor) sin recargar la página completa: los números del plan los
+ * refresca el fondo en su siguiente recálculo.
  */
-export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
+export function EnviosEnCamino({ envios: iniciales }: { envios: EnvioEnCamino[] }) {
+  const [envios, setEnvios] = useState(iniciales);
   const [trabajando, setTrabajando] = useState<string | null>(null);
-  const router = useRouter();
+  const [confirmando, setConfirmando] = useState<EnvioEnCamino | null>(null);
 
-  const recibido = async (id: string) => {
-    if (trabajando) return;
-    if (!confirm("¿MELI ya recibió este envío en Full?")) return;
-    setTrabajando(id);
+  const recibido = async (e: EnvioEnCamino) => {
+    setTrabajando(e.id);
     try {
       const r = await fetch("/api/envios", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: e.id }),
       });
-      if (!r.ok) throw new Error((await r.json())?.error ?? "No se pudo marcar.");
-      router.refresh();
-    } catch {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? "No se pudo marcar.");
+      // Confirmado por el servidor: la fila cambia aquí mismo, sin refresh.
+      setEnvios((prev) => prev.map((x) => (x.id === e.id ? { ...x, estado: "recibido" } : x)));
+      avisar("exito", `Envío cerrado: sus ${n(e.pares)} pares dejan de contar como en camino en el siguiente recálculo.`);
+      setConfirmando(null);
+    } catch (err) {
+      avisar("error", (err as Error).message);
+    } finally {
       setTrabajando(null);
     }
   };
@@ -91,17 +102,13 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
               </div>
             </div>
             {e.estado === "enviado" ? (
-              <button
-                onClick={() => recibido(e.id)}
-                disabled={trabajando === e.id}
-                className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-                style={{
-                  borderColor: "var(--borde)",
-                  opacity: trabajando === e.id ? 0.6 : 1,
-                }}
+              <Boton
+                onClick={() => setConfirmando(e)}
+                disabled={trabajando !== null}
+                chico
               >
-                {trabajando === e.id ? "Cerrando…" : "Ya llegó a Full"}
-              </button>
+                Ya llegó a Full
+              </Boton>
             ) : (
               <span
                 className="rounded-full px-2.5 py-1 text-xs font-medium"
@@ -116,6 +123,28 @@ export function EnviosEnCamino({ envios }: { envios: EnvioEnCamino[] }) {
           </li>
         ))}
       </ul>
+
+      <DialogoConfirmar
+        abierto={confirmando !== null}
+        titulo="¿MELI ya recibió este envío en Full?"
+        confirmarTexto="Sí, ya llegó"
+        ocupado={trabajando !== null}
+        onConfirmar={() => confirmando && recibido(confirmando)}
+        onCerrar={() => (trabajando ? null : setConfirmando(null))}
+      >
+        {confirmando ? (
+          <p>
+            Al cerrarlo, sus <strong className="cifra">{n(confirmando.pares)}</strong> pares
+            {confirmando.cajas > 0 ? (
+              <>
+                {" "}(<span className="cifra">{n(confirmando.cajas)}</span> cajas)
+              </>
+            ) : null}{" "}
+            dejan de contar como «en camino» en el plan: hazlo solo cuando MELI ya los
+            muestre en Full, o el plan sugerirá mandar de más.
+          </p>
+        ) : null}
+      </DialogoConfirmar>
 
       <RegistrarManual />
     </section>
@@ -135,18 +164,23 @@ function RegistrarManual() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const registrar = async () => {
-    const renglones = pegado
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => {
-        const partes = l.split(/[\t,;]+|\s{2,}|\s+(?=\d+$)/).filter(Boolean);
-        return { sku: partes[0] ?? "", pares: Number(partes[1] ?? 0) };
-      })
-      .filter((r) => r.sku && r.pares > 0);
+  // Los renglones que se van a registrar y los que NO se pudieron leer: se
+  // muestran ANTES de guardar, para que un SKU mal pegado no desaparezca en
+  // silencio y el envío quede corto.
+  const lineas = pegado
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const renglones = lineas
+    .map((l) => {
+      const partes = l.split(/[\t,;]+|\s{2,}|\s+(?=\d+$)/).filter(Boolean);
+      return { linea: l, sku: partes[0] ?? "", pares: Number(partes[1] ?? 0) };
+    });
+  const validos = renglones.filter((r) => r.sku && r.pares > 0);
+  const ignorados = renglones.filter((r) => !(r.sku && r.pares > 0));
 
-    if (!renglones.length) {
+  const registrar = async () => {
+    if (!validos.length) {
       setError("Pega un SKU por renglón con sus pares al lado (SKU 48).");
       return;
     }
@@ -156,13 +190,14 @@ function RegistrarManual() {
       const r = await fetch("/api/envios", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ folio, renglones }),
+        body: JSON.stringify({ folio, renglones: validos.map(({ sku, pares }) => ({ sku, pares })) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo registrar.");
       setFolio("");
       setPegado("");
       setAbierto(false);
+      avisar("exito", `Envío registrado: ${validos.length} SKUs ya cuentan como en camino.`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -174,13 +209,9 @@ function RegistrarManual() {
   return (
     <div className="border-t p-4 hairline">
       {!abierto ? (
-        <button
-          onClick={() => setAbierto(true)}
-          className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-          style={{ borderColor: "var(--borde)" }}
-        >
+        <Boton onClick={() => setAbierto(true)} chico>
           Registrar un envío que ya va en camino
-        </button>
+        </Boton>
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-sm" style={{ color: "var(--ink-2)" }}>
@@ -192,6 +223,7 @@ function RegistrarManual() {
             value={folio}
             onChange={(e) => setFolio(e.target.value)}
             placeholder="Folio del envío en MELI (ej. 74713738)"
+            aria-label="Folio del envío en MELI"
             className="max-w-xs rounded-lg border px-2 py-1.5 text-sm"
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           />
@@ -200,31 +232,44 @@ function RegistrarManual() {
             onChange={(e) => setPegado(e.target.value)}
             rows={6}
             placeholder={"GT104-BLK-25-MX\t48\nGT204-PINK-23-MX\t24"}
+            aria-label="Lista de SKU y pares del envío"
             className="w-full rounded-lg border px-2 py-1.5 font-mono text-xs"
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           />
+          {pegado.trim() ? (
+            <p className="text-xs" style={{ color: ignorados.length ? "var(--estado-serio)" : "var(--ink-2)" }}>
+              Se leyeron <strong className="cifra">{validos.length}</strong> renglones (
+              <span className="cifra">{n(validos.reduce((a, r) => a + r.pares, 0))}</span> pares)
+              {ignorados.length ? (
+                <>
+                  {" "}· <strong>{ignorados.length} NO se entendieron y quedarían fuera</strong>:{" "}
+                  {ignorados
+                    .slice(0, 3)
+                    .map((r) => `«${r.linea.slice(0, 30)}»`)
+                    .join(", ")}
+                  {ignorados.length > 3 ? "…" : ""}
+                </>
+              ) : null}
+            </p>
+          ) : null}
           {error ? (
             <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
               {error}
             </p>
           ) : null}
           <div className="flex gap-2">
-            <button
-              onClick={() => setAbierto(false)}
-              disabled={guardando}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
-            >
+            <Boton variante="fantasma" onClick={() => setAbierto(false)} disabled={guardando}>
               Cancelar
-            </button>
-            <button
+            </Boton>
+            <Boton
+              variante="primario"
               onClick={registrar}
-              disabled={guardando || !pegado.trim()}
-              className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              disabled={!pegado.trim()}
+              cargando={guardando}
+              textoCargando="Registrando…"
             >
-              {guardando ? "Registrando…" : "Registrar envío"}
-            </button>
+              Registrar envío
+            </Boton>
           </div>
         </div>
       )}
