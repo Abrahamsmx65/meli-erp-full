@@ -69,6 +69,8 @@ export interface Publicidad {
   sinAmarre: { gasto: number; anuncios: number };
   /** por qué no hay datos de ads (sin permiso, sin advertiser…); null = todo bien */
   errorAds: string | null;
+  /** las métricas están completas, pero no se pudo cruzar stock para recomendar */
+  errorRecomendaciones: string | null;
 }
 
 /** Un anuncio de Product Ads ya reducido a lo que este panel usa. */
@@ -760,6 +762,7 @@ export function armarPublicidad(opts: {
     },
     sinAmarre,
     errorAds,
+    errorRecomendaciones: null,
   };
 }
 
@@ -865,7 +868,7 @@ export async function cargarPublicidad(
     return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria };
   };
 
-  const [ventasAgregadas, deBase, skus, config, stock, cliente] = await Promise.all([
+  const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
     leerVentasAgregadas(),
     // Los anuncios desde la base, cuando la sincronización cubre el rango.
     anunciosDesdeBase(db, cuenta.id, r).catch(() => null),
@@ -882,7 +885,12 @@ export async function cargarPublicidad(
       "stock_full",
       "sku, disponible, en_transferencia",
       (q) => q.eq("account_id", cuenta.id),
-    ).catch(() => []),
+    )
+      .then((filas) => ({ filas, error: null as string | null }))
+      .catch((err) => ({
+        filas: [] as { sku: string; disponible: number | null; en_transferencia: number | null }[],
+        error: `No se pudo leer el stock de Full: ${(err as Error).message}`,
+      })),
     // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
     // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
     // tabla se ve vacía aunque la cuenta esté conectada.
@@ -954,6 +962,7 @@ export async function cargarPublicidad(
     costoDeModelo,
     errorAds,
   });
+  datos.errorRecomendaciones = stockEstado.error;
 
   // --- Anuncios por modelo, para saber cuáles están pausados ---------------
   const itemsDeModelo = new Map<string, ItemDeModelo[]>();
@@ -974,7 +983,7 @@ export async function cargarPublicidad(
 
   // --- Recomendaciones: publicidad × stock × margen ------------------------
   const stockDeModelo = new Map<string, number>();
-  for (const s of stock) {
+  for (const s of stockEstado.filas) {
     const modelo = modeloDeSku.get(s.sku);
     if (!modelo) continue;
     stockDeModelo.set(
@@ -982,16 +991,20 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
-  datos.recomendaciones = armarRecomendaciones({
-    filas: datos.filas,
-    stockDeModelo,
-    dias: diasDeRango(r),
-    itemsDeModelo,
-    modelosConHistoria,
-  });
+  datos.recomendaciones = datos.errorRecomendaciones
+    ? []
+    : armarRecomendaciones({
+        filas: datos.filas,
+        stockDeModelo,
+        dias: diasDeRango(r),
+        itemsDeModelo,
+        modelosConHistoria,
+      });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
-  if (!errorAds) cachePublicidad.set(claveCache, { en: Date.now(), datos });
+  if (!errorAds && !datos.errorRecomendaciones) {
+    cachePublicidad.set(claveCache, { en: Date.now(), datos });
+  }
   return datos;
 }

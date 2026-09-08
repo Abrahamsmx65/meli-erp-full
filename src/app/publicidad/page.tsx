@@ -89,6 +89,23 @@ export default async function Publicidad({
         </div>
       ) : null}
 
+      {p.errorRecomendaciones ? (
+        <div
+          role="alert"
+          className="tarjeta border p-4 text-sm"
+          style={{ borderColor: "var(--estado-alerta)" }}
+        >
+          <div className="font-semibold">Recomendaciones temporalmente no disponibles</div>
+          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
+            {p.errorRecomendaciones}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+            Las ventas y métricas de publicidad sí están completas; no se muestran
+            recomendaciones hasta recuperar el stock para evitar sugerencias falsas.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
           titulo="Gasto en publicidad"
