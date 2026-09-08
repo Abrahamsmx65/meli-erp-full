@@ -167,10 +167,10 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       <section className="tarjeta overflow-hidden">
         <h2 className="px-4 pt-4 text-sm font-semibold">Cortes</h2>
         <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
-          Etiquetas y lista van en orden de modelo → color → talla, con el mismo número en las dos.
-          En la etiqueta, abajo a la derecha, van el número, el SKU con su cantidad y el código de
-          barras del producto (FNSKU). En la lista, cada renglón trae ese mismo FNSKU para
-          escanear: hoja, etiqueta y caja llevan el mismo código.
+          Surtido: pares por SKU en orden alfabético, para jalar de bodega. Etiquetas y lista de
+          empaque van en orden de modelo → color → talla, con el mismo número. En la etiqueta va el
+          CÓDIGO DEL PEDIDO en barras: escanearlo en la estación enseña qué empacar, y luego se
+          escanea el FNSKU de cada caja.
         </p>
         <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
           {cortes.map((c) => (
@@ -243,6 +243,15 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                     <ShieldCheck size={14} /> {preparandoTodo === c.id ? "Preparando…" : "Todo con clave"}
                   </button>
                 ) : null}
+                <a
+                  href={`/api/tiktok/cortes/${c.id}/surtido`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--grid)" }}
+                >
+                  Lista de surtido
+                </a>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/etiquetas`}
                   target="_blank"

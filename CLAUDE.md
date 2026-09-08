@@ -162,8 +162,11 @@ guárdala numerada.
   `pickup_slot` de `handover_time_slots`, si no TikTok lo vuelve drop-off), guarda el corte con sus pedidos (`tiktok_cortes`,
   `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
   de TikTok unidas con `pdf-lib` en orden modelo → color → talla y "#n · SKU"
-  estampado abajo a la derecha (nada más se toca), y la lista de empaque en
-  el mismo orden con los mismos números. El siguiente corte solo toma lo que
+  estampado abajo a la derecha junto al CÓDIGO DEL PEDIDO en barras (nada
+  más se toca; escanear la guía en la estación enseña qué empacar), la
+  lista de empaque en el mismo orden con los mismos números, y la lista de
+  SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
+  jalar de bodega. El siguiente corte solo toma lo que
   no tiene corte.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
