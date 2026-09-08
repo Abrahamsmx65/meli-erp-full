@@ -8,6 +8,7 @@ import {
   type Movimiento,
 } from "@/lib/servicios/ventas-monitor";
 import { cargarPublicidad } from "@/lib/servicios/publicidad";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
@@ -39,8 +40,10 @@ export default async function Ventas({
   const rango = normalizarRango(sp.desde, sp.hasta);
   const dias = diasDeRango(rango);
 
+  const t = cronometro("/ventas");
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
+  t.marca("cuenta");
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
@@ -57,12 +60,16 @@ export default async function Ventas({
   // tenga descontada: recibo − costo − publicidad. Si Product Ads no
   // contesta, el panel lo dice y la ganancia se muestra sin ads.
   const [m, ads] = await Promise.all([
-    cargarMonitor(supabase, cuenta.id, rango),
-    cargarPublicidad(supabase, cuenta, rango).catch((err) => ({
-      totales: { gastoAds: 0 },
-      errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
-    })),
+    t.medir("monitor", cargarMonitor(supabase, cuenta.id, rango)),
+    t.medir(
+      "publicidad",
+      cargarPublicidad(supabase, cuenta, rango).catch((err) => ({
+        totales: { gastoAds: 0 },
+        errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
+      })),
+    ),
   ]);
+  t.fin();
   const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
   const gananciaConAds = gastoAds == null ? null : m.desglose.gananciaReal - gastoAds;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;

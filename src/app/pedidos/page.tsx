@@ -3,6 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { conCacheApp } from "@/lib/servicios/cache-app";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
 import { sugerirCompra } from "@/lib/servicios/compras";
@@ -42,11 +43,12 @@ export default async function Pedidos() {
 
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
+  const t = cronometro("/pedidos");
   const [planEstado, inventario, pedidos, amazon] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
-    cargarInventario(supabase, cuenta.id),
-    listarPedidos(supabase, cuenta.id),
-    amazonParaCompras(supabase),
+    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    t.medir("inventario", cargarInventario(supabase, cuenta.id)),
+    t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
+    t.medir("amazon", amazonParaCompras(supabase)),
   ]);
 
   const inventarioPorSku = new Map(
@@ -65,17 +67,21 @@ export default async function Pedidos() {
   // (plan, inventario, sumas de Amazon): se guarda masticada en app_cache y
   // la invalida lo mismo que invalida al plan; la media hora de vida cubre
   // los insumos que cambian sin aviso (las sumas de Amazon del cron).
-  const compra = await conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
-    sugerirCompra(
-      supabase,
-      cuenta.id,
-      planEstado.plan.lineas,
-      inventarioPorSku,
-      undefined,
-      inventario.crudos,
-      amazon,
+  const compra = await t.medir(
+    "compra",
+    conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
+      sugerirCompra(
+        supabase,
+        cuenta.id,
+        planEstado.plan.lineas,
+        inventarioPorSku,
+        undefined,
+        inventario.crudos,
+        amazon,
+      ),
     ),
   );
+  t.fin();
 
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
