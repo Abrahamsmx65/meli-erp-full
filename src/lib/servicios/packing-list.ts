@@ -14,7 +14,7 @@
  */
 import type { LineaPacking, PackingList } from "../importar/packing-list";
 import { canonizar, claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
-import type { DB } from "../datos/repos";
+import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
@@ -96,12 +96,16 @@ async function cargarRenglones(db: DB, accountId: string) {
   });
 
   const ids = [...porPedidoId.keys()];
-  const { data: lineas } = ids.length
-    ? await db
-        .from("pedido_lineas")
-        .select("id, pedido_id, modelo, color, talla, cajas, pares_por_caja")
-        .in("pedido_id", ids)
-    : { data: [] as any[] };
+  // Paginado con traerTodo: con todos los pedidos vivos en el filtro, las
+  // líneas pasan de 1,000 y PostgREST cortaría ahí sin avisar.
+  const lineas = ids.length
+    ? await traerTodo<any>(
+        db,
+        "pedido_lineas",
+        "id, pedido_id, modelo, color, talla, cajas, pares_por_caja",
+        (q) => q.in("pedido_id", ids),
+      )
+    : ([] as any[]);
 
   const renglones: RenglonPedido[] = (lineas ?? []).map((l: any) => {
     const p = porPedidoId.get(l.pedido_id)!;
@@ -118,19 +122,22 @@ async function cargarRenglones(db: DB, accountId: string) {
     };
   });
 
-  // Lo embarcado por renglón, separado por contenedor.
-  const lineaIds = renglones.map((r) => r.id);
+  // Lo embarcado por renglón, separado por contenedor. Las tandas ya
+  // existían; ahora cada tanda además PAGINA (una línea repartida en varios
+  // contenedores multiplica las filas y 500 ids pueden pasar de 1,000).
+  const filasAsignadas = await porTandas(renglones.map((r) => r.id), 500, (tanda) =>
+    traerTodo<{ pedido_linea_id: string; contenedor_id: string; cajas: number | null }>(
+      db,
+      "contenedor_lineas",
+      "pedido_linea_id, contenedor_id, cajas",
+      (q) => q.in("pedido_linea_id", tanda),
+    ),
+  );
   const asignado = new Map<string, { contenedorId: string; cajas: number }[]>();
-  for (let i = 0; i < lineaIds.length; i += 500) {
-    const { data } = await db
-      .from("contenedor_lineas")
-      .select("pedido_linea_id, contenedor_id, cajas")
-      .in("pedido_linea_id", lineaIds.slice(i, i + 500));
-    for (const a of data ?? []) {
-      const lista = asignado.get(a.pedido_linea_id) ?? [];
-      lista.push({ contenedorId: a.contenedor_id, cajas: a.cajas ?? 0 });
-      asignado.set(a.pedido_linea_id, lista);
-    }
+  for (const a of filasAsignadas) {
+    const lista = asignado.get(a.pedido_linea_id) ?? [];
+    lista.push({ contenedorId: a.contenedor_id, cajas: a.cajas ?? 0 });
+    asignado.set(a.pedido_linea_id, lista);
   }
 
   return { renglones, idPorPedido, asignado };

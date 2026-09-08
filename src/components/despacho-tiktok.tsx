@@ -13,8 +13,8 @@ export interface CorteResumen {
   pares: number;
   handover: string;
   errores: { orderId: string; error: string }[];
-  /** paquetes que ya pasaron los tres escaneos */
-  preparados: number;
+  /** paquetes que ya pasaron los tres escaneos; null = no se pudo leer */
+  preparados: number | null;
 }
 
 function cuando(iso: string): string {
@@ -185,11 +185,11 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <span
                     className="ml-2 rounded-full px-2 text-[11px] font-semibold"
                     style={{
-                      background: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
-                      color: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
+                      background: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      color: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
                     }}
                   >
-                    {c.preparados} / {c.pedidos} preparados
+                    {c.preparados ?? "—"} / {c.pedidos} preparados
                   </span>
                 </div>
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
@@ -210,12 +210,12 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
-                {c.pedidos > 0 && c.preparados < c.pedidos ? (
+                {c.pedidos > 0 && c.preparados != null && c.preparados < c.pedidos ? (
                   <button
                     type="button"
                     disabled={preparandoTodo === c.id}
                     onClick={async () => {
-                      const faltan = c.pedidos - c.preparados;
+                      const faltan = c.pedidos - (c.preparados ?? 0);
                       const pin = window.prompt(
                         `Dar por preparado TODO el corte #${c.numero} sin escanear (faltan ${faltan}). Clave de supervisor:`,
                       );
