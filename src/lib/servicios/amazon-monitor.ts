@@ -56,6 +56,10 @@ export interface MonitorAmazon {
   publicidad: number | null;
   /** otros cargos de cuenta del periodo: almacenaje, suscripción… (negativo) */
   otrosCargos: number | null;
+  /** esos cargos por concepto, tal como los describe Amazon (negativo = cargo) */
+  otrosCargosDetalle: { concepto: string; monto: number }[];
+  /** reservas retenidas/soltadas por Amazon en el periodo: NO son gasto */
+  reservas: number;
   /** ganancia real − publicidad − otros cargos: lo que de verdad quedó */
   gananciaFinal: number | null;
   /**
@@ -190,14 +194,22 @@ export async function cargarMonitorAmazon(
   const pagosPorModelo = new Map<string, { neto: number; unidades: number }>();
   let publicidad = 0;
   let otrosCargos = 0;
+  let reservas = 0;
+  const otrosPorConcepto = new Map<string, number>();
   for (const p of pagos) {
     const skuPago = String(p.seller_sku ?? "");
-    if (skuPago === "(PUBLICIDAD)") {
+    if (skuPago.startsWith("(PUBLICIDAD")) {
       publicidad += Number(p.neto) || 0;
       continue;
     }
-    if (skuPago === "(OTROS CARGOS)") {
+    if (skuPago.startsWith("(RESERVA")) {
+      reservas += Number(p.neto) || 0;
+      continue;
+    }
+    if (skuPago.startsWith("(OTROS CARGOS")) {
       otrosCargos += Number(p.neto) || 0;
+      const concepto = skuPago.replace(/^\(OTROS CARGOS\)\s*/, "") || "sin descripción";
+      otrosPorConcepto.set(concepto, (otrosPorConcepto.get(concepto) ?? 0) + (Number(p.neto) || 0));
       continue;
     }
     const modelo = modeloUnificado(skuPago);
@@ -339,6 +351,10 @@ export async function cargarMonitorAmazon(
     unidadesLiquidadas,
     publicidad: hayPagos ? publicidad : null,
     otrosCargos: hayPagos ? otrosCargos : null,
+    otrosCargosDetalle: [...otrosPorConcepto.entries()]
+      .map(([concepto, monto]) => ({ concepto, monto: Math.round(monto * 100) / 100 }))
+      .sort((a, b) => Math.abs(b.monto) - Math.abs(a.monto)),
+    reservas: Math.round(reservas * 100) / 100,
     gananciaFinal:
       hayPagos && unidadesConCosto > 0 ? gananciaRealTotal + publicidad + otrosCargos : null,
     pagosHasta: ultimaLiquidacion,

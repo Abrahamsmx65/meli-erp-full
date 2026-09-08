@@ -35,9 +35,21 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   const adsPagos = Math.abs(m.publicidad ?? 0);
   const adsGenerales = adsAmarrados > 0 ? Math.max(0, adsPagos - adsAmarrados) : adsPagos;
 
+  // Cada cargo de cuenta con su descripción de Amazon (negativo = cargo, así
+  // un reembolso de Amazon por inventario perdido reduce el gasto). Si los
+  // pagos vienen del formato viejo sin descripción, entra el total junto.
   const gastos: { concepto: string; monto: number }[] = [];
-  const otros = Math.abs(m.otrosCargos ?? 0);
-  if (otros) gastos.push({ concepto: "Cargos de cuenta de Amazon (FBA, almacenaje, suscripción)", monto: Math.round(otros * 100) / 100 });
+  if (m.otrosCargosDetalle?.length) {
+    for (const d of m.otrosCargosDetalle) gastos.push({ concepto: `Amazon · ${d.concepto}`, monto: Math.round(-d.monto * 100) / 100 });
+  } else {
+    const otros = Math.abs(m.otrosCargos ?? 0);
+    if (otros) gastos.push({ concepto: "Cargos de cuenta de Amazon (FBA, almacenaje, suscripción)", monto: Math.round(otros * 100) / 100 });
+  }
+  if (m.reservas) {
+    avisos.push(
+      `Amazon retuvo/soltó ${Math.abs(m.reservas).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} en reservas durante el periodo: es dinero en tránsito, no gasto, y no se descuenta.`,
+    );
+  }
   if (adsGenerales) gastos.push({ concepto: "Publicidad de Amazon no amarrada a modelo", monto: Math.round(adsGenerales * 100) / 100 });
 
   // El neto por modelo: el liquidado del modelo si hay pagos; si no, la
