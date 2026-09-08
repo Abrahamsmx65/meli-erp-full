@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { marcarTipos, revivirTipos } from "./plan-fba-cache";
+import { describe, expect, it, vi } from "vitest";
+import { marcarTipos, obtenerPlanFba, revivirTipos } from "./plan-fba-cache";
 
 /**
  * El plan de FBA guardado en `plan_fba_cache` trae Maps adentro (el en
@@ -47,5 +47,21 @@ describe("marcarTipos / revivirTipos", () => {
   it("un número no finito no se vuelve null (JSON lo perdería)", () => {
     const json = JSON.parse(JSON.stringify(marcarTipos({ cobertura: Infinity })));
     expect(revivirTipos(json).cobertura).toBe(Infinity);
+  });
+});
+
+describe("lectura de plan_fba_cache", () => {
+  function dbConError(error: unknown) {
+    const cadena: any = {};
+    for (const metodo of ["select", "eq"]) cadena[metodo] = vi.fn(() => cadena);
+    cadena.maybeSingle = vi.fn(async () => ({ data: null, error }));
+    return { from: vi.fn(() => cadena) } as any;
+  }
+
+  it("propaga permisos y timeout en vez de recalcular como si faltara caché", async () => {
+    const db = dbConError({ code: "42501", message: "permission denied for plan_fba_cache" });
+    await expect(obtenerPlanFba(db, "amazon", null, 30)).rejects.toThrow(
+      "permission denied for plan_fba_cache",
+    );
   });
 });

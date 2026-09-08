@@ -9,6 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
+import { esErrorObjetoLegacy, mensajeErrorDatos } from "./errores-datos";
 
 export interface GuardadoApp<T> {
   datos: T;
@@ -16,11 +17,28 @@ export interface GuardadoApp<T> {
   vigente: boolean;
 }
 
+export type ResultadoLecturaCache<T> =
+  | { estado: "encontrado"; valor: T }
+  | { estado: "ausente" }
+  | { estado: "fallo"; error: Error };
+
+function falloLectura(clave: string, error: unknown): ResultadoLecturaCache<never> {
+  if (esErrorObjetoLegacy(error, ["app_cache"])) return { estado: "ausente" };
+  const detalle = mensajeErrorDatos(error);
+  const fallo = new Error(`No se pudo leer app_cache (${clave}): ${detalle}`);
+  console.error(fallo.message);
+  return { estado: "fallo", error: fallo };
+}
+
 /**
  * El renglón guardado TAL CUAL esté: vigente o invalidado, fresco o viejo.
  * Para los lectores que sirven lo guardado y refrescan por atrás (cortes).
  */
-export async function leerCacheAppGuardado<T>(db: DB, accountId: string, clave: string): Promise<GuardadoApp<T> | null> {
+export async function leerCacheAppGuardado<T>(
+  db: DB,
+  accountId: string,
+  clave: string,
+): Promise<ResultadoLecturaCache<GuardadoApp<T>>> {
   try {
     const { data, error } = await db
       .from("app_cache")
@@ -28,14 +46,18 @@ export async function leerCacheAppGuardado<T>(db: DB, accountId: string, clave: 
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
-    if (error || !data?.datos) return null;
+    if (error) return falloLectura(clave, error);
+    if (!data?.datos) return { estado: "ausente" };
     return {
-      datos: revivirTipos(data.datos) as T,
-      generadoEn: data.generado_en,
-      vigente: data.vigente !== false,
+      estado: "encontrado",
+      valor: {
+        datos: revivirTipos(data.datos) as T,
+        generadoEn: data.generado_en,
+        vigente: data.vigente !== false,
+      },
     };
-  } catch {
-    return null;
+  } catch (error) {
+    return falloLectura(clave, error);
   }
 }
 
@@ -44,7 +66,7 @@ export async function leerCacheApp<T>(
   accountId: string,
   clave: string,
   edadMaxMs?: number,
-): Promise<T | null> {
+): Promise<ResultadoLecturaCache<T>> {
   try {
     const { data, error } = await db
       .from("app_cache")
@@ -52,13 +74,14 @@ export async function leerCacheApp<T>(
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
-    if (error || !data?.datos) return null;
-    if (data.vigente === false) return null;
-    if (edadMaxMs != null && Date.now() - Date.parse(data.generado_en) > edadMaxMs) return null;
-    return revivirTipos(data.datos) as T;
-  } catch {
-    // Tabla aún sin migrar o error de lectura: el llamador calcula.
-    return null;
+    if (error) return falloLectura(clave, error);
+    if (!data?.datos || data.vigente === false) return { estado: "ausente" };
+    if (edadMaxMs != null && Date.now() - Date.parse(data.generado_en) > edadMaxMs) {
+      return { estado: "ausente" };
+    }
+    return { estado: "encontrado", valor: revivirTipos(data.datos) as T };
+  } catch (error) {
+    return falloLectura(clave, error);
   }
 }
 
@@ -93,7 +116,8 @@ export async function conCacheApp<T>(
   calcular: () => Promise<T>,
 ): Promise<T> {
   const guardado = await leerCacheApp<T>(db, accountId, clave, edadMaxMs);
-  if (guardado != null) return guardado;
+  if (guardado.estado === "encontrado") return guardado.valor;
+  if (guardado.estado === "fallo") throw guardado.error;
 
   const t0 = Date.now();
   const datos = await calcular();

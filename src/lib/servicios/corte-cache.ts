@@ -19,7 +19,7 @@
  * cosa y no pasa por aquí: ese ya es un renglón.
  */
 import type { Cuenta, DB } from "../datos/repos";
-import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { guardarCacheApp, leerCacheAppGuardado, type ResultadoLecturaCache } from "./cache-app";
 import { cargarEstadoResultados, periodoActual, periodoSiguiente, type EstadoResultados } from "./corte-meli";
 import { guardarCacheYz, leerCacheYzGuardado } from "../yapanizcel/cache";
 import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
@@ -60,7 +60,7 @@ interface Guardado {
  */
 async function obtenerConCachePorPeriodo(opts: {
   periodo: string;
-  leer: () => Promise<Guardado | null>;
+  leer: () => Promise<ResultadoLecturaCache<Guardado>>;
   guardar: (datos: EstadoResultados, msCalculo: number) => Promise<void>;
   calcular: () => Promise<EstadoResultados>;
 }): Promise<EstadoResultados> {
@@ -72,9 +72,11 @@ async function obtenerConCachePorPeriodo(opts: {
   };
 
   const guardado = await opts.leer();
-  if (!guardado) return recalc();
+  if (guardado.estado === "fallo") throw guardado.error;
+  if (guardado.estado === "ausente") return recalc();
+  const valorGuardado = guardado.valor;
 
-  if (corteNecesitaRefresco(opts.periodo, guardado.generadoEn, guardado.vigente)) {
+  if (corteNecesitaRefresco(opts.periodo, valorGuardado.generadoEn, valorGuardado.vigente)) {
     try {
       const { after } = await import("next/server");
       after(async () => {
@@ -88,7 +90,7 @@ async function obtenerConCachePorPeriodo(opts: {
       // Fuera de un request (pruebas, scripts): sin fondo; el dato guardado sirve igual.
     }
   }
-  return guardado.datos;
+  return valorGuardado.datos;
 }
 
 /** El corte de MELI (calzado) del periodo, masticado. */
@@ -105,7 +107,10 @@ export async function obtenerEstadoResultadosMeli(db: DB, cuenta: Cuenta, period
 export async function obtenerEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string): Promise<EstadoResultados> {
   return obtenerConCachePorPeriodo({
     periodo,
-    leer: () => leerCacheYzGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo)),
+    leer: async () => {
+      const guardado = await leerCacheYzGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo));
+      return guardado ? { estado: "encontrado" as const, valor: guardado } : { estado: "ausente" as const };
+    },
     guardar: (datos, ms) => guardarCacheYz(db, cuenta.id, claveCorte(periodo), datos, ms),
     calcular: () => cargarEstadoResultadosYz(db, cuenta, periodo),
   });

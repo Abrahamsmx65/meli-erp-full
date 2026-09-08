@@ -19,8 +19,12 @@
  * Este módulo no escribe nada.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { conCacheApp } from "./cache-app";
+import { guardarCacheApp, leerCacheApp } from "./cache-app";
 import { claveGrupoFba, desglosarAmazon } from "./fba";
+import {
+  esErrorObjetoLegacy,
+  mensajeErrorDatos,
+} from "./errores-datos";
 
 /**
  * Del GT054 para arriba, sin tope: lo que se publique mañana (GT301, GT450…)
@@ -160,6 +164,10 @@ export interface ContenidoAmazon {
   faltaMigracion: boolean;
   /** true si el catálogo nunca se ha traído: los datos salen de las ventas. */
   sinRefrescar: boolean;
+  /** fallos auxiliares visibles; el catálogo válido se conserva */
+  advertencias: string[];
+  /** false cuando no fue posible leer palomeos/categorías */
+  anotacionesDisponibles: boolean;
 }
 
 export interface AnotacionModelo {
@@ -201,7 +209,10 @@ export function armarContenido(
   categorias: Omit<CategoriaStore, "modelos">[],
   pais: string | null,
   opciones: { verEliminados?: boolean; padres?: Map<string, Padre> } = {},
-): Omit<ContenidoAmazon, "faltaMigracion" | "sinRefrescar"> {
+): Omit<
+  ContenidoAmazon,
+  "faltaMigracion" | "sinRefrescar" | "advertencias" | "anotacionesDisponibles"
+> {
   const padres = opciones.padres ?? new Map<string, Padre>();
   interface Color {
     color: string;
@@ -404,17 +415,14 @@ export function armarContenido(
 }
 
 /** Los renglones del catálogo, con respaldo si nunca se ha refrescado. */
-function esTablaAusente(err: unknown): boolean {
-  return err instanceof Error && /does not exist|42P01|schema cache/i.test(err.message);
-}
-
-async function leerCatalogo(
+export async function leerCatalogo(
   db: DB,
   amazonAccountId: string,
 ): Promise<{ filas: FilaCatalogo[]; sinRefrescar: boolean }> {
   const acotar = (q: any) => q.eq("account_id", amazonAccountId);
 
-  let listings: any[] = [];
+  let listings: any[];
+  let faltaTablaListings = false;
   try {
     listings = await traerTodo<any>(
       db,
@@ -422,13 +430,13 @@ async function leerCatalogo(
       "seller_sku, asin, titulo, estado, imagen_url",
       acotar,
     );
-  } catch (err) {
-    // La tabla nueva puede no existir antes de su migración. Cualquier otro
-    // error debe subir: no es válido convertir una falla en catálogo vacío.
-    if (!esTablaAusente(err)) throw err;
+  } catch (error) {
+    if (!esErrorObjetoLegacy(error, ["amazon_listings"])) throw error;
+    listings = [];
+    faltaTablaListings = true;
   }
 
-  if (listings.length) {
+  if (!faltaTablaListings) {
     return {
       sinRefrescar: false,
       filas: listings.map((f) => ({
@@ -441,8 +449,7 @@ async function leerCatalogo(
     };
   }
 
-  // Respaldo: lo que ya vendió alguna vez. Sirve desde el primer deploy,
-  // antes de que el catálogo se haya traído ni una vez.
+  // Respaldo exclusivo para instalaciones anteriores a amazon_listings.
   const skus = await traerTodo<any>(
     db,
     "amazon_skus",
@@ -478,9 +485,26 @@ export async function obtenerContenidoAmazon(
   opciones: { verEliminados?: boolean } = {},
 ): Promise<ContenidoAmazon> {
   const clave = `contenido:${pais ?? ""}:${opciones.verEliminados ? 1 : 0}`;
-  return conCacheApp(db, amazonAccountId, clave, 30 * 60_000, () =>
-    cargarContenidoAmazon(db, amazonAccountId, pais, opciones),
+  const guardado = await leerCacheApp<ContenidoAmazon>(
+    db,
+    amazonAccountId,
+    clave,
+    30 * 60_000,
   );
+  if (guardado.estado === "fallo") throw guardado.error;
+  if (guardado.estado === "encontrado") {
+    return {
+      ...guardado.valor,
+      advertencias: guardado.valor.advertencias ?? [],
+      anotacionesDisponibles: guardado.valor.anotacionesDisponibles ?? true,
+    };
+  }
+  const t0 = Date.now();
+  const contenido = await cargarContenidoAmazon(db, amazonAccountId, pais, opciones);
+  if (contenido.advertencias.length === 0) {
+    await guardarCacheApp(db, amazonAccountId, clave, contenido, Date.now() - t0);
+  }
+  return contenido;
 }
 
 export async function cargarContenidoAmazon(
@@ -489,7 +513,7 @@ export async function cargarContenidoAmazon(
   pais: string | null,
   opciones: { verEliminados?: boolean } = {},
 ): Promise<ContenidoAmazon> {
-  const [catalogo, anotaciones, categorias, padres] = await Promise.all([
+  const [catalogo, anotaciones, categorias, padresEstado] = await Promise.all([
     leerCatalogo(db, amazonAccountId),
     db
       .from("amazon_contenido")
@@ -499,12 +523,32 @@ export async function cargarContenidoAmazon(
       .from("amazon_categorias_store")
       .select("nombre, creada, imagenes, pagina_store, notas")
       .eq("account_id", amazonAccountId),
-    leerPadres(db, amazonAccountId),
+    leerPadres(db, amazonAccountId)
+      .then((padres) => ({ padres, error: null as string | null }))
+      .catch((error) => ({
+        padres: new Map<string, Padre>(),
+        error: `No se pudieron leer los ASIN padre: ${mensajeErrorDatos(error)}. Se conservan los links a las variantes.`,
+      })),
   ]);
 
   // Mientras la migración 0032 no esté aplicada la pantalla sirve de todos
   // modos: se ve el catálogo y no se puede palomear nada.
-  const faltaMigracion = Boolean(anotaciones.error ?? categorias.error);
+  const erroresEdicion = [
+    anotaciones.error ? { nombre: "amazon_contenido", error: anotaciones.error } : null,
+    categorias.error ? { nombre: "amazon_categorias_store", error: categorias.error } : null,
+  ].filter(Boolean) as { nombre: string; error: unknown }[];
+  const faltaMigracion =
+    erroresEdicion.length > 0 &&
+    erroresEdicion.every(({ nombre, error }) => esErrorObjetoLegacy(error, [nombre]));
+  const advertencias = padresEstado.error ? [padresEstado.error] : [];
+  const anotacionesDisponibles = erroresEdicion.length === 0;
+  for (const { nombre, error } of erroresEdicion) {
+    if (!esErrorObjetoLegacy(error, [nombre])) {
+      advertencias.push(
+        `No se pudieron leer las anotaciones de ${nombre}: ${mensajeErrorDatos(error)}. La edición queda desactivada para no sobrescribir datos.`,
+      );
+    }
+  }
 
   const armado = armarContenido(
     catalogo.filas,
@@ -525,10 +569,16 @@ export async function cargarContenidoAmazon(
       notas: c.notas ?? "",
     })),
     pais,
-    { ...opciones, padres },
+    { ...opciones, padres: padresEstado.padres },
   );
 
-  return { ...armado, faltaMigracion, sinRefrescar: catalogo.sinRefrescar };
+  return {
+    ...armado,
+    faltaMigracion,
+    sinRefrescar: catalogo.sinRefrescar,
+    advertencias,
+    anotacionesDisponibles,
+  };
 }
 
 /**
@@ -541,10 +591,7 @@ async function leerPadres(db: DB, amazonAccountId: string): Promise<Map<string, 
     "amazon_padres",
     "asin, parent_asin, titulo, imagen_url",
     (q) => q.eq("account_id", amazonAccountId),
-  ).catch((err) => {
-    if (esTablaAusente(err)) return [] as any[];
-    throw err;
-  });
+  );
 
   return new Map(
     filas.map((f) => [
