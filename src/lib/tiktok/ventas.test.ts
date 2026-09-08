@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarVentasDiarias, diaMx, modeloDeSku, muestrasEnRango, resumenPorModelo } from "./ventas";
+import { agregarVentasDiarias, diaMx, estimarPorCobrar, modeloDeSku, muestrasEnRango, resumenPorModelo } from "./ventas";
 
 describe("diaMx", () => {
   it("un pedido de las 20:19 hora México del día 1 es del día 1, aunque en UTC ya sea día 2", () => {
@@ -77,5 +77,24 @@ describe("muestras y resumen por modelo", () => {
     expect(gt134.tallas.map((t) => [t.sku, t.unidades])).toEqual([["GT134-BLK-24-MX", 1], ["GT134-BLK-26-MX", 2]]);
     expect(r[1].recibido).toBeCloseTo(320);
     expect(modeloDeSku("gt134-blk-24-mx")).toBe("GT134");
+  });
+});
+
+describe("estimarPorCobrar", () => {
+  it("estima lo pendiente con el porcentaje observado en lo liquidado, y sin base no inventa", () => {
+    const base = { modelo: "GT134", unidades: 0, pedidos: 0, cobrado: 0, sinLiquidar: 0, unidadesLiquidadas: 0, unidadesSinLiquidar: 0, tallas: [] };
+    // Liquidado: recibió 800 de 1000 cobrados (80%); pendiente: 500 cobrados.
+    const conBase = estimarPorCobrar([
+      { ...base, recibido: 800, cobradoLiquidado: 1000, cobradoSinLiquidar: 500 },
+    ]);
+    expect(conBase.ratio).toBeCloseTo(0.8);
+    expect(conBase.porCobrar).toBeCloseTo(400);
+
+    // Nada liquidado todavía: no hay porcentaje que observar.
+    const sinBase = estimarPorCobrar([
+      { ...base, recibido: 0, cobradoLiquidado: 0, cobradoSinLiquidar: 500 },
+    ]);
+    expect(sinBase.ratio).toBeNull();
+    expect(sinBase.porCobrar).toBeNull();
   });
 });

@@ -103,7 +103,7 @@ export default async function Amazon({
 
       <EnviosViejosFba enCamino={enCamino} />
 
-      <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} />
+      <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} sinConfigurar={enviosFba.sinConfigurar} />
 
       <EnviosFba sugerencias={sugerencias} dias={dias} />
     </div>

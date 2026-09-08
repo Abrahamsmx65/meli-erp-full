@@ -306,14 +306,25 @@ tablas, amarrar, agregar, optimizar) corre por atrás —latido, crons— y se
 guarda masticado; la pantalla lee un renglón. El patrón es siempre el mismo:
 tabla de caché con `vigente`/`motivo`/`datos jsonb` (`plan_cache`,
 `plan_fba_cache`, `inventario_cache`, `yz_cache` por clave,
-`consolidado_cache`), invalidación desde los syncs y las rutas que escriben,
-precálculo en el latido (calzado) o el cron de netos (fundas), y SIEMPRE el
-cálculo en vivo como respaldo si no hay renglón vigente: nunca datos a
-medias. Las agregaciones por rango de fechas van en RPCs de Postgres
-(`ventas_resumen_sku`, `publicidad_resumen_items`, `yz_ultimas_ventas`…),
-nunca bajando la tabla cruda a Node. Los RPCs y lecturas paginadas llevan
-ORDER BY estable (sin él, PostgREST duplica o pierde renglones entre
-páginas). Antes de agregar una pantalla o consulta nueva, sigue este patrón.
+`consolidado_cache`, `app_cache`), invalidación desde los syncs y las rutas
+que escriben, y precálculo en el latido (calzado) o el cron de netos
+(fundas). **La pantalla SIRVE el renglón guardado aunque esté invalidado o
+viejo** (declarándolo: componente `Frescura`, "Datos de hace X min") y el
+fondo refresca por invalidación Y POR EDAD (`clavesObsoletasYz` mira
+`generado_en`; el latido igual con `inventario_cache`): calcular en el clic
+solo se vale cuando NO existe ningún renglón. Una escritura del usuario
+que quiere ver su efecto ya (cargar un pedido, un amarre, un gasto) o
+recalcula su renglón en la misma ruta si es barato, o lo manda al fondo con
+`after()` de Next. Los CORTES van por periodo (`corte:YYYY-MM` en
+app_cache/yz_cache y `consolidado_cache`) con la política de
+`corteNecesitaRefresco`: mes corriente cada 10 min, mes cerrado casi
+congelado; cambiar de mes es leer un renglón. Las agregaciones por rango de
+fechas van en RPCs de Postgres (`ventas_resumen_sku`,
+`publicidad_resumen_items`, `yz_ultimas_ventas`…), nunca bajando la tabla
+cruda a Node, y las lecturas SIEMPRE acotadas por los DOS lados del rango.
+Los RPCs y lecturas paginadas llevan ORDER BY estable (sin él, PostgREST
+duplica o pierde renglones entre páginas). Antes de agregar una pantalla o
+consulta nueva, sigue este patrón.
 
 **Los avisos de MELI de la app de YAPANIZCEL** entran (si se configuran) por
 `/api/yapanizcel/webhook`, que contesta 200 sin trabajo: la sincronización

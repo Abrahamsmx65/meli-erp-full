@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
+import { mapaCostosUnificado, type MapaCostos } from "@/lib/servicios/costos-unificados";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
 import { cargarEnvios, obtenerPlanYz } from "@/lib/yapanizcel/envios";
+import { desglosar } from "@/lib/yapanizcel/sku";
 import { Ficha } from "@/components/tiles";
 import { PlanEnvios, type LineaPantalla } from "@/components/yapanizcel/plan-envios";
 import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
@@ -9,29 +11,43 @@ import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+const btn = "rounded-lg border px-3 py-1.5 text-sm font-semibold";
+
 export default async function EnviosYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
-  // El plan vive masticado en yz_cache; la lista de envíos sí se lee fresca
-  // (es barata y cambia con cada registro).
+  // El plan vive masticado en yz_cache; la lista de envíos y el mapa de
+  // categorías (productos_config, unos cientos de renglones) sí se leen
+  // frescos: son baratos y cambian con cada registro o captura.
   const plan = await obtenerPlanYz(supabase, cuenta.id);
-  const { envios } = await cargarEnvios(supabase, cuenta.id, plan.parametros.diasCaducidadEnvio);
+  const [{ envios }, config] = await Promise.all([
+    cargarEnvios(supabase, cuenta.id, plan.parametros.diasCaducidadEnvio),
+    mapaCostosUnificado(supabase, { yzAccountId: cuenta.id }).catch((): MapaCostos => new Map()),
+  ]);
   // Un SKU con todo en cero (sin venta, sin stock, sin bodega, sin faltante)
   // no se puede mandar ni dice nada: fuera del viaje al navegador. Eran
   // miles de renglones muertos en el payload.
   const lineas: LineaPantalla[] = plan.lineas
     .filter((l) => l.vendidas + l.enFull + l.enTransferencia + l.enCamino + l.enBodega + l.falta > 0)
-    .map((l) => ({ ...l, titulo: plan.titulos.get(l.sku) ?? null }));
+    .map((l) => ({
+      ...l,
+      titulo: plan.titulos.get(l.sku) ?? null,
+      categoria: config.get(desglosar(l.sku).diseno.toUpperCase())?.categoria ?? null,
+    }));
   const sinInventario = plan.lineas.filter((l) => l.motivo === "sin_inventario").length;
 
   return (
     <div className="flex flex-col gap-6">
       <Encabezado
         titulo="Envíos a Full · YAPANIZCEL"
-        texto={`Con la venta de los últimos ${plan.parametros.diasVenta} días completos (${plan.desde} → ${plan.hasta}), pesando más lo reciente, y lo que hay en Full, esto es lo que hay que mandar para dejar ${plan.parametros.diasObjetivo} días de cobertura, en decenas cerradas y topado por lo que hay en bodega.`}
-      />
+        texto={`Con la venta de los últimos ${plan.parametros.diasVenta} días completos (${plan.desde} → ${plan.hasta}), pesando más lo reciente, y lo que hay en Full, esto es lo que hay que mandar para dejar ${plan.parametros.diasObjetivo} días de cobertura, en decenas cerradas y topado por lo que hay en bodega. Ordenado por categoría y SKU.`}
+      >
+        <a href="/api/yapanizcel/envios/excel" className={btn} style={{ borderColor: "var(--borde)" }}>
+          Excel del plan
+        </a>
+      </Encabezado>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Ficha titulo="Unidades a mandar" valor={n(plan.unidades)} nota={`${plan.skus} SKUs`} tono="bien" />

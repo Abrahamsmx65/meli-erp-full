@@ -19,12 +19,15 @@ export function CajasFba({
   desglose,
   dias,
   envios = [],
+  sinConfigurar = [],
 }: {
   plan: PlanFbaCajas;
   desglose: DesgloseOpcionales;
   dias: number;
   /** cajas del plan partidas por bodega/grupo de envío, como en MELI */
   envios?: EnvioSeparado[];
+  /** almacenes del plan que no están en almacenes_activos: salen en su propio envío */
+  sinConfigurar?: string[];
 }) {
   const sinCaja = plan.sinCajaEnBodega.reduce((a, f) => a + f.pares, 0);
 
@@ -58,6 +61,13 @@ export function CajasFba({
           tono={sinCaja > 0 ? "alerta" : "bien"}
         />
       </div>
+
+      {sinConfigurar.length ? (
+        <p className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
+          Almacenes del plan sin configurar en <code>almacenes_activos</code> (cada uno
+          sale en su propio envío): {sinConfigurar.join(", ")}.
+        </p>
+      ) : null}
 
       {desglose.totalDeMas > 0 ? (
         <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
@@ -153,6 +163,14 @@ export function CajasFba({
                             · {e.almacenes.join(" + ")} · {fila.cajasNorm} cajas ·{" "}
                             {n(fila.paresNorm)} pares
                           </span>
+                          <a
+                            href={`/api/amazon/envio-excel?dias=${dias}&grupo=${encodeURIComponent(e.grupo)}`}
+                            className="ml-3 text-xs font-medium underline"
+                            style={{ color: "var(--acento)" }}
+                            title={`Excel solo con las cajas del envío ${e.nombre}`}
+                          >
+                            Excel de este envío
+                          </a>
                         </td>
                       </tr>
                     );

@@ -108,16 +108,20 @@ export async function separarEnvios(
       }
     }
     e.skus = acc.size;
+    // Alfabético con números en orden natural (GT104-1 antes que GT110):
+    // así se recorre la bodega y así pidió el dueño leer las listas.
     e.porSku = [...acc.entries()]
       .map(([sku, v]) => ({ sku, talla: v.talla, pares: v.pares }))
-      .sort((a, b) => b.pares - a.pares);
+      .sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true }));
 
     e.almacenes.sort();
-    e.cajas.sort((a, b) => {
-      if (a.almacen !== b.almacen) return a.almacen.localeCompare(b.almacen);
-      if (a.modelo !== b.modelo) return a.modelo.localeCompare(b.modelo);
-      return a.color.localeCompare(b.color);
-    });
+    e.cajas.sort(
+      (a, b) =>
+        a.almacen.localeCompare(b.almacen, "es") ||
+        a.modelo.localeCompare(b.modelo, "es", { numeric: true }) ||
+        a.color.localeCompare(b.color, "es") ||
+        a.talla.localeCompare(b.talla, "es", { numeric: true }),
+    );
   }
 
   // El envío más grande primero: es el que hay que empezar a preparar antes.

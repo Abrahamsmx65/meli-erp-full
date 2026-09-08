@@ -125,8 +125,11 @@ export async function cargarProductos(db: DB, accountId: string): Promise<Catalo
     ...[...fundas.entries()].filter(([d]) => !porModelo.has(d)).map(([d, p]) => armar(d, p, "fundas")),
   ].sort((a, b) => a.negocio.localeCompare(b.negocio) || a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
 
-  const categorias = [...new Set(productos.map((p) => p.categoria).filter(Boolean))] as string[];
-  categorias.sort();
+  // Las categorías de fundas que agrupan la Bodega de YAPANIZCEL (tipo →
+  // diseño → SKU) se ofrecen siempre, para capturarlas de un jalón aquí.
+  const base = fundas.size ? ["Fundas", "Tabletas", "Micas"] : [];
+  const categorias = [...new Set([...base, ...productos.map((p) => p.categoria).filter(Boolean)])] as string[];
+  categorias.sort((a, b) => a.localeCompare(b, "es"));
 
   return { productos, categorias, faltaMigracion };
 }

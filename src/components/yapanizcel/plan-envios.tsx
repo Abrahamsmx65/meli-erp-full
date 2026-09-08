@@ -18,7 +18,11 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
-export type LineaPantalla = LineaPlan & { titulo: string | null };
+export type LineaPantalla = LineaPlan & {
+  titulo: string | null;
+  /** categoría del diseño en Productos y costos (Fundas / Tabletas / Micas); null = sin capturar */
+  categoria?: string | null;
+};
 
 /**
  * El plan editable: cada renglón trae lo que el sistema sugiere y una casilla
@@ -37,10 +41,18 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toUpperCase();
-    return lineas.filter((l) => {
-      if (soloConEnvio && (cantidades[l.sku] ?? 0) <= 0 && l.mandar <= 0) return false;
-      return !q || `${l.sku} ${l.titulo ?? ""}`.toUpperCase().includes(q);
-    });
+    // Por categoría (Sin categoría al final) y SKU en alfabético natural,
+    // como pidió el dueño: así se recorre la lista con los ojos.
+    return lineas
+      .filter((l) => {
+        if (soloConEnvio && (cantidades[l.sku] ?? 0) <= 0 && l.mandar <= 0) return false;
+        return !q || `${l.sku} ${l.titulo ?? ""} ${l.categoria ?? ""}`.toUpperCase().includes(q);
+      })
+      .sort((a, b) => {
+        const ca = a.categoria ?? "￿";
+        const cb = b.categoria ?? "￿";
+        return ca.localeCompare(cb, "es") || a.sku.localeCompare(b.sku, "es", { numeric: true });
+      });
   }, [lineas, soloConEnvio, busqueda, cantidades]);
 
   const totalUnidades = lineas.reduce((a, l) => a + (cantidades[l.sku] ?? 0), 0);
@@ -156,10 +168,21 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 </td>
               </tr>
             ) : null}
-            {visibles.map((l) => {
+            {visibles.map((l, i) => {
               const v = cantidades[l.sku] ?? 0;
               const critico = Number.isFinite(l.cobertura) && l.cobertura < 7;
-              return (
+              const cat = l.categoria ?? "Sin categoría";
+              const catPrevia = i > 0 ? (visibles[i - 1].categoria ?? "Sin categoría") : null;
+              const encabezado =
+                cat !== catPrevia ? (
+                  <tr key={`cat-${cat}`} style={{ background: "var(--surface-2)" }}>
+                    <td colSpan={13} className="px-3 py-1.5 font-semibold">
+                      {cat}
+                    </td>
+                  </tr>
+                ) : null;
+              return [
+                encabezado,
                 <tr key={l.sku} className="border-t" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-1.5 font-medium">{l.sku}</td>
                   <td className="max-w-[260px] truncate px-3 py-1.5" style={{ color: "var(--ink-2)" }} title={l.titulo ?? ""}>
@@ -191,8 +214,8 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                   <td className="px-3 py-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
                     {MOTIVO[l.motivo]}
                   </td>
-                </tr>
-              );
+                </tr>,
+              ];
             })}
           </tbody>
         </table>

@@ -9,6 +9,7 @@
  * cron de netos lo deja precalculado.
  */
 import type { DB } from "../datos/repos";
+import { mapaCostosUnificado, type MapaCostos } from "../servicios/costos-unificados";
 import { conCacheYz, recalcularCacheYz } from "./cache";
 import { cargarTotalesVentas } from "./agregados";
 import { cargarPedidosEnCamino } from "./compras";
@@ -22,6 +23,12 @@ export interface RenglonInventarioYz {
   skuMeli: string;
   titulo: string | null;
   diseno: string;
+  /**
+   * El TIPO del diseño (Fundas / Tabletas / Micas), de la categoría
+   * capturada en Productos y costos; null = sin categoría. Con él la
+   * pantalla agrupa tipo → diseño → SKU sin volver a leer nada.
+   */
+  tipo?: string | null;
   enFull: number;
   enTransferencia: number;
   enCamino: number;
@@ -45,7 +52,7 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [inv, skus, stock, vend, { enCamino }, mapeos] = await Promise.all([
+  const [inv, skus, stock, vend, { enCamino }, mapeos, configUnificada] = await Promise.all([
     cargarInventarioAmarrado(db, accountId),
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) =>
@@ -55,6 +62,9 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
     cargarTotalesVentas(db, accountId, desde, hasta),
     cargarEnvios(db, accountId, p.diasCaducidadEnvio),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
+    // El TIPO de cada diseño (Fundas / Tabletas / Micas) es su categoría en
+    // Productos y costos: se pega aquí, en el precálculo, no en la pantalla.
+    mapaCostosUnificado(db, { yzAccountId: accountId }).catch((): MapaCostos => new Map()),
   ]);
 
   const china = await cargarPedidosEnCamino(db, accountId, {
@@ -70,10 +80,13 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
   for (const r of inv.renglones) if (r.skuMeli) bodegaSkus.set(r.skuMeli, [...(bodegaSkus.get(r.skuMeli) ?? []), r.skuBodega]);
 
   const renglones: RenglonInventarioYz[] = skus
-    .map((s) => ({
+    .map((s) => {
+      const diseno = desglosar(s.sku).diseno;
+      return {
       skuMeli: s.sku,
       titulo: s.titulo,
-      diseno: desglosar(s.sku).diseno,
+      diseno,
+      tipo: configUnificada.get(diseno.toUpperCase())?.categoria ?? null,
       enFull: stockPor.get(s.sku)?.disponible ?? 0,
       enTransferencia: stockPor.get(s.sku)?.en_transferencia ?? 0,
       enCamino: camino.get(s.sku) ?? 0,
@@ -81,7 +94,8 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
       enCaminoChina: china.get(s.sku) ?? 0,
       vendidas30: vend.get(s.sku) ?? 0,
       skusBodega: bodegaSkus.get(s.sku) ?? [],
-    }))
+      };
+    })
     // Un SKU con TODO en cero (sin stock en ningún lado, sin venta, sin nada
     // en camino) no dice nada en esta pantalla y son miles: solo engordaban
     // el renglón guardado y el viaje al navegador. Los totales no cambian

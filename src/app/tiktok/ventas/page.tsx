@@ -2,7 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { efectoDeEstado } from "@/lib/tiktok/kardex";
-import { muestrasEnRango, pedidosDeVenta, resumenPorModelo } from "@/lib/tiktok/ventas";
+import { estimarPorCobrar, muestrasEnRango, pedidosDeVenta, resumenPorModelo } from "@/lib/tiktok/ventas";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
 
@@ -101,17 +101,31 @@ export default async function VentasTikTok({
     const modelo = String(c.modelo ?? "").toUpperCase();
     if (modelo && c.costo_mxn != null && !costoDe.has(modelo)) costoDe.set(modelo, Number(c.costo_mxn));
   }
+  // "Cuánto me van a pagar": lo sin liquidar se ESTIMA con el porcentaje
+  // observado en lo ya liquidado del rango (declarado siempre como estimado;
+  // sin nada liquidado no se inventa). "Cuánto gano" sale en dos números:
+  // la ganancia COBRADA (real, sobre lo liquidado) y la ESPERADA (cobrada +
+  // lo estimado por cobrar − costo de esos pares).
+  const { ratio: ratioLiq } = estimarPorCobrar(modelos);
   const conCosto = modelos.map((m) => {
     const costoUnitario = costoDe.get(m.modelo) ?? null;
     const costo = costoUnitario != null ? costoUnitario * m.unidadesLiquidadas : null;
     const ganancia = costo != null && m.unidadesLiquidadas > 0 ? m.recibido - costo : null;
-    return { ...m, costoUnitario, costo, ganancia };
+    const porCobrarEst = ratioLiq != null ? m.cobradoSinLiquidar * ratioLiq : null;
+    const gananciaEsperada =
+      costoUnitario == null
+        ? null
+        : (ganancia ?? 0) + (porCobrarEst != null ? porCobrarEst - costoUnitario * m.unidadesSinLiquidar : 0);
+    return { ...m, costoUnitario, costo, ganancia, porCobrarEst, gananciaEsperada };
   });
   const gananciaTotal = conCosto.reduce((a, m) => a + (m.ganancia ?? 0), 0);
   const hayGanancia = conCosto.some((m) => m.ganancia != null);
+  const gananciaEsperadaTotal = conCosto.reduce((a, m) => a + (m.gananciaEsperada ?? 0), 0);
+  const hayEsperada = ratioLiq != null && conCosto.some((m) => m.gananciaEsperada != null);
   const sinCosto = conCosto.filter((m) => m.costoUnitario == null).length;
   const recibido = modelos.reduce((a, m) => a + m.recibido, 0);
   const cobradoLiquidado = modelos.reduce((a, m) => a + m.cobradoLiquidado, 0);
+  const porCobrarTotal = ratioLiq != null ? conCosto.reduce((a, m) => a + (m.porCobrarEst ?? 0), 0) : null;
   const comision = cobradoLiquidado > 0 ? 1 - recibido / cobradoLiquidado : null;
   // Pedidos del rango que TikTok todavía no liquida (uno con dos modelos cuenta una vez).
   const sinLiquidar = pedidosDeVenta(ordenesParaVentas, rango).filter((o) => o.netoRecibido == null).length;
@@ -148,23 +162,32 @@ export default async function VentasTikTok({
         <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-8">
         <Ficha titulo="Pares vendidos" valor={n(unidades)} nota="sin contar muestras" />
         <Ficha titulo="Cobrado" valor={pesos(importe)} nota="precio de venta al cliente" />
         <Ficha
-          titulo="Recibido"
+          titulo="Cobrado (liquidado)"
           valor={pesos(recibido)}
           nota={
-            sinLiquidar
-              ? `liquidado por TikTok · ${sinLiquidar} pedido${sinLiquidar === 1 ? "" : "s"} sin liquidar`
-              : comision != null
-                ? `liquidado por TikTok · ${Math.round(comision * 100)}% de comisión`
-                : "TikTok todavía no liquida nada"
+            comision != null
+              ? `ya depositado por TikTok · ${Math.round(comision * 100)}% de comisión observada`
+              : "TikTok todavía no liquida nada"
+          }
+        />
+        <Ficha
+          titulo="Por cobrar (estimado)"
+          valor={porCobrarTotal != null ? `≈${pesos(porCobrarTotal)}` : "—"}
+          nota={
+            porCobrarTotal != null
+              ? `${sinLiquidar} pedido${sinLiquidar === 1 ? "" : "s"} sin liquidar × el ${Math.round((ratioLiq ?? 0) * 100)}% observado en lo ya liquidado`
+              : sinLiquidar
+                ? `${sinLiquidar} pedidos sin liquidar; sin nada liquidado aún no se puede estimar`
+                : "nada pendiente de liquidar"
           }
           tono={sinLiquidar ? "alerta" : "neutro"}
         />
         <Ficha
-          titulo="Ganancia"
+          titulo="Ganancia cobrada"
           valor={hayGanancia ? pesos(gananciaTotal) : "—"}
           nota={
             hayGanancia
@@ -175,14 +198,23 @@ export default async function VentasTikTok({
           }
           tono={hayGanancia && gananciaTotal < 0 ? "critico" : "neutro"}
         />
+        <Ficha
+          titulo="Ganancia esperada"
+          valor={hayEsperada ? `≈${pesos(gananciaEsperadaTotal)}` : "—"}
+          nota={
+            hayEsperada
+              ? "cobrada + lo estimado por cobrar − costo de esos pares"
+              : "se estima cuando haya algo liquidado en el rango"
+          }
+          tono={hayEsperada && gananciaEsperadaTotal < 0 ? "critico" : "neutro"}
+        />
         <Ficha titulo="Muestras" valor={muestras.length} nota={`${paresMuestra} pares regalados, fuera de ventas`} />
         <Ficha
           titulo="Pedidos por enviar"
           valor={idsPorEnviar.size}
-          nota="pagados, sin despachar"
+          nota={`pagados, sin despachar · ${n(paresPorEnviar)} pares apartados`}
           tono={idsPorEnviar.size ? "alerta" : "bien"}
         />
-        <Ficha titulo="Pares apartados" valor={n(paresPorEnviar)} nota="ya tienen dueño" />
       </div>
 
 
@@ -191,9 +223,11 @@ export default async function VentasTikTok({
           <div className="px-4 pt-4">
             <h2 className="text-sm font-semibold">Ventas por modelo</h2>
             <p className="text-xs" style={{ color: "var(--ink-2)" }}>
-              Cobrado es lo que pagó el cliente. Recibido es lo que TikTok ya liquidó, descontando comisiones y envío;
-              un pedido se liquida días después de entregarse. Ganancia = recibido − costo del modelo (Productos y
-              costos), solo sobre los pares ya liquidados. Abre un modelo para ver sus tallas.
+              Cobrado es lo que pagó el cliente. Recibido es lo que TikTok ya liquidó (sin comisiones ni envío); un
+              pedido se liquida días después de entregarse. «Por cobrar» estima lo pendiente con el porcentaje
+              observado en lo ya liquidado, siempre marcado con ≈. Ganancia = recibido − costo (Productos y costos)
+              sobre lo liquidado; la esperada le suma lo estimado por cobrar menos el costo de esos pares. Abre un
+              modelo para ver sus tallas.
             </p>
           </div>
           <div className="mt-3 overflow-x-auto">
@@ -205,9 +239,10 @@ export default async function VentasTikTok({
                   <th className="px-4 py-2 text-right font-semibold">Pedidos</th>
                   <th className="px-4 py-2 text-right font-semibold">Cobrado</th>
                   <th className="px-4 py-2 text-right font-semibold">Recibido</th>
+                  <th className="px-4 py-2 text-right font-semibold">Por cobrar (est.)</th>
                   <th className="px-4 py-2 text-right font-semibold">Costo</th>
                   <th className="px-4 py-2 text-right font-semibold">Ganancia</th>
-                  <th className="px-4 py-2 text-right font-semibold">Sin liquidar</th>
+                  <th className="px-4 py-2 text-right font-semibold">Esperada</th>
                 </tr>
               </thead>
               <tbody>
@@ -233,14 +268,25 @@ export default async function VentasTikTok({
                     <td className="num px-4 py-2 text-right">{n(m.pedidos)}</td>
                     <td className="num px-4 py-2 text-right">{pesos(m.cobrado)}</td>
                     <td className="num px-4 py-2 text-right font-medium">{m.recibido ? pesos(m.recibido) : "—"}</td>
+                    <td
+                      className="num px-4 py-2 text-right"
+                      style={{ color: m.sinLiquidar ? "var(--estado-alerta)" : "var(--ink-2)" }}
+                      title={m.sinLiquidar ? `${m.sinLiquidar} pedido${m.sinLiquidar === 1 ? "" : "s"} sin liquidar` : undefined}
+                    >
+                      {m.porCobrarEst != null && m.porCobrarEst > 0 ? `≈${pesos(m.porCobrarEst)}` : m.cobradoSinLiquidar > 0 ? "sin base" : "—"}
+                    </td>
                     <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }} title={m.costoUnitario != null ? `${pesos(m.costoUnitario)} por par` : "sin costo capturado"}>
                       {m.costo != null && m.unidadesLiquidadas > 0 ? pesos(m.costo) : m.costoUnitario == null ? "sin costo" : "—"}
                     </td>
                     <td className="num px-4 py-2 text-right font-semibold" style={{ color: m.ganancia == null ? "var(--ink-2)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}>
                       {m.ganancia != null ? pesos(m.ganancia) : "—"}
                     </td>
-                    <td className="num px-4 py-2 text-right" style={{ color: m.sinLiquidar ? "var(--estado-alerta)" : "var(--ink-2)" }}>
-                      {m.sinLiquidar || "—"}
+                    <td
+                      className="num px-4 py-2 text-right"
+                      title="Ganancia cobrada + lo estimado por cobrar − costo de esos pares"
+                      style={{ color: m.gananciaEsperada == null ? "var(--ink-2)" : m.gananciaEsperada < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}
+                    >
+                      {m.gananciaEsperada != null && ratioLiq != null ? `≈${pesos(m.gananciaEsperada)}` : "—"}
                     </td>
                   </tr>
                 ))}

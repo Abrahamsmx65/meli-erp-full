@@ -64,9 +64,9 @@ export default async function PublicidadAmazon({
       <div>
         <h1 className="titulo-pagina">Publicidad Amazon</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Ads por modelo en Amazon {cuenta.pais}: qué se vendió, qué se ganó y cuánto
-          costó la publicidad por unidad vendida en el periodo ({dias} días ·{" "}
-          {rango.desde} → {rango.hasta}).
+          Ads por modelo en Amazon {cuenta.pais}: qué se vendió y cuánto costó la
+          publicidad —total, por unidad y como % de la venta— en el periodo ({dias}{" "}
+          días · {rango.desde} → {rango.hasta}). La ganancia vive en Ventas Amazon.
         </p>
       </div>
 
@@ -89,47 +89,31 @@ export default async function PublicidadAmazon({
         </div>
       ) : null}
 
+      {/* Decisión del dueño: esta pantalla NO enseña ganancia (esa vive en
+          Ventas Amazon con la definición del corte). Solo lo de ads: unidades,
+          venta, gasto, gasto por unidad y % sobre LA MISMA venta mostrada. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <Ficha
+          titulo="Unidades vendidas"
+          valor={n(t.unidades)}
+          nota={`Periodo de ${dias} días`}
+        />
+        <Ficha titulo="Venta del periodo" valor={pesos(t.importe)} nota="Todas las ventas del rango" />
         <Ficha
           titulo="Gasto en publicidad"
           valor={p.aviso ? "—" : pesos(t.gastoAds)}
-          nota={
-            p.aviso
-              ? "Sin datos del rango"
-              : `${t.tacos != null ? pct(t.tacos) : "—"} de la venta del reporte de economía`
-          }
+          nota={p.aviso ? "Sin datos del rango" : "Reporte de economía por SKU"}
           tono={p.aviso ? "neutro" : "alerta"}
         />
         <Ficha
-          titulo="Venta del periodo"
-          valor={pesos(t.importe)}
-          nota={`${n(t.unidades)} unidades`}
+          titulo="Gasto por unidad"
+          valor={!p.aviso && t.unidades > 0 ? pesosFinos(t.gastoAds / t.unidades) : "—"}
+          nota="Gasto ÷ unidades vendidas del periodo"
         />
         <Ficha
-          titulo="Ganancia estimada"
-          valor={t.coberturaCosto > 0 ? pesos(t.ganancia) : "—"}
-          nota={
-            t.coberturaCosto > 0
-              ? `Venta − costo · ${pct(t.coberturaCosto)} de la venta con costo`
-              : "Captura costos en Productos y costos"
-          }
-        />
-        <Ficha
-          titulo="Costo por unidad vendida"
-          valor={!p.aviso && t.costoPorUnidad != null ? pesosFinos(t.costoPorUnidad) : "—"}
-          nota="Gasto ÷ unidades del mismo reporte de economía"
-        />
-        <Ficha
-          titulo="Ganancia después de ads"
-          valor={t.coberturaCosto > 0 && !p.aviso ? pesos(t.ganancia - t.gastoAds) : "—"}
-          nota="Ganancia estimada − publicidad"
-          tono={
-            t.coberturaCosto > 0 && !p.aviso
-              ? t.ganancia - t.gastoAds < 0
-                ? "critico"
-                : "bien"
-              : "neutro"
-          }
+          titulo="% de la venta"
+          valor={!p.aviso && t.importe > 0 ? pct(t.gastoAds / t.importe) : "—"}
+          nota="Gasto ÷ la misma venta de arriba"
         />
       </div>
 
@@ -144,10 +128,11 @@ export default async function PublicidadAmazon({
         <header className="border-b p-4 hairline">
           <h2 className="text-base font-semibold">Por modelo</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todas las tallas de cada modelo, juntas, en orden alfabético. Venta y
-            unidades son TODAS las ventas del periodo; “$ ads/unidad” y el % usan las
-            unidades y ventas del reporte de economía (mismos días que el gasto).
-            Ganancia neta = ganancia estimada − publicidad.
+            Todas las tallas de cada modelo, juntas. Venta y unidades son TODAS las
+            ventas del periodo; el gasto viene del reporte de economía por SKU, y el
+            gasto por unidad y el % se calculan sobre esas mismas unidades y venta,
+            para que siempre cuadren con lo que ves. La ganancia vive en Ventas
+            Amazon.
           </p>
         </header>
         <div className="max-h-[40rem] overflow-auto">
@@ -157,55 +142,35 @@ export default async function PublicidadAmazon({
                 <th>Modelo</th>
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
-                <th className="num">Ganancia</th>
                 <th className="num">Gasto ads</th>
-                <th className="num">$ ads/unidad</th>
+                <th className="num">Gasto por unidad</th>
                 <th className="num">% de la venta</th>
-                <th className="num">Ganancia neta</th>
               </tr>
             </thead>
             <tbody>
-              {p.filas.map((f) => (
-                <tr key={f.modelo}>
-                  <td className="font-medium">{f.modelo}</td>
-                  <td className="num cifra font-semibold">{n(f.unidades)}</td>
-                  <td className="num cifra">{pesos(f.importe)}</td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.ganancia != null && f.ganancia < 0
-                          ? "var(--estado-critico)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.ganancia == null ? "—" : pesos(f.ganancia)}
-                  </td>
-                  <td className="num cifra">
-                    {f.gastoAds != null && f.gastoAds > 0 ? pesos(f.gastoAds) : "—"}
-                  </td>
-                  <td className="num cifra font-semibold">
-                    {f.costoPorUnidad != null && f.gastoAds ? pesosFinos(f.costoPorUnidad) : "—"}
-                  </td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {f.tacos != null && f.gastoAds ? pct(f.tacos) : "—"}
-                  </td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.gananciaNeta != null && f.gananciaNeta < 0
-                          ? "var(--estado-critico)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.gananciaNeta == null ? "—" : pesos(f.gananciaNeta)}
-                  </td>
-                </tr>
-              ))}
+              {p.filas.map((f) => {
+                const gasto = f.gastoAds ?? 0;
+                return (
+                  <tr key={f.modelo}>
+                    <td className="font-medium">{f.modelo}</td>
+                    <td className="num cifra font-semibold">{n(f.unidades)}</td>
+                    <td className="num cifra">{pesos(f.importe)}</td>
+                    <td className="num cifra">{gasto > 0 ? pesos(gasto) : "—"}</td>
+                    <td className="num cifra font-semibold">
+                      {gasto > 0 && f.unidades > 0 ? pesosFinos(gasto / f.unidades) : "—"}
+                    </td>
+                    <td
+                      className="num cifra"
+                      style={gasto > 0 && f.importe > 0 && gasto / f.importe > 0.3 ? { color: "var(--estado-critico)" } : { color: "var(--ink-2)" }}
+                    >
+                      {gasto > 0 && f.importe > 0 ? pct(gasto / f.importe) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
               {p.filas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+                  <td colSpan={6} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
                     Sin ventas ni publicidad en el periodo.
                   </td>
                 </tr>

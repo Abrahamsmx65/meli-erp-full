@@ -103,7 +103,29 @@ export interface ResumenModelo {
   cobradoLiquidado: number;
   /** pares de los pedidos ya liquidados: contra estos se resta el costo */
   unidadesLiquidadas: number;
+  /** cobrado de los pedidos que TikTok AÚN no liquida: la base del "por cobrar" */
+  cobradoSinLiquidar: number;
+  /** pares de esos pedidos sin liquidar */
+  unidadesSinLiquidar: number;
   tallas: { sku: string; unidades: number; cobrado: number; recibido: number }[];
+}
+
+/**
+ * Cuánto va a pagar TikTok por lo que aún no liquida, ESTIMADO con el
+ * porcentaje observado en lo ya liquidado del mismo rango (recibido ÷
+ * cobrado liquidado, que ya trae comisión y envío). Sin base observada
+ * (nada liquidado) no se estima: null, nunca un invento. Pura.
+ */
+export function estimarPorCobrar(modelos: ResumenModelo[]): {
+  ratio: number | null;
+  porCobrar: number | null;
+} {
+  const cobradoLiquidado = modelos.reduce((a, m) => a + m.cobradoLiquidado, 0);
+  const recibido = modelos.reduce((a, m) => a + m.recibido, 0);
+  const sinLiquidar = modelos.reduce((a, m) => a + m.cobradoSinLiquidar, 0);
+  if (!(cobradoLiquidado > 0) || !(recibido > 0)) return { ratio: null, porCobrar: null };
+  const ratio = Math.min(1, recibido / cobradoLiquidado);
+  return { ratio, porCobrar: sinLiquidar * ratio };
 }
 
 /**
@@ -139,7 +161,7 @@ export function resumenPorModelo(
   const de = (modelo: string) => {
     let m = modelos.get(modelo);
     if (!m) {
-      m = { modelo, unidades: 0, pedidos: 0, cobrado: 0, recibido: 0, sinLiquidar: 0, cobradoLiquidado: 0, unidadesLiquidadas: 0, tallas: [], pedidosSet: new Set(), sinLiquidarSet: new Set(), tallasMap: new Map() };
+      m = { modelo, unidades: 0, pedidos: 0, cobrado: 0, recibido: 0, sinLiquidar: 0, cobradoLiquidado: 0, unidadesLiquidadas: 0, cobradoSinLiquidar: 0, unidadesSinLiquidar: 0, tallas: [], pedidosSet: new Set(), sinLiquidarSet: new Set(), tallasMap: new Map() };
       modelos.set(modelo, m);
     }
     return m;
@@ -163,6 +185,9 @@ export function resumenPorModelo(
       if (liquidado) {
         m.cobradoLiquidado += cobrado;
         m.unidadesLiquidadas += r.cantidad;
+      } else {
+        m.cobradoSinLiquidar += cobrado;
+        m.unidadesSinLiquidar += r.cantidad;
       }
       m.pedidosSet.add(orderId);
       if (!liquidado) m.sinLiquidarSet.add(orderId);
