@@ -461,10 +461,10 @@ export async function sondearParticion(
   periodo: string,
   totalPeriodo: number,
   finMs: number,
-): Promise<ParticionCargos | null> {
+): Promise<Exclude<ParticionCargos, { modo: "ninguna" }> | null> {
   const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
   const dia = diasDelPeriodo(periodo)[0];
-  const candidatos: ParticionCargos[] = [
+  const candidatos: Exclude<ParticionCargos, { modo: "ninguna" }>[] = [
     { modo: "dia", param: "date_from" },
     { modo: "dia", param: "from" },
     { modo: "dia", param: "date_created_from" },
