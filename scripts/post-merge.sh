@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reconcile dependencies after an isolated task is merged. `npm install` is
-# idempotent, updates node_modules to the committed lockfile, and does not
-# require interactive input.
-npm install --no-audit --no-fund
+# Reject lockfiles that would only install inside Replit, then install exactly
+# what was committed without allowing npm to rewrite package-lock.json.
+npm run validate:node-version
+npm run validate:lockfile
+npm ci --no-audit --no-fund
+npm run validate:lockfile
 
 # Catch incompatible merged TypeScript changes without running the complete
 # test/build suite on every task merge.

@@ -122,6 +122,73 @@ describe("publicidad cacheada", () => {
     expect(resultadoSegundo).toBe(resultadoPrimero);
   });
 
+  it("mantiene aislados los recálculos simultáneos de periodos distintos para la misma cuenta", async () => {
+    const rangoAgosto = { desde: "2026-08-01", hasta: "2026-08-31" };
+    const rangoSeptiembre = { desde: "2026-09-01", hasta: "2026-09-30" };
+    const cliente = { cuenta: cuenta.id } as unknown as MeliClient;
+    const advertiser = { advertiserId: "advertiser", siteId: cuenta.site_id };
+    let liberarAgosto!: (anuncios: AnuncioAds[]) => void;
+    let liberarSeptiembre!: (anuncios: AnuncioAds[]) => void;
+    const publicidadAgosto = new Promise<AnuncioAds[]>((resolve) => {
+      liberarAgosto = resolve;
+    });
+    const publicidadSeptiembre = new Promise<AnuncioAds[]>((resolve) => {
+      liberarSeptiembre = resolve;
+    });
+    const db = { from: vi.fn() };
+    leerCache.mockResolvedValue({ estado: "ausente" });
+    conectarCuenta.mockResolvedValue(cliente);
+    resolverPublicidad.mockResolvedValue(advertiser);
+    traerPublicidad.mockImplementation((_cliente, _advertiser, rangoSolicitado) =>
+      rangoSolicitado === rangoAgosto ? publicidadAgosto : publicidadSeptiembre,
+    );
+
+    let terminoSeptiembre = false;
+    const solicitudAgosto = adsPorDisenoCacheado(db as any, cuenta, "2026-08", rangoAgosto);
+    const solicitudSeptiembre = adsPorDisenoCacheado(db as any, cuenta, "2026-09", rangoSeptiembre).then((resultado) => {
+      terminoSeptiembre = true;
+      return resultado;
+    });
+    await vi.waitFor(() => expect(traerPublicidad).toHaveBeenCalledTimes(2));
+
+    liberarAgosto([anuncioSinAmarre("sin-amarre-agosto", 18)]);
+    await expect(solicitudAgosto).resolves.toMatchObject({ sinAmarre: 18, error: null });
+    expect(terminoSeptiembre).toBe(false);
+    expect(guardarCache).toHaveBeenCalledWith(
+      db,
+      cuenta.id,
+      "ads:2026-08",
+      expect.objectContaining({ sinAmarre: 18 }),
+      expect.any(Number),
+    );
+    expect(guardarCache).not.toHaveBeenCalledWith(
+      db,
+      cuenta.id,
+      "ads:2026-09",
+      expect.anything(),
+      expect.any(Number),
+    );
+
+    liberarSeptiembre([anuncioSinAmarre("sin-amarre-septiembre", 29)]);
+    await expect(solicitudSeptiembre).resolves.toMatchObject({ sinAmarre: 29, error: null });
+
+    expect(leerCache).toHaveBeenCalledTimes(2);
+    expect(leerCache).toHaveBeenCalledWith(db, cuenta.id, "ads:2026-08", undefined);
+    expect(leerCache).toHaveBeenCalledWith(db, cuenta.id, "ads:2026-09", 3_600_000);
+    expect(conectarCuenta).toHaveBeenCalledTimes(2);
+    expect(resolverPublicidad).toHaveBeenCalledTimes(2);
+    expect(traerPublicidad).toHaveBeenCalledWith(cliente, advertiser, rangoAgosto);
+    expect(traerPublicidad).toHaveBeenCalledWith(cliente, advertiser, rangoSeptiembre);
+    expect(guardarCache).toHaveBeenCalledTimes(2);
+    expect(guardarCache).toHaveBeenCalledWith(
+      db,
+      cuenta.id,
+      "ads:2026-09",
+      expect.objectContaining({ sinAmarre: 29 }),
+      expect.any(Number),
+    );
+  });
+
   it("mantiene aislados los recálculos simultáneos de cuentas distintas para el mismo periodo", async () => {
     const cuentaA = { id: "cuenta-a", site_id: "MLM" } as CuentaYz;
     const cuentaB = { id: "cuenta-b", site_id: "MLA" } as CuentaYz;
