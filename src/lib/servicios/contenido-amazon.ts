@@ -404,18 +404,29 @@ export function armarContenido(
 }
 
 /** Los renglones del catálogo, con respaldo si nunca se ha refrescado. */
+function esTablaAusente(err: unknown): boolean {
+  return err instanceof Error && /does not exist|42P01|schema cache/i.test(err.message);
+}
+
 async function leerCatalogo(
   db: DB,
   amazonAccountId: string,
 ): Promise<{ filas: FilaCatalogo[]; sinRefrescar: boolean }> {
   const acotar = (q: any) => q.eq("account_id", amazonAccountId);
 
-  const listings = await traerTodo<any>(
-    db,
-    "amazon_listings",
-    "seller_sku, asin, titulo, estado, imagen_url",
-    acotar,
-  ).catch(() => [] as any[]);
+  let listings: any[] = [];
+  try {
+    listings = await traerTodo<any>(
+      db,
+      "amazon_listings",
+      "seller_sku, asin, titulo, estado, imagen_url",
+      acotar,
+    );
+  } catch (err) {
+    // La tabla nueva puede no existir antes de su migración. Cualquier otro
+    // error debe subir: no es válido convertir una falla en catálogo vacío.
+    if (!esTablaAusente(err)) throw err;
+  }
 
   if (listings.length) {
     return {
@@ -437,7 +448,7 @@ async function leerCatalogo(
     "amazon_skus",
     "seller_sku, asin, titulo, estado, activo",
     acotar,
-  ).catch(() => [] as any[]);
+  );
 
   return {
     sinRefrescar: true,
@@ -530,7 +541,10 @@ async function leerPadres(db: DB, amazonAccountId: string): Promise<Map<string, 
     "amazon_padres",
     "asin, parent_asin, titulo, imagen_url",
     (q) => q.eq("account_id", amazonAccountId),
-  ).catch(() => [] as any[]);
+  ).catch((err) => {
+    if (esTablaAusente(err)) return [] as any[];
+    throw err;
+  });
 
   return new Map(
     filas.map((f) => [
