@@ -42,7 +42,7 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string)
       if (!amz) return null;
       try {
         const [monitor, config] = await Promise.all([obtenerMonitorAmazon(db, amz.id, cuenta.id, { desde, hasta }), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
-        return bloqueAmazon(monitor, config);
+        return bloqueAmazon(monitor, config, { desde, hasta });
       } catch (err) {
         avisos.push(`Amazon no se pudo cargar: ${(err as Error).message}`);
         return null;

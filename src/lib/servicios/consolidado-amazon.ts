@@ -9,20 +9,44 @@ import type { BloqueCanal } from "./consolidado";
 import type { MonitorAmazon } from "./amazon-monitor";
 import type { ConfigProducto } from "./productos";
 
-export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProducto>): BloqueCanal {
+export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProducto>, rango?: { desde: string; hasta: string }): BloqueCanal {
   const avisos: string[] = [];
   const hayPagos = m.netoReal != null;
-  const hayEconomia = m.economia != null;
-  const neto = hayPagos ? (m.netoReal as number) : hayEconomia ? m.economia!.neto : m.periodo.importe;
-  if (!hayPagos && hayEconomia) avisos.push("Sin liquidaciones de Amazon en el rango: el neto es el del reporte de economía por producto (SKU Economics).");
-  if (!hayPagos && !hayEconomia) avisos.push("Amazon sin liquidaciones ni economía por producto en el rango: el neto se tomó igual a la venta (comisiones y FBA sin descontar).");
-  if (m.pagosHasta) avisos.push(`Liquidaciones de Amazon cargadas hasta ${m.pagosHasta}; Amazon liquida cada ~2 semanas.`);
+  const eco = m.economia;
+  const hayEconomia = eco != null && (eco.ventas > 0 || eco.unidades > 0);
+
+  // LO QUE AMAZON VA A PAGAR por lo vendido en el mes: ventas − tarifas del
+  // SKU Economics, por fecha de venta. El `neto` de Amazon ya trae restada
+  // la publicidad; se le regresa para descontarla aparte, por modelo. Las
+  // liquidaciones (por fecha de depósito) quedan como referencia: un mes
+  // recién cerrado todavía no está liquidado completo.
+  const redondea = (x: number) => Math.round(x * 100) / 100;
+  let neto: number;
+  let fuente: "economia" | "pagos" | "venta";
+  if (hayEconomia) {
+    neto = redondea(eco!.neto + eco!.publicidad);
+    fuente = "economia";
+  } else if (hayPagos) {
+    neto = m.netoReal as number;
+    fuente = "pagos";
+    avisos.push("Sin economía por producto (SKU Economics) en el rango: el neto es lo LIQUIDADO por Amazon en el periodo, no lo vendido.");
+  } else {
+    neto = m.periodo.importe;
+    fuente = "venta";
+    avisos.push("Amazon sin economía por producto ni liquidaciones en el rango: el neto se tomó igual a la venta (comisiones y FBA sin descontar).");
+  }
+  if (fuente === "economia") {
+    if (eco!.hasta && rango && eco!.hasta < rango.hasta) {
+      avisos.push(`La economía por producto de Amazon llega hasta el ${eco!.hasta}: los últimos días del periodo aún no están (Amazon tarda ~2 días en asentarlos).`);
+    }
+    if (hayPagos) avisos.push(`Referencia: Amazon lleva liquidados ${redondea(m.netoReal as number).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de este periodo por fecha de depósito${m.pagosHasta ? ` (liquidaciones hasta ${m.pagosHasta})` : ""}.`);
+  }
   if (m.coberturaCosto < 0.999 && m.periodo.unidades > 0) {
     avisos.push(`${Math.round((1 - m.coberturaCosto) * 100)}% de las unidades de Amazon son de modelos sin costo capturado.`);
   }
 
-  // Publicidad por modelo del SKU Economics; si no hay, la del reporte de
-  // pagos entera como gasto general.
+  // Publicidad por modelo del SKU Economics; lo que el reporte de pagos
+  // cobró de más entra como gasto general.
   const adsPorModelo = new Map<string, number>();
   let adsAmarrados = 0;
   for (const [modelo, gasto] of m.publicidadPorModelo) {
@@ -33,40 +57,45 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     }
   }
   const adsPagos = Math.abs(m.publicidad ?? 0);
-  const adsGenerales = adsAmarrados > 0 ? Math.max(0, adsPagos - adsAmarrados) : adsPagos;
+  const adsGenerales = fuente === "economia" ? 0 : adsAmarrados > 0 ? Math.max(0, adsPagos - adsAmarrados) : adsPagos;
 
   // Cada cargo de cuenta con su descripción de Amazon (negativo = cargo, así
   // un reembolso de Amazon por inventario perdido reduce el gasto). Si los
   // pagos vienen del formato viejo sin descripción, entra el total junto.
   const gastos: { concepto: string; monto: number }[] = [];
   if (m.otrosCargosDetalle?.length) {
-    for (const d of m.otrosCargosDetalle) gastos.push({ concepto: `Amazon · ${d.concepto}`, monto: Math.round(-d.monto * 100) / 100 });
+    for (const d of m.otrosCargosDetalle) gastos.push({ concepto: `Amazon · ${d.concepto}`, monto: redondea(-d.monto) });
   } else {
     const otros = Math.abs(m.otrosCargos ?? 0);
-    if (otros) gastos.push({ concepto: "Cargos de cuenta de Amazon (FBA, almacenaje, suscripción)", monto: Math.round(otros * 100) / 100 });
+    if (otros) gastos.push({ concepto: "Cargos de cuenta de Amazon (FBA, almacenaje, suscripción)", monto: redondea(otros) });
   }
+  if (adsGenerales) gastos.push({ concepto: "Publicidad de Amazon no amarrada a modelo", monto: redondea(adsGenerales) });
   if (m.reservas) {
     avisos.push(
       `Amazon retuvo/soltó ${Math.abs(m.reservas).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} en reservas durante el periodo: es dinero en tránsito, no gasto, y no se descuenta.`,
     );
   }
-  if (adsGenerales) gastos.push({ concepto: "Publicidad de Amazon no amarrada a modelo", monto: Math.round(adsGenerales * 100) / 100 });
 
-  // El neto por modelo: el liquidado del modelo si hay pagos; si no, la
-  // venta del modelo por el ratio neto ÷ venta del canal.
+  // El neto por modelo: del SKU Economics (ventas − tarifas) si hay; si no,
+  // el liquidado del modelo; si no, la venta del modelo por el ratio del canal.
   const ratio = m.periodo.importe > 0 ? neto / m.periodo.importe : 1;
   let costoProducto = 0;
   let unidadesConCosto = 0;
   const porModelo = m.porModelo
-    .filter((f) => f.unidades > 0 || (f.netoReal ?? 0) !== 0)
+    .filter((f) => f.unidades > 0 || (f.netoReal ?? 0) !== 0 || (f.economia?.ventas ?? 0) > 0)
     .map((f) => {
       const cfg = config.get(f.modelo);
-      const costo = cfg?.costo != null && f.unidades > 0 ? Math.round(cfg.costo * f.unidades * 100) / 100 : cfg?.costo != null ? 0 : null;
+      const costo = cfg?.costo != null && f.unidades > 0 ? redondea(cfg.costo * f.unidades) : cfg?.costo != null ? 0 : null;
       if (costo != null) {
         costoProducto += costo;
         unidadesConCosto += f.unidades;
       }
-      const netoModelo = hayPagos && f.netoReal != null ? f.netoReal : Math.round(f.importe * ratio * 100) / 100;
+      const netoModelo =
+        fuente === "economia" && f.economia
+          ? redondea(f.economia.neto + f.economia.publicidad)
+          : fuente === "pagos" && f.netoReal != null
+            ? f.netoReal
+            : redondea(f.importe * ratio);
       return {
         modelo: f.modelo,
         categoria: cfg?.categoria ?? null,
@@ -83,16 +112,16 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     unidades: m.periodo.unidades,
     ordenes: m.periodo.ordenes,
     ventaBruta: m.periodo.importe,
-    neto: Math.round(neto * 100) / 100,
+    neto,
     devoluciones: 0,
     costoRecuperado: 0,
-    costoProducto: Math.round(costoProducto * 100) / 100,
+    costoProducto: redondea(costoProducto),
     unidadesConCosto,
-    adsPorModelo: Math.round(adsAmarrados * 100) / 100,
-    adsGenerales: Math.round(adsGenerales * 100) / 100,
+    adsPorModelo: redondea(adsAmarrados),
+    adsGenerales: redondea(adsGenerales),
     gastos,
     porModelo,
     avisos,
-    exacto: hayPagos && m.coberturaCosto >= 0.999,
+    exacto: fuente === "economia" && m.coberturaCosto >= 0.999 && !(eco!.hasta && rango && eco!.hasta < rango.hasta),
   };
 }
