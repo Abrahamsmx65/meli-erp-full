@@ -347,10 +347,11 @@ function Cascada({ e }: { e: EstadoResultados }) {
   const puente = puenteVentaANeto(e);
   const filas: { etiqueta: string; nota?: string; monto: number; tipo: "base" | "resta" | "suma" | "total" | "final" }[] = [
     { etiqueta: "Venta bruta", nota: "precio × pares de las órdenes pagadas", monto: puente.ventaBruta, tipo: "base" },
-    { etiqueta: "Comisión de MELI", nota: `sale fee de cada orden${e.reventa?.ordenes ? `; ${n(e.reventa.ordenes)} ventas en reventa por ${pesos(e.reventa.importe)} ya vienen netas (MELI absorbe comisión y envío)` : ""}`, monto: -puente.comision, tipo: "resta" },
+    { etiqueta: "Comisión de MELI", nota: `sale fee de cada orden${e.reventa?.ordenes ? (e.reventa.reconstruidas ? `; ${n(e.reventa.reconstruidas)} ventas en reventa reconstruidas al precio público (${pesos(e.reventa.totalComprador ?? e.reventa.importe)}): su comisión y envío se contemplan aunque MELI los absorbe` : `; ${n(e.reventa.ordenes)} ventas en reventa por ${pesos(e.reventa.importe)} ya vienen netas (MELI absorbe comisión y envío)`) : ""}`, monto: -puente.comision, tipo: "resta" },
     { etiqueta: "Envío", nota: "cargo de envío asociado a las ventas", monto: -puente.envio, tipo: "resta" },
     { etiqueta: "Retención ISR", nota: "impuesto adelantado enterado por MELI al SAT", monto: -puente.isr, tipo: "resta" },
     { etiqueta: "Retención IVA", nota: "impuesto adelantado enterado por MELI al SAT", monto: -puente.iva, tipo: "resta" },
+    ...(puente.retencionSinSeparar ? [{ etiqueta: "Retenciones sin separar", nota: "ISR + IVA que Mercado Pago entregó sumados, sin desglosar", monto: -puente.retencionSinSeparar, tipo: "resta" as const }] : []),
     { etiqueta: "Otros cargos", nota: e.cargosSinDesglosar ? `incluye ${pesos(e.cargosSinDesglosar)} aún sin concepto por operación` : "otros descuentos incluidos en el depósito", monto: -puente.otros, tipo: "resta" },
     ...(puente.ajusteLiquidacion ? [{ etiqueta: "Ajuste posterior de liquidación", nota: "cambio del saldo de Mercado Pago después del depósito original", monto: -puente.ajusteLiquidacion, tipo: "resta" as const }] : []),
     ...(puente.devolucionesIncluidasEnNeto ? [{ etiqueta: "Reembolsos ya reflejados en el neto", nota: "Mercado Pago ya redujo el saldo actual; se muestran aquí para cuadrar la cascada", monto: -puente.devolucionesIncluidasEnNeto, tipo: "resta" as const }] : []),

@@ -165,10 +165,11 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
   const puente = puenteVentaANeto(e);
   const cascada: Renglon[] = [
     { etiqueta: "Venta bruta", monto: puente.ventaBruta, tipo: "base", nota: "precio × pares de las órdenes pagadas" },
-    { etiqueta: "Comisión de MELI", monto: -puente.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas` : ""}` },
+    { etiqueta: "Comisión de MELI", monto: -puente.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? (e.reventa.reconstruidas ? `; ${enteros(e.reventa.reconstruidas)} ventas en reventa reconstruidas al precio público (${pesosPdf(e.reventa.totalComprador ?? e.reventa.importe)})` : `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas`) : ""}` },
     { etiqueta: "Envío", monto: -puente.envio, tipo: "resta", nota: "cargo de envío asociado a las ventas" },
     { etiqueta: "Retención ISR", monto: -puente.isr, tipo: "resta", nota: "impuesto adelantado enterado por MELI al SAT" },
     { etiqueta: "Retención IVA", monto: -puente.iva, tipo: "resta", nota: "impuesto adelantado enterado por MELI al SAT" },
+    ...(puente.retencionSinSeparar ? [{ etiqueta: "Retenciones sin separar", monto: -puente.retencionSinSeparar, tipo: "resta" as const, nota: "ISR + IVA que Mercado Pago entregó sumados, sin desglosar" }] : []),
     { etiqueta: "Otros cargos", monto: -puente.otros, tipo: "resta", nota: e.cargosSinDesglosar ? `incluye ${pesosPdf(e.cargosSinDesglosar)} sin concepto por operación` : "otros descuentos incluidos en el depósito" },
     ...(puente.ajusteLiquidacion ? [{ etiqueta: "Ajuste posterior de liquidación", monto: -puente.ajusteLiquidacion, tipo: "resta" as const, nota: "cambio del saldo de Mercado Pago después del depósito original" }] : []),
     ...(puente.devolucionesIncluidasEnNeto ? [{ etiqueta: "Reembolsos ya reflejados en el neto", monto: -puente.devolucionesIncluidasEnNeto, tipo: "resta" as const, nota: "Mercado Pago ya redujo el saldo actual; este renglón cuadra la cascada" }] : []),

@@ -24,12 +24,14 @@
  */
 import type { MeliClient } from "../meli/client";
 import {
+  camposLiquidacionMeli,
   leerPagoMercadoPago,
   pagosCobrablesCompletos,
   peorEstadoPago,
-  resumirPagosMeli,
   type PagoMercadoPago,
 } from "../meli/pagos";
+import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
+import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { traerTodo, type DB } from "../datos/repos";
 import { claveItem } from "../meli/sync";
 import { clienteDeCuenta, mapaItemSkuDe, recalcularDiaVentas } from "./webhooks";
@@ -91,20 +93,20 @@ export interface ResultadoRevision {
   errores: string[];
 }
 
-interface OrdenLeida {
-  status?: string;
-  payments?: { id?: number }[];
-  order_items?: {
-    quantity?: number;
-    unit_price?: number;
-    sale_fee?: number;
-    item?: { id?: string; seller_sku?: string | null; seller_custom_field?: string | null; variation_id?: number | string | null };
-  }[];
+type OrdenLeida = OrdenMeliCruda;
+
+export interface RenglonGuardado {
+  sku: string;
+  unidades: number;
+  importe: number;
+  comision: number;
+  categoria: string | null;
+  listing: string | null;
 }
 
-/** Los renglones (sku, unidades, importe, comisión) de una orden leída de MELI. */
-function renglonesDe(orden: OrdenLeida, mapaItemSku: Map<string, string>): { sku: string; unidades: number; importe: number; comision: number }[] {
-  const porSku = new Map<string, { sku: string; unidades: number; importe: number; comision: number }>();
+/** Los renglones (sku, unidades, importe, comisión, categoría) de una orden leída de MELI. */
+export function renglonesDe(orden: OrdenLeida, mapaItemSku: Map<string, string>): RenglonGuardado[] {
+  const porSku = new Map<string, RenglonGuardado>();
   for (const oi of orden.order_items ?? []) {
     const sku =
       oi.item?.seller_sku?.trim() ||
@@ -113,13 +115,37 @@ function renglonesDe(orden: OrdenLeida, mapaItemSku: Map<string, string>): { sku
       (oi.item?.id ? mapaItemSku.get(oi.item.id) : undefined);
     if (!sku) continue;
     const u = oi.quantity ?? 0;
-    const r = porSku.get(sku) ?? { sku, unidades: 0, importe: 0, comision: 0 };
+    const r = porSku.get(sku) ?? {
+      sku,
+      unidades: 0,
+      importe: 0,
+      comision: 0,
+      categoria: oi.item?.category_id ?? null,
+      listing: oi.listing_type_id ?? null,
+    };
     r.unidades += u;
     r.importe = Math.round((r.importe + u * (oi.unit_price ?? 0)) * 100) / 100;
     r.comision = Math.round((r.comision + u * (oi.sale_fee ?? 0)) * 100) / 100;
     porSku.set(sku, r);
   }
   return [...porSku.values()];
+}
+
+/**
+ * Las columnas de la orden que se guardan al leerla de MELI (etiquetas,
+ * pack, envío, pagado y la orden recortada): las mismas que escribe el
+ * barrido de ventas, para que la revisión y la recarga dejen la fila igual.
+ */
+export function columnasDeOrden(orden: OrdenLeida): Record<string, unknown> {
+  const ctx = contextoDeOrden(orden, Date.now());
+  return {
+    pack_id: ctx.packId,
+    shipping_id: ctx.shippingId,
+    static_tags: ctx.staticTags ?? [],
+    pagado: ctx.pagado ?? null,
+    envio_comprador: ctx.envioComprador ?? 0,
+    orden_cruda: recortarOrden(orden),
+  };
 }
 
 /**
@@ -225,24 +251,32 @@ export async function revisarOrdenes(
   db: DB,
   accountId: string,
   cliente: MeliClient,
-  opts: { desde: string; hasta: string; tope: number; finMs: number; sinEsperar?: boolean },
+  opts: {
+    desde: string;
+    hasta: string;
+    tope: number;
+    finMs: number;
+    sinEsperar?: boolean;
+    /**
+     * Re-enriquecer SOLO estas órdenes (auditoría puntual contra el reporte
+     * "Ventas MX"): se releen orden y pagos tengan o no sus revisiones.
+     */
+    ordenIds?: number[];
+  },
 ): Promise<ResultadoRevision> {
   const hoy = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
-  const filas = await traerTodo<any>(
-    db,
-    "ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable",
-    (q) =>
-      q
-        .eq("account_id", accountId)
-        .gte("fecha", opts.desde)
-        .lte("fecha", opts.hasta)
-        .lt("revisiones", 2),
-  );
+  const columnas =
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
+  const filas = opts.ordenIds?.length
+    ? await traerTodo<any>(db, "ordenes_neto", columnas, (q) => q.eq("account_id", accountId).in("order_id", opts.ordenIds!))
+    : await traerTodo<any>(db, "ordenes_neto", columnas, (q) =>
+        q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
+      );
   let mapaItemSku: Map<string, string> | null = null;
+  const tarifas = new CacheTarifas(cliente);
 
   const pendientes = filas
-    .filter((f) => tocaRevision(f.fecha, f.revisiones ?? 0, hoy, opts.sinEsperar))
+    .filter((f) => opts.ordenIds?.length || tocaRevision(f.fecha, f.revisiones ?? 0, hoy, opts.sinEsperar))
     .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
 
   const r: ResultadoRevision = {
@@ -263,9 +297,16 @@ export async function revisarOrdenes(
     if (f.payment_id != null) idsPago.add(Number(f.payment_id));
 
     let estado: string | null = f.estado ?? null;
-    if (!idsPago.size || !estado) {
+    // La orden se vuelve a pedir cuando falta algo que solo ella trae: sus
+    // pagos, su estado, o (filas de antes de guardarla) sus etiquetas de
+    // reventa y su envío. Una sola llamada deja la fila completa. Al
+    // re-enriquecer a mano se pide siempre: es la auditoría completa.
+    let orden: OrdenLeida | null = null;
+    const faltaOrden =
+      !idsPago.size || !estado || f.static_tags == null || f.renglones == null || Boolean(opts.ordenIds?.length);
+    if (faltaOrden) {
       try {
-        const orden = await cliente.get<OrdenLeida>(`/orders/${orderId}`);
+        orden = await cliente.get<OrdenLeida>(`/orders/${orderId}`);
         for (const p of orden?.payments ?? []) if (p.id != null) idsPago.add(Number(p.id));
         estado = orden?.status ?? estado;
       } catch (err) {
@@ -279,10 +320,8 @@ export async function revisarOrdenes(
     let pagosLeidos = 0;
     for (const pid of idsPago) {
       try {
-        const crudo = await cliente.get<unknown>(`/collections/${pid}`);
-        const pago = leerPagoMercadoPago(crudo);
+        pagos.push(await leerPagoReal(cliente, pid));
         pagosLeidos++;
-        pagos.push(pago);
       } catch (err) {
         r.errores.push(`pago ${pid}: ${(err as Error).message}`.slice(0, 200));
       }
@@ -296,52 +335,44 @@ export async function revisarOrdenes(
     const dias = Math.floor((Date.parse(hoy) - Date.parse(f.fecha)) / 86_400_000);
     // Una revisión tardía (ya pasados los 40 días) cierra las dos de un golpe.
     const revisiones = dias >= SEGUNDA_REVISION_DIAS ? 2 : Math.min(2, (f.revisiones ?? 0) + 1);
-    const comisionOrden = Array.isArray(f.renglones)
-      ? f.renglones.reduce((a: number, x: any) => a + (Number(x.comision) || 0), 0)
-      : 0;
+    // Los renglones guardados (con categoría) sirven para la reventa; si la
+    // orden se acaba de leer, los suyos son más completos.
+    let renglonesGuardados: RenglonGuardado[] | null = Array.isArray(f.renglones) ? f.renglones : null;
+    if (orden) {
+      if (!mapaItemSku) mapaItemSku = await mapaItemSkuDe(db, accountId);
+      const leidos = renglonesDe(orden, mapaItemSku);
+      if (leidos.length) renglonesGuardados = leidos;
+    }
+    const comisionOrden = (renglonesGuardados ?? []).reduce((a, x) => a + (Number(x.comision) || 0), 0);
     const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
-    const resumenPago = resumirPagosMeli(
+    const contexto = orden ? contextoDeOrden(orden, Date.now()) : contextoGuardado(f, Date.now());
+    if (orden && f.envio_vendedor != null) contexto.envioVendedor = Number(f.envio_vendedor);
+    const resumenPago = await resumirOrdenConMeli(cliente, {
       pagos,
-      Number(f.total) || 0,
+      total: Number(f.total) || 0,
       comisionOrden,
       netoControl,
-      f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
-      f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
-    );
+      reembolsoIncluidoNetoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+      reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+      contexto,
+      renglones: renglonesParaCascada(renglonesGuardados),
+      tarifas,
+    });
     const estadoPago = resumenPago.estadoPago;
     const devuelta = resumenPago.reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back";
 
-    // Una devuelta sin renglones (de antes de guardarlos): se le piden a
-    // MELI para que el corte recupere el costo exacto de los pares.
     const cambios: Record<string, unknown> = {
       estado,
-      estado_pago: estadoPago,
-      reembolsado: resumenPago.reembolsado,
-      reembolso_incluido_neto_base: resumenPago.reembolsoIncluidoNetoBase,
-      reembolso_base_confiable: resumenPago.reembolsoBaseConfiable,
       ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
-      comision_mp: resumenPago.comision,
-      envio_mp: resumenPago.envio,
-      isr_mp: resumenPago.isr,
-      iva_mp: resumenPago.iva,
-      otros_mp: resumenPago.otros,
-      cargos_sin_desglosar: resumenPago.cargosSinDesglosar,
-      detalle_cargos: resumenPago.detalleCargos,
-      tipo_venta: resumenPago.tipoVenta,
+      ...camposLiquidacionMeli(resumenPago),
+      ...(orden ? columnasDeOrden(orden) : {}),
       cargos_leidos_en: new Date().toISOString(),
       revisado_en: new Date().toISOString(),
       revisiones,
     };
-    if (devuelta && estado !== "cancelled" && !f.renglones) {
-      try {
-        if (!mapaItemSku) mapaItemSku = await mapaItemSkuDe(db, accountId);
-        const orden = await cliente.get<OrdenLeida>(`/orders/${orderId}`);
-        const renglones = renglonesDe(orden, mapaItemSku);
-        if (renglones.length) cambios.renglones = renglones;
-      } catch (err) {
-        r.errores.push(`renglones ${orderId}: ${(err as Error).message}`.slice(0, 200));
-      }
-    }
+    // Los renglones se guardan si la fila no los tenía (de antes de
+    // guardarlos): con ellos el corte recupera el costo exacto de los pares.
+    if (orden && !f.renglones && renglonesGuardados?.length) cambios.renglones = renglonesGuardados;
 
     const { error } = await db
       .from("ordenes_neto")

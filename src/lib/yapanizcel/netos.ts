@@ -21,7 +21,9 @@
 import type { DB } from "../datos/repos";
 import { upsertEnTandas } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
-import { camposLiquidacionMeli, leerPagoMercadoPago, netoVigente, resumirPagosMeli, type ResumenPagosMeli } from "../meli/pagos";
+import { camposLiquidacionMeli, netoVigente, type PagoMercadoPago, type ResumenPagosMeli } from "../meli/pagos";
+import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
+import { contextoDeOrden, recortarOrden, type ContextoOrden, type RenglonParaCascada } from "../meli/orden";
 import { claveItem, obtenerUsuario } from "../meli/sync";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
@@ -65,40 +67,72 @@ export async function registrarOrdenes(admin: DB, accountId: string, ordenes: Or
       fecha: o.fecha,
       total: o.total,
       // Con unidades y comisión: el corte del mes se arma desde las órdenes.
-      renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: redondea(r.importe), comision: redondea(r.comision) })),
+      renglones: renglonesParaGuardar(o),
+      ...columnasDeOrdenYz(o),
     })),
     "account_id,order_id",
   );
   return nuevas.length;
 }
 
-/** El neto de una orden: la suma de sus pagos aprobados. null = MP no contestó. */
-export async function leerNetoDeOrden(cliente: MeliClient, pagos: number[]): Promise<number | null> {
-  return (await leerResumenDeOrden(cliente, pagos, 0, 0)).neto;
+/** Los renglones como se guardan (con categoría y tipo de publicación, para la reventa). */
+export function renglonesParaGuardar(o: OrdenLeida): Record<string, unknown>[] {
+  return o.renglones.map((r) => ({
+    sku: r.sku,
+    unidades: r.unidades,
+    importe: redondea(r.importe),
+    comision: redondea(r.comision),
+    categoria: r.categoria ?? null,
+    listing: r.listing ?? null,
+  }));
 }
 
-/** Neto y desglose de una orden, sumando todos sus pagos. */
-export async function leerResumenDeOrden(
-  cliente: MeliClient,
-  pagos: number[],
-  total: number,
-  comision: number,
-  netoControl?: number | null,
-  reembolsoIncluidoNetoBase?: number | null,
-  reembolsoBaseConfiable?: boolean | null,
-): Promise<ResumenPagosMeli> {
-  const leidos = [];
-  for (const pagoId of pagos) {
-    leidos.push(leerPagoMercadoPago(await cliente.get<unknown>(`/collections/${pagoId}`)));
-  }
-  return resumirPagosMeli(
-    leidos,
-    total,
-    comision,
-    netoControl,
-    reembolsoIncluidoNetoBase,
-    reembolsoBaseConfiable,
-  );
+/** Las columnas que la orden aporta a la cascada (etiquetas, pack, envío, pagado, orden recortada). */
+export function columnasDeOrdenYz(o: OrdenLeida): Record<string, unknown> {
+  if (!o.orden) return {};
+  const ctx = contextoDeOrden(o.orden, Date.now());
+  return {
+    pack_id: ctx.packId,
+    shipping_id: ctx.shippingId,
+    static_tags: ctx.staticTags ?? [],
+    pagado: ctx.pagado ?? null,
+    envio_comprador: ctx.envioComprador ?? 0,
+    orden_cruda: recortarOrden(o.orden),
+  };
+}
+
+/** El neto de una orden: la suma de sus pagos aprobados. null = MP no contestó. */
+export async function leerNetoDeOrden(cliente: MeliClient, pagos: number[]): Promise<number | null> {
+  return (await leerResumenDeOrden(cliente, { pagos, total: 0, comision: 0, contexto: {}, renglones: [], tarifas: new CacheTarifas(cliente) })).neto;
+}
+
+export interface EntradaResumenYz {
+  pagos: number[];
+  total: number;
+  comision: number;
+  netoControl?: number | null;
+  reembolsoIncluidoNetoBase?: number | null;
+  reembolsoBaseConfiable?: boolean | null;
+  contexto: ContextoOrden;
+  renglones: RenglonParaCascada[];
+  tarifas: CacheTarifas;
+}
+
+/** Neto y desglose de una orden, leyendo el pago real de cada uno de sus pagos. */
+export async function leerResumenDeOrden(cliente: MeliClient, e: EntradaResumenYz): Promise<ResumenPagosMeli> {
+  const leidos: PagoMercadoPago[] = [];
+  for (const pagoId of e.pagos) leidos.push(await leerPagoReal(cliente, pagoId));
+  return resumirOrdenConMeli(cliente, {
+    pagos: leidos,
+    total: e.total,
+    comisionOrden: e.comision,
+    netoControl: e.netoControl,
+    reembolsoIncluidoNetoBase: e.reembolsoIncluidoNetoBase,
+    reembolsoBaseConfiable: e.reembolsoBaseConfiable,
+    contexto: e.contexto,
+    renglones: e.renglones,
+    tarifas: e.tarifas,
+  });
 }
 
 /**
@@ -181,11 +215,13 @@ export async function completarNetosPendientes(
   finMs: number,
   tope = 2_000,
 ): Promise<ResumenNetos> {
+  // Pendiente = sin neto, sin desglose, o con desglose de la forma vieja
+  // (cargos_fuente en null: nunca se leyó el pago real). Las nuevas primero.
   const { data, count } = await admin
     .from("yz_ordenes_neto")
-    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable", { count: "exact" })
+    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor", { count: "exact" })
     .eq("account_id", accountId)
-    .or("neto_en.is.null,cargos_leidos_en.is.null")
+    .or("neto_en.is.null,cargos_leidos_en.is.null,cargos_fuente.is.null")
     .gt("total", 0)
     .order("fecha", { ascending: false })
     .limit(tope);
@@ -194,6 +230,7 @@ export async function completarNetosPendientes(
   const dias = new Set<string>();
   const nuevasConNeto: Record<string, unknown>[] = [];
   const nuevasSoloCargos: Record<string, unknown>[] = [];
+  const tarifas = new CacheTarifas(cliente);
   const vaciar = async () => {
     if (nuevasConNeto.length) {
       await upsertEnTandas(admin, "yz_ordenes_neto", nuevasConNeto.splice(0), "account_id,order_id");
@@ -215,15 +252,17 @@ export async function completarNetosPendientes(
         ? o.renglones.reduce((a: number, r: any) => a + (Number(r.comision) || 0), 0)
         : 0;
       const netoControl = o.neto_en != null ? Number(o.neto) : undefined;
-      const resumen = await leerResumenDeOrden(
-        cliente,
+      const resumen = await leerResumenDeOrden(cliente, {
         pagos,
         total,
         comision,
         netoControl,
-        o.reembolso_incluido_neto_base == null ? null : Number(o.reembolso_incluido_neto_base),
-        o.reembolso_base_confiable == null ? null : Boolean(o.reembolso_base_confiable),
-      );
+        reembolsoIncluidoNetoBase: o.reembolso_incluido_neto_base == null ? null : Number(o.reembolso_incluido_neto_base),
+        reembolsoBaseConfiable: o.reembolso_base_confiable == null ? null : Boolean(o.reembolso_base_confiable),
+        contexto: contextoGuardado(o, Date.now()),
+        renglones: renglonesParaCascada(o.renglones),
+        tarifas,
+      });
       if (resumen.neto == null) {
         r.fallidos++;
         continue;
@@ -232,7 +271,7 @@ export async function completarNetosPendientes(
         account_id: accountId,
         order_id: o.order_id,
         ...camposLiquidacionMeli(resumen),
-        cargos_leidos_en: new Date().toISOString(),
+        cargos_leidos_en: resumen.cargosCompletos ? new Date().toISOString() : null,
         actualizado_en: new Date().toISOString(),
       };
       if (netoControl == null) {

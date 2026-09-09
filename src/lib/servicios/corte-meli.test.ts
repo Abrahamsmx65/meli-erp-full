@@ -415,7 +415,7 @@ describe("armarEstadoResultados", () => {
     expect(e.porModelo.find((m) => m.modelo === "MY2307")).toMatchObject({ neto: 100, comision: 0 });
     expect(e.porModelo.reduce((a, m) => a + m.neto, 0)).toBe(e.netoDepositado);
     expect(e.porModelo.reduce((a, m) => a + m.comision, 0)).toBe(e.comision);
-    expect(e.reventa).toEqual({ ordenes: 1, importe: 100 });
+    expect(e.reventa).toEqual({ ordenes: 1, importe: 100, totalComprador: 100, reconstruidas: 0 });
     expect(e.revision.exacto).toBe(true);
   });
 
@@ -739,7 +739,7 @@ describe("ventas en reventa", () => {
       }),
     );
     expect(e.netoDepositado).toBe(306);
-    expect(e.reventa).toEqual({ ordenes: 1, importe: 200 });
+    expect(e.reventa).toEqual({ ordenes: 1, importe: 200, totalComprador: 200, reconstruidas: 0 });
     // utilidad bruta = 306 − costo (2 × 60.50): la reventa no cuesta nada más
     expect(e.utilidadBruta).toBe(306 - 121);
     expect(e.avisos.some((a) => a.includes("REVENTA"))).toBe(true);

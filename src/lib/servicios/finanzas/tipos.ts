@@ -36,17 +36,26 @@ export interface CoberturaFinanzas {
   /** 0-1 */
   parteCargos: number;
   parteNeto: number;
+  /** Órdenes cuyo desglose salió del pago REAL de Mercado Pago (/v1/payments), no de la forma vieja. */
+  conPagoReal: number;
+  /** Órdenes con la comisión ya completa (las recientes se releen hasta que MP la publica). */
+  completas: number;
 }
 
 /**
- * Las ventas en REVENTA (MELI compra y revende). Su importe ya viene neto de
- * comisión y envío, así que mezclarlas con las directas deforma el precio
- * promedio: se cuentan aparte.
+ * Las ventas en REVENTA (MELI compra y revende). MELI paga un precio ya neto
+ * de comisión y envío; para compararlas con las directas se reconstruye el
+ * precio público con la tarifa de la categoría (decisión del dueño) y la
+ * venta bruta se infla con esa diferencia. El neto no cambia.
  */
 export interface ReventaPeriodo {
   ordenes: number;
   /** Lo que MELI paga por ellas (centavos): el importe que el ERP registra. */
   importe: number;
+  /** El precio público reconstruido (centavos); igual a `importe` en las que no se pudo reconstruir. */
+  totalComprador: number;
+  /** Cuántas se reconstruyeron. */
+  reconstruidas: number;
 }
 
 /**

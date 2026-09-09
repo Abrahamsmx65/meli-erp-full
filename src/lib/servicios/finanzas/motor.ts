@@ -45,11 +45,27 @@ function sumar(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0);
 }
 
+/** Cuánto sube la venta bruta por la reventa reconstruida al precio público. */
+export function inflacionReventa(dias: DiaOrdenesAgregado[]): number {
+  return sumar(
+    dias.map((d) =>
+      d.reventaTotalComprador != null
+        ? Math.max(0, aCentavos(d.reventaTotalComprador) - aCentavos(d.sinDescTotal ?? 0))
+        : 0,
+    ),
+  );
+}
+
 export function armarTotales(dias: DiaOrdenesAgregado[], ventas: DiaDeVenta[]): TotalesFinanzas {
-  const bruto = sumar(ventas.map((v) => aCentavos(v.importe)));
+  // La reventa entra al precio público reconstruido (decisión del dueño):
+  // la venta bruta sube lo mismo que la comisión y el envío contemplados,
+  // así que el neto no se mueve y la cascada cierra igual.
+  const bruto = sumar(ventas.map((v) => aCentavos(v.importe))) + inflacionReventa(dias);
   const comision = sumar(dias.map((d) => aCentavos(d.comisionMp ?? 0)));
   const envio = sumar(dias.map((d) => aCentavos(d.envio ?? 0)));
-  const retenciones = sumar(dias.map((d) => aCentavos(d.isr ?? 0) + aCentavos(d.iva ?? 0)));
+  const retenciones = sumar(
+    dias.map((d) => aCentavos(d.isr ?? 0) + aCentavos(d.iva ?? 0) + aCentavos(d.retencionMp ?? 0)),
+  );
   const otros = sumar(dias.map((d) => aCentavos(d.otrosCargos ?? 0)));
   const neto = sumar(dias.map((d) => aCentavos(d.neto)));
   // Lo que no cierra. Es una RESTA, no un dato: por construcción la cascada
@@ -68,13 +84,18 @@ export function armarCobertura(dias: DiaOrdenesAgregado[]): CoberturaFinanzas {
     conNeto,
     parteCargos: ordenes > 0 ? conCargos / ordenes : 0,
     parteNeto: ordenes > 0 ? conNeto / ordenes : 0,
+    conPagoReal: sumar(dias.map((d) => d.cargosReales ?? 0)),
+    completas: sumar(dias.map((d) => d.cargosCompletos ?? d.cargosLeidos ?? 0)),
   };
 }
 
 export function armarReventa(dias: DiaOrdenesAgregado[]): ReventaPeriodo {
+  const importe = sumar(dias.map((d) => aCentavos(d.sinDescTotal ?? 0)));
   return {
     ordenes: sumar(dias.map((d) => d.sinDescOrdenes ?? 0)),
-    importe: sumar(dias.map((d) => aCentavos(d.sinDescTotal ?? 0))),
+    importe,
+    totalComprador: importe + inflacionReventa(dias),
+    reconstruidas: sumar(dias.map((d) => d.reventaReconstruidas ?? 0)),
   };
 }
 
@@ -82,17 +103,33 @@ export function armarReventa(dias: DiaOrdenesAgregado[]): ReventaPeriodo {
  * La cascada tal como se lee: de la venta bruta al neto, restando cada
  * cargo con su nota. El último renglón es el resultado.
  */
-export function armarCascada(t: TotalesFinanzas, cob: CoberturaFinanzas): PasoCascada[] {
+export function armarCascada(t: TotalesFinanzas, cob: CoberturaFinanzas, reventa?: ReventaPeriodo): PasoCascada[] {
   const sinLeer = cob.ordenes - cob.conCargos;
+  const sinPagoReal = cob.conCargos - cob.conPagoReal;
+  const reconstruidas = reventa?.reconstruidas ?? 0;
   return [
-    { clave: "bruto", titulo: "Venta bruta", monto: t.bruto, nota: "Precio × unidades vendidas" },
-    { clave: "comision", titulo: "Comisión de MELI", monto: -t.comision, nota: "Cargo por venta" },
-    { clave: "envio", titulo: "Envíos", monto: -t.envio, nota: "Cargo por envío de Full" },
+    {
+      clave: "bruto",
+      titulo: "Venta bruta",
+      monto: t.bruto,
+      nota: reconstruidas > 0
+        ? `Precio × unidades; ${reconstruidas.toLocaleString("es-MX")} ventas en reventa al precio público reconstruido`
+        : "Precio × unidades vendidas",
+    },
+    {
+      clave: "comision",
+      titulo: "Comisión de MELI",
+      monto: -t.comision,
+      nota: reconstruidas > 0 ? "Cargo por venta; en reventa, la comisión que MELI absorbe (contemplada)" : "Cargo por venta",
+    },
+    { clave: "envio", titulo: "Envíos", monto: -t.envio, nota: "Lo que el vendedor paga de envío (sin la parte del comprador)" },
     {
       clave: "retenciones",
       titulo: "Retenciones",
       monto: -t.retenciones,
-      nota: "ISR e IVA que Mercado Pago retiene",
+      nota: sinPagoReal > 0
+        ? `ISR e IVA que Mercado Pago retiene; ${sinPagoReal.toLocaleString("es-MX")} órdenes aún leídas con la forma vieja del pago (sin retenciones)`
+        : "ISR e IVA que Mercado Pago retiene",
     },
     { clave: "otros", titulo: "Otros cargos", monto: -t.otros, nota: "Lo demás que Mercado Pago desglosa" },
     {
@@ -122,11 +159,12 @@ export function armarFinanzas(entrada: EntradaMotor): FinanzasPeriodo {
 
   const totales = armarTotales(dias, ventas);
   const cobertura = armarCobertura(dias);
+  const reventa = armarReventa(dias);
   return {
     rango: entrada.rango,
     totales,
-    cascada: armarCascada(totales, cobertura),
-    reventa: armarReventa(dias),
+    cascada: armarCascada(totales, cobertura, reventa),
+    reventa,
     cobertura,
     generadoEn: entrada.generadoEn,
   };
