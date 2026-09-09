@@ -1,8 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { clienteServidor } from "@/lib/supabase/server";
+import { NextResponse, after, type NextRequest } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { importarPackingList } from "@/lib/importar/packing-list";
 import { aplicarPackingList, casarPackingList } from "@/lib/servicios/packing-list";
+import { avisarFotosDeContenedor } from "@/lib/servicios/fotos-contenedor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -81,6 +82,13 @@ export async function POST(req: NextRequest) {
       estado: texto("estado") || "en_transito",
       notas: texto("notas") || (packing.referencia ? `Packing list ${packing.referencia}` : null),
     });
+
+    // Contenedor nuevo → correo con las fotos que faltan (decisión del
+    // dueño), después de contestar: revisa MELI y Amazon y tarda.
+    if (!r.existia) {
+      const accountId = cuenta.id;
+      after(() => avisarFotosDeContenedor(clienteAdmin(), accountId, r.contenedorId));
+    }
 
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {

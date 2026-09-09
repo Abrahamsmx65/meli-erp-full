@@ -4,6 +4,8 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
 import { TablaContenedores } from "@/components/tabla-contenedores";
 import { SubirPackingList } from "@/components/subir-packing-list";
+import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive";
+import { configDrive } from "@/lib/servicios/drive";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +42,24 @@ export default async function Contenedores() {
     );
   }
 
-  const contenedores = await listarContenedores(supabase, cuenta.id);
+  const [contenedores, drive] = await Promise.all([
+    listarContenedores(supabase, cuenta.id),
+    supabase
+      .from("drive_packing_lists")
+      .select("nombre, estado, motivo, procesado_en, contenedor_id")
+      .eq("account_id", cuenta.id)
+      .order("procesado_en", { ascending: false })
+      .limit(30),
+  ]);
   const enCamino = contenedores.filter((c) => c.estado !== "recibido");
+  const numeroPorId = new Map(contenedores.map((c) => [c.id, c.numero]));
+  const archivosDrive: ArchivoDriveVista[] = (drive.data ?? []).map((a) => ({
+    nombre: a.nombre,
+    estado: a.estado,
+    motivo: a.motivo ?? null,
+    procesadoEn: a.procesado_en,
+    contenedor: a.contenedor_id ? (numeroPorId.get(a.contenedor_id) ?? null) : null,
+  }));
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,6 +81,8 @@ export default async function Contenedores() {
         <Ficha titulo="Recibidos" valor={n(contenedores.length - enCamino.length)} />
         <Ficha titulo="Total" valor={n(contenedores.length)} />
       </div>
+
+      <PackingDrive archivos={archivosDrive} configurado={Boolean(configDrive())} />
 
       <SubirPackingList />
 

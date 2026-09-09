@@ -20,6 +20,7 @@ interface Contenedor {
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
+  borrador: { texto: "Borrador (Drive)", color: "var(--estado-alerta)" },
   en_transito: { texto: "En tránsito", color: "var(--acento)" },
   en_aduana: { texto: "En aduana", color: "var(--estado-alerta)" },
   recibido: { texto: "Recibido", color: "var(--exito-texto)" },
@@ -239,6 +240,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         className="rounded border px-1.5 py-0.5 text-xs"
                         style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
                       >
+                        <option value="borrador">Borrador</option>
                         <option value="en_transito">En tránsito</option>
                         <option value="en_aduana">En aduana</option>
                         <option value="recibido">Recibido</option>
@@ -311,6 +313,17 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Packing list
                           </a>
+                          {c.estado === "borrador" ? (
+                            <button
+                              onClick={() => mandar({ estado: "en_transito" }, c.id)}
+                              disabled={ocupado === c.id}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                              title="Lo revisaste y está bien: pasa a en tránsito"
+                            >
+                              {ocupado === c.id ? "…" : "Confirmar"}
+                            </button>
+                          ) : null}
                           {c.estado !== "recibido" ? (
                             <button
                               onClick={() => confirmarLlegada(c)}
