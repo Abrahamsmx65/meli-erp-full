@@ -134,7 +134,7 @@ describe("armarEstadoResultados", () => {
     expect(e.avisos.some((aviso) => aviso.includes("primera vez con un reembolso"))).toBe(true);
   });
 
-  it("estima los días con saldos de Mercado Pago todavía sin leer, aunque ya existan sus órdenes", () => {
+  it("NO estima los días con saldos de Mercado Pago sin leer: quedan fuera del neto y se declaran", () => {
     const ventas = [
       { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 },
       { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 },
@@ -154,11 +154,13 @@ describe("armarEstadoResultados", () => {
 
     for (const ordenes of [[leida, pendiente], [{ ...leida, neto: 0, netoLeido: false, cargosLeidos: false }, pendiente]]) {
       const e = armarEstadoResultados(base({ ventas, ordenes }));
-      expect(e.netoDepositado).toBe(160);
-      expect(e.netoEstimado).toBe(160);
+      expect(e.netoDepositado).toBe(0);
+      expect(e.netoEstimado).toBe(0);
+      expect(e.ventaSinDeposito).toBe(200);
       expect(e.coberturaNetoReal).toBe(0);
-      expect(e.porModelo.reduce((a, m) => a + m.neto, 0)).toBe(160);
+      expect(e.porModelo.reduce((a, m) => a + m.neto, 0)).toBe(0);
       expect(e.revision.exacto).toBe(false);
+      expect(e.avisos.some((a) => a.includes("NO está en el neto"))).toBe(true);
     }
   });
 
@@ -183,7 +185,7 @@ describe("armarEstadoResultados", () => {
     expect(e.revision.exacto).toBe(true);
   });
 
-  it("preserva un saldo cero confirmado y estima solo la venta pendiente del mismo día", () => {
+  it("preserva un saldo cero confirmado y deja fuera (sin estimar) la venta pendiente del mismo día", () => {
     const e = armarEstadoResultados(base({
       ventas: [
         {
@@ -201,11 +203,11 @@ describe("armarEstadoResultados", () => {
       ]),
     }));
 
-    expect(e.netoDepositado).toBe(80);
-    expect(e.netoEstimado).toBe(80);
+    expect(e.netoDepositado).toBe(0);
+    expect(e.ventaSinDeposito).toBe(100);
     expect(e.coberturaNetoReal).toBe(0.5);
     expect(e.porModelo.find((m) => m.modelo === "GT135")?.neto).toBe(0);
-    expect(e.porModelo.find((m) => m.modelo === "MY2307")?.neto).toBe(80);
+    expect(e.porModelo.find((m) => m.modelo === "MY2307")?.neto).toBe(0);
     expect(e.revision.exacto).toBe(false);
   });
 
@@ -523,7 +525,7 @@ describe("armarEstadoResultados", () => {
     expect(e.porDia[0]).toMatchObject({ fecha: "2026-08-03", neto: 250.33, real: true });
   });
 
-  it("estima importe − comisión donde no hay depósito real y lo declara", () => {
+  it("donde no hay depósito real no estima nada: la venta queda fuera y se declara", () => {
     const e = armarEstadoResultados(
       base({
         ventas: [
@@ -535,8 +537,9 @@ describe("armarEstadoResultados", () => {
         ],
       }),
     );
-    expect(e.netoDepositado).toBe(205); // 120 real + (100 − 15) estimado
-    expect(e.netoEstimado).toBe(85);
+    expect(e.netoDepositado).toBe(120); // solo lo real; los 100 sin depósito quedan fuera
+    expect(e.netoEstimado).toBe(0);
+    expect(e.ventaSinDeposito).toBe(100);
     expect(e.coberturaNetoReal).toBeCloseTo(200 / 300, 6);
     expect(e.porDia[1].real).toBe(false);
     expect(e.revision.exacto).toBe(false);
@@ -567,11 +570,11 @@ describe("armarEstadoResultados", () => {
     expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(false);
     expect(e.devoluciones.ordenes).toBe(2);
     expect(e.devoluciones.monto).toBe(280);
-    // Sin renglones, el costo se estima con los reembolsos originales (400),
-    // aunque 120 ya estén reflejados en el saldo actual.
-    expect(e.devoluciones.costoEstimado).toBe(121);
-    expect(e.devoluciones.costoRecuperado).toBe(121);
-    expect(e.avisos.some((a) => a.includes("costo recuperado se estimó"))).toBe(true);
+    // Sin renglones NO se estima costo recuperado: se declara y queda en cero.
+    expect(e.devoluciones.costoEstimado).toBe(0);
+    expect(e.devoluciones.costoRecuperado).toBe(0);
+    expect(e.avisos.some((a) => a.includes("costo recuperado NO se suma"))).toBe(true);
+    expect(e.revision.exacto).toBe(false);
     expect(e.revision.pendientes).toBe(1);
   });
 
@@ -588,10 +591,13 @@ describe("armarEstadoResultados", () => {
     const antes = armarEstadoResultados(entrada(120));
     const despues = armarEstadoResultados(entrada(0));
 
-    expect(antes.devoluciones).toMatchObject({ ordenes: 1, monto: 200, incluidoEnNeto: 0, costoRecuperado: 60 });
-    expect(despues.devoluciones).toMatchObject({ ordenes: 1, monto: 80, incluidoEnNeto: 120, costoRecuperado: 60 });
-    expect(antes.utilidadNeta).toBe(-80);
-    expect(despues.utilidadNeta).toBe(-80);
+    // Sin renglones no hay cantidades devueltas verificables: el costo NO se
+    // recupera por estimación (nada se estima) y el corte lo declara.
+    expect(antes.devoluciones).toMatchObject({ ordenes: 1, monto: 200, incluidoEnNeto: 0, costoRecuperado: 0, costoEstimado: 0 });
+    expect(despues.devoluciones).toMatchObject({ ordenes: 1, monto: 80, incluidoEnNeto: 120, costoRecuperado: 0, costoEstimado: 0 });
+    expect(antes.utilidadNeta).toBe(-140);
+    expect(despues.utilidadNeta).toBe(-140);
+    expect(antes.avisos.some((a) => a.includes("costo recuperado NO se suma"))).toBe(true);
   });
 
   it("conserva una devolución parcial aprobada aunque ya esté incluida en el saldo", () => {
@@ -605,8 +611,9 @@ describe("armarEstadoResultados", () => {
       }],
     }));
 
-    expect(e.devoluciones).toMatchObject({ ordenes: 1, monto: 0, incluidoEnNeto: 50, costoRecuperado: 15 });
-    expect(e.utilidadNeta).toBe(25);
+    // Devolución parcial sin pares verificables: nada que recuperar, nada que estimar.
+    expect(e.devoluciones).toMatchObject({ ordenes: 1, monto: 0, incluidoEnNeto: 50, costoRecuperado: 0 });
+    expect(e.utilidadNeta).toBe(10);
   });
 
   it("descuenta publicidad, gastos de Full y otros; ignora cargos que ya van en el neto", () => {
@@ -702,22 +709,23 @@ describe("desglosePorSkuDesdeRpc", () => {
   });
 });
 
-describe("estimación con porcentaje observado", () => {
-  it("estima lo que no tiene depósito con el ratio y no con importe − comisión", () => {
+describe("nada se estima", () => {
+  it("una venta sin depósito leído aporta cero al neto, se declara, y los avisos propios van primero", () => {
     const e = armarEstadoResultados(
       base({
         ventas: [
           { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 200, comision: 30, neto: 0 },
         ],
-        ratioEstimacion: 0.54,
         avisosExtra: ["aviso propio"],
       }),
     );
-    expect(e.netoDepositado).toBe(108);
-    expect(e.netoEstimado).toBe(108);
-    expect(e.porModelo[0].neto).toBe(108);
+    expect(e.netoDepositado).toBe(0);
+    expect(e.netoEstimado).toBe(0);
+    expect(e.ventaSinDeposito).toBe(200);
+    expect(e.porModelo[0].neto).toBe(0);
     expect(e.avisos[0]).toBe("aviso propio");
-    expect(e.avisos.some((a) => a.includes("54.0% observado"))).toBe(true);
+    expect(e.avisos.some((a) => a.includes("nada se estima"))).toBe(true);
+    expect(e.revision.exacto).toBe(false);
   });
 });
 

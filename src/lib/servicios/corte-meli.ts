@@ -179,8 +179,10 @@ export interface EstadoResultados {
   /** alias compatible con cortes guardados antes del desglose */
   enviosYOtros: number;
   netoDepositado: number;
-  /** parte del neto que es estimación (importe − comisión) por falta de depósito real */
+  /** siempre 0 desde que nada se estima; se conserva por los cortes guardados antes */
   netoEstimado: number;
+  /** venta cuyo depósito aún no se lee: NO está en el neto ni en la utilidad (se declara) */
+  ventaSinDeposito?: number;
   /** fracción de la venta bruta cuyo neto es el depósito real (0-1) */
   coberturaNetoReal: number;
 
@@ -199,7 +201,7 @@ export interface EstadoResultados {
     monto: number;
     unidades: number;
     costoRecuperado: number;
-    /** parte del costo recuperado que es estimación (órdenes sin renglones) */
+    /** siempre 0 desde que nada se estima; se conserva por los cortes guardados antes */
     costoEstimado: number;
     unidadesSinCosto: number;
   };
@@ -470,12 +472,6 @@ export interface EntradaCorte {
   errorAds: string | null;
   gastos: GastoManual[];
   cargos: CargoMeli[];
-  /**
-   * Con qué se estima el neto de los renglones sin depósito real: neto ÷
-   * venta observado en las órdenes que sí lo tienen (0-1). null = importe −
-   * comisión, que es lo único que se sabe.
-   */
-  ratioEstimacion?: number | null;
   /** avisos extra del que arma la entrada (p. ej. órdenes registradas a medias) */
   avisosExtra?: string[];
 
@@ -544,10 +540,9 @@ export function desglosePorSkuDesdeOrdenes(ordenes: OrdenDelCorte[]): DesgloseSk
 export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   const avisos: string[] = [...(e.avisosExtra ?? [])];
   const modeloDe = (sku: string): string => e.modeloDeSku.get(sku) ?? sku.split("-")[0] ?? sku;
-  const ratio = e.ratioEstimacion != null && e.ratioEstimacion > 0 && e.ratioEstimacion <= 1 ? e.ratioEstimacion : null;
-  /** Neto estimado de lo que no tiene depósito real, en centavos. */
-  const estimar = (importeCent: number, comisionCent: number): number =>
-    ratio != null ? Math.round(importeCent * ratio) : importeCent - comisionCent;
+  // Regla del dueño: NADA se estima. Lo que no tiene depósito leído de
+  // Mercado Pago no entra al neto; se declara cuánto es y el corte queda
+  // marcado como parcial hasta que el fondo lo lea.
 
   // --- Órdenes: el neto real, las cancelaciones y las devoluciones --------
   // Ya sumadas por día (por el RPC de la base o por agregarOrdenes), en centavos.
@@ -656,7 +651,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     m.unidades += v.unidades ?? 0;
     m.importe += importe;
     m.comision += comision;
-    m.neto += netoFila ?? estimar(importe, comision);
+    m.neto += netoFila ?? 0;
     porModelo.set(modelo, m);
   }
 
@@ -666,7 +661,8 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let ventaBruta = 0;
   let comision = 0;
   let netoDepositado = 0;
-  let netoEstimado = 0;
+  /** venta (importe) cuyo depósito aún no se ha leído: NO está en el neto */
+  let ventaSinDeposito = 0;
   let importeConNetoReal = 0;
   const porDia: RenglonDia[] = [];
   const diasDescuadrados: string[] = [];
@@ -701,9 +697,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       real = true;
       importeConNetoReal += f.importe;
     } else {
-      const estimado = estimar(f.importeSinNeto, f.comisionSinNeto);
-      netoDia = f.netoFilas + estimado;
-      netoEstimado += estimado;
+      // Solo lo real. La venta sin depósito leído se declara aparte.
+      netoDia = f.netoFilas;
+      ventaSinDeposito += f.importeSinNeto;
       importeConNetoReal += f.importe - f.importeSinNeto;
       real = f.importeSinNeto === 0;
     }
@@ -918,10 +914,10 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
 
   // --- Costo recuperado de las devoluciones --------------------------------
-  // Los pares devueltos regresan al stock: su costo no se perdió. Con
-  // renglones es exacto; sin ellos se estima con el costo ÷ venta del mes.
-  const devCostoEstimado = devSinRenglones > 0 && ventaBruta > 0 ? Math.round((devSinRenglones * costoProducto) / ventaBruta) : 0;
-  const costoRecuperado = devCosto + devCostoEstimado;
+  // Los pares devueltos regresan al stock: su costo no se perdió. SOLO se
+  // suma cuando la orden tiene sus renglones (cantidades verificables); sin
+  // ellos no se estima nada, se declara y la revisión los pide a MELI.
+  const costoRecuperado = devCosto;
 
   // --- La cuenta -----------------------------------------------------------
   const utilidadBruta = netoDepositado - devMonto + costoRecuperado - costoProducto;
@@ -940,9 +936,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (ventaBruta > 0 && coberturaNetoReal < 0.999) {
     avisos.push(
-      ratio != null
-        ? `El ${Math.round((1 - coberturaNetoReal) * 100)}% de la venta todavía no tiene el depósito real de Mercado Pago: su neto está estimado con el ${(ratio * 100).toFixed(1)}% observado en las órdenes con depósito (ya trae envío y retenciones). Se completa solo en segundo plano.`
-        : `El ${Math.round((1 - coberturaNetoReal) * 100)}% de la venta todavía no tiene el depósito real de Mercado Pago: su neto está estimado como importe − comisión. El latido lo completa solo.`,
+      `${p(ventaSinDeposito).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de venta (el ${Math.round((1 - coberturaNetoReal) * 100)}%) todavía no tiene el depósito real de Mercado Pago: NO está en el neto ni en la utilidad; nada se estima. El fondo lo lee solo y el corte se completa.`,
     );
   }
   if (diasDescuadrados.length) {
@@ -1003,9 +997,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       "El desglose por operación está completo, pero algunas órdenes no se pudieron atribuir a sus propios productos; el reparto por modelo y categoría sigue marcado como parcial.",
     );
   }
-  if (devCostoEstimado > 0) {
+  if (devSinRenglones > 0) {
     avisos.push(
-      `${p(devSinRenglones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de devoluciones no tienen cantidades devueltas verificables: su costo recuperado se estimó con el costo ÷ venta del mes (${p(devCostoEstimado).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}). Una devolución total con renglones guardados sí usa el costo exacto.`,
+      `${p(devSinRenglones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de devoluciones no tienen cantidades devueltas verificables (la orden no tiene sus renglones o el reembolso fue parcial): su costo recuperado NO se suma; nada se estima. La revisión le pide los renglones a MELI.`,
     );
   }
   if (devSinCosto > 0) {
@@ -1034,7 +1028,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   if (isr + iva > 0) avisos.push("Las retenciones de ISR e IVA son impuesto adelantado que MELI entera al SAT; no son un gasto adicional y se acreditan en la declaración.");
 
   const exacto =
-    pendientes === 0 && reembolsosBasePendientes === 0 && coberturaNetoReal >= 0.999 && coberturaCosto >= 0.999 && (!e.errorAds || adsDesdeFactura) && e.cargosLeidos && desgloseCompleto && (!usarDesglosePorOrden || desgloseAtribuible) && diasDescuadrados.length === 0;
+    pendientes === 0 && reembolsosBasePendientes === 0 && coberturaNetoReal >= 0.999 && ventaSinDeposito === 0 && coberturaCosto >= 0.999 && (!e.errorAds || adsDesdeFactura) && e.cargosLeidos && desgloseCompleto && (!usarDesglosePorOrden || desgloseAtribuible) && diasDescuadrados.length === 0;
 
   const dias = Math.max(1, Math.round((Date.parse(e.hasta) - Date.parse(e.desde)) / 86_400_000) + 1);
   return {
@@ -1056,7 +1050,8 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     ajusteLiquidacion: p(ajusteLiquidacion),
     enviosYOtros: p(enviosYOtros),
     netoDepositado: p(netoDepositado),
-    netoEstimado: p(netoEstimado),
+    netoEstimado: 0,
+    ventaSinDeposito: p(ventaSinDeposito),
     coberturaNetoReal,
     cancelaciones: { ordenes: cancelOrdenes, importe: p(cancelImporte) },
     devoluciones: {
@@ -1065,7 +1060,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       monto: p(devMonto),
       unidades: devUnidades,
       costoRecuperado: p(costoRecuperado),
-      costoEstimado: p(devCostoEstimado),
+      costoEstimado: 0,
       unidadesSinCosto: devSinCosto,
     },
     reventa: {

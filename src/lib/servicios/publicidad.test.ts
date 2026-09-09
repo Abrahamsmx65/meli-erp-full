@@ -83,7 +83,7 @@ describe("armarPublicidad", () => {
     expect(f.gananciaNeta).toBe(1600);
   });
 
-  it("usa el neto REAL cuando ya llegó y el respaldo donde no", () => {
+  it("usa solo el neto REAL: un renglón sin depósito leído aporta cero (nada se estima)", () => {
     const p = armarPublicidad({
       anuncios: [],
       ventas: [
@@ -95,8 +95,8 @@ describe("armarPublicidad", () => {
       costoDeModelo: new Map([["MY2307", 100]]),
       errorAds: null,
     });
-    // 800 real + (500 − 50) respaldo − 100×3 de costo.
-    expect(p.filas[0].ganancia).toBe(950);
+    // 800 real + 0 (el renglón sin depósito NO se estima) − 100×3 de costo.
+    expect(p.filas[0].ganancia).toBe(500);
   });
 
   it("sin costo capturado la ganancia y la ganancia neta quedan en null", () => {

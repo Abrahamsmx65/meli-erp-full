@@ -144,9 +144,9 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
                   <td className="num px-3 py-1.5 text-right">{pesos(f.precioPromedio)}</td>
                   <td className="num px-3 py-1.5 text-right">{pesos(f.importe)}</td>
                   <td className="num px-3 py-1.5 text-right">{pesos(f.comision)}</td>
-                  <td className="num px-3 py-1.5 text-right" title={f.unidadesEstimadas ? `${f.unidadesEstimadas} unidades con neto estimado` : undefined}>
+                  <td className="num px-3 py-1.5 text-right" title={f.unidadesSinNeto ? `${f.unidadesSinNeto} unidades (${pesos(f.ventaSinNeto)} de venta) sin depósito leído: fuera del neto` : undefined}>
                     {pesos(f.neto)}
-                    {f.unidadesEstimadas ? "*" : ""}
+                    {f.unidadesSinNeto ? "*" : ""}
                   </td>
                   <td className="num px-3 py-1.5 text-right" style={{ color: f.unidadesSinCosto ? "var(--estado-serio)" : undefined }} title={f.unidadesSinCosto ? `${f.unidadesSinCosto} unidades sin costo` : undefined}>
                     {f.unidadesSinCosto ? `${pesos(f.costo)} ?` : pesos(f.costo)}

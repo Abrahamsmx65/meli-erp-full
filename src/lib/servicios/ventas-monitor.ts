@@ -39,7 +39,7 @@ export interface FilaModelo {
   colores: number;
   /** categoría capturada en Productos y costos; null = sin categoría */
   categoria: string | null;
-  /** venta neta del periodo (depósito real donde ya llegó, importe − comisión donde no) */
+  /** venta neta del periodo: solo el depósito real ya leído (nada se estima) */
   neto7: number;
   /** gasto en Product Ads del modelo en el periodo; null = sin dato de ads */
   publicidad7: number | null;
@@ -73,8 +73,10 @@ export interface DesgloseDinero {
   bruto: number;
   /** comisiones de MELI (sale_fee) */
   comision: number;
-  /** lo depositado: neto real donde ya se conoce, importe − comisión donde no */
+  /** lo depositado: SOLO el neto real ya leído de Mercado Pago (nada se estima) */
   neto: number;
+  /** venta cuyo depósito aún no se lee: no está en `neto` ni en la ganancia; se declara */
+  ventaSinDeposito: number;
   /**
    * Envíos, retenciones y otros cargos = bruto − comisión − neto, calculado
    * SOLO sobre la parte del periodo cuyo neto real ya llegó de Mercado
@@ -395,13 +397,15 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     m.unidades7Prev += a.unidadesPrev;
     pr.d7 += a.unidades;
     pr.importe7 += a.importe;
-    pr.neto7 += a.netoResuelto;
+    // Regla del dueño: solo el neto REAL depositado. Lo que aún no tiene
+    // depósito leído no se estima; se declara aparte (ventaSinDeposito).
+    pr.neto7 += a.netoReal;
     pr.prev7 += a.unidadesPrev;
 
     // Acumuladores del desglose de dinero del periodo.
     brutoP += a.importe;
     comisionP += a.comision;
-    netoP += a.netoResuelto;
+    netoP += a.netoReal;
     brutoConNetoReal += a.importeNetoReal;
     comisionConNetoReal += a.comisionNetoReal;
     netoRealSolo += a.netoReal;
@@ -569,6 +573,7 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
       enviosYOtros:
         brutoConNetoReal > 0 ? brutoConNetoReal - comisionConNetoReal - netoRealSolo : null,
       coberturaNetoReal: brutoP > 0 ? brutoConNetoReal / brutoP : 0,
+      ventaSinDeposito: Math.max(0, brutoP - brutoConNetoReal),
       costoProducto: costoProductoP,
       gananciaReal: ganancia7,
     },

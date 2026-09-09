@@ -51,20 +51,15 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
         <Ficha
           titulo="Neto depositado"
           valor={pesos(m.periodo.neto)}
-          nota={`${pct(m.periodo.importe > 0 ? m.periodo.neto / m.periodo.importe : null)} de la venta · ${pesos(m.periodo.neto - m.periodo.netoEstimado)} real${m.periodo.netoEstimado > 0 ? ` + ${pesos(m.periodo.netoEstimado)} estimado` : ""}`}
-          tono={m.periodo.netoEstimado > m.periodo.neto * 0.5 ? "alerta" : "neutro"}
+          nota={`${pct(m.periodo.importe - m.periodo.ventaSinNeto > 0 ? m.periodo.neto / (m.periodo.importe - m.periodo.ventaSinNeto) : null)} de la venta con depósito leído${m.periodo.ventaSinNeto > 0 ? ` · ${pesos(m.periodo.ventaSinNeto)} de venta aún sin leer (fuera)` : " · todo real"}`}
+          tono={m.periodo.ventaSinNeto > m.periodo.importe * 0.2 ? "alerta" : "neutro"}
         />
         <Ficha titulo="Ganancia" valor={pesos(m.periodo.ganancia)} nota={notaGanancia(m.periodo)} tono={m.periodo.unidadesSinCosto ? "alerta" : m.periodo.ganancia >= 0 ? "bien" : "critico"} />
       </div>
 
-      {m.periodo.netoEstimado > 0 ? (
+      {m.periodo.ventaSinNeto > 0 ? (
         <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          {m.estimacion.ratio != null
-            ? `El neto sin depósito real se estima con el ${pct(m.estimacion.ratio)} observado en ${n(m.estimacion.ordenesConNeto)} órdenes con depósito de Mercado Pago (${m.estimacion.desde} → ${m.estimacion.hasta}): ese porcentaje ya trae comisión, envío de Full y retenciones. `
-            : "Todavía no hay suficientes órdenes con depósito real para estimar: el neto pendiente se muestra como importe − comisión, SIN envío ni retenciones. "}
-          {m.estimacion.ordenesPendientes > 0
-            ? `Faltan ${n(m.estimacion.ordenesPendientes)} órdenes del periodo por leer en Mercado Pago; se completan solas en segundo plano.`
-            : ""}
+          {`${pesos(m.periodo.ventaSinNeto)} de venta (${n(m.periodo.unidadesSinNeto)} unidades${m.pendiente.ordenesPendientes > 0 ? `, ${n(m.pendiente.ordenesPendientes)} órdenes` : ""}) todavía no tiene el depósito real de Mercado Pago: NO está en el neto ni en la ganancia; nada se estima. El cron de netos lo lee solo cada 10 minutos.`}
         </p>
       ) : null}
 

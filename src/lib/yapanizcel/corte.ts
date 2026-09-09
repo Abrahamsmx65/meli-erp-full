@@ -116,14 +116,6 @@ export async function almacenYz(admin: DB, accountId: string): Promise<AlmacenCa
 
 export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string): Promise<EstadoResultados> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
-  const hoy = hoyMx();
-  const observados = async (d: string, h: string) => {
-    const { data, error } = await db.rpc("yz_netos_observados", { p_account: cuenta.id, p_desde: d, p_hasta: h });
-    if (error) throw new Error(`yz_netos_observados: ${error.message}`);
-    const f: any = Array.isArray(data) ? data[0] : data;
-    return { ordenes: Number(f?.ordenes_con_neto ?? 0), total: Number(f?.total ?? 0), neto: Number(f?.neto ?? 0) };
-  };
-
   // Primero el estado de sincronización: DECIDE cuál de las dos fuentes de
   // venta se lee. Antes se bajaban las DOS en paralelo (la de renglones
   // diarios son ~126 mil filas paginadas) y una siempre se tiraba.
@@ -136,7 +128,7 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   const ordenesCompletas = registradasDesde != null && registradasDesde <= desde;
 
   const args = { p_account: cuenta.id, p_desde: desde, p_hasta: hasta };
-  const [ordenesPorDia, desglosePorSku, ventasCrudas, skus, config, gastos, cargos, progreso, obs, ads] = await Promise.all([
+  const [ordenesPorDia, desglosePorSku, ventasCrudas, skus, config, gastos, cargos, progreso, ads] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     desglosePorSkuDesdeRpc(db, "yz_cortes_desglose_por_sku", cuenta.id, desde, hasta),
     ordenesCompletas
@@ -147,7 +139,6 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),
     cargosGuardados(db, cuenta.id, periodo, "yz_cargos"),
     progresoCargosYz(db, cuenta.id, periodo).catch(() => progresoDeDetalle(periodo, null, null)),
-    observados(restarDias(hoy, 59), hoy),
     adsPorDisenoCacheado(db, cuenta, periodo, { desde, hasta }).catch((err) => ({ porDiseno: new Map<string, number>(), sinAmarre: 0, error: (err as Error).message })),
   ]);
 
@@ -184,8 +175,6 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   for (const s of skus) modeloDeSku.set(s.sku, (s.diseno ?? (desglosar(s.sku).diseno || s.sku)).toUpperCase());
   for (const v of ventas) if (!modeloDeSku.has(v.sku)) modeloDeSku.set(v.sku, (desglosar(v.sku).diseno || v.sku).toUpperCase());
 
-  const ratio = obs.ordenes >= 50 && obs.total > 0 ? obs.neto / obs.total : null;
-
   return armarEstadoResultados({
     periodo,
     desde,
@@ -203,7 +192,6 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     cargos,
     cargosLeidos: progreso.completo,
     cargosAvance: { offset: progreso.offset, total: progreso.total },
-    ratioEstimacion: ratio,
     avisosExtra,
   });
 }

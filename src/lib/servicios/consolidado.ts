@@ -213,7 +213,7 @@ export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCana
     fuenteNeto:
       e.coberturaNetoReal >= 0.999
         ? "Mercado Pago por orden"
-        : "Mercado Pago por orden + estimación de pendientes",
+        : "Mercado Pago por orden (la venta sin depósito leído NO está incluida)",
     coberturaNeto: e.coberturaNetoReal,
     descuentos: [
       ...(e.comision ? [{ concepto: "Comisión de venta de Mercado Libre", monto: e.comision }] : []),

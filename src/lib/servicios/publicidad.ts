@@ -18,7 +18,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
-import { diasDeRango, fechaMx, normalizarRango, type RangoFechas } from "./ventas-monitor";
+import { diasDeRango, fechaMx, netoConfirmadoDeFila, normalizarRango, type RangoFechas } from "./ventas-monitor";
 import {
   esErrorColumnaLegacy,
   esErrorObjetoLegacy,
@@ -703,12 +703,11 @@ export function armarPublicidad(opts: {
     const a = de(modeloDe(v.sku));
     a.unidades += v.unidades ?? 0;
     a.importe += v.importe ?? 0;
-    // Neto REAL de Mercado Pago cuando ya llegó; si no (o si el cache trae un
-    // 0 no creíble), la aproximación importe − comisión, igual que el monitor.
-    a.neto +=
-      v.neto != null && Number(v.neto) > 0
-        ? Number(v.neto)
-        : (v.importe ?? 0) - (v.comision ?? 0);
+    // Regla del dueño: solo el neto REAL de Mercado Pago. Un renglón sin
+    // depósito leído no se estima: aporta cero al neto y se declara aparte
+    // (ventaSinDeposito). El renglón sintético del RPC ya trae comisión =
+    // importe − neto real, así que importe − comisión ES el neto real.
+    a.neto += v.neto != null ? Number(v.neto) : (v.importe ?? 0) - (v.comision ?? 0);
   }
 
   const sinAmarre = { gasto: 0, anuncios: 0 };
@@ -882,6 +881,8 @@ export async function cargarPublicidad(
   const leerVentasAgregadas = async (): Promise<{
     periodo: VentaDiaria[];
     skusConHistoria: Set<string>;
+    /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
+    ventaSinDeposito: number;
   }> => {
     const { data, error } = await db.rpc("ventas_resumen_sku", {
       p_account: cuenta.id,
@@ -894,16 +895,20 @@ export async function cargarPublicidad(
     if (!error) {
       const periodo: VentaDiaria[] = [];
       const skusConHistoria = new Set<string>();
+      let ventaSinDeposito = 0;
       for (const f of (data ?? []) as any[]) {
         const sku = String(f.sku);
         const unidades = Number(f.unidades) || 0;
         const importe = Number(f.importe) || 0;
-        const neto = Number(f.neto_resuelto) || 0;
+        // Regla del dueño: solo el neto REAL. La venta sin depósito leído no
+        // se estima como importe − comisión: se declara y queda fuera.
+        const neto = Number(f.neto_real) || 0;
+        ventaSinDeposito += Math.max(0, importe - (Number(f.importe_neto_real) || 0));
         if ((Number(f.unidades_prev) || 0) > 0) skusConHistoria.add(sku);
         if (unidades === 0 && importe === 0 && neto === 0) continue;
         periodo.push({ sku, fecha: r.desde, unidades, importe, comision: importe - neto, neto: null });
       }
-      return { periodo, skusConHistoria };
+      return { periodo, skusConHistoria, ventaSinDeposito };
     }
 
     if (!esErrorObjetoLegacy(error, ["ventas_resumen_sku"])) {
@@ -911,10 +916,12 @@ export async function cargarPublicidad(
     }
     const filas = await leerVentas();
     const skusConHistoria = new Set<string>();
+    let ventaSinDeposito = 0;
     for (const v of filas) {
       if (v.fecha < r.desde && (v.unidades ?? 0) > 0) skusConHistoria.add(v.sku);
+      if (v.fecha >= r.desde && netoConfirmadoDeFila(v) == null) ventaSinDeposito += v.importe ?? 0;
     }
-    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria };
+    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, ventaSinDeposito };
   };
 
   const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
@@ -953,6 +960,11 @@ export async function cargarPublicidad(
   ]);
   const stock = stockEstado.filas;
   const advertencias = stockEstado.error ? [stockEstado.error] : [];
+  if (ventasAgregadas.ventaSinDeposito > 0) {
+    advertencias.push(
+      `${ventasAgregadas.ventaSinDeposito.toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de venta del periodo todavía no tiene el depósito real de Mercado Pago: no está en el neto ni en la ganancia (nada se estima); el fondo lo lee solo.`,
+    );
+  }
 
   const modeloDeSku = new Map<string, string>();
   // Una publicación puede traer variantes de VARIOS modelos: se guardan todos

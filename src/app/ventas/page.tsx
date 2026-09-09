@@ -116,7 +116,7 @@ export default async function Ventas({
           valor={m.coberturaCosto > 0 ? pesos(gananciaConAds ?? m.ganancia7) : "—"}
           nota={
             m.coberturaCosto > 0
-              ? `Neto de MELI − costo${gastoAds != null ? " − publicidad" : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo`
+              ? `Neto real de MELI − costo${gastoAds != null ? " − publicidad" : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo${m.desglose.ventaSinDeposito > 0 ? ` · ${pesos(m.desglose.ventaSinDeposito)} de venta sin depósito leído (fuera, nada se estima)` : ""}`
               : "Captura costos en Productos y costos"
           }
           tono={m.coberturaCosto > 0 && (gananciaConAds ?? m.ganancia7) < 0 ? "critico" : "neutro"}

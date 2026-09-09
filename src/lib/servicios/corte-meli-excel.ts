@@ -48,7 +48,7 @@ export async function excelDelCorte(e: EstadoResultados, opts?: { negocio?: stri
     ["Otros cargos", -puente.otros, e.cargosSinDesglosar ? `incluye $${e.cargosSinDesglosar.toFixed(2)} sin concepto por operación` : "otros descuentos incluidos en el depósito"],
     ["Ajuste posterior de liquidación", -puente.ajusteLiquidacion, "cambio del saldo de Mercado Pago después del depósito original"],
     ["Reembolsos ya reflejados en el neto", -puente.devolucionesIncluidasEnNeto, "Mercado Pago ya redujo el saldo actual; este renglón cuadra la cascada"],
-    ["Neto depositado por Mercado Pago", puente.netoDepositado, e.netoEstimado > 0 ? `${e.netoEstimado.toFixed(2)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes"],
+    ["Neto depositado por Mercado Pago", puente.netoDepositado, e.ventaSinDeposito ? `${e.ventaSinDeposito.toFixed(2)} de venta sin depósito leído: no incluida` : e.netoEstimado > 0 ? `${e.netoEstimado.toFixed(2)} estimado (corte guardado antes)` : "depósito real de todas las órdenes"],
     ["Devoluciones", -e.devoluciones.monto, `${e.devoluciones.ordenes} órdenes; ${e.devoluciones.incluidoEnNeto ?? 0} ya está reflejado en el neto`],
     ["Costo recuperado de devoluciones", e.devoluciones.costoRecuperado, `${e.devoluciones.unidades} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${e.devoluciones.costoEstimado.toFixed(2)} estimado)` : ""}`],
     ["Costo de producto", -e.costoProducto, `${e.unidadesConCosto} de ${e.unidades} pares con costo capturado`],

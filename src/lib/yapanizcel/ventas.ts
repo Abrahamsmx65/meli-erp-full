@@ -2,10 +2,10 @@
  * Monitor de ventas con costos y ganancia.
  *
  * Por SKU y por diseño, en el periodo elegido: unidades, importe de lista,
- * comisión de MELI, neto real depositado (cuando ya se sabe), costo y
- * ganancia. La ganancia se calcula sobre el NETO cuando existe; si un día
- * todavía no tiene neto (los cargos llegan diferidos), se estima con
- * importe − comisión y se marca como estimado.
+ * comisión de MELI, neto real depositado, costo y ganancia. Regla del
+ * dueño: NADA se estima. Un renglón cuyo depósito aún no se ha leído de
+ * Mercado Pago aporta cero al neto y a la ganancia, y se declara aparte
+ * (venta y unidades sin neto); el cron de netos lo completa solo.
  */
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
@@ -34,10 +34,10 @@ export interface Totales {
   neto: number;
   costo: number;
   ganancia: number;
-  /** Unidades cuyo neto todavía no se sabe (se estimó). */
-  unidadesEstimadas: number;
-  /** Parte del neto que es estimación (importe sin depósito real × porcentaje observado). */
-  netoEstimado: number;
+  /** Unidades cuyo depósito todavía no se ha leído: fuera del neto y de la ganancia. */
+  unidadesSinNeto: number;
+  /** Venta (importe) de esas unidades: se declara, nunca se estima. */
+  ventaSinNeto: number;
   /** Unidades sin costo cargado (la ganancia no las cuenta como costo 0). */
   unidadesSinCosto: number;
   /** Neto de los SKUs CON costo cargado: la única parte con ganancia calculable. */
@@ -75,21 +75,15 @@ export interface Monitor {
   porDiseno: FilaVentas[];
   porDia: DiaVentas[];
   skusSinCosto: number;
-  /** Con qué se estima el neto que falta: lo observado en las órdenes con depósito real. */
-  estimacion: {
-    /** neto ÷ total observado (0-1); null = sin órdenes con neto en la ventana */
-    ratio: number | null;
-    ordenesConNeto: number;
+  /** Qué falta por leer: se declara, nunca se rellena. */
+  pendiente: {
     /** órdenes del periodo que siguen sin depósito real (se completan solas) */
     ordenesPendientes: number;
-    /** de dónde salió el porcentaje */
-    desde: string;
-    hasta: string;
   };
 }
 
 function vacio(): Totales {
-  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, netoEstimado: 0, unidadesSinCosto: 0, netoConCosto: 0, netoSinCosto: 0 };
+  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesSinNeto: 0, ventaSinNeto: 0, unidadesSinCosto: 0, netoConCosto: 0, netoSinCosto: 0 };
 }
 
 interface FilaResumen {
@@ -106,27 +100,19 @@ interface FilaResumen {
 }
 
 /**
- * El neto que falta se estima con el porcentaje observado (neto ÷ venta de
- * las órdenes que ya tienen depósito real), que ya trae envío de Full y
- * retenciones. Sin porcentaje observado, importe − comisión, que es lo
- * único que se sabe. Pura, para probarla.
+ * Suma un renglón del RPC a los totales. Solo el neto REAL entra al neto y
+ * a la ganancia; la venta sin depósito leído se acumula aparte para
+ * declararla. Pura, para probarla.
  */
-export function estimarNeto(importeSinNeto: number, comisionSinNeto: number, ratio: number | null): number {
-  if (importeSinNeto <= 0) return 0;
-  if (ratio == null || !(ratio > 0) || ratio > 1) return importeSinNeto - comisionSinNeto;
-  return importeSinNeto * ratio;
-}
-
-function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null, ratio: number | null): void {
+export function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null): void {
   t.unidades += Number(f.unidades);
   t.ordenes += Number(f.ordenes);
   t.importe += Number(f.importe);
   t.comision += Number(f.comision);
-  const estimado = estimarNeto(Number(f.importe_sin_neto ?? 0), Number(f.comision_sin_neto ?? 0), ratio);
-  const netoFila = Number(f.neto) + estimado;
+  const netoFila = Number(f.neto) || 0;
   t.neto += netoFila;
-  t.netoEstimado += estimado;
-  t.unidadesEstimadas += Number(f.unidades_sin_neto ?? 0);
+  t.ventaSinNeto += Number(f.importe_sin_neto ?? 0);
+  t.unidadesSinNeto += Number(f.unidades_sin_neto ?? 0);
   if (costoUnit == null) {
     t.unidadesSinCosto += Number(f.unidades);
     t.netoSinCosto += netoFila;
@@ -155,17 +141,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   const resumen = (desde: string, hasta: string) =>
     rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta }, ["sku"]);
 
-  // El porcentaje observado sale de las últimas 8 semanas de órdenes con
-  // depósito real (ventana ancha para que no la muevan unos cuantos días).
-  const ventanaRatio = { desde: restarDias(hoy, 59), hasta: hoy };
+  // Cuántas órdenes del periodo siguen sin depósito leído: se declara.
   const observados = async (desde: string, hasta: string) => {
     const { data, error } = await db.rpc("yz_netos_observados", { p_account: accountId, p_desde: desde, p_hasta: hasta });
     if (error) throw new Error(`yz_netos_observados: ${error.message}`);
     const f: any = Array.isArray(data) ? data[0] : data;
-    return { ordenes: Number(f?.ordenes_con_neto ?? 0), total: Number(f?.total ?? 0), neto: Number(f?.neto ?? 0), pendientes: Number(f?.ordenes_pendientes ?? 0) };
+    return { pendientes: Number(f?.ordenes_pendientes ?? 0) };
   };
 
-  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado, obsVentana, obsPeriodo] = await Promise.all([
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado, obsPeriodo] = await Promise.all([
     resumen(rango.desde, rango.hasta),
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
@@ -175,12 +159,9 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     // Los costos viven en Productos y costos (calzado y fundas juntos);
     // yz_costos queda de respaldo.
     mapaCostosUnificado(db, { yzAccountId: accountId }),
-    observados(ventanaRatio.desde, ventanaRatio.hasta),
     observados(rango.desde, rango.hasta),
   ]);
 
-  // Con menos de 50 órdenes observadas el porcentaje no es de fiar.
-  const ratio = obsVentana.ordenes >= 50 && obsVentana.total > 0 ? obsVentana.neto / obsVentana.total : null;
   const costos = soloCostos(mapaUnificado);
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
   const cacheCosto = new Map<string, number | null>();
@@ -203,12 +184,12 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     porDiseno: [],
     porDia: [],
     skusSinCosto: 0,
-    estimacion: { ratio, ordenesConNeto: obsVentana.ordenes, ordenesPendientes: obsPeriodo.pendientes, ...ventanaRatio },
+    pendiente: { ordenesPendientes: obsPeriodo.pendientes },
   };
 
-  for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku), ratio);
-  for (const f of rAyer) sumarResumen(m.ayer, f, costoDe(f.sku), ratio);
-  for (const f of rAnterior) sumarResumen(m.anterior, f, costoDe(f.sku), ratio);
+  for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku));
+  for (const f of rAyer) sumarResumen(m.ayer, f, costoDe(f.sku));
+  for (const f of rAnterior) sumarResumen(m.anterior, f, costoDe(f.sku));
 
   const porSku = new Map<string, FilaVentas>();
   const porDiseno = new Map<string, FilaVentas>();
@@ -216,15 +197,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   for (const f of rPeriodo) {
     const costoUnit = costoDe(f.sku);
     if (costoUnit == null) sinCosto.add(f.sku);
-    sumarResumen(m.periodo, f, costoUnit, ratio);
+    sumarResumen(m.periodo, f, costoUnit);
 
     const diseno = desglosar(f.sku).diseno;
     const fs = porSku.get(f.sku) ?? { ...vacio(), clave: f.sku, titulo: titulos.get(f.sku), diseno, precioPromedio: 0, margen: null, costoUnitario: costoUnit };
-    sumarResumen(fs, f, costoUnit, ratio);
+    sumarResumen(fs, f, costoUnit);
     porSku.set(f.sku, fs);
 
     const fd = porDiseno.get(diseno) ?? { ...vacio(), clave: diseno, diseno, precioPromedio: 0, margen: null, costoUnitario: null };
-    sumarResumen(fd, f, costoUnit, ratio);
+    sumarResumen(fd, f, costoUnit);
     porDiseno.set(diseno, fd);
   }
 
@@ -240,7 +221,8 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     fecha: d.fecha,
     unidades: Number(d.unidades),
     importe: Number(d.importe),
-    neto: Number(d.neto) + estimarNeto(Number(d.importe_sin_neto ?? 0), Number(d.comision_sin_neto ?? 0), ratio),
+    // Solo el neto real; lo sin depósito leído no se estima.
+    neto: Number(d.neto) || 0,
   }));
   m.skusSinCosto = sinCosto.size;
   return m;

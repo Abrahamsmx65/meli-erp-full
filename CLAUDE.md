@@ -260,8 +260,8 @@ guárdala numerada.
   eso las órdenes guardan sus `renglones` (sku, unidades, importe,
   comisión) en `ordenes_neto`/`yz_ordenes_neto`, y el RPC
   `cortes_ordenes_por_dia` cuesta los pares devueltos contra
-  `productos_config`; una devuelta sin renglones se estima con costo ÷
-  venta del mes y la revisión le pide los renglones a MELI. Para eso
+  `productos_config`; una devuelta sin renglones NO recupera costo (nada
+  se estima; se declara) y la revisión le pide los renglones a MELI. Para eso
   cada orden se REVISA después de vendida (`devoluciones.ts`): las
   cancelaciones en bloque (`/orders/search` con status cancelled, y ese día
   se vuelve a barrer para que sus renglones salgan de la venta) y el pago
@@ -269,10 +269,22 @@ guárdala numerada.
   `transaction_amount_refunded`, neto de hoy), montado en el latido y
   completo al hacer el corte. Un corte (`cortes_meli`) congela el estado de
   resultados en jsonb y su PDF (`corte-meli-pdf.ts`) se rehace de ahí; el
-  del mismo mes se reemplaza. El corte DECLARA lo que le falta para ser
-  exacto (neto estimado, modelos sin costo, órdenes sin revisar, ads o
-  facturación sin leer) en `avisos`; nunca rellena con estimaciones
-  calladas. De la facturación de MELI solo se restan las clases `full` y
+  del mismo mes se reemplaza. **NADA SE ESTIMA (decisión del dueño, 9-sep-2026):**
+  la venta cuyo depósito aún no se lee queda FUERA del neto y de la
+  utilidad (`ventaSinDeposito`) y el corte lo declara en `avisos` junto con
+  lo demás que le falta para ser exacto (modelos sin costo, órdenes sin
+  revisar, ads o facturación sin leer). Lo mismo en Ventas, Publicidad y
+  fundas: solo el neto REAL de Mercado Pago; ni importe − comisión ni
+  porcentaje observado. **Los cargos se leen del pago REAL** de Mercado
+  Pago (`https://api.mercadopago.com/v1/payments/{id}`, `meli/pagos.ts` +
+  `pagos-api.ts`, migración 0070): comisión = máx(cargos del pago,
+  Σ sale_fee × cantidad), retenciones por `tax_withholding-isr/iva`, envío
+  del vendedor por `/shipments/{id}/costs`, reventa por `static_tags`
+  `meli_resale` reconstruida al precio público con `/sites/MLM/listing_prices`
+  (la venta bruta sube; el neto no), orden y pago recortados en
+  `orden_cruda`/`pago_crudo`, fuente en `cargos_fuente`. Lo leído con la
+  forma vieja se recarga en el fondo (`reparacion_netos_v3`, cron de netos).
+  De la facturación de MELI solo se restan las clases `full` y
   `otro` (`clasificarCargo`): comisión y envío ya van en el neto, Product
   Ads ya cuenta por el API de publicidad, los pagos son abonos.
   **Ventas en REVENTA** (MELI compra y revende; desde el 27 ago 2026, la
@@ -415,12 +427,14 @@ login, la base y el deploy.
   (`yapanizcel/netos.ts`, cron `/api/yapanizcel/netos` cada 10 min) pide
   los netos que faltan a Mercado Pago, registra hacia atrás las órdenes
   viejas y ASIENTA en `yz_ventas_diarias` los días que quedan completos sin
-  releer MELI. Mientras un renglón no tiene depósito real, el panel lo
-  ESTIMA con el porcentaje observado (neto ÷ venta de las órdenes con
-  depósito, últimas 8 semanas, mínimo 50 órdenes; `estimarNeto`), que ya
-  trae envío de Full y retenciones, y lo declara; nunca importe − comisión
-  como si fuera el neto (así se infló la ganancia de fundas al 86% de la
-  venta cuando el real es ~51%).
+  releer MELI. Mientras un renglón no tiene depósito real, el panel NO lo
+  estima: su venta se declara como «sin depósito leído» (`ventaSinNeto`,
+  `unidadesSinNeto`) y queda fuera del neto y de la ganancia (decisión del
+  dueño, 9-sep-2026; antes se estimaba con un porcentaje observado y, más
+  antes, con importe − comisión, que infló la ganancia al 86% de la venta
+  cuando el real es ~51%). El cron de `/api/yapanizcel/netos` DEBE estar en
+  la lista de rutas públicas del middleware: sin eso contestaba 307 y nunca
+  corrió.
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
 - **Descontinuados** (`yapanizcel/descontinuados.ts`), dos niveles decididos
