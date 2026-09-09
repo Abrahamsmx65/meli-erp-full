@@ -271,7 +271,7 @@ export async function revisarOrdenes(
 ): Promise<ResultadoRevision> {
   const hoy = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
   const columnas =
-    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_pago, ajuste_envio, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
   const filas = opts.ordenIds?.length
     ? await traerTodo<any>(db, "ordenes_neto", columnas, (q) => q.eq("account_id", accountId).in("order_id", opts.ordenIds!))
     : await traerTodo<any>(db, "ordenes_neto", columnas, (q) =>
@@ -372,8 +372,13 @@ export async function revisarOrdenes(
       estado,
       ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
       // La primera liquidación con su ajuste de envío: se fija cuando la
-      // fila aún no tenía neto o lo tenía crudo (de antes del ajuste).
-      ...(resumenPago.netoBase != null && (f.neto_en == null || f.neto_pago == null) ? { neto: resumenPago.netoBase } : {}),
+      // fila aún no tenía neto o lo tenía crudo (de antes del ajuste), y se
+      // corrige cuando el ajuste cambió (el control es neto_pago, que no lo
+      // trae: sin neto_pago en la lectura, cada revisión volvía a sumarlo).
+      ...(resumenPago.netoBase != null &&
+      (f.neto_en == null || f.neto_pago == null || Math.abs(Number(f.ajuste_envio ?? 0) - resumenPago.ajusteEnvio) > 0.005)
+        ? { neto: resumenPago.netoBase }
+        : {}),
       ...camposLiquidacionMeli(resumenPago),
       ...(orden ? columnasDeOrden(orden) : {}),
       cargos_leidos_en: new Date().toISOString(),

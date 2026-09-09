@@ -154,6 +154,41 @@ describe("pagos de Mercado Pago", () => {
     });
   });
 
+  // Reporte de liberaciones de Mercado Pago, agosto 2026: el bono de envío
+  // llega como abono `shipping` sobre el envío de la venta por cargo − costo
+  // (orden 2000017734666890: 57.03 − 38 = 19.03). Cuando el comprador pagó
+  // envío (orden 2000017737948426: bruto 269.99 sobre 164.99, cargo 143 =
+  // 38 + 105) NO hay abono: su parte no es bono.
+  const pagoReal = (bruto: number, envioCargo: number, comision: number, isr: number, iva: number, neto: number) =>
+    leerPagoMercadoPago(
+      {
+        status: "approved",
+        transaction_amount: bruto,
+        net_received_amount: neto,
+        charges_details: [
+          { name: "tax_withholding-iva", type: "tax", amounts: { original: iva, refunded: 0 }, accounts: { from: "collector" } },
+          { name: "tax_withholding-isr", type: "tax", amounts: { original: isr, refunded: 0 }, accounts: { from: "collector" } },
+          { name: "shp_fulfillment", type: "shipping", amounts: { original: envioCargo, refunded: 0 }, accounts: { from: "collector" } },
+          { name: "meli_fee", type: "fee", amounts: { original: comision, refunded: 0 }, accounts: { from: "collector" } },
+        ],
+      },
+      "v1/payments",
+    );
+  const contextoEnvio = (envioVendedor: number, envioComprador = 0) =>
+    ({ envioVendedor, envioComprador, staticTags: [] as string[], edadHoras: 100 }) as unknown as Parameters<typeof resumirPagosMeli>[6];
+
+  it("el bono de envío es cargo − costo del vendedor y se suma al depósito", () => {
+    const r = resumirPagosMeli([pagoReal(167.89, 57.03, 25.18, 3.62, 11.58, 70.48)], 167.89, 25.18, null, null, null, contextoEnvio(38));
+    expect(r).toMatchObject({ envio: 38, ajusteEnvio: 19.03, neto: 89.51, cargosSinDesglosar: 0 });
+  });
+
+  it("lo que pagó el comprador de envío viaja dentro del pago y NO es bono", () => {
+    const r = resumirPagosMeli([pagoReal(269.99, 143, 24.75, 5.82, 18.62, 77.8)], 164.99, 24.75, null, null, null, contextoEnvio(38));
+    expect(r).toMatchObject({ envio: 38, ajusteEnvio: 0, neto: 77.8, cargosSinDesglosar: 0 });
+    // Con el envío del comprador leído de la orden da lo mismo.
+    expect(resumirPagosMeli([pagoReal(269.99, 143, 24.75, 5.82, 18.62, 77.8)], 164.99, 24.75, null, null, null, contextoEnvio(38, 105)).ajusteEnvio).toBe(0);
+  });
+
   it("suma multipagos e ignora intentos rechazados", () => {
     const aprobado = leerPagoMercadoPago({
       status: "approved",

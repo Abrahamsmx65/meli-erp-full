@@ -92,7 +92,7 @@ export async function revisarOrdenesYz(
   const filas = await todo<any>(
     admin,
     "yz_ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor",
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_pago, ajuste_envio, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor",
     (q) => q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
   );
   const pendientes = filas
@@ -188,7 +188,10 @@ export async function revisarOrdenesYz(
     }
     // Si la orden aún no tenía neto (o lo tenía crudo, de antes del ajuste
     // de envío), esta lectura ya lo trae: se aprovecha.
-    if (resumenPago.netoBase != null && (f.neto_en == null || f.neto_pago == null)) {
+    if (
+      resumenPago.netoBase != null &&
+      (f.neto_en == null || f.neto_pago == null || Math.abs(Number(f.ajuste_envio ?? 0) - resumenPago.ajusteEnvio) > 0.005)
+    ) {
       cambios.neto = resumenPago.netoBase;
     }
     const { error } = await admin.from("yz_ordenes_neto").update(cambios).eq("account_id", accountId).eq("order_id", orderId);

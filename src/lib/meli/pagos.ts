@@ -600,8 +600,23 @@ export function resumirPagosMeli(
 
   // Bonificación (o cargo pendiente) de envío: solo cuando /costs se leyó
   // y la venta es directa. Se le suma al depósito crudo para llegar a lo
-  // que MELI dice que te deja.
-  const ajusteEnvio = tipoVenta === "directa" && envioVendedor != null ? redondea(envioCargos - envio) : 0;
+  // que MELI dice que te deja. Verificado contra el reporte de
+  // liberaciones de Mercado Pago de agosto 2026: el bono llega como abono
+  // `shipping` sobre el envío de la venta y vale EXACTAMENTE cargo − costo
+  // del vendedor (57.03 − 38 = 19.03)… salvo lo que pagó el COMPRADOR:
+  // cuando el envío no es gratis, su parte viaja dentro del pago (el bruto
+  // del pago sube 105 arriba de la orden y el cargo shp_fulfillment sube
+  // igual, 143 = 38 + 105) y MELI no la abona a nadie. Sin restarla, el
+  // neto quedaba $105 arriba del total de la orden.
+  const brutoPagos = redondea(cobrados.reduce((a, p) => a + (p.bruto ?? 0), 0));
+  const envioCompradorEnPago = redondea(
+    Math.max(envioComprador, brutoPagos > 0 && totalOrden > 0 ? brutoPagos - totalOrden : 0),
+  );
+  const excedenteEnvio = Math.max(0, envioCargos - envio);
+  const ajusteEnvio =
+    tipoVenta === "directa" && envioVendedor != null
+      ? redondea(envioCargos - envio - Math.min(envioCompradorEnPago, excedenteEnvio))
+      : 0;
   const neto = netoPago == null ? null : redondea(netoPago + ajusteEnvio);
   const netoBase = netoControl != null ? redondea(netoControl + ajusteEnvio) : neto;
   const netoParaCargos = netoBase;
@@ -635,7 +650,6 @@ export function resumirPagosMeli(
 
   // Base facturada: lo que el comprador pagó por los productos (sin su envío).
   // paid_amount si vino; si no, los pagos cobrados; si no, el total.
-  const brutoPagos = redondea(cobrados.reduce((a, p) => a + (p.bruto ?? 0), 0));
   const gross =
     contexto?.pagado != null && contexto.pagado > 0
       ? contexto.pagado

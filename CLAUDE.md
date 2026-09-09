@@ -299,6 +299,27 @@ guárdala numerada.
   2000014843734267: "Recibes $176.80" de $208. No cuestan nada más; el
   corte las cuenta (`reventa`) y explica por qué la comisión se ve baja.
   NUNCA estimarles un cargo aparte.
+  **Bono de envío de Full** (migración 0075, `ajuste_envio`/`neto_pago`):
+  el cargo `shp_fulfillment` del pago es el costo de LISTA y el del vendedor
+  es `/shipments/{id}/costs`; MELI abona la diferencia aparte (abono
+  `shipping` sobre el envío de la venta en el reporte de liberaciones de
+  Mercado Pago, verificado al centavo en agosto 2026: 57.03 − 38 = 19.03).
+  Lo que pagó el COMPRADOR de envío viaja dentro del pago (el bruto sube
+  igual que el cargo, 143 = 38 + 105) y NO es bono: se resta
+  (`envioCompradorEnPago`, `pagos.ts`). `neto` = `neto_pago` + `ajuste_envio`
+  siempre; la revisión lee `neto_pago` como control, nunca `neto`.
+  **Devoluciones** (migración 0076, `reclamos.ts`): reclamo
+  (`/post-purchase/v1/claims/search`), retorno (`/v2/claims/{id}/returns`)
+  y revisión del almacén (`/v1/returns/{id}/reviews`,
+  `product_condition`): el costo del par devuelto solo se recupera si
+  volvió a la venta (`devolucion_destino = a_la_venta`); descartado o sin
+  revisión es merma y el corte lo declara. Si MELI absorbió el reembolso, el
+  pago no se toca y la venta cuenta completa.
+  **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
+  MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
+  CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
+  Vercel). El reporte de liberaciones de Mercado Pago se cruza por
+  `payment_id` (pagos) y `shipping_id` (abonos de envío).
 - **Corte GENERAL** (`servicios/consolidado.ts`, `/cortes`, `cortes_generales`):
   calzado en MELI + fundas en MELI + Amazon (`consolidado-amazon.ts` desde el
   monitor de Amazon: neto liquidado o SKU Economics). Regla del dueño: la
