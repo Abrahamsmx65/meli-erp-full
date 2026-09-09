@@ -103,6 +103,19 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    // La revisión de la devolución en el almacén de Full (¿volvió a la venta o se descartó?).
+    for (const [ruta, r] of Object.entries(detalles)) {
+      const rid = (r as any)?.id;
+      if (!ruta.includes("/returns") || !rid || (r as any)?.error) continue;
+      const cid = ruta.split("/claims/")[1]?.split("/")[0];
+      for (const rr of [`/post-purchase/v2/claims/${cid}/returns/reviews`, `/post-purchase/v1/claims/${cid}/returns/${rid}/reviews`, `/post-purchase/v1/returns/${rid}/reviews`, `/post-purchase/v2/returns/${rid}/reviews`, `/post-purchase/v1/claims/${cid}/returns/reviews`]) {
+        try {
+          detalles[rr] = await cliente.get<any>(rr, undefined, { reintentos: 0 });
+        } catch (err) {
+          detalles[rr] = { error: (err as Error).message.slice(0, 120) };
+        }
+      }
+    }
     sonda.detalles = detalles;
     return NextResponse.json(sonda, { headers: { "Cache-Control": "no-store" } });
   }
