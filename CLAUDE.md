@@ -303,6 +303,28 @@ guárdala numerada.
   vendidas en esa plataforma (`cargoPorUnidad`) y cada modelo y categoría
   carga su parte. El total del canal cuadra con su corte individual. Excel
   con hoja por canal (`consolidado-excel.ts`).
+- **El dinero de Amazon EXACTO sale de la Finances API por grupo de
+  liquidación** (`amazon/finanzas.ts` + `finanzas-sync.ts`, tablas
+  `amazon_finanzas_grupos` / `amazon_finanzas_eventos`, migración 0071, cron
+  `/api/cron/amazon-finanzas` cada 10 min). Cada evento se guarda crudo y
+  clasificado (principal, impuesto cobrado, comisión, FBA, IVA retenido,
+  promociones, por renglón/SKU; publicidad con base e IVA; cargos de
+  servicio, ajustes…) con clave = huella del JSON (releer es idempotente).
+  El NÚMERO DE CONTROL es el `OriginalTotal` del grupo cerrado: la suma de
+  sus eventos tiene que darlo (`cuadra`); si no, se declara. El grupo
+  abierto se relee cada hora. Los RPC `amazon_finanzas_por_sku` / `_otros` /
+  `_cobertura` suman en Postgres por fecha de ASIENTO en hora de México;
+  `servicios/finanzas-amazon.ts` arma el periodo y `MonitorAmazon.real` lo
+  lleva a Ventas Amazon y al Corte general (`bloqueAmazon` usa lo real en
+  cuanto hay eventos en el rango; SKU Economics y el reporte de
+  liquidación quedan de respaldo para lo anterior a la ingesta). Regla del
+  dueño: publicidad al modelo que la gastó (atribución por SKU de SKU
+  Economics) y lo que la factura real de Product Ads (CON IVA) cobró de más,
+  gasto general; las devoluciones de Amazon NO recuperan costo (no se sabe
+  si el par regresó vendible). SKU Economics es una ESTIMACIÓN de Amazon y
+  para julio 2026 solo cubría ~15 % de las unidades: nunca es la fuente
+  final. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
+  o `?grupo=…`.
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que

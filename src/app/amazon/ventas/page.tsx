@@ -48,6 +48,7 @@ export default async function VentasAmazon({
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
   const economiaCompleta =
     m.economia?.cobertura.completa === true && m.economia.coberturaCosto >= 0.999;
+  const real = m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0) ? m.real : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,7 +87,9 @@ export default async function VentasAmazon({
         <Ficha
           titulo="Ganancia del periodo"
           valor={
-            m.economia?.gananciaFinal != null
+            real?.ganancia != null
+              ? pesos(real.ganancia)
+              : m.economia?.gananciaFinal != null
               ? pesos(m.economia.gananciaFinal)
               : m.gananciaReal != null
                 ? pesos(m.gananciaReal)
@@ -95,7 +98,9 @@ export default async function VentasAmazon({
                   : "—"
           }
           nota={
-            m.economia?.gananciaFinal != null
+            real?.ganancia != null
+              ? `${real.exacto ? "Exacta" : "Parcial"} · Dinero real de Amazon (Finances API) − costo · ${Math.round(real.coberturaCosto * 100)}% con costo`
+              : m.economia?.gananciaFinal != null
               ? `${economiaCompleta ? "Exacta" : "Parcial"} · Neto Amazon (ventas − tarifas − publicidad) − costo · ${Math.round(m.economia.coberturaCosto * 100)}% con costo`
               : m.gananciaReal != null
                 ? `Sin economía por producto en el rango: es lo LIQUIDADO (${pesos(m.netoReal ?? 0)}) − costo de ${n(m.unidadesLiquidadas)} pares`
@@ -104,13 +109,78 @@ export default async function VentasAmazon({
                   : "Captura costos en Productos y costos"
           }
           tono={
-            (m.economia?.gananciaFinal ?? m.gananciaReal ?? m.ganancia) < 0 &&
-            (m.economia?.gananciaFinal != null || m.gananciaReal != null || m.coberturaCosto > 0)
+            (real?.ganancia ?? m.economia?.gananciaFinal ?? m.gananciaReal ?? m.ganancia) < 0 &&
+            (real?.ganancia != null || m.economia?.gananciaFinal != null || m.gananciaReal != null || m.coberturaCosto > 0)
               ? "critico"
               : "neutro"
           }
         />
       </div>
+
+      {/* ---- El dinero REAL: eventos de la Finances API por fecha de asiento ---- */}
+      {real ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">A dónde se fue el dinero (real, por fecha de asiento)</h2>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+            Cada peso sale de un evento de la Finances API de Amazon con su nombre: precio,
+            impuesto, comisión, FBA, IVA retenido, promociones, reembolsos y la factura de
+            publicidad con IVA. Nada se estima.
+            {real.cobertura.hasta ? ` Liquidaciones cerradas hasta ${real.cobertura.hasta.slice(0, 10)}.` : ""}
+          </p>
+          {real.avisos.length ? (
+            <ul className="mt-2 flex flex-col gap-1 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
+              {real.avisos.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--exito-texto)" }}>
+              Periodo cerrado: todas sus liquidaciones cuadran con lo que Amazon depositó.
+            </p>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+            <Ficha titulo="Venta bruta" valor={pesos(real.ventas.bruto)} nota={`${n(real.ventas.unidades)} unidades · ${n(real.ventas.eventos)} envíos`} />
+            <Ficha titulo="Comisión" valor={pesos(real.ventas.comision)} nota="Referral fee" tono={real.ventas.comision < 0 ? "alerta" : "neutro"} />
+            <Ficha titulo="FBA" valor={pesos(real.ventas.fba)} nota="Tarifa de logística" tono={real.ventas.fba < 0 ? "alerta" : "neutro"} />
+            <Ficha titulo="IVA retenido" valor={pesos(real.ventas.retenido)} nota="MarketplaceFacilitator" tono={real.ventas.retenido < 0 ? "alerta" : "neutro"} />
+            <Ficha
+              titulo="Promos y otras"
+              valor={pesos(real.ventas.promociones + real.ventas.otrasTarifas)}
+              nota="Promociones y otras tarifas"
+              tono={real.ventas.promociones + real.ventas.otrasTarifas < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha titulo="Devoluciones" valor={pesos(real.reembolsos.neto)} nota={`${n(real.reembolsos.unidades)} unidades · ${n(real.reembolsos.eventos)} reembolsos`} tono={real.reembolsos.neto < 0 ? "alerta" : "neutro"} />
+            <Ficha
+              titulo="Publicidad"
+              valor={pesos(real.publicidad.monto)}
+              nota={real.publicidad.impuesto ? `Factura real · incluye ${pesos(real.publicidad.impuesto)} de IVA` : "Factura real de Product Ads"}
+              tono={real.publicidad.monto < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha titulo="Neto depositado" valor={pesos(real.netoDepositado)} nota={`Productos ${pesos(real.netoProductos)} · otros ${pesos(real.otrosTotal)}`} />
+          </div>
+          {real.otros.length ? (
+            <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+              Otros cargos del periodo:{" "}
+              {real.otros.map((o) => `${o.lista.replace(/EventList$/, "")} ${pesos(o.monto)}${o.sinClasificar ? ` (${o.sinClasificar} sin clasificar)` : ""}`).join(" · ")}
+            </p>
+          ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Ficha titulo="Costo de producto" valor={real.costoProducto > 0 ? pesos(-real.costoProducto) : "—"} nota={`${Math.round(real.coberturaCosto * 100)}% de las unidades con costo capturado`} />
+            <Ficha
+              titulo="Ganancia"
+              valor={real.ganancia != null ? pesos(real.ganancia) : "—"}
+              nota={`${real.exacto ? "Exacta" : "Parcial"} · neto de productos − costo − publicidad − otros cargos`}
+              tono={real.ganancia == null ? "neutro" : real.ganancia < 0 ? "critico" : "bien"}
+            />
+            <Ficha
+              titulo="Liquidaciones"
+              valor={`${n(real.cobertura.cerrados)} cerradas`}
+              nota={`${n(real.cobertura.abiertos)} en curso · ${n(real.cobertura.incompletos)} a medio leer · ${n(real.cobertura.descuadrados)} sin cuadrar`}
+              tono={real.cobertura.descuadrados ? "critico" : real.cobertura.abiertos || real.cobertura.incompletos ? "alerta" : "bien"}
+            />
+          </div>
+        </section>
+      ) : null}
 
       {/* ---- Economía POR PRODUCTO (SKU Economics vía Data Kiosk) ---------- */}
       {m.economia ? (

@@ -7,9 +7,130 @@
  */
 import type { BloqueCanal } from "./consolidado";
 import type { MonitorAmazon } from "./amazon-monitor";
+import type { FinanzasAmazon } from "./finanzas-amazon";
 import type { ConfigProducto } from "./productos";
 
 export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProducto>, rango?: { desde: string; hasta: string }): BloqueCanal {
+  // Con eventos de la Finances API en el rango, el bloque es EXACTO: cada
+  // peso viene de un evento con nombre. Lo demás queda como respaldo para
+  // los periodos anteriores a la ingesta.
+  if (m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0)) return bloqueAmazonReal(m.real, m, config);
+  return bloqueAmazonAgregado(m, config, rango);
+}
+
+/**
+ * El bloque desde el dinero real por fecha de asiento. Regla del dueño:
+ * la publicidad se descuenta al modelo que la gastó (la atribución por SKU
+ * es de Amazon, SKU Economics) y lo que la factura real de Product Ads
+ * (con IVA) cobró de más entra como gasto general del canal; los demás
+ * cargos (servicio, ajustes, retención del periodo…) también. Las
+ * devoluciones NO recuperan costo: Amazon no dice si el par regresó
+ * vendible (se declara).
+ */
+function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<string, ConfigProducto>): BloqueCanal {
+  // Nunca −0: un cero negado se vería como "-$0" en pantalla.
+  const redondea = (x: number) => Math.round(x * 100) / 100 || 0;
+  const avisos = [...real.avisos];
+
+  const adsPorModelo = new Map<string, number>();
+  let adsAmarrados = 0;
+  for (const [modelo, gasto] of m.publicidadPorModelo) {
+    const v = Math.abs(gasto);
+    if (v > 0) {
+      adsPorModelo.set(modelo, v);
+      adsAmarrados += v;
+    }
+  }
+  const adsReales = Math.abs(real.publicidad.monto);
+  const adsGenerales = adsAmarrados > 0 ? Math.max(0, adsReales - adsAmarrados) : adsReales;
+  if (adsAmarrados > adsReales + 0.005) {
+    avisos.push(`Amazon: la publicidad atribuida por modelo (SKU Economics, por fecha de venta: ${redondea(adsAmarrados).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}) pasa de lo facturado en el periodo (${redondea(adsReales).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}, con IVA): Amazon aún no factura todo el gasto.`);
+  }
+  if (real.publicidad.impuesto) avisos.push(`Amazon: la publicidad del periodo incluye ${redondea(Math.abs(real.publicidad.impuesto)).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de IVA facturado por Amazon.`);
+
+  const gastos: { concepto: string; monto: number }[] = [];
+  for (const o of real.otros) {
+    if (!o.monto) continue;
+    gastos.push({ concepto: `Amazon · ${NOMBRE_LISTA[o.lista] ?? o.lista}`, monto: redondea(-o.monto) });
+  }
+  if (adsGenerales) gastos.push({ concepto: adsAmarrados > 0 ? "Publicidad de Amazon no amarrada a modelo (incluye IVA)" : "Publicidad de Amazon (factura real, con IVA)", monto: redondea(adsGenerales) });
+  if (real.reembolsos.neto) avisos.push("Amazon: las devoluciones se restan completas; el costo de los pares devueltos NO se suma de vuelta porque Amazon no dice si regresaron vendibles.");
+
+  const porModelo = real.porModelo
+    .filter((f) => f.unidades > 0 || f.neto !== 0 || f.reembolsos !== 0)
+    .map((f) => ({
+      modelo: f.modelo,
+      categoria: f.categoria ?? config.get(f.modelo)?.categoria ?? null,
+      unidades: f.unidades,
+      importe: f.bruto,
+      comision: redondea(-f.comision),
+      envio: redondea(-f.fba),
+      isr: 0,
+      iva: redondea(-f.retenido),
+      otros: redondea(-(f.otrasTarifas + f.promociones)),
+      neto: redondea(f.neto + f.reembolsos),
+      costo: f.costo,
+      ads: adsPorModelo.get(f.modelo) ?? 0,
+    }));
+
+  const v = real.ventas;
+  const descuentos: { concepto: string; monto: number }[] = [];
+  if (v.comision) descuentos.push({ concepto: "Comisión de Amazon (referral)", monto: redondea(-v.comision) });
+  if (v.fba) descuentos.push({ concepto: "Tarifa de FBA", monto: redondea(-v.fba) });
+  if (v.retenido) descuentos.push({ concepto: "IVA retenido por Amazon", monto: redondea(-v.retenido) });
+  if (v.promociones) descuentos.push({ concepto: "Promociones absorbidas", monto: redondea(-v.promociones) });
+  if (v.otrasTarifas) descuentos.push({ concepto: "Otras tarifas por renglón", monto: redondea(-v.otrasTarifas) });
+
+  const cob = real.cobertura;
+  return {
+    canal: "amazon",
+    unidades: v.unidades,
+    ordenes: v.eventos,
+    ventaBruta: v.bruto,
+    neto: real.netoProductos,
+    fuenteNeto: cob.completa ? "Finances API · fecha de asiento · liquidaciones cerradas y cuadradas" : "Finances API · fecha de asiento · liquidación en curso",
+    coberturaNeto: cob.completa ? 1 : null,
+    descuentos,
+    desglosePlataforma: { comision: redondea(-v.comision), envio: redondea(-v.fba), isr: 0, iva: redondea(-v.retenido), otros: redondea(-(v.promociones + v.otrasTarifas)) },
+    desgloseDisponible: true,
+    devoluciones: redondea(-real.reembolsos.neto),
+    devolucionesIncluidasEnNeto: redondea(-real.reembolsos.neto),
+    costoRecuperado: 0,
+    costoProducto: real.costoProducto,
+    unidadesConCosto: real.unidadesConCosto,
+    adsPorModelo: redondea(adsAmarrados),
+    adsGenerales: redondea(adsGenerales),
+    gastos,
+    porModelo,
+    avisos,
+    exacto: real.exacto,
+  };
+}
+
+const NOMBRE_LISTA: Record<string, string> = {
+  ServiceFeeEventList: "cargos de servicio (almacenaje, suscripción…)",
+  AdjustmentEventList: "ajustes de Amazon",
+  TaxWithholdingEventList: "retención de impuestos del periodo",
+  DebtRecoveryEventList: "recuperación de saldo",
+  SAFETReimbursementEventList: "reembolsos SAFE-T",
+  RemovalShipmentEventList: "retiros de inventario",
+  RemovalShipmentAdjustmentEventList: "ajustes de retiros",
+  FBALiquidationEventList: "liquidación de inventario",
+  CouponPaymentEventList: "cupones",
+  SellerDealPaymentEventList: "ofertas",
+  ChargeRefundEventList: "reembolsos de cargos",
+  RetrochargeEventList: "retrocargos",
+  ImagingServicesFeeEventList: "servicios de imagen",
+  TrialShipmentEventList: "envíos de prueba",
+  NetworkComminglingTransactionEventList: "inventario mezclado",
+  AffordabilityExpenseEventList: "meses sin intereses",
+  AffordabilityExpenseReversalEventList: "reverso de meses sin intereses",
+  AdhocDisbursementEventList: "desembolsos",
+  ValueAddedServiceChargeEventList: "servicios de valor agregado",
+  CapacityReservationBillingEventList: "reserva de capacidad",
+};
+
+function bloqueAmazonAgregado(m: MonitorAmazon, config: Map<string, ConfigProducto>, rango?: { desde: string; hasta: string }): BloqueCanal {
   const avisos: string[] = [];
   const hayPagos = m.netoReal != null;
   const eco = m.economia;

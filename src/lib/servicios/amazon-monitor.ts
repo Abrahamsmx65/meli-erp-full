@@ -12,6 +12,7 @@ import { modeloUnificado } from "./costos-unificados";
 import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
+import { leerFinanzasAmazon, type FinanzasAmazon } from "./finanzas-amazon";
 
 /** De dónde salió la ganancia unificada de un renglón. */
 export type FuenteGanancia = "economia" | "liquidado" | "estimada";
@@ -118,6 +119,14 @@ export interface MonitorAmazon {
   } | null;
   /** publicidad del periodo por modelo, para la columna de la tabla */
   publicidadPorModelo: Map<string, number>;
+  /**
+   * El dinero REAL del periodo desde la Finances API (eventos por pedido,
+   * por fecha de asiento, con comisión, FBA, IVA retenido, promociones,
+   * reembolsos y publicidad con su IVA, cada uno con su nombre). Es la
+   * fuente exacta; `real.cobertura` dice si el periodo ya cerró completo.
+   * null = aún no hay eventos leídos para el rango.
+   */
+  real: FinanzasAmazon | null;
 }
 
 /**
@@ -144,7 +153,7 @@ export async function obtenerMonitorAmazon(
 ): Promise<MonitorAmazon> {
   const r = rango ?? normalizarRango();
   const cerrado = r.hasta < fechaMx(0);
-  return conCacheApp(db, amazonAccountId, `monitor:v2:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
+  return conCacheApp(db, amazonAccountId, `monitor:v3:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
     cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
   );
 }
@@ -243,6 +252,13 @@ export async function cargarMonitorAmazon(
         throw err;
       }),
   ]);
+
+  // El dinero real por fecha de asiento (Finances API): sumado en Postgres,
+  // solo se agrupa por modelo aquí. Si la tabla aún no existe, null.
+  const real = await leerFinanzasAmazon(db, amazonAccountId, { desde: r.desde, hasta: r.hasta }, config).catch((err) => {
+    if (esFuenteOpcionalAusente(err)) return null;
+    throw err;
+  });
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
     let unidades = 0;
@@ -527,6 +543,7 @@ export async function cargarMonitorAmazon(
     publicidadPorModelo: new Map(
       [...econPorModelo.entries()].map(([m, e]) => [m, e.publicidad]),
     ),
+    real,
   };
   cacheMonitorAmz.set(claveCache, { en: Date.now(), datos: monitor });
   return monitor;

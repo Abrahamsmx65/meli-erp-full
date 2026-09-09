@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cascadaDeEvento, cascadaDePedido } from "./finanzas";
+import { cascadaDeEvento, cascadaDePedido, clasificarEventos, claveDeEvento } from "./finanzas";
 
 const m = (CurrencyAmount: number) => ({ CurrencyCode: "MXN", CurrencyAmount });
 
@@ -45,6 +45,42 @@ describe("cascada de un evento de la Finances API de Amazon", () => {
     expect(c.neto).toBe(346.5);
     expect(c.porNombre["Renglón:Commission"]).toBe(-87);
     expect(c.porNombre["Retenido:MarketplaceFacilitator:MarketplaceFacilitatorVAT-Principal"]).toBe(-40);
+  });
+
+  it("la cascada por renglón separa los SKUs y los cargos de orden van en un renglón sin SKU", () => {
+    const c = cascadaDeEvento({
+      OrderFeeList: [{ FeeType: "FBAPerOrderFulfillmentFee", FeeAmount: m(-5) }],
+      ShipmentItemList: [
+        { SellerSKU: "A-1", QuantityShipped: 1, ItemChargeList: [{ ChargeType: "Principal", ChargeAmount: m(100) }], ItemFeeList: [{ FeeType: "Commission", FeeAmount: m(-15) }] },
+        { SellerSKU: "B-2", QuantityShipped: 2, ItemChargeList: [{ ChargeType: "Principal", ChargeAmount: m(50) }] },
+      ],
+    });
+    expect(c.renglones).toEqual([
+      expect.objectContaining({ sku: "A-1", unidades: 1, principal: 100, comision: -15, neto: 85 }),
+      expect.objectContaining({ sku: "B-2", unidades: 2, principal: 50, neto: 50 }),
+      expect.objectContaining({ sku: null, fba: -5, neto: -5 }),
+    ]);
+    expect(c.neto).toBe(130);
+    expect(c.unidades).toBe(3);
+  });
+
+  it("clasificarEventos aplana todas las listas: publicidad con IVA, cargos de servicio y lo desconocido sin monto", () => {
+    const ev = clasificarEventos({
+      ShipmentEventList: [{ AmazonOrderId: "702-1", PostedDate: "2026-08-17T19:19:28Z", ShipmentItemList: [{ SellerSKU: "X", QuantityShipped: 1, ItemChargeList: [{ ChargeType: "Principal", ChargeAmount: m(10) }] }] }],
+      ProductAdsPaymentEventList: [{ postedDate: "2026-08-18T00:00:00Z", transactionType: "CHARGE", invoiceId: "INV-1", baseValue: m(-100), taxValue: m(-16), transactionValue: m(-116) }],
+      ServiceFeeEventList: [{ FeeReason: "Storage Fee", FeeList: [{ FeeType: "FBAStorageFee", FeeAmount: m(-30) }] }],
+      RaraEventList: [{ PostedDate: "2026-08-18T00:00:00Z", Cosa: m(-1) }],
+      ChargebackEventList: [],
+    } as any);
+    expect(ev.map((e) => e.lista)).toEqual(["ShipmentEventList", "ProductAdsPaymentEventList", "ServiceFeeEventList", "RaraEventList"]);
+    expect(ev[0]).toMatchObject({ amazonOrderId: "702-1", postedEn: "2026-08-17T19:19:28Z", monto: 10, clasificado: true });
+    expect(ev[0].cascada?.renglones[0].sku).toBe("X");
+    expect(ev[1]).toMatchObject({ monto: -116, base: -100, impuesto: -16, descripcion: "CHARGE INV-1", postedEn: "2026-08-18T00:00:00Z", cascada: null });
+    expect(ev[2]).toMatchObject({ monto: -30, descripcion: "Storage Fee" });
+    expect(ev[3]).toMatchObject({ monto: null, clasificado: false });
+    // La clave es la huella del crudo: el mismo evento dos veces da la misma clave.
+    expect(claveDeEvento("ShipmentEventList", ev[0].crudo)).toBe(ev[0].clave);
+    expect(new Set(ev.map((e) => e.clave)).size).toBe(4);
   });
 
   it("los reembolsos van aparte de las ventas", () => {

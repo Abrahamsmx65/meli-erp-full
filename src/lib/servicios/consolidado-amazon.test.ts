@@ -25,6 +25,7 @@ function monitor(extra?: Partial<MonitorAmazon>): MonitorAmazon {
     pagosHasta: "2026-08-20",
     economia: { unidades: 10, ventas: 5000, tarifas: 1500, publicidad: 200, neto: 3300, gananciaFinal: null, costoProducto: 0, coberturaCosto: 1, hasta: "2026-08-31", cobertura: { importe: 1, unidades: 1, dias: 1, diasVenta: 31, diasCubiertos: 31, completa: true } },
     publicidadPorModelo: new Map([["GT114", 200]]),
+    real: null,
     ...extra,
   };
 }
@@ -100,5 +101,40 @@ describe("bloqueAmazon", () => {
     expect(b.exacto).toBe(false);
     expect(b.fuenteNeto).toContain("parcial");
     expect(b.avisos.some((a) => a.includes("90% de las unidades") && a.includes("30 de 31 días"))).toBe(true);
+  });
+});
+
+describe("bloqueAmazon con el dinero real (Finances API)", () => {
+  it("con eventos reales en el rango, el bloque sale exacto de la cascada y la publicidad real con IVA cubre lo no amarrado", () => {
+    const cascada = { eventos: 1, unidades: 1, bruto: 239, principal: 206.03, impuestoCobrado: 32.97, otrosCargos: 0, comision: -35.86, fba: -36, otrasTarifas: 0, retenido: -16.49, promociones: 0, neto: 150.65 };
+    const real = {
+      rango: { desde: "2026-08-01", hasta: "2026-08-31" },
+      ventas: cascada,
+      reembolsos: { ...cascada, eventos: 0, unidades: 0, bruto: 0, principal: 0, impuestoCobrado: 0, comision: 0, fba: 0, retenido: 0, neto: 0 },
+      publicidad: { eventos: 1, monto: -348, base: -300, impuesto: -48 },
+      otros: [{ lista: "ServiceFeeEventList", eventos: 1, monto: -30, base: null, impuesto: null, sinClasificar: 0 }],
+      otrosTotal: -30,
+      netoProductos: 150.65,
+      netoDepositado: -227.35,
+      porModelo: [{ ...cascada, modelo: "GT114", categoria: "Corcho", reembolsos: 0, unidadesReembolsadas: 0, costo: 60, ganancia: 90.65 }],
+      costoProducto: 60,
+      unidadesConCosto: 1,
+      coberturaCosto: 1,
+      ganancia: -287.35,
+      cobertura: { grupos: [], cerrados: 1, abiertos: 0, incompletos: 0, descuadrados: 0, completa: true, hasta: "2026-08-26T14:16:37Z" },
+      avisos: [],
+      exacto: true,
+      generadoEn: "2026-09-09T18:00:00Z",
+    };
+    const b = bloqueAmazon(monitor({ real }), new Map([["GT114", { categoria: "Corcho", costo: 60 }]]), { desde: "2026-08-01", hasta: "2026-08-31" });
+    expect(b).toMatchObject({ ventaBruta: 239, neto: 150.65, unidades: 1, devoluciones: 0, costoProducto: 60, adsPorModelo: 200, adsGenerales: 148, exacto: true });
+    expect(b.fuenteNeto).toMatch(/Finances API/);
+    expect(b.descuentos.map((d) => [d.concepto, d.monto])).toEqual([["Comisión de Amazon (referral)", 35.86], ["Tarifa de FBA", 36], ["IVA retenido por Amazon", 16.49]]);
+    expect(b.gastos).toEqual([
+      { concepto: "Amazon · cargos de servicio (almacenaje, suscripción…)", monto: 30 },
+      { concepto: "Publicidad de Amazon no amarrada a modelo (incluye IVA)", monto: 148 },
+    ]);
+    expect(b.porModelo[0]).toMatchObject({ modelo: "GT114", importe: 239, comision: 35.86, envio: 36, iva: 16.49, neto: 150.65, costo: 60, ads: 200 });
+    expect(b.avisos.join(" ")).toMatch(/IVA/);
   });
 });

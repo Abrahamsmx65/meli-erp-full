@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { Cliente, cuentasAmazon } from "@/lib/amazon/spapi";
-import { cascadaDePedido, eventosDePedido, eventosDesde, gruposFinancieros } from "@/lib/amazon/finanzas";
+import { cascadaDePedido, clasificarEventos, eventosDePedido, eventosDesde, gruposFinancieros, paginaDeEventosDeGrupo } from "@/lib/amazon/finanzas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
   if (pedido && !/^\d{3}-\d{7}-\d{7}$/.test(pedido)) {
     return NextResponse.json({ error: "El pedido de Amazon tiene la forma 702-1234567-1234567." }, { status: 400 });
   }
+  const grupo = (req.nextUrl.searchParams.get("grupo") ?? "").trim();
 
   // Las credenciales viven en amazon_tokens (solo service_role); la sesión
   // ya validó quién pregunta.
@@ -53,6 +54,32 @@ export async function GET(req: NextRequest) {
       };
     } catch (err) {
       salida.pedido = { id: pedido, error: (err as Error).message };
+    }
+  }
+
+  // ?grupo=<id>: la primera página de eventos de un grupo de liquidación,
+  // clasificada como la guarda la ingesta (para ver qué listas trae un
+  // grupo y si alguna queda sin clasificar).
+  if (grupo) {
+    try {
+      const pagina = await paginaDeEventosDeGrupo(cliente, grupo);
+      const eventos = pagina ? clasificarEventos(pagina.eventos) : [];
+      const porLista: Record<string, { eventos: number; monto: number; sinClasificar: number }> = {};
+      for (const e of eventos) {
+        const p = (porLista[e.lista] ??= { eventos: 0, monto: 0, sinClasificar: 0 });
+        p.eventos++;
+        p.monto = Math.round((p.monto + (e.monto ?? 0)) * 100) / 100;
+        if (!e.clasificado) p.sinClasificar++;
+      }
+      salida.grupo = {
+        id: grupo,
+        hayMasPaginas: Boolean(pagina?.siguiente),
+        porLista,
+        sinClasificar: eventos.filter((e) => !e.clasificado).map((e) => ({ lista: e.lista, crudo: e.crudo })).slice(0, 5),
+        muestraOtros: eventos.filter((e) => !e.cascada).slice(0, 10),
+      };
+    } catch (err) {
+      salida.grupo = { id: grupo, error: (err as Error).message };
     }
   }
 
