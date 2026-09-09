@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
-import { leerPagoMercadoPago } from "@/lib/meli/pagos";
+import { leerPagoMercadoPago, type PagoMercadoPago } from "@/lib/meli/pagos";
+import { CacheTarifas, costoEnvioVendedor, resumirOrdenConMeli } from "@/lib/meli/pagos-api";
+import { contextoDeOrden, type OrdenMeliCruda } from "@/lib/meli/orden";
+import { renglonesDe } from "@/lib/servicios/devoluciones";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,15 +72,18 @@ export async function GET(req: NextRequest) {
   // 2. Cada pago por los tres caminos, con lo que el clasificador saca de
   //    cada respuesta. Así se ve de un vistazo cuál trae ISR/IVA y cuál no.
   const pagos = [];
+  const pagosReales: PagoMercadoPago[] = [];
   for (const idPago of idsPago) {
     const intentos: Record<string, unknown> = {};
     for (const camino of CAMINOS) {
       try {
         const crudo = await cliente.get<unknown>(camino.ruta(idPago), undefined, { reintentos: 0 });
+        const interpretado = leerPagoMercadoPago(crudo, camino.nombre === "payments_mp" ? "v1/payments" : "collections");
+        if (camino.nombre === "payments_mp") pagosReales.push(interpretado);
         intentos[camino.nombre] = {
           ok: true,
           llaves: Object.keys((crudo as any)?.collection ?? crudo ?? {}).sort(),
-          interpretado: leerPagoMercadoPago(crudo),
+          interpretado,
           crudo,
         };
       } catch (err) {
@@ -87,11 +93,37 @@ export async function GET(req: NextRequest) {
     pagos.push({ idPago, intentos });
   }
 
-  // 3. Lo que el ERP tiene guardado hoy de esa orden, para comparar.
+  // 3. La cascada tal como la guardaría el barrido, con el envío del
+  //    vendedor (/shipments/{id}/costs) y, en reventa, la tarifa de la
+  //    categoría para reconstruir el precio público. Sin guardar nada.
+  let cascada: unknown = null;
+  let envioVendedor: number | null = null;
+  if (orden && pagosReales.length === idsPago.length) {
+    try {
+      const o = orden as OrdenMeliCruda;
+      const contexto = contextoDeOrden(o, Date.now());
+      if (contexto.shippingId != null) envioVendedor = await costoEnvioVendedor(cliente, contexto.shippingId);
+      const renglones = renglonesDe(o, new Map());
+      const resumen = await resumirOrdenConMeli(cliente, {
+        pagos: pagosReales,
+        total: Number(o.total_amount) || 0,
+        comisionOrden: renglones.reduce((a, r) => a + r.comision, 0),
+        contexto,
+        renglones,
+        tarifas: new CacheTarifas(cliente, o.context?.site || "MLM"),
+      });
+      const { pagosCrudos: _crudos, detalleCargos: _detalle, ...resto } = resumen;
+      cascada = { contexto, renglones, ...resto };
+    } catch (err) {
+      cascada = { error: (err as Error).message };
+    }
+  }
+
+  // 4. Lo que el ERP tiene guardado hoy de esa orden, para comparar.
   const { data: guardado } = await supabase
     .from("ordenes_neto")
     .select(
-      "order_id, fecha, total, neto, neto_actual, comision_mp, envio_mp, isr_mp, iva_mp, otros_mp, cargos_sin_desglosar, tipo_venta, detalle_cargos, cargos_leidos_en",
+      "order_id, fecha, total, pagado, envio_comprador, envio_vendedor, neto, neto_actual, neto_calculado, facturado, comision_mp, envio_mp, isr_mp, iva_mp, retencion_mp, otros_mp, cargos_sin_desglosar, tipo_venta, total_comprador, cargos_fuente, cargos_completos, libera_en, static_tags, detalle_cargos, cargos_leidos_en",
     )
     .eq("account_id", cuenta.id)
     .eq("order_id", ordenId)
@@ -101,11 +133,16 @@ export async function GET(req: NextRequest) {
     {
       orden: ordenId,
       errorOrden,
+      cascada,
+      envioVendedor,
       // Lo que se busca en la orden: qué pagó el cliente (para la reventa) y
       // qué dice MELI que cobra de comisión y envío.
       resumenOrden: orden && {
         status: orden.status,
         tags: orden.tags,
+        static_tags: orden.static_tags,
+        pack_id: orden.pack_id,
+        shipping_id: orden.shipping?.id,
         total_amount: orden.total_amount,
         paid_amount: orden.paid_amount,
         llaves: Object.keys(orden).sort(),
