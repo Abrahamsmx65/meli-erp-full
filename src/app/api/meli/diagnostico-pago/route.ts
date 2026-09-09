@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { leerPagoMercadoPago } from "@/lib/meli/pagos";
@@ -46,7 +46,11 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const cliente = await clienteDeCuenta(supabase, cuenta.id);
+  // Los tokens viven en meli_tokens, que tiene RLS con CERO políticas a
+  // propósito: solo el service role la lee. Con la sesión del usuario el
+  // helper no ve la fila y contesta "no tiene tokens" aunque sí los tenga.
+  // La sesión ya validó quién pregunta y de qué cuenta; el admin solo lee.
+  const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
   if (!cliente) return NextResponse.json({ error: "La cuenta no tiene tokens de MELI." }, { status: 400 });
 
   // 1. La orden cruda: de ahí salen los ids de pago y el precio de lista.
