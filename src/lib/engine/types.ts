@@ -58,6 +58,13 @@ export interface Caja {
   /** cuántas cajas de este tipo tengo armadas y listas */
   cajasDisponibles: number;
   items: CajaItem[];
+  /**
+   * Producto (modelo + color) al que pertenece la caja. Agrupa las cajas de
+   * un mismo producto aunque vengan de pedidos o bodegas distintas: las
+   * reglas de producto NUEVO y de producto SIN ESTRENO se deciden por
+   * producto, no por caja. Sin él, cada caja es su propio producto.
+   */
+  producto?: string | null;
 }
 
 export interface SkuOverride {
@@ -109,6 +116,26 @@ export interface Parametros {
    * fijó en 200.
    */
   corridaFaltanteGrande: number;
+  /**
+   * Producto NUEVO: lanzado en Full hace menos de estos días (primer dato
+   * de stock o venta dentro de la ventana, sin ventas antes de ella). A un
+   * producto nuevo cualquier faltante le fuerza su caja: no aplica la
+   * tolerancia de rescate de 7 días, porque si no se le surte nunca va a
+   * pagar. Decisión del dueño (sep-2026).
+   */
+  nuevoDias: number;
+  /**
+   * Holgura sobre el objetivo, en días de venta: una talla que quede en
+   * horizonte + holgura (32 en vez de 30) no cuenta como sobre-surtida.
+   * Decisión del dueño (sep-2026).
+   */
+  holguraObjetivoDias: number;
+  /**
+   * Producto SIN ESTRENO (nunca tuvo stock ni venta en Full) con cajas en
+   * cualquier bodega: se mandan mínimo estas cajas por modelo + color para
+   * estrenarlo. Decisión del dueño (sep-2026). 0 = apagado.
+   */
+  cajasMinimasSinEstreno: number;
 }
 
 export type OrigenDia =
@@ -161,6 +188,14 @@ export interface DemandaSku {
   coefVariacion: number;
   confianza: Confianza;
   notas: string[];
+  /**
+   * Primer día con evidencia (stock o venta) DENTRO de la ventana, cuando
+   * el SKU se estrenó ahí: null si ya tenía datos desde el primer día de
+   * la ventana (viejo) o si no tiene ningún dato (nunca ha subido).
+   */
+  lanzamiento: ISODate | null;
+  /** días desde `lanzamiento` hasta el fin de la ventana; null si no hubo */
+  diasDesdeLanzamiento: number | null;
 }
 
 export type EstadoSku =
@@ -202,6 +237,10 @@ export interface LineaPlan {
 
   estado: EstadoSku;
   explicacion: string;
+  /** producto lanzado hace menos de `nuevoDias`: cualquier faltante fuerza caja */
+  productoNuevo?: boolean;
+  /** producto que nunca tuvo stock ni venta en Full y viaja para estrenarse */
+  sinEstreno?: boolean;
 }
 
 export interface CajaElegida {

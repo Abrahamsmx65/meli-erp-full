@@ -174,6 +174,36 @@ export function reasignarPorBodega(
 }
 
 
+/**
+ * Historia de venta más allá de la ventana del plan, para las reglas de
+ * producto NUEVO y SIN ESTRENO: qué SKUs vendieron alguna vez y cuáles ya
+ * vendían antes de la ventana. Un renglón por SKU desde el RPC
+ * (`ventas_resumen_sku` con rango abierto), nunca la tabla cruda.
+ */
+export async function ventasHistoricas(
+  db: DB,
+  accountId: string,
+  desde: ISODate,
+  hoy: ISODate,
+): Promise<{ historica: Set<string>; previa: Set<string>; error: string | null }> {
+  const { data, error } = await db.rpc("ventas_resumen_sku", {
+    p_account: accountId,
+    p_desde: "2020-01-01",
+    p_hasta: hoy,
+    p_prev_desde: "2020-01-01",
+    p_prev_hasta: sumarDias(desde, -1),
+    p_hoy: hoy,
+  });
+  if (error) return { historica: new Set(), previa: new Set(), error: error.message };
+  const historica = new Set<string>();
+  const previa = new Set<string>();
+  for (const r of (data ?? []) as { sku: string; unidades: number; unidades_prev: number }[]) {
+    if (Number(r.unidades) > 0) historica.add(r.sku);
+    if (Number(r.unidades_prev) > 0) previa.add(r.sku);
+  }
+  return { historica, previa, error: null };
+}
+
 /** Pares disponibles en cajas de bodega, por SKU (para "faltanteBodega"). */
 function paresEnBodega(cajas: CajaConstruida[]): { sku: string; unidades: number }[] {
   const porSku = new Map<string, number>();
@@ -210,12 +240,18 @@ export async function generarPlanCompleto(
   });
   const desde = sumarDias(hoy, -(paramsPrevios.diasHistoria + 5));
 
-  const insumos = await cargarInsumos(db, accountId, desde);
+  const [insumos, historia] = await Promise.all([
+    cargarInsumos(db, accountId, desde),
+    ventasHistoricas(db, accountId, desde, hoy),
+  ]);
   const p = normalizarParametros({
     ...insumos.parametros,
     ...parametrosPedidos,
     // Las cajas no se abren: nunca se mandan pares sueltos.
     permiteUnidadesSueltas: false,
+    // Sin la historia completa de ventas no se puede afirmar que un
+    // producto NUNCA vendió: la regla de estreno se apaga en esta corrida.
+    ...(historia.error ? { cajasMinimasSinEstreno: 0 } : {}),
   });
 
   // Envíos ya dados de alta en MELI que siguen en camino: sus pares cuentan
@@ -307,6 +343,8 @@ export async function generarPlanCompleto(
     overrides: insumos.overrides,
     parametros: p,
     hoy,
+    skusConVentaPrevia: historia.previa,
+    skusConVentaHistorica: historia.historica,
   });
 
   // La misma caja disponible en dos bodegas debe salir de la preferida:
@@ -353,6 +391,11 @@ export async function generarPlanCompleto(
 
   const avisos = catalogo.avisos.map((a) => a.mensaje);
   if (avisoEnCamino) avisos.push(avisoEnCamino);
+  if (historia.error) {
+    avisos.push(
+      `No se pudo leer la historia de ventas (${historia.error.slice(0, 120)}): en este plan no se estrenan productos (mínimo de cajas sin estreno apagado).`,
+    );
+  }
   if (!insumos.skus.length) {
     avisos.push(
       "Todavía no hay catálogo de Mercado Libre sincronizado, así que los SKUs de las cajas no están verificados contra MELI.",

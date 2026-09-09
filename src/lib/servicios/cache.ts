@@ -46,6 +46,10 @@ export interface LineaGuardada {
   enviado: number;
   confianza: string;
   explicacion: string;
+  /** producto lanzado hace poco: cualquier faltante fuerza su caja */
+  productoNuevo?: boolean;
+  /** producto que nunca tuvo stock ni venta y viaja para estrenarse */
+  sinEstreno?: boolean;
 }
 
 export interface CajaGuardada {
@@ -73,7 +77,7 @@ export interface CajaGuardada {
  * se marca no vigente y el latido lo recalcula solo. Sin esto, un deploy
  * que corrige el motor seguía sirviendo números del motor anterior.
  */
-export const VERSION_MOTOR = "2026-09-07.1";
+export const VERSION_MOTOR = "2026-09-09.1";
 
 export interface PlanGuardado {
   versionMotor?: string;
@@ -137,6 +141,8 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
         enviado: plan.cajas.enviadoPorSku.get(l.sku) ?? 0,
         confianza: l.demanda.confianza,
         explicacion: l.explicacion,
+        ...(l.productoNuevo ? { productoNuevo: true } : {}),
+        ...(l.sinEstreno ? { sinEstreno: true } : {}),
       };
     }),
     cajas: cajasPlaneadas.map((c) => ({
