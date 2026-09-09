@@ -36,16 +36,21 @@ export async function latido(
   // que decide la cadencia. A 60 s el latido corría 620 veces al día (6
   // horas de función diarias, medidas en sync_log); a 120 s cuesta la mitad
   // y las ventas siguen entrando con 2 minutos de retraso como mucho.
-  const { data: vivo } = await admin
+  //
+  // Si la lectura del candado FALLA (Supabase caído: el 9-sep-2026 contestó
+  // 520/521 un minuto y tres latidos arrancaron a la vez, cada uno releyendo
+  // los mismos pagos de Mercado Pago), no se puede saber si hay otro vivo:
+  // el que llega se retira. Un `data` nulo por error NO es "no hay nadie".
+  const vivo = await admin
     .from("sync_log")
     .select("id, estado")
     .eq("account_id", accountId)
     .eq("tarea", "en_vivo")
     .gte("inicio", new Date(Date.now() - 120_000).toISOString())
     .limit(1);
-  if (vivo?.length) return { corrio: false, procesados: 0, msPlan: null };
+  if (vivo.error || vivo.data?.length) return { corrio: false, procesados: 0, msPlan: null };
 
-  const { data: corriendo } = await admin
+  const corriendo = await admin
     .from("sync_log")
     .select("id")
     .eq("account_id", accountId)
@@ -53,7 +58,7 @@ export async function latido(
     .eq("estado", "corriendo")
     .gte("inicio", new Date(Date.now() - 4 * 60_000).toISOString())
     .limit(1);
-  if (corriendo?.length) return { corrio: false, procesados: 0, msPlan: null };
+  if (corriendo.error || corriendo.data?.length) return { corrio: false, procesados: 0, msPlan: null };
 
   const logId = await registrarSync(admin, accountId, "en_vivo");
 
