@@ -221,11 +221,21 @@ export function modeloHablado(modelo: string): string {
 }
 
 /**
- * La frase que se lee en voz alta al identificar el paquete: cuántos pares
- * y de qué. Corta, porque el que empaca ya tiene la caja en la mano.
+ * El pedido en voz alta: sus ÚLTIMOS CUATRO dígitos, uno por uno. Leer los
+ * 18 completos no lo escucha nadie; con cuatro se coteja contra la guía.
+ */
+export function pedidoHablado(orderId: string): string {
+  const digitos = String(orderId ?? "").replace(/\D/g, "").slice(-4);
+  return digitos ? `Pedido ${digitos.split("").join(", ")}` : `Pedido ${orderId}`;
+}
+
+/**
+ * La frase que se lee en voz alta al identificar el paquete: PRIMERO el
+ * pedido (últimos cuatro dígitos) y luego cuántos pares y de qué. Corta,
+ * porque el que empaca ya tiene la caja en la mano.
  */
 export function fraseParaVoz(p: PaqueteNumerado): string {
-  return p.pares
+  const contenido = p.pares
     .map((x) => {
       const { modelo, color, talla } = partirSku(x.sku);
       const n = x.pares;
@@ -235,4 +245,10 @@ export function fraseParaVoz(p: PaqueteNumerado): string {
       return pedazos.join(", ");
     })
     .join(". ");
+  return `${pedidoHablado(p.orderId)}. ${contenido}`;
+}
+
+/** Al cuadrar el último escaneo: "Pedido 1, 4, 3, 3, completado". */
+export function fraseDeCompletado(p: PaqueteNumerado): string {
+  return `${pedidoHablado(p.orderId)}, completado`;
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
-import { avanzar, darPorBueno, estadoInicial, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
 import { hablar, pitar } from "./sonido-tiktok";
 
 /**
@@ -79,8 +79,8 @@ export function PrepararTikTok({
       (estado.paso !== "producto" || estado.paquete?.numero !== siguiente.paquete.numero);
     if (voz && recienIdentificado && siguiente.paquete) {
       window.setTimeout(() => hablar(fraseParaVoz(siguiente.paquete as NonNullable<typeof siguiente.paquete>)), siguiente.pitidos * 160);
-    } else if (voz && siguiente.paso === "listo") {
-      hablar("Listo");
+    } else if (voz && siguiente.paso === "listo" && siguiente.paquete) {
+      hablar(fraseDeCompletado(siguiente.paquete));
     }
 
     if (siguiente.paso === "listo" && siguiente.paquete) {
