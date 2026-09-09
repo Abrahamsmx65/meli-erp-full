@@ -141,7 +141,7 @@ export async function revisarOrdenesYz(
     const comisionOrden = Array.isArray(f.renglones)
       ? f.renglones.reduce((a: number, x: any) => a + (Number(x.comision) || 0), 0)
       : 0;
-    const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
+    const netoControl = f.neto_en != null ? Number(f.neto_pago ?? f.neto) : undefined;
     const contexto = orden ? contextoDeOrden(orden, Date.now()) : contextoGuardado(f, Date.now());
     if (orden && f.envio_vendedor != null) contexto.envioVendedor = Number(f.envio_vendedor);
     const resumenPago = await resumirOrdenConMeli(cliente, {
@@ -173,9 +173,10 @@ export async function revisarOrdenesYz(
       revisado_en: new Date().toISOString(),
       revisiones,
     };
-    // Si la orden aún no tenía neto, esta lectura ya lo trae: se aprovecha.
-    if (resumenPago.neto != null && f.neto_en == null) {
-      cambios.neto = resumenPago.neto;
+    // Si la orden aún no tenía neto (o lo tenía crudo, de antes del ajuste
+    // de envío), esta lectura ya lo trae: se aprovecha.
+    if (resumenPago.netoBase != null && (f.neto_en == null || f.neto_pago == null)) {
+      cambios.neto = resumenPago.netoBase;
     }
     const { error } = await admin.from("yz_ordenes_neto").update(cambios).eq("account_id", accountId).eq("order_id", orderId);
     if (error) {

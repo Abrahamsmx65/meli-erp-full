@@ -75,6 +75,8 @@ export interface ContextoOrden {
   envioComprador?: number;
   /** senders[].cost de /shipments/{id}/costs; null = no se pudo leer */
   envioVendedor?: number | null;
+  /** true cuando /shipments/{id}/costs ya se intentó en esta lectura (aunque no contestara) */
+  envioLeido?: boolean;
   /** order.paid_amount */
   pagado?: number;
   packId?: number | null;

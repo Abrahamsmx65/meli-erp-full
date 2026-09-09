@@ -220,9 +220,10 @@ export async function completarNetosPendientes(
   // (cargos_fuente en null: nunca se leyó el pago real). Las nuevas primero.
   const { data, count } = await admin
     .from("yz_ordenes_neto")
-    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor", { count: "exact" })
+    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_pago, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor", { count: "exact" })
     .eq("account_id", accountId)
-    .or("neto_en.is.null,cargos_leidos_en.is.null,cargos_fuente.is.null")
+    // …o con el envío sin leer de /costs (filas de antes del ajuste de envío).
+    .or("neto_en.is.null,cargos_leidos_en.is.null,cargos_fuente.is.null,envio_leido_en.is.null")
     .gt("total", 0)
     .order("fecha", { ascending: false })
     .limit(tope);
@@ -259,7 +260,7 @@ export async function completarNetosPendientes(
       const comision = Array.isArray(o.renglones)
         ? o.renglones.reduce((a: number, r: any) => a + (Number(r.comision) || 0), 0)
         : 0;
-      const netoControl = o.neto_en != null ? Number(o.neto) : undefined;
+      const netoControl = o.neto_en != null ? Number(o.neto_pago ?? o.neto) : undefined;
       const resumen = await leerResumenDeOrden(cliente, {
         pagos,
         total,
@@ -288,11 +289,12 @@ export async function completarNetosPendientes(
         actualizado_en: new Date().toISOString(),
       };
       if (netoControl == null) {
-        nuevasConNeto.push({ ...fila, neto: resumen.neto, neto_en: new Date().toISOString() });
+        nuevasConNeto.push({ ...fila, neto: resumen.netoBase ?? resumen.neto, neto_en: new Date().toISOString() });
       } else {
         nuevasSoloCargos.push({
           ...fila,
-          neto: o.neto,
+          // La primera liquidación con su ajuste de envío (antes se guardaba cruda).
+          neto: resumen.netoBase ?? o.neto,
           neto_actual: resumen.neto,
         });
       }

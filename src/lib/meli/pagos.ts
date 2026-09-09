@@ -88,6 +88,24 @@ export interface ResumenPagosMeli extends CargosPagoMeli {
   envioComprador: number;
   /** lo que el vendedor paga de envío según /shipments/{id}/costs; null = no se leyó */
   envioVendedor: number | null;
+  /** true cuando /shipments/{id}/costs ya se consultó (aunque haya fallado): no se reintenta sin fin */
+  envioLeido: boolean;
+  /** el cargo de envío tal como viene en el pago (costo de lista, antes de la bonificación) */
+  envioCargos: number;
+  /**
+   * cargo de envío del pago − costo real del envío (/costs). Positivo = la
+   * bonificación de envío gratis de Full que MELI acredita aparte del pago;
+   * negativo = envío que MELI cobra y aún no adjunta al pago. Cero cuando
+   * no se leyó /costs.
+   */
+  ajusteEnvio: number;
+  /** lo que Mercado Pago depositó por los pagos, crudo (sin el ajuste de envío) */
+  netoPago: number | null;
+  /**
+   * el neto de la PRIMERA liquidación con el ajuste de envío: lo que va en
+   * `neto` (netoControl crudo + ajuste, o el de hoy si no había control)
+   */
+  netoBase: number | null;
   /** base facturada: lo que pagó el comprador por los productos (sin su envío) */
   facturado: number | null;
   /** base − cargos, calculado desde el desglose (el "Recibirás" de MELI) */
@@ -122,6 +140,9 @@ export function camposLiquidacionMeli(resumen: ResumenPagosMeli): Record<string,
     libera_en: resumen.liberaEn,
     envio_comprador: resumen.envioComprador,
     envio_vendedor: resumen.envioVendedor,
+    ...(resumen.envioLeido ? { envio_leido_en: new Date().toISOString() } : {}),
+    ajuste_envio: resumen.ajusteEnvio,
+    neto_pago: resumen.netoPago == null ? null : resumen.netoBase == null ? resumen.netoPago : redondea(resumen.netoBase - resumen.ajusteEnvio),
     facturado: resumen.facturado,
     neto_calculado: resumen.netoCalculado,
     total_comprador: resumen.totalComprador,
@@ -497,15 +518,20 @@ export function resumirPagosMeli(
   contexto?: ContextoOrden,
 ): ResumenPagosMeli {
   const cobrados = pagos.filter((p) => p.estado !== "rejected" && p.estado !== "cancelled");
-  const neto =
+  // Lo depositado crudo por Mercado Pago. `netoControl` es el crudo de la
+  // PRIMERA liquidación (neto_pago guardado): sobre él se juzgan los
+  // reembolsos; el ajuste de envío se le suma a los dos.
+  const netoPago =
     cobrados.length > 0 && pagosCobrablesCompletos(pagos)
       ? redondea(cobrados.reduce((a, p) => a + (p.neto ?? 0), 0))
       : null;
-  const netoParaCargos = netoControl != null ? redondea(netoControl) : neto;
+  // Para juzgar la forma del depósito (reventa sin orden) basta el crudo.
+  const netoCrudoControl = netoControl != null ? redondea(netoControl) : netoPago;
   const suma = (clase: keyof CargosPagoMeli) => redondea(cobrados.reduce((a, p) => a + p.cargos[clase], 0));
   const comisionCargos = suma("comision");
   let comision = comisionCargos;
-  let envio = suma("envio");
+  const envioCargos = suma("envio");
+  let envio = envioCargos;
   const isr = suma("isr");
   const iva = suma("iva");
   const otros = suma("otros");
@@ -527,8 +553,8 @@ export function resumirPagosMeli(
   } else {
     tipoVenta =
       totalOrden > 0 &&
-      netoParaCargos != null &&
-      netoParaCargos >= totalOrden * 0.99 &&
+      netoCrudoControl != null &&
+      netoCrudoControl >= totalOrden * 0.99 &&
       cargosReales < 0.01
         ? "reventa"
         : "directa";
@@ -545,9 +571,14 @@ export function resumirPagosMeli(
       comision = redondea(comisionOrden);
       if (edadHoras < HORAS_ASENTAMIENTO) cargosCompletos = false;
     }
-    // El cargo de envío del pago mezcla la parte del vendedor con la del
-    // comprador (que MELI compensa aparte): manda /shipments/{id}/costs.
-    if (envioVendedor != null) envio = redondea(envioVendedor);
+    // El envío del vendedor es lo que dice /shipments/{id}/costs: el cargo
+    // del pago trae el costo de LISTA (95, 145) y MELI acredita aparte la
+    // bonificación de envío gratis de Full; el reporte de Ventas de MELI
+    // (Costos de envío −38) lo confirma orden por orden. En un paquete el
+    // cargo viaja en UNA de las órdenes: la hermana sin cargo no paga
+    // envío (si no, el envío del paquete se contaría dos veces). Sin
+    // /costs, se resta lo que pagó el comprador (que MELI compensa aparte).
+    if (envioVendedor != null) envio = envioCargos > 0 ? redondea(envioVendedor) : 0;
     else if (envioComprador > 0) envio = redondea(Math.max(0, envio - envioComprador));
   } else {
     // Reventa: el pago viene sin cargos. Comisión y envío se CONTEMPLAN
@@ -566,6 +597,14 @@ export function resumirPagosMeli(
       envio = 0;
     }
   }
+
+  // Bonificación (o cargo pendiente) de envío: solo cuando /costs se leyó
+  // y la venta es directa. Se le suma al depósito crudo para llegar a lo
+  // que MELI dice que te deja.
+  const ajusteEnvio = tipoVenta === "directa" && envioVendedor != null ? redondea(envioCargos - envio) : 0;
+  const neto = netoPago == null ? null : redondea(netoPago + ajusteEnvio);
+  const netoBase = netoControl != null ? redondea(netoControl + ajusteEnvio) : neto;
+  const netoParaCargos = netoBase;
 
   const reembolsado = redondea(cobrados.reduce((a, p) => a + p.reembolsado, 0));
   const conocidos = redondea(comision + envio + isr + iva + otros + retencionSinSeparar);
@@ -635,6 +674,11 @@ export function resumirPagosMeli(
     fuente,
     envioComprador,
     envioVendedor,
+    envioLeido: envioVendedor != null || Boolean(contexto?.envioLeido),
+    envioCargos,
+    ajusteEnvio,
+    netoPago,
+    netoBase,
     facturado,
     netoCalculado,
     totalComprador,

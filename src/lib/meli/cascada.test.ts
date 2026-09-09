@@ -260,3 +260,75 @@ describe("la orden recortada", () => {
     expect((cruda.order_items as unknown[]).length).toBe(1);
   });
 });
+
+describe("bonificación de envío de Full (hallazgo de agosto: venta 2000018009489512)", () => {
+  // El pago trae shp_fulfillment 95 (costo de lista) y deposita 0.68;
+  // /shipments/{id}/costs dice 38 y el reporte de Ventas de MELI: Costos de
+  // envío −38, Total 57.68.
+  const pagoFull = leerPagoMercadoPago(
+    {
+      id: 173618624927,
+      status: "approved",
+      transaction_amount: 125.99,
+      transaction_details: { net_received_amount: 0.68 },
+      charges_details: [
+        cargo("tax_withholding-isr", "tax", 2.72),
+        cargo("tax_withholding-iva", "tax", 8.69),
+        cargo("meli_fee", "fee", 18.9),
+        cargo("shp_fulfillment", "shipping", 95),
+      ],
+    },
+    "v1/payments",
+  );
+  const ordenFull: OrdenMeliCruda = {
+    ...ORDEN_CONTROL,
+    id: 2000018009489512,
+    total_amount: 125.99,
+    paid_amount: 125.99,
+    pack_id: 2000014603146561,
+    shipping: { id: 47804778972 },
+    payments: [{ id: 173618624927, status: "approved", transaction_amount: 125.99, shipping_cost: 0 }],
+    order_items: [{ quantity: 1, unit_price: 125.99, sale_fee: 18.9, listing_type_id: "gold_special", item: { id: "MLM2", category_id: "MLM192717", seller_sku: "MY2307-BLK-24-MX" } }],
+  };
+  const contexto = contextoDeOrden(ordenFull, Date.parse("2026-09-09T00:00:00Z"));
+
+  it("sin /costs el neto es el depósito crudo y el envío el cargo de lista", () => {
+    const r = resumirPagosMeli([pagoFull], 125.99, 18.9, undefined, undefined, undefined, contexto);
+    expect(r.envio).toBe(95);
+    expect(r.neto).toBe(0.68);
+    expect(r.netoPago).toBe(0.68);
+    expect(r.ajusteEnvio).toBe(0);
+    expect(r.envioLeido).toBe(false);
+  });
+
+  it("con /costs = 38 el envío es 38, la bonificación 57 y el neto 57.68 (lo que MELI dice que te deja), sin nada sin desglosar", () => {
+    const r = resumirPagosMeli([pagoFull], 125.99, 18.9, undefined, undefined, undefined, { ...contexto, envioVendedor: 38 });
+    expect(r.envio).toBe(38);
+    expect(r.envioCargos).toBe(95);
+    expect(r.ajusteEnvio).toBe(57);
+    expect(r.netoPago).toBe(0.68);
+    expect(r.neto).toBe(57.68);
+    expect(r.netoBase).toBe(57.68);
+    expect(r.netoCalculado).toBe(57.68);
+    expect(r.cargosSinDesglosar).toBe(0);
+    expect(r.envioLeido).toBe(true);
+  });
+
+  it("con un control crudo guardado (0.68 de la primera liquidación) el neto base también lleva el ajuste", () => {
+    const r = resumirPagosMeli([pagoFull], 125.99, 18.9, 0.68, undefined, undefined, { ...contexto, envioVendedor: 38 });
+    expect(r.netoBase).toBe(57.68);
+    expect(r.cargosSinDesglosar).toBe(0);
+  });
+
+  it("la hermana de un paquete cuyo pago no trae el cargo de envío no paga envío aunque /costs diga 76", () => {
+    const pagoHermana = leerPagoMercadoPago(
+      { id: 9, status: "approved", transaction_amount: 119.69, transaction_details: { net_received_amount: 90.91 }, charges_details: [cargo("meli_fee", "fee", 17.95), cargo("tax_withholding-isr", "tax", 2.58), cargo("tax_withholding-iva", "tax", 8.25)] },
+      "v1/payments",
+    );
+    const r = resumirPagosMeli([pagoHermana], 119.69, 17.95, undefined, undefined, undefined, { ...contexto, envioVendedor: 76 });
+    expect(r.envio).toBe(0);
+    expect(r.ajusteEnvio).toBe(0);
+    expect(r.neto).toBe(90.91);
+    expect(r.cargosSinDesglosar).toBe(0);
+  });
+});

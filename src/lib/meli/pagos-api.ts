@@ -71,6 +71,18 @@ export interface Tarifa {
  */
 export class CacheTarifas {
   private readonly cache = new Map<string, Promise<Tarifa | null>>();
+  private readonly envios = new Map<string, Promise<number | null>>();
+
+  /** /shipments/{id}/costs, una vez por envío por corrida (las órdenes de un paquete comparten envío). */
+  costoEnvio(shippingId: number | string): Promise<number | null> {
+    const clave = String(shippingId);
+    let pendiente = this.envios.get(clave);
+    if (!pendiente) {
+      pendiente = costoEnvioVendedor(this.cliente, shippingId);
+      this.envios.set(clave, pendiente);
+    }
+    return pendiente;
+  }
 
   constructor(
     private readonly cliente: MeliClient,
@@ -162,9 +174,11 @@ export interface EntradaResumenOrden {
 }
 
 /**
- * La cascada de UNA orden, preguntándole a MELI solo lo que haga falta:
- * el envío del vendedor cuando hay mezcla con el del comprador o cuando
- * es reventa (para reconstruirla), y las tarifas solo en reventa.
+ * La cascada de UNA orden, preguntándole a MELI lo que haga falta: el
+ * envío del vendedor (`/shipments/{id}/costs`) SIEMPRE que el pago traiga
+ * un cargo de envío o la venta sea reventa —el cargo del pago es el costo
+ * de lista y la bonificación de Full viene aparte—, y las tarifas solo en
+ * reventa. Una vez leído, `envio_leido_en` evita reintentarlo sin fin.
  */
 export async function resumirOrdenConMeli(cliente: MeliClient, e: EntradaResumenOrden): Promise<ResumenPagosMeli> {
   const ctx: ContextoOrden = { ...e.contexto, renglones: e.renglones };
@@ -173,10 +187,10 @@ export async function resumirOrdenConMeli(cliente: MeliClient, e: EntradaResumen
   let r = resumir();
 
   const hayCargoEnvio = e.pagos.some((p) => p.cargos.envio > 0);
-  const mezclaConComprador = (ctx.envioComprador ?? 0) > 0 && hayCargoEnvio;
-  const necesitaCostos = ctx.envioVendedor == null && ctx.shippingId != null && (r.tipoVenta === "reventa" || mezclaConComprador);
+  const necesitaCostos = ctx.envioVendedor == null && ctx.shippingId != null && (r.tipoVenta === "reventa" || hayCargoEnvio);
   if (necesitaCostos) {
-    ctx.envioVendedor = await costoEnvioVendedor(cliente, ctx.shippingId!);
+    ctx.envioVendedor = await e.tarifas.costoEnvio(ctx.shippingId!);
+    ctx.envioLeido = true;
     r = resumir();
   }
   if (r.tipoVenta === "reventa" && ctx.envioVendedor != null && e.renglones.length) {

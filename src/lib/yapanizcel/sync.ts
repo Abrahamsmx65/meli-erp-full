@@ -351,11 +351,13 @@ export async function completarNetos(
     reembolsoBase: number | null;
     reembolsoBaseConfiable: boolean | null;
     envioVendedor: number | null;
+    netoPago: number | null;
+    envioLeido: boolean;
   }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await admin
       .from("yz_ordenes_neto")
-      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, envio_vendedor, reembolso_incluido_neto_base, reembolso_base_confiable")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, envio_vendedor, reembolso_incluido_neto_base, reembolso_base_confiable, neto_pago, envio_leido_en")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     for (const f of data ?? []) {
@@ -369,6 +371,8 @@ export async function completarNetos(
         reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
         reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
         envioVendedor: f.envio_vendedor == null ? null : Number(f.envio_vendedor),
+        netoPago: f.neto_pago == null ? null : Number(f.neto_pago),
+        envioLeido: f.envio_leido_en != null,
       });
     }
   }
@@ -384,7 +388,7 @@ export async function completarNetos(
     if (!o.pagos.length) continue;
     const c = cache.get(o.id);
     if (!c) porPedir.push(o);
-    else if (!c.cargosLeidos || !c.conPagoReal) porPedir.push(o);
+    else if (!c.cargosLeidos || !c.conPagoReal || !c.envioLeido) porPedir.push(o);
     else if (o.fecha >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(o);
     else if (!c.netoLeido && o.total > 0) porPedir.push(o);
   }
@@ -395,7 +399,7 @@ export async function completarNetos(
     try {
       const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
       const previo = cache.get(o.id);
-      const netoControl = previo?.netoLeido ? previo.neto : undefined;
+      const netoControl = previo?.netoLeido ? (previo.netoPago ?? previo.neto) : undefined;
       const contexto = o.orden ? contextoDeOrden(o.orden, Date.now()) : {};
       if (previo?.envioVendedor != null) contexto.envioVendedor = previo.envioVendedor;
       const resumen = await leerResumenDeOrden(cliente, {
@@ -410,7 +414,7 @@ export async function completarNetos(
         tarifas,
       });
       if (resumen.neto == null) continue;
-      const neto = netoControl ?? resumen.neto;
+      const neto = resumen.netoBase ?? resumen.neto;
       cache.set(o.id, {
         neto,
         netoActual: resumen.neto,
@@ -421,6 +425,8 @@ export async function completarNetos(
         reembolsoBase: resumen.reembolsoIncluidoNetoBase,
         reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
         envioVendedor: resumen.envioVendedor,
+        netoPago: netoControl ?? resumen.netoPago,
+        envioLeido: resumen.envioLeido,
       });
       nuevas.push({
         account_id: accountId,

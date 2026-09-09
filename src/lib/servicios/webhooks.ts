@@ -600,11 +600,14 @@ async function netosDelDia(
     netoLeido: boolean;
     reembolsoBase: number | null;
     reembolsoBaseConfiable: boolean | null;
+    /** el depósito crudo de la primera liquidación (sin ajuste de envío); null en filas viejas */
+    netoPago: number | null;
+    envioLeido: boolean;
   }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data, error } = await db
       .from("ordenes_neto")
-      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, reembolso_incluido_neto_base, reembolso_base_confiable")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, reembolso_incluido_neto_base, reembolso_base_confiable, neto_pago, envio_leido_en")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     if (error) return vacio;
@@ -618,6 +621,8 @@ async function netosDelDia(
         netoLeido: f.neto_en != null,
         reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
         reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+        netoPago: f.neto_pago == null ? null : Number(f.neto_pago),
+        envioLeido: f.envio_leido_en != null,
       });
     }
   }
@@ -632,7 +637,7 @@ async function netosDelDia(
     if (!o.paymentIds.length) continue;
     const c = cache.get(id);
     if (!c) porPedir.push(id);
-    else if (!c.cargosLeidos || !c.conPagoReal) porPedir.push(id);
+    else if (!c.cargosLeidos || !c.conPagoReal || !c.envioLeido) porPedir.push(id);
     else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
     // Un neto cacheado en 0 con la orden cobrada es basura del error viejo
     // de multipagos (se guardaba solo el primer pago, aunque estuviera
@@ -654,7 +659,9 @@ async function netosDelDia(
       for (const paymentId of o.paymentIds) pagos.push(await leerPagoReal(cliente, paymentId));
       const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
       const previo = cache.get(id);
-      const netoControl = previo?.netoLeido ? previo.neto : undefined;
+      // El control es el depósito CRUDO de la primera liquidación; las
+      // filas de antes del ajuste de envío guardaban ese crudo en `neto`.
+      const netoControl = previo?.netoLeido ? (previo.netoPago ?? previo.neto) : undefined;
       const contexto = contextoDeOrden(o.orden, ahora);
       const resumen = await resumirOrdenConMeli(cliente, {
         pagos,
@@ -668,10 +675,11 @@ async function netosDelDia(
         tarifas,
       });
       if (resumen.neto == null) continue;
-      // `neto` es la cifra original de control. Una relectura posterior se
-      // guarda en `neto_actual`: alimenta ventas diarias sin pisar el original
-      // que el corte necesita para conciliar devoluciones y ajustes.
-      const neto = netoControl ?? resumen.neto;
+      // `neto` es la cifra original de control (con el ajuste de envío). Una
+      // relectura posterior se guarda en `neto_actual`: alimenta ventas
+      // diarias sin pisar el original que el corte necesita para conciliar
+      // devoluciones y ajustes.
+      const neto = resumen.netoBase ?? resumen.neto;
       cache.set(id, {
         neto,
         netoActual: resumen.neto,
@@ -683,6 +691,8 @@ async function netosDelDia(
         netoLeido: true,
         reembolsoBase: resumen.reembolsoIncluidoNetoBase,
         reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+        netoPago: netoControl ?? resumen.netoPago,
+        envioLeido: resumen.envioLeido,
       });
       nuevas.push({
         account_id: accountId,

@@ -348,7 +348,9 @@ export async function revisarOrdenes(
       if (leidos.length) renglonesGuardados = leidos;
     }
     const comisionOrden = (renglonesGuardados ?? []).reduce((a, x) => a + (Number(x.comision) || 0), 0);
-    const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
+    // Control = depósito crudo de la primera liquidación (neto_pago; en
+    // filas de antes del ajuste de envío, el propio neto).
+    const netoControl = f.neto_en != null ? Number(f.neto_pago ?? f.neto) : undefined;
     const contexto = orden ? contextoDeOrden(orden, Date.now()) : contextoGuardado(f, Date.now());
     if (orden && f.envio_vendedor != null) contexto.envioVendedor = Number(f.envio_vendedor);
     const resumenPago = await resumirOrdenConMeli(cliente, {
@@ -368,6 +370,9 @@ export async function revisarOrdenes(
     const cambios: Record<string, unknown> = {
       estado,
       ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
+      // La primera liquidación con su ajuste de envío: se fija cuando la
+      // fila aún no tenía neto o lo tenía crudo (de antes del ajuste).
+      ...(resumenPago.netoBase != null && (f.neto_en == null || f.neto_pago == null) ? { neto: resumenPago.netoBase } : {}),
       ...camposLiquidacionMeli(resumenPago),
       ...(orden ? columnasDeOrden(orden) : {}),
       cargos_leidos_en: new Date().toISOString(),
@@ -443,30 +448,44 @@ export async function recargarCargosHistoricos(
   const periodos = new Set<string>();
   let cursor: { fecha: string; orderId: number } | null = null;
 
-  while (Date.now() < finMs - 30_000) {
+  // Dos frentes que se alternan por lote: (1) órdenes sin pago real;
+  // (2) órdenes ya leídas pero sin el envío de /costs (de antes del
+  // ajuste de envío: su neto trae el costo de lista, no el real).
+  let cursorEnvio: { fecha: string; orderId: number } | null = null;
+  let frente: "cargos" | "envio" = "cargos";
+  let agotado = { cargos: false, envio: false };
+  while (Date.now() < finMs - 30_000 && !(agotado.cargos && agotado.envio)) {
+    if (agotado[frente]) frente = frente === "cargos" ? "envio" : "cargos";
+    const esEnvio = frente === "envio";
     let q = admin
       .from("ordenes_neto")
       .select("order_id, fecha")
       .eq("account_id", accountId)
-      .is("cargos_fuente", null)
       .gte("fecha", FONDO_RECARGA_CARGOS)
       .gt("total", 0)
       .or("estado.is.null,estado.neq.cancelled")
       .order("fecha", { ascending: false })
       .order("order_id", { ascending: false })
       .limit(100);
+    q = esEnvio ? q.not("cargos_fuente", "is", null).is("envio_leido_en", null) : q.is("cargos_fuente", null);
     // Cursor estable: lo que no se pudo leer en este lote no vuelve a salir
     // en esta corrida (si no, un pago que MP no contesta bloquearía el lote).
-    if (cursor) q = q.or(`fecha.lt.${cursor.fecha},and(fecha.eq.${cursor.fecha},order_id.lt.${cursor.orderId})`);
+    const c = esEnvio ? cursorEnvio : cursor;
+    if (c) q = q.or(`fecha.lt.${c.fecha},and(fecha.eq.${c.fecha},order_id.lt.${c.orderId})`);
     const { data, error } = await q;
     if (error) {
       errores.push(error.message.slice(0, 200));
       break;
     }
     const lote = (data ?? []) as { order_id: number; fecha: string }[];
-    if (!lote.length) break;
+    if (!lote.length) {
+      agotado = { ...agotado, [frente]: true };
+      continue;
+    }
     const ultimo = lote[lote.length - 1]!;
-    cursor = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
+    if (esEnvio) cursorEnvio = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
+    else cursor = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
+    frente = esEnvio ? "cargos" : "envio";
 
     const r = await revisarOrdenes(admin, accountId, cliente, {
       desde: FONDO_RECARGA_CARGOS,
