@@ -78,6 +78,7 @@ const GRUPOS: Grupo[] = [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/ventas/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
       { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },

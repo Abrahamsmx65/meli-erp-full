@@ -4,6 +4,11 @@
  * "Id. de liquidación", "tipo", "Id. del pedido", …, "total") contra los
  * eventos de la Finances API guardados en `amazon_finanzas_eventos`.
  *
+ * Este módulo es PURO (sin base ni servidor): el navegador lee el CSV con
+ * él y manda solo los renglones compactos, porque el archivo del mes pesa
+ * más de lo que Vercel deja subir a una función (4.5 MB). El cruce con la
+ * base vive en `conciliar-db.ts`.
+ *
  * Es la prueba del dueño: mismo rango de fechas de asiento, orden por
  * orden, y los renglones sin pedido (publicidad, tarifas de FBA, ajustes)
  * por tipo contra lista. Lo que no cuadra se enseña con su monto; nada se
@@ -14,7 +19,6 @@
  * el total del grupo de liquidación de Amazon no las incluye todavía.
  * "Trasferir" es el depósito del grupo anterior, no un movimiento del mes.
  */
-import { traerRpcTodo, type DB } from "../datos/repos";
 import { leerCsv } from "../servicios/pedidos-sheet";
 
 export interface RenglonReporte {
@@ -296,27 +300,4 @@ export function conciliar(reporte: RenglonReporte[], ordenesErp: OrdenErp[], sue
     liquidaciones,
     avisos,
   };
-}
-
-/** Lee el lado del ERP para el rango del reporte y cruza. */
-export async function conciliarReporte(db: DB, amazonAccountId: string, texto: string): Promise<InformeConciliacion> {
-  const reporte = leerReporteTransacciones(texto);
-  if (!reporte.length) throw new Error("El reporte no trae renglones.");
-  const fechas = reporte.map((r) => r.fechaIso).filter((f): f is string => Boolean(f)).sort();
-  if (!fechas.length) throw new Error("No pude leer las fechas del reporte (columna fecha/hora).");
-  const desde = fechas[0];
-  const hasta = fechas[fechas.length - 1];
-  const params = { p_account: amazonAccountId, p_desde: desde, p_hasta: hasta };
-  const [ordenes, sueltos, grupos] = await Promise.all([
-    traerRpcTodo<OrdenErp>(db, "amazon_finanzas_por_orden", params),
-    traerRpcTodo<SueltoErp>(db, "amazon_finanzas_sueltos", params),
-    traerRpcTodo<GrupoErp>(db, "amazon_finanzas_cobertura", { p_account: amazonAccountId, p_desde: desde.slice(0, 10), p_hasta: hasta.slice(0, 10) }),
-  ]);
-  for (const r of [ordenes, sueltos, grupos]) if (r.error) throw new Error(r.error);
-  return conciliar(
-    reporte,
-    ordenes.filas.map((o) => ({ ...o, eventos: Number(o.eventos), monto: Number(o.monto) })),
-    sueltos.filas.map((s) => ({ ...s, monto: s.monto == null ? null : Number(s.monto) })),
-    grupos.filas.map((g) => ({ ...g, total_original: g.total_original == null ? null : Number(g.total_original), suma_eventos: g.suma_eventos == null ? null : Number(g.suma_eventos) })),
-  );
 }

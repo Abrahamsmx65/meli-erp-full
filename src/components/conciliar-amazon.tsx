@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { InformeConciliacion } from "@/lib/amazon/conciliar";
+import { leerReporteTransacciones, type InformeConciliacion } from "@/lib/amazon/conciliar";
+import { enviarJsonGzip } from "@/lib/cliente/comprimir";
 
 const pesos = (x: number | null | undefined) => (x == null ? "—" : x.toLocaleString("es-MX", { style: "currency", currency: "MXN" }));
 const n = (x: number) => x.toLocaleString("es-MX");
@@ -23,12 +24,12 @@ export function ConciliarAmazon() {
     setError(null);
     setInforme(null);
     try {
-      const form = new FormData();
-      form.append("archivo", archivo);
-      const r = await fetch("/api/amazon/conciliar", { method: "POST", body: form });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "No se pudo conciliar.");
-      setInforme(j as InformeConciliacion);
+      // El CSV del mes pesa más de lo que una función de Vercel acepta:
+      // se lee aquí y se manda solo lo compacto, comprimido.
+      const renglones = leerReporteTransacciones(await archivo.text());
+      if (!renglones.length) throw new Error("El archivo no trae renglones del reporte de transacciones.");
+      const j = await enviarJsonGzip<InformeConciliacion>("/api/amazon/conciliar", { renglones });
+      setInforme(j);
     } catch (e) {
       setError((e as Error).message);
     } finally {
