@@ -15,11 +15,17 @@ describe("reclamos y devoluciones de MELI", () => {
     expect(cols).toMatchObject({ reclamo_id: 5566891373, devolucion_destino: "sin_revision", devolucion_renglones: [{ sku: "GT114-BLK-29-MX", unidades: 1 }] });
   });
 
-  it("el destino sale de la revisión del almacén; un retorno cancelado es no devuelto", () => {
-    expect(destinoDeRevision({ status: "sellable" }, RETORNO)).toBe("a_la_venta");
-    expect(destinoDeRevision({ status: "discarded" }, RETORNO)).toBe("descartado");
+  // Sonda real: GET /post-purchase/v1/returns/157986832/reviews
+  const REVISION = { reviews: [{ resource: "order", resource_id: 2000018121101480, method: "triage", resource_reviews: [{ stage: "closed", status: "success", product_condition: "saleable", product_destination: "seller", reason_id: "accepted", benefited: "buyer" }] }] };
+
+  it("el destino sale de la revisión del almacén (product_condition); un retorno cancelado es no devuelto", () => {
+    expect(destinoDeRevision(REVISION, RETORNO)).toBe("a_la_venta");
+    const danado = { reviews: [{ resource_reviews: [{ ...REVISION.reviews[0].resource_reviews[0], product_condition: "damaged" }] }] };
+    expect(destinoDeRevision(danado, RETORNO)).toBe("descartado");
     expect(destinoDeRevision(null, { ...RETORNO, status: "cancelled" })).toBe("no_devuelto");
     expect(destinoDeRevision({ error: "404" }, RETORNO)).toBe("sin_revision");
+    expect(destinoDeRevision({ reviews: [] }, RETORNO)).toBe("sin_revision");
+    expect(interpretarReclamo(RECLAMO, RETORNO, REVISION, skuDesdeOrdenCruda(ORDEN)).destino).toBe("a_la_venta");
   });
 
   it("sin reclamos deja constancia de la lectura y ningún destino", () => {

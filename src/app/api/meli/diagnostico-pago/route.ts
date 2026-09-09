@@ -107,8 +107,8 @@ export async function GET(req: NextRequest) {
     for (const [ruta, r] of Object.entries(detalles)) {
       const rid = (r as any)?.id;
       if (!ruta.includes("/returns") || !rid || (r as any)?.error) continue;
-      const cid = ruta.split("/claims/")[1]?.split("/")[0];
-      for (const rr of [`/post-purchase/v2/claims/${cid}/returns/reviews`, `/post-purchase/v1/claims/${cid}/returns/${rid}/reviews`, `/post-purchase/v1/returns/${rid}/reviews`, `/post-purchase/v2/returns/${rid}/reviews`, `/post-purchase/v1/claims/${cid}/returns/reviews`]) {
+      // Única ruta que contesta (sonda 9-sep-2026); las demás dan 400/404.
+      for (const rr of [`/post-purchase/v1/returns/${rid}/reviews`]) {
         try {
           detalles[rr] = await cliente.get<any>(rr, undefined, { reintentos: 0 });
         } catch (err) {

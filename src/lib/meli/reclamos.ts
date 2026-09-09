@@ -2,7 +2,7 @@
  * Reclamos y devoluciones de una orden de MELI (post-purchase):
  *   GET /post-purchase/v1/claims/search?resource=order&resource_id={orden}
  *   GET /post-purchase/v2/claims/{claim}/returns   (estado del retorno, dinero, cantidades)
- *   GET …/returns/reviews                           (revisión en el almacén de Full)
+ *   GET /post-purchase/v1/returns/{retorno}/reviews (revisión en el almacén de Full)
  *
  * Regla del dueño (9-sep-2026): el costo de un par devuelto solo se
  * recupera si el par VOLVIÓ A LA VENTA; si MELI lo descartó o nunca
@@ -37,19 +37,32 @@ const texto = (x: unknown): string | null => (typeof x === "string" && x ? x : n
 const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" ? (x as Record<string, unknown>) : {});
 
 /**
- * Qué decidió el almacén con el par devuelto. La revisión de Full trae el
- * resultado por producto; mientras no se conozca su forma exacta, todo lo
- * que no se pueda leer queda "sin_revision" (nunca se supone a la venta).
+ * Qué decidió el almacén con el par devuelto. Forma real (sonda del
+ * 9-sep-2026, retorno 157986832 de la orden 2000018121101480):
+ *   { reviews: [{ method: "triage", resource_reviews: [{ stage: "closed",
+ *     status: "success", product_condition: "saleable",
+ *     product_destination: "seller", … }] }] }
+ * "saleable" → volvió a la venta; cualquier otra condición leída
+ * (damaged, unsaleable…) → descartado; sin revisión → "sin_revision"
+ * (nunca se supone a la venta).
  */
 export function destinoDeRevision(revision: unknown, retorno: unknown): DestinoDevolucion {
   const r = obj(retorno);
   const estadoRetorno = texto(r.status);
   if (estadoRetorno && /cancel|expired|not_delivered|failed/i.test(estadoRetorno)) return "no_devuelto";
-  const textoRevision = JSON.stringify(revision ?? "").toLowerCase();
-  if (!revision || textoRevision === '""' || textoRevision.includes('"error"')) return "sin_revision";
-  if (/discard|destroy|damaged|not_sellable|unsellable|descart/.test(textoRevision)) return "descartado";
-  if (/sellable|available_for_sale|back_to_stock|restock|nuevo a la venta|ok/.test(textoRevision)) return "a_la_venta";
-  return "sin_revision";
+  const rev = obj(revision);
+  if (!revision || "error" in rev) return "sin_revision";
+  const reviews = Array.isArray(rev.reviews) ? rev.reviews : [];
+  const condiciones: string[] = [];
+  for (const x of reviews) {
+    const rr = Array.isArray(obj(x).resource_reviews) ? (obj(x).resource_reviews as unknown[]) : [];
+    for (const y of rr) {
+      const c = texto(obj(y).product_condition);
+      if (c) condiciones.push(c.toLowerCase());
+    }
+  }
+  if (condiciones.length === 0) return "sin_revision";
+  return condiciones.every((c) => /^(saleable|sellable|new|good)$/.test(c)) ? "a_la_venta" : "descartado";
 }
 
 /** Interpreta claim + retorno + revisión (función pura). */
@@ -103,9 +116,10 @@ export async function leerReclamosDeOrden(
     } catch (err) {
       retorno = { error: (err as Error).message.slice(0, 120) };
     }
-    if (retorno && !("error" in obj(retorno))) {
+    const retornoId = Number(obj(retorno).id);
+    if (retorno && !("error" in obj(retorno)) && retornoId) {
       try {
-        revision = await cliente.get<unknown>(`/post-purchase/v2/claims/${id}/returns/reviews`, undefined, { reintentos: 0 });
+        revision = await cliente.get<unknown>(`/post-purchase/v1/returns/${retornoId}/reviews`, undefined, { reintentos: 0 });
       } catch {
         revision = null;
       }
