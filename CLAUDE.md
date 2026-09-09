@@ -533,7 +533,9 @@ login, la base y el deploy.
 |----------------------------------|---------------------------------------------|
 | Motor de demanda / stock / cajas | `src/lib/engine/` (`demand.ts`, `stockHistory.ts`, `boxes.ts`, `replenish.ts`) |
 | Sincronización con MELI          | `src/lib/servicios/sync.ts`, `webhooks.ts`  |
-| Latido (drena avisos, recalcula, repara historial) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
+| Latido (drena avisos, recalcula, repara historial; candado atómico `candados_trabajo` recurso `latido`, las lecturas de `sync_log` solo son pre-filtro) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
+| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`) | `src/lib/servicios/productos-nuevos.ts` + `/api/pedidos/nuevos/fotos` |
+| Lógica del pedido a China explicada para el dueño | `docs/PLANIFICACION-CHINA.md` |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |

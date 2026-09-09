@@ -1,5 +1,5 @@
 import type { DB } from "../datos/repos";
-import { registrarSync, cerrarSync } from "../datos/repos";
+import { registrarSync, cerrarSync, adquirirCandado, liberarCandado } from "../datos/repos";
 import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
 import { recargarCargosHistoricos, revisarPendientes } from "./devoluciones";
 import { continuarCargosPendientes } from "./cargos-meli";
@@ -59,6 +59,20 @@ export async function latido(
     .gte("inicio", new Date(Date.now() - 4 * 60_000).toISOString())
     .limit(1);
   if (corriendo.error || corriendo.data?.length) return { corrio: false, procesados: 0, msPlan: null };
+
+  // Las dos lecturas de arriba son baratas pero NO atómicas: tras un
+  // reinicio de la base, cientos de avisos encolados las pasan al mismo
+  // tiempo y dos latidos arrancaron en el mismo segundo (9-sep-2026). El
+  // candado de trabajo (candados_trabajo, RPC) sí es atómico: uno solo
+  // entra; el TTL lo suelta si el proceso muere.
+  let candado: string | null;
+  try {
+    candado = await adquirirCandado(admin, accountId, "latido", 4 * 60);
+  } catch {
+    return { corrio: false, procesados: 0, msPlan: null };
+  }
+  if (!candado) return { corrio: false, procesados: 0, msPlan: null };
+  const soltar = () => liberarCandado(admin, accountId, "latido", candado!).catch(() => false);
 
   const logId = await registrarSync(admin, accountId, "en_vivo");
 
@@ -259,11 +273,13 @@ export async function latido(
       console.error("latidoAmazon:", (err as Error).message);
     }
 
+    await soltar();
     return { corrio: true, procesados, msPlan };
   } catch (err) {
     await cerrarSync(admin, logId, "error", {
       mensaje: (err as Error).message.slice(0, 300),
     });
+    await soltar();
     return { corrio: true, procesados: 0, msPlan: null };
   }
 }
