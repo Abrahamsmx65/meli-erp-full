@@ -12,6 +12,7 @@ import {
   aplanarItem,
   armarPlanUnificacion,
   calcularDiferencias,
+  esMedidaDePaquete,
   valorDeAtributo,
   type ItemCrudo,
 } from "./listados";
@@ -230,5 +231,57 @@ describe("armarPlanUnificacion", () => {
     expect((plan.cuerpo as { attributes: unknown[] }).attributes).toEqual([
       { id: "MATERIAL", value_name: "Piel real" },
     ]);
+  });
+});
+
+// Caso real GT180: doce publicaciones sin variantes, once con "Diseño de la
+// tela" = Militar/táctico y MLM2864907921 sin él (MELI la separó del selector:
+// "Color y Diseño" en vez de "Color"). Las medidas que MELI mide por caja
+// difieren en TODAS y tapaban esa diferencia.
+describe("medidas del paquete", () => {
+  it("reconoce las medidas de MELI y del vendedor, y nada más", () => {
+    for (const id of ["PACKAGE_HEIGHT", "PACKAGE_WEIGHT", "SELLER_PACKAGE_LENGTH"]) {
+      expect(esMedidaDePaquete(id)).toBe(true);
+    }
+    for (const id of ["PACKAGE_DATA_SOURCE", "FABRIC_DESIGN", "SHIPMENT_PACKING"]) {
+      expect(esMedidaDePaquete(id)).toBe(false);
+    }
+  });
+
+  it("las marca esMedida y las manda al final, detrás del diseño que falta", () => {
+    const hermana = (id: string, conDiseno: boolean, alto: string): ItemCrudo => ({
+      id,
+      attributes: [
+        { id: "COLOR", name: "Color", value_name: "Negro" },
+        { id: "PACKAGE_HEIGHT", name: "Altura del paquete", value_name: alto },
+        ...(conDiseno
+          ? [{ id: "FABRIC_DESIGN", name: "Diseño de la tela", value_name: "Militar/táctico" }]
+          : []),
+      ],
+    });
+    const items = [
+      aplanarItem(hermana("MLM1", true, "12.4 cm")),
+      aplanarItem(hermana("MLM2", true, "12.8 cm")),
+      aplanarItem(hermana("MLM2864907921", false, "11 cm")),
+    ];
+    const difs = calcularDiferencias(items);
+
+    const diseno = difs.find((d) => d.atributoId === "FABRIC_DESIGN");
+    expect(diseno?.esMedida).toBe(false);
+    expect(diseno?.esperada).toBe(false);
+    expect(diseno?.valores.map((v) => [v.valor, v.veces])).toEqual([
+      ["Militar/táctico", 2],
+      ["(sin dato)", 1],
+    ]);
+    expect(diseno?.valores[1].donde).toEqual(["MLM2864907921"]);
+
+    const alto = difs.find((d) => d.atributoId === "PACKAGE_HEIGHT");
+    expect(alto?.esMedida).toBe(true);
+    expect(difs.indexOf(alto!)).toBeGreaterThan(difs.indexOf(diseno!));
+
+    // Unificar agrega el atributo a la que no lo tiene, a nivel publicación.
+    const plan = armarPlanUnificacion(hermana("MLM2864907921", false, "11 cm"), "FABRIC_DESIGN", "Militar/táctico");
+    expect(plan.niveles).toEqual(["publicacion"]);
+    expect(plan.cuerpo).toEqual({ attributes: [{ id: "FABRIC_DESIGN", value_name: "Militar/táctico" }] });
   });
 });

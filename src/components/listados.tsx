@@ -38,6 +38,7 @@ function ChipEstado({ estado }: { estado: string | null }) {
 }
 
 const SIN_DATO = "(sin dato)";
+const claveDif = (d: Diferencia) => `${d.nivel}:${d.atributoId}`;
 
 export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) {
   const [busqueda, setBusqueda] = useState("");
@@ -70,8 +71,6 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
       setCargando(false);
     }
   };
-
-  const claveDif = (d: Diferencia) => `${d.nivel}:${d.atributoId}`;
 
   const unificar = async (d: Diferencia) => {
     if (!grupo) return;
@@ -111,8 +110,11 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
     }
   };
 
-  const raras = grupo?.diferencias.filter((d) => !d.esperada) ?? [];
-  const esperadas = grupo?.diferencias.filter((d) => d.esperada) ?? [];
+  // Las medidas del paquete difieren en cada publicación (MELI las mide) y
+  // no parten el selector: van aparte para no tapar las diferencias reales.
+  const raras = grupo?.diferencias.filter((d) => !d.esperada && !d.esMedida) ?? [];
+  const esperadas = grupo?.diferencias.filter((d) => d.esperada && !d.esMedida) ?? [];
+  const medidas = grupo?.diferencias.filter((d) => d.esMedida) ?? [];
 
   return (
     <div className="flex flex-col gap-5">
@@ -318,28 +320,22 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
             </section>
           )}
 
+          {medidas.length ? (
+            <details className="tarjeta p-4">
+              <summary className="cursor-pointer text-sm font-semibold">
+                Medidas del paquete ({medidas.length}): MELI las mide por publicación, no
+                parten el selector
+              </summary>
+              <ListaValores diferencias={medidas} />
+            </details>
+          ) : null}
+
           {esperadas.length ? (
             <details className="tarjeta p-4">
               <summary className="cursor-pointer text-sm font-semibold">
                 Diferencias esperadas ({esperadas.length}): talla, color, códigos
               </summary>
-              <div className="mt-3 flex flex-col gap-2 text-sm">
-                {esperadas.map((d) => (
-                  <div key={claveDif(d)} className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-medium">{d.nombre}:</span>
-                    {d.valores.map((v) => (
-                      <span
-                        key={v.valor}
-                        className="rounded-full border px-2 py-0.5 text-xs"
-                        style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-                        title={v.donde.join("\n")}
-                      >
-                        {v.valor} <span className="cifra">×{v.veces}</span>
-                      </span>
-                    ))}
-                  </div>
-                ))}
-              </div>
+              <ListaValores diferencias={esperadas} />
             </details>
           ) : null}
 
@@ -348,6 +344,29 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           ))}
         </>
       ) : null}
+    </div>
+  );
+}
+
+/** Lista compacta (solo lectura) de diferencias: nombre y sus valores con cuántas veces. */
+function ListaValores({ diferencias }: { diferencias: Diferencia[] }) {
+  return (
+    <div className="mt-3 flex flex-col gap-2 text-sm">
+      {diferencias.map((d) => (
+        <div key={claveDif(d)} className="flex flex-wrap items-baseline gap-2">
+          <span className="font-medium">{d.nombre}:</span>
+          {d.valores.map((v) => (
+            <span
+              key={v.valor}
+              className="rounded-full border px-2 py-0.5 text-xs"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              title={v.donde.join("\n")}
+            >
+              {v.valor} <span className="cifra">×{v.veces}</span>
+            </span>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
