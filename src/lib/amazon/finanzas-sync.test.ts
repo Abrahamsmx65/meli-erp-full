@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { elegirGrupo, sincronizarFinanzas } from "./finanzas-sync";
+import { elegirGrupo, periodosDeGrupo, sincronizarFinanzas } from "./finanzas-sync";
 
 const ahora = Date.parse("2026-09-09T18:00:00Z");
 const grupo = (x: Partial<Parameters<typeof elegirGrupo>[0][number]>) => ({
@@ -41,7 +41,8 @@ describe("elegirGrupo", () => {
 
 /** Un Supabase de mentira: tablas en memoria con lo justo para la ingesta. */
 function adminFalso(gruposIniciales: ReturnType<typeof grupo>[]) {
-  const grupos = new Map(gruposIniciales.map((g) => [g.grupo_id, { ...g, account_id: "cta", actualizado_en: new Date(ahora).toISOString() }]));
+  // Lista de grupos recién refrescada: la ingesta no vuelve a pedirla a Amazon.
+  const grupos = new Map(gruposIniciales.map((g) => [g.grupo_id, { ...g, account_id: "cta", actualizado_en: new Date().toISOString() }]));
   const eventos = new Map<string, any>();
   const consulta = (tabla: string) => {
     const filtros: Record<string, unknown> = {};
@@ -147,5 +148,13 @@ describe("sincronizarFinanzas", () => {
     expect(r.descuadrados).toEqual(["g1"]);
     expect(r.aviso).toMatch(/no da el total/);
     expect(admin.grupos.get("g1")).toMatchObject({ completo: true, cuadra: false, suma_eventos: 90 });
+  });
+});
+
+describe("periodosDeGrupo", () => {
+  it("cubre del mes de inicio al de fin, y hasta hoy si el grupo sigue abierto", () => {
+    expect(periodosDeGrupo("2026-06-28T02:32:00Z", "2026-07-10T13:20:59Z")).toEqual(["2026-06", "2026-07"]);
+    expect(periodosDeGrupo("2026-09-07T18:19:41Z", null, new Date("2026-09-09T18:00:00Z"))).toEqual(["2026-09"]);
+    expect(periodosDeGrupo(null, null)).toEqual([]);
   });
 });

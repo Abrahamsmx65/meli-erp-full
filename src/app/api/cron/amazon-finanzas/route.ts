@@ -3,6 +3,7 @@ import { clienteAdmin } from "@/lib/supabase/server";
 import { Cliente, cuentasAmazon } from "@/lib/amazon/spapi";
 import { sincronizarFinanzas } from "@/lib/amazon/finanzas-sync";
 import { invalidarApp } from "@/lib/servicios/cache-app";
+import { invalidarCortesDePeriodos } from "@/lib/servicios/corte-invalidar";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,6 +66,8 @@ export async function GET(req: NextRequest) {
         // nuevos, el fondo los rehace en la siguiente lectura.
         await invalidarApp(admin, cuenta.accountId, "Entraron eventos financieros de Amazon.", { prefijo: "finanzas:amazon:" }).catch(() => undefined);
         await invalidarApp(admin, cuenta.accountId, "Entraron eventos financieros de Amazon.", { prefijo: "monitor:" }).catch(() => undefined);
+        // El corte general de los meses tocados se rehace en el fondo.
+        await invalidarCortesDePeriodos(admin, { meliAccountId: null }, r.periodos, "Entraron eventos financieros de Amazon.").catch(() => undefined);
       }
       if (corrida?.id) {
         await admin.from("amazon_sync_log").update({ fin: new Date().toISOString(), estado: "ok", detalle: { ...r, ms: Date.now() - inicio } }).eq("id", corrida.id);

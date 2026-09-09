@@ -41,7 +41,23 @@ export interface ResultadoFinanzas {
   pendientes: number;
   /** grupos cerrados cuya suma NO da su total */
   descuadrados: string[];
+  /** meses (YYYY-MM) tocados por los grupos leídos en esta corrida, para invalidar sus cortes */
+  periodos: string[];
   aviso?: string;
+}
+
+/** Los meses que abarca un grupo (del inicio al fin, o hasta hoy si sigue abierto). */
+export function periodosDeGrupo(inicio: string | null, fin: string | null, ahora = new Date()): string[] {
+  if (!inicio) return [];
+  const desde = new Date(inicio);
+  const hasta = fin ? new Date(fin) : ahora;
+  const salida: string[] = [];
+  const d = new Date(Date.UTC(desde.getUTCFullYear(), desde.getUTCMonth(), 1));
+  while (d <= hasta && salida.length < 24) {
+    salida.push(d.toISOString().slice(0, 7));
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return salida;
 }
 
 interface FilaGrupo {
@@ -81,15 +97,21 @@ function filaDeGrupo(accountId: string, g: GrupoFinancieroAmazon) {
   };
 }
 
-function filaDeEvento(accountId: string, grupoId: string, e: EventoClasificadoAmazon) {
+/**
+ * Los cargos de servicio (ServiceFeeEventList: transporte a FBA, retiros,
+ * almacenaje de largo plazo) llegan SIN fecha de asiento: se fechan al
+ * cierre del grupo (o a su inicio mientras siga abierto; al cerrar se
+ * releen con la misma clave y toman la fecha de cierre).
+ */
+function filaDeEvento(accountId: string, grupo: Pick<FilaGrupo, "grupo_id" | "inicio" | "fin">, e: EventoClasificadoAmazon) {
   const c = e.cascada;
   return {
     account_id: accountId,
     clave: e.clave,
-    grupo_id: grupoId,
+    grupo_id: grupo.grupo_id,
     lista: e.lista,
     amazon_order_id: e.amazonOrderId,
-    posted_en: e.postedEn,
+    posted_en: e.postedEn ?? grupo.fin ?? grupo.inicio ?? null,
     monto: e.monto,
     base: e.base,
     impuesto: e.impuesto,
@@ -193,7 +215,8 @@ async function cerrarGrupo(admin: any, accountId: string, g: FilaGrupo): Promise
  */
 export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise<ResultadoFinanzas> {
   const accountId = cliente.cuenta.accountId;
-  const salida: ResultadoFinanzas = { estado: "al_dia", gruposNuevos: 0, gruposLeidos: [], paginas: 0, eventos: 0, pendientes: 0, descuadrados: [] };
+  const salida: ResultadoFinanzas = { estado: "al_dia", gruposNuevos: 0, gruposLeidos: [], paginas: 0, eventos: 0, pendientes: 0, descuadrados: [], periodos: [] };
+  const periodos = new Set<string>();
 
   let { grupos, nuevos } = await gruposDeLaCuenta(admin, cliente, {});
   salida.gruposNuevos = nuevos;
@@ -225,10 +248,11 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
       if (!pagina) break; // sin plazo
 
       const eventos = clasificarEventos(pagina.eventos);
-      if (eventos.length) await guardarEnLotes(admin, "amazon_finanzas_eventos", eventos.map((e) => filaDeEvento(accountId, g.grupo_id, e)));
+      if (eventos.length) await guardarEnLotes(admin, "amazon_finanzas_eventos", eventos.map((e) => filaDeEvento(accountId, g, e)));
       paginasDelGrupo++;
       salida.paginas++;
       salida.eventos += eventos.length;
+      for (const p of periodosDeGrupo(g.inicio, g.fin)) periodos.add(p);
       token = pagina.siguiente ?? null;
 
       if (!token) {
@@ -260,6 +284,7 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
   salida.pendientes = grupos.filter((g) => (!g.moneda || g.moneda === "MXN") && g.estado === "Closed" && !g.completo).length;
   for (const g of grupos) if (g.cuadra === false && !salida.descuadrados.includes(g.grupo_id)) salida.descuadrados.push(g.grupo_id);
   if (salida.estado !== "sin_plazo") salida.estado = salida.pendientes ? "avanzando" : "al_dia";
+  salida.periodos = [...periodos].sort();
   if (salida.descuadrados.length) salida.aviso = `${salida.descuadrados.length} liquidación(es) cuya suma de eventos no da el total de Amazon.`;
   return salida;
 }

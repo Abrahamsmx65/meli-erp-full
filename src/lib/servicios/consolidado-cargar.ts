@@ -112,6 +112,8 @@ async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): P
         generado_en: new Date().toISOString(),
         ms_calculo: Date.now() - t0,
         datos: marcarTipos(consolidado),
+        vigente: true,
+        motivo: null,
       },
       { onConflict: "account_id,periodo" },
     );
@@ -139,7 +141,7 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
     const [{ data }, gastosEmpresariales] = await Promise.all([
       db
         .from("consolidado_cache")
-        .select("datos, generado_en")
+        .select("datos, generado_en, vigente")
         .eq("account_id", cuenta.id)
         .eq("periodo", periodo)
         .maybeSingle(),
@@ -147,7 +149,9 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
     ]);
     const guardado = data?.datos ? leerConsolidadoCache(data.datos) : null;
     if (guardado) {
-      if (data && corteNecesitaRefresco(periodo, data.generado_en, true)) {
+      // `vigente` lo tumban los trabajos de fondo que cambian el dinero del
+      // mes (recarga de pagos, netos de fundas, Finances de Amazon).
+      if (data && corteNecesitaRefresco(periodo, data.generado_en, data.vigente ?? true)) {
         try {
           const { after } = await import("next/server");
           after(async () => {
@@ -188,7 +192,7 @@ export async function hacerCorteGeneral(db: DB, cuenta: Cuenta, periodo: string,
   // corte se vea al instante y no hasta que caduque la ventana de 10 min.
   try {
     await db.from("consolidado_cache").upsert(
-      { account_id: cuenta.id, periodo, generado_en: new Date().toISOString(), ms_calculo: null, datos: marcarTipos(consolidado) },
+      { account_id: cuenta.id, periodo, generado_en: new Date().toISOString(), ms_calculo: null, datos: marcarTipos(consolidado), vigente: true, motivo: null },
       { onConflict: "account_id,periodo" },
     );
   } catch {

@@ -92,3 +92,24 @@ describe("cascada de un evento de la Finances API de Amazon", () => {
     expect(reembolsos[0]).toMatchObject({ principal: -100, comision: 15, neto: -85 });
   });
 });
+
+describe("eventos idénticos en la misma página", () => {
+  it("dos cargos iguales (misma huella) conservan los dos con claves distintas, y releer da las mismas claves", () => {
+    const pagina = {
+      ServiceFeeEventList: [
+        { FeeList: [{ FeeType: "FBAInboundTransportationFee", FeeAmount: m(-619.27) }] },
+        { FeeList: [{ FeeType: "FBAInboundTransportationFee", FeeAmount: m(-619.27) }] },
+        { FeeList: [{ FeeType: "FBAInboundTransportationFee", FeeAmount: m(-619.27) }] },
+      ],
+    } as any;
+    const a = clasificarEventos(pagina);
+    const b = clasificarEventos(pagina);
+    expect(a.map((e) => e.monto)).toEqual([-619.27, -619.27, -619.27]);
+    expect(new Set(a.map((e) => e.clave)).size).toBe(3);
+    expect(a[1].clave).toBe(`${a[0].clave}#2`);
+    expect(a[2].clave).toBe(`${a[0].clave}#3`);
+    expect(b.map((e) => e.clave)).toEqual(a.map((e) => e.clave));
+    // Sin fecha de asiento: la ingesta los fecha al cierre del grupo.
+    expect(a[0].postedEn).toBeNull();
+  });
+});

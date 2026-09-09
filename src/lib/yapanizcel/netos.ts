@@ -28,6 +28,7 @@ import { claveItem, obtenerUsuario } from "../meli/sync";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { leerOrdenes, type OrdenLeida } from "./sync";
+import { invalidarCortesDePeriodos, periodoDeFecha } from "../servicios/corte-invalidar";
 
 const redondea = (x: number) => Math.round(x * 100) / 100;
 
@@ -303,7 +304,11 @@ export async function completarNetosPendientes(
     }
   }
   await vaciar();
-  if (dias.size) r.diasAsentados = await asentarNetos(admin, accountId, dias, finMs);
+  if (dias.size) {
+    r.diasAsentados = await asentarNetos(admin, accountId, dias, finMs);
+    // El corte de fundas y el corte general de esos meses ya no dicen la verdad.
+    await invalidarCortesDePeriodos(admin, { yzAccountId: accountId, meliAccountId: null }, [...dias].map(periodoDeFecha), "Entraron netos reales de Mercado Pago (fundas).");
+  }
   return r;
 }
 

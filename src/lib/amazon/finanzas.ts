@@ -410,9 +410,24 @@ function montoDeOtro(lista: string, e: Obj): { monto: number | null; base: numbe
   }
 }
 
-/** Aplana todas las listas de una página de eventos a eventos con monto. */
+/**
+ * Aplana todas las listas de una página de eventos a eventos con monto.
+ *
+ * Dos eventos IDÉNTICOS en la misma página son dos cargos de verdad (Amazon
+ * cobró dos veces la misma tarifa de transporte de −619.27 sin fecha ni
+ * descripción, y el total del grupo los trae a los dos): el segundo lleva
+ * la clave con `#2`, el tercero `#3`… Así no se colapsan y releer la misma
+ * página da las mismas claves.
+ */
 export function clasificarEventos(ev: EventosFinancierosAmazon): EventoClasificadoAmazon[] {
   const salida: EventoClasificadoAmazon[] = [];
+  const vistas = new Map<string, number>();
+  const clave = (lista: string, crudo: unknown): string => {
+    const base = claveDeEvento(lista, crudo);
+    const n = (vistas.get(base) ?? 0) + 1;
+    vistas.set(base, n);
+    return n === 1 ? base : `${base}#${n}`;
+  };
   for (const [lista, valor] of Object.entries(ev)) {
     if (!Array.isArray(valor) || !valor.length) continue;
     for (const crudo of valor) {
@@ -421,10 +436,10 @@ export function clasificarEventos(ev: EventosFinancierosAmazon): EventoClasifica
       const amazonOrderId = texto(e.AmazonOrderId) ?? texto(e.amazonOrderId);
       if (LISTAS_DE_PEDIDO.has(lista)) {
         const cascada = cascadaDeEvento(crudo as EventoEnvioAmazon);
-        salida.push({ lista, clave: claveDeEvento(lista, crudo), amazonOrderId, postedEn, monto: cascada.neto, base: null, impuesto: null, descripcion: null, cascada, clasificado: true, crudo });
+        salida.push({ lista, clave: clave(lista, crudo), amazonOrderId, postedEn, monto: cascada.neto, base: null, impuesto: null, descripcion: null, cascada, clasificado: true, crudo });
       } else {
         const m = montoDeOtro(lista, e);
-        salida.push({ lista, clave: claveDeEvento(lista, crudo), amazonOrderId, postedEn, ...m, cascada: null, crudo });
+        salida.push({ lista, clave: clave(lista, crudo), amazonOrderId, postedEn, ...m, cascada: null, crudo });
       }
     }
   }

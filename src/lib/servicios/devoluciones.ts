@@ -35,6 +35,7 @@ import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/ord
 import { traerTodo, type DB } from "../datos/repos";
 import { claveItem } from "../meli/sync";
 import { clienteDeCuenta, mapaItemSkuDe, recalcularDiaVentas } from "./webhooks";
+import { invalidarCortesDePeriodos, periodoDeFecha } from "./corte-invalidar";
 
 /** Días de vendida a los que toca cada revisión. */
 export const PRIMERA_REVISION_DIAS = 10;
@@ -439,6 +440,7 @@ export async function recargarCargosHistoricos(
   const t0 = Date.now();
   let leidas = 0;
   const errores: string[] = [];
+  const periodos = new Set<string>();
   let cursor: { fecha: string; orderId: number } | null = null;
 
   while (Date.now() < finMs - 30_000) {
@@ -476,8 +478,11 @@ export async function recargarCargosHistoricos(
     });
     leidas += r.revisadas;
     errores.push(...r.errores.slice(0, 3));
+    if (r.revisadas > 0) for (const f of lote) periodos.add(periodoDeFecha(f.fecha));
     if (r.revisadas === 0 && r.errores.length) break;
   }
+  // Los cortes de esos meses ya no dicen la verdad: se rehacen en el fondo.
+  if (periodos.size) await invalidarCortesDePeriodos(admin, { meliAccountId: accountId }, periodos, "La recarga leyó pagos reales de Mercado Pago.");
 
   const { count } = await admin
     .from("ordenes_neto")
