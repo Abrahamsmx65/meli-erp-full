@@ -10,7 +10,9 @@
  */
 import type { DB } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
-import { leerPagoMercadoPago, pagosCobrablesCompletos, resumirPagosMeli, type PagoMercadoPago } from "../meli/pagos";
+import { camposLiquidacionMeli, pagosCobrablesCompletos, type PagoMercadoPago } from "../meli/pagos";
+import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
+import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { SEGUNDA_REVISION_DIAS, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
@@ -89,7 +91,7 @@ export async function revisarOrdenesYz(
   const filas = await todo<any>(
     admin,
     "yz_ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable",
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor",
     (q) => q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
   );
   const pendientes = filas
@@ -97,6 +99,7 @@ export async function revisarOrdenesYz(
     .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
 
   const r: ResultadoRevision = { revisadas: 0, canceladas: 0, devueltas: 0, diasRebarridos: [], quedan: pendientes.length, errores: [] };
+  const tarifas = new CacheTarifas(cliente);
   for (const f of pendientes.slice(0, opts.tope)) {
     if (Date.now() > opts.finMs) break;
     const orderId = Number(f.order_id);
@@ -104,9 +107,12 @@ export async function revisarOrdenesYz(
     for (const p of Array.isArray(f.payment_ids) ? f.payment_ids : []) if (p != null) idsPago.add(Number(p));
     if (f.payment_id != null) idsPago.add(Number(f.payment_id));
     let estado: string | null = f.estado ?? null;
-    if (!idsPago.size || !estado) {
+    // La orden se vuelve a pedir cuando falta algo que solo ella trae
+    // (pagos, estado, o las etiquetas de reventa de las filas viejas).
+    let orden: OrdenMeliCruda | null = null;
+    if (!idsPago.size || !estado || f.static_tags == null) {
       try {
-        const orden = await cliente.get<{ status?: string; payments?: { id?: number }[] }>(`/orders/${orderId}`);
+        orden = await cliente.get<OrdenMeliCruda>(`/orders/${orderId}`);
         for (const p of orden?.payments ?? []) if (p.id != null) idsPago.add(Number(p.id));
         estado = orden?.status ?? estado;
       } catch (err) {
@@ -120,9 +126,8 @@ export async function revisarOrdenesYz(
     let pagosLeidos = 0;
     for (const pid of idsPago) {
       try {
-        const pago = leerPagoMercadoPago(await cliente.get<unknown>(`/collections/${pid}`));
+        pagos.push(await leerPagoReal(cliente, pid));
         pagosLeidos++;
-        pagos.push(pago);
       } catch (err) {
         r.errores.push(`pago ${pid}: ${(err as Error).message}`.slice(0, 200));
       }
@@ -137,30 +142,33 @@ export async function revisarOrdenesYz(
       ? f.renglones.reduce((a: number, x: any) => a + (Number(x.comision) || 0), 0)
       : 0;
     const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
-    const resumenPago = resumirPagosMeli(
+    const contexto = orden ? contextoDeOrden(orden, Date.now()) : contextoGuardado(f, Date.now());
+    if (orden && f.envio_vendedor != null) contexto.envioVendedor = Number(f.envio_vendedor);
+    const resumenPago = await resumirOrdenConMeli(cliente, {
       pagos,
-      Number(f.total) || 0,
+      total: Number(f.total) || 0,
       comisionOrden,
       netoControl,
-      f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
-      f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
-    );
+      reembolsoIncluidoNetoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+      reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+      contexto,
+      renglones: renglonesParaCascada(f.renglones),
+      tarifas,
+    });
     const estadoPago = resumenPago.estadoPago;
     const cambios: Record<string, unknown> = {
       estado,
-      estado_pago: estadoPago,
-      reembolsado: resumenPago.reembolsado,
-      reembolso_incluido_neto_base: resumenPago.reembolsoIncluidoNetoBase,
-      reembolso_base_confiable: resumenPago.reembolsoBaseConfiable,
       ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
-      comision_mp: resumenPago.comision,
-      envio_mp: resumenPago.envio,
-      isr_mp: resumenPago.isr,
-      iva_mp: resumenPago.iva,
-      otros_mp: resumenPago.otros,
-      cargos_sin_desglosar: resumenPago.cargosSinDesglosar,
-      detalle_cargos: resumenPago.detalleCargos,
-      tipo_venta: resumenPago.tipoVenta,
+      ...camposLiquidacionMeli(resumenPago),
+      ...(orden
+        ? {
+            pack_id: contexto.packId,
+            shipping_id: contexto.shippingId,
+            static_tags: contexto.staticTags ?? [],
+            pagado: contexto.pagado ?? null,
+            orden_cruda: recortarOrden(orden),
+          }
+        : {}),
       cargos_leidos_en: new Date().toISOString(),
       revisado_en: new Date().toISOString(),
       revisiones,

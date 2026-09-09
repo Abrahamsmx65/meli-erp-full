@@ -28,8 +28,10 @@ import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
 import { todo } from "./db";
-import { leerResumenDeOrden, registrarOrdenes } from "./netos";
+import { columnasDeOrdenYz, leerResumenDeOrden, registrarOrdenes } from "./netos";
 import { camposLiquidacionMeli, netoVigente } from "../meli/pagos";
+import { CacheTarifas } from "../meli/pagos-api";
+import { contextoDeOrden, type OrdenMeliCruda } from "../meli/orden";
 import { invalidarYz } from "./cache";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
@@ -200,30 +202,15 @@ export async function sincronizarStock(
 // ---------------------------------------------------------------------------
 // Ventas
 // ---------------------------------------------------------------------------
-interface OrdenMeli {
-  id: number;
-  status?: string;
-  date_created: string;
-  total_amount?: number;
-  order_items?: {
-    quantity?: number;
-    unit_price?: number;
-    sale_fee?: number;
-    item?: {
-      id?: string;
-      seller_sku?: string | null;
-      seller_custom_field?: string | null;
-      variation_id?: number | string | null;
-    };
-  }[];
-  payments?: { id?: number; status?: string }[];
-}
+type OrdenMeli = OrdenMeliCruda;
 
 interface Renglon {
   sku: string;
   unidades: number;
   importe: number;
   comision: number;
+  categoria?: string | null;
+  listing?: string | null;
 }
 
 export interface OrdenLeida {
@@ -232,6 +219,8 @@ export interface OrdenLeida {
   total: number;
   pagos: number[];
   renglones: Renglon[];
+  /** la orden tal como vino de MELI (solo lo que se usa): etiquetas, envío, pagado */
+  orden?: OrdenMeliCruda;
 }
 
 /**
@@ -296,7 +285,14 @@ export async function leerOrdenes(
             continue;
           }
           const u = oi.quantity ?? 0;
-          const s = porSku.get(sku) ?? { sku, unidades: 0, importe: 0, comision: 0 };
+          const s = porSku.get(sku) ?? {
+            sku,
+            unidades: 0,
+            importe: 0,
+            comision: 0,
+            categoria: oi.item?.category_id ?? null,
+            listing: oi.listing_type_id ?? null,
+          };
           s.unidades += u;
           s.importe += u * (oi.unit_price ?? 0);
           s.comision += u * (oi.sale_fee ?? 0);
@@ -311,6 +307,7 @@ export async function leerOrdenes(
             .filter((p) => p.id && (!p.status || p.status === "approved"))
             .map((p) => Number(p.id)),
           renglones: [...porSku.values()],
+          orden: o,
         });
       }
 
@@ -349,14 +346,16 @@ export async function completarNetos(
     netoActual: number | null;
     actualizadoEn: string;
     cargosLeidos: boolean;
+    conPagoReal: boolean;
     netoLeido: boolean;
     reembolsoBase: number | null;
     reembolsoBaseConfiable: boolean | null;
+    envioVendedor: number | null;
   }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await admin
       .from("yz_ordenes_neto")
-      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, reembolso_incluido_neto_base, reembolso_base_confiable")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, envio_vendedor, reembolso_incluido_neto_base, reembolso_base_confiable")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     for (const f of data ?? []) {
@@ -365,9 +364,11 @@ export async function completarNetos(
         netoActual: f.neto_actual == null ? null : Number(f.neto_actual),
         actualizadoEn: f.actualizado_en,
         cargosLeidos: f.cargos_leidos_en != null,
+        conPagoReal: f.cargos_fuente != null,
         netoLeido: f.neto_en != null,
         reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
         reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+        envioVendedor: f.envio_vendedor == null ? null : Number(f.envio_vendedor),
       });
     }
   }
@@ -383,36 +384,43 @@ export async function completarNetos(
     if (!o.pagos.length) continue;
     const c = cache.get(o.id);
     if (!c) porPedir.push(o);
-    else if (!c.cargosLeidos) porPedir.push(o);
+    else if (!c.cargosLeidos || !c.conPagoReal) porPedir.push(o);
     else if (o.fecha >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(o);
     else if (!c.netoLeido && o.total > 0) porPedir.push(o);
   }
 
   const nuevas: Record<string, unknown>[] = [];
+  const tarifas = new CacheTarifas(cliente);
   for (const o of porPedir.slice(0, tope)) {
     try {
       const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
       const previo = cache.get(o.id);
       const netoControl = previo?.netoLeido ? previo.neto : undefined;
-      const resumen = await leerResumenDeOrden(
-        cliente,
-        o.pagos,
-        o.total,
-        comisionOrden,
+      const contexto = o.orden ? contextoDeOrden(o.orden, Date.now()) : {};
+      if (previo?.envioVendedor != null) contexto.envioVendedor = previo.envioVendedor;
+      const resumen = await leerResumenDeOrden(cliente, {
+        pagos: o.pagos,
+        total: o.total,
+        comision: comisionOrden,
         netoControl,
-        previo?.reembolsoBase,
-        previo?.reembolsoBaseConfiable,
-      );
+        reembolsoIncluidoNetoBase: previo?.reembolsoBase,
+        reembolsoBaseConfiable: previo?.reembolsoBaseConfiable,
+        contexto,
+        renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: r.importe, categoria: r.categoria ?? null, listing: r.listing ?? null })),
+        tarifas,
+      });
       if (resumen.neto == null) continue;
       const neto = netoControl ?? resumen.neto;
       cache.set(o.id, {
         neto,
         netoActual: resumen.neto,
         actualizadoEn: new Date().toISOString(),
-        cargosLeidos: true,
+        cargosLeidos: resumen.cargosCompletos,
+        conPagoReal: true,
         netoLeido: true,
         reembolsoBase: resumen.reembolsoIncluidoNetoBase,
         reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+        envioVendedor: resumen.envioVendedor,
       });
       nuevas.push({
         account_id: accountId,
@@ -423,7 +431,8 @@ export async function completarNetos(
         neto,
         ...(netoControl != null ? { neto_actual: resumen.neto } : {}),
         ...camposLiquidacionMeli(resumen),
-        cargos_leidos_en: new Date().toISOString(),
+        ...columnasDeOrdenYz(o),
+        cargos_leidos_en: resumen.cargosCompletos ? new Date().toISOString() : null,
         neto_en: new Date().toISOString(),
         actualizado_en: new Date().toISOString(),
       });
