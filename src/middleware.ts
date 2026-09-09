@@ -61,6 +61,11 @@ export async function middleware(request: NextRequest) {
     // MELI y el resolutor de SKUs que se relanza solo con CRON_SECRET.
     ruta.startsWith("/api/yapanizcel/meli/callback") ||
     ruta.startsWith("/api/yapanizcel/skus-pendientes") ||
+    // El trabajo de fondo de netos de fundas (cron cada 10 min con
+    // CRON_SECRET; la ruta valida el bearer o la sesión). Sin esta línea el
+    // middleware lo mandaba al login con 307 y el cron nunca corrió: por eso
+    // fundas llevaba días sin netos reales ni desglose de cargos.
+    ruta.startsWith("/api/yapanizcel/netos") ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
     // El acceso sin contraseña a la sección de contenido: la puerta es el
