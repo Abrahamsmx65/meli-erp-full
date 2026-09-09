@@ -28,6 +28,10 @@ const CUOTAS: Record<string, [number, number]> = {
   getShipmentItems: [2, 30],
   searchCatalogItems: [2, 2],
   searchListingsItems: [5, 5],
+  // Finances API: 0.5 por segundo, ráfaga de 30 (cuota publicada).
+  listFinancialEventGroups: [0.5, 30],
+  listFinancialEvents: [0.5, 30],
+  listFinancialEventsByOrderId: [0.5, 30],
 };
 
 export interface CuentaAmazon {
