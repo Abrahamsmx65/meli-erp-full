@@ -193,7 +193,8 @@ export function TablaModelosVentas({
               </tr>
             ) : null}
           </tbody>
-          {datos.totalFiltrado > 1 ? (
+          {/* Siempre que haya filas: el total es lo que se coteja contra las fichas de arriba. */}
+          {datos.totalFiltrado > 0 ? (
             <tfoot>
               <tr style={{ background: "var(--surface-2)" }}>
                 <td className="font-semibold" colSpan={4}>

@@ -1,15 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import {
-  aplicarPublicidadAlMonitor,
-  cargarMonitor,
-  diasDeRango,
-  fechaMx,
-  normalizarRango,
-  type Movimiento,
-} from "@/lib/servicios/ventas-monitor";
-import type { FilaPublicidad } from "@/lib/servicios/publicidad";
-import { cargarPublicidad } from "@/lib/servicios/publicidad";
+import { diasDeRango, fechaMx, normalizarRango, type Movimiento } from "@/lib/servicios/ventas-monitor";
+import { vistaVentas } from "@/lib/servicios/ventas-vista";
+import { CascadaDinero } from "@/components/cascada-dinero";
 import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -59,29 +52,14 @@ export default async function Ventas({
     );
   }
 
-  // La publicidad del mismo periodo, para que la ganancia del panel ya la
-  // tenga descontada: recibo − costo − publicidad. Si Product Ads no
-  // contesta, el panel lo dice y la ganancia se muestra sin ads.
-  const [mSinAds, ads] = await Promise.all([
-    t.medir("monitor", cargarMonitor(supabase, cuenta.id, rango)),
-    t.medir(
-      "publicidad",
-      cargarPublicidad(supabase, cuenta, rango).catch((err) => ({
-        filas: [] as FilaPublicidad[],
-        totales: { gastoAds: 0 },
-        errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
-        advertencias: [] as string[],
-      })),
-    ),
-  ]);
+  // Todo llega masticado del servicio: el monitor con la publicidad ya
+  // descontada, la cascada real del dinero y los cuadres entre niveles.
+  // Esta página no hace ninguna cuenta.
+  const vista = await vistaVentas(supabase, cuenta, rango, t);
   t.fin();
-  const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
-  // Las tablas por modelo y por categoría descuentan la publicidad del
-  // modelo que la gastó (la regla del corte); sin dato de ads se quedan en
-  // neto − costo y la pantalla lo dice.
-  const adsPorModelo = ads.errorAds ? null : new Map(ads.filas.map((f) => [f.modelo, f.gastoAds]));
-  const m = aplicarPublicidadAlMonitor(mSinAds, adsPorModelo);
-  const gananciaConAds = gastoAds == null ? null : m.desglose.gananciaReal - gastoAds;
+  const { monitor: m, gastoAds, gananciaConAds, finanzas, cuadres } = vista;
+  const ads = { errorAds: vista.errorAds, advertencias: vista.advertenciasAds };
+  const descuadres = cuadres.filter((c) => c.diferencia !== 0);
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
 
   return (
@@ -145,42 +123,22 @@ export default async function Ventas({
       </div>
 
       {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
-      <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">A dónde se fue el dinero del periodo</h2>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-          La cuenta es: lo que Mercado Pago DEPOSITÓ por cada orden (ya sin comisión,
-          envío de Full ni retenciones) − costo del producto − publicidad = ganancia. El
-          neto es el depósito real donde ya llegó ({Math.round(m.desglose.coberturaNetoReal * 100)}%
-          del importe del periodo); donde aún no, se estima como importe − comisión.
-          Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
-          <Link href="/cortes" style={{ color: "var(--acento)" }}>
-            Corte general
-          </Link>
-          .
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
-          <Ficha titulo="Venta bruta" valor={pesos(m.desglose.bruto)} nota="Precio × unidades" />
-          <Ficha
-            titulo="Comisión MELI"
-            valor={pesos(-m.desglose.comision)}
-            nota="Cargo por venta (sale fee)"
-            tono={m.desglose.comision > 0 ? "alerta" : "neutro"}
-          />
-          <Ficha
-            titulo="Envíos y otros"
-            valor={m.desglose.enviosYOtros != null ? pesos(-m.desglose.enviosYOtros) : "—"}
-            nota={
-              m.desglose.enviosYOtros != null
-                ? "Fletes, retenciones y cargos, según el depósito real"
-                : "Se sabrá cuando llegue el neto real del periodo"
-            }
-            tono={(m.desglose.enviosYOtros ?? 0) > 0 ? "alerta" : "neutro"}
-          />
-          <Ficha
-            titulo="Neto depositado"
-            valor={pesos(m.desglose.neto)}
-            nota="Lo que Mercado Pago deposita"
-          />
+      <section className="tarjeta overflow-hidden">
+        <header className="border-b p-4 hairline">
+          <h2 className="text-base font-semibold">A dónde se fue el dinero del periodo</h2>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            Lo que Mercado Pago dice de cada orden: la venta bruta menos cada cargo,
+            hasta lo que recibes. Lo que Mercado Pago no desglosa o cuyo pago aún no
+            se ha leído aparece como «sin identificar», nunca repartido ni escondido.
+            Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
+            <Link href="/cortes" style={{ color: "var(--acento)" }}>
+              Corte general
+            </Link>
+            .
+          </p>
+        </header>
+        <CascadaDinero finanzas={finanzas} />
+        <div className="grid grid-cols-2 gap-3 border-t p-4 hairline md:grid-cols-4">
           <Ficha
             titulo="Costo de producto"
             valor={m.desglose.costoProducto > 0 ? pesos(-m.desglose.costoProducto) : "—"}
@@ -211,12 +169,19 @@ export default async function Ventas({
             }
           />
         </div>
+        {descuadres.length ? (
+          <footer
+            className="border-t p-3 text-xs hairline"
+            style={{ color: "var(--estado-critico)" }}
+            role="alert"
+          >
+            <strong>No cuadra:</strong>{" "}
+            {descuadres
+              .map((c) => `${c.que}: ${pesos(c.arriba)} arriba vs ${pesos(c.abajo)} abajo (${pesos(c.diferencia / 100)})`)
+              .join(" · ")}
+          </footer>
+        ) : null}
       </section>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
-        <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
-      </div>
 
       {m.porCategoria.length ? (
         <section className="tarjeta overflow-hidden">
@@ -264,6 +229,22 @@ export default async function Ventas({
                 </tr>
               ))}
             </tbody>
+            {/* El total va abajo para cotejarlo con las fichas de arriba: si
+                no cuadra, el aviso de la sección del dinero lo dice. */}
+            <tfoot>
+              <tr style={{ background: "var(--surface-2)" }}>
+                <td className="font-semibold">Total</td>
+                <td className="num cifra font-semibold">{n(m.porCategoria.reduce((a, c) => a + c.unidades7, 0))}</td>
+                <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.importe7, 0))}</td>
+                <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.neto7, 0))}</td>
+                <td className="num cifra font-semibold" style={{ color: "var(--ink-2)" }}>
+                  {gastoAds == null ? "—" : pesos(m.porCategoria.reduce((a, c) => a + (c.publicidad7 ?? 0), 0))}
+                </td>
+                <td className="num cifra font-semibold">
+                  {m.coberturaCosto > 0 ? pesos(m.porCategoria.reduce((a, c) => a + (c.ganancia7 ?? 0), 0)) : "—"}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </section>
       ) : null}
@@ -289,6 +270,12 @@ export default async function Ventas({
           })}
         />
       </section>
+
+      {/* ---- Lo que se mueve, al final: primero los números, luego el chisme */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
+        <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
+      </div>
     </div>
   );
 }

@@ -55,17 +55,20 @@ interface Guardado {
 }
 
 /**
- * Sirve el corte guardado del periodo y, si le toca, lo refresca en el
- * fondo con `after()` (fuera de un request no hay fondo y se queda como
- * está). Solo sin renglón —primera vez— se calcula en el clic.
+ * Sirve lo guardado del periodo y, si le toca, lo refresca en el fondo con
+ * `after()` (fuera de un request no hay fondo y se queda como está). Solo
+ * sin renglón —primera vez— se calcula en el clic.
+ *
+ * Es genérico a propósito: los cortes y el motor de finanzas lo comparten,
+ * para que "servir viejo y refrescar atrás" tenga UNA sola implementación.
  */
-async function obtenerConCachePorPeriodo(opts: {
+export async function obtenerConCachePorPeriodo<T>(opts: {
   periodo: string;
-  leer: () => Promise<ResultadoLecturaCache<Guardado>>;
-  guardar: (datos: EstadoResultados, msCalculo: number) => Promise<void>;
-  calcular: () => Promise<EstadoResultados>;
-}): Promise<EstadoResultados> {
-  const recalc = async (): Promise<EstadoResultados> => {
+  leer: () => Promise<ResultadoLecturaCache<{ datos: T; generadoEn: string; vigente: boolean }>>;
+  guardar: (datos: T, msCalculo: number) => Promise<void>;
+  calcular: () => Promise<T>;
+}): Promise<T> {
+  const recalc = async (): Promise<T> => {
     const t0 = Date.now();
     const e = await opts.calcular();
     await opts.guardar(e, Date.now() - t0);
