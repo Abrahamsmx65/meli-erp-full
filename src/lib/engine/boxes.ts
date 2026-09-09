@@ -65,6 +65,25 @@ interface Entrada {
   maxCajas?: number;
   /** tope de piezas por envío (0 o undefined = sin tope) */
   maxPiezas?: number;
+  /**
+   * Holgura sobre el objetivo, en PIEZAS por SKU: lo que le llegue de más
+   * hasta esa cantidad no cuenta como sobrante (queda en 32 días en vez de
+   * 30, y eso el negocio lo manda igual). Se descuenta lo que el SKU ya
+   * traiga arriba de su objetivo.
+   */
+  holguraSobrante?: Map<string, number>;
+  /**
+   * SKUs cuya caja de rescate NUNCA sube como opcional: producto NUEVO. A
+   * un producto nuevo se le rellena la caja y punto; marcarla opcional era
+   * dejar al usuario la decisión que el negocio ya tomó.
+   */
+  sinOpcional?: Set<string>;
+  /**
+   * Piso de cajas por código: cajas que viajan pase lo que pase (producto
+   * SIN ESTRENO: mínimo N cajas por modelo + color). Se ponen antes del
+   * codicioso y la búsqueda local no las puede quitar.
+   */
+  pisoPorCaja?: Map<string, number>;
 }
 
 /**
@@ -79,11 +98,13 @@ function costoSku(
   demanda: number,
   pf: number,
   ps: number,
+  holgura = 0,
 ): number {
   // Piso: un SKU casi muerto no debe generar "días" infinitos de error.
   const d = Math.max(demanda, 0.5);
   if (enviado < necesario) return (pf * prio * (necesario - enviado)) / d;
-  return (ps * castigo * (enviado - necesario)) / d;
+  // Lo que cabe en la holgura (objetivo + unos días) no es sobrante.
+  return (ps * castigo * Math.max(0, enviado - necesario - holgura)) / d;
 }
 
 export function optimizarCajas(e: Entrada): PlanCajas {
@@ -102,6 +123,8 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   // conocido sin ventas y el optimizador los metía como lastre gratis.
   const castigo = (s: string) => e.castigoSobrante?.get(s) ?? 4;
   const dem = (s: string) => e.demandaDiaria?.get(s) ?? 0.5;
+  const holg = (s: string) => e.holguraSobrante?.get(s) ?? 0;
+  const piso = (c: Caja) => e.pisoPorCaja?.get(c.codigo) ?? 0;
 
   const cajas = e.cajas.filter((c) => c.cajasDisponibles > 0 && c.items.length > 0);
   const piezasDe = new Map(
@@ -122,7 +145,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   const costoTotal = (): number => {
     let t = 0;
     for (const s of universo) {
-      t += costoSku(enviado.get(s) ?? 0, nec(s), prio(s), castigo(s), dem(s), pf, ps);
+      t += costoSku(enviado.get(s) ?? 0, nec(s), prio(s), castigo(s), dem(s), pf, ps, holg(s));
     }
     return t;
   };
@@ -134,8 +157,8 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       const actual = enviado.get(it.sku) ?? 0;
       const nuevo = Math.max(0, actual + signo * it.piezas);
       d +=
-        costoSku(nuevo, nec(it.sku), prio(it.sku), castigo(it.sku), dem(it.sku), pf, ps) -
-        costoSku(actual, nec(it.sku), prio(it.sku), castigo(it.sku), dem(it.sku), pf, ps);
+        costoSku(nuevo, nec(it.sku), prio(it.sku), castigo(it.sku), dem(it.sku), pf, ps, holg(it.sku)) -
+        costoSku(actual, nec(it.sku), prio(it.sku), castigo(it.sku), dem(it.sku), pf, ps, holg(it.sku));
     }
     return d;
   };
@@ -160,6 +183,13 @@ export function optimizarCajas(e: Entrada): PlanCajas {
     20_000,
     cajas.reduce((a, c) => a + c.cajasDisponibles, 0) + 50,
   );
+
+  // ---- Fase 0: pisos ------------------------------------------------------
+  // Cajas que viajan por decisión del negocio (producto sin estreno), antes
+  // de que el costo opine. Respetan disponibilidad y topes del envío.
+  for (const c of cajas) {
+    for (let i = 0; i < piso(c) && cabe(c); i++) aplicar(c, 1);
+  }
 
   // ---- Fase 1: codicioso -------------------------------------------------
   for (let i = 0; i < topeIteraciones; i++) {
@@ -199,8 +229,8 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       const actual = enviado.get(sku) ?? 0;
       const nuevo = Math.max(0, actual + cambio);
       d +=
-        costoSku(nuevo, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps) -
-        costoSku(actual, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps);
+        costoSku(nuevo, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps, holg(sku)) -
+        costoSku(actual, nec(sku), prio(sku), castigo(sku), dem(sku), pf, ps, holg(sku));
     }
     return d;
   };
@@ -237,9 +267,9 @@ export function optimizarCajas(e: Entrada): PlanCajas {
   while (mejoro && vueltas++ < 60) {
     mejoro = false;
 
-    // Quitar una caja que ya no aporta.
+    // Quitar una caja que ya no aporta (nunca por debajo de su piso).
     for (const c of cajas) {
-      if ((q.get(c.codigo) ?? 0) <= 0) continue;
+      if ((q.get(c.codigo) ?? 0) <= piso(c)) continue;
       if (delta(c, -1) < -1e-9) {
         aplicar(c, -1);
         mejoro = true;
@@ -248,7 +278,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
 
     // Permutar: cambiar una caja de tipo A por una de tipo B.
     for (const a of cajas) {
-      if ((q.get(a.codigo) ?? 0) <= 0) continue;
+      if ((q.get(a.codigo) ?? 0) <= piso(a)) continue;
       for (const b of candidatas(a)) {
         if ((q.get(b.codigo) ?? 0) >= b.cajasDisponibles) continue;
         // Con tope de piezas, la permuta puede no caber aunque el conteo sí.
@@ -260,7 +290,7 @@ export function optimizarCajas(e: Entrada): PlanCajas {
           aplicar(a, -1);
           aplicar(b, 1);
           mejoro = true;
-          if ((q.get(a.codigo) ?? 0) <= 0) break;
+          if ((q.get(a.codigo) ?? 0) <= piso(a)) break;
         }
       }
     }
@@ -308,7 +338,8 @@ export function optimizarCajas(e: Entrada): PlanCajas {
       let piezas = 0;
       for (const it of c.items) {
         piezas += it.piezas;
-        const falta = Math.max(0, nec(it.sku) - (enviado.get(it.sku) ?? 0));
+        // Lo que cae dentro de la holgura del objetivo también es útil.
+        const falta = Math.max(0, nec(it.sku) + holg(it.sku) - (enviado.get(it.sku) ?? 0));
         utiles += Math.min(falta, it.piezas);
       }
       const puntaje = piezas > 0 ? utiles / piezas : 0;
@@ -339,7 +370,9 @@ export function optimizarCajas(e: Entrada): PlanCajas {
     // y el usuario decide si la fracción viaja.
     const esMediaCaja =
       (e.mediaCajaOpcional?.has(skuFalta) ?? false) && faltaTalla < traeTalla;
-    if ((mejorPuntaje < 0.35 && !esRecorte) || esMediaCaja) {
+    // Producto NUEVO: su caja de rescate va firme, nunca opcional.
+    const esNuevo = e.sinOpcional?.has(skuFalta) ?? false;
+    if (((mejorPuntaje < 0.35 && !esRecorte) || esMediaCaja) && !esNuevo) {
       opcionales.set(mejor.codigo, (opcionales.get(mejor.codigo) ?? 0) + 1);
     }
   }
