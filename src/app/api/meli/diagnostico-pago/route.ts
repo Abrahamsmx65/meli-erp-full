@@ -65,6 +65,48 @@ export async function GET(req: NextRequest) {
     errorOrden = (err as Error).message;
   }
 
+  // ?solo=reclamos: sonda compacta de los reclamos/devoluciones de la orden
+  // (quién absorbió el reembolso y si el producto volvió a la venta), sin
+  // los pagos. Varias rutas candidatas: se enseña cuál contesta y qué trae.
+  if (req.nextUrl.searchParams.get("solo") === "reclamos") {
+    const sonda: Record<string, unknown> = { orden: ordenId, status: orden?.status ?? null, tags: orden?.tags ?? null, mediations: orden?.mediations ?? null };
+    const rutas = [
+      `/post-purchase/v1/claims/search?resource=order&resource_id=${ordenId}`,
+      `/post-purchase/v1/claims/search?order_id=${ordenId}`,
+      `/v1/claims/search?resource_id=${ordenId}&resource=order`,
+    ];
+    const claims: Record<string, unknown>[] = [];
+    for (const ruta of rutas) {
+      try {
+        const r = await cliente.get<any>(ruta, undefined, { reintentos: 0 });
+        const lista = Array.isArray(r?.data) ? r.data : Array.isArray(r?.results) ? r.results : Array.isArray(r) ? r : [];
+        sonda[ruta] = { ok: true, total: lista.length, llaves: Object.keys(r ?? {}).slice(0, 12) };
+        for (const c of lista) if (c?.id && !claims.some((x) => x.id === c.id)) claims.push(c);
+      } catch (err) {
+        sonda[ruta] = { ok: false, error: (err as Error).message.slice(0, 200) };
+      }
+    }
+    const compacta = (c: any) => ({
+      id: c?.id, type: c?.type, stage: c?.stage, status: c?.status, reason_id: c?.reason_id, parent_id: c?.parent_id,
+      resolution: c?.resolution, players: (c?.players ?? []).map((p: any) => ({ role: p?.role, type: p?.type })), date_created: c?.date_created, last_updated: c?.last_updated,
+      llaves: Object.keys(c ?? {}),
+    });
+    sonda.reclamos = claims.map(compacta);
+    const detalles: Record<string, unknown> = {};
+    for (const c of claims.slice(0, 3)) {
+      for (const ruta of [`/post-purchase/v1/claims/${c.id}`, `/post-purchase/v1/claims/${c.id}/returns`, `/post-purchase/v2/claims/${c.id}/returns`, `/post-purchase/v1/claims/${c.id}/charges`]) {
+        try {
+          const r = await cliente.get<any>(ruta, undefined, { reintentos: 0 });
+          detalles[ruta] = r;
+        } catch (err) {
+          detalles[ruta] = { error: (err as Error).message.slice(0, 160) };
+        }
+      }
+    }
+    sonda.detalles = detalles;
+    return NextResponse.json(sonda, { headers: { "Cache-Control": "no-store" } });
+  }
+
   const idsPago: string[] = (orden?.payments ?? [])
     .map((p: any) => String(p?.id ?? ""))
     .filter(Boolean);
