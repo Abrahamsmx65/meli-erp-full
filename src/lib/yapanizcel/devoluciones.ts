@@ -14,7 +14,7 @@ import { camposLiquidacionMeli, pagosCobrablesCompletos, type PagoMercadoPago } 
 import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
 import { columnasDeReclamos, leerReclamosDeOrden, skuDesdeOrdenCruda } from "../meli/reclamos";
 import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
-import { SEGUNDA_REVISION_DIAS, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
+import { SEGUNDA_REVISION_DIAS, filtroTocaRevision, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 
@@ -89,12 +89,32 @@ export async function revisarOrdenesYz(
   opts: { desde: string; hasta: string; tope: number; finMs: number; sinEsperar?: boolean },
 ): Promise<ResultadoRevision> {
   const hoy = hoyMx();
-  const filas = await todo<any>(
-    admin,
-    "yz_ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, total, neto, neto_pago, ajuste_envio, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor",
-    (q) => q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
-  );
+  const columnas =
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_pago, ajuste_envio, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
+  // El filtro de "toca revisar" va en la consulta (ver filtroTocaRevision)
+  // y solo se bajan las más viejas hasta el tope: sin eso cada corrida
+  // bajaba ~80 mil órdenes con jsonb para revisar 150 (9-sep-2026, la
+  // base se reinició ocho veces).
+  let filas: any[];
+  if (opts.sinEsperar) {
+    filas = await todo<any>(admin, "yz_ordenes_neto", columnas, (q) =>
+      q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
+    );
+  } else {
+    const { data, error } = await admin
+      .from("yz_ordenes_neto")
+      .select(columnas)
+      .eq("account_id", accountId)
+      .gte("fecha", opts.desde)
+      .lte("fecha", opts.hasta)
+      .lt("revisiones", 2)
+      .or(filtroTocaRevision(hoy))
+      .order("fecha", { ascending: true })
+      .order("order_id", { ascending: true })
+      .limit(Math.max(opts.tope, 1));
+    if (error) throw new Error(`yz_ordenes_neto: ${error.message}`);
+    filas = data ?? [];
+  }
   const pendientes = filas
     .filter((f) => tocaRevision(f.fecha, f.revisiones ?? 0, hoy, opts.sinEsperar))
     .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));

@@ -85,6 +85,16 @@ export function tocaRevision(
   return dias >= SEGUNDA_REVISION_DIAS;
 }
 
+/**
+ * `tocaRevision` como filtro de PostgREST: primera revisión a los 10 días
+ * (revisiones = 0), segunda a los 40 (revisiones = 1). Se aplica sobre la
+ * consulta para no bajar lo que aún no toca.
+ */
+export function filtroTocaRevision(hoy: string): string {
+  const limite = (dias: number) => new Date(Date.parse(hoy) - dias * 86_400_000).toISOString().slice(0, 10);
+  return `and(revisiones.eq.0,fecha.lte.${limite(PRIMERA_REVISION_DIAS)}),and(revisiones.eq.1,fecha.lte.${limite(SEGUNDA_REVISION_DIAS)})`;
+}
+
 export interface ResultadoRevision {
   revisadas: number;
   canceladas: number;
@@ -272,11 +282,34 @@ export async function revisarOrdenes(
   const hoy = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
   const columnas =
     "order_id, payment_id, payment_ids, fecha, total, neto, neto_pago, ajuste_envio, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
-  const filas = opts.ordenIds?.length
-    ? await traerTodo<any>(db, "ordenes_neto", columnas, (q) => q.eq("account_id", accountId).in("order_id", opts.ordenIds!))
-    : await traerTodo<any>(db, "ordenes_neto", columnas, (q) =>
-        q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
-      );
+  // El filtro de "toca revisar" va EN LA CONSULTA (misma regla que
+  // tocaRevision): sin él, cada latido bajaba las ~50 mil órdenes de 60
+  // días con sus renglones jsonb para revisar 150, y esa carga tiró
+  // Postgres ocho veces el 9-sep-2026.
+  // Y se bajan solo las más viejas hasta el tope (lo que se va a revisar en
+  // esta corrida), no el rezago completo.
+  let filas: any[];
+  if (opts.ordenIds?.length) {
+    filas = await traerTodo<any>(db, "ordenes_neto", columnas, (q) => q.eq("account_id", accountId).in("order_id", opts.ordenIds!));
+  } else if (opts.sinEsperar) {
+    filas = await traerTodo<any>(db, "ordenes_neto", columnas, (q) =>
+      q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
+    );
+  } else {
+    const { data, error } = await db
+      .from("ordenes_neto")
+      .select(columnas)
+      .eq("account_id", accountId)
+      .gte("fecha", opts.desde)
+      .lte("fecha", opts.hasta)
+      .lt("revisiones", 2)
+      .or(filtroTocaRevision(hoy))
+      .order("fecha", { ascending: true })
+      .order("order_id", { ascending: true })
+      .limit(Math.max(opts.tope, 1));
+    if (error) throw new Error(`ordenes_neto: ${error.message}`);
+    filas = data ?? [];
+  }
   let mapaItemSku: Map<string, string> | null = null;
   const tarifas = opts.tarifas ?? new CacheTarifas(cliente);
 
