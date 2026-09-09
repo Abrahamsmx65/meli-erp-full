@@ -22,12 +22,14 @@ export type MapaCostos = Map<string, ConfigProducto>;
 
 /** La cuenta de MELI de calzado (la primera): ahí vive productos_config. */
 export async function cuentaCalzadoId(db: DB): Promise<string | null> {
-  const { data } = await db.from("meli_accounts").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+  const { data, error } = await db.from("meli_accounts").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+  if (error) throw new Error(`meli_accounts: ${error.message ?? String(error)}`);
   return data?.id ?? null;
 }
 
-async function cuentaFundasId(db: DB): Promise<string | null> {
-  const { data } = await db.from("yz_cuentas").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+export async function cuentaFundasId(db: DB): Promise<string | null> {
+  const { data, error } = await db.from("yz_cuentas").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+  if (error) throw new Error(`yz_cuentas: ${error.message ?? String(error)}`);
   return data?.id ?? null;
 }
 
@@ -92,9 +94,7 @@ export async function mapaCostosUnificado(
   const [config, yz] = await Promise.all([
     meliId ? configPorProducto(db, meliId) : Promise.resolve(new Map<string, ConfigProducto>()),
     yzId
-      ? todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", yzId)).catch(
-          () => [] as { modelo: string; costo: number }[],
-        )
+      ? todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", yzId))
       : Promise.resolve([] as { modelo: string; costo: number }[]),
   ]);
   const mapa: MapaCostos = new Map();

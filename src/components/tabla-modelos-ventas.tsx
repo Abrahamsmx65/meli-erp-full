@@ -1,16 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { FilaModelo } from "@/lib/servicios/ventas-monitor";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  expandirFilaModelo,
+  type ClaveTablaVentas,
+  type PaginaTablaVentas,
+} from "@/lib/servicios/ventas-tabla";
 
 /**
  * La tabla "Por modelo" del monitor de ventas, con buscador, filtro por
- * categoría y columnas ordenables. Todo en el navegador: los renglones ya
- * vienen calculados del servidor y son unos cientos, no hace falta ir por
- * ellos otra vez para reordenarlos.
+ * categoría y columnas ordenables. Las filas llegan calculadas y compactas;
+ * el trabajo derivado se difiere y el DOM se pagina para no frenar el
+ * navegador aunque aumente el catálogo.
  */
 
-type Clave = "modelo" | "categoria" | "colores" | "unidadesHoy" | "unidades7" | "unidades7Prev" | "cambio" | "importe7" | "neto7" | "publicidad7" | "ganancia7";
+type Clave = ClaveTablaVentas;
 
 const COLUMNAS: { clave: Clave; titulo: string; num: boolean }[] = [
   { clave: "modelo", titulo: "Modelo", num: false },
@@ -33,64 +37,66 @@ function pesos(x: number): string {
   return "$" + Math.round(x).toLocaleString("es-MX");
 }
 
-function valor(f: FilaModelo, clave: Clave): string | number | null {
-  if (clave === "cambio") return f.unidades7 - f.unidades7Prev;
-  return f[clave];
-}
-
-export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
+export function TablaModelosVentas({
+  desde,
+  hasta,
+  inicial,
+}: {
+  desde: string;
+  hasta: string;
+  inicial: PaginaTablaVentas;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const [categoria, setCategoria] = useState("");
   const [orden, setOrden] = useState<{ clave: Clave; desc: boolean }>({ clave: "unidades7", desc: true });
+  const [pagina, setPagina] = useState(1);
+  const [datos, setDatos] = useState(inicial);
+  const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const primeraCarga = useRef(true);
+  const busquedaDiferida = useDeferredValue(busqueda);
 
-  const categorias = useMemo(
-    () => [...new Set(filas.map((f) => f.categoria ?? "Sin categoría"))].sort((a, b) => a.localeCompare(b, "es")),
-    [filas],
-  );
-
-  const visibles = useMemo(() => {
-    const q = busqueda.trim().toUpperCase();
-    const lista = filas.filter((f) => {
-      if (categoria && (f.categoria ?? "Sin categoría") !== categoria) return false;
-      // Busca por modelo o por el inicio de un SKU (GT114-NEGRO-25 → GT114).
-      if (q && !f.modelo.toUpperCase().includes(q) && !q.startsWith(f.modelo.toUpperCase() + "-")) return false;
-      return true;
-    });
-    const dir = orden.desc ? -1 : 1;
-    lista.sort((a, b) => {
-      const va = valor(a, orden.clave);
-      const vb = valor(b, orden.clave);
-      // Lo que no tiene dato (sin costo, sin categoría) siempre va al final.
-      if (va == null && vb == null) return a.modelo.localeCompare(b.modelo, "es");
-      if (va == null) return 1;
-      if (vb == null) return -1;
-      if (typeof va === "string" || typeof vb === "string") return dir * String(va).localeCompare(String(vb), "es");
-      return dir * (va - vb) || a.modelo.localeCompare(b.modelo, "es");
-    });
-    return lista;
-  }, [filas, busqueda, categoria, orden]);
-
-  const totales = useMemo(() => {
-    const t = { unidades7: 0, unidades7Prev: 0, importe7: 0, neto7: 0, publicidad7: 0, conAds: false, ganancia7: 0, conCosto: false };
-    for (const f of visibles) {
-      t.unidades7 += f.unidades7;
-      t.unidades7Prev += f.unidades7Prev;
-      t.importe7 += f.importe7;
-      t.neto7 += f.neto7;
-      if (f.publicidad7 != null) {
-        t.publicidad7 += f.publicidad7;
-        t.conAds = true;
-      }
-      if (f.ganancia7 != null) {
-        t.ganancia7 += f.ganancia7;
-        t.conCosto = true;
-      }
+  useEffect(() => {
+    if (primeraCarga.current) {
+      primeraCarga.current = false;
+      return;
     }
-    return t;
-  }, [visibles]);
+    const controlador = new AbortController();
+    const parametros = new URLSearchParams({
+      desde,
+      hasta,
+      busqueda: busquedaDiferida,
+      categoria,
+      orden: orden.clave,
+      desc: String(orden.desc),
+      pagina: String(pagina),
+    });
+    setCargando(true);
+    setError(null);
+    fetch(`/api/ventas/modelos?${parametros}`, { signal: controlador.signal })
+      .then(async (respuesta) => {
+        const cuerpo = await respuesta.json();
+        if (!respuesta.ok) throw new Error(cuerpo.error ?? "No se pudo cargar la tabla.");
+        return cuerpo as PaginaTablaVentas;
+      })
+      .then(setDatos)
+      .catch((err) => {
+        if ((err as Error).name !== "AbortError") setError((err as Error).message);
+      })
+      .finally(() => {
+        if (!controlador.signal.aborted) setCargando(false);
+      });
+    return () => controlador.abort();
+  }, [desde, hasta, busquedaDiferida, categoria, orden, pagina]);
 
-  const ordenarPor = (clave: Clave) =>
+  const renderizadas = useMemo(() => datos.filas.map(expandirFilaModelo), [datos.filas]);
+  const { paginas, totales } = datos;
+  const paginaSegura = datos.pagina;
+
+  const ordenarPor = (clave: Clave) => {
+    setPagina(1);
     setOrden((o) => (o.clave === clave ? { clave, desc: !o.desc } : { clave, desc: clave !== "modelo" && clave !== "categoria" }));
+  };
 
   const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--estado-critico)" : "var(--ink-muted)");
 
@@ -100,7 +106,10 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
         <input
           type="search"
           value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setPagina(1);
+          }}
           placeholder="Modelo o SKU (GT114, GT114-NEGRO-25…)"
           className="min-w-[16rem] rounded-lg border px-2 py-1 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -108,20 +117,24 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
         />
         <select
           value={categoria}
-          onChange={(e) => setCategoria(e.target.value)}
+          onChange={(e) => {
+            setCategoria(e.target.value);
+            setPagina(1);
+          }}
           className="rounded-lg border px-2 py-1 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Categoría"
         >
           <option value="">Todas las categorías</option>
-          {categorias.map((c) => (
+          {datos.categorias.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
         <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
-          {visibles.length} de {filas.length} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
+          {busqueda !== busquedaDiferida || cargando ? "Actualizando… · " : ""}
+          {datos.totalFiltrado} de {datos.totalCatalogo} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
           {orden.desc ? "↓" : "↑"}
         </span>
       </div>
@@ -146,7 +159,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
             </tr>
           </thead>
           <tbody>
-            {visibles.map((f) => {
+            {renderizadas.map((f) => {
               const delta = f.unidades7 - f.unidades7Prev;
               return (
                 <tr key={f.modelo}>
@@ -172,7 +185,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
                 </tr>
               );
             })}
-            {visibles.length === 0 ? (
+            {datos.totalFiltrado === 0 ? (
               <tr>
                 <td colSpan={COLUMNAS.length} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
                   Ningún modelo coincide con el filtro.
@@ -180,7 +193,7 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
               </tr>
             ) : null}
           </tbody>
-          {visibles.length > 1 ? (
+          {datos.totalFiltrado > 1 ? (
             <tfoot>
               <tr style={{ background: "var(--surface-2)" }}>
                 <td className="font-semibold" colSpan={4}>
@@ -203,6 +216,45 @@ export function TablaModelosVentas({ filas }: { filas: FilaModelo[] }) {
           ) : null}
         </table>
       </div>
+      {error ? (
+        <p className="border-t p-3 text-sm hairline" role="alert" style={{ color: "var(--estado-critico)" }}>
+          {error}
+        </p>
+      ) : null}
+      {paginas > 1 ? (
+        <nav
+          aria-label="Páginas de modelos"
+          className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
+        >
+          <span style={{ color: "var(--ink-2)" }}>
+            Mostrando {(paginaSegura - 1) * datos.filasPorPagina + 1}–
+            {Math.min(paginaSegura * datos.filasPorPagina, datos.totalFiltrado)} de {datos.totalFiltrado}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={paginaSegura === 1}
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              className="rounded-lg border px-3 py-1 disabled:opacity-40"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Anterior
+            </button>
+            <span className="cifra">
+              {paginaSegura} / {paginas}
+            </span>
+            <button
+              type="button"
+              disabled={paginaSegura === paginas}
+              onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
+              className="rounded-lg border px-3 py-1 disabled:opacity-40"
+              style={{ borderColor: "var(--borde)" }}
+            >
+              Siguiente
+            </button>
+          </div>
+        </nav>
+      ) : null}
     </div>
   );
 }

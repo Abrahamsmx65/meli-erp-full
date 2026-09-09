@@ -10,6 +10,7 @@
  * puede correr cada pocos segundos sin despeinar a nadie.
  */
 import { MeliClient } from "../meli/client";
+import { camposLiquidacionMeli, leerPagoMercadoPago, netoVigente, resumirPagosMeli } from "../meli/pagos";
 import { detallarItems, dedupePorSku, esEnTransito, claveItem } from "../meli/sync";
 import { aISO } from "../engine/fechas";
 import { desglosarSku, guardarVentasDiarias } from "./sync";
@@ -313,8 +314,8 @@ export async function repararVentasHistoricas(
  * 150 en 150 y un día trae más de mil. Esto re-barre cada día CON ceros
  * hasta que su neto queda completo (o se agotan los intentos: hay órdenes
  * cuyo neto es 0 de verdad, como las reembolsadas), de anteayer hacia atrás
- * hasta 35 días. Corre después de la reparación del historial y solo cuando
- * aquella ya terminó.
+ * hasta la orden histórica más antigua que siga pendiente. Corre después de
+ * la reparación del historial y solo cuando aquella ya terminó.
  */
 export async function repararNetosHistoricos(
   db: DB,
@@ -325,7 +326,7 @@ export async function repararNetosHistoricos(
     .from("sync_log")
     .select("detalle")
     .eq("account_id", accountId)
-    .eq("tarea", "reparacion_netos_v1")
+    .eq("tarea", "reparacion_netos_v2")
     .eq("estado", "ok")
     .order("inicio", { ascending: false })
     .limit(1)
@@ -333,23 +334,37 @@ export async function repararNetosHistoricos(
   if (marca?.detalle?.completo) return { pasadas: 0, completo: true };
 
   const ahoraMx = Date.now() - 6 * 3_600_000;
-  const fondo = new Date(ahoraMx - 35 * 86_400_000).toISOString().slice(0, 10);
   // Se arranca en anteayer: hoy y ayer los re-barre el latido solo.
   const arranque = new Date(ahoraMx - 2 * 86_400_000).toISOString().slice(0, 10);
+  const { data: pendienteMasAntigua } = await db
+    .from("ordenes_neto")
+    .select("fecha")
+    .eq("account_id", accountId)
+    .gt("total", 0)
+    .or("neto.lte.0,cargos_leidos_en.is.null")
+    .or("estado.is.null,estado.neq.cancelled")
+    .order("fecha", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const fondo = typeof pendienteMasAntigua?.fecha === "string" ? pendienteMasAntigua.fecha : arranque;
   let fecha: string =
     typeof marca?.detalle?.fecha === "string" ? marca.detalle.fecha : arranque;
   if (fecha > arranque) fecha = arranque;
   let intentos: number = typeof marca?.detalle?.intentos === "number" ? marca.detalle.intentos : 0;
 
-  const ceros = async (dia: string): Promise<number> => {
-    const { count } = await db
-      .from("ventas_diarias")
-      .select("sku", { count: "exact", head: true })
+  const pendientesDelDia = async (dia: string): Promise<{ todos: number; sinCargos: number }> => {
+    const base = () => db
+      .from("ordenes_neto")
+      .select("order_id", { count: "exact", head: true })
       .eq("account_id", accountId)
       .eq("fecha", dia)
-      .gt("importe", 0)
-      .lte("neto", 0);
-    return count ?? 0;
+      .gt("total", 0)
+      .or("estado.is.null,estado.neq.cancelled");
+    const [{ count: todos }, { count: sinCargos }] = await Promise.all([
+      base().or("neto.lte.0,cargos_leidos_en.is.null"),
+      base().is("cargos_leidos_en", null),
+    ]);
+    return { todos: todos ?? 0, sinCargos: sinCargos ?? 0 };
   };
 
   const cliente = await clienteDeCuenta(db, accountId);
@@ -361,8 +376,8 @@ export async function repararNetosHistoricos(
   // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago): con dos
   // por latido basta, lo demás es avanzar gratis por días ya sanos.
   while (fecha >= fondo && pasadas < 2 && Date.now() < finMs - 40_000) {
-    const antes = await ceros(fecha);
-    if (antes === 0) {
+    const antes = await pendientesDelDia(fecha);
+    if (antes.todos === 0) {
       fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
       intentos = 0;
       continue;
@@ -374,11 +389,11 @@ export async function repararNetosHistoricos(
     }
     intentos++;
     pasadas++;
-    const despues = await ceros(fecha);
-    bitacora.push({ fecha, intento: intentos, cerosAntes: antes, cerosDespues: despues });
+    const despues = await pendientesDelDia(fecha);
+    bitacora.push({ fecha, intento: intentos, pendientesAntes: antes.todos, pendientesDespues: despues.todos, sinCargos: despues.sinCargos });
     // Un día de ~1,200 órdenes necesita ~8 pasadas (150 netos por pasada);
     // 12 es el tope para los días con ceros legítimos (reembolsos).
-    if (despues === 0 || intentos >= 12) {
+    if (despues.todos === 0 || (despues.sinCargos === 0 && intentos >= 12)) {
       fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
       intentos = 0;
     }
@@ -398,7 +413,7 @@ export async function repararNetosHistoricos(
   }
   await db.from("sync_log").insert({
     account_id: accountId,
-    tarea: "reparacion_netos_v1",
+    tarea: "reparacion_netos_v2",
     estado: "ok",
     fin: new Date().toISOString(),
     detalle: { fecha, intentos, completo, pasadas, bitacora },
@@ -572,11 +587,15 @@ export async function recalcularDiaVentas(
       ordenes: v.ordenes,
       importe: v.importe,
       comision: v.comision,
+      neto_confirmado: false,
     };
     // El neto solo se escribe cuando el día quedó completo: escribir un
     // parcial pisaría un valor bueno con uno a medias.
     const neto = netoPorClave.get(clave);
-    if (neto !== undefined) base.neto = Math.round(neto * 100) / 100;
+    if (neto !== undefined) {
+      base.neto = Math.round(neto * 100) / 100;
+      base.neto_confirmado = true;
+    }
     return base;
   });
 
@@ -660,8 +679,8 @@ export async function recalcularDiaVentas(
  * Va con caché en `ordenes_neto` porque cada consulta a Mercado Pago cuesta
  * una llamada: solo se piden las órdenes nuevas y las recientes (los cargos
  * de envío y retenciones llegan DIFERIDOS, minutos después del pago, así que
- * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
- * solo para los días donde TODAS sus órdenes ya tienen neto conocido.
+   * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
+   * solo cuando TODAS las órdenes de ese SKU|día tienen neto conocido.
  */
 async function netosDelDia(
   db: DB,
@@ -678,16 +697,32 @@ async function netosDelDia(
   // Caché existente. Si la tabla no existe (migración 0012 pendiente), el
   // neto simplemente no se calcula todavía.
   const ids = [...ordenes.keys()];
-  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  const cache = new Map<number, {
+    neto: number;
+    netoActual: number | null;
+    actualizadoEn: string;
+    cargosLeidos: boolean;
+    netoLeido: boolean;
+    reembolsoBase: number | null;
+    reembolsoBaseConfiable: boolean | null;
+  }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data, error } = await db
       .from("ordenes_neto")
-      .select("order_id, neto, actualizado_en")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, reembolso_incluido_neto_base, reembolso_base_confiable")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     if (error) return vacio;
     for (const f of data ?? []) {
-      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+      cache.set(Number(f.order_id), {
+        neto: Number(f.neto),
+        netoActual: f.neto_actual == null ? null : Number(f.neto_actual),
+        actualizadoEn: f.actualizado_en,
+        cargosLeidos: f.cargos_leidos_en != null,
+        netoLeido: f.neto_en != null,
+        reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+        reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+      });
     }
   }
 
@@ -700,11 +735,12 @@ async function netosDelDia(
     if (!o.paymentIds.length) continue;
     const c = cache.get(id);
     if (!c) porPedir.push(id);
+    else if (!c.cargosLeidos) porPedir.push(id);
     else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
     // Un neto cacheado en 0 con la orden cobrada es basura del error viejo
     // de multipagos (se guardaba solo el primer pago, aunque estuviera
     // rechazado): se vuelve a pedir sin importar la edad.
-    else if (c.neto <= 0 && o.total > 0) porPedir.push(id);
+    else if (!c.netoLeido && o.total > 0) porPedir.push(id);
   }
 
   // Tope por barrido para no comerse el tiempo: lo que falte lo recoge el
@@ -715,19 +751,35 @@ async function netosDelDia(
     try {
       // Una orden puede tener VARIOS pagos (dos tarjetas, o un intento
       // rechazado y el bueno): el neto de la orden es la suma de todos.
-      let neto = 0;
-      let algunDato = false;
+      const pagos = [];
       for (const paymentId of o.paymentIds) {
-        const r = await cliente.get<{ net_received_amount?: number }>(
-          `/collections/${paymentId}`,
-        );
-        if (typeof r?.net_received_amount === "number") {
-          neto += r.net_received_amount;
-          algunDato = true;
-        }
+        pagos.push(leerPagoMercadoPago(await cliente.get<unknown>(`/collections/${paymentId}`)));
       }
-      if (!algunDato) continue;
-      cache.set(id, { neto, actualizadoEn: new Date().toISOString() });
+      const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
+      const previo = cache.get(id);
+      const netoControl = previo?.netoLeido ? previo.neto : undefined;
+      const resumen = resumirPagosMeli(
+        pagos,
+        o.total,
+        comisionOrden,
+        netoControl,
+        previo?.reembolsoBase,
+        previo?.reembolsoBaseConfiable,
+      );
+      if (resumen.neto == null) continue;
+      // `neto` es la cifra original de control. Una relectura posterior se
+      // guarda en `neto_actual`: alimenta ventas diarias sin pisar el original
+      // que el corte necesita para conciliar devoluciones y ajustes.
+      const neto = netoControl ?? resumen.neto;
+      cache.set(id, {
+        neto,
+        netoActual: resumen.neto,
+        actualizadoEn: new Date().toISOString(),
+        cargosLeidos: true,
+        netoLeido: true,
+        reembolsoBase: resumen.reembolsoIncluidoNetoBase,
+        reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+      });
       nuevas.push({
         account_id: accountId,
         order_id: id,
@@ -740,6 +792,10 @@ async function netosDelDia(
         fecha: o.dia,
         total: o.total,
         neto,
+        ...(netoControl != null ? { neto_actual: resumen.neto } : {}),
+        ...camposLiquidacionMeli(resumen),
+        neto_en: new Date().toISOString(),
+        cargos_leidos_en: new Date().toISOString(),
         actualizado_en: new Date().toISOString(),
       });
     } catch {
@@ -750,26 +806,23 @@ async function netosDelDia(
     await db.from("ordenes_neto").upsert(nuevas, { onConflict: "account_id,order_id" });
   }
 
-  // Repartir el neto de cada orden entre sus renglones, y solo entregar los
-  // días completos (todas sus órdenes con neto conocido).
+  // Repartir el neto de cada orden entre sus renglones. Un SKU pendiente no
+  // borra el cero/negativo confirmado de otro SKU del mismo día.
   const porClave = new Map<string, number>();
-  const diasIncompletos = new Set<string>();
+  const clavesIncompletas = new Set<string>();
   for (const [id, o] of ordenes) {
     const c = cache.get(id);
-    if (!c) {
-      diasIncompletos.add(o.dia);
+    if (!c || !c.netoLeido) {
+      for (const r of o.renglones) clavesIncompletas.add(r.clave);
       continue;
     }
     const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
     if (importeOrden <= 0) continue;
     for (const r of o.renglones) {
-      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + c.neto * (r.importe / importeOrden));
+      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + netoVigente(c.neto, c.netoActual) * (r.importe / importeOrden));
     }
   }
-  for (const clave of [...porClave.keys()]) {
-    const dia = clave.slice(clave.lastIndexOf("|") + 1);
-    if (diasIncompletos.has(dia)) porClave.delete(clave);
-  }
+  for (const clave of clavesIncompletas) porClave.delete(clave);
   return porClave;
 }
 

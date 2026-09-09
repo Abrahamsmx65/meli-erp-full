@@ -47,11 +47,31 @@ export async function GET(request: NextRequest) {
 
   const modelo = (request.nextUrl.searchParams.get("modelo") ?? "").trim().toUpperCase();
 
-  const [planEstado, inventario, amazon] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
-    cargarInventario(supabase, cuenta.id),
-    amazonParaCompras(supabase),
-  ]);
+  let planEstado;
+  let inventario;
+  let amazonEstado;
+  try {
+    [planEstado, inventario, amazonEstado] = await Promise.all([
+      obtenerPlan(supabase, cuenta.id),
+      cargarInventario(supabase, cuenta.id),
+      amazonParaCompras(supabase),
+    ]);
+  } catch (err) {
+    return NextResponse.json(
+      { error: `No se pudo generar el Excel porque faltan datos de Amazon: ${(err as Error).message}` },
+      { status: 503 },
+    );
+  }
+  if (amazonEstado.advertencias.length) {
+    return NextResponse.json(
+      {
+        error:
+          "No se generó el Excel porque los datos de Amazon están incompletos. Intenta de nuevo cuando se recupere la lectura.",
+        detalles: amazonEstado.advertencias,
+      },
+      { status: 503 },
+    );
+  }
 
   const inventarioPorSku = new Map(
     inventario.renglones.map((r) => [
@@ -72,7 +92,7 @@ export async function GET(request: NextRequest) {
     inventarioPorSku,
     undefined,
     inventario.crudos,
-    amazon,
+    amazonEstado.datos,
   );
 
   // Opción 1 (descontando stock) y opción 2 (solo venta) traen listas

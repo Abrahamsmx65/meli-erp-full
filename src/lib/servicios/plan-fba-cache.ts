@@ -26,6 +26,7 @@ import { separarEnvios, type PlanDeEnvios } from "./envios";
 import { desglosarOpcionales, type DesgloseOpcionales } from "../reporte/opcionales";
 import { normalizarParametros } from "../engine/params";
 import { indexarCatalogo } from "../etiquetas/resolver";
+import { esErrorObjetoLegacy, mensajeErrorDatos } from "./errores-datos";
 
 /** Lo que la pantalla de /amazon necesita, ya calculado. */
 export interface DatosPlanFba {
@@ -183,12 +184,15 @@ export async function obtenerPlanFba(
   cuentaMeliId: string | null,
   dias: number,
 ): Promise<DatosPlanFba> {
-  const { data } = await db
+  const { data, error } = await db
     .from("plan_fba_cache")
     .select("datos, vigente")
     .eq("account_id", cuentaAmazonId)
     .eq("dias", dias)
     .maybeSingle();
+  if (error && !esErrorObjetoLegacy(error, ["plan_fba_cache"])) {
+    throw new Error(`No se pudo leer plan_fba_cache: ${mensajeErrorDatos(error)}`);
+  }
 
   const guardado = (data?.datos ?? null) as GuardadoFba | null;
   const mismoMotor =
@@ -255,12 +259,15 @@ export async function precalcularPlanFba(
   cuentaAmazonId: string,
   cuentaMeliId: string | null,
 ): Promise<boolean> {
-  const { data } = await admin
+  const { data, error } = await admin
     .from("plan_fba_cache")
     .select("vigente, datos")
     .eq("account_id", cuentaAmazonId)
     .eq("dias", PERIODO_OMISION)
     .maybeSingle();
+  if (error && !esErrorObjetoLegacy(error, ["plan_fba_cache"])) {
+    throw new Error(`No se pudo leer plan_fba_cache: ${mensajeErrorDatos(error)}`);
+  }
   const guardado = (data?.datos ?? null) as GuardadoFba | null;
   const alDia =
     guardado != null &&

@@ -11,10 +11,37 @@ import {
   asinsDeGrupo,
   enRangoContenido,
   modeloDeSku,
+  leerCatalogo,
   urlAmazon,
   type AnotacionModelo,
   type FilaCatalogo,
 } from "./contenido-amazon";
+
+function dbCatalogo(
+  respuestas: Record<string, { data: any[] | null; error: unknown; count?: number }>,
+) {
+  return {
+    from: (tabla: string) => ({
+      select: (_columnas: string, opciones?: { head?: boolean }) => {
+        const q: any = {
+          eq: () => q,
+          order: () => q,
+          range: () => q,
+          then: (resolver: (valor: unknown) => unknown) => {
+            const r = respuestas[tabla] ?? {
+              data: null,
+              error: { code: "PGRST205", message: `table ${tabla} does not exist` },
+            };
+            return Promise.resolve(
+              opciones?.head ? { ...r, data: null, count: r.count ?? r.data?.length ?? 0 } : r,
+            ).then(resolver);
+          },
+        };
+        return q;
+      },
+    }),
+  } as any;
+}
 
 const fila = (
   sellerSku: string,
@@ -85,6 +112,57 @@ describe("enRangoContenido", () => {
 
   it("acepta minúsculas y espacios", () => {
     expect(enRangoContenido(" gt128 ")).toBe(true);
+  });
+});
+
+describe("leerCatalogo", () => {
+  it("conserva una respuesta válida vacía sin inventar catálogo histórico", async () => {
+    const db = dbCatalogo({
+      amazon_listings: { data: [], error: null },
+      amazon_skus: {
+        data: [{ seller_sku: "GT128-BLK-25-MX", asin: "HISTORICO" }],
+        error: null,
+      },
+    });
+
+    await expect(leerCatalogo(db, "amz-1")).resolves.toEqual({
+      sinRefrescar: false,
+      filas: [],
+    });
+  });
+
+  it("propaga un timeout de listings en vez de fingir catálogo vacío", async () => {
+    const db = dbCatalogo({
+      amazon_listings: {
+        data: null,
+        error: { code: "57014", message: "statement timeout" },
+      },
+    });
+
+    await expect(leerCatalogo(db, "amz-1")).rejects.toThrow(
+      "amazon_listings: statement timeout",
+    );
+  });
+
+  it("usa amazon_skus sólo cuando falta la tabla legacy de listings", async () => {
+    const db = dbCatalogo({
+      amazon_listings: {
+        data: null,
+        error: {
+          code: "PGRST205",
+          message: "Could not find amazon_listings in the schema cache",
+        },
+      },
+      amazon_skus: {
+        data: [{ seller_sku: "GT128-BLK-25-MX", asin: "A1", estado: "Active" }],
+        error: null,
+      },
+    });
+
+    await expect(leerCatalogo(db, "amz-1")).resolves.toMatchObject({
+      sinRefrescar: true,
+      filas: [{ sellerSku: "GT128-BLK-25-MX", asin: "A1" }],
+    });
   });
 });
 

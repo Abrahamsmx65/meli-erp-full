@@ -299,7 +299,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
       "pedidos",
       "pedido, estado, pedido_lineas(modelo, color, tallas, cajas, pares)",
       (q) => eq(q).not("estado", "in", "(recibido,cancelado)"),
-    ).catch(() => [] as any[]),
+    ),
   ]);
 
   const corridas: Corrida[] = corridasRaw.map((c) => ({

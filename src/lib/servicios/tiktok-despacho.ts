@@ -71,7 +71,7 @@ async function enParalelo<T>(items: T[], n: number, fn: (item: T, i: number) => 
 export async function aliasAmazonDeCuenta(db: DB, accountId: string): Promise<Map<string, string>> {
   const filas = await traerTodo<any>(db, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) =>
     q.eq("account_id", accountId),
-  ).catch(() => [] as any[]);
+  );
   const alias: AliasColorAmazon[] = (filas ?? []).map((f: any) => ({
     modelo: String(f.modelo),
     colorTikTok: String(f.color_tiktok),

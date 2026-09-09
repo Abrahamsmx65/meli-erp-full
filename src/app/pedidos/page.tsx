@@ -44,14 +44,19 @@ export default async function Pedidos() {
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
   const t = cronometro("/pedidos");
-  const [planEstado, inventario, pedidos, amazon] = await Promise.all([
+  const [planEstado, inventario, pedidos, amazonEstado] = await Promise.all([
     t.medir("plan", obtenerPlan(supabase, cuenta.id)),
     t.medir("inventario", cargarInventario(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
     // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
     t.medir(
       "amazon",
-      conCacheApp(supabase, cuenta.id, "amazon-compras", 10 * 60_000, () => amazonParaCompras(supabase)),
+      amazonParaCompras(supabase)
+        .catch((err) => ({
+          datos: new Map(),
+          advertencias: [`No se pudieron leer ventas e inventario de Amazon: ${(err as Error).message}`],
+          disponible: false,
+        })),
     ),
   ]);
 
@@ -73,17 +78,27 @@ export default async function Pedidos() {
   // los insumos que cambian sin aviso (las sumas de Amazon del cron).
   const compra = await t.medir(
     "compra",
-    conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
-      sugerirCompra(
-        supabase,
-        cuenta.id,
-        planEstado.plan.lineas,
-        inventarioPorSku,
-        undefined,
-        inventario.crudos,
-        amazon,
-      ),
-    ),
+    amazonEstado.advertencias.length || !amazonEstado.disponible
+      ? sugerirCompra(
+          supabase,
+          cuenta.id,
+          planEstado.plan.lineas,
+          inventarioPorSku,
+          undefined,
+          inventario.crudos,
+          amazonEstado.datos,
+        )
+      : conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
+          sugerirCompra(
+            supabase,
+            cuenta.id,
+            planEstado.plan.lineas,
+            inventarioPorSku,
+            undefined,
+            inventario.crudos,
+            amazonEstado.datos,
+          ),
+        ),
   );
   t.fin();
 
@@ -118,14 +133,14 @@ export default async function Pedidos() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
           titulo="Hay que pedir"
-          valor={n(compra.totales.cajas)}
-          nota={`${n(compra.totales.pares)} pares · ${compra.totales.modelosAPedir} modelos`}
+          valor={amazonEstado.disponible ? n(compra.totales.cajas) : "—"}
+          nota={amazonEstado.disponible ? `${n(compra.totales.pares)} pares · ${compra.totales.modelosAPedir} modelos` : "Amazon no disponible"}
           tono={compra.totales.cajas > 0 ? "alerta" : "bien"}
         />
         <Ficha
           titulo="Se acaban antes"
-          valor={n(compra.totales.enQuiebre)}
-          nota={`No aguantan los ${ciclo} días del ciclo`}
+          valor={amazonEstado.disponible ? n(compra.totales.enQuiebre) : "—"}
+          nota={amazonEstado.disponible ? `No aguantan los ${ciclo} días del ciclo` : "Amazon no disponible"}
           tono={compra.totales.enQuiebre > 0 ? "critico" : "bien"}
         />
         <Ficha titulo="Pedidos vivos" valor={n(pedidos.filter((x) => x.estado !== "recibido").length)} nota={`${pedidos.length} en total`} />
@@ -137,6 +152,25 @@ export default async function Pedidos() {
           tono={cajasSinBarco > 0 ? "alerta" : "neutro"}
         />
       </div>
+
+      {amazonEstado.advertencias.length ? (
+        <div
+          role="alert"
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
+            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
+          }}
+        >
+          <strong>Amazon no está completo.</strong> La recomendación se calculó con los demás
+          datos disponibles y puede cambiar cuando se recupere la lectura.
+          <ul className="mt-1 list-disc pl-5">
+            {amazonEstado.advertencias.map((mensaje) => (
+              <li key={mensaje}>{mensaje}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {!planEstado.vigente ? (
         <p
@@ -192,7 +226,7 @@ export default async function Pedidos() {
         </div>
       </details>
 
-      <PedidoPorModelo renglones={compra.renglones} />
+      {amazonEstado.disponible ? <PedidoPorModelo renglones={compra.renglones} /> : null}
 
       <p className="text-sm" style={{ color: "var(--ink-2)" }}>
         Los pedidos cargados, con su contenedor y sus filtros, viven ahora en{" "}

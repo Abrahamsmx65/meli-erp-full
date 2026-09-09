@@ -687,7 +687,7 @@ export async function cargosGuardados(db: DB, accountId: string, periodo: string
     tabla,
     "detalle_id, periodo, fecha, tipo, subtipo, descripcion, monto, clase",
     (q) => q.eq("account_id", accountId).eq("periodo", periodo),
-  ).catch(() => [] as any[]);
+  );
   return filas.map((f) => ({
     detalleId: f.detalle_id,
     periodo: f.periodo,

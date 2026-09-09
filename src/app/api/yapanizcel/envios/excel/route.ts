@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
-import { mapaCostosUnificado, type MapaCostos } from "@/lib/servicios/costos-unificados";
+import { mapaCostosUnificado } from "@/lib/servicios/costos-unificados";
 import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
 import { desglosar } from "@/lib/yapanizcel/sku";
 
@@ -19,7 +19,7 @@ export async function GET() {
   try {
     const [plan, config] = await Promise.all([
       obtenerPlanYz(ctx.db, ctx.cuenta.id),
-      mapaCostosUnificado(ctx.db, { yzAccountId: ctx.cuenta.id }).catch((): MapaCostos => new Map()),
+      mapaCostosUnificado(ctx.db, { yzAccountId: ctx.cuenta.id }),
     ]);
 
     const lineas = plan.lineas

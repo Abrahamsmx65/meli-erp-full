@@ -14,6 +14,9 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   const hayPagos = m.netoReal != null;
   const eco = m.economia;
   const hayEconomia = eco != null && (eco.ventas > 0 || eco.unidades > 0);
+  const coberturaEconomia = hayEconomia
+    ? Math.min(eco!.cobertura.importe, eco!.cobertura.unidades, eco!.cobertura.dias)
+    : null;
 
   // LO QUE AMAZON VA A PAGAR por lo vendido en el mes: ventas − tarifas del
   // SKU Economics, por fecha de venta. El `neto` de Amazon ya trae restada
@@ -36,8 +39,13 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     avisos.push("Amazon sin economía por producto ni liquidaciones en el rango: el neto se tomó igual a la venta (comisiones y FBA sin descontar).");
   }
   if (fuente === "economia") {
-    if (eco!.hasta && rango && eco!.hasta < rango.hasta) {
+    if (!eco!.cobertura.completa && eco!.hasta && rango && eco!.hasta < rango.hasta) {
       avisos.push(`La economía por producto de Amazon llega hasta el ${eco!.hasta}: los últimos días del periodo aún no están (Amazon tarda ~2 días en asentarlos).`);
+    }
+    if (!eco!.cobertura.completa) {
+      avisos.push(
+        `SKU Economics está parcial: cubre ${Math.round(eco!.cobertura.importe * 100)}% del importe, ${Math.round(eco!.cobertura.unidades * 100)}% de las unidades y ${eco!.cobertura.diasCubiertos} de ${eco!.cobertura.diasVenta} días con venta. El neto, la publicidad y la utilidad no deben compararse contra el total vendido.`,
+      );
     }
     if (hayPagos) avisos.push(`Referencia: Amazon lleva liquidados ${redondea(m.netoReal as number).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de este periodo por fecha de depósito${m.pagosHasta ? ` (liquidaciones hasta ${m.pagosHasta})` : ""}.`);
   }
@@ -113,6 +121,30 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     ordenes: m.periodo.ordenes,
     ventaBruta: m.periodo.importe,
     neto,
+    fuenteNeto:
+      fuente === "economia"
+        ? !eco!.cobertura.completa
+          ? "SKU Economics parcial · fecha de venta"
+          : "SKU Economics · fecha de venta"
+        : fuente === "pagos"
+          ? "Liquidaciones · fecha de depósito"
+          : "Venta bruta sin descuentos",
+    coberturaNeto:
+      fuente === "economia"
+        ? coberturaEconomia
+        : fuente === "venta"
+          ? 0
+          : null,
+    descuentos:
+      fuente === "economia" && eco!.tarifas
+        ? [{
+            concepto:
+              !eco!.cobertura.completa
+                ? "Tarifas Amazon: comisión, FBA y otros (solo parte cubierta)"
+                : "Tarifas Amazon: comisión, FBA y otros",
+            monto: redondea(Math.abs(eco!.tarifas)),
+          }]
+        : [],
     devoluciones: 0,
     costoRecuperado: 0,
     costoProducto: redondea(costoProducto),
@@ -122,6 +154,9 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     gastos,
     porModelo,
     avisos,
-    exacto: fuente === "economia" && m.coberturaCosto >= 0.999 && !(eco!.hasta && rango && eco!.hasta < rango.hasta),
+    exacto:
+      fuente === "economia" &&
+      eco!.cobertura.completa &&
+      m.coberturaCosto >= 0.999,
   };
 }

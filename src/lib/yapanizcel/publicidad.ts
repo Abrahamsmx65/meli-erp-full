@@ -22,6 +22,8 @@ export interface AdsPorDiseno {
   error: string | null;
 }
 
+const recalculosAdsEnCurso = new Map<string, Promise<AdsPorDiseno>>();
+
 /**
  * Los ads del periodo con caché en `yz_cache` ("ads:YYYY-MM"): el barrido a
  * MELI (paginado de 50 en 50) corre a lo más una vez por hora para el mes en
@@ -36,9 +38,32 @@ export async function adsPorDisenoCacheado(
   rango: { desde: string; hasta: string },
 ): Promise<AdsPorDiseno> {
   const clave = `ads:${periodo}`;
+  const claveRecalculo = `${cuenta.id}:${clave}`;
+  const recalculoEnCurso = recalculosAdsEnCurso.get(claveRecalculo);
+  if (recalculoEnCurso) return recalculoEnCurso;
+
+  const recalculo = leerORecalcularAds(db, cuenta, clave, periodo, rango);
+  recalculosAdsEnCurso.set(claveRecalculo, recalculo);
+  try {
+    return await recalculo;
+  } finally {
+    if (recalculosAdsEnCurso.get(claveRecalculo) === recalculo) {
+      recalculosAdsEnCurso.delete(claveRecalculo);
+    }
+  }
+}
+
+async function leerORecalcularAds(
+  db: DB,
+  cuenta: CuentaYz,
+  clave: string,
+  periodo: string,
+  rango: { desde: string; hasta: string },
+): Promise<AdsPorDiseno> {
   const esMesActual = periodo === hoyMx().slice(0, 7);
   const guardado = await leerCacheYz<AdsPorDiseno>(db, cuenta.id, clave, esMesActual ? 3_600_000 : undefined);
-  if (guardado) return guardado;
+  if (guardado.estado === "encontrado") return guardado.valor;
+  if (guardado.estado === "fallo") throw guardado.error;
 
   const t0 = Date.now();
   const datos = await adsPorDiseno(db, cuenta, rango);

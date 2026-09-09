@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarCargo, extraerCargos } from "./cargos-meli";
+import { cargosGuardados, clasificarCargo, extraerCargos } from "./cargos-meli";
 
 describe("clasificarCargo", () => {
   it("separa lo de Full de lo que ya va en el neto", () => {
@@ -24,6 +24,33 @@ describe("clasificarCargo", () => {
     expect(clasificarCargo("BONUS BFF Anulación del cargo por envíos de Mercado Libre")).toBe("bonificacion");
     expect(clasificarCargo("CHARGE CDSD Cargo por devolución")).toBe("otro");
     expect(clasificarCargo("CHARGE CESM Cargo por mantenimiento de Mi página")).toBe("otro");
+  });
+});
+
+describe("cargosGuardados", () => {
+  it("propaga una falla de Supabase en vez de devolver cargos cero", async () => {
+    const db = {
+      from: () => ({
+        select: (_columnas: string, opciones?: { head?: boolean }) => {
+          const q: any = {
+            eq: () => q,
+            order: () => q,
+            range: () => q,
+            then: (resolver: (valor: unknown) => unknown) =>
+              Promise.resolve({
+                data: null,
+                error: { message: opciones?.head ? "permission denied" : "permission denied" },
+                count: null,
+              }).then(resolver),
+          };
+          return q;
+        },
+      }),
+    } as any;
+
+    await expect(cargosGuardados(db, "meli-1", "2026-08")).rejects.toThrow(
+      "meli_cargos: permission denied",
+    );
   });
 });
 
@@ -64,6 +91,25 @@ describe("extraerCargos", () => {
     const cargos = extraerCargos([{ type: "Servicio", amount: 10, date_created: "2026-08-02" }], "2026-08");
     expect(cargos[0]).toMatchObject({ tipo: "Servicio", monto: 10, fecha: "2026-08-02", clase: "otro" });
     expect(cargos[0].detalleId).toBe("2026-08:0:Servicio:10");
+  });
+});
+
+describe("cargosGuardados", () => {
+  it("propaga un error de lectura en vez de reportar cero cargos", async () => {
+    const q: any = {
+      eq: () => q,
+      order: () => q,
+      range: () => Promise.resolve({ data: null, error: { message: "lectura caída" } }),
+    };
+    const db = {
+      from: () => ({
+        select: () => q,
+      }),
+    } as any;
+
+    await expect(cargosGuardados(db, "cuenta", "2026-08")).rejects.toThrow(
+      "meli_cargos: lectura caída",
+    );
   });
 });
 

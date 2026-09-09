@@ -8,7 +8,9 @@ import { listarContenedores } from "./contenedores";
  * Así la prueba reproduce el recorte silencioso: el código que no pagina
  * pierde filas aquí igual que en producción.
  */
-function dbConTope(tablas: Record<string, unknown[]>) {
+type ConsultaIn = { tabla: string; columna: string; valores: unknown[] };
+
+function dbConTope(tablas: Record<string, unknown[]>, consultasIn: ConsultaIn[] = []) {
   return {
     from(tabla: string) {
       const filas = (tablas[tabla] ?? []) as Record<string, unknown>[];
@@ -40,6 +42,7 @@ function dbConTope(tablas: Record<string, unknown[]>) {
           return q;
         },
         in(col, vals) {
+          consultasIn.push({ tabla, columna: col, valores: [...vals] });
           const s = new Set(vals);
           estado.filtros.push((f) => s.has(f[col]));
           return q;
@@ -170,6 +173,45 @@ describe("listarPedidos con más de 1,000 filas", () => {
     const res = await listarPedidos(db, "cuenta");
     expect(res[0].cajasAsignadas).toBe(1200);
     expect(res[0].contenedores[0].cajas).toBe(1200);
+  });
+
+  it("consulta solo los contenedores relacionados con los pedidos visibles", async () => {
+    const consultas: ConsultaIn[] = [];
+    const db = dbConTope(
+      {
+        pedidos: [
+          { id: "pa", pedido: "IN10001", proveedor: null, fecha_pi: null, estado: "creado", creado_en: "2026-01-02", account_id: "cuenta" },
+        ],
+        pedido_lineas: [
+          { id: "l1", pedido_id: "pa", modelo: "GT100", cajas: 3, pares: 36 },
+        ],
+        contenedores: [
+          { id: "relacionado", account_id: "cuenta", numero: "S1-2026", estado: "en_transito", fecha_llegada_est: null },
+          ...Array.from({ length: 1500 }, (_, i) => ({
+            id: `historico-${relleno(i)}`,
+            account_id: "cuenta",
+            numero: `H${i}`,
+            estado: "recibido",
+            fecha_llegada_est: null,
+          })),
+        ],
+        contenedor_lineas: [
+          { id: "cl1", contenedor_id: "relacionado", pedido_linea_id: "l1", cajas: 2 },
+        ],
+      },
+      consultas,
+    );
+
+    const res = await listarPedidos(db, "cuenta");
+
+    expect(res[0].contenedores.map((c) => c.numero)).toEqual(["S1-2026"]);
+    expect(res[0].cajasAsignadas).toBe(2);
+    const consultaContenedores = consultas.filter(
+      (c) => c.tabla === "contenedores" && c.columna === "id",
+    );
+    expect(consultaContenedores.length).toBeGreaterThan(0);
+    expect(consultaContenedores.every((c) => c.valores.length === 1)).toBe(true);
+    expect(consultaContenedores.every((c) => c.valores[0] === "relacionado")).toBe(true);
   });
 });
 

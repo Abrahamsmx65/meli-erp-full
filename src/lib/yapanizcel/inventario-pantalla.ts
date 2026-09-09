@@ -9,7 +9,7 @@
  * cron de netos lo deja precalculado.
  */
 import type { DB } from "../datos/repos";
-import { mapaCostosUnificado, type MapaCostos } from "../servicios/costos-unificados";
+import { mapaCostosUnificado } from "../servicios/costos-unificados";
 import { conCacheYz, recalcularCacheYz } from "./cache";
 import { cargarTotalesVentas } from "./agregados";
 import { cargarPedidosEnCamino } from "./compras";
@@ -64,7 +64,7 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
     // El TIPO de cada diseño (Fundas / Tabletas / Micas) es su categoría en
     // Productos y costos: se pega aquí, en el precálculo, no en la pantalla.
-    mapaCostosUnificado(db, { yzAccountId: accountId }).catch((): MapaCostos => new Map()),
+    mapaCostosUnificado(db, { yzAccountId: accountId }),
   ]);
 
   const china = await cargarPedidosEnCamino(db, accountId, {

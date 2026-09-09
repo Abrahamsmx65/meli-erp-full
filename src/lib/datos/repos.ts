@@ -115,7 +115,11 @@ export async function traerTodo<T>(
     let q = filtros(db.from(tabla).select(columnas));
     for (const col of orden) q = q.order(col, { ascending: true });
     const { data, error } = await q.range(desde, desde + paso - 1);
-    if (error) throw new Error(`${tabla}: ${error.message}`);
+    if (error) {
+      throw Object.assign(new Error(`${tabla}: ${error.message}`), {
+        code: error.code,
+      });
+    }
     return (data ?? []) as T[];
   };
 
@@ -126,7 +130,11 @@ export async function traerTodo<T>(
     leer(0),
     filtros(db.from(tabla).select(columnas, { count: "estimated", head: true })),
   ]);
-  if (conteo.error) throw new Error(`${tabla}: ${conteo.error.message}`);
+  if (conteo.error) {
+    throw Object.assign(new Error(`${tabla}: ${conteo.error.message}`), {
+      code: conteo.error.code,
+    });
+  }
   if (primera.length < paso) return primera;
 
   const count = conteo.count as number | null;
@@ -202,7 +210,7 @@ export async function traerRpcTodo<T>(
   funcion: string,
   parametros: Record<string, unknown>,
   paso = 1000,
-): Promise<{ filas: T[]; error: string | null }> {
+): Promise<{ filas: T[]; error: string | null; errorCodigo?: string }> {
   const filas: T[] = [];
 
   for (let pagina = 0; ; pagina++) {
@@ -212,7 +220,11 @@ export async function traerRpcTodo<T>(
       .range(desde, desde + paso - 1);
 
     if (error) {
-      return { filas, error: error.message ?? String(error) };
+      return {
+        filas,
+        error: error.message ?? String(error),
+        errorCodigo: error.code ? String(error.code) : undefined,
+      };
     }
 
     const lote = (data ?? []) as T[];

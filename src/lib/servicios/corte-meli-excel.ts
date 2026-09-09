@@ -6,6 +6,7 @@
  */
 import ExcelJS from "exceljs";
 import { nombreDelPeriodo, type EstadoResultados } from "./corte-meli";
+import { puenteVentaANeto } from "./corte-meli-cascada";
 
 const MONEDA = '"$"#,##0.00';
 
@@ -34,15 +35,21 @@ export async function excelDelCorte(e: EstadoResultados, opts?: { negocio?: stri
   ];
   resumen.getRow(1).font = { bold: true };
   resumen.getColumn("monto").numFmt = MONEDA;
+  const puente = puenteVentaANeto(e);
   const filas: [string, number | string | null, string][] = [
     [`Corte ${nombreDelPeriodo(e.periodo)} · ${negocio}`, null, `${e.desde} a ${e.hasta} · ${e.dias} días · ${e.revision.exacto ? "corte exacto" : "con pendientes (ver Avisos)"}`],
     ["Pares vendidos", e.unidades, ""],
     ["Órdenes", e.ordenes, ""],
-    ["Venta bruta", e.ventaBruta, "precio × pares de las órdenes pagadas"],
-    ["Comisión de MELI", -e.comision, `sale fee de cada orden${e.reventa?.ordenes ? `; ${e.reventa.ordenes} ventas en reventa por $${e.reventa.importe.toFixed(2)} ya vienen netas` : ""}`],
-    ["Envíos y otros cargos", -e.enviosYOtros, "envío de Full y retenciones de ISR/IVA: diferencia contra el depósito"],
-    ["Neto depositado por Mercado Pago", e.netoDepositado, e.netoEstimado > 0 ? `${e.netoEstimado.toFixed(2)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes"],
-    ["Devoluciones", -e.devoluciones.monto, `${e.devoluciones.ordenes} órdenes devueltas o con contracargo`],
+    ["Venta bruta", puente.ventaBruta, "precio × pares de las órdenes pagadas"],
+    ["Comisión de MELI", -puente.comision, `sale fee de cada orden${e.reventa?.ordenes ? `; ${e.reventa.ordenes} ventas en reventa por $${e.reventa.importe.toFixed(2)} ya vienen netas` : ""}`],
+    ["Envío", -puente.envio, "cargo de envío asociado a las ventas"],
+    ["Retención ISR", -puente.isr, "impuesto adelantado enterado por MELI al SAT"],
+    ["Retención IVA", -puente.iva, "impuesto adelantado enterado por MELI al SAT"],
+    ["Otros cargos", -puente.otros, e.cargosSinDesglosar ? `incluye $${e.cargosSinDesglosar.toFixed(2)} sin concepto por operación` : "otros descuentos incluidos en el depósito"],
+    ["Ajuste posterior de liquidación", -puente.ajusteLiquidacion, "cambio del saldo de Mercado Pago después del depósito original"],
+    ["Reembolsos ya reflejados en el neto", -puente.devolucionesIncluidasEnNeto, "Mercado Pago ya redujo el saldo actual; este renglón cuadra la cascada"],
+    ["Neto depositado por Mercado Pago", puente.netoDepositado, e.netoEstimado > 0 ? `${e.netoEstimado.toFixed(2)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes"],
+    ["Devoluciones", -e.devoluciones.monto, `${e.devoluciones.ordenes} órdenes; ${e.devoluciones.incluidoEnNeto ?? 0} ya está reflejado en el neto`],
     ["Costo recuperado de devoluciones", e.devoluciones.costoRecuperado, `${e.devoluciones.unidades} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${e.devoluciones.costoEstimado.toFixed(2)} estimado)` : ""}`],
     ["Costo de producto", -e.costoProducto, `${e.unidadesConCosto} de ${e.unidades} pares con costo capturado`],
     ["Utilidad bruta", e.utilidadBruta, ""],
@@ -58,10 +65,17 @@ export async function excelDelCorte(e: EstadoResultados, opts?: { negocio?: stri
     ["Generado", e.generadoEn, e.cuenta ?? ""],
   ];
   for (const [concepto, monto, nota] of filas) resumen.addRow({ concepto, monto, nota });
-  for (const r of [16, 17]) resumen.getRow(r + 1).getCell("monto").numFmt = "0.0%";
-  for (const r of [2, 3, 19, 20]) resumen.getRow(r + 1).getCell("monto").numFmt = "#,##0";
+  const filaDe = (concepto: string) => resumen.getColumn("concepto").values.findIndex((v) => v === concepto);
+  for (const concepto of ["Margen sobre la venta", "Margen sobre el neto"]) {
+    resumen.getRow(filaDe(concepto)).getCell("monto").numFmt = "0.0%";
+  }
+  for (const concepto of ["Pares vendidos", "Órdenes", "Órdenes canceladas (fuera del corte)", "Órdenes revisadas contra devoluciones"]) {
+    resumen.getRow(filaDe(concepto)).getCell("monto").numFmt = "#,##0";
+  }
   resumen.getRow(2).font = { bold: true, size: 13 };
-  for (const r of [7, 11, 15]) resumen.getRow(r + 1).font = { bold: true };
+  for (const concepto of ["Neto depositado por Mercado Pago", "Utilidad bruta", "UTILIDAD NETA"]) {
+    resumen.getRow(filaDe(concepto)).font = { bold: true };
+  }
 
   // --- Por modelo ---------------------------------------------------------
   const modelos = wb.addWorksheet("Por modelo");
@@ -71,6 +85,10 @@ export async function excelDelCorte(e: EstadoResultados, opts?: { negocio?: stri
     { header: "Pares", key: "unidades", width: 10 },
     { header: "Venta", key: "importe", moneda: true },
     { header: "Comisión", key: "comision", moneda: true },
+    { header: "Envío", key: "envio", moneda: true },
+    { header: "ISR", key: "isr", moneda: true },
+    { header: "IVA", key: "iva", moneda: true },
+    { header: "Otros cargos", key: "otrosCargos", moneda: true },
     { header: "Neto", key: "neto", moneda: true },
     { header: "Costo", key: "costo", moneda: true },
     { header: "Publicidad", key: "publicidad", moneda: true },
@@ -84,6 +102,11 @@ export async function excelDelCorte(e: EstadoResultados, opts?: { negocio?: stri
     { header: "Categoría", key: "categoria", width: 22 },
     { header: "Pares", key: "unidades", width: 10 },
     { header: "Venta", key: "importe", moneda: true },
+    { header: "Comisión", key: "comision", moneda: true },
+    { header: "Envío", key: "envio", moneda: true },
+    { header: "ISR", key: "isr", moneda: true },
+    { header: "IVA", key: "iva", moneda: true },
+    { header: "Otros cargos", key: "otrosCargos", moneda: true },
     { header: "Neto", key: "neto", moneda: true },
     { header: "Costo", key: "costo", moneda: true },
     { header: "Publicidad", key: "publicidad", moneda: true },

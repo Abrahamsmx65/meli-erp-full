@@ -174,31 +174,38 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
   // Paginado con traerTodo: PostgREST corta en 1,000 filas SIN avisar. Con
   // ~9 líneas por pedido el corte llega alrededor de los 110 pedidos, y la
   // lista habría empezado a reportar menos cajas y pares de los reales.
-  const [lineas, contenedores] = await Promise.all([
-    traerTodo<{ id: string; pedido_id: string; modelo: string; cajas: number | null; pares: number | null }>(
-      db,
-      "pedido_lineas",
-      "id, pedido_id, modelo, cajas, pares",
-      (q) => q.in("pedido_id", ids),
-    ),
-    traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
-      db,
-      "contenedores",
-      "id, numero, estado, fecha_llegada_est",
-      (q) => q.eq("account_id", accountId),
-    ),
-  ]);
+  const lineas = await traerTodo<{
+    id: string;
+    pedido_id: string;
+    modelo: string;
+    cajas: number | null;
+    pares: number | null;
+  }>(
+    db,
+    "pedido_lineas",
+    "id, pedido_id, modelo, cajas, pares",
+    (q) => q.in("pedido_id", ids),
+  );
 
-  // contenedor_lineas se lee DIRECTO, no embebido en contenedores: el tope
-  // db-max-rows también corta los recursos embebidos y ahí ni siquiera hay
-  // señal (HTTP 200 sin Content-Range; PostgREST #2776). Por tandas de 200
-  // contenedores para que la URL no crezca, paginado dentro de cada tanda.
-  const contLineas = await porTandas(contenedores.map((c) => c.id), 200, (tanda) =>
+  // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
+  // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
+  // pedidos, no desde TODOS los contenedores históricos de la cuenta.
+  const contLineas = await porTandas(lineas.map((l) => l.id), 200, (tanda) =>
     traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
       db,
       "contenedor_lineas",
       "contenedor_id, pedido_linea_id, cajas",
-      (q) => q.in("contenedor_id", tanda),
+      (q) => q.in("pedido_linea_id", tanda),
+    ),
+  );
+
+  const contenedorIds = [...new Set(contLineas.map((l) => l.contenedor_id))];
+  const contenedores = await porTandas(contenedorIds, 200, (tanda) =>
+    traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
+      db,
+      "contenedores",
+      "id, numero, estado, fecha_llegada_est",
+      (q) => q.eq("account_id", accountId).in("id", tanda),
     ),
   );
 

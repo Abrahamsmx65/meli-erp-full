@@ -19,7 +19,7 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, { data: cortesRaw }, prepRaw, token] = await Promise.all([
+  const [pendientes, cortesResultado, prepRaw, token] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
@@ -39,6 +39,10 @@ export default async function Despacho() {
     }),
     tokenPreparar(cuenta.id),
   ]);
+  if (cortesResultado.error) {
+    throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
+  }
+  const cortesRaw = cortesResultado.data;
   // El link de los empleados va SIEMPRE al dominio de producción que Vercel
   // reporta (VERCEL_PROJECT_PRODUCTION_URL), no a lo que diga la variable
   // de la app: los otros dominios del proyecto (git-main, getac) están

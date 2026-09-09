@@ -1,0 +1,17 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "lLO1HagjwUcJAfls9ZRHS"
+uri = "file://.local/conversation-workspace/files/revision-meli-erp-y-propuesta-para-claude.md"
+type = "text"
+title = "Propuesta de modernización de GETAC ERP"
+description = "Diagnóstico técnico, cambios concretos, fases, criterios de aceptación y una instrucción lista para entregar a Claude."
+logical_id = "3a1465f3-4b13-455c-a1ff-c289c8706018"
+content_hash = "sha256:682862c5c23a6a7fade4c6837dfa2074d34420016e0cece69c3840ccb65f289c"
+size = 15017
+mtime_ms = 1788876474928
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/conversation:996baed7-090a-4957-a4e4-c63e6484b3f5/3a1465f3-4b13-455c-a1ff-c289c8706018/4433a9a8-be21-4958-b3ea-6b4f641ece9d"
+storage_version_token = "1788876481330683"
+content_type = "text/markdown"
+source_uri = "file://revision-meli-erp-y-propuesta-para-claude.md"

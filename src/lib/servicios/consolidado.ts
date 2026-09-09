@@ -13,6 +13,7 @@
  * Todo en centavos enteros, como el corte de cada canal.
  */
 import type { EstadoResultados } from "./corte-meli";
+import type { GastoEmpresarial } from "./gastos-empresariales";
 
 export type Canal = "meli_calzado" | "meli_fundas" | "amazon";
 
@@ -28,9 +29,20 @@ export interface BloqueCanal {
   unidades: number;
   ordenes: number;
   ventaBruta: number;
-  /** lo depositado (neto real o estimado, según el canal) */
+  /** Neto después de cargos de plataforma. No siempre equivale a dinero ya depositado. */
   neto: number;
+  /** Fuente contable concreta usada para el neto del canal. */
+  fuenteNeto: string;
+  /** Parte de la venta bruta cubierta por la fuente contable; null cuando no son rangos comparables. */
+  coberturaNeto: number | null;
+  /** Deducciones ya incluidas en el neto; se muestran para conciliación y no se vuelven a restar. */
+  descuentos: { concepto: string; monto: number }[];
+  desglosePlataforma?: { comision: number; envio: number; isr: number; iva: number; otros: number; ajusteLiquidacion?: number };
+  /** False únicamente en cortes históricos creados antes de guardar este desglose. */
+  desgloseDisponible?: boolean;
   devoluciones: number;
+  devolucionesIncluidasEnNeto?: number;
+  ajusteLiquidacion?: number;
   costoRecuperado: number;
   costoProducto: number;
   unidadesConCosto: number;
@@ -40,7 +52,11 @@ export interface BloqueCanal {
   adsGenerales: number;
   /** gastos generales de la plataforma, por concepto */
   gastos: { concepto: string; monto: number }[];
-  porModelo: { modelo: string; categoria: string | null; unidades: number; importe: number; neto: number; costo: number | null; ads: number }[];
+  porModelo: {
+    modelo: string; categoria: string | null; unidades: number; importe: number;
+    comision?: number; envio?: number; isr?: number; iva?: number; otros?: number; ajusteLiquidacion?: number;
+    neto: number; costo: number | null; ads: number;
+  }[];
   avisos: string[];
   exacto: boolean;
 }
@@ -51,6 +67,12 @@ export interface FilaModeloConsolidado {
   canales: Canal[];
   unidades: number;
   importe: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otros: number;
+  ajusteLiquidacion: number;
   neto: number;
   costo: number | null;
   ads: number;
@@ -63,6 +85,12 @@ export interface FilaCategoriaConsolidado {
   categoria: string;
   unidades: number;
   importe: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otros: number;
+  ajusteLiquidacion: number;
   neto: number;
   costo: number | null;
   ads: number;
@@ -71,10 +99,13 @@ export interface FilaCategoriaConsolidado {
   porCanal: Partial<Record<Canal, { unidades: number; ganancia: number | null }>>;
 }
 
-export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gastos"> {
+export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gastos" | "desglosePlataforma"> {
   nombre: string;
   gastos: { concepto: string; monto: number }[];
+  desglosePlataforma: { comision: number; envio: number; isr: number; iva: number; otros: number; ajusteLiquidacion: number };
+  desgloseDisponible: boolean;
   gastosGenerales: number;
+  descuentosPlataforma: number;
   /** gastos generales ÷ unidades vendidas en la plataforma */
   cargoPorUnidad: number;
   utilidadBruta: number;
@@ -86,22 +117,37 @@ export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gasto
 }
 
 export interface Consolidado {
+  /** invalida cachés calculadas con reglas contables anteriores */
+  versionContable: 2;
   periodo: string;
   desde: string;
   hasta: string;
   generadoEn: string;
   canales: CanalConsolidado[];
+  gastosEmpresariales: GastoEmpresarial[];
   total: {
     unidades: number;
     ordenes: number;
     ventaBruta: number;
     neto: number;
+    coberturaNeto: number | null;
+    descuentosPlataforma: number;
+    desgloseDisponible: boolean;
+    comision: number;
+    envio: number;
+    isr: number;
+    iva: number;
+    otros: number;
+    ajusteLiquidacion: number;
     devoluciones: number;
+    devolucionesIncluidasEnNeto: number;
     costoRecuperado: number;
     costoProducto: number;
     coberturaCosto: number;
     publicidad: number;
     gastosGenerales: number;
+    utilidadAntesGastosEmpresariales: number;
+    gastosEmpresariales: number;
     utilidadNeta: number;
     margenSobreVenta: number | null;
     margenSobreNeto: number | null;
@@ -116,6 +162,29 @@ export interface Consolidado {
 const c = (x: number | null | undefined): number => Math.round((Number(x) || 0) * 100);
 const p = (cent: number): number => Math.round(cent) / 100;
 
+/**
+ * Los gastos empresariales son una capa liviana sobre el consolidado pesado:
+ * permite combinarlos al leer la caché sin recalcular los tres canales.
+ */
+export function aplicarGastosEmpresariales(consolidado: Consolidado, gastos: GastoEmpresarial[]): Consolidado {
+  const totalGastos = gastos.reduce((s, g) => s + c(g.monto), 0);
+  const utilidadAntes = c(consolidado.total.utilidadAntesGastosEmpresariales ?? consolidado.total.utilidadNeta);
+  const utilidadNeta = utilidadAntes - totalGastos;
+  return {
+    ...consolidado,
+    gastosEmpresariales: gastos,
+    total: {
+      ...consolidado.total,
+      utilidadAntesGastosEmpresariales: p(utilidadAntes),
+      gastosEmpresariales: p(totalGastos),
+      utilidadNeta: p(utilidadNeta),
+      margenSobreVenta: consolidado.total.ventaBruta > 0 ? utilidadNeta / c(consolidado.total.ventaBruta) : null,
+      margenSobreNeto: consolidado.total.neto > 0 ? utilidadNeta / c(consolidado.total.neto) : null,
+      gananciaPorUnidad: consolidado.total.unidades > 0 ? p(utilidadNeta / consolidado.total.unidades) : null,
+    },
+  };
+}
+
 /** El bloque de un canal de MELI (calzado o fundas) a partir de su estado de resultados. */
 export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCanal {
   const gastos: { concepto: string; monto: number }[] = [];
@@ -125,13 +194,39 @@ export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCana
   if (devNeta) gastos.push({ concepto: "Devoluciones (reembolsos menos costo recuperado)", monto: devNeta });
   const adsGenerales = p(c(e.publicidad.sinAmarre) + c(e.publicidad.manual));
   if (adsGenerales) gastos.push({ concepto: "Publicidad sin amarre a modelo y a mano", monto: adsGenerales });
+  const tieneDesglose = e.envio != null || e.isr != null || e.iva != null || e.otrosCargos != null || e.cargosSinDesglosar != null;
+  const otrosVenta = p(c(e.otrosCargos) + c(e.cargosSinDesglosar) + (tieneDesglose ? 0 : c(e.enviosYOtros)));
+  const desglosePlataforma = {
+    comision: e.comision,
+    envio: e.envio ?? 0,
+    isr: e.isr ?? 0,
+    iva: e.iva ?? 0,
+    otros: otrosVenta,
+    ajusteLiquidacion: e.ajusteLiquidacion ?? 0,
+  };
   return {
     canal,
     unidades: e.unidades,
     ordenes: e.ordenes,
     ventaBruta: e.ventaBruta,
     neto: e.netoDepositado,
+    fuenteNeto:
+      e.coberturaNetoReal >= 0.999
+        ? "Mercado Pago por orden"
+        : "Mercado Pago por orden + estimación de pendientes",
+    coberturaNeto: e.coberturaNetoReal,
+    descuentos: [
+      ...(e.comision ? [{ concepto: "Comisión de venta de Mercado Libre", monto: e.comision }] : []),
+      ...(desglosePlataforma.envio ? [{ concepto: "Envío", monto: desglosePlataforma.envio }] : []),
+      ...(desglosePlataforma.isr ? [{ concepto: "Retención ISR", monto: desglosePlataforma.isr }] : []),
+      ...(desglosePlataforma.iva ? [{ concepto: "Retención IVA", monto: desglosePlataforma.iva }] : []),
+      ...(desglosePlataforma.otros ? [{ concepto: "Otros cargos incluidos en el neto", monto: desglosePlataforma.otros }] : []),
+      ...(desglosePlataforma.ajusteLiquidacion ? [{ concepto: "Ajuste posterior de liquidación", monto: desglosePlataforma.ajusteLiquidacion }] : []),
+    ],
+    desglosePlataforma,
     devoluciones: e.devoluciones.monto,
+    devolucionesIncluidasEnNeto: e.devoluciones.incluidoEnNeto ?? 0,
+    ajusteLiquidacion: e.ajusteLiquidacion ?? 0,
     costoRecuperado: e.devoluciones.costoRecuperado,
     costoProducto: e.costoProducto,
     unidadesConCosto: e.unidadesConCosto,
@@ -143,6 +238,12 @@ export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCana
       categoria: m.categoria,
       unidades: m.unidades,
       importe: m.importe,
+      comision: m.comision,
+      envio: m.envio,
+      isr: m.isr,
+      iva: m.iva,
+      otros: m.otrosCargos,
+      ajusteLiquidacion: m.ajusteLiquidacion,
       neto: m.neto,
       costo: m.costo,
       ads: m.publicidad,
@@ -165,6 +266,12 @@ function filaModelo(
     canales: [canal],
     unidades: m.unidades,
     importe: m.importe,
+    comision: m.comision ?? 0,
+    envio: m.envio ?? 0,
+    isr: m.isr ?? 0,
+    iva: m.iva ?? 0,
+    otros: m.otros ?? 0,
+    ajusteLiquidacion: m.ajusteLiquidacion ?? 0,
     neto: m.neto,
     costo: m.costo,
     ads: m.ads,
@@ -179,6 +286,7 @@ export function armarConsolidado(entrada: {
   hasta: string;
   generadoEn?: string;
   bloques: BloqueCanal[];
+  gastosEmpresariales?: GastoEmpresarial[];
   avisos?: string[];
 }): Consolidado {
   const avisos: string[] = [...(entrada.avisos ?? [])];
@@ -186,10 +294,24 @@ export function armarConsolidado(entrada: {
   const modelos = new Map<string, FilaModeloConsolidado>();
   const categorias = new Map<string, FilaCategoriaConsolidado & { conCosto: boolean; sinCosto: boolean }>();
 
-  const total = { unidades: 0, ordenes: 0, ventaBruta: 0, neto: 0, devoluciones: 0, costoRecuperado: 0, costoProducto: 0, unidadesConCosto: 0, publicidad: 0, gastosGenerales: 0, utilidadNeta: 0 };
+  const total = {
+    unidades: 0, ordenes: 0, ventaBruta: 0, neto: 0, ventaConCoberturaNeto: 0,
+    descuentosPlataforma: 0, comision: 0, envio: 0, isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0,
+    devoluciones: 0, devolucionesIncluidasEnNeto: 0, costoRecuperado: 0, costoProducto: 0, unidadesConCosto: 0,
+    publicidad: 0, gastosGenerales: 0, utilidadNeta: 0,
+  };
 
   for (const b of entrada.bloques) {
     const gastosGenerales = b.gastos.reduce((a, g) => a + c(g.monto), 0);
+    const descuentosPlataforma = b.descuentos.reduce((a, d) => a + c(d.monto), 0);
+    const desgloseBase = b.desglosePlataforma ?? {
+      comision: 0, envio: 0, isr: 0, iva: 0, otros: p(descuentosPlataforma),
+    };
+    const desglosePlataforma = {
+      ...desgloseBase,
+      ajusteLiquidacion: desgloseBase.ajusteLiquidacion ?? b.ajusteLiquidacion ?? 0,
+    };
+    const desgloseDisponible = b.desgloseDisponible !== false;
     const cargoPorUnidadCent = b.unidades > 0 ? gastosGenerales / b.unidades : 0;
     const publicidad = c(b.adsPorModelo) + c(b.adsGenerales);
     // La utilidad del canal: neto − devoluciones + costo recuperado − costo − publicidad − Full/otros.
@@ -202,6 +324,9 @@ export function armarConsolidado(entrada: {
       ...b,
       nombre: NOMBRE_CANAL[b.canal],
       gastosGenerales: p(gastosGenerales),
+      descuentosPlataforma: p(descuentosPlataforma),
+      desglosePlataforma,
+      desgloseDisponible,
       cargoPorUnidad: p(cargoPorUnidadCent),
       utilidadBruta: p(utilidadBruta),
       publicidad: p(publicidad),
@@ -216,7 +341,16 @@ export function armarConsolidado(entrada: {
     total.ordenes += b.ordenes;
     total.ventaBruta += c(b.ventaBruta);
     total.neto += c(b.neto);
+    if (b.coberturaNeto != null) total.ventaConCoberturaNeto += c(b.ventaBruta) * b.coberturaNeto;
+    total.descuentosPlataforma += descuentosPlataforma;
+    total.comision += c(desglosePlataforma.comision);
+    total.envio += c(desglosePlataforma.envio);
+    total.isr += c(desglosePlataforma.isr);
+    total.iva += c(desglosePlataforma.iva);
+    total.otros += c(desglosePlataforma.otros);
+    total.ajusteLiquidacion += c(desglosePlataforma.ajusteLiquidacion);
     total.devoluciones += c(b.devoluciones);
+    total.devolucionesIncluidasEnNeto += c(b.devolucionesIncluidasEnNeto);
     total.costoRecuperado += c(b.costoRecuperado);
     total.costoProducto += c(b.costoProducto);
     total.unidadesConCosto += b.unidadesConCosto;
@@ -233,6 +367,12 @@ export function armarConsolidado(entrada: {
         m.canales = [...new Set([...m.canales, ...f.canales])];
         m.unidades += f.unidades;
         m.importe = p(c(m.importe) + c(f.importe));
+        m.comision = p(c(m.comision) + c(f.comision));
+        m.envio = p(c(m.envio) + c(f.envio));
+        m.isr = p(c(m.isr) + c(f.isr));
+        m.iva = p(c(m.iva) + c(f.iva));
+        m.otros = p(c(m.otros) + c(f.otros));
+        m.ajusteLiquidacion = p(c(m.ajusteLiquidacion) + c(f.ajusteLiquidacion));
         m.neto = p(c(m.neto) + c(f.neto));
         m.ads = p(c(m.ads) + c(f.ads));
         m.cargoGeneral = p(c(m.cargoGeneral) + c(f.cargoGeneral));
@@ -240,9 +380,19 @@ export function armarConsolidado(entrada: {
         m.ganancia = m.ganancia == null || f.ganancia == null ? null : p(c(m.ganancia) + c(f.ganancia));
         if (!m.categoria || m.categoria === "Sin categoría") m.categoria = f.categoria;
       }
-      const k = categorias.get(f.categoria) ?? { categoria: f.categoria, unidades: 0, importe: 0, neto: 0, costo: 0, ads: 0, cargoGeneral: 0, ganancia: 0, porCanal: {}, conCosto: false, sinCosto: false };
+      const k = categorias.get(f.categoria) ?? {
+        categoria: f.categoria, unidades: 0, importe: 0, comision: 0, envio: 0,
+        isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0, neto: 0, costo: 0, ads: 0, cargoGeneral: 0,
+        ganancia: 0, porCanal: {}, conCosto: false, sinCosto: false,
+      };
       k.unidades += f.unidades;
       k.importe = p(c(k.importe) + c(f.importe));
+      k.comision = p(c(k.comision) + c(f.comision));
+      k.envio = p(c(k.envio) + c(f.envio));
+      k.isr = p(c(k.isr) + c(f.isr));
+      k.iva = p(c(k.iva) + c(f.iva));
+      k.otros = p(c(k.otros) + c(f.otros));
+      k.ajusteLiquidacion = p(c(k.ajusteLiquidacion) + c(f.ajusteLiquidacion));
       k.neto = p(c(k.neto) + c(f.neto));
       k.ads = p(c(k.ads) + c(f.ads));
       k.cargoGeneral = p(c(k.cargoGeneral) + c(f.cargoGeneral));
@@ -269,23 +419,37 @@ export function armarConsolidado(entrada: {
   }
 
   const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto);
-  return {
+  return aplicarGastosEmpresariales({
+    versionContable: 2,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,
     generadoEn: entrada.generadoEn ?? new Date().toISOString(),
     canales,
+    gastosEmpresariales: [],
     total: {
       unidades: total.unidades,
       ordenes: total.ordenes,
       ventaBruta: p(total.ventaBruta),
       neto: p(total.neto),
+      coberturaNeto: total.ventaBruta > 0 ? total.ventaConCoberturaNeto / total.ventaBruta : null,
+      descuentosPlataforma: p(total.descuentosPlataforma),
+      desgloseDisponible: entrada.bloques.every((b) => b.desgloseDisponible !== false),
+      comision: p(total.comision),
+      envio: p(total.envio),
+      isr: p(total.isr),
+      iva: p(total.iva),
+      otros: p(total.otros),
+      ajusteLiquidacion: p(total.ajusteLiquidacion),
       devoluciones: p(total.devoluciones),
+      devolucionesIncluidasEnNeto: p(total.devolucionesIncluidasEnNeto),
       costoRecuperado: p(total.costoRecuperado),
       costoProducto: p(total.costoProducto),
       coberturaCosto: total.unidades > 0 ? total.unidadesConCosto / total.unidades : 0,
       publicidad: p(total.publicidad),
       gastosGenerales: p(total.gastosGenerales),
+      utilidadAntesGastosEmpresariales: p(total.utilidadNeta),
+      gastosEmpresariales: 0,
       utilidadNeta: p(total.utilidadNeta),
       margenSobreVenta: total.ventaBruta > 0 ? total.utilidadNeta / total.ventaBruta : null,
       margenSobreNeto: total.neto > 0 ? total.utilidadNeta / total.neto : null,
@@ -295,5 +459,5 @@ export function armarConsolidado(entrada: {
     porModelo: [...modelos.values()].sort((a, b) => b.neto - a.neto),
     avisos,
     exacto,
-  };
+  }, entrada.gastosEmpresariales ?? []);
 }

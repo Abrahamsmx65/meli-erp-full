@@ -190,14 +190,59 @@ async function enParalelo<T>(items: T[], paralelo: number, fn: (x: T) => Promise
 }
 
 /** ¿Alguna fila cumple? Una sola consulta con límite 1. */
-async function existe(
+export async function existe(
   db: DB,
   tabla: string,
   filtros: (q: any) => any,
 ): Promise<boolean> {
   const { data, error } = await filtros(db.from(tabla).select("*")).limit(1);
-  if (error) return false;
+  if (error) throw new Error(`${tabla}: ${error.message ?? String(error)}`);
   return Boolean(data?.length);
+}
+
+function filasEsenciales<T>(
+  fuente: string,
+  resultado: { data: T[] | null; error: { message?: string } | null },
+): T[] {
+  if (resultado.error) {
+    throw new Error(`${fuente}: ${resultado.error.message ?? String(resultado.error)}`);
+  }
+  return resultado.data ?? [];
+}
+
+export async function pedidosNoCancelados(db: DB, accountId: string): Promise<PedidoCrudo[]> {
+  const resultado = await db
+    .from("pedidos")
+    .select("id, pedido, estado, actualizado_en")
+    .eq("account_id", accountId)
+    .neq("estado", "cancelado");
+  return filasEsenciales("pedidos", resultado as { data: PedidoCrudo[] | null; error: { message?: string } | null });
+}
+
+export async function stockActualMeli(db: DB, accountId: string, skus: string[]) {
+  const resultado = await db
+    .from("stock_full")
+    .select("sku, total, disponible, en_transferencia")
+    .eq("account_id", accountId)
+    .in("sku", skus);
+  return filasEsenciales<{
+    sku: string;
+    total: number | null;
+    disponible: number | null;
+    en_transferencia: number | null;
+  }>("stock_full", resultado);
+}
+
+export async function stockActualAmazon(db: DB, skus: string[]) {
+  const resultado = await db
+    .from("amazon_inventario")
+    .select("seller_sku, total, disponible")
+    .in("seller_sku", skus);
+  return filasEsenciales<{
+    seller_sku: string;
+    total: number | null;
+    disponible: number | null;
+  }>("amazon_inventario", resultado);
 }
 
 function trozos<T>(arr: T[], n: number): T[][] {
@@ -209,13 +254,9 @@ function trozos<T>(arr: T[], n: number): T[][] {
 export async function productosNuevos(db: DB, accountId: string): Promise<ResumenProductosNuevos> {
   const corte = new Date(Date.now() - DIAS_RECIBIDO_VISIBLE * 86_400_000).toISOString();
 
-  const { data: pedidosRaw } = await db
-    .from("pedidos")
-    .select("id, pedido, estado, actualizado_en")
-    .eq("account_id", accountId)
-    .neq("estado", "cancelado");
+  const pedidosRaw = await pedidosNoCancelados(db, accountId);
 
-  const pedidos = ((pedidosRaw ?? []) as PedidoCrudo[]).filter(
+  const pedidos = pedidosRaw.filter(
     (p) => p.estado !== "recibido" || !p.actualizado_en || p.actualizado_en >= corte,
   );
   if (!pedidos.length) return { productos: [], amazonConectado: false };
@@ -286,32 +327,43 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   }
 
   // --- Publicaciones de Amazon, por producto ------------------------------
-  let amazonConectado = false;
-  try {
-    const cuentaAmz = await cuentaAmazon(db);
-    if (cuentaAmz) {
-      amazonConectado = true;
-      const listings = await traerTodo<{ seller_sku: string; asin: string | null }>(
+  const cuentaAmz = await cuentaAmazon(db);
+  const amazonConectado = Boolean(cuentaAmz);
+  if (cuentaAmz) {
+    const opcionalSiNoExiste = <T,>(promesa: Promise<T[]>): Promise<T[]> =>
+      promesa.catch((err) => {
+        if (
+          err instanceof Error &&
+          /does not exist|42P01|schema cache/i.test(err.message)
+        ) {
+          return [];
+        }
+        throw err;
+      });
+    const [listings, vendidos] = await Promise.all([
+      opcionalSiNoExiste(
+        traerTodo<{ seller_sku: string; asin: string | null }>(
         db,
         "amazon_listings",
         "seller_sku, asin",
         (q) => q.eq("account_id", cuentaAmz.id),
-      ).catch(() => [] as { seller_sku: string; asin: string | null }[]);
-      const vendidos = await traerTodo<{ seller_sku: string; asin: string | null }>(
+        ),
+      ),
+      opcionalSiNoExiste(
+        traerTodo<{ seller_sku: string; asin: string | null }>(
         db,
         "amazon_skus",
         "seller_sku, asin",
         (q) => q.eq("account_id", cuentaAmz.id),
-      ).catch(() => [] as { seller_sku: string; asin: string | null }[]);
-      for (const f of [...listings, ...vendidos]) {
-        for (const prod of productosDeSku(f.seller_sku)) {
-          if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
-          if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
-        }
+        ),
+      ),
+    ]);
+    for (const f of [...listings, ...vendidos]) {
+      for (const prod of productosDeSku(f.seller_sku)) {
+        if (!prod.amazon.skus.includes(f.seller_sku)) prod.amazon.skus.push(f.seller_sku);
+        if (f.asin && !prod.amazon.asins.includes(f.asin)) prod.amazon.asins.push(f.asin);
       }
     }
-  } catch {
-    amazonConectado = false;
   }
 
   // --- ¿Alguna vez tuvo stock? --------------------------------------------
@@ -323,12 +375,8 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
 
   const todosSkus = [...skusPorProducto.values()].flat();
   for (const grupo of trozos(todosSkus, 300)) {
-    const { data } = await db
-      .from("stock_full")
-      .select("sku, total, disponible, en_transferencia")
-      .eq("account_id", accountId)
-      .in("sku", grupo);
-    for (const s of data ?? []) {
+    const stock = await stockActualMeli(db, accountId, grupo);
+    for (const s of stock) {
       if ((s.total ?? 0) > 0 || (s.disponible ?? 0) > 0 || (s.en_transferencia ?? 0) > 0) {
         for (const prod of productosDeSku(s.sku)) conStock.add(prod.clave);
       }
@@ -338,11 +386,8 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
   const todosAmz = [...productos.values()].flatMap((p) => p.amazon.skus);
   if (amazonConectado && todosAmz.length) {
     for (const grupo of trozos(todosAmz, 300)) {
-      const { data } = await db
-        .from("amazon_inventario")
-        .select("seller_sku, total, disponible")
-        .in("seller_sku", grupo);
-      for (const s of data ?? []) {
+      const stock = await stockActualAmazon(db, grupo);
+      for (const s of stock) {
         if ((s.total ?? 0) > 0 || (s.disponible ?? 0) > 0) {
           for (const prod of productosDeSku(s.seller_sku)) conStock.add(prod.clave);
         }
@@ -383,7 +428,7 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
       "existencias",
       "sku_caja, cajas_fisicas",
       (q) => q.eq("account_id", accountId).gt("cajas_fisicas", 0),
-    ).catch(() => [] as { sku_caja: string; cajas_fisicas: number | null }[]);
+    );
     const nuevosSet = new Set(nuevos.map((p) => p.clave));
     for (const e of existencias) {
       for (const prod of productosDeSku(e.sku_caja)) {

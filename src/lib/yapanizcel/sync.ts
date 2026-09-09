@@ -28,7 +28,8 @@ import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
 import { todo } from "./db";
-import { registrarOrdenes } from "./netos";
+import { leerResumenDeOrden, registrarOrdenes } from "./netos";
+import { camposLiquidacionMeli, netoVigente } from "../meli/pagos";
 import { invalidarYz } from "./cache";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
@@ -343,15 +344,31 @@ export async function completarNetos(
   if (!ordenes.length) return netos;
 
   const ids = ordenes.map((o) => o.id);
-  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  const cache = new Map<number, {
+    neto: number;
+    netoActual: number | null;
+    actualizadoEn: string;
+    cargosLeidos: boolean;
+    netoLeido: boolean;
+    reembolsoBase: number | null;
+    reembolsoBaseConfiable: boolean | null;
+  }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await admin
       .from("yz_ordenes_neto")
-      .select("order_id, neto, actualizado_en")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, reembolso_incluido_neto_base, reembolso_base_confiable")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     for (const f of data ?? []) {
-      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+      cache.set(Number(f.order_id), {
+        neto: Number(f.neto),
+        netoActual: f.neto_actual == null ? null : Number(f.neto_actual),
+        actualizadoEn: f.actualizado_en,
+        cargosLeidos: f.cargos_leidos_en != null,
+        netoLeido: f.neto_en != null,
+        reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+        reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+      });
     }
   }
 
@@ -366,24 +383,37 @@ export async function completarNetos(
     if (!o.pagos.length) continue;
     const c = cache.get(o.id);
     if (!c) porPedir.push(o);
+    else if (!c.cargosLeidos) porPedir.push(o);
     else if (o.fecha >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(o);
-    else if (c.neto <= 0 && o.total > 0) porPedir.push(o);
+    else if (!c.netoLeido && o.total > 0) porPedir.push(o);
   }
 
   const nuevas: Record<string, unknown>[] = [];
   for (const o of porPedir.slice(0, tope)) {
     try {
-      let neto = 0;
-      let algo = false;
-      for (const pagoId of o.pagos) {
-        const r = await cliente.get<{ net_received_amount?: number }>(`/collections/${pagoId}`);
-        if (typeof r?.net_received_amount === "number") {
-          neto += r.net_received_amount;
-          algo = true;
-        }
-      }
-      if (!algo) continue;
-      cache.set(o.id, { neto, actualizadoEn: new Date().toISOString() });
+      const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
+      const previo = cache.get(o.id);
+      const netoControl = previo?.netoLeido ? previo.neto : undefined;
+      const resumen = await leerResumenDeOrden(
+        cliente,
+        o.pagos,
+        o.total,
+        comisionOrden,
+        netoControl,
+        previo?.reembolsoBase,
+        previo?.reembolsoBaseConfiable,
+      );
+      if (resumen.neto == null) continue;
+      const neto = netoControl ?? resumen.neto;
+      cache.set(o.id, {
+        neto,
+        netoActual: resumen.neto,
+        actualizadoEn: new Date().toISOString(),
+        cargosLeidos: true,
+        netoLeido: true,
+        reembolsoBase: resumen.reembolsoIncluidoNetoBase,
+        reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+      });
       nuevas.push({
         account_id: accountId,
         order_id: o.id,
@@ -391,6 +421,9 @@ export async function completarNetos(
         fecha: o.fecha,
         total: o.total,
         neto,
+        ...(netoControl != null ? { neto_actual: resumen.neto } : {}),
+        ...camposLiquidacionMeli(resumen),
+        cargos_leidos_en: new Date().toISOString(),
         neto_en: new Date().toISOString(),
         actualizado_en: new Date().toISOString(),
       });
@@ -400,14 +433,19 @@ export async function completarNetos(
   }
   if (nuevas.length) await upsertEnTandas(admin, "yz_ordenes_neto", nuevas, "account_id,order_id");
 
-  for (const [id, c] of cache) netos.set(id, c.neto);
+  // Un cero/negativo confirmado sí es saldo. Un placeholder sin neto_en no:
+  // devolverlo certificaría como ingreso real una lectura que nunca ocurrió.
+  for (const [id, c] of cache) {
+    if (c.netoLeido) netos.set(id, netoVigente(c.neto, c.netoActual));
+  }
   return netos;
 }
 
 /**
  * Agrega órdenes a renglones sku|día. El neto de cada orden se reparte a
- * sus renglones en proporción a su importe, y un día solo lleva neto cuando
- * TODAS sus órdenes ya lo tienen: un neto a medias engaña más que ninguno.
+ * sus renglones en proporción a su importe. Cada SKU|día solo lleva neto
+ * cuando todas sus órdenes ya lo tienen; otro SKU confirmado conserva incluso
+ * un saldo cero o negativo.
  */
 export function agregarVentas(
   ordenes: OrdenLeida[],
@@ -417,15 +455,15 @@ export function agregarVentas(
     string,
     { sku: string; fecha: string; unidades: number; ordenes: number; importe: number; comision: number; neto: number }
   >();
-  const diasIncompletos = new Set<string>();
+  const clavesIncompletas = new Set<string>();
 
   for (const o of ordenes) {
     const netoOrden = netos.get(o.id);
-    if (netoOrden == null) diasIncompletos.add(o.fecha);
     const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
 
     for (const r of o.renglones) {
       const clave = `${r.sku}|${o.fecha}`;
+      if (netoOrden == null) clavesIncompletas.add(clave);
       const s =
         acumulado.get(clave) ??
         { sku: r.sku, fecha: o.fecha, unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0 };
@@ -440,7 +478,7 @@ export function agregarVentas(
 
   return [...acumulado.values()].map((s) => ({
     ...s,
-    neto: diasIncompletos.has(s.fecha) ? null : Math.round(s.neto * 100) / 100,
+    neto: clavesIncompletas.has(`${s.sku}|${s.fecha}`) ? null : Math.round(s.neto * 100) / 100,
   }));
 }
 
@@ -495,7 +533,7 @@ async function sincronizarTramo(
   await upsertEnTandas(
     admin,
     "yz_ventas_diarias",
-    filas.map((f) => ({ account_id: accountId, ...f })),
+    filas.map((f) => ({ account_id: accountId, ...f, neto_confirmado: f.neto != null })),
     "account_id,sku,fecha",
   );
 

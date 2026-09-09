@@ -17,6 +17,10 @@
  */
 import type { DB } from "../datos/repos";
 import { marcarTipos, revivirTipos } from "../servicios/plan-fba-cache";
+import {
+  resultadoErrorLecturaCache,
+  type ResultadoLecturaDatos,
+} from "../servicios/errores-datos";
 
 /** Las claves fijas que el cron refresca; las de publicidad son dinámicas ("ads:2026-09"). */
 export const CLAVES_YZ = ["compras", "plan", "inventario", "amarre", "disenos", "pedidos"] as const;
@@ -34,12 +38,18 @@ export interface GuardadoYz<T> {
   vigente: boolean;
 }
 
+export type ResultadoLecturaCacheYz<T> = ResultadoLecturaDatos<T>;
+
 /**
  * El renglón guardado TAL CUAL esté: vigente o invalidado, fresco o viejo.
  * Es lo que leen las pantallas — servir un dato de hace un rato le gana a
  * cobrarle el cálculo al clic; el fondo lo refresca solo.
  */
-export async function leerCacheYzGuardado<T>(db: DB, accountId: string, clave: string): Promise<GuardadoYz<T> | null> {
+export async function leerCacheYzGuardado<T>(
+  db: DB,
+  accountId: string,
+  clave: string,
+): Promise<ResultadoLecturaCacheYz<GuardadoYz<T>>> {
   try {
     const { data, error } = await db
       .from("yz_cache")
@@ -47,15 +57,18 @@ export async function leerCacheYzGuardado<T>(db: DB, accountId: string, clave: s
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
-    if (error || !data?.datos) return null;
+    if (error) return resultadoErrorLecturaCache("yz_cache", clave, error);
+    if (!data?.datos) return { estado: "ausente" };
     return {
-      datos: revivirTipos(data.datos) as T,
-      generadoEn: data.generado_en,
-      vigente: data.vigente !== false,
+      estado: "encontrado",
+      valor: {
+        datos: revivirTipos(data.datos) as T,
+        generadoEn: data.generado_en,
+        vigente: data.vigente !== false,
+      },
     };
-  } catch {
-    // Tabla aún sin migrar o error de lectura: el llamador calcula.
-    return null;
+  } catch (error) {
+    return resultadoErrorLecturaCache("yz_cache", clave, error);
   }
 }
 
@@ -68,11 +81,14 @@ export async function leerCacheYz<T>(
   accountId: string,
   clave: string,
   edadMaxMs?: number,
-): Promise<T | null> {
+): Promise<ResultadoLecturaCacheYz<T>> {
   const g = await leerCacheYzGuardado<T>(db, accountId, clave);
-  if (!g || !g.vigente) return null;
-  if (edadMaxMs != null && Date.now() - Date.parse(g.generadoEn) > edadMaxMs) return null;
-  return g.datos;
+  if (g.estado !== "encontrado") return g;
+  if (!g.valor.vigente) return { estado: "ausente" };
+  if (edadMaxMs != null && Date.now() - Date.parse(g.valor.generadoEn) > edadMaxMs) {
+    return { estado: "ausente" };
+  }
+  return { estado: "encontrado", valor: g.valor.datos };
 }
 
 export async function guardarCacheYz(
@@ -127,7 +143,8 @@ export async function conCacheYz<T>(
   calcular: () => Promise<T>,
 ): Promise<T> {
   const guardado = await leerCacheYzGuardado<T>(db, accountId, clave);
-  if (guardado != null) return guardado.datos;
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
   return recalcularCacheYz(db, accountId, clave, calcular);
 }
 

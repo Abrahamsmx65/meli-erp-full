@@ -16,7 +16,7 @@ import { canonizar, normalizarTalla } from "../importar/sku";
 import type { FilaExistencia } from "../importar/excel";
 import { reemplazarExistencias, type DB } from "../datos/repos";
 import { invalidar } from "./cache";
-import { invalidarApp } from "./cache-app";
+import { ErrorOperacionCacheApp, invalidarApp } from "./cache-app";
 import { invalidarInventario } from "./inventario";
 
 const URL_POR_OMISION = "https://inventarios-industher.vercel.app/api/integracion/inventario";
@@ -589,7 +589,14 @@ export async function sincronizarInventarioIndusther(
 
   invalidarInventario(accountId);
   await invalidar(db, accountId, "Se sincronizó el inventario desde el API de Industher.");
-  await invalidarApp(db, accountId, "Se sincronizó el inventario desde el API de Industher.", { claves: ["tiktok-bodega"] });
+  try {
+    await invalidarApp(db, accountId, "Se sincronizó el inventario desde el API de Industher.", { claves: ["tiktok-bodega"] });
+  } catch (error) {
+    if (!(error instanceof ErrorOperacionCacheApp)) throw error;
+    inv.avisos.push(
+      `El inventario se guardó, pero no se pudo invalidar su caché (${error.tipo}). Los datos anteriores podrían seguir visibles temporalmente.`,
+    );
+  }
 
   return {
     renglones: inv.filas.length,
