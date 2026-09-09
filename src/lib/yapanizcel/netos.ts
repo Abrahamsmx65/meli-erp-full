@@ -21,6 +21,7 @@
 import type { DB } from "../datos/repos";
 import { upsertEnTandas } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
+import { camposLiquidacionMeli, leerPagoMercadoPago, netoVigente, resumirPagosMeli, type ResumenPagosMeli } from "../meli/pagos";
 import { claveItem, obtenerUsuario } from "../meli/sync";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
@@ -73,17 +74,31 @@ export async function registrarOrdenes(admin: DB, accountId: string, ordenes: Or
 
 /** El neto de una orden: la suma de sus pagos aprobados. null = MP no contestó. */
 export async function leerNetoDeOrden(cliente: MeliClient, pagos: number[]): Promise<number | null> {
-  let neto = 0;
-  let algo = false;
+  return (await leerResumenDeOrden(cliente, pagos, 0, 0)).neto;
+}
+
+/** Neto y desglose de una orden, sumando todos sus pagos. */
+export async function leerResumenDeOrden(
+  cliente: MeliClient,
+  pagos: number[],
+  total: number,
+  comision: number,
+  netoControl?: number | null,
+  reembolsoIncluidoNetoBase?: number | null,
+  reembolsoBaseConfiable?: boolean | null,
+): Promise<ResumenPagosMeli> {
+  const leidos = [];
   for (const pagoId of pagos) {
-    const r = await cliente.get<{ net_received_amount?: number; status?: string }>(`/collections/${pagoId}`);
-    if (r?.status === "rejected" || r?.status === "cancelled") continue;
-    if (typeof r?.net_received_amount === "number") {
-      neto += r.net_received_amount;
-      algo = true;
-    }
+    leidos.push(leerPagoMercadoPago(await cliente.get<unknown>(`/collections/${pagoId}`)));
   }
-  return algo ? redondea(neto) : null;
+  return resumirPagosMeli(
+    leidos,
+    total,
+    comision,
+    netoControl,
+    reembolsoIncluidoNetoBase,
+    reembolsoBaseConfiable,
+  );
 }
 
 /**
@@ -92,16 +107,17 @@ export async function leerNetoDeOrden(cliente: MeliClient, pagos: number[]): Pro
  * Pura, para probarla.
  */
 export function repartirNetoDelDia(
-  ordenes: { total: number; neto: number; renglones: { sku: string; importe: number }[] | null }[],
+  ordenes: { total: number; neto: number; netoActual?: number | null; netoLeido?: boolean; renglones: { sku: string; importe: number }[] | null }[],
 ): Map<string, number> | null {
   const porSku = new Map<string, number>();
   for (const o of ordenes) {
-    if (o.total > 0 && !(o.neto > 0)) return null;
+    if (o.total > 0 && !(o.netoLeido ?? o.neto > 0)) return null;
     if (!o.renglones) return null;
+    const saldo = netoVigente(o.neto, o.netoActual);
     const importeOrden = o.renglones.reduce((a, r) => a + (Number(r.importe) || 0), 0);
     if (importeOrden <= 0) continue;
     for (const r of o.renglones) {
-      porSku.set(r.sku, (porSku.get(r.sku) ?? 0) + o.neto * ((Number(r.importe) || 0) / importeOrden));
+      porSku.set(r.sku, (porSku.get(r.sku) ?? 0) + saldo * ((Number(r.importe) || 0) / importeOrden));
     }
   }
   for (const [k, v] of porSku) porSku.set(k, redondea(v));
@@ -113,21 +129,33 @@ export async function asentarNetos(admin: DB, accountId: string, dias: Iterable<
   const asentados: string[] = [];
   for (const fecha of [...new Set(dias)].sort()) {
     if (Date.now() > finMs) break;
-    const ordenes = await todo<{ total: number; neto: number; renglones: { sku: string; importe: number }[] | null }>(
+    const ordenes = await todo<{ total: number; neto: number; neto_actual: number | null; neto_en: string | null; renglones: { sku: string; importe: number }[] | null }>(
       admin,
       "yz_ordenes_neto",
-      "total, neto, renglones",
+      "total, neto, neto_actual, neto_en, renglones",
       (q) => q.eq("account_id", accountId).eq("fecha", fecha),
     );
     if (!ordenes.length) continue;
-    const reparto = repartirNetoDelDia(ordenes.map((o) => ({ total: Number(o.total), neto: Number(o.neto), renglones: o.renglones })));
+    const reparto = repartirNetoDelDia(ordenes.map((o) => ({
+      total: Number(o.total),
+      neto: Number(o.neto),
+      netoActual: o.neto_actual == null ? null : Number(o.neto_actual),
+      netoLeido: o.neto_en != null,
+      renglones: o.renglones,
+    })));
     if (!reparto) continue;
     // Solo los renglones que EXISTEN ese día: un upsert a ciegas inventaría
     // renglones con cero unidades.
     const existentes = await todo<{ sku: string }>(admin, "yz_ventas_diarias", "sku", (q) => q.eq("account_id", accountId).eq("fecha", fecha));
     const filas = existentes
       .filter((e) => reparto.has(e.sku))
-      .map((e) => ({ account_id: accountId, sku: e.sku, fecha, neto: reparto.get(e.sku)! }));
+      .map((e) => ({
+        account_id: accountId,
+        sku: e.sku,
+        fecha,
+        neto: reparto.get(e.sku)!,
+        neto_confirmado: true,
+      }));
     if (filas.length) await upsertEnTandas(admin, "yz_ventas_diarias", filas, "account_id,sku,fecha");
     asentados.push(fecha);
   }
@@ -138,7 +166,7 @@ export interface ResumenNetos {
   leidos: number;
   fallidos: number;
   diasAsentados: string[];
-  /** órdenes que siguen sin neto en los últimos 180 días */
+  /** órdenes que siguen sin neto o sin desglose */
   pendientes: number;
 }
 
@@ -153,23 +181,26 @@ export async function completarNetosPendientes(
   finMs: number,
   tope = 2_000,
 ): Promise<ResumenNetos> {
-  const fondo = restarDias(hoyMx(), 180);
   const { data, count } = await admin
     .from("yz_ordenes_neto")
-    .select("order_id, fecha, payment_ids, payment_id", { count: "exact" })
+    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable", { count: "exact" })
     .eq("account_id", accountId)
-    .lte("neto", 0)
+    .or("neto_en.is.null,cargos_leidos_en.is.null")
     .gt("total", 0)
-    .gte("fecha", fondo)
     .order("fecha", { ascending: false })
     .limit(tope);
   const pendientes = data ?? [];
   const r: ResumenNetos = { leidos: 0, fallidos: 0, diasAsentados: [], pendientes: count ?? pendientes.length };
   const dias = new Set<string>();
-  const nuevas: Record<string, unknown>[] = [];
+  const nuevasConNeto: Record<string, unknown>[] = [];
+  const nuevasSoloCargos: Record<string, unknown>[] = [];
   const vaciar = async () => {
-    if (!nuevas.length) return;
-    await upsertEnTandas(admin, "yz_ordenes_neto", nuevas.splice(0), "account_id,order_id");
+    if (nuevasConNeto.length) {
+      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasConNeto.splice(0), "account_id,order_id");
+    }
+    if (nuevasSoloCargos.length) {
+      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasSoloCargos.splice(0), "account_id,order_id");
+    }
   };
 
   // Se deja un margen al final para guardar y asentar sin que Vercel mate la función.
@@ -179,16 +210,43 @@ export async function completarNetosPendientes(
     const pagos: number[] = Array.isArray(o.payment_ids) && o.payment_ids.length ? o.payment_ids.map(Number) : o.payment_id != null ? [Number(o.payment_id)] : [];
     if (!pagos.length) continue;
     try {
-      const neto = await leerNetoDeOrden(cliente, pagos);
-      if (neto == null) {
+      const total = Number(o.total) || 0;
+      const comision = Array.isArray(o.renglones)
+        ? o.renglones.reduce((a: number, r: any) => a + (Number(r.comision) || 0), 0)
+        : 0;
+      const netoControl = o.neto_en != null ? Number(o.neto) : undefined;
+      const resumen = await leerResumenDeOrden(
+        cliente,
+        pagos,
+        total,
+        comision,
+        netoControl,
+        o.reembolso_incluido_neto_base == null ? null : Number(o.reembolso_incluido_neto_base),
+        o.reembolso_base_confiable == null ? null : Boolean(o.reembolso_base_confiable),
+      );
+      if (resumen.neto == null) {
         r.fallidos++;
         continue;
       }
-      nuevas.push({ account_id: accountId, order_id: o.order_id, neto, neto_en: new Date().toISOString(), actualizado_en: new Date().toISOString() });
+      const fila = {
+        account_id: accountId,
+        order_id: o.order_id,
+        ...camposLiquidacionMeli(resumen),
+        cargos_leidos_en: new Date().toISOString(),
+        actualizado_en: new Date().toISOString(),
+      };
+      if (netoControl == null) {
+        nuevasConNeto.push({ ...fila, neto: resumen.neto, neto_en: new Date().toISOString() });
+      } else {
+        nuevasSoloCargos.push({
+          ...fila,
+          neto_actual: resumen.neto,
+        });
+      }
       dias.add(o.fecha);
       r.leidos++;
       r.pendientes--;
-      if (nuevas.length >= 100) await vaciar();
+      if (nuevasConNeto.length + nuevasSoloCargos.length >= 100) await vaciar();
     } catch {
       r.fallidos++;
     }

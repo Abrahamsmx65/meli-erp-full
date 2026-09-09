@@ -6,6 +6,7 @@ import { listarCortesGenerales, obtenerConsolidado } from "@/lib/servicios/conso
 import { NOMBRE_CANAL, type Canal } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
+import { GastosEmpresariales } from "@/components/gastos-empresariales";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -44,6 +45,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const [cns, cortes] = await Promise.all([obtenerConsolidado(supabase, cuenta, periodo), listarCortesGenerales(supabase, cuenta.id)]);
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   const canales: Canal[] = cns.canales.map((k) => k.canal);
+  const detalleCanal = (k: (typeof cns.canales)[number], campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
+    k.desgloseDisponible === false ? "No disponible" : pesos(-k.desglosePlataforma[campo]);
+  const detalleTotal = (campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
+    cns.total.desgloseDisponible === false ? "No disponible" : pesos(-cns.total[campo]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -75,13 +80,16 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </div>
 
       <AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />
+      <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Ficha titulo="Venta bruta" valor={pesos(cns.total.ventaBruta)} nota={`${n(cns.total.unidades)} unidades · ${n(cns.total.ordenes)} órdenes`} />
         <Ficha titulo="Neto después de plataforma" valor={pesos(cns.total.neto)} nota={`${pct(cns.total.coberturaNeto)} de la venta respaldada por la fuente`} />
         <Ficha titulo="Publicidad" valor={pesos(-cns.total.publicidad)} nota="por modelo + general" tono={cns.total.publicidad > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Gastos generales" valor={pesos(-cns.total.gastosGenerales)} nota="Full, FBA, devoluciones netas, otros" tono={cns.total.gastosGenerales > 0 ? "alerta" : "neutro"} />
-        <Ficha titulo="Utilidad neta total" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
+        <Ficha titulo="Utilidad antes de gastos empresariales" valor={pesos(cns.total.utilidadAntesGastosEmpresariales)} nota="suma de los tres canales" tono={cns.total.utilidadAntesGastosEmpresariales < 0 ? "critico" : "bien"} />
+        <Ficha titulo="Gastos empresariales" valor={pesos(-cns.total.gastosEmpresariales)} nota="se descuentan una sola vez" tono={cns.total.gastosEmpresariales > 0 ? "alerta" : "neutro"} />
+        <Ficha titulo="Utilidad neta final" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
       </div>
 
       {/* ---- Por canal ---------------------------------------------------- */}
@@ -108,6 +116,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 [
                   ["Unidades", (k) => n(k.unidades), n(cns.total.unidades)],
                   ["Venta bruta", (k) => pesos(k.ventaBruta), pesos(cns.total.ventaBruta)],
+                   ["Comisión", (k) => detalleCanal(k, "comision"), detalleTotal("comision")],
+                   ["Envío", (k) => detalleCanal(k, "envio"), detalleTotal("envio")],
+                   ["Retención ISR", (k) => detalleCanal(k, "isr"), detalleTotal("isr")],
+                   ["Retención IVA", (k) => detalleCanal(k, "iva"), detalleTotal("iva")],
+                   ["Otros cargos", (k) => detalleCanal(k, "otros"), detalleTotal("otros")],
+                   ["Ajuste posterior de liquidación", (k) => detalleCanal(k, "ajusteLiquidacion"), detalleTotal("ajusteLiquidacion")],
+                   ["Reembolsos ya reflejados en el neto", (k) => pesos(k.devolucionesIncluidasEnNeto ?? 0), pesos(cns.total.devolucionesIncluidasEnNeto)],
                   ["Deducciones de plataforma", (k) => pesos(-k.descuentosPlataforma), pesos(-cns.total.descuentosPlataforma)],
                   ["Neto después de plataforma", (k) => pesos(k.neto), pesos(cns.total.neto)],
                   ["Fuente del neto", (k) => k.fuenteNeto, ""],
@@ -117,22 +132,24 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   ["Publicidad por modelo", (k) => pesos(-k.adsPorModelo), ""],
                   ["Gastos generales", (k) => pesos(-k.gastosGenerales), pesos(-cns.total.gastosGenerales)],
                   ["Gasto general por unidad", (k) => pesos(k.cargoPorUnidad), ""],
-                  ["Utilidad neta", (k) => pesos(k.utilidadNeta), pesos(cns.total.utilidadNeta)],
+                   ["Utilidad antes de gastos empresariales", (k) => pesos(k.utilidadNeta), pesos(cns.total.utilidadAntesGastosEmpresariales)],
+                   ["Gastos empresariales", () => "—", pesos(-cns.total.gastosEmpresariales)],
+                   ["Utilidad neta final", () => "—", pesos(cns.total.utilidadNeta)],
                   ["Margen sobre la venta", (k) => pct(k.margen), pct(cns.total.margenSobreVenta)],
                   ["Ganancia por unidad", (k) => (k.gananciaPorUnidad != null ? pesos(k.gananciaPorUnidad) : "—"), cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"],
                   ["Estado", (k) => (k.exacto ? "Exacto" : `${k.avisos.length} avisos`), cns.exacto ? "Exacto" : ""],
                 ] as [string, (k: (typeof cns.canales)[number]) => string, string][]
               ).map(([concepto, f, total]) => {
-                const fuerte = concepto === "Utilidad neta" || concepto === "Utilidad bruta";
+                const fuerte = concepto.startsWith("Utilidad") || concepto === "Utilidad bruta";
                 return (
                   <tr key={concepto} style={fuerte ? { background: "var(--surface-2)" } : undefined}>
                     <td className={fuerte ? "font-semibold" : ""}>{concepto}</td>
                     {cns.canales.map((k) => (
-                      <td key={k.canal} className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad neta" ? { color: colorGanancia(k.utilidadNeta) } : undefined}>
+                      <td key={k.canal} className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad antes de gastos empresariales" ? { color: colorGanancia(k.utilidadNeta) } : undefined}>
                         {f(k)}
                       </td>
                     ))}
-                    <td className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad neta" ? { color: colorGanancia(cns.total.utilidadNeta) } : undefined}>
+                    <td className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad neta final" ? { color: colorGanancia(cns.total.utilidadNeta) } : undefined}>
                       {total}
                     </td>
                   </tr>
@@ -194,6 +211,11 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 <th>Categoría</th>
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
+                <th className="num">Comisión</th>
+                <th className="num">Envío</th>
+                <th className="num">ISR</th>
+                <th className="num">IVA</th>
+                <th className="num">Otros</th>
                 <th className="num">Neto</th>
                 <th className="num">Costo</th>
                 <th className="num">Publicidad</th>
@@ -210,6 +232,11 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="font-medium">{k.categoria}</td>
                   <td className="num cifra">{n(k.unidades)}</td>
                   <td className="num cifra">{pesos(k.importe)}</td>
+                  <td className="num cifra">{pesos(k.comision)}</td>
+                  <td className="num cifra">{pesos(k.envio)}</td>
+                  <td className="num cifra">{pesos(k.isr)}</td>
+                  <td className="num cifra">{pesos(k.iva)}</td>
+                  <td className="num cifra">{pesos(k.otros)}</td>
                   <td className="num cifra">{pesos(k.neto)}</td>
                   <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
                   <td className="num cifra">{k.ads ? pesos(k.ads) : "—"}</td>
@@ -244,6 +271,11 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 <th>Canales</th>
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
+                <th className="num">Comisión</th>
+                <th className="num">Envío</th>
+                <th className="num">ISR</th>
+                <th className="num">IVA</th>
+                <th className="num">Otros</th>
                 <th className="num">Neto</th>
                 <th className="num">Costo</th>
                 <th className="num">Publicidad</th>
@@ -259,6 +291,11 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="text-xs" style={{ color: "var(--ink-muted)" }}>{m.canales.map((c) => NOMBRE_CANAL[c].split(" ·")[0]).join(", ")}</td>
                   <td className="num cifra">{n(m.unidades)}</td>
                   <td className="num cifra">{pesos(m.importe)}</td>
+                  <td className="num cifra">{pesos(m.comision)}</td>
+                  <td className="num cifra">{pesos(m.envio)}</td>
+                  <td className="num cifra">{pesos(m.isr)}</td>
+                  <td className="num cifra">{pesos(m.iva)}</td>
+                  <td className="num cifra">{pesos(m.otros)}</td>
                   <td className="num cifra">{pesos(m.neto)}</td>
                   <td className="num cifra" style={{ color: m.costo == null ? "var(--estado-alerta)" : undefined }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
                   <td className="num cifra">{m.ads ? pesos(m.ads) : "—"}</td>

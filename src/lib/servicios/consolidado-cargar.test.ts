@@ -1,0 +1,68 @@
+import { describe, expect, it } from "vitest";
+import { armarConsolidado } from "./consolidado";
+import { leerConsolidadoCache, normalizarConsolidadoCache } from "./consolidado-cargar";
+import { marcarTipos } from "./plan-fba-cache";
+
+describe("esquema de consolidado_cache", () => {
+  it("rechaza una caché viva sin desglose por canal y acepta la estructura actual", () => {
+    const actual = armarConsolidado({
+      periodo: "2026-08",
+      desde: "2026-08-01",
+      hasta: "2026-08-31",
+      bloques: [{
+        canal: "amazon",
+        unidades: 1,
+        ordenes: 1,
+        ventaBruta: 100,
+        neto: 80,
+        fuenteNeto: "SKU Economics",
+        coberturaNeto: 1,
+        descuentos: [{ concepto: "Tarifas", monto: 20 }],
+        devoluciones: 0,
+        costoRecuperado: 0,
+        costoProducto: 30,
+        unidadesConCosto: 1,
+        adsPorModelo: 0,
+        adsGenerales: 0,
+        gastos: [],
+        porModelo: [{ modelo: "A1", categoria: "Fundas", unidades: 1, importe: 100, neto: 80, costo: 30, ads: 0 }],
+        avisos: [],
+        exacto: true,
+      }],
+      avisos: [],
+    });
+    const anterior = structuredClone(actual) as Record<string, any>;
+    delete anterior.canales[0].desglosePlataforma;
+
+    expect(leerConsolidadoCache(anterior)).toBeNull();
+    expect(leerConsolidadoCache(marcarTipos(actual))).toEqual(actual);
+  });
+});
+
+describe("normalizarConsolidadoCache", () => {
+  it("completa el esquema anterior sin arreglos ausentes ni valores NaN", () => {
+    const consolidado = normalizarConsolidadoCache({
+      periodo: "2026-08",
+      canales: [{ canal: "amazon", neto: 1200, costoProducto: 300 }],
+      total: { neto: 1200, costoProducto: 300 },
+    });
+
+    expect(consolidado.canales[0]).toMatchObject({
+      descuentos: [],
+      descuentosPlataforma: 0,
+      costoProducto: 300,
+      utilidadBruta: 900,
+      coberturaNeto: null,
+      desgloseDisponible: false,
+      desglosePlataforma: { comision: 0, envio: 0, isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0 },
+    });
+    expect(consolidado.total).toMatchObject({
+      descuentosPlataforma: 0,
+      costoProducto: 300,
+      coberturaNeto: null,
+      desgloseDisponible: false,
+    });
+    expect(Object.values(consolidado.canales[0]).some((valor) => Number.isNaN(valor))).toBe(false);
+    expect(Object.values(consolidado.total).some((valor) => Number.isNaN(valor))).toBe(false);
+  });
+});

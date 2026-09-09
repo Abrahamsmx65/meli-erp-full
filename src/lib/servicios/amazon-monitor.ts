@@ -107,6 +107,14 @@ export interface MonitorAmazon {
     costoProducto: number;
     coberturaCosto: number;
     hasta: string | null;
+    cobertura: {
+      importe: number;
+      unidades: number;
+      dias: number;
+      diasVenta: number;
+      diasCubiertos: number;
+      completa: boolean;
+    };
   } | null;
   /** publicidad del periodo por modelo, para la columna de la tabla */
   publicidadPorModelo: Map<string, number>;
@@ -136,7 +144,7 @@ export async function obtenerMonitorAmazon(
 ): Promise<MonitorAmazon> {
   const r = rango ?? normalizarRango();
   const cerrado = r.hasta < fechaMx(0);
-  return conCacheApp(db, amazonAccountId, `monitor:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
+  return conCacheApp(db, amazonAccountId, `monitor:v2:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
     cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
   );
 }
@@ -161,7 +169,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, ventasRecientes, config, pagos, ultimaLiquidacion, economiaFilas] = await Promise.all([
+  const [ventas, ventasRecientes, config, pagos, ultimaLiquidacion, economiaFilas, coberturaFilas] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -215,6 +223,16 @@ export async function cargarMonitorAmazon(
     // y la lectura paginada no alcanzaba a terminar, así que la economía se
     // quedaba vacía sin decirlo. Sumada son ~6 mil en un viaje.
     traerRpcTodo<any>(db, "amazon_economia_por_sku", {
+      p_account: amazonAccountId,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
+    })
+      .then((x) => x.filas)
+      .catch((err) => {
+        if (esFuenteOpcionalAusente(err)) return [] as any[];
+        throw err;
+      }),
+    traerRpcTodo<any>(db, "amazon_economia_cobertura", {
       p_account: amazonAccountId,
       p_desde: r.desde,
       p_hasta: r.hasta,
@@ -488,6 +506,22 @@ export async function cargarMonitorAmazon(
         coberturaCosto: unidadesE > 0 ? unidadesConCostoE / unidadesE : 0,
         gananciaFinal: unidadesConCostoE > 0 ? netoE - costoE : null,
         hasta: econHasta,
+        cobertura: (() => {
+          const c = coberturaFilas[0];
+          const importe = Math.min(1, Math.max(0, Number(c?.cobertura_importe) || 0));
+          const unidades = Math.min(1, Math.max(0, Number(c?.cobertura_unidades) || 0));
+          const diasVenta = Number(c?.dias_venta) || 0;
+          const diasCubiertos = Number(c?.dias_cubiertos) || 0;
+          const dias = diasVenta > 0 ? Math.min(1, diasCubiertos / diasVenta) : 1;
+          return {
+            importe,
+            unidades,
+            dias,
+            diasVenta,
+            diasCubiertos,
+            completa: importe >= 1 && unidades >= 1 && dias >= 1,
+          };
+        })(),
       };
     })(),
     publicidadPorModelo: new Map(

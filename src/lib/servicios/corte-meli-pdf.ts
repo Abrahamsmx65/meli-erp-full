@@ -9,6 +9,7 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
 import { nombreDelPeriodo, type EstadoResultados } from "./corte-meli";
+import { puenteVentaANeto } from "./corte-meli-cascada";
 
 const CARTA: [number, number] = [612, 792];
 const M = 40;
@@ -161,12 +162,18 @@ export async function pdfDelCorte(e: EstadoResultados, opts?: { preliminar?: boo
   // Cascada.
   seccion("De la venta a la ganancia", "Cada renglón es dinero real: lo que Mercado Pago depositó, lo que costó el producto y lo que se pagó aparte.");
   type Renglon = { etiqueta: string; monto: number; tipo: "base" | "resta" | "suma" | "total" | "final"; nota?: string };
+  const puente = puenteVentaANeto(e);
   const cascada: Renglon[] = [
-    { etiqueta: "Venta bruta", monto: e.ventaBruta, tipo: "base", nota: "precio × pares de las órdenes pagadas" },
-    { etiqueta: "Comisión de MELI", monto: -e.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas` : ""}` },
-    { etiqueta: "Envíos y otros cargos", monto: -e.enviosYOtros, tipo: "resta", nota: "envío de Full, retenciones de ISR/IVA: la diferencia contra el depósito" },
-    { etiqueta: "Neto depositado por Mercado Pago", monto: e.netoDepositado, tipo: "total", nota: e.netoEstimado > 0 ? `${pesosPdf(e.netoEstimado)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes" },
-    { etiqueta: "Devoluciones", monto: -e.devoluciones.monto, tipo: "resta", nota: `${enteros(e.devoluciones.ordenes)} órdenes devueltas o con contracargo: lo reembolsado al comprador` },
+    { etiqueta: "Venta bruta", monto: puente.ventaBruta, tipo: "base", nota: "precio × pares de las órdenes pagadas" },
+    { etiqueta: "Comisión de MELI", monto: -puente.comision, tipo: "resta", nota: `cargo por venta (sale fee)${e.reventa?.ordenes ? `; ${enteros(e.reventa.ordenes)} ventas en reventa por ${pesosPdf(e.reventa.importe)} ya vienen netas` : ""}` },
+    { etiqueta: "Envío", monto: -puente.envio, tipo: "resta", nota: "cargo de envío asociado a las ventas" },
+    { etiqueta: "Retención ISR", monto: -puente.isr, tipo: "resta", nota: "impuesto adelantado enterado por MELI al SAT" },
+    { etiqueta: "Retención IVA", monto: -puente.iva, tipo: "resta", nota: "impuesto adelantado enterado por MELI al SAT" },
+    { etiqueta: "Otros cargos", monto: -puente.otros, tipo: "resta", nota: e.cargosSinDesglosar ? `incluye ${pesosPdf(e.cargosSinDesglosar)} sin concepto por operación` : "otros descuentos incluidos en el depósito" },
+    ...(puente.ajusteLiquidacion ? [{ etiqueta: "Ajuste posterior de liquidación", monto: -puente.ajusteLiquidacion, tipo: "resta" as const, nota: "cambio del saldo de Mercado Pago después del depósito original" }] : []),
+    ...(puente.devolucionesIncluidasEnNeto ? [{ etiqueta: "Reembolsos ya reflejados en el neto", monto: -puente.devolucionesIncluidasEnNeto, tipo: "resta" as const, nota: "Mercado Pago ya redujo el saldo actual; este renglón cuadra la cascada" }] : []),
+    { etiqueta: "Neto depositado por Mercado Pago", monto: puente.netoDepositado, tipo: "total", nota: e.netoEstimado > 0 ? `${pesosPdf(e.netoEstimado)} estimado (sin depósito real aún)` : "depósito real de todas las órdenes" },
+    { etiqueta: "Devoluciones", monto: -e.devoluciones.monto, tipo: "resta", nota: `${enteros(e.devoluciones.ordenes)} órdenes; ${pesosPdf(e.devoluciones.incluidoEnNeto ?? 0)} ya está reflejado en el neto` },
     ...(e.devoluciones.ordenes
       ? [{ etiqueta: "Costo recuperado de devoluciones", monto: e.devoluciones.costoRecuperado, tipo: "suma" as const, nota: `${enteros(e.devoluciones.unidades)} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${pesosPdf(e.devoluciones.costoEstimado)} estimado)` : ""}` }]
       : []),

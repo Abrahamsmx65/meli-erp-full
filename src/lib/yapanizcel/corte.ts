@@ -13,6 +13,7 @@ import type { DB } from "../datos/repos";
 import { cargosGuardados, periodosPendientes, progresoDeDetalle, type AlmacenCargos, type ProgresoCargos } from "../servicios/cargos-meli";
 import {
   armarEstadoResultados,
+  desglosePorSkuDesdeRpc,
   gastosDelRango,
   guardarCorte,
   ordenesPorDiaDesdeRpc,
@@ -34,14 +35,14 @@ export interface OrdenRegistrada extends OrdenDelCorte {
 
 /**
  * Renglones sku|día desde las órdenes: las canceladas fuera; un día donde
- * alguna orden cobrada aún no tiene neto se deja SIN neto completo (el
- * motor lo estima), porque un neto a medias engaña más que ninguno. Pura:
+ * alguna orden cobrada aún no tiene neto deja pendiente su SKU|día (el motor
+ * lo estima), sin borrar otro SKU confirmado en cero o negativo. Pura:
  * es la referencia de lo que hace el RPC `yz_cortes_ventas_desde_ordenes`
  * en la base (la página usa el RPC; 44 mil órdenes no caben en una lectura).
  */
 export function ventasDesdeOrdenes(ordenes: OrdenRegistrada[]): { ventas: VentaDelCorte[]; sinRenglones: number } {
   const filas = new Map<string, { sku: string; fecha: string; unidades: number; ordenes: number; importe: number; comision: number; neto: number }>();
-  const diasIncompletos = new Set<string>();
+  const clavesIncompletas = new Set<string>();
   let sinRenglones = 0;
   for (const o of ordenes) {
     if (o.estado === "cancelled") continue;
@@ -49,23 +50,25 @@ export function ventasDesdeOrdenes(ordenes: OrdenRegistrada[]): { ventas: VentaD
       sinRenglones++;
       continue;
     }
-    const netoOrden = o.netoActual != null && o.netoActual > 0 ? o.netoActual : o.neto;
-    if (o.total > 0 && !(netoOrden > 0)) diasIncompletos.add(o.fecha);
+    const netoOrden = o.netoActual != null ? o.netoActual : o.neto;
+    const netoConocido = o.netoLeido ?? o.neto > 0;
     const importeOrden = o.renglones.reduce((a, r) => a + (Number(r.importe) || 0), 0);
     for (const r of o.renglones) {
       const clave = `${r.sku}|${o.fecha}`;
+      if (o.total > 0 && !netoConocido) clavesIncompletas.add(clave);
       const f = filas.get(clave) ?? { sku: r.sku, fecha: o.fecha, unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0 };
       f.unidades += Number(r.unidades) || 0;
       f.ordenes += 1;
       f.importe += Number(r.importe) || 0;
       f.comision += Number(r.comision) || 0;
-      if (netoOrden > 0 && importeOrden > 0) f.neto += netoOrden * ((Number(r.importe) || 0) / importeOrden);
+      if (netoConocido && importeOrden > 0) f.neto += netoOrden * ((Number(r.importe) || 0) / importeOrden);
       filas.set(clave, f);
     }
   }
   const ventas = [...filas.values()].map((f) => ({
     ...f,
-    neto: diasIncompletos.has(f.fecha) ? 0 : Math.round(f.neto * 100) / 100,
+    neto: clavesIncompletas.has(`${f.sku}|${f.fecha}`) ? 0 : Math.round(f.neto * 100) / 100,
+    netoConfirmado: !clavesIncompletas.has(`${f.sku}|${f.fecha}`),
   }));
   return { ventas, sinRenglones };
 }
@@ -133,11 +136,12 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   const ordenesCompletas = registradasDesde != null && registradasDesde <= desde;
 
   const args = { p_account: cuenta.id, p_desde: desde, p_hasta: hasta };
-  const [ordenesPorDia, ventasCrudas, skus, config, gastos, cargos, progreso, obs, ads] = await Promise.all([
+  const [ordenesPorDia, desglosePorSku, ventasCrudas, skus, config, gastos, cargos, progreso, obs, ads] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
+    desglosePorSkuDesdeRpc(db, "yz_cortes_desglose_por_sku", cuenta.id, desde, hasta),
     ordenesCompletas
-      ? rpcTodo<VentaDelCorte>(db, "yz_cortes_ventas_desde_ordenes", args, ["sku", "fecha"])
-      : rpcTodo<VentaDelCorte>(db, "yz_ventas_renglones", args, ["sku", "fecha"]),
+      ? rpcTodo<any>(db, "yz_cortes_ventas_desde_ordenes_confirmadas", args, ["sku", "fecha"])
+      : rpcTodo<any>(db, "yz_ventas_renglones_confirmados", args, ["sku", "fecha"]),
     todo<{ sku: string; diseno: string | null }>(db, "yz_skus", "sku, diseno", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),
@@ -150,11 +154,27 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   const avisosExtra: string[] = [];
   let ventas: VentaDelCorte[];
   if (ordenesCompletas) {
-    ventas = ventasCrudas.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: Number(v.neto) || 0 }));
+    ventas = ventasCrudas.map((v) => ({
+      ...v,
+      unidades: Number(v.unidades) || 0,
+      ordenes: Number(v.ordenes) || 0,
+      importe: Number(v.importe) || 0,
+      comision: Number(v.comision) || 0,
+      neto: Number(v.neto) || 0,
+      netoConfirmado: v.neto_confirmado === true,
+    }));
     const sinRenglones = ordenesPorDia.reduce((a, d) => a + (d.sinRenglones ?? 0), 0);
     if (sinRenglones > 0) avisosExtra.push(`${sinRenglones} órdenes del mes están registradas sin sus renglones: no entran a la venta por modelo. Se corrigen solas al re-sincronizar.`);
   } else {
-    ventas = ventasCrudas.map((v) => ({ ...v, unidades: Number(v.unidades) || 0, ordenes: Number(v.ordenes) || 0, importe: Number(v.importe) || 0, comision: Number(v.comision) || 0, neto: v.neto == null ? 0 : Number(v.neto) }));
+    ventas = ventasCrudas.map((v) => ({
+      ...v,
+      unidades: Number(v.unidades) || 0,
+      ordenes: Number(v.ordenes) || 0,
+      importe: Number(v.importe) || 0,
+      comision: Number(v.comision) || 0,
+      neto: v.neto == null ? 0 : Number(v.neto),
+      netoConfirmado: v.neto_confirmado === true,
+    }));
     avisosExtra.push(
       `Las órdenes del mes todavía se están registrando hacia atrás (van hasta ${registradasDesde ?? "hoy"}): la venta sale de los renglones diarios y las cancelaciones tardías aún no se descuentan. El cron de netos lo completa solo.`,
     );
@@ -173,6 +193,7 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     cuenta: cuenta.nickname ?? "YAPANIZCEL",
     ventas,
     ordenesPorDia,
+    desglosePorSku,
     modeloDeSku,
     config,
     adsPorModelo: ads.porDiseno,

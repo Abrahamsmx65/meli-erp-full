@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   armarEstadoResultados,
+  desglosePorSkuDesdeRpc,
   nombreDelPeriodo,
   periodoAnterior,
   periodoSiguiente,
@@ -8,6 +9,7 @@ import {
   validarPeriodo,
   type EntradaCorte,
 } from "./corte-meli";
+import { puenteVentaANeto } from "./corte-meli-cascada";
 
 /**
  * El corte del mes: exacto al centavo, con órdenes canceladas fuera,
@@ -42,6 +44,20 @@ function base(extra?: Partial<EntradaCorte>): EntradaCorte {
   };
 }
 
+function esperarPuenteCuadrado(e: ReturnType<typeof armarEstadoResultados>) {
+  const puente = puenteVentaANeto(e);
+  expect(
+    puente.ventaBruta
+      - puente.comision
+      - puente.envio
+      - puente.isr
+      - puente.iva
+      - puente.otros
+      - puente.ajusteLiquidacion
+      - puente.devolucionesIncluidasEnNeto,
+  ).toBe(puente.netoDepositado);
+}
+
 describe("periodo", () => {
   it("valida y arma el rango del mes sin pasarse de hoy", () => {
     expect(validarPeriodo("2026-08")).toBe("2026-08");
@@ -57,6 +73,417 @@ describe("periodo", () => {
 });
 
 describe("armarEstadoResultados", () => {
+  it.each([
+    { nombre: "total", neto: 0, reembolso: 100, comision: 0, incluido: 100 },
+    { nombre: "parcial", neto: 30, reembolso: 50, comision: 20, incluido: 50 },
+  ])("no descuenta dos veces un reembolso $nombre presente en la primera lectura", ({ neto, reembolso, comision, incluido }) => {
+    const e = armarEstadoResultados(base({
+      ventas: [{
+        sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1,
+        importe: 100, comision, neto,
+      }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+      ordenes: [{
+        orderId: 1,
+        fecha: "2026-08-03",
+        total: 100,
+        neto,
+        netoActual: null,
+        netoLeido: true,
+        reembolsado: reembolso,
+        reembolsoIncluidoNetoBase: incluido,
+        reembolsoBaseConfiable: true,
+        estado: "paid",
+        estadoPago: "refunded",
+        revisiones: 2,
+        comisionMp: comision,
+        cargosSinDesglosar: 0,
+        cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", unidades: 1, importe: 100 }],
+      }],
+    }));
+
+    expect(e.netoDepositado).toBe(neto);
+    expect(e.devoluciones.incluidoEnNeto).toBe(reembolso);
+    expect(e.devoluciones.monto).toBe(0);
+    expect(e.cargosSinDesglosar).toBe(0);
+    expect(e.ajusteLiquidacion).toBe(0);
+    expect(e.utilidadNeta).toBe(neto);
+    expect(e.revision.exacto).toBe(true);
+    esperarPuenteCuadrado(e);
+  });
+
+  it("no vuelve a descontar un reembolso base ambiguo y marca el corte parcial", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 50 }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 100, neto: 50, netoActual: null,
+        netoLeido: true, reembolsado: 50, reembolsoIncluidoNetoBase: 30,
+        reembolsoBaseConfiable: false, estado: "paid", estadoPago: "refunded",
+        revisiones: 2, comisionMp: 20, cargosSinDesglosar: 0, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", unidades: 1, importe: 100 }],
+      }],
+    }));
+
+    expect(e.netoDepositado).toBe(50);
+    expect(e.devoluciones.incluidoEnNeto).toBe(30);
+    expect(e.devoluciones.monto).toBe(0);
+    expect(e.utilidadNeta).toBe(50);
+    expect(e.revision.exacto).toBe(false);
+    expect(e.avisos.some((aviso) => aviso.includes("primera vez con un reembolso"))).toBe(true);
+  });
+
+  it("estima los días con saldos de Mercado Pago todavía sin leer, aunque ya existan sus órdenes", () => {
+    const ventas = [
+      { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 },
+      { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 },
+    ];
+    const leida = {
+      orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: null,
+      netoLeido: true, reembolsado: 0, estado: "paid", estadoPago: "approved",
+      revisiones: 2, comisionMp: 20, cargosLeidos: true,
+      renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+    };
+    const pendiente = {
+      orderId: 2, fecha: "2026-08-03", total: 100, neto: 0, netoActual: null,
+      netoLeido: false, reembolsado: 0, estado: "paid", estadoPago: null,
+      revisiones: 0, cargosLeidos: false,
+      renglones: [{ sku: "MY2307-BLACK-25", importe: 100, unidades: 1 }],
+    };
+
+    for (const ordenes of [[leida, pendiente], [{ ...leida, neto: 0, netoLeido: false, cargosLeidos: false }, pendiente]]) {
+      const e = armarEstadoResultados(base({ ventas, ordenes }));
+      expect(e.netoDepositado).toBe(160);
+      expect(e.netoEstimado).toBe(160);
+      expect(e.coberturaNetoReal).toBe(0);
+      expect(e.porModelo.reduce((a, m) => a + m.neto, 0)).toBe(160);
+      expect(e.revision.exacto).toBe(false);
+    }
+  });
+
+  it("conserva un saldo cero confirmado sin sustituirlo por una estimación", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 }],
+        config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+        ordenes: [{
+          orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 0, netoLeido: true,
+          reembolsado: 80, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+          estado: "paid", estadoPago: "refunded", revisiones: 2,
+          comisionMp: 20, cargosSinDesglosar: 0, cargosLeidos: true,
+          renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+        }],
+      }),
+    );
+    expect(e.netoDepositado).toBe(0);
+    expect(e.netoEstimado).toBe(0);
+    expect(e.coberturaNetoReal).toBe(1);
+    expect(e.porModelo[0].neto).toBe(0);
+    expect(e.revision.exacto).toBe(true);
+  });
+
+  it("preserva un saldo cero confirmado y estima solo la venta pendiente del mismo día", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [
+        {
+          sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1,
+          importe: 100, comision: 20, neto: 0, netoConfirmado: true,
+        },
+        {
+          sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1,
+          importe: 100, comision: 20, neto: 0, netoConfirmado: false,
+        },
+      ],
+      config: new Map([
+        ["GT135", { categoria: "Corcho", costo: 0 }],
+        ["MY2307", { categoria: "EVA", costo: 0 }],
+      ]),
+    }));
+
+    expect(e.netoDepositado).toBe(80);
+    expect(e.netoEstimado).toBe(80);
+    expect(e.coberturaNetoReal).toBe(0.5);
+    expect(e.porModelo.find((m) => m.modelo === "GT135")?.neto).toBe(0);
+    expect(e.porModelo.find((m) => m.modelo === "MY2307")?.neto).toBe(80);
+    expect(e.revision.exacto).toBe(false);
+  });
+
+  it("usa el saldo actual aunque un reembolso grande lo aleje del neto original", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 0 }],
+        config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+        ordenes: [{
+          orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 20,
+          reembolsado: 60, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+          estado: "paid", estadoPago: "refunded", revisiones: 2,
+          comisionMp: 20, cargosSinDesglosar: 0, cargosLeidos: true, tipoVenta: "directa",
+          renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+        }],
+      }),
+    );
+
+    expect(e.netoDepositado).toBe(20);
+    expect(e.devoluciones).toMatchObject({ incluidoEnNeto: 60, monto: 0 });
+    expect(e.porModelo[0]).toMatchObject({ modelo: "GT135", neto: 20 });
+    expect(e.utilidadNeta).toBe(20);
+    expect(e.revision.exacto).toBe(true);
+    esperarPuenteCuadrado(e);
+  });
+
+  it("no confunde un reembolso reflejado con cargos sin desglose", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 20,
+        reembolsado: 60, estado: "paid", estadoPago: "refunded", revisiones: 2,
+        cargosLeidos: false,
+      }],
+    }));
+
+    expect(e).toMatchObject({
+      netoDepositado: 20,
+      cargosSinDesglosar: 0,
+      devoluciones: { incluidoEnNeto: 60, monto: 0 },
+    });
+    esperarPuenteCuadrado(e);
+  });
+
+  it("cuadra cargos y reembolsos cuando solo algunas órdenes tienen desglose", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [
+        { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 70 },
+        { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 },
+      ],
+      config: new Map([
+        ["GT135", { categoria: "Corcho", costo: 0 }],
+        ["MY2307", { categoria: "EVA", costo: 0 }],
+      ]),
+      ordenes: [
+        {
+          orderId: 1, fecha: "2026-08-03", total: 100, neto: 70, netoActual: 70,
+          reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+          comisionMp: 20, envio: 10, cargosSinDesglosar: 0, cargosLeidos: true,
+        },
+        {
+          orderId: 2, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 20,
+          reembolsado: 60, estado: "paid", estadoPago: "refunded", revisiones: 2,
+          cargosLeidos: false,
+        },
+      ],
+    }));
+
+    expect(e).toMatchObject({
+      netoDepositado: 90,
+      envio: 10,
+      cargosSinDesglosar: 0,
+      devoluciones: { incluidoEnNeto: 60, monto: 0 },
+    });
+    expect(e.revision.exacto).toBe(false);
+    esperarPuenteCuadrado(e);
+  });
+
+  it("explica un cargo posterior sin convertirlo en residual ni descontarlo dos veces", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 }],
+        config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+        ordenes: [{
+          orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 70,
+          reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+          comisionMp: 20, envio: 10, cargosSinDesglosar: -10, cargosLeidos: true, tipoVenta: "directa",
+          renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+        }],
+      }),
+    );
+
+    expect(e).toMatchObject({
+      ventaBruta: 100,
+      comision: 20,
+      envio: 10,
+      cargosSinDesglosar: -10,
+      ajusteLiquidacion: 10,
+      netoDepositado: 70,
+      utilidadNeta: 70,
+    });
+    expect(100 - 20 - 10 - e.otrosCargos - e.cargosSinDesglosar - e.ajusteLiquidacion).toBe(70);
+    expect(e.porModelo[0]).toMatchObject({ neto: 70, comision: 20, envio: 10, otrosCargos: -10, ajusteLiquidacion: 10 });
+    expect(e.revision.exacto).toBe(true);
+  });
+
+  it.each([
+    ["histórica", 800],
+    ["refrescada", 700],
+  ])("acepta una fila diaria %s cuando el reembolso ya bajó el saldo", (_caso, netoFila) => {
+    const e = armarEstadoResultados(base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 1_000, comision: 200, neto: netoFila }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 1_000, neto: 800, netoActual: 700,
+        reembolsado: 100, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+        estado: "paid", estadoPago: "refunded", revisiones: 2,
+        comisionMp: 200, cargosSinDesglosar: 0, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", importe: 1_000, unidades: 1 }],
+      }],
+    }));
+
+    expect(e.netoDepositado).toBe(700);
+    expect(e.revision.exacto).toBe(true);
+    expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(false);
+  });
+
+  it("acepta la fila diaria refrescada después de un cargo diferido", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 1_000, comision: 200, neto: 700 }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 0 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 1_000, neto: 800, netoActual: 700,
+        reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+        comisionMp: 200, envio: 100, cargosSinDesglosar: -100, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", importe: 1_000, unidades: 1 }],
+      }],
+    }));
+
+    expect(e).toMatchObject({ netoDepositado: 700, ajusteLiquidacion: 100 });
+    expect(e.revision.exacto).toBe(true);
+    expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(false);
+    esperarPuenteCuadrado(e);
+  });
+
+  it("conserva el neto diario completo si solo se guardó parte de las órdenes", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [
+        { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 },
+        { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 },
+      ],
+      config: new Map([
+        ["GT135", { categoria: "Corcho", costo: 0 }],
+        ["MY2307", { categoria: "EVA", costo: 0 }],
+      ]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: null,
+        reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+        comisionMp: 20, cargosSinDesglosar: 0, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+      }],
+    }));
+
+    expect(e.netoDepositado).toBe(160);
+    expect(e.coberturaNetoReal).toBe(1);
+    expect(e.porModelo.reduce((total, fila) => total + fila.neto, 0)).toBe(160);
+    expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(true);
+    expect(e.revision.exacto).toBe(false);
+  });
+
+  it("atribuye venta directa y reventa a sus propios modelos y refleja el neto actual tras un reembolso", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [
+          { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 20, neto: 80 },
+          { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 0, neto: 100 },
+        ],
+        config: new Map([
+          ["GT135", { categoria: "Corcho", costo: 0 }],
+          ["MY2307", { categoria: "EVA", costo: 0 }],
+        ]),
+        ordenes: [
+          {
+            orderId: 1, fecha: "2026-08-03", total: 100, neto: 80, netoActual: 70,
+            reembolsado: 10, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+            estado: "paid", estadoPago: "refunded", revisiones: 2,
+            comisionMp: 20, envio: 0, isr: 0, iva: 0, otrosCargos: 0,
+            cargosSinDesglosar: 0, cargosLeidos: true, tipoVenta: "directa",
+            renglones: [{ sku: "GT135-TABACO-25", importe: 100, unidades: 1 }],
+          },
+          {
+            orderId: 2, fecha: "2026-08-03", total: 100, neto: 100, netoActual: null,
+            reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+            comisionMp: 0, envio: 0, isr: 0, iva: 0, otrosCargos: 0,
+            cargosSinDesglosar: 0, cargosLeidos: true, tipoVenta: "reventa",
+            renglones: [{ sku: "MY2307-BLACK-25", importe: 100, unidades: 1 }],
+          },
+        ],
+      }),
+    );
+
+    expect(e.netoDepositado).toBe(170);
+    expect(e.comision).toBe(20);
+    expect(e.devoluciones).toMatchObject({ incluidoEnNeto: 10, monto: 0 });
+    expect(e.porModelo.find((m) => m.modelo === "GT135")).toMatchObject({ neto: 70, comision: 20 });
+    expect(e.porModelo.find((m) => m.modelo === "MY2307")).toMatchObject({ neto: 100, comision: 0 });
+    expect(e.porModelo.reduce((a, m) => a + m.neto, 0)).toBe(e.netoDepositado);
+    expect(e.porModelo.reduce((a, m) => a + m.comision, 0)).toBe(e.comision);
+    expect(e.reventa).toEqual({ ordenes: 1, importe: 100 });
+    expect(e.revision.exacto).toBe(true);
+  });
+
+  it("explica el neto con cargos separados y los reparte por modelo y categoría sin descontarlos dos veces", () => {
+    const e = armarEstadoResultados(
+      base({
+        ventas: [
+          { sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 3, ordenes: 1, importe: 300, comision: 45, neto: 180 },
+          { sku: "MY2307-BLACK-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 100, comision: 15, neto: 60 },
+        ],
+        ordenes: [{
+          orderId: 1,
+          fecha: "2026-08-03",
+          total: 400,
+          neto: 240,
+          netoActual: null,
+          reembolsado: 0,
+          estado: "paid",
+          estadoPago: "approved",
+          revisiones: 2,
+          comisionMp: 60,
+          envio: 40,
+          isr: 10,
+          iva: 20,
+          otrosCargos: 10,
+          cargosSinDesglosar: 20,
+          tipoVenta: "directa",
+          cargosLeidos: true,
+          renglones: [
+            { sku: "GT135-TABACO-25", importe: 300, unidades: 3 },
+            { sku: "MY2307-BLACK-25", importe: 100, unidades: 1 },
+          ],
+        }],
+      }),
+    );
+
+    expect(e).toMatchObject({
+      ventaBruta: 400,
+      comision: 60,
+      envio: 40,
+      isr: 10,
+      iva: 20,
+      otrosCargos: 10,
+      cargosSinDesglosar: 20,
+      enviosYOtros: 100,
+      netoDepositado: 240,
+    });
+    // Los cargos anteriores ya están incluidos en el depósito de $240.
+    expect(e.utilidadBruta).toBe(58.5);
+    expect(e.utilidadNeta).toBe(58.5);
+
+    const modelos = e.porModelo;
+    expect(modelos.reduce((a, m) => a + m.neto, 0)).toBe(240);
+    expect(modelos.reduce((a, m) => a + m.comision, 0)).toBe(60);
+    expect(modelos.reduce((a, m) => a + m.envio, 0)).toBe(40);
+    expect(modelos.reduce((a, m) => a + m.isr, 0)).toBe(10);
+    expect(modelos.reduce((a, m) => a + m.iva, 0)).toBe(20);
+    expect(modelos.reduce((a, m) => a + m.otrosCargos, 0)).toBe(30);
+
+    expect(e.porCategoria.reduce((a, k) => a + k.neto, 0)).toBe(240);
+    expect(e.porCategoria.reduce((a, k) => a + k.comision, 0)).toBe(60);
+    expect(e.porCategoria.reduce((a, k) => a + k.envio, 0)).toBe(40);
+    expect(e.porCategoria.reduce((a, k) => a + k.isr, 0)).toBe(10);
+    expect(e.porCategoria.reduce((a, k) => a + k.iva, 0)).toBe(20);
+    expect(e.porCategoria.reduce((a, k) => a + k.otrosCargos, 0)).toBe(30);
+    expect(e.reventa.ordenes).toBe(0);
+  });
+
   it("toma el neto de las órdenes cuando el día está completo, al centavo", () => {
     const e = armarEstadoResultados(
       base({
@@ -67,7 +494,16 @@ describe("armarEstadoResultados", () => {
           { sku: "GT135-TABACO-26", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 200.11, comision: 29.02, neto: 125.17 },
         ],
         ordenes: [
-          { orderId: 1, fecha: "2026-08-03", total: 400.1, neto: 250.33, netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2 },
+          {
+            orderId: 1, fecha: "2026-08-03", total: 400.1, neto: 250.33,
+            netoActual: null, reembolsado: 0, estado: "paid", estadoPago: "approved",
+            revisiones: 2, comisionMp: 58.02, cargosSinDesglosar: 91.75,
+            cargosLeidos: true,
+            renglones: [
+              { sku: "GT135-TABACO-25", importe: 199.99, unidades: 1 },
+              { sku: "GT135-TABACO-26", importe: 200.11, unidades: 1 },
+            ],
+          },
         ],
       }),
     );
@@ -116,9 +552,9 @@ describe("armarEstadoResultados", () => {
         ],
         ordenes: [
           // devuelta: MP no bajó el neto → se resta todo el reembolso
-          { orderId: 1, fecha: "2026-08-03", total: 200, neto: 120, netoActual: 120, reembolsado: 200, estado: "paid", estadoPago: "refunded", revisiones: 2 },
+          { orderId: 1, fecha: "2026-08-03", total: 200, neto: 120, netoActual: 120, reembolsado: 200, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true, estado: "paid", estadoPago: "refunded", revisiones: 2 },
           // devuelta: MP ya dejó el neto en 0 → solo se resta lo que falte (80)
-          { orderId: 2, fecha: "2026-08-03", total: 200, neto: 120, netoActual: 0, reembolsado: 200, estado: "paid", estadoPago: "refunded", revisiones: 2 },
+          { orderId: 2, fecha: "2026-08-03", total: 200, neto: 120, netoActual: 0, reembolsado: 200, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true, estado: "paid", estadoPago: "refunded", revisiones: 2 },
           // cancelada: ni venta ni neto (su renglón de venta ya lo quitó el barrido)
           { orderId: 3, fecha: "2026-08-05", total: 500, neto: 300, netoActual: null, reembolsado: 500, estado: "cancelled", estadoPago: "refunded", revisiones: 1 },
         ],
@@ -126,17 +562,51 @@ describe("armarEstadoResultados", () => {
     );
     expect(e.cancelaciones).toEqual({ ordenes: 1, importe: 500 });
     expect(e.ventaBruta).toBe(400);
-    // El día 03 cuadra: órdenes 120 + 0 = 120 vs renglones 240 → descuadre de
-    // más del 2%: se usa el reparto por SKU y se avisa.
-    expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(true);
+    // La diferencia contra los renglones originales está explicada por el
+    // reembolso ya reflejado en el saldo actual, así que no es un descuadre.
+    expect(e.avisos.some((a) => a.includes("no cuadran"))).toBe(false);
     expect(e.devoluciones.ordenes).toBe(2);
     expect(e.devoluciones.monto).toBe(280);
-    // Sin renglones en las órdenes, el costo recuperado se estima:
-    // 280 × (costo 121 ÷ venta 400) = 84.70
-    expect(e.devoluciones.costoEstimado).toBe(84.7);
-    expect(e.devoluciones.costoRecuperado).toBe(84.7);
+    // Sin renglones, el costo se estima con los reembolsos originales (400),
+    // aunque 120 ya estén reflejados en el saldo actual.
+    expect(e.devoluciones.costoEstimado).toBe(121);
+    expect(e.devoluciones.costoRecuperado).toBe(121);
     expect(e.avisos.some((a) => a.includes("costo recuperado se estimó"))).toBe(true);
     expect(e.revision.pendientes).toBe(1);
+  });
+
+  it("mantiene el costo recuperado antes y después de que el reembolso llegue al saldo", () => {
+    const entrada = (netoActual: number) => base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 200, comision: 80, neto: 120 }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 60 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 200, neto: 120, netoActual,
+        reembolsado: 200, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+        estado: "paid", estadoPago: "refunded", revisiones: 2,
+      }],
+    });
+    const antes = armarEstadoResultados(entrada(120));
+    const despues = armarEstadoResultados(entrada(0));
+
+    expect(antes.devoluciones).toMatchObject({ ordenes: 1, monto: 200, incluidoEnNeto: 0, costoRecuperado: 60 });
+    expect(despues.devoluciones).toMatchObject({ ordenes: 1, monto: 80, incluidoEnNeto: 120, costoRecuperado: 60 });
+    expect(antes.utilidadNeta).toBe(-80);
+    expect(despues.utilidadNeta).toBe(-80);
+  });
+
+  it("conserva una devolución parcial aprobada aunque ya esté incluida en el saldo", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 1, ordenes: 1, importe: 200, comision: 80, neto: 120 }],
+      config: new Map([["GT135", { categoria: "Corcho", costo: 60 }]]),
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 200, neto: 120, netoActual: 70,
+        reembolsado: 50, reembolsoIncluidoNetoBase: 0, reembolsoBaseConfiable: true,
+        estado: "paid", estadoPago: "approved", revisiones: 2,
+      }],
+    }));
+
+    expect(e.devoluciones).toMatchObject({ ordenes: 1, monto: 0, incluidoEnNeto: 50, costoRecuperado: 15 });
+    expect(e.utilidadNeta).toBe(25);
   });
 
   it("descuenta publicidad, gastos de Full y otros; ignora cargos que ya van en el neto", () => {
@@ -207,6 +677,31 @@ describe("armarEstadoResultados", () => {
   });
 });
 
+describe("desglosePorSkuDesdeRpc", () => {
+  it("pagina el RPC y no corta el desglose en 1,000 SKUs", async () => {
+    const filas = Array.from({ length: 1001 }, (_, i) => ({
+      sku: `SKU-${String(i).padStart(4, "0")}`,
+      neto: 1,
+      comision_mp: 0,
+      envio_mp: 0,
+      isr_mp: 0,
+      iva_mp: 0,
+      otros_mp: 0,
+      cargos_sin_desglosar: 0,
+      ajuste_liquidacion: 0,
+    }));
+    const db = {
+      rpc: () => ({
+        range: async (desde: number, hasta: number) => ({ data: filas.slice(desde, hasta + 1), error: null }),
+      }),
+    };
+
+    const resultado = await desglosePorSkuDesdeRpc(db as any, "cortes_desglose_por_sku", "cuenta", "2026-08-01", "2026-08-31");
+    expect(resultado).toHaveLength(1001);
+    expect(resultado.at(-1)?.sku).toBe("SKU-1000");
+  });
+});
+
 describe("estimación con porcentaje observado", () => {
   it("estima lo que no tiene depósito con el ratio y no con importe − comisión", () => {
     const e = armarEstadoResultados(
@@ -261,7 +756,7 @@ describe("costo recuperado de devoluciones", () => {
         ],
       }),
     );
-    expect(e.devoluciones).toEqual({ ordenes: 1, monto: 200, unidades: 1, costoRecuperado: 60.5, costoEstimado: 0, unidadesSinCosto: 0 });
+    expect(e.devoluciones).toEqual({ ordenes: 1, incluidoEnNeto: 0, monto: 200, unidades: 1, costoRecuperado: 60.5, costoEstimado: 0, unidadesSinCosto: 0 });
     // 480 − 200 + 60.50 − 4 × 60.50
     expect(e.utilidadBruta).toBe(480 - 200 + 60.5 - 242);
   });

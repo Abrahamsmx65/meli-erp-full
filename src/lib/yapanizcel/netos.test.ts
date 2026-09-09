@@ -18,4 +18,16 @@ describe("repartirNetoDelDia", () => {
     // Una orden en $0 (muestra, cupón total) no bloquea el día.
     expect(repartirNetoDelDia([{ total: 0, neto: 0, renglones: [{ sku: "A", importe: 0 }] }])).toEqual(new Map());
   });
+
+  it("reparte el saldo actual corregido también en lecturas posteriores", () => {
+    expect(repartirNetoDelDia([
+      { total: 200, neto: 170, netoActual: 150, renglones: [{ sku: "A", importe: 200 }] },
+    ])).toEqual(new Map([["A", 150]]));
+    expect(repartirNetoDelDia([
+      { total: 200, neto: 170, netoActual: 0, renglones: [{ sku: "A", importe: 200 }] },
+    ])).toEqual(new Map([["A", 0]]));
+    expect(repartirNetoDelDia([
+      { total: 100, neto: 0, netoLeido: true, renglones: [{ sku: "A", importe: 100 }] },
+    ])).toEqual(new Map([["A", 0]]));
+  });
 });

@@ -6,6 +6,7 @@ import {
   type CorteGuardado,
   type EstadoResultados,
 } from "@/lib/servicios/corte-meli";
+import { puenteVentaANeto } from "@/lib/servicios/corte-meli-cascada";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorte, GastosDelMes } from "@/components/cortes-meli";
 
@@ -205,6 +206,10 @@ export function CorteVista({
                 <th className="num">Pares</th>
                 <th className="num">Venta</th>
                 <th className="num">Comisión</th>
+                 <th className="num">Envío</th>
+                 <th className="num">ISR</th>
+                 <th className="num">IVA</th>
+                 <th className="num">Otros</th>
                 <th className="num">Neto</th>
                 <th className="num">Costo</th>
                 <th className="num">Publicidad</th>
@@ -219,6 +224,10 @@ export function CorteVista({
                   <td className="num cifra">{n(m.unidades)}</td>
                   <td className="num cifra">{pesos(m.importe)}</td>
                   <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.comision)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.envio ?? 0)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.isr ?? 0)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.iva ?? 0)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.otrosCargos ?? 0)}</td>
                   <td className="num cifra">{pesos(m.neto)}</td>
                   <td className="num cifra" style={{ color: m.costo == null ? "var(--estado-alerta)" : "var(--ink-1)" }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
                   <td className="num cifra">{m.publicidad ? pesos(m.publicidad) : "—"}</td>
@@ -242,6 +251,11 @@ export function CorteVista({
               <th>Categoría</th>
               <th className="num">Pares</th>
               <th className="num">Venta</th>
+               <th className="num">Comisión</th>
+               <th className="num">Envío</th>
+               <th className="num">ISR</th>
+               <th className="num">IVA</th>
+               <th className="num">Otros</th>
               <th className="num">Neto</th>
               <th className="num">Costo</th>
               <th className="num">Publicidad</th>
@@ -254,6 +268,11 @@ export function CorteVista({
                 <td className="font-medium">{k.categoria}</td>
                 <td className="num cifra">{n(k.unidades)}</td>
                 <td className="num cifra">{pesos(k.importe)}</td>
+                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.comision ?? 0)}</td>
+                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.envio ?? 0)}</td>
+                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.isr ?? 0)}</td>
+                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.iva ?? 0)}</td>
+                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.otrosCargos ?? 0)}</td>
                 <td className="num cifra">{pesos(k.neto)}</td>
                 <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
                 <td className="num cifra">{k.publicidad ? pesos(k.publicidad) : "—"}</td>
@@ -325,12 +344,18 @@ export function CorteVista({
 
 
 function Cascada({ e }: { e: EstadoResultados }) {
+  const puente = puenteVentaANeto(e);
   const filas: { etiqueta: string; nota?: string; monto: number; tipo: "base" | "resta" | "suma" | "total" | "final" }[] = [
-    { etiqueta: "Venta bruta", nota: "precio × pares de las órdenes pagadas", monto: e.ventaBruta, tipo: "base" },
-    { etiqueta: "Comisión de MELI", nota: `sale fee de cada orden${e.reventa?.ordenes ? `; ${n(e.reventa.ordenes)} ventas en reventa por ${pesos(e.reventa.importe)} ya vienen netas (MELI absorbe comisión y envío)` : ""}`, monto: -e.comision, tipo: "resta" },
-    { etiqueta: "Envíos y otros cargos", nota: "envío de Full, retenciones de ISR/IVA: diferencia contra el depósito", monto: -e.enviosYOtros, tipo: "resta" },
-    { etiqueta: "Neto depositado por Mercado Pago", nota: e.netoEstimado > 0 ? `${pesos(e.netoEstimado)} todavía estimado (sin depósito real)` : "depósito real de todas las órdenes", monto: e.netoDepositado, tipo: "total" },
-    { etiqueta: "Devoluciones", nota: `${n(e.devoluciones.ordenes)} órdenes devueltas o con contracargo: lo reembolsado al comprador`, monto: -e.devoluciones.monto, tipo: "resta" },
+    { etiqueta: "Venta bruta", nota: "precio × pares de las órdenes pagadas", monto: puente.ventaBruta, tipo: "base" },
+    { etiqueta: "Comisión de MELI", nota: `sale fee de cada orden${e.reventa?.ordenes ? `; ${n(e.reventa.ordenes)} ventas en reventa por ${pesos(e.reventa.importe)} ya vienen netas (MELI absorbe comisión y envío)` : ""}`, monto: -puente.comision, tipo: "resta" },
+    { etiqueta: "Envío", nota: "cargo de envío asociado a las ventas", monto: -puente.envio, tipo: "resta" },
+    { etiqueta: "Retención ISR", nota: "impuesto adelantado enterado por MELI al SAT", monto: -puente.isr, tipo: "resta" },
+    { etiqueta: "Retención IVA", nota: "impuesto adelantado enterado por MELI al SAT", monto: -puente.iva, tipo: "resta" },
+    { etiqueta: "Otros cargos", nota: e.cargosSinDesglosar ? `incluye ${pesos(e.cargosSinDesglosar)} aún sin concepto por operación` : "otros descuentos incluidos en el depósito", monto: -puente.otros, tipo: "resta" },
+    ...(puente.ajusteLiquidacion ? [{ etiqueta: "Ajuste posterior de liquidación", nota: "cambio del saldo de Mercado Pago después del depósito original", monto: -puente.ajusteLiquidacion, tipo: "resta" as const }] : []),
+    ...(puente.devolucionesIncluidasEnNeto ? [{ etiqueta: "Reembolsos ya reflejados en el neto", nota: "Mercado Pago ya redujo el saldo actual; se muestran aquí para cuadrar la cascada", monto: -puente.devolucionesIncluidasEnNeto, tipo: "resta" as const }] : []),
+    { etiqueta: "Neto depositado por Mercado Pago", nota: e.netoEstimado > 0 ? `${pesos(e.netoEstimado)} todavía estimado (sin depósito real)` : "depósito real de todas las órdenes", monto: puente.netoDepositado, tipo: "total" },
+    { etiqueta: "Devoluciones", nota: `${n(e.devoluciones.ordenes)} órdenes: ${pesos(e.devoluciones.incluidoEnNeto ?? 0)} ya bajó el neto; aquí solo se resta lo restante`, monto: -e.devoluciones.monto, tipo: "resta" },
     ...(e.devoluciones.ordenes
       ? [{ etiqueta: "Costo recuperado de devoluciones", nota: `${n(e.devoluciones.unidades)} pares que regresan al stock${e.devoluciones.costoEstimado ? ` (${pesos(e.devoluciones.costoEstimado)} estimado)` : ""}`, monto: e.devoluciones.costoRecuperado, tipo: "suma" as const }]
       : []),

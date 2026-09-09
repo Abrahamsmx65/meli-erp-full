@@ -25,7 +25,8 @@ import { guardarCacheYz, leerCacheYzGuardado } from "../yapanizcel/cache";
 import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
 import type { CuentaYz } from "../yapanizcel/cuenta";
 
-export const claveCorte = (periodo: string): string => `corte:${periodo}`;
+/** Cambiar la versión invalida cortes masticados con reglas contables anteriores. */
+export const claveCorte = (periodo: string): string => `corte:v2:${periodo}`;
 
 /** ¿El renglón guardado del periodo necesita un refresco de fondo? (pura) */
 export function corteNecesitaRefresco(

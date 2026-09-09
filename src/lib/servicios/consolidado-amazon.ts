@@ -14,12 +14,9 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   const hayPagos = m.netoReal != null;
   const eco = m.economia;
   const hayEconomia = eco != null && (eco.ventas > 0 || eco.unidades > 0);
-  const coberturaEconomia =
-    hayEconomia && m.periodo.importe > 0
-      ? Math.min(1, Math.max(0, eco!.ventas / m.periodo.importe))
-      : hayEconomia
-        ? 1
-        : null;
+  const coberturaEconomia = hayEconomia
+    ? Math.min(eco!.cobertura.importe, eco!.cobertura.unidades, eco!.cobertura.dias)
+    : null;
 
   // LO QUE AMAZON VA A PAGAR por lo vendido en el mes: ventas − tarifas del
   // SKU Economics, por fecha de venta. El `neto` de Amazon ya trae restada
@@ -42,12 +39,12 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     avisos.push("Amazon sin economía por producto ni liquidaciones en el rango: el neto se tomó igual a la venta (comisiones y FBA sin descontar).");
   }
   if (fuente === "economia") {
-    if (eco!.hasta && rango && eco!.hasta < rango.hasta) {
+    if (!eco!.cobertura.completa && eco!.hasta && rango && eco!.hasta < rango.hasta) {
       avisos.push(`La economía por producto de Amazon llega hasta el ${eco!.hasta}: los últimos días del periodo aún no están (Amazon tarda ~2 días en asentarlos).`);
     }
-    if (coberturaEconomia != null && coberturaEconomia < 0.98) {
+    if (!eco!.cobertura.completa) {
       avisos.push(
-        `SKU Economics solo cubre el ${Math.round(coberturaEconomia * 100)}% de la venta bruta del periodo. El neto, la publicidad y la utilidad de Amazon son parciales y no deben compararse contra el total vendido.`,
+        `SKU Economics está parcial: cubre ${Math.round(eco!.cobertura.importe * 100)}% del importe, ${Math.round(eco!.cobertura.unidades * 100)}% de las unidades y ${eco!.cobertura.diasCubiertos} de ${eco!.cobertura.diasVenta} días con venta. El neto, la publicidad y la utilidad no deben compararse contra el total vendido.`,
       );
     }
     if (hayPagos) avisos.push(`Referencia: Amazon lleva liquidados ${redondea(m.netoReal as number).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de este periodo por fecha de depósito${m.pagosHasta ? ` (liquidaciones hasta ${m.pagosHasta})` : ""}.`);
@@ -126,7 +123,7 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     neto,
     fuenteNeto:
       fuente === "economia"
-        ? coberturaEconomia != null && coberturaEconomia < 0.98
+        ? !eco!.cobertura.completa
           ? "SKU Economics parcial · fecha de venta"
           : "SKU Economics · fecha de venta"
         : fuente === "pagos"
@@ -142,7 +139,7 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
       fuente === "economia" && eco!.tarifas
         ? [{
             concepto:
-              coberturaEconomia != null && coberturaEconomia < 0.98
+              !eco!.cobertura.completa
                 ? "Tarifas Amazon: comisión, FBA y otros (solo parte cubierta)"
                 : "Tarifas Amazon: comisión, FBA y otros",
             monto: redondea(Math.abs(eco!.tarifas)),
@@ -159,9 +156,7 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
     avisos,
     exacto:
       fuente === "economia" &&
-      coberturaEconomia != null &&
-      coberturaEconomia >= 0.98 &&
-      m.coberturaCosto >= 0.999 &&
-      !(eco!.hasta && rango && eco!.hasta < rango.hasta),
+      eco!.cobertura.completa &&
+      m.coberturaCosto >= 0.999,
   };
 }

@@ -8,12 +8,49 @@ import { cuentaActiva as cuentaYz } from "../yapanizcel/cuenta";
 import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
 import { obtenerMonitorAmazon } from "./amazon-monitor";
 import { cuentaAmazon } from "./amazon";
-import { armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
+import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { cargarEstadoResultados, rangoDelPeriodo } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
+import { listarGastosEmpresariales } from "./gastos-empresariales";
+
+/** Abre cortes históricos sin inventar el desglose que todavía no se guardaba. */
+export function compatibilidadGastosEmpresariales(consolidado: Consolidado): Consolidado {
+  consolidado.gastosEmpresariales ??= [];
+  if (consolidado.total.utilidadAntesGastosEmpresariales == null) {
+    consolidado.total.utilidadAntesGastosEmpresariales = consolidado.total.utilidadNeta;
+  }
+  consolidado.total.gastosEmpresariales ??= 0;
+  consolidado.total.coberturaNeto ??= null;
+  consolidado.total.descuentosPlataforma ??= 0;
+  const totalTeniaDesglose = ["comision", "envio", "isr", "iva", "otros", "ajusteLiquidacion", "devolucionesIncluidasEnNeto"]
+    .every((campo) => numeroFinito((consolidado.total as any)[campo]));
+  for (const campo of ["comision", "envio", "isr", "iva", "otros", "ajusteLiquidacion", "devolucionesIncluidasEnNeto"] as const) {
+    consolidado.total[campo] ??= 0;
+  }
+  for (const canal of consolidado.canales) {
+    canal.descuentos ??= [];
+    canal.descuentosPlataforma ??= 0;
+    canal.fuenteNeto ??= "Fuente no registrada en este corte histórico";
+    canal.coberturaNeto ??= null;
+    const desglose = canal.desglosePlataforma as any;
+    const teniaDesglose = Boolean(
+      desglose
+      && ["comision", "envio", "isr", "iva", "otros", "ajusteLiquidacion"]
+        .every((campo) => numeroFinito(desglose[campo])),
+    );
+    canal.desgloseDisponible = teniaDesglose;
+    canal.desglosePlataforma = teniaDesglose
+      ? desglose
+      : { comision: 0, envio: 0, isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0 };
+    canal.devolucionesIncluidasEnNeto ??= 0;
+  }
+  consolidado.total.desgloseDisponible = totalTeniaDesglose
+    && consolidado.canales.every((canal) => canal.desgloseDisponible);
+  return consolidado;
+}
 
 /**
  * `cortesMasticados: true` (la pantalla) lee los cortes de calzado y fundas
@@ -27,7 +64,7 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string,
   const bloques: BloqueCanal[] = [];
   const masticados = opts?.cortesMasticados === true;
 
-  const [calzado, fundas, amazon] = await Promise.all([
+  const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
     (masticados ? obtenerEstadoResultadosMeli(db, cuenta, periodo) : cargarEstadoResultados(db, cuenta, periodo)).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
@@ -57,10 +94,11 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string,
         return null;
       }
     })(),
+    listarGastosEmpresariales(db, cuenta.id, desde, hasta),
   ]);
   for (const b of [calzado, fundas, amazon]) if (b) bloques.push(b);
 
-  return armarConsolidado({ periodo, desde, hasta, bloques, avisos });
+  return armarConsolidado({ periodo, desde, hasta, bloques, gastosEmpresariales, avisos });
 }
 
 async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
@@ -83,6 +121,9 @@ async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): P
   return consolidado;
 }
 
+function numeroFinito(valor: unknown): valor is number {
+  return typeof valor === "number" && Number.isFinite(valor);
+}
 /**
  * El corte general desde `consolidado_cache`: correr los TRES canales
  * completos (calzado + fundas + Amazon) en cada visita costaba hasta 300 s
@@ -94,14 +135,19 @@ async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): P
  */
 export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
   try {
-    const { data } = await db
-      .from("consolidado_cache")
-      .select("datos, generado_en")
-      .eq("account_id", cuenta.id)
-      .eq("periodo", periodo)
-      .maybeSingle();
-    if (data?.datos) {
-      if (corteNecesitaRefresco(periodo, data.generado_en, true)) {
+    const { desde, hasta } = rangoDelPeriodo(periodo);
+    const [{ data }, gastosEmpresariales] = await Promise.all([
+      db
+        .from("consolidado_cache")
+        .select("datos, generado_en")
+        .eq("account_id", cuenta.id)
+        .eq("periodo", periodo)
+        .maybeSingle(),
+      listarGastosEmpresariales(db, cuenta.id, desde, hasta),
+    ]);
+    const guardado = data?.datos ? leerConsolidadoCache(data.datos) : null;
+    if (guardado) {
+      if (data && corteNecesitaRefresco(periodo, data.generado_en, true)) {
         try {
           const { after } = await import("next/server");
           after(async () => {
@@ -115,7 +161,10 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
           // Fuera de un request: el guardado sirve igual.
         }
       }
-      return revivirTipos(data.datos) as Consolidado;
+      return aplicarGastosEmpresariales(
+        normalizarConsolidadoCache(guardado),
+        gastosEmpresariales,
+      );
     }
   } catch {
     // Tabla aún sin migrar: se calcula como siempre.
@@ -178,7 +227,115 @@ export async function listarCortesGenerales(db: DB, accountId: string): Promise<
 
 export async function cargarCorteGeneral(db: DB, accountId: string, id: number): Promise<Consolidado | null> {
   const { data } = await db.from("cortes_generales").select("resumen").eq("account_id", accountId).eq("id", id).maybeSingle();
-  return (data?.resumen as Consolidado) ?? null;
+  return data?.resumen ? compatibilidadGastosEmpresariales(data.resumen as Consolidado) : null;
 }
 
+const numeroSeguro = (valor: unknown, respaldo = 0): number => {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : respaldo;
+};
+
 export { cuentaActiva };
+
+export function leerConsolidadoCache(datos: unknown): Consolidado | null {
+  try {
+    const consolidado = revivirTipos(datos);
+    return esConsolidadoActual(consolidado) ? consolidado : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Las entradas anteriores al desglose contable no se completan con ceros:
+ * hacerlo aparentaría una cobertura financiera que nunca se calculó. Se
+ * descartan para que `obtenerConsolidado` las regenere con las fuentes reales.
+ */
+export function esConsolidadoActual(valor: unknown): valor is Consolidado {
+  if (!valor || typeof valor !== "object") return false;
+  const consolidado = valor as Partial<Consolidado>;
+  if (
+    consolidado.versionContable !== 2
+    || !Array.isArray(consolidado.canales)
+    || !Array.isArray(consolidado.porCategoria)
+    || !Array.isArray(consolidado.porModelo)
+    || !Array.isArray(consolidado.avisos)
+    || !consolidado.total
+    || typeof consolidado.total !== "object"
+  ) return false;
+
+  const total = consolidado.total as Partial<Consolidado["total"]>;
+  const camposDesglose = ["comision", "envio", "isr", "iva", "otros", "ajusteLiquidacion"] as const;
+  const filaTieneDesglose = (fila: any) => camposDesglose.every((campo) => numeroFinito(fila?.[campo]));
+  if (
+    !(total.coberturaNeto === null || numeroFinito(total.coberturaNeto))
+    || !numeroFinito(total.descuentosPlataforma)
+    || !numeroFinito(total.devoluciones)
+    || !camposDesglose.every((campo) => numeroFinito(total[campo]))
+    || !numeroFinito(total.devolucionesIncluidasEnNeto)
+    || !numeroFinito(total.costoRecuperado)
+    || !(total.margenSobreNeto === null || numeroFinito(total.margenSobreNeto))
+  ) return false;
+
+  return consolidado.porCategoria.every(filaTieneDesglose)
+    && consolidado.porModelo.every(filaTieneDesglose)
+    && consolidado.canales.every((canal) => (
+    canal
+    && typeof canal === "object"
+    && typeof canal.fuenteNeto === "string"
+    && (canal.coberturaNeto === null || numeroFinito(canal.coberturaNeto))
+    && Array.isArray(canal.descuentos)
+    && numeroFinito(canal.devoluciones)
+    && numeroFinito(canal.costoRecuperado)
+    && numeroFinito(canal.descuentosPlataforma)
+    && canal.desglosePlataforma
+    && camposDesglose.every((campo) => numeroFinito(canal.desglosePlataforma?.[campo]))
+    && Array.isArray(canal.porModelo)
+    && canal.porModelo.every(filaTieneDesglose)
+  ));
+}
+
+/** Completa campos añadidos después de que se guardaron cachés históricos. */
+export function normalizarConsolidadoCache(datos: unknown): Consolidado {
+  const consolidado = compatibilidadGastosEmpresariales(revivirTipos(datos) as Consolidado) as any;
+  const canales = Array.isArray(consolidado?.canales)
+    ? consolidado.canales.map((canal: any) => {
+        const descuentos = Array.isArray(canal.descuentos) ? canal.descuentos : [];
+        const costoProducto = numeroSeguro(canal.costoProducto);
+        return {
+          ...canal,
+          fuenteNeto: typeof canal.fuenteNeto === "string" ? canal.fuenteNeto : "Neto guardado en caché anterior",
+          coberturaNeto: canal.coberturaNeto != null && Number.isFinite(Number(canal.coberturaNeto))
+            ? Number(canal.coberturaNeto)
+            : null,
+          descuentos,
+          descuentosPlataforma: numeroSeguro(
+            canal.descuentosPlataforma,
+            descuentos.reduce((total: number, descuento: any) => total + numeroSeguro(descuento?.monto), 0),
+          ),
+          costoProducto,
+          utilidadBruta: numeroSeguro(canal.utilidadBruta, numeroSeguro(canal.neto) - costoProducto),
+        };
+      })
+    : [];
+  const totalAnterior = consolidado?.total ?? {};
+  const costoProducto = numeroSeguro(
+    totalAnterior.costoProducto,
+    canales.reduce((total: number, canal: any) => total + canal.costoProducto, 0),
+  );
+  return {
+    ...consolidado,
+    canales,
+    total: {
+      ...totalAnterior,
+      coberturaNeto: totalAnterior.coberturaNeto != null && Number.isFinite(Number(totalAnterior.coberturaNeto))
+        ? Number(totalAnterior.coberturaNeto)
+        : null,
+      descuentosPlataforma: numeroSeguro(
+        totalAnterior.descuentosPlataforma,
+        canales.reduce((total: number, canal: any) => total + canal.descuentosPlataforma, 0),
+      ),
+      costoProducto,
+    },
+  } as Consolidado;
+}
