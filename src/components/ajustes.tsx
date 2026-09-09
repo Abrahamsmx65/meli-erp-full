@@ -85,9 +85,9 @@ const CAMPOS: {
   },
   {
     clave: "cajasMinimasSinEstreno",
-    etiqueta: "Cajas mínimas para estrenar",
+    etiqueta: "Cajas mínimas sin venta",
     ayuda:
-      "Un producto que nunca tuvo stock ni venta en Full y tiene cajas en bodega viaja con al menos estas cajas por modelo + color. 0 = apagado.",
+      "Un producto que nunca ha vendido en Full y tiene cajas en bodega se sostiene con al menos estas cajas por modelo + color entre Full y en camino. 0 = apagado.",
     min: 0,
   },
 ];

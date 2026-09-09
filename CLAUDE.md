@@ -64,12 +64,16 @@ guárdala numerada.
      caen dentro de la holgura (descontando lo que la talla ya traiga arriba
      de su objetivo) no cuestan como sobrante y cuentan como útiles en el
      rescate.
-  3. **Producto SIN ESTRENO** (`cajasMinimasSinEstreno`, 2): nunca tuvo stock
-     ni venta en Full (ni en la ventana ni en toda la historia,
-     `skusConVentaHistorica`) y hay cajas en CUALQUIER bodega → viajan
-     mínimo 2 cajas del modelo + color (piso en el optimizador, primero las
-     de corrida). Una talla excluida a mano saca al producto. Si el RPC de
-     historia falla, esta regla se apaga en esa corrida y el plan lo avisa.
+  3. **Producto SIN VENTA** (`cajasMinimasSinEstreno`, 2): nunca ha vendido
+     un par en Full (ni en la ventana ni en toda la historia,
+     `skusConVentaHistorica`) y hay cajas en CUALQUIER bodega → se le
+     sostiene una POSICIÓN mínima de 2 cajas del modelo + color (piso en el
+     optimizador, primero las de corrida). Lo que ya tiene en Full o en
+     camino descuenta: una caja que la bodega ya apartó para el camión
+     cuenta como en camino (GT160/GT206 el 9-sep-2026: con una apartada
+     viaja UNA más, no cero ni dos). Una talla excluida a mano saca al
+     producto. Si el RPC de historia falla, esta regla se apaga en esa
+     corrida y el plan lo avisa.
 - **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
   (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
   es 30 + 7 = 37 días, no más.
