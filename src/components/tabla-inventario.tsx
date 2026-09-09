@@ -5,20 +5,13 @@ import { filtrarBodega, textoBusquedaBodega } from "@/lib/reporte/filtro";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
 
 /**
- * El renglón que la vista de Bodega de verdad pinta. Antes viajaba
- * `RenglonInventario` completo (13 campos, con título, inventoryId y las
- * columnas de MELI que esta vista nunca muestra): ~40 % del payload era
- * carga muerta. La página proyecta a esto en el servidor.
+ * El renglón que la vista de Bodega de verdad pinta: 7 campos, no los 13 de
+ * `RenglonInventario` (título, inventoryId y las columnas de MELI eran ~40 %
+ * de payload muerto aquí). Se define UNA vez, en el servicio que arma la
+ * vista, y se reexporta para quien ya lo importaba de este archivo.
  */
-export interface RenglonBodega {
-  sku: string;
-  modelo: string;
-  color: string;
-  talla: string;
-  enBodega: number;
-  enCamino: number;
-  pedidos: { pedido: string; almacen: string; cajas: number; pares: number }[];
-}
+export type { RenglonBodega } from "@/lib/servicios/bodega";
+import type { RenglonBodega } from "@/lib/servicios/bodega";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");

@@ -167,6 +167,105 @@ interface InventarioGuardado {
   datos: ResumenInventario;
 }
 
+/**
+ * Dónde está parado el dinero de la bodega, por categoría de producto.
+ *
+ * Reemplaza los cortes «por almacén» y «por pedido», que decían dónde está
+ * la caja pero no cuánto vale. La pregunta del dueño es otra: cuánto tengo
+ * invertido en pantuflas contra cuánto en corcho.
+ *
+ * Función PURA: recibe los renglones y el costo por modelo, y devuelve los
+ * grupos. Lo que no se puede costear NO se cuenta como cero — se aparta y se
+ * declara, que es la única forma de que el total signifique algo.
+ */
+export interface InversionCategoria {
+  categoria: string;
+  pares: { enBodega: number; enCamino: number };
+  valor: { enBodega: number; enCamino: number; total: number };
+  /** Cuántos modelos distintos caen en esta categoría. */
+  modelos: number;
+  /** Qué parte del valor total representa (0-1). */
+  parte: number;
+}
+
+export interface InversionEnBodega {
+  categorias: InversionCategoria[];
+  total: { enBodega: number; enCamino: number; total: number };
+  /** Lo que quedó fuera del total por no tener costo capturado. */
+  sinCosto: { pares: number; modelos: string[] };
+  /** Modelos costeados pero sin categoría: van juntos en «Sin categoría». */
+  sinCategoria: number;
+}
+
+const SIN_CATEGORIA = "Sin categoría";
+
+export function inversionPorCategoria(
+  renglones: { modelo: string; enBodega: number; enCamino: number }[],
+  config: Map<string, { categoria: string | null; costo: number | null }>,
+): InversionEnBodega {
+  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string> }>();
+  const sinCostoModelos = new Set<string>();
+  const sinCategoriaModelos = new Set<string>();
+  let paresSinCosto = 0;
+
+  for (const r of renglones) {
+    const pares = r.enBodega + r.enCamino;
+    if (pares <= 0) continue;
+
+    // El costo se busca igual que en el resto del sistema: por modelo tal
+    // cual y, si no, en mayúsculas (productos_config los guarda así).
+    const c = config.get(r.modelo) ?? config.get(r.modelo.toUpperCase());
+    if (c?.costo == null) {
+      paresSinCosto += pares;
+      sinCostoModelos.add(r.modelo);
+      continue;
+    }
+
+    const categoria = c.categoria?.trim() || SIN_CATEGORIA;
+    if (categoria === SIN_CATEGORIA) sinCategoriaModelos.add(r.modelo);
+
+    const g =
+      grupos.get(categoria) ??
+      {
+        categoria,
+        pares: { enBodega: 0, enCamino: 0 },
+        valor: { enBodega: 0, enCamino: 0, total: 0 },
+        modelos: 0,
+        parte: 0,
+        modelosVistos: new Set<string>(),
+      };
+    g.pares.enBodega += r.enBodega;
+    g.pares.enCamino += r.enCamino;
+    g.valor.enBodega += r.enBodega * c.costo;
+    g.valor.enCamino += r.enCamino * c.costo;
+    g.modelosVistos.add(r.modelo);
+    grupos.set(categoria, g);
+  }
+
+  const categorias = [...grupos.values()].map((g) => {
+    g.valor.total = g.valor.enBodega + g.valor.enCamino;
+    g.modelos = g.modelosVistos.size;
+    return g;
+  });
+
+  const total = {
+    enBodega: categorias.reduce((a, g) => a + g.valor.enBodega, 0),
+    enCamino: categorias.reduce((a, g) => a + g.valor.enCamino, 0),
+    total: categorias.reduce((a, g) => a + g.valor.total, 0),
+  };
+  for (const g of categorias) g.parte = total.total > 0 ? g.valor.total / total.total : 0;
+
+  // De más valor a menos: la pregunta es dónde está el dinero.
+  categorias.sort((a, b) => b.valor.total - a.valor.total || a.categoria.localeCompare(b.categoria, "es"));
+
+  return {
+    categorias: categorias.map(({ modelosVistos: _m, ...resto }) => resto),
+    total,
+    sinCosto: { pares: paresSinCosto, modelos: [...sinCostoModelos].sort() },
+    sinCategoria: sinCategoriaModelos.size,
+  };
+}
+
 export async function cargarInventario(
   db: DB,
   accountId: string,
