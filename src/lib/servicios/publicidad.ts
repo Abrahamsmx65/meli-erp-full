@@ -421,14 +421,29 @@ export const COBERTURA_CORTA_DIAS = 14;
 /** Arriba de esto hay capital parado: espacio para invertir en ads. */
 export const COBERTURA_LARGA_DIAS = 45;
 
+/**
+ * En qué orden se atienden. Primero lo que está TIRANDO dinero (apagar y
+ * pausar), luego lo que hay que moderar (bajar), luego dónde vale la pena
+ * meterle más (subir y encender), y hasta el final los candidatos nuevos.
+ * Es el orden en que el dueño trabaja la lista: primero corta, después
+ * invierte.
+ */
 const PRIORIDAD_ACCION: Record<AccionSugerida, number> = {
-  pausar: 0,
-  encender: 1,
-  apagar: 2,
-  bajar: 3,
-  subir: 4,
+  apagar: 0,
+  pausar: 1,
+  bajar: 2,
+  subir: 3,
+  encender: 4,
   activar: 5,
 };
+
+/** Los grupos de la lista, en su orden, para que la pantalla los encabece. */
+export const GRUPOS_ACCION: { acciones: AccionSugerida[]; titulo: string }[] = [
+  { acciones: ["apagar", "pausar"], titulo: "Apagar: están gastando de más" },
+  { acciones: ["bajar"], titulo: "Bajar el presupuesto" },
+  { acciones: ["subir", "encender"], titulo: "Subir el presupuesto" },
+  { acciones: ["activar"], titulo: "Candidatos para anunciar" },
+];
 
 /**
  * Cruza el panel de publicidad con el stock de Full y el margen para decir
@@ -603,12 +618,17 @@ export function armarRecomendaciones(opts: {
 
   return recomendaciones
     .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
-    // En orden alfabético de modelo, como el resto de las tablas: la lista se
-    // recorre buscando el modelo, no leyendo un ranking.
+    // Por lo que hay que HACER, no por el alfabeto: primero lo que está
+    // tirando dinero y al final los candidatos nuevos. Antes se ordenaba por
+    // modelo y la prioridad solo desempataba — y como hay UNA recomendación
+    // por modelo, nunca desempataba nada: la lista salía puramente
+    // alfabética y lo urgente quedaba enterrado a media tabla.
+    // Dentro de cada grupo, primero lo que más dinero mueve.
     .sort(
       (a, b) =>
-        a.modelo.localeCompare(b.modelo, "es") ||
-        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion],
+        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion] ||
+        (peso.get(b) ?? 0) - (peso.get(a) ?? 0) ||
+        a.modelo.localeCompare(b.modelo, "es"),
     );
 }
 

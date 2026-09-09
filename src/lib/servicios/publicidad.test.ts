@@ -363,7 +363,11 @@ describe("armarRecomendaciones", () => {
     expect(r).toHaveLength(5);
   });
 
-  it("ordena alfabéticamente por modelo, no por urgencia", () => {
+  // Esta prueba fijaba el orden ALFABÉTICO. Se cambió a propósito por
+  // decisión del dueño: la lista se trabaja de arriba abajo —primero se corta
+  // el gasto, después se invierte— y con el alfabeto lo urgente quedaba
+  // enterrado a media tabla.
+  it("lo urgente va arriba aunque su modelo sea el último del alfabeto", () => {
     const r = armarRecomendaciones({
       filas: [fila("ZZZ"), fila("AAA")],
       stockDeModelo: new Map([
@@ -376,7 +380,46 @@ describe("armarRecomendaciones", () => {
         ["ZZZ", [item("MLM2")]],
       ]),
     });
-    expect(r.map((x) => x.modelo)).toEqual(["AAA", "ZZZ"]);
-    expect(r.map((x) => x.accion)).toEqual(["subir", "pausar"]);
+    expect(r.map((x) => x.modelo)).toEqual(["ZZZ", "AAA"]);
+    expect(r.map((x) => x.accion)).toEqual(["pausar", "subir"]);
+  });
+
+  it("ordena por lo que hay que HACER, no por el alfabeto", () => {
+    // AAA es candidato a subir presupuesto y ZZZ está gastando sin stock.
+    // Por alfabeto AAA saldría primero; lo urgente es apagar ZZZ.
+    const r = armarRecomendaciones({
+      filas: [
+        fila("AAA", { tacos: 0.01, gastoAds: 200 }), // margen holgado: subir
+        fila("ZZZ"), // sin stock: pausar
+      ],
+      stockDeModelo: new Map([["AAA", 5000]]),
+      dias,
+      itemsDeModelo: new Map([
+        ["AAA", [item("MLM1")]],
+        ["ZZZ", [item("MLM2")]],
+      ]),
+    });
+
+    const orden = r.map((x) => `${x.modelo}:${x.accion}`);
+    const iZZZ = orden.findIndex((x) => x.startsWith("ZZZ"));
+    const iAAA = orden.findIndex((x) => x.startsWith("AAA"));
+    expect(iZZZ, `orden: ${orden.join(", ")}`).toBeGreaterThanOrEqual(0);
+    expect(iAAA).toBeGreaterThanOrEqual(0);
+    expect(iZZZ, `lo urgente va primero. orden: ${orden.join(", ")}`).toBeLessThan(iAAA);
+  });
+
+  it("dentro del mismo grupo, primero lo que más dinero mueve", () => {
+    // Dos modelos que hay que pausar: el que más gastó va arriba.
+    const r = armarRecomendaciones({
+      filas: [fila("AAA", { gastoAds: 100 }), fila("BBB", { gastoAds: 9000 })],
+      stockDeModelo: new Map(),
+      dias,
+      itemsDeModelo: new Map([
+        ["AAA", [item("MLM1")]],
+        ["BBB", [item("MLM2")]],
+      ]),
+    });
+    expect(r.map((x) => x.modelo)).toEqual(["BBB", "AAA"]);
+    expect(r.every((x) => x.accion === "pausar")).toBe(true);
   });
 });
