@@ -70,6 +70,7 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
       { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
+      { href: "/skus", texto: "SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
     ],
   },
   {
