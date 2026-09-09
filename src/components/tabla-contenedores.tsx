@@ -16,6 +16,7 @@ interface Contenedor {
   notas: string | null;
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
+  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -121,7 +122,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
               <th>Llegada est.</th>
               <th>Llegada real</th>
               <th className="num">Cajas</th>
-              <th>Pedidos</th>
+              <th>Qué viene</th>
               <th>Estado</th>
               <th></th>
             </tr>
@@ -209,13 +210,23 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
                   <td className="num cifra">{n(c.cajas)}</td>
                   <td className="text-xs">
-                    {c.pedidos.length ? (
-                      c.pedidos.map((p) => (
-                        <div key={p.pedido}>
-                          <span className="font-medium">{p.pedido}</span>{" "}
-                          <span style={{ color: "var(--ink-2)" }}>{n(p.cajas)} cajas</span>
-                        </div>
-                      ))
+                    {c.modelos.length ? (
+                      <>
+                        {c.modelos.map((m) => (
+                          <div key={`${m.modelo}|${m.color}`}>
+                            <span className="font-medium">{m.modelo}</span>
+                            {m.color ? <span style={{ color: "var(--ink-2)" }}> {m.color}</span> : null}{" "}
+                            <span className="cifra" style={{ color: "var(--ink-2)" }}>
+                              {n(m.cajas)} cajas{m.pares > 0 ? ` · ${n(m.pares)} pares` : ""}
+                            </span>
+                          </div>
+                        ))}
+                        {c.pedidos.length ? (
+                          <div className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                            {c.pedidos.map((p) => `${p.pedido} (${n(p.cajas)})`).join(" · ")}
+                          </div>
+                        ) : null}
+                      </>
                     ) : (
                       <span style={{ color: "var(--ink-muted)" }}>—</span>
                     )}

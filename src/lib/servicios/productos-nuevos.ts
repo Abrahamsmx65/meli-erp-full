@@ -22,6 +22,26 @@
 import { canonizar, claveAplastada, claveComparacion } from "../importar/sku";
 import { traerTodo, type DB } from "../datos/repos";
 import { cuentaAmazon } from "./amazon";
+import { conCacheApp, invalidarApp } from "./cache-app";
+
+/** Clave en app_cache de la lista masticada; las fotos van en `nuevos:fotos`. */
+export const CLAVE_NUEVOS = "nuevos:productos";
+export const CLAVE_FOTOS_NUEVOS = "nuevos:fotos";
+/** La lista cambia cuando cambian los pedidos o el stock: media hora de edad basta. */
+const EDAD_NUEVOS_MS = 30 * 60_000;
+
+/**
+ * La lista masticada (app_cache): calcularla cruza pedidos, catálogo, stock
+ * e historia (decenas de consultas). Se guarda y se sirve; se invalida al
+ * cargar pedidos o contenedores (`invalidarNuevos`) y caduca sola.
+ */
+export function cargarProductosNuevos(db: DB, accountId: string): Promise<ResumenProductosNuevos> {
+  return conCacheApp(db, accountId, CLAVE_NUEVOS, EDAD_NUEVOS_MS, () => productosNuevos(db, accountId));
+}
+
+export function invalidarNuevos(db: DB, accountId: string, motivo: string): Promise<void> {
+  return invalidarApp(db, accountId, motivo, { claves: [CLAVE_NUEVOS] });
+}
 
 /** Con una sola foto no se vende: es la que se sube para crear el listado. */
 export const FOTOS_MINIMAS = 2;

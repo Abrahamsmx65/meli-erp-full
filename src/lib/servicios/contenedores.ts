@@ -25,6 +25,26 @@ export interface ContenedorVista {
   notas: string | null;
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
+  /** qué viene: por modelo y color, con sus cajas y pares (decisión del dueño: se ve esto, no los pedidos) */
+  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+}
+
+/** Agrupa los renglones de un contenedor por modelo + color. Puro, para probarse. */
+export function modelosDeContenedor(
+  lineas: { modelo: string; color: string | null; cajas: number; paresPorCaja: number }[],
+): ContenedorVista["modelos"] {
+  const porClave = new Map<string, { modelo: string; color: string; cajas: number; pares: number }>();
+  for (const l of lineas) {
+    const modelo = (l.modelo ?? "").trim().toUpperCase();
+    const color = (l.color ?? "").trim().toUpperCase();
+    if (!modelo || l.cajas <= 0) continue;
+    const k = `${modelo}|${color}`;
+    const x = porClave.get(k) ?? { modelo, color, cajas: 0, pares: 0 };
+    x.cajas += l.cajas;
+    x.pares += Math.round(l.cajas * l.paresPorCaja);
+    porClave.set(k, x);
+  }
+  return [...porClave.values()].sort((a, b) => a.modelo.localeCompare(b.modelo) || a.color.localeCompare(b.color));
 }
 
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
@@ -58,9 +78,19 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
   // filas y ni el tope ni el largo de la URL alcanzan a morder.
   const lineaIds = [...new Set(contLineas.map((l) => l.pedido_linea_id))];
   const lineas = await porTandas(lineaIds, 500, async (tanda) => {
-    const { data, error } = await db.from("pedido_lineas").select("id, pedido_id").in("id", tanda);
+    const { data, error } = await db
+      .from("pedido_lineas")
+      .select("id, pedido_id, modelo, color, cajas, pares")
+      .in("id", tanda);
     if (error) throw new Error(`pedido_lineas: ${error.message}`);
-    return (data ?? []) as { id: string; pedido_id: string }[];
+    return (data ?? []) as {
+      id: string;
+      pedido_id: string;
+      modelo: string;
+      color: string | null;
+      cajas: number | null;
+      pares: number | null;
+    }[];
   });
 
   const pedidoIds = [...new Set(lineas.map((l) => l.pedido_id))];
@@ -72,6 +102,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
 
   const nombrePedido = new Map((pedidos ?? []).map((p) => [p.id, p.pedido]));
   const pedidoDeLinea = new Map((lineas ?? []).map((l) => [l.id, l.pedido_id]));
+  const lineaPorId = new Map((lineas ?? []).map((l) => [l.id, l]));
   const lineasPorCont = new Map<string, { cajas: number | null; pedido_linea_id: string }[]>();
   for (const cl of contLineas) {
     const lista = lineasPorCont.get(cl.contenedor_id) ?? [];
@@ -88,7 +119,18 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
       if (!nombre) continue;
       porPedido.set(nombre, (porPedido.get(nombre) ?? 0) + (cl.cajas ?? 0));
     }
+    // Pares por caja del renglón del pedido: lo que embarca el contenedor
+    // son cajas, y los pares se derivan de la receta del pedido.
+    const modelos = modelosDeContenedor(
+      (lineasPorCont.get(c.id) ?? []).flatMap((cl) => {
+        const l = lineaPorId.get(cl.pedido_linea_id);
+        if (!l) return [];
+        const paresPorCaja = (l.cajas ?? 0) > 0 && (l.pares ?? 0) > 0 ? (l.pares ?? 0) / (l.cajas ?? 1) : 0;
+        return [{ modelo: l.modelo, color: l.color, cajas: cl.cajas ?? 0, paresPorCaja }];
+      }),
+    );
     return {
+      modelos,
       id: c.id,
       numero: c.numero,
       numeroNaviera: c.numero_naviera ?? null,

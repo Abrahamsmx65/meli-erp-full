@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { FOTOS_MINIMAS, productosNuevos } from "@/lib/servicios/productos-nuevos";
+import { FOTOS_MINIMAS, cargarProductosNuevos } from "@/lib/servicios/productos-nuevos";
 import { Ficha } from "@/components/tiles";
 import { ProductosNuevos } from "@/components/productos-nuevos";
 
@@ -32,7 +32,7 @@ export default async function Nuevos() {
     );
   }
 
-  const { productos, amazonConectado } = await productosNuevos(supabase, cuenta.id);
+  const { productos, amazonConectado } = await cargarProductosNuevos(supabase, cuenta.id);
   const sinMeli = productos.filter((p) => !p.meli.publicaciones.length).length;
   const sinAmazon = amazonConectado ? productos.filter((p) => !p.amazon.skus.length).length : 0;
   const enBodega = productos.filter((p) => p.enBodega > 0).length;

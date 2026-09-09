@@ -4,7 +4,6 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
 import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
-import { enviosParaPantalla } from "@/lib/servicios/envios-registrados";
 import { enviosPendientesIndusther, expandirFilaMeli } from "@/lib/servicios/industher-pendientes";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { traerTodo } from "@/lib/datos/repos";
@@ -13,7 +12,6 @@ import { Ficha } from "@/components/tiles";
 import { desglosarOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosSeparados } from "@/components/envios-separados";
 import { PendientesIndusther } from "@/components/pendientes-industher";
-import { EnviosEnCamino } from "@/components/envios-en-camino";
 import { BotonesPlan, FrescuraPlan } from "@/components/acciones";
 import {
   TablasPlan,
@@ -49,11 +47,11 @@ export default async function Plan() {
   // resto de la página pinta de inmediato.
   const pendientesPromesa = enviosPendientesIndusther(supabase, cuenta.id);
 
-  // Todo lo independiente en UN solo Promise.all: el plan, los envíos
-  // registrados y los almacenes (que antes se leían en serie, después).
-  const [estado, enCamino, almacenesRaw] = await Promise.all([
+  // Todo lo independiente en UN solo Promise.all: el plan y los almacenes.
+  // Los envíos registrados ya no se pintan aquí (decisión del dueño): solo
+  // alimentan el plan como "en camino".
+  const [estado, almacenesRaw] = await Promise.all([
     t.medir("plan", obtenerPlan(supabase, cuenta.id)),
-    t.medir("registrados", enviosParaPantalla(supabase, cuenta.id)),
     traerTodo<{ almacen: string; grupo_envio: string | null }>(
       supabase,
       "almacenes_activos",
@@ -215,15 +213,6 @@ export default async function Plan() {
         />
       </div>
 
-      {desglose.totalDeMas > 0 ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          Al cerrar cajas completas van <strong className="cifra">{n(desglose.totalDeMas)}</strong>{" "}
-          pares por encima de lo sugerido —{" "}
-          <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de esos viajan en las cajas
-          opcionales. Por talla: <span className="cifra">{textoDeMas(desglose.deMasPorTalla)}</span>
-        </p>
-      ) : null}
-
       {/* ---- Avisos ------------------------------------------------------- */}
       {(pendientes.sinCorrida.length > 0 || pendientes.sinAmarre.length > 0) && (
         <div
@@ -258,18 +247,6 @@ export default async function Plan() {
           {a}
         </div>
       ))}
-
-      <EnviosEnCamino
-        envios={enCamino.map((e) => ({
-          id: e.id,
-          folio: e.folio,
-          bodegas: e.bodegas,
-          cajas: e.cajas,
-          pares: e.pares,
-          enviadoEn: e.enviadoEn,
-          estado: e.estado,
-        }))}
-      />
 
       <EnviosSeparados grupos={grupos} cajas={filasCaja} sinConfigurar={sinConfigurar} />
 

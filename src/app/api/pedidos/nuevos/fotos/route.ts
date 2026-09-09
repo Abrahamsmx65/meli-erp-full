@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor, clienteAdmin } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { productosNuevos } from "@/lib/servicios/productos-nuevos";
+import { CLAVE_FOTOS_NUEVOS, cargarProductosNuevos } from "@/lib/servicios/productos-nuevos";
+import { huellaPublicaciones, tocaRevisar, type FotosGuardada, type FotosProducto } from "@/lib/servicios/productos-nuevos-fotos";
+import { guardarCacheApp, leerCacheAppGuardado } from "@/lib/servicios/cache-app";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { enLotes, trozos } from "@/lib/meli/client";
 import { Cliente, cuentasAmazon } from "@/lib/amazon/spapi";
@@ -19,24 +21,21 @@ interface ItemMeli {
   variations?: { id?: number | string; picture_ids?: string[] }[];
 }
 
-export interface FotosProducto {
-  clave: string;
-  /** null = sin publicación en MELI (o MELI no contestó por ella) */
-  meli: { fotos: number | null; itemId: string | null; estado: string | null };
-  /** null = sin publicación en Amazon; `sinCuenta` cuando Amazon no está conectado */
-  amazon: { fotos: number | null; asin: string | null };
+interface FotosGuardadas {
+  productos: Record<string, FotosGuardada>;
 }
 
 /**
- * Cuántas fotos tiene cada producto nuevo en MELI y en Amazon, en vivo.
+ * Cuántas fotos tiene cada producto nuevo en MELI y en Amazon.
  *
  * MELI: la publicación (`/items`, 20 por llamada) trae `pictures`; en las
  * que tienen variantes cada variante dice cuáles son suyas (`picture_ids`),
  * y eso es lo que cuenta para el color. Amazon: el catálogo por ASIN, una
- * variante (MAIN, PT01…) por foto. Son pocos productos, así que se pregunta
- * al momento y no se guarda nada.
+ * variante (MAIN, PT01…) por foto. Lo revisado se GUARDA (app_cache,
+ * `nuevos:fotos`) y solo se vuelve a preguntar por lo que le falta
+ * (`tocaRevisar`); `?todo=1` revisa todo de nuevo.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await clienteServidor();
   const {
     data: { user },
@@ -46,13 +45,25 @@ export async function GET() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "Conecta Mercado Libre." }, { status: 400 });
 
-  const { productos, amazonConectado } = await productosNuevos(supabase, cuenta.id);
+  const todo = req.nextUrl.searchParams.get("todo") === "1";
+  const { productos: lista, amazonConectado } = await cargarProductosNuevos(supabase, cuenta.id);
   const errores: string[] = [];
+
+  const guardadas = await leerCacheAppGuardado<FotosGuardadas>(supabase, cuenta.id, CLAVE_FOTOS_NUEVOS);
+  const previas = guardadas.estado === "encontrado" ? (guardadas.valor.datos?.productos ?? {}) : {};
+
+  // Lo guardado se sirve tal cual; solo se pregunta por lo que toca.
+  const productos = lista.filter((p) => tocaRevisar(p, previas[p.clave], amazonConectado, todo));
+  const ahora = new Date().toISOString();
   const salida = new Map<string, FotosProducto>(
-    productos.map((p) => [
-      p.clave,
-      { clave: p.clave, meli: { fotos: null, itemId: null, estado: null }, amazon: { fotos: null, asin: null } },
-    ]),
+    lista.map((p) => {
+      const previa = previas[p.clave];
+      const base: FotosProducto =
+        previa && !productos.includes(p)
+          ? { clave: p.clave, meli: previa.meli, amazon: previa.amazon, revisadoEn: previa.revisadoEn ?? null }
+          : { clave: p.clave, meli: { fotos: null, itemId: null, estado: null }, amazon: { fotos: null, asin: null }, revisadoEn: null };
+      return [p.clave, base];
+    }),
   );
 
   const admin = clienteAdmin();
@@ -131,11 +142,32 @@ export async function GET() {
     }
   }
 
+  // Lo recién preguntado queda con su fecha; si MELI o Amazon fallaron, esos
+  // se quedan sin fecha para volver a preguntar la próxima vez.
+  const t0 = Date.now();
+  const fallo = { meli: errores.some((e) => e.startsWith("MELI")), amazon: errores.some((e) => e.startsWith("Amazon")) };
+  for (const p of productos) {
+    const f = salida.get(p.clave)!;
+    const incompleto = (fallo.meli && p.meli.publicaciones.some((x) => x.itemId)) || (fallo.amazon && p.amazon.asins.length > 0);
+    f.revisadoEn = incompleto ? null : ahora;
+  }
+  const nuevas: FotosGuardadas = { productos: { ...previas } };
+  for (const p of lista) {
+    const f = salida.get(p.clave)!;
+    nuevas.productos[p.clave] = { ...f, huella: huellaPublicaciones(p) };
+  }
+  // Lo que ya no es producto nuevo sale del guardado.
+  const vivas = new Set(lista.map((p) => p.clave));
+  for (const k of Object.keys(nuevas.productos)) if (!vivas.has(k)) delete nuevas.productos[k];
+  await guardarCacheApp(supabase, cuenta.id, CLAVE_FOTOS_NUEVOS, nuevas, Date.now() - t0);
+
   return NextResponse.json({
     ok: true,
     amazonConectado,
     productos: [...salida.values()],
     errores,
-    revisadoEn: new Date().toISOString(),
+    revisados: productos.length,
+    guardados: lista.length - productos.length,
+    revisadoEn: ahora,
   });
 }

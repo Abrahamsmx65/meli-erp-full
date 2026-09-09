@@ -269,6 +269,13 @@ export async function invalidar(
     .from("plan_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId);
+  // La lista de productos nuevos (app_cache) come de pedidos y stock: cae
+  // con lo mismo. Escritura directa, sin importar productos-nuevos (ciclo).
+  await db
+    .from("app_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId)
+    .eq("clave", "nuevos:productos");
   // El plan de FBA come de la misma bodega (cajas, corridas, amarres,
   // envíos): todo lo que invalida al plan de Full lo invalida a él también.
   // La escritura va directo aquí para no importar el módulo de FBA (ciclo).

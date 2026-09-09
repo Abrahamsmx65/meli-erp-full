@@ -52,15 +52,24 @@ export function ProductosNuevos({
   const [busqueda, setBusqueda] = useState("");
   const [soloConFalta, setSoloConFalta] = useState(false);
 
-  async function revisar() {
+  const [resumenRevision, setResumenRevision] = useState<string | null>(null);
+
+  // Lo ya revisado con fotos completas viene guardado; por defecto solo se
+  // le pregunta a MELI y Amazon por lo que falta. `todo` revisa todo de nuevo.
+  async function revisar(todo = false) {
     setRevisando(true);
     setError(null);
     try {
-      const r = await fetch("/api/pedidos/nuevos/fotos", { cache: "no-store" });
+      const r = await fetch(`/api/pedidos/nuevos/fotos${todo ? "?todo=1" : ""}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudieron revisar las fotos.");
       setFotos(new Map((j.productos as Fotos[]).map((f) => [f.clave, f])));
       setErrores(j.errores ?? []);
+      setResumenRevision(
+        typeof j.revisados === "number"
+          ? `${j.revisados} revisados ahora · ${j.guardados} ya guardados con sus fotos`
+          : null,
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -127,13 +136,27 @@ export function ProductosNuevos({
           <input type="checkbox" checked={soloConFalta} onChange={(e) => setSoloConFalta(e.target.checked)} />
           Solo con algo que falta
         </label>
+        {resumenRevision ? (
+          <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+            {resumenRevision}
+          </span>
+        ) : null}
         <button
-          onClick={revisar}
+          onClick={() => revisar(false)}
           disabled={revisando}
           className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           style={{ borderColor: "var(--borde)" }}
         >
-          {revisando ? "Revisando fotos…" : "Volver a revisar fotos"}
+          {revisando ? "Revisando fotos…" : "Revisar lo que falta"}
+        </button>
+        <button
+          onClick={() => revisar(true)}
+          disabled={revisando}
+          className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          style={{ borderColor: "var(--borde)" }}
+          title="Vuelve a preguntar a MELI y Amazon por todos, también los que ya tienen fotos"
+        >
+          Revisar todo de nuevo
         </button>
       </header>
 
