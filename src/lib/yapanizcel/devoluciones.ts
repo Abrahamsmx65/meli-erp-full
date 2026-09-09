@@ -12,6 +12,7 @@ import type { DB } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
 import { camposLiquidacionMeli, pagosCobrablesCompletos, type PagoMercadoPago } from "../meli/pagos";
 import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
+import { columnasDeReclamos, leerReclamosDeOrden, skuDesdeOrdenCruda } from "../meli/reclamos";
 import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { SEGUNDA_REVISION_DIAS, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
 import { clienteDeCuenta } from "./cuenta";
@@ -173,6 +174,18 @@ export async function revisarOrdenesYz(
       revisado_en: new Date().toISOString(),
       revisiones,
     };
+    // Reclamos y devoluciones: solo en órdenes con reembolso o con
+    // mediación (una o dos llamadas más). Si MELI no contesta, se deja
+    // sin leer y se reintenta en la siguiente revisión.
+    const conReclamo = resumenPago.reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back" || estado === "partially_refunded" || (Array.isArray((orden as any)?.mediations) && (orden as any).mediations.length > 0);
+    if (conReclamo) {
+      try {
+        const reclamos = await leerReclamosDeOrden(cliente, orderId, skuDesdeOrdenCruda(orden ?? f.orden_cruda));
+        Object.assign(cambios, columnasDeReclamos(reclamos));
+      } catch (err) {
+        r.errores.push(`reclamos ${orderId}: ${(err as Error).message}`.slice(0, 200));
+      }
+    }
     // Si la orden aún no tenía neto (o lo tenía crudo, de antes del ajuste
     // de envío), esta lectura ya lo trae: se aprovecha.
     if (resumenPago.netoBase != null && (f.neto_en == null || f.neto_pago == null)) {

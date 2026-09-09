@@ -999,7 +999,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (devSinRenglones > 0) {
     avisos.push(
-      `${p(devSinRenglones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de devoluciones no tienen cantidades devueltas verificables (la orden no tiene sus renglones o el reembolso fue parcial): su costo recuperado NO se suma; nada se estima. La revisión le pide los renglones a MELI.`,
+      `${p(devSinRenglones).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de devoluciones aún no tienen leída la revisión del almacén de MELI (si el par volvió a la venta o se descartó): su costo recuperado NO se suma; nada se estima. La revisión de órdenes la lee sola.`,
     );
   }
   if (devSinCosto > 0) {
@@ -1007,7 +1007,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (devOrdenes > 0) {
     avisos.push(
-      "El costo de los pares devueltos se suma de vuelta porque regresan al stock. Un par que volvió dañado o no volvió, captúralo como gasto a mano.",
+      "El costo de los pares devueltos se suma de vuelta SOLO cuando la revisión del almacén de MELI dice que volvieron a la venta; los descartados o no devueltos son merma (decisión del dueño, 9-sep-2026).",
     );
   }
   if (reembolsosBasePendientes > 0) {

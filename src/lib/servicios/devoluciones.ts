@@ -31,6 +31,7 @@ import {
   type PagoMercadoPago,
 } from "../meli/pagos";
 import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
+import { columnasDeReclamos, leerReclamosDeOrden, skuDesdeOrdenCruda } from "../meli/reclamos";
 import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { traerTodo, type DB } from "../datos/repos";
 import { claveItem } from "../meli/sync";
@@ -379,6 +380,18 @@ export async function revisarOrdenes(
       revisado_en: new Date().toISOString(),
       revisiones,
     };
+    // Reclamos y devoluciones: solo en órdenes con reembolso o con
+    // mediación (una o dos llamadas más). Si MELI no contesta, se deja
+    // sin leer y se reintenta en la siguiente revisión.
+    const conReclamo = resumenPago.reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back" || estado === "partially_refunded" || (Array.isArray((orden as any)?.mediations) && (orden as any).mediations.length > 0);
+    if (conReclamo) {
+      try {
+        const reclamos = await leerReclamosDeOrden(cliente, orderId, skuDesdeOrdenCruda(orden ?? f.orden_cruda));
+        Object.assign(cambios, columnasDeReclamos(reclamos));
+      } catch (err) {
+        r.errores.push(`reclamos ${orderId}: ${(err as Error).message}`.slice(0, 200));
+      }
+    }
     // Los renglones se guardan si la fila no los tenía (de antes de
     // guardarlos): con ellos el corte recupera el costo exacto de los pares.
     if (orden && !f.renglones && renglonesGuardados?.length) cambios.renglones = renglonesGuardados;
@@ -451,12 +464,18 @@ export async function recargarCargosHistoricos(
   // Dos frentes que se alternan por lote: (1) órdenes sin pago real;
   // (2) órdenes ya leídas pero sin el envío de /costs (de antes del
   // ajuste de envío: su neto trae el costo de lista, no el real).
+  // (3) órdenes con reembolso ya revisadas pero sin sus reclamos leídos
+  // (si el par volvió a la venta o se descartó).
   let cursorEnvio: { fecha: string; orderId: number } | null = null;
-  let frente: "cargos" | "envio" = "cargos";
-  let agotado = { cargos: false, envio: false };
-  while (Date.now() < finMs - 30_000 && !(agotado.cargos && agotado.envio)) {
-    if (agotado[frente]) frente = frente === "cargos" ? "envio" : "cargos";
+  let cursorReclamo: { fecha: string; orderId: number } | null = null;
+  const orden: ("cargos" | "envio" | "reclamos")[] = ["cargos", "envio", "reclamos"];
+  let frente: "cargos" | "envio" | "reclamos" = "cargos";
+  let agotado = { cargos: false, envio: false, reclamos: false };
+  const siguiente = (f: typeof frente) => orden[(orden.indexOf(f) + 1) % orden.length];
+  while (Date.now() < finMs - 30_000 && !(agotado.cargos && agotado.envio && agotado.reclamos)) {
+    if (agotado[frente]) { frente = siguiente(frente); continue; }
     const esEnvio = frente === "envio";
+    const esReclamo = frente === "reclamos";
     let q = admin
       .from("ordenes_neto")
       .select("order_id, fecha")
@@ -467,10 +486,14 @@ export async function recargarCargosHistoricos(
       .order("fecha", { ascending: false })
       .order("order_id", { ascending: false })
       .limit(100);
-    q = esEnvio ? q.not("cargos_fuente", "is", null).is("envio_leido_en", null) : q.is("cargos_fuente", null);
+    q = esReclamo
+      ? q.not("cargos_fuente", "is", null).is("reclamo_leido_en", null).or("reembolsado.gt.0,estado_pago.in.(refunded,charged_back),estado.eq.partially_refunded")
+      : esEnvio
+        ? q.not("cargos_fuente", "is", null).is("envio_leido_en", null)
+        : q.is("cargos_fuente", null);
     // Cursor estable: lo que no se pudo leer en este lote no vuelve a salir
     // en esta corrida (si no, un pago que MP no contesta bloquearía el lote).
-    const c = esEnvio ? cursorEnvio : cursor;
+    const c = esReclamo ? cursorReclamo : esEnvio ? cursorEnvio : cursor;
     if (c) q = q.or(`fecha.lt.${c.fecha},and(fecha.eq.${c.fecha},order_id.lt.${c.orderId})`);
     const { data, error } = await q;
     if (error) {
@@ -483,9 +506,11 @@ export async function recargarCargosHistoricos(
       continue;
     }
     const ultimo = lote[lote.length - 1]!;
-    if (esEnvio) cursorEnvio = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
-    else cursor = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
-    frente = esEnvio ? "cargos" : "envio";
+    const marca = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
+    if (esReclamo) cursorReclamo = marca;
+    else if (esEnvio) cursorEnvio = marca;
+    else cursor = marca;
+    frente = siguiente(frente);
 
     const r = await revisarOrdenes(admin, accountId, cliente, {
       desde: FONDO_RECARGA_CARGOS,
