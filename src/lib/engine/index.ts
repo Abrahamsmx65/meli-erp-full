@@ -56,6 +56,15 @@ export interface EntradaPlan {
    * ESTRENO es el que ni aquí ni en la ventana tuvo stock o venta.
    */
   skusConVentaHistorica?: Set<string>;
+  /**
+   * Pares por SKU que la bodega ya APARTÓ para un envío pendiente. Van
+   * dentro de `stockActual.enTransferencia`, pero para la regla del
+   * producto SIN VENTA no cuentan como posición: esa caja apartada suele
+   * ser el mismo envío que se está armando, y el negocio quiere que el
+   * envío lleve las 2 cajas del modelo + color nuevo. Solo descuenta lo
+   * que ya está en Full o ya viaja en un envío dado de alta.
+   */
+  enCaminoBodega?: Map<string, number>;
 }
 
 export function generarPlan(e: EntradaPlan): Plan {
@@ -151,9 +160,14 @@ export function generarPlan(e: EntradaPlan): Plan {
           overrideMap.get(l.sku)?.excluir !== true,
       );
     if (sinVenta) {
+      // Posición para la regla: sin lo que la bodega apenas apartó.
       productosSinVenta.set(
         prod,
-        propias.reduce((a, l) => a + l.posicion, 0),
+        propias.reduce(
+          (a, l) =>
+            a + Math.max(l.disponible, l.posicion - (e.enCaminoBodega?.get(l.sku) ?? 0)),
+          0,
+        ),
       );
       continue;
     }
@@ -271,10 +285,10 @@ export function generarPlan(e: EntradaPlan): Plan {
   // 4.4 Producto SIN VENTA (decisión del dueño, sep-2026): nunca ha vendido
   // un par en Full y hay cajas en alguna bodega → se le sostiene una
   // POSICIÓN mínima de `cajasMinimasSinEstreno` cajas del modelo + color
-  // para probarlo. Lo que ya tiene en Full o en camino (una caja apartada
-  // por la bodega cuenta como en camino) descuenta del mínimo: con una
-  // caja en el camión viaja una más, no dos. Primero las cajas de corrida
-  // (más tallas), luego las de talla única.
+  // para probarlo. Lo que ya tiene en Full o viajando en un envío dado de
+  // alta descuenta del mínimo; lo que la bodega apenas apartó NO (decisión
+  // del dueño: el envío del producto nuevo lleva sus 2 cajas). Primero las
+  // cajas de corrida (más tallas), luego las de talla única.
   const pisoPorCaja = new Map<string, number>();
   for (const [prod, posicionPares] of productosSinVenta) {
     const cajasProd = [...(cajasPorProducto.get(prod) ?? [])].sort(
@@ -298,7 +312,7 @@ export function generarPlan(e: EntradaPlan): Plan {
       const l = lineaPorSku.get(sk);
       if (!l) continue;
       l.sinEstreno = true;
-      l.explicacion += ` Producto SIN VENTA en Full (nunca ha vendido un par): se le sostiene una posición mínima de ${p.cajasMinimasSinEstreno} cajas del modelo + color para probarlo; ya trae ${enPosicion} entre Full y en camino, así que viajan ${pedidas - faltan} más.`;
+      l.explicacion += ` Producto SIN VENTA en Full (nunca ha vendido un par): se le sostiene una posición mínima de ${p.cajasMinimasSinEstreno} cajas del modelo + color para probarlo; ya trae ${enPosicion} en Full o en envío dado de alta, así que viajan ${pedidas - faltan} más.`;
     }
   }
 
