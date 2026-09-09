@@ -1,7 +1,7 @@
 import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync } from "../datos/repos";
-import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
-import { revisarPendientes } from "./devoluciones";
+import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
+import { recargarCargosHistoricos, revisarPendientes } from "./devoluciones";
 import { continuarCargosPendientes } from "./cargos-meli";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
@@ -107,9 +107,10 @@ export async function latido(
         const rep = await repararVentasHistoricas(admin, accountId, finDrenado - 15_000);
         diasReparados = rep.dias;
         // Con el historial ya completo, el mismo espacio del latido se usa
-        // para rellenar los netos que esos días restaurados dejaron en cero.
+        // para recargar el desglose con el pago REAL de Mercado Pago, orden
+        // por orden, de lo reciente hacia atrás (junio en adelante).
         if (rep.completo && Date.now() < finDrenado - 60_000) {
-          await repararNetosHistoricos(admin, accountId, finDrenado - 15_000);
+          await recargarCargosHistoricos(admin, accountId, finDrenado - 15_000);
         }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);

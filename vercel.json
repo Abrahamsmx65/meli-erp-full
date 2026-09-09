@@ -13,6 +13,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/plan",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/yapanizcel",
       "schedule": "30 14 * * *"
     },

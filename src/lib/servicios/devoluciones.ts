@@ -259,9 +259,12 @@ export async function revisarOrdenes(
     sinEsperar?: boolean;
     /**
      * Re-enriquecer SOLO estas órdenes (auditoría puntual contra el reporte
-     * "Ventas MX"): se releen orden y pagos tengan o no sus revisiones.
+     * "Ventas MX", o la recarga histórica): se releen orden y pagos tengan
+     * o no sus revisiones.
      */
     ordenIds?: number[];
+    /** caché de tarifas compartido entre lotes de una misma corrida */
+    tarifas?: CacheTarifas;
   },
 ): Promise<ResultadoRevision> {
   const hoy = new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
@@ -273,7 +276,7 @@ export async function revisarOrdenes(
         q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
       );
   let mapaItemSku: Map<string, string> | null = null;
-  const tarifas = new CacheTarifas(cliente);
+  const tarifas = opts.tarifas ?? new CacheTarifas(cliente);
 
   const pendientes = filas
     .filter((f) => opts.ordenIds?.length || tocaRevision(f.fecha, f.revisiones ?? 0, hoy, opts.sinEsperar))
@@ -406,6 +409,96 @@ export async function revisarOrdenes(
     }
   }
   return r;
+}
+
+/** Hasta dónde hacia atrás se recarga el desglose con el pago real (los cortes del dueño). */
+export const FONDO_RECARGA_CARGOS = "2026-06-01";
+export const TAREA_RECARGA_CARGOS = "recarga_cargos_v1";
+
+/**
+ * Recarga histórica del desglose con el pago REAL de Mercado Pago, orden
+ * por orden desde las filas guardadas (`cargos_fuente` en null = nunca
+ * leída por el camino nuevo), de lo más reciente hacia atrás hasta
+ * `FONDO_RECARGA_CARGOS`. Va montada en el latido con presupuesto de reloj.
+ *
+ * Sustituye a la reparación que re-barría días enteros: aquella pedía el
+ * día a /orders/search en cada intento y se atoraba para siempre en un día
+ * con una orden que MELI ya no devuelve como pagada. Aquí cada orden se
+ * relee por su id (orden + pagos, como la revisión de devoluciones) y la
+ * que no se pueda leer no detiene a las demás: el cursor (fecha, orden)
+ * avanza dentro de la corrida y la siguiente vuelve a intentar.
+ */
+export async function recargarCargosHistoricos(
+  admin: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ leidas: number; quedan: number; completo: boolean } | null> {
+  const cliente = await clienteDeCuenta(admin, accountId);
+  if (!cliente) return null;
+  const tarifas = new CacheTarifas(cliente);
+  const t0 = Date.now();
+  let leidas = 0;
+  const errores: string[] = [];
+  let cursor: { fecha: string; orderId: number } | null = null;
+
+  while (Date.now() < finMs - 30_000) {
+    let q = admin
+      .from("ordenes_neto")
+      .select("order_id, fecha")
+      .eq("account_id", accountId)
+      .is("cargos_fuente", null)
+      .gte("fecha", FONDO_RECARGA_CARGOS)
+      .gt("total", 0)
+      .or("estado.is.null,estado.neq.cancelled")
+      .order("fecha", { ascending: false })
+      .order("order_id", { ascending: false })
+      .limit(100);
+    // Cursor estable: lo que no se pudo leer en este lote no vuelve a salir
+    // en esta corrida (si no, un pago que MP no contesta bloquearía el lote).
+    if (cursor) q = q.or(`fecha.lt.${cursor.fecha},and(fecha.eq.${cursor.fecha},order_id.lt.${cursor.orderId})`);
+    const { data, error } = await q;
+    if (error) {
+      errores.push(error.message.slice(0, 200));
+      break;
+    }
+    const lote = (data ?? []) as { order_id: number; fecha: string }[];
+    if (!lote.length) break;
+    const ultimo = lote[lote.length - 1]!;
+    cursor = { fecha: ultimo.fecha, orderId: Number(ultimo.order_id) };
+
+    const r = await revisarOrdenes(admin, accountId, cliente, {
+      desde: FONDO_RECARGA_CARGOS,
+      hasta: "2100-01-01",
+      tope: lote.length,
+      finMs: finMs - 20_000,
+      ordenIds: lote.map((f) => Number(f.order_id)),
+      tarifas,
+    });
+    leidas += r.revisadas;
+    errores.push(...r.errores.slice(0, 3));
+    if (r.revisadas === 0 && r.errores.length) break;
+  }
+
+  const { count } = await admin
+    .from("ordenes_neto")
+    .select("order_id", { count: "exact", head: true })
+    .eq("account_id", accountId)
+    .is("cargos_fuente", null)
+    .gte("fecha", FONDO_RECARGA_CARGOS)
+    .gt("total", 0)
+    .or("estado.is.null,estado.neq.cancelled");
+  const quedan = count ?? 0;
+  const completo = quedan === 0;
+  if (leidas > 0 || errores.length) {
+    await admin.from("sync_log").insert({
+      account_id: accountId,
+      tarea: TAREA_RECARGA_CARGOS,
+      estado: errores.length && leidas === 0 ? "error" : "ok",
+      fin: new Date().toISOString(),
+      detalle: { leidas, quedan, completo, ms: Date.now() - t0, errores: errores.slice(0, 5) },
+    });
+  }
+  return { leidas, quedan, completo };
 }
 
 /**
