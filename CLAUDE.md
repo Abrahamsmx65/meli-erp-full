@@ -45,6 +45,31 @@ guárdala numerada.
   → 1 firme + 1 opcional) y las demás cajas recortadas NO se marcan
   opcionales. La tolerancia general de rescate es de 7 días: una talla
   rápida a medio morir sí fuerza su caja.
+- **Tres reglas de producto en el plan de Full** (decididas por el dueño el
+  9-sep-2026 al revisar por qué EnvioPack aportaba pocas cajas; la
+  preferencia Industher → Caseshop → EnvioPack de `prioridadAlmacen` se
+  queda). Las tres se deciden por PRODUCTO (modelo + color aplastado,
+  `Caja.producto`, que `construirCajas` llena) y viven en `engine/index.ts`:
+  1. **Producto NUEVO en crecimiento** (`nuevoDias`, 60; GT190, GT193…):
+     se estrenó en Full dentro de la ventana hace menos de esos días
+     (`DemandaSku.lanzamiento`: primer día con foto, movimiento o venta;
+     un SKU con datos desde el primer día de la ventana es viejo) y ninguna
+     talla vendía antes de la ventana (`skusConVentaPrevia`, del RPC
+     `ventas_resumen_sku` con rango abierto). A un producto nuevo cualquier
+     faltante le FUERZA su caja: tolerancia de rescate 0, exento de la regla
+     de la corrida despareja y la caja va FIRME, nunca opcional. Si no se le
+     surte, nunca va a pagar.
+  2. **Holgura sobre el objetivo** (`holguraObjetivoDias`, 2): quedar en 32
+     días en vez de 30 no es sobre-surtir. En el optimizador, las piezas que
+     caen dentro de la holgura (descontando lo que la talla ya traiga arriba
+     de su objetivo) no cuestan como sobrante y cuentan como útiles en el
+     rescate.
+  3. **Producto SIN ESTRENO** (`cajasMinimasSinEstreno`, 2): nunca tuvo stock
+     ni venta en Full (ni en la ventana ni en toda la historia,
+     `skusConVentaHistorica`) y hay cajas en CUALQUIER bodega → viajan
+     mínimo 2 cajas del modelo + color (piso en el optimizador, primero las
+     de corrida). Una talla excluida a mano saca al producto. Si el RPC de
+     historia falla, esta regla se apaga en esa corrida y el plan lo avisa.
 - **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
   (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
   es 30 + 7 = 37 días, no más.

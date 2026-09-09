@@ -5,7 +5,12 @@
 import { calcularDemanda, ventaPerdida } from "./demand";
 import { aISO, proximoEnvio, sumarDias } from "./fechas";
 import { normalizarParametros } from "./params";
-import { calcularLinea, prioridadFaltante, prioridadSobrante } from "./replenish";
+import {
+  calcularLinea,
+  nuncaTuvoOportunidad,
+  prioridadFaltante,
+  prioridadSobrante,
+} from "./replenish";
 import { reconstruirStockDiario } from "./stockHistory";
 import { optimizarCajas } from "./boxes";
 import { ajustarNecesidadPorCorrida } from "./corrida";
@@ -45,6 +50,17 @@ export interface EntradaPlan {
   parametros?: Partial<Parametros>;
   /** Fecha de corte del análisis. Por defecto, hoy. */
   hoy?: ISODate;
+  /**
+   * SKUs que vendieron ANTES de la ventana analizada. La ventana sola no
+   * distingue un lanzamiento de un SKU viejo cuyo historial de fotos empieza
+   * tarde: con esto, un producto que ya vendía no se toma por NUEVO.
+   */
+  skusConVentaPrevia?: Set<string>;
+  /**
+   * SKUs que vendieron ALGUNA VEZ (toda la historia). Un producto SIN
+   * ESTRENO es el que ni aquí ni en la ventana tuvo stock o venta.
+   */
+  skusConVentaHistorica?: Set<string>;
 }
 
 export function generarPlan(e: EntradaPlan): Plan {
@@ -99,6 +115,72 @@ export function generarPlan(e: EntradaPlan): Plan {
     return a.coberturaDias - b.coberturaDias;
   });
 
+  // 4.0 Productos (modelo + color) a través de sus cajas: las reglas de
+  // producto NUEVO y producto SIN ESTRENO se deciden por producto.
+  const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
+  const skusPorProducto = new Map<string, Set<string>>();
+  const cajasPorProducto = new Map<string, Caja[]>();
+  for (const c of e.cajas) {
+    if (c.cajasDisponibles <= 0 || !c.items.length) continue;
+    const prod = c.producto ?? c.codigo;
+    let lc = cajasPorProducto.get(prod);
+    if (!lc) cajasPorProducto.set(prod, (lc = []));
+    lc.push(c);
+    let ls = skusPorProducto.get(prod);
+    if (!ls) skusPorProducto.set(prod, (ls = new Set()));
+    for (const it of c.items) ls.add(it.sku);
+  }
+  const ventaPrevia = e.skusConVentaPrevia ?? new Set<string>();
+  const ventaHistorica = e.skusConVentaHistorica ?? new Set<string>();
+
+  const productosNuevos = new Map<string, number>(); // producto -> días desde el lanzamiento
+  const productosSinEstreno = new Set<string>();
+  for (const [prod, skus] of skusPorProducto) {
+    const propias = [...skus]
+      .map((sk) => lineaPorSku.get(sk))
+      .filter((l): l is LineaPlan => l !== undefined);
+    // Nada amarrado a MELI: no se puede mandar a Full.
+    if (!propias.length) continue;
+
+    // SIN ESTRENO: ninguna talla tuvo stock ni venta, ni en la ventana ni
+    // antes. Una talla excluida a mano saca al producto de la regla.
+    const sinEstreno =
+      p.cajasMinimasSinEstreno > 0 &&
+      propias.every(
+        (l) =>
+          nuncaTuvoOportunidad(l) &&
+          !ventaHistorica.has(l.sku) &&
+          overrideMap.get(l.sku)?.excluir !== true,
+      );
+    if (sinEstreno) {
+      productosSinEstreno.add(prod);
+      continue;
+    }
+
+    // NUEVO: alguna talla se estrenó dentro de la ventana hace menos de
+    // `nuevoDias`, ninguna traía datos desde el primer día de la ventana
+    // (eso es un producto viejo) y ninguna vendía antes de la ventana.
+    if (p.nuevoDias <= 0) continue;
+    if (propias.some((l) => ventaPrevia.has(l.sku))) continue;
+    let edad = 0;
+    let lanzadas = 0;
+    let viejo = false;
+    for (const l of propias) {
+      const d = l.demanda;
+      if (d.diasDesdeLanzamiento !== null) {
+        lanzadas++;
+        edad = Math.max(edad, d.diasDesdeLanzamiento);
+      } else if (d.diasEfectivos > 0 || d.unidadesTotales > 0) {
+        viejo = true;
+      }
+    }
+    if (lanzadas > 0 && !viejo && edad <= p.nuevoDias) productosNuevos.set(prod, edad);
+  }
+  const skusNuevos = new Set<string>();
+  for (const prod of productosNuevos.keys()) {
+    for (const sk of skusPorProducto.get(prod) ?? []) skusNuevos.add(sk);
+  }
+
   // 4. Armado de cajas mixtas.
   const necesidad = new Map<string, number>();
   const prioridad = new Map<string, number>();
@@ -130,6 +212,8 @@ export function generarPlan(e: EntradaPlan): Plan {
     factorSobrante: p.corridaSobranteFactor,
     diasDispareja: p.corridaDiasDispareja,
     faltanteGrande: p.corridaFaltanteGrande,
+    // A un producto NUEVO se le rellena la caja: la regla no lo recorta.
+    exentos: skusNuevos,
   });
   // Una necesidad recortada se surte COMPLETA (tolerancia 0): el recorte ya
   // es la concesión, y quedarse además a un par del objetivo dejaba GT155
@@ -141,7 +225,6 @@ export function generarPlan(e: EntradaPlan): Plan {
   const mediaCaja = new Set(
     ajustesCorrida.filter((a) => a.regla === "mitad_corrida").map((a) => a.sku),
   );
-  const lineaPorSku = new Map(lineas.map((l) => [l.sku, l]));
   for (const a of ajustesCorrida) {
     const l = lineaPorSku.get(a.sku);
     if (!l) continue;
@@ -153,6 +236,61 @@ export function generarPlan(e: EntradaPlan): Plan {
       a.regla === "mitad_corrida"
         ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas). Si la mitad no cierra en cajas completas, la caja de la fracción sube marcada OPCIONAL.`
         : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
+  }
+
+  // 4.2 Producto NUEVO (decisión del dueño, sep-2026): lanzado hace menos
+  // de `nuevoDias`, en crecimiento. Cualquier faltante fuerza su caja —sin
+  // la tolerancia de rescate de 7 días— y la caja va firme, nunca opcional:
+  // si no se le surte, nunca va a pagar.
+  for (const prod of productosNuevos.keys()) {
+    const edad = productosNuevos.get(prod) ?? 0;
+    for (const sk of skusPorProducto.get(prod) ?? []) {
+      const l = lineaPorSku.get(sk);
+      if (!l) continue;
+      l.productoNuevo = true;
+      if (necesidad.has(sk)) toleranciaPorSku.set(sk, 0);
+      l.explicacion += ` Producto NUEVO (se estrenó en Full hace ${edad} días): cualquier faltante fuerza su caja, sin tolerancia de rescate, y la caja va firme.`;
+    }
+  }
+
+  // 4.3 Holgura sobre el objetivo (decisión del dueño, sep-2026): quedar en
+  // horizonte + holgura días (32 en vez de 30) no es sobre-surtir. En
+  // piezas por SKU, descontando lo que ya traiga arriba de su objetivo.
+  const holguraPorSku = new Map<string, number>();
+  if (p.holguraObjetivoDias > 0) {
+    for (const l of lineas) {
+      const D = l.demanda.demandaDiaria;
+      if (D <= 0.005) continue;
+      const exceso = Math.max(0, l.posicion - l.nivelObjetivo);
+      const piezas = Math.floor(p.holguraObjetivoDias * D - exceso);
+      if (piezas > 0) holguraPorSku.set(l.sku, piezas);
+    }
+  }
+
+  // 4.4 Producto SIN ESTRENO (decisión del dueño, sep-2026): nunca tuvo
+  // stock ni venta en Full y hay cajas en alguna bodega → viajan mínimo
+  // `cajasMinimasSinEstreno` cajas del modelo + color para estrenarlo.
+  // Primero las cajas de corrida (más tallas), luego las de talla única.
+  const pisoPorCaja = new Map<string, number>();
+  for (const prod of productosSinEstreno) {
+    const cajasProd = [...(cajasPorProducto.get(prod) ?? [])].sort(
+      (a, b) => b.items.length - a.items.length || b.cajasDisponibles - a.cajasDisponibles,
+    );
+    let faltan = p.cajasMinimasSinEstreno;
+    for (const c of cajasProd) {
+      if (faltan <= 0) break;
+      const toma = Math.min(faltan, c.cajasDisponibles);
+      if (toma <= 0) continue;
+      pisoPorCaja.set(c.codigo, (pisoPorCaja.get(c.codigo) ?? 0) + toma);
+      faltan -= toma;
+    }
+    if (faltan === p.cajasMinimasSinEstreno) continue;
+    for (const sk of skusPorProducto.get(prod) ?? []) {
+      const l = lineaPorSku.get(sk);
+      if (!l) continue;
+      l.sinEstreno = true;
+      l.explicacion += ` Producto SIN ESTRENO en Full (nunca tuvo stock ni venta): se mandan mínimo ${p.cajasMinimasSinEstreno} cajas del modelo + color para estrenarlo.`;
+    }
   }
 
   const planCajas = optimizarCajas({
@@ -176,6 +314,9 @@ export function generarPlan(e: EntradaPlan): Plan {
     toleranciaRescateDias: Math.min(Math.max(2, p.horizonteDias - 7), 7),
     toleranciaRescatePorSku: toleranciaPorSku,
     mediaCajaOpcional: mediaCaja,
+    holguraSobrante: holguraPorSku,
+    sinOpcional: skusNuevos,
+    pisoPorCaja,
     maxCajas: p.maxCajasPorEnvio,
     maxPiezas: p.maxPiezasPorEnvio,
   });

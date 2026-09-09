@@ -13,7 +13,7 @@
  */
 import type { Caja } from "../engine/types";
 import { claveCorrida, type Aviso, type Corrida, type FilaExistencia } from "./excel";
-import { amarrarSku, canonizar, type IndiceSkus, type OrigenAmarre } from "./sku";
+import { amarrarSku, canonizar, claveAplastada, type IndiceSkus, type OrigenAmarre } from "./sku";
 
 /**
  * Cómo se reconoce la bodega de TikTok en Industher: "Tik Tok", "TIKTOK",
@@ -197,6 +197,9 @@ export function construirCajas(
       nombre: `${base.skuCaja}${esCorridaFila ? "" : ` · talla ${base.talla}`} · ${base.almacen}`,
       cajasDisponibles: Math.max(0, disponibles),
       items,
+      // Mismo producto en cualquier pedido y cualquier bodega: modelo +
+      // color aplastado (como `claveProducto` de productos nuevos).
+      producto: `${canonizar(base.modelo)}|${claveAplastada(base.color || "")}`,
       almacen: base.almacen,
       codigoAlmacen: base.codigoAlmacen,
       skuCaja: base.skuCaja,

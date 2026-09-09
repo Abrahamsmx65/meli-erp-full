@@ -82,6 +82,12 @@ export function ajustarNecesidadPorCorrida(e: {
    * corrida dispareja se surte COMPLETA en vez de gotear.
    */
   faltanteGrande?: number;
+  /**
+   * SKUs a los que la regla NO se aplica: los de un producto NUEVO. Ahí
+   * rellenar la caja es la decisión (si no se surte, nunca va a pagar), y
+   * recortar la talla agotada por el sobrante de sus hermanas lo impediría.
+   */
+  exentos?: Set<string>;
 }): AjusteCorrida[] {
   // 1.5 lo decidió el negocio (26-ago-2026): el umbral se mide con la
   // posición completa y lo en camino la infla unos días, así que 1.3
@@ -109,6 +115,7 @@ export function ajustarNecesidadPorCorrida(e: {
 
   for (const [sku, pedida] of original) {
     if (pedida <= 0) continue;
+    if (e.exentos?.has(sku)) continue;
     const propias = cajasPorSku.get(sku);
     // Sin caja disponible que la traiga no hay nada que recortar: esa talla
     // ya la reporta el plan como faltante sin caja.
