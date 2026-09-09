@@ -270,6 +270,11 @@ export async function generarPlanCompleto(
   // MELI ya los reporta en tránsito, no se cuentan doble. Si el API no
   // contesta, el plan sigue sin ellos.
   let avisoEnCamino: string | null = null;
+  // Pares que la BODEGA ya apartó para un envío pendiente, por SKU. Cuentan
+  // como en camino para el plan, pero NO como posición para la regla del
+  // producto sin venta: esa caja apartada suele ser el mismo envío que se
+  // está armando, y el negocio quiere 2 cajas por modelo + color nuevo.
+  let apartadoBodega = new Map<string, number>();
   try {
     const pendientes = await enviosPendientesIndusther(db, accountId);
     if (pendientes.error) {
@@ -287,6 +292,7 @@ export async function generarPlanCompleto(
       insumos.skus.length ? indexarCatalogo(insumos.skus) : null,
       insumos.corridas,
     );
+    apartadoBodega = porSku;
     if (porSku.size) {
       const stockPorSku = new Map(insumos.stockActual.map((s) => [s.sku, s]));
       for (const [sku, pares] of porSku) {
@@ -345,6 +351,7 @@ export async function generarPlanCompleto(
     hoy,
     skusConVentaPrevia: historia.previa,
     skusConVentaHistorica: historia.historica,
+    enCaminoBodega: apartadoBodega,
   });
 
   // La misma caja disponible en dos bodegas debe salir de la preferida:

@@ -360,16 +360,31 @@ describe("generarPlan: producto SIN VENTA (posición mínima)", () => {
     }
   });
 
-  it("con una caja ya apartada por la bodega (en camino) viaja solo UNA más", () => {
-    // Caso real GT160/GT206 del 9-sep-2026: cero en Full, una corrida de 24
-    // pares apartada para el camión, y el plan no mandaba nada.
-    const enCamino = [
-      { sku: "GT300-BLK-23", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
-      { sku: "GT300-BLK-24", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
-    ];
+  const enCamino = [
+    { sku: "GT300-BLK-23", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
+    { sku: "GT300-BLK-24", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
+  ];
+
+  it("con una caja ya viajando en un envío dado de alta viaja solo UNA más", () => {
     const plan = generarPlan({ ...entradaBase(), skus: skusZ, stockActual: enCamino, cajas: [cajaZ] });
     expect(plan.cajas.totalCajas).toBe(1);
     expect(plan.lineas[0].explicacion).toContain("ya trae 1");
+  });
+
+  it("la caja que la bodega apenas APARTÓ no descuenta: el envío lleva sus 2 cajas", () => {
+    // Caso real GT160/GT206 del 9-sep-2026: cero en Full, una corrida
+    // apartada por la bodega para el camión, y el dueño quiere 2 cajas.
+    const plan = generarPlan({
+      ...entradaBase(),
+      skus: skusZ,
+      stockActual: enCamino,
+      cajas: [cajaZ],
+      enCaminoBodega: new Map([
+        ["GT300-BLK-23", 12],
+        ["GT300-BLK-24", 12],
+      ]),
+    });
+    expect(plan.cajas.totalCajas).toBe(2);
   });
 
   it("con dos cajas ya en Full sin vender, no manda más", () => {

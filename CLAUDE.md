@@ -68,12 +68,13 @@ guárdala numerada.
      un par en Full (ni en la ventana ni en toda la historia,
      `skusConVentaHistorica`) y hay cajas en CUALQUIER bodega → se le
      sostiene una POSICIÓN mínima de 2 cajas del modelo + color (piso en el
-     optimizador, primero las de corrida). Lo que ya tiene en Full o en
-     camino descuenta: una caja que la bodega ya apartó para el camión
-     cuenta como en camino (GT160/GT206 el 9-sep-2026: con una apartada
-     viaja UNA más, no cero ni dos). Una talla excluida a mano saca al
-     producto. Si el RPC de historia falla, esta regla se apaga en esa
-     corrida y el plan lo avisa.
+     optimizador, primero las de corrida). Lo que ya tiene en Full o
+     viajando en un envío dado de alta descuenta; lo que la bodega apenas
+     APARTÓ para un envío pendiente NO (`enCaminoBodega`): esa caja suele
+     ser el mismo envío que se está armando y el dueño quiere que el
+     envío del producto nuevo lleve sus 2 cajas (GT160/GT206 el
+     9-sep-2026). Una talla excluida a mano saca al producto. Si el RPC de
+     historia falla, esta regla se apaga en esa corrida y el plan lo avisa.
 - **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
   (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
   es 30 + 7 = 37 días, no más.
