@@ -5,6 +5,7 @@
  */
 import { ordenesPorDiaDesdeRpc } from "../corte-meli";
 import { armarFinanzas, type DiaDeVenta } from "./motor";
+import { leerAuditoria } from "./auditoria";
 import type { FinanzasPeriodo } from "./tipos";
 import type { DB } from "../../datos/repos";
 
@@ -29,9 +30,10 @@ export async function masticarFinanzasMeli(
   accountId: string,
   rango: { desde: string; hasta: string },
 ): Promise<FinanzasPeriodo> {
-  const [dias, ventas] = await Promise.all([
+  const [dias, ventas, auditoria] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "cortes_ordenes_por_dia", accountId, rango.desde, rango.hasta),
     ventasPorDiaDesdeRpc(db, accountId, rango.desde, rango.hasta),
+    leerAuditoria(db, accountId, rango),
   ]);
-  return armarFinanzas({ rango, dias, ventas, generadoEn: new Date().toISOString() });
+  return { ...armarFinanzas({ rango, dias, ventas, generadoEn: new Date().toISOString() }), auditoria };
 }

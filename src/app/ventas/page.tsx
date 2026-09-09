@@ -3,6 +3,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango, type Movimiento } from "@/lib/servicios/ventas-monitor";
 import { vistaVentas } from "@/lib/servicios/ventas-vista";
 import { CascadaDinero } from "@/components/cascada-dinero";
+import { AuditoriaOrdenes } from "@/components/auditoria-ordenes";
 import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -270,6 +271,8 @@ export default async function Ventas({
           })}
         />
       </section>
+
+      <AuditoriaOrdenes auditoria={finanzas.auditoria} rango={rango} />
 
       {/* ---- Lo que se mueve, al final: primero los números, luego el chisme */}
       <div className="grid gap-4 lg:grid-cols-2">

@@ -79,12 +79,56 @@ export interface TotalesFinanzas {
   neto: number;
 }
 
+/**
+ * UNA orden con su cascada, para abrirla en Mercado Pago y cotejar al
+ * centavo. Todo en CENTAVOS ENTEROS, como el resto del motor.
+ */
+export interface OrdenAuditada {
+  orderId: string;
+  fecha: string;
+  tipoVenta: "directa" | "reventa" | null;
+  /** lo que MELI dice que vale la orden */
+  total: number;
+  /** reventa: precio público reconstruido; null = sin reconstruir */
+  totalComprador: number | null;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  /** retención que llegó sumada sin separar */
+  retencionSinSeparar: number;
+  otros: number;
+  sinDesglosar: number;
+  /** el depósito de hoy (neto_actual si hubo relectura) */
+  neto: number;
+  /** base − cargos según el desglose; null si no se pudo armar */
+  netoCalculado: number | null;
+  reembolsado: number;
+  estado: string | null;
+  estadoPago: string | null;
+  /** "v1/payments" = pago real; "collections" = forma vieja; null = no leído */
+  fuente: string | null;
+  /** false = comisión aún incompleta (orden reciente) */
+  completa: boolean | null;
+  liberaEn: string | null;
+}
+
+/** La muestra de auditoría que viaja con el renglón masticado. */
+export interface AuditoriaFinanzas {
+  /** las 20 órdenes más grandes del rango */
+  mayores: OrdenAuditada[];
+  /** las 20 leídas más recientemente (para ver el trabajo de fondo avanzar) */
+  recientes: OrdenAuditada[];
+}
+
 export interface FinanzasPeriodo {
   rango: { desde: string; hasta: string };
   totales: TotalesFinanzas;
   cascada: PasoCascada[];
   reventa: ReventaPeriodo;
   cobertura: CoberturaFinanzas;
+  /** ausente solo en renglones guardados antes de la auditoría */
+  auditoria?: AuditoriaFinanzas;
   /** Momento en que se masticó, para declarar la frescura en pantalla. */
   generadoEn: string;
 }
