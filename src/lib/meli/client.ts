@@ -142,7 +142,11 @@ export class MeliClient {
     await this.asegurarToken();
     const maxReintentos = opts?.reintentos ?? MAX_REINTENTOS;
 
-    const url = new URL(`${MELI_API}${this.prefix}${ruta}`);
+    // Una ruta absoluta se usa tal cual: los pagos viven en el dominio de
+    // Mercado Pago y el mismo token sirve para consultarlos.
+    const url = new URL(
+      ruta.startsWith("http") ? ruta : `${MELI_API}${this.prefix}${ruta}`,
+    );
     for (const [k, v] of Object.entries(params ?? {})) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
