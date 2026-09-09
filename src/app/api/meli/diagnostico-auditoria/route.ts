@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       .from("sync_log")
       .select("inicio, detalle")
       .eq("account_id", cuenta.id)
-      .eq("tarea", "reparacion_netos_v1")
+      .eq("tarea", "reparacion_netos_v2")
       .order("inicio", { ascending: false })
       .limit(3),
     supabase

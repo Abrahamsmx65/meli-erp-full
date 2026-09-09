@@ -13,6 +13,8 @@ export type ClaveTablaVentas =
   | "publicidad7"
   | "ganancia7";
 
+export const FILAS_POR_PAGINA_VENTAS = 100;
+
 /**
  * Contrato compacto entre el servidor y la tabla cliente. Conserva únicamente
  * los campos que la tabla presenta y evita repetir diez nombres por renglón en
@@ -40,6 +42,28 @@ export interface TotalesTablaVentas {
   conAds: boolean;
   ganancia7: number;
   conCosto: boolean;
+}
+
+export interface ConsultaTablaVentas {
+  busqueda: string;
+  categoria: string;
+  orden: { clave: ClaveTablaVentas; desc: boolean };
+  pagina: number;
+}
+
+/**
+ * Respuesta reutilizable de la tabla. `filas` contiene solamente la página
+ * pedida; `totales` siempre corresponde al conjunto filtrado completo.
+ */
+export interface PaginaTablaVentas {
+  filas: FilaModeloCompacta[];
+  categorias: string[];
+  pagina: number;
+  paginas: number;
+  filasPorPagina: number;
+  totalFiltrado: number;
+  totalCatalogo: number;
+  totales: TotalesTablaVentas;
 }
 
 export function compactarFilasModelo(filas: readonly FilaModelo[]): FilaModeloCompacta[] {
@@ -131,4 +155,34 @@ export function totalizarFilasTabla(filas: readonly FilaModelo[]): TotalesTablaV
     }
   }
   return t;
+}
+
+export function paginarFilasTabla(
+  filas: readonly FilaModeloCompacta[],
+  consulta: ConsultaTablaVentas,
+): PaginaTablaVentas {
+  const filtradas = prepararFilasTabla(
+    filas,
+    consulta.busqueda,
+    consulta.categoria,
+    consulta.orden,
+  );
+  const paginas = Math.max(1, Math.ceil(filtradas.length / FILAS_POR_PAGINA_VENTAS));
+  const paginaPedida = Number.isFinite(consulta.pagina) ? Math.trunc(consulta.pagina) : 1;
+  const pagina = Math.min(paginas, Math.max(1, paginaPedida));
+  const inicio = (pagina - 1) * FILAS_POR_PAGINA_VENTAS;
+  const categorias = [
+    ...new Set(filas.map((f) => expandirFilaModelo(f).categoria ?? "Sin categoría")),
+  ].sort((a, b) => a.localeCompare(b, "es"));
+
+  return {
+    filas: compactarFilasModelo(filtradas.slice(inicio, inicio + FILAS_POR_PAGINA_VENTAS)),
+    categorias,
+    pagina,
+    paginas,
+    filasPorPagina: FILAS_POR_PAGINA_VENTAS,
+    totalFiltrado: filtradas.length,
+    totalCatalogo: filas.length,
+    totales: totalizarFilasTabla(filtradas),
+  };
 }

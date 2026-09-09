@@ -10,7 +10,8 @@
  */
 import type { DB } from "../datos/repos";
 import type { MeliClient } from "../meli/client";
-import { leerPago, peorEstadoPago, SEGUNDA_REVISION_DIAS, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
+import { leerPagoMercadoPago, pagosCobrablesCompletos, resumirPagosMeli, type PagoMercadoPago } from "../meli/pagos";
+import { SEGUNDA_REVISION_DIAS, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 
@@ -88,7 +89,7 @@ export async function revisarOrdenesYz(
   const filas = await todo<any>(
     admin,
     "yz_ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, neto, estado, revisiones",
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable",
     (q) => q.eq("account_id", accountId).gte("fecha", opts.desde).lte("fecha", opts.hasta).lt("revisiones", 2),
   );
   const pendientes = filas
@@ -115,43 +116,58 @@ export async function revisarOrdenesYz(
     }
     if (!estado) estado = "paid";
 
-    const estados: (string | null)[] = [];
-    let netoActual = 0;
-    let algunNeto = false;
-    let reembolsado = 0;
+    const pagos: PagoMercadoPago[] = [];
     let pagosLeidos = 0;
     for (const pid of idsPago) {
       try {
-        const pago = leerPago(await cliente.get<unknown>(`/collections/${pid}`));
+        const pago = leerPagoMercadoPago(await cliente.get<unknown>(`/collections/${pid}`));
         pagosLeidos++;
-        estados.push(pago.estado);
-        if (pago.estado === "rejected" || pago.estado === "cancelled") continue;
-        if (pago.neto != null) {
-          netoActual += pago.neto;
-          algunNeto = true;
-        }
-        reembolsado += pago.reembolsado;
+        pagos.push(pago);
       } catch (err) {
         r.errores.push(`pago ${pid}: ${(err as Error).message}`.slice(0, 200));
       }
     }
-    if (idsPago.size > 0 && pagosLeidos === 0) continue;
+    if (idsPago.size === 0 || pagosLeidos !== idsPago.size) continue;
+    const cobrables = pagos.filter((p) => p.estado !== "rejected" && p.estado !== "cancelled");
+    if (!pagosCobrablesCompletos(pagos) || (estado !== "cancelled" && cobrables.length === 0)) continue;
 
     const dias = Math.floor((Date.parse(hoy) - Date.parse(f.fecha)) / 86_400_000);
     const revisiones = dias >= SEGUNDA_REVISION_DIAS ? 2 : Math.min(2, (f.revisiones ?? 0) + 1);
-    const estadoPago = peorEstadoPago(estados);
+    const comisionOrden = Array.isArray(f.renglones)
+      ? f.renglones.reduce((a: number, x: any) => a + (Number(x.comision) || 0), 0)
+      : 0;
+    const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
+    const resumenPago = resumirPagosMeli(
+      pagos,
+      Number(f.total) || 0,
+      comisionOrden,
+      netoControl,
+      f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+      f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+    );
+    const estadoPago = resumenPago.estadoPago;
     const cambios: Record<string, unknown> = {
       estado,
       estado_pago: estadoPago,
-      reembolsado: Math.round(reembolsado * 100) / 100,
-      neto_actual: algunNeto ? Math.round(netoActual * 100) / 100 : null,
+      reembolsado: resumenPago.reembolsado,
+      reembolso_incluido_neto_base: resumenPago.reembolsoIncluidoNetoBase,
+      reembolso_base_confiable: resumenPago.reembolsoBaseConfiable,
+      ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
+      comision_mp: resumenPago.comision,
+      envio_mp: resumenPago.envio,
+      isr_mp: resumenPago.isr,
+      iva_mp: resumenPago.iva,
+      otros_mp: resumenPago.otros,
+      cargos_sin_desglosar: resumenPago.cargosSinDesglosar,
+      detalle_cargos: resumenPago.detalleCargos,
+      tipo_venta: resumenPago.tipoVenta,
+      cargos_leidos_en: new Date().toISOString(),
       revisado_en: new Date().toISOString(),
       revisiones,
     };
     // Si la orden aún no tenía neto, esta lectura ya lo trae: se aprovecha.
-    if (algunNeto && !(Number(f.neto) > 0)) {
-      cambios.neto = Math.round(netoActual * 100) / 100;
-      cambios.neto_en = new Date().toISOString();
+    if (resumenPago.neto != null && f.neto_en == null) {
+      cambios.neto = resumenPago.neto;
     }
     const { error } = await admin.from("yz_ordenes_neto").update(cambios).eq("account_id", accountId).eq("order_id", orderId);
     if (error) {
@@ -161,7 +177,7 @@ export async function revisarOrdenesYz(
     r.revisadas++;
     r.quedan--;
     if (estado === "cancelled") r.canceladas++;
-    else if (reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back") r.devueltas++;
+    else if (resumenPago.reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back") r.devueltas++;
   }
   return r;
 }

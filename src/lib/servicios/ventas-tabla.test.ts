@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FilaModelo } from "./ventas-monitor";
 import {
   compactarFilasModelo,
+  paginarFilasTabla,
   prepararFilasTabla,
   totalizarFilasTabla,
   type ClaveTablaVentas,
@@ -75,5 +76,48 @@ describe("tabla de ventas compacta", () => {
     const duracion = performance.now() - inicio;
     expect(resultado).toHaveLength(grande.length);
     expect(duracion).toBeLessThan(250);
+  });
+
+  it("entrega páginas de 100 con metadatos y totales del filtro completo", () => {
+    const grande = Array.from({ length: 235 }, (_, i): FilaModelo => ({
+      ...base[i % base.length],
+      modelo: `MODELO-${String(i).padStart(3, "0")}`,
+      categoria: i % 2 ? "Botas" : null,
+      unidades7: i + 1,
+    }));
+    const compactas = compactarFilasModelo(grande);
+    const consulta = {
+      busqueda: "",
+      categoria: "Botas",
+      orden: { clave: "unidades7" as const, desc: true },
+      pagina: 2,
+    };
+    const pagina = paginarFilasTabla(compactas, consulta);
+    const filtradas = referencia([...grande], "", "Botas", consulta.orden);
+
+    expect(pagina.filas).toHaveLength(17);
+    expect(pagina.filas.map((f) => f[0])).toEqual(filtradas.slice(100, 200).map((f) => f.modelo));
+    expect(pagina.totalFiltrado).toBe(117);
+    expect(pagina.totalCatalogo).toBe(235);
+    expect(pagina.paginas).toBe(2);
+    expect(pagina.pagina).toBe(2);
+    expect(pagina.filasPorPagina).toBe(100);
+    expect(pagina.categorias).toEqual(["Botas", "Sin categoría"]);
+    expect(pagina.totales).toEqual(totalizarFilasTabla(filtradas));
+  });
+
+  it("acota páginas inválidas sin perder los totales exactos", () => {
+    const pagina = paginarFilasTabla(compactarFilasModelo(base), {
+      busqueda: "GT114-NEGRO-25",
+      categoria: "",
+      orden: { clave: "modelo", desc: false },
+      pagina: 999,
+    });
+
+    expect(pagina.pagina).toBe(1);
+    expect(pagina.paginas).toBe(1);
+    expect(pagina.totalFiltrado).toBe(1);
+    expect(pagina.filas.map((f) => f[0])).toEqual(["GT114"]);
+    expect(pagina.totales).toEqual(totalizarFilasTabla([base[0]]));
   });
 });

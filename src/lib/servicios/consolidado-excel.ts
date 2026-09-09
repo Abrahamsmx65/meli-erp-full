@@ -37,19 +37,39 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
   fila("Unidades vendidas", (k) => k.unidades, cns.total.unidades, "#,##0");
   fila("Órdenes", (k) => k.ordenes, cns.total.ordenes, "#,##0");
   fila("Venta bruta", (k) => k.ventaBruta, cns.total.ventaBruta);
+  const detalle = (k: Consolidado["canales"][number], campo: keyof Consolidado["canales"][number]["desglosePlataforma"]) =>
+    k.desgloseDisponible === false ? null : -k.desglosePlataforma[campo];
+  const totalDetalle = (campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
+    cns.total.desgloseDisponible === false ? null : -cns.total[campo];
+  fila("Comisión", (k) => detalle(k, "comision"), totalDetalle("comision"));
+  fila("Envío", (k) => detalle(k, "envio"), totalDetalle("envio"));
+  fila("Retención ISR", (k) => detalle(k, "isr"), totalDetalle("isr"));
+  fila("Retención IVA", (k) => detalle(k, "iva"), totalDetalle("iva"));
+  fila("Otros cargos", (k) => detalle(k, "otros"), totalDetalle("otros"));
+  fila("Ajuste posterior de liquidación", (k) => detalle(k, "ajusteLiquidacion"), totalDetalle("ajusteLiquidacion"));
+  if (cns.total.desgloseDisponible === false) {
+    resumen.addRow({ concepto: "Desglose no disponible: este corte fue guardado antes de separar comisión, envío e impuestos." });
+  }
+  fila("Reembolsos ya reflejados en el neto", (k) => k.devolucionesIncluidasEnNeto ?? 0, cns.total.devolucionesIncluidasEnNeto);
+  fila("Deducciones de plataforma", (k) => -k.descuentosPlataforma, -cns.total.descuentosPlataforma);
   fila("Neto depositado", (k) => k.neto, cns.total.neto);
   fila("Costo de producto", (k) => -k.costoProducto, -cns.total.costoProducto);
   fila("Utilidad bruta", (k) => k.utilidadBruta, cns.total.neto - cns.total.costoProducto).font = { bold: true };
   fila("Publicidad por modelo", (k) => -k.adsPorModelo, -(cns.total.publicidad - cns.canales.reduce((a, k) => a + k.adsGenerales, 0)));
   fila("Gastos generales de la plataforma", (k) => -k.gastosGenerales, -cns.total.gastosGenerales);
   fila("  Gasto general por unidad", (k) => k.cargoPorUnidad, null);
-  fila("UTILIDAD NETA", (k) => k.utilidadNeta, cns.total.utilidadNeta).font = { bold: true, size: 12 };
+  fila("UTILIDAD ANTES DE GASTOS EMPRESARIALES", (k) => k.utilidadNeta, cns.total.utilidadAntesGastosEmpresariales).font = { bold: true };
+  fila("GASTOS EMPRESARIALES", () => null, -cns.total.gastosEmpresariales);
+  fila("UTILIDAD NETA DESPUÉS DE GASTOS EMPRESARIALES", () => null, cns.total.utilidadNeta).font = { bold: true, size: 12 };
   fila("Margen sobre la venta", (k) => k.margen, cns.total.margenSobreVenta, "0.0%");
   fila("Ganancia por unidad", (k) => k.gananciaPorUnidad, cns.total.gananciaPorUnidad);
   fila("Exacto", (k) => (k.exacto ? 1 : 0), cns.exacto ? 1 : 0, "0");
   resumen.addRow({});
   resumen.addRow({ concepto: "Gastos generales por concepto (se dividen entre las unidades vendidas en cada plataforma)" }).font = { bold: true };
   for (const k of cns.canales) for (const g of k.gastos) resumen.addRow({ concepto: `${k.nombre} · ${g.concepto}`, [k.canal]: g.monto });
+  resumen.addRow({});
+  resumen.addRow({ concepto: "Gastos empresariales (se descuentan una sola vez del total)" }).font = { bold: true };
+  for (const g of cns.gastosEmpresariales ?? []) resumen.addRow({ concepto: `${g.fecha} · ${g.categoria} · ${g.concepto}`, total: -g.monto });
 
   // --- Por categoría --------------------------------------------------------
   const cats = wb.addWorksheet("Por categoría");
@@ -57,6 +77,11 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
     { header: "Categoría", key: "categoria", width: 22 },
     { header: "Unidades", key: "unidades", width: 10 },
     { header: "Venta", key: "importe", moneda: true },
+    { header: "Comisión", key: "comision", moneda: true },
+    { header: "Envío", key: "envio", moneda: true },
+    { header: "ISR", key: "isr", moneda: true },
+    { header: "IVA", key: "iva", moneda: true },
+    { header: "Otros", key: "otros", moneda: true },
     { header: "Neto", key: "neto", moneda: true },
     { header: "Costo", key: "costo", moneda: true },
     { header: "Publicidad", key: "ads", moneda: true },
@@ -83,6 +108,11 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
     { header: "Canales", key: "canales", width: 30 },
     { header: "Unidades", key: "unidades", width: 10 },
     { header: "Venta", key: "importe", moneda: true },
+    { header: "Comisión", key: "comision", moneda: true },
+    { header: "Envío", key: "envio", moneda: true },
+    { header: "ISR", key: "isr", moneda: true },
+    { header: "IVA", key: "iva", moneda: true },
+    { header: "Otros", key: "otros", moneda: true },
     { header: "Neto", key: "neto", moneda: true },
     { header: "Costo", key: "costo", moneda: true },
     { header: "Publicidad", key: "ads", moneda: true },
@@ -99,6 +129,11 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
       { header: "Categoría", key: "categoria", width: 18 },
       { header: "Unidades", key: "unidades", width: 10 },
       { header: "Venta", key: "importe", moneda: true },
+      { header: "Comisión", key: "comision", moneda: true },
+      { header: "Envío", key: "envio", moneda: true },
+      { header: "ISR", key: "isr", moneda: true },
+      { header: "IVA", key: "iva", moneda: true },
+      { header: "Otros", key: "otros", moneda: true },
       { header: "Neto", key: "neto", moneda: true },
       { header: "Costo", key: "costo", moneda: true },
       { header: "Publicidad", key: "ads", moneda: true },

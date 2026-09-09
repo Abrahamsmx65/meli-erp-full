@@ -46,6 +46,8 @@ export default async function VentasAmazon({
   const cuentaMeli = await cuentaActiva(supabase);
   const m = await obtenerMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
+  const economiaCompleta =
+    m.economia?.cobertura.completa === true && m.economia.coberturaCosto >= 0.999;
 
   return (
     <div className="flex flex-col gap-6">
@@ -94,7 +96,7 @@ export default async function VentasAmazon({
           }
           nota={
             m.economia?.gananciaFinal != null
-              ? `Neto Amazon (ventas − tarifas − publicidad) − costo · ${Math.round(m.economia.coberturaCosto * 100)}% con costo`
+              ? `${economiaCompleta ? "Exacta" : "Parcial"} · Neto Amazon (ventas − tarifas − publicidad) − costo · ${Math.round(m.economia.coberturaCosto * 100)}% con costo`
               : m.gananciaReal != null
                 ? `Sin economía por producto en el rango: es lo LIQUIDADO (${pesos(m.netoReal ?? 0)}) − costo de ${n(m.unidadesLiquidadas)} pares`
                 : m.coberturaCosto > 0
@@ -119,6 +121,13 @@ export default async function VentasAmazon({
             publicidad por producto y por día
             {m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.
           </p>
+          {!economiaCompleta ? (
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
+              Datos parciales: {Math.round(m.economia.cobertura.importe * 100)}% del importe,{" "}
+              {Math.round(m.economia.cobertura.unidades * 100)}% de las unidades y{" "}
+              {m.economia.cobertura.diasCubiertos} de {m.economia.cobertura.diasVenta} días con venta.
+            </p>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
             <Ficha
               titulo="Ventas"
@@ -150,7 +159,7 @@ export default async function VentasAmazon({
             <Ficha
               titulo="Ganancia final"
               valor={m.economia.gananciaFinal != null ? pesos(m.economia.gananciaFinal) : "—"}
-              nota="Neto Amazon − costo de producto"
+              nota={`${economiaCompleta ? "Exacta" : "Parcial"} · Neto Amazon − costo de producto`}
               tono={
                 m.economia.gananciaFinal == null
                   ? "neutro"

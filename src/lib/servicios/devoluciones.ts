@@ -23,6 +23,13 @@
  * marcada para que el corte no cuente su neto.
  */
 import type { MeliClient } from "../meli/client";
+import {
+  leerPagoMercadoPago,
+  pagosCobrablesCompletos,
+  peorEstadoPago,
+  resumirPagosMeli,
+  type PagoMercadoPago,
+} from "../meli/pagos";
 import { traerTodo, type DB } from "../datos/repos";
 import { claveItem } from "../meli/sync";
 import { clienteDeCuenta, mapaItemSkuDe, recalcularDiaVentas } from "./webhooks";
@@ -40,12 +47,6 @@ export interface PagoLeido {
   reembolsado: number;
 }
 
-const numero = (x: unknown): number | null => {
-  if (typeof x === "number" && Number.isFinite(x)) return x;
-  if (typeof x === "string" && x.trim() !== "" && Number.isFinite(Number(x))) return Number(x);
-  return null;
-};
-
 /**
  * Lee un pago de Mercado Pago sin dar por hecho su forma exacta: el neto
  * llega arriba o dentro de `transaction_details`, y lo reembolsado como
@@ -53,35 +54,15 @@ const numero = (x: unknown): number | null => {
  * `collection` (formato viejo), se desenvuelve.
  */
 export function leerPago(crudo: unknown): PagoLeido {
-  const raiz: any = crudo && typeof crudo === "object" ? crudo : {};
-  const p: any = raiz.collection && typeof raiz.collection === "object" ? raiz.collection : raiz;
-  const detalles: any = p.transaction_details && typeof p.transaction_details === "object" ? p.transaction_details : {};
-  const neto = numero(p.net_received_amount) ?? numero(detalles.net_received_amount);
-  const reembolsado =
-    numero(p.transaction_amount_refunded) ??
-    numero(p.amount_refunded) ??
-    numero(detalles.transaction_amount_refunded) ??
-    0;
-  const estado = typeof p.status === "string" ? p.status : null;
-  return { estado, neto, reembolsado: Math.max(0, reembolsado) };
+  const pago = leerPagoMercadoPago(crudo);
+  return {
+    estado: pago.estado,
+    neto: pago.neto,
+    reembolsado: pago.reembolsado,
+  };
 }
 
-/** El estado del pago que manda cuando la orden tiene varios: el peor. */
-export function peorEstadoPago(estados: (string | null)[]): string | null {
-  const orden = ["charged_back", "refunded", "in_mediation", "cancelled", "rejected", "pending", "in_process", "approved"];
-  let peor: string | null = null;
-  let mejorRango = Infinity;
-  for (const e of estados) {
-    if (!e) continue;
-    const r = orden.indexOf(e);
-    const rango = r === -1 ? orden.length : r;
-    if (rango < mejorRango) {
-      mejorRango = rango;
-      peor = e;
-    }
-  }
-  return peor;
-}
+export { peorEstadoPago };
 
 /**
  * ¿A esta orden le toca revisión hoy? Primera a los 10 días, segunda a los
@@ -250,7 +231,7 @@ export async function revisarOrdenes(
   const filas = await traerTodo<any>(
     db,
     "ordenes_neto",
-    "order_id, payment_id, payment_ids, fecha, neto, estado, revisiones, renglones",
+    "order_id, payment_id, payment_ids, fecha, total, neto, neto_en, estado, revisiones, renglones, reembolso_incluido_neto_base, reembolso_base_confiable",
     (q) =>
       q
         .eq("account_id", accountId)
@@ -294,43 +275,60 @@ export async function revisarOrdenes(
     }
     if (!estado) estado = "paid";
 
-    const estados: (string | null)[] = [];
-    let netoActual = 0;
-    let algunNeto = false;
-    let reembolsado = 0;
+    const pagos: PagoMercadoPago[] = [];
     let pagosLeidos = 0;
     for (const pid of idsPago) {
       try {
         const crudo = await cliente.get<unknown>(`/collections/${pid}`);
-        const pago = leerPago(crudo);
+        const pago = leerPagoMercadoPago(crudo);
         pagosLeidos++;
-        estados.push(pago.estado);
-        // Un pago rechazado no aporta neto ni reembolso: solo cuenta el que cobró.
-        if (pago.estado === "rejected" || pago.estado === "cancelled") continue;
-        if (pago.neto != null) {
-          netoActual += pago.neto;
-          algunNeto = true;
-        }
-        reembolsado += pago.reembolsado;
+        pagos.push(pago);
       } catch (err) {
         r.errores.push(`pago ${pid}: ${(err as Error).message}`.slice(0, 200));
       }
     }
-    if (idsPago.size > 0 && pagosLeidos === 0) continue;
+    // No certificar una lectura parcial: un solo pago faltante cambia neto,
+    // cargos y estado de toda la orden.
+    if (idsPago.size === 0 || pagosLeidos !== idsPago.size) continue;
+    const cobrables = pagos.filter((p) => p.estado !== "rejected" && p.estado !== "cancelled");
+    if (!pagosCobrablesCompletos(pagos) || (estado !== "cancelled" && cobrables.length === 0)) continue;
 
     const dias = Math.floor((Date.parse(hoy) - Date.parse(f.fecha)) / 86_400_000);
     // Una revisión tardía (ya pasados los 40 días) cierra las dos de un golpe.
     const revisiones = dias >= SEGUNDA_REVISION_DIAS ? 2 : Math.min(2, (f.revisiones ?? 0) + 1);
-    const estadoPago = peorEstadoPago(estados);
-    const devuelta = reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back";
+    const comisionOrden = Array.isArray(f.renglones)
+      ? f.renglones.reduce((a: number, x: any) => a + (Number(x.comision) || 0), 0)
+      : 0;
+    const netoControl = f.neto_en != null ? Number(f.neto) : undefined;
+    const resumenPago = resumirPagosMeli(
+      pagos,
+      Number(f.total) || 0,
+      comisionOrden,
+      netoControl,
+      f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+      f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+    );
+    const estadoPago = resumenPago.estadoPago;
+    const devuelta = resumenPago.reembolsado > 0 || estadoPago === "refunded" || estadoPago === "charged_back";
 
     // Una devuelta sin renglones (de antes de guardarlos): se le piden a
     // MELI para que el corte recupere el costo exacto de los pares.
     const cambios: Record<string, unknown> = {
       estado,
       estado_pago: estadoPago,
-      reembolsado: Math.round(reembolsado * 100) / 100,
-      neto_actual: algunNeto ? Math.round(netoActual * 100) / 100 : null,
+      reembolsado: resumenPago.reembolsado,
+      reembolso_incluido_neto_base: resumenPago.reembolsoIncluidoNetoBase,
+      reembolso_base_confiable: resumenPago.reembolsoBaseConfiable,
+      ...(resumenPago.neto != null ? { neto_actual: resumenPago.neto, neto_en: new Date().toISOString() } : {}),
+      comision_mp: resumenPago.comision,
+      envio_mp: resumenPago.envio,
+      isr_mp: resumenPago.isr,
+      iva_mp: resumenPago.iva,
+      otros_mp: resumenPago.otros,
+      cargos_sin_desglosar: resumenPago.cargosSinDesglosar,
+      detalle_cargos: resumenPago.detalleCargos,
+      tipo_venta: resumenPago.tipoVenta,
+      cargos_leidos_en: new Date().toISOString(),
       revisado_en: new Date().toISOString(),
       revisiones,
     };

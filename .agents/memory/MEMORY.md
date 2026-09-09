@@ -1,2 +1,3 @@
 - [GitHub branch workflow](github-branch-workflow.md) — use GitHub Git Data API for this imported private repo; local git history is not the upstream history.
 - [Next build cache](next-build-cache.md) — Webpack WasmHash can fail on a stale `.next`; clear only that generated cache and rebuild once.
+- [ExcelJS unzipper compatibility](exceljs-unzipper-compatibility.md) — keep unzipper on 0.12.1 until its static AWS SDK import is fixed or bundled.

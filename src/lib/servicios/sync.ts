@@ -136,7 +136,7 @@ export async function guardarVentasDiarias(
     await upsertEnTandas(
       db,
       "ventas_diarias",
-      filas.map(({ comision: _c, neto: _n, ...resto }) => resto),
+      filas.map(({ comision: _c, neto: _n, neto_confirmado: _nc, ...resto }) => resto),
       "account_id,sku,fecha",
     );
   }

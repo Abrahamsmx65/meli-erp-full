@@ -11,7 +11,18 @@
  * se atribuye a la demanda.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
+
+/** Compatibilidad: sin marca explícita, solo los netos positivos históricos eran reales. */
+export function netoConfirmadoDeFila(fila: { neto?: unknown; neto_confirmado?: unknown }): number | null {
+  if (fila.neto == null) return null;
+  const neto = Number(fila.neto);
+  if (!Number.isFinite(neto)) return null;
+  if (fila.neto_confirmado === true) return neto;
+  if (fila.neto_confirmado == null && neto > 0) return neto;
+  return null;
+}
 
 export interface ResumenDia {
   unidades: number;
@@ -137,10 +148,26 @@ function rangoPrevio(r: RangoFechas): RangoFechas {
 const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
 const VIDA_CACHE_MONITOR_MS = 60_000;
 
+/**
+ * Reutiliza el agregado completo por cuenta y rango. La búsqueda, el orden y
+ * la página se aplican después sobre este resultado y no forman parte de la
+ * clave, por lo que navegar la tabla no vuelve a consultar sus fuentes.
+ */
 export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+  const r = rango ?? normalizarRango();
+  return conCacheApp(
+    db,
+    accountId,
+    `ventas-monitor:${r.desde}:${r.hasta}`,
+    VIDA_CACHE_MONITOR_MS,
+    () => calcularMonitor(db, accountId, r),
+  );
+}
+
+async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
-  const r = rango ?? normalizarRango();
+  const r = rango;
 
   const claveCache = `${accountId}|${r.desde}|${r.hasta}|${hoy}`;
   const guardado = cacheMonitor.get(claveCache);
@@ -150,16 +177,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   const previo = rangoPrevio(r);
   const inicioPrev = previo.desde;
 
-  // Las columnas `comision` y `neto` pueden no existir todavía (migraciones
-  // 0011 y 0012): se pide con ellas y se degrada en cascada si la base aún
-  // no las conoce.
+  // Las columnas nuevas pueden no existir todavía: se pide el contrato actual
+  // y se degrada en cascada para bases pendientes de migración.
   const leerVentas = async (): Promise<any[]> => {
     const filtro = (q: any) => q.eq("account_id", accountId).gte("fecha", inicioPrev);
     try {
       return await traerTodo<any>(
         db,
         "ventas_diarias",
-        "sku, fecha, unidades, ordenes, importe, comision, neto",
+        "sku, fecha, unidades, ordenes, importe, comision, neto, neto_confirmado",
         filtro,
       );
     } catch {
@@ -187,7 +213,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     ordenes: number;
     importe: number;
     comision: number;
-    /** neto real donde llegó y es creíble (> 0); importe − comisión donde no */
+    /** neto real confirmado; importe − comisión donde aún no llegó */
     netoResuelto: number;
     importeNetoReal: number;
     comisionNetoReal: number;
@@ -278,11 +304,9 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
         a.ordenes += v.ordenes ?? 0;
         a.importe += v.importe ?? 0;
         a.comision += v.comision ?? 0;
-        // El neto REAL depositado por MELI cuando ya se conoce; si no, la
-        // mejor aproximación: importe menos la comisión. Un neto en 0 o
-        // negativo con venta ese día NO es creíble como dato (viene de
-        // pagos rechazados cacheados antes del arreglo de multipagos).
-        const netoRealFila = v.neto != null && Number(v.neto) > 0 ? Number(v.neto) : null;
+        // La marca explícita distingue un saldo confirmado en cero/negativo
+        // del cero centinela histórico que significaba "todavía no leído".
+        const netoRealFila = netoConfirmadoDeFila(v);
         a.netoResuelto += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
         if (netoRealFila != null) {
           a.importeNetoReal += v.importe ?? 0;
