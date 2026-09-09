@@ -231,12 +231,18 @@ export async function completarNetosPendientes(
   const nuevasConNeto: Record<string, unknown>[] = [];
   const nuevasSoloCargos: Record<string, unknown>[] = [];
   const tarifas = new CacheTarifas(cliente);
+  // El lote se vacía SOLO cuando el upsert ya entró: si Postgres lo rechaza,
+  // el error sube (correrNetos lo deja en la bitácora) y nada se pierde en
+  // silencio. Antes se vaciaba antes de escribir y un rechazo se contaba
+  // como una orden "fallida": mil netos leídos y ninguno guardado.
   const vaciar = async () => {
     if (nuevasConNeto.length) {
-      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasConNeto.splice(0), "account_id,order_id");
+      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasConNeto, "account_id,order_id");
+      nuevasConNeto.length = 0;
     }
     if (nuevasSoloCargos.length) {
-      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasSoloCargos.splice(0), "account_id,order_id");
+      await upsertEnTandas(admin, "yz_ordenes_neto", nuevasSoloCargos, "account_id,order_id");
+      nuevasSoloCargos.length = 0;
     }
   };
 
@@ -246,6 +252,7 @@ export async function completarNetosPendientes(
     if (Date.now() > finLectura) break;
     const pagos: number[] = Array.isArray(o.payment_ids) && o.payment_ids.length ? o.payment_ids.map(Number) : o.payment_id != null ? [Number(o.payment_id)] : [];
     if (!pagos.length) continue;
+    if (nuevasConNeto.length + nuevasSoloCargos.length >= 100) await vaciar();
     try {
       const total = Number(o.total) || 0;
       const comision = Array.isArray(o.renglones)
@@ -267,9 +274,14 @@ export async function completarNetosPendientes(
         r.fallidos++;
         continue;
       }
+      // Un upsert vuelve a armar la fila completa aunque la orden ya exista:
+      // las columnas NOT NULL sin default (fecha) tienen que ir en el lote o
+      // Postgres rechaza el lote entero ("null value in column fecha").
       const fila = {
         account_id: accountId,
         order_id: o.order_id,
+        fecha: o.fecha,
+        total: o.total,
         ...camposLiquidacionMeli(resumen),
         cargos_leidos_en: resumen.cargosCompletos ? new Date().toISOString() : null,
         actualizado_en: new Date().toISOString(),
@@ -279,13 +291,13 @@ export async function completarNetosPendientes(
       } else {
         nuevasSoloCargos.push({
           ...fila,
+          neto: o.neto,
           neto_actual: resumen.neto,
         });
       }
       dias.add(o.fecha);
       r.leidos++;
       r.pendientes--;
-      if (nuevasConNeto.length + nuevasSoloCargos.length >= 100) await vaciar();
     } catch {
       r.fallidos++;
     }

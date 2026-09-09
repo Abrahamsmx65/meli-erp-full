@@ -391,9 +391,10 @@ export async function repararNetosHistoricos(
 
   let pasadas = 0;
   const bitacora: Record<string, unknown>[] = [];
-  // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago): con dos
-  // por latido basta, lo demás es avanzar gratis por días ya sanos.
-  while (fecha >= fondo && pasadas < 2 && Date.now() < finMs - 40_000) {
+  // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago). Con la
+  // recarga del pago real hay ~70 mil órdenes por delante: hasta cinco
+  // pasadas por latido mientras el reloj alcance (la guarda de tiempo manda).
+  while (fecha >= fondo && pasadas < 5 && Date.now() < finMs - 40_000) {
     const antes = await pendientesDelDia(fecha);
     if (antes.todos === 0) {
       fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
