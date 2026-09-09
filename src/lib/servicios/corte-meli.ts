@@ -1,3 +1,442 @@
+/**
+ * Corte mensual de Mercado Libre: el estado de resultados del mes, exacto
+ * al centavo con lo que Mercado Pago y MELI ya reportaron.
+ *
+ * La cuenta, de arriba hacia abajo:
+ *
+ *   Venta bruta            precio × pares de las órdenes pagadas del mes
+ *   − Comisión de MELI     el sale_fee de cada orden
+ *   − Envíos y otros       envío de Full, retenciones de ISR/IVA y demás
+ *                          cargos: es la diferencia contra el depósito real
+ *   = Neto depositado      net_received_amount de Mercado Pago, POR ORDEN
+ *   − Devoluciones         lo que se le devolvió al comprador después
+ *   − Costo de producto    costo capturado por modelo × pares vendidos
+ *   = Utilidad bruta
+ *   − Publicidad           Product Ads (API) + lo capturado a mano
+ *   − Gastos de Full       almacenamiento y retiros facturados por MELI
+ *                          + lo capturado a mano
+ *   − Otros gastos         otros cargos de MELI + lo capturado a mano
+ *   = Utilidad neta
+ *
+ * Las órdenes CANCELADAS no existen para el corte: ni venta ni neto. Las
+ * DEVUELTAS sí vendieron y sí cobraron, y la devolución se resta aparte para
+ * que se vea cuánto costó.
+ *
+ * Todo se suma en CENTAVOS enteros: sumar decimales de punto flotante
+ * pierde centavos, y el corte tiene que cuadrar contra Mercado Pago.
+ *
+ * El neto sale de las ÓRDENES (ordenes_neto) y no de los renglones diarios,
+ * que reparten el neto de cada orden entre sus SKUs y redondean: por SKU se
+ * usan para el desglose por modelo, pero el total del mes se toma tal cual
+ * lo depositó Mercado Pago. Un día cuyas órdenes aún no tienen neto real se
+ * estima como importe − comisión y el corte lo declara.
+ */
+import { traerRpcTodo, traerTodo, type Cuenta, type DB } from "../datos/repos";
+import { cargosGuardados, progresoCargos, type CargoMeli, type ClaseCargo } from "./cargos-meli";
+import { configPorProducto, type ConfigProducto } from "./productos";
+import { cargarPublicidad } from "./publicidad";
+import { fechaMx } from "./ventas-monitor";
+
+export type CategoriaGasto = "full" | "publicidad" | "otro";
+
+export interface GastoManual {
+  id: number;
+  fecha: string;
+  concepto: string;
+  categoria: CategoriaGasto;
+  monto: number;
+}
+
+export interface OrdenDelCorte {
+  orderId: number;
+  fecha: string;
+  total: number;
+  neto: number;
+  netoActual: number | null;
+  /** distingue un saldo confirmado en cero del cero temporal antes de leer Mercado Pago */
+  netoLeido?: boolean;
+  reembolsado: number;
+  /** reembolso que ya estaba descontado cuando se guardó el primer neto */
+  reembolsoIncluidoNetoBase?: number | null;
+  /** false/null = la primera lectura no permite separar con certeza reembolso y cargos desconocidos */
+  reembolsoBaseConfiable?: boolean | null;
+  estado: string | null;
+  estadoPago: string | null;
+  revisiones: number;
+  comisionMp?: number;
+  envio?: number;
+  isr?: number;
+  iva?: number;
+  otrosCargos?: number;
+  cargosSinDesglosar?: number;
+  cargosLeidos?: boolean;
+  tipoVenta?: "directa" | "reventa" | null;
+  renglones?: { sku: string; importe: number; unidades?: number }[] | null;
+}
+
+export interface VentaDelCorte {
+  sku: string;
+  fecha: string;
+  unidades: number;
+  ordenes?: number;
+  importe?: number;
+  comision?: number;
+  neto?: number;
+  /** true también para saldos reales en cero o negativos */
+  netoConfirmado?: boolean;
+}
+
+export interface RenglonModelo {
+  modelo: string;
+  categoria: string | null;
+  unidades: number;
+  importe: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otrosCargos: number;
+  ajusteLiquidacion: number;
+  neto: number;
+  /** costo × unidades; null = modelo sin costo capturado */
+  costo: number | null;
+  publicidad: number;
+  /** neto − costo − publicidad; null = sin costo */
+  ganancia: number | null;
+}
+
+export interface RenglonCategoria {
+  categoria: string;
+  unidades: number;
+  importe: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otrosCargos: number;
+  ajusteLiquidacion: number;
+  neto: number;
+  costo: number | null;
+  publicidad: number;
+  ganancia: number | null;
+}
+
+export interface DesgloseSku {
+  sku: string;
+  neto: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otrosCargos: number;
+  ajusteLiquidacion: number;
+}
+
+export interface RenglonDia {
+  fecha: string;
+  unidades: number;
+  ordenes: number;
+  importe: number;
+  neto: number;
+  /** true si el neto del día es el depósito real de todas sus órdenes */
+  real: boolean;
+}
+
+export interface RenglonCargo {
+  tipo: string;
+  clase: ClaseCargo;
+  monto: number;
+  renglones: number;
+}
+
+export interface EstadoResultados {
+  periodo: string;
+  desde: string;
+  hasta: string;
+  dias: number;
+  generadoEn: string;
+  cuenta: string | null;
+
+  unidades: number;
+  ordenes: number;
+  ventaBruta: number;
+  comision: number;
+  envio: number;
+  isr: number;
+  iva: number;
+  otrosCargos: number;
+  cargosSinDesglosar: number;
+  /** cargos diferidos o reversas que cambiaron el neto después del depósito original */
+  ajusteLiquidacion: number;
+  /** alias compatible con cortes guardados antes del desglose */
+  enviosYOtros: number;
+  netoDepositado: number;
+  /** parte del neto que es estimación (importe − comisión) por falta de depósito real */
+  netoEstimado: number;
+  /** fracción de la venta bruta cuyo neto es el depósito real (0-1) */
+  coberturaNetoReal: number;
+
+  cancelaciones: { ordenes: number; importe: number };
+  /**
+   * Devoluciones: se resta lo reembolsado y se SUMA de vuelta el costo de
+   * los pares devueltos, que regresan al stock (decisión del dueño). Exacto
+   * cuando la orden tiene sus renglones; estimado con costo ÷ venta del mes
+   * cuando no.
+   */
+  devoluciones: {
+    ordenes: number;
+    /** reembolso que Mercado Pago ya descontó del neto actual (informativo) */
+    incluidoEnNeto: number;
+    /** parte del reembolso que todavía debe restarse aparte del neto actual */
+    monto: number;
+    unidades: number;
+    costoRecuperado: number;
+    /** parte del costo recuperado que es estimación (órdenes sin renglones) */
+    costoEstimado: number;
+    unidadesSinCosto: number;
+  };
+  /**
+   * Ventas en REVENTA (MELI compra y revende, verificado con la orden
+   * 2000014843734267 del 3 sep 2026): el importe de la orden ya viene neto
+   * de comisión y envío, que MELI absorbe, y Mercado Pago lo deposita
+   * completo. Por eso no traen comisión y no se les descuenta nada más.
+   */
+  reventa: { ordenes: number; importe: number };
+
+  costoProducto: number;
+  unidadesConCosto: number;
+  coberturaCosto: number;
+  utilidadBruta: number;
+
+  publicidad: { ads: number; manual: number; total: number; sinAmarre: number; errorAds: string | null };
+  full: { cargosMeli: number; manual: number; total: number };
+  otros: { cargosMeli: number; manual: number; total: number };
+
+  utilidadNeta: number;
+  margenSobreVenta: number | null;
+  margenSobreNeto: number | null;
+  gananciaPorPar: number | null;
+
+  gastosManuales: GastoManual[];
+  cargosPorTipo: RenglonCargo[];
+  cargosLeidos: boolean;
+  porModelo: RenglonModelo[];
+  porCategoria: RenglonCategoria[];
+  porDia: RenglonDia[];
+
+  revision: { ordenes: number; revisadas: number; pendientes: number; exacto: boolean };
+  avisos: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Periodo
+// ---------------------------------------------------------------------------
+
+export function validarPeriodo(p?: string | null): string | null {
+  return p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p) ? p : null;
+}
+
+/** El mes en curso en hora de México. */
+export function periodoActual(): string {
+  return fechaMx(0).slice(0, 7);
+}
+
+/** Del primero al último día del mes, sin pasarse de hoy. */
+export function rangoDelPeriodo(periodo: string, hoy = fechaMx(0)): { desde: string; hasta: string } {
+  const [a, m] = periodo.split("-").map(Number);
+  const desde = `${periodo}-01`;
+  const ultimo = new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
+  return { desde, hasta: ultimo > hoy ? hoy : ultimo };
+}
+
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+export function nombreDelPeriodo(periodo: string): string {
+  const [a, m] = periodo.split("-").map(Number);
+  const mes = MESES[(m ?? 1) - 1] ?? periodo;
+  return `${mes.charAt(0).toUpperCase()}${mes.slice(1)} ${a}`;
+}
+
+export function periodoAnterior(periodo: string): string {
+  const [a, m] = periodo.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 2, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+export function periodoSiguiente(periodo: string): string {
+  const [a, m] = periodo.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+// ---------------------------------------------------------------------------
+// Motor puro
+// ---------------------------------------------------------------------------
+
+/** A centavos enteros. */
+const c = (x: number | null | undefined): number => Math.round((Number(x) || 0) * 100);
+/** De centavos a pesos con dos decimales exactos. */
+const p = (centavos: number): number => Math.round(centavos) / 100;
+
+/** Lo que el motor necesita de las órdenes de UN día, ya sumado (en pesos). */
+export interface DiaOrdenesAgregado {
+  fecha: string;
+  /** órdenes vivas (no canceladas) */
+  ordenes: number;
+  /** neto de hoy de las órdenes vivas */
+  neto: number;
+  cancelOrdenes: number;
+  cancelImporte: number;
+  devOrdenes: number;
+  devEnNeto?: number;
+  devMonto: number;
+  ajusteLiquidacion?: number;
+  /** todas las órdenes del día, canceladas incluidas */
+  total: number;
+  revisadas: number;
+  pendientes: number;
+  /** órdenes vivas sin renglones (solo fundas) */
+  sinRenglones?: number;
+  /**
+   * Órdenes en REVENTA (MELI compra y revende): se depositan completas
+   * (neto ≥ 99% del total) porque su importe YA viene neto de comisión y
+   * envío, que MELI absorbe. No cuestan nada más.
+   */
+  sinDescOrdenes?: number;
+  /** la venta (ya neta) de esas órdenes */
+  sinDescTotal?: number;
+  /** costo (Productos y costos) de los pares de las órdenes devueltas con renglones */
+  devCosto?: number;
+  devUnidades?: number;
+  /** pares devueltos de modelos sin costo capturado */
+  devSinCostoUnidades?: number;
+  /** reembolso sin cantidades devueltas verificables (su costo se estima) */
+  devSinRenglonesMonto?: number;
+  comisionMp?: number;
+  envio?: number;
+  isr?: number;
+  iva?: number;
+  otrosCargos?: number;
+  cargosSinDesglosar?: number;
+  cargosLeidos?: number;
+  netosLeidos?: number;
+  /** órdenes reembolsadas cuya primera liquidación no permite certificar el puente */
+  reembolsosBasePendientes?: number;
+}
+
+/**
+ * Suma las órdenes por día con la regla de la devolución: si Mercado Pago ya
+ * bajó el neto, solo se resta lo que falte. Es la referencia de lo que hacen
+ * los RPC `cortes_ordenes_por_dia` y `yz_cortes_ordenes_por_dia` en la base.
+ */
+export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string): DiaOrdenesAgregado[] {
+  const dias = new Map<string, {
+    ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number;
+    devOrdenes: number; devEnNeto: number; devMonto: number; ajusteLiquidacion: number; total: number; revisadas: number;
+    pendientes: number; sinDescOrdenes: number; sinDescTotal: number;
+    sinRenglones: number;
+    devSinRenglonesMonto: number; comisionMp: number; envio: number; isr: number;
+    iva: number; otrosCargos: number; cargosSinDesglosar: number; cargosLeidos: number;
+    netosLeidos: number; reembolsosBasePendientes: number;
+  }>();
+  for (const o of ordenes) {
+    if (o.fecha < desde || o.fecha > hasta) continue;
+    const d = dias.get(o.fecha) ?? {
+      ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0,
+      devEnNeto: 0, devMonto: 0, ajusteLiquidacion: 0, total: 0, revisadas: 0, pendientes: 0, sinDescOrdenes: 0,
+      sinDescTotal: 0, sinRenglones: 0, devSinRenglonesMonto: 0, comisionMp: 0, envio: 0,
+      isr: 0, iva: 0, otrosCargos: 0, cargosSinDesglosar: 0, cargosLeidos: 0,
+      netosLeidos: 0, reembolsosBasePendientes: 0,
+    };
+    d.total++;
+    if ((o.revisiones ?? 0) >= 1) d.revisadas++;
+    if ((o.revisiones ?? 0) < 2) d.pendientes++;
+    if (o.estado === "cancelled") {
+      d.cancelOrdenes++;
+      d.cancelImporte += c(o.total);
+    } else {
+      if (!o.renglones?.length) d.sinRenglones++;
+      const netoOriginal = c(o.neto);
+      const netoHoy = o.netoActual != null ? c(o.netoActual) : netoOriginal;
+      const reembolso = Math.max(0, c(o.reembolsado));
+      const reembolsoBase = Math.min(reembolso, Math.max(0, c(o.reembolsoIncluidoNetoBase)));
+      const movimientoPosterior = Math.max(0, netoOriginal - netoHoy);
+      const devolucionEnNeto = Math.min(reembolso, reembolsoBase + movimientoPosterior);
+      const baseConfiable =
+        o.reembolsoBaseConfiable ??
+        (reembolso === 0);
+      const devolucion = baseConfiable ? Math.max(0, reembolso - devolucionEnNeto) : 0;
+      d.devEnNeto += devolucionEnNeto;
+      d.ajusteLiquidacion += netoOriginal - netoHoy - Math.max(0, devolucionEnNeto - reembolsoBase);
+      if (reembolso > 0 && !baseConfiable) d.reembolsosBasePendientes++;
+      d.ordenes++;
+      d.neto += netoHoy;
+      if (o.netoLeido ?? (o.neto !== 0 || o.netoActual != null)) d.netosLeidos++;
+      if (o.cargosLeidos) d.cargosLeidos++;
+      d.comisionMp += c(o.comisionMp);
+      d.envio += c(o.envio);
+      d.isr += c(o.isr);
+      d.iva += c(o.iva);
+      d.otrosCargos += c(o.otrosCargos);
+      d.cargosSinDesglosar += c(o.cargosSinDesglosar);
+      if (o.tipoVenta === "reventa" || (o.tipoVenta == null && c(o.total) > 0 && netoHoy >= c(o.total) * 0.99)) {
+        d.sinDescOrdenes++;
+        d.sinDescTotal += c(o.total);
+      }
+      if (reembolso > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
+        d.devOrdenes++;
+        d.devMonto += devolucion;
+        // El costo del producto devuelto depende del reembolso original, no de
+        // cuánto de ese reembolso ya apareció en el saldo actual.
+        d.devSinRenglonesMonto += reembolso;
+      }
+    }
+    dias.set(o.fecha, d);
+  }
+  return [...dias.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([fecha, d]) => ({
+      fecha, ...d, neto: p(d.neto), cancelImporte: p(d.cancelImporte),
+      devMonto: p(d.devMonto), sinDescTotal: p(d.sinDescTotal),
+      devEnNeto: p(d.devEnNeto),
+      ajusteLiquidacion: p(d.ajusteLiquidacion),
+      devSinRenglonesMonto: p(d.devSinRenglonesMonto),
+      comisionMp: p(d.comisionMp), envio: p(d.envio), isr: p(d.isr),
+      iva: p(d.iva), otrosCargos: p(d.otrosCargos),
+      cargosSinDesglosar: p(d.cargosSinDesglosar),
+    }));
+}
+
+export interface EntradaCorte {
+  periodo: string;
+  desde: string;
+  hasta: string;
+  cuenta?: string | null;
+  generadoEn?: string;
+  /** renglones de ventas_diarias, se filtran al rango aquí */
+  ventas: VentaDelCorte[];
+  /** órdenes de ordenes_neto del rango (o, en su lugar, ya sumadas por día) */
+  ordenes?: OrdenDelCorte[];
+  ordenesPorDia?: DiaOrdenesAgregado[];
+  /** Neto actual y cargos de las órdenes, atribuidos solo a sus propios SKUs. */
+  desglosePorSku?: DesgloseSku[];
+  /** sku → modelo (del catálogo); lo que falte se parte por guion */
+  modeloDeSku: Map<string, string>;
+  /** modelo → categoría y costo (productos_config) */
+  config: Map<string, ConfigProducto>;
+  /** modelo → gasto en Product Ads del periodo */
+  adsPorModelo: Map<string, number>;
+  adsSinAmarre: number;
+  errorAds: string | null;
+  gastos: GastoManual[];
+  cargos: CargoMeli[];
+  /**
+   * Con qué se estima el neto de los renglones sin depósito real: neto ÷
+   * venta observado en las órdenes que sí lo tienen (0-1). null = importe −
+   * comisión, que es lo único que se sabe.
    */
   ratioEstimacion?: number | null;
   /** avisos extra del que arma la entrada (p. ej. órdenes registradas a medias) */
