@@ -29,7 +29,6 @@ import {
   Tags,
   Truck,
   Upload,
-  Wallet,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -77,7 +76,6 @@ const GRUPOS: Grupo[] = [
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
-      { href: "/ventas/cortes", texto: "Cortes y ganancia", icono: Wallet, ayuda: "Estado de resultados del mes y PDF" },
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
@@ -120,7 +118,6 @@ const GRUPOS: Grupo[] = [
     titulo: "YAPANIZCEL · Fundas",
     entradas: [
       { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
-      { href: "/yapanizcel/cortes", texto: "Cortes fundas", icono: Wallet, ayuda: "Estado de resultados del mes y PDF" },
       { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
       { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
       { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },

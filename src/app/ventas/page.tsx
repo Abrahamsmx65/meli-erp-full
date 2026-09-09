@@ -83,7 +83,6 @@ export default async function Ventas({
   const m = aplicarPublicidadAlMonitor(mSinAds, adsPorModelo);
   const gananciaConAds = gastoAds == null ? null : m.desglose.gananciaReal - gastoAds;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
-  const mesDelRango = rango.hasta.slice(0, 7);
 
   return (
     <div className="flex flex-col gap-6">
@@ -153,9 +152,9 @@ export default async function Ventas({
           envío de Full ni retenciones) − costo del producto − publicidad = ganancia. El
           neto es el depósito real donde ya llegó ({Math.round(m.desglose.coberturaNetoReal * 100)}%
           del importe del periodo); donde aún no, se estima como importe − comisión.
-          Devoluciones, cancelaciones tardías y gastos de Full entran en el corte del mes:{" "}
-          <Link href={`/ventas/cortes?mes=${mesDelRango}`} style={{ color: "var(--acento)" }}>
-            Cortes y ganancia
+          Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
+          <Link href="/cortes" style={{ color: "var(--acento)" }}>
+            Corte general
           </Link>
           .
         </p>

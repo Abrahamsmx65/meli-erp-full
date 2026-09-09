@@ -33,6 +33,11 @@ export interface CatalogoProductos {
   categorias: string[];
   /** true si la tabla productos_config todavía no existe en la base */
   faltaMigracion: boolean;
+  /**
+   * Cuántos diseños de funda quedaron fuera por no tener costo capturado.
+   * Se cuentan aunque no viajen: la pantalla ofrece verlos con ese número.
+   */
+  fundasSinCosto: number;
 }
 
 export interface ConfigProducto {
@@ -86,7 +91,21 @@ async function disenosDeFundas(db: DB): Promise<DisenosFundas> {
   }
 }
 
-export async function cargarProductos(db: DB, accountId: string): Promise<CatalogoProductos> {
+/**
+ * El catálogo de Productos y costos.
+ *
+ * Por omisión NO se mandan los diseños de funda sin costo capturado: son
+ * cientos, llegaron de rebote del catálogo de YAPANIZCEL y llenaban la
+ * pantalla de renglones vacíos que estorban para encontrar lo que sí se
+ * trabaja. Se cuentan aparte (`fundasSinCosto`) y se piden con
+ * `conFundasSinCosto` cuando hace falta capturar un diseño nuevo, para que
+ * nunca queden inalcanzables.
+ */
+export async function cargarProductos(
+  db: DB,
+  accountId: string,
+  opts?: { conFundasSinCosto?: boolean },
+): Promise<CatalogoProductos> {
   const [skus, fundas, { config, faltaMigracion }] = await Promise.all([
     traerTodo<any>(db, "skus", "sku, modelo, color, titulo", (q) => q.eq("account_id", accountId).eq("activo", true)),
     disenosDeFundas(db),
@@ -131,7 +150,14 @@ export async function cargarProductos(db: DB, accountId: string): Promise<Catalo
   const categorias = [...new Set([...base, ...productos.map((p) => p.categoria).filter(Boolean)])] as string[];
   categorias.sort((a, b) => a.localeCompare(b, "es"));
 
-  return { productos, categorias, faltaMigracion };
+  // Se cuentan ANTES de filtrar: el chip de la pantalla necesita saber
+  // cuántas hay escondidas.
+  const fundasSinCosto = productos.filter((p) => p.negocio === "fundas" && p.costoMxn == null).length;
+  const visibles = opts?.conFundasSinCosto
+    ? productos
+    : productos.filter((p) => p.negocio !== "fundas" || p.costoMxn != null);
+
+  return { productos: visibles, categorias, faltaMigracion, fundasSinCosto };
 }
 
 /** Mapa modelo → {categoria, costo}, para calcular la ganancia. */
