@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { numerarPaquetes, codigoDeHoja, parsearCodigoDeHoja, codigoDeEtiqueta } from "./despacho";
-import { avanzar, darPorBueno, estadoInicial } from "./preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, pedidoHablado } from "./preparar";
 
 const paquetes = numerarPaquetes([
   { orderId: "a", packageId: "pa", destinatario: null, pares: [{ sku: "GT114-BEIGE-23", pares: 1, fnsku: "X001AAA" }] },
@@ -163,16 +163,27 @@ describe("la bocina", () => {
   it("dice cuántos pares y de qué, con el modelo letra por letra", async () => {
     const { fraseParaVoz } = await import("./preparar");
     const [dos] = numerarPaquetes([
-      { orderId: "x", packageId: "p", destinatario: null, pares: [{ sku: "GT135-DK BROWN-26", pares: 2, fnsku: "F" }] },
+      { orderId: "585899174098140055", packageId: "p", destinatario: null, pares: [{ sku: "GT135-DK BROWN-26", pares: 2, fnsku: "F" }] },
     ]);
-    expect(fraseParaVoz(dos)).toBe("2 pares, G T 135, dk brown, talla 26");
+    expect(fraseParaVoz(dos)).toBe("Pedido 0, 0, 5, 5. 2 pares, G T 135, dk brown, talla 26");
   });
   it("con dos productos los dice uno tras otro", async () => {
     const { fraseParaVoz } = await import("./preparar");
     const [p] = numerarPaquetes([
-      { orderId: "x", packageId: "p", destinatario: null, pares: [{ sku: "GT114-BEIGE-23-MX", pares: 1, fnsku: "A" }, { sku: "GT114-BLK-25-MX", pares: 1, fnsku: "B" }] },
+      { orderId: "585899174098140055", packageId: "p", destinatario: null, pares: [{ sku: "GT114-BEIGE-23-MX", pares: 1, fnsku: "A" }, { sku: "GT114-BLK-25-MX", pares: 1, fnsku: "B" }] },
     ]);
-    expect(fraseParaVoz(p)).toBe("1 par, G T 114, beige, talla 23. 1 par, G T 114, blk, talla 25");
+    expect(fraseParaVoz(p)).toBe("Pedido 0, 0, 5, 5. 1 par, G T 114, beige, talla 23. 1 par, G T 114, blk, talla 25");
   });
 });
 
+
+describe("la bocina dice el pedido", () => {
+  const p = paquetesConOrden[1]; // orderId 585899174098143165
+  it("primero los últimos cuatro dígitos del pedido, luego el contenido", () => {
+    expect(pedidoHablado("585899174098143165")).toBe("Pedido 3, 1, 6, 5");
+    expect(fraseParaVoz(p)).toBe("Pedido 3, 1, 6, 5. 1 par, G T 114, beige, talla 23");
+  });
+  it("al terminar: pedido completado", () => {
+    expect(fraseDeCompletado(p)).toBe("Pedido 3, 1, 6, 5, completado");
+  });
+});
