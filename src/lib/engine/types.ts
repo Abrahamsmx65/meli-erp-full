@@ -131,9 +131,10 @@ export interface Parametros {
    */
   holguraObjetivoDias: number;
   /**
-   * Producto SIN ESTRENO (nunca tuvo stock ni venta en Full) con cajas en
-   * cualquier bodega: se mandan mínimo estas cajas por modelo + color para
-   * estrenarlo. Decisión del dueño (sep-2026). 0 = apagado.
+   * Producto SIN VENTA (nunca ha vendido un par en Full) con cajas en
+   * cualquier bodega: se le sostiene una POSICIÓN mínima de estas cajas por
+   * modelo + color para probarlo; lo que ya tenga en Full o en camino
+   * descuenta. Decisión del dueño (sep-2026). 0 = apagado.
    */
   cajasMinimasSinEstreno: number;
 }
@@ -239,7 +240,7 @@ export interface LineaPlan {
   explicacion: string;
   /** producto lanzado hace menos de `nuevoDias`: cualquier faltante fuerza caja */
   productoNuevo?: boolean;
-  /** producto que nunca tuvo stock ni venta en Full y viaja para estrenarse */
+  /** producto que nunca ha vendido y viaja para completar su posición mínima */
   sinEstreno?: boolean;
 }
 

@@ -5,12 +5,7 @@
 import { calcularDemanda, ventaPerdida } from "./demand";
 import { aISO, proximoEnvio, sumarDias } from "./fechas";
 import { normalizarParametros } from "./params";
-import {
-  calcularLinea,
-  nuncaTuvoOportunidad,
-  prioridadFaltante,
-  prioridadSobrante,
-} from "./replenish";
+import { calcularLinea, prioridadFaltante, prioridadSobrante } from "./replenish";
 import { reconstruirStockDiario } from "./stockHistory";
 import { optimizarCajas } from "./boxes";
 import { ajustarNecesidadPorCorrida } from "./corrida";
@@ -134,7 +129,8 @@ export function generarPlan(e: EntradaPlan): Plan {
   const ventaHistorica = e.skusConVentaHistorica ?? new Set<string>();
 
   const productosNuevos = new Map<string, number>(); // producto -> días desde el lanzamiento
-  const productosSinEstreno = new Set<string>();
+  // producto SIN VENTA -> pares que ya tiene en posición (Full + en camino)
+  const productosSinVenta = new Map<string, number>();
   for (const [prod, skus] of skusPorProducto) {
     const propias = [...skus]
       .map((sk) => lineaPorSku.get(sk))
@@ -142,18 +138,23 @@ export function generarPlan(e: EntradaPlan): Plan {
     // Nada amarrado a MELI: no se puede mandar a Full.
     if (!propias.length) continue;
 
-    // SIN ESTRENO: ninguna talla tuvo stock ni venta, ni en la ventana ni
-    // antes. Una talla excluida a mano saca al producto de la regla.
-    const sinEstreno =
+    // SIN VENTA: ninguna talla ha vendido un par, ni en la ventana ni antes
+    // (con o sin stock en Full: una caja parada sin venta no es estreno
+    // hecho, y una caja ya apartada para el camión tampoco lo es). Una
+    // talla excluida a mano saca al producto de la regla.
+    const sinVenta =
       p.cajasMinimasSinEstreno > 0 &&
       propias.every(
         (l) =>
-          nuncaTuvoOportunidad(l) &&
+          l.demanda.unidadesTotales === 0 &&
           !ventaHistorica.has(l.sku) &&
           overrideMap.get(l.sku)?.excluir !== true,
       );
-    if (sinEstreno) {
-      productosSinEstreno.add(prod);
+    if (sinVenta) {
+      productosSinVenta.set(
+        prod,
+        propias.reduce((a, l) => a + l.posicion, 0),
+      );
       continue;
     }
 
@@ -267,16 +268,24 @@ export function generarPlan(e: EntradaPlan): Plan {
     }
   }
 
-  // 4.4 Producto SIN ESTRENO (decisión del dueño, sep-2026): nunca tuvo
-  // stock ni venta en Full y hay cajas en alguna bodega → viajan mínimo
-  // `cajasMinimasSinEstreno` cajas del modelo + color para estrenarlo.
-  // Primero las cajas de corrida (más tallas), luego las de talla única.
+  // 4.4 Producto SIN VENTA (decisión del dueño, sep-2026): nunca ha vendido
+  // un par en Full y hay cajas en alguna bodega → se le sostiene una
+  // POSICIÓN mínima de `cajasMinimasSinEstreno` cajas del modelo + color
+  // para probarlo. Lo que ya tiene en Full o en camino (una caja apartada
+  // por la bodega cuenta como en camino) descuenta del mínimo: con una
+  // caja en el camión viaja una más, no dos. Primero las cajas de corrida
+  // (más tallas), luego las de talla única.
   const pisoPorCaja = new Map<string, number>();
-  for (const prod of productosSinEstreno) {
+  for (const [prod, posicionPares] of productosSinVenta) {
     const cajasProd = [...(cajasPorProducto.get(prod) ?? [])].sort(
       (a, b) => b.items.length - a.items.length || b.cajasDisponibles - a.cajasDisponibles,
     );
-    let faltan = p.cajasMinimasSinEstreno;
+    if (!cajasProd.length) continue;
+    const paresCaja = cajasProd[0].items.reduce((a, it) => a + it.piezas, 0);
+    const enPosicion = paresCaja > 0 ? Math.floor(posicionPares / paresCaja) : 0;
+    let faltan = p.cajasMinimasSinEstreno - enPosicion;
+    if (faltan <= 0) continue;
+    const pedidas = faltan;
     for (const c of cajasProd) {
       if (faltan <= 0) break;
       const toma = Math.min(faltan, c.cajasDisponibles);
@@ -284,12 +293,12 @@ export function generarPlan(e: EntradaPlan): Plan {
       pisoPorCaja.set(c.codigo, (pisoPorCaja.get(c.codigo) ?? 0) + toma);
       faltan -= toma;
     }
-    if (faltan === p.cajasMinimasSinEstreno) continue;
+    if (faltan === pedidas) continue;
     for (const sk of skusPorProducto.get(prod) ?? []) {
       const l = lineaPorSku.get(sk);
       if (!l) continue;
       l.sinEstreno = true;
-      l.explicacion += ` Producto SIN ESTRENO en Full (nunca tuvo stock ni venta): se mandan mínimo ${p.cajasMinimasSinEstreno} cajas del modelo + color para estrenarlo.`;
+      l.explicacion += ` Producto SIN VENTA en Full (nunca ha vendido un par): se le sostiene una posición mínima de ${p.cajasMinimasSinEstreno} cajas del modelo + color para probarlo; ya trae ${enPosicion} entre Full y en camino, así que viajan ${pedidas - faltan} más.`;
     }
   }
 

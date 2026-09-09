@@ -330,7 +330,7 @@ describe("generarPlan: producto NUEVO", () => {
   });
 });
 
-describe("generarPlan: producto SIN ESTRENO", () => {
+describe("generarPlan: producto SIN VENTA (posición mínima)", () => {
   const cajaZ: Caja = {
     codigo: "CAJA-Z",
     cajasDisponibles: 4,
@@ -356,8 +356,30 @@ describe("generarPlan: producto SIN ESTRENO", () => {
     expect(plan.cajas.cajas[0].codigo).toBe("CAJA-Z");
     for (const l of plan.lineas) {
       expect(l.sinEstreno).toBe(true);
-      expect(l.explicacion).toContain("SIN ESTRENO");
+      expect(l.explicacion).toContain("SIN VENTA");
     }
+  });
+
+  it("con una caja ya apartada por la bodega (en camino) viaja solo UNA más", () => {
+    // Caso real GT160/GT206 del 9-sep-2026: cero en Full, una corrida de 24
+    // pares apartada para el camión, y el plan no mandaba nada.
+    const enCamino = [
+      { sku: "GT300-BLK-23", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
+      { sku: "GT300-BLK-24", disponible: 0, enTransferencia: 12, noDisponible: 0, total: 12 },
+    ];
+    const plan = generarPlan({ ...entradaBase(), skus: skusZ, stockActual: enCamino, cajas: [cajaZ] });
+    expect(plan.cajas.totalCajas).toBe(1);
+    expect(plan.lineas[0].explicacion).toContain("ya trae 1");
+  });
+
+  it("con dos cajas ya en Full sin vender, no manda más", () => {
+    const parado = [
+      { sku: "GT300-BLK-23", disponible: 24, enTransferencia: 0, noDisponible: 0, total: 24 },
+      { sku: "GT300-BLK-24", disponible: 24, enTransferencia: 0, noDisponible: 0, total: 24 },
+    ];
+    const plan = generarPlan({ ...entradaBase(), skus: skusZ, stockActual: parado, cajas: [cajaZ] });
+    expect(plan.cajas.totalCajas).toBe(0);
+    expect(plan.lineas[0].sinEstreno).toBeUndefined();
   });
 
   it("si vendió alguna vez en la historia, no es estreno", () => {
