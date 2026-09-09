@@ -61,11 +61,33 @@ export function CascadaDinero({ finanzas }: { finanzas: FinanzasPeriodo }) {
           <strong className="cifra">{porcentaje(cobertura.parteCargos)}</strong>
           {sinLeer > 0 ? ` (faltan ${sinLeer.toLocaleString("es-MX")})` : ""}
         </span>
+        {cobertura.conCargos > 0 && cobertura.conPagoReal < cobertura.conCargos ? (
+          <span style={{ color: "var(--estado-alerta)" }}>
+            Con el pago real de Mercado Pago (retenciones y envío exactos):{" "}
+            <strong className="cifra">{cobertura.conPagoReal.toLocaleString("es-MX")}</strong> de{" "}
+            {cobertura.conCargos.toLocaleString("es-MX")}; el resto se recarga en segundo plano
+          </span>
+        ) : null}
+        {cobertura.completas < cobertura.conCargos ? (
+          <span>
+            Comisión aún incompleta (órdenes recientes que se releen):{" "}
+            <strong className="cifra">{(cobertura.conCargos - cobertura.completas).toLocaleString("es-MX")}</strong>
+          </span>
+        ) : null}
         {reventa.ordenes > 0 ? (
           <span>
             En reventa (MELI compra y revende):{" "}
-            <strong className="cifra">{reventa.ordenes.toLocaleString("es-MX")}</strong> órdenes por{" "}
-            <strong className="cifra">{pesosDeCentavos(reventa.importe)}</strong>, ya netas
+            <strong className="cifra">{reventa.ordenes.toLocaleString("es-MX")}</strong> órdenes; MELI pagó{" "}
+            <strong className="cifra">{pesosDeCentavos(reventa.importe)}</strong>
+            {reventa.reconstruidas > 0
+              ? <>
+                  , reconstruidas al precio público:{" "}
+                  <strong className="cifra">{pesosDeCentavos(reventa.totalComprador)}</strong>
+                  {reventa.reconstruidas < reventa.ordenes
+                    ? ` (${(reventa.ordenes - reventa.reconstruidas).toLocaleString("es-MX")} sin reconstruir)`
+                    : ""}
+                </>
+              : ", ya netas (sin reconstruir todavía)"}
           </span>
         ) : null}
         {totales.sinIdentificar !== 0 ? (

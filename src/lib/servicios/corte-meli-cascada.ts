@@ -14,6 +14,8 @@ export function puenteVentaANeto(e: EstadoResultados) {
     envio: e.envio ?? 0,
     isr: e.isr ?? 0,
     iva: e.iva ?? 0,
+    /** retención que Mercado Pago entregó sumada, sin separar ISR de IVA */
+    retencionSinSeparar: e.retencionSinSeparar ?? 0,
     otros: (e.otrosCargos ?? 0)
       + (e.cargosSinDesglosar ?? 0)
       + (tieneDesgloseNuevo ? 0 : e.enviosYOtros ?? 0),

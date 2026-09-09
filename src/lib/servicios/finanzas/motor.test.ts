@@ -60,7 +60,52 @@ describe("motor de dinero — capturas reales de Mercado Pago", () => {
     });
     expect(f.totales.neto).toBe(5906);
     expect(f.totales.sinIdentificar).toBe(0);
-    expect(f.reventa).toEqual({ ordenes: 1, importe: 5906 });
+    expect(f.reventa).toEqual({ ordenes: 1, importe: 5906, totalComprador: 5906, reconstruidas: 0 });
+  });
+
+  it("REVENTA reconstruida: la venta bruta sube al precio público, comisión y envío se contemplan, el neto no cambia", () => {
+    // MELI pagó 199.90; reconstruida a 314.71 = 199.90 + 47.21 comisión + 67.60 envío.
+    const f = armarFinanzas({
+      rango,
+      generadoEn,
+      ventas: [{ fecha: "2026-09-08", importe: 199.9 }],
+      dias: [
+        dia("2026-09-08", {
+          ordenes: 1,
+          neto: 199.9,
+          comisionMp: 47.21,
+          envio: 67.6,
+          sinDescOrdenes: 1,
+          sinDescTotal: 199.9,
+          reventaTotalComprador: 314.71,
+          reventaReconstruidas: 1,
+          cargosLeidos: 1,
+          netosLeidos: 1,
+          cargosReales: 1,
+          cargosCompletos: 1,
+        }),
+      ],
+    });
+    expect(f.totales.bruto).toBe(31471);
+    expect(f.totales.comision).toBe(4721);
+    expect(f.totales.envio).toBe(6760);
+    expect(f.totales.neto).toBe(19990);
+    expect(f.totales.sinIdentificar).toBe(0);
+    expect(f.reventa).toEqual({ ordenes: 1, importe: 19990, totalComprador: 31471, reconstruidas: 1 });
+    expect(f.cascada.find((p) => p.clave === "bruto")!.nota).toContain("reventa al precio público");
+  });
+
+  it("la retención que llegó sumada (taxes_amount) cuenta como retención y la cobertura declara la forma vieja", () => {
+    const f = armarFinanzas({
+      rango,
+      generadoEn,
+      ventas: [{ fecha: "2026-09-08", importe: 208 }],
+      dias: [dia("2026-09-08", { ordenes: 1, neto: 118.98, comisionMp: 31.2, envio: 37, retencionMp: 20.82, cargosLeidos: 1, netosLeidos: 1, cargosReales: 0, cargosCompletos: 1 })],
+    });
+    expect(f.totales.retenciones).toBe(2082);
+    expect(f.totales.sinIdentificar).toBe(0);
+    expect(f.cobertura.conPagoReal).toBe(0);
+    expect(f.cascada.find((p) => p.clave === "retenciones")!.nota).toContain("forma vieja");
   });
 
   it("la cascada SIEMPRE cuadra: bruto − cargos − sin identificar = neto, al centavo", () => {

@@ -72,6 +72,14 @@ export interface OrdenDelCorte {
   cargosLeidos?: boolean;
   tipoVenta?: "directa" | "reventa" | null;
   renglones?: { sku: string; importe: number; unidades?: number }[] | null;
+  /** retención que Mercado Pago entregó sumada, sin separar ISR de IVA */
+  retencionMp?: number;
+  /** reventa: precio público reconstruido; null = sin reconstruir */
+  totalComprador?: number | null;
+  /** false = la comisión aún no estaba toda publicada al leer (orden reciente) */
+  cargosCompletos?: boolean | null;
+  /** "v1/payments" cuando el desglose salió del pago real */
+  cargosFuente?: string | null;
 }
 
 export interface VentaDelCorte {
@@ -201,7 +209,16 @@ export interface EstadoResultados {
    * de comisión y envío, que MELI absorbe, y Mercado Pago lo deposita
    * completo. Por eso no traen comisión y no se les descuenta nada más.
    */
-  reventa: { ordenes: number; importe: number };
+  reventa: {
+    ordenes: number;
+    /** lo que MELI pagó (ya neto) */
+    importe: number;
+    /** precio público reconstruido (decisión del dueño); igual a importe en cortes viejos */
+    totalComprador?: number;
+    reconstruidas?: number;
+  };
+  /** retención que llegó sumada sin separar ISR de IVA (forma vieja del pago) */
+  retencionSinSeparar?: number;
 
   costoProducto: number;
   unidadesConCosto: number;
@@ -325,6 +342,16 @@ export interface DiaOrdenesAgregado {
   netosLeidos?: number;
   /** órdenes reembolsadas cuya primera liquidación no permite certificar el puente */
   reembolsosBasePendientes?: number;
+  /** retención sumada sin separar ISR de IVA (forma vieja del pago) */
+  retencionMp?: number;
+  /** reventa: Σ precio público reconstruido (o el total si no se reconstruyó) */
+  reventaTotalComprador?: number;
+  /** órdenes en reventa con precio público reconstruido */
+  reventaReconstruidas?: number;
+  /** órdenes vivas con el desglose leído y la comisión completa */
+  cargosCompletos?: number;
+  /** órdenes vivas cuyo desglose salió del pago real (/v1/payments) */
+  cargosReales?: number;
 }
 
 /**
@@ -341,6 +368,8 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
     devSinRenglonesMonto: number; comisionMp: number; envio: number; isr: number;
     iva: number; otrosCargos: number; cargosSinDesglosar: number; cargosLeidos: number;
     netosLeidos: number; reembolsosBasePendientes: number;
+    retencionMp: number; reventaTotalComprador: number; reventaReconstruidas: number;
+    cargosCompletos: number; cargosReales: number;
   }>();
   for (const o of ordenes) {
     if (o.fecha < desde || o.fecha > hasta) continue;
@@ -350,6 +379,7 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       sinDescTotal: 0, sinRenglones: 0, devSinRenglonesMonto: 0, comisionMp: 0, envio: 0,
       isr: 0, iva: 0, otrosCargos: 0, cargosSinDesglosar: 0, cargosLeidos: 0,
       netosLeidos: 0, reembolsosBasePendientes: 0,
+      retencionMp: 0, reventaTotalComprador: 0, reventaReconstruidas: 0, cargosCompletos: 0, cargosReales: 0,
     };
     d.total++;
     if ((o.revisiones ?? 0) >= 1) d.revisadas++;
@@ -376,15 +406,20 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       d.neto += netoHoy;
       if (o.netoLeido ?? (o.neto !== 0 || o.netoActual != null)) d.netosLeidos++;
       if (o.cargosLeidos) d.cargosLeidos++;
+      if (o.cargosLeidos && o.cargosCompletos !== false) d.cargosCompletos++;
+      if (o.cargosFuente === "v1/payments") d.cargosReales++;
       d.comisionMp += c(o.comisionMp);
       d.envio += c(o.envio);
       d.isr += c(o.isr);
       d.iva += c(o.iva);
       d.otrosCargos += c(o.otrosCargos);
+      d.retencionMp += c(o.retencionMp);
       d.cargosSinDesglosar += c(o.cargosSinDesglosar);
       if (o.tipoVenta === "reventa" || (o.tipoVenta == null && c(o.total) > 0 && netoHoy >= c(o.total) * 0.99)) {
         d.sinDescOrdenes++;
         d.sinDescTotal += c(o.total);
+        d.reventaTotalComprador += o.totalComprador != null ? c(o.totalComprador) : c(o.total);
+        if (o.totalComprador != null) d.reventaReconstruidas++;
       }
       if (reembolso > 0 || o.estadoPago === "refunded" || o.estadoPago === "charged_back") {
         d.devOrdenes++;
@@ -407,6 +442,8 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       comisionMp: p(d.comisionMp), envio: p(d.envio), isr: p(d.isr),
       iva: p(d.iva), otrosCargos: p(d.otrosCargos),
       cargosSinDesglosar: p(d.cargosSinDesglosar),
+      retencionMp: p(d.retencionMp),
+      reventaTotalComprador: p(d.reventaTotalComprador),
     }));
 }
 
@@ -526,6 +563,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let totalOrdenes = 0;
   let sinDescOrdenes = 0;
   let sinDescTotal = 0;
+  let reventaTotalComprador = 0;
+  let reventaReconstruidas = 0;
+  let retencionSinSeparar = 0;
   let devCosto = 0;
   let devUnidades = 0;
   let devSinCosto = 0;
@@ -548,6 +588,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     ordenesActivasConNeto += d.ordenes;
     sinDescOrdenes += d.sinDescOrdenes ?? 0;
     sinDescTotal += c(d.sinDescTotal);
+    reventaTotalComprador += d.reventaTotalComprador != null ? c(d.reventaTotalComprador) : c(d.sinDescTotal);
+    reventaReconstruidas += d.reventaReconstruidas ?? 0;
+    retencionSinSeparar += c(d.retencionMp);
     devCosto += c(d.devCosto);
     devUnidades += d.devUnidades ?? 0;
     devSinCosto += d.devSinCostoUnidades ?? 0;
@@ -671,6 +714,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     ordenesActivasConNeto === 0 || ordenesConDesglose >= ordenesActivasConNeto;
   const usarDesglosePorOrden = ordenesActivasConNeto > 0 && desgloseCompleto;
   if (usarDesglosePorOrden) comision = comisionMp;
+  // Reventa al precio público (decisión del dueño): la venta bruta sube lo
+  // que la reconstrucción le puso de comisión y envío, para que se compare
+  // con las ventas normales y la cascada cierre con esos cargos contemplados.
+  const reventaInflacion = Math.max(0, reventaTotalComprador - sinDescTotal);
+  if (usarDesglosePorOrden) ventaBruta += reventaInflacion;
 
   // --- Costo, publicidad y ganancia por modelo -----------------------------
   const filasModelo: RenglonModelo[] = [];
@@ -793,11 +841,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   // El residual concilia exactamente venta − comisión − depósito. Los cargos
   // explícitos solo lo explican; no se descuentan otra vez de la utilidad.
   const cargosNoComision = ventaBruta - comision - netoDepositado - devEnNeto;
-  const cargosConocidos = envio + isr + iva + otrosCargos + ajusteLiquidacion;
+  const cargosConocidos = envio + isr + iva + retencionSinSeparar + otrosCargos + ajusteLiquidacion;
   const cargosSinDesglosar = usarDesglosePorOrden
     ? cargosSinDesglosarGuardados
     : cargosNoComision - cargosConocidos;
-  const enviosYOtros = envio + isr + iva + otrosCargos + cargosSinDesglosar + ajusteLiquidacion;
+  const enviosYOtros = envio + isr + iva + retencionSinSeparar + otrosCargos + cargosSinDesglosar + ajusteLiquidacion;
   if (!desgloseAtribuible) {
     repartirCargo(comision, "comision");
     repartirCargo(envio, "envio");
@@ -903,8 +951,16 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     );
   }
   if (sinDescOrdenes > 0) {
+    const pesos = (x: number) => p(x).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
     avisos.push(
-      `${sinDescOrdenes.toLocaleString("es-MX")} órdenes por ${p(sinDescTotal).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} fueron ventas en REVENTA (MELI compra y revende): su importe ya viene neto de comisión y envío, que MELI absorbe, y se depositó completo. Por eso la comisión del mes se ve baja: no es un error.`,
+      reventaInflacion > 0 && usarDesglosePorOrden
+        ? `${sinDescOrdenes.toLocaleString("es-MX")} órdenes fueron ventas en REVENTA (MELI compra y revende): MELI pagó ${pesos(sinDescTotal)}, ya neto de comisión y envío. Para compararlas con las ventas normales, ${reventaReconstruidas.toLocaleString("es-MX")} se reconstruyeron al precio público (${pesos(reventaTotalComprador)}) con la tarifa de su categoría y el envío real del paquete: la venta bruta y la comisión suben ${pesos(reventaInflacion)} entre las dos; el neto no cambia.${sinDescOrdenes > reventaReconstruidas ? ` ${(sinDescOrdenes - reventaReconstruidas).toLocaleString("es-MX")} quedaron sin reconstruir (sin tarifa o sin envío leído) y van con lo que MELI pagó.` : ""}`
+        : `${sinDescOrdenes.toLocaleString("es-MX")} órdenes por ${pesos(sinDescTotal)} fueron ventas en REVENTA (MELI compra y revende): su importe ya viene neto de comisión y envío, que MELI absorbe, y se depositó completo. Por eso la comisión del mes se ve baja: no es un error.`,
+    );
+  }
+  if (retencionSinSeparar > 0) {
+    avisos.push(
+      `${p(retencionSinSeparar).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de retenciones llegaron sumadas (ISR + IVA) sin que Mercado Pago las separara: van en «Retenciones sin separar».`,
     );
   }
   if (pendientes > 0) {
@@ -1012,7 +1068,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       costoEstimado: p(devCostoEstimado),
       unidadesSinCosto: devSinCosto,
     },
-    reventa: { ordenes: sinDescOrdenes, importe: p(sinDescTotal) },
+    reventa: {
+      ordenes: sinDescOrdenes,
+      importe: p(sinDescTotal),
+      totalComprador: p(reventaTotalComprador),
+      reconstruidas: reventaReconstruidas,
+    },
+    retencionSinSeparar: p(retencionSinSeparar),
     costoProducto: p(costoProducto),
     unidadesConCosto,
     coberturaCosto,
@@ -1087,7 +1149,7 @@ export async function ordenesDelRango(db: DB, accountId: string, desde: string, 
   const filas = await traerTodo<any>(
     db,
     "ordenes_neto",
-    "order_id, fecha, total, neto, neto_actual, neto_en, reembolsado, reembolso_incluido_neto_base, reembolso_base_confiable, estado, estado_pago, revisiones, comision_mp, envio_mp, isr_mp, iva_mp, otros_mp, cargos_sin_desglosar, cargos_leidos_en, tipo_venta",
+    "order_id, fecha, total, neto, neto_actual, neto_en, reembolsado, reembolso_incluido_neto_base, reembolso_base_confiable, estado, estado_pago, revisiones, comision_mp, envio_mp, isr_mp, iva_mp, otros_mp, cargos_sin_desglosar, cargos_leidos_en, tipo_venta, retencion_mp, total_comprador, cargos_completos, cargos_fuente",
     (q) => q.eq("account_id", accountId).gte("fecha", desde).lte("fecha", hasta),
   );
   return filas.map((o) => ({
@@ -1113,6 +1175,10 @@ export async function ordenesDelRango(db: DB, accountId: string, desde: string, 
     cargosSinDesglosar: Number(o.cargos_sin_desglosar) || 0,
     cargosLeidos: o.cargos_leidos_en != null,
     tipoVenta: o.tipo_venta ?? null,
+    retencionMp: Number(o.retencion_mp) || 0,
+    totalComprador: o.total_comprador == null ? null : Number(o.total_comprador),
+    cargosCompletos: o.cargos_completos == null ? null : Boolean(o.cargos_completos),
+    cargosFuente: o.cargos_fuente ?? null,
   }));
 }
 
@@ -1149,6 +1215,11 @@ export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: strin
     cargosLeidos: Number(d.cargos_leidos) || 0,
     netosLeidos: Number(d.netos_leidos) || 0,
     reembolsosBasePendientes: Number(d.reembolsos_base_pendientes) || 0,
+    retencionMp: Number(d.retencion_mp) || 0,
+    reventaTotalComprador: Number(d.reventa_total_comprador) || 0,
+    reventaReconstruidas: Number(d.reventa_reconstruidas) || 0,
+    cargosCompletos: Number(d.cargos_completos) || 0,
+    cargosReales: Number(d.cargos_reales) || 0,
   }));
 }
 
