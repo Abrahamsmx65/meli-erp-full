@@ -82,7 +82,7 @@ export default async function Contenedores() {
         <Ficha titulo="Total" valor={n(contenedores.length)} />
       </div>
 
-      <PackingDrive archivos={archivosDrive} configurado={Boolean(configDrive())} />
+      <PackingDrive archivos={archivosDrive} configurado={true} conLlave={Boolean(configDrive().apiKey)} />
 
       <SubirPackingList />
 

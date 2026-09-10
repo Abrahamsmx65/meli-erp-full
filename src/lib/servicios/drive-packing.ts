@@ -41,10 +41,17 @@ interface FilaGuardada {
   estado: string;
 }
 
-function cambio(a: ArchivoDrive, g: FilaGuardada | undefined): boolean {
+/**
+ * ¿Cambió el archivo desde la última vez? Con llave hay md5; en el camino
+ * público solo la fecha del listado (sin hora): mismo día = sin cambio, y
+ * "Releer todo" pasa por encima.
+ */
+export function cambio(a: ArchivoDrive, g: FilaGuardada | undefined): boolean {
   if (!g) return true;
   if (a.md5 && g.md5) return a.md5 !== g.md5;
-  return (a.modificadoEn || null) !== (g.modificado_en ? new Date(g.modificado_en).toISOString() : null);
+  const nuevo = a.modificadoEn ? a.modificadoEn.slice(0, 10) : null;
+  const previo = g.modificado_en ? new Date(g.modificado_en).toISOString().slice(0, 10) : null;
+  return nuevo !== previo;
 }
 
 export async function sincronizarPackingListsDrive(
@@ -53,12 +60,8 @@ export async function sincronizarPackingListsDrive(
   opts: { finMs: number; forzar?: boolean },
 ): Promise<ResultadoDrivePacking> {
   const r: ResultadoDrivePacking = { sinConfigurar: false, archivos: 0, revisados: 0, importados: [], omitidos: [], errores: [], correos: [] };
+  // Sin llave se lee la carpeta pública (decisión del dueño); con llave, el API.
   const cfg = configDrive();
-  if (!cfg) {
-    r.sinConfigurar = true;
-    r.errores.push("Falta GOOGLE_DRIVE_API_KEY en el entorno.");
-    return r;
-  }
 
   const archivos = (await listarCarpetaDrive(cfg)).filter(esHojaDeCalculo);
   r.archivos = archivos.length;

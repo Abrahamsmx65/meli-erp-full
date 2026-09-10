@@ -16,7 +16,15 @@ export interface ArchivoDriveVista {
  * qué archivo entró, cuál se omitió y por qué, y el botón para traerlos
  * ahora sin esperar al cron de la mañana.
  */
-export function PackingDrive({ archivos, configurado }: { archivos: ArchivoDriveVista[]; configurado: boolean }) {
+export function PackingDrive({
+  archivos,
+  configurado,
+  conLlave = false,
+}: {
+  archivos: ArchivoDriveVista[];
+  configurado: boolean;
+  conLlave?: boolean;
+}) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
   const [resumen, setResumen] = useState<string | null>(null);
@@ -55,7 +63,7 @@ export function PackingDrive({ archivos, configurado }: { archivos: ArchivoDrive
         <h2 className="text-sm font-semibold">Packing lists desde Drive</h2>
         <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
           {configurado
-            ? "Se leen solos cada mañana y entran como borrador; tú los revisas y confirmas."
+            ? `Se leen solos cada mañana y entran como borrador; tú los revisas y confirmas.${conLlave ? "" : " Carpeta pública, sin llave."}`
             : "Sin configurar: falta la llave de Google Drive en el entorno."}
         </span>
         <span className="flex-1" />
