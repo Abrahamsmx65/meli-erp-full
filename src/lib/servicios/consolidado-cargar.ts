@@ -58,14 +58,30 @@ export function compatibilidadGastosEmpresariales(consolidado: Consolidado): Con
  * pasaba de ~42 s a lo que cueste el bloque de Amazon. «Hacer corte» los
  * calcula frescos, porque congela.
  */
-export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string, opts?: { cortesMasticados?: boolean }): Promise<Consolidado> {
+export async function cargarConsolidado(
+  db: DB,
+  cuenta: Cuenta,
+  periodo: string,
+  opts?: { cortesMasticados?: boolean; alUsarCorteInvalidado?: (canal: string, motivo: string) => void },
+): Promise<Consolidado> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
   const avisos: string[] = [];
   const bloques: BloqueCanal[] = [];
   const masticados = opts?.cortesMasticados === true;
+  // El corte general CONGELA lo que lee, así que un corte de canal
+  // invalidado se recalcula en el momento en vez de servirse viejo (ver
+  // `exigirVigente`). Si ni así se pudo, se avisa y el renglón del corte
+  // general no se marca vigente: se vuelve a intentar en la siguiente.
+  const usarInvalidado = (canal: string) => (motivo: string) => {
+    avisos.push(`${canal}: se armó con el corte guardado, que está marcado para recalcular (${motivo}). El corte general se rehará solo.`);
+    opts?.alUsarCorteInvalidado?.(canal, motivo);
+  };
 
   const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
-    (masticados ? obtenerEstadoResultadosMeli(db, cuenta, periodo) : cargarEstadoResultados(db, cuenta, periodo)).then(
+    (masticados
+      ? obtenerEstadoResultadosMeli(db, cuenta, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Calzado · Mercado Libre") })
+      : cargarEstadoResultados(db, cuenta, periodo)
+    ).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
         avisos.push(`Calzado · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
@@ -76,7 +92,9 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string,
       const yz = await cuentaYz(db);
       if (!yz) return null;
       try {
-        const e = masticados ? await obtenerEstadoResultadosYz(db, yz, periodo) : await cargarEstadoResultadosYz(db, yz, periodo);
+        const e = masticados
+          ? await obtenerEstadoResultadosYz(db, yz, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Fundas · Mercado Libre") })
+          : await cargarEstadoResultadosYz(db, yz, periodo);
         return bloqueDesdeEstado("meli_fundas", e);
       } catch (err) {
         avisos.push(`Fundas · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
@@ -103,7 +121,13 @@ export async function cargarConsolidado(db: DB, cuenta: Cuenta, periodo: string,
 
 async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
   const t0 = Date.now();
-  const consolidado = await cargarConsolidado(db, cuenta, periodo, { cortesMasticados: true });
+  const estado: { corteInvalidado: string | null } = { corteInvalidado: null };
+  const consolidado = await cargarConsolidado(db, cuenta, periodo, {
+    cortesMasticados: true,
+    alUsarCorteInvalidado: (canal, motivo) => {
+      estado.corteInvalidado = `${canal} se armó con su corte invalidado (${motivo}).`;
+    },
+  });
   try {
     await db.from("consolidado_cache").upsert(
       {
@@ -112,8 +136,10 @@ async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): P
         generado_en: new Date().toISOString(),
         ms_calculo: Date.now() - t0,
         datos: marcarTipos(consolidado),
-        vigente: true,
-        motivo: null,
+        // Si un canal salió de un corte invalidado, este renglón NO es la
+        // verdad: queda marcado para rehacerse en vez de congelarse.
+        vigente: estado.corteInvalidado == null,
+        motivo: estado.corteInvalidado,
       },
       { onConflict: "account_id,periodo" },
     );

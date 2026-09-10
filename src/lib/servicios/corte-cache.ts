@@ -67,6 +67,19 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
   leer: () => Promise<ResultadoLecturaCache<{ datos: T; generadoEn: string; vigente: boolean }>>;
   guardar: (datos: T, msCalculo: number) => Promise<void>;
   calcular: () => Promise<T>;
+  /**
+   * Para quien CONGELA lo que lee (el corte general, que guarda su propio
+   * renglón): un corte invalidado no sirve, porque quedaría guardado como
+   * si fuera fresco. Con esto se recalcula en el momento. Servir viejo es
+   * la regla para las PANTALLAS, no para un derivado que se guarda:
+   * el 10-sep-2026 el corte general de agosto congeló el corte de fundas
+   * de cuando solo el 10% de los depósitos estaba leído, y enseñó $317 mil
+   * de neto y $93 mil de envío contra $2.89 millones y $1.32 millones
+   * reales, con una pérdida de $1.18 millones que nunca existió.
+   */
+  exigirVigente?: boolean;
+  /** Se llama si, pese a `exigirVigente`, hubo que usar el renglón invalidado. */
+  alUsarInvalidado?: (motivo: string) => void;
 }): Promise<T> {
   const recalc = async (): Promise<T> => {
     const t0 = Date.now();
@@ -79,6 +92,17 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
   if (guardado.estado === "fallo") throw guardado.error;
   if (guardado.estado === "ausente") return recalc();
   const valorGuardado = guardado.valor;
+
+  if (opts.exigirVigente && !valorGuardado.vigente) {
+    try {
+      return await recalc();
+    } catch (err) {
+      // Se usa el guardado —mejor que perder el canal— pero quien nos
+      // llamó tiene que saber que su resultado NO es para congelar.
+      opts.alUsarInvalidado?.((err as Error).message);
+      return valorGuardado.datos;
+    }
+  }
 
   if (corteNecesitaRefresco(opts.periodo, valorGuardado.generadoEn, valorGuardado.vigente)) {
     try {
@@ -97,9 +121,16 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
   return valorGuardado.datos;
 }
 
+/** Opciones para quien CONGELA el corte que lee (el corte general). */
+export interface OpcionesCorteMasticado {
+  exigirVigente?: boolean;
+  alUsarInvalidado?: (motivo: string) => void;
+}
+
 /** El corte de MELI (calzado) del periodo, masticado. */
-export async function obtenerEstadoResultadosMeli(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
+export async function obtenerEstadoResultadosMeli(db: DB, cuenta: Cuenta, periodo: string, opts: OpcionesCorteMasticado = {}): Promise<EstadoResultados> {
   return obtenerConCachePorPeriodo({
+    ...opts,
     periodo,
     leer: () => leerCacheAppGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo)),
     guardar: (datos, ms) => guardarCacheApp(db, cuenta.id, claveCorte(periodo), datos, ms),
@@ -108,8 +139,9 @@ export async function obtenerEstadoResultadosMeli(db: DB, cuenta: Cuenta, period
 }
 
 /** El corte de fundas del periodo, masticado. */
-export async function obtenerEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string): Promise<EstadoResultados> {
+export async function obtenerEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string, opts: OpcionesCorteMasticado = {}): Promise<EstadoResultados> {
   return obtenerConCachePorPeriodo({
+    ...opts,
     periodo,
     leer: () => leerCacheYzGuardado<EstadoResultados>(db, cuenta.id, claveCorte(periodo)),
     guardar: (datos, ms) => guardarCacheYz(db, cuenta.id, claveCorte(periodo), datos, ms),

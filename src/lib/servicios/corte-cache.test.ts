@@ -1,5 +1,72 @@
 import { describe, expect, it } from "vitest";
-import { corteNecesitaRefresco } from "./corte-cache";
+import { corteNecesitaRefresco, obtenerConCachePorPeriodo } from "./corte-cache";
+
+describe("obtenerConCachePorPeriodo", () => {
+  const guardado = (datos: unknown, vigente: boolean) =>
+    async () => ({ estado: "encontrado" as const, valor: { datos: datos as number, generadoEn: new Date().toISOString(), vigente } });
+
+  it("la pantalla SIRVE el renglón invalidado (y no calcula en el clic)", async () => {
+    let calculos = 0;
+    const v = await obtenerConCachePorPeriodo<number>({
+      periodo: "2026-08",
+      leer: guardado(10, false),
+      guardar: async () => undefined,
+      calcular: async () => {
+        calculos++;
+        return 99;
+      },
+    });
+    expect(v).toBe(10);
+    expect(calculos).toBe(0);
+  });
+
+  it("quien congela lo que lee (corte general) recalcula el renglón invalidado en vez de servirlo viejo", async () => {
+    let guardadoEn: number | null = null;
+    const v = await obtenerConCachePorPeriodo<number>({
+      periodo: "2026-08",
+      exigirVigente: true,
+      leer: guardado(10, false),
+      guardar: async (datos) => {
+        guardadoEn = datos;
+      },
+      calcular: async () => 99,
+    });
+    expect(v).toBe(99);
+    expect(guardadoEn).toBe(99);
+  });
+
+  it("si el recálculo truena usa el guardado y lo declara, para que el derivado no se congele", async () => {
+    const motivos: string[] = [];
+    const v = await obtenerConCachePorPeriodo<number>({
+      periodo: "2026-08",
+      exigirVigente: true,
+      alUsarInvalidado: (motivo) => motivos.push(motivo),
+      leer: guardado(10, false),
+      guardar: async () => undefined,
+      calcular: async () => {
+        throw new Error("MELI no contestó");
+      },
+    });
+    expect(v).toBe(10);
+    expect(motivos).toEqual(["MELI no contestó"]);
+  });
+
+  it("un renglón vigente no se recalcula aunque se exija vigente", async () => {
+    let calculos = 0;
+    const v = await obtenerConCachePorPeriodo<number>({
+      periodo: "2026-08",
+      exigirVigente: true,
+      leer: guardado(10, true),
+      guardar: async () => undefined,
+      calcular: async () => {
+        calculos++;
+        return 99;
+      },
+    });
+    expect(v).toBe(10);
+    expect(calculos).toBe(0);
+  });
+});
 
 const min = (n: number) => n * 60_000;
 const h = (n: number) => n * 3_600_000;

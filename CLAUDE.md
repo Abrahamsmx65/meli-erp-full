@@ -336,6 +336,18 @@ guárdala numerada.
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
   Vercel). El reporte de liberaciones de Mercado Pago se cruza por
   `payment_id` (pagos) y `shipping_id` (abonos de envío).
+- **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
+  dueño, 10-sep-2026). La regla de servir lo guardado aunque esté viejo es
+  para las PANTALLAS; un derivado que se guarda como fresco (el corte
+  general, que lee los cortes por canal) tiene que recalcular el renglón
+  invalidado: `obtenerConCachePorPeriodo({ exigirVigente: true })`. Sin eso,
+  el corte general de agosto congeló el corte de fundas de cuando solo el
+  10 % de los depósitos estaba leído y enseñó $317 mil de neto y $93 mil de
+  envío contra $2.89 millones y $1.32 millones reales, con una pérdida de
+  $1.18 millones que nunca existió (el corte de fundas decía lo correcto:
+  dos pantallas, dos respuestas). Si el recálculo falla se usa lo guardado,
+  pero el renglón derivado se marca NO vigente y se declara en `avisos`:
+  nunca se congela un número que se sabe viejo.
 - **Corte GENERAL** (`servicios/consolidado.ts`, `/cortes`, `cortes_generales`):
   calzado en MELI + fundas en MELI + Amazon (`consolidado-amazon.ts` desde el
   monitor de Amazon: neto liquidado o SKU Economics). Regla del dueño: la
