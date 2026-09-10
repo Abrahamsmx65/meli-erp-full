@@ -552,7 +552,54 @@ async function sincronizarTramo(
     "account_id,sku,fecha",
   );
 
+  // Reescribir el rango borró el neto asentado por orden (migración 0079):
+  // se vuelve a asentar cada día del tramo desde yz_ordenes_neto.
+  for (let dia = tramo.desde; dia <= tramo.hasta; dia = restarDias(dia, -1)) {
+    const { error: errAsiento } = await admin.rpc("yz_asentar_dia", { p_account: accountId, p_fecha: dia });
+    if (errAsiento) throw new Error(`yz_asentar_dia ${dia}: ${errAsiento.message}`);
+  }
+
   return { desde: tramo.desde, hasta: tramo.hasta, ordenes: ordenes.length, renglones: filas.length, sinSku, truncado };
+}
+
+/** item+variación → SKU con TODO el catálogo (paginado: son ~15 mil filas). */
+async function mapaItemSku(admin: DB, accountId: string): Promise<Map<string, string>> {
+  const skus = await todo<{ sku: string; item_id: string | null; variation_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId),
+  );
+  const mapa = new Map<string, string>();
+  for (const s of skus ?? []) {
+    if (!s.item_id) continue;
+    mapa.set(claveItem(s.item_id, s.variation_id), s.sku);
+    if (!mapa.has(s.item_id)) mapa.set(s.item_id, s.sku);
+  }
+  return mapa;
+}
+
+/**
+ * Solo los últimos `dias` días (hoy incluido), para el cron de cada 10
+ * minutos: la sincronización completa corre una vez al día y, si el
+ * catálogo y el stock se comían el presupuesto, hoy y ayer se quedaban en
+ * cero hasta la mañana siguiente (9-sep-2026: "Hoy 0 · Ayer 146").
+ */
+export async function sincronizarVentasRecientes(
+  admin: DB,
+  accountId: string,
+  opts?: { dias?: number },
+): Promise<ResultadoVentas["tramos"][number]> {
+  const cliente = await clienteDeCuenta(admin, accountId);
+  const usuario = await obtenerUsuario(cliente);
+  const hoy = hoyLocal();
+  const tramo: Tramo = { desde: restarDias(hoy, Math.max(1, opts?.dias ?? 2) - 1), hasta: hoy, tipo: "reciente" };
+  const mapa = await mapaItemSku(admin, accountId);
+  const hecho = await sincronizarTramo(admin, accountId, cliente, usuario.id, mapa, tramo);
+  const estado = await leerEstado(admin, accountId);
+  if (estado.desde && estado.hasta) await guardarEstado(admin, accountId, avanzarEstado(estado, tramo));
+  await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: { tarea: "ventas_recientes", ...hecho } });
+  return hecho;
 }
 
 /**
@@ -569,20 +616,7 @@ export async function sincronizarVentas(
   const t0 = opts.t0 ?? Date.now();
   const hoy = hoyLocal();
 
-  // Paginado: el mapa item→SKU con solo 1,000 de ~15 mil filas dejaba
-  // órdenes sin amarrar y las ventas diarias salían de menos.
-  const skus = await todo<{ sku: string; item_id: string | null; variation_id: string | null }>(
-    admin,
-    "yz_skus",
-    "sku, item_id, variation_id",
-    (q) => q.eq("account_id", accountId),
-  );
-  const mapa = new Map<string, string>();
-  for (const s of skus ?? []) {
-    if (!s.item_id) continue;
-    mapa.set(claveItem(s.item_id, s.variation_id), s.sku);
-    if (!mapa.has(s.item_id)) mapa.set(s.item_id, s.sku);
-  }
+  const mapa = await mapaItemSku(admin, accountId);
 
   let estado = await leerEstado(admin, accountId);
   const plan = planearTramos(estado, hoy);
@@ -641,16 +675,19 @@ export async function sincronizar(
     if (!opts?.continuar) {
       catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs ?? 30_000);
     }
+    // Las VENTAS van antes que el stock: el stock son cientos de llamadas
+    // y el 9-sep-2026 se comió todo el presupuesto y las ventas del día
+    // se quedaron sin sincronizar (Hoy 0). Las ventas reciben hasta el 60 %
+    // del tiempo; el stock, lo que quede, o se pide en la siguiente llamada.
+    const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto * 0.6, t0 });
     const tocaStock = !opts?.continuar || Boolean(opts?.conStock);
     if (tocaStock) {
-      // El stock son cientos de llamadas: solo si queda más de la mitad del tiempo.
       if (transcurrido() < presupuesto * 0.5) {
         stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
       } else {
         stockPendiente = true;
       }
     }
-    const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto, t0 });
 
     const resumen: ResumenSync = {
       cuenta: usuario.nickname,

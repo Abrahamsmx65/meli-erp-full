@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { esCron } from "@/lib/yapanizcel/api";
 import { correrNetos } from "@/lib/yapanizcel/netos";
+import { sincronizarVentasRecientes } from "@/lib/yapanizcel/sync";
 import { revisarPendientesYz } from "@/lib/yapanizcel/devoluciones";
 import { almacenYz } from "@/lib/yapanizcel/corte";
 import { continuarCargosCon } from "@/lib/servicios/cargos-meli";
@@ -42,8 +43,15 @@ export async function GET(req: NextRequest) {
     // minutos, devoluciones hasta 200 s, precálculo hasta ~235 s,
     // facturación hasta 265 s. Todo mira el reloj; pasarse mata la función
     // sin guardar nada.
+    // Las ventas de hoy y ayer, cada 10 minutos: la sincronización completa
+    // es diaria y el panel se quedaba en "Hoy 0" hasta la mañana siguiente.
     try {
-      Object.assign(r, await correrNetos(admin, c.id, Math.min(150_000, 240_000 - (Date.now() - t0))));
+      r.ventasRecientes = await sincronizarVentasRecientes(admin, c.id, { dias: 2 });
+    } catch (err) {
+      r.ventasRecientesError = (err as Error).message;
+    }
+    try {
+      Object.assign(r, await correrNetos(admin, c.id, Math.min(130_000, 240_000 - (Date.now() - t0))));
     } catch (err) {
       r.error = (err as Error).message;
     }
