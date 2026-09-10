@@ -84,6 +84,24 @@ const decodificar = (s: string) =>
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 
 /**
+ * La fecha del listado público viene SIN año dentro del año corriente
+ * ("Sep 8"), con año si es de antes ("Sep 9, 2025") y como hora si es de hoy
+ * ("10:32 AM"). Sin año, `Date.parse` inventaba 2001. Devuelve ms o NaN.
+ */
+export function fechaDelListado(texto: string | undefined, ahora = Date.now()): number {
+  if (!texto) return NaN;
+  if (/^\d{1,2}:\d{2}/.test(texto)) return new Date(ahora).setUTCHours(0, 0, 0, 0);
+  if (/\d{4}/.test(texto)) return Date.parse(texto);
+  // Solo "Mes día" ("Sep 8"): cualquier otra palabra no es fecha.
+  if (!/^[A-Za-z]{3,9}\.? \d{1,2}$/.test(texto)) return NaN;
+  const anio = new Date(ahora).getUTCFullYear();
+  const conAnio = Date.parse(`${texto}, ${anio}`);
+  if (!Number.isFinite(conAnio)) return NaN;
+  // "Dec 30" visto en enero es del año pasado.
+  return conAnio > ahora + 86_400_000 ? Date.parse(`${texto}, ${anio - 1}`) : conAnio;
+}
+
+/**
  * Lee la vista pública de la carpeta. Cada archivo viene como
  *   <div class="flip-entry" id="entry-ID"><a href="…"> … <div class="flip-entry-title">NOMBRE</div>
  *   … <div class="flip-entry-last-modified"><div>Sep 9, 2026</div></div>
@@ -103,7 +121,7 @@ export function leerListadoPublico(html: string): ArchivoDrive[] {
     if (!id || !nombre) continue;
     const href = b.match(/href="([^"]+)"/)?.[1] ?? "";
     const fecha = b.match(/flip-entry-last-modified"[^>]*>\s*(?:<div[^>]*>)?([^<]*)</)?.[1]?.trim();
-    const ms = fecha ? Date.parse(fecha) : NaN;
+    const ms = fechaDelListado(fecha);
     const esSheet = /docs\.google\.com\/spreadsheets/.test(href);
     const esCarpeta = /\/folders\/|embeddedfolderview\?id=/.test(href);
     salida.push({

@@ -14,7 +14,7 @@ import { camposLiquidacionMeli, pagosCobrablesCompletos, type PagoMercadoPago } 
 import { CacheTarifas, contextoGuardado, leerPagoReal, renglonesParaCascada, resumirOrdenConMeli } from "../meli/pagos-api";
 import { columnasDeReclamos, leerReclamosDeOrden, skuDesdeOrdenCruda } from "../meli/reclamos";
 import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
-import { SEGUNDA_REVISION_DIAS, filtroTocaRevision, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
+import { SEGUNDA_REVISION_DIAS, filtroTocaRevision, repararCanceladasFalsas, tocaRevision, type ResultadoRevision } from "../servicios/devoluciones";
 import { clienteDeCuenta } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 
@@ -29,8 +29,8 @@ export async function marcarCanceladasYz(
   accountId: string,
   cliente: MeliClient,
   opts: { desde: string; hasta: string; finMs: number },
-): Promise<{ canceladas: number; nuevas: number; errores: string[] }> {
-  const r = { canceladas: 0, nuevas: 0, errores: [] as string[] };
+): Promise<{ canceladas: number; nuevas: number; descartadas: number; sinConfirmar: number; errores: string[] }> {
+  const r = { canceladas: 0, nuevas: 0, descartadas: 0, sinConfirmar: 0, errores: [] as string[] };
   const sellerId = await sellerDe(admin, accountId);
   if (sellerId == null) return r;
 
@@ -65,18 +65,38 @@ export async function marcarCanceladasYz(
     cursor = sig;
   }
   r.canceladas = ids.length;
+  const candidatas: number[] = [];
   for (let i = 0; i < ids.length; i += 200) {
     const tramo = ids.slice(i, i + 200);
     const { data } = await admin.from("yz_ordenes_neto").select("order_id, estado").eq("account_id", accountId).in("order_id", tramo);
-    const nuevas = (data ?? []).filter((f: any) => f.estado !== "cancelled").map((f: any) => f.order_id);
-    if (!nuevas.length) continue;
+    for (const f of data ?? []) if (f.estado !== "cancelled") candidatas.push(Number(f.order_id));
+  }
+  // Misma confirmación que en calzado (10-sep-2026): la búsqueda en bloque
+  // devuelve órdenes que MELI, una por una, tiene pagadas. Solo se marca lo
+  // que /orders/{id} confirma; la orden cruda queda guardada.
+  for (const orderId of candidatas) {
+    if (Date.now() > opts.finMs) {
+      r.sinConfirmar++;
+      continue;
+    }
+    let orden: OrdenMeliCruda;
+    try {
+      orden = await cliente.get<OrdenMeliCruda>(`/orders/${orderId}`);
+    } catch (err) {
+      r.errores.push(`orden ${orderId}: ${(err as Error).message}`.slice(0, 200));
+      continue;
+    }
+    if (orden.status !== "cancelled") {
+      r.descartadas++;
+      continue;
+    }
     const { error } = await admin
       .from("yz_ordenes_neto")
-      .update({ estado: "cancelled", revisado_en: new Date().toISOString() })
+      .update({ estado: "cancelled", revisado_en: new Date().toISOString(), orden_cruda: recortarOrden(orden) })
       .eq("account_id", accountId)
-      .in("order_id", nuevas);
-    if (error) r.errores.push(`marcar canceladas: ${error.message}`);
-    else r.nuevas += nuevas.length;
+      .eq("order_id", orderId);
+    if (error) r.errores.push(`marcar cancelada ${orderId}: ${error.message}`);
+    else r.nuevas++;
   }
   return r;
 }
@@ -236,11 +256,12 @@ export async function revisarPeriodoYz(
 ): Promise<ResultadoRevision & { canceladasNuevas: number }> {
   const cliente = await clienteDeCuenta(admin, accountId);
   const canc = await marcarCanceladasYz(admin, accountId, cliente, { ...periodo, finMs });
+  const rep = await repararCanceladasFalsas(admin, accountId, cliente, { finMs, tope: 400, desde: periodo.desde, tabla: "yz_ordenes_neto" });
   const rev = await revisarOrdenesYz(admin, accountId, cliente, { ...periodo, tope: 5_000, finMs, sinEsperar: true });
   await admin.from("yz_sync_log").insert({
     account_id: accountId,
     ok: !rev.errores.length && !canc.errores.length,
-    detalle: { tarea: "revision_devoluciones", periodo, canceladas: canc, revision: { ...rev, errores: rev.errores.slice(0, 20) } },
+    detalle: { tarea: "revision_devoluciones", periodo, canceladas: canc, reparacionCanceladas: rep, revision: { ...rev, errores: rev.errores.slice(0, 20) } },
   });
   return { ...rev, canceladas: rev.canceladas + canc.nuevas, canceladasNuevas: canc.nuevas, errores: [...canc.errores, ...rev.errores] };
 }
@@ -260,6 +281,10 @@ export async function revisarPendientesYz(admin: DB, accountId: string, finMs: n
   if (!ultima?.length) {
     const canc = await marcarCanceladasYz(admin, accountId, cliente, { desde, hasta: hoy, finMs });
     await admin.from("yz_sync_log").insert({ account_id: accountId, ok: !canc.errores.length, detalle: { tarea: "revision_canceladas", ...canc } });
+  }
+  const rep = await repararCanceladasFalsas(admin, accountId, cliente, { finMs: finMs - 20_000, tope: 60, tabla: "yz_ordenes_neto" });
+  if (rep.revisadas > 0 || rep.errores.length) {
+    await admin.from("yz_sync_log").insert({ account_id: accountId, ok: !(rep.errores.length && rep.revisadas === 0), detalle: { tarea: "reparacion_canceladas", ...rep } });
   }
   return revisarOrdenesYz(admin, accountId, cliente, { desde, hasta: hoy, tope, finMs });
 }

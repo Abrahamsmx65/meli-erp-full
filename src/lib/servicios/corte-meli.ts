@@ -354,38 +354,52 @@ export interface DiaOrdenesAgregado {
   cargosCompletos?: number;
   /** órdenes vivas cuyo desglose salió del pago real (/v1/payments) */
   cargosReales?: number;
+  /** venta y depósito de las órdenes vivas SIN desglose leído: su cargo es total − depósito, exacto */
+  sinDesgloseTotal?: number;
+  sinDesgloseNeto?: number;
+  /** órdenes a las que YA les toca su revisión (10 o 40 días de vendidas) */
+  pendientesVencidas?: number;
 }
+
+/** Hoy en hora de México (AAAA-MM-DD). */
+const hoyMexico = () => new Date(Date.now() - 6 * 3_600_000).toISOString().slice(0, 10);
+const restarDias = (dia: string, n: number) => new Date(Date.parse(dia) - n * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * Suma las órdenes por día con la regla de la devolución: si Mercado Pago ya
  * bajó el neto, solo se resta lo que falte. Es la referencia de lo que hacen
  * los RPC `cortes_ordenes_por_dia` y `yz_cortes_ordenes_por_dia` en la base.
  */
-export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string): DiaOrdenesAgregado[] {
+export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: string, hoy = hoyMexico()): DiaOrdenesAgregado[] {
   const dias = new Map<string, {
     ordenes: number; neto: number; cancelOrdenes: number; cancelImporte: number;
     devOrdenes: number; devEnNeto: number; devMonto: number; ajusteLiquidacion: number; total: number; revisadas: number;
-    pendientes: number; sinDescOrdenes: number; sinDescTotal: number;
+    pendientes: number; pendientesVencidas: number; sinDescOrdenes: number; sinDescTotal: number;
     sinRenglones: number;
     devSinRenglonesMonto: number; comisionMp: number; envio: number; isr: number;
     iva: number; otrosCargos: number; cargosSinDesglosar: number; cargosLeidos: number;
     netosLeidos: number; reembolsosBasePendientes: number;
     retencionMp: number; reventaTotalComprador: number; reventaReconstruidas: number;
-    cargosCompletos: number; cargosReales: number;
+    cargosCompletos: number; cargosReales: number; sinDesgloseTotal: number; sinDesgloseNeto: number;
   }>();
+  const vencePrimera = restarDias(hoy, 10);
+  const venceSegunda = restarDias(hoy, 40);
   for (const o of ordenes) {
     if (o.fecha < desde || o.fecha > hasta) continue;
     const d = dias.get(o.fecha) ?? {
       ordenes: 0, neto: 0, cancelOrdenes: 0, cancelImporte: 0, devOrdenes: 0,
-      devEnNeto: 0, devMonto: 0, ajusteLiquidacion: 0, total: 0, revisadas: 0, pendientes: 0, sinDescOrdenes: 0,
+      devEnNeto: 0, devMonto: 0, ajusteLiquidacion: 0, total: 0, revisadas: 0, pendientes: 0, pendientesVencidas: 0, sinDescOrdenes: 0,
       sinDescTotal: 0, sinRenglones: 0, devSinRenglonesMonto: 0, comisionMp: 0, envio: 0,
       isr: 0, iva: 0, otrosCargos: 0, cargosSinDesglosar: 0, cargosLeidos: 0,
       netosLeidos: 0, reembolsosBasePendientes: 0,
       retencionMp: 0, reventaTotalComprador: 0, reventaReconstruidas: 0, cargosCompletos: 0, cargosReales: 0,
+      sinDesgloseTotal: 0, sinDesgloseNeto: 0,
     };
     d.total++;
-    if ((o.revisiones ?? 0) >= 1) d.revisadas++;
-    if ((o.revisiones ?? 0) < 2) d.pendientes++;
+    const revisiones = o.revisiones ?? 0;
+    if (revisiones >= 1) d.revisadas++;
+    if (revisiones < 2) d.pendientes++;
+    if ((revisiones === 0 && o.fecha <= vencePrimera) || (revisiones === 1 && o.fecha <= venceSegunda)) d.pendientesVencidas++;
     if (o.estado === "cancelled") {
       d.cancelOrdenes++;
       d.cancelImporte += c(o.total);
@@ -408,6 +422,12 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       d.neto += netoHoy;
       if (o.netoLeido ?? (o.neto !== 0 || o.netoActual != null)) d.netosLeidos++;
       if (o.cargosLeidos) d.cargosLeidos++;
+      else {
+        // Su cargo exacto es total − depósito ORIGINAL: lo que bajó después
+        // (reembolso, ajuste de liquidación) ya se cuenta aparte.
+        d.sinDesgloseTotal += c(o.total);
+        d.sinDesgloseNeto += netoOriginal;
+      }
       if (o.cargosLeidos && o.cargosCompletos !== false) d.cargosCompletos++;
       if (o.cargosFuente === "v1/payments") d.cargosReales++;
       d.comisionMp += c(o.comisionMp);
@@ -446,6 +466,8 @@ export function agregarOrdenes(ordenes: OrdenDelCorte[], desde: string, hasta: s
       cargosSinDesglosar: p(d.cargosSinDesglosar),
       retencionMp: p(d.retencionMp),
       reventaTotalComprador: p(d.reventaTotalComprador),
+      sinDesgloseTotal: p(d.sinDesgloseTotal),
+      sinDesgloseNeto: p(d.sinDesgloseNeto),
     }));
 }
 
@@ -576,6 +598,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let reembolsosBasePendientes = 0;
   let ordenesConDesglose = 0;
   let ordenesActivasConNeto = 0;
+  let sinDesgloseTotal = 0;
+  let sinDesgloseNeto = 0;
+  let pendientesVencidas = 0;
   const agregados = e.ordenesPorDia ?? agregarOrdenes(e.ordenes ?? [], e.desde, e.hasta);
   for (const d of agregados) {
     if (d.fecha < e.desde || d.fecha > e.hasta) continue;
@@ -600,8 +625,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     cargosSinDesglosarGuardados += c(d.cargosSinDesglosar);
     reembolsosBasePendientes += d.reembolsosBasePendientes ?? 0;
     ordenesConDesglose += d.cargosLeidos ?? 0;
+    sinDesgloseTotal += c(d.sinDesgloseTotal);
+    sinDesgloseNeto += c(d.sinDesgloseNeto);
     revisadas += d.revisadas;
     pendientes += d.pendientes;
+    pendientesVencidas += d.pendientesVencidas ?? 0;
     cancelOrdenes += d.cancelOrdenes;
     cancelImporte += c(d.cancelImporte);
     devOrdenes += d.devOrdenes;
@@ -708,7 +736,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   const desgloseCompleto =
     ordenesActivasConNeto === 0 || ordenesConDesglose >= ordenesActivasConNeto;
-  const usarDesglosePorOrden = ordenesActivasConNeto > 0 && desgloseCompleto;
+  // El desglose por orden se usa en cuanto HAY órdenes con desglose: lo que
+  // falte entra como «sin desglose» con su cargo exacto (total − depósito).
+  // Antes UNA orden sin desglose tiraba el mes al cálculo residual, donde
+  // la comisión y el envío reconstruidos de las reventas (que solo cierran
+  // con la venta al precio público) salían como un descuadre de cientos de
+  // miles (10-sep-2026).
+  const usarDesglosePorOrden = ordenesActivasConNeto > 0 && ordenesConDesglose > 0;
   if (usarDesglosePorOrden) comision = comisionMp;
   // Reventa al precio público (decisión del dueño): la venta bruta sube lo
   // que la reconstrucción le puso de comisión y envío, para que se compare
@@ -777,6 +811,14 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     m.ajusteLiquidacion += c(r.ajusteLiquidacion);
     desglosePorModelo.set(modelo, m);
   }
+  // El residual concilia exactamente venta − comisión − depósito. Los cargos
+  // explícitos solo lo explican; no se descuentan otra vez de la utilidad.
+  // Con desglose por orden, lo que no lo tiene aporta su cargo exacto.
+  const cargosNoComision = ventaBruta - comision - netoDepositado - devEnNeto;
+  const cargosConocidos = envio + isr + iva + retencionSinSeparar + otrosCargos + ajusteLiquidacion;
+  const cargosSinDesglosar = usarDesglosePorOrden
+    ? cargosSinDesglosarGuardados + Math.max(0, sinDesgloseTotal - sinDesgloseNeto)
+    : cargosNoComision - cargosConocidos;
   let desgloseAtribuible =
     usarDesglosePorOrden && sinRenglones === 0 && desglosePorModelo.size > 0;
   if (desgloseAtribuible) {
@@ -817,7 +859,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     ajustar("envio", envio);
     ajustar("isr", isr);
     ajustar("iva", iva);
-    ajustar("otrosCargos", otrosCargos + cargosSinDesglosarGuardados);
+    ajustar("otrosCargos", otrosCargos + cargosSinDesglosar);
     ajustar("ajusteLiquidacion", ajusteLiquidacion);
   }
   const repartirCargo = (total: number, campo: "comision" | "envio" | "isr" | "iva" | "otrosCargos" | "ajusteLiquidacion") => {
@@ -834,13 +876,6 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       pesoRestante -= peso;
     });
   };
-  // El residual concilia exactamente venta − comisión − depósito. Los cargos
-  // explícitos solo lo explican; no se descuentan otra vez de la utilidad.
-  const cargosNoComision = ventaBruta - comision - netoDepositado - devEnNeto;
-  const cargosConocidos = envio + isr + iva + retencionSinSeparar + otrosCargos + ajusteLiquidacion;
-  const cargosSinDesglosar = usarDesglosePorOrden
-    ? cargosSinDesglosarGuardados
-    : cargosNoComision - cargosConocidos;
   const enviosYOtros = envio + isr + iva + retencionSinSeparar + otrosCargos + cargosSinDesglosar + ajusteLiquidacion;
   if (!desgloseAtribuible) {
     repartirCargo(comision, "comision");
@@ -941,7 +976,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (diasDescuadrados.length) {
     avisos.push(
-      `${diasDescuadrados.length} día(s) donde las órdenes y los renglones de venta no cuadran (${diasDescuadrados.slice(0, 5).join(", ")}): se usó el reparto por SKU. Vuelve a sincronizar esos días.`,
+      `${diasDescuadrados.length} día(s) donde las órdenes y los renglones de venta no cuadran (${diasDescuadrados.slice(0, 5).join(", ")}): se usó el reparto por SKU. Casi siempre es una orden marcada como cancelada que MELI tiene pagada; el latido la repara solo. Si persiste, vuelve a sincronizar esos días.`,
     );
   }
   if (sinDescOrdenes > 0) {
@@ -958,8 +993,11 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     );
   }
   if (pendientes > 0) {
+    const porVencer = Math.max(0, pendientes - pendientesVencidas);
     avisos.push(
-      `${pendientes.toLocaleString("es-MX")} órdenes del mes aún no tienen sus dos revisiones de devolución/cancelación (a los 10 y 40 días). Hacer el corte las revisa todas.`,
+      pendientesVencidas > 0
+        ? `${pendientesVencidas.toLocaleString("es-MX")} órdenes del mes ya tienen vencida una revisión de devolución/cancelación (a los 10 y 40 días) y el latido las está revisando; ${porVencer.toLocaleString("es-MX")} más aún no llegan al plazo. Hacer el corte las revisa todas.`
+        : `${pendientes.toLocaleString("es-MX")} órdenes del mes aún no llegan al plazo de sus revisiones de devolución/cancelación (a los 10 y 40 días): se revisan solas cuando les toque. Hacer el corte las revisa todas.`,
     );
   }
   if (e.errorAds) {
@@ -988,8 +1026,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     );
   }
   if (!desgloseCompleto) {
+    const cargoSinDesglose = Math.max(0, sinDesgloseTotal - sinDesgloseNeto);
     avisos.push(
-      `${Math.max(0, ordenesActivasConNeto - ordenesConDesglose).toLocaleString("es-MX")} órdenes del periodo aún no tienen el desglose por operación de Mercado Pago; el latido seguirá completándolo.`,
+      `${Math.max(0, ordenesActivasConNeto - ordenesConDesglose).toLocaleString("es-MX")} órdenes del periodo aún no tienen el desglose por operación de Mercado Pago${usarDesglosePorOrden ? `: su cargo (${p(cargoSinDesglose).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}, venta − depósito) va en «Otros cargos sin desglose»` : ""}; el latido seguirá completándolo.`,
     );
   }
   if (usarDesglosePorOrden && !desgloseAtribuible) {
@@ -1215,6 +1254,9 @@ export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: strin
     reventaReconstruidas: Number(d.reventa_reconstruidas) || 0,
     cargosCompletos: Number(d.cargos_completos) || 0,
     cargosReales: Number(d.cargos_reales) || 0,
+    sinDesgloseTotal: Number(d.sin_desglose_total) || 0,
+    sinDesgloseNeto: Number(d.sin_desglose_neto) || 0,
+    pendientesVencidas: Number(d.pendientes_vencidas) || 0,
   }));
 }
 

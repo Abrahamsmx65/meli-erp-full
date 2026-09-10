@@ -168,13 +168,28 @@ export function columnasDeOrden(orden: OrdenLeida): Record<string, unknown> {
  * cancelaciones NUEVAS se vuelven a barrer para que sus renglones salgan de
  * la venta (MELI ya no las devuelve como pagadas).
  */
+export interface ResultadoCanceladas {
+  /** lo que la búsqueda en bloque devolvió como cancelado */
+  canceladas: number;
+  /** órdenes nuestras que MELI CONFIRMÓ canceladas al releerlas una por una */
+  nuevas: number;
+  /** candidatas de la búsqueda que, releídas, siguen pagadas: no se marcan */
+  descartadas: number;
+  /** candidatas que no se alcanzaron a confirmar en el tiempo: quedan para la siguiente */
+  sinConfirmar: number;
+  /** muestra de las descartadas (id y estado que MELI contestó), para la bitácora */
+  muestra: { id: number; status: string | null }[];
+  diasRebarridos: string[];
+  errores: string[];
+}
+
 export async function marcarCanceladas(
   db: DB,
   accountId: string,
   cliente: MeliClient,
   opts: { desde: string; hasta: string; finMs: number; sellerId?: number },
-): Promise<{ canceladas: number; nuevas: number; diasRebarridos: string[]; errores: string[] }> {
-  const r = { canceladas: 0, nuevas: 0, diasRebarridos: [] as string[], errores: [] as string[] };
+): Promise<ResultadoCanceladas> {
+  const r: ResultadoCanceladas = { canceladas: 0, nuevas: 0, descartadas: 0, sinConfirmar: 0, muestra: [], diasRebarridos: [], errores: [] };
   let sellerId = opts.sellerId;
   if (sellerId == null) {
     const { data } = await db.from("meli_accounts").select("meli_user_id").eq("id", accountId).maybeSingle();
@@ -215,7 +230,7 @@ export async function marcarCanceladas(
   if (!ids.length) return r;
 
   // Solo las que conocemos (tienen neto) y aún no estaban marcadas.
-  const dias = new Set<string>();
+  const candidatas: { order_id: number; fecha: string }[] = [];
   for (let i = 0; i < ids.length; i += 200) {
     const tramo = ids.slice(i, i + 200);
     const { data } = await db
@@ -223,19 +238,43 @@ export async function marcarCanceladas(
       .select("order_id, fecha, estado")
       .eq("account_id", accountId)
       .in("order_id", tramo);
-    const nuevas = (data ?? []).filter((f: any) => f.estado !== "cancelled");
-    if (!nuevas.length) continue;
-    const { error } = await db
-      .from("ordenes_neto")
-      .update({ estado: "cancelled", revisado_en: new Date().toISOString() })
-      .eq("account_id", accountId)
-      .in("order_id", nuevas.map((f: any) => f.order_id));
-    if (error) {
-      r.errores.push(`marcar canceladas: ${error.message}`);
+    for (const f of data ?? []) if (f.estado !== "cancelled") candidatas.push({ order_id: Number(f.order_id), fecha: f.fecha });
+  }
+  // CONFIRMACIÓN orden por orden (10-sep-2026): la búsqueda con
+  // order.status=cancelled devolvió órdenes que MELI, preguntadas una por
+  // una, tiene PAGADAS —y el barrido de pagadas las seguía trayendo—: de las
+  // 566 "canceladas" de septiembre, 537 no tenían reembolso. Sin esto, ~5 %
+  // de la venta salía del corte y los días "no cuadraban". La sonda es la
+  // verdad: solo se marca lo que /orders/{id} confirma.
+  const dias = new Set<string>();
+  for (const f of candidatas) {
+    if (Date.now() > opts.finMs) {
+      r.sinConfirmar++;
       continue;
     }
-    r.nuevas += nuevas.length;
-    for (const f of nuevas) dias.add(f.fecha);
+    let orden: OrdenLeida;
+    try {
+      orden = await cliente.get<OrdenLeida>(`/orders/${f.order_id}`);
+    } catch (err) {
+      r.errores.push(`orden ${f.order_id}: ${(err as Error).message}`.slice(0, 200));
+      continue;
+    }
+    if (orden.status !== "cancelled") {
+      r.descartadas++;
+      if (r.muestra.length < 5) r.muestra.push({ id: f.order_id, status: orden.status ?? null });
+      continue;
+    }
+    const { error } = await db
+      .from("ordenes_neto")
+      .update({ estado: "cancelled", revisado_en: new Date().toISOString(), ...columnasDeOrden(orden) })
+      .eq("account_id", accountId)
+      .eq("order_id", f.order_id);
+    if (error) {
+      r.errores.push(`marcar cancelada ${f.order_id}: ${error.message}`);
+      continue;
+    }
+    r.nuevas++;
+    dias.add(f.fecha);
   }
 
   if (dias.size) {
@@ -259,6 +298,91 @@ export async function marcarCanceladas(
  * `sinEsperar`, todas las que no tengan sus dos revisiones. Una llamada por
  * pago; `/orders/{id}` solo cuando la orden no tiene pagos guardados.
  */
+export interface ResultadoReparacionCanceladas {
+  revisadas: number;
+  /** MELI dice PAGADA: recupera su estado y su mes se rehace */
+  restauradas: number;
+  /** MELI confirma la cancelación: se guarda su orden cruda y ya no vuelve a salir */
+  confirmadas: number;
+  quedan: number;
+  errores: string[];
+}
+
+/**
+ * Repara las órdenes que la búsqueda en bloque marcó como canceladas y que
+ * MELI, preguntadas una por una, tiene PAGADAS (10-sep-2026). Candidatas:
+ * canceladas sin reembolso cuya orden cruda no dice "cancelled". Cada una
+ * se relee de MELI: si sigue cancelada se guarda su orden cruda (y deja de
+ * ser candidata); si está pagada recupera su estado —sus renglones nunca
+ * salieron de ventas_diarias porque el barrido de pagadas las seguía
+ * trayendo— y el corte de su mes se rehace en el fondo.
+ */
+export async function repararCanceladasFalsas(
+  db: DB,
+  accountId: string,
+  cliente: MeliClient,
+  opts: { finMs: number; tope?: number; desde?: string; tabla?: "ordenes_neto" | "yz_ordenes_neto" },
+): Promise<ResultadoReparacionCanceladas> {
+  const r: ResultadoReparacionCanceladas = { revisadas: 0, restauradas: 0, confirmadas: 0, quedan: 0, errores: [] };
+  const tabla = opts.tabla ?? "ordenes_neto";
+  const desde = opts.desde ?? new Date(Date.now() - 6 * 3_600_000 - 90 * 86_400_000).toISOString().slice(0, 10);
+  const { data, count, error } = await db
+    .from(tabla)
+    .select("order_id, fecha", { count: "exact" })
+    .eq("account_id", accountId)
+    .eq("estado", "cancelled")
+    .gte("fecha", desde)
+    .or("reembolsado.is.null,reembolsado.eq.0")
+    .or("estado_pago.is.null,estado_pago.not.in.(refunded,charged_back)")
+    .or("orden_cruda->>status.is.null,orden_cruda->>status.neq.cancelled")
+    .order("fecha", { ascending: false })
+    .order("order_id", { ascending: true })
+    .limit(Math.max(1, opts.tope ?? 60));
+  if (error) {
+    r.errores.push(`${tabla}: ${error.message}`);
+    return r;
+  }
+  r.quedan = count ?? 0;
+  const periodos = new Set<string>();
+  for (const f of data ?? []) {
+    if (Date.now() > opts.finMs) break;
+    const orderId = Number(f.order_id);
+    let orden: OrdenLeida;
+    try {
+      orden = await cliente.get<OrdenLeida>(`/orders/${orderId}`);
+    } catch (err) {
+      r.errores.push(`orden ${orderId}: ${(err as Error).message}`.slice(0, 200));
+      continue;
+    }
+    const cancelada = orden.status === "cancelled";
+    const { error: e } = await db
+      .from(tabla)
+      .update({
+        ...(cancelada ? {} : { estado: orden.status ?? "paid" }),
+        revisado_en: new Date().toISOString(),
+        ...columnasDeOrden(orden),
+      })
+      .eq("account_id", accountId)
+      .eq("order_id", orderId);
+    if (e) {
+      r.errores.push(`guardar ${orderId}: ${e.message}`);
+      continue;
+    }
+    r.revisadas++;
+    r.quedan--;
+    if (cancelada) r.confirmadas++;
+    else {
+      r.restauradas++;
+      periodos.add(periodoDeFecha(f.fecha));
+    }
+  }
+  if (periodos.size) {
+    const cuentas = tabla === "ordenes_neto" ? { meliAccountId: accountId } : { yzAccountId: accountId, meliAccountId: null };
+    await invalidarCortesDePeriodos(db, cuentas, periodos, "Órdenes marcadas como canceladas que MELI tiene pagadas volvieron a la venta.");
+  }
+  return r;
+}
+
 export async function revisarOrdenes(
   db: DB,
   accountId: string,
@@ -602,6 +726,7 @@ export async function revisarPeriodo(
   const cliente = await clienteDeCuenta(admin, accountId);
   if (!cliente) throw new Error("No hay cuenta de MELI conectada.");
   const canc = await marcarCanceladas(admin, accountId, cliente, { ...periodo, finMs });
+  const rep = await repararCanceladasFalsas(admin, accountId, cliente, { finMs, tope: 400, desde: periodo.desde });
   const rev = await revisarOrdenes(admin, accountId, cliente, {
     ...periodo,
     tope: 5_000,
@@ -613,7 +738,7 @@ export async function revisarPeriodo(
     tarea: "revision_devoluciones",
     estado: rev.errores.length || canc.errores.length ? "error" : "ok",
     fin: new Date().toISOString(),
-    detalle: { periodo, canceladas: canc, revision: { ...rev, errores: rev.errores.slice(0, 20) } },
+    detalle: { periodo, canceladas: canc, reparacionCanceladas: rep, revision: { ...rev, errores: rev.errores.slice(0, 20) } },
   });
   return {
     ...rev,
@@ -657,6 +782,18 @@ export async function revisarPendientes(
       estado: canc.errores.length ? "error" : "ok",
       fin: new Date().toISOString(),
       detalle: canc,
+    });
+  }
+  // Las "canceladas" que MELI tiene pagadas se reparan unas cuantas por
+  // latido hasta agotarlas (bitácora solo cuando hizo algo).
+  const rep = await repararCanceladasFalsas(admin, accountId, cliente, { finMs: finMs - 20_000, tope: 60 });
+  if (rep.revisadas > 0 || rep.errores.length) {
+    await admin.from("sync_log").insert({
+      account_id: accountId,
+      tarea: "reparacion_canceladas",
+      estado: rep.errores.length && rep.revisadas === 0 ? "error" : "ok",
+      fin: new Date().toISOString(),
+      detalle: rep,
     });
   }
   return revisarOrdenes(admin, accountId, cliente, { desde, hasta, tope, finMs });

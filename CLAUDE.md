@@ -315,6 +315,22 @@ guárdala numerada.
   volvió a la venta (`devolucion_destino = a_la_venta`); descartado o sin
   revisión es merma y el corte lo declara. Si MELI absorbió el reembolso, el
   pago no se toca y la venta cuenta completa.
+  **Cancelaciones SOLO confirmadas orden por orden** (10-sep-2026): la
+  búsqueda en bloque `/orders/search?order.status=cancelled` devolvió
+  órdenes que MELI, preguntadas una por una (`/orders/{id}`), tiene PAGADAS
+  y que el barrido de pagadas seguía trayendo: 537 de las 566 "canceladas"
+  de septiembre no tenían reembolso y ~5 % de la venta salía del corte (los
+  "días que no cuadran"). `marcarCanceladas` / `marcarCanceladasYz` marcan
+  solo lo que `/orders/{id}` confirma (y guardan la orden cruda);
+  `repararCanceladasFalsas` relee en cada latido las canceladas sin
+  reembolso cuya orden cruda no dice `cancelled` y les devuelve su estado.
+  **El corte usa el desglose por orden en cuanto alguna orden lo tiene**
+  (migración 0080): lo que no lo tiene entra como «sin desglose» con su
+  cargo exacto (total − depósito original, `sin_desglose_total/neto`).
+  Antes una sola orden sin desglose tiraba el mes al cálculo residual, donde
+  la comisión y el envío reconstruidos de las reventas salían como un
+  descuadre de cientos de miles. `pendientes_vencidas` separa las órdenes a
+  las que ya toca revisión de las que aún no llegan al plazo.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
@@ -549,7 +565,7 @@ login, la base y el deploy.
 | Cargar pedidos (muchas proformas, lista con filtros) y faltantes contra el sheet de pendientes (`PEDIDOS_SHEET_URL`, pestaña por `gid`, AR* ignorados) | `src/app/pedidos/cargar` + `components/cargar-pedidos-lote.tsx` + `src/lib/servicios/pedidos-sheet.ts` |
 | Packing list de la fábrica → contenedor (lector + amarre pedido/modelo/color/talla) | `src/lib/importar/packing-list.ts` + `src/lib/servicios/packing-list.ts` + `/api/contenedores/packing-list` |
 | Productos nuevos en camino (pedidos sin stock nunca; fotos en MELI y Amazon, mínimo 2) | `src/lib/servicios/productos-nuevos.ts` (+ `-revisar.ts`, `-fotos.ts`) + `src/app/pedidos/nuevos` + `/api/pedidos/nuevos/fotos` |
-| Packing lists desde la carpeta de Drive de la fábrica (cron diario 13:00Z + botón; entran como contenedor `borrador` que el dueño confirma; solo calzado: lo que no amarra con un pedido se omite; un contenedor confirmado no se toca; bitácora en `drive_packing_lists`, migración 0077). SIN llave (decisión del dueño): carpeta pública leída por `embeddedfolderview` + `uc?export=download`; `GOOGLE_DRIVE_API_KEY` es opcional (API v3 con md5); `DRIVE_PACKING_FOLDER_ID` opcional | `src/lib/servicios/drive.ts` + `drive-packing.ts` + `/api/cron/packing-lists` + `/api/contenedores/drive` + `components/packing-drive.tsx` |
+| Packing lists desde la carpeta de Drive de la fábrica (cron diario 13:00Z + botón; una subcarpeta por contenedor; solo se entra a los embarques desde el último cargado, `numeroDeEmbarque`; el contenedor ya cargado se reconoce por NÚMERO de embarque, "S259" = "S259-2026"; facturas y pedidos de la misma carpeta se omiten; entran como contenedor `borrador` que el dueño confirma; solo calzado: lo que no amarra con un pedido se omite; un contenedor confirmado no se toca; bitácora en `drive_packing_lists`, migración 0077). SIN llave (decisión del dueño): carpeta pública leída por `embeddedfolderview` + `uc?export=download`; `GOOGLE_DRIVE_API_KEY` es opcional (API v3 con md5); `DRIVE_PACKING_FOLDER_ID` opcional | `src/lib/servicios/drive.ts` + `drive-packing.ts` + `/api/cron/packing-lists` + `/api/contenedores/drive` + `components/packing-drive.tsx` |
 | Correo con las fotos que faltan al cargar un contenedor NUEVO (a mano o desde Drive): productos nuevos de sus pedidos sin publicar o con menos de 2 fotos; Resend por HTTP (`RESEND_API_KEY`, `CORREO_REMITENTE`, `CORREO_AVISOS`); constancia en `contenedores.fotos_aviso_en` | `src/lib/servicios/fotos-contenedor.ts` + `correo.ts` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { esHojaDeCalculo, leerListadoPublico, MIME_CARPETA, MIME_SHEET } from "./drive";
+import { esHojaDeCalculo, fechaDelListado, leerListadoPublico, MIME_CARPETA, MIME_SHEET } from "./drive";
+
+describe("fecha del listado público", () => {
+  const ahora = Date.parse("2026-09-10T15:00:00Z");
+  it("sin año es del año corriente; con año se respeta; una hora es hoy; 'Dec 30' visto en enero es del año pasado", () => {
+    expect(new Date(fechaDelListado("Sep 8", ahora)).toISOString()).toBe("2026-09-08T00:00:00.000Z");
+    expect(new Date(fechaDelListado("Sep 9, 2025", ahora)).toISOString()).toBe("2025-09-09T00:00:00.000Z");
+    expect(new Date(fechaDelListado("10:32 AM", ahora)).toISOString()).toBe("2026-09-10T00:00:00.000Z");
+    expect(new Date(fechaDelListado("Dec 30", Date.parse("2027-01-03T12:00:00Z"))).toISOString()).toBe("2026-12-30T00:00:00.000Z");
+    expect(fechaDelListado(undefined)).toBeNaN();
+    expect(fechaDelListado("hoy")).toBeNaN();
+  });
+});
 
 const HTML = `
 <div class="flip-entries">

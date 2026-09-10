@@ -277,10 +277,14 @@ describe("armarEstadoResultados", () => {
       ],
     }));
 
+    // Con desglose en alguna orden se usa el desglose por orden: la comisión
+    // es la de Mercado Pago (solo la orden 1) y la orden sin desglose aporta
+    // su cargo exacto, total − depósito original (100 − 80 = 20).
     expect(e).toMatchObject({
       netoDepositado: 90,
+      comision: 20,
       envio: 10,
-      cargosSinDesglosar: 0,
+      cargosSinDesglosar: 20,
       devoluciones: { incluidoEnNeto: 60, monto: 0 },
     });
     expect(e.revision.exacto).toBe(false);

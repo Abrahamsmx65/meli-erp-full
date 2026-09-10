@@ -60,15 +60,46 @@ export function numeroDeEmbarque(texto: string | null | undefined): number | nul
   return m ? Number(m[1]) : null;
 }
 
-/** El embarque más alto ya cargado (cualquier estado): de ahí para adelante se importa. */
+export interface ContenedorCargado {
+  id: string;
+  numero: string;
+  estado: string;
+  embarque: number | null;
+}
+
+/** Los contenedores ya cargados con su número de embarque, y el más alto (de ahí para adelante se importa). */
+export async function contenedoresCargados(admin: DB, accountId: string): Promise<{ lista: ContenedorCargado[]; maximo: number | null }> {
+  const { data } = await admin.from("contenedores").select("id, numero, estado").eq("account_id", accountId);
+  const lista: ContenedorCargado[] = (data ?? []).map((c: { id: string; numero: string; estado: string }) => ({
+    id: c.id,
+    numero: c.numero,
+    estado: c.estado,
+    embarque: numeroDeEmbarque(c.numero),
+  }));
+  let maximo: number | null = null;
+  for (const c of lista) if (c.embarque != null && (maximo == null || c.embarque > maximo)) maximo = c.embarque;
+  return { lista, maximo };
+}
+
 export async function embarqueMaximo(admin: DB, accountId: string): Promise<number | null> {
-  const { data } = await admin.from("contenedores").select("numero").eq("account_id", accountId);
-  let max: number | null = null;
-  for (const c of data ?? []) {
-    const n = numeroDeEmbarque(c.numero);
-    if (n != null && (max == null || n > max)) max = n;
-  }
-  return max;
+  return (await contenedoresCargados(admin, accountId)).maximo;
+}
+
+/**
+ * El contenedor ya cargado que corresponde a un embarque: por el texto
+ * exacto o por el NÚMERO de embarque ("S259" y "S259-2026" son el mismo;
+ * el 10-sep-2026 Drive duplicó S259 por compararlos como texto).
+ */
+export function contenedorDelEmbarque(lista: ContenedorCargado[], numero: string): ContenedorCargado | null {
+  const exacto = lista.find((c) => c.numero.trim().toUpperCase() === numero.trim().toUpperCase());
+  if (exacto) return exacto;
+  const n = numeroDeEmbarque(numero);
+  return n == null ? null : (lista.find((c) => c.embarque === n) ?? null);
+}
+
+/** Facturas y pedidos que viajan en la misma carpeta y no son packing list: ni se descargan. */
+export function esArchivoAjeno(nombre: string): boolean {
+  return /invoice|factura|proforma|\bPI\b/i.test(nombre) && !/packing/i.test(nombre);
 }
 
 /**
@@ -92,7 +123,7 @@ export async function sincronizarPackingListsDrive(
 
   // Los packing lists viven en subcarpetas por contenedor: a las de embarques
   // anteriores al último cargado ni se entra.
-  const maximo = await embarqueMaximo(admin, accountId);
+  const { lista: cargados, maximo } = await contenedoresCargados(admin, accountId);
   const archivos = (
     await listarCarpetaDrive(cfg, { omitirCarpeta: (nombre) => esEmbarqueViejo(numeroDeEmbarque(nombre), maximo) })
   ).filter(esHojaDeCalculo);
@@ -134,16 +165,44 @@ export async function sincronizarPackingListsDrive(
       }
       continue;
     }
+    if (esArchivoAjeno(a.nombre)) {
+      if (!previa.has(a.id) || opts.forzar) {
+        await registrar(a, "omitido", "No es un packing list (factura o pedido de la misma carpeta).");
+        r.omitidos.push(`${a.nombre}: no es packing list`);
+      }
+      continue;
+    }
     r.revisados++;
     try {
       const buffer = await descargarDrive(cfg, a);
-      const packing = await importarPackingList(buffer, { nombre: a.nombre });
-      const numero = (packing.referencia || packing.contenedor || "").trim().toUpperCase();
-      if (!numero) {
+      let packing;
+      try {
+        packing = await importarPackingList(buffer, { nombre: a.nombre });
+      } catch (err) {
+        // Un Excel que el lector no entiende y que ni se llama packing list
+        // es otra cosa (el pedido, la factura): se omite sin marcarlo error.
+        if (!/packing/i.test(a.nombre)) {
+          await registrar(a, "omitido", `No parece packing list: ${(err as Error).message.slice(0, 200)}`);
+          r.omitidos.push(`${a.nombre}: no parece packing list`);
+          continue;
+        }
+        throw err;
+      }
+      const numeroLeido = (packing.referencia || packing.contenedor || "").trim().toUpperCase();
+      if (!numeroLeido) {
+        if (!/packing/i.test(a.nombre)) {
+          await registrar(a, "omitido", "No parece packing list: no trae la referencia del embarque ni el contenedor.");
+          r.omitidos.push(`${a.nombre}: no parece packing list`);
+          continue;
+        }
         await registrar(a, "error", "El archivo no trae la referencia del embarque ni el contenedor.");
         r.errores.push(`${a.nombre}: sin número de contenedor`);
         continue;
       }
+      // Si el embarque ya está cargado con otro texto ("S259" a mano y
+      // "S259-2026" en el archivo), se trabaja sobre ESE contenedor.
+      const yaCargado = contenedorDelEmbarque(cargados, numeroLeido);
+      const numero = yaCargado?.numero.trim().toUpperCase() || numeroLeido;
       const porReferencia = numeroDeEmbarque(numero);
       if (esEmbarqueViejo(porReferencia, maximo)) {
         await registrar(a, "omitido", `${numero} es anterior al último embarque cargado (S${maximo}); no se importa.`);
@@ -159,15 +218,9 @@ export async function sincronizarPackingListsDrive(
         r.omitidos.push(`${a.nombre}: sin pedido que amarre`);
         continue;
       }
-      const { data: existente } = await admin
-        .from("contenedores")
-        .select("id, estado")
-        .eq("account_id", accountId)
-        .eq("numero", numero)
-        .maybeSingle();
-      if (existente && existente.estado !== "borrador") {
-        await registrar(a, "omitido", `El contenedor ${numero} ya está confirmado (${existente.estado}); no se toca.`, {
-          contenedor_id: existente.id,
+      if (yaCargado && yaCargado.estado !== "borrador") {
+        await registrar(a, "omitido", `El contenedor ${numero} ya está confirmado (${yaCargado.estado}); no se toca.`, {
+          contenedor_id: yaCargado.id,
         });
         r.omitidos.push(`${a.nombre}: ${numero} ya confirmado`);
         continue;
@@ -178,6 +231,7 @@ export async function sincronizarPackingListsDrive(
         notas: `Borrador desde Drive: ${a.nombre}`,
       });
       huboCambios = true;
+      if (!aplicado.existia) cargados.push({ id: aplicado.contenedorId, numero: aplicado.numero, estado: "borrador", embarque: numeroDeEmbarque(aplicado.numero) });
       await registrar(a, "importado", null, {
         contenedor_id: aplicado.contenedorId,
         resultado: { renglones: aplicado.renglones, cajas: aplicado.cajas, omitidos: aplicado.omitidos, recortes: aplicado.recortes.slice(0, 20) },
