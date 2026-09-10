@@ -34,7 +34,7 @@ export interface ResultadoDrivePacking {
   correos: { contenedor: string; enviado: boolean; motivo?: string }[];
 }
 
-interface FilaGuardada {
+export interface FilaGuardada {
   drive_file_id: string;
   md5: string | null;
   modificado_en: string | null;
@@ -52,6 +52,33 @@ export function cambio(a: ArchivoDrive, g: FilaGuardada | undefined): boolean {
   const nuevo = a.modificadoEn ? a.modificadoEn.slice(0, 10) : null;
   const previo = g.modificado_en ? new Date(g.modificado_en).toISOString().slice(0, 10) : null;
   return nuevo !== previo;
+}
+
+/** "S259-2026 PACKING LIST.xlsx" → 259; "S 260" → 260; sin forma de embarque → null. */
+export function numeroDeEmbarque(texto: string | null | undefined): number | null {
+  const m = (texto ?? "").toUpperCase().match(/(?:^|[^A-Z0-9])S\s*-?\s*(\d{2,4})(?![0-9])/);
+  return m ? Number(m[1]) : null;
+}
+
+/** El embarque más alto ya cargado (cualquier estado): de ahí para adelante se importa. */
+export async function embarqueMaximo(admin: DB, accountId: string): Promise<number | null> {
+  const { data } = await admin.from("contenedores").select("numero").eq("account_id", accountId);
+  let max: number | null = null;
+  for (const c of data ?? []) {
+    const n = numeroDeEmbarque(c.numero);
+    if (n != null && (max == null || n > max)) max = n;
+  }
+  return max;
+}
+
+/**
+ * Regla del dueño (10-sep-2026): la carpeta trae la historia completa; solo
+ * se jalan los embarques POSTERIORES al último que ya está cargado (si el
+ * último es S259, S258 y anteriores no se tocan). Lo que no trae número de
+ * embarque se decide por el amarre con pedidos, como antes.
+ */
+export function esEmbarqueViejo(numero: number | null, maximo: number | null): boolean {
+  return numero != null && maximo != null && numero < maximo;
 }
 
 export async function sincronizarPackingListsDrive(
@@ -88,10 +115,20 @@ export async function sincronizarPackingListsDrive(
     );
   };
 
+  const maximo = await embarqueMaximo(admin, accountId);
   let huboCambios = false;
   for (const a of archivos) {
     if (Date.now() > opts.finMs) break;
     if (!opts.forzar && !cambio(a, previa.get(a.id))) continue;
+    // Por el nombre, sin descargar: un embarque anterior al último cargado no se toca.
+    const porNombre = numeroDeEmbarque(a.nombre);
+    if (esEmbarqueViejo(porNombre, maximo)) {
+      if (!previa.has(a.id) || opts.forzar) {
+        await registrar(a, "omitido", `S${porNombre} es anterior al último embarque cargado (S${maximo}); no se importa.`);
+        r.omitidos.push(`${a.nombre}: anterior a S${maximo}`);
+      }
+      continue;
+    }
     r.revisados++;
     try {
       const buffer = await descargarDrive(cfg, a);
@@ -100,6 +137,12 @@ export async function sincronizarPackingListsDrive(
       if (!numero) {
         await registrar(a, "error", "El archivo no trae la referencia del embarque ni el contenedor.");
         r.errores.push(`${a.nombre}: sin número de contenedor`);
+        continue;
+      }
+      const porReferencia = numeroDeEmbarque(numero);
+      if (esEmbarqueViejo(porReferencia, maximo)) {
+        await registrar(a, "omitido", `${numero} es anterior al último embarque cargado (S${maximo}); no se importa.`);
+        r.omitidos.push(`${a.nombre}: ${numero} anterior a S${maximo}`);
         continue;
       }
       const casado = await casarPackingList(admin, accountId, packing, numero);
