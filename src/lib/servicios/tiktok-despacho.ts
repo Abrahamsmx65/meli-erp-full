@@ -15,6 +15,7 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheApp } from "./cache-app";
 import { codificar128 } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
@@ -82,34 +83,47 @@ export async function aliasAmazonDeCuenta(db: DB, accountId: string): Promise<Ma
   return indexarAlias(alias);
 }
 
+/** Clave y frescura del catálogo de códigos Full masticado. */
+const CLAVE_CODIGOS_FULL = "codigos-full";
+const TTL_CODIGOS_FULL = 30 * 60_000;
+
+/** Los pares (SKU, código Full) de los DOS catálogos de MELI, tal cual. */
+async function paresCodigosFull(db: DB, accountId: string): Promise<[string, string][]> {
+  const vacio = () => [] as any[];
+  const [calzado, fundas] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku, inventory_id", (q) =>
+      q.eq("account_id", accountId).not("inventory_id", "is", null),
+    ).catch(vacio),
+    traerTodo<any>(db, "yz_skus", "sku, inventory_id", (q) => q.not("inventory_id", "is", null)).catch(vacio),
+  ]);
+  return [...(calzado ?? []), ...(fundas ?? [])]
+    .filter((f: any) => f?.sku && f?.inventory_id)
+    .map((f: any) => [String(f.sku), String(f.inventory_id)] as [string, string]);
+}
+
 /**
  * Los códigos Full de MELI de los dos catálogos: el de calzado (`skus`, de
  * esta cuenta) y el de fundas (`yz_skus`). Son la OTRA etiqueta que puede
  * traer pegada la caja, así que la estación de preparar también los acepta.
  *
- * El catálogo de calzado se lee completo (es el de esta bodega y se amarra
- * por clave canónica, ordenada y aplastada); el de fundas son ~18 mil
- * variantes que no tienen nada que ver con el zapato, así que de ese solo
- * se preguntan los SKUs del corte, por nombre exacto. Si alguna tabla no se
- * puede leer, se sigue con lo que haya: peor caso, se escanea el FNSKU como
- * siempre.
+ * Los DOS catálogos entran COMPLETOS y con los tres amarres del ERP
+ * (canónico, ordenado y aplastado): cómo esté escrito el SKU en cada cuenta
+ * no tiene por qué importar, lo que importa es que el código sea de ese
+ * producto. Como son ~17 mil variantes entre las dos, el catálogo se mastica
+ * y se guarda (`app_cache`, clave `codigos-full`, media hora): la pantalla
+ * lee un renglón. Si el caché o alguna tabla falla, se calcula al vuelo y,
+ * en el peor caso, se escanea el FNSKU como siempre.
  */
-export async function codigosMeliDeCuenta(
-  db: DB,
-  accountId: string,
-  skusDelCorte: string[] = [],
-): Promise<IndiceCodigosMeli> {
-  const vacio = () => [] as any[];
-  const buscados = [...new Set(skusDelCorte.map((s) => String(s ?? "").trim()).filter(Boolean))];
-  const [calzado, fundas] = await Promise.all([
-    traerTodo<any>(db, "skus", "sku, inventory_id", (q) => q.eq("account_id", accountId)).catch(vacio),
-    buscados.length
-      ? traerTodo<any>(db, "yz_skus", "sku, inventory_id", (q) => q.in("sku", buscados)).catch(vacio)
-      : Promise.resolve([] as any[]),
-  ]);
-  return indexarCodigosMeli(
-    [...(calzado ?? []), ...(fundas ?? [])].map((f: any) => ({ sku: f.sku, inventoryId: f.inventory_id ?? null })),
-  );
+export async function codigosMeliDeCuenta(db: DB, accountId: string): Promise<IndiceCodigosMeli> {
+  let pares: [string, string][] = [];
+  try {
+    pares = await conCacheApp(db, accountId, CLAVE_CODIGOS_FULL, TTL_CODIGOS_FULL, () =>
+      paresCodigosFull(db, accountId),
+    );
+  } catch {
+    pares = await paresCodigosFull(db, accountId).catch(() => []);
+  }
+  return indexarCodigosMeli(pares.map(([sku, inventoryId]) => ({ sku, inventoryId })));
 }
 
 /** Bucket privado donde se guardan las guías (una por paquete) y el PDF del corte. */
@@ -404,13 +418,10 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   // El FNSKU es el que se imprime, pero la caja puede traer pegada la
   // etiqueta de Full de cualquiera de las dos cuentas de MELI: sus códigos
   // también valen para dar el par por bueno.
-  const skusDelCorte = [
-    ...new Set((items ?? []).filter((i: any) => ordenIds.has(i.order_id)).map((i: any) => i.sku_interno ?? i.seller_sku).filter(Boolean)),
-  ] as string[];
   const [amazon, alias, meli] = await Promise.all([
     mapaAmazon(admin),
     aliasAmazonDeCuenta(admin, accountId),
-    codigosMeliDeCuenta(admin, accountId, skusDelCorte),
+    codigosMeliDeCuenta(admin, accountId),
   ]);
   const fnskuDe = (sku: string) => resolverFnsku(amazon, alias, sku);
 

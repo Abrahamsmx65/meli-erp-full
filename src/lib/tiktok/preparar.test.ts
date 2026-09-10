@@ -196,26 +196,27 @@ describe("el código de MELI también da por bueno el par", () => {
       orderId: "585899174098140001",
       packageId: "p1",
       destinatario: null,
-      pares: [{ sku: "GT134-NAVY-24-MX", pares: 2, fnsku: "X001FNSKU", codigos: ["MLM12345678", "MLM99999999"] }],
+      // FNSKU de Amazon + el código Full de CADA cuenta de MELI.
+      pares: [{ sku: "GT134-NAVY-24-MX", pares: 2, fnsku: "X001FNSKU", codigos: ["FIEE49194", "JNQX88982"] }],
     },
   ]);
   const nadie = new Set<number>();
 
   it("el código Full elige el paquete y descuenta igual que el FNSKU", () => {
-    let e = avanzar(estadoInicial(), "MLM12345678", CORTE, paquetes, nadie);
+    let e = avanzar(estadoInicial(), "FIEE49194", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
     expect(e.paquete?.numero).toBe(1);
-    e = avanzar(e, "MLM12345678", CORTE, paquetes, nadie);
+    e = avanzar(e, "FIEE49194", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
     // Y el otro par se puede cerrar con el FNSKU: es el mismo producto.
     e = avanzar(e, "X001FNSKU", CORTE, paquetes, nadie);
     expect(e.paso).toBe("listo");
   });
 
-  it("el código Full de la otra cuenta también vale", () => {
+  it("el código Full de la OTRA cuenta de MELI también vale", () => {
     let e = avanzar(estadoInicial(), "585899174098140001", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
-    e = avanzar(e, "mlm99999999", CORTE, paquetes, nadie); // el escáner puede traerlo en minúsculas
+    e = avanzar(e, "jnqx88982", CORTE, paquetes, nadie); // el escáner puede traerlo en minúsculas
     expect(e.error).toBeNull();
     expect(e.faltantes[0].faltan).toBe(1);
   });
@@ -240,6 +241,6 @@ describe("el código de MELI también da por bueno el par", () => {
     let e = avanzar(estadoInicial(), "585899174098140001", CORTE, paquetes, nadie);
     e = avanzar(e, "MLM00000000", CORTE, paquetes, nadie);
     expect(e.error).toMatch(/no va en el #1/);
-    expect(e.error).toMatch(/X001FNSKU o MLM12345678 o MLM99999999/);
+    expect(e.error).toMatch(/X001FNSKU o FIEE49194 o JNQX88982/);
   });
 });

@@ -235,13 +235,20 @@ guárdala numerada.
   (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Pero la
   MISMA caja puede traer pegada la etiqueta de Mercado Envíos Full, así que
   el escáner también acepta el CÓDIGO FULL de MELI (el `inventory_id` de la
-  variante) de cualquiera de las dos cuentas —calzado (`skus`) y fundas
-  (`yz_skus`)— siempre que sea exactamente de ese SKU: `tiktok/codigos.ts`
-  arma la lista (`codigos` de cada par, amarre canónico → ordenado →
-  aplastado) y `preparar.ts` da por bueno el par con cualquiera de ellos.
-  El catálogo de fundas es enorme, así que de ese solo se preguntan los SKUs
-  del corte, por nombre exacto. Un producto sin FNSKU pero con código Full
-  imprime ESE código y se escanea; "Dar por bueno sin escanear" (registrado
+  variante). **El MISMO zapato está publicado en las DOS cuentas de MELI y
+  cada una le da su propio código Full** (GT134-BLK-24-MX: FIEE49194 en
+  `skus`, JNQX88982 en `yz_skus`; 164 de los 168 SKUs que TikTok vendió en
+  30 días tienen código en la segunda cuenta y solo 107 en la primera), así
+  que los DOS catálogos entran COMPLETOS y los dos códigos valen para ese
+  par: `tiktok/codigos.ts` arma la lista (`codigos` de cada par) con los
+  tres amarres del ERP —canónico → ordenado → aplastado, cómo esté escrito
+  el SKU en cada cuenta NO importa— y `preparar.ts` da por bueno el par con
+  cualquiera de ellos. Son ~17 mil variantes entre las dos cuentas: el
+  catálogo se mastica en `app_cache` clave `codigos-full` (media hora, TTL,
+  `codigosMeliDeCuenta`) y la pantalla lee un renglón; una variante recién
+  publicada tarda esa media hora en ser escaneable por su código Full (el
+  FNSKU funciona desde el primer momento). Un producto sin FNSKU pero con
+  código Full imprime ESE código y se escanea; "Dar por bueno sin escanear" (registrado
   como `MANUAL:` en `tiktok_preparaciones.escaneos`) queda solo para lo que
   no tiene NINGÚN código. Un paquete completo se puede dar por
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
