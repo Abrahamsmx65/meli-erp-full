@@ -290,7 +290,11 @@ guárdala numerada.
   kardex para los dos lados.
   Lo que quedó sin amarre se reintenta en cada corrida
   (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
-  manda al 3PL en ese momento.
+  manda al 3PL en ese momento. Los amarres capturados a mano
+  (`tiktok_mapeo_sku`) siguen mandando sobre todo, pero la LISTA que los
+  enseñaba en Almacén TikTok se quitó por decisión del dueño (10-sep-2026):
+  se ligan desde el renglón del SKU sin publicación y se consultan en la
+  base.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
