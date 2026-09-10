@@ -102,7 +102,11 @@ guárdala numerada.
   no entró completo se guarda RENGLÓN POR RENGLÓN (`problemasDelCasado`, en
   `drive_packing_lists.resultado.problemas` y en el `motivo`): antes solo se
   guardaba «omitidos: 3» y el dueño no tenía cómo saber que de 611 cajas
-  entraron 399. Subirlo dos veces al mismo contenedor no
+  entraron 399. Y se queda EN EL CONTENEDOR (`contenedores.pendientes`,
+  migración 0081): el borrador enseña «N cajas sin amarrar» y en Contenido
+  sale cada renglón con lo que PODRÍA ser —los renglones del mismo modelo
+  con cajas libres, el color más parecido primero— para que el dueño
+  confirme ahí mismo o lo descarte. Nunca se aplica solo. Subirlo dos veces al mismo contenedor no
   duplica: lo de ese contenedor se reemplaza. El pedido tiene que estar
   cargado antes (Cargar pedidos).
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock

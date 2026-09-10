@@ -471,6 +471,22 @@ export async function aplicarPackingList(
     [...porLinea.entries()].map(([pedidoLineaId, cajas]) => ({ pedidoLineaId, cajas })),
   );
 
+  // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
+  // el borrador, elija el renglón del pedido que sí es y lo confirme ahí.
+  const pendientes = casado.lineas
+    .filter((l) => l.cajasAsignar < l.cajas)
+    .map((l) => ({
+      modelo: l.modelo,
+      color: l.color,
+      talla: l.talla,
+      cajas: l.cajas - l.cajasAsignar,
+      motivo: l.detalle ?? "No amarró con ningún renglón del pedido.",
+    }));
+  await db
+    .from("contenedores")
+    .update({ pendientes: pendientes.length ? pendientes : null })
+    .eq("id", r.contenedorId);
+
   invalidarInventario(accountId);
   await invalidar(db, accountId, `Se cargó el packing list del contenedor ${r.numero}.`);
 

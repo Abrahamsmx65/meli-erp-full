@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detalleModelos, modelosDeContenedor, resumenModelos } from "./contenedores";
+import { detalleModelos, leerPendientes, modelosDeContenedor, resumenModelos } from "./contenedores";
 
 describe("una línea por contenedor", () => {
   const modelos = [
@@ -46,5 +46,25 @@ describe("qué viene en un contenedor", () => {
       { modelo: "GT114", color: "BLK", cajas: 15, pares: 180 },
       { modelo: "GT114", color: "BROWN", cajas: 3, pares: 36 },
     ]);
+  });
+});
+
+describe("lo que el packing list no pudo amarrar", () => {
+  it("se lee sin confiar en la forma guardada y se tira lo que no sirve", () => {
+    expect(
+      leerPendientes([
+        { modelo: "gt214", color: "m brown", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón." },
+        { modelo: "GT228", color: "M BROWN", cajas: "50", motivo: "" },
+        { modelo: "GT150", color: "TOFFE", cajas: 0 },
+        { color: "SIN MODELO", cajas: 10 },
+        null,
+        "basura",
+      ]),
+    ).toEqual([
+      { modelo: "GT214", color: "M BROWN", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón." },
+      { modelo: "GT228", color: "M BROWN", talla: null, cajas: 50, motivo: "" },
+    ]);
+    expect(leerPendientes(null)).toEqual([]);
+    expect(leerPendientes({})).toEqual([]);
   });
 });

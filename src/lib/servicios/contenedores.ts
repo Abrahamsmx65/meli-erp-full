@@ -27,6 +27,33 @@ export interface ContenedorVista {
   pedidos: { pedido: string; cajas: number }[];
   /** qué viene: por modelo y color, con sus cajas y pares (decisión del dueño: se ve esto, no los pedidos) */
   modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+  /** renglones del packing list que NO amarraron: el dueño los resuelve en la pantalla */
+  pendientes: PendientePacking[];
+}
+
+/** Un renglón del packing list que no entró, tal como se guarda con el contenedor. */
+export interface PendientePacking {
+  modelo: string;
+  color: string;
+  talla: string | null;
+  /** cajas que se quedaron fuera */
+  cajas: number;
+  motivo: string;
+}
+
+/** Lo guardado en `contenedores.pendientes`, sin confiar en su forma. */
+export function leerPendientes(valor: unknown): PendientePacking[] {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
+    .map((x) => ({
+      modelo: String(x.modelo ?? "").toUpperCase(),
+      color: String(x.color ?? "").toUpperCase(),
+      talla: x.talla ? String(x.talla) : null,
+      cajas: Number(x.cajas) || 0,
+      motivo: String(x.motivo ?? ""),
+    }))
+    .filter((p) => p.modelo && p.cajas > 0);
 }
 
 /** Agrupa los renglones de un contenedor por modelo + color. Puro, para probarse. */
@@ -81,7 +108,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
   const conts = await traerTodo<any>(
     db,
     "contenedores",
-    "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas",
+    "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes",
     (q) => q.eq("account_id", accountId),
   );
   conts.sort((a, b) =>
@@ -159,6 +186,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     );
     return {
       modelos,
+      pendientes: leerPendientes(c.pendientes),
       id: c.id,
       numero: c.numero,
       numeroNaviera: c.numero_naviera ?? null,

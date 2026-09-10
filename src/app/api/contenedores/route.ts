@@ -186,6 +186,11 @@ export async function PATCH(req: NextRequest) {
   if (body.almacenDestino !== undefined) cambios.almacen_destino = body.almacenDestino || null;
   if (body.notas !== undefined) cambios.notas = body.notas || null;
   if (body.estado !== undefined) cambios.estado = body.estado;
+  // Los renglones del packing list que no amarraron: la pantalla los va
+  // quitando conforme el dueño los confirma contra el renglón que sí es.
+  if (body.pendientes !== undefined) {
+    cambios.pendientes = Array.isArray(body.pendientes) && body.pendientes.length ? body.pendientes : null;
+  }
 
   if (body.accion === "confirmarLlegada") {
     cambios.estado = "recibido";

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos } from "@/lib/servicios/contenedores";
+import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
 
 interface Contenedor {
   id: string;
@@ -18,6 +18,7 @@ interface Contenedor {
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
   modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+  pendientes?: PendientePacking[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -238,14 +239,32 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         <option value="recibido">Recibido</option>
                       </select>
                     ) : (
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        style={{
-                          background: `color-mix(in oklab, ${e.color} 15%, transparent)`,
-                          color: e.color,
-                        }}
-                      >
-                        {e.texto}
+                      <span className="flex flex-wrap items-center gap-1">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          style={{
+                            background: `color-mix(in oklab, ${e.color} 15%, transparent)`,
+                            color: e.color,
+                          }}
+                        >
+                          {e.texto}
+                        </span>
+                        {/* Lo que el packing list no pudo amarrar: se resuelve en Contenido. */}
+                        {c.pendientes?.length ? (
+                          <button
+                            onClick={() => setContenido(c)}
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{
+                              background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)",
+                              color: "var(--estado-critico)",
+                            }}
+                            title={c.pendientes
+                              .map((p) => `${p.modelo} ${p.color} · ${n(p.cajas)} cajas · ${p.motivo}`)
+                              .join("\n")}
+                          >
+                            {n(c.pendientes.reduce((a, p) => a + p.cajas, 0))} cajas sin amarrar
+                          </button>
+                        ) : null}
                       </span>
                     )}
                   </td>
@@ -388,6 +407,8 @@ function ContenidoContenedor({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
+  const [pendientes, setPendientes] = useState<PendientePacking[]>(contenedor.pendientes ?? []);
+  const [eleccion, setEleccion] = useState<Record<number, string>>({});
 
   useEffect(() => {
     let vivo = true;
@@ -409,6 +430,35 @@ function ContenidoContenedor({
     };
   }, [contenedor.id]);
 
+  /**
+   * Qué renglón del pedido PODRÍA ser el que la fábrica escribió distinto:
+   * del mismo modelo, con cajas libres, y primero el color que más se le
+   * parece (comparte palabras: "M BROWN" con "LT BROWN"). No se aplica
+   * solo: el dueño lo confirma.
+   */
+  function candidatosDe(p: PendientePacking): LineaContenido[] {
+    const palabras = (s: string) => new Set(s.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
+    const suyas = palabras(p.color);
+    return (lineas ?? [])
+      .filter((l) => l.modelo.toUpperCase() === p.modelo.toUpperCase())
+      .map((l) => ({ l, libres: Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)) }))
+      .filter((x) => x.libres > 0)
+      .sort((a, b) => {
+        const comunes = (l: LineaContenido) => [...palabras(l.color)].filter((w) => suyas.has(w)).length;
+        return comunes(b.l) - comunes(a.l) || b.libres - a.libres;
+      })
+      .map((x) => x.l);
+  }
+
+  function confirmar(indice: number, p: PendientePacking, pedidoLineaId: string) {
+    const l = (lineas ?? []).find((x) => x.pedidoLineaId === pedidoLineaId);
+    if (!l) return;
+    const actual = cajas[pedidoLineaId] ?? l.enEste;
+    const libres = Math.max(0, l.cajasPedido - l.enOtros - actual);
+    setCajas((c) => ({ ...c, [pedidoLineaId]: actual + Math.min(p.cajas, libres) }));
+    setPendientes((ps) => ps.filter((_, i) => i !== indice));
+  }
+
   const filtro = busqueda.trim().toUpperCase();
   const visibles = (lineas ?? []).filter(
     (l) =>
@@ -425,19 +475,31 @@ function ContenidoContenedor({
       const cambios = lineas
         .filter((l) => (cajas[l.pedidoLineaId] ?? l.enEste) !== l.enEste)
         .map((l) => ({ pedidoLineaId: l.pedidoLineaId, cajas: cajas[l.pedidoLineaId] ?? 0 }));
-      if (!cambios.length) {
+      const pendientesCambiaron = pendientes.length !== (contenedor.pendientes ?? []).length;
+      if (!cambios.length && !pendientesCambiaron) {
         onCerrar();
         return;
       }
-      const r = await fetch(`/api/contenedores/${contenedor.id}/lineas`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cambios }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
-      if (Array.isArray(j.recortes) && j.recortes.length) {
-        setAvisos(j.recortes);
+      if (cambios.length) {
+        const r = await fetch(`/api/contenedores/${contenedor.id}/lineas`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cambios }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+        if (Array.isArray(j.recortes) && j.recortes.length) {
+          setAvisos(j.recortes);
+        }
+      }
+      // Lo que el dueño ya resolvió (o descartó) deja de estar pendiente.
+      if (pendientesCambiaron) {
+        const r2 = await fetch("/api/contenedores", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: contenedor.id, pendientes }),
+        });
+        if (!r2.ok) throw new Error((await r2.json()).error ?? "No se pudo guardar lo pendiente.");
       }
       onGuardado();
     } catch (e) {
@@ -462,6 +524,77 @@ function ContenidoContenedor({
           para quitarlo del contenedor. También puedes agregar renglones de los mismos
           pedidos que no se habían embarcado.
         </p>
+
+        {pendientes.length ? (
+          <section
+            className="mt-3 rounded-lg border p-3"
+            style={{ borderColor: "var(--estado-critico)", background: "color-mix(in oklab, var(--estado-critico) 6%, transparent)" }}
+          >
+            <h4 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+              Esto venía en el packing list y no amarró
+            </h4>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+              Casi siempre es que la fábrica le puso otro nombre al color. Elige el renglón del
+              pedido que sí es y confirma: las cajas se suman a ese renglón.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {pendientes.map((p, i) => {
+                const opciones = candidatosDe(p);
+                const elegido = eleccion[i] ?? opciones[0]?.pedidoLineaId ?? "";
+                return (
+                  <li key={`${p.modelo}|${p.color}|${i}`} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-medium">
+                      {p.modelo} {p.color}
+                      {p.talla ? ` talla ${p.talla}` : ""}
+                    </span>
+                    <span className="cifra">{n(p.cajas)} cajas</span>
+                    <span style={{ color: "var(--ink-muted)" }}>{p.motivo}</span>
+                    {lineas === null ? (
+                      <span style={{ color: "var(--ink-muted)" }}>Cargando el pedido…</span>
+                    ) : opciones.length ? (
+                      <>
+                        <span style={{ color: "var(--ink-2)" }}>¿Es</span>
+                        <select
+                          value={elegido}
+                          onChange={(ev) => setEleccion((e) => ({ ...e, [i]: ev.target.value }))}
+                          className="rounded border px-1.5 py-0.5"
+                          style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
+                        >
+                          {opciones.map((l) => (
+                            <option key={l.pedidoLineaId} value={l.pedidoLineaId}>
+                              {l.modelo} {l.color}
+                              {l.talla ? ` ${l.talla}` : ""} · {l.pedido} · quedan{" "}
+                              {n(Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)))}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => confirmar(i, p, elegido)}
+                          className="rounded-lg px-2 py-1 font-medium text-white"
+                          style={{ background: "var(--acento)" }}
+                        >
+                          Sí, es este
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ color: "var(--ink-muted)" }}>
+                        Ese pedido ya no tiene cajas libres de {p.modelo}.
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setPendientes((ps) => ps.filter((_, j) => j !== i))}
+                      className="rounded-lg border px-2 py-1"
+                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                      title="No es ninguno: quítalo del aviso"
+                    >
+                      Descartar
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
 
         <input
           value={busqueda}
