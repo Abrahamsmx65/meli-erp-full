@@ -210,6 +210,16 @@ guárdala numerada.
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. El siguiente corte solo toma lo que
   no tiene corte.
+  **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
+  el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
+  el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese
+  botón hace PRIMERO un corte completo con lo que tiene dos días o más de
+  antigüedad (`partirEnTandas`, día en hora de México: corrido un lunes son
+  viernes y sábado) y luego un SEGUNDO corte con lo del domingo y el lunes.
+  Un pedido sin fecha se va con los urgentes. Si el primer corte se come el
+  rato de Vercel, el segundo NO se hace a medias: dice cuántos quedaron y el
+  botón normal se los lleva completos. La simulación enseña la partición
+  antes de confirmar nada.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
@@ -218,13 +228,22 @@ guárdala numerada.
   caja, un escaneo por par). El camino principal con muchos paquetes del
   mismo producto es empezar por el PEDIDO: el renglón de la hoja lleva el
   NÚMERO DE PEDIDO en Code 128 (juego C, `codigoDeOrden`), escanearlo
-  elige ese paquete exacto y pasa a pedir sus FNSKU. El código de producto
-  es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta de
-  Amazon); si TikTok llama al color distinto (MY2304 CAMEL = BROWN en
+  elige ese paquete exacto y pasa a pedir sus FNSKU. El código que se
+  IMPRIME es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta
+  de Amazon); si TikTok llama al color distinto (MY2304 CAMEL = BROWN en
   Amazon), la equivalencia por modelo en `tiktok_alias_amazon`
-  (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Sin FNSKU
-  solo queda "Dar por bueno sin escanear", registrado como `MANUAL:` en
-  `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
+  (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Pero la
+  MISMA caja puede traer pegada la etiqueta de Mercado Envíos Full, así que
+  el escáner también acepta el CÓDIGO FULL de MELI (el `inventory_id` de la
+  variante) de cualquiera de las dos cuentas —calzado (`skus`) y fundas
+  (`yz_skus`)— siempre que sea exactamente de ese SKU: `tiktok/codigos.ts`
+  arma la lista (`codigos` de cada par, amarre canónico → ordenado →
+  aplastado) y `preparar.ts` da por bueno el par con cualquiera de ellos.
+  El catálogo de fundas es enorme, así que de ese solo se preguntan los SKUs
+  del corte, por nombre exacto. Un producto sin FNSKU pero con código Full
+  imprime ESE código y se escanea; "Dar por bueno sin escanear" (registrado
+  como `MANUAL:` en `tiktok_preparaciones.escaneos`) queda solo para lo que
+  no tiene NINGÚN código. Un paquete completo se puede dar por
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
   (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
   el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
