@@ -123,6 +123,20 @@ guárdala numerada.
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
   veces. El Excel de existencias ya no tiene UI: queda solo como respaldo de
   emergencia en `/api/importar`.
+- **Una publicación de MELI = UN SOLO renglón activo en `skus`.** MELI deja
+  editar el SELLER_SKU de una variante y el catálogo se guarda por
+  (cuenta, SKU), así que escribir el nombre nuevo NO borra el viejo. El
+  barrido completo lo limpia (`detectarSkusFantasma`) pero corre una vez al
+  día; el aviso del webhook llega en el momento y hasta el 10-sep-2026 solo
+  daba de alta, así que 26 publicaciones quedaron con DOS renglones activos
+  (el mismo `inventory_id` como "GT134-NAVY / RED-28-MX" y como
+  "GT134-NAVY-RED-28-MX"). Con las dos vivas, `construirCajas` amarraba la
+  caja de la bodega TikTok tantito a una y tantito a la otra: el kardex se
+  pasó los 15 pares de un nombre al otro dos veces al día y el par vendido
+  el 7-sep se quedó en el nombre viejo, con saldo −1. `procesarItem`
+  (`webhooks.ts`) ahora apaga el nombre anterior de ESA variante en el acto
+  (`renombresDePublicacion`: se reconoce por su user product y, si no hay,
+  por item + variación; nunca las hermanas ni las que esperan su SKU).
 - **El SKU de las publicaciones de Full vive en `/user-products/{id}`** (atributo
   SELLER_SKU, texto en `values[].name`), NO en la publicación: las variantes
   llegan con `attributes` vacío y `seller_custom_field` en null. MELI limita esa

@@ -32,6 +32,73 @@ import {
  * huella que deja renombrar un SKU en MELI: el nombre nuevo entra como fila
  * nueva y el viejo se quedaba activo para siempre.
  */
+/**
+ * Cuando una publicación CAMBIA de SKU, el nombre anterior tiene que
+ * apagarse en el acto.
+ *
+ * MELI deja editar el SELLER_SKU de una variante, y el ERP guarda el
+ * catálogo por (cuenta, SKU): escribir el nombre nuevo NO borra el viejo.
+ * El 9 y el 10 de septiembre eso dejó 26 publicaciones con DOS renglones
+ * activos (el mismo `inventory_id` como "GT134-NAVY / RED-28-MX" y como
+ * "GT134-NAVY-RED-28-MX"); la bodega de TikTok amarró la caja tantito a uno
+ * y tantito al otro, y el kardex se pasó los 15 pares de un nombre al otro
+ * dos veces al día hasta dejar un saldo en −1. El barrido completo del
+ * catálogo sí lo limpia (`detectarSkusFantasma`), pero corre una vez al día;
+ * el aviso del webhook llega en el momento y hasta hoy solo daba de alta.
+ *
+ * Se apaga SOLO el nombre viejo de la MISMA variante —se reconoce por su
+ * user product, y si no hay, por item + variación—, nunca las hermanas ni
+ * las variantes que siguen esperando su SKU.
+ */
+export function renombresDePublicacion(
+  activos: {
+    sku: string;
+    item_id?: string | null;
+    variation_id?: string | null;
+    user_product_id?: string | null;
+  }[],
+  frescos: {
+    sku: string;
+    itemId: string;
+    variationId?: string | null;
+    userProductId?: string | null;
+  }[],
+): string[] {
+  const llaves = (x: {
+    itemId?: string | null;
+    item_id?: string | null;
+    variationId?: string | null;
+    variation_id?: string | null;
+    userProductId?: string | null;
+    user_product_id?: string | null;
+  }): string[] => {
+    const up = x.userProductId ?? x.user_product_id ?? null;
+    const item = x.itemId ?? x.item_id ?? null;
+    const varia = x.variationId ?? x.variation_id ?? null;
+    const l: string[] = [];
+    if (up) l.push(`up:${up}`);
+    if (item) l.push(`iv:${item}|${varia ?? ""}`);
+    return l;
+  };
+
+  const nuevoDe = new Map<string, string>();
+  for (const f of frescos) {
+    for (const k of llaves(f)) if (!nuevoDe.has(k)) nuevoDe.set(k, f.sku);
+  }
+
+  const fuera = new Set<string>();
+  for (const a of activos) {
+    for (const k of llaves(a)) {
+      const nuevo = nuevoDe.get(k);
+      if (nuevo && nuevo !== a.sku) {
+        fuera.add(a.sku);
+        break;
+      }
+    }
+  }
+  return [...fuera];
+}
+
 export function detectarSkusFantasma(
   activos: { sku: string; item_id: string | null; user_product_id: string | null }[],
   frescos: { sku: string; itemId: string }[],

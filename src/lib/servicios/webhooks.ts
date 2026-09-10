@@ -15,7 +15,7 @@ import { CacheTarifas, leerPagoReal, resumirOrdenConMeli } from "../meli/pagos-a
 import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { detallarItems, dedupePorSku, esEnTransito, claveItem } from "../meli/sync";
 import { aISO } from "../engine/fechas";
-import { desglosarSku, guardarVentasDiarias } from "./sync";
+import { desglosarSku, guardarVentasDiarias, renombresDePublicacion } from "./sync";
 import { invalidar } from "./cache";
 import { traerTodo, type DB } from "../datos/repos";
 
@@ -844,6 +844,7 @@ async function procesarItem(
   const filas = dedupePorSku(await detallarItems(cliente, [itemId]));
   if (!filas.length) return false;
 
+  const ahora = new Date().toISOString();
   await db.from("skus").upsert(
     filas.map((f) => {
       const d = desglosarSku(f.sku);
@@ -853,6 +854,7 @@ async function procesarItem(
         item_id: f.itemId,
         variation_id: f.variationId,
         inventory_id: f.inventoryId,
+        user_product_id: f.userProductId,
         titulo: f.titulo,
         logistica: f.logistica,
         estado: f.estado,
@@ -861,11 +863,30 @@ async function procesarItem(
         color: d.color,
         talla: d.talla,
         activo: true,
-        actualizado_en: new Date().toISOString(),
+        actualizado_en: ahora,
       };
     }),
     { onConflict: "account_id,sku" },
   );
+
+  // Si el SKU de una variante CAMBIÓ, el nombre anterior se apaga aquí
+  // mismo. Dejarlo vivo hasta el barrido del día siguiente dejaba dos
+  // renglones activos para la misma publicación, y con eso la bodega de
+  // TikTok mandaba los pares de un nombre al otro (saldo en −1 el 10-sep).
+  const { data: activos } = await db
+    .from("skus")
+    .select("sku, item_id, variation_id, user_product_id")
+    .eq("account_id", accountId)
+    .eq("item_id", itemId)
+    .eq("activo", true);
+  const viejos = renombresDePublicacion((activos ?? []) as any[], filas);
+  if (viejos.length) {
+    await db
+      .from("skus")
+      .update({ activo: false, actualizado_en: ahora })
+      .eq("account_id", accountId)
+      .in("sku", viejos);
+  }
 
   return true;
 }
