@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esHojaDeCalculo, leerListadoPublico, MIME_SHEET } from "./drive";
+import { esHojaDeCalculo, leerListadoPublico, MIME_CARPETA, MIME_SHEET } from "./drive";
 
 const HTML = `
 <div class="flip-entries">
@@ -9,12 +9,14 @@ const HTML = `
 <div class="flip-entry" id="entry-2XyZ"><a href="https://docs.google.com/spreadsheets/d/2XyZ/edit?usp=drive_web">
 <div class="flip-entry-title">S260-2026 &amp; fundas</div><div class="flip-entry-last-modified"><div>hoy</div></div></a></div>
 <div class="flip-entry" id="entry-3Pdf"><a href="https://drive.google.com/file/d/3Pdf/view"><div class="flip-entry-title">factura.pdf</div></a></div>
+<div class="flip-entry flip-entry-folder" id="entry-4Dir"><a href="https://drive.google.com/embeddedfolderview?id=4Dir"><div class="flip-entry-title">S260</div></a></div>
 </div>`;
 
 describe("listado público de Drive", () => {
   it("saca id, nombre, tipo y fecha de cada entrada; una hoja de Google se reconoce por su enlace", () => {
     const a = leerListadoPublico(HTML);
-    expect(a.map((x) => x.id)).toEqual(["1AbCdEf", "2XyZ", "3Pdf"]);
+    expect(a.map((x) => x.id)).toEqual(["1AbCdEf", "2XyZ", "3Pdf", "4Dir"]);
+    expect(a[3]).toMatchObject({ nombre: "S260", mime: MIME_CARPETA });
     expect(a[0]).toMatchObject({ nombre: "S259-2026 PACKING LIST.xlsx", modificadoEn: "2026-09-09T00:00:00.000Z" });
     expect(a[1]).toMatchObject({ nombre: "S260-2026 & fundas", mime: MIME_SHEET, modificadoEn: null });
     expect(a.filter(esHojaDeCalculo).map((x) => x.id)).toEqual(["1AbCdEf", "2XyZ"]);

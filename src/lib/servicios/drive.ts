@@ -23,6 +23,17 @@ export interface ArchivoDrive {
   /** ISO; en el camino público solo trae la fecha del listado (sin hora) o null */
   modificadoEn: string | null;
   tamano: number | null;
+  /** nombre de la subcarpeta donde vive (los packing lists van por contenedor) */
+  carpeta?: string | null;
+}
+
+export const MIME_CARPETA = "application/vnd.google-apps.folder";
+/** Cuántos niveles de subcarpetas se recorren (contenedor → archivos). */
+const NIVELES = 2;
+
+export interface OpcionesListado {
+  /** true = no entrar a esa subcarpeta (por ejemplo, un embarque viejo) */
+  omitirCarpeta?: (nombre: string) => boolean;
 }
 
 export interface ConfigDrive {
@@ -94,10 +105,19 @@ export function leerListadoPublico(html: string): ArchivoDrive[] {
     const fecha = b.match(/flip-entry-last-modified"[^>]*>\s*(?:<div[^>]*>)?([^<]*)</)?.[1]?.trim();
     const ms = fecha ? Date.parse(fecha) : NaN;
     const esSheet = /docs\.google\.com\/spreadsheets/.test(href);
+    const esCarpeta = /\/folders\/|embeddedfolderview\?id=/.test(href);
     salida.push({
       id,
       nombre: decodificar(nombre.trim()),
-      mime: esSheet ? MIME_SHEET : /\.xlsx$/i.test(nombre) ? MIME_XLSX : /\.xls$/i.test(nombre) ? "application/vnd.ms-excel" : "",
+      mime: esCarpeta
+        ? MIME_CARPETA
+        : esSheet
+          ? MIME_SHEET
+          : /\.xlsx$/i.test(nombre)
+            ? MIME_XLSX
+            : /\.xls$/i.test(nombre)
+              ? "application/vnd.ms-excel"
+              : "",
       md5: null,
       modificadoEn: Number.isFinite(ms) ? new Date(ms).toISOString() : null,
       tamano: null,
@@ -114,11 +134,11 @@ export async function htmlListadoPublico(carpeta: string): Promise<{ status: num
   return { status: r.status, html: await r.text() };
 }
 
-async function listarPublico(carpeta: string): Promise<ArchivoDrive[]> {
+async function listarPublico(carpeta: string, opts: OpcionesListado, nivel = 0, ruta: string | null = null): Promise<ArchivoDrive[]> {
   const r = await pedir(URL_LISTADO_PUBLICO(carpeta));
   const html = await r.text();
-  const archivos = leerListadoPublico(html);
-  if (!archivos.length) {
+  const entradas = leerListadoPublico(html);
+  if (!entradas.length && nivel === 0) {
     const vacia = /no hay archivos|no files|carpeta vac/i.test(html);
     if (!vacia) {
       throw new Error(
@@ -127,7 +147,17 @@ async function listarPublico(carpeta: string): Promise<ArchivoDrive[]> {
       );
     }
   }
-  return archivos;
+  const salida: ArchivoDrive[] = [];
+  for (const e of entradas) {
+    if (e.mime !== MIME_CARPETA) {
+      salida.push({ ...e, carpeta: ruta });
+      continue;
+    }
+    // Subcarpeta (una por contenedor): se entra salvo que el llamador la descarte.
+    if (nivel + 1 >= NIVELES || opts.omitirCarpeta?.(e.nombre)) continue;
+    salida.push(...(await listarPublico(e.id, opts, nivel + 1, e.nombre)));
+  }
+  return salida;
 }
 
 async function descargarPublico(a: ArchivoDrive): Promise<Buffer> {
@@ -148,12 +178,13 @@ async function descargarPublico(a: ArchivoDrive): Promise<Buffer> {
 // ---------------------------------------------------------------------------
 // Camino con llave (API v3)
 // ---------------------------------------------------------------------------
-async function listarConLlave(cfg: ConfigDrive): Promise<ArchivoDrive[]> {
+async function listarConLlave(cfg: ConfigDrive, opts: OpcionesListado, carpeta = cfg.carpeta, nivel = 0, ruta: string | null = null): Promise<ArchivoDrive[]> {
   const salida: ArchivoDrive[] = [];
+  const subcarpetas: { id: string; nombre: string }[] = [];
   let pageToken: string | null = null;
   do {
     const params = new URLSearchParams({
-      q: `'${cfg.carpeta}' in parents and trashed = false`,
+      q: `'${carpeta}' in parents and trashed = false`,
       fields: "nextPageToken, files(id, name, mimeType, md5Checksum, modifiedTime, size)",
       pageSize: "200",
       supportsAllDrives: "true",
@@ -166,6 +197,10 @@ async function listarConLlave(cfg: ConfigDrive): Promise<ArchivoDrive[]> {
       files?: { id: string; name: string; mimeType: string; md5Checksum?: string; modifiedTime?: string; size?: string }[];
     };
     for (const f of j.files ?? []) {
+      if (f.mimeType === MIME_CARPETA) {
+        subcarpetas.push({ id: f.id, nombre: f.name });
+        continue;
+      }
       salida.push({
         id: f.id,
         nombre: f.name,
@@ -173,10 +208,15 @@ async function listarConLlave(cfg: ConfigDrive): Promise<ArchivoDrive[]> {
         md5: f.md5Checksum ?? null,
         modificadoEn: f.modifiedTime ?? null,
         tamano: f.size != null ? Number(f.size) : null,
+        carpeta: ruta,
       });
     }
     pageToken = j.nextPageToken ?? null;
   } while (pageToken);
+  for (const s of subcarpetas) {
+    if (nivel + 1 >= NIVELES || opts.omitirCarpeta?.(s.nombre)) continue;
+    salida.push(...(await listarConLlave(cfg, opts, s.id, nivel + 1, s.nombre)));
+  }
   return salida;
 }
 
@@ -190,9 +230,12 @@ async function descargarConLlave(cfg: ConfigDrive, a: ArchivoDrive): Promise<Buf
 }
 
 // ---------------------------------------------------------------------------
-/** Los archivos de la carpeta (sin los borrados), con su huella para saber si cambiaron. */
-export function listarCarpetaDrive(cfg: ConfigDrive): Promise<ArchivoDrive[]> {
-  return cfg.apiKey ? listarConLlave(cfg) : listarPublico(cfg.carpeta);
+/**
+ * Los archivos de la carpeta y de sus subcarpetas (una por contenedor), sin
+ * los borrados, con su huella para saber si cambiaron.
+ */
+export function listarCarpetaDrive(cfg: ConfigDrive, opts: OpcionesListado = {}): Promise<ArchivoDrive[]> {
+  return cfg.apiKey ? listarConLlave(cfg, opts) : listarPublico(cfg.carpeta, opts);
 }
 
 /** El contenido: un Excel tal cual, o una hoja de Google exportada a xlsx. */

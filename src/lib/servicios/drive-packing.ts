@@ -90,7 +90,12 @@ export async function sincronizarPackingListsDrive(
   // Sin llave se lee la carpeta pública (decisión del dueño); con llave, el API.
   const cfg = configDrive();
 
-  const archivos = (await listarCarpetaDrive(cfg)).filter(esHojaDeCalculo);
+  // Los packing lists viven en subcarpetas por contenedor: a las de embarques
+  // anteriores al último cargado ni se entra.
+  const maximo = await embarqueMaximo(admin, accountId);
+  const archivos = (
+    await listarCarpetaDrive(cfg, { omitirCarpeta: (nombre) => esEmbarqueViejo(numeroDeEmbarque(nombre), maximo) })
+  ).filter(esHojaDeCalculo);
   r.archivos = archivos.length;
   const { data: guardadas } = await admin
     .from("drive_packing_lists")
@@ -103,7 +108,7 @@ export async function sincronizarPackingListsDrive(
       {
         account_id: accountId,
         drive_file_id: a.id,
-        nombre: a.nombre,
+        nombre: a.carpeta ? `${a.carpeta}/${a.nombre}` : a.nombre,
         md5: a.md5,
         modificado_en: a.modificadoEn || null,
         procesado_en: new Date().toISOString(),
@@ -115,13 +120,13 @@ export async function sincronizarPackingListsDrive(
     );
   };
 
-  const maximo = await embarqueMaximo(admin, accountId);
   let huboCambios = false;
   for (const a of archivos) {
     if (Date.now() > opts.finMs) break;
     if (!opts.forzar && !cambio(a, previa.get(a.id))) continue;
-    // Por el nombre, sin descargar: un embarque anterior al último cargado no se toca.
-    const porNombre = numeroDeEmbarque(a.nombre);
+    // Por la subcarpeta o el nombre, sin descargar: un embarque anterior al
+    // último cargado no se toca.
+    const porNombre = numeroDeEmbarque(a.carpeta) ?? numeroDeEmbarque(a.nombre);
     if (esEmbarqueViejo(porNombre, maximo)) {
       if (!previa.has(a.id) || opts.forzar) {
         await registrar(a, "omitido", `S${porNombre} es anterior al último embarque cargado (S${maximo}); no se importa.`);
