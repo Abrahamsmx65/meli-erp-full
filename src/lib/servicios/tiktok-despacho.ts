@@ -15,9 +15,12 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheApp } from "./cache-app";
 import { codificar128 } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
+import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
+import { partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import {
   enviarPaquete,
   etiquetaDePaquete,
@@ -80,6 +83,49 @@ export async function aliasAmazonDeCuenta(db: DB, accountId: string): Promise<Ma
   return indexarAlias(alias);
 }
 
+/** Clave y frescura del catálogo de códigos Full masticado. */
+const CLAVE_CODIGOS_FULL = "codigos-full";
+const TTL_CODIGOS_FULL = 30 * 60_000;
+
+/** Los pares (SKU, código Full) de los DOS catálogos de MELI, tal cual. */
+async function paresCodigosFull(db: DB, accountId: string): Promise<[string, string][]> {
+  const vacio = () => [] as any[];
+  const [calzado, fundas] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku, inventory_id", (q) =>
+      q.eq("account_id", accountId).not("inventory_id", "is", null),
+    ).catch(vacio),
+    traerTodo<any>(db, "yz_skus", "sku, inventory_id", (q) => q.not("inventory_id", "is", null)).catch(vacio),
+  ]);
+  return [...(calzado ?? []), ...(fundas ?? [])]
+    .filter((f: any) => f?.sku && f?.inventory_id)
+    .map((f: any) => [String(f.sku), String(f.inventory_id)] as [string, string]);
+}
+
+/**
+ * Los códigos Full de MELI de los dos catálogos: el de calzado (`skus`, de
+ * esta cuenta) y el de fundas (`yz_skus`). Son la OTRA etiqueta que puede
+ * traer pegada la caja, así que la estación de preparar también los acepta.
+ *
+ * Los DOS catálogos entran COMPLETOS y con los tres amarres del ERP
+ * (canónico, ordenado y aplastado): cómo esté escrito el SKU en cada cuenta
+ * no tiene por qué importar, lo que importa es que el código sea de ese
+ * producto. Como son ~17 mil variantes entre las dos, el catálogo se mastica
+ * y se guarda (`app_cache`, clave `codigos-full`, media hora): la pantalla
+ * lee un renglón. Si el caché o alguna tabla falla, se calcula al vuelo y,
+ * en el peor caso, se escanea el FNSKU como siempre.
+ */
+export async function codigosMeliDeCuenta(db: DB, accountId: string): Promise<IndiceCodigosMeli> {
+  let pares: [string, string][] = [];
+  try {
+    pares = await conCacheApp(db, accountId, CLAVE_CODIGOS_FULL, TTL_CODIGOS_FULL, () =>
+      paresCodigosFull(db, accountId),
+    );
+  } catch {
+    pares = await paresCodigosFull(db, accountId).catch(() => []);
+  }
+  return indexarCodigosMeli(pares.map(([sku, inventoryId]) => ({ sku, inventoryId })));
+}
+
 /** Bucket privado donde se guardan las guías (una por paquete) y el PDF del corte. */
 export const BUCKET_GUIAS = "tiktok-guias";
 
@@ -91,14 +137,14 @@ export function primerHorario(horarios: HorarioRecoleccion[]): HorarioRecoleccio
   return ordenados.find((h) => h.fin > ahora) ?? ordenados[ordenados.length - 1];
 }
 
-/** Los pedidos que entrarían en el siguiente corte. */
-export async function pendientesDeCorte(db: DB, accountId: string): Promise<{ orderId: string; estado: string }[]> {
-  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id", (q) =>
+/** Los pedidos que entrarían en el siguiente corte, con la fecha en que se vendieron. */
+export async function pendientesDeCorte(db: DB, accountId: string): Promise<PendienteConFecha[]> {
+  const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion", (q) =>
     q.eq("account_id", accountId).is("corte_id", null),
   );
   return (filas ?? [])
     .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
-    .map((o: any) => ({ orderId: o.order_id, estado: o.estado }));
+    .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null }));
 }
 
 /**
@@ -109,12 +155,21 @@ export async function pendientesDeCorte(db: DB, accountId: string): Promise<{ or
 export async function hacerCorte(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null },
+  opciones: {
+    handover: OpcionesEnvio["handover"];
+    creadoPor?: string | null;
+    /** si viene, el corte se hace SOLO con estos pedidos (el corte del lunes) */
+    soloPedidos?: string[];
+    /** cuánto tiempo puede gastar con TikTok (el corte partido reparte el rato) */
+    msDisponibles?: number;
+  },
 ): Promise<ResultadoCorte> {
-  const cliente = await clienteDeCuenta(admin, accountId, 240_000);
+  const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? 240_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
-  const pendientes = await pendientesDeCorte(admin, accountId);
+  const todos = await pendientesDeCorte(admin, accountId);
+  const filtro = opciones.soloPedidos ? new Set(opciones.soloPedidos) : null;
+  const pendientes = filtro ? todos.filter((p) => filtro.has(p.orderId)) : todos;
   if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
 
   const errores: { orderId: string; error: string }[] = [];
@@ -243,6 +298,85 @@ export async function hacerCorte(
 }
 
 // ---------------------------------------------------------------------------
+// El corte del LUNES: primero lo atrasado, luego lo de ayer y hoy
+// ---------------------------------------------------------------------------
+
+export interface ResultadoCorteLunes {
+  /** los cortes que se hicieron, en orden: primero el de lo atrasado */
+  cortes: ResultadoCorte[];
+  /** pedidos que se quedaron para el siguiente corte porque no alcanzó el tiempo */
+  pendientes: number;
+  aviso: string | null;
+}
+
+/** Tiempo total que se puede gastar en los dos cortes (el techo de Vercel es 300 s). */
+const MS_CORTE_LUNES = 260_000;
+
+/**
+ * El corte del lunes, partido en dos.
+ *
+ * El lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
+ * sábado ya casi cumple las 48 horas que da TikTok. Así que se hace PRIMERO
+ * un corte completo con eso —sale con su etiqueta, su lista y su surtido, y
+ * se empaca de una vez— y luego un segundo corte con lo del domingo y el
+ * lunes, que todavía tiene tiempo.
+ *
+ * Si el primero se come el rato disponible, el segundo NO se hace a medias:
+ * se dice cuántos pedidos quedaron y el botón normal de "Hacer corte" los
+ * toma completos (son, exactamente, los que sobraron).
+ */
+export async function hacerCorteLunes(
+  admin: any,
+  accountId: string,
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null },
+): Promise<ResultadoCorteLunes> {
+  const arranque = Date.now();
+  const pendientes = await pendientesDeCorte(admin, accountId);
+  if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
+
+  const { urgentes, resto } = partirEnTandas(pendientes);
+
+  // Sin nada atrasado (o con TODO atrasado) no hay nada que partir: un solo
+  // corte, igual que el botón de siempre.
+  if (!urgentes.length || !resto.length) {
+    const unico = await hacerCorte(admin, accountId, { ...opciones, msDisponibles: MS_CORTE_LUNES });
+    return {
+      cortes: [unico],
+      pendientes: 0,
+      aviso: urgentes.length
+        ? "Todo lo pendiente ya tenía dos días o más: se hizo un solo corte."
+        : "No hay pedidos atrasados: se hizo un solo corte.",
+    };
+  }
+
+  // Primero lo atrasado, con la mitad del rato: lo urgente nunca se queda
+  // sin corte por culpa de lo que todavía tiene tiempo.
+  const primero = await hacerCorte(admin, accountId, {
+    ...opciones,
+    soloPedidos: urgentes.map((p) => p.orderId),
+    msDisponibles: Math.floor(MS_CORTE_LUNES / 2),
+  });
+
+  const restante = MS_CORTE_LUNES - (Date.now() - arranque);
+  if (restante < 45_000) {
+    return {
+      cortes: [primero],
+      pendientes: resto.length,
+      aviso:
+        `Ya salió el corte de lo atrasado (${primero.pedidos} pedidos). No alcanzó el tiempo para el segundo: ` +
+        `dale otra vez a "Hacer corte" y se lleva los ${resto.length} del domingo y el lunes.`,
+    };
+  }
+
+  const segundo = await hacerCorte(admin, accountId, {
+    ...opciones,
+    soloPedidos: resto.map((p) => p.orderId),
+    msDisponibles: restante,
+  });
+  return { cortes: [primero, segundo], pendientes: 0, aviso: null };
+}
+
+// ---------------------------------------------------------------------------
 // Los paquetes de un corte, ya ordenados y numerados
 // ---------------------------------------------------------------------------
 
@@ -281,7 +415,14 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
   // El FNSKU es el código de barras que ya trae la caja del zapato (las
   // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
-  const [amazon, alias] = await Promise.all([mapaAmazon(admin), aliasAmazonDeCuenta(admin, accountId)]);
+  // El FNSKU es el que se imprime, pero la caja puede traer pegada la
+  // etiqueta de Full de cualquiera de las dos cuentas de MELI: sus códigos
+  // también valen para dar el par por bueno.
+  const [amazon, alias, meli] = await Promise.all([
+    mapaAmazon(admin),
+    aliasAmazonDeCuenta(admin, accountId),
+    codigosMeliDeCuenta(admin, accountId),
+  ]);
   const fnskuDe = (sku: string) => resolverFnsku(amazon, alias, sku);
 
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
@@ -308,7 +449,12 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         const sku = r.sku_interno ?? r.seller_sku ?? "(sin SKU)";
         porSku.set(sku, (porSku.get(sku) ?? 0) + (r.cantidad ?? 1));
       }
-      return [...porSku].map(([sku, pares]) => ({ sku, pares, fnsku: fnskuDe(sku) }));
+      return [...porSku].map(([sku, pares]) => ({
+        sku,
+        pares,
+        fnsku: fnskuDe(sku),
+        codigos: codigosMeliDeSku(meli, sku),
+      }));
     };
 
     if (ids.length <= 1) {
@@ -838,6 +984,8 @@ export interface SimulacionCorte {
     aviso: string | null;
   }[];
   totalPares: number;
+  /** cómo quedaría el corte del lunes: lo atrasado primero, lo de ayer y hoy después */
+  tandas: { urgentes: number; resto: number; corte: string };
   /** lo que se le mandaría al 3PL */
   salidasAl3pl: { sku: string; pares: number }[];
   endpoint3pl: string | null;
@@ -891,9 +1039,12 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
     salida.push({ orderId: p.orderId, estado: p.estado, paquetes, recoleccion, pares, aviso });
   }
 
+  const tandas = partirEnTandas(pendientes);
+
   return {
     pedidos: salida,
     totalPares: salida.reduce((a, p) => a + p.pares.reduce((b, x) => b + x.pares, 0), 0),
+    tandas: { urgentes: tandas.urgentes.length, resto: tandas.resto.length, corte: tandas.corte },
     salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
     endpoint3pl: urlSalidasIndusther(),
   };

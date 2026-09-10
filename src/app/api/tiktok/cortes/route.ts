@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { hacerCorte, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { hacerCorte, hacerCorteLunes, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,15 +21,27 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   try {
     const admin = clienteAdmin();
-    const r = await hacerCorte(admin, cuenta.id, {
-      handover: body?.handover === "DROP_OFF" ? "DROP_OFF" : "PICKUP",
+    const opciones = {
+      handover: (body?.handover === "DROP_OFF" ? "DROP_OFF" : "PICKUP") as "DROP_OFF" | "PICKUP",
       creadoPor: user.id,
-    });
+    };
     // Las guías se bajan y se guardan en cuanto se contesta: cuando el
     // usuario pida el PDF ya está armado.
-    after(async () => {
-      await pdfEtiquetasDelCorte(admin, cuenta.id, r.corteId).catch(() => undefined);
-    });
+    const calentar = (ids: number[]) =>
+      after(async () => {
+        for (const id of ids) await pdfEtiquetasDelCorte(admin, cuenta.id, id).catch(() => undefined);
+      });
+
+    // "Corte lunes": primero lo del viernes y el sábado, que ya casi cumple
+    // las 48 horas, y luego lo del domingo y el lunes.
+    if (body?.modo === "lunes") {
+      const r = await hacerCorteLunes(admin, cuenta.id, opciones);
+      calentar(r.cortes.map((c) => c.corteId));
+      return NextResponse.json({ ok: true, modo: "lunes", ...r });
+    }
+
+    const r = await hacerCorte(admin, cuenta.id, opciones);
+    calentar([r.corteId]);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

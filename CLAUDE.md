@@ -123,6 +123,20 @@ guárdala numerada.
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
   veces. El Excel de existencias ya no tiene UI: queda solo como respaldo de
   emergencia en `/api/importar`.
+- **Una publicación de MELI = UN SOLO renglón activo en `skus`.** MELI deja
+  editar el SELLER_SKU de una variante y el catálogo se guarda por
+  (cuenta, SKU), así que escribir el nombre nuevo NO borra el viejo. El
+  barrido completo lo limpia (`detectarSkusFantasma`) pero corre una vez al
+  día; el aviso del webhook llega en el momento y hasta el 10-sep-2026 solo
+  daba de alta, así que 26 publicaciones quedaron con DOS renglones activos
+  (el mismo `inventory_id` como "GT134-NAVY / RED-28-MX" y como
+  "GT134-NAVY-RED-28-MX"). Con las dos vivas, `construirCajas` amarraba la
+  caja de la bodega TikTok tantito a una y tantito a la otra: el kardex se
+  pasó los 15 pares de un nombre al otro dos veces al día y el par vendido
+  el 7-sep se quedó en el nombre viejo, con saldo −1. `procesarItem`
+  (`webhooks.ts`) ahora apaga el nombre anterior de ESA variante en el acto
+  (`renombresDePublicacion`: se reconoce por su user product y, si no hay,
+  por item + variación; nunca las hermanas ni las que esperan su SKU).
 - **El SKU de las publicaciones de Full vive en `/user-products/{id}`** (atributo
   SELLER_SKU, texto en `values[].name`), NO en la publicación: las variantes
   llegan con `attributes` vacío y `seller_custom_field` en null. MELI limita esa
@@ -210,6 +224,16 @@ guárdala numerada.
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. El siguiente corte solo toma lo que
   no tiene corte.
+  **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
+  el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
+  el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese
+  botón hace PRIMERO un corte completo con lo que tiene dos días o más de
+  antigüedad (`partirEnTandas`, día en hora de México: corrido un lunes son
+  viernes y sábado) y luego un SEGUNDO corte con lo del domingo y el lunes.
+  Un pedido sin fecha se va con los urgentes. Si el primer corte se come el
+  rato de Vercel, el segundo NO se hace a medias: dice cuántos quedaron y el
+  botón normal se los lleva completos. La simulación enseña la partición
+  antes de confirmar nada.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
@@ -218,13 +242,29 @@ guárdala numerada.
   caja, un escaneo por par). El camino principal con muchos paquetes del
   mismo producto es empezar por el PEDIDO: el renglón de la hoja lleva el
   NÚMERO DE PEDIDO en Code 128 (juego C, `codigoDeOrden`), escanearlo
-  elige ese paquete exacto y pasa a pedir sus FNSKU. El código de producto
-  es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta de
-  Amazon); si TikTok llama al color distinto (MY2304 CAMEL = BROWN en
+  elige ese paquete exacto y pasa a pedir sus FNSKU. El código que se
+  IMPRIME es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta
+  de Amazon); si TikTok llama al color distinto (MY2304 CAMEL = BROWN en
   Amazon), la equivalencia por modelo en `tiktok_alias_amazon`
-  (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Sin FNSKU
-  solo queda "Dar por bueno sin escanear", registrado como `MANUAL:` en
-  `tiktok_preparaciones.escaneos`. Un paquete completo se puede dar por
+  (`tiktok/fnsku.ts`, formulario en Almacén TikTok) lo resuelve. Pero la
+  MISMA caja puede traer pegada la etiqueta de Mercado Envíos Full, así que
+  el escáner también acepta el CÓDIGO FULL de MELI (el `inventory_id` de la
+  variante). **El MISMO zapato está publicado en las DOS cuentas de MELI y
+  cada una le da su propio código Full** (GT134-BLK-24-MX: FIEE49194 en
+  `skus`, JNQX88982 en `yz_skus`; 164 de los 168 SKUs que TikTok vendió en
+  30 días tienen código en la segunda cuenta y solo 107 en la primera), así
+  que los DOS catálogos entran COMPLETOS y los dos códigos valen para ese
+  par: `tiktok/codigos.ts` arma la lista (`codigos` de cada par) con los
+  tres amarres del ERP —canónico → ordenado → aplastado, cómo esté escrito
+  el SKU en cada cuenta NO importa— y `preparar.ts` da por bueno el par con
+  cualquiera de ellos. Son ~17 mil variantes entre las dos cuentas: el
+  catálogo se mastica en `app_cache` clave `codigos-full` (media hora, TTL,
+  `codigosMeliDeCuenta`) y la pantalla lee un renglón; una variante recién
+  publicada tarda esa media hora en ser escaneable por su código Full (el
+  FNSKU funciona desde el primer momento). Un producto sin FNSKU pero con
+  código Full imprime ESE código y se escanea; "Dar por bueno sin escanear" (registrado
+  como `MANUAL:` en `tiktok_preparaciones.escaneos`) queda solo para lo que
+  no tiene NINGÚN código. Un paquete completo se puede dar por
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
   (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
   el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
@@ -250,7 +290,11 @@ guárdala numerada.
   kardex para los dos lados.
   Lo que quedó sin amarre se reintenta en cada corrida
   (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
-  manda al 3PL en ese momento.
+  manda al 3PL en ese momento. Los amarres capturados a mano
+  (`tiktok_mapeo_sku`) siguen mandando sobre todo, pero la LISTA que los
+  enseñaba en Almacén TikTok se quitó por decisión del dueño (10-sep-2026):
+  se ligan desde el renglón del SKU sin publicación y se consultan en la
+  base.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.

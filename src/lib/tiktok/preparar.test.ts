@@ -62,7 +62,7 @@ describe("empezar por la etiqueta (lo normal)", () => {
   it("un código que no es de nada avisa sin avanzar", () => {
     const e = avanzar(estadoInicial(), "ZZZ", CORTE, paquetes, nadie);
     expect(e.paso).toBe("inicio");
-    expect(e.error).toMatch(/no es FNSKU, pedido ni renglón/);
+    expect(e.error).toMatch(/no es código de producto, pedido ni renglón/);
   });
 });
 
@@ -143,7 +143,7 @@ describe("sin FNSKU: solo lo cierra 'Dar por bueno'", () => {
     expect(e.pitidos).toBe(2);
     e = avanzar(e, "X001EEE", CORTE, paquetes, nadie);
     expect(e.paso).toBe("producto");
-    expect(e.indicacion).toMatch(/sin FNSKU/);
+    expect(e.indicacion).toMatch(/sin código/);
     e = darPorBueno(e);
     expect(e.paso).toBe("listo");
   });
@@ -155,7 +155,7 @@ describe("sin FNSKU: solo lo cierra 'Dar por bueno'", () => {
     expect(d.paso).toBe("producto");
     expect(d.indicacion).toMatch(/faltan 1 par/);
     const bloqueado = darPorBueno({ ...d });
-    expect(bloqueado.error).toMatch(/sí tiene FNSKU/);
+    expect(bloqueado.error).toMatch(/sí tiene código/);
   });
 });
 
@@ -185,5 +185,62 @@ describe("la bocina dice el pedido", () => {
   });
   it("al terminar: pedido completado", () => {
     expect(fraseDeCompletado(p)).toBe("Pedido 3, 1, 6, 5, completado");
+  });
+});
+
+describe("el código de MELI también da por bueno el par", () => {
+  // La misma caja puede traer pegada la etiqueta de Amazon (FNSKU) o la de
+  // Full de cualquiera de las dos cuentas de MELI: las tres son de ESE par.
+  const paquetes = numerarPaquetes([
+    {
+      orderId: "585899174098140001",
+      packageId: "p1",
+      destinatario: null,
+      // FNSKU de Amazon + el código Full de CADA cuenta de MELI.
+      pares: [{ sku: "GT134-NAVY-24-MX", pares: 2, fnsku: "X001FNSKU", codigos: ["FIEE49194", "JNQX88982"] }],
+    },
+  ]);
+  const nadie = new Set<number>();
+
+  it("el código Full elige el paquete y descuenta igual que el FNSKU", () => {
+    let e = avanzar(estadoInicial(), "FIEE49194", CORTE, paquetes, nadie);
+    expect(e.paso).toBe("producto");
+    expect(e.paquete?.numero).toBe(1);
+    e = avanzar(e, "FIEE49194", CORTE, paquetes, nadie);
+    expect(e.paso).toBe("producto");
+    // Y el otro par se puede cerrar con el FNSKU: es el mismo producto.
+    e = avanzar(e, "X001FNSKU", CORTE, paquetes, nadie);
+    expect(e.paso).toBe("listo");
+  });
+
+  it("el código Full de la OTRA cuenta de MELI también vale", () => {
+    let e = avanzar(estadoInicial(), "585899174098140001", CORTE, paquetes, nadie);
+    expect(e.paso).toBe("producto");
+    e = avanzar(e, "jnqx88982", CORTE, paquetes, nadie); // el escáner puede traerlo en minúsculas
+    expect(e.error).toBeNull();
+    expect(e.faltantes[0].faltan).toBe(1);
+  });
+
+  it("un par con código Full pero sin FNSKU ya NO se cierra a mano: se escanea", () => {
+    const sueltos = numerarPaquetes([
+      {
+        orderId: "585899174098140002",
+        packageId: "p2",
+        destinatario: null,
+        pares: [{ sku: "MY2304-PURPLE-23-MX", pares: 1, fnsku: null, codigos: ["MLM55555555"] }],
+      },
+    ]);
+    let e = avanzar(estadoInicial(), "MLM55555555", CORTE, sueltos, nadie);
+    expect(e.paso).toBe("producto");
+    expect(darPorBueno(e).error).toMatch(/sí tiene código/);
+    e = avanzar(e, "MLM55555555", CORTE, sueltos, nadie);
+    expect(e.paso).toBe("listo");
+  });
+
+  it("un código de otro producto sigue sin pasar, y el aviso dice los que sí valen", () => {
+    let e = avanzar(estadoInicial(), "585899174098140001", CORTE, paquetes, nadie);
+    e = avanzar(e, "MLM00000000", CORTE, paquetes, nadie);
+    expect(e.error).toMatch(/no va en el #1/);
+    expect(e.error).toMatch(/X001FNSKU o FIEE49194 o JNQX88982/);
   });
 });
