@@ -232,11 +232,30 @@ export async function sincronizarPackingListsDrive(
       });
       huboCambios = true;
       if (!aplicado.existia) cargados.push({ id: aplicado.contenedorId, numero: aplicado.numero, estado: "borrador", embarque: numeroDeEmbarque(aplicado.numero) });
-      await registrar(a, "importado", null, {
-        contenedor_id: aplicado.contenedorId,
-        resultado: { renglones: aplicado.renglones, cajas: aplicado.cajas, omitidos: aplicado.omitidos, recortes: aplicado.recortes.slice(0, 20) },
-      });
-      r.importados.push(`${a.nombre} → ${aplicado.numero} (${aplicado.cajas} cajas, ${aplicado.renglones} renglones)`);
+      // Lo que NO entró se guarda POR RENGLÓN y sube al motivo: el dueño
+      // tiene que poder ver que faltan cajas sin abrir la base (S260-2026,
+      // 10-sep-2026: entraron 399 de 611 cajas y solo se guardó "omitidos: 3").
+      const faltan = aplicado.problemas.length;
+      await registrar(
+        a,
+        "importado",
+        faltan ? `Entró con ${faltan} renglón(es) que no cupieron completos; revisa el contenido.` : null,
+        {
+          contenedor_id: aplicado.contenedorId,
+          resultado: {
+            renglones: aplicado.renglones,
+            cajas: aplicado.cajas,
+            cajasArchivo: casado.totales.cajasArchivo,
+            omitidos: aplicado.omitidos,
+            recortes: aplicado.recortes.slice(0, 20),
+            problemas: aplicado.problemas.slice(0, 40),
+            avisos: casado.avisos?.slice(0, 20) ?? [],
+          },
+        },
+      );
+      r.importados.push(
+        `${a.nombre} → ${aplicado.numero} (${aplicado.cajas} de ${casado.totales.cajasArchivo} cajas, ${aplicado.renglones} renglones)`,
+      );
       if (!aplicado.existia) {
         const correo = await avisarFotosDeContenedor(admin, accountId, aplicado.contenedorId);
         r.correos.push({ contenedor: aplicado.numero, enviado: correo.enviado, motivo: correo.motivo });

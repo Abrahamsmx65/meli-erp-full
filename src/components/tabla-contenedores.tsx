@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { detalleModelos, resumenModelos } from "@/lib/servicios/contenedores";
 
 interface Contenedor {
   id: string;
@@ -210,24 +211,15 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   </td>
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
                   <td className="num cifra">{n(c.cajas)}</td>
+                  {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
                     {c.modelos.length ? (
-                      <>
-                        {c.modelos.map((m) => (
-                          <div key={`${m.modelo}|${m.color}`}>
-                            <span className="font-medium">{m.modelo}</span>
-                            {m.color ? <span style={{ color: "var(--ink-2)" }}> {m.color}</span> : null}{" "}
-                            <span className="cifra" style={{ color: "var(--ink-2)" }}>
-                              {n(m.cajas)} cajas{m.pares > 0 ? ` · ${n(m.pares)} pares` : ""}
-                            </span>
-                          </div>
-                        ))}
-                        {c.pedidos.length ? (
-                          <div className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                            {c.pedidos.map((p) => `${p.pedido} (${n(p.cajas)})`).join(" · ")}
-                          </div>
-                        ) : null}
-                      </>
+                      <span
+                        className="block max-w-56 cursor-help truncate"
+                        title={detalleModelos(c)}
+                      >
+                        {resumenModelos(c.modelos)}
+                      </span>
                     ) : (
                       <span style={{ color: "var(--ink-muted)" }}>—</span>
                     )}

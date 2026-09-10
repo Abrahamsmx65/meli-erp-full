@@ -47,6 +47,34 @@ export function modelosDeContenedor(
   return [...porClave.values()].sort((a, b) => a.modelo.localeCompare(b.modelo) || a.color.localeCompare(b.color));
 }
 
+const enMx = (x: number): string => Math.round(x).toLocaleString("es-MX");
+
+/**
+ * Lo que viene en el contenedor, en UNA línea (decisión del dueño,
+ * 10-sep-2026): la lista completa hacía renglones de veinte líneas y la
+ * tabla no se podía leer. Aquí van solo los modelos distintos; el detalle
+ * sale al pasar el mouse (`detalleModelos`).
+ */
+export function resumenModelos(modelos: ContenedorVista["modelos"], tope = 3): string {
+  const distintos = [...new Set(modelos.map((m) => m.modelo))];
+  if (!distintos.length) return "";
+  const primeros = distintos.slice(0, tope).join(", ");
+  return distintos.length > tope ? `${primeros} +${distintos.length - tope}` : primeros;
+}
+
+/** El detalle del tooltip: un renglón por modelo y color, y los pedidos al final. */
+export function detalleModelos(c: Pick<ContenedorVista, "modelos" | "pedidos">): string {
+  const lineas = c.modelos.map(
+    (m) =>
+      `${m.modelo}${m.color ? ` ${m.color}` : ""} · ${enMx(m.cajas)} cajas` +
+      (m.pares > 0 ? ` · ${enMx(m.pares)} pares` : ""),
+  );
+  if (c.pedidos.length) {
+    lineas.push(`Pedidos: ${c.pedidos.map((p) => `${p.pedido} (${enMx(p.cajas)})`).join(" · ")}`);
+  }
+  return lineas.join("\n");
+}
+
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
   // traerTodo pagina (PostgREST corta en 1,000 filas SIN avisar) y ordena
   // por la llave; el orden por llegada se rehace aquí (nulos al final).

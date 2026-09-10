@@ -94,7 +94,15 @@ guárdala numerada.
   bloque por color con la corrida en filas de talla; "IN10079-3" es el pedido
   IN10079 en su tercer embarque parcial (el sufijo se quita). Se amarra por
   pedido + modelo + color aplastado + talla contra `pedido_lineas`; lo que no
-  amarra se enseña y NO se guarda. Subirlo dos veces al mismo contenedor no
+  amarra se enseña y NO se guarda. Un DEDAZO en el color se rescata solo si
+  hay UN color del mismo pedido+modelo a una letra (`aUnaLetra`,
+  `colorParecido`): la fábrica escribió "Toffe" por TOFFEE y 103 cajas de
+  GT150 se quedaron fuera de S260-2026. Dos letras NO se adivinan
+  ("M BROWN" contra "LT BROWN" del pedido es otro color y se declara). Lo que
+  no entró completo se guarda RENGLÓN POR RENGLÓN (`problemasDelCasado`, en
+  `drive_packing_lists.resultado.problemas` y en el `motivo`): antes solo se
+  guardaba «omitidos: 3» y el dueño no tenía cómo saber que de 611 cajas
+  entraron 399. Subirlo dos veces al mismo contenedor no
   duplica: lo de ese contenedor se reemplaza. El pedido tiene que estar
   cargado antes (Cargar pedidos).
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock

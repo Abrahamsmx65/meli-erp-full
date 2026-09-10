@@ -26,6 +26,63 @@ export type EstadoCasado =
   | "sin_renglon"
   | "sin_espacio";
 
+/** El color sin espacios ni signos, para compararlo: "M Brown" = "MBROWN". */
+const colorPlano = (color: string): string => color.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * ¿Son el mismo texto salvo UNA letra de más, de menos o cambiada?
+ * La fábrica escribe "Toffe" donde el pedido dice "TOFFEE" (S260-2026,
+ * 10-sep-2026: 103 cajas de GT150 se quedaron fuera del contenedor por esa
+ * letra). Una sola letra alcanza para el dedazo y NO alcanza para confundir
+ * dos colores de verdad: "MBROWN" y "LTBROWN" están a dos.
+ */
+export function aUnaLetra(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [largo, corto] = a.length >= b.length ? [a, b] : [b, a];
+  if (largo.length - corto.length > 1) return false;
+  let i = 0;
+  let j = 0;
+  let fallos = 0;
+  while (i < largo.length && j < corto.length) {
+    if (largo[i] === corto[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++fallos > 1) return false;
+    i++;
+    if (largo.length === corto.length) j++;
+  }
+  return fallos + (largo.length - i) + (corto.length - j) <= 1;
+}
+
+/**
+ * El renglón del pedido cuyo color está a una letra del que trae el archivo.
+ * Solo si hay UNO: un empate no se resuelve solo (misma regla que el amarre
+ * de SKUs), se declara y el dueño decide.
+ */
+export function colorParecido<T extends { color: string }>(color: string, candidatos: T[]): T | null {
+  const objetivo = colorPlano(color);
+  const cerca = candidatos.filter((c) => aUnaLetra(colorPlano(c.color), objetivo));
+  return cerca.length === 1 ? cerca[0] : null;
+}
+
+/**
+ * Lo que NO entró completo, en texto para el dueño: el packing list de la
+ * fábrica trae renglones que el pedido no tiene (la fábrica le cambió el
+ * nombre al color) o que ya viajan en otro contenedor. Antes solo se
+ * guardaba cuántos eran y el dueño no tenía cómo saber cuáles.
+ */
+export function problemasDelCasado(casado: PackingCasado): string[] {
+  return casado.lineas
+    .filter((l) => l.cajasAsignar < l.cajas)
+    .map((l) => {
+      const que = `${l.modelo}${l.color ? ` ${l.color}` : ""}${l.talla ? ` talla ${l.talla}` : ""}`;
+      const faltan = l.cajas - l.cajasAsignar;
+      return `${que}: ${faltan} de ${l.cajas} cajas no entraron. ${l.detalle ?? ""}`.trim();
+    });
+}
+
 export interface LineaCasada {
   /** índices de las líneas del archivo que alimentan este renglón */
   filas: number[];
@@ -184,12 +241,18 @@ export async function casarPackingList(
   // Índices para encontrar el renglón del pedido.
   const porClave = new Map<string, RenglonPedido>();
   const porSku = new Map<string, RenglonPedido[]>();
+  const porProducto = new Map<string, RenglonPedido[]>();
   for (const r of renglones) {
     porClave.set(claveRenglon(r.pedido, r.modelo, r.color, r.talla || null), r);
     const sku = claveComparacion(construirSkuMeli(r.modelo, r.color, r.talla));
     const lista = porSku.get(sku) ?? [];
     lista.push(r);
     porSku.set(sku, lista);
+    // Sin el color: para rescatar un dedazo de la fábrica ("Toffe").
+    const kProd = claveRenglon(r.pedido, r.modelo, "", r.talla || null);
+    const hermanos = porProducto.get(kProd) ?? [];
+    hermanos.push(r);
+    porProducto.set(kProd, hermanos);
   }
   const buscarLibre = (modelo: string, color: string, talla: string | null, sku?: string) => {
     // Sin pedido en el archivo: los renglones de cualquier pedido vivo con
@@ -294,6 +357,18 @@ export async function casarPackingList(
           );
         }
       }
+      // Dedazo en el color: se rescata solo si hay UN color parecido.
+      if (!r && !l.sku) {
+        const cerca =
+          colorParecido(l.color, porProducto.get(claveRenglon(l.pedido, l.modelo, "", l.talla)) ?? []) ??
+          (l.talla ? colorParecido(l.color, porProducto.get(claveRenglon(l.pedido, l.modelo, "", null)) ?? []) : null);
+        if (cerca) {
+          r = cerca;
+          avisos.push(
+            `${l.modelo} "${l.colorCrudo || l.color}": el pedido ${l.pedido} lo tiene como "${cerca.color}"; se amarró ahí (una letra de diferencia).`,
+          );
+        }
+      }
       if (!r) {
         salida.push({
           ...base,
@@ -369,6 +444,8 @@ export async function aplicarPackingList(
   cajas: number;
   omitidos: number;
   recortes: string[];
+  /** qué renglones del archivo NO entraron completos y por qué */
+  problemas: string[];
 }> {
   if (!casado.numero) throw new Error("Falta el número de contenedor.");
 
@@ -405,5 +482,6 @@ export async function aplicarPackingList(
     cajas: [...porLinea.values()].reduce((a, b) => a + b, 0),
     omitidos: casado.lineas.length - casado.lineas.filter((l) => l.cajasAsignar > 0).length,
     recortes: r.recortes,
+    problemas: problemasDelCasado(casado),
   };
 }

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { importarPackingList } from "../importar/packing-list";
-import { casarPackingList } from "./packing-list";
+import { aUnaLetra, casarPackingList, colorParecido, problemasDelCasado } from "./packing-list";
 
 const buf = readFileSync(join(process.cwd(), "fixtures", "packing-list-IN10079.xls"));
 const CUENTA = "cuenta-1";
@@ -154,5 +154,96 @@ describe("casarPackingList", () => {
     expect(l.estado).toBe("ok");
     expect(l.enEste).toBe(40);
     expect(l.cajasAsignar).toBe(40);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/** Un packing list armado a mano, para probar el amarre sin depender del Excel. */
+function packingDe(lineas: { modelo: string; color: string; cajas: number }[]): any {
+  return {
+    referencia: "S260-2026",
+    contenedor: "HMMU4106958",
+    lineas: lineas.map((l, i) => ({
+      pedidoCrudo: "IN10079-4",
+      pedido: "IN10079",
+      modelo: l.modelo,
+      color: l.color.toUpperCase(),
+      colorCrudo: l.color,
+      talla: null,
+      tallas: {},
+      paresPorCaja: 24,
+      cajas: l.cajas,
+      pares: l.cajas * 24,
+      fila: i + 7,
+    })),
+    totales: { cajas: lineas.reduce((a, l) => a + l.cajas, 0), pares: 0 },
+    avisos: [],
+  };
+}
+
+function pedidoConColores(colores: [string, string, number][]) {
+  return {
+    pedidos: [{ id: "p1", account_id: CUENTA, pedido: "IN10079", estado: "en_transito", creado_en: "2026-04-01" }],
+    pedido_lineas: colores.map(([modelo, color, cajas]) => ({
+      id: `${modelo}-${color}`,
+      pedido_id: "p1",
+      modelo,
+      color,
+      talla: "",
+      cajas,
+      pares_por_caja: 24,
+    })),
+    contenedor_lineas: [] as Fila[],
+    contenedores: [] as Fila[],
+  };
+}
+
+describe("el color con dedazo de la fábrica", () => {
+  it('"Toffe" se amarra con TOFFEE del pedido y lo declara (S260-2026: 103 cajas de GT150)', async () => {
+    const db = baseSimulada(pedidoConColores([["GT150", "TOFFEE", 120], ["GT150", "M BROWN", 240]]));
+    const c = await casarPackingList(db, CUENTA, packingDe([{ modelo: "GT150", color: "Toffe", cajas: 103 }]), null);
+
+    const l = c.lineas[0];
+    expect(l.pedidoLineaId).toBe("GT150-TOFFEE");
+    expect(l.cajasAsignar).toBe(103);
+    expect(l.estado).toBe("ok");
+    expect(c.avisos.join(" ")).toContain("una letra de diferencia");
+  });
+
+  it("un color que de verdad es otro NO se adivina: M BROWN no es LT BROWN ni DK BROWN", async () => {
+    const db = baseSimulada(pedidoConColores([["GT214", "LT BROWN", 40], ["GT214", "DK BROWN", 40], ["GT214", "CREAM", 40]]));
+    const c = await casarPackingList(db, CUENTA, packingDe([{ modelo: "GT214", color: "M Brown", cajas: 40 }]), null);
+
+    const l = c.lineas[0];
+    expect(l.pedidoLineaId).toBeNull();
+    expect(l.cajasAsignar).toBe(0);
+    expect(problemasDelCasado(c)).toEqual([
+      "GT214 M BROWN: 40 de 40 cajas no entraron. El pedido IN10079 no tiene el renglón GT214 M BROWN.",
+    ]);
+  });
+
+  it("con dos colores igual de parecidos no se resuelve solo", () => {
+    expect(colorParecido("TOFFE", [{ color: "TOFFEE" }, { color: "TOFFEX" }])).toBeNull();
+    expect(colorParecido("TOFFE", [{ color: "TOFFEE" }])).toEqual({ color: "TOFFEE" });
+  });
+
+  it("una letra de más, de menos o cambiada; dos no", () => {
+    expect(aUnaLetra("TOFFE", "TOFFEE")).toBe(true);
+    expect(aUnaLetra("MBROWN", "MBROWNN")).toBe(true);
+    expect(aUnaLetra("BLACK", "BLACR")).toBe(true);
+    expect(aUnaLetra("MBROWN", "LTBROWN")).toBe(false);
+    expect(aUnaLetra("MBROWN", "DKBROWN")).toBe(false);
+    expect(aUnaLetra("TAN", "BLACK")).toBe(false);
+  });
+
+  it("el recorte por cajas ya embarcadas se declara con nombre y números", async () => {
+    const base = pedidoConColores([["GT217", "TAN", 50]]);
+    base.contenedores = [{ id: "c9", account_id: CUENTA, numero: "S259" }];
+    base.contenedor_lineas = [{ pedido_linea_id: "GT217-TAN", contenedor_id: "c9", cajas: 19 }];
+    const c = await casarPackingList(baseSimulada(base), CUENTA, packingDe([{ modelo: "GT217", color: "Tan", cajas: 31 }]), null);
+
+    expect(c.lineas[0].cajasAsignar).toBe(31);
+    expect(problemasDelCasado(c)).toEqual([]);
   });
 });
