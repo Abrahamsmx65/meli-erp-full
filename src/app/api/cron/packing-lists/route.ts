@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizarPackingListsDrive } from "@/lib/servicios/drive-packing";
+import { avisarContenedores } from "@/lib/servicios/avisos-contenedor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -29,7 +30,10 @@ export async function GET(req: NextRequest) {
   for (const c of cuentas ?? []) {
     try {
       const r = await sincronizarPackingListsDrive(admin, c.id, { finMs });
-      resultados.push({ cuenta: c.nickname, ...r });
+      // Los recordatorios del contenedor (una semana antes y el día que
+      // llega) van aquí: es el trabajo diario de contenedores.
+      const avisos = await avisarContenedores(admin, c.id);
+      resultados.push({ cuenta: c.nickname, ...r, avisos });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, error: (err as Error).message.slice(0, 300) });
     }

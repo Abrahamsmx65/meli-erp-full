@@ -82,6 +82,37 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     }
   }
 
+  /**
+   * Abre un borrador de correo con los documentos que la fábrica dejó en la
+   * carpeta de Drive de ese embarque. El correo lleva los ENLACES: un
+   * `mailto:` no puede llevar archivos adjuntos, y así quien lo reciba abre
+   * el original en Drive.
+   */
+  async function compartirDocumentos(c: Contenedor) {
+    setOcupado(c.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/contenedores/${c.id}/documentos`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudieron leer los documentos de Drive.");
+      if (!j.archivos?.length) {
+        throw new Error(`La carpeta de Drive de ${c.numero} no tiene archivos.`);
+      }
+      const asunto = `Documentos del contenedor ${c.numero}${c.numeroNaviera ? ` (${c.numeroNaviera})` : ""}`;
+      const cuerpo = [
+        `Documentos del contenedor ${c.numero}${c.numeroNaviera ? ` · naviera ${c.numeroNaviera}` : ""}:`,
+        "",
+        ...j.archivos.map((a: { nombre: string; enlace: string }) => `${a.nombre}\n${a.enlace}`),
+        "",
+      ].join("\n");
+      window.location.href = `mailto:?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   async function confirmarLlegada(c: Contenedor) {
     const seguro = window.confirm(
       `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)? ` +
@@ -324,6 +355,15 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Packing list
                           </a>
+                          <button
+                            onClick={() => compartirDocumentos(c)}
+                            disabled={ocupado === c.id}
+                            className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                            style={{ borderColor: "var(--borde)" }}
+                            title="Abre un correo con los enlaces a los documentos de este embarque en Drive"
+                          >
+                            {ocupado === c.id ? "…" : "Compartir docs"}
+                          </button>
                           {c.estado === "borrador" ? (
                             <button
                               onClick={() => mandar({ estado: "en_transito" }, c.id)}
@@ -409,6 +449,7 @@ function ContenidoContenedor({
   const [avisos, setAvisos] = useState<string[]>([]);
   const [pendientes, setPendientes] = useState<PendientePacking[]>(contenedor.pendientes ?? []);
   const [eleccion, setEleccion] = useState<Record<number, string>>({});
+  const [todoElPedido, setTodoElPedido] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -460,11 +501,16 @@ function ContenidoContenedor({
   }
 
   const filtro = busqueda.trim().toUpperCase();
+  // Decisión del dueño (10-sep-2026): aquí se ve LO QUE TRAE EL CONTENEDOR.
+  // El resto del pedido solo estorba; se enseña a mano cuando hay que
+  // agregar un renglón que faltó.
+  const enEsteAhora = (l: LineaContenido) => cajas[l.pedidoLineaId] ?? l.enEste;
   const visibles = (lineas ?? []).filter(
     (l) =>
-      !filtro ||
-      `${l.pedido} ${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
+      (todoElPedido || enEsteAhora(l) > 0) &&
+      (!filtro || `${l.pedido} ${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro)),
   );
+  const fueraDelContenedor = (lineas ?? []).filter((l) => enEsteAhora(l) <= 0).length;
   const totalCajas = Object.values(cajas).reduce((a, b) => a + (Number(b) || 0), 0);
 
   async function guardar() {
@@ -520,9 +566,8 @@ function ContenidoContenedor({
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="text-lg font-semibold">Contenido de {contenedor.numero}</h3>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Corrige las cajas de cada renglón si algo se capturó mal. Pon <strong>0</strong>{" "}
-          para quitarlo del contenedor. También puedes agregar renglones de los mismos
-          pedidos que no se habían embarcado.
+          Lo que viaja en este contenedor. Corrige las cajas si algo se capturó mal; pon{" "}
+          <strong>0</strong> para quitar un renglón.
         </p>
 
         {pendientes.length ? (
@@ -596,13 +641,27 @@ function ContenidoContenedor({
           </section>
         ) : null}
 
-        <input
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar modelo, color, talla o pedido…"
-          className="mt-3 w-full rounded-lg border px-3 py-1.5 text-sm"
-          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar modelo, color, talla o pedido…"
+            className="min-w-56 flex-1 rounded-lg border px-3 py-1.5 text-sm"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          />
+          {fueraDelContenedor ? (
+            <button
+              onClick={() => setTodoElPedido((v) => !v)}
+              className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              title="Los renglones de los mismos pedidos que este contenedor no trae"
+            >
+              {todoElPedido
+                ? "Ver solo lo del contenedor"
+                : `Agregar renglones del pedido (${n(fueraDelContenedor)})`}
+            </button>
+          ) : null}
+        </div>
 
         <div className="mt-3 max-h-96 overflow-auto">
           <table className="datos">

@@ -54,6 +54,13 @@ export function configDrive(): ConfigDrive {
 export const MIME_SHEET = "application/vnd.google-apps.spreadsheet";
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** El enlace para ABRIR el archivo en Drive (para compartirlo por correo). */
+export function enlaceDrive(a: Pick<ArchivoDrive, "id" | "mime">): string {
+  return a.mime === MIME_SHEET
+    ? `https://docs.google.com/spreadsheets/d/${a.id}/edit`
+    : `https://drive.google.com/file/d/${a.id}/view`;
+}
+
 /** ¿Es una hoja de cálculo que el lector de packing list puede abrir? */
 export function esHojaDeCalculo(a: Pick<ArchivoDrive, "mime" | "nombre">): boolean {
   if (a.mime === MIME_SHEET || a.mime === MIME_XLSX || a.mime === "application/vnd.ms-excel") return true;
