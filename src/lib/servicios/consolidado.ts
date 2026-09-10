@@ -117,8 +117,16 @@ export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gasto
 }
 
 export interface Consolidado {
-  /** invalida cachés calculadas con reglas contables anteriores */
-  versionContable: 2;
+  /**
+   * Invalida cachés calculadas con reglas contables anteriores. También es
+   * el candado contra un DESPLIEGUE VIEJO: la base es una sola y cualquier
+   * build que alguien abra escribe en ella. El 10-sep-2026 una URL de
+   * preview anterior al 9-sep guardó el corte general de julio con el
+   * Amazon de antes de la Finances API y los cortes de canal viejos, y la
+   * pantalla lo sirvió como bueno. Al subir el número, lo que escribió un
+   * build que no conoce estas reglas se descarta y se vuelve a calcular.
+   */
+  versionContable: 3;
   periodo: string;
   desde: string;
   hasta: string;
@@ -420,7 +428,7 @@ export function armarConsolidado(entrada: {
 
   const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto);
   return aplicarGastosEmpresariales({
-    versionContable: 2,
+    versionContable: 3,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,

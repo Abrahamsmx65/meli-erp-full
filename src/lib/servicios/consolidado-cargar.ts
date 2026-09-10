@@ -285,7 +285,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 2
+    consolidado.versionContable !== 3
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)

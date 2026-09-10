@@ -336,6 +336,16 @@ guárdala numerada.
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
   Vercel). El reporte de liberaciones de Mercado Pago se cruza por
   `payment_id` (pagos) y `shipping_id` (abonos de envío).
+- **La base es UNA y cualquier despliegue que alguien abra escribe en ella.**
+  Las URL de preview de Vercel viven para siempre: el 10-sep-2026 una
+  anterior al 9-sep guardó el corte general de julio con el Amazon de antes
+  de la Finances API (`monitor:v2` en `app_cache` lo delata) y con los cortes
+  de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
+  distinto según la URL. Se trabaja SOLO en
+  `https://meli-erp-full.vercel.app`. El candado es
+  `Consolidado.versionContable` (hoy 3): al cambiar las reglas del dinero se
+  sube, y lo que escribió un build que no las conoce se descarta y se
+  recalcula en vez de enseñarse.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
   dueño, 10-sep-2026). La regla de servir lo guardado aunque esté viejo es
   para las PANTALLAS; un derivado que se guarda como fresco (el corte
