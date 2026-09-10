@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, FileText, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { CalendarClock, Eye, FileText, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 
 export interface CorteResumen {
   id: number;
@@ -52,7 +52,18 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     }
   }
 
-  async function hacerCorte() {
+  /** Lo que se dice de un corte ya hecho. */
+  function resumenDeCorte(j: any): string {
+    const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
+    if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
+    if (j.errores?.length) partes.push(`${j.errores.length} pedidos no entraron (abajo el motivo).`);
+    if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
+    else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
+    else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
+    return partes.join(" ");
+  }
+
+  async function hacerCorte(modo?: "lunes") {
     setOcupado(true);
     setAviso(null);
     setError(null);
@@ -60,17 +71,18 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       const r = await fetch("/api/tiktok/cortes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handover }),
+        body: JSON.stringify({ handover, ...(modo ? { modo } : {}) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
-      const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
-      if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
-      if (j.errores?.length) partes.push(`${j.errores.length} pedidos no entraron (abajo el motivo).`);
-      if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
-      else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
-      else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
-      setAviso(partes.join(" "));
+      if (j.modo === "lunes") {
+        const partes = (j.cortes ?? []).map((c: any) => resumenDeCorte(c));
+        if (j.aviso) partes.push(j.aviso);
+        setAviso(partes.join(" · "));
+      } else {
+        setAviso(resumenDeCorte(j));
+      }
+      setSimulacion(null);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -114,7 +126,17 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               {simulando ? "Simulando…" : "Simular"}
             </button>
             <button
-              onClick={hacerCorte}
+              onClick={() => hacerCorte("lunes")}
+              disabled={ocupado || !pendientes}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--grid)" }}
+              title="Dos cortes: primero lo del viernes y el sábado (lo que ya casi cumple 48 horas) y luego lo del domingo y el lunes"
+            >
+              <CalendarClock size={14} />
+              {ocupado ? "Confirmando…" : "Corte lunes"}
+            </button>
+            <button
+              onClick={() => hacerCorte()}
               disabled={ocupado || !pendientes}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
               style={{ background: "var(--acento)" }}
@@ -137,6 +159,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 cerrar
               </button>
             </div>
+            {simulacion.tandas && simulacion.tandas.urgentes && simulacion.tandas.resto ? (
+              <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+                Corte lunes: {simulacion.tandas.urgentes} pedidos de antes del {simulacion.tandas.corte} (viernes y
+                sábado, los que ya casi cumplen 48 horas) en el primer corte y {simulacion.tandas.resto} del domingo y
+                el lunes en el segundo.
+              </p>
+            ) : null}
             <ul className="mt-2 flex flex-col gap-1">
               {simulacion.pedidos.map((p: any) => (
                 <li key={p.orderId} className="flex flex-wrap items-center gap-2">

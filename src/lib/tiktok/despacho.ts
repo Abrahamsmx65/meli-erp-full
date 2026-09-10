@@ -6,6 +6,8 @@
  * lista de empaque y el PDF de etiquetas van en ESTE orden y con LOS MISMOS
  * números, para que la etiqueta #12 sea el renglón #12 sin buscar.
  */
+import { codigosDeProducto } from "./codigos";
+
 
 export interface ParDespacho {
   /** SKU del ERP (MODELO-COLOR-TALLA); si no se amarró, el de TikTok */
@@ -13,6 +15,13 @@ export interface ParDespacho {
   pares: number;
   /** el código de barras que trae la caja del zapato (FNSKU de Amazon); null si no se conoce */
   fnsku?: string | null;
+  /**
+   * Otros códigos que también son de ESTE producto y por lo tanto también
+   * lo dan por bueno en la estación: el código Full de MELI de la cuenta de
+   * calzado y el de la de fundas. La caja puede traer pegada cualquiera de
+   * las tres etiquetas.
+   */
+  codigos?: string[] | null;
 }
 
 /**
@@ -105,10 +114,16 @@ export function textoDeEtiqueta(p: PaqueteNumerado): string {
 /**
  * El código de barras de la etiqueta: el FNSKU del producto, que es el
  * mismo que trae la caja del zapato. Si el producto no tiene FNSKU
- * conocido, va el código de hoja, que al menos identifica el paquete.
+ * conocido, va el código Full de MELI (la otra etiqueta que puede traer
+ * pegada) y, si tampoco, el código de hoja, que al menos identifica el
+ * paquete.
  */
 export function codigoDeEtiqueta(p: PaqueteNumerado, corte: number): string {
-  return p.pares.find((x) => x.fnsku)?.fnsku ?? codigoDeHoja(corte, p.numero);
+  for (const x of p.pares) {
+    const c = codigosDeProducto(x)[0];
+    if (c) return c;
+  }
+  return codigoDeHoja(corte, p.numero);
 }
 
 export interface RenglonDeEtiqueta {
@@ -146,13 +161,16 @@ export function parsearCodigoDeOrden(codigo: string): string | null {
  * paquete.
  */
 export function renglonesDeEtiqueta(p: PaqueteNumerado, corte: number): RenglonDeEtiqueta[] {
-  return p.pares.map((x, i) => ({
-    sku: x.sku,
-    pares: x.pares,
-    texto: `${i === 0 ? `#${p.numero} · ` : ""}${x.sku}${x.pares > 1 ? ` ×${x.pares}` : ""}`,
-    codigo: x.fnsku ?? codigoDeHoja(corte, p.numero),
-    esHoja: !x.fnsku,
-  }));
+  return p.pares.map((x, i) => {
+    const propio = codigosDeProducto(x)[0] ?? null;
+    return {
+      sku: x.sku,
+      pares: x.pares,
+      texto: `${i === 0 ? `#${p.numero} · ` : ""}${x.sku}${x.pares > 1 ? ` ×${x.pares}` : ""}`,
+      codigo: propio ?? codigoDeHoja(corte, p.numero),
+      esHoja: !propio,
+    };
+  });
 }
 
 export interface GrupoModelo {

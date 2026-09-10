@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
 import { hablar, pitar } from "./sonido-tiktok";
@@ -143,7 +144,7 @@ export function PrepararTikTok({
     }
   }
   const manual = () => aplicar(darPorBueno(estado));
-  const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.fnsku && f.faltan > 0);
+  const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.codigos.length && f.faltan > 0);
 
   const hechos = paquetes.filter((p) => preparados.has(p.numero)).length;
   const colorPaso =
@@ -186,10 +187,15 @@ export function PrepararTikTok({
             <ul className="mt-2 text-sm">
               {estado.paquete.pares.map((x) => {
                 const f = estado.faltantes.find((y) => y.sku === x.sku);
+                const codigos = f?.codigos ?? codigosDeProducto(x);
                 return (
                   <li key={x.sku}>
                     <span className="font-medium">{x.sku}</span> × {x.pares}
-                    {x.fnsku ? <span style={{ color: "var(--ink-2)" }}> · {x.fnsku}</span> : <span style={{ color: "var(--estado-alerta)" }}> · sin FNSKU: escanea el código del SKU</span>}
+                    {codigos.length ? (
+                      <span style={{ color: "var(--ink-2)" }}> · {codigos.join(" o ")}</span>
+                    ) : (
+                      <span style={{ color: "var(--estado-alerta)" }}> · sin código: "Dar por bueno"</span>
+                    )}
                     {f && estado.paso === "producto" ? <span style={{ color: "var(--ink-2)" }}> · faltan {f.faltan}</span> : null}
                   </li>
                 );
