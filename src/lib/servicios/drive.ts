@@ -80,13 +80,18 @@ const decodificar = (s: string) =>
  */
 export function leerListadoPublico(html: string): ArchivoDrive[] {
   const salida: ArchivoDrive[] = [];
-  const bloques = html.split(/class="flip-entry"/).slice(1);
-  for (const b of bloques) {
-    const id = b.match(/id="entry-([^"]+)"/)?.[1];
-    const nombre = b.match(/class="flip-entry-title">([^<]*)</)?.[1];
+  // Se parte por cada `id="entry-…"` (la clase puede venir con más nombres
+  // o en otro orden): de ahí hasta la siguiente entrada es un archivo.
+  const partes = html.split(/(?=id="entry-)/).filter((p) => p.startsWith('id="entry-'));
+  for (const b of partes) {
+    const id = b.match(/^id="entry-([^"]+)"/)?.[1];
+    const nombre =
+      b.match(/flip-entry-title"[^>]*>([^<]*)</)?.[1] ??
+      b.match(/aria-label="([^"]+)"/)?.[1] ??
+      b.match(/title="([^"]+)"/)?.[1];
     if (!id || !nombre) continue;
     const href = b.match(/href="([^"]+)"/)?.[1] ?? "";
-    const fecha = b.match(/flip-entry-last-modified">\s*<div>([^<]*)</)?.[1]?.trim();
+    const fecha = b.match(/flip-entry-last-modified"[^>]*>\s*(?:<div[^>]*>)?([^<]*)</)?.[1]?.trim();
     const ms = fecha ? Date.parse(fecha) : NaN;
     const esSheet = /docs\.google\.com\/spreadsheets/.test(href);
     salida.push({
@@ -101,14 +106,26 @@ export function leerListadoPublico(html: string): ArchivoDrive[] {
   return salida;
 }
 
+const URL_LISTADO_PUBLICO = (carpeta: string) => `https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(carpeta)}#list`;
+
+/** El HTML crudo del listado público, para la sonda de /api/contenedores/drive. */
+export async function htmlListadoPublico(carpeta: string): Promise<{ status: number; html: string }> {
+  const r = await fetch(URL_LISTADO_PUBLICO(carpeta), { signal: AbortSignal.timeout(30_000), redirect: "follow" });
+  return { status: r.status, html: await r.text() };
+}
+
 async function listarPublico(carpeta: string): Promise<ArchivoDrive[]> {
-  const r = await pedir(`https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(carpeta)}#list`);
+  const r = await pedir(URL_LISTADO_PUBLICO(carpeta));
   const html = await r.text();
   const archivos = leerListadoPublico(html);
-  if (!archivos.length && !/flip-entry|No files/i.test(html)) {
-    throw new Error(
-      "Drive no devolvió el listado público de la carpeta: revisa que esté compartida como 'Cualquier persona con el enlace'.",
-    );
+  if (!archivos.length) {
+    const vacia = /no hay archivos|no files|carpeta vac/i.test(html);
+    if (!vacia) {
+      throw new Error(
+        `Drive contestó pero no se reconoció ningún archivo (${html.length} caracteres, ${(html.match(/entry-/g) ?? []).length} marcas 'entry-'). ` +
+          "Revisa que la carpeta esté compartida como 'Cualquier persona con el enlace' y usa la sonda ?diagnostico=1.",
+      );
+    }
   }
   return archivos;
 }

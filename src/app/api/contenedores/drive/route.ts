@@ -2,6 +2,39 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { sincronizarPackingListsDrive } from "@/lib/servicios/drive-packing";
+import { configDrive, htmlListadoPublico, leerListadoPublico } from "@/lib/servicios/drive";
+
+/**
+ * Sonda: qué contesta Google por la carpeta pública (para ajustar el lector
+ * sin adivinar). No guarda nada. `/api/contenedores/drive?diagnostico=1`
+ */
+export async function GET(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+  if (req.nextUrl.searchParams.get("diagnostico") !== "1") {
+    return NextResponse.json({ error: "Usa ?diagnostico=1 o POST para sincronizar." }, { status: 400 });
+  }
+  const cfg = configDrive();
+  try {
+    const { status, html } = await htmlListadoPublico(cfg.carpeta);
+    const archivos = leerListadoPublico(html);
+    const primera = html.indexOf("entry-");
+    return NextResponse.json({
+      carpeta: cfg.carpeta,
+      status,
+      caracteres: html.length,
+      marcas: { entry: (html.match(/entry-/g) ?? []).length, flipEntry: (html.match(/flip-entry/g) ?? []).length },
+      reconocidos: archivos.map((a) => ({ id: a.id, nombre: a.nombre, mime: a.mime, modificadoEn: a.modificadoEn })),
+      inicio: html.slice(0, 1500),
+      alrededorDeLaPrimeraEntrada: primera >= 0 ? html.slice(Math.max(0, primera - 300), primera + 1200) : null,
+    });
+  } catch (err) {
+    return NextResponse.json({ carpeta: cfg.carpeta, error: (err as Error).message }, { status: 500 });
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
