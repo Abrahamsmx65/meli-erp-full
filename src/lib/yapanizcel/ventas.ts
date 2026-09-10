@@ -113,17 +113,22 @@ export function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | nul
   t.neto += netoFila;
   t.ventaSinNeto += Number(f.importe_sin_neto ?? 0);
   t.unidadesSinNeto += Number(f.unidades_sin_neto ?? 0);
+  // Las unidades sin depósito leído quedan FUERA de la ganancia por los dos
+  // lados: ni su neto (no se conoce) ni su costo. Restar el costo de todas
+  // las unidades contra el neto de unas cuantas daba una ganancia negativa
+  // de más de un millón (9-sep-2026).
+  const unidadesConNeto = Math.max(0, Number(f.unidades) - Number(f.unidades_sin_neto ?? 0));
   if (costoUnit == null) {
     t.unidadesSinCosto += Number(f.unidades);
     t.netoSinCosto += netoFila;
   } else {
-    t.costo += costoUnit * Number(f.unidades);
+    t.costo += costoUnit * unidadesConNeto;
     t.netoConCosto += netoFila;
   }
-  // La ganancia SOLO cubre la venta con costo cargado. Antes era
-  // neto − costo con TODO el neto adentro: el neto de miles de SKUs sin
-  // costo entraba como ganancia pura y la inflaba. Sin costo no hay
-  // ganancia calculable; se declara, nunca se rellena con cero.
+  // La ganancia SOLO cubre la venta con costo cargado y depósito leído.
+  // Antes era neto − costo con TODO el neto adentro: el neto de miles de
+  // SKUs sin costo entraba como ganancia pura y la inflaba. Sin costo no
+  // hay ganancia calculable; se declara, nunca se rellena con cero.
   t.ganancia = t.netoConCosto - t.costo;
 }
 

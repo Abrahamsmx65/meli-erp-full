@@ -473,9 +473,15 @@ login, la base y el deploy.
   150 netos por tramo, así que CADA orden se registra al leerla (pagos y
   renglones sku/importe en `yz_ordenes_neto`) y un trabajo de fondo
   (`yapanizcel/netos.ts`, cron `/api/yapanizcel/netos` cada 10 min) pide
-  los netos que faltan a Mercado Pago, registra hacia atrás las órdenes
-  viejas y ASIENTA en `yz_ventas_diarias` los días que quedan completos sin
-  releer MELI. Mientras un renglón no tiene depósito real, el panel NO lo
+  los netos que faltan a Mercado Pago (PRIMERO las órdenes sin depósito,
+  luego las que solo les falta desglose o envío), registra hacia atrás las
+  órdenes viejas y ASIENTA en `yz_ventas_diarias` POR ORDEN (RPC
+  `yz_asentar_dia`, migración 0079): cada renglón sku+día guarda el neto de
+  las órdenes con depósito y `importe/unidades/comision_con_neto`; los
+  resúmenes declaran la diferencia como sin leer. Antes un día solo entraba
+  COMPLETO y casi ninguno lo estaba (el panel quedó con $75 mil de neto
+  contra $4.4 millones de venta el 9-sep-2026). La ganancia resta el costo
+  SOLO de las unidades con depósito leído. Mientras un renglón no tiene depósito real, el panel NO lo
   estima: su venta se declara como «sin depósito leído» (`ventaSinNeto`,
   `unidadesSinNeto`) y queda fuera del neto y de la ganancia (decisión del
   dueño, 9-sep-2026; antes se estimaba con un porcentaje observado y, más

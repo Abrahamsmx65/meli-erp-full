@@ -36,7 +36,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
     <div className="flex flex-col gap-6">
       <Encabezado
         titulo="Ventas · YAPANIZCEL"
-        texto="Unidades, ventas, comisión de Mercado Libre, neto real depositado (ya sin comisión, envío de Full ni retenciones) y ganancia contra el costo cargado. Lo marcado con * aún no tiene depósito real y se estima con el porcentaje observado."
+        texto="Unidades, ventas, comisión de Mercado Libre, neto real depositado (ya sin comisión, envío de Full ni retenciones) y ganancia contra el costo cargado. Nada se estima: la venta cuyo depósito aún no se lee queda fuera del neto y de la ganancia, y se declara aparte."
       />
       <FiltroFechas base="/yapanizcel/ventas" desde={rango.desde} hasta={rango.hasta} hoy={hoyMx()} />
 

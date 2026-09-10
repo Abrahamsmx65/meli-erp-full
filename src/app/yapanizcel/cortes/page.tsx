@@ -22,7 +22,7 @@ export default async function CortesYz({ searchParams }: { searchParams: Promise
   return (
     <CorteVista
       titulo="Cortes y ganancia · YAPANIZCEL"
-      intro="Lo que se ganó de verdad en el mes con las fundas: el depósito real de Mercado Pago (ya sin comisión, envío ni retenciones), menos devoluciones, menos el costo por diseño, menos Product Ads y gastos de Full. Las órdenes canceladas quedan fuera. Mientras una orden no tiene depósito real, su neto se estima con el porcentaje observado y el corte lo declara."
+      intro="Lo que se ganó de verdad en el mes con las fundas: el depósito real de Mercado Pago (ya sin comisión, envío ni retenciones), menos devoluciones, menos el costo por diseño, menos Product Ads y gastos de Full. Las órdenes canceladas quedan fuera. Mientras una orden no tiene depósito real, su venta queda fuera del neto y de la utilidad y el corte lo declara."
       ruta="/yapanizcel/cortes"
       apiBase="/api/yapanizcel"
       periodo={periodo}

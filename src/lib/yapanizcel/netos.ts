@@ -159,39 +159,19 @@ export function repartirNetoDelDia(
   return porSku;
 }
 
-/** Asienta en yz_ventas_diarias el neto de los días que ya quedaron completos (hasta `finMs`). */
+/**
+ * Asienta en yz_ventas_diarias el neto de los días tocados (hasta `finMs`),
+ * POR ORDEN: el RPC `yz_asentar_dia` (migración 0079) reparte el neto de
+ * cada orden con depósito entre sus SKUs y apunta cuánta venta y unidades
+ * quedan sin leer. Un día ya no tiene que estar completo: antes casi
+ * ninguno lo estaba y el panel se quedaba sin neto.
+ */
 export async function asentarNetos(admin: DB, accountId: string, dias: Iterable<string>, finMs = Infinity): Promise<string[]> {
   const asentados: string[] = [];
   for (const fecha of [...new Set(dias)].sort()) {
     if (Date.now() > finMs) break;
-    const ordenes = await todo<{ total: number; neto: number; neto_actual: number | null; neto_en: string | null; renglones: { sku: string; importe: number }[] | null }>(
-      admin,
-      "yz_ordenes_neto",
-      "total, neto, neto_actual, neto_en, renglones",
-      (q) => q.eq("account_id", accountId).eq("fecha", fecha),
-    );
-    if (!ordenes.length) continue;
-    const reparto = repartirNetoDelDia(ordenes.map((o) => ({
-      total: Number(o.total),
-      neto: Number(o.neto),
-      netoActual: o.neto_actual == null ? null : Number(o.neto_actual),
-      netoLeido: o.neto_en != null,
-      renglones: o.renglones,
-    })));
-    if (!reparto) continue;
-    // Solo los renglones que EXISTEN ese día: un upsert a ciegas inventaría
-    // renglones con cero unidades.
-    const existentes = await todo<{ sku: string }>(admin, "yz_ventas_diarias", "sku", (q) => q.eq("account_id", accountId).eq("fecha", fecha));
-    const filas = existentes
-      .filter((e) => reparto.has(e.sku))
-      .map((e) => ({
-        account_id: accountId,
-        sku: e.sku,
-        fecha,
-        neto: reparto.get(e.sku)!,
-        neto_confirmado: true,
-      }));
-    if (filas.length) await upsertEnTandas(admin, "yz_ventas_diarias", filas, "account_id,sku,fecha");
+    const { error } = await admin.rpc("yz_asentar_dia", { p_account: accountId, p_fecha: fecha });
+    if (error) throw new Error(`yz_asentar_dia ${fecha}: ${error.message}`);
     asentados.push(fecha);
   }
   return asentados;
@@ -218,16 +198,37 @@ export async function completarNetosPendientes(
 ): Promise<ResumenNetos> {
   // Pendiente = sin neto, sin desglose, o con desglose de la forma vieja
   // (cargos_fuente en null: nunca se leyó el pago real). Las nuevas primero.
-  const { data, count } = await admin
+  // Primero las que NO tienen depósito (son las que dejan la venta fuera del
+  // neto y de la ganancia); solo con el presupuesto que sobre, las que ya
+  // tienen neto pero les falta el desglose o el envío de /costs. Antes todo
+  // iba junto por fecha y el lote se gastaba releyendo órdenes ya conocidas.
+  const columnas =
+    "order_id, fecha, payment_ids, payment_id, total, neto, neto_pago, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
+  const sinNeto = await admin
     .from("yz_ordenes_neto")
-    .select("order_id, fecha, payment_ids, payment_id, total, neto, neto_pago, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor", { count: "exact" })
+    .select(columnas, { count: "exact" })
     .eq("account_id", accountId)
-    // …o con el envío sin leer de /costs (filas de antes del ajuste de envío).
-    .or("neto_en.is.null,cargos_leidos_en.is.null,cargos_fuente.is.null,envio_leido_en.is.null")
+    .is("neto_en", null)
     .gt("total", 0)
     .order("fecha", { ascending: false })
     .limit(tope);
-  const pendientes = data ?? [];
+  if (sinNeto.error) throw new Error(`yz_ordenes_neto: ${sinNeto.error.message}`);
+  const pendientes = [...(sinNeto.data ?? [])];
+  let count = sinNeto.count ?? pendientes.length;
+  if (pendientes.length < tope) {
+    const resto = await admin
+      .from("yz_ordenes_neto")
+      .select(columnas, { count: "exact" })
+      .eq("account_id", accountId)
+      .not("neto_en", "is", null)
+      .or("cargos_leidos_en.is.null,cargos_fuente.is.null,envio_leido_en.is.null")
+      .gt("total", 0)
+      .order("fecha", { ascending: false })
+      .limit(tope - pendientes.length);
+    if (resto.error) throw new Error(`yz_ordenes_neto: ${resto.error.message}`);
+    pendientes.push(...(resto.data ?? []));
+    count += resto.count ?? 0;
+  }
   const r: ResumenNetos = { leidos: 0, fallidos: 0, diasAsentados: [], pendientes: count ?? pendientes.length };
   const dias = new Set<string>();
   const nuevasConNeto: Record<string, unknown>[] = [];

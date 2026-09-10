@@ -16,9 +16,10 @@ describe("sumarResumen (nada se estima)", () => {
     expect(t.neto).toBe(102);
     expect(t.ventaSinNeto).toBe(100);
     expect(t.unidadesSinNeto).toBe(1);
-    // ganancia = neto real − costo de TODAS las unidades vendidas (3 × 20)
-    expect(t.costo).toBe(60);
-    expect(t.ganancia).toBe(42);
+    // ganancia = neto real − costo SOLO de las unidades con depósito leído (2 × 20):
+    // la unidad sin depósito queda fuera por los dos lados.
+    expect(t.costo).toBe(40);
+    expect(t.ganancia).toBe(62);
   });
 
   it("sin costo cargado, el neto no cuenta como ganancia", () => {
