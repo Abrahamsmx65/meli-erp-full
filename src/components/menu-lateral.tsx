@@ -23,6 +23,7 @@ import {
   Scale,
   Settings,
   Ship,
+  Stethoscope,
   ShoppingCart,
   Smartphone,
   Sparkles,
@@ -132,6 +133,7 @@ const GRUPOS: Grupo[] = [
   {
     titulo: "Sistema",
     entradas: [
+      { href: "/salud", texto: "Revisión general", icono: Stethoscope, ayuda: "Qué está mal o incompleto, en un solo lugar" },
       { href: "/pendientes", texto: "Pendientes", icono: AlertTriangle, ayuda: "Lo que falta resolver" },
       { href: "/importar", texto: "Importar", icono: Upload, ayuda: "Bodega desde Industher y corridas del sheet" },
       { href: "/sincronizar", texto: "Sincronizar", icono: RefreshCw, ayuda: "Traer datos de Mercado Libre" },

@@ -2,6 +2,26 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { sincronizarPackingListsDrive } from "@/lib/servicios/drive-packing";
 import { avisarContenedores } from "@/lib/servicios/avisos-contenedor";
+import { avisarSalud } from "@/lib/servicios/salud";
+import { cuentaActiva as cuentaYz } from "@/lib/yapanizcel/cuenta";
+import { cuentaAmazon } from "@/lib/servicios/amazon";
+import type { DB } from "@/lib/datos/repos";
+
+/** La revisión general del día. Nunca lanza: no debe tumbar el cron. */
+async function revisarYAvisar(admin: DB, accountId: string) {
+  try {
+    const [yz, amz] = await Promise.all([
+      cuentaYz(admin).catch(() => null),
+      cuentaAmazon(admin).catch(() => null),
+    ]);
+    return await avisarSalud(admin, { id: accountId }, {
+      yzAccountId: yz?.id ?? null,
+      amazonAccountId: amz?.id ?? null,
+    });
+  } catch (err) {
+    return { error: (err as Error).message.slice(0, 200) };
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -33,7 +53,11 @@ export async function GET(req: NextRequest) {
       // Los recordatorios del contenedor (una semana antes y el día que
       // llega) van aquí: es el trabajo diario de contenedores.
       const avisos = await avisarContenedores(admin, c.id);
-      resultados.push({ cuenta: c.nickname, ...r, avisos });
+      // La revisión general, una vez al día: si algo hace que un número de
+      // los cortes esté mal sin notarse, sale por correo en vez de esperar a
+      // que el dueño lo cache pantalla por pantalla.
+      const salud = await revisarYAvisar(admin, c.id);
+      resultados.push({ cuenta: c.nickname, ...r, avisos, salud });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, error: (err as Error).message.slice(0, 300) });
     }
