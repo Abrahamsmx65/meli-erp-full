@@ -223,7 +223,13 @@ guárdala numerada.
   lista de empaque en el mismo orden con los mismos números, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. El siguiente corte solo toma lo que
-  no tiene corte.
+  no tiene corte. Un pedido que TikTok rechace se anota y se queda fuera,
+  pero un 503 PASAJERO ya no cuenta como rechazo: el borde (Akamai) contesta
+  esos con una PÁGINA HTML, no con JSON, y el cliente la lanzaba antes de
+  llegar a su propia política de reintentos (429/5xx, tres esperas
+  crecientes), así que un pedido se quedó fuera del corte #17 por un 503
+  de un segundo. Ahora un cuerpo ilegible se decide por el código HTTP y el
+  error se guarda resumido (`resumirCuerpoHtml`), no la página entera.
   **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
   el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
   el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese
