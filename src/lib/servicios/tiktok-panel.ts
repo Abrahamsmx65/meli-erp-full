@@ -52,15 +52,6 @@ export interface MovimientoPanel {
   fecha: string;
 }
 
-export interface PendienteTikTok {
-  skuId: string;
-  sellerSku: string | null;
-  titulo: string | null;
-  talla: string | null;
-  /** SKUs del kardex o de MELI del mismo modelo y talla, para ligar a mano */
-  sugerencias: string[];
-}
-
 export interface PanelTikTok {
   conectado: boolean;
   tienda: { nombre: string | null; shopId: string | null; bodega: string | null } | null;
@@ -76,7 +67,6 @@ export interface PanelTikTok {
   };
   movimientos: MovimientoPanel[];
   /** SKUs de TikTok que no se pudieron amarrar al catálogo del ERP */
-  pendientes: PendienteTikTok[];
   ultimaSync: string | null;
 }
 
@@ -84,7 +74,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados, catalogoMeli] = await Promise.all([
+  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -111,7 +101,6 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .limit(1)
       .maybeSingle(),
     skusContados(db, accountId),
-    traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
   ]);
 
   const tienda = tiendaRes.data ?? null;
@@ -131,13 +120,9 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     }
   }
 
-  // Para sugerir ligas a mano: todas las publicaciones activas por un lado,
-  // y el kardex + catálogo de MELI por el otro.
+  // Para sugerir ligas a mano en el renglón del inventario: las
+  // publicaciones activas de TikTok.
   const sellerSkus = (skusTikTok ?? []).map((x: any) => String(x.seller_sku ?? "")).filter(Boolean);
-  const objetivos = [
-    ...(inv ?? []).map((x: any) => String(x.sku)),
-    ...(catalogoMeli ?? []).map((x: any) => String(x.sku)),
-  ];
 
   const ventas30 = new Map<string, number>();
   for (const v of ventas ?? []) {
@@ -179,16 +164,6 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       return a.sku.localeCompare(b.sku, "es");
     });
 
-  const pendientes: PendienteTikTok[] = (skusTikTok ?? [])
-    .filter((s: any) => !s.sku_interno)
-    .map((s: any) => ({
-      skuId: s.sku_id,
-      sellerSku: s.seller_sku ?? null,
-      titulo: s.titulo ?? null,
-      talla: s.talla ?? null,
-      sugerencias: s.seller_sku ? sugerirParecidos(String(s.seller_sku), objetivos) : [],
-    }));
-
   return {
     conectado: Boolean(tienda?.activo && tienda?.shop_cipher),
     tienda: tienda
@@ -205,7 +180,6 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       sinPublicacion: renglones.filter((r) => !r.publicable && r.saldo !== 0).length,
     },
     movimientos: (movsRes.data ?? []) as MovimientoPanel[],
-    pendientes,
     ultimaSync: syncRes.data?.fin ?? null,
   };
 }

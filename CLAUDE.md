@@ -223,7 +223,13 @@ guárdala numerada.
   lista de empaque en el mismo orden con los mismos números, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. El siguiente corte solo toma lo que
-  no tiene corte.
+  no tiene corte. Un pedido que TikTok rechace se anota y se queda fuera,
+  pero un 503 PASAJERO ya no cuenta como rechazo: el borde (Akamai) contesta
+  esos con una PÁGINA HTML, no con JSON, y el cliente la lanzaba antes de
+  llegar a su propia política de reintentos (429/5xx, tres esperas
+  crecientes), así que un pedido se quedó fuera del corte #17 por un 503
+  de un segundo. Ahora un cuerpo ilegible se decide por el código HTTP y el
+  error se guarda resumido (`resumirCuerpoHtml`), no la página entera.
   **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
   el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
   el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese
@@ -291,10 +297,12 @@ guárdala numerada.
   Lo que quedó sin amarre se reintenta en cada corrida
   (`reamarrarPendientes`) y, si ya salió en un corte, se descuenta y se
   manda al 3PL en ese momento. Los amarres capturados a mano
-  (`tiktok_mapeo_sku`) siguen mandando sobre todo, pero la LISTA que los
-  enseñaba en Almacén TikTok se quitó por decisión del dueño (10-sep-2026):
-  se ligan desde el renglón del SKU sin publicación y se consultan en la
-  base.
+  (`tiktok_mapeo_sku`) siguen mandando sobre todo, pero de Almacén TikTok se
+  quitaron sus DOS bloques por decisión del dueño (10 y 11-sep-2026): la
+  lista de «Amarres a mano» y el de «N SKU de TikTok sin amarrar al
+  catálogo» con sus sugerencias y su botón Amarrar. Quedan las sugerencias
+  del renglón del inventario (`LigarTikTok`) y `/api/tiktok/mapeo`; los
+  amarres se consultan en la base.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
