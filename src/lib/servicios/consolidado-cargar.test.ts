@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { armarConsolidado } from "./consolidado";
-import { leerConsolidadoCache, normalizarConsolidadoCache } from "./consolidado-cargar";
+import { armarConsolidado, type BloqueCanal } from "./consolidado";
+import { canalesPerdidos, leerConsolidadoCache, normalizarConsolidadoCache } from "./consolidado-cargar";
 import { marcarTipos } from "./plan-fba-cache";
 
 describe("esquema de consolidado_cache", () => {
@@ -64,5 +64,51 @@ describe("normalizarConsolidadoCache", () => {
     });
     expect(Object.values(consolidado.canales[0]).some((valor) => Number.isNaN(valor))).toBe(false);
     expect(Object.values(consolidado.total).some((valor) => Number.isNaN(valor))).toBe(false);
+  });
+});
+
+describe("un recálculo no puede perder un canal", () => {
+  const conCanales = (canales: BloqueCanal["canal"][]) =>
+    armarConsolidado({
+      periodo: "2026-07",
+      desde: "2026-07-01",
+      hasta: "2026-07-31",
+      bloques: canales.map((canal) => ({
+        canal,
+        unidades: 1,
+        ordenes: 1,
+        ventaBruta: 100,
+        neto: 80,
+        fuenteNeto: "Finances API",
+        coberturaNeto: 1,
+        descuentos: [],
+        devoluciones: 0,
+        costoRecuperado: 0,
+        costoProducto: 30,
+        unidadesConCosto: 1,
+        adsPorModelo: 0,
+        adsGenerales: 0,
+        gastos: [],
+        porModelo: [],
+        avisos: [],
+        exacto: true,
+      })),
+      avisos: [],
+    });
+
+  it("delata el canal que el guardado traía y el nuevo no (así desapareció Amazon de julio)", () => {
+    const guardado = conCanales(["meli_calzado", "meli_fundas", "amazon"]);
+    const nuevo = conCanales(["meli_calzado", "meli_fundas"]);
+    expect(canalesPerdidos(guardado, nuevo)).toEqual(["amazon"]);
+  });
+
+  it("un recálculo completo, o uno que AGREGA un canal, no pierde nada", () => {
+    const tres = conCanales(["meli_calzado", "meli_fundas", "amazon"]);
+    expect(canalesPerdidos(tres, tres)).toEqual([]);
+    expect(canalesPerdidos(conCanales(["meli_calzado"]), tres)).toEqual([]);
+  });
+
+  it("sin renglón guardado no hay nada que conservar", () => {
+    expect(canalesPerdidos(null, conCanales(["amazon"]))).toEqual([]);
   });
 });

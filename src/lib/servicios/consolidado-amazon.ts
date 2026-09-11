@@ -14,8 +14,14 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   // Con eventos de la Finances API en el rango, el bloque es EXACTO: cada
   // peso viene de un evento con nombre. Lo demás queda como respaldo para
   // los periodos anteriores a la ingesta.
-  if (m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0)) return bloqueAmazonReal(m.real, m, config);
-  return bloqueAmazonAgregado(m, config, rango);
+  const bloque =
+    m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0)
+      ? bloqueAmazonReal(m.real, m, config)
+      : bloqueAmazonAgregado(m, config, rango);
+  // Una fuente de respaldo que no se pudo leer se DECLARA; antes su error
+  // tumbaba el canal entero y Amazon desaparecía del corte general.
+  if (m.avisosFuentes?.length) bloque.avisos = [...m.avisosFuentes, ...bloque.avisos];
+  return bloque;
 }
 
 /**

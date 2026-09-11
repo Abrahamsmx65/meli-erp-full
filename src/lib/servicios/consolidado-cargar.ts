@@ -62,7 +62,11 @@ export async function cargarConsolidado(
   db: DB,
   cuenta: Cuenta,
   periodo: string,
-  opts?: { cortesMasticados?: boolean; alUsarCorteInvalidado?: (canal: string, motivo: string) => void },
+  opts?: {
+    cortesMasticados?: boolean;
+    alUsarCorteInvalidado?: (canal: string, motivo: string) => void;
+    alFallarCanal?: (canal: string, motivo: string) => void;
+  },
 ): Promise<Consolidado> {
   const { desde, hasta } = rangoDelPeriodo(periodo);
   const avisos: string[] = [];
@@ -76,6 +80,15 @@ export async function cargarConsolidado(
     avisos.push(`${canal}: se armó con el corte guardado, que está marcado para recalcular (${motivo}). El corte general se rehará solo.`);
     opts?.alUsarCorteInvalidado?.(canal, motivo);
   };
+  // Un canal que se cayó (timeout, API abajo) NO es un canal sin datos: el
+  // consolidado que sale de ahí está incompleto y no puede congelarse como si
+  // fuera la verdad. Se avisa hacia arriba para que el renglón no se marque
+  // vigente y, si el guardado sí traía ese canal, ni siquiera lo pise.
+  const fallo = (canal: string, err: unknown) => {
+    const motivo = (err as Error).message;
+    avisos.push(`${canal} no se pudo cargar: ${motivo}`);
+    opts?.alFallarCanal?.(canal, motivo);
+  };
 
   const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
     (masticados
@@ -84,7 +97,7 @@ export async function cargarConsolidado(
     ).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
-        avisos.push(`Calzado · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
+        fallo("Calzado · Mercado Libre", err);
         return null;
       },
     ),
@@ -97,7 +110,7 @@ export async function cargarConsolidado(
           : await cargarEstadoResultadosYz(db, yz, periodo);
         return bloqueDesdeEstado("meli_fundas", e);
       } catch (err) {
-        avisos.push(`Fundas · Mercado Libre no se pudo cargar: ${(err as Error).message}`);
+        fallo("Fundas · Mercado Libre", err);
         return null;
       }
     })(),
@@ -108,7 +121,7 @@ export async function cargarConsolidado(
         const [monitor, config] = await Promise.all([obtenerMonitorAmazon(db, amz.id, cuenta.id, { desde, hasta }), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
         return bloqueAmazon(monitor, config, { desde, hasta });
       } catch (err) {
-        avisos.push(`Amazon no se pudo cargar: ${(err as Error).message}`);
+        fallo("Amazon", err);
         return null;
       }
     })(),
@@ -119,15 +132,64 @@ export async function cargarConsolidado(
   return armarConsolidado({ periodo, desde, hasta, bloques, gastosEmpresariales, avisos });
 }
 
+/**
+ * Los canales que el consolidado guardado SÍ traía y el recién calculado
+ * perdió. Un recálculo que perdió un canal no es una versión más nueva: es
+ * una versión rota, y no puede pisar la buena (decisión del dueño,
+ * 11-sep-2026). Así desapareció Amazon del corte general de julio: el
+ * refresco de fondo se topó con un timeout leyendo las liquidaciones, el
+ * bloque de Amazon salió nulo y el renglón de dos canales sobrescribió al
+ * de tres, ya congelado como vigente.
+ */
+export function canalesPerdidos(guardado: Consolidado | null, nuevo: Consolidado): string[] {
+  if (!guardado) return [];
+  const hay = new Set(nuevo.canales.map((c) => c.canal));
+  return guardado.canales.filter((c) => !hay.has(c.canal)).map((c) => c.canal);
+}
+
+const NOMBRE_CANAL: Record<string, string> = {
+  meli_calzado: "Calzado · Mercado Libre",
+  meli_fundas: "Fundas · Mercado Libre",
+  amazon: "Amazon",
+};
+
 async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado> {
   const t0 = Date.now();
-  const estado: { corteInvalidado: string | null } = { corteInvalidado: null };
+  const estado: { corteInvalidado: string | null; canalCaido: string | null } = {
+    corteInvalidado: null,
+    canalCaido: null,
+  };
   const consolidado = await cargarConsolidado(db, cuenta, periodo, {
     cortesMasticados: true,
     alUsarCorteInvalidado: (canal, motivo) => {
       estado.corteInvalidado = `${canal} se armó con su corte invalidado (${motivo}).`;
     },
+    alFallarCanal: (canal, motivo) => {
+      estado.canalCaido = `${canal} no se pudo cargar (${motivo}).`;
+    },
   });
+
+  // ¿Este recálculo perdió un canal que el guardado sí traía? Entonces el
+  // guardado se queda y solo se marca para rehacerse.
+  let guardado: Consolidado | null = null;
+  try {
+    const { data } = await db
+      .from("consolidado_cache")
+      .select("datos")
+      .eq("account_id", cuenta.id)
+      .eq("periodo", periodo)
+      .maybeSingle();
+    guardado = data?.datos ? leerConsolidadoCache(data.datos) : null;
+  } catch {
+    // Sin guardado que comparar, el nuevo es lo único que hay.
+  }
+  const perdidos = canalesPerdidos(guardado, consolidado);
+  const motivoPerdidos = perdidos.length
+    ? `Se conservó el corte guardado: este recálculo perdió ${perdidos.map((c) => NOMBRE_CANAL[c] ?? c).join(", ")}${estado.canalCaido ? ` — ${estado.canalCaido}` : ""}`
+    : null;
+
+  const motivo = motivoPerdidos ?? estado.canalCaido ?? estado.corteInvalidado;
+  const aGuardar = perdidos.length ? guardado! : consolidado;
   try {
     await db.from("consolidado_cache").upsert(
       {
@@ -135,16 +197,26 @@ async function recalcularConsolidado(db: DB, cuenta: Cuenta, periodo: string): P
         periodo,
         generado_en: new Date().toISOString(),
         ms_calculo: Date.now() - t0,
-        datos: marcarTipos(consolidado),
-        // Si un canal salió de un corte invalidado, este renglón NO es la
-        // verdad: queda marcado para rehacerse en vez de congelarse.
-        vigente: estado.corteInvalidado == null,
-        motivo: estado.corteInvalidado,
+        datos: marcarTipos(aGuardar),
+        // Si un canal salió de un corte invalidado, se cayó, o este recálculo
+        // perdió un canal, este renglón NO es la verdad: queda marcado para
+        // rehacerse en vez de congelarse.
+        vigente: motivo == null,
+        motivo,
       },
       { onConflict: "account_id,periodo" },
     );
   } catch {
     // Sin guardar, el consolidado sirve igual.
+  }
+  if (perdidos.length) {
+    return {
+      ...aGuardar,
+      avisos: [
+        `El corte general se rehizo y esta vez ${perdidos.map((c) => NOMBRE_CANAL[c] ?? c).join(", ")} no respondió${estado.canalCaido ? ` (${estado.canalCaido})` : ""}. Se conservó lo que ya estaba guardado, que sí lo traía; se vuelve a intentar solo.`,
+        ...aGuardar.avisos,
+      ],
+    };
   }
   return consolidado;
 }

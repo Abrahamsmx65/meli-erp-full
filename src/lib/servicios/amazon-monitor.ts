@@ -93,6 +93,13 @@ export interface MonitorAmazon {
    */
   pagosHasta: string | null;
   /**
+   * Fuentes de respaldo que no se pudieron leer en esta corrida (p. ej. las
+   * liquidaciones). El bloque sigue saliendo con lo que sí hay, pero se
+   * declara: nunca se rellena con una estimación ni se calla.
+   * Opcional: un renglón de `app_cache` guardado antes de esto no lo trae.
+   */
+  avisosFuentes?: string[];
+  /**
    * La economía POR PRODUCTO del periodo (SKU Economics vía Data Kiosk):
    * ventas, tarifas, publicidad y neto por día y por SKU — la fuente que el
    * usuario pidió para la ganancia. null = aún no hay datos en el rango.
@@ -178,7 +185,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, ventasRecientes, config, pagos, ultimaLiquidacion, economiaFilas, coberturaFilas] = await Promise.all([
+  const [ventas, ventasRecientes, config, pagosRpc, ultimaLiquidacion, economiaFilas, coberturaFilas] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -202,16 +209,16 @@ export async function cargarMonitorAmazon(
     // de funda que se venden en Amazon, 437-RmPad-2-navy, amarran por diseño).
     meliAccountId ? configPorProducto(db, meliAccountId) : Promise.resolve(new Map()),
     // El NETO real del reporte de pagos de Amazon (comisiones, envíos e
-    // impuestos ya descontados), por día de liquidación. Si la tabla no
-    // existe todavía, simplemente no hay dato real y se usa el estimado.
-    traerTodo<any>(
-      db,
-      "amazon_pagos",
-      "seller_sku, fecha, neto, unidades",
-      (q) => q.eq("account_id", amazonAccountId).gte("fecha", r.desde).lte("fecha", r.hasta),
-    ).catch((err) => {
-      if (esFuenteOpcionalAusente(err)) return [] as any[];
-      throw err;
+    // impuestos ya descontados), SUMADO EN POSTGRES por SKU (RPC
+    // `amazon_pagos_por_sku`, migración 0083). Bajar la tabla cruda eran
+    // ~15 mil renglones en julio, en 16 viajes paginados, y cada viaje
+    // evalúa la RLS una vez POR RENGLÓN: se pasaba de los 8 s del rol
+    // `authenticated` y el timeout tumbaba TODO el bloque de Amazon del
+    // corte general. Sumado son ~1,600 renglones en 13 ms.
+    traerRpcTodo<any>(db, "amazon_pagos_por_sku", {
+      p_account: amazonAccountId,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
     }),
     Promise.resolve(
       db
@@ -252,6 +259,18 @@ export async function cargarMonitorAmazon(
         throw err;
       }),
   ]);
+
+  // Las liquidaciones son una fuente de RESPALDO: desde la Finances API el
+  // dinero exacto sale de `real`. Que no se puedan leer NO puede tumbar todo
+  // el bloque de Amazon —así desapareció Amazon del corte general de julio—
+  // pero tampoco se calla: se declara y nada se estima en su lugar.
+  const pagos = pagosRpc.filas;
+  const avisosFuentes: string[] = [];
+  if (pagosRpc.error && !/does not exist|42P01|42883|PGRST202|schema cache/i.test(pagosRpc.error)) {
+    avisosFuentes.push(
+      `Amazon: no se pudieron leer las liquidaciones del periodo (${pagosRpc.error}). Lo que Amazon ya depositó no entra en esta vista y nada se estima en su lugar; el resto del periodo sí es real.`,
+    );
+  }
 
   // El dinero real por fecha de asiento (Finances API): sumado en Postgres,
   // solo se agrupa por modelo aquí. Si la tabla aún no existe, null.
@@ -491,6 +510,7 @@ export async function cargarMonitorAmazon(
     gananciaFinal:
       hayPagos && unidadesConCosto > 0 ? gananciaRealTotal + publicidad + otrosCargos : null,
     pagosHasta: ultimaLiquidacion,
+    avisosFuentes,
     economia: (() => {
       if (!economiaFilas.length) return null;
       let unidadesE = 0;
