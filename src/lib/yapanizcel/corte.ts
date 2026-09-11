@@ -131,9 +131,12 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
   const [ordenesPorDia, desglosePorSku, ventasCrudas, skus, config, gastos, cargos, progreso, ads] = await Promise.all([
     ordenesPorDiaDesdeRpc(db, "yz_cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     desglosePorSkuDesdeRpc(db, "yz_cortes_desglose_por_sku", cuenta.id, desde, hasta),
+    // Páginas de 10 mil: cada página vuelve a correr el mes entero, y mayo
+    // son 34 mil renglones (85 mil órdenes). De mil en mil eran 35 corridas
+    // y el corte de fundas se caía por timeout; así son 4.
     ordenesCompletas
-      ? rpcTodo<any>(db, "yz_cortes_ventas_desde_ordenes_confirmadas", args, ["sku", "fecha"])
-      : rpcTodo<any>(db, "yz_ventas_renglones_confirmados", args, ["sku", "fecha"]),
+      ? rpcTodo<any>(db, "yz_cortes_ventas_desde_ordenes_confirmadas", args, ["sku", "fecha"], 10_000)
+      : rpcTodo<any>(db, "yz_ventas_renglones_confirmados", args, ["sku", "fecha"], 10_000),
     todo<{ sku: string; diseno: string | null }>(db, "yz_skus", "sku, diseno", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),

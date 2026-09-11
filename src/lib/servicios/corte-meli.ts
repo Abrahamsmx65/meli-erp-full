@@ -650,6 +650,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   const filasPorDia = new Map<string, DiaFilas>();
   interface AcumModelo { unidades: number; importe: number; comision: number; neto: number }
   const porModelo = new Map<string, AcumModelo>();
+  /**
+   * Unidades por (modelo, día) cuya venta todavía NO tiene depósito leído.
+   * Sirve para no restar su costo: una venta que queda fuera del neto tiene
+   * que dejar su costo fuera también (ver más abajo).
+   */
+  const sinNetoPorModeloDia = new Map<string, number>();
+  const claveModeloDia = (modelo: string, fecha: string) => `${fecha}|${modelo}`;
 
   for (const v of e.ventas) {
     if (v.fecha < e.desde || v.fecha > e.hasta) continue;
@@ -681,6 +688,10 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     m.comision += comision;
     m.neto += netoFila ?? 0;
     porModelo.set(modelo, m);
+    if (netoFila == null && importe > 0 && (v.unidades ?? 0) > 0) {
+      const k = claveModeloDia(modelo, v.fecha);
+      sinNetoPorModeloDia.set(k, (sinNetoPorModeloDia.get(k) ?? 0) + (v.unidades ?? 0));
+    }
   }
 
   // --- Neto del mes, día por día ------------------------------------------
@@ -694,6 +705,8 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   let importeConNetoReal = 0;
   const porDia: RenglonDia[] = [];
   const diasDescuadrados: string[] = [];
+  /** Días cuya venta NO entró completa al neto: su costo tampoco entra. */
+  const diasSinDeposito = new Set<string>();
   const fechas = [...new Set([...filasPorDia.keys(), ...ordenesPorDia.keys()])].sort();
   for (const fecha of fechas) {
     const f = filasPorDia.get(fecha) ?? { unidades: 0, ordenes: 0, importe: 0, comision: 0, netoFilas: 0, importeSinNeto: 0, comisionSinNeto: 0 };
@@ -732,6 +745,7 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       real = f.importeSinNeto === 0;
     }
     netoDepositado += netoDia;
+    if (!real) diasSinDeposito.add(fecha);
     porDia.push({ fecha, unidades: f.unidades, ordenes: f.ordenes, importe: p(f.importe), neto: p(netoDia), real });
   }
   const desgloseCompleto =
@@ -753,6 +767,8 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   // --- Costo, publicidad y ganancia por modelo -----------------------------
   const filasModelo: RenglonModelo[] = [];
   let costoProducto = 0;
+  /** Costo que NO se resta porque su venta aún no tiene depósito leído. */
+  let costoDiferido = 0;
   let unidadesConCosto = 0;
   let adsAmarrados = 0;
   const modelosConAds = new Set<string>();
@@ -761,10 +777,23 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     const ads = c(e.adsPorModelo.get(modelo));
     modelosConAds.add(modelo);
     adsAmarrados += ads;
+    // El costo SIGUE A SU VENTA (decisión del dueño, 11-sep-2026). Una venta
+    // cuyo depósito todavía no se lee queda fuera del neto porque nada se
+    // estima; si su costo SÍ se restara, el corte inventaría una pérdida que
+    // no existe. Mayo 2026 lo enseñó: el 100 % de la venta de calzado estaba
+    // sin depósito leído, el neto salió en $0 y la utilidad en −$432,095.44,
+    // que es exactamente el costo de lo vendido. Ese costo se queda esperando
+    // a su venta y se declara; cuando el fondo lee el depósito entran juntos.
+    let unidadesSinDeposito = 0;
+    for (const fecha of diasSinDeposito) {
+      unidadesSinDeposito += sinNetoPorModeloDia.get(claveModeloDia(modelo, fecha)) ?? 0;
+    }
+    const unidadesCosteables = Math.max(0, m.unidades - unidadesSinDeposito);
     let costo: number | null = null;
     if (cfg?.costo != null && m.unidades > 0) {
-      costo = c(cfg.costo) * m.unidades;
+      costo = c(cfg.costo) * unidadesCosteables;
       costoProducto += costo;
+      costoDiferido += c(cfg.costo) * Math.min(unidadesSinDeposito, m.unidades);
       unidadesConCosto += m.unidades;
     }
     filasModelo.push({
@@ -971,7 +1000,10 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   }
   if (ventaBruta > 0 && coberturaNetoReal < 0.999) {
     avisos.push(
-      `${p(ventaSinDeposito).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de venta (el ${Math.round((1 - coberturaNetoReal) * 100)}%) todavía no tiene el depósito real de Mercado Pago: NO está en el neto ni en la utilidad; nada se estima. El fondo lo lee solo y el corte se completa.`,
+      `${p(ventaSinDeposito).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de venta (el ${Math.round((1 - coberturaNetoReal) * 100)}%) todavía no tiene el depósito real de Mercado Pago: NO está en el neto ni en la utilidad; nada se estima. El fondo lo lee solo y el corte se completa.`
+      + (costoDiferido > 0
+        ? ` Su costo, ${p(costoDiferido).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}, TAMPOCO se resta: entra junto con su venta, para no enseñar una pérdida que no existe.`
+        : ""),
     );
   }
   if (diasDescuadrados.length) {

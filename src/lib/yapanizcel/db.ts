@@ -44,9 +44,18 @@ export function restarDias(dia: string, n: number): string {
 }
 
 /**
- * Una función de la base que devuelve tabla, completa, por páginas de 1000.
+ * Una función de la base que devuelve tabla, completa, por páginas.
  * `orden` da el orden estable entre páginas (mismo motivo que en todo()):
  * sin él, dos páginas del mismo agregado pueden traslaparse o dejar huecos.
+ *
+ * Cada página vuelve a correr la función entera, así que las páginas chicas
+ * salen CARAS: la venta de fundas de mayo son 34 mil renglones y de mil en
+ * mil eran 35 corridas del mes completo. Por eso el tamaño se puede subir.
+ *
+ * Se avanza por lo que REALMENTE llegó y solo se para con lote vacío: si el
+ * servidor recorta la página (PostgREST puede traer menos de lo pedido), el
+ * corte anterior —«llegaron menos de los que pedí, ya acabé»— se quedaba con
+ * una parte y no lo decía. Perder renglones en silencio es peor que tardar.
  */
 export async function rpcTodo<T>(
   db: DB,
@@ -56,14 +65,18 @@ export async function rpcTodo<T>(
   pagina = 1000,
 ): Promise<T[]> {
   const out: T[] = [];
-  for (let desde = 0; ; desde += pagina) {
+  for (let desde = 0; ; ) {
     let q: any = db.rpc(fn, args);
     for (const col of orden) q = q.order(col, { ascending: true });
     const { data, error } = await q.range(desde, desde + pagina - 1);
     if (error) throw new Error(`${fn}: ${error.message}`);
     const lote = (data ?? []) as T[];
     out.push(...lote);
-    if (lote.length < pagina) break;
+    if (lote.length === 0) break;
+    desde += lote.length;
+    // Tope de seguridad: 500 mil renglones es muchísimo más que cualquier
+    // mes real; llegar ahí es que algo se salió de control.
+    if (out.length >= 500_000) break;
   }
   return out;
 }

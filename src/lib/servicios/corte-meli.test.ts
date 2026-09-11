@@ -773,3 +773,60 @@ describe("costo recuperado de devoluciones", () => {
     expect(e.utilidadBruta).toBe(480 - 200 + 60.5 - 242);
   });
 });
+
+describe("el costo sigue a su venta", () => {
+  const venta = (extra?: Record<string, unknown>) => ({
+    sku: "GT135-TABACO-25", fecha: "2026-08-03", unidades: 10, ordenes: 10,
+    importe: 1000, comision: 0, neto: undefined, ...extra,
+  });
+
+  it("una venta sin depósito leído no arrastra su costo: nada de pérdidas inventadas (mayo 2026)", () => {
+    // El caso real: el 100% de la venta de calzado de mayo estaba sin
+    // depósito leído. El neto salía $0 y la utilidad −$605, que es
+    // exactamente el costo de los 10 pares.
+    const e = armarEstadoResultados(base({ ventas: [venta()] }));
+
+    expect(e.netoDepositado).toBe(0);
+    expect(e.costoProducto).toBe(0);
+    expect(e.utilidadNeta).toBe(0);
+    expect(e.avisos.join(" ")).toContain("TAMPOCO se resta");
+  });
+
+  it("con el depósito leído, el costo se resta completo como siempre", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [venta({ neto: 800 })],
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 1000, neto: 800, netoActual: null,
+        netoLeido: true, reembolsado: 0, reembolsoIncluidoNetoBase: 0,
+        reembolsoBaseConfiable: true, estado: "paid", estadoPago: "approved",
+        revisiones: 2, comisionMp: 0, cargosSinDesglosar: 0, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", unidades: 10, importe: 1000 }],
+      }],
+    }));
+
+    expect(e.netoDepositado).toBe(800);
+    expect(e.costoProducto).toBe(605);
+    expect(e.utilidadNeta).toBe(195);
+    expect(e.avisos.join(" ")).not.toContain("TAMPOCO se resta");
+  });
+
+  it("solo se aguanta el costo del día que le falta el depósito, no el del que ya lo tiene", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [
+        venta({ fecha: "2026-08-03", neto: 800 }),
+        venta({ fecha: "2026-08-04", neto: undefined }),
+      ],
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 1000, neto: 800, netoActual: null,
+        netoLeido: true, reembolsado: 0, reembolsoIncluidoNetoBase: 0,
+        reembolsoBaseConfiable: true, estado: "paid", estadoPago: "approved",
+        revisiones: 2, comisionMp: 0, cargosSinDesglosar: 0, cargosLeidos: true,
+        renglones: [{ sku: "GT135-TABACO-25", unidades: 10, importe: 1000 }],
+      }],
+    }));
+
+    // Solo los 10 pares del día 3 cuestan; los del 4 esperan a su depósito.
+    expect(e.costoProducto).toBe(605);
+    expect(e.netoDepositado).toBe(800);
+  });
+});
