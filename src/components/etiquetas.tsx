@@ -241,8 +241,12 @@ export interface PropsEtiquetas {
   soloMeli?: boolean;
   /** Nombre base de los archivos que se descargan (sin extensión). */
   archivo?: string;
-  /** Textos del botón que trae lo planeado; sin ellos sale el del calzado. */
-  sugeridasTexto?: { boton: (n: number) => string; ayuda: string };
+  /**
+   * Textos del botón que trae lo planeado; sin ellos sale el del calzado.
+   * Son cadenas y no funciones: la página es un Server Component y a un
+   * componente de cliente solo le puede pasar datos serializables.
+   */
+  sugeridasTexto?: { boton: string; ayuda: string };
   placeholderBusqueda?: string;
   placeholderPegado?: string;
 }
@@ -484,9 +488,8 @@ export function Etiquetas({
               className="rounded-lg border px-3 py-1.5 text-sm font-medium"
               style={{ borderColor: "var(--borde)" }}
             >
-              {sugeridasTexto
-                ? sugeridasTexto.boton(sugeridas.length)
-                : `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
+              {sugeridasTexto?.boton ??
+                `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
             </button>
             <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
               {sugeridasTexto?.ayuda ??

@@ -72,7 +72,7 @@ export default async function EtiquetasYz() {
         placeholderBusqueda="499-IP15PM-BLK o «iPhone 15»"
         placeholderPegado={"499-IP15PM-BLK\t50\n501-A54\t20"}
         sugeridasTexto={{
-          boton: (n) => `Traer los ${n} SKUs del envío a Full planeado`,
+          boton: `Traer los ${sugeridas.length} SKUs del envío a Full planeado`,
           ayuda:
             "Toma el plan de Envíos a Full de fundas y pide una etiqueta por unidad de cada SKU que hay que mandar.",
         }}
