@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   const { data: fila } = await supabase
     .from("videos_producto")
-    .select("id, estado, duracion, video_url, video_guardado")
+    .select("id, estado, duracion, video_url, video_guardado, formato, audio_url")
     .eq("account_id", cuenta.id)
     .eq("id", id)
     .single();
@@ -76,6 +76,10 @@ export async function POST(req: NextRequest) {
       `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
       guion,
       (fila.duracion as number) || 15,
+      // La copia limpia trae la pista que generó la IA; si el video se hizo
+      // con una voz APROBADA, esa pista se vuelve a poner (si no, corregir
+      // los subtítulos le cambiaba la voz al video).
+      fila.formato === "studio" ? (fila.audio_url as string | null) : null,
     );
   } catch (err) {
     return NextResponse.json(

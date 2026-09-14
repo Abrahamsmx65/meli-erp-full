@@ -717,6 +717,7 @@ login, la base y el deploy.
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
 | Videos de producto (Higgsfield)  | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
+| Subtítulos de los videos del Studio: se queman desde el guion del ERP en el sandbox del MCP (`marca-agua.ts`) y sus tiempos salen de DÓNDE se oye la voz —`silencedetect` sobre la pista que va a llevar el archivo (la aprobada o la del video), cada oración en su tramo; sin medida se reparten parejo—. Repartir el guion sobre los 15 s completos dejaba los subtítulos desfasados. Corregir subtítulos (`/api/videos/subtitulos`) vuelve a poner la voz aprobada | `src/lib/servicios/marca-agua.ts` (`medirVoz`, `tramosDeVoz`, `armarSubtitulos`) |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,pedidos/cargar,pedidos/nuevos,contenedores,corridas,etiquetas,videos,pendientes,ajustes}` |
 
