@@ -1,10 +1,18 @@
 /**
- * El orden del despacho: por modelo, luego color, luego talla.
+ * El orden del despacho: PRIMERO lo de un solo modelo, luego lo revuelto, y
+ * dentro de cada bloque por modelo, luego color, luego talla.
  *
- * Es el orden en que se camina la bodega: todos los GT135 juntos, dentro
- * de ellos por color, y dentro del color de la talla chica a la grande. La
- * lista de empaque y el PDF de etiquetas van en ESTE orden y con LOS MISMOS
- * números, para que la etiqueta #12 sea el renglón #12 sin buscar.
+ * El bloque de UN MODELO es todo lo que se empaca sin pensar: un paquete de
+ * una pieza, o de varias del mismo modelo (dos GT114 en el mismo envío
+ * siguen siendo un modelo). Lo REVUELTO —dos modelos distintos en la misma
+ * caja— se deja para el final, junto, porque es lo que hay que armar con
+ * cuidado (decisión del dueño, 14-sep-2026: así se prepara más rápido).
+ *
+ * Dentro de cada bloque es el orden en que se camina la bodega: todos los
+ * GT135 juntos, dentro de ellos por color, y dentro del color de la talla
+ * chica a la grande. La lista de empaque y el PDF de etiquetas van en ESTE
+ * orden y con LOS MISMOS números, para que la etiqueta #12 sea el renglón
+ * #12 sin buscar.
  */
 import { codigosDeProducto } from "./codigos";
 
@@ -53,6 +61,34 @@ export interface PaqueteNumerado extends PaqueteDespacho {
   modelo: string;
   color: string;
   talla: string;
+  /** true si el paquete lleva DOS modelos distintos o más */
+  revuelto: boolean;
+}
+
+/**
+ * La identidad del paquete: el pedido y su paquete de TikTok. Es lo que
+ * guarda la constancia de preparado (`tiktok_preparaciones`), y por eso lo
+ * que se compara: el "#n" es solo el lugar que le tocó en la hoja de HOY y
+ * cambia si cambia el orden.
+ */
+export function clavePaquete(p: { orderId: string; packageId?: string | null }): string {
+  return `${p.orderId}|${p.packageId ?? ""}`;
+}
+
+/** Los modelos distintos que lleva el paquete. */
+export function modelosDePaquete(p: { pares: ParDespacho[] }): string[] {
+  const modelos = new Set<string>();
+  for (const x of p.pares) modelos.add(partirSku(x.sku).modelo);
+  return [...modelos];
+}
+
+/**
+ * ¿El paquete es de UN SOLO modelo? Una pieza sola, dos pares del mismo
+ * zapato o dos tallas del mismo modelo cuentan como uno; dos modelos
+ * distintos, no.
+ */
+export function esDeUnModelo(p: { pares: ParDespacho[] }): boolean {
+  return modelosDePaquete(p).length <= 1;
 }
 
 /** MODELO-COLOR-TALLA → sus tres pedazos; lo que no cuadre se va al final. */
@@ -87,22 +123,58 @@ function compararSku(a: string, b: string): number {
 }
 
 /**
- * Ordena y numera los paquetes. El paquete se ordena por su PRIMER par (ya
- * ordenado); un paquete con dos tallas cae donde cae la menor.
+ * Ordena y numera los paquetes: PRIMERO los de un solo modelo y luego los
+ * revueltos, y dentro de cada bloque por su PRIMER par (ya ordenado); un
+ * paquete con dos tallas cae donde cae la menor.
  */
 export function numerarPaquetes(paquetes: PaqueteDespacho[]): PaqueteNumerado[] {
   const conOrden = paquetes.map((p) => ({
     ...p,
     pares: [...p.pares].sort((a, b) => compararSku(a.sku, b.sku)),
   }));
+  const bloque = (p: PaqueteDespacho) => (esDeUnModelo(p) ? 0 : 1);
   conOrden.sort(
     (a, b) =>
-      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") || a.orderId.localeCompare(b.orderId),
+      bloque(a) - bloque(b) ||
+      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") ||
+      a.orderId.localeCompare(b.orderId),
   );
   return conOrden.map((p, i) => {
     const primero = partirSku(p.pares[0]?.sku ?? "");
-    return { ...p, numero: i + 1, ...primero };
+    return { ...p, numero: i + 1, ...primero, revuelto: !esDeUnModelo(p) };
   });
+}
+
+/**
+ * Los números que les tocan HOY a los paquetes que ya se prepararon. La
+ * constancia se guarda por pedido + paquete, así que cambiar el orden no la
+ * pierde: aquí se traduce a los "#n" de esta hoja.
+ *
+ * Un pedido de un solo paquete se reconoce también por el pedido a secas:
+ * cuando se preparó, TikTok podía no haber dado todavía el id del paquete
+ * (se guardó vacío) y hoy sí darlo, o al revés.
+ */
+export function numerosPreparados(paquetes: PaqueteNumerado[], claves: Iterable<string>): number[] {
+  const porClave = new Map<string, PaqueteNumerado>();
+  const porOrden = new Map<string, PaqueteNumerado[]>();
+  for (const p of paquetes) {
+    porClave.set(clavePaquete(p), p);
+    const l = porOrden.get(p.orderId) ?? [];
+    l.push(p);
+    porOrden.set(p.orderId, l);
+  }
+  const numeros = new Set<number>();
+  for (const clave of claves) {
+    const exacto = porClave.get(clave);
+    if (exacto) {
+      numeros.add(exacto.numero);
+      continue;
+    }
+    const orderId = String(clave).split("|")[0];
+    const unicos = porOrden.get(orderId);
+    if (unicos && unicos.length === 1) numeros.add(unicos[0].numero);
+  }
+  return [...numeros].sort((a, b) => a - b);
 }
 
 /** El texto que va abajo a la derecha de la etiqueta: "#12 · GT135-DK BROWN-26 ×2". */
@@ -177,19 +249,30 @@ export interface GrupoModelo {
   modelo: string;
   pares: number;
   paquetes: PaqueteNumerado[];
+  /** true si es la sección de los paquetes con varios modelos */
+  revuelto: boolean;
 }
 
-/** La lista de empaque: por modelo, en el mismo orden y con los mismos números. */
+/** El título de la sección de los paquetes con varios modelos. */
+export const GRUPO_REVUELTOS = "Revueltos";
+
+/**
+ * La lista de empaque: por modelo, en el mismo orden y con los mismos
+ * números. Los paquetes revueltos (dos modelos o más) van todos juntos al
+ * final, en UNA sección: no se mezclan con la del modelo de su primer par,
+ * que se empaca de corrido.
+ */
 export function agruparPorModelo(numerados: PaqueteNumerado[]): GrupoModelo[] {
   const grupos: GrupoModelo[] = [];
   for (const p of numerados) {
     const ultimo = grupos[grupos.length - 1];
     const pares = p.pares.reduce((a, x) => a + x.pares, 0);
-    if (ultimo && ultimo.modelo === p.modelo) {
+    const modelo = p.revuelto ? GRUPO_REVUELTOS : p.modelo;
+    if (ultimo && ultimo.modelo === modelo && ultimo.revuelto === p.revuelto) {
       ultimo.paquetes.push(p);
       ultimo.pares += pares;
     } else {
-      grupos.push({ modelo: p.modelo, pares, paquetes: [p] });
+      grupos.push({ modelo, pares, paquetes: [p], revuelto: p.revuelto });
     }
   }
   return grupos;

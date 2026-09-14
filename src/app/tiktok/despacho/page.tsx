@@ -75,7 +75,7 @@ export default async function Despacho() {
         <h1 className="titulo-pagina">Despacho TikTok Shop</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           La rutina de la mañana: un corte confirma todo lo pendiente y deja listas las etiquetas y
-          la lista de empaque, en orden de modelo.
+          la lista de empaque, primero lo de un solo modelo y al final lo revuelto.
         </p>
       </div>
       {sinAvance ? (

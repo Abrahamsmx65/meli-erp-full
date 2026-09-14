@@ -261,12 +261,21 @@ guárdala numerada.
   guía hasta confirmar; para RECOLECCIÓN hay que mandar también un
   `pickup_slot` de `handover_time_slots`, si no TikTok lo vuelve drop-off), guarda el corte con sus pedidos (`tiktok_cortes`,
   `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
-  de TikTok unidas con `pdf-lib` en orden modelo → color → talla y "#n · SKU"
+  de TikTok unidas con `pdf-lib` en el ORDEN DEL CORTE y "#n · SKU"
   estampado abajo a la derecha junto al CÓDIGO DEL PEDIDO en barras (nada
   más se toca; escanear la guía en la estación enseña qué empacar), la
   lista de empaque en el mismo orden con los mismos números, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
-  jalar de bodega. El siguiente corte solo toma lo que
+  jalar de bodega. **El orden del corte es: PRIMERO todo lo de UN SOLO
+  MODELO y al final lo REVUELTO** (`esDeUnModelo`, `numerarPaquetes`;
+  decisión del dueño el 14-sep-2026: «así se me hace más fácil despachar o
+  preparar pedidos más rápido»). Un paquete de una pieza, de dos pares del
+  mismo zapato o de dos tallas del mismo modelo es UN MODELO (GT114 ×2 en
+  el mismo envío cuenta como uno); dos modelos distintos en la misma caja
+  es revuelto, y esos van juntos en su propia sección de la lista de
+  empaque (`GRUPO_REVUELTOS`), nunca mezclados con la del modelo de su
+  primer par. Dentro de cada bloque sigue el paseo de la bodega: modelo →
+  color → talla. El siguiente corte solo toma lo que
   no tiene corte. Un pedido que TikTok rechace se anota y se queda fuera,
   pero un 503 PASAJERO ya no cuenta como rechazo: el borde (Akamai) contesta
   esos con una PÁGINA HTML, no con JSON, y el cliente la lanzaba antes de
@@ -284,6 +293,17 @@ guárdala numerada.
   rato de Vercel, el segundo NO se hace a medias: dice cuántos quedaron y el
   botón normal se los lleva completos. La simulación enseña la partición
   antes de confirmar nada.
+  **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
+  `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
+  por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos
+  sin preparar con su "#n", su número de pedido y sus productos, el
+  resumen de pares por surtir y la hoja para imprimir (`?formato=pdf`, con
+  el pedido en barras para escanearlo igual en la estación). Aparte van los
+  pedidos que TikTok RECHAZÓ al hacer el corte: también faltan, pero nunca
+  tuvieron guía. La constancia de preparado se sigue por la IDENTIDAD del
+  paquete (pedido + paquete, `clavePaquete`), no por el "#n": el número es
+  el lugar en la hoja de hoy y cambiaría al cambiar el orden del corte;
+  `numerosPreparados` lo traduce a la hoja que se está enseñando.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,

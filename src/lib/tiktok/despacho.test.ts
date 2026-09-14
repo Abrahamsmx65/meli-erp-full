@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorModelo, codigoDeOrden, numerarPaquetes, parsearCodigoDeOrden, partirSku, renglonesDeEtiqueta, textoDeEtiqueta } from "./despacho";
+import {
+  agruparPorModelo,
+  clavePaquete,
+  codigoDeOrden,
+  esDeUnModelo,
+  numerarPaquetes,
+  numerosPreparados,
+  parsearCodigoDeOrden,
+  partirSku,
+  renglonesDeEtiqueta,
+  textoDeEtiqueta,
+} from "./despacho";
 
 describe("partirSku", () => {
   it("separa modelo, color y talla, con el color de varias palabras", () => {
@@ -92,5 +103,96 @@ describe("código de orden", () => {
     expect(parsearCodigoDeOrden("585899174098143165")).toBe("585899174098143165");
     expect(parsearCodigoDeOrden("X004KYMZZ1")).toBeNull();
     expect(parsearCodigoDeOrden("TT8-12")).toBeNull();
+  });
+});
+
+const mezcla = (orderId: string, skus: [string, number][]) => ({
+  orderId,
+  packageId: `pk-${orderId}`,
+  destinatario: null,
+  pares: skus.map(([sku, pares]) => ({ sku, pares })),
+});
+
+describe("esDeUnModelo", () => {
+  it("una pieza sola, dos pares del mismo zapato y dos tallas del mismo modelo son UN modelo", () => {
+    expect(esDeUnModelo(mezcla("a", [["GT114-BEIGE-23", 1]]))).toBe(true);
+    expect(esDeUnModelo(mezcla("b", [["GT114-BEIGE-23", 2]]))).toBe(true);
+    expect(esDeUnModelo(mezcla("c", [["GT114-BEIGE-23", 1], ["GT114-BLK-25", 1]]))).toBe(true);
+  });
+  it("dos modelos distintos son revuelto", () => {
+    expect(esDeUnModelo(mezcla("d", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]))).toBe(false);
+  });
+});
+
+describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
+  it("los revueltos se van al final aunque su modelo vaya antes en el alfabeto", () => {
+    const n = numerarPaquetes([
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]),
+      paq("solo", "GT150-CAMEL-27"),
+      paq("dos", "GT114-BLK-25"),
+    ]);
+    expect(n.map((p) => [p.numero, p.orderId, p.revuelto])).toEqual([
+      [1, "dos", false],
+      [2, "solo", false],
+      [3, "revuelto", true],
+    ]);
+  });
+
+  it("dentro de cada bloque se sigue caminando la bodega: modelo, color, talla", () => {
+    const n = numerarPaquetes([
+      mezcla("r2", [["GT150-CAMEL-27", 1], ["GT114-BEIGE-23", 1]]),
+      mezcla("r1", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
+      paq("s2", "GT150-CAMEL-27"),
+      paq("s1", "GT114-BEIGE-9"),
+    ]);
+    expect(n.map((p) => p.orderId)).toEqual(["s1", "s2", "r1", "r2"]);
+  });
+
+  it("un paquete de varios pares del mismo modelo sigue contando como un modelo", () => {
+    const n = numerarPaquetes([
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
+      mezcla("gt114x2", [["GT114-BEIGE-23", 2]]),
+    ]);
+    expect(n[0].orderId).toBe("gt114x2");
+    expect(n[0].revuelto).toBe(false);
+  });
+});
+
+describe("agruparPorModelo con revueltos", () => {
+  it("los revueltos van en su propia sección al final, no con el modelo de su primer par", () => {
+    const g = agruparPorModelo(
+      numerarPaquetes([
+        paq("a", "GT114-BEIGE-23"),
+        mezcla("r", [["GT114-BLK-25", 1], ["GT150-CAMEL-27", 2]]),
+        paq("b", "GT150-CAMEL-27"),
+      ]),
+    );
+    expect(g.map((x) => [x.modelo, x.pares, x.paquetes.length, x.revuelto])).toEqual([
+      ["GT114", 1, 1, false],
+      ["GT150", 1, 1, false],
+      ["Revueltos", 3, 1, true],
+    ]);
+  });
+});
+
+describe("numerosPreparados", () => {
+  const numerados = numerarPaquetes([
+    paq("a", "GT114-BEIGE-23"),
+    paq("b", "GT150-CAMEL-27"),
+    mezcla("c", [["GT114-BLK-25", 1], ["GT229-BLK-25", 1]]),
+  ]);
+
+  it("la constancia se sigue por pedido + paquete, así que cambiar el orden no la pierde", () => {
+    expect(numerosPreparados(numerados, [clavePaquete({ orderId: "c", packageId: "pk-c" })])).toEqual([3]);
+    expect(numerosPreparados(numerados, ["a|pk-a", "b|pk-b"])).toEqual([1, 2]);
+  });
+
+  it("un pedido de un solo paquete se reconoce aunque el id del paquete no cuadre", () => {
+    // Se preparó cuando TikTok todavía no daba el id del paquete.
+    expect(numerosPreparados(numerados, ["a|"])).toEqual([1]);
+  });
+
+  it("lo que no es de este corte no cuenta", () => {
+    expect(numerosPreparados(numerados, ["zzz|pk-zzz"])).toEqual([]);
   });
 });

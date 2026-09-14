@@ -32,8 +32,10 @@ import {
 } from "../tiktok/api";
 import {
   agruparPorModelo,
+  clavePaquete,
   codigoDeHoja,
   codigoDeOrden,
+  numerosPreparados,
   renglonesDeEtiqueta,
   numerarPaquetes,
   type PaqueteDespacho,
@@ -752,7 +754,8 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
 
   for (const g of grupos) {
     if (y < M + FILA * 3) nuevaPagina();
-    texto(`${g.modelo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}`, M, 11, negrita);
+    const titulo = g.revuelto ? `${g.modelo.toUpperCase()} (varios modelos en la misma caja)` : g.modelo;
+    texto(`${titulo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}`, M, 11, negrita);
     y -= 14;
     encabezado();
 
@@ -900,15 +903,219 @@ export async function pdfSurtidoDelCorte(admin: any, accountId: string, corteId:
 }
 
 // ---------------------------------------------------------------------------
+// Los faltantes del corte: qué pedidos se quedaron sin preparar
+// ---------------------------------------------------------------------------
+
+export interface PaqueteFaltante {
+  numero: number;
+  orderId: string;
+  packageId: string;
+  destinatario: string | null;
+  revuelto: boolean;
+  pares: { sku: string; pares: number; fnsku: string | null }[];
+}
+
+export interface FaltantesCorte {
+  id: number;
+  numero: number;
+  creadoEn: string;
+  /** paquetes del corte */
+  total: number;
+  preparados: number;
+  faltantes: PaqueteFaltante[];
+  /** pares que se quedaron sin salir, sumados por SKU */
+  pares: { sku: string; pares: number }[];
+  /** los pedidos que TikTok no aceptó al hacer el corte: nunca entraron */
+  rechazados: { orderId: string; error: string }[];
+}
+
+/**
+ * Lo que falta por despachar de un corte: el pedido, sus productos y el
+ * número con el que salió en la hoja. Un corte que se quedó a medias no
+ * dice por sí solo QUÉ se quedó; esto lo dice, para buscarlo en la mesa o
+ * volverlo a jalar de bodega.
+ *
+ * Aparte van los pedidos que TikTok RECHAZÓ al hacer el corte: esos nunca
+ * llegaron a tener etiqueta, así que también faltan, pero por otro motivo.
+ */
+export async function faltantesDelCorte(
+  admin: any,
+  accountId: string,
+  corteId: number,
+): Promise<FaltantesCorte> {
+  const [corte, hechos, fila] = await Promise.all([
+    cargarCorte(admin, accountId, corteId),
+    preparadosDelCorte(admin, accountId, corteId),
+    admin
+      .from("tiktok_cortes")
+      .select("errores")
+      .eq("account_id", accountId)
+      .eq("id", corteId)
+      .maybeSingle(),
+  ]);
+
+  const yaNumerados = new Set(numerosPreparados(corte.paquetes, hechos));
+  const faltantes: PaqueteFaltante[] = corte.paquetes
+    .filter((p) => !yaNumerados.has(p.numero))
+    .map((p) => ({
+      numero: p.numero,
+      orderId: p.orderId,
+      packageId: p.packageId,
+      destinatario: p.destinatario,
+      revuelto: p.revuelto,
+      pares: p.pares.map((x) => ({ sku: x.sku, pares: x.pares, fnsku: x.fnsku ?? null })),
+    }));
+
+  const porSku = new Map<string, number>();
+  for (const f of faltantes) {
+    for (const x of f.pares) porSku.set(x.sku, (porSku.get(x.sku) ?? 0) + x.pares);
+  }
+
+  const errores = (fila?.data?.errores ?? []) as { orderId: string; error: string }[];
+
+  return {
+    id: corte.id,
+    numero: corte.numero,
+    creadoEn: corte.creadoEn,
+    total: corte.paquetes.length,
+    preparados: yaNumerados.size,
+    faltantes,
+    pares: [...porSku]
+      .map(([sku, pares]) => ({ sku, pares }))
+      .sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true })),
+    rechazados: Array.isArray(errores) ? errores : [],
+  };
+}
+
+/**
+ * La hoja de faltantes: los pedidos del corte que no se prepararon, con el
+ * mismo número que traen en la lista de empaque, el pedido en barras (se
+ * escanea igual en la estación) y sus productos.
+ */
+export async function pdfFaltantesDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
+  const datos = await faltantesDelCorte(admin, accountId, corteId);
+
+  const doc = await PDFDocument.create();
+  const normal = await doc.embedFont(StandardFonts.Helvetica);
+  const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
+  doc.setTitle(`Corte ${datos.numero} · faltantes`);
+
+  const CARTA: [number, number] = [612, 792];
+  const M = 36;
+  const ANCHO = CARTA[0] - 2 * M;
+  const FILA = 30;
+  const gris = rgb(0.45, 0.45, 0.45);
+  const linea = rgb(0.75, 0.75, 0.75);
+  // Columnas: # | pedido (barras) | SKU × cant. | destinatario | ☐
+  const COL = [26, 140, 190, ANCHO - 26 - 140 - 190 - 18, 18];
+  const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
+
+  let pagina = doc.addPage(CARTA);
+  let y = CARTA[1] - M;
+
+  const recorta = (t: string, ancho: number, size: number, f = normal) => {
+    let x = t;
+    while (x.length > 1 && f.widthOfTextAtSize(x, size) > ancho - 4) x = x.slice(0, -1);
+    return x === t ? t : x.slice(0, -1) + "…";
+  };
+  const encabezado = () => {
+    ["#", "Pedido (escanear)", "SKU × cant.", "Destinatario", ""].forEach((t, i) =>
+      pagina.drawText(t, { x: xs[i] + 2, y, size: 8, font: negrita, color: gris }),
+    );
+    y -= 4;
+    pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
+    y -= FILA;
+  };
+  const nuevaPagina = () => {
+    pagina = doc.addPage(CARTA);
+    y = CARTA[1] - M;
+    encabezado();
+  };
+
+  const fecha = new Date(datos.creadoEn).toLocaleString("es-MX", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City",
+  });
+  const totalPares = datos.pares.reduce((a, x) => a + x.pares, 0);
+  pagina.drawText(`Corte #${datos.numero} · TikTok Shop · faltantes`, { x: M, y, size: 15, font: negrita });
+  y -= 16;
+  pagina.drawText(
+    `${fecha}   ·   ${datos.faltantes.length} de ${datos.total} paquetes sin preparar   ·   ${totalPares} pares`,
+    { x: M, y, size: 9, font: normal, color: gris },
+  );
+  y -= 14;
+  if (datos.pares.length) {
+    pagina.drawText(
+      recorta("Faltan: " + datos.pares.map((x) => `${x.sku} ×${x.pares}`).join("   ·   "), ANCHO, 9),
+      { x: M, y, size: 9, font: normal },
+    );
+    y -= 14;
+  }
+  y -= 8;
+  encabezado();
+
+  for (const f of datos.faltantes) {
+    const alto = FILA * Math.max(1, f.pares.length);
+    if (y - alto < M) nuevaPagina();
+    const arriba = y + FILA - 12;
+    pagina.drawText(`#${f.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
+    const codigoOrden = codigoDeOrden(f.orderId);
+    if (codigoOrden) {
+      dibujarBarras(pagina, codigoOrden, xs[1] + 2, y + 9, anchoBarras(codigoOrden, COL[1] - 6), 18);
+      pagina.drawText(f.orderId, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
+    } else {
+      pagina.drawText(f.orderId, { x: xs[1] + 2, y: arriba, size: 8, font: normal });
+    }
+    pagina.drawText(recorta(f.destinatario ?? "", COL[3], 7.5), { x: xs[3] + 2, y: arriba, size: 7.5, font: normal, color: gris });
+    pagina.drawRectangle({ x: xs[4] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+    f.pares.forEach((x, i) => {
+      const yy = arriba - i * FILA;
+      const etiqueta = x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku;
+      pagina.drawText(recorta(etiqueta, COL[2], 9.5, negrita), { x: xs[2] + 2, y: yy, size: 9.5, font: negrita });
+      if (x.fnsku) {
+        pagina.drawText(x.fnsku, { x: xs[2] + 2, y: yy - 9, size: 6.5, font: normal, color: gris });
+      }
+    });
+    y -= alto;
+    pagina.drawLine({ start: { x: M, y: y + FILA - 6 }, end: { x: M + ANCHO, y: y + FILA - 6 }, thickness: 0.4, color: linea });
+  }
+
+  if (!datos.faltantes.length) {
+    pagina.drawText("Nada pendiente: el corte se preparó completo.", { x: M, y, size: 11, font: negrita });
+    y -= FILA;
+  }
+
+  if (datos.rechazados.length) {
+    if (y < M + FILA * 3) nuevaPagina();
+    y -= 10;
+    pagina.drawText("Pedidos que TikTok no aceptó en el corte (nunca tuvieron guía)", { x: M, y, size: 11, font: negrita });
+    y -= 16;
+    for (const r of datos.rechazados) {
+      if (y < M) nuevaPagina();
+      pagina.drawText(recorta(`${r.orderId} — ${r.error}`, ANCHO, 8.5), { x: M, y, size: 8.5, font: normal, color: gris });
+      y -= 14;
+    }
+  }
+
+  return doc.save();
+}
+
+// ---------------------------------------------------------------------------
 // Preparar: la constancia de los tres escaneos
 // ---------------------------------------------------------------------------
 
-/** Los números de renglón que ya se prepararon en un corte. */
-export async function preparadosDelCorte(db: DB, accountId: string, corteId: number): Promise<Set<number>> {
-  const filas = await traerTodo<any>(db, "tiktok_preparaciones", "numero, id", (q) =>
+/**
+ * Los paquetes que ya se prepararon en un corte, por su IDENTIDAD (pedido +
+ * paquete), no por el "#n": el número es el lugar en la hoja de hoy y
+ * cambia si cambia el orden del corte. `numerosPreparados` los traduce a
+ * los números de la hoja que se está enseñando.
+ */
+export async function preparadosDelCorte(db: DB, accountId: string, corteId: number): Promise<Set<string>> {
+  const filas = await traerTodo<any>(db, "tiktok_preparaciones", "order_id, package_id, id", (q) =>
     q.eq("account_id", accountId).eq("corte_id", corteId),
   );
-  return new Set((filas ?? []).map((f: any) => Number(f.numero)));
+  return new Set(
+    (filas ?? []).map((f: any) => clavePaquete({ orderId: String(f.order_id), packageId: f.package_id ?? "" })),
+  );
 }
 
 export async function marcarPreparado(
@@ -948,7 +1155,8 @@ export async function prepararCorteCompleto(
 ): Promise<{ preparados: number; yaEstaban: number }> {
   const corte = await cargarCorte(admin, accountId, corteId);
   const hechos = await preparadosDelCorte(admin, accountId, corteId);
-  const pendientes = corte.paquetes.filter((p) => !hechos.has(p.numero));
+  const yaNumerados = new Set(numerosPreparados(corte.paquetes, hechos));
+  const pendientes = corte.paquetes.filter((p) => !yaNumerados.has(p.numero));
   const ahora = new Date().toISOString();
   if (pendientes.length) {
     const { error } = await admin.from("tiktok_preparaciones").upsert(
