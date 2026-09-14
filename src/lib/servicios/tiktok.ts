@@ -17,7 +17,7 @@
  */
 import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
-import { sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { agregarVentasDiarias } from "../tiktok/ventas";
 import { indexarCatalogo } from "../etiquetas/resolver";
@@ -45,6 +45,7 @@ import {
   tiendaTikTok,
   type CredencialesApp,
 } from "../tiktok/client";
+import { disponibleConEstante } from "../tiktok/bodega";
 import {
   apartadosPorSku,
   disponibleParaCompradores,
@@ -752,7 +753,7 @@ export async function publicarDisponibilidad(
     };
   }
 
-  const [inv, skusTikTok, contados] = await Promise.all([
+  const [inv, skusTikTok, contados, estante] = await Promise.all([
     traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado, publicado_en", (q) =>
       q.eq("account_id", accountId),
     ),
@@ -760,6 +761,9 @@ export async function publicarDisponibilidad(
       q.eq("account_id", accountId).eq("activo", true),
     ),
     skusContados(admin, accountId),
+    // El estante del 3PL, masticado 15 min (misma clave que /tiktok/desfases).
+    // Si la lectura falla se sigue sin tope: un API caído no apaga la tienda.
+    leerEstanteTikTok(admin, accountId),
   ]);
 
   // SEGURO: solo se le escribe a TikTok un SKU que alguna vez se CONTÓ (una
@@ -767,10 +771,22 @@ export async function publicarDisponibilidad(
   // se capturara su existencia— tendría saldo negativo y disponible 0, y
   // publicarle 0 apagaría una publicación que TikTok sí estaba vendiendo.
   // Hasta que se cuente, TikTok se queda con su propio número.
+  //
+  // Y se le publica el MENOR entre el kardex y el ESTANTE del 3PL: mientras
+  // las dos fuentes no coincidan gana la más baja (regla del dueño,
+  // 14-sep-2026). Un SKU contado a mano después de la foto del 3PL no se
+  // topa: ese conteo es el dato más fresco que hay.
   const disponibles = new Map<string, number>();
+  const topados: string[] = [];
   for (const r of inv ?? []) {
     if (!contados.has(r.sku)) continue;
-    disponibles.set(r.sku, disponibleParaCompradores(r.saldo, r.apartado));
+    const sinTope = disponibleParaCompradores(r.saldo, r.apartado);
+    const pares = estante.pares && !estante.contadosDespues.has(r.sku)
+      ? (estante.pares.get(r.sku) ?? 0)
+      : null;
+    const conTope = disponibleConEstante(r.saldo, r.apartado, pares);
+    if (conTope < sinTope) topados.push(`${r.sku} (${sinTope}→${conTope})`);
+    disponibles.set(r.sku, conTope);
   }
 
   // Se compara contra lo que TikTok DICE tener (cantidad_tiktok, del
@@ -818,6 +834,7 @@ export async function publicarDisponibilidad(
       sinProducto,
       avisos: [
         ...(sinProducto ? [`${sinProducto} SKU con existencia no tienen publicación en TikTok.`] : []),
+        ...(topados.length ? [`${topados.length} SKU topados por la bodega (el kardex traía de más).`] : []),
         ...(frenadas.length ? [`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`] : []),
       ],
     };
@@ -862,6 +879,15 @@ export async function publicarDisponibilidad(
     avisos.push(`TikTok rechazó ${res.fallidos.length} SKU: ${res.fallidos[0].error}`);
   }
   if (sinProducto) avisos.push(`${sinProducto} SKU con existencia no tienen publicación en TikTok.`);
+  // El tope contra el estante NUNCA es silencioso: si actuó es que el kardex
+  // y la bodega no coinciden, y eso hay que arreglarlo en el conteo, no
+  // dejarlo tapado por el tope.
+  if (topados.length) {
+    avisos.push(
+      `${topados.length} SKU se publicaron topados por la bodega (el kardex traía de más): ${topados.slice(0, 8).join(", ")}` +
+        (topados.length > 8 ? `…` : ""),
+    );
+  }
   if (frenadas.length) {
     avisos.push(`${frenadas.length} subida${frenadas.length === 1 ? "" : "s"} sin causa no se mandaron a TikTok (se revisan en la corrida completa).`);
   }

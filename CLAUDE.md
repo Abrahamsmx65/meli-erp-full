@@ -214,6 +214,29 @@ guárdala numerada.
   plan de Full y al pedido a China). A TikTok solo se le escribe un SKU que alguna vez
   se contó (entrada o ajuste): uno con puras salidas se queda con el número
   que TikTok ya tiene.
+  **A TikTok se le publica el MENOR entre el kardex y el ESTANTE del 3PL**
+  (`disponibleConEstante`, decisión del dueño el 14-sep-2026 después de
+  sobrevender): mientras las dos fuentes no coincidan gana la más baja,
+  siempre. Vender de menos se arregla con un conteo; vender lo que no hay
+  cuesta el pedido. El tope solo BAJA (subir necesita su entrada) y NO se
+  aplica en dos casos: sin lectura del 3PL (`pares: null` — un API caído no
+  puede apagar la tienda) y en un SKU contado a mano DESPUÉS de esa foto,
+  porque entonces el conteo es el dato más fresco y si no el conteo cíclico
+  no serviría contra un 3PL desactualizado. Cuando el tope actúa se DECLARA
+  en los avisos de la publicación: taparlo sería volver a esconder el
+  problema.
+  **La guardia corre en el fondo, no en una pantalla** (`tiktok/alarma.ts` +
+  `tiktok-alarma.ts`, migración 0087, en el cron de TikTok): el cruce de los
+  tres números ya existía en `/tiktok/desfases` pero era una pantalla que
+  nadie abría —el GT102-GREY-25-MX estuvo CUATRO DÍAS ofreciendo pares que
+  la bodega no tenía—. Ahora cada corrida anota en `tiktok_desfases` desde
+  cuándo lleva mal cada SKU y manda UN correo cuando aguanta más de
+  `HORAS_PARA_AVISAR` (6); lo que se compone solo desaparece sin molestar.
+  Solo suena la dirección PELIGROSA —kardex arriba del estante, o kardex
+  negativo—: el 14-sep los 16 SKUs que no cuadraban eran todos del lado sano
+  (449 pares sin ofrecer) y una alarma que no distinguiera sonaría 16 veces
+  al día hasta que nadie la viera. Las salidas que el 3PL aún no confirma se
+  suman al kardex antes de comparar, si no cada corte dispararía la alarma.
   **Tiempo real:** TikTok ya aparta solo al vender; la única forma de vender
   de más es que el ERP le escriba un número viejo. Por eso (1) NUNCA se le
   escribe sin antes leer sus pedidos recientes (`sincronizarTikTok` con

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CajaConstruida } from "../importar/cajas";
 import {
   conciliarAcumulado,
+  disponibleConEstante,
   esAlmacenTikTok,
   movimientosDesdeAcumulado,
   paresPorSkuDesdeCajas,
@@ -255,5 +256,36 @@ describe("una devolución solo vale si la bodega la confirma", () => {
     expect(movimientos).toEqual([
       expect.objectContaining({ tipo: "merma", cantidad: 4, motivo: "Industher reportó menos en la bodega TikTok" }),
     ]);
+  });
+});
+
+describe("a TikTok se le publica el MENOR entre el kardex y el estante", () => {
+  it("el caso del 14-sep: kardex 4, estante 0 → no se ofrece nada", () => {
+    // GT102-GREY-25-MX ofrecía 3 pares con la bodega en cero.
+    expect(disponibleConEstante(4, 1, 0)).toBe(0);
+  });
+
+  it("el estante manda cuando trae menos que el kardex", () => {
+    expect(disponibleConEstante(84, 1, 83)).toBe(82); // GT102-BLK-24
+    expect(disponibleConEstante(17, 3, 13)).toBe(10); // GT102-NAVY-26
+  });
+
+  it("si cuadran, se publica lo de siempre", () => {
+    expect(disponibleConEstante(50, 2, 50)).toBe(48);
+  });
+
+  it("el tope solo BAJA: un estante con más pares no sube el disponible", () => {
+    // Llegó mercancía que el kardex todavía no registra: se sube con su
+    // entrada, no adivinando desde el estante.
+    expect(disponibleConEstante(10, 0, 30)).toBe(10);
+  });
+
+  it("sin lectura del 3PL no se topa nada: un API caído no apaga la tienda", () => {
+    expect(disponibleConEstante(40, 5, null)).toBe(35);
+  });
+
+  it("nunca es negativo", () => {
+    expect(disponibleConEstante(2, 5, 0)).toBe(0);
+    expect(disponibleConEstante(-3, 0, 0)).toBe(0);
   });
 });

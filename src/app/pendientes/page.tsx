@@ -16,7 +16,7 @@ export default async function Pendientes() {
   // Esta pantalla solo usa los pendientes del plan: se leen esas claves del
   // caché sin bajar el JSON completo (pesa varios megas); si no hay plan
   // guardado todavía, se cae a obtenerPlan como siempre.
-  const [parcial, { data: rojosRaw }, { data: ttSinAmarreRaw }] = await Promise.all([
+  const [parcial, { data: rojosRaw }, { data: ttSinAmarreRaw }, { data: desfasesRaw }] = await Promise.all([
     leerPlanParcial(supabase, cuenta.id, ["pendientes"]),
     // TikTok: un saldo negativo es que se vendió algo que nunca entró al
     // kardex. No se puede frenar a TikTok, pero sí gritar aquí.
@@ -28,12 +28,21 @@ export default async function Pendientes() {
       .eq("activo", true)
       .eq("estado", "ACTIVATE")
       .is("sku_interno", null),
+    // La guardia del cron: SKUs donde el kardex quedó ARRIBA del estante.
+    supabase
+      .from("tiktok_desfases")
+      .select("sku, kardex, estante, desde, motivo")
+      .eq("account_id", cuenta.id)
+      .order("desde", { ascending: true }),
   ]);
   const pendientes = (parcial?.pendientes ??
     (await obtenerPlan(supabase, cuenta.id)).plan.pendientes) as PlanGuardado["pendientes"];
   const { sinCorrida, sinAmarre } = pendientes;
   const rojosTikTok = (rojosRaw ?? []) as { sku: string; saldo: number; apartado: number }[];
   const tiktokSinAmarre = (ttSinAmarreRaw ?? []) as { sku_id: string; seller_sku: string | null; titulo: string | null }[];
+  const desfasesTikTok = (desfasesRaw ?? []) as {
+    sku: string; kardex: number; estante: number | null; desde: string; motivo: string;
+  }[];
 
   const paresBloqueados = sinCorrida.reduce(
     (a, s) => a + s.cajasDisponibles * s.paresPorCaja,
@@ -147,7 +156,7 @@ export default async function Pendientes() {
       </section>
 
       {/* ---- TikTok Shop ------------------------------------------------- */}
-      {rojosTikTok.length || tiktokSinAmarre.length ? (
+      {rojosTikTok.length || tiktokSinAmarre.length || desfasesTikTok.length ? (
         <section className="tarjeta overflow-hidden">
           <div className="px-4 pt-4">
             <h2 className="font-semibold">TikTok Shop</h2>
@@ -169,6 +178,29 @@ export default async function Pendientes() {
                   <li key={r.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
                     <span className="font-medium">{r.sku}</span>
                     <span className="cifra ml-2" style={{ color: "var(--estado-critico)" }}>{r.saldo}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {desfasesTikTok.length ? (
+            <div className="px-4 pt-3">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+                {desfasesTikTok.length} SKU donde el kardex trae más que la bodega
+              </h3>
+              <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+                A TikTok se le publica el número más bajo de los dos, así que no se está vendiendo de
+                más — pero la diferencia sigue abierta y se cierra con un conteo cíclico.
+              </p>
+              <ul className="mt-2 flex flex-col gap-1 text-sm">
+                {desfasesTikTok.slice(0, 40).map((d) => (
+                  <li key={d.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                    <span className="font-medium">{d.sku}</span>
+                    <span className="ml-2" style={{ color: "var(--ink-2)" }}>
+                      kardex <b className="cifra">{d.kardex}</b> · bodega{" "}
+                      <b className="cifra">{d.estante ?? "—"}</b> · desde{" "}
+                      {new Date(d.desde).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </span>
                   </li>
                 ))}
               </ul>

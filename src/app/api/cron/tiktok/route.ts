@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { procesarWebhooksPendientes, sincronizarTikTok } from "@/lib/servicios/tiktok";
 import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
+import { revisarDesfasesTikTok } from "@/lib/servicios/tiktok-alarma";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
 
@@ -40,6 +41,13 @@ export async function GET(req: NextRequest) {
       // Avisos que quedaron sin procesar porque el candado estaba tomado.
       try {
         await procesarWebhooksPendientes(admin, c.id);
+      } catch {
+        /* el siguiente cron lo vuelve a intentar */
+      }
+      // La guardia: si el kardex quedó por encima del estante, se anota y
+      // —si aguanta— se avisa por correo. Nunca tumba la corrida.
+      try {
+        await revisarDesfasesTikTok(admin, c.id);
       } catch {
         /* el siguiente cron lo vuelve a intentar */
       }

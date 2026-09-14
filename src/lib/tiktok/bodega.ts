@@ -28,6 +28,33 @@ export { esAlmacenTikTok };
 export const REFERENCIA_INDUSTHER = "industher:";
 
 /**
+ * Lo que se le OFRECE a los compradores, topado por el estante del 3PL.
+ *
+ * El kardex y la bodega pueden separarse —un error de conteo, una devolución
+ * que no volvió, un renombre— y mientras eso pasa el kardex ofrece pares que
+ * no existen. Regla del dueño (14-sep-2026, después de sobrevender 18 pares
+ * en 10 SKUs): a TikTok se le publica el MENOR de los dos. Si las dos
+ * fuentes no coinciden gana la más baja, siempre. Vender de menos se arregla
+ * con un conteo; vender lo que no hay cuesta el pedido y la reputación.
+ *
+ * El tope solo BAJA: si el estante trae más que el kardex no se sube nada
+ * —eso necesita su entrada, como siempre—. Y hay dos casos en los que NO se
+ * topa: cuando no hubo lectura del 3PL (`estante` null: un fallo del API no
+ * puede apagar la tienda) y cuando el SKU se contó a mano DESPUÉS de esa
+ * foto, porque entonces el conteo físico es el dato más fresco que hay —si
+ * no, un conteo cíclico no serviría de nada contra un 3PL desactualizado.
+ */
+export function disponibleConEstante(
+  saldo: number,
+  apartado: number,
+  estante: number | null,
+): number {
+  const porKardex = Math.max(0, saldo - apartado);
+  if (estante == null) return porKardex;
+  return Math.max(0, Math.min(saldo, estante) - apartado);
+}
+
+/**
  * Pares acumulados por SKU en la bodega de TikTok, a partir de sus cajas.
  * Se cuentan las cajas físicas (disponibles + apartadas): en esta bodega
  * "apartada" no significa "para un envío a Full", y lo que TikTok tiene
