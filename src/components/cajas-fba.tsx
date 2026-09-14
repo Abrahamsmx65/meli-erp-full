@@ -30,6 +30,9 @@ export function CajasFba({
   sinConfigurar?: string[];
 }) {
   const sinCaja = plan.sinCajaEnBodega.reduce((a, f) => a + f.pares, 0);
+  // Cajas que entraron por la regla del producto SIN VENTA: se marcan en la
+  // lista para que se entienda por qué viaja una caja con faltante 0.
+  const codigosSinEstreno = new Set(plan.sinEstreno.flatMap((e) => e.codigos));
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,6 +69,38 @@ export function CajasFba({
         <p className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
           Almacenes del plan sin configurar en <code>almacenes_activos</code> (cada uno
           sale en su propio envío): {sinConfigurar.join(", ")}.
+        </p>
+      ) : null}
+
+      {plan.avisos.map((a, i) => (
+        <p key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
+          {a}
+        </p>
+      ))}
+
+      {plan.sinEstreno.length ? (
+        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          <strong>Productos SIN VENTA en Amazon</strong> (nunca han vendido un par, hay
+          cajas en bodega y tienen publicación): se les manda una posición mínima
+          para probarlos, como en Full.{" "}
+          {plan.sinEstreno
+            .map(
+              (e) =>
+                `${nombreProducto(e.producto)} · ${e.cajas} ${e.cajas === 1 ? "caja" : "cajas"}${
+                  e.enPosicion > 0 ? ` (ya tenía ${e.enPosicion})` : ""
+                }`,
+            )
+            .join(" · ")}
+        </p>
+      ) : null}
+
+      {plan.productosNuevos.length ? (
+        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          <strong>Productos NUEVOS en Amazon</strong> (se estrenaron hace poco): cualquier
+          faltante fuerza su caja y va firme, nunca opcional.{" "}
+          {plan.productosNuevos
+            .map((e) => `${nombreProducto(e.producto)} (hace ${e.edad} días)`)
+            .join(" · ")}
         </p>
       ) : null}
 
@@ -128,7 +163,13 @@ export function CajasFba({
         </section>
       ) : envios.length ? (
         envios.map((e) => (
-          <SeccionEnvio key={e.grupo} envio={e} desglose={desglose} dias={dias} />
+          <SeccionEnvio
+            key={e.grupo}
+            envio={e}
+            desglose={desglose}
+            dias={dias}
+            codigosSinEstreno={codigosSinEstreno}
+          />
         ))
       ) : (
         // Sin cuenta de MELI no hay grupos de bodega: todas las cajas juntas.
@@ -145,6 +186,7 @@ export function CajasFba({
           }}
           desglose={desglose}
           dias={dias}
+          codigosSinEstreno={codigosSinEstreno}
         />
       )}
 
@@ -266,10 +308,12 @@ function SeccionEnvio({
   envio,
   desglose,
   dias,
+  codigosSinEstreno,
 }: {
   envio: EnvioSeparado;
   desglose: DesgloseOpcionales;
   dias: number;
+  codigosSinEstreno: Set<string>;
 }) {
   const { normales, opcionales } = partirPorOpcionales(envio.cajas as CajaPlaneada[]);
   const cajasNorm = normales.reduce((a, c) => a + c.cantidad, 0);
@@ -323,7 +367,12 @@ function SeccionEnvio({
           </thead>
           <tbody>
             {normales.map((c, i) => (
-              <FilaCaja key={`n-${c.codigo}-${i}`} c={c} desglose={desglose} />
+              <FilaCaja
+                key={`n-${c.codigo}-${i}`}
+                c={c}
+                desglose={desglose}
+                sinEstreno={codigosSinEstreno.has(c.codigo)}
+              />
             ))}
             {opcionales.length ? (
               <tr
@@ -403,7 +452,20 @@ function Dato({
   );
 }
 
-function FilaCaja({ c, desglose }: { c: CajaPlaneada; desglose: DesgloseOpcionales }) {
+/** "GT160|BLK" (clave de producto) → "GT160 BLK", como se lee en pantalla. */
+function nombreProducto(clave: string): string {
+  return clave.replace("|", " ");
+}
+
+function FilaCaja({
+  c,
+  desglose,
+  sinEstreno,
+}: {
+  c: CajaPlaneada;
+  desglose: DesgloseOpcionales;
+  sinEstreno?: boolean;
+}) {
   const opcionales = Math.min(c.cantidad, c.cantidadOpcional ?? 0);
   const deMas = textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? []);
   return (
@@ -418,6 +480,11 @@ function FilaCaja({ c, desglose }: { c: CajaPlaneada; desglose: DesgloseOpcional
         <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
           {c.modelo} · {c.color}
         </div>
+        {sinEstreno ? (
+          <div className="text-[11px]" style={{ color: "var(--estado-alerta)" }}>
+            SIN VENTA en Amazon · posición mínima para probarlo
+          </div>
+        ) : null}
         {opcionales > 0 ? (
           <div className="text-[11px]" style={{ color: "var(--estado-critico)" }}>
             {opcionales === c.cantidad
