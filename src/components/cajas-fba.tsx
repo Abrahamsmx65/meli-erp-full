@@ -79,128 +79,74 @@ export function CajasFba({
         </p>
       ) : null}
 
-      <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-baseline justify-between gap-2 border-b p-4 hairline">
-          <div>
-            <h2 className="font-semibold">Cajas de bodega para FBA</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              El mismo motor que los envíos a Full, sobre las mismas cajas físicas: lo
-              que registres en un envío se aparta y desaparece para los dos canales.
-              Es el plan completo; cada envío por bodega va en su tarjeta de arriba.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {plan.cajas.length > 0 ? (
-              <a
-                href={`/api/amazon/envio-excel?dias=${dias}`}
-                className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-                style={{ background: "var(--acento)" }}
-                title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su tarjeta"
-              >
-                Excel del plan completo
-              </a>
-            ) : null}
+      {/* ---- Un envío por dirección de bodega ------------------------------
+           Caseshop + Industher salen juntas y EnvioPack aparte
+           (almacenes_activos.grupo_envio, el mismo reparto que en Full). Cada
+           sección es UN envío que se da de alta en Amazon: sus cajas, sus
+           pares y su Excel. El plan completo queda como un solo botón. */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Envíos a preparar</h2>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            {plan.cajas.length === 0
+              ? "El mismo motor que los envíos a Full, sobre las mismas cajas físicas."
+              : envios.length > 1
+                ? `Son ${envios.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Amazon.`
+                : "Todo sale de una sola dirección, así que es un solo envío."}{" "}
+            Lo que registres en un envío se aparta y desaparece para los dos canales.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {plan.cajas.length > 0 && envios.length > 1 ? (
             <a
-              href={`/api/amazon/excel-simple?dias=${dias}`}
+              href={`/api/amazon/envio-excel?dias=${dias}`}
               className="rounded-lg border px-3 py-1.5 text-sm font-medium"
               style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
-              title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
+              title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su sección"
             >
-              Excel simple
+              Excel del plan completo
             </a>
-          </div>
-        </header>
+          ) : null}
+          <a
+            href={`/api/amazon/excel-simple?dias=${dias}`}
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium"
+            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
+          >
+            Excel simple
+          </a>
+        </div>
+      </div>
 
-        {plan.cajas.length === 0 ? (
-          <p className="p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+      {plan.cajas.length === 0 ? (
+        <section className="tarjeta p-6 text-center">
+          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
             {plan.paresSugeridos === 0
               ? "Nada que mandar: el calzado que vende tiene cobertura suficiente en FBA."
               : "Hay faltantes, pero ninguna caja disponible en bodega los trae."}
           </p>
-        ) : (
-          <div className="max-h-[28rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Caja</th>
-                  <th>Almacén</th>
-                  <th>Tipo</th>
-                  <th className="num">Mandar</th>
-                  <th className="num">Pares</th>
-                  <th>Contenido por talla</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(envios.length
-                  ? envios.flatMap((e) => {
-                      // Un envío sale de UNA dirección, igual que en Full — y
-                      // dentro de cada uno el bloque OPCIONAL va separado del
-                      // envío normal.
-                      const { normales, opcionales } = partirPorOpcionales(
-                        e.cajas as CajaPlaneada[],
-                      );
-                      const cajasNorm = normales.reduce((a, c) => a + c.cantidad, 0);
-                      const paresNorm = normales.reduce((a, c) => a + c.paresTotales, 0);
-                      const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
-                      const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
-                      return [
-                        { tipo: "grupo" as const, envio: e, cajasNorm, paresNorm },
-                        ...normales.map((c) => ({ tipo: "caja" as const, caja: c })),
-                        ...(opcionales.length
-                          ? [{ tipo: "opcionales" as const, envio: e, cajasOpc, paresOpc }]
-                          : []),
-                        ...opcionales.map((c) => ({ tipo: "caja" as const, caja: c })),
-                      ];
-                    })
-                  : plan.cajas.map((c) => ({ tipo: "caja" as const, caja: c }))
-                ).map((fila, i) => {
-                  if (fila.tipo === "grupo") {
-                    const e = fila.envio;
-                    return (
-                      <tr key={`g-${e.grupo}`} style={{ background: "var(--surface-2)" }}>
-                        <td colSpan={6} className="font-semibold">
-                          Envío {e.nombre}
-                          <span className="font-normal text-xs" style={{ color: "var(--ink-2)" }}>
-                            {" "}
-                            · {e.almacenes.join(" + ")} · {fila.cajasNorm} cajas ·{" "}
-                            {n(fila.paresNorm)} pares
-                          </span>
-                          <a
-                            href={`/api/amazon/envio-excel?dias=${dias}&grupo=${encodeURIComponent(e.grupo)}`}
-                            className="ml-3 text-xs font-medium underline"
-                            style={{ color: "var(--acento)" }}
-                            title={`Excel solo con las cajas del envío ${e.nombre}`}
-                          >
-                            Excel de este envío
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  if (fila.tipo === "opcionales") {
-                    return (
-                      <tr
-                        key={`op-${fila.envio.grupo}`}
-                        style={{
-                          background:
-                            "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
-                        }}
-                      >
-                        <td colSpan={6} className="text-sm font-semibold">
-                          OPCIONALES de {fila.envio.nombre} — {fila.cajasOpc} cajas ·{" "}
-                          {n(fila.paresOpc)} pares. Tú decides si van.
-                        </td>
-                      </tr>
-                    );
-                  }
-                  const c = fila.caja;
-                  return <FilaCaja key={`${c.codigo}-${i}`} c={c} desglose={desglose} />;
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        </section>
+      ) : envios.length ? (
+        envios.map((e) => (
+          <SeccionEnvio key={e.grupo} envio={e} desglose={desglose} dias={dias} />
+        ))
+      ) : (
+        // Sin cuenta de MELI no hay grupos de bodega: todas las cajas juntas.
+        <SeccionEnvio
+          envio={{
+            grupo: "",
+            nombre: "todas las bodegas",
+            almacenes: [...new Set(plan.cajas.map((c) => c.almacen))].sort(),
+            cajas: plan.cajas as unknown as EnvioSeparado["cajas"],
+            totalCajas: plan.cajas.reduce((a, c) => a + c.cantidad, 0),
+            totalPares: plan.cajas.reduce((a, c) => a + c.paresTotales, 0),
+            skus: 0,
+            porSku: [],
+          }}
+          desglose={desglose}
+          dias={dias}
+        />
+      )}
 
       {plan.sinCajaEnBodega.length > 0 ? (
         <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
@@ -307,6 +253,152 @@ export function CajasFba({
           </div>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * UNA sección por envío: la dirección de recolección, el número de cajas que
+ * esa dirección de verdad puede juntar (el que se captura en el alta), las
+ * opcionales aparte, la lista de cajas y el contenido por SKU.
+ */
+function SeccionEnvio({
+  envio,
+  desglose,
+  dias,
+}: {
+  envio: EnvioSeparado;
+  desglose: DesgloseOpcionales;
+  dias: number;
+}) {
+  const { normales, opcionales } = partirPorOpcionales(envio.cajas as CajaPlaneada[]);
+  const cajasNorm = normales.reduce((a, c) => a + c.cantidad, 0);
+  const paresNorm = normales.reduce((a, c) => a + c.paresTotales, 0);
+  const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
+  const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
+  const excel = envio.grupo
+    ? `/api/amazon/envio-excel?dias=${dias}&grupo=${encodeURIComponent(envio.grupo)}`
+    : `/api/amazon/envio-excel?dias=${dias}`;
+
+  return (
+    <section className="tarjeta overflow-hidden">
+      <header className="flex flex-wrap items-center gap-4 border-b p-4 hairline">
+        <div>
+          <h3 className="font-semibold">Envío {envio.nombre}</h3>
+          <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+            Recolección en {envio.almacenes.join(" y ")}
+          </p>
+        </div>
+
+        <div className="flex gap-6">
+          <Dato titulo="Cajas del envío" valor={n(cajasNorm)} grande />
+          <Dato titulo="Pares" valor={n(paresNorm)} />
+          {cajasOpc > 0 ? (
+            <Dato titulo="Opcionales aparte" valor={`+${n(cajasOpc)} (${n(paresOpc)} pares)`} alerta />
+          ) : null}
+          {envio.skus > 0 ? <Dato titulo="SKUs" valor={n(envio.skus)} /> : null}
+        </div>
+
+        <a
+          href={excel}
+          className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+          style={{ background: "var(--acento)" }}
+          title={`Excel solo con las cajas del envío ${envio.nombre}`}
+        >
+          Excel de este envío
+        </a>
+      </header>
+
+      <div className="max-h-[28rem] overflow-auto">
+        <table className="datos">
+          <thead>
+            <tr>
+              <th>Caja</th>
+              <th>Almacén</th>
+              <th>Tipo</th>
+              <th className="num">Mandar</th>
+              <th className="num">Pares</th>
+              <th>Contenido por talla</th>
+            </tr>
+          </thead>
+          <tbody>
+            {normales.map((c, i) => (
+              <FilaCaja key={`n-${c.codigo}-${i}`} c={c} desglose={desglose} />
+            ))}
+            {opcionales.length ? (
+              <tr
+                style={{
+                  background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
+                }}
+              >
+                <td colSpan={6} className="text-sm font-semibold">
+                  OPCIONALES de {envio.nombre} — {n(cajasOpc)} cajas · {n(paresOpc)} pares.
+                  Entraron por el rescate de una talla que falta; el resto de la caja
+                  sobra. Tú decides si van.
+                </td>
+              </tr>
+            ) : null}
+            {opcionales.map((c, i) => (
+              <FilaCaja key={`o-${c.codigo}-${i}`} c={c} desglose={desglose} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {envio.porSku.length ? (
+        <details className="border-t hairline">
+          <summary className="cursor-pointer p-3 text-sm font-medium">
+            Contenido por SKU ({n(envio.porSku.length)} SKUs · {n(envio.totalPares)} pares,
+            opcionales incluidas)
+          </summary>
+          <div className="max-h-[20rem] overflow-auto">
+            <table className="datos">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Talla</th>
+                  <th className="num">Pares en este envío</th>
+                </tr>
+              </thead>
+              <tbody>
+                {envio.porSku.map((s) => (
+                  <tr key={s.sku}>
+                    <td className="font-medium">{s.sku}</td>
+                    <td>{s.talla}</td>
+                    <td className="num cifra">{n(s.pares)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function Dato({
+  titulo,
+  valor,
+  grande,
+  alerta,
+}: {
+  titulo: string;
+  valor: string;
+  grande?: boolean;
+  alerta?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+        {titulo}
+      </div>
+      <div
+        className={`cifra font-semibold ${grande ? "text-2xl" : "text-lg"}`}
+        style={alerta ? { color: "var(--estado-alerta)" } : undefined}
+      >
+        {valor}
+      </div>
     </div>
   );
 }

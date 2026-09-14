@@ -3,9 +3,6 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon, estadoRecarga, normalizarDias } from "@/lib/servicios/amazon";
 import { obtenerPlanFba } from "@/lib/servicios/plan-fba-cache";
 import { CajasFba } from "@/components/cajas-fba";
-import { EnviosSeparados } from "@/components/envios-separados";
-import type { FilaCajaPlan } from "@/components/tablas-plan";
-import { textoDeMas } from "@/lib/reporte/opcionales";
 import { EnviosFba } from "@/components/envios-fba";
 import { EnviosViejosFba } from "@/components/envios-viejos-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
@@ -59,40 +56,6 @@ export default async function Amazon({
   ]);
   const { totales, enCamino, sugerencias, planFba, desglose, enviosFba } = calculado;
 
-  // Las cajas del plan repartidas en los envíos que de verdad se van a dar de
-  // alta en Amazon: uno por dirección de recolección (Caseshop + Industher
-  // juntas, EnvioPack aparte), con las MISMAS tarjetas que los envíos a Full.
-  // El motor ya las separa (`enviosFba`); antes la pantalla solo lo enseñaba
-  // como un renglón gris dentro de la tabla y el dueño no veía dos envíos.
-  const filasCaja: FilaCajaPlan[] = planFba.cajas.map((c) => ({
-    codigo: c.codigo,
-    skuCaja: c.skuCaja,
-    pedido: c.pedido,
-    modelo: c.modelo,
-    color: c.color,
-    almacen: c.almacen,
-    esCorrida: c.esCorrida,
-    talla: c.talla,
-    cantidad: c.cantidad,
-    cajasDisponibles: c.cajasDisponibles,
-    paresPorCaja: c.paresPorCaja,
-    paresTotales: c.paresTotales,
-    cantidadOpcional: Math.min(c.cantidad, c.cantidadOpcional ?? 0),
-    deMas: textoDeMas(desglose.deMasPorCaja.get(c.codigo) ?? []),
-    aporta: c.aporta.map((a) => ({
-      sku: a.sku,
-      talla: a.talla,
-      paresPorCaja: a.paresPorCaja,
-      paresTotales: a.paresTotales,
-    })),
-  }));
-  const grupos = enviosFba.envios.map((e) => ({
-    grupo: e.grupo,
-    nombre: e.nombre,
-    almacenes: e.almacenes,
-    codigos: e.cajas.map((c) => c.codigo),
-  }));
-
   const enTransito = enCamino
     ? [...(enCamino.porSku.values() as Iterable<number>)].reduce((a: number, b: number) => a + b, 0)
     : totales.enTransito;
@@ -139,14 +102,6 @@ export default async function Amazon({
       <RecargaAmazon estado={recarga} />
 
       <EnviosViejosFba enCamino={enCamino} />
-
-      <EnviosSeparados
-        grupos={grupos}
-        cajas={filasCaja}
-        sinConfigurar={enviosFba.sinConfigurar}
-        destino="Amazon"
-        excelBase={`/api/amazon/envio-excel?dias=${dias}&grupo=`}
-      />
 
       <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} sinConfigurar={enviosFba.sinConfigurar} />
 
