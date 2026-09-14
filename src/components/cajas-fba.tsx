@@ -86,6 +86,7 @@ export function CajasFba({
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
               El mismo motor que los envíos a Full, sobre las mismas cajas físicas: lo
               que registres en un envío se aparta y desaparece para los dos canales.
+              Es el plan completo; cada envío por bodega va en su tarjeta de arriba.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -94,8 +95,9 @@ export function CajasFba({
                 href={`/api/amazon/envio-excel?dias=${dias}`}
                 className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
                 style={{ background: "var(--acento)" }}
+                title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su tarjeta"
               >
-                Excel de este envío
+                Excel del plan completo
               </a>
             ) : null}
             <a

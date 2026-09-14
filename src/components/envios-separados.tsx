@@ -33,10 +33,23 @@ export function EnviosSeparados({
   grupos,
   cajas,
   sinConfigurar,
+  destino = "Mercado Libre",
+  excelBase = "/api/plan/excel?grupo=",
 }: {
   grupos: Grupo[];
   cajas: FilaCajaPlan[];
   sinConfigurar: string[];
+  /**
+   * Dónde se da de alta cada envío: "Mercado Libre" (Full) o "Amazon" (FBA).
+   * Las tarjetas son las mismas: un envío sale de UNA dirección de bodega
+   * sin importar a qué canal vaya.
+   */
+  destino?: string;
+  /**
+   * URL del Excel de UN envío; se le pega la clave del grupo al final. Es una
+   * cadena y no una función porque viene de un componente de servidor.
+   */
+  excelBase?: string;
 }) {
   const porCodigo = useMemo(() => new Map(cajas.map((c) => [c.codigo, c])), [cajas]);
 
@@ -57,7 +70,7 @@ export function EnviosSeparados({
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           {grupos.length === 1
             ? "Todo sale de una sola dirección, así que es un solo envío."
-            : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}
+            : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en ${destino}.`}
         </p>
       </div>
 
@@ -78,6 +91,7 @@ export function EnviosSeparados({
         <TarjetaEnvio
           key={g.grupo}
           grupo={g}
+          excelBase={excelBase}
           cajas={g.codigos.map((c) => porCodigo.get(c)).filter((c): c is FilaCajaPlan => c != null)}
         />
       ))}
@@ -85,7 +99,15 @@ export function EnviosSeparados({
   );
 }
 
-function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] }) {
+function TarjetaEnvio({
+  grupo,
+  cajas,
+  excelBase,
+}: {
+  grupo: Grupo;
+  cajas: FilaCajaPlan[];
+  excelBase: string;
+}) {
   const [vista, setVista] = useState<"cajas" | "skus">("cajas");
   const [abierta, setAbierta] = useState<string | null>(null);
 
@@ -167,7 +189,7 @@ function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] })
           </div>
 
           <BotonDescarga
-            href={`/api/plan/excel?grupo=${encodeURIComponent(grupo.grupo)}`}
+            href={`${excelBase}${encodeURIComponent(grupo.grupo)}`}
             variante="primario"
             chico
             title={`Excel solo con las cajas del envío ${grupo.nombre}`}
