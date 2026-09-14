@@ -122,12 +122,20 @@ export function datosMeli(e: EtiquetaResuelta): DatosEtiqueta {
  * página, repetida su cantidad — el mismo acomodo que el TXT.
  */
 export async function generarPdfEtiquetas(etiquetas: EtiquetaResuelta[]): Promise<Uint8Array> {
+  return generarPdfMeliDatos(etiquetas.filter((e) => e.codigoFull).map(datosMeli));
+}
+
+/**
+ * El mismo PDF de MELI pero desde los datos ya armados, sin pasar por el
+ * catálogo de calzado: así las fundas de YAPANIZCEL (otro catálogo, otra
+ * cuenta) imprimen exactamente la misma etiqueta.
+ */
+export async function generarPdfMeliDatos(datos: DatosEtiqueta[]): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const fuentes = await fuentesDe(doc);
-  for (const e of etiquetas) {
-    if (!e.codigoFull || e.cantidad <= 0) continue;
-    const d = datosMeli(e);
-    for (let copia = 0; copia < e.cantidad; copia++) paginaMeli2x1(doc, fuentes, d);
+  for (const d of datos) {
+    if (!d.codigo || d.cantidad <= 0) continue;
+    for (let copia = 0; copia < d.cantidad; copia++) paginaMeli2x1(doc, fuentes, d);
   }
   if (!doc.getPageCount()) doc.addPage(PAGINA_2X1);
   return doc.save();
