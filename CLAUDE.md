@@ -637,6 +637,15 @@ login, la base y el deploy.
   corrió.
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
+- **Etiquetas de Full de las fundas** (`/yapanizcel/etiquetas`,
+  `yapanizcel/etiquetas.ts`, `/api/yapanizcel/etiquetas{,/pdf,/zpl}`): la
+  MISMA etiqueta y la misma pantalla que la del calzado (`components/etiquetas.tsx`
+  con `api` y `soloMeli`; PDF y ZPL por `generarPdfMeliDatos` /
+  `generarZplDatos`), pero contra `yz_skus` y SOLO el lado de MELI: las
+  fundas no llevan FNSKU desde aquí. El amarre del SKU tecleado es exacto →
+  canónico → aplastado (`yapanizcel/sku.ts`); la variante impresa es
+  `modelo - color` del desglose del SKU. Las sugerencias salen del plan de
+  envíos (`mandar` > 0).
 - **Descontinuados** (`yapanizcel/descontinuados.ts`), dos niveles decididos
   por el dueño: un SKU sin UNA venta en 180 días no se ofrece a Full ni se
   pide a China y su diseño sigue saliendo con las variantes vivas; pero si
