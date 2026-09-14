@@ -8,8 +8,10 @@
  * sigue diciendo lo mismo), es un ACUMULADO DE ENTRADAS, y así se lee:
  *
  *   base registrada = Σ entradas de Industher − Σ retiros de Industher
+ *                     − Σ salidas que el 3PL confirmó + Σ devoluciones
  *   sube el acumulado  →  ENTRADA por la diferencia
- *   baja el acumulado  →  RETIRO por la diferencia (el 3PL sacó o corrigió)
+ *   baja el acumulado  →  RETIRO por la diferencia (el 3PL sacó o corrigió,
+ *                         o una devolución no volvió al estante)
  *
  * Tomarlo como foto absoluta —"pisar" el saldo— habría vuelto a publicar
  * los pares ya vendidos en cada sincronización. Aquí nada pisa: se suma la
@@ -167,6 +169,25 @@ export function conciliarAcumulado(
   }
   for (const [sku, n] of salidas.confirmadas) base.set(sku, (base.get(sku) ?? 0) - n);
 
+  // Una DEVOLUCIÓN sube el saldo del kardex, pero el par NO vuelve solo al
+  // estante: el paquete ya había salido y el 3PL ya lo descontó. Si no entra
+  // en la base, la comparación contra Industher deja de ser pareja y la
+  // diferencia se queda para siempre — el kardex ofrece a TikTok pares que
+  // la bodega no tiene (14-sep-2026: 18 pares en 10 SKUs, y en TODOS la
+  // diferencia era exactamente su número de devoluciones; el GT102-GREY-25
+  // ofrecía 3 con la bodega en cero).
+  //
+  // Contándola aquí, la devolución solo sobrevive si la bodega la CONFIRMA:
+  // si el par vuelve de verdad, Industher lo cuenta y la base cuadra; si no
+  // vuelve, la diferencia sale como retiro en la siguiente corrida. Nada se
+  // supone, lo dice el estante.
+  const devueltos = new Map<string, number>();
+  for (const m of movimientos) {
+    if (m.tipo !== "devolucion") continue;
+    devueltos.set(m.sku, (devueltos.get(m.sku) ?? 0) + m.cantidad);
+  }
+  for (const [sku, n] of devueltos) base.set(sku, (base.get(sku) ?? 0) + n);
+
   const referencia = `${REFERENCIA_INDUSTHER}${fechaFoto}`;
   const skus = new Set<string>([...paresEnBodega.keys(), ...base.keys()]);
   const salida: MovimientoDesdeIndusther[] = [];
@@ -185,7 +206,17 @@ export function conciliarAcumulado(
     if (aSalidas > 0) atribuidas.set(sku, aSalidas);
     const resto = baja - aSalidas;
     if (resto > 0) {
-      salida.push({ sku, tipo: "merma", cantidad: resto, referencia, motivo: "Industher reportó menos en la bodega TikTok", fecha: fechaFoto });
+      const porDevolucion = (devueltos.get(sku) ?? 0) >= resto;
+      salida.push({
+        sku,
+        tipo: "merma",
+        cantidad: resto,
+        referencia,
+        motivo: porDevolucion
+          ? "Devolución que no volvió al estante de Industher"
+          : "Industher reportó menos en la bodega TikTok",
+        fecha: fechaFoto,
+      });
     }
   }
 

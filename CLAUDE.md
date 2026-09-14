@@ -193,9 +193,18 @@ guárdala numerada.
   idempotente; el endpoint lo publica el 3PL, que es de otra persona) y las
   guarda en `tiktok_salidas_3pl`. Su número entra al kardex como ENTRADA por
   diferencia contra lo ya reconocido (movimientos `industher:*` MENOS las
-  salidas que el 3PL ya confirmó); una BAJA se atribuye primero a las salidas
-  pendientes de ese SKU y solo el resto es merma (`conciliarAcumulado`):
-  una salida nunca se descuenta dos veces. NUNCA como ajuste absoluto, que
+  salidas que el 3PL ya confirmó MÁS las devoluciones); una BAJA se atribuye
+  primero a las salidas pendientes de ese SKU y solo el resto es merma
+  (`conciliarAcumulado`): una salida nunca se descuenta dos veces.
+  **Una DEVOLUCIÓN sube el kardex pero el par no vuelve solo al estante**: el
+  paquete ya había salido y el 3PL ya lo descontó. Por eso la devolución entra
+  en la base y solo sobrevive si la bodega la CONFIRMA —si el par regresa de
+  verdad, Industher lo cuenta y la base cuadra; si no, la diferencia sale como
+  retiro «Devolución que no volvió al estante de Industher»—. Sin esto la
+  diferencia se quedaba para siempre y el kardex le ofrecía a TikTok pares que
+  no existían: el 14-sep-2026 eran 18 pares en 10 SKUs, y en TODOS la
+  diferencia contra la bodega era exactamente su número de devoluciones
+  (GT102-GREY-25-MX ofrecía 3 con el estante en cero). NUNCA como ajuste absoluto, que
   volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
   FÍSICAS. **Esa bodega NO existe para el calzado**: `construirCajas` la
   descarta siempre (`esAlmacenTikTok`, salvo `incluirTikTok` que solo usa el

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CajaConstruida } from "../importar/cajas";
 import {
+  conciliarAcumulado,
   esAlmacenTikTok,
   movimientosDesdeAcumulado,
   paresPorSkuDesdeCajas,
@@ -188,5 +189,71 @@ describe("alias hacia el SKU de TikTok", () => {
     expect(pares.get("MY2304-PURPLE-23-MX")).toBe(6);
     expect(pares.get("MY2304-PURPLE-23")).toBeUndefined();
     expect(pares.get("GT134-BLK-24")).toBe(1);
+  });
+});
+
+describe("una devolución solo vale si la bodega la confirma", () => {
+  const FOTO2 = "2026-09-14T03:30:00.000Z";
+  const ref2 = (f: string) => `industher:${f}`;
+
+  /**
+   * El GT102-GREY-25-MX del 14-sep-2026: 19 pares entraron de Industher, se
+   * vendieron 19 y TikTok canceló 4 pedidos ya despachados. El kardex quedó
+   * en 4 y se los ofreció a TikTok; la bodega tenía CERO, porque esos pares
+   * nunca regresaron al estante.
+   */
+  it("la devolución que no volvió al estante sale como retiro", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 19, referencia: ref2("2026-09-04T22:31:00.000Z"), fecha: "2026-09-04T22:31:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 19, referencia: "pedidos", fecha: "2026-09-10T15:38:00Z" },
+      { sku: "A", tipo: "devolucion", cantidad: 4, referencia: "pedidos", fecha: "2026-09-10T18:27:00Z" },
+    ];
+    const salidas = { confirmadas: new Map([["A", 19]]), pendientes: new Map<string, number>() };
+    const { movimientos } = conciliarAcumulado(new Map(), movs, FOTO2, salidas);
+    expect(movimientos).toEqual([
+      expect.objectContaining({
+        sku: "A",
+        tipo: "merma",
+        cantidad: 4,
+        motivo: "Devolución que no volvió al estante de Industher",
+      }),
+    ]);
+    // Con el retiro aplicado, el kardex queda en cero: lo que hay de verdad.
+    expect(saldosDesdeMovimientos([...movs, { sku: "A", tipo: "merma", cantidad: 4, fecha: FOTO2 }]).get("A")).toBe(0);
+  });
+
+  it("si el par SÍ regresó y la bodega lo contó, la devolución se respeta", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 19, referencia: ref2("2026-09-04T22:31:00.000Z"), fecha: "2026-09-04T22:31:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 19, referencia: "pedidos", fecha: "2026-09-10T15:38:00Z" },
+      { sku: "A", tipo: "devolucion", cantidad: 4, referencia: "pedidos", fecha: "2026-09-10T18:27:00Z" },
+    ];
+    const salidas = { confirmadas: new Map([["A", 19]]), pendientes: new Map<string, number>() };
+    // Industher volvió a contar los 4 pares en el estante.
+    const { movimientos } = conciliarAcumulado(new Map([["A", 4]]), movs, FOTO2, salidas);
+    expect(movimientos).toEqual([]);
+  });
+
+  it("sin devoluciones nada cambia: la base sigue siendo la de siempre", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 100, referencia: ref2("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 30, referencia: "pedidos", fecha: "2026-09-02T14:00:00Z" },
+    ];
+    const salidas = { confirmadas: new Map<string, number>(), pendientes: new Map<string, number>() };
+    expect(conciliarAcumulado(new Map([["A", 100]]), movs, FOTO2, salidas).movimientos).toEqual([]);
+  });
+
+  it("una baja mayor que las devoluciones se declara como faltante de la bodega", () => {
+    const movs: Movimiento[] = [
+      { sku: "A", tipo: "entrada", cantidad: 10, referencia: ref2("2026-09-01T14:00:00.000Z"), fecha: "2026-09-01T14:00:00Z" },
+      { sku: "A", tipo: "salida", cantidad: 2, referencia: "pedidos", fecha: "2026-09-02T14:00:00Z" },
+      { sku: "A", tipo: "devolucion", cantidad: 1, referencia: "pedidos", fecha: "2026-09-02T18:00:00Z" },
+    ];
+    const salidas = { confirmadas: new Map([["A", 2]]), pendientes: new Map<string, number>() };
+    // Base = 10 − 2 + 1 = 9, y la bodega solo tiene 5: faltan 4, más de la devolución.
+    const { movimientos } = conciliarAcumulado(new Map([["A", 5]]), movs, FOTO2, salidas);
+    expect(movimientos).toEqual([
+      expect.objectContaining({ tipo: "merma", cantidad: 4, motivo: "Industher reportó menos en la bodega TikTok" }),
+    ]);
   });
 });
