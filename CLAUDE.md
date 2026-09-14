@@ -275,7 +275,13 @@ guárdala numerada.
   es revuelto, y esos van juntos en su propia sección de la lista de
   empaque (`GRUPO_REVUELTOS`), nunca mezclados con la del modelo de su
   primer par. Dentro de cada bloque sigue el paseo de la bodega: modelo →
-  color → talla. El siguiente corte solo toma lo que
+  color → talla. **El orden NO se le cambia a un corte ya hecho**: sus
+  hojas están impresas y a medio preparar, y renumerarlas dejaría el papel
+  de la mesa sin cuadrar, así que cada corte guarda con qué orden nació
+  (`tiktok_cortes.orden_paquetes`, migración 0088: `bodega` los 20 de antes,
+  `un-modelo` los nuevos) y `cargarCorte` lo vuelve a armar SIEMPRE con ese.
+  Una fecha de corte no serviría: dependería de la hora del despliegue.
+  El siguiente corte solo toma lo que
   no tiene corte. Un pedido que TikTok rechace se anota y se queda fuera,
   pero un 503 PASAJERO ya no cuenta como rechazo: el borde (Akamai) contesta
   esos con una PÁGINA HTML, no con JSON, y el cliente la lanzaba antes de

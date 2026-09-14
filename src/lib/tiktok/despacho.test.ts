@@ -130,7 +130,7 @@ describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
       mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]),
       paq("solo", "GT150-CAMEL-27"),
       paq("dos", "GT114-BLK-25"),
-    ]);
+    ], "un-modelo");
     expect(n.map((p) => [p.numero, p.orderId, p.revuelto])).toEqual([
       [1, "dos", false],
       [2, "solo", false],
@@ -144,7 +144,7 @@ describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
       mezcla("r1", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
       paq("s2", "GT150-CAMEL-27"),
       paq("s1", "GT114-BEIGE-9"),
-    ]);
+    ], "un-modelo");
     expect(n.map((p) => p.orderId)).toEqual(["s1", "s2", "r1", "r2"]);
   });
 
@@ -152,9 +152,21 @@ describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
     const n = numerarPaquetes([
       mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
       mezcla("gt114x2", [["GT114-BEIGE-23", 2]]),
-    ]);
+    ], "un-modelo");
     expect(n[0].orderId).toBe("gt114x2");
     expect(n[0].revuelto).toBe(false);
+  });
+
+  it("un corte VIEJO (orden de bodega) no se renumera: el revuelto se queda donde iba", () => {
+    // Sus hojas ya están impresas y a medio preparar; cambiarle los números
+    // dejaría el papel de la mesa sin cuadrar.
+    const paquetes = [
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]),
+      paq("solo", "GT150-CAMEL-27"),
+      paq("dos", "GT114-BLK-25"),
+    ];
+    expect(numerarPaquetes(paquetes).map((p) => p.orderId)).toEqual(["revuelto", "dos", "solo"]);
+    expect(numerarPaquetes(paquetes, "bodega").map((p) => p.orderId)).toEqual(["revuelto", "dos", "solo"]);
   });
 });
 
@@ -165,12 +177,26 @@ describe("agruparPorModelo con revueltos", () => {
         paq("a", "GT114-BEIGE-23"),
         mezcla("r", [["GT114-BLK-25", 1], ["GT150-CAMEL-27", 2]]),
         paq("b", "GT150-CAMEL-27"),
-      ]),
+      ], "un-modelo"),
+      "un-modelo",
     );
     expect(g.map((x) => [x.modelo, x.pares, x.paquetes.length, x.revuelto])).toEqual([
       ["GT114", 1, 1, false],
       ["GT150", 1, 1, false],
       ["Revueltos", 3, 1, true],
+    ]);
+  });
+
+  it("en un corte viejo no hay sección de revueltos: la lista sale como se imprimió", () => {
+    const paquetes = [
+      paq("a", "GT114-BEIGE-23"),
+      mezcla("r", [["GT114-BLK-25", 1], ["GT150-CAMEL-27", 2]]),
+      paq("b", "GT150-CAMEL-27"),
+    ];
+    const g = agruparPorModelo(numerarPaquetes(paquetes));
+    expect(g.map((x) => [x.modelo, x.paquetes.length, x.revuelto])).toEqual([
+      ["GT114", 2, false],
+      ["GT150", 1, false],
     ]);
   });
 });
@@ -180,7 +206,7 @@ describe("numerosPreparados", () => {
     paq("a", "GT114-BEIGE-23"),
     paq("b", "GT150-CAMEL-27"),
     mezcla("c", [["GT114-BLK-25", 1], ["GT229-BLK-25", 1]]),
-  ]);
+  ], "un-modelo");
 
   it("la constancia se sigue por pedido + paquete, así que cambiar el orden no la pierde", () => {
     expect(numerosPreparados(numerados, [clavePaquete({ orderId: "c", packageId: "pk-c" })])).toEqual([3]);

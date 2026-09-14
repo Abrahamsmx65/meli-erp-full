@@ -38,6 +38,8 @@ import {
   numerosPreparados,
   renglonesDeEtiqueta,
   numerarPaquetes,
+  ORDEN_ACTUAL,
+  type OrdenPaquetes,
   type PaqueteDespacho,
   type PaqueteNumerado,
 } from "../tiktok/despacho";
@@ -261,6 +263,9 @@ export async function hacerCorte(
       pedidos: confirmados.length,
       pares,
       errores,
+      // Con qué orden nació: los cortes de antes se quedan con el suyo y se
+      // vuelven a armar igual, porque sus hojas ya están impresas.
+      orden_paquetes: ORDEN_ACTUAL,
     })
     .select("id")
     .single();
@@ -386,17 +391,20 @@ export interface CorteCargado {
   id: number;
   numero: number;
   creadoEn: string;
+  /** con qué orden se numeró este corte; los viejos, "bodega" */
+  orden: OrdenPaquetes;
   paquetes: PaqueteNumerado[];
 }
 
 export async function cargarCorte(admin: any, accountId: string, corteId: number): Promise<CorteCargado> {
   const { data: corte } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en")
+    .select("id, numero, creado_en, orden_paquetes")
     .eq("account_id", accountId)
     .eq("id", corteId)
     .maybeSingle();
   if (!corte) throw new Error("Ese corte no existe.");
+  const orden: OrdenPaquetes = corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
   const [ordenes, items] = await Promise.all([
     traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle", (q) =>
@@ -491,7 +499,13 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     }
   }
 
-  return { id: corte.id, numero: corte.numero, creadoEn: corte.creado_en, paquetes: numerarPaquetes(paquetes) };
+  return {
+    id: corte.id,
+    numero: corte.numero,
+    creadoEn: corte.creado_en,
+    orden,
+    paquetes: numerarPaquetes(paquetes, orden),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +714,7 @@ function esJpg(b: Uint8Array): boolean {
 
 export async function pdfListaDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
   const corte = await cargarCorte(admin, accountId, corteId);
-  const grupos = agruparPorModelo(corte.paquetes);
+  const grupos = agruparPorModelo(corte.paquetes, corte.orden);
 
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);

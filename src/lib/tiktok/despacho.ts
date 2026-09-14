@@ -13,6 +13,12 @@
  * chica a la grande. La lista de empaque y el PDF de etiquetas van en ESTE
  * orden y con LOS MISMOS números, para que la etiqueta #12 sea el renglón
  * #12 sin buscar.
+ *
+ * Y por eso mismo el orden NO se le cambia a un corte ya hecho: sus hojas
+ * están impresas y a medio preparar, y renumerarlas dejaría el papel de la
+ * mesa sin cuadrar. Cada corte guarda con qué orden nació
+ * (`tiktok_cortes.orden_paquetes`) y se vuelve a armar siempre con ese; los
+ * de antes del 14-sep-2026 se quedan con el suyo ("bodega").
  */
 import { codigosDeProducto } from "./codigos";
 
@@ -47,6 +53,16 @@ export function parsearCodigoDeHoja(codigo: string): { corte: number; numero: nu
   if (!m) return null;
   return { corte: Number(m[1]), numero: Number(m[2]) };
 }
+
+/**
+ * Con qué orden se numeró el corte: "bodega" es el de siempre (modelo →
+ * color → talla) y "un-modelo" el nuevo (primero lo de un solo modelo, al
+ * final lo revuelto). Lo guarda el corte al nacer.
+ */
+export type OrdenPaquetes = "bodega" | "un-modelo";
+
+/** El orden con el que nacen los cortes nuevos. */
+export const ORDEN_ACTUAL: OrdenPaquetes = "un-modelo";
 
 export interface PaqueteDespacho {
   orderId: string;
@@ -123,16 +139,22 @@ function compararSku(a: string, b: string): number {
 }
 
 /**
- * Ordena y numera los paquetes: PRIMERO los de un solo modelo y luego los
- * revueltos, y dentro de cada bloque por su PRIMER par (ya ordenado); un
- * paquete con dos tallas cae donde cae la menor.
+ * Ordena y numera los paquetes. Con el orden "un-modelo": PRIMERO los de un
+ * solo modelo y luego los revueltos, y dentro de cada bloque por su PRIMER
+ * par (ya ordenado); un paquete con dos tallas cae donde cae la menor. Con
+ * "bodega" (el de los cortes de antes) va todo en un solo bloque, para que
+ * sus números sigan siendo los que ya se imprimieron.
  */
-export function numerarPaquetes(paquetes: PaqueteDespacho[]): PaqueteNumerado[] {
+export function numerarPaquetes(
+  paquetes: PaqueteDespacho[],
+  orden: OrdenPaquetes = "bodega",
+): PaqueteNumerado[] {
   const conOrden = paquetes.map((p) => ({
     ...p,
     pares: [...p.pares].sort((a, b) => compararSku(a.sku, b.sku)),
   }));
-  const bloque = (p: PaqueteDespacho) => (esDeUnModelo(p) ? 0 : 1);
+  const bloque = (p: PaqueteDespacho) =>
+    orden === "un-modelo" && !esDeUnModelo(p) ? 1 : 0;
   conOrden.sort(
     (a, b) =>
       bloque(a) - bloque(b) ||
@@ -258,21 +280,27 @@ export const GRUPO_REVUELTOS = "Revueltos";
 
 /**
  * La lista de empaque: por modelo, en el mismo orden y con los mismos
- * números. Los paquetes revueltos (dos modelos o más) van todos juntos al
- * final, en UNA sección: no se mezclan con la del modelo de su primer par,
- * que se empaca de corrido.
+ * números. Con el orden "un-modelo" los paquetes revueltos (dos modelos o
+ * más) van todos juntos al final, en UNA sección: no se mezclan con la del
+ * modelo de su primer par, que se empaca de corrido. Un corte viejo se
+ * agrupa como siempre, para que su lista salga igual que la impresa.
  */
-export function agruparPorModelo(numerados: PaqueteNumerado[]): GrupoModelo[] {
+export function agruparPorModelo(
+  numerados: PaqueteNumerado[],
+  orden: OrdenPaquetes = "bodega",
+): GrupoModelo[] {
   const grupos: GrupoModelo[] = [];
+  const separar = orden === "un-modelo";
   for (const p of numerados) {
     const ultimo = grupos[grupos.length - 1];
     const pares = p.pares.reduce((a, x) => a + x.pares, 0);
-    const modelo = p.revuelto ? GRUPO_REVUELTOS : p.modelo;
-    if (ultimo && ultimo.modelo === modelo && ultimo.revuelto === p.revuelto) {
+    const modelo = separar && p.revuelto ? GRUPO_REVUELTOS : p.modelo;
+    const revuelto = separar && p.revuelto;
+    if (ultimo && ultimo.modelo === modelo && ultimo.revuelto === revuelto) {
       ultimo.paquetes.push(p);
       ultimo.pares += pares;
     } else {
-      grupos.push({ modelo, pares, paquetes: [p], revuelto: p.revuelto });
+      grupos.push({ modelo, pares, paquetes: [p], revuelto });
     }
   }
   return grupos;
