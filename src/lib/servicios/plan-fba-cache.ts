@@ -20,7 +20,7 @@ import { VERSION_MOTOR } from "./cache";
 import { cargarAmazon, PERIODO_OMISION, SIN_LIMITE, type TotalesAmazon } from "./amazon";
 import { mapaCorridas, sugerirEnvioFba, type SugerenciaFba } from "./fba";
 import { aplicarEnCamino, enCaminoFba, type EnCaminoFba } from "./fba-en-camino";
-import { planFbaConCajas, type PlanFbaCajas } from "./fba-plan";
+import { planFbaConCajas, type HistoriaSkuFba, type PlanFbaCajas } from "./fba-plan";
 import { catalogoBodega } from "./inventario";
 import { separarEnvios, type PlanDeEnvios } from "./envios";
 import { desglosarOpcionales, type DesgloseOpcionales } from "../reporte/opcionales";
@@ -87,6 +87,53 @@ export function revivirTipos(valor: any): any {
 // ---------------------------------------------------------------------------
 
 /**
+ * Historia por SKU de Amazon (toda, no solo la ventana): un renglón por SKU
+ * desde el RPC `amazon_historia_sku`. Si falla, `null`: las reglas de
+ * producto NUEVO y SIN VENTA se apagan en esa corrida y el plan lo avisa.
+ */
+async function historiaFba(
+  db: DB,
+  cuentaAmazonId: string,
+): Promise<{ historia: Map<string, HistoriaSkuFba> | null; error: string | null }> {
+  const { data, error } = await db.rpc("amazon_historia_sku", { p_account: cuentaAmazonId });
+  if (error) return { historia: null, error: error.message };
+  const historia = new Map<string, HistoriaSkuFba>();
+  for (const r of (data ?? []) as {
+    seller_sku: string;
+    unidades: number | string;
+    primera_venta: string | null;
+    primera_foto: string | null;
+  }[]) {
+    historia.set(String(r.seller_sku), {
+      unidades: Number(r.unidades) || 0,
+      primeraVenta: r.primera_venta ? String(r.primera_venta).slice(0, 10) : null,
+      primeraFoto: r.primera_foto ? String(r.primera_foto).slice(0, 10) : null,
+    });
+  }
+  return { historia, error: null };
+}
+
+/**
+ * SKUs con una publicación en Amazon que puede recibir inventario en FBA:
+ * Active o Inactive (sin stock). Una Incomplete no se puede surtir. Si la
+ * lectura falla se devuelve null y el plan se conforma con lo que Amazon
+ * ya conoce por ventas o inventario.
+ */
+async function skusListadosFba(db: DB, cuentaAmazonId: string): Promise<Set<string> | null> {
+  try {
+    const filas = await traerTodo<{ seller_sku: string }>(
+      db,
+      "amazon_listings",
+      "seller_sku, estado",
+      (q) => q.eq("account_id", cuentaAmazonId).in("estado", ["Active", "Inactive"]),
+    );
+    return new Set(filas.map((f) => String(f.seller_sku)));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Todo el trabajo caro de /amazon: agregaciones, catálogo de bodega,
  * optimizador de cajas y separación por bodega. Es el mismo cálculo que
  * hacía la página; solo cambió de casa para poderse guardar.
@@ -97,8 +144,16 @@ export async function calcularPlanFba(
   cuentaMeliId: string | null,
   dias: number,
 ): Promise<DatosPlanFba> {
-  const [{ renglones: renglonesCrudos, totales }, corridasRaw, skusMeli, bodega, paramsBd, enCamino] =
-    await Promise.all([
+  const [
+    { renglones: renglonesCrudos, totales },
+    corridasRaw,
+    skusMeli,
+    bodega,
+    paramsBd,
+    enCamino,
+    historia,
+    listados,
+  ] = await Promise.all([
       // SIN límite: con el top-500, el 64% del calzado con venta quedaba
       // invisible para el plan (esta página no pinta renglones crudos).
       cargarAmazon(db, dias, "", SIN_LIMITE),
@@ -122,6 +177,8 @@ export async function calcularPlanFba(
         ? db.from("parametros").select("datos").eq("account_id", cuentaMeliId).maybeSingle()
         : Promise.resolve({ data: null } as any),
       enCaminoFba(db, cuentaAmazonId),
+      historiaFba(db, cuentaAmazonId),
+      skusListadosFba(db, cuentaAmazonId),
     ]);
 
   // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
@@ -133,13 +190,24 @@ export async function calcularPlanFba(
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
 
   // El plan de cajas REALES: mismo motor y mismos pesos que envíos a Full.
+  // Las mismas reglas de producto que el plan de Full (NUEVO en
+  // crecimiento, SIN VENTA con posición mínima, holgura): la historia de
+  // Amazon las alimenta; si el RPC falla, se apagan y el plan lo declara.
   const planFba = planFbaConCajas({
     renglones,
     dias,
     catalogo: bodega?.catalogo.cajas ?? [],
     indiceMeli,
-    parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+    parametros: normalizarParametros({
+      ...((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
+      ...(historia.historia ? {} : { cajasMinimasSinEstreno: 0, nuevoDias: 0 }),
+    }),
+    historia: historia.historia ?? undefined,
+    skusListados: listados ?? undefined,
   });
+  if (historia.error) {
+    planFba.avisos.push(`No se pudo leer la historia de ventas de Amazon (${historia.error}).`);
+  }
   const desglose = desglosarOpcionales(
     planFba.cajas.map((c) => ({
       codigo: c.codigo,

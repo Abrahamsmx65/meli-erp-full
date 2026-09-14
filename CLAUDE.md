@@ -78,6 +78,18 @@ guárdala numerada.
 - **El envío a Amazon tarda ~7 días en volverse vendible en FBA**
   (`RIESGO_DIAS_FBA`), dato del negocio: el objetivo real por talla en FBA
   es 30 + 7 = 37 días, no más.
+  **Las tres reglas de producto también rigen el plan de FBA**
+  (`fba-plan.ts`, pedido del dueño el 14-sep-2026: «no me sale para mandar
+  los productos nuevos, hazlo igual que MELI»): la historia sale del RPC
+  `amazon_historia_sku` (migración 0086: pares de toda la historia y
+  estreno = primera venta o primera foto con stock, por SKU de Amazon,
+  amarrado a MELI como los renglones). Diferencia con Full: en Amazon no
+  todo está publicado, así que un producto SIN VENTA solo se manda a probar
+  si alguna talla tiene publicación Active o Inactive en `amazon_listings`
+  (una Incomplete no recibe inventario). Si el RPC falla, NUEVO y SIN VENTA
+  se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
+  pantalla enseña cada envío por bodega en su propia sección (Caseshop +
+  Industher, EnvioPack) con el Excel de ese envío.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos
