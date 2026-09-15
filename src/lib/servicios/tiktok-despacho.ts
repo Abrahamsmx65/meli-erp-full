@@ -21,6 +21,7 @@ import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import { partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
+import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   enviarPaquete,
   etiquetaDePaquete,
@@ -56,8 +57,11 @@ export interface ResultadoCorte {
   numero: number;
   pedidos: number;
   pares: number;
+  /** pedidos que NO entraron al corte, con el motivo; un `orderId` vacío es un aviso del corte entero */
   errores: { orderId: string; error: string }[];
   publicados: number;
+  /** paquetes que salieron como entrega en paquetería aunque se pidió recolección */
+  dropOff: number;
   /** cómo le fue a la salida hacia el 3PL */
   al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
 }
@@ -180,6 +184,10 @@ export async function hacerCorte(
 
   let dropOff = 0;
   const confirmados: string[] = [];
+  // Si TikTok no da horarios, se rinde a tiempo y confirma sin él (ver
+  // `tiktok/recoleccion.ts`): el 15-sep-2026 preguntar 52 veces en vano dejó
+  // 203 pedidos sin confirmar.
+  const guardia = crearGuardia();
 
   // Con 200 pedidos, uno por uno no cabe en el tiempo de Vercel: se
   // confirman VARIOS a la vez (cada pedido son 2 o 3 llamadas a TikTok).
@@ -204,20 +212,36 @@ export async function hacerCorte(
         let horario: HorarioRecoleccion | null = null;
         let handover = opciones.handover;
         if (opciones.handover === "PICKUP") {
-          try {
-            const e = await opcionesDeEntrega(cliente, pk.id);
-            horario = primerHorario(e.horarios);
-            if (!horario) {
-              // Sin horario no hay recolección posible. Se manda como
-              // drop-off A PROPÓSITO y se deja escrito por qué, en vez de
-              // mandar PICKUP a ciegas y que TikTok lo convierta en silencio.
-              // Es el modo normal de esta tienda (la paquetería no recoge en
-              // esa dirección): no se anota como error, solo se cuenta.
+          if (!debePreguntar(guardia)) {
+            // TikTok lleva varios paquetes seguidos sin contestar el
+            // horario: ya no se le pregunta en este corte. Sale como
+            // paquetería de una vez y se declara UNA vez al final.
+            anotarSalto(guardia);
+            handover = "DROP_OFF";
+            dropOff++;
+          } else {
+            try {
+              const e = await opcionesDeEntrega(cliente, pk.id);
+              anotarExito(guardia);
+              horario = primerHorario(e.horarios);
+              if (!horario) {
+                // Sin horario no hay recolección posible. Se manda como
+                // drop-off A PROPÓSITO y se deja escrito por qué, en vez de
+                // mandar PICKUP a ciegas y que TikTok lo convierta en silencio.
+                // Es el modo normal de esta tienda (la paquetería no recoge en
+                // esa dirección): no se anota como error, solo se cuenta.
+                handover = "DROP_OFF";
+                dropOff++;
+              }
+            } catch (err) {
+              // TikTok no contestó el horario (su error, no del pedido). Antes
+              // se mandaba PICKUP sin horario y TikTok lo volvía drop-off en
+              // silencio: ahora se manda drop-off A PROPÓSITO, igual que
+              // arriba, y el motivo se declara una sola vez para todo el corte.
+              anotarFallo(guardia, (err as Error).message);
               handover = "DROP_OFF";
               dropOff++;
             }
-          } catch (err) {
-            errores.push({ orderId: p.orderId, error: `Sin horario de recolección: ${(err as Error).message}. Se mandó como recolección sin horario.` });
           }
         }
         try {
@@ -234,6 +258,11 @@ export async function hacerCorte(
       errores.push({ orderId: p.orderId, error: (err as Error).message });
     }
   });
+
+  // Un solo aviso por lo de los horarios, no uno por paquete: los pedidos
+  // SÍ entraron al corte; lo que falló fue TikTok con su horario.
+  const avisoHorarios = avisoDeGuardia(guardia);
+  if (avisoHorarios) errores.push({ orderId: "", error: avisoHorarios });
 
   // El número del corte: consecutivo por cuenta.
   const { data: ultimo } = await admin
@@ -301,7 +330,7 @@ export async function hacerCorte(
   await registrarSalidasDeCorte(admin, accountId, corte.id, [...porPedidoYSku.values()]);
   const al3pl = await empujarSalidasAl3pl(admin, accountId, corte.id);
 
-  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, al3pl };
+  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, al3pl };
 }
 
 // ---------------------------------------------------------------------------
@@ -985,7 +1014,13 @@ export async function faltantesDelCorte(
     for (const x of f.pares) porSku.set(x.sku, (porSku.get(x.sku) ?? 0) + x.pares);
   }
 
-  const errores = (fila?.data?.errores ?? []) as { orderId: string; error: string }[];
+  // Solo lo que de verdad se quedó fuera: un renglón sin pedido es un aviso
+  // del corte entero, y uno cuyo pedido SÍ está en el corte es una nota
+  // (por ejemplo, que salió como paquetería), no un rechazo.
+  const enElCorte = new Set(corte.paquetes.map((p) => p.orderId));
+  const errores = ((fila?.data?.errores ?? []) as { orderId: string; error: string }[]).filter(
+    (e) => e && e.orderId && !enElCorte.has(e.orderId),
+  );
 
   return {
     id: corte.id,

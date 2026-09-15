@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agruparErrores,
   agruparPorModelo,
   clavePaquete,
   codigoDeOrden,
@@ -220,5 +221,24 @@ describe("numerosPreparados", () => {
 
   it("lo que no es de este corte no cuenta", () => {
     expect(numerosPreparados(numerados, ["zzz|pk-zzz"])).toEqual([]);
+  });
+});
+
+describe("agruparErrores", () => {
+  it("el mismo error con distinto número de paquete es UN renglón con sus pedidos", () => {
+    const g = agruparErrores([
+      { orderId: "586046124374394129", error: "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/1211045315452896529/handover_time_slots: Internal error." },
+      { orderId: "586055135307793947", error: "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/1211038810720994843/handover_time_slots: Internal error." },
+      { orderId: "586039688287127464", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "586055636979910433", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "586055774151673724", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "", error: "TikTok no dio horario de recolección para 52 paquetes: salieron como entrega en paquetería." },
+    ]);
+    expect(g.map((x) => [x.pedidos.length, x.mensaje])).toEqual([
+      [3, "Se acabó el tiempo; entra al siguiente corte."],
+      [2, "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/N/handover_time_slots: Internal error."],
+      [0, "TikTok no dio horario de recolección para 52 paquetes: salieron como entrega en paquetería."],
+    ]);
+    expect(g[1].ejemplo).toContain("1211045315452896529");
   });
 });

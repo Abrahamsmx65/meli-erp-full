@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { agruparErrores } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
   id: number;
@@ -83,7 +84,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   function resumenDeCorte(j: any): string {
     const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
     if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
-    if (j.errores?.length) partes.push(`${j.errores.length} pedidos no entraron (abajo el motivo).`);
+    if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);
+    const fuera = (j.errores ?? []).filter((e: any) => e.orderId).length;
+    if (fuera) partes.push(`${fuera} pedidos no entraron (abajo el motivo).`);
     if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
     else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
     else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
@@ -253,9 +256,21 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 </div>
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
-                    {c.errores.filter((e) => !e.error.includes("solo drop-off")).map((e) => (
-                      <li key={e.orderId}>
-                        Pedido {e.orderId}: {e.error}
+                    {agruparErrores(c.errores.filter((e) => !e.error.includes("solo drop-off"))).map((g) => (
+                      <li key={g.mensaje} title={g.pedidos.length > 1 ? g.ejemplo : undefined}>
+                        {g.pedidos.length > 1
+                          ? `${g.pedidos.length} pedidos: ${g.mensaje}`
+                          : g.pedidos.length === 1
+                            ? `Pedido ${g.pedidos[0]}: ${g.ejemplo}`
+                            : g.ejemplo}
+                        {g.pedidos.length > 1 ? (
+                          <details className="inline">
+                            <summary className="ml-1 inline cursor-pointer underline" style={{ color: "var(--ink-2)" }}>
+                              ver cuáles
+                            </summary>
+                            <span className="cifra ml-1" style={{ color: "var(--ink-2)" }}>{g.pedidos.join(", ")}</span>
+                          </details>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

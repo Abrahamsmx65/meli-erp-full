@@ -289,6 +289,19 @@ guárdala numerada.
   crecientes), así que un pedido se quedó fuera del corte #17 por un 503
   de un segundo. Ahora un cuerpo ilegible se decide por el código HTTP y el
   error se guarda resumido (`resumirCuerpoHtml`), no la página entera.
+  **Si TikTok no da horarios, el corte se rinde a tiempo**
+  (`tiktok/recoleccion.ts`, `FALLOS_PARA_RENDIRSE` = 3): el 15-sep-2026
+  `handover_time_slots` contestó «Internal error» (36009003) en TODOS los
+  paquetes y el corte se lo pidió a cada uno con sus reintentos de 2+4+8 s;
+  de 255 pedidos solo 52 alcanzaron a confirmarse y 203 se quedaron con el
+  reloj de 48 h corriendo. Ahora, tras 3 fallos seguidos, ya no se pregunta
+  en ese corte: los paquetes salen como DROP_OFF a propósito (que es lo que
+  TikTok hace de todos modos con una recolección sin horario, sin decirlo)
+  y se declara UNA vez (`avisoDeGuardia`, renglón con `orderId` vacío en
+  `errores`), no 52. Confirmar el envío es lo urgente; el horario no. La
+  pantalla agrupa los errores repetidos (`agruparErrores`: «203 pedidos: se
+  acabó el tiempo»), y los `rechazados` de los faltantes excluyen a los
+  pedidos que sí entraron al corte.
   **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
   el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
   el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese

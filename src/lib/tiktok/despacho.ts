@@ -305,3 +305,38 @@ export function agruparPorModelo(
   }
   return grupos;
 }
+
+export interface ErrorDeCorte {
+  orderId: string;
+  error: string;
+}
+
+export interface GrupoDeErrores {
+  /** el mensaje, con los números de pedido y de paquete quitados */
+  mensaje: string;
+  /** los pedidos con ese mensaje; vacío si es un aviso del corte entero */
+  pedidos: string[];
+  /** un ejemplo tal cual, con sus números, por si hace falta buscarlo */
+  ejemplo: string;
+}
+
+/**
+ * Los errores de un corte agrupados por mensaje. El 15-sep-2026 un corte
+ * dejó 255 renglones rojos —203 «se acabó el tiempo» y 52 del mismo error
+ * de TikTok, cada uno con su número de paquete distinto— y la pantalla se
+ * volvió una pared. Lo mismo dicho una vez: «203 pedidos: se acabó el
+ * tiempo». Los números largos (pedido, paquete: 18 dígitos o más) se quitan para
+ * comparar; los códigos de error de TikTok (8 dígitos) se quedan.
+ */
+export function agruparErrores(errores: ErrorDeCorte[]): GrupoDeErrores[] {
+  const grupos = new Map<string, GrupoDeErrores>();
+  for (const e of errores ?? []) {
+    const texto = String(e?.error ?? "").trim();
+    if (!texto) continue;
+    const clave = texto.replace(/\d{12,}/g, "N").replace(/\s+/g, " ");
+    const g = grupos.get(clave) ?? { mensaje: clave, pedidos: [], ejemplo: texto };
+    if (e.orderId) g.pedidos.push(String(e.orderId));
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()].sort((a, b) => b.pedidos.length - a.pedidos.length);
+}
