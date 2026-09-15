@@ -5,7 +5,8 @@ import { abrirSesion } from "@/lib/higgsfield/mcp";
 import { quemarMarcaYSubir } from "@/lib/servicios/marca-agua";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// Dos pasadas de sandbox (analizar la voz + re-quemar): 120 s se quedaba corto.
+export const maxDuration = 300;
 
 /**
  * Corrige los subtítulos de un video TERMINADO sin regenerarlo y sin gastar
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const { data: fila } = await supabase
     .from("videos_producto")
-    .select("id, estado, duracion, video_url, video_guardado")
+    .select("id, estado, formato, duracion, audio_url, video_url, video_guardado")
     .eq("account_id", cuenta.id)
     .eq("id", id)
     .single();
@@ -76,6 +77,10 @@ export async function POST(req: NextRequest) {
       `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
       guion,
       (fila.duracion as number) || 15,
+      // La copia limpia trae el audio ORIGINAL del video; si este video ya
+      // lleva una voz aprobada (Studio), hay que volver a montarla o la
+      // corrección de subtítulos regresaría al audio viejo.
+      fila.formato === "studio" ? (fila.audio_url as string | null) : null,
     );
   } catch (err) {
     return NextResponse.json(

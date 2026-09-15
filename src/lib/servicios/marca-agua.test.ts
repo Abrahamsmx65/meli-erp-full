@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  alinearSubtitulos,
   archivosSubtitulos,
   armarSubtitulos,
   escaparDrawtext,
   filtrosSubtitulos,
+  parsearSilencios,
 } from "./marca-agua";
 
 const GUION =
@@ -57,5 +59,74 @@ describe("subtítulos del ERP (quemados con el guion exacto)", () => {
   it("sin guion no hay filtros y con espacios tampoco", () => {
     expect(armarSubtitulos("", 15)).toEqual([]);
     expect(armarSubtitulos("   ", 15)).toEqual([]);
+  });
+});
+
+// Salida real de silencedetect sobre un video generado (probada con ffmpeg):
+// habla en [0, 1.36], [3.12, 3.55], [4.31, 5.18] y [5.70, 15.07].
+const SALIDA_REAL =
+  "silence_start: 1.36383\nsilence_end: 3.1166\n" +
+  "silence_start: 3.54528\nsilence_end: 4.31061\n" +
+  "silence_start: 5.17694\nsilence_end: 5.70007";
+
+describe("alineación de subtítulos a la voz (silencedetect)", () => {
+  it("convierte los silencios en tramos de habla, en orden y sin traslapes", () => {
+    const habla = parsearSilencios(SALIDA_REAL, 15.07);
+    expect(habla).toHaveLength(4);
+    expect(habla[0].desde).toBe(0);
+    expect(habla[0].hasta).toBeCloseTo(1.36, 1);
+    expect(habla[3].desde).toBeCloseTo(5.7, 1);
+    expect(habla[3].hasta).toBeCloseTo(15.07, 2);
+    for (let i = 1; i < habla.length; i++) {
+      expect(habla[i].desde).toBeGreaterThanOrEqual(habla[i - 1].hasta);
+    }
+  });
+
+  it("un silencio al arranque retrasa el primer renglón hasta que la voz empieza", () => {
+    const habla = parsearSilencios("silence_start: 0\nsilence_end: 2.5", 15);
+    expect(habla[0].desde).toBeCloseTo(2.5, 2);
+    const subs = alinearSubtitulos(armarSubtitulos("Hola. Qué bonito día hoy.", 15), habla);
+    expect(subs[0].desde).toBeCloseTo(2.5, 2);
+  });
+
+  it("un silencio sin cierre (al final del archivo) apaga los subtítulos ahí", () => {
+    const habla = parsearSilencios("silence_start: 11.2", 15);
+    expect(habla).toEqual([{ desde: 0, hasta: 11.2 }]);
+    const subs = alinearSubtitulos(armarSubtitulos("Hola. Adiós y gracias.", 15), habla);
+    expect(subs[subs.length - 1].hasta).toBeCloseTo(11.2, 1);
+  });
+
+  it("sin silencios detectados todo el audio es habla (cae al reparto de siempre)", () => {
+    expect(parsearSilencios("", 12)).toEqual([{ desde: 0, hasta: 12 }]);
+  });
+
+  it("alinea los renglones dentro del habla, monotónicos y sin encoger de más", () => {
+    const habla = parsearSilencios(SALIDA_REAL, 15.07);
+    const subs = alinearSubtitulos(
+      armarSubtitulos(
+        "¡Fernando! Ven para acá ahora mismo. Está demasiado bonita. Mira el corcho y la correa. No se avienta, se presume.",
+        15.07,
+      ),
+      habla,
+    );
+    expect(subs.length).toBeGreaterThan(3);
+    // El primero arranca con la voz (no antes) y el último acaba con ella.
+    expect(subs[0].desde).toBe(0);
+    expect(subs[subs.length - 1].hasta).toBeCloseTo(15.07, 1);
+    for (let i = 0; i < subs.length; i++) {
+      expect(subs[i].hasta).toBeGreaterThan(subs[i].desde);
+      if (i > 0) expect(subs[i].desde).toBeGreaterThanOrEqual(subs[i - 1].desde);
+      // Cada inicio cae DENTRO de un tramo con voz (o en su borde).
+      const dentro = habla.some(
+        (h) => subs[i].desde >= h.desde - 0.01 && subs[i].desde <= h.hasta + 0.01,
+      );
+      expect(dentro).toBe(true);
+    }
+  });
+
+  it("con habla vacía o demasiado corta no toca los subtítulos", () => {
+    const subs = armarSubtitulos("Hola. Adiós.", 10);
+    expect(alinearSubtitulos(subs, [])).toEqual(subs);
+    expect(alinearSubtitulos(subs, [{ desde: 0, hasta: 0.3 }])).toEqual(subs);
   });
 });
