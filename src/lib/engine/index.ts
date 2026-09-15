@@ -229,12 +229,30 @@ export function generarPlan(e: EntradaPlan): Plan {
     faltanteGrande: p.corridaFaltanteGrande,
     // A un producto NUEVO se le rellena la caja: la regla no lo recorta.
     exentos: skusNuevos,
+    // Si la caja va a forzar otras tallas, la talla solo la fuerza con
+    // menos de `coberturaSinForzarDias` (15) de stock.
+    coberturaSinForzar: p.coberturaSinForzarDias,
   });
   // Una necesidad recortada se surte COMPLETA (tolerancia 0): el recorte ya
   // es la concesión, y quedarse además a un par del objetivo dejaba GT155
   // BEIGE en 1 caja cuando la regla pedía las 2 que cubren los 7 días.
   // En la práctica esto redondea el recorte a cajas hacia arriba.
-  const toleranciaPorSku = new Map(ajustesCorrida.map((a) => [a.sku, 0]));
+  const toleranciaPorSku = new Map<string, number>(
+    ajustesCorrida
+      .filter((a) => a.regla !== "cobertura_suficiente")
+      .map((a) => [a.sku, 0]),
+  );
+  // Y el rescate del optimizador obedece lo mismo: una talla a la que le
+  // alcanza el stock para `coberturaSinForzarDias` no arrastra una caja
+  // que sus hermanas no piden. Solo la caja que el costo justifique.
+  if (p.coberturaSinForzarDias > 0) {
+    for (const l of lineas) {
+      if (!necesidad.has(l.sku) || toleranciaPorSku.has(l.sku) || skusNuevos.has(l.sku)) continue;
+      if (l.coberturaDias >= p.coberturaSinForzarDias) {
+        toleranciaPorSku.set(l.sku, Number.POSITIVE_INFINITY);
+      }
+    }
+  }
   // En la MITAD, la caja que completa la fracción (media caja no existe)
   // sube marcada OPCIONAL para que el usuario decida.
   const mediaCaja = new Set(
@@ -248,7 +266,9 @@ export function generarPlan(e: EntradaPlan): Plan {
     l.faltanteBodega = Math.max(0, a.necesidadAjustada - l.inventarioPropio);
     l.ajusteCorrida = a.regla;
     l.explicacion +=
-      a.regla === "mitad_corrida"
+      a.regla === "cobertura_suficiente"
+        ? ` Su caja sobre-surtiría a las demás tallas de la corrida y a esta talla todavía le alcanza el stock para ${p.coberturaSinForzarDias} días: no se fuerza la caja, espera al siguiente envío.`
+        : a.regla === "mitad_corrida"
         ? ` Su caja sobre-surtiría a las demás tallas de la corrida, pero van al día (posición ≤ ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días): se manda la MITAD (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas). Si la mitad no cierra en cajas completas, la caja de la fracción sube marcada OPCIONAL.`
         : ` Su caja sobre-surtiría a las demás tallas y la corrida ya está dispareja (alguna hermana con más de ${p.corridaSobranteFactor}× su venta de ${p.horizonteDias} días, y el faltante junto no pasa de ${p.corridaFaltanteGrande} pares): solo viajan ${p.corridaDiasDispareja} días de su venta por envío (${a.necesidadAjustada} de ${a.necesidadOriginal} pzas).`;
   }

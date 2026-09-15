@@ -137,6 +137,14 @@ export interface Parametros {
    * descuenta. Decisión del dueño (sep-2026). 0 = apagado.
    */
   cajasMinimasSinEstreno: number;
+  /**
+   * Cobertura (días de venta en Full) a partir de la cual una talla NO
+   * fuerza una caja que sobre-surtiría a sus hermanas. Cuando la caja va a
+   * forzar otras tallas ya no se mira el horizonte de 30 días sino este
+   * (15): si a la talla todavía le alcanza, no se manda. Decisión del
+   * dueño (sep-2026). 0 = siempre se fuerza.
+   */
+  coberturaSinForzarDias: number;
 }
 
 export type OrigenDia =
@@ -229,7 +237,7 @@ export interface LineaPlan {
    * sobre-surtiría a sus hermanas, así que se manda menos. `sugerido` ya
    * viene recortado; el pedido completo queda en `sugeridoCompleto`.
    */
-  ajusteCorrida?: "mitad_corrida" | "solo_7_dias";
+  ajusteCorrida?: "mitad_corrida" | "solo_7_dias" | "cobertura_suficiente";
   /** sugerido ANTES del recorte de la corrida (solo cuando hubo ajuste) */
   sugeridoCompleto?: number;
   /** lo que puedo mandar con el inventario propio suelto que tengo */
