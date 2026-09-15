@@ -1,10 +1,24 @@
 /**
- * El orden del despacho: por modelo, luego color, luego talla.
+ * El orden del despacho: PRIMERO lo de un solo modelo, luego lo revuelto, y
+ * dentro de cada bloque por modelo, luego color, luego talla.
  *
- * Es el orden en que se camina la bodega: todos los GT135 juntos, dentro
- * de ellos por color, y dentro del color de la talla chica a la grande. La
- * lista de empaque y el PDF de etiquetas van en ESTE orden y con LOS MISMOS
- * números, para que la etiqueta #12 sea el renglón #12 sin buscar.
+ * El bloque de UN MODELO es todo lo que se empaca sin pensar: un paquete de
+ * una pieza, o de varias del mismo modelo (dos GT114 en el mismo envío
+ * siguen siendo un modelo). Lo REVUELTO —dos modelos distintos en la misma
+ * caja— se deja para el final, junto, porque es lo que hay que armar con
+ * cuidado (decisión del dueño, 14-sep-2026: así se prepara más rápido).
+ *
+ * Dentro de cada bloque es el orden en que se camina la bodega: todos los
+ * GT135 juntos, dentro de ellos por color, y dentro del color de la talla
+ * chica a la grande. La lista de empaque y el PDF de etiquetas van en ESTE
+ * orden y con LOS MISMOS números, para que la etiqueta #12 sea el renglón
+ * #12 sin buscar.
+ *
+ * Y por eso mismo el orden NO se le cambia a un corte ya hecho: sus hojas
+ * están impresas y a medio preparar, y renumerarlas dejaría el papel de la
+ * mesa sin cuadrar. Cada corte guarda con qué orden nació
+ * (`tiktok_cortes.orden_paquetes`) y se vuelve a armar siempre con ese; los
+ * de antes del 14-sep-2026 se quedan con el suyo ("bodega").
  */
 import { codigosDeProducto } from "./codigos";
 
@@ -40,6 +54,16 @@ export function parsearCodigoDeHoja(codigo: string): { corte: number; numero: nu
   return { corte: Number(m[1]), numero: Number(m[2]) };
 }
 
+/**
+ * Con qué orden se numeró el corte: "bodega" es el de siempre (modelo →
+ * color → talla) y "un-modelo" el nuevo (primero lo de un solo modelo, al
+ * final lo revuelto). Lo guarda el corte al nacer.
+ */
+export type OrdenPaquetes = "bodega" | "un-modelo";
+
+/** El orden con el que nacen los cortes nuevos. */
+export const ORDEN_ACTUAL: OrdenPaquetes = "un-modelo";
+
 export interface PaqueteDespacho {
   orderId: string;
   packageId: string;
@@ -53,6 +77,34 @@ export interface PaqueteNumerado extends PaqueteDespacho {
   modelo: string;
   color: string;
   talla: string;
+  /** true si el paquete lleva DOS modelos distintos o más */
+  revuelto: boolean;
+}
+
+/**
+ * La identidad del paquete: el pedido y su paquete de TikTok. Es lo que
+ * guarda la constancia de preparado (`tiktok_preparaciones`), y por eso lo
+ * que se compara: el "#n" es solo el lugar que le tocó en la hoja de HOY y
+ * cambia si cambia el orden.
+ */
+export function clavePaquete(p: { orderId: string; packageId?: string | null }): string {
+  return `${p.orderId}|${p.packageId ?? ""}`;
+}
+
+/** Los modelos distintos que lleva el paquete. */
+export function modelosDePaquete(p: { pares: ParDespacho[] }): string[] {
+  const modelos = new Set<string>();
+  for (const x of p.pares) modelos.add(partirSku(x.sku).modelo);
+  return [...modelos];
+}
+
+/**
+ * ¿El paquete es de UN SOLO modelo? Una pieza sola, dos pares del mismo
+ * zapato o dos tallas del mismo modelo cuentan como uno; dos modelos
+ * distintos, no.
+ */
+export function esDeUnModelo(p: { pares: ParDespacho[] }): boolean {
+  return modelosDePaquete(p).length <= 1;
 }
 
 /** MODELO-COLOR-TALLA → sus tres pedazos; lo que no cuadre se va al final. */
@@ -87,22 +139,64 @@ function compararSku(a: string, b: string): number {
 }
 
 /**
- * Ordena y numera los paquetes. El paquete se ordena por su PRIMER par (ya
- * ordenado); un paquete con dos tallas cae donde cae la menor.
+ * Ordena y numera los paquetes. Con el orden "un-modelo": PRIMERO los de un
+ * solo modelo y luego los revueltos, y dentro de cada bloque por su PRIMER
+ * par (ya ordenado); un paquete con dos tallas cae donde cae la menor. Con
+ * "bodega" (el de los cortes de antes) va todo en un solo bloque, para que
+ * sus números sigan siendo los que ya se imprimieron.
  */
-export function numerarPaquetes(paquetes: PaqueteDespacho[]): PaqueteNumerado[] {
+export function numerarPaquetes(
+  paquetes: PaqueteDespacho[],
+  orden: OrdenPaquetes = "bodega",
+): PaqueteNumerado[] {
   const conOrden = paquetes.map((p) => ({
     ...p,
     pares: [...p.pares].sort((a, b) => compararSku(a.sku, b.sku)),
   }));
+  const bloque = (p: PaqueteDespacho) =>
+    orden === "un-modelo" && !esDeUnModelo(p) ? 1 : 0;
   conOrden.sort(
     (a, b) =>
-      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") || a.orderId.localeCompare(b.orderId),
+      bloque(a) - bloque(b) ||
+      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") ||
+      a.orderId.localeCompare(b.orderId),
   );
   return conOrden.map((p, i) => {
     const primero = partirSku(p.pares[0]?.sku ?? "");
-    return { ...p, numero: i + 1, ...primero };
+    return { ...p, numero: i + 1, ...primero, revuelto: !esDeUnModelo(p) };
   });
+}
+
+/**
+ * Los números que les tocan HOY a los paquetes que ya se prepararon. La
+ * constancia se guarda por pedido + paquete, así que cambiar el orden no la
+ * pierde: aquí se traduce a los "#n" de esta hoja.
+ *
+ * Un pedido de un solo paquete se reconoce también por el pedido a secas:
+ * cuando se preparó, TikTok podía no haber dado todavía el id del paquete
+ * (se guardó vacío) y hoy sí darlo, o al revés.
+ */
+export function numerosPreparados(paquetes: PaqueteNumerado[], claves: Iterable<string>): number[] {
+  const porClave = new Map<string, PaqueteNumerado>();
+  const porOrden = new Map<string, PaqueteNumerado[]>();
+  for (const p of paquetes) {
+    porClave.set(clavePaquete(p), p);
+    const l = porOrden.get(p.orderId) ?? [];
+    l.push(p);
+    porOrden.set(p.orderId, l);
+  }
+  const numeros = new Set<number>();
+  for (const clave of claves) {
+    const exacto = porClave.get(clave);
+    if (exacto) {
+      numeros.add(exacto.numero);
+      continue;
+    }
+    const orderId = String(clave).split("|")[0];
+    const unicos = porOrden.get(orderId);
+    if (unicos && unicos.length === 1) numeros.add(unicos[0].numero);
+  }
+  return [...numeros].sort((a, b) => a - b);
 }
 
 /** El texto que va abajo a la derecha de la etiqueta: "#12 · GT135-DK BROWN-26 ×2". */
@@ -177,20 +271,72 @@ export interface GrupoModelo {
   modelo: string;
   pares: number;
   paquetes: PaqueteNumerado[];
+  /** true si es la sección de los paquetes con varios modelos */
+  revuelto: boolean;
 }
 
-/** La lista de empaque: por modelo, en el mismo orden y con los mismos números. */
-export function agruparPorModelo(numerados: PaqueteNumerado[]): GrupoModelo[] {
+/** El título de la sección de los paquetes con varios modelos. */
+export const GRUPO_REVUELTOS = "Revueltos";
+
+/**
+ * La lista de empaque: por modelo, en el mismo orden y con los mismos
+ * números. Con el orden "un-modelo" los paquetes revueltos (dos modelos o
+ * más) van todos juntos al final, en UNA sección: no se mezclan con la del
+ * modelo de su primer par, que se empaca de corrido. Un corte viejo se
+ * agrupa como siempre, para que su lista salga igual que la impresa.
+ */
+export function agruparPorModelo(
+  numerados: PaqueteNumerado[],
+  orden: OrdenPaquetes = "bodega",
+): GrupoModelo[] {
   const grupos: GrupoModelo[] = [];
+  const separar = orden === "un-modelo";
   for (const p of numerados) {
     const ultimo = grupos[grupos.length - 1];
     const pares = p.pares.reduce((a, x) => a + x.pares, 0);
-    if (ultimo && ultimo.modelo === p.modelo) {
+    const modelo = separar && p.revuelto ? GRUPO_REVUELTOS : p.modelo;
+    const revuelto = separar && p.revuelto;
+    if (ultimo && ultimo.modelo === modelo && ultimo.revuelto === revuelto) {
       ultimo.paquetes.push(p);
       ultimo.pares += pares;
     } else {
-      grupos.push({ modelo: p.modelo, pares, paquetes: [p] });
+      grupos.push({ modelo, pares, paquetes: [p], revuelto });
     }
   }
   return grupos;
+}
+
+export interface ErrorDeCorte {
+  orderId: string;
+  error: string;
+}
+
+export interface GrupoDeErrores {
+  /** el mensaje, con los números de pedido y de paquete quitados */
+  mensaje: string;
+  /** los pedidos con ese mensaje; vacío si es un aviso del corte entero */
+  pedidos: string[];
+  /** un ejemplo tal cual, con sus números, por si hace falta buscarlo */
+  ejemplo: string;
+}
+
+/**
+ * Los errores de un corte agrupados por mensaje. El 15-sep-2026 un corte
+ * dejó 255 renglones rojos —203 «se acabó el tiempo» y 52 del mismo error
+ * de TikTok, cada uno con su número de paquete distinto— y la pantalla se
+ * volvió una pared. Lo mismo dicho una vez: «203 pedidos: se acabó el
+ * tiempo». Los números largos (pedido, paquete: 18 dígitos o más) se quitan para
+ * comparar; los códigos de error de TikTok (8 dígitos) se quedan.
+ */
+export function agruparErrores(errores: ErrorDeCorte[]): GrupoDeErrores[] {
+  const grupos = new Map<string, GrupoDeErrores>();
+  for (const e of errores ?? []) {
+    const texto = String(e?.error ?? "").trim();
+    if (!texto) continue;
+    const clave = texto.replace(/\d{12,}/g, "N").replace(/\s+/g, " ");
+    const g = grupos.get(clave) ?? { mensaje: clave, pedidos: [], ejemplo: texto };
+    if (e.orderId) g.pedidos.push(String(e.orderId));
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()].sort((a, b) => b.pedidos.length - a.pedidos.length);
 }

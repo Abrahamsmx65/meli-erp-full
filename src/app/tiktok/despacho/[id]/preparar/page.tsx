@@ -2,6 +2,7 @@ import Link from "next/link";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarCorte, preparadosDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { numerosPreparados } from "@/lib/tiktok/despacho";
 import { PrepararTikTok } from "@/components/preparar-tiktok";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ export default async function Preparar({ params }: { params: Promise<{ id: strin
           ← Volver al despacho
         </Link>
       </div>
-      <PrepararTikTok corteId={corte.id} numero={corte.numero} paquetes={corte.paquetes} preparadosIniciales={[...preparados]} />
+      <PrepararTikTok corteId={corte.id} numero={corte.numero} paquetes={corte.paquetes} preparadosIniciales={numerosPreparados(corte.paquetes, preparados)} />
     </div>
   );
 }
