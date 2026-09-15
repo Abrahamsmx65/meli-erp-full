@@ -33,7 +33,7 @@ describe("guardia de horarios de recolección", () => {
     expect(avisoDeGuardia(crearGuardia())).toBeNull();
   });
 
-  it("el aviso dice cuántos salieron como paquetería, qué contestó TikTok y que se dejó de preguntar", () => {
+  it("el aviso dice cuántos salieron como recolección sin hora, qué contestó TikTok y que se dejó de preguntar", () => {
     const g = crearGuardia();
     anotarFallo(g, "e1");
     anotarFallo(g, "e2");
@@ -43,7 +43,7 @@ describe("guardia de horarios de recolección", () => {
     const a = avisoDeGuardia(g)!;
     expect(a).toContain("5 paquetes");
     expect(a).toContain("Internal error. Please try again.");
-    expect(a).toContain("entrega en paquetería");
+    expect(a).toContain("recolección sin hora fija");
     expect(a).toContain("ya no se le preguntó");
   });
 

@@ -257,7 +257,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
                     {agruparErrores(c.errores.filter((e) => !e.error.includes("solo drop-off"))).map((g) => (
-                      <li key={g.mensaje} title={g.pedidos.length > 1 ? g.ejemplo : undefined}>
+                      <li
+                        key={g.mensaje}
+                        title={g.pedidos.length > 1 ? g.ejemplo : undefined}
+                        // Un renglón sin pedido es una nota del corte entero (por
+                        // ejemplo, que salió como recolección sin horario): no es rojo.
+                        style={g.pedidos.length ? undefined : { color: "var(--ink-2)" }}
+                      >
                         {g.pedidos.length > 1
                           ? `${g.pedidos.length} pedidos: ${g.mensaje}`
                           : g.pedidos.length === 1

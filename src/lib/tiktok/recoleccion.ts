@@ -1,7 +1,7 @@
 /**
  * La guardia de los horarios de recolección dentro de un corte.
  *
- * Para RECOLECCIÓN hay que pedirle a TikTok el horario de cada paquete
+ * Para RECOLECCIÓN se le pide a TikTok el horario de cada paquete
  * (`handover_time_slots`). El 15-sep-2026 esa ruta contestó "Internal
  * error. Please try again" en TODOS los paquetes, y el corte se la pidió
  * paquete por paquete de todos modos: cada llamada fallida se comió sus
@@ -9,11 +9,14 @@
  * confirmarse antes de que Vercel cortara. Los otros 203 se quedaron
  * esperando con el reloj de las 48 horas corriendo.
  *
- * Esta guardia se rinde a tiempo: después de `FALLOS_PARA_RENDIRSE`
- * fallos seguidos deja de preguntar en ese corte y los paquetes salen de
- * una vez como entrega en paquetería (que es lo que TikTok hace de todos
- * modos con una recolección sin horario, nada más que sin decirlo).
- * Confirmar el envío es lo urgente; el horario no.
+ * Y no era un error del pedido: a la tienda le ACTIVARON la recolección
+ * sin hora fija (dato del dueño, 15-sep-2026), así que no hay horario que
+ * pedir y el paquete sale bien como recolección a secas. Esta guardia se
+ * rinde a tiempo: después de `FALLOS_PARA_RENDIRSE` fallos seguidos deja
+ * de preguntar en ese corte y los demás paquetes salen de una vez como
+ * recolección sin horario, que es lo que la tienda tiene. Confirmar el
+ * envío es lo urgente; el horario no. Se anota como NOTA del corte, no
+ * como error, y una sola vez.
  */
 
 /** Fallos SEGUIDOS del horario después de los cuales ya no se pregunta. */
@@ -55,8 +58,8 @@ export function anotarSalto(g: GuardiaHorarios): void {
 
 /**
  * Lo que se le dice al dueño cuando la guardia tuvo que actuar, UNA vez y
- * no cincuenta: cuántos paquetes salieron como entrega en paquetería por
- * culpa de TikTok y qué contestó.
+ * no cincuenta: cuántos paquetes salieron como recolección sin horario y
+ * qué contestó TikTok. Es una nota, no un error: los pedidos entraron.
  */
 export function avisoDeGuardia(g: GuardiaHorarios): string | null {
   const afectados = g.fallos + g.saltados;
@@ -65,5 +68,5 @@ export function avisoDeGuardia(g: GuardiaHorarios): string | null {
   const rendida = g.saltados
     ? ` Después de ${FALLOS_PARA_RENDIRSE} fallos seguidos ya no se le preguntó a los demás, para que el corte alcanzara a confirmar todo.`
     : "";
-  return `TikTok no dio horario de recolección para ${afectados} ${afectados === 1 ? "paquete" : "paquetes"}${causa}: salieron como entrega en paquetería.${rendida}`;
+  return `TikTok no dio horario de recolección para ${afectados} ${afectados === 1 ? "paquete" : "paquetes"}${causa}: salieron como recolección sin hora fija, que es como está la tienda.${rendida}`;
 }

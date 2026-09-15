@@ -215,32 +215,28 @@ export async function hacerCorte(
           if (!debePreguntar(guardia)) {
             // TikTok lleva varios paquetes seguidos sin contestar el
             // horario: ya no se le pregunta en este corte. Sale como
-            // paquetería de una vez y se declara UNA vez al final.
+            // recolección sin hora fija (así está la tienda) y se declara
+            // UNA vez al final.
             anotarSalto(guardia);
-            handover = "DROP_OFF";
-            dropOff++;
           } else {
             try {
               const e = await opcionesDeEntrega(cliente, pk.id);
               anotarExito(guardia);
               horario = primerHorario(e.horarios);
-              if (!horario) {
-                // Sin horario no hay recolección posible. Se manda como
-                // drop-off A PROPÓSITO y se deja escrito por qué, en vez de
+              if (!horario && e.puedeRecoleccion === false) {
+                // TikTok dice que en este paquete NO hay recolección. Se
+                // manda como drop-off A PROPÓSITO y se cuenta, en vez de
                 // mandar PICKUP a ciegas y que TikTok lo convierta en silencio.
-                // Es el modo normal de esta tienda (la paquetería no recoge en
-                // esa dirección): no se anota como error, solo se cuenta.
                 handover = "DROP_OFF";
                 dropOff++;
               }
+              // Sin horario pero con recolección posible: la tienda tiene
+              // recolección sin hora fija; se manda PICKUP sin horario.
             } catch (err) {
-              // TikTok no contestó el horario (su error, no del pedido). Antes
-              // se mandaba PICKUP sin horario y TikTok lo volvía drop-off en
-              // silencio: ahora se manda drop-off A PROPÓSITO, igual que
-              // arriba, y el motivo se declara una sola vez para todo el corte.
+              // TikTok no contestó el horario (su error, no del pedido). El
+              // paquete sale como lo pidió el dueño —recolección sin hora
+              // fija— y el motivo se declara una sola vez para todo el corte.
               anotarFallo(guardia, (err as Error).message);
-              handover = "DROP_OFF";
-              dropOff++;
             }
           }
         }
