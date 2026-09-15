@@ -17,6 +17,7 @@ import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
+import { agruparGemelas, principalDe, sumarPorPrincipal } from "./gemelas";
 import { construirIndice, desglosar } from "./sku";
 
 export interface RenglonInventarioYz {
@@ -54,7 +55,7 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
 
   const [inv, skus, stock, vend, { enCamino }, mapeos, configUnificada] = await Promise.all([
     cargarInventarioAmarrado(db, accountId),
-    todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
+    todo<{ sku: string; titulo: string | null; estado: string | null }>(db, "yz_skus", "sku, titulo, estado", (q) => q.eq("account_id", accountId)),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) =>
       q.eq("account_id", accountId),
     ),
@@ -73,13 +74,31 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
     porBodega: new Map(inv.renglones.map((r) => [r.skuBodega, r.skuMeli])),
   });
 
-  const stockPor = new Map(stock.map((s) => [s.sku, s]));
+  // Las publicaciones gemelas (462-A57 y N-462-A57) salen como UN renglón,
+  // el de la principal, con todo sumado. La bodega ya viene atribuida a la
+  // principal desde el amarre.
+  const gemelas = agruparGemelas(skus);
+  const stockPor = new Map<string, { disponible: number; en_transferencia: number }>();
+  for (const s of stock) {
+    const k = principalDe(gemelas, s.sku);
+    const acc = stockPor.get(k) ?? { disponible: 0, en_transferencia: 0 };
+    acc.disponible += s.disponible ?? 0;
+    acc.en_transferencia += s.en_transferencia ?? 0;
+    stockPor.set(k, acc);
+  }
   const camino = new Map<string, number>();
-  for (const c of enCamino) camino.set(c.skuMeli, (camino.get(c.skuMeli) ?? 0) + c.unidades);
+  for (const c of enCamino) {
+    const k = principalDe(gemelas, c.skuMeli);
+    camino.set(k, (camino.get(k) ?? 0) + c.unidades);
+  }
+  const chinaPor = sumarPorPrincipal(gemelas, china);
+  const vendPor = sumarPorPrincipal(gemelas, vend);
+  const bodegaPor = sumarPorPrincipal(gemelas, inv.porSkuMeli);
   const bodegaSkus = new Map<string, string[]>();
   for (const r of inv.renglones) if (r.skuMeli) bodegaSkus.set(r.skuMeli, [...(bodegaSkus.get(r.skuMeli) ?? []), r.skuBodega]);
 
   const renglones: RenglonInventarioYz[] = skus
+    .filter((s) => principalDe(gemelas, s.sku) === s.sku)
     .map((s) => {
       const diseno = desglosar(s.sku).diseno;
       return {
@@ -90,9 +109,9 @@ export async function calcularInventarioPantalla(db: DB, accountId: string): Pro
       enFull: stockPor.get(s.sku)?.disponible ?? 0,
       enTransferencia: stockPor.get(s.sku)?.en_transferencia ?? 0,
       enCamino: camino.get(s.sku) ?? 0,
-      enBodega: inv.porSkuMeli.get(s.sku) ?? 0,
-      enCaminoChina: china.get(s.sku) ?? 0,
-      vendidas30: vend.get(s.sku) ?? 0,
+      enBodega: bodegaPor.get(s.sku) ?? 0,
+      enCaminoChina: chinaPor.get(s.sku) ?? 0,
+      vendidas30: vendPor.get(s.sku) ?? 0,
       skusBodega: bodegaSkus.get(s.sku) ?? [],
       };
     })

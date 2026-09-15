@@ -669,6 +669,22 @@ login, la base y el deploy.
   por decisión del dueño; otros prefijos (CH-, R-) y las piezas en otro orden se sugieren
   en `/yapanizcel/skus` y se confirman con un clic (escribe `yz_mapeo_skus`).
   Un empate NUNCA se resuelve solo. Ignorados en `yz_skus_ignorados`.
+- **Publicaciones GEMELAS: el mismo producto publicado dos veces, con N-/C-
+  y sin ella** (`yapanizcel/gemelas.ts`; `462-A57` y `N-462-A57`, `462-i14` y
+  `N-462-i14`). Decisión del dueño (15-sep-2026): «hoy solo ocupamos los
+  SKUs de 462 comenzando con N-, hay que juntar todo por ahí». La bodega y
+  el pedido de la fábrica dicen `462-A57` y amarraban EXACTO con la
+  publicación vieja, así que la N- (la que vende) se quedaba sin bodega ni
+  en camino. Ahora cada grupo de gemelas (clave aplastada sin la N/C,
+  `clavePrefijoNC`) tiene UNA PRINCIPAL —la de prefijo si no está cerrada
+  en MELI (activa primero, N antes que C); si no, la sin prefijo— y las
+  demás se ABSORBEN: el amarre de bodega y el del pedido apuntan a la
+  principal (`cargarInventarioAmarrado`, `amarrarSkus`), y Pedidos a China,
+  el plan de envíos y Bodega suman bajo ella venta, Full, transferencia,
+  envíos en camino, bodega y pedido a China (`VarianteCompra.gemelas`,
+  `PlanConDetalle.gemelas`, columna «Incluye» en el Excel). Un grupo se
+  descontinúa solo si TODAS sus gemelas lo están. Ventas y Listados siguen
+  por publicación.
 - **Costos por diseño** en Productos y costos (`productos_config`, ver
   arriba); el Excel (MODELO, COSTO) de Ajustes de fundas sigue funcionando y
   escribe ahí también. Se buscan por la clave completa y luego por el diseño

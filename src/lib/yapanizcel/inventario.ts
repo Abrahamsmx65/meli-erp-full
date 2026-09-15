@@ -10,6 +10,7 @@ import type { DB } from "../datos/repos";
 import { upsertEnTandas } from "../datos/repos";
 import { todo } from "./db";
 import { invalidarYz } from "./cache";
+import { agruparGemelas, principalDe } from "./gemelas";
 import { amarrar, construirIndice, esAutomatico, type Amarre, type NivelAmarre } from "./sku";
 import { descargarSheet, leerInventario, leerLibro, type ResultadoInventario } from "./sheets";
 
@@ -38,13 +39,16 @@ export async function cargarInventarioAmarrado(db: DB, accountId: string): Promi
     todo<{ sku_bodega: string; hoja: string | null; diseno: string | null; modelo: string | null; color: string | null; cantidad: number }>(
       db, "yz_inventario", "sku_bodega, hoja, diseno, modelo, color, cantidad", (q) => q.eq("account_id", accountId).order("sku_bodega"),
     ),
-    todo<{ sku: string }>(db, "yz_skus", "sku", (q) => q.eq("account_id", accountId)),
+    todo<{ sku: string; estado: string | null }>(db, "yz_skus", "sku, estado", (q) => q.eq("account_id", accountId)),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
     todo<{ sku_bodega: string }>(db, "yz_skus_ignorados", "sku_bodega", (q) => q.eq("account_id", accountId)),
   ]);
 
   const indice = construirIndice(skus.map((s) => s.sku));
   const manual = new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli]));
+  // "462-A57" amarra EXACTO con la publicación vieja; lo que cuenta es la
+  // gemela principal (la N-): la bodega se le atribuye a ella.
+  const gemelas = agruparGemelas(skus);
   const setIgnorados = new Set(ignorados.map((i) => i.sku_bodega));
 
   const renglones: RenglonBodega[] = [];
@@ -57,7 +61,8 @@ export async function cargarInventarioAmarrado(db: DB, accountId: string): Promi
   let sugeridos = 0;
 
   for (const f of inventario) {
-    const a = amarrar(f.sku_bodega, indice, manual);
+    const crudo = amarrar(f.sku_bodega, indice, manual);
+    const a: Amarre = crudo.skuMeli ? { ...crudo, skuMeli: principalDe(gemelas, crudo.skuMeli) } : crudo;
     const ignorado = setIgnorados.has(f.sku_bodega);
     renglones.push({ ...a, hoja: f.hoja, diseno: f.diseno, modelo: f.modelo, color: f.color, cantidad: f.cantidad, ignorado });
     niveles[a.nivel]++;

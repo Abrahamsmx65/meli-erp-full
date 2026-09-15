@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
     hoja.columns = [
       { header: "Diseño", key: "diseno", width: 9 },
       { header: "SKU", key: "sku", width: 26 },
+      { header: "Incluye (gemela)", key: "gemelas", width: 18 },
       { header: "Modelo", key: "modelo", width: 16 },
       { header: "Color", key: "color", width: 12 },
       { header: "Título", key: "titulo", width: 50 },
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest) {
       hoja.addRow({
         diseno: v.diseno,
         sku: v.skuMeli,
+        gemelas: (v.gemelas ?? []).join(", "),
         modelo: v.modelo,
         color: v.color,
         titulo: v.titulo ?? "",

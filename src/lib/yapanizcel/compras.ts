@@ -17,6 +17,7 @@ import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado } from "./inventario";
 import { leerParametros } from "./cuenta";
+import { agruparGemelas, principalDe, sumarPorPrincipal } from "./gemelas";
 import { amarrar, construirIndice, desglosar, esCalzado, type IndiceSkus } from "./sku";
 
 /** Días que se quieren cubrir con un pedido: producción + tránsito + piso. */
@@ -40,6 +41,8 @@ export interface VarianteCompra {
   objetivo: number;
   sugerido: number;
   costoUnitario: number | null;
+  /** Publicaciones gemelas (la vieja sin N-) cuyos números van sumados en este renglón. */
+  gemelas?: string[];
 }
 
 export interface DisenoCompra {
@@ -76,8 +79,8 @@ async function cargarBase(db: DB, accountId: string) {
   const desde = restarDias(hasta, p.diasVenta - 1);
 
   const [skus, agregadas, stock, inventario, { enCamino }, mapeos, mapaUnificado, descontinuados] = await Promise.all([
-    todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null }>(
-      db, "yz_skus", "sku, titulo, diseno, modelo, color", (q) => q.eq("account_id", accountId),
+    todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null; estado: string | null }>(
+      db, "yz_skus", "sku, titulo, diseno, modelo, color, estado", (q) => q.eq("account_id", accountId),
     ),
     cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
@@ -94,13 +97,29 @@ async function cargarBase(db: DB, accountId: string) {
   const porBodega = new Map(inventario.renglones.map((r) => [r.skuBodega, r.skuMeli]));
   const pedidos = await cargarPedidosEnCamino(db, accountId, { indice, manual, porBodega });
 
-  const vendidas = agregadas.totales;
-  const stockPor = new Map(stock.map((s) => [s.sku, s]));
+  // Las publicaciones gemelas (462-A57 y N-462-A57) se juntan bajo la
+  // principal: venta, Full, transferencia, envíos en camino y pedido a
+  // China. La bodega ya viene atribuida a la principal desde el amarre.
+  const gemelas = agruparGemelas(skus);
+  const vendidas = sumarPorPrincipal(gemelas, agregadas.totales);
+  const stockPor = new Map<string, { disponible: number; en_transferencia: number }>();
+  for (const s of stock) {
+    const k = principalDe(gemelas, s.sku);
+    const acc = stockPor.get(k) ?? { disponible: 0, en_transferencia: 0 };
+    acc.disponible += s.disponible ?? 0;
+    acc.en_transferencia += s.en_transferencia ?? 0;
+    stockPor.set(k, acc);
+  }
   const caminoFull = new Map<string, number>();
-  for (const c of enCamino) caminoFull.set(c.skuMeli, (caminoFull.get(c.skuMeli) ?? 0) + c.unidades);
+  for (const c of enCamino) {
+    const k = principalDe(gemelas, c.skuMeli);
+    caminoFull.set(k, (caminoFull.get(k) ?? 0) + c.unidades);
+  }
+  const pedidosPor = sumarPorPrincipal(gemelas, pedidos);
+  const bodegaPor = sumarPorPrincipal(gemelas, inventario.porSkuMeli);
   const costos = soloCostos(mapaUnificado);
 
-  return { p, skus, vendidas, stockPor, inventario, caminoFull, pedidos, costos, descontinuados };
+  return { p, skus, vendidas, stockPor, inventario, bodegaPor, caminoFull, pedidos: pedidosPor, costos, descontinuados, gemelas };
 }
 
 /**
@@ -171,10 +190,17 @@ export async function calcularCompras(db: DB, accountId: string): Promise<Compra
       historialDesde: b.descontinuados.historialDesde,
       disenos: [...b.descontinuados.disenos].sort(),
     },
-    variantes: b.skus.map((s) => ({
-      ...calcularVariante(s, b),
-      descontinuada: b.descontinuados.skus.has(s.sku),
-    })),
+    // Solo las principales: una gemela absorbida ya va sumada en la suya. El
+    // grupo se descontinúa solo si TODAS sus gemelas lo están.
+    variantes: b.skus
+      .filter((s) => principalDe(b.gemelas, s.sku) === s.sku)
+      .map((s) => {
+        const grupo = [s.sku, ...(b.gemelas.absorbidas.get(s.sku) ?? [])];
+        return {
+          ...calcularVariante(s, b),
+          descontinuada: grupo.every((sku) => b.descontinuados.skus.has(sku)),
+        };
+      }),
   };
 }
 
@@ -328,8 +354,9 @@ function calcularVariante(
   const enFull = st?.disponible ?? 0;
   const enTransferencia = st?.en_transferencia ?? 0;
   const enCaminoFull = b.caminoFull.get(s.sku) ?? 0;
-  const enBodega = b.inventario.porSkuMeli.get(s.sku) ?? 0;
+  const enBodega = b.bodegaPor.get(s.sku) ?? 0;
   const enCaminoChina = b.pedidos.get(s.sku) ?? 0;
+  const gemelas = b.gemelas.absorbidas.get(s.sku);
   const posicionTotal = enFull + enTransferencia + enCaminoFull + enBodega + enCaminoChina;
   const objetivo = ventaDiaria * DIAS_OBJETIVO_PEDIDO;
   const sugerido = Math.max(0, Math.ceil(objetivo - posicionTotal));
@@ -352,6 +379,7 @@ function calcularVariante(
     objetivo,
     sugerido,
     costoUnitario: costoDeSku(s.sku, b.costos),
+    ...(gemelas?.length ? { gemelas } : {}),
   };
 }
 

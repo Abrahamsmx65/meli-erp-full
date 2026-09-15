@@ -14,6 +14,7 @@ import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario"
 import { calcularPlan, type EnCamino, type LineaPlan, type Plan } from "./plan";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
+import { agruparGemelas, principalDe, type Gemelas } from "./gemelas";
 
 export interface EnvioRegistrado {
   id: string;
@@ -67,6 +68,8 @@ export async function cargarEnvios(db: DB, accountId: string, diasCaducidad: num
 
 export interface PlanConDetalle extends Plan {
   titulos: Map<string, string | null>;
+  /** Principal → gemelas absorbidas (462-A57 va sumado en N-462-A57). */
+  gemelas?: Record<string, string[]>;
   inventario: InventarioAmarrado;
   parametros: Awaited<ReturnType<typeof leerParametros>>;
   descontinuados: Descontinuados;
@@ -79,7 +82,7 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
   const desde = restarDias(hasta, parametros.diasVenta - 1);
 
   const [skus, agregadas, stock, inventario, { enCamino }, descontinuados] = await Promise.all([
-    todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
+    todo<{ sku: string; titulo: string | null; estado: string | null }>(db, "yz_skus", "sku, titulo, estado", (q) => q.eq("account_id", accountId)),
     cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
@@ -87,19 +90,47 @@ export async function calcularPlanDeCuenta(db: DB, accountId: string): Promise<P
     cargarDescontinuados(db, accountId),
   ]);
 
+  // Las publicaciones gemelas (462-A57 y N-462-A57) se planean como UNA, la
+  // principal: venta, fotos, Full, bodega y en camino sumados. El grupo se
+  // descontinúa solo si todas sus gemelas lo están.
+  const gemelas = agruparGemelas(skus);
+  const principales = [...new Set(skus.map((s) => principalDe(gemelas, s.sku)))];
+  const grupoDescontinuado = (principal: string) =>
+    [principal, ...(gemelas.absorbidas.get(principal) ?? [])].every((sku) => descontinuados.skus.has(sku));
+
   const plan = calcularPlan({
     // Un SKU descontinuado (sin venta en 180 días) ya no se ofrece.
-    skus: skus.map((s) => s.sku).filter((sku) => !descontinuados.skus.has(sku)),
-    ventas: agregadas.ventas,
-    snapshots: agregadas.snapshots,
-    stock: stock.map((s) => ({ sku: s.sku, disponible: s.disponible, enTransferencia: s.en_transferencia })),
-    bodega: [...inventario.porSkuMeli].map(([skuMeli, unidades]) => ({ skuMeli, unidades })),
-    enCamino,
+    skus: principales.filter((sku) => !grupoDescontinuado(sku)),
+    ventas: agregadas.ventas.map((v) => ({ ...v, sku: principalDe(gemelas, v.sku) })),
+    snapshots: fusionarSnapshots(agregadas.snapshots, gemelas),
+    stock: stock.map((s) => ({ sku: principalDe(gemelas, s.sku), disponible: s.disponible, enTransferencia: s.en_transferencia })),
+    bodega: [...inventario.porSkuMeli].map(([skuMeli, unidades]) => ({ skuMeli: principalDe(gemelas, skuMeli), unidades })),
+    enCamino: enCamino.map((c) => ({ ...c, skuMeli: principalDe(gemelas, c.skuMeli) })),
     parametros,
     hasta,
   });
 
-  return { ...plan, titulos: new Map(skus.map((s) => [s.sku, s.titulo])), inventario, parametros, descontinuados };
+  return {
+    ...plan,
+    titulos: new Map(skus.map((s) => [s.sku, s.titulo])),
+    gemelas: Object.fromEntries(gemelas.absorbidas),
+    inventario,
+    parametros,
+    descontinuados,
+  };
+}
+
+/** Las fotos diarias de las gemelas se suman por día bajo la principal. */
+function fusionarSnapshots(snapshots: { sku: string; fecha: string; disponible: number }[], gemelas: Gemelas) {
+  const porClave = new Map<string, { sku: string; fecha: string; disponible: number }>();
+  for (const f of snapshots) {
+    const sku = principalDe(gemelas, f.sku);
+    const k = `${sku}\u0000${f.fecha}`;
+    const acc = porClave.get(k);
+    if (acc) acc.disponible += f.disponible;
+    else porClave.set(k, { sku, fecha: f.fecha, disponible: f.disponible });
+  }
+  return [...porClave.values()];
 }
 
 /** El plan masticado desde `yz_cache`, aunque esté viejo; solo sin renglón calcula. */

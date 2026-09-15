@@ -10,6 +10,7 @@
 import type { DB } from "../datos/repos";
 import { leerHoja as leerCeldas } from "../importar/leer-hoja";
 import { conCacheYz, recalcularCacheYz } from "./cache";
+import { agruparGemelas, principalDe } from "./gemelas";
 import { amarrar, canonizar, claveCanonica, construirIndice, desglosar } from "./sku";
 import { todo } from "./db";
 
@@ -289,12 +290,19 @@ export async function leerPedido(buffer: ArrayBuffer | Buffer, nombre?: string):
  */
 export async function amarrarSkus(db: DB, accountId: string, skus: string[]): Promise<Map<string, string | null>> {
   const [catalogo, mapeos] = await Promise.all([
-    todo<{ sku: string }>(db, "yz_skus", "sku", (q) => q.eq("account_id", accountId)),
+    todo<{ sku: string; estado: string | null }>(db, "yz_skus", "sku, estado", (q) => q.eq("account_id", accountId)),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
   ]);
   const indice = construirIndice(catalogo.map((s) => s.sku));
   const manual = new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli]));
-  return new Map(skus.map((sku) => [sku, amarrar(sku, indice, manual).skuMeli]));
+  // El pedido dice "462-A57"; lo que cuenta es la gemela principal (N-462-A57).
+  const gemelas = agruparGemelas(catalogo);
+  return new Map(
+    skus.map((sku) => {
+      const m = amarrar(sku, indice, manual).skuMeli;
+      return [sku, m ? principalDe(gemelas, m) : null];
+    }),
+  );
 }
 
 /**

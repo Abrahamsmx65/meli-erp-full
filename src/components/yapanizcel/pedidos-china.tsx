@@ -322,6 +322,11 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                     <tr key={v.skuMeli} className="border-t" style={{ borderColor: "var(--grid)" }}>
                       <td className="num px-3 py-1.5 font-medium" title={v.titulo ?? ""}>
                         {v.skuMeli}
+                        {v.gemelas?.length ? (
+                          <span className="block text-[11px] font-normal" style={{ color: "var(--ink-muted)" }} title="Publicación gemela: sus números van sumados aquí">
+                            incluye {v.gemelas.join(", ")}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-1.5">{v.modelo}</td>
                       <td className="px-3 py-1.5">{v.color}</td>
