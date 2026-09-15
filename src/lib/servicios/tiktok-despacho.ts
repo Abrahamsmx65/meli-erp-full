@@ -36,6 +36,7 @@ import {
   clavePaquete,
   codigoDeHoja,
   codigoDeOrden,
+  necesitaFranja,
   numerosPreparados,
   renglonesDeEtiqueta,
   numerarPaquetes,
@@ -432,7 +433,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   const orden: OrdenPaquetes = corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
   const [ordenes, items] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle", (q) =>
+    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria", (q) =>
       q.eq("account_id", accountId).eq("corte_id", corteId),
     ),
     traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad", (q) =>
@@ -497,6 +498,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         orderId: o.order_id,
         packageId: ids[0] ?? "",
         destinatario: o.detalle?.destinatario ?? null,
+        paqueteria: o.paqueteria ?? null,
         pares: aPar(renglones),
       });
       continue;
@@ -519,6 +521,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         orderId: o.order_id,
         packageId: id,
         destinatario: o.detalle?.destinatario ?? null,
+        paqueteria: o.paqueteria ?? null,
         pares: aPar(propios.length ? propios : renglones),
       });
     }
@@ -541,10 +544,21 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
-const VERSION_ESTAMPA = 5;
+const VERSION_ESTAMPA = 6;
 
-/** Dónde va el estampado: abajo a la derecha, pegado al borde. */
-const ESTAMPA = { margen: 6, tamano: 7, barrasAlto: 20, barrasAnchoMax: 120, porColumna: 3 };
+/** Dónde va el estampado: abajo, pegado al borde (texto a la izquierda, código a la derecha). */
+const ESTAMPA = { margen: 5, tamano: 7, barrasAlto: 16, barrasAnchoMax: 120, porColumna: 3 };
+
+/**
+ * La FRANJA que se le agrega abajo a una guía que no deja espacio (Cainiao
+ * llena la hoja hasta el borde con su teléfono y su correo): lo justo para
+ * el estampado, 34 pt ≈ 1.2 cm, un 8 % más de alto en una A6. La impresora
+ * encoge la hoja ese poco y lo demás sigue legible; encimar el código del
+ * pedido sobre el pie de la guía costaba el escaneo. Pedido del dueño el
+ * 15-sep-2026: «cuando no sean de J&T… lo aumentes tú abajo, pero tampoco
+ * mucho».
+ */
+const FRANJA_ESTAMPA = 34;
 
 /** Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son blancas ahí). */
 function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number) {
@@ -639,7 +653,9 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   // Abajo: a la IZQUIERDA los SKU del paquete ("#n · SKU ×cantidad", un
   // renglón por producto) y a la DERECHA el CÓDIGO DEL PEDIDO en barras (el
   // mismo que en la hoja: escanearlo en la estación enseña qué va adentro).
-  // El FNSKU se escanea de la caja del zapato, no de la guía.
+  // El FNSKU se escanea de la caja del zapato, no de la guía. En una guía
+  // con franja (`necesitaFranja`) el estampado cae dentro de la franja: la
+  // guía se dibuja arriba, completa, y abajo queda blanco para nosotros.
   const estampar = (pagina: PDFPage, p: PaqueteNumerado) => {
     const { width } = pagina.getSize();
     const derecha = width - ESTAMPA.margen;
@@ -671,11 +687,26 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const error = g.error;
     if (!bytes) sinGuia++;
 
+    const franja = necesitaFranja(p.paqueteria) ? FRANJA_ESTAMPA : 0;
+
     if (bytes && esPdf(bytes)) {
+      if (!franja) {
+        // J&T: la guía tal cual, el estampado cabe en su espacio en blanco.
+        const origen = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const copias = await doc.copyPages(origen, origen.getPageIndices());
+        for (const pagina of copias) {
+          doc.addPage(pagina);
+          estampar(pagina, p);
+        }
+        continue;
+      }
+      // Con franja: la guía se INCRUSTA completa en una hoja un poco más
+      // alta, pegada arriba, y el estampado va en la franja de abajo.
       const origen = await PDFDocument.load(bytes, { ignoreEncryption: true });
-      const copias = await doc.copyPages(origen, origen.getPageIndices());
-      for (const pagina of copias) {
-        doc.addPage(pagina);
+      const incrustadas = await doc.embedPdf(origen, origen.getPageIndices());
+      for (const guia of incrustadas) {
+        const pagina = doc.addPage([guia.width, guia.height + franja]);
+        pagina.drawPage(guia, { x: 0, y: franja, width: guia.width, height: guia.height });
         estampar(pagina, p);
       }
       continue;
@@ -683,11 +714,11 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
 
     if (bytes && (esPng(bytes) || esJpg(bytes))) {
       const img = esPng(bytes) ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-      const pagina = doc.addPage(A6);
+      const pagina = doc.addPage([A6[0], A6[1] + franja]);
       const escala = Math.min(A6[0] / img.width, A6[1] / img.height);
       const w = img.width * escala;
       const h = img.height * escala;
-      pagina.drawImage(img, { x: (A6[0] - w) / 2, y: A6[1] - h, width: w, height: h });
+      pagina.drawImage(img, { x: (A6[0] - w) / 2, y: A6[1] + franja - h, width: w, height: h });
       estampar(pagina, p);
       continue;
     }

@@ -68,7 +68,25 @@ export interface PaqueteDespacho {
   orderId: string;
   packageId: string;
   destinatario: string | null;
+  /** la paquetería que TikTok le asignó (J&T MX, Cainiao MX L2L…); null si aún no se sabe */
+  paqueteria?: string | null;
   pares: ParDespacho[];
+}
+
+/**
+ * Paqueterías cuya guía deja ESPACIO EN BLANCO abajo, donde cabe nuestro
+ * "#n · SKU" con el código del pedido sin encimarse con nada. Verificado
+ * con J&T MX (la de siempre). Cualquier otra —Cainiao llena la hoja hasta
+ * abajo con el teléfono y el correo de contacto— o una que aún no se sabe
+ * recibe una FRANJA extra abajo (`necesitaFranja`): encimarse cuesta un
+ * escaneo, la franja solo cuesta un poco de tamaño.
+ */
+const PAQUETERIAS_CON_ESPACIO = [/j\s*&\s*t/i, /\bjt\b/i];
+
+export function necesitaFranja(paqueteria: string | null | undefined): boolean {
+  const nombre = String(paqueteria ?? "").trim();
+  if (!nombre) return true;
+  return !PAQUETERIAS_CON_ESPACIO.some((re) => re.test(nombre));
 }
 
 export interface PaqueteNumerado extends PaqueteDespacho {
