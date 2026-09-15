@@ -69,6 +69,34 @@ const CAMPOS: {
     ayuda: "0 = sin tope. Úsalo si tu transporte tiene un límite fijo.",
     min: 0,
   },
+  {
+    clave: "nuevoDias",
+    etiqueta: "Producto nuevo (días)",
+    ayuda:
+      "Un producto estrenado en Full hace menos de estos días es NUEVO: cualquier faltante fuerza su caja, sin tolerancia de rescate. 0 = apagado.",
+    min: 0,
+  },
+  {
+    clave: "holguraObjetivoDias",
+    etiqueta: "Holgura sobre el objetivo (días)",
+    ayuda: "Quedar en objetivo + estos días (32 en vez de 30) no cuenta como sobre-surtir.",
+    paso: 0.5,
+    min: 0,
+  },
+  {
+    clave: "coberturaSinForzarDias",
+    etiqueta: "Cobertura para no forzar caja (días)",
+    ayuda:
+      "Si la caja va a forzar otras tallas, la talla que la pide solo la fuerza con menos de estos días de stock en Full. 0 = siempre se fuerza.",
+    min: 0,
+  },
+  {
+    clave: "cajasMinimasSinEstreno",
+    etiqueta: "Cajas mínimas sin venta",
+    ayuda:
+      "Un producto que nunca ha vendido en Full y tiene cajas en bodega se sostiene con al menos estas cajas por modelo + color entre Full y en camino. 0 = apagado.",
+    min: 0,
+  },
 ];
 
 export function FormularioParametros({ inicial }: { inicial: Parametros }) {

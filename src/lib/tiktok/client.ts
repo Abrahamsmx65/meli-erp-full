@@ -39,6 +39,23 @@ export interface TiendaTikTok {
   expiraEn: string;
 }
 
+/**
+ * Lo que contesta el BORDE (Akamai) cuando el servicio de TikTok no
+ * responde no es JSON, es una página: "<HTML><HEAD><TITLE>Service
+ * Unavailable</TITLE>… Reference #15.6c83017…". Volcarla completa en la
+ * lista de errores del corte la vuelve ilegible, así que se deja el título
+ * y el encabezado, sin etiquetas.
+ */
+export function resumirCuerpoHtml(texto: string, status: number): string {
+  const limpio = String(texto ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&#(\d+);/g, (_m, n) => String.fromCharCode(Number(n)))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!limpio) return `El servidor contestó ${status} sin cuerpo.`;
+  return limpio.slice(0, 180);
+}
+
 export class ErrorTikTok extends Error {
   constructor(
     readonly codigo: number,
@@ -227,13 +244,18 @@ export class Cliente {
 
       const texto = await r.text();
       let json: any = null;
+      // Un cuerpo que no es JSON es casi siempre el borde (Akamai) diciendo
+      // 503: eso es JUSTO lo que la política de reintentos cubre. Antes se
+      // lanzaba aquí mismo, sin reintentar, y un pedido se quedaba fuera del
+      // corte por un 503 pasajero (corte #17, 11-sep-2026).
+      let ilegible = false;
       try {
         json = texto ? JSON.parse(texto) : {};
       } catch {
-        throw new ErrorTikTok(r.status, ruta, texto);
+        ilegible = true;
       }
 
-      if (r.ok && json?.code === 0) return (json.data ?? {}) as T;
+      if (!ilegible && r.ok && json?.code === 0) return (json.data ?? {}) as T;
 
       // 429 y 5xx se reintentan con espera creciente; lo demás es error real.
       const reintentable = r.status === 429 || r.status >= 500 || json?.code === 90000;
@@ -244,6 +266,7 @@ export class Cliente {
         continue;
       }
 
+      if (ilegible) throw new ErrorTikTok(r.status, ruta, resumirCuerpoHtml(texto, r.status));
       throw new ErrorTikTok(json?.code ?? r.status, ruta, json?.message ?? texto);
     }
     return null;

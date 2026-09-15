@@ -3,15 +3,26 @@
  *
  * Tres preguntas, en orden de urgencia: ¿cómo va HOY?, ¿qué está subiendo y
  * qué está bajando esta semana?, y ¿por qué? La comparación es semana contra
- * semana anterior a nivel producto (modelo + color, todas las tallas juntas),
- * porque así se piensa el negocio: "el MY2307 negro" y no talla por talla.
+ * semana anterior a nivel MODELO (todos los colores y tallas juntos), porque
+ * así se piensa el negocio: "el GT114" y no color por color ni talla por talla.
  *
  * La razón de una caída se busca primero en el stock — la causa más común de
  * "vender menos" es no tener qué vender — y solo si el stock no explica nada
  * se atribuye a la demanda.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
+
+/** Compatibilidad: sin marca explícita, solo los netos positivos históricos eran reales. */
+export function netoConfirmadoDeFila(fila: { neto?: unknown; neto_confirmado?: unknown }): number | null {
+  if (fila.neto == null) return null;
+  const neto = Number(fila.neto);
+  if (!Number.isFinite(neto)) return null;
+  if (fila.neto_confirmado === true) return neto;
+  if (fila.neto_confirmado == null && neto > 0) return neto;
+  return null;
+}
 
 export interface ResumenDia {
   unidades: number;
@@ -26,7 +37,13 @@ export interface FilaModelo {
   importe7: number;
   unidadesHoy: number;
   colores: number;
-  /** neto - costo, solo de los colores con costo capturado; null = sin costo */
+  /** categoría capturada en Productos y costos; null = sin categoría */
+  categoria: string | null;
+  /** venta neta del periodo: solo el depósito real ya leído (nada se estima) */
+  neto7: number;
+  /** gasto en Product Ads del modelo en el periodo; null = sin dato de ads */
+  publicidad7: number | null;
+  /** neto − costo (− publicidad cuando hay dato de ads); null = sin costo */
   ganancia7: number | null;
 }
 
@@ -35,6 +52,8 @@ export interface FilaCategoria {
   unidades7: number;
   importe7: number;
   neto7: number;
+  /** gasto en Product Ads de los modelos de la categoría; null = sin dato de ads */
+  publicidad7: number | null;
   ganancia7: number | null;
 }
 
@@ -54,8 +73,10 @@ export interface DesgloseDinero {
   bruto: number;
   /** comisiones de MELI (sale_fee) */
   comision: number;
-  /** lo depositado: neto real donde ya se conoce, importe − comisión donde no */
+  /** lo depositado: SOLO el neto real ya leído de Mercado Pago (nada se estima) */
   neto: number;
+  /** venta cuyo depósito aún no se lee: no está en `neto` ni en la ganancia; se declara */
+  ventaSinDeposito: number;
   /**
    * Envíos, retenciones y otros cargos = bruto − comisión − neto, calculado
    * SOLO sobre la parte del periodo cuyo neto real ya llegó de Mercado
@@ -129,10 +150,26 @@ function rangoPrevio(r: RangoFechas): RangoFechas {
 const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
 const VIDA_CACHE_MONITOR_MS = 60_000;
 
+/**
+ * Reutiliza el agregado completo por cuenta y rango. La búsqueda, el orden y
+ * la página se aplican después sobre este resultado y no forman parte de la
+ * clave, por lo que navegar la tabla no vuelve a consultar sus fuentes.
+ */
 export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+  const r = rango ?? normalizarRango();
+  return conCacheApp(
+    db,
+    accountId,
+    `ventas-monitor:${r.desde}:${r.hasta}`,
+    VIDA_CACHE_MONITOR_MS,
+    () => calcularMonitor(db, accountId, r),
+  );
+}
+
+async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
   const hoy = fechaMx(0);
   const ayer = fechaMx(1);
-  const r = rango ?? normalizarRango();
+  const r = rango;
 
   const claveCache = `${accountId}|${r.desde}|${r.hasta}|${hoy}`;
   const guardado = cacheMonitor.get(claveCache);
@@ -142,16 +179,15 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   const previo = rangoPrevio(r);
   const inicioPrev = previo.desde;
 
-  // Las columnas `comision` y `neto` pueden no existir todavía (migraciones
-  // 0011 y 0012): se pide con ellas y se degrada en cascada si la base aún
-  // no las conoce.
+  // Las columnas nuevas pueden no existir todavía: se pide el contrato actual
+  // y se degrada en cascada para bases pendientes de migración.
   const leerVentas = async (): Promise<any[]> => {
     const filtro = (q: any) => q.eq("account_id", accountId).gte("fecha", inicioPrev);
     try {
       return await traerTodo<any>(
         db,
         "ventas_diarias",
-        "sku, fecha, unidades, ordenes, importe, comision, neto",
+        "sku, fecha, unidades, ordenes, importe, comision, neto, neto_confirmado",
         filtro,
       );
     } catch {
@@ -168,8 +204,128 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     }
   };
 
-  const [ventas, skus, stock, snapshots, config] = await Promise.all([
-    leerVentas(),
+  /**
+   * Un renglón por SKU con las sumas que este monitor hacía en Node. La
+   * forma es la misma que devuelve el RPC `ventas_resumen_sku`; el respaldo
+   * renglón por renglón produce EXACTAMENTE lo mismo desde la tabla cruda.
+   */
+  interface AgregadoSku {
+    sku: string;
+    unidades: number;
+    ordenes: number;
+    importe: number;
+    comision: number;
+    /** neto real confirmado; importe − comisión donde aún no llegó */
+    netoResuelto: number;
+    importeNetoReal: number;
+    comisionNetoReal: number;
+    netoReal: number;
+    unidadesHoy: number;
+    unidadesPrev: number;
+  }
+  interface Agregados {
+    porSku: AgregadoSku[];
+    porDia: Map<string, ResumenDia>;
+  }
+
+  // Sumado en Postgres: bajar decenas de miles de renglones para sumarlos
+  // aquí era el costo más alto de abrir la pantalla.
+  const agregadosDesdeRpc = async (): Promise<Agregados | null> => {
+    const hastaTotales = hoy > finRango ? hoy : finRango;
+    const [porSkuR, porDiaR] = await Promise.all([
+      db.rpc("ventas_resumen_sku", {
+        p_account: accountId,
+        p_desde: inicioSemana,
+        p_hasta: finRango,
+        p_prev_desde: previo.desde,
+        p_prev_hasta: previo.hasta,
+        p_hoy: hoy,
+      }),
+      db.rpc("ventas_totales_dia", {
+        p_account: accountId,
+        p_desde: inicioPrev,
+        p_hasta: hastaTotales,
+      }),
+    ]);
+    if (porSkuR.error || porDiaR.error) return null;
+    const porSku: AgregadoSku[] = ((porSkuR.data ?? []) as any[]).map((f) => ({
+      sku: String(f.sku),
+      unidades: Number(f.unidades) || 0,
+      ordenes: Number(f.ordenes) || 0,
+      importe: Number(f.importe) || 0,
+      comision: Number(f.comision) || 0,
+      netoResuelto: Number(f.neto_resuelto) || 0,
+      importeNetoReal: Number(f.importe_neto_real) || 0,
+      comisionNetoReal: Number(f.comision_neto_real) || 0,
+      netoReal: Number(f.neto_real) || 0,
+      unidadesHoy: Number(f.unidades_hoy) || 0,
+      unidadesPrev: Number(f.unidades_prev) || 0,
+    }));
+    const porDia = new Map<string, ResumenDia>(
+      ((porDiaR.data ?? []) as any[]).map((f) => [
+        String(f.fecha),
+        {
+          unidades: Number(f.unidades) || 0,
+          importe: Number(f.importe) || 0,
+          ordenes: Number(f.ordenes) || 0,
+        },
+      ]),
+    );
+    return { porSku, porDia };
+  };
+
+  // Respaldo renglón por renglón (si el RPC no existe todavía en la base):
+  // las mismas cuentas de siempre, solo que dejando la MISMA forma agregada.
+  const agregadosDesdeRenglones = (filas: any[]): Agregados => {
+    const porSku = new Map<string, AgregadoSku>();
+    const porDia = new Map<string, ResumenDia>();
+    for (const v of filas) {
+      const d = porDia.get(v.fecha) ?? { unidades: 0, importe: 0, ordenes: 0 };
+      d.unidades += v.unidades ?? 0;
+      d.importe += v.importe ?? 0;
+      d.ordenes += v.ordenes ?? 0;
+      porDia.set(v.fecha, d);
+
+      const a =
+        porSku.get(v.sku) ??
+        {
+          sku: v.sku,
+          unidades: 0,
+          ordenes: 0,
+          importe: 0,
+          comision: 0,
+          netoResuelto: 0,
+          importeNetoReal: 0,
+          comisionNetoReal: 0,
+          netoReal: 0,
+          unidadesHoy: 0,
+          unidadesPrev: 0,
+        };
+      if (v.fecha >= inicioSemana && v.fecha <= finRango) {
+        a.unidades += v.unidades ?? 0;
+        a.ordenes += v.ordenes ?? 0;
+        a.importe += v.importe ?? 0;
+        a.comision += v.comision ?? 0;
+        // La marca explícita distingue un saldo confirmado en cero/negativo
+        // del cero centinela histórico que significaba "todavía no leído".
+        const netoRealFila = netoConfirmadoDeFila(v);
+        a.netoResuelto += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
+        if (netoRealFila != null) {
+          a.importeNetoReal += v.importe ?? 0;
+          a.comisionNetoReal += v.comision ?? 0;
+          a.netoReal += netoRealFila;
+        }
+        if (v.fecha === hoy) a.unidadesHoy += v.unidades ?? 0;
+      } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
+        a.unidadesPrev += v.unidades ?? 0;
+      }
+      porSku.set(v.sku, a);
+    }
+    return { porSku: [...porSku.values()], porDia };
+  };
+
+  const [agregados, skus, stock, snapshots, config] = await Promise.all([
+    (async () => (await agregadosDesdeRpc()) ?? agregadosDesdeRenglones(await leerVentas()))(),
     traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
@@ -199,11 +355,11 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     let unidades = 0;
     let importe = 0;
     let ordenes = 0;
-    for (const v of ventas) {
-      if (v.fecha < desde || v.fecha > hasta) continue;
-      unidades += v.unidades ?? 0;
-      importe += v.importe ?? 0;
-      ordenes += v.ordenes ?? 0;
+    for (const [fecha, d] of agregados.porDia) {
+      if (fecha < desde || fecha > hasta) continue;
+      unidades += d.unidades;
+      importe += d.importe;
+      ordenes += d.ordenes;
     }
     return { unidades, importe, ordenes };
   };
@@ -225,8 +381,8 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   let comisionConNetoReal = 0;
   let netoRealSolo = 0;
 
-  for (const v of ventas) {
-    const { modelo, color } = partes(v.sku);
+  for (const a of agregados.porSku) {
+    const { modelo, color } = partes(a.sku);
     const m =
       modelos.get(modelo) ??
       { unidades7: 0, unidades7Prev: 0, importe7: 0, unidadesHoy: 0, colores: new Set<string>() };
@@ -235,37 +391,25 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       productos.get(claveProd) ??
       { modelo, color, d7: 0, prev7: 0, importe7: 0, neto7: 0 };
 
-    if (v.fecha >= inicioSemana && v.fecha <= finRango) {
-      m.unidades7 += v.unidades ?? 0;
-      m.importe7 += v.importe ?? 0;
-      pr.d7 += v.unidades ?? 0;
-      pr.importe7 += v.importe ?? 0;
-      // Acumuladores del desglose de dinero del periodo.
-      brutoP += v.importe ?? 0;
-      comisionP += v.comision ?? 0;
-      const netoRealFila = v.neto != null && Number(v.neto) > 0 ? Number(v.neto) : null;
-      netoP += netoRealFila ?? (v.importe ?? 0) - (v.comision ?? 0);
-      if (netoRealFila != null) {
-        brutoConNetoReal += v.importe ?? 0;
-        comisionConNetoReal += v.comision ?? 0;
-        netoRealSolo += netoRealFila;
-      }
-      // El neto REAL depositado por MELI cuando ya se conoce (incluye
-      // comisión, envío y retenciones); si no, la mejor aproximación:
-      // importe menos la comisión.
-      // Un neto en 0 o negativo con venta ese día NO es creíble como dato
-      // (viene de pagos rechazados cacheados antes del arreglo de
-      // multipagos): se usa el respaldo importe − comisión hasta que el
-      // barrido vuelva a pedir el neto real.
-      pr.neto7 +=
-        v.neto != null && Number(v.neto) > 0
-          ? Number(v.neto)
-          : (v.importe ?? 0) - (v.comision ?? 0);
-      if (v.fecha === hoy) m.unidadesHoy += v.unidades ?? 0;
-    } else if (v.fecha >= inicioPrev && v.fecha <= previo.hasta) {
-      m.unidades7Prev += v.unidades ?? 0;
-      pr.prev7 += v.unidades ?? 0;
-    }
+    m.unidades7 += a.unidades;
+    m.importe7 += a.importe;
+    m.unidadesHoy += a.unidadesHoy;
+    m.unidades7Prev += a.unidadesPrev;
+    pr.d7 += a.unidades;
+    pr.importe7 += a.importe;
+    // Regla del dueño: solo el neto REAL depositado. Lo que aún no tiene
+    // depósito leído no se estima; se declara aparte (ventaSinDeposito).
+    pr.neto7 += a.netoReal;
+    pr.prev7 += a.unidadesPrev;
+
+    // Acumuladores del desglose de dinero del periodo.
+    brutoP += a.importe;
+    comisionP += a.comision;
+    netoP += a.netoReal;
+    brutoConNetoReal += a.importeNetoReal;
+    comisionConNetoReal += a.comisionNetoReal;
+    netoRealSolo += a.netoReal;
+
     if (color) m.colores.add(color);
     modelos.set(modelo, m);
     productos.set(claveProd, pr);
@@ -275,6 +419,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   // Ganancia = (importe - comisión de MELI) - costo × unidades. Solo se
   // calcula donde hay costo capturado; el resto se reporta como cobertura.
   const gananciaPorModelo = new Map<string, number>();
+  const netoPorModelo = new Map<string, number>();
   const modeloConCosto = new Set<string>();
   const categorias = new Map<string, { unidades7: number; importe7: number; neto7: number; ganancia7: number; conCosto: boolean }>();
   let ganancia7 = 0;
@@ -293,6 +438,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     cat.unidades7 += pr.d7;
     cat.importe7 += pr.importe7;
     cat.neto7 += pr.neto7;
+    netoPorModelo.set(pr.modelo, (netoPorModelo.get(pr.modelo) ?? 0) + pr.neto7);
 
     if (cfg?.costo != null && pr.d7 > 0) {
       costoProductoP += cfg.costo * pr.d7;
@@ -313,6 +459,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       unidades7: c.unidades7,
       importe7: c.importe7,
       neto7: c.neto7,
+      publicidad7: null,
       ganancia7: c.conCosto ? c.ganancia7 : null,
     }))
     .sort((a, b) => b.unidades7 - a.unidades7);
@@ -320,9 +467,11 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
   // --- Razones: qué dice el stock de cada producto -------------------------
   // Tallas agotadas hoy, y tallas que estuvieron agotadas algún día de la
   // semana según las fotos diarias.
+  // Por MODELO completo (todos los colores y tallas): así se piensa el
+  // negocio —"el GT114"— y así se leen las listas de suben y bajan.
   const tallasDe = new Map<string, string[]>();
   for (const s of skus) {
-    const clave = `${s.modelo}|${s.color ?? ""}`;
+    const clave = s.modelo ?? s.sku.split("-")[0] ?? s.sku;
     const l = tallasDe.get(clave);
     if (l) l.push(s.sku);
     else tallasDe.set(clave, [s.sku]);
@@ -365,15 +514,17 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     return "La demanda subió.";
   };
 
-  const movimientos = [...productos.values()]
-    .filter((p) => p.d7 + p.prev7 >= 10) // sin volumen no hay tendencia que leer
-    .map((p) => ({
-      producto: `${p.modelo} ${p.color}`.trim(),
-      modelo: p.modelo,
-      color: p.color,
-      antes: p.prev7,
-      ahora: p.d7,
-      delta: p.d7 - p.prev7,
+  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
+  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
+  const movimientos = [...modelos.entries()]
+    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
+    .map(([modelo, m]) => ({
+      producto: modelo,
+      modelo,
+      color: "",
+      antes: m.unidades7Prev,
+      ahora: m.unidades7,
+      delta: m.unidades7 - m.unidades7Prev,
       razon: "",
     }));
 
@@ -381,13 +532,13 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
     .filter((m) => m.delta > 0)
     .sort((a, b) => b.delta - a.delta)
     .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(`${m.modelo}|${m.color}`, true) }));
+    .map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
 
   const bajando = movimientos
     .filter((m) => m.delta < 0)
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(`${m.modelo}|${m.color}`, false) }));
+    .map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
 
   const porModelo: FilaModelo[] = [...modelos.entries()]
     .map(([modelo, m]) => ({
@@ -397,10 +548,13 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       importe7: m.importe7,
       unidadesHoy: m.unidadesHoy,
       colores: m.colores.size,
+      categoria: config.get(modelo)?.categoria ?? null,
+      neto7: netoPorModelo.get(modelo) ?? 0,
+      publicidad7: null,
       ganancia7: modeloConCosto.has(modelo) ? (gananciaPorModelo.get(modelo) ?? 0) : null,
     }))
-    .sort((a, b) => b.unidades7 - a.unidades7)
-    .slice(0, 150);
+    // Todos los modelos: la tabla se filtra y se ordena en pantalla.
+    .sort((a, b) => b.unidades7 - a.unidades7);
 
   const monitor: Monitor = {
     hoy: resumen(hoy, hoy),
@@ -419,10 +573,41 @@ export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFech
       enviosYOtros:
         brutoConNetoReal > 0 ? brutoConNetoReal - comisionConNetoReal - netoRealSolo : null,
       coberturaNetoReal: brutoP > 0 ? brutoConNetoReal / brutoP : 0,
+      ventaSinDeposito: Math.max(0, brutoP - brutoConNetoReal),
       costoProducto: costoProductoP,
       gananciaReal: ganancia7,
     },
   };
   cacheMonitor.set(claveCache, { en: Date.now(), datos: monitor });
   return monitor;
+}
+
+/**
+ * Resta la publicidad por modelo a la ganancia de las tablas del monitor
+ * (pura; la página la aplica cuando Product Ads sí contestó). La regla es
+ * la del corte: la publicidad se descuenta al modelo que la gastó, y por
+ * categoría se suma la de sus modelos. Un modelo sin costo capturado sigue
+ * sin ganancia calculable (null), con o sin ads: no se inventa. Sin mapa
+ * (ads caídos) el monitor queda igual, con publicidad7 en null, y la
+ * pantalla lo declara.
+ */
+export function aplicarPublicidadAlMonitor(m: Monitor, adsPorModelo: Map<string, number> | null): Monitor {
+  if (!adsPorModelo) return m;
+
+  const porModelo: FilaModelo[] = m.porModelo.map((f) => {
+    const ads = adsPorModelo.get(f.modelo) ?? 0;
+    return { ...f, publicidad7: ads, ganancia7: f.ganancia7 == null ? null : f.ganancia7 - ads };
+  });
+
+  const adsPorCategoria = new Map<string, number>();
+  for (const f of porModelo) {
+    const cat = f.categoria ?? "Sin categoría";
+    adsPorCategoria.set(cat, (adsPorCategoria.get(cat) ?? 0) + (f.publicidad7 ?? 0));
+  }
+  const porCategoria: FilaCategoria[] = m.porCategoria.map((c) => {
+    const ads = adsPorCategoria.get(c.categoria) ?? 0;
+    return { ...c, publicidad7: ads, ganancia7: c.ganancia7 == null ? null : c.ganancia7 - ads };
+  });
+
+  return { ...m, porModelo, porCategoria };
 }

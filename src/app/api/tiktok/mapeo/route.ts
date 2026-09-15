@@ -3,6 +3,7 @@ import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { claveOrdenada, indexarCatalogo } from "@/lib/etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "@/lib/importar/sku";
 import { recalcularSaldos } from "@/lib/servicios/tiktok";
+import { pareceSkuDeCalzado } from "@/lib/tiktok/amarre";
 import { clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +43,27 @@ export async function POST(req: NextRequest) {
     ix.aplastado.get(claveAplastada(skuCrudo)) ??
     ix.ordenado.get(claveOrdenada(skuCrudo));
 
-  if (!dado) {
+  // El destino también puede ser un SKU del kardex de TikTok (un modelo que
+  // MELI no tiene, con el nombre que le puso la bodega) o, si tiene la
+  // forma MODELO-COLOR-TALLA, aceptarse tal cual: TikTok es su propio
+  // almacén y no todo lo que vende está publicado en MELI.
+  let skuInterno = dado?.sku as string | undefined;
+  if (!skuInterno) {
+    const { data: enKardex } = await supabase
+      .from("tiktok_inventario")
+      .select("sku")
+      .eq("account_id", cuenta.id)
+      .ilike("sku", skuCrudo)
+      .maybeSingle();
+    skuInterno = (enKardex as any)?.sku;
+  }
+  if (!skuInterno && pareceSkuDeCalzado(skuCrudo)) skuInterno = skuCrudo.toUpperCase();
+  if (!skuInterno) {
     return NextResponse.json(
-      { error: `"${skuCrudo}" no existe en el catálogo del ERP.` },
+      { error: `"${skuCrudo}" no existe ni en el catálogo del ERP ni en el almacén de TikTok, y no tiene forma de SKU de calzado.` },
       { status: 400 },
     );
   }
-  const skuInterno = dado.sku as string;
 
   const { error } = await supabase.from("tiktok_mapeo_sku").upsert(
     {
@@ -79,4 +94,39 @@ export async function POST(req: NextRequest) {
   await recalcularSaldos(supabase, cuenta.id, [skuInterno]);
 
   return NextResponse.json({ ok: true, skuInterno });
+}
+
+/**
+ * Quita un amarre manual. La publicación queda sin SKU del ERP y la
+ * siguiente corrida la re-amarra con la escalera normal (o la deja en
+ * Pendientes si no alcanza): deshacer nunca deja nada amarrado a ciegas.
+ */
+export async function DELETE(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+
+  const cuenta = await cuentaActiva(supabase);
+  if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
+
+  const body = await req.json().catch(() => ({}));
+  const skuTikTok = String(body?.skuTikTok ?? "").trim();
+  if (!skuTikTok) return NextResponse.json({ error: "Falta el SKU de TikTok." }, { status: 400 });
+
+  const { error } = await supabase
+    .from("tiktok_mapeo_sku")
+    .delete()
+    .eq("account_id", cuenta.id)
+    .eq("sku_tiktok", skuTikTok);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await supabase
+    .from("tiktok_skus")
+    .update({ sku_interno: null, origen_amarre: null })
+    .eq("account_id", cuenta.id)
+    .eq("seller_sku", skuTikTok);
+
+  return NextResponse.json({ ok: true });
 }

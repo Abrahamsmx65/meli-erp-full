@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorModelo, numerarPaquetes, partirSku, renglonesDeEtiqueta, textoDeEtiqueta } from "./despacho";
+import {
+  agruparErrores,
+  agruparPorModelo,
+  clavePaquete,
+  codigoDeOrden,
+  esDeUnModelo,
+  necesitaFranja,
+  numerarPaquetes,
+  numerosPreparados,
+  parsearCodigoDeOrden,
+  partirSku,
+  renglonesDeEtiqueta,
+  textoDeEtiqueta,
+} from "./despacho";
 
 describe("partirSku", () => {
   it("separa modelo, color y talla, con el color de varias palabras", () => {
@@ -83,5 +96,166 @@ describe("renglonesDeEtiqueta", () => {
       { sku: "GT134-NAVY-24-MX", pares: 1, texto: "#1 · GT134-NAVY-24-MX", codigo: "X004KYMZZB", esHoja: false },
       { sku: "GT134-NAVY-RED-24-MX", pares: 2, texto: "GT134-NAVY-RED-24-MX ×2", codigo: "TT5-1", esHoja: true },
     ]);
+  });
+});
+
+describe("código de orden", () => {
+  it("el número de pedido va tal cual y se reconoce por sus 18 dígitos", () => {
+    expect(codigoDeOrden("585899174098143165")).toBe("585899174098143165");
+    expect(parsearCodigoDeOrden("585899174098143165")).toBe("585899174098143165");
+    expect(parsearCodigoDeOrden("X004KYMZZ1")).toBeNull();
+    expect(parsearCodigoDeOrden("TT8-12")).toBeNull();
+  });
+});
+
+const mezcla = (orderId: string, skus: [string, number][]) => ({
+  orderId,
+  packageId: `pk-${orderId}`,
+  destinatario: null,
+  pares: skus.map(([sku, pares]) => ({ sku, pares })),
+});
+
+describe("esDeUnModelo", () => {
+  it("una pieza sola, dos pares del mismo zapato y dos tallas del mismo modelo son UN modelo", () => {
+    expect(esDeUnModelo(mezcla("a", [["GT114-BEIGE-23", 1]]))).toBe(true);
+    expect(esDeUnModelo(mezcla("b", [["GT114-BEIGE-23", 2]]))).toBe(true);
+    expect(esDeUnModelo(mezcla("c", [["GT114-BEIGE-23", 1], ["GT114-BLK-25", 1]]))).toBe(true);
+  });
+  it("dos modelos distintos son revuelto", () => {
+    expect(esDeUnModelo(mezcla("d", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]))).toBe(false);
+  });
+});
+
+describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
+  it("los revueltos se van al final aunque su modelo vaya antes en el alfabeto", () => {
+    const n = numerarPaquetes([
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]),
+      paq("solo", "GT150-CAMEL-27"),
+      paq("dos", "GT114-BLK-25"),
+    ], "un-modelo");
+    expect(n.map((p) => [p.numero, p.orderId, p.revuelto])).toEqual([
+      [1, "dos", false],
+      [2, "solo", false],
+      [3, "revuelto", true],
+    ]);
+  });
+
+  it("dentro de cada bloque se sigue caminando la bodega: modelo, color, talla", () => {
+    const n = numerarPaquetes([
+      mezcla("r2", [["GT150-CAMEL-27", 1], ["GT114-BEIGE-23", 1]]),
+      mezcla("r1", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
+      paq("s2", "GT150-CAMEL-27"),
+      paq("s1", "GT114-BEIGE-9"),
+    ], "un-modelo");
+    expect(n.map((p) => p.orderId)).toEqual(["s1", "s2", "r1", "r2"]);
+  });
+
+  it("un paquete de varios pares del mismo modelo sigue contando como un modelo", () => {
+    const n = numerarPaquetes([
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT229-BLK-25", 1]]),
+      mezcla("gt114x2", [["GT114-BEIGE-23", 2]]),
+    ], "un-modelo");
+    expect(n[0].orderId).toBe("gt114x2");
+    expect(n[0].revuelto).toBe(false);
+  });
+
+  it("un corte VIEJO (orden de bodega) no se renumera: el revuelto se queda donde iba", () => {
+    // Sus hojas ya están impresas y a medio preparar; cambiarle los números
+    // dejaría el papel de la mesa sin cuadrar.
+    const paquetes = [
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT135-DK BROWN-26", 1]]),
+      paq("solo", "GT150-CAMEL-27"),
+      paq("dos", "GT114-BLK-25"),
+    ];
+    expect(numerarPaquetes(paquetes).map((p) => p.orderId)).toEqual(["revuelto", "dos", "solo"]);
+    expect(numerarPaquetes(paquetes, "bodega").map((p) => p.orderId)).toEqual(["revuelto", "dos", "solo"]);
+  });
+});
+
+describe("agruparPorModelo con revueltos", () => {
+  it("los revueltos van en su propia sección al final, no con el modelo de su primer par", () => {
+    const g = agruparPorModelo(
+      numerarPaquetes([
+        paq("a", "GT114-BEIGE-23"),
+        mezcla("r", [["GT114-BLK-25", 1], ["GT150-CAMEL-27", 2]]),
+        paq("b", "GT150-CAMEL-27"),
+      ], "un-modelo"),
+      "un-modelo",
+    );
+    expect(g.map((x) => [x.modelo, x.pares, x.paquetes.length, x.revuelto])).toEqual([
+      ["GT114", 1, 1, false],
+      ["GT150", 1, 1, false],
+      ["Revueltos", 3, 1, true],
+    ]);
+  });
+
+  it("en un corte viejo no hay sección de revueltos: la lista sale como se imprimió", () => {
+    const paquetes = [
+      paq("a", "GT114-BEIGE-23"),
+      mezcla("r", [["GT114-BLK-25", 1], ["GT150-CAMEL-27", 2]]),
+      paq("b", "GT150-CAMEL-27"),
+    ];
+    const g = agruparPorModelo(numerarPaquetes(paquetes));
+    expect(g.map((x) => [x.modelo, x.paquetes.length, x.revuelto])).toEqual([
+      ["GT114", 2, false],
+      ["GT150", 1, false],
+    ]);
+  });
+});
+
+describe("numerosPreparados", () => {
+  const numerados = numerarPaquetes([
+    paq("a", "GT114-BEIGE-23"),
+    paq("b", "GT150-CAMEL-27"),
+    mezcla("c", [["GT114-BLK-25", 1], ["GT229-BLK-25", 1]]),
+  ], "un-modelo");
+
+  it("la constancia se sigue por pedido + paquete, así que cambiar el orden no la pierde", () => {
+    expect(numerosPreparados(numerados, [clavePaquete({ orderId: "c", packageId: "pk-c" })])).toEqual([3]);
+    expect(numerosPreparados(numerados, ["a|pk-a", "b|pk-b"])).toEqual([1, 2]);
+  });
+
+  it("un pedido de un solo paquete se reconoce aunque el id del paquete no cuadre", () => {
+    // Se preparó cuando TikTok todavía no daba el id del paquete.
+    expect(numerosPreparados(numerados, ["a|"])).toEqual([1]);
+  });
+
+  it("lo que no es de este corte no cuenta", () => {
+    expect(numerosPreparados(numerados, ["zzz|pk-zzz"])).toEqual([]);
+  });
+});
+
+describe("agruparErrores", () => {
+  it("el mismo error con distinto número de paquete es UN renglón con sus pedidos", () => {
+    const g = agruparErrores([
+      { orderId: "586046124374394129", error: "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/1211045315452896529/handover_time_slots: Internal error." },
+      { orderId: "586055135307793947", error: "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/1211038810720994843/handover_time_slots: Internal error." },
+      { orderId: "586039688287127464", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "586055636979910433", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "586055774151673724", error: "Se acabó el tiempo; entra al siguiente corte." },
+      { orderId: "", error: "TikTok no dio horario de recolección para 52 paquetes: salieron como recolección sin hora fija." },
+    ]);
+    expect(g.map((x) => [x.pedidos.length, x.mensaje])).toEqual([
+      [3, "Se acabó el tiempo; entra al siguiente corte."],
+      [2, "Sin horario: TikTok Shop 36009003 en /fulfillment/202309/packages/N/handover_time_slots: Internal error."],
+      [0, "TikTok no dio horario de recolección para 52 paquetes: salieron como recolección sin hora fija."],
+    ]);
+    expect(g[1].ejemplo).toContain("1211045315452896529");
+  });
+});
+
+describe("necesitaFranja", () => {
+  it("J&T deja espacio abajo: sin franja", () => {
+    expect(necesitaFranja("J&T MX")).toBe(false);
+    expect(necesitaFranja("J&T Express")).toBe(false);
+    expect(necesitaFranja("JT MX")).toBe(false);
+  });
+  it("Cainiao llena la hoja hasta abajo: con franja", () => {
+    expect(necesitaFranja("Cainiao MX L2L ")).toBe(true);
+  });
+  it("una paquetería que no se conoce, o ninguna, lleva franja: encimarse cuesta más", () => {
+    expect(necesitaFranja("Estafeta")).toBe(true);
+    expect(necesitaFranja(null)).toBe(true);
+    expect(necesitaFranja("")).toBe(true);
   });
 });

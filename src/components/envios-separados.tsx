@@ -1,36 +1,16 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { partirPorOpcionales } from "@/lib/reporte/opcionales";
+import { BotonDescarga } from "@/components/ui/boton-descarga";
+import type { FilaCajaPlan } from "@/components/tablas-plan";
 
-interface Caja {
-  codigo: string;
-  skuCaja: string;
-  pedido: string;
-  modelo: string;
-  color: string;
-  almacen: string;
-  esCorrida: boolean;
-  talla: string;
-  cantidad: number;
-  /** cuántas cajas de este tipo hay en bodega, para saber si quedan */
-  cajasDisponibles: number;
-  paresPorCaja: number;
-  paresTotales: number;
-  /** cajas que entraron por el rescate de una talla faltante: el usuario decide */
-  cantidadOpcional?: number;
-  aporta: { sku: string; talla: string; paresPorCaja: number; paresTotales: number }[];
-}
-
-interface Envio {
+interface Grupo {
   grupo: string;
   nombre: string;
   almacenes: string[];
-  cajas: Caja[];
-  totalCajas: number;
-  totalPares: number;
-  skus: number;
-  porSku: { sku: string; talla: string; pares: number }[];
+  /** códigos de las cajas del plan que van en este envío */
+  codigos: string[];
 }
 
 function n(x: number): string {
@@ -45,15 +25,22 @@ function n(x: number): string {
  * Por eso el conteo de cajas está grande y arriba — es el número que se
  * captura en el alta del envío y el que tiene que cuadrar cuando llega el
  * transportista.
+ *
+ * Recibe las MISMAS cajas que la tabla del plan (una sola copia viaja al
+ * navegador) y cada tarjeta resuelve las suyas por código.
  */
 export function EnviosSeparados({
-  envios,
+  grupos,
+  cajas,
   sinConfigurar,
 }: {
-  envios: Envio[];
+  grupos: Grupo[];
+  cajas: FilaCajaPlan[];
   sinConfigurar: string[];
 }) {
-  if (!envios.length) {
+  const porCodigo = useMemo(() => new Map(cajas.map((c) => [c.codigo, c])), [cajas]);
+
+  if (!grupos.length) {
     return (
       <section className="tarjeta p-6 text-center">
         <p className="text-sm" style={{ color: "var(--ink-2)" }}>
@@ -68,9 +55,9 @@ export function EnviosSeparados({
       <div>
         <h2 className="text-lg font-semibold">Envíos a preparar</h2>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          {envios.length === 1
+          {grupos.length === 1
             ? "Todo sale de una sola dirección, así que es un solo envío."
-            : `Son ${envios.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}
+            : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}
         </p>
       </div>
 
@@ -87,25 +74,48 @@ export function EnviosSeparados({
         </p>
       ) : null}
 
-      {envios.map((e) => (
-        <TarjetaEnvio key={e.grupo} envio={e} />
+      {grupos.map((g) => (
+        <TarjetaEnvio
+          key={g.grupo}
+          grupo={g}
+          cajas={g.codigos.map((c) => porCodigo.get(c)).filter((c): c is FilaCajaPlan => c != null)}
+        />
       ))}
     </div>
   );
 }
 
-function TarjetaEnvio({ envio }: { envio: Envio }) {
+function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] }) {
   const [vista, setVista] = useState<"cajas" | "skus">("cajas");
   const [abierta, setAbierta] = useState<string | null>(null);
 
   // El envío NORMAL y el bloque de OPCIONALES van separados de verdad: el
   // número grande es el que se captura en el alta; las opcionales son una
-  // decisión aparte, con sus propias cajas y pares.
-  const { normales, opcionales } = partirPorOpcionales(envio.cajas);
-  const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
-  const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
-  const cajasNorm = envio.totalCajas - cajasOpc;
-  const paresNorm = envio.totalPares - paresOpc;
+  // decisión aparte, con sus propias cajas y pares. Memoizado: antes se
+  // recalculaba el reparto completo en cada clic de la tarjeta.
+  const { normales, opcionales, totales, porSku } = useMemo(() => {
+    const { normales, opcionales } = partirPorOpcionales(cajas);
+    const cajasOpc = opcionales.reduce((a, c) => a + c.cantidad, 0);
+    const paresOpc = opcionales.reduce((a, c) => a + c.paresTotales, 0);
+    const cajasNorm = normales.reduce((a, c) => a + c.cantidad, 0);
+    const paresNorm = normales.reduce((a, c) => a + c.paresTotales, 0);
+
+    // El contenido por SKU se deriva aquí de las mismas cajas (antes viajaba
+    // aparte desde el servidor, duplicado).
+    const acc = new Map<string, { talla: string; pares: number }>();
+    for (const c of cajas) {
+      for (const a of c.aporta) {
+        const prev = acc.get(a.sku) ?? { talla: a.talla, pares: 0 };
+        prev.pares += a.paresTotales;
+        acc.set(a.sku, prev);
+      }
+    }
+    const porSku = [...acc.entries()]
+      .map(([sku, v]) => ({ sku, talla: v.talla, pares: v.pares }))
+      .sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true }));
+
+    return { normales, opcionales, porSku, totales: { cajasOpc, paresOpc, cajasNorm, paresNorm } };
+  }, [cajas]);
 
   // El botón "Ya lo di de alta en MELI" se quitó a petición del usuario: lo
   // que va en camino ahora sale de los envíos pendientes del API de Industher
@@ -114,19 +124,23 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-center gap-4 border-b p-4 hairline">
         <div>
-          <h3 className="font-semibold">{envio.nombre}</h3>
+          <h3 className="font-semibold">{grupo.nombre}</h3>
           <p className="text-xs" style={{ color: "var(--ink-2)" }}>
-            Recolección en {envio.almacenes.join(" y ")}
+            Recolección en {grupo.almacenes.join(" y ")}
           </p>
         </div>
 
         <div className="flex gap-6">
-          <Dato titulo="Cajas del envío" valor={n(cajasNorm)} grande />
-          <Dato titulo="Pares" valor={n(paresNorm)} />
-          {cajasOpc > 0 ? (
-            <Dato titulo="Opcionales aparte" valor={`+${n(cajasOpc)} (${n(paresOpc)} pares)`} alerta />
+          <Dato titulo="Cajas del envío" valor={n(totales.cajasNorm)} grande />
+          <Dato titulo="Pares" valor={n(totales.paresNorm)} />
+          {totales.cajasOpc > 0 ? (
+            <Dato
+              titulo="Opcionales aparte"
+              valor={`+${n(totales.cajasOpc)} (${n(totales.paresOpc)} pares)`}
+              alerta
+            />
           ) : null}
-          <Dato titulo="SKUs" valor={n(envio.skus)} />
+          <Dato titulo="SKUs" valor={n(porSku.length)} />
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -152,13 +166,14 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
             ))}
           </div>
 
-          <a
-            href={`/api/plan/excel?grupo=${encodeURIComponent(envio.grupo)}`}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: "var(--acento)" }}
+          <BotonDescarga
+            href={`/api/plan/excel?grupo=${encodeURIComponent(grupo.grupo)}`}
+            variante="primario"
+            chico
+            title={`Excel solo con las cajas del envío ${grupo.nombre}`}
           >
             Excel de este envío
-          </a>
+          </BotonDescarga>
         </div>
       </header>
 
@@ -193,9 +208,9 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
                   }}
                 >
                   <td colSpan={8} className="font-semibold text-sm">
-                    OPCIONALES — {n(cajasOpc)} cajas · {n(paresOpc)} pares. Entraron por el
-                    rescate de una talla que falta; el resto de la caja sobra. Tú decides si
-                    van en el envío.
+                    Opcionales — {n(totales.cajasOpc)} cajas · {n(totales.paresOpc)} pares.
+                    Entraron por el rescate de una talla que falta; el resto de la caja
+                    sobra. Tú decides si van en el envío.
                   </td>
                 </tr>
               ) : null}
@@ -220,7 +235,7 @@ function TarjetaEnvio({ envio }: { envio: Envio }) {
               </tr>
             </thead>
             <tbody>
-              {envio.porSku.map((s) => (
+              {porSku.map((s) => (
                 <tr key={s.sku}>
                   <td className="font-medium">{s.sku}</td>
                   <td>{s.talla}</td>
@@ -241,16 +256,21 @@ function FilaCajaEnvio({
   setAbierta,
   opcional,
 }: {
-  c: Caja;
+  c: FilaCajaPlan;
   abierta: string | null;
   setAbierta: (v: string | null) => void;
   opcional?: boolean;
 }) {
   const clave = `${opcional ? "o" : "n"}-${c.codigo}`;
+  const abierto = abierta === clave;
+  // Ámbar para lo OPCIONAL: es una decisión, no una emergencia. El rojo
+  // crítico queda reservado para agotamiento, como en el resto de la app.
+  const colorOpcional = opcional ? { color: "var(--estado-alerta)" } : undefined;
   return (
     <Fragment>
       <tr
-        onClick={() => setAbierta(abierta === clave ? null : clave)}
+        onClick={() => setAbierta(abierto ? null : clave)}
+        aria-expanded={abierto}
         style={{
           cursor: "pointer",
           ...(opcional
@@ -260,17 +280,14 @@ function FilaCajaEnvio({
       >
         <td>{c.almacen}</td>
         <td className="text-xs">{c.pedido || "—"}</td>
-        <td className="font-medium" style={opcional ? { color: "var(--estado-critico)" } : undefined}>
+        <td className="font-medium" style={colorOpcional}>
           {c.modelo}
         </td>
         <td>{c.color || "—"}</td>
         <td>
           {c.esCorrida ? <span style={{ color: "var(--ink-2)" }}>corrida</span> : c.talla}
         </td>
-        <td
-          className="num cifra font-semibold"
-          style={opcional ? { color: "var(--estado-critico)" } : undefined}
-        >
+        <td className="num cifra font-semibold" style={colorOpcional}>
           {n(c.cantidad)}
         </td>
         <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
@@ -279,7 +296,7 @@ function FilaCajaEnvio({
         <td className="num cifra">{n(c.paresTotales)}</td>
       </tr>
 
-      {abierta === clave ? (
+      {abierto ? (
         <tr>
           <td colSpan={8} style={{ background: "var(--surface-2)" }}>
             <div className="p-3 text-sm">
@@ -320,7 +337,7 @@ function Dato({
       </div>
       <div
         className={`cifra font-semibold ${grande ? "text-2xl" : "text-lg"}`}
-        style={alerta ? { color: "var(--estado-critico)" } : undefined}
+        style={alerta ? { color: "var(--estado-alerta)" } : undefined}
       >
         {valor}
       </div>

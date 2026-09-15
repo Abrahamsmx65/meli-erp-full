@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
 
 interface Contenedor {
   id: string;
@@ -16,9 +17,12 @@ interface Contenedor {
   notas: string | null;
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
+  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+  pendientes?: PendientePacking[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
+  borrador: { texto: "Borrador (Drive)", color: "var(--estado-alerta)" },
   en_transito: { texto: "En tránsito", color: "var(--acento)" },
   en_aduana: { texto: "En aduana", color: "var(--estado-alerta)" },
   recibido: { texto: "Recibido", color: "var(--exito-texto)" },
@@ -78,6 +82,37 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     }
   }
 
+  /**
+   * Abre un borrador de correo con los documentos que la fábrica dejó en la
+   * carpeta de Drive de ese embarque. El correo lleva los ENLACES: un
+   * `mailto:` no puede llevar archivos adjuntos, y así quien lo reciba abre
+   * el original en Drive.
+   */
+  async function compartirDocumentos(c: Contenedor) {
+    setOcupado(c.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/contenedores/${c.id}/documentos`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudieron leer los documentos de Drive.");
+      if (!j.archivos?.length) {
+        throw new Error(`La carpeta de Drive de ${c.numero} no tiene archivos.`);
+      }
+      const asunto = `Documentos del contenedor ${c.numero}${c.numeroNaviera ? ` (${c.numeroNaviera})` : ""}`;
+      const cuerpo = [
+        `Documentos del contenedor ${c.numero}${c.numeroNaviera ? ` · naviera ${c.numeroNaviera}` : ""}:`,
+        "",
+        ...j.archivos.map((a: { nombre: string; enlace: string }) => `${a.nombre}\n${a.enlace}`),
+        "",
+      ].join("\n");
+      window.location.href = `mailto:?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   async function confirmarLlegada(c: Contenedor) {
     const seguro = window.confirm(
       `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)? ` +
@@ -121,7 +156,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
               <th>Llegada est.</th>
               <th>Llegada real</th>
               <th className="num">Cajas</th>
-              <th>Pedidos</th>
+              <th>Qué viene</th>
               <th>Estado</th>
               <th></th>
             </tr>
@@ -208,14 +243,15 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   </td>
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
                   <td className="num cifra">{n(c.cajas)}</td>
+                  {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
-                    {c.pedidos.length ? (
-                      c.pedidos.map((p) => (
-                        <div key={p.pedido}>
-                          <span className="font-medium">{p.pedido}</span>{" "}
-                          <span style={{ color: "var(--ink-2)" }}>{n(p.cajas)} cajas</span>
-                        </div>
-                      ))
+                    {c.modelos.length ? (
+                      <span
+                        className="block max-w-56 cursor-help truncate"
+                        title={detalleModelos(c)}
+                      >
+                        {resumenModelos(c.modelos)}
+                      </span>
                     ) : (
                       <span style={{ color: "var(--ink-muted)" }}>—</span>
                     )}
@@ -228,19 +264,38 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         className="rounded border px-1.5 py-0.5 text-xs"
                         style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
                       >
+                        <option value="borrador">Borrador</option>
                         <option value="en_transito">En tránsito</option>
                         <option value="en_aduana">En aduana</option>
                         <option value="recibido">Recibido</option>
                       </select>
                     ) : (
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        style={{
-                          background: `color-mix(in oklab, ${e.color} 15%, transparent)`,
-                          color: e.color,
-                        }}
-                      >
-                        {e.texto}
+                      <span className="flex flex-wrap items-center gap-1">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          style={{
+                            background: `color-mix(in oklab, ${e.color} 15%, transparent)`,
+                            color: e.color,
+                          }}
+                        >
+                          {e.texto}
+                        </span>
+                        {/* Lo que el packing list no pudo amarrar: se resuelve en Contenido. */}
+                        {c.pendientes?.length ? (
+                          <button
+                            onClick={() => setContenido(c)}
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{
+                              background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)",
+                              color: "var(--estado-critico)",
+                            }}
+                            title={c.pendientes
+                              .map((p) => `${p.modelo} ${p.color} · ${n(p.cajas)} cajas · ${p.motivo}`)
+                              .join("\n")}
+                          >
+                            {n(c.pendientes.reduce((a, p) => a + p.cajas, 0))} cajas sin amarrar
+                          </button>
+                        ) : null}
                       </span>
                     )}
                   </td>
@@ -300,6 +355,26 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Packing list
                           </a>
+                          <button
+                            onClick={() => compartirDocumentos(c)}
+                            disabled={ocupado === c.id}
+                            className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                            style={{ borderColor: "var(--borde)" }}
+                            title="Abre un correo con los enlaces a los documentos de este embarque en Drive"
+                          >
+                            {ocupado === c.id ? "…" : "Compartir docs"}
+                          </button>
+                          {c.estado === "borrador" ? (
+                            <button
+                              onClick={() => mandar({ estado: "en_transito" }, c.id)}
+                              disabled={ocupado === c.id}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                              title="Lo revisaste y está bien: pasa a en tránsito"
+                            >
+                              {ocupado === c.id ? "…" : "Confirmar"}
+                            </button>
+                          ) : null}
                           {c.estado !== "recibido" ? (
                             <button
                               onClick={() => confirmarLlegada(c)}
@@ -372,6 +447,9 @@ function ContenidoContenedor({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
+  const [pendientes, setPendientes] = useState<PendientePacking[]>(contenedor.pendientes ?? []);
+  const [eleccion, setEleccion] = useState<Record<number, string>>({});
+  const [todoElPedido, setTodoElPedido] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -393,12 +471,46 @@ function ContenidoContenedor({
     };
   }, [contenedor.id]);
 
+  /**
+   * Qué renglón del pedido PODRÍA ser el que la fábrica escribió distinto:
+   * del mismo modelo, con cajas libres, y primero el color que más se le
+   * parece (comparte palabras: "M BROWN" con "LT BROWN"). No se aplica
+   * solo: el dueño lo confirma.
+   */
+  function candidatosDe(p: PendientePacking): LineaContenido[] {
+    const palabras = (s: string) => new Set(s.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
+    const suyas = palabras(p.color);
+    return (lineas ?? [])
+      .filter((l) => l.modelo.toUpperCase() === p.modelo.toUpperCase())
+      .map((l) => ({ l, libres: Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)) }))
+      .filter((x) => x.libres > 0)
+      .sort((a, b) => {
+        const comunes = (l: LineaContenido) => [...palabras(l.color)].filter((w) => suyas.has(w)).length;
+        return comunes(b.l) - comunes(a.l) || b.libres - a.libres;
+      })
+      .map((x) => x.l);
+  }
+
+  function confirmar(indice: number, p: PendientePacking, pedidoLineaId: string) {
+    const l = (lineas ?? []).find((x) => x.pedidoLineaId === pedidoLineaId);
+    if (!l) return;
+    const actual = cajas[pedidoLineaId] ?? l.enEste;
+    const libres = Math.max(0, l.cajasPedido - l.enOtros - actual);
+    setCajas((c) => ({ ...c, [pedidoLineaId]: actual + Math.min(p.cajas, libres) }));
+    setPendientes((ps) => ps.filter((_, i) => i !== indice));
+  }
+
   const filtro = busqueda.trim().toUpperCase();
+  // Decisión del dueño (10-sep-2026): aquí se ve LO QUE TRAE EL CONTENEDOR.
+  // El resto del pedido solo estorba; se enseña a mano cuando hay que
+  // agregar un renglón que faltó.
+  const enEsteAhora = (l: LineaContenido) => cajas[l.pedidoLineaId] ?? l.enEste;
   const visibles = (lineas ?? []).filter(
     (l) =>
-      !filtro ||
-      `${l.pedido} ${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
+      (todoElPedido || enEsteAhora(l) > 0) &&
+      (!filtro || `${l.pedido} ${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro)),
   );
+  const fueraDelContenedor = (lineas ?? []).filter((l) => enEsteAhora(l) <= 0).length;
   const totalCajas = Object.values(cajas).reduce((a, b) => a + (Number(b) || 0), 0);
 
   async function guardar() {
@@ -409,19 +521,31 @@ function ContenidoContenedor({
       const cambios = lineas
         .filter((l) => (cajas[l.pedidoLineaId] ?? l.enEste) !== l.enEste)
         .map((l) => ({ pedidoLineaId: l.pedidoLineaId, cajas: cajas[l.pedidoLineaId] ?? 0 }));
-      if (!cambios.length) {
+      const pendientesCambiaron = pendientes.length !== (contenedor.pendientes ?? []).length;
+      if (!cambios.length && !pendientesCambiaron) {
         onCerrar();
         return;
       }
-      const r = await fetch(`/api/contenedores/${contenedor.id}/lineas`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cambios }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
-      if (Array.isArray(j.recortes) && j.recortes.length) {
-        setAvisos(j.recortes);
+      if (cambios.length) {
+        const r = await fetch(`/api/contenedores/${contenedor.id}/lineas`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cambios }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+        if (Array.isArray(j.recortes) && j.recortes.length) {
+          setAvisos(j.recortes);
+        }
+      }
+      // Lo que el dueño ya resolvió (o descartó) deja de estar pendiente.
+      if (pendientesCambiaron) {
+        const r2 = await fetch("/api/contenedores", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: contenedor.id, pendientes }),
+        });
+        if (!r2.ok) throw new Error((await r2.json()).error ?? "No se pudo guardar lo pendiente.");
       }
       onGuardado();
     } catch (e) {
@@ -442,18 +566,102 @@ function ContenidoContenedor({
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="text-lg font-semibold">Contenido de {contenedor.numero}</h3>
         <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Corrige las cajas de cada renglón si algo se capturó mal. Pon <strong>0</strong>{" "}
-          para quitarlo del contenedor. También puedes agregar renglones de los mismos
-          pedidos que no se habían embarcado.
+          Lo que viaja en este contenedor. Corrige las cajas si algo se capturó mal; pon{" "}
+          <strong>0</strong> para quitar un renglón.
         </p>
 
-        <input
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar modelo, color, talla o pedido…"
-          className="mt-3 w-full rounded-lg border px-3 py-1.5 text-sm"
-          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-        />
+        {pendientes.length ? (
+          <section
+            className="mt-3 rounded-lg border p-3"
+            style={{ borderColor: "var(--estado-critico)", background: "color-mix(in oklab, var(--estado-critico) 6%, transparent)" }}
+          >
+            <h4 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+              Esto venía en el packing list y no amarró
+            </h4>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+              Casi siempre es que la fábrica le puso otro nombre al color. Elige el renglón del
+              pedido que sí es y confirma: las cajas se suman a ese renglón.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {pendientes.map((p, i) => {
+                const opciones = candidatosDe(p);
+                const elegido = eleccion[i] ?? opciones[0]?.pedidoLineaId ?? "";
+                return (
+                  <li key={`${p.modelo}|${p.color}|${i}`} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-medium">
+                      {p.modelo} {p.color}
+                      {p.talla ? ` talla ${p.talla}` : ""}
+                    </span>
+                    <span className="cifra">{n(p.cajas)} cajas</span>
+                    <span style={{ color: "var(--ink-muted)" }}>{p.motivo}</span>
+                    {lineas === null ? (
+                      <span style={{ color: "var(--ink-muted)" }}>Cargando el pedido…</span>
+                    ) : opciones.length ? (
+                      <>
+                        <span style={{ color: "var(--ink-2)" }}>¿Es</span>
+                        <select
+                          value={elegido}
+                          onChange={(ev) => setEleccion((e) => ({ ...e, [i]: ev.target.value }))}
+                          className="rounded border px-1.5 py-0.5"
+                          style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
+                        >
+                          {opciones.map((l) => (
+                            <option key={l.pedidoLineaId} value={l.pedidoLineaId}>
+                              {l.modelo} {l.color}
+                              {l.talla ? ` ${l.talla}` : ""} · {l.pedido} · quedan{" "}
+                              {n(Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)))}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => confirmar(i, p, elegido)}
+                          className="rounded-lg px-2 py-1 font-medium text-white"
+                          style={{ background: "var(--acento)" }}
+                        >
+                          Sí, es este
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ color: "var(--ink-muted)" }}>
+                        Ese pedido ya no tiene cajas libres de {p.modelo}.
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setPendientes((ps) => ps.filter((_, j) => j !== i))}
+                      className="rounded-lg border px-2 py-1"
+                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                      title="No es ninguno: quítalo del aviso"
+                    >
+                      Descartar
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar modelo, color, talla o pedido…"
+            className="min-w-56 flex-1 rounded-lg border px-3 py-1.5 text-sm"
+            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+          />
+          {fueraDelContenedor ? (
+            <button
+              onClick={() => setTodoElPedido((v) => !v)}
+              className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              title="Los renglones de los mismos pedidos que este contenedor no trae"
+            >
+              {todoElPedido
+                ? "Ver solo lo del contenedor"
+                : `Agregar renglones del pedido (${n(fueraDelContenedor)})`}
+            </button>
+          ) : null}
+        </div>
 
         <div className="mt-3 max-h-96 overflow-auto">
           <table className="datos">

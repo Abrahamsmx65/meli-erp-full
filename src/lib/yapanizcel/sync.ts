@@ -27,6 +27,12 @@ import {
 import { clienteDeCuenta } from "./cuenta";
 import { desglosar } from "./sku";
 import { avanzarEstado, planearTramos, type EstadoVentas, type Tramo } from "./tramos";
+import { todo } from "./db";
+import { columnasDeOrdenYz, leerResumenDeOrden, registrarOrdenes } from "./netos";
+import { camposLiquidacionMeli, netoVigente } from "../meli/pagos";
+import { CacheTarifas } from "../meli/pagos-api";
+import { contextoDeOrden, type OrdenMeliCruda } from "../meli/orden";
+import { invalidarYz } from "./cache";
 
 /** Día del negocio (Ciudad de México, UTC-6 fijo) a partir de un instante ISO. */
 export function diaLocal(iso: string): string {
@@ -61,13 +67,18 @@ export async function sincronizarCatalogo(
   limiteUserProductsMs = 60_000,
 ): Promise<ResumenCatalogo> {
   // Los amarres user_product -> SKU ya conocidos no se vuelven a preguntar.
-  const { data: conocidos } = await admin
-    .from("yz_skus")
-    .select("user_product_id, sku")
-    .eq("account_id", accountId)
-    .not("user_product_id", "is", null);
+  // Paginado con todo(): son ~15 mil filas y una lectura directa se corta en
+  // 1,000 — con el cache mocho, cada corrida repreguntaba miles de user
+  // products al API y se comía el presupuesto de tiempo sin avanzar. El sku
+  // va primero solo para que la paginación tenga orden estable único.
+  const conocidos = await todo<{ sku: string; user_product_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, user_product_id",
+    (q) => q.eq("account_id", accountId).not("user_product_id", "is", null),
+  );
   const cache = new Map<string, string>();
-  for (const f of conocidos ?? []) if (f.user_product_id) cache.set(f.user_product_id, f.sku);
+  for (const f of conocidos) if (f.user_product_id) cache.set(f.user_product_id, f.sku);
 
   const diag = nuevoDiagnostico();
   const filas = await obtenerCatalogo(cliente, meliUserId, { diag, cache, limiteUserProductsMs });
@@ -138,15 +149,18 @@ export async function sincronizarStock(
   cliente: MeliClient,
   meliUserId: number,
 ): Promise<{ skus: number; errores: number }> {
-  const { data: skus } = await admin
-    .from("yz_skus")
-    .select("sku, inventory_id")
-    .eq("account_id", accountId);
+  // Paginado: sin esto solo 1,000 de ~15 mil SKUs refrescaban su stock Full.
+  const skus = await todo<{ sku: string; inventory_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, inventory_id",
+    (q) => q.eq("account_id", accountId),
+  );
 
   const { stock, errores } = await obtenerStockFull(
     cliente,
     meliUserId,
-    (skus ?? []).map((s) => ({ sku: s.sku, inventoryId: s.inventory_id })),
+    skus.map((s) => ({ sku: s.sku, inventoryId: s.inventory_id })),
   );
 
   const ahora = new Date().toISOString();
@@ -188,30 +202,15 @@ export async function sincronizarStock(
 // ---------------------------------------------------------------------------
 // Ventas
 // ---------------------------------------------------------------------------
-interface OrdenMeli {
-  id: number;
-  status?: string;
-  date_created: string;
-  total_amount?: number;
-  order_items?: {
-    quantity?: number;
-    unit_price?: number;
-    sale_fee?: number;
-    item?: {
-      id?: string;
-      seller_sku?: string | null;
-      seller_custom_field?: string | null;
-      variation_id?: number | string | null;
-    };
-  }[];
-  payments?: { id?: number; status?: string }[];
-}
+type OrdenMeli = OrdenMeliCruda;
 
 interface Renglon {
   sku: string;
   unidades: number;
   importe: number;
   comision: number;
+  categoria?: string | null;
+  listing?: string | null;
 }
 
 export interface OrdenLeida {
@@ -220,6 +219,8 @@ export interface OrdenLeida {
   total: number;
   pagos: number[];
   renglones: Renglon[];
+  /** la orden tal como vino de MELI (solo lo que se usa): etiquetas, envío, pagado */
+  orden?: OrdenMeliCruda;
 }
 
 /**
@@ -284,7 +285,14 @@ export async function leerOrdenes(
             continue;
           }
           const u = oi.quantity ?? 0;
-          const s = porSku.get(sku) ?? { sku, unidades: 0, importe: 0, comision: 0 };
+          const s = porSku.get(sku) ?? {
+            sku,
+            unidades: 0,
+            importe: 0,
+            comision: 0,
+            categoria: oi.item?.category_id ?? null,
+            listing: oi.listing_type_id ?? null,
+          };
           s.unidades += u;
           s.importe += u * (oi.unit_price ?? 0);
           s.comision += u * (oi.sale_fee ?? 0);
@@ -299,6 +307,7 @@ export async function leerOrdenes(
             .filter((p) => p.id && (!p.status || p.status === "approved"))
             .map((p) => Number(p.id)),
           renglones: [...porSku.values()],
+          orden: o,
         });
       }
 
@@ -332,17 +341,45 @@ export async function completarNetos(
   if (!ordenes.length) return netos;
 
   const ids = ordenes.map((o) => o.id);
-  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  const cache = new Map<number, {
+    neto: number;
+    netoActual: number | null;
+    actualizadoEn: string;
+    cargosLeidos: boolean;
+    conPagoReal: boolean;
+    netoLeido: boolean;
+    reembolsoBase: number | null;
+    reembolsoBaseConfiable: boolean | null;
+    envioVendedor: number | null;
+    netoPago: number | null;
+    envioLeido: boolean;
+  }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await admin
       .from("yz_ordenes_neto")
-      .select("order_id, neto, actualizado_en")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, envio_vendedor, reembolso_incluido_neto_base, reembolso_base_confiable, neto_pago, envio_leido_en")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     for (const f of data ?? []) {
-      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+      cache.set(Number(f.order_id), {
+        neto: Number(f.neto),
+        netoActual: f.neto_actual == null ? null : Number(f.neto_actual),
+        actualizadoEn: f.actualizado_en,
+        cargosLeidos: f.cargos_leidos_en != null,
+        conPagoReal: f.cargos_fuente != null,
+        netoLeido: f.neto_en != null,
+        reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+        reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+        envioVendedor: f.envio_vendedor == null ? null : Number(f.envio_vendedor),
+        netoPago: f.neto_pago == null ? null : Number(f.neto_pago),
+        envioLeido: f.envio_leido_en != null,
+      });
     }
   }
+
+  // TODAS las órdenes del tramo quedan registradas (pagos y renglones):
+  // las que no alcancen aquí las completa el trabajo de fondo (netos.ts).
+  await registrarOrdenes(admin, accountId, ordenes);
 
   const ayer = restarDias(hoyLocal(), 1);
   const hace3h = Date.now() - 3 * 3_600_000;
@@ -351,24 +388,46 @@ export async function completarNetos(
     if (!o.pagos.length) continue;
     const c = cache.get(o.id);
     if (!c) porPedir.push(o);
+    else if (!c.cargosLeidos || !c.conPagoReal || !c.envioLeido) porPedir.push(o);
     else if (o.fecha >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(o);
-    else if (c.neto <= 0 && o.total > 0) porPedir.push(o);
+    else if (!c.netoLeido && o.total > 0) porPedir.push(o);
   }
 
   const nuevas: Record<string, unknown>[] = [];
+  const tarifas = new CacheTarifas(cliente);
   for (const o of porPedir.slice(0, tope)) {
     try {
-      let neto = 0;
-      let algo = false;
-      for (const pagoId of o.pagos) {
-        const r = await cliente.get<{ net_received_amount?: number }>(`/collections/${pagoId}`);
-        if (typeof r?.net_received_amount === "number") {
-          neto += r.net_received_amount;
-          algo = true;
-        }
-      }
-      if (!algo) continue;
-      cache.set(o.id, { neto, actualizadoEn: new Date().toISOString() });
+      const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
+      const previo = cache.get(o.id);
+      const netoControl = previo?.netoLeido ? (previo.netoPago ?? previo.neto) : undefined;
+      const contexto = o.orden ? contextoDeOrden(o.orden, Date.now()) : {};
+      if (previo?.envioVendedor != null) contexto.envioVendedor = previo.envioVendedor;
+      const resumen = await leerResumenDeOrden(cliente, {
+        pagos: o.pagos,
+        total: o.total,
+        comision: comisionOrden,
+        netoControl,
+        reembolsoIncluidoNetoBase: previo?.reembolsoBase,
+        reembolsoBaseConfiable: previo?.reembolsoBaseConfiable,
+        contexto,
+        renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: r.importe, categoria: r.categoria ?? null, listing: r.listing ?? null })),
+        tarifas,
+      });
+      if (resumen.neto == null) continue;
+      const neto = resumen.netoBase ?? resumen.neto;
+      cache.set(o.id, {
+        neto,
+        netoActual: resumen.neto,
+        actualizadoEn: new Date().toISOString(),
+        cargosLeidos: resumen.cargosCompletos,
+        conPagoReal: true,
+        netoLeido: true,
+        reembolsoBase: resumen.reembolsoIncluidoNetoBase,
+        reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+        envioVendedor: resumen.envioVendedor,
+        netoPago: netoControl ?? resumen.netoPago,
+        envioLeido: resumen.envioLeido,
+      });
       nuevas.push({
         account_id: accountId,
         order_id: o.id,
@@ -376,6 +435,11 @@ export async function completarNetos(
         fecha: o.fecha,
         total: o.total,
         neto,
+        ...(netoControl != null ? { neto_actual: resumen.neto } : {}),
+        ...camposLiquidacionMeli(resumen),
+        ...columnasDeOrdenYz(o),
+        cargos_leidos_en: resumen.cargosCompletos ? new Date().toISOString() : null,
+        neto_en: new Date().toISOString(),
         actualizado_en: new Date().toISOString(),
       });
     } catch {
@@ -384,14 +448,19 @@ export async function completarNetos(
   }
   if (nuevas.length) await upsertEnTandas(admin, "yz_ordenes_neto", nuevas, "account_id,order_id");
 
-  for (const [id, c] of cache) netos.set(id, c.neto);
+  // Un cero/negativo confirmado sí es saldo. Un placeholder sin neto_en no:
+  // devolverlo certificaría como ingreso real una lectura que nunca ocurrió.
+  for (const [id, c] of cache) {
+    if (c.netoLeido) netos.set(id, netoVigente(c.neto, c.netoActual));
+  }
   return netos;
 }
 
 /**
  * Agrega órdenes a renglones sku|día. El neto de cada orden se reparte a
- * sus renglones en proporción a su importe, y un día solo lleva neto cuando
- * TODAS sus órdenes ya lo tienen: un neto a medias engaña más que ninguno.
+ * sus renglones en proporción a su importe. Cada SKU|día solo lleva neto
+ * cuando todas sus órdenes ya lo tienen; otro SKU confirmado conserva incluso
+ * un saldo cero o negativo.
  */
 export function agregarVentas(
   ordenes: OrdenLeida[],
@@ -401,15 +470,15 @@ export function agregarVentas(
     string,
     { sku: string; fecha: string; unidades: number; ordenes: number; importe: number; comision: number; neto: number }
   >();
-  const diasIncompletos = new Set<string>();
+  const clavesIncompletas = new Set<string>();
 
   for (const o of ordenes) {
     const netoOrden = netos.get(o.id);
-    if (netoOrden == null) diasIncompletos.add(o.fecha);
     const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
 
     for (const r of o.renglones) {
       const clave = `${r.sku}|${o.fecha}`;
+      if (netoOrden == null) clavesIncompletas.add(clave);
       const s =
         acumulado.get(clave) ??
         { sku: r.sku, fecha: o.fecha, unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0 };
@@ -424,7 +493,7 @@ export function agregarVentas(
 
   return [...acumulado.values()].map((s) => ({
     ...s,
-    neto: diasIncompletos.has(s.fecha) ? null : Math.round(s.neto * 100) / 100,
+    neto: clavesIncompletas.has(`${s.sku}|${s.fecha}`) ? null : Math.round(s.neto * 100) / 100,
   }));
 }
 
@@ -479,11 +548,58 @@ async function sincronizarTramo(
   await upsertEnTandas(
     admin,
     "yz_ventas_diarias",
-    filas.map((f) => ({ account_id: accountId, ...f })),
+    filas.map((f) => ({ account_id: accountId, ...f, neto_confirmado: f.neto != null })),
     "account_id,sku,fecha",
   );
 
+  // Reescribir el rango borró el neto asentado por orden (migración 0079):
+  // se vuelve a asentar cada día del tramo desde yz_ordenes_neto.
+  for (let dia = tramo.desde; dia <= tramo.hasta; dia = restarDias(dia, -1)) {
+    const { error: errAsiento } = await admin.rpc("yz_asentar_dia", { p_account: accountId, p_fecha: dia });
+    if (errAsiento) throw new Error(`yz_asentar_dia ${dia}: ${errAsiento.message}`);
+  }
+
   return { desde: tramo.desde, hasta: tramo.hasta, ordenes: ordenes.length, renglones: filas.length, sinSku, truncado };
+}
+
+/** item+variación → SKU con TODO el catálogo (paginado: son ~15 mil filas). */
+async function mapaItemSku(admin: DB, accountId: string): Promise<Map<string, string>> {
+  const skus = await todo<{ sku: string; item_id: string | null; variation_id: string | null }>(
+    admin,
+    "yz_skus",
+    "sku, item_id, variation_id",
+    (q) => q.eq("account_id", accountId),
+  );
+  const mapa = new Map<string, string>();
+  for (const s of skus ?? []) {
+    if (!s.item_id) continue;
+    mapa.set(claveItem(s.item_id, s.variation_id), s.sku);
+    if (!mapa.has(s.item_id)) mapa.set(s.item_id, s.sku);
+  }
+  return mapa;
+}
+
+/**
+ * Solo los últimos `dias` días (hoy incluido), para el cron de cada 10
+ * minutos: la sincronización completa corre una vez al día y, si el
+ * catálogo y el stock se comían el presupuesto, hoy y ayer se quedaban en
+ * cero hasta la mañana siguiente (9-sep-2026: "Hoy 0 · Ayer 146").
+ */
+export async function sincronizarVentasRecientes(
+  admin: DB,
+  accountId: string,
+  opts?: { dias?: number },
+): Promise<ResultadoVentas["tramos"][number]> {
+  const cliente = await clienteDeCuenta(admin, accountId);
+  const usuario = await obtenerUsuario(cliente);
+  const hoy = hoyLocal();
+  const tramo: Tramo = { desde: restarDias(hoy, Math.max(1, opts?.dias ?? 2) - 1), hasta: hoy, tipo: "reciente" };
+  const mapa = await mapaItemSku(admin, accountId);
+  const hecho = await sincronizarTramo(admin, accountId, cliente, usuario.id, mapa, tramo);
+  const estado = await leerEstado(admin, accountId);
+  if (estado.desde && estado.hasta) await guardarEstado(admin, accountId, avanzarEstado(estado, tramo));
+  await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: { tarea: "ventas_recientes", ...hecho } });
+  return hecho;
 }
 
 /**
@@ -500,16 +616,7 @@ export async function sincronizarVentas(
   const t0 = opts.t0 ?? Date.now();
   const hoy = hoyLocal();
 
-  const { data: skus } = await admin
-    .from("yz_skus")
-    .select("sku, item_id, variation_id")
-    .eq("account_id", accountId);
-  const mapa = new Map<string, string>();
-  for (const s of skus ?? []) {
-    if (!s.item_id) continue;
-    mapa.set(claveItem(s.item_id, s.variation_id), s.sku);
-    if (!mapa.has(s.item_id)) mapa.set(s.item_id, s.sku);
-  }
+  const mapa = await mapaItemSku(admin, accountId);
 
   let estado = await leerEstado(admin, accountId);
   const plan = planearTramos(estado, hoy);
@@ -568,16 +675,19 @@ export async function sincronizar(
     if (!opts?.continuar) {
       catalogo = await sincronizarCatalogo(admin, accountId, cliente, usuario.id, opts?.limiteUserProductsMs ?? 30_000);
     }
+    // Las VENTAS van antes que el stock: el stock son cientos de llamadas
+    // y el 9-sep-2026 se comió todo el presupuesto y las ventas del día
+    // se quedaron sin sincronizar (Hoy 0). Las ventas reciben hasta el 60 %
+    // del tiempo; el stock, lo que quede, o se pide en la siguiente llamada.
+    const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto * 0.6, t0 });
     const tocaStock = !opts?.continuar || Boolean(opts?.conStock);
     if (tocaStock) {
-      // El stock son cientos de llamadas: solo si queda más de la mitad del tiempo.
       if (transcurrido() < presupuesto * 0.5) {
         stock = await sincronizarStock(admin, accountId, cliente, usuario.id);
       } else {
         stockPendiente = true;
       }
     }
-    const ventas = await sincronizarVentas(admin, accountId, cliente, usuario.id, { limiteMs: presupuesto, t0 });
 
     const resumen: ResumenSync = {
       cuenta: usuario.nickname,
@@ -589,6 +699,9 @@ export async function sincronizar(
       ms: transcurrido(),
     };
     await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
+    // Catálogo, stock o ventas cambiaron: los resultados masticados quedaron
+    // viejos. El cron de netos los deja precalculados en su siguiente corrida.
+    await invalidarYz(admin, accountId, "Se sincronizó con Mercado Libre.", ["compras", "plan", "inventario", "amarre", "disenos"]);
     await admin
       .from("yz_cuentas")
       .update({ nickname: usuario.nickname, actualizado_en: new Date().toISOString() })

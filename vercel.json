@@ -13,12 +13,28 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/plan",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/yapanizcel",
       "schedule": "30 14 * * *"
     },
     {
       "path": "/api/yapanizcel/skus-pendientes",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/yapanizcel/netos",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/amazon-finanzas",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/packing-lists",
+      "schedule": "0 13 * * *"
     }
   ]
 }

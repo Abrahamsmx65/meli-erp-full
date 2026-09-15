@@ -18,7 +18,12 @@ import { traerTodo, type DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
-import { diasDeRango, normalizarRango, type RangoFechas } from "./ventas-monitor";
+import { diasDeRango, fechaMx, netoConfirmadoDeFila, normalizarRango, type RangoFechas } from "./ventas-monitor";
+import {
+  esErrorColumnaLegacy,
+  esErrorObjetoLegacy,
+  mensajeErrorDatos,
+} from "./errores-datos";
 
 export interface FilaPublicidad {
   modelo: string;
@@ -69,6 +74,10 @@ export interface Publicidad {
   sinAmarre: { gasto: number; anuncios: number };
   /** por qué no hay datos de ads (sin permiso, sin advertiser…); null = todo bien */
   errorAds: string | null;
+  /** fuentes auxiliares que fallaron sin invalidar ventas ni gasto de ads */
+  advertencias: string[];
+  /** las métricas están completas, pero no se pudo cruzar stock para recomendar */
+  errorRecomendaciones: string | null;
 }
 
 /** Un anuncio de Product Ads ya reducido a lo que este panel usa. */
@@ -303,6 +312,61 @@ export async function traerAnunciosAds(
   return anuncios;
 }
 
+/**
+ * Los anuncios del rango LEÍDOS DE LA BASE (`publicidad_diaria`, sumados por
+ * `publicidad_resumen_items`), en vez de pedírselos a MELI en cada render.
+ *
+ * Devuelve null cuando la base no puede contestar COMPLETO y hay que caer al
+ * API en vivo: la sincronización aún no cubre el rango pedido, el rango
+ * termina hoy pero la última corrida ya está vieja (el gasto de hoy sigue
+ * creciendo), o las tablas/función no existen todavía. Nunca se contesta con
+ * datos a medias.
+ */
+export async function anunciosDesdeBase(
+  db: DB,
+  accountId: string,
+  r: RangoFechas,
+): Promise<AnuncioAds[] | null> {
+  const { data: est, error } = await db
+    .from("publicidad_sync")
+    .select("desde, hasta, actualizado_en")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error) {
+    if (esErrorObjetoLegacy(error, ["publicidad_sync"])) return null;
+    throw new Error(`publicidad_sync: ${mensajeErrorDatos(error)}`);
+  }
+  if (!est) return null;
+  if (est.desde > r.desde || est.hasta < r.hasta) return null;
+
+  // El rango incluye HOY: solo sirve si la sincronización corrió hace poco
+  // (el latido la corre cada hora); si no, en vivo como siempre.
+  const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
+  if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
+
+  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+    p_account: accountId,
+    p_desde: r.desde,
+    p_hasta: r.hasta,
+  });
+  if (errorRpc) {
+    if (esErrorObjetoLegacy(errorRpc, ["publicidad_resumen_items"])) return null;
+    throw new Error(`publicidad_resumen_items: ${mensajeErrorDatos(errorRpc)}`);
+  }
+
+  return ((data ?? []) as any[]).map((f) => ({
+    itemId: String(f.item_id),
+    gasto: Number(f.gasto) || 0,
+    clicks: Number(f.clicks) || 0,
+    impresiones: Number(f.impresiones) || 0,
+    unidadesAds: Number(f.unidades_ads) || 0,
+    ventaAds: Number(f.venta_ads) || 0,
+    estado: f.estado ?? null,
+    campanaId: f.campana_id ?? null,
+    titulo: f.titulo ?? null,
+  }));
+}
+
 /** Las campañas de Product Ads con su presupuesto y ACOS objetivo. */
 export async function traerCampanasAds(
   cliente: MeliClient,
@@ -357,14 +421,29 @@ export const COBERTURA_CORTA_DIAS = 14;
 /** Arriba de esto hay capital parado: espacio para invertir en ads. */
 export const COBERTURA_LARGA_DIAS = 45;
 
+/**
+ * En qué orden se atienden. Primero lo que está TIRANDO dinero (apagar y
+ * pausar), luego lo que hay que moderar (bajar), luego dónde vale la pena
+ * meterle más (subir y encender), y hasta el final los candidatos nuevos.
+ * Es el orden en que el dueño trabaja la lista: primero corta, después
+ * invierte.
+ */
 const PRIORIDAD_ACCION: Record<AccionSugerida, number> = {
-  pausar: 0,
-  encender: 1,
-  apagar: 2,
-  bajar: 3,
-  subir: 4,
+  apagar: 0,
+  pausar: 1,
+  bajar: 2,
+  subir: 3,
+  encender: 4,
   activar: 5,
 };
+
+/** Los grupos de la lista, en su orden, para que la pantalla los encabece. */
+export const GRUPOS_ACCION: { acciones: AccionSugerida[]; titulo: string }[] = [
+  { acciones: ["apagar", "pausar"], titulo: "Apagar: están gastando de más" },
+  { acciones: ["bajar"], titulo: "Bajar el presupuesto" },
+  { acciones: ["subir", "encender"], titulo: "Subir el presupuesto" },
+  { acciones: ["activar"], titulo: "Candidatos para anunciar" },
+];
 
 /**
  * Cruza el panel de publicidad con el stock de Full y el margen para decir
@@ -539,12 +618,17 @@ export function armarRecomendaciones(opts: {
 
   return recomendaciones
     .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
-    // En orden alfabético de modelo, como el resto de las tablas: la lista se
-    // recorre buscando el modelo, no leyendo un ranking.
+    // Por lo que hay que HACER, no por el alfabeto: primero lo que está
+    // tirando dinero y al final los candidatos nuevos. Antes se ordenaba por
+    // modelo y la prioridad solo desempataba — y como hay UNA recomendación
+    // por modelo, nunca desempataba nada: la lista salía puramente
+    // alfabética y lo urgente quedaba enterrado a media tabla.
+    // Dentro de cada grupo, primero lo que más dinero mueve.
     .sort(
       (a, b) =>
-        a.modelo.localeCompare(b.modelo, "es") ||
-        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion],
+        PRIORIDAD_ACCION[a.accion] - PRIORIDAD_ACCION[b.accion] ||
+        (peso.get(b) ?? 0) - (peso.get(a) ?? 0) ||
+        a.modelo.localeCompare(b.modelo, "es"),
     );
 }
 
@@ -567,8 +651,17 @@ export function armarPublicidad(opts: {
   /** modelo → costo capturado (MXN), de productos_config */
   costoDeModelo: Map<string, number | null>;
   errorAds: string | null;
+  advertencias?: string[];
 }): Publicidad {
-  const { anuncios, ventas, modelosDeItem, modeloDeSku, costoDeModelo, errorAds } = opts;
+  const {
+    anuncios,
+    ventas,
+    modelosDeItem,
+    modeloDeSku,
+    costoDeModelo,
+    errorAds,
+    advertencias = [],
+  } = opts;
 
   interface Acum {
     anuncios: number;
@@ -610,12 +703,11 @@ export function armarPublicidad(opts: {
     const a = de(modeloDe(v.sku));
     a.unidades += v.unidades ?? 0;
     a.importe += v.importe ?? 0;
-    // Neto REAL de Mercado Pago cuando ya llegó; si no (o si el cache trae un
-    // 0 no creíble), la aproximación importe − comisión, igual que el monitor.
-    a.neto +=
-      v.neto != null && Number(v.neto) > 0
-        ? Number(v.neto)
-        : (v.importe ?? 0) - (v.comision ?? 0);
+    // Regla del dueño: solo el neto REAL de Mercado Pago. Un renglón sin
+    // depósito leído no se estima: aporta cero al neto y se declara aparte
+    // (ventaSinDeposito). El renglón sintético del RPC ya trae comisión =
+    // importe − neto real, así que importe − comisión ES el neto real.
+    a.neto += v.neto != null ? Number(v.neto) : (v.importe ?? 0) - (v.comision ?? 0);
   }
 
   const sinAmarre = { gasto: 0, anuncios: 0 };
@@ -712,6 +804,8 @@ export function armarPublicidad(opts: {
     },
     sinAmarre,
     errorAds,
+    advertencias,
+    errorRecomendaciones: null,
   };
 }
 
@@ -759,7 +853,8 @@ export async function cargarPublicidad(
         "sku, fecha, unidades, importe, comision, neto",
         filtro,
       );
-    } catch {
+    } catch (error) {
+      if (!esErrorColumnaLegacy(error, ["neto"])) throw error;
       try {
         return await traerTodo<VentaDiaria>(
           db,
@@ -767,14 +862,72 @@ export async function cargarPublicidad(
           "sku, fecha, unidades, importe, comision",
           filtro,
         );
-      } catch {
+      } catch (errorSinNeto) {
+        if (!esErrorColumnaLegacy(errorSinNeto, ["comision"])) throw errorSinNeto;
         return traerTodo<VentaDiaria>(db, "ventas_diarias", "sku, fecha, unidades, importe", filtro);
       }
     }
   };
 
-  const [ventas, skus, config, stock, cliente] = await Promise.all([
-    leerVentas(),
+  /**
+   * Las ventas del periodo SUMADAS EN POSTGRES (`ventas_resumen_sku`), en
+   * vez de bajar la tabla cruda para sumarla aquí. El renglón sintético por
+   * SKU lleva `neto` en null y `comision` = importe − neto resuelto, para
+   * que armarPublicidad (importe − comisión) recupere EXACTAMENTE el neto
+   * que la base ya resolvió: real donde llegó, importe − comisión donde no.
+   * Si el RPC no existe todavía, el respaldo baja los renglones como siempre.
+   */
+  const diaAntes = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
+  const leerVentasAgregadas = async (): Promise<{
+    periodo: VentaDiaria[];
+    skusConHistoria: Set<string>;
+    /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
+    ventaSinDeposito: number;
+  }> => {
+    const { data, error } = await db.rpc("ventas_resumen_sku", {
+      p_account: cuenta.id,
+      p_desde: r.desde,
+      p_hasta: r.hasta,
+      p_prev_desde: desdeHistoria,
+      p_prev_hasta: diaAntes,
+      p_hoy: r.hasta,
+    });
+    if (!error) {
+      const periodo: VentaDiaria[] = [];
+      const skusConHistoria = new Set<string>();
+      let ventaSinDeposito = 0;
+      for (const f of (data ?? []) as any[]) {
+        const sku = String(f.sku);
+        const unidades = Number(f.unidades) || 0;
+        const importe = Number(f.importe) || 0;
+        // Regla del dueño: solo el neto REAL. La venta sin depósito leído no
+        // se estima como importe − comisión: se declara y queda fuera.
+        const neto = Number(f.neto_real) || 0;
+        ventaSinDeposito += Math.max(0, importe - (Number(f.importe_neto_real) || 0));
+        if ((Number(f.unidades_prev) || 0) > 0) skusConHistoria.add(sku);
+        if (unidades === 0 && importe === 0 && neto === 0) continue;
+        periodo.push({ sku, fecha: r.desde, unidades, importe, comision: importe - neto, neto: null });
+      }
+      return { periodo, skusConHistoria, ventaSinDeposito };
+    }
+
+    if (!esErrorObjetoLegacy(error, ["ventas_resumen_sku"])) {
+      throw new Error(`ventas_resumen_sku: ${mensajeErrorDatos(error)}`);
+    }
+    const filas = await leerVentas();
+    const skusConHistoria = new Set<string>();
+    let ventaSinDeposito = 0;
+    for (const v of filas) {
+      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) skusConHistoria.add(v.sku);
+      if (v.fecha >= r.desde && netoConfirmadoDeFila(v) == null) ventaSinDeposito += v.importe ?? 0;
+    }
+    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, ventaSinDeposito };
+  };
+
+  const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
+    leerVentasAgregadas(),
+    // Los anuncios desde la base, cuando la sincronización cubre el rango.
+    anunciosDesdeBase(db, cuenta.id, r),
     traerTodo<{ sku: string; modelo: string | null; item_id: string | null }>(
       db,
       "skus",
@@ -788,7 +941,12 @@ export async function cargarPublicidad(
       "stock_full",
       "sku, disponible, en_transferencia",
       (q) => q.eq("account_id", cuenta.id),
-    ).catch(() => []),
+    )
+      .then((filas) => ({ filas, error: null as string | null }))
+      .catch((error) => ({
+        filas: [] as { sku: string; disponible: number | null; en_transferencia: number | null }[],
+        error: `No se pudo leer el stock de Full: ${mensajeErrorDatos(error)}. Las recomendaciones de stock están desactivadas.`,
+      })),
     // Los tokens viven en `meli_tokens`, que tiene RLS con cero políticas a
     // propósito: SOLO el service-role la lee. Con el cliente de la sesión la
     // tabla se ve vacía aunque la cuenta esté conectada.
@@ -800,6 +958,13 @@ export async function cargarPublicidad(
       }
     })(),
   ]);
+  const stock = stockEstado.filas;
+  const advertencias = stockEstado.error ? [stockEstado.error] : [];
+  if (ventasAgregadas.ventaSinDeposito > 0) {
+    advertencias.push(
+      `${ventasAgregadas.ventaSinDeposito.toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de venta del periodo todavía no tiene el depósito real de Mercado Pago: no está en el neto ni en la ganancia (nada se estima); el fondo lo lee solo.`,
+    );
+  }
 
   const modeloDeSku = new Map<string, string>();
   // Una publicación puede traer variantes de VARIOS modelos: se guardan todos
@@ -820,7 +985,10 @@ export async function cargarPublicidad(
 
   let anuncios: AnuncioAds[] = [];
   let errorAds: string | null = null;
-  if (!cliente) {
+  if (deBase) {
+    // La base cubre el rango completo y está fresca: ni una llamada a MELI.
+    anuncios = deBase;
+  } else if (!cliente) {
     errorAds =
       "No se pudieron leer los tokens de MELI: revisa que la cuenta esté conectada en Ajustes.";
   } else {
@@ -843,12 +1011,10 @@ export async function cargarPublicidad(
 
   // El panel usa SOLO las ventas del periodo; las 60 días previas solo
   // marcan qué modelos ya vendían antes (para no regañar lanzamientos).
-  const ventasPeriodo = ventas.filter((v) => v.fecha >= r.desde);
+  const ventasPeriodo = ventasAgregadas.periodo;
   const modelosConHistoria = new Set<string>();
-  for (const v of ventas) {
-    if (v.fecha < r.desde && (v.unidades ?? 0) > 0) {
-      modelosConHistoria.add(modeloDeSku.get(v.sku) ?? (v.sku.split("-")[0] || v.sku));
-    }
+  for (const sku of ventasAgregadas.skusConHistoria) {
+    modelosConHistoria.add(modeloDeSku.get(sku) ?? (sku.split("-")[0] || sku));
   }
 
   const datos = armarPublicidad({
@@ -858,7 +1024,9 @@ export async function cargarPublicidad(
     modeloDeSku,
     costoDeModelo,
     errorAds,
+    advertencias,
   });
+  datos.errorRecomendaciones = stockEstado.error;
 
   // --- Anuncios por modelo, para saber cuáles están pausados ---------------
   const itemsDeModelo = new Map<string, ItemDeModelo[]>();
@@ -887,16 +1055,20 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
-  datos.recomendaciones = armarRecomendaciones({
-    filas: datos.filas,
-    stockDeModelo,
-    dias: diasDeRango(r),
-    itemsDeModelo,
-    modelosConHistoria,
-  });
+  datos.recomendaciones = stockEstado.error
+    ? []
+    : armarRecomendaciones({
+        filas: datos.filas,
+        stockDeModelo,
+        dias: diasDeRango(r),
+        itemsDeModelo,
+        modelosConHistoria,
+      });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
-  if (!errorAds) cachePublicidad.set(claveCache, { en: Date.now(), datos });
+  if (!errorAds && advertencias.length === 0) {
+    cachePublicidad.set(claveCache, { en: Date.now(), datos });
+  }
   return datos;
 }

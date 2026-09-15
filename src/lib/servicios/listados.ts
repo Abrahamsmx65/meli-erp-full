@@ -103,6 +103,8 @@ export interface Diferencia {
   esperada: boolean;
   /** el caso que motivó la pantalla: cualquier atributo de material */
   esMaterial: boolean;
+  /** medidas del paquete (MELI las mide por publicación): no parten el selector */
+  esMedida: boolean;
   valores: ValorDiferencia[];
 }
 
@@ -138,6 +140,17 @@ export function esDiferenciaEsperada(atributoId: string): boolean {
 
 export function esAtributoDeMaterial(atributoId: string): boolean {
   return atributoId.includes("MATERIAL");
+}
+
+/**
+ * Medidas del paquete: MELI mide cada caja al recibirla en Full
+ * (`PACKAGE_*`, `PACKAGE_DATA_SOURCE = MEASUREMENT`) y las que capturó el
+ * vendedor (`SELLER_PACKAGE_*`). Difieren en CADA publicación por unos
+ * milímetros y no parten el selector; enterraban las diferencias reales
+ * (caso GT180: "Diseño de la tela" perdido entre diez renglones de medidas).
+ */
+export function esMedidaDePaquete(atributoId: string): boolean {
+  return /^(SELLER_)?PACKAGE_(HEIGHT|WIDTH|LENGTH|WEIGHT)$/.test(atributoId);
 }
 
 function aValores(attrs: AtributoCrudo[] | undefined): ValorAtributo[] {
@@ -258,6 +271,7 @@ export function calcularDiferencias(items: ItemListado[]): Diferencia[] {
         nivel,
         esperada: esDiferenciaEsperada(atributoId),
         esMaterial: esAtributoDeMaterial(atributoId),
+        esMedida: esMedidaDePaquete(atributoId),
         valores: [...valores.values()].sort((a, b) => b.veces - a.veces),
       });
     }
@@ -278,9 +292,9 @@ export function calcularDiferencias(items: ItemListado[]): Diferencia[] {
   );
 
   // El material —el motivo de la pantalla— primero; luego lo demás raro;
-  // las diferencias esperadas (talla, color, GTIN) al final.
+  // las diferencias esperadas (talla, color, GTIN) y las medidas al final.
   diferencias.sort((a, b) => {
-    const peso = (d: Diferencia) => (d.esMaterial ? 0 : d.esperada ? 2 : 1);
+    const peso = (d: Diferencia) => (d.esMaterial ? 0 : d.esMedida ? 3 : d.esperada ? 2 : 1);
     return peso(a) - peso(b) || a.nombre.localeCompare(b.nombre);
   });
 

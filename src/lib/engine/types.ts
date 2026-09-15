@@ -58,6 +58,13 @@ export interface Caja {
   /** cuántas cajas de este tipo tengo armadas y listas */
   cajasDisponibles: number;
   items: CajaItem[];
+  /**
+   * Producto (modelo + color) al que pertenece la caja. Agrupa las cajas de
+   * un mismo producto aunque vengan de pedidos o bodegas distintas: las
+   * reglas de producto NUEVO y de producto SIN ESTRENO se deciden por
+   * producto, no por caja. Sin él, cada caja es su propio producto.
+   */
+  producto?: string | null;
 }
 
 export interface SkuOverride {
@@ -109,6 +116,35 @@ export interface Parametros {
    * fijó en 200.
    */
   corridaFaltanteGrande: number;
+  /**
+   * Producto NUEVO: lanzado en Full hace menos de estos días (primer dato
+   * de stock o venta dentro de la ventana, sin ventas antes de ella). A un
+   * producto nuevo cualquier faltante le fuerza su caja: no aplica la
+   * tolerancia de rescate de 7 días, porque si no se le surte nunca va a
+   * pagar. Decisión del dueño (sep-2026).
+   */
+  nuevoDias: number;
+  /**
+   * Holgura sobre el objetivo, en días de venta: una talla que quede en
+   * horizonte + holgura (32 en vez de 30) no cuenta como sobre-surtida.
+   * Decisión del dueño (sep-2026).
+   */
+  holguraObjetivoDias: number;
+  /**
+   * Producto SIN VENTA (nunca ha vendido un par en Full) con cajas en
+   * cualquier bodega: se le sostiene una POSICIÓN mínima de estas cajas por
+   * modelo + color para probarlo; lo que ya tenga en Full o en camino
+   * descuenta. Decisión del dueño (sep-2026). 0 = apagado.
+   */
+  cajasMinimasSinEstreno: number;
+  /**
+   * Cobertura (días de venta en Full) a partir de la cual una talla NO
+   * fuerza una caja que sobre-surtiría a sus hermanas. Cuando la caja va a
+   * forzar otras tallas ya no se mira el horizonte de 30 días sino este
+   * (15): si a la talla todavía le alcanza, no se manda. Decisión del
+   * dueño (sep-2026). 0 = siempre se fuerza.
+   */
+  coberturaSinForzarDias: number;
 }
 
 export type OrigenDia =
@@ -161,6 +197,14 @@ export interface DemandaSku {
   coefVariacion: number;
   confianza: Confianza;
   notas: string[];
+  /**
+   * Primer día con evidencia (stock o venta) DENTRO de la ventana, cuando
+   * el SKU se estrenó ahí: null si ya tenía datos desde el primer día de
+   * la ventana (viejo) o si no tiene ningún dato (nunca ha subido).
+   */
+  lanzamiento: ISODate | null;
+  /** días desde `lanzamiento` hasta el fin de la ventana; null si no hubo */
+  diasDesdeLanzamiento: number | null;
 }
 
 export type EstadoSku =
@@ -193,7 +237,7 @@ export interface LineaPlan {
    * sobre-surtiría a sus hermanas, así que se manda menos. `sugerido` ya
    * viene recortado; el pedido completo queda en `sugeridoCompleto`.
    */
-  ajusteCorrida?: "mitad_corrida" | "solo_7_dias";
+  ajusteCorrida?: "mitad_corrida" | "solo_7_dias" | "cobertura_suficiente";
   /** sugerido ANTES del recorte de la corrida (solo cuando hubo ajuste) */
   sugeridoCompleto?: number;
   /** lo que puedo mandar con el inventario propio suelto que tengo */
@@ -202,6 +246,10 @@ export interface LineaPlan {
 
   estado: EstadoSku;
   explicacion: string;
+  /** producto lanzado hace menos de `nuevoDias`: cualquier faltante fuerza caja */
+  productoNuevo?: boolean;
+  /** producto que nunca ha vendido y viaja para completar su posición mínima */
+  sinEstreno?: boolean;
 }
 
 export interface CajaElegida {

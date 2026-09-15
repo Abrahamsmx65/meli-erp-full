@@ -1,9 +1,12 @@
 import type { DB } from "../datos/repos";
-import { registrarSync, cerrarSync } from "../datos/repos";
-import { procesarPendientes, repararNetosHistoricos, repararVentasHistoricas } from "./webhooks";
+import { registrarSync, cerrarSync, adquirirCandado, liberarCandado } from "../datos/repos";
+import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
+import { recargarCargosHistoricos, revisarPendientes } from "./devoluciones";
+import { continuarCargosPendientes } from "./cargos-meli";
 import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
+import { sincronizarPublicidadDiaria } from "./publicidad-sync";
 
 /** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
 export const EDAD_MAX_PLAN_MS = 3 * 60_000;
@@ -28,19 +31,26 @@ export async function latido(
 ): Promise<{ corrio: boolean; procesados: number; msPlan: number | null }> {
   const limite = Date.now() + (opts?.limiteMs ?? 240_000);
 
-  // Un latido por minuto basta: con la app abierta, /api/estado empuja cada
-  // 30 s y correr el latido completo en cada empujón competía por CPU y red
-  // con los clics del usuario en la misma instancia.
-  const { data: vivo } = await admin
+  // Un latido cada DOS minutos basta: con ~40 mil avisos al día la condición
+  // "hay avisos" es verdadera casi siempre, así que el candado es lo único
+  // que decide la cadencia. A 60 s el latido corría 620 veces al día (6
+  // horas de función diarias, medidas en sync_log); a 120 s cuesta la mitad
+  // y las ventas siguen entrando con 2 minutos de retraso como mucho.
+  //
+  // Si la lectura del candado FALLA (Supabase caído: el 9-sep-2026 contestó
+  // 520/521 un minuto y tres latidos arrancaron a la vez, cada uno releyendo
+  // los mismos pagos de Mercado Pago), no se puede saber si hay otro vivo:
+  // el que llega se retira. Un `data` nulo por error NO es "no hay nadie".
+  const vivo = await admin
     .from("sync_log")
     .select("id, estado")
     .eq("account_id", accountId)
     .eq("tarea", "en_vivo")
-    .gte("inicio", new Date(Date.now() - 60_000).toISOString())
+    .gte("inicio", new Date(Date.now() - 120_000).toISOString())
     .limit(1);
-  if (vivo?.length) return { corrio: false, procesados: 0, msPlan: null };
+  if (vivo.error || vivo.data?.length) return { corrio: false, procesados: 0, msPlan: null };
 
-  const { data: corriendo } = await admin
+  const corriendo = await admin
     .from("sync_log")
     .select("id")
     .eq("account_id", accountId)
@@ -48,7 +58,21 @@ export async function latido(
     .eq("estado", "corriendo")
     .gte("inicio", new Date(Date.now() - 4 * 60_000).toISOString())
     .limit(1);
-  if (corriendo?.length) return { corrio: false, procesados: 0, msPlan: null };
+  if (corriendo.error || corriendo.data?.length) return { corrio: false, procesados: 0, msPlan: null };
+
+  // Las dos lecturas de arriba son baratas pero NO atómicas: tras un
+  // reinicio de la base, cientos de avisos encolados las pasan al mismo
+  // tiempo y dos latidos arrancaron en el mismo segundo (9-sep-2026). El
+  // candado de trabajo (candados_trabajo, RPC) sí es atómico: uno solo
+  // entra; el TTL lo suelta si el proceso muere.
+  let candado: string | null;
+  try {
+    candado = await adquirirCandado(admin, accountId, "latido", 4 * 60);
+  } catch {
+    return { corrio: false, procesados: 0, msPlan: null };
+  }
+  if (!candado) return { corrio: false, procesados: 0, msPlan: null };
+  const soltar = () => liberarCandado(admin, accountId, "latido", candado!).catch(() => false);
 
   const logId = await registrarSync(admin, accountId, "en_vivo");
 
@@ -102,12 +126,63 @@ export async function latido(
         const rep = await repararVentasHistoricas(admin, accountId, finDrenado - 15_000);
         diasReparados = rep.dias;
         // Con el historial ya completo, el mismo espacio del latido se usa
-        // para rellenar los netos que esos días restaurados dejaron en cero.
+        // para recargar el desglose con el pago REAL de Mercado Pago, orden
+        // por orden, de lo reciente hacia atrás (junio en adelante).
         if (rep.completo && Date.now() < finDrenado - 60_000) {
-          await repararNetosHistoricos(admin, accountId, finDrenado - 15_000);
+          await recargarCargosHistoricos(admin, accountId, finDrenado - 15_000);
         }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);
+      }
+    }
+
+    // Revisión de devoluciones y cancelaciones: unas órdenes por latido, a
+    // los 10 y a los 40 días de vendidas, para que el corte del mes sea
+    // exacto. Un tropiezo aquí tampoco tumba el latido.
+    if (Date.now() < finDrenado - 45_000) {
+      try {
+        await revisarPendientes(admin, accountId, finDrenado - 15_000);
+      } catch (err) {
+        console.error("revisarPendientes:", (err as Error).message);
+      }
+    }
+
+    // La facturación de MELI que quedó a medias (5 páginas por minuto)
+    // avanza unas páginas por latido hasta completarse.
+    if (Date.now() < finDrenado - 40_000) {
+      try {
+        await continuarCargosPendientes(admin, accountId, finDrenado - 15_000);
+      } catch (err) {
+        console.error("continuarCargosPendientes:", (err as Error).message);
+      }
+    }
+
+    // Product Ads se sincroniza a la base (`publicidad_diaria`) cada hora,
+    // montado en el latido: así /ventas, /publicidad y los cortes suman de
+    // la base en vez de pedirle a MELI el barrido de anuncios en cada
+    // render. Un fallo queda en sync_log (tarea ads_auto) y se reintenta a
+    // la hora; mientras la base no cubra un rango, esas pantallas siguen
+    // preguntando en vivo, así que nunca faltan datos.
+    if (Date.now() < finDrenado - 30_000) {
+      const { data: ultimaAds } = await admin
+        .from("sync_log")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("tarea", "ads_auto")
+        .gte("inicio", new Date(Date.now() - 3_600_000).toISOString())
+        .limit(1);
+      if (!ultimaAds?.length) {
+        const idAds = await registrarSync(admin, accountId, "ads_auto");
+        try {
+          const r = await sincronizarPublicidadDiaria(admin, accountId, {
+            limiteMs: Math.min(90_000, finDrenado - Date.now() - 15_000),
+          });
+          await cerrarSync(admin, idAds, "ok", r);
+        } catch (err) {
+          await cerrarSync(admin, idAds, "error", {
+            mensaje: (err as Error).message.slice(0, 300),
+          });
+        }
       }
     }
 
@@ -158,6 +233,28 @@ export async function latido(
       msPlan = r.msCalculo;
     }
 
+    // La vista de inventario (bodega + Full) también se deja precalculada
+    // cuando quedó obsoleta O envejeció (la pantalla la sirve aunque esté
+    // invalidada, así que este es el único lugar que refresca), para que
+    // Bodega y Planificación China lean un renglón masticado en vez de
+    // armar las cajas en cada visita.
+    if (Date.now() < limite - 15_000) {
+      try {
+        const { data: inv } = await admin
+          .from("inventario_cache")
+          .select("vigente, generado_en")
+          .eq("account_id", accountId)
+          .maybeSingle();
+        const viejo = inv?.generado_en ? Date.now() - Date.parse(inv.generado_en) > 4 * 3_600_000 : true;
+        if (!inv || inv.vigente === false || viejo) {
+          const { recalcularInventario } = await import("./inventario");
+          await recalcularInventario(admin, accountId);
+        }
+      } catch (err) {
+        console.error("recalcularInventario:", (err as Error).message);
+      }
+    }
+
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.
@@ -171,16 +268,18 @@ export async function latido(
     // Amazon avanza montado en este mismo latido, con su propio espaciado.
     // Un tropiezo de Amazon jamás debe tumbar el latido de MELI.
     try {
-      await latidoAmazon(admin);
+      await latidoAmazon(admin, accountId);
     } catch (err) {
       console.error("latidoAmazon:", (err as Error).message);
     }
 
+    await soltar();
     return { corrio: true, procesados, msPlan };
   } catch (err) {
     await cerrarSync(admin, logId, "error", {
       mensaje: (err as Error).message.slice(0, 300),
     });
+    await soltar();
     return { corrio: true, procesados: 0, msPlan: null };
   }
 }

@@ -1,9 +1,10 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
 import { cargarPanelTikTok, DIAS_VENTA } from "@/lib/servicios/tiktok-panel";
 import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
-import { PendientesTikTok } from "@/components/tiktok-pendientes";
+import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
+import { LigarTikTok } from "@/components/ligar-tiktok";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,10 @@ export default async function TikTok({
   }
 
   const p = await cargarPanelTikTok(supabase, cuenta.id);
+  const aliasRaw = await traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) =>
+    q.eq("account_id", cuenta.id),
+  );
+  const alias = (aliasRaw ?? []).map((a: any) => ({ modelo: a.modelo, colorTikTok: a.color_tiktok, colorAmazon: a.color_amazon }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -140,7 +145,7 @@ export default async function TikTok({
         </section>
       ) : null}
 
-      <PendientesTikTok pendientes={p.pendientes} />
+      <AliasAmazonTikTok alias={alias} />
 
       <EntradasTikTok />
 
@@ -181,9 +186,12 @@ export default async function TikTok({
                         un ajuste
                       </span>
                     ) : !r.publicable ? (
-                      <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                        sin publicación en TikTok
-                      </span>
+                      <>
+                        <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
+                          sin publicación ligada en TikTok
+                        </span>
+                        <LigarTikTok sku={r.sku} sugerencias={r.sugerencias} />
+                      </>
                     ) : null}
                   </td>
                   <td

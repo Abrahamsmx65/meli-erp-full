@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, FileText, Printer, ScanLine, Scissors } from "lucide-react";
+import { CalendarClock, Eye, FileText, PackageX, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { agruparErrores } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
   id: number;
@@ -13,8 +14,8 @@ export interface CorteResumen {
   pares: number;
   handover: string;
   errores: { orderId: string; error: string }[];
-  /** paquetes que ya pasaron los tres escaneos */
-  preparados: number;
+  /** paquetes que ya pasaron los tres escaneos; null = no se pudo leer */
+  preparados: number | null;
 }
 
 function cuando(iso: string): string {
@@ -30,11 +31,39 @@ function cuando(iso: string): string {
 export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cortes: CorteResumen[] }) {
   const router = useRouter();
   const [handover, setHandover] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
+  const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [simulacion, setSimulacion] = useState<any>(null);
   const [simulando, setSimulando] = useState(false);
+  // Los faltantes de cada corte, según se piden: el renglón del corte los
+  // enseña abiertos abajo, sin cambiar de pantalla.
+  const [faltantes, setFaltantes] = useState<Record<number, any>>({});
+  const [pidiendoFaltantes, setPidiendoFaltantes] = useState<number | null>(null);
+
+  /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
+  async function verFaltantes(corteId: number) {
+    if (faltantes[corteId]) {
+      setFaltantes((f) => {
+        const { [corteId]: _fuera, ...resto } = f;
+        return resto;
+      });
+      return;
+    }
+    setPidiendoFaltantes(corteId);
+    setError(null);
+    try {
+      const r = await fetch(`/api/tiktok/cortes/${corteId}/faltantes`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudieron leer los faltantes.");
+      setFaltantes((f) => ({ ...f, [corteId]: j }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPidiendoFaltantes(null);
+    }
+  }
 
   async function simular() {
     setSimulando(true);
@@ -51,7 +80,20 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     }
   }
 
-  async function hacerCorte() {
+  /** Lo que se dice de un corte ya hecho. */
+  function resumenDeCorte(j: any): string {
+    const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
+    if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
+    if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);
+    const fuera = (j.errores ?? []).filter((e: any) => e.orderId).length;
+    if (fuera) partes.push(`${fuera} pedidos no entraron (abajo el motivo).`);
+    if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
+    else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
+    else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
+    return partes.join(" ");
+  }
+
+  async function hacerCorte(modo?: "lunes") {
     setOcupado(true);
     setAviso(null);
     setError(null);
@@ -59,17 +101,18 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       const r = await fetch("/api/tiktok/cortes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handover }),
+        body: JSON.stringify({ handover, ...(modo ? { modo } : {}) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
-      const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
-      if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
-      if (j.errores?.length) partes.push(`${j.errores.length} pedidos no entraron (abajo el motivo).`);
-      if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
-      else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
-      else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
-      setAviso(partes.join(" "));
+      if (j.modo === "lunes") {
+        const partes = (j.cortes ?? []).map((c: any) => resumenDeCorte(c));
+        if (j.aviso) partes.push(j.aviso);
+        setAviso(partes.join(" · "));
+      } else {
+        setAviso(resumenDeCorte(j));
+      }
+      setSimulacion(null);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -113,7 +156,17 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               {simulando ? "Simulando…" : "Simular"}
             </button>
             <button
-              onClick={hacerCorte}
+              onClick={() => hacerCorte("lunes")}
+              disabled={ocupado || !pendientes}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--grid)" }}
+              title="Dos cortes: primero lo del viernes y el sábado (lo que ya casi cumple 48 horas) y luego lo del domingo y el lunes"
+            >
+              <CalendarClock size={14} />
+              {ocupado ? "Confirmando…" : "Corte lunes"}
+            </button>
+            <button
+              onClick={() => hacerCorte()}
               disabled={ocupado || !pendientes}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
               style={{ background: "var(--acento)" }}
@@ -136,6 +189,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 cerrar
               </button>
             </div>
+            {simulacion.tandas && simulacion.tandas.urgentes && simulacion.tandas.resto ? (
+              <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+                Corte lunes: {simulacion.tandas.urgentes} pedidos de antes del {simulacion.tandas.corte} (viernes y
+                sábado, los que ya casi cumplen 48 horas) en el primer corte y {simulacion.tandas.resto} del domingo y
+                el lunes en el segundo.
+              </p>
+            ) : null}
             <ul className="mt-2 flex flex-col gap-1">
               {simulacion.pedidos.map((p: any) => (
                 <li key={p.orderId} className="flex flex-wrap items-center gap-2">
@@ -166,10 +226,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       <section className="tarjeta overflow-hidden">
         <h2 className="px-4 pt-4 text-sm font-semibold">Cortes</h2>
         <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
-          Etiquetas y lista van en orden de modelo → color → talla, con el mismo número en las dos.
-          En la etiqueta, abajo a la derecha, van el número, el SKU con su cantidad y el código de
-          barras del producto (FNSKU). En la lista, cada renglón trae ese mismo FNSKU para
-          escanear: hoja, etiqueta y caja llevan el mismo código.
+          Surtido: pares por SKU en orden alfabético, para jalar de bodega. En los cortes nuevos,
+          etiquetas y lista de empaque van PRIMERO con los paquetes de un solo modelo (una pieza o
+          varias del mismo modelo) y al final los revueltos, y dentro de cada bloque en orden de
+          modelo → color → talla, con el mismo número. Un corte ya hecho conserva el orden y los
+          números con los que se imprimió. En la etiqueta va el CÓDIGO DEL PEDIDO en barras: escanearlo
+          en la estación enseña qué empacar, y luego se escanea el FNSKU de cada caja. Si un corte
+          quedó a medias, «Faltantes» dice qué pedidos y qué productos quedaron sin preparar.
         </p>
         <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
           {cortes.map((c) => (
@@ -184,18 +247,36 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <span
                     className="ml-2 rounded-full px-2 text-[11px] font-semibold"
                     style={{
-                      background: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
-                      color: c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
+                      background: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      color: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
                     }}
                   >
-                    {c.preparados} / {c.pedidos} preparados
+                    {c.preparados ?? "—"} / {c.pedidos} preparados
                   </span>
                 </div>
-                {c.errores?.length ? (
+                {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
-                    {c.errores.map((e) => (
-                      <li key={e.orderId}>
-                        Pedido {e.orderId}: {e.error}
+                    {agruparErrores(c.errores.filter((e) => !e.error.includes("solo drop-off"))).map((g) => (
+                      <li
+                        key={g.mensaje}
+                        title={g.pedidos.length > 1 ? g.ejemplo : undefined}
+                        // Un renglón sin pedido es una nota del corte entero (por
+                        // ejemplo, que salió como recolección sin horario): no es rojo.
+                        style={g.pedidos.length ? undefined : { color: "var(--ink-2)" }}
+                      >
+                        {g.pedidos.length > 1
+                          ? `${g.pedidos.length} pedidos: ${g.mensaje}`
+                          : g.pedidos.length === 1
+                            ? `Pedido ${g.pedidos[0]}: ${g.ejemplo}`
+                            : g.ejemplo}
+                        {g.pedidos.length > 1 ? (
+                          <details className="inline">
+                            <summary className="ml-1 inline cursor-pointer underline" style={{ color: "var(--ink-2)" }}>
+                              ver cuáles
+                            </summary>
+                            <span className="cifra ml-1" style={{ color: "var(--ink-2)" }}>{g.pedidos.join(", ")}</span>
+                          </details>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -209,6 +290,65 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
+                {c.pedidos > 0 && c.preparados != null && c.preparados < c.pedidos ? (
+                  <button
+                    type="button"
+                    disabled={pidiendoFaltantes === c.id}
+                    onClick={() => verFaltantes(c.id)}
+                    title="Los pedidos de este corte que todavía no se preparan, con sus productos"
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+                    style={{ borderColor: "var(--estado-alerta)", color: "var(--ink-1)" }}
+                  >
+                    <PackageX size={14} />
+                    {pidiendoFaltantes === c.id
+                      ? "Buscando…"
+                      : faltantes[c.id]
+                        ? "Ocultar faltantes"
+                        : `Faltantes (${c.pedidos - (c.preparados ?? 0)})`}
+                  </button>
+                ) : null}
+                {c.pedidos > 0 && c.preparados != null && c.preparados < c.pedidos ? (
+                  <button
+                    type="button"
+                    disabled={preparandoTodo === c.id}
+                    onClick={async () => {
+                      const faltan = c.pedidos - (c.preparados ?? 0);
+                      const pin = window.prompt(
+                        `Dar por preparado TODO el corte #${c.numero} sin escanear (faltan ${faltan}). Clave de supervisor:`,
+                      );
+                      if (pin == null) return;
+                      setPreparandoTodo(c.id);
+                      try {
+                        const r = await fetch(`/api/tiktok/cortes/${c.id}/preparar-todo`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ pin }),
+                        });
+                        const j = await r.json();
+                        if (!r.ok) throw new Error(j.error ?? "No se pudo.");
+                        router.refresh();
+                      } catch (e) {
+                        alert((e as Error).message);
+                      } finally {
+                        setPreparandoTodo(null);
+                      }
+                    }}
+                    title="Da por preparados todos los paquetes pendientes del corte, con constancia SUPERVISOR"
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
+                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                  >
+                    <ShieldCheck size={14} /> {preparandoTodo === c.id ? "Preparando…" : "Todo con clave"}
+                  </button>
+                ) : null}
+                <a
+                  href={`/api/tiktok/cortes/${c.id}/surtido`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--grid)" }}
+                >
+                  Lista de surtido
+                </a>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/etiquetas`}
                   target="_blank"
@@ -236,6 +376,60 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <FileText size={14} /> Lista de empaque
                 </a>
               </div>
+              {faltantes[c.id] ? (
+                <div className="w-full rounded-lg border p-3 text-sm" style={{ borderColor: "var(--grid)" }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold">
+                      Faltan {faltantes[c.id].faltantes.length} de {faltantes[c.id].total} paquetes ·{" "}
+                      {faltantes[c.id].pares.reduce((a: number, x: any) => a + x.pares, 0)} pares
+                    </span>
+                    <a
+                      href={`/api/tiktok/cortes/${c.id}/faltantes?formato=pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 text-xs underline"
+                      style={{ color: "var(--ink-2)" }}
+                    >
+                      <Printer size={12} /> Imprimir la hoja
+                    </a>
+                  </div>
+                  {faltantes[c.id].pares.length ? (
+                    <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+                      Por surtir:{" "}
+                      {faltantes[c.id].pares.map((x: any) => `${x.sku} ×${x.pares}`).join(" · ")}
+                    </p>
+                  ) : null}
+                  <ul className="mt-2 flex flex-col gap-1">
+                    {faltantes[c.id].faltantes.map((f: any) => (
+                      <li key={`${f.orderId}-${f.packageId}`} className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold">#{f.numero}</span>
+                        <span className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+                          {f.orderId}
+                        </span>
+                        <span>
+                          {f.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
+                        </span>
+                        {f.revuelto ? (
+                          <span className="rounded-full px-2 text-[11px] font-semibold" style={{ background: "var(--grid)", color: "var(--ink-2)" }}>
+                            revuelto
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                    {!faltantes[c.id].faltantes.length ? (
+                      <li className="text-xs" style={{ color: "var(--ink-2)" }}>
+                        Nada pendiente: el corte se preparó completo.
+                      </li>
+                    ) : null}
+                  </ul>
+                  {faltantes[c.id].rechazados?.length ? (
+                    <div className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>
+                      Además, TikTok no aceptó estos pedidos al hacer el corte (nunca tuvieron guía):{" "}
+                      {faltantes[c.id].rechazados.map((r: any) => r.orderId).join(", ")}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </li>
           ))}
           {!cortes.length ? (

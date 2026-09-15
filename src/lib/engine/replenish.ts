@@ -207,7 +207,7 @@ export function prioridadFaltante(linea: LineaPlan, p: Parametros): number {
  * quieren": dice que nunca ha habido qué vender. Es la talla agotada de
  * siempre, justo la que hay que reponer.
  */
-function nuncaTuvoOportunidad(l: LineaPlan): boolean {
+export function nuncaTuvoOportunidad(l: LineaPlan): boolean {
   return (
     l.disponible === 0 &&
     l.enTransferencia === 0 &&

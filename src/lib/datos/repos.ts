@@ -48,11 +48,18 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   amazon_pagos: ["account_id", "settlement_id", "seller_sku", "fecha"],
   amazon_skus: ["account_id", "seller_sku"],
   corridas: ["account_id", "pedido", "modelo", "color"],
+  cortes_meli: ["id"],
   datos_fiscales: ["account_id", "sku"],
   existencias: ["id"],
+  gastos_meli: ["id"],
+  contenedor_lineas: ["id"],
+  contenedores: ["id"],
+  envio_cajas: ["id"],
   mapeo_sku: ["account_id", "sku_construido"],
   medidas_envio: ["account_id", "sku"],
+  meli_cargos: ["account_id", "detalle_id"],
   ordenes_neto: ["account_id", "order_id"],
+  pedido_lineas: ["id"],
   pedidos: ["id"],
   productos_config: ["account_id", "modelo", "color"],
   sku_overrides: ["account_id", "sku"],
@@ -64,6 +71,7 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   tiktok_mapeo_sku: ["account_id", "sku_tiktok"],
   tiktok_movimientos: ["id"],
   tiktok_orden_items: ["account_id", "line_item_id"],
+  tiktok_preparaciones: ["id"],
   tiktok_ordenes: ["account_id", "order_id"],
   tiktok_skus: ["account_id", "sku_id"],
   // Las tablas que SIEMPRE se leen por rango de fecha van ordenadas con la
@@ -77,6 +85,9 @@ const LLAVE_POR_TABLA: Record<string, string[]> = {
   stock_operaciones: ["account_id", "fecha", "operation_id"],
   stock_snapshots: ["account_id", "fecha", "sku"],
   ventas_diarias: ["account_id", "fecha", "sku"],
+  yz_cargos: ["account_id", "detalle_id"],
+  yz_gastos: ["id"],
+  yz_cortes: ["id"],
   tiktok_ventas_diarias: ["account_id", "fecha", "sku"],
 };
 
@@ -104,7 +115,11 @@ export async function traerTodo<T>(
     let q = filtros(db.from(tabla).select(columnas));
     for (const col of orden) q = q.order(col, { ascending: true });
     const { data, error } = await q.range(desde, desde + paso - 1);
-    if (error) throw new Error(`${tabla}: ${error.message}`);
+    if (error) {
+      throw Object.assign(new Error(`${tabla}: ${error.message}`), {
+        code: error.code,
+      });
+    }
     return (data ?? []) as T[];
   };
 
@@ -115,7 +130,11 @@ export async function traerTodo<T>(
     leer(0),
     filtros(db.from(tabla).select(columnas, { count: "estimated", head: true })),
   ]);
-  if (conteo.error) throw new Error(`${tabla}: ${conteo.error.message}`);
+  if (conteo.error) {
+    throw Object.assign(new Error(`${tabla}: ${conteo.error.message}`), {
+      code: conteo.error.code,
+    });
+  }
   if (primera.length < paso) return primera;
 
   const count = conteo.count as number | null;
@@ -146,6 +165,34 @@ export async function traerTodo<T>(
 }
 
 /**
+ * Corre `leer` sobre tandas de ids, para los .in() con muchas llaves: la URL
+ * se mantiene corta y, cuando la columna filtrada es única, ninguna tanda
+ * puede pasar del tope de filas. A lo más 6 tandas en vuelo (el mismo tope
+ * que traerTodo): con miles de ids son un puñado de viajes, no una ráfaga.
+ */
+export async function porTandas<T>(
+  ids: string[],
+  tamano: number,
+  leer: (tanda: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const tandas: string[][] = [];
+  for (let i = 0; i < ids.length; i += tamano) tandas.push(ids.slice(i, i + tamano));
+  if (!tandas.length) return [];
+
+  const salida: T[][] = new Array(tandas.length);
+  let cursor = 0;
+  const trabajador = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= tandas.length) return;
+      salida[i] = await leer(tandas[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, tandas.length) }, trabajador));
+  return salida.flat();
+}
+
+/**
  * Lo mismo que `traerTodo` pero para una FUNCIÓN de la base (rpc): trae
  * todos sus renglones, en páginas.
  *
@@ -163,7 +210,7 @@ export async function traerRpcTodo<T>(
   funcion: string,
   parametros: Record<string, unknown>,
   paso = 1000,
-): Promise<{ filas: T[]; error: string | null }> {
+): Promise<{ filas: T[]; error: string | null; errorCodigo?: string }> {
   const filas: T[] = [];
 
   for (let pagina = 0; ; pagina++) {
@@ -173,7 +220,11 @@ export async function traerRpcTodo<T>(
       .range(desde, desde + paso - 1);
 
     if (error) {
-      return { filas, error: error.message ?? String(error) };
+      return {
+        filas,
+        error: error.message ?? String(error),
+        errorCodigo: error.code ? String(error.code) : undefined,
+      };
     }
 
     const lote = (data ?? []) as T[];

@@ -11,14 +11,21 @@
  * le gana a la del modelo.
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { conCacheYz, recalcularCacheYz } from "../yapanizcel/cache";
+import { desglosar as desglosarFunda, esCalzado } from "../yapanizcel/sku";
+
+export type Negocio = "calzado" | "fundas";
 
 export interface ProductoConfig {
   modelo: string;
   titulo: string | null;
   colores: number;
+  /** SKUs del modelo (tallas × colores en calzado; variantes en fundas) */
   tallas: number;
   categoria: string | null;
   costoMxn: number | null;
+  /** de qué catálogo sale: el de calzado (MELI) o el de fundas (YAPANIZCEL) */
+  negocio: Negocio;
 }
 
 export interface CatalogoProductos {
@@ -26,6 +33,11 @@ export interface CatalogoProductos {
   categorias: string[];
   /** true si la tabla productos_config todavía no existe en la base */
   faltaMigracion: boolean;
+  /**
+   * Cuántos diseños de funda quedaron fuera por no tener costo capturado.
+   * Se cuentan aunque no viajen: la pantalla ofrece verlos con ese número.
+   */
+  fundasSinCosto: number;
 }
 
 export interface ConfigProducto {
@@ -33,10 +45,72 @@ export interface ConfigProducto {
   costo: number | null;
 }
 
-export async function cargarProductos(db: DB, accountId: string): Promise<CatalogoProductos> {
-  const skus = await traerTodo<any>(db, "skus", "sku, modelo, color, titulo", (q) =>
-    q.eq("account_id", accountId).eq("activo", true),
-  );
+/**
+ * Los diseños de fundas de YAPANIZCEL (yz_skus), para capturarles costo en
+ * el mismo lugar que al calzado. Decisión del dueño: un solo Productos y
+ * costos para todo. Sin cuenta de fundas, lista vacía.
+ */
+type DisenosFundas = Map<string, { titulo: string | null; colores: Set<string>; tallas: number }>;
+
+async function calcularDisenosFundas(db: DB, accountId: string): Promise<DisenosFundas> {
+  const salida: DisenosFundas = new Map();
+  const skus = await traerTodo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId));
+  for (const s of skus) {
+    const d = desglosarFunda(s.sku);
+    const diseno = d.diseno.toUpperCase();
+    // Sin diseño numérico no es una funda; el calzado que vive en esa
+    // cuenta ya está listado por su propio catálogo.
+    if (!diseno || esCalzado(diseno)) continue;
+    const p = salida.get(diseno) ?? { titulo: null, colores: new Set<string>(), tallas: 0 };
+    p.tallas += 1;
+    if (d.color) p.colores.add(d.color);
+    if (!p.titulo && s.titulo) p.titulo = s.titulo;
+    salida.set(diseno, p);
+  }
+  return salida;
+}
+
+/** Recalcula y guarda los diseños masticados (lo llama el cron de netos). */
+export async function recalcularDisenosFundas(db: DB, accountId: string): Promise<DisenosFundas> {
+  return recalcularCacheYz(db, accountId, "disenos", () => calcularDisenosFundas(db, accountId));
+}
+
+async function disenosDeFundas(db: DB): Promise<DisenosFundas> {
+  try {
+    const { data: cuenta } = await db.from("yz_cuentas").select("id").order("creado_en", { ascending: true }).limit(1).maybeSingle();
+    if (!cuenta?.id) return new Map();
+
+    // Masticado en yz_cache ("disenos"): armar esto baja el catálogo de
+    // fundas COMPLETO (~18 mil variantes en 15 páginas) y se estaba pagando
+    // en cada render de Productos y costos. Lo invalida la sincronización
+    // del catálogo de fundas; se sirve aunque esté viejo (el cron refresca).
+    return await conCacheYz(db, cuenta.id, "disenos", () => calcularDisenosFundas(db, cuenta.id));
+  } catch {
+    // Sin tablas de fundas (otra base) no pasa nada: solo calzado.
+    return new Map();
+  }
+}
+
+/**
+ * El catálogo de Productos y costos.
+ *
+ * Por omisión NO se mandan los diseños de funda sin costo capturado: son
+ * cientos, llegaron de rebote del catálogo de YAPANIZCEL y llenaban la
+ * pantalla de renglones vacíos que estorban para encontrar lo que sí se
+ * trabaja. Se cuentan aparte (`fundasSinCosto`) y se piden con
+ * `conFundasSinCosto` cuando hace falta capturar un diseño nuevo, para que
+ * nunca queden inalcanzables.
+ */
+export async function cargarProductos(
+  db: DB,
+  accountId: string,
+  opts?: { conFundasSinCosto?: boolean },
+): Promise<CatalogoProductos> {
+  const [skus, fundas, { config, faltaMigracion }] = await Promise.all([
+    traerTodo<any>(db, "skus", "sku, modelo, color, titulo", (q) => q.eq("account_id", accountId).eq("activo", true)),
+    disenosDeFundas(db),
+    leerConfig(db, accountId),
+  ]);
 
   const porModelo = new Map<
     string,
@@ -52,26 +126,38 @@ export async function cargarProductos(db: DB, accountId: string): Promise<Catalo
     porModelo.set(modelo, p);
   }
 
-  const { config, faltaMigracion } = await leerConfig(db, accountId);
+  const armar = (modelo: string, p: { titulo: string | null; colores: Set<string>; tallas: number }, negocio: Negocio): ProductoConfig => {
+    const c = config.get(modelo) ?? config.get(modelo.toUpperCase());
+    return {
+      modelo,
+      titulo: p.titulo,
+      colores: p.colores.size,
+      tallas: p.tallas,
+      categoria: c?.categoria ?? null,
+      costoMxn: c?.costo ?? null,
+      negocio,
+    };
+  };
 
-  const productos: ProductoConfig[] = [...porModelo.entries()]
-    .map(([modelo, p]) => {
-      const c = config.get(modelo);
-      return {
-        modelo,
-        titulo: p.titulo,
-        colores: p.colores.size,
-        tallas: p.tallas,
-        categoria: c?.categoria ?? null,
-        costoMxn: c?.costo ?? null,
-      };
-    })
-    .sort((a, b) => a.modelo.localeCompare(b.modelo));
+  const productos: ProductoConfig[] = [
+    ...[...porModelo.entries()].map(([modelo, p]) => armar(modelo, p, "calzado")),
+    ...[...fundas.entries()].filter(([d]) => !porModelo.has(d)).map(([d, p]) => armar(d, p, "fundas")),
+  ].sort((a, b) => a.negocio.localeCompare(b.negocio) || a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
 
-  const categorias = [...new Set(productos.map((p) => p.categoria).filter(Boolean))] as string[];
-  categorias.sort();
+  // Las categorías de fundas que agrupan la Bodega de YAPANIZCEL (tipo →
+  // diseño → SKU) se ofrecen siempre, para capturarlas de un jalón aquí.
+  const base = fundas.size ? ["Fundas", "Tabletas", "Micas"] : [];
+  const categorias = [...new Set([...base, ...productos.map((p) => p.categoria).filter(Boolean)])] as string[];
+  categorias.sort((a, b) => a.localeCompare(b, "es"));
 
-  return { productos, categorias, faltaMigracion };
+  // Se cuentan ANTES de filtrar: el chip de la pantalla necesita saber
+  // cuántas hay escondidas.
+  const fundasSinCosto = productos.filter((p) => p.negocio === "fundas" && p.costoMxn == null).length;
+  const visibles = opts?.conFundasSinCosto
+    ? productos
+    : productos.filter((p) => p.negocio !== "fundas" || p.costoMxn != null);
+
+  return { productos: visibles, categorias, faltaMigracion, fundasSinCosto };
 }
 
 /** Mapa modelo → {categoria, costo}, para calcular la ganancia. */

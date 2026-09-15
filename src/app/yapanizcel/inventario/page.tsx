@@ -1,16 +1,11 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, leerParametros } from "@/lib/yapanizcel/cuenta";
-import { cargarInventarioAmarrado } from "@/lib/yapanizcel/inventario";
-import { cargarEnvios } from "@/lib/yapanizcel/envios";
-import { cargarPedidosEnCamino } from "@/lib/yapanizcel/compras";
-import { hoyMx, restarDias, todo } from "@/lib/yapanizcel/db";
-import { construirIndice, desglosar } from "@/lib/yapanizcel/sku";
-import { cargarVentasAgregadas } from "@/lib/yapanizcel/agregados";
+import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
+import { obtenerInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
 import { Ficha } from "@/components/tiles";
 import { BotonSheets } from "@/components/yapanizcel/acciones";
 import { TablaInventarioYz, type RenglonInv } from "@/components/yapanizcel/tabla-inventario";
-import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
+import { Encabezado, Frescura, SinCuenta, n } from "@/components/yapanizcel/comunes";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 
 export const dynamic = "force-dynamic";
@@ -21,49 +16,15 @@ export default async function InventarioYz() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta />;
 
-  const p = await leerParametros(supabase, cuenta.id);
-  const hasta = restarDias(hoyMx(), 1);
-  const desde = restarDias(hasta, p.diasVenta - 1);
-
-  const [inv, skus, stock, agregadas, { enCamino }, mapeos, sync] = await Promise.all([
-    cargarInventarioAmarrado(supabase, cuenta.id),
-    todo<{ sku: string; titulo: string | null; diseno: string | null }>(supabase, "yz_skus", "sku, titulo, diseno", (q) => q.eq("account_id", cuenta.id)),
-    todo<{ sku: string; disponible: number; en_transferencia: number }>(supabase, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", cuenta.id)),
-    cargarVentasAgregadas(supabase, cuenta.id, desde, hasta),
-    cargarEnvios(supabase, cuenta.id, p.diasCaducidadEnvio),
-    todo<{ sku_bodega: string; sku_meli: string }>(supabase, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", cuenta.id)),
+  // La pantalla vive masticada en yz_cache; solo la ficha del sheet se lee
+  // fresca (es un renglón y cambia con cada lectura del sheet).
+  const [pantalla, sync] = await Promise.all([
+    obtenerInventarioPantalla(supabase, cuenta.id),
     supabase.from("yz_inventario_sync").select("corrido_en, hojas, renglones, unidades, avisos").eq("account_id", cuenta.id).maybeSingle(),
   ]);
-
-  const china = await cargarPedidosEnCamino(supabase, cuenta.id, {
-    indice: construirIndice(skus.map((s) => s.sku)),
-    manual: new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli])),
-    porBodega: new Map(inv.renglones.map((r) => [r.skuBodega, r.skuMeli])),
-  });
-
-  const stockPor = new Map(stock.map((s) => [s.sku, s]));
-  const vend = agregadas.totales;
-  const camino = new Map<string, number>();
-  for (const c of enCamino) camino.set(c.skuMeli, (camino.get(c.skuMeli) ?? 0) + c.unidades);
-  const bodegaSkus = new Map<string, string[]>();
-  for (const r of inv.renglones) if (r.skuMeli) bodegaSkus.set(r.skuMeli, [...(bodegaSkus.get(r.skuMeli) ?? []), r.skuBodega]);
-
-  const renglones: RenglonInv[] = skus
-    .map((s) => ({
-      skuMeli: s.sku,
-      titulo: s.titulo,
-      diseno: desglosar(s.sku).diseno,
-      enFull: stockPor.get(s.sku)?.disponible ?? 0,
-      enTransferencia: stockPor.get(s.sku)?.en_transferencia ?? 0,
-      enCamino: camino.get(s.sku) ?? 0,
-      enBodega: inv.porSkuMeli.get(s.sku) ?? 0,
-      enCaminoChina: china.get(s.sku) ?? 0,
-      vendidas30: vend.get(s.sku) ?? 0,
-      skusBodega: bodegaSkus.get(s.sku) ?? [],
-    }))
-    .sort((a, b) => b.vendidas30 - a.vendidas30 || a.skuMeli.localeCompare(b.skuMeli));
-
-  const totalBodega = [...inv.porSkuMeli.values()].reduce((a, b) => a + b, 0);
+  const inv = { porSkuMeli: { size: pantalla.skusMeliConBodega }, sinAmarrar: pantalla.sinAmarrar, sugeridos: pantalla.sugeridos };
+  const renglones: RenglonInv[] = pantalla.renglones;
+  const totalBodega = pantalla.totalBodega;
   const ultima = sync.data;
 
   return (
@@ -77,6 +38,7 @@ export default async function InventarioYz() {
       <div className="tarjeta p-4">
         <BotonSheets configurado={Boolean(configuracionSheets())} />
       </div>
+      <Frescura generadoEn={pantalla.generadoEn} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Ficha titulo="Unidades en bodega (amarradas)" valor={n(totalBodega)} nota={`${inv.porSkuMeli.size} SKUs de MELI`} />

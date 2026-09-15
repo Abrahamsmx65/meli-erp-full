@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
-import { leerPedido } from "@/lib/yapanizcel/pedidos";
+import { amarrarLineas, leerPedido } from "@/lib/yapanizcel/pedidos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,7 +15,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No recibí el archivo del pedido." }, { status: 400 });
   }
   try {
-    const r = await leerPedido(Buffer.from(await archivo.arrayBuffer()), archivo.name);
+    const leido = await leerPedido(Buffer.from(await archivo.arrayBuffer()), archivo.name);
+    // Se amarra contra MELI aquí mismo para avisar de lo que no contaría
+    // como en camino; si el catálogo no se puede leer, el pedido se lee igual.
+    const r = await amarrarLineas(ctx.db, ctx.cuenta.id, leido).catch(() => leido);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return errorJson(err, 400);

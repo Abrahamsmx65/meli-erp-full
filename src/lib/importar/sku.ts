@@ -67,9 +67,17 @@ const SUFIJOS_SITIO = new Set([
  * "BLACK" en la proforma y los SKUs del negocio usan "BLK". Solo entran
  * pares verificados — nada de adivinar abreviaturas para otros colores
  * (BROWN, BEIGE, etc. se escriben igual en los dos lados).
+ *
+ * DARK → DK y LIGHT → LT: verificado en la base (sep 2026): MELI no tiene
+ * ni un SKU con "DARK" ni con "LIGHT" (174 con "DK", 55 con "LT"), la
+ * proforma del GT156 dice "DARK BROWN" donde MELI y Amazon dicen "DK
+ * BROWN", y Amazon tiene 7 publicaciones con "LIGHT" contra el "LT" de
+ * MELI. Sin esto, GT156 DK BROWN salía como sin publicar.
  */
 const SINONIMOS_COLOR: Record<string, string> = {
   BLACK: "BLK",
+  DARK: "DK",
+  LIGHT: "LT",
 };
 
 /**

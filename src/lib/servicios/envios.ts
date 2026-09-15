@@ -52,13 +52,21 @@ export async function separarEnvios(
   db: DB,
   accountId: string,
   cajas: CajaGuardada[],
+  /**
+   * Los almacenes ya leídos, para no repetir el viaje cuando el llamador los
+   * trae en su mismo Promise.all (la página de envíos los pedía en serie,
+   * DESPUÉS de tener todo lo demás).
+   */
+  almacenesPre?: { almacen: string; grupo_envio: string | null }[],
 ): Promise<PlanDeEnvios> {
-  const almacenes = await traerTodo<any>(
-    db,
-    "almacenes_activos",
-    "almacen, surte_full, grupo_envio",
-    (q) => q.eq("account_id", accountId),
-  );
+  const almacenes =
+    almacenesPre ??
+    (await traerTodo<any>(
+      db,
+      "almacenes_activos",
+      "almacen, surte_full, grupo_envio",
+      (q) => q.eq("account_id", accountId),
+    ));
 
   const grupoDe = new Map<string, string>();
   for (const a of almacenes) {
@@ -108,16 +116,20 @@ export async function separarEnvios(
       }
     }
     e.skus = acc.size;
+    // Alfabético con números en orden natural (GT104-1 antes que GT110):
+    // así se recorre la bodega y así pidió el dueño leer las listas.
     e.porSku = [...acc.entries()]
       .map(([sku, v]) => ({ sku, talla: v.talla, pares: v.pares }))
-      .sort((a, b) => b.pares - a.pares);
+      .sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true }));
 
     e.almacenes.sort();
-    e.cajas.sort((a, b) => {
-      if (a.almacen !== b.almacen) return a.almacen.localeCompare(b.almacen);
-      if (a.modelo !== b.modelo) return a.modelo.localeCompare(b.modelo);
-      return a.color.localeCompare(b.color);
-    });
+    e.cajas.sort(
+      (a, b) =>
+        a.almacen.localeCompare(b.almacen, "es") ||
+        a.modelo.localeCompare(b.modelo, "es", { numeric: true }) ||
+        a.color.localeCompare(b.color, "es") ||
+        a.talla.localeCompare(b.talla, "es", { numeric: true }),
+    );
   }
 
   // El envío más grande primero: es el que hay que empezar a preparar antes.

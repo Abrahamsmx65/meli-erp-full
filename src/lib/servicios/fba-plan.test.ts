@@ -114,3 +114,151 @@ describe("plan FBA con el motor de cajas de bodega", () => {
     expect(plan.sinCajaEnBodega).toEqual([{ sku: "GT1-BLK-24", pares: 148 }]);
   });
 });
+
+/**
+ * Las mismas tres reglas de producto que el plan de Full, decididas por el
+ * dueño en sep-2026, aplicadas a FBA: un producto que nunca ha vendido en
+ * Amazon no tenía faltante y nunca salía en el envío ("no me sale para
+ * mandar los productos nuevos").
+ */
+describe("plan FBA: reglas de producto NUEVO y SIN VENTA", () => {
+  const catalogoMeli2 = indexarCatalogo([
+    { sku: "GT1-BLK-23" },
+    { sku: "GT1-BLK-24" },
+    { sku: "GT2-RED-23" },
+    { sku: "GT2-RED-24" },
+  ]);
+  const cajaGt2 = () => ({
+    ...cajaCorrida("CAJA-GT2", 10, [["GT2-RED-23", "23", 12], ["GT2-RED-24", "24", 12]]),
+    modelo: "GT2",
+    color: "RED",
+    producto: "GT2|RED",
+  });
+  const hoy = "2026-09-14";
+
+  it("producto SIN VENTA con caja en bodega y publicación: viajan 2 cajas firmes", () => {
+    const plan = planFbaConCajas({
+      renglones: [renglon("GT2-23-RED-MX", 0, 0), renglon("GT2-24-RED-MX", 0, 0)],
+      dias: 30,
+      catalogo: [cajaGt2()],
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map(),
+      skusListados: new Set(["GT2-23-RED-MX"]),
+      hoy,
+    });
+    expect(plan.avisos).toHaveLength(0);
+    expect(plan.sinEstreno).toEqual([
+      { producto: "GT2|RED", enPosicion: 0, cajas: 2, codigos: ["CAJA-GT2"] },
+    ]);
+    expect(plan.cajas).toHaveLength(1);
+    expect(plan.cajas[0].cantidad).toBe(2);
+    expect(plan.cajas[0].cantidadOpcional).toBe(0);
+  });
+
+  it("lo que ya tiene en FBA o en camino descuenta de la posición mínima", () => {
+    const plan = planFbaConCajas({
+      // 24 pares en FBA = una caja completa ya en posición: falta UNA.
+      renglones: [renglon("GT2-23-RED-MX", 0, 12), renglon("GT2-24-RED-MX", 0, 12)],
+      dias: 30,
+      catalogo: [cajaGt2()],
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map(),
+      skusListados: new Set(["GT2-23-RED-MX"]),
+      hoy,
+    });
+    expect(plan.sinEstreno[0]).toMatchObject({ enPosicion: 1, cajas: 1 });
+    expect(plan.cajas[0].cantidad).toBe(1);
+  });
+
+  it("sin publicación en Amazon no hay a dónde mandarlo: nada", () => {
+    const plan = planFbaConCajas({
+      renglones: [renglon("GT2-23-RED-MX", 0, 0)],
+      dias: 30,
+      catalogo: [cajaGt2()],
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map(),
+      skusListados: new Set(),
+      hoy,
+    });
+    expect(plan.sinEstreno).toHaveLength(0);
+    expect(plan.cajas).toHaveLength(0);
+  });
+
+  it("si alguna talla vendió alguna vez en la historia, no es producto sin venta", () => {
+    const plan = planFbaConCajas({
+      renglones: [renglon("GT2-23-RED-MX", 0, 0), renglon("GT2-24-RED-MX", 0, 0)],
+      dias: 30,
+      catalogo: [cajaGt2()],
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map([
+        ["GT2-24-RED-MX", { unidades: 3, primeraVenta: "2025-10-01", primeraFoto: null }],
+      ]),
+      skusListados: new Set(["GT2-23-RED-MX"]),
+      hoy,
+    });
+    expect(plan.sinEstreno).toHaveLength(0);
+    expect(plan.cajas).toHaveLength(0);
+  });
+
+  it("sin historia de Amazon las reglas se apagan y el plan lo avisa", () => {
+    const plan = planFbaConCajas({
+      renglones: [renglon("GT2-23-RED-MX", 0, 0)],
+      dias: 30,
+      catalogo: [cajaGt2()],
+      indiceMeli: catalogoMeli2,
+      parametros,
+      skusListados: new Set(["GT2-23-RED-MX"]),
+      hoy,
+    });
+    expect(plan.avisos).toHaveLength(1);
+    expect(plan.sinEstreno).toHaveLength(0);
+    expect(plan.cajas).toHaveLength(0);
+  });
+
+  it("producto NUEVO: un faltante chico fuerza su caja, firme; uno viejo espera", () => {
+    // 10 pares en 30 días por talla = 0.33/día → 13 pares para 37 días. La
+    // caja trae 12 y 12: falta 1 par por talla, menos que la tolerancia de
+    // rescate de 7 días (~2 pares) → un producto viejo se queda con 1 caja.
+    const renglones = [renglon("GT1-23-BLK-MX", 10, 0), renglon("GT1-24-BLK-MX", 10, 0)];
+    const catalogo = [
+      { ...cajaCorrida("CAJA-GT1", 50, [["GT1-BLK-23", "23", 12], ["GT1-BLK-24", "24", 12]]), producto: "GT1|BLK" },
+    ];
+    const viejo = planFbaConCajas({
+      renglones,
+      dias: 30,
+      catalogo,
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map([
+        ["GT1-23-BLK-MX", { unidades: 300, primeraVenta: "2025-09-01", primeraFoto: null }],
+      ]),
+      hoy,
+    });
+    expect(viejo.productosNuevos).toHaveLength(0);
+    expect(viejo.cajas[0].cantidad).toBe(1);
+
+    // El mismo producto estrenado hace 10 días: cualquier faltante fuerza
+    // la segunda caja y va firme, nunca opcional.
+    const nuevo = planFbaConCajas({
+      renglones,
+      dias: 30,
+      catalogo,
+      indiceMeli: catalogoMeli2,
+      parametros,
+      historia: new Map([
+        ["GT1-23-BLK-MX", { unidades: 10, primeraVenta: "2026-09-04", primeraFoto: null }],
+        ["GT1-24-BLK-MX", { unidades: 10, primeraVenta: "2026-09-05", primeraFoto: null }],
+      ]),
+      hoy,
+    });
+    expect(nuevo.productosNuevos).toEqual([
+      { producto: "GT1|BLK", edad: 10, skus: ["GT1-BLK-23", "GT1-BLK-24"] },
+    ]);
+    expect(nuevo.cajas[0].cantidad).toBe(2);
+    expect(nuevo.cajas[0].cantidadOpcional).toBe(0);
+  });
+});

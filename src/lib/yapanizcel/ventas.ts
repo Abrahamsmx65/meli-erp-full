@@ -2,14 +2,15 @@
  * Monitor de ventas con costos y ganancia.
  *
  * Por SKU y por diseño, en el periodo elegido: unidades, importe de lista,
- * comisión de MELI, neto real depositado (cuando ya se sabe), costo y
- * ganancia. La ganancia se calcula sobre el NETO cuando existe; si un día
- * todavía no tiene neto (los cargos llegan diferidos), se estima con
- * importe − comisión y se marca como estimado.
+ * comisión de MELI, neto real depositado, costo y ganancia. Regla del
+ * dueño: NADA se estima. Un renglón cuyo depósito aún no se ha leído de
+ * Mercado Pago aporta cero al neto y a la ganancia, y se declara aparte
+ * (venta y unidades sin neto); el cron de netos lo completa solo.
  */
 import type { DB } from "../datos/repos";
+import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
 import { costoDeSku } from "./costos";
-import { hoyMx, restarDias, todo } from "./db";
+import { hoyMx, restarDias, rpcTodo, todo } from "./db";
 import { desglosar } from "./sku";
 
 export interface Rango {
@@ -33,10 +34,19 @@ export interface Totales {
   neto: number;
   costo: number;
   ganancia: number;
-  /** Unidades cuyo neto todavía no se sabe (se estimó). */
-  unidadesEstimadas: number;
+  /** Unidades cuyo depósito todavía no se ha leído: fuera del neto y de la ganancia. */
+  unidadesSinNeto: number;
+  /** Venta (importe) de esas unidades: se declara, nunca se estima. */
+  ventaSinNeto: number;
   /** Unidades sin costo cargado (la ganancia no las cuenta como costo 0). */
   unidadesSinCosto: number;
+  /** Neto de los SKUs CON costo cargado: la única parte con ganancia calculable. */
+  netoConCosto: number;
+  /**
+   * Neto de los SKUs SIN costo cargado. NO entra a la ganancia (contarlo
+   * como si costara $0 la inflaba); se declara aparte.
+   */
+  netoSinCosto: number;
 }
 
 export interface FilaVentas extends Totales {
@@ -65,10 +75,15 @@ export interface Monitor {
   porDiseno: FilaVentas[];
   porDia: DiaVentas[];
   skusSinCosto: number;
+  /** Qué falta por leer: se declara, nunca se rellena. */
+  pendiente: {
+    /** órdenes del periodo que siguen sin depósito real (se completan solas) */
+    ordenesPendientes: number;
+  };
 }
 
 function vacio(): Totales {
-  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesEstimadas: 0, unidadesSinCosto: 0 };
+  return { unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0, unidadesSinNeto: 0, ventaSinNeto: 0, unidadesSinCosto: 0, netoConCosto: 0, netoSinCosto: 0 };
 }
 
 interface FilaResumen {
@@ -77,32 +92,44 @@ interface FilaResumen {
   ordenes: number;
   importe: number;
   comision: number;
+  /** solo el neto REAL (renglones con depósito conocido) */
   neto: number;
   unidades_sin_neto: number;
+  importe_sin_neto: number;
+  comision_sin_neto: number;
 }
 
-async function rpcTodo<T>(db: DB, fn: string, args: Record<string, unknown>): Promise<T[]> {
-  const out: T[] = [];
-  for (let desde = 0; ; desde += 1000) {
-    const { data, error } = await db.rpc(fn, args).range(desde, desde + 999);
-    if (error) throw new Error(`${fn}: ${error.message}`);
-    const lote = (data ?? []) as T[];
-    out.push(...lote);
-    if (lote.length < 1000) break;
-  }
-  return out;
-}
-
-function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null): void {
+/**
+ * Suma un renglón del RPC a los totales. Solo el neto REAL entra al neto y
+ * a la ganancia; la venta sin depósito leído se acumula aparte para
+ * declararla. Pura, para probarla.
+ */
+export function sumarResumen(t: Totales, f: FilaResumen, costoUnit: number | null): void {
   t.unidades += Number(f.unidades);
   t.ordenes += Number(f.ordenes);
   t.importe += Number(f.importe);
   t.comision += Number(f.comision);
-  t.neto += Number(f.neto);
-  t.unidadesEstimadas += Number(f.unidades_sin_neto ?? 0);
-  if (costoUnit == null) t.unidadesSinCosto += Number(f.unidades);
-  else t.costo += costoUnit * Number(f.unidades);
-  t.ganancia = t.neto - t.costo;
+  const netoFila = Number(f.neto) || 0;
+  t.neto += netoFila;
+  t.ventaSinNeto += Number(f.importe_sin_neto ?? 0);
+  t.unidadesSinNeto += Number(f.unidades_sin_neto ?? 0);
+  // Las unidades sin depósito leído quedan FUERA de la ganancia por los dos
+  // lados: ni su neto (no se conoce) ni su costo. Restar el costo de todas
+  // las unidades contra el neto de unas cuantas daba una ganancia negativa
+  // de más de un millón (9-sep-2026).
+  const unidadesConNeto = Math.max(0, Number(f.unidades) - Number(f.unidades_sin_neto ?? 0));
+  if (costoUnit == null) {
+    t.unidadesSinCosto += Number(f.unidades);
+    t.netoSinCosto += netoFila;
+  } else {
+    t.costo += costoUnit * unidadesConNeto;
+    t.netoConCosto += netoFila;
+  }
+  // La ganancia SOLO cubre la venta con costo cargado y depósito leído.
+  // Antes era neto − costo con TODO el neto adentro: el neto de miles de
+  // SKUs sin costo entraba como ganancia pura y la inflaba. Sin costo no
+  // hay ganancia calculable; se declara, nunca se rellena con cero.
+  t.ganancia = t.netoConCosto - t.costo;
 }
 
 /**
@@ -117,19 +144,30 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   const ayer = restarDias(hoy, 1);
 
   const resumen = (desde: string, hasta: string) =>
-    rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+    rpcTodo<FilaResumen>(db, "yz_ventas_resumen", { p_account: accountId, p_desde: desde, p_hasta: hasta }, ["sku"]);
 
-  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, costosFilas] = await Promise.all([
+  // Cuántas órdenes del periodo siguen sin depósito leído: se declara.
+  const observados = async (desde: string, hasta: string) => {
+    const { data, error } = await db.rpc("yz_netos_observados", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+    if (error) throw new Error(`yz_netos_observados: ${error.message}`);
+    const f: any = Array.isArray(data) ? data[0] : data;
+    return { pendientes: Number(f?.ordenes_pendientes ?? 0) };
+  };
+
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado, obsPeriodo] = await Promise.all([
     resumen(rango.desde, rango.hasta),
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
     resumen(ayer, ayer),
-    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }),
+    rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number; importe_sin_neto: number; comision_sin_neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }, ["fecha"]),
     todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
-    todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
+    // Los costos viven en Productos y costos (calzado y fundas juntos);
+    // yz_costos queda de respaldo.
+    mapaCostosUnificado(db, { yzAccountId: accountId }),
+    observados(rango.desde, rango.hasta),
   ]);
 
-  const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
+  const costos = soloCostos(mapaUnificado);
   const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
   const cacheCosto = new Map<string, number | null>();
   const costoDe = (sku: string) => {
@@ -151,6 +189,7 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     porDiseno: [],
     porDia: [],
     skusSinCosto: 0,
+    pendiente: { ordenesPendientes: obsPeriodo.pendientes },
   };
 
   for (const f of rHoy) sumarResumen(m.hoy, f, costoDe(f.sku));
@@ -183,7 +222,13 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
 
   m.porSku = [...porSku.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
   m.porDiseno = [...porDiseno.values()].map(cerrar).sort((a, b) => b.unidades - a.unidades);
-  m.porDia = porDiaFilas.map((d) => ({ fecha: d.fecha, unidades: Number(d.unidades), importe: Number(d.importe), neto: Number(d.neto) }));
+  m.porDia = porDiaFilas.map((d) => ({
+    fecha: d.fecha,
+    unidades: Number(d.unidades),
+    importe: Number(d.importe),
+    // Solo el neto real; lo sin depósito leído no se estima.
+    neto: Number(d.neto) || 0,
+  }));
   m.skusSinCosto = sinCosto.size;
   return m;
 }

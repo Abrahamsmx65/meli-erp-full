@@ -16,8 +16,27 @@
  *   -> 200 { ok: true, aplicadas: n }   (idempotente por referencia)
  */
 import { traerTodo, type DB } from "../datos/repos";
+import { esAlmacenTikTok } from "../importar/cajas";
+import { claveComparacion } from "../importar/sku";
 import { partirSku } from "../tiktok/despacho";
 import { configuracionIndusther } from "./industher";
+
+/**
+ * clave canónica → SKU tal cual lo escribe Industher en su bodega TikTok.
+ * El ERP guarda "GT134-NAVY-RED-25-MX" (forma de MELI) e Industher
+ * "GT134-NAVY / RED-25-MX": si la salida va con el nombre del ERP, el 3PL
+ * contesta ok y no descuenta nada (pasó el 7 de septiembre). Se le habla
+ * con SU nombre.
+ */
+export function aliasParaIndusther(filas: { sku_caja: string | null; almacen: string | null }[]): Map<string, string> {
+  const alias = new Map<string, string>();
+  for (const f of filas) {
+    if (!esAlmacenTikTok(f.almacen) || !f.sku_caja) continue;
+    const clave = claveComparacion(f.sku_caja);
+    if (!alias.has(clave)) alias.set(clave, String(f.sku_caja).trim());
+  }
+  return alias;
+}
 
 /** A dónde se mandan las salidas. Sin variable, junto al endpoint de inventario. */
 export function urlSalidasIndusther(): string | null {
@@ -79,9 +98,18 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
     .order("id", { ascending: true })
     .limit(500);
   if (corteId != null) q = q.eq("corte_id", corteId);
-  const { data } = await q;
+  const { data, error: errorPendientes } = await q;
+  if (errorPendientes) throw new Error(`tiktok_salidas_3pl: ${errorPendientes.message}`);
   const pendientes = (data ?? []) as any[];
   if (!pendientes.length) return { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false };
+
+  const existencias = await traerTodo<{ sku_caja: string | null; almacen: string | null }>(
+    db,
+    "existencias",
+    "sku_caja, almacen",
+    (q) => q.eq("account_id", accountId),
+  );
+  const alias = aliasParaIndusther(existencias ?? []);
 
   const referencia = corteId != null ? `TT-CORTE-${corteId}` : `TT-REINTENTO-${new Date().toISOString().slice(0, 16)}`;
   const cuerpo = {
@@ -89,8 +117,9 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
     fecha: new Date().toISOString(),
     almacen: "TikTok",
     salidas: pendientes.map((s) => {
-      const { modelo, color, talla } = partirSku(s.sku);
-      return { sku: s.sku, modelo, color, talla, pares: s.pares, pedido: s.order_id };
+      const skuIndusther = alias.get(claveComparacion(s.sku)) ?? s.sku;
+      const { modelo, color, talla } = partirSku(skuIndusther);
+      return { sku: skuIndusther, modelo, color, talla, pares: s.pares, pedido: s.order_id };
     }),
   };
 

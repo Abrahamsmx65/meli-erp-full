@@ -7,6 +7,7 @@
  * atrás; las rutas solo se encargan de decidir quién entra y con qué cliente.
  */
 import type { DB } from "../datos/repos";
+import { ErrorOperacionCacheApp, invalidarApp } from "./cache-app";
 import { enRangoContenido } from "./contenido-amazon";
 
 const TOPE_NOTAS = 2000;
@@ -20,6 +21,19 @@ export interface Guardado {
 
 const BIEN: Guardado = { ok: true };
 const mal = (error: string, status = 400): Guardado => ({ ok: false, error, status });
+
+async function invalidarContenido(db: DB, accountId: string): Promise<Guardado> {
+  try {
+    await invalidarApp(db, accountId, "Se editó el contenido de Amazon.", { prefijo: "contenido:" });
+    return BIEN;
+  } catch (error) {
+    if (!(error instanceof ErrorOperacionCacheApp)) throw error;
+    return mal(
+      `El cambio se guardó, pero no se pudo actualizar la caché (${error.tipo}). Recarga más tarde; no repitas el cambio.`,
+      error.tipo === "permisos" ? 500 : 503,
+    );
+  }
+}
 
 /** Traduce los errores de Postgres a algo que se entienda en pantalla. */
 function traducir(error: { message: string; code?: string }, tabla: string): Guardado {
@@ -88,7 +102,9 @@ export async function guardarModelo(db: DB, accountId: string, body: any): Promi
   const { error } = await db
     .from("amazon_contenido")
     .upsert(modelos.map((modelo) => ({ ...fila, modelo })), { onConflict: "account_id,modelo" });
-  return error ? traducir(error, "amazon_contenido") : BIEN;
+  if (error) return traducir(error, "amazon_contenido");
+  // Lo palomeado debe verse al instante: fuera el contenido masticado.
+  return invalidarContenido(db, accountId);
 }
 
 /** Alta, palomeos, renombrar y borrar de las categorías de la store. */
@@ -106,7 +122,8 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
       .delete()
       .eq("account_id", accountId)
       .eq("nombre", nombre);
-    return error ? traducir(error, "amazon_categorias_store") : BIEN;
+    if (error) return traducir(error, "amazon_categorias_store");
+    return invalidarContenido(db, accountId);
   }
 
   if (accion === "renombrar") {
@@ -120,7 +137,8 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
       .eq("account_id", accountId)
       .eq("nombre", nombre);
     if (error?.code === "23505") return mal(`Ya existe una categoría "${nuevo}".`);
-    return error ? traducir(error, "amazon_categorias_store") : BIEN;
+    if (error) return traducir(error, "amazon_categorias_store");
+    return invalidarContenido(db, accountId);
   }
 
   const fila: Record<string, unknown> = {
@@ -138,5 +156,6 @@ export async function guardarCategoria(db: DB, accountId: string, body: any): Pr
   const { error } = await db
     .from("amazon_categorias_store")
     .upsert(fila, { onConflict: "account_id,nombre" });
-  return error ? traducir(error, "amazon_categorias_store") : BIEN;
+  if (error) return traducir(error, "amazon_categorias_store");
+  return invalidarContenido(db, accountId);
 }

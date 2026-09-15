@@ -10,6 +10,7 @@ import { construirCajas } from "../importar/cajas";
 import { canonizar, construirIndice } from "../importar/sku";
 import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
+import { VERSION_MOTOR } from "./cache";
 import type { Corrida, FilaExistencia } from "../importar/excel";
 
 /**
@@ -73,6 +74,8 @@ export interface ResumenInventario {
  * son instantáneos y el dato nunca envejece más de un minuto.
  */
 const cacheInventario = new Map<string, { en: number; datos: ResumenInventario }>();
+/** La versión LIGERA (sin `crudos`), para las pantallas que no los usan. */
+const cacheInventarioLigero = new Map<string, { en: number; datos: ResumenInventario }>();
 const VIDA_CACHE_MS = 60_000;
 
 /**
@@ -83,6 +86,7 @@ const VIDA_CACHE_MS = 60_000;
  */
 export function invalidarInventario(accountId: string): void {
   cacheInventario.delete(accountId);
+  cacheInventarioLigero.delete(accountId);
   cacheCatalogo.delete(accountId);
 }
 
@@ -157,12 +161,216 @@ async function catalogoBodegaSinCache(db: DB, accountId: string) {
   return { catalogo, skus };
 }
 
-export async function cargarInventario(db: DB, accountId: string): Promise<ResumenInventario> {
+/** Lo que se guarda en `inventario_cache`, con la versión que lo produjo. */
+interface InventarioGuardado {
+  versionMotor: string;
+  datos: ResumenInventario;
+}
+
+/**
+ * Dónde está parado el dinero de la bodega, por categoría de producto.
+ *
+ * Reemplaza los cortes «por almacén» y «por pedido», que decían dónde está
+ * la caja pero no cuánto vale. La pregunta del dueño es otra: cuánto tengo
+ * invertido en pantuflas contra cuánto en corcho.
+ *
+ * Función PURA: recibe los renglones y el costo por modelo, y devuelve los
+ * grupos. Lo que no se puede costear NO se cuenta como cero — se aparta y se
+ * declara, que es la única forma de que el total signifique algo.
+ */
+export interface InversionCategoria {
+  categoria: string;
+  pares: { enBodega: number; enCamino: number };
+  valor: { enBodega: number; enCamino: number; total: number };
+  /** Cuántos modelos distintos caen en esta categoría. */
+  modelos: number;
+  /** Qué parte del valor total representa (0-1). */
+  parte: number;
+}
+
+export interface InversionEnBodega {
+  categorias: InversionCategoria[];
+  total: { enBodega: number; enCamino: number; total: number };
+  /** Lo que quedó fuera del total por no tener costo capturado. */
+  sinCosto: { pares: number; modelos: string[] };
+  /** Modelos costeados pero sin categoría: van juntos en «Sin categoría». */
+  sinCategoria: number;
+}
+
+const SIN_CATEGORIA = "Sin categoría";
+
+export function inversionPorCategoria(
+  renglones: { modelo: string; enBodega: number; enCamino: number }[],
+  config: Map<string, { categoria: string | null; costo: number | null }>,
+): InversionEnBodega {
+  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string> }>();
+  const sinCostoModelos = new Set<string>();
+  const sinCategoriaModelos = new Set<string>();
+  let paresSinCosto = 0;
+
+  for (const r of renglones) {
+    const pares = r.enBodega + r.enCamino;
+    if (pares <= 0) continue;
+
+    // El costo se busca igual que en el resto del sistema: por modelo tal
+    // cual y, si no, en mayúsculas (productos_config los guarda así).
+    const c = config.get(r.modelo) ?? config.get(r.modelo.toUpperCase());
+    if (c?.costo == null) {
+      paresSinCosto += pares;
+      sinCostoModelos.add(r.modelo);
+      continue;
+    }
+
+    const categoria = c.categoria?.trim() || SIN_CATEGORIA;
+    if (categoria === SIN_CATEGORIA) sinCategoriaModelos.add(r.modelo);
+
+    const g =
+      grupos.get(categoria) ??
+      {
+        categoria,
+        pares: { enBodega: 0, enCamino: 0 },
+        valor: { enBodega: 0, enCamino: 0, total: 0 },
+        modelos: 0,
+        parte: 0,
+        modelosVistos: new Set<string>(),
+      };
+    g.pares.enBodega += r.enBodega;
+    g.pares.enCamino += r.enCamino;
+    g.valor.enBodega += r.enBodega * c.costo;
+    g.valor.enCamino += r.enCamino * c.costo;
+    g.modelosVistos.add(r.modelo);
+    grupos.set(categoria, g);
+  }
+
+  const categorias = [...grupos.values()].map((g) => {
+    g.valor.total = g.valor.enBodega + g.valor.enCamino;
+    g.modelos = g.modelosVistos.size;
+    return g;
+  });
+
+  const total = {
+    enBodega: categorias.reduce((a, g) => a + g.valor.enBodega, 0),
+    enCamino: categorias.reduce((a, g) => a + g.valor.enCamino, 0),
+    total: categorias.reduce((a, g) => a + g.valor.total, 0),
+  };
+  for (const g of categorias) g.parte = total.total > 0 ? g.valor.total / total.total : 0;
+
+  // De más valor a menos: la pregunta es dónde está el dinero.
+  categorias.sort((a, b) => b.valor.total - a.valor.total || a.categoria.localeCompare(b.categoria, "es"));
+
+  return {
+    categorias: categorias.map(({ modelosVistos: _m, ...resto }) => resto),
+    total,
+    sinCosto: { pares: paresSinCosto, modelos: [...sinCostoModelos].sort() },
+    sinCategoria: sinCategoriaModelos.size,
+  };
+}
+
+export async function cargarInventario(
+  db: DB,
+  accountId: string,
+  opts?: {
+    /**
+     * true = NO bajar `crudos` (los SKUs y corridas completos que solo usa
+     * Planificación China). La fila de `inventario_cache` los guarda y eran
+     * el costo dominante del clic en Bodega, 100 % carga muerta ahí: se
+     * proyecta el jsonb en la base y solo viajan la vista y sus totales.
+     */
+    sinCrudos?: boolean;
+  },
+): Promise<ResumenInventario> {
   const guardado = cacheInventario.get(accountId);
   if (guardado && Date.now() - guardado.en < VIDA_CACHE_MS) return guardado.datos;
 
+  if (opts?.sinCrudos) {
+    const ligero = cacheInventarioLigero.get(accountId);
+    if (ligero && Date.now() - ligero.en < VIDA_CACHE_MS) return ligero.datos;
+    try {
+      const { data } = await db
+        .from("inventario_cache")
+        .select(
+          "vm:datos->versionMotor, renglones:datos->datos->renglones, totales:datos->datos->totales, porAlmacen:datos->datos->porAlmacen, porPedido:datos->datos->porPedido, cajasPorModelo:datos->datos->cajasPorModelo",
+        )
+        .eq("account_id", accountId)
+        .maybeSingle();
+      const fila = data as
+        | {
+            vm: string | null;
+            renglones: RenglonInventario[] | null;
+            totales: ResumenInventario["totales"] | null;
+            porAlmacen: ResumenInventario["porAlmacen"] | null;
+            porPedido: ResumenInventario["porPedido"] | null;
+            cajasPorModelo: Record<string, number> | null;
+          }
+        | null;
+      if (fila?.renglones && fila.totales && fila.vm === VERSION_MOTOR) {
+        const datos: ResumenInventario = {
+          renglones: fila.renglones,
+          totales: fila.totales,
+          porAlmacen: fila.porAlmacen ?? [],
+          porPedido: fila.porPedido ?? [],
+          cajasPorModelo: fila.cajasPorModelo ?? {},
+          crudos: { corridas: [], skus: [] },
+        };
+        cacheInventarioLigero.set(accountId, { en: Date.now(), datos });
+        return datos;
+      }
+    } catch {
+      // Sin fila o error de lectura: cae al camino completo de abajo.
+    }
+  }
+
+  // El resultado masticado en la base (como plan_cache): lo escriben
+  // recalcularInventario y el latido, y lo marca obsoleto invalidar() con
+  // los mismos disparos que al plan (importar, amarres, corridas, Industher).
+  // Se sirve AUNQUE esté invalidado —el latido lo recalcula solo en un par
+  // de minutos— porque hacer esperar 5 s a la pantalla de Bodega por un
+  // renglón que ya existe es cobrarle el cálculo al clic. Solo un renglón
+  // de OTRA versión del motor no sirve (sus números ya no son los del
+  // motor actual) y ahí sí se calcula.
+  try {
+    const { data } = await db
+      .from("inventario_cache")
+      .select("datos, vigente")
+      .eq("account_id", accountId)
+      .maybeSingle();
+    const enBase = (data?.datos ?? null) as InventarioGuardado | null;
+    if (enBase?.datos && enBase.versionMotor === VERSION_MOTOR) {
+      cacheInventario.set(accountId, { en: Date.now(), datos: enBase.datos });
+      return enBase.datos;
+    }
+  } catch {
+    // Tabla aún sin migrar o error de lectura: se calcula como siempre.
+  }
+
+  return recalcularInventario(db, accountId);
+}
+
+/** Calcula la vista completa, la guarda masticada y refresca los cachés. */
+export async function recalcularInventario(db: DB, accountId: string): Promise<ResumenInventario> {
+  const t0 = Date.now();
   const datos = await cargarInventarioSinCache(db, accountId);
   cacheInventario.set(accountId, { en: Date.now(), datos });
+  cacheInventarioLigero.set(accountId, {
+    en: Date.now(),
+    datos: { ...datos, crudos: { corridas: [], skus: [] } },
+  });
+
+  const guardado: InventarioGuardado = { versionMotor: VERSION_MOTOR, datos };
+  const { error } = await db.from("inventario_cache").upsert(
+    {
+      account_id: accountId,
+      generado_en: new Date().toISOString(),
+      vigente: true,
+      motivo: null,
+      ms_calculo: Date.now() - t0,
+      datos: guardado,
+    },
+    { onConflict: "account_id" },
+  );
+  // Sin guardar, el dato sirve igual: solo se pierde el ahorro.
+  if (error) console.error("No se pudo guardar el inventario en caché:", error.message);
+
   return datos;
 }
 
@@ -190,7 +398,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
       "pedidos",
       "pedido, estado, pedido_lineas(modelo, color, tallas, cajas, pares)",
       (q) => eq(q).not("estado", "in", "(recibido,cancelado)"),
-    ).catch(() => [] as any[]),
+    ),
   ]);
 
   const corridas: Corrida[] = corridasRaw.map((c) => ({
@@ -224,6 +432,11 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     mapeoManual: new Map(mapeoRaw.map((m) => [m.sku_construido, m.sku_meli])),
     almacenes: almacenesRaw.filter((a) => a.surte_full).map((a) => a.almacen),
   });
+
+  // Estas cajas son EXACTAMENTE las que catalogoBodega() volvería a armar
+  // leyendo las mismas tablas: se dejan servidas en su caché para que abrir
+  // Bodega y luego el plan de FBA no construya el catálogo dos veces.
+  cacheCatalogo.set(accountId, { en: Date.now(), datos: { catalogo, skus } });
 
   // --- Bodega: de cajas a pares por SKU -----------------------------------
   const bodega = new Map<

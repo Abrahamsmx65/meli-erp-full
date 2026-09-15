@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { Etiquetas } from "@/components/etiquetas";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +29,15 @@ export default async function PaginaEtiquetas() {
     );
   }
 
-  // Lo que va en el envío planeado, para poder sacar sus etiquetas de un clic.
-  const { plan } = await obtenerPlan(supabase, cuenta.id);
+  // Lo que va en el envío planeado, para poder sacar sus etiquetas de un
+  // clic. Solo hacen falta las cajas: se leen del caché sin bajar el JSON
+  // completo del plan; sin plan guardado, se cae a obtenerPlan como siempre.
+  const parcial = await leerPlanParcial(supabase, cuenta.id, ["cajas"]);
+  const cajas = (parcial?.cajas ??
+    (await obtenerPlan(supabase, cuenta.id)).plan.cajas) as PlanGuardado["cajas"];
 
   const porSku = new Map<string, number>();
-  for (const c of plan.cajas) {
+  for (const c of cajas) {
     for (const a of c.aporta) {
       porSku.set(a.sku, (porSku.get(a.sku) ?? 0) + a.paresTotales);
     }

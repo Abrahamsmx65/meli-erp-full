@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { LogOut, Menu, Package, Search, X } from "lucide-react";
 import { MenuLateral } from "@/components/menu-lateral";
 import { EstadoConexion } from "@/components/estado-conexion";
+import { Avisos } from "@/components/ui/avisos";
 
 /**
  * Armazón de la app: barra superior azul marino, menú lateral blanco y el
@@ -57,6 +58,7 @@ export function Armazon({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
+      <Avisos />
     </div>
   );
 }

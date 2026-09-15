@@ -76,6 +76,7 @@ test("el título viene del catálogo aunque el FNSKU venga del inventario", () =
     fnsku: "X00210A",
     sku: "GT210-BLK-25-MX",
     titulo: "Bota GT210 negra",
+    asin: null,
   });
   // Un SKU sin FNSKU en ninguna tabla no entra: sin código no hay etiqueta.
   expect(buscarAmazon(mapa, "GT211-BLK-25")?.titulo).toBeNull();

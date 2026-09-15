@@ -15,7 +15,12 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
   const totalPares = sugerencias.reduce((a, s) => a + s.pares, 0);
   const sinCorrida = sugerencias.filter((s) => !s.tieneCorrida).length;
   const urgentes = sugerencias.filter((s) => (s.cobertura ?? 0) < URGENTE_DIAS_FBA).length;
-  const visibles = sugerencias.slice(0, 100);
+  // El tope de 100 se elige por urgencia (el orden del motor), pero LO QUE
+  // SE VE va en alfabético natural (GT104-1 antes que GT110), como pidió el
+  // dueño: así se busca un producto con los ojos.
+  const visibles = sugerencias
+    .slice(0, 100)
+    .sort((a, b) => a.producto.localeCompare(b.producto, "es", { numeric: true }));
 
   return (
     <section className="tarjeta overflow-hidden">

@@ -8,7 +8,9 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { disponibleParaCompradores } from "../tiktok/kardex";
+import { sugerirParecidos } from "../tiktok/sugerencias";
 import { skusContados } from "./tiktok";
+import { conCacheApp } from "./cache-app";
 import { paresEnBodegaTikTok } from "./tiktok-bodega";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 
@@ -35,6 +37,8 @@ export interface RenglonTikTok {
   publicable: boolean;
   /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
   contado: boolean;
+  /** publicaciones de TikTok del mismo modelo y talla, para ligar a mano */
+  sugerencias: string[];
 }
 
 export interface MovimientoPanel {
@@ -46,13 +50,6 @@ export interface MovimientoPanel {
   referencia: string | null;
   nota: string | null;
   fecha: string;
-}
-
-export interface PendienteTikTok {
-  skuId: string;
-  sellerSku: string | null;
-  titulo: string | null;
-  talla: string | null;
 }
 
 export interface PanelTikTok {
@@ -70,7 +67,6 @@ export interface PanelTikTok {
   };
   movimientos: MovimientoPanel[];
   /** SKUs de TikTok que no se pudieron amarrar al catálogo del ERP */
-  pendientes: PendienteTikTok[];
   ultimaSync: string | null;
 }
 
@@ -124,6 +120,10 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
     }
   }
 
+  // Para sugerir ligas a mano en el renglón del inventario: las
+  // publicaciones activas de TikTok.
+  const sellerSkus = (skusTikTok ?? []).map((x: any) => String(x.seller_sku ?? "")).filter(Boolean);
+
   const ventas30 = new Map<string, number>();
   for (const v of ventas ?? []) {
     ventas30.set(v.sku, (ventas30.get(v.sku) ?? 0) + (v.unidades ?? 0));
@@ -148,8 +148,14 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         diasCobertura: porDia > 0 ? disponible / porDia : null,
         enRojo: r.saldo < 0,
         publicable: conPublicacion.has(r.sku) && contado,
+        sugerencias: conPublicacion.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })
+    // Un renglón muerto —sin saldo, sin apartado, sin venta, sin publicación
+    // ligada y sin rojo— es un nombre viejo (un SKU que la bodega renombró,
+    // un duplicado ya fusionado). Enseñarlo solo estorba, y sus sugerencias
+    // invitan a ligar publicaciones vivas a un renglón vacío.
+    .filter((r: RenglonTikTok) => r.saldo !== 0 || r.apartado !== 0 || r.ventas30 !== 0 || r.publicable || r.enRojo)
     // Lo urgente arriba: primero lo que TikTok todavía no sabe, y dentro de
     // eso lo que más se vende, que es donde un desfase cuesta dinero.
     .sort((a, b) => {
@@ -157,15 +163,6 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       if (b.ventas30 !== a.ventas30) return b.ventas30 - a.ventas30;
       return a.sku.localeCompare(b.sku, "es");
     });
-
-  const pendientes: PendienteTikTok[] = (skusTikTok ?? [])
-    .filter((s: any) => !s.sku_interno)
-    .map((s: any) => ({
-      skuId: s.sku_id,
-      sellerSku: s.seller_sku ?? null,
-      titulo: s.titulo ?? null,
-      talla: s.talla ?? null,
-    }));
 
   return {
     conectado: Boolean(tienda?.activo && tienda?.shop_cipher),
@@ -183,7 +180,6 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       sinPublicacion: renglones.filter((r) => !r.publicable && r.saldo !== 0).length,
     },
     movimientos: (movsRes.data ?? []) as MovimientoPanel[],
-    pendientes,
     ultimaSync: syncRes.data?.fin ?? null,
   };
 }
@@ -221,7 +217,9 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
     traerTodo<any>(db, "tiktok_skus", "sku_interno, cantidad_tiktok, estado", (q) => eq(q).eq("activo", true)),
     skusContados(db, accountId),
-    paresEnBodegaTikTok(db, accountId),
+    // El armado de cajas de la bodega TikTok, masticado 15 min: la foto de
+    // Industher cambia cada 3 horas y la sincronización la invalida.
+    conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () => paresEnBodegaTikTok(db, accountId)),
     estadoSalidas3pl(db, accountId),
   ]);
 

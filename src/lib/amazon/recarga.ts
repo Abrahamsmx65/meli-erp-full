@@ -131,6 +131,14 @@ export async function procesarRecarga(
   // La ventana se pidió por días enteros, así que todo lo que trae es completo.
   await guardarEnLotes(admin, "amazon_skus", skus);
   await guardarEnLotes(admin, "amazon_ventas_diarias", ventas);
+  const { error: errorEconomia } = await admin.from("amazon_economia_recargas").upsert({
+    account_id: accountId,
+    desde: fila.desde,
+    hasta: fila.hasta,
+    estado: "pendiente",
+    actualizado_en: new Date().toISOString(),
+  });
+  if (errorEconomia) throw new Error(`amazon_economia_recargas: ${errorEconomia.message}`);
   await marcar({ estado: "listo", filas: ventas.length });
 
   return {

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
-import { DIAS_OBJETIVO_PEDIDO, cargarBaseCompras, todasLasVariantes } from "@/lib/yapanizcel/compras";
+import { DIAS_OBJETIVO_PEDIDO, obtenerCompras, obtenerDetalleCompras, variantesParaExcel, type VarianteCompra } from "@/lib/yapanizcel/compras";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -10,22 +10,39 @@ export const maxDuration = 120;
  * El Excel de pedidos a China: una fila por SKU con ventas de 30 días, lo
  * que hay en Full (disponible y en transferencia), en camino a Full, en
  * bodega, en camino desde China, la cobertura y cuánto pedir para 120 días.
- * `?diseno=499` limita a un diseño; sin parámetro salen todos.
+ * `?diseno=499` limita a un diseño; `?disenos=499,514` a los elegidos en la
+ * pantalla; sin parámetro salen todos.
  */
 export async function GET(req: NextRequest) {
   const ctx = await conSesion();
   if (!ctx.ok) return ctx.respuesta;
   const diseno = (req.nextUrl.searchParams.get("diseno") ?? "").trim().toUpperCase();
+  const elegidos = (req.nextUrl.searchParams.get("disenos") ?? "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
 
   try {
-    const base = await cargarBaseCompras(ctx.db, ctx.cuenta.id);
-    const filas = todasLasVariantes(base).filter((v) => !diseno || v.diseno === diseno);
+    // Un diseño: su renglón masticado (chico). Varios o todos: el cálculo
+    // completo, filtrado a lo elegido.
+    let filas: (VarianteCompra & { diseno: string })[];
+    if (diseno) {
+      filas = ((await obtenerDetalleCompras(ctx.db, ctx.cuenta.id, diseno))?.variantes ?? []).map((v) => ({ ...v, diseno }));
+    } else {
+      filas = variantesParaExcel(await obtenerCompras(ctx.db, ctx.cuenta.id));
+      if (elegidos.length) {
+        const set = new Set(elegidos);
+        filas = filas.filter((v) => set.has(v.diseno));
+      }
+    }
 
+    const etiqueta = diseno || (elegidos.length ? elegidos.slice(0, 4).join("-") + (elegidos.length > 4 ? "-y-mas" : "") : "");
     const libro = new ExcelJS.Workbook();
-    const hoja = libro.addWorksheet(diseno ? `Pedido ${diseno}`.slice(0, 31) : "Pedido a China");
+    const hoja = libro.addWorksheet(etiqueta ? `Pedido ${etiqueta}`.slice(0, 31) : "Pedido a China");
     hoja.columns = [
       { header: "Diseño", key: "diseno", width: 9 },
       { header: "SKU", key: "sku", width: 26 },
+      { header: "Incluye (gemela)", key: "gemelas", width: 18 },
       { header: "Modelo", key: "modelo", width: 16 },
       { header: "Color", key: "color", width: 12 },
       { header: "Título", key: "titulo", width: 50 },
@@ -48,6 +65,7 @@ export async function GET(req: NextRequest) {
       hoja.addRow({
         diseno: v.diseno,
         sku: v.skuMeli,
+        gemelas: (v.gemelas ?? []).join(", "),
         modelo: v.modelo,
         color: v.color,
         titulo: v.titulo ?? "",
@@ -68,7 +86,7 @@ export async function GET(req: NextRequest) {
     total.font = { bold: true };
 
     const buf = await libro.xlsx.writeBuffer();
-    const nombre = `pedido-china-${diseno || "todos"}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const nombre = `pedido-china-${etiqueta || "todos"}-${new Date().toISOString().slice(0, 10)}.xlsx`;
     return new NextResponse(buf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -8,6 +8,8 @@
  * falta es la sugerencia. No hay cajas ni corridas: se pide por unidad.
  */
 import type { DB } from "../datos/repos";
+import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
+import { guardarCacheYzLote, leerCacheYzGuardado } from "./cache";
 import { costoDeSku } from "./costos";
 import { cargarVentasAgregadas } from "./agregados";
 import { cargarDescontinuados, type Descontinuados } from "./descontinuados";
@@ -15,6 +17,7 @@ import { hoyMx, restarDias, todo } from "./db";
 import { cargarEnvios } from "./envios";
 import { cargarInventarioAmarrado } from "./inventario";
 import { leerParametros } from "./cuenta";
+import { agruparGemelas, principalDe, sumarPorPrincipal } from "./gemelas";
 import { amarrar, construirIndice, desglosar, esCalzado, type IndiceSkus } from "./sku";
 
 /** Días que se quieren cubrir con un pedido: producción + tránsito + piso. */
@@ -38,9 +41,13 @@ export interface VarianteCompra {
   objetivo: number;
   sugerido: number;
   costoUnitario: number | null;
+  /** Publicaciones gemelas (la vieja sin N-) cuyos números van sumados en este renglón. */
+  gemelas?: string[];
 }
 
 export interface DisenoCompra {
+  /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
+  generadoEn?: string;
   diseno: string;
   variantes: VarianteCompra[];
   /** SKUs del diseño sin venta en 180 días: no se piden ni se muestran. */
@@ -52,8 +59,17 @@ export interface DisenoCompra {
 }
 
 export interface ResumenDisenos {
+  /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
+  generadoEn?: string;
   disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
-  descontinuados: Descontinuados;
+  descontinuados: {
+    /** SKUs sin venta en 180 días (de diseños que siguen y de los retirados). */
+    skus: number;
+    /** Diseños retirados completos: ninguna variante vendió en 180 días. */
+    disenos: number;
+    activo: boolean;
+    historialDesde: string | null;
+  };
 }
 
 async function cargarBase(db: DB, accountId: string) {
@@ -62,16 +78,17 @@ async function cargarBase(db: DB, accountId: string) {
   const hasta = restarDias(hoyMx(), 1);
   const desde = restarDias(hasta, p.diasVenta - 1);
 
-  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, costosFilas, descontinuados] = await Promise.all([
-    todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null }>(
-      db, "yz_skus", "sku, titulo, diseno, modelo, color", (q) => q.eq("account_id", accountId),
+  const [skus, agregadas, stock, inventario, { enCamino }, mapeos, mapaUnificado, descontinuados] = await Promise.all([
+    todo<{ sku: string; titulo: string | null; diseno: string | null; modelo: string | null; color: string | null; estado: string | null }>(
+      db, "yz_skus", "sku, titulo, diseno, modelo, color, estado", (q) => q.eq("account_id", accountId),
     ),
     cargarVentasAgregadas(db, accountId, desde, hasta),
     todo<{ sku: string; disponible: number; en_transferencia: number }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
     cargarInventarioAmarrado(db, accountId),
     cargarEnvios(db, accountId, p.diasCaducidadEnvio),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
-    todo<{ modelo: string; costo: number }>(db, "yz_costos", "modelo, costo", (q) => q.eq("account_id", accountId)),
+    // Costos de Productos y costos (calzado y fundas juntos); yz_costos de respaldo.
+    mapaCostosUnificado(db, { yzAccountId: accountId }),
     cargarDescontinuados(db, accountId),
   ]);
 
@@ -80,13 +97,29 @@ async function cargarBase(db: DB, accountId: string) {
   const porBodega = new Map(inventario.renglones.map((r) => [r.skuBodega, r.skuMeli]));
   const pedidos = await cargarPedidosEnCamino(db, accountId, { indice, manual, porBodega });
 
-  const vendidas = agregadas.totales;
-  const stockPor = new Map(stock.map((s) => [s.sku, s]));
+  // Las publicaciones gemelas (462-A57 y N-462-A57) se juntan bajo la
+  // principal: venta, Full, transferencia, envíos en camino y pedido a
+  // China. La bodega ya viene atribuida a la principal desde el amarre.
+  const gemelas = agruparGemelas(skus);
+  const vendidas = sumarPorPrincipal(gemelas, agregadas.totales);
+  const stockPor = new Map<string, { disponible: number; en_transferencia: number }>();
+  for (const s of stock) {
+    const k = principalDe(gemelas, s.sku);
+    const acc = stockPor.get(k) ?? { disponible: 0, en_transferencia: 0 };
+    acc.disponible += s.disponible ?? 0;
+    acc.en_transferencia += s.en_transferencia ?? 0;
+    stockPor.set(k, acc);
+  }
   const caminoFull = new Map<string, number>();
-  for (const c of enCamino) caminoFull.set(c.skuMeli, (caminoFull.get(c.skuMeli) ?? 0) + c.unidades);
-  const costos = new Map(costosFilas.map((c) => [c.modelo, Number(c.costo)]));
+  for (const c of enCamino) {
+    const k = principalDe(gemelas, c.skuMeli);
+    caminoFull.set(k, (caminoFull.get(k) ?? 0) + c.unidades);
+  }
+  const pedidosPor = sumarPorPrincipal(gemelas, pedidos);
+  const bodegaPor = sumarPorPrincipal(gemelas, inventario.porSkuMeli);
+  const costos = soloCostos(mapaUnificado);
 
-  return { p, skus, vendidas, stockPor, inventario, caminoFull, pedidos, costos, descontinuados };
+  return { p, skus, vendidas, stockPor, inventario, bodegaPor, caminoFull, pedidos: pedidosPor, costos, descontinuados, gemelas };
 }
 
 /**
@@ -124,23 +157,153 @@ export async function cargarPedidosEnCamino(
 
 export type Base = Awaited<ReturnType<typeof cargarBase>>;
 
-/** Una sola carga de base para toda la pantalla (resumen + detalle). */
-export async function cargarBaseCompras(db: DB, accountId: string): Promise<Base> {
-  return cargarBase(db, accountId);
+// ---------------------------------------------------------------------------
+// El cálculo completo, UNA vez, masticado y guardado (yz_cache "compras")
+// ---------------------------------------------------------------------------
+
+export interface VarianteCalculada extends VarianteCompra {
+  diseno: string;
+  descontinuada: boolean;
 }
 
-export async function resumenDisenos(db: DB, accountId: string, base?: Base): Promise<ResumenDisenos> {
-  const b = base ?? (await cargarBase(db, accountId));
-  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+/**
+ * Todo lo que la pantalla de Pedidos a China y su Excel necesitan, ya
+ * calculado: cada variante con su posición completa y su sugerido. De aquí
+ * se DERIVAN el resumen por diseño, el detalle de un diseño y el Excel con
+ * puros filtros y sumas — nada vuelve a leer la base.
+ */
+export interface ComprasCalculadas {
+  generadoEn: string;
+  diasVenta: number;
+  descontinuados: { activo: boolean; historialDesde: string | null; disenos?: string[] };
+  variantes: VarianteCalculada[];
+}
 
-  for (const s of b.skus) {
-    const v = calcularVariante(s, b);
+/** Recorre las ~18 mil variantes UNA sola vez (antes eran 2-3 pasadas por render). */
+export async function calcularCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  const b = await cargarBase(db, accountId);
+  return {
+    generadoEn: new Date().toISOString(),
+    diasVenta: b.p.diasVenta,
+    descontinuados: {
+      activo: b.descontinuados.activo,
+      historialDesde: b.descontinuados.historialDesde,
+      disenos: [...b.descontinuados.disenos].sort(),
+    },
+    // Solo las principales: una gemela absorbida ya va sumada en la suya. El
+    // grupo se descontinúa solo si TODAS sus gemelas lo están.
+    variantes: b.skus
+      .filter((s) => principalDe(b.gemelas, s.sku) === s.sku)
+      .map((s) => {
+        const grupo = [s.sku, ...(b.gemelas.absorbidas.get(s.sku) ?? [])];
+        return {
+          ...calcularVariante(s, b),
+          descontinuada: grupo.every((sku) => b.descontinuados.skus.has(sku)),
+        };
+      }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Lo que lee la pantalla: vistas DERIVADAS, chiquitas, guardadas aparte
+// ---------------------------------------------------------------------------
+//
+// El cálculo completo pesa ~6.5 MB (14 mil variantes con título): bajarlo
+// de la base en cada clic era lo que tenía trabada la pantalla. Cuando se
+// calcula, se guardan también el resumen por diseño ("compras:resumen") y
+// el detalle de cada diseño ("compras:d:499"), y la pantalla lee SOLO el
+// renglón que va a pintar. Caen todos juntos con "compras" (invalidarYz
+// tumba la clave y sus derivadas) y el cron los vuelve a dejar listos.
+
+const CLAVE_RESUMEN = "compras:resumen";
+const claveDiseno = (diseno: string) => `compras:d:${diseno}`;
+
+/** Las vistas derivadas de un cálculo, para guardarlas de un jalón. */
+export function derivadasDeCompras(c: ComprasCalculadas): { clave: string; datos: unknown }[] {
+  const resumen = resumenDesdeCompras(c);
+  const filas: { clave: string; datos: unknown }[] = [{ clave: CLAVE_RESUMEN, datos: resumen }];
+  for (const d of resumen.disenos) {
+    const detalle = detalleDesdeCompras(c, d.diseno);
+    if (detalle) filas.push({ clave: claveDiseno(d.diseno), datos: detalle });
+  }
+  return filas;
+}
+
+/**
+ * El cálculo completo desde `yz_cache` (para el Excel de todos los diseños
+ * y como respaldo). Se sirve el renglón guardado AUNQUE esté invalidado o
+ * viejo — el cron de netos lo refresca solo; el clic nunca paga el cálculo.
+ * Solo sin renglón (primera vez en la vida) se calcula aquí.
+ */
+export async function obtenerCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  const guardado = await leerCacheYzGuardado<ComprasCalculadas>(db, accountId, "compras");
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
+  return recalcularCompras(db, accountId);
+}
+
+/**
+ * Calcula y guarda el completo y sus derivadas (lo llama el cron y el
+ * respaldo sin renglón). Un solo vuelo por cuenta: si el resumen y el
+ * detalle piden el recálculo al mismo tiempo (pasaba en la primera visita
+ * y eran 20 s en vez de 10), comparten el mismo cálculo.
+ */
+const recalculosEnVuelo = new Map<string, Promise<ComprasCalculadas>>();
+
+export async function recalcularCompras(db: DB, accountId: string): Promise<ComprasCalculadas> {
+  const enVuelo = recalculosEnVuelo.get(accountId);
+  if (enVuelo) return enVuelo;
+  const p = (async () => {
+    const t0 = Date.now();
+    const c = await calcularCompras(db, accountId);
+    const ms = Date.now() - t0;
+    await guardarCacheYzLote(db, accountId, [{ clave: "compras", datos: c }, ...derivadasDeCompras(c)], ms);
+    return c;
+  })();
+  recalculosEnVuelo.set(accountId, p);
+  try {
+    return await p;
+  } finally {
+    recalculosEnVuelo.delete(accountId);
+  }
+}
+
+/** El resumen por diseño: el renglón chico guardado, aunque esté viejo. */
+export async function obtenerResumenCompras(db: DB, accountId: string): Promise<ResumenDisenos> {
+  const guardado = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
+  return resumenDesdeCompras(await recalcularCompras(db, accountId));
+}
+
+/** El detalle de UN diseño: su renglón guardado, aunque esté viejo. */
+export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: string): Promise<DisenoCompra | null> {
+  const clave = diseno.trim().toUpperCase();
+  if (!clave) return null;
+  const guardado = await leerCacheYzGuardado<DisenoCompra>(db, accountId, claveDiseno(clave));
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
+  // Sin renglón: o el diseño no existe (o está retirado), o nunca se ha
+  // calculado. El resumen guardado lo dice sin bajar el completo.
+  const resumen = await leerCacheYzGuardado<ResumenDisenos>(db, accountId, CLAVE_RESUMEN);
+  if (resumen.estado === "fallo") throw resumen.error;
+  if (resumen.estado === "encontrado" && !resumen.valor.datos.disenos.some((d) => d.diseno === clave)) return null;
+  return detalleDesdeCompras(await recalcularCompras(db, accountId), clave);
+}
+
+/** El resumen por diseño, derivado del cálculo guardado (puro). */
+export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
+  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+  let descontinuadas = 0;
+
+  for (const v of c.variantes) {
+    if (v.descontinuada) descontinuadas++;
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
     const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
     // Un SKU descontinuado no se pide, pero su familia sigue saliendo.
-    if (b.descontinuados.skus.has(s.sku)) {
+    if (v.descontinuada) {
       acc.descontinuadas++;
       porDiseno.set(d, acc);
       continue;
@@ -152,19 +315,29 @@ export async function resumenDisenos(db: DB, accountId: string, base?: Base): Pr
     porDiseno.set(d, acc);
   }
 
+  // Un diseño retirado (ninguna variante vendió en 180 días: la regla lo
+  // marca completo, con sus variantes nuevas) o con TODOS sus SKUs
+  // descontinuados no se muestra: no hay nada que pedir de él.
+  const retirados = [...porDiseno].filter(([, a]) => a.variantes === 0).length;
   const disenos = [...porDiseno]
-    // Una familia con TODOS sus SKUs descontinuados (las micas 5D que ya no
-    // se venden) tampoco se muestra: no hay nada que pedir de ella.
     .filter(([, a]) => a.variantes > 0)
     .map(([diseno, a]) => ({
       diseno,
       ...a,
-      cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / b.p.diasVenta) : Infinity,
+      cobertura: a.vendidas30 > 0 ? a.posicionTotal / (a.vendidas30 / c.diasVenta) : Infinity,
     }));
-  // Los diseños sin ninguna publicación que venda ni existencia no estorban.
-  
+
   disenos.sort((x, y) => x.diseno.localeCompare(y.diseno, "es", { numeric: true }));
-  return { disenos, descontinuados: b.descontinuados };
+  return {
+    generadoEn: c.generadoEn,
+    disenos,
+    descontinuados: {
+      skus: descontinuadas,
+      disenos: retirados,
+      activo: c.descontinuados.activo,
+      historialDesde: c.descontinuados.historialDesde,
+    },
+  };
 }
 
 function calcularVariante(
@@ -181,8 +354,9 @@ function calcularVariante(
   const enFull = st?.disponible ?? 0;
   const enTransferencia = st?.en_transferencia ?? 0;
   const enCaminoFull = b.caminoFull.get(s.sku) ?? 0;
-  const enBodega = b.inventario.porSkuMeli.get(s.sku) ?? 0;
+  const enBodega = b.bodegaPor.get(s.sku) ?? 0;
   const enCaminoChina = b.pedidos.get(s.sku) ?? 0;
+  const gemelas = b.gemelas.absorbidas.get(s.sku);
   const posicionTotal = enFull + enTransferencia + enCaminoFull + enBodega + enCaminoChina;
   const objetivo = ventaDiaria * DIAS_OBJETIVO_PEDIDO;
   const sugerido = Math.max(0, Math.ceil(objetivo - posicionTotal));
@@ -205,16 +379,20 @@ function calcularVariante(
     objetivo,
     sugerido,
     costoUnitario: costoDeSku(s.sku, b.costos),
+    ...(gemelas?.length ? { gemelas } : {}),
   };
 }
 
-export async function detalleDiseno(db: DB, accountId: string, diseno: string, base?: Base): Promise<DisenoCompra | null> {
-  const b = base ?? (await cargarBase(db, accountId));
+/**
+ * El detalle de un diseño, derivado del cálculo guardado (puro). Un diseño
+ * retirado (sin una variante viva) no existe para la pantalla: null.
+ */
+export function detalleDesdeCompras(c: ComprasCalculadas, diseno: string): DisenoCompra | null {
   const clave = diseno.trim().toUpperCase();
-  const delDiseno = b.skus.map((s) => calcularVariante(s, b)).filter((v) => v.diseno === clave);
-  const descontinuadas = delDiseno.filter((v) => b.descontinuados.skus.has(v.skuMeli)).map((v) => v.skuMeli).sort();
+  const delDiseno = c.variantes.filter((v) => v.diseno === clave);
+  const descontinuadas = delDiseno.filter((v) => v.descontinuada).map((v) => v.skuMeli).sort();
   const variantes = delDiseno
-    .filter((v) => !b.descontinuados.skus.has(v.skuMeli))
+    .filter((v) => !v.descontinuada)
     // Por modelo (con números en orden natural: i13, i14, i15pro…) y luego color.
     .sort(
       (x, y) =>
@@ -222,9 +400,10 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string, b
         x.color.localeCompare(y.color, "es") ||
         x.skuMeli.localeCompare(y.skuMeli),
     );
-  if (!variantes.length && !descontinuadas.length) return null;
+  if (!variantes.length) return null;
 
   return {
+    generadoEn: c.generadoEn,
     diseno: clave,
     variantes,
     descontinuadas,
@@ -235,12 +414,10 @@ export async function detalleDiseno(db: DB, accountId: string, diseno: string, b
   };
 }
 
-/** Todas las variantes (sin calzado), para el Excel de todos los diseños. */
-export function todasLasVariantes(b: Base): (VarianteCompra & { diseno: string })[] {
-  return b.skus
-    .filter((s) => !b.descontinuados.skus.has(s.sku))
-    .map((s) => calcularVariante(s, b))
-    .filter((v) => v.diseno && !esCalzado(v.diseno))
+/** Todas las variantes (sin calzado ni descontinuadas), para el Excel (puro). */
+export function variantesParaExcel(c: ComprasCalculadas): VarianteCalculada[] {
+  return c.variantes
+    .filter((v) => !v.descontinuada && v.diseno && !esCalzado(v.diseno))
     .sort(
       (x, y) =>
         x.diseno.localeCompare(y.diseno, "es", { numeric: true }) ||

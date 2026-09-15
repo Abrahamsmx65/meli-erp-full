@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cuentaPorTokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { cargarCorte, preparadosDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { numerosPreparados } from "@/lib/tiktok/despacho";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { PrepararTikTok } from "@/components/preparar-tiktok";
 
@@ -38,7 +39,7 @@ export default async function EstacionPublica({ params }: { params: Promise<{ to
         corteId={datos.id}
         numero={datos.numero}
         paquetes={datos.paquetes}
-        preparadosIniciales={[...preparados]}
+        preparadosIniciales={numerosPreparados(datos.paquetes, preparados)}
         urlGuardar={`/api/preparar-publico/${token}/cortes/${datos.id}/preparar`}
       />
     </div>

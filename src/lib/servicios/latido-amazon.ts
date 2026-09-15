@@ -11,6 +11,7 @@ import {
 import { sincronizarEconomia } from "../amazon/economia";
 import { sincronizarFnskus } from "../amazon/fnskus";
 import { sincronizarPadres } from "./padres-amazon";
+import { invalidarPlanFba, precalcularPlanFba } from "./plan-fba-cache";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -23,7 +24,7 @@ import { sincronizarPadres } from "./padres-amazon";
  * pg_cron sí existe, el espaciado evita que se pisen — pedir un reporte que
  * ya se pidió no duplica nada, pero sí gasta cuota.
  */
-export async function latidoAmazon(admin: DB): Promise<void> {
+export async function latidoAmazon(admin: DB, meliAccountId?: string): Promise<void> {
   const cuentas = await cuentasAmazon(admin);
   if (!cuentas.length) return;
 
@@ -33,14 +34,20 @@ export async function latidoAmazon(admin: DB): Promise<void> {
   const limite = Date.now() + 45_000;
 
   for (const cuenta of cuentas) {
+    // Estos cuatro pasos cambian los insumos del plan de FBA: cuando corren,
+    // el plan guardado se marca obsoleto y se deja precalculado más abajo.
     await paso(admin, cuenta.accountId, "cron_ventas", 10 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
-      return sincronizarVentas(admin, cliente);
+      const r = await sincronizarVentas(admin, cliente);
+      await invalidarPlanFba(admin, cuenta.accountId, "Se sincronizaron las ventas de Amazon.");
+      return r;
     });
 
     await paso(admin, cuenta.accountId, "cron_inventario", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
-      return sincronizarInventario(admin, cliente);
+      const r = await sincronizarInventario(admin, cliente);
+      await invalidarPlanFba(admin, cuenta.accountId, "Se sincronizó el inventario de FBA.");
+      return r;
     });
 
     // La historia del inventario (Inventory Ledger): rellena los días que a
@@ -48,7 +55,9 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     // vea la ventana completa. Cuando la historia ya alcanza, no pide nada.
     await paso(admin, cuenta.accountId, "cron_ledger", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
-      return sincronizarHistorialInventario(admin, cliente);
+      const r = await sincronizarHistorialInventario(admin, cliente);
+      await invalidarPlanFba(admin, cuenta.accountId, "Se sincronizó la historia del inventario de FBA.");
+      return r;
     });
 
     // El detalle de envíos entrantes a FBA: es lo que permite ignorar los
@@ -56,7 +65,9 @@ export async function latidoAmazon(admin: DB): Promise<void> {
     // inventario sigue contando como "en camino" para siempre.
     await paso(admin, cuenta.accountId, "cron_envios_fba", 55 * 60_000, async () => {
       const cliente = new Cliente(cuenta, limite);
-      return sincronizarEnviosEntrantes(admin, cliente);
+      const r = await sincronizarEnviosEntrantes(admin, cliente);
+      await invalidarPlanFba(admin, cuenta.accountId, "Se sincronizaron los envíos entrantes a FBA.");
+      return r;
     });
 
     // Los reportes de liquidación salen cada ~2 semanas, pero revisar si hay
@@ -107,6 +118,20 @@ export async function latidoAmazon(admin: DB): Promise<void> {
       const cliente = new Cliente(cuenta, limite);
       return sincronizarEconomia(admin, cliente);
     });
+
+    // Si algún paso dejó obsoleto el plan de FBA, se deja precalculado aquí
+    // (el periodo por omisión) para que /amazon lea un renglón en vez de
+    // pagar el cálculo completo. Cuenta única por dueño (registro cerrado):
+    // el cálculo con service role ve lo mismo que ve el dueño en pantalla.
+    // Solo con la cuenta de MELI a la mano: precalcular sin ella guardaría
+    // un plan sin bodega que la página tendría que tirar y rehacer.
+    if (meliAccountId && Date.now() < limite - 10_000) {
+      try {
+        await precalcularPlanFba(admin, cuenta.accountId, meliAccountId);
+      } catch (err) {
+        console.error("precalcularPlanFba:", (err as Error).message);
+      }
+    }
   }
 }
 

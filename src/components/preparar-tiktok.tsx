@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
-import { avanzar, darPorBueno, estadoInicial, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
 import { hablar, pitar } from "./sonido-tiktok";
 
 /**
@@ -79,8 +80,8 @@ export function PrepararTikTok({
       (estado.paso !== "producto" || estado.paquete?.numero !== siguiente.paquete.numero);
     if (voz && recienIdentificado && siguiente.paquete) {
       window.setTimeout(() => hablar(fraseParaVoz(siguiente.paquete as NonNullable<typeof siguiente.paquete>)), siguiente.pitidos * 160);
-    } else if (voz && siguiente.paso === "listo") {
-      hablar("Listo");
+    } else if (voz && siguiente.paso === "listo" && siguiente.paquete) {
+      hablar(fraseDeCompletado(siguiente.paquete));
     }
 
     if (siguiente.paso === "listo" && siguiente.paquete) {
@@ -143,7 +144,7 @@ export function PrepararTikTok({
     }
   }
   const manual = () => aplicar(darPorBueno(estado));
-  const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.fnsku && f.faltan > 0);
+  const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.codigos.length && f.faltan > 0);
 
   const hechos = paquetes.filter((p) => preparados.has(p.numero)).length;
   const colorPaso =
@@ -186,10 +187,15 @@ export function PrepararTikTok({
             <ul className="mt-2 text-sm">
               {estado.paquete.pares.map((x) => {
                 const f = estado.faltantes.find((y) => y.sku === x.sku);
+                const codigos = f?.codigos ?? codigosDeProducto(x);
                 return (
                   <li key={x.sku}>
                     <span className="font-medium">{x.sku}</span> × {x.pares}
-                    {x.fnsku ? <span style={{ color: "var(--ink-2)" }}> · {x.fnsku}</span> : <span style={{ color: "var(--estado-alerta)" }}> · sin FNSKU</span>}
+                    {codigos.length ? (
+                      <span style={{ color: "var(--ink-2)" }}> · {codigos.join(" o ")}</span>
+                    ) : (
+                      <span style={{ color: "var(--estado-alerta)" }}> · sin código: "Dar por bueno"</span>
+                    )}
                     {f && estado.paso === "producto" ? <span style={{ color: "var(--ink-2)" }}> · faltan {f.faltan}</span> : null}
                   </li>
                 );
@@ -260,7 +266,7 @@ export function PrepararTikTok({
             className="mt-3 rounded-lg border px-3 py-2 text-sm font-medium"
             style={{ borderColor: "var(--estado-alerta)", color: "var(--estado-alerta)" }}
           >
-            Dar por bueno sin escanear (queda registrado como manual)
+            Dar por bueno sin escanear los que no tienen FNSKU (queda registrado como manual)
           </button>
         ) : null}
         <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>

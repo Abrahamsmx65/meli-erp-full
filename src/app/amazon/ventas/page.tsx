@@ -1,7 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { cargarMonitorAmazon } from "@/lib/servicios/amazon-monitor";
+import { obtenerMonitorAmazon } from "@/lib/servicios/amazon-monitor";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -44,8 +44,11 @@ export default async function VentasAmazon({
   }
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const m = await cargarMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const m = await obtenerMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
+  const economiaCompleta =
+    m.economia?.cobertura.completa === true && m.economia.coberturaCosto >= 0.999;
+  const real = m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0) ? m.real : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -77,29 +80,107 @@ export default async function VentasAmazon({
           valor={n(m.periodo.unidades / dias)}
           nota="Promedio del periodo"
         />
+        {/* UNA sola ganancia, la del corte general: neto del SKU Economics
+            (ventas − tarifas − publicidad, por fecha de venta) − costo.
+            Sin economía cae a lo liquidado y al final a venta − costo, y la
+            nota dice cuál fue: ya no hay «real» y «final» contradiciéndose. */}
         <Ficha
-          titulo={m.gananciaReal != null ? "Ganancia real" : "Ganancia estimada"}
+          titulo="Ganancia del periodo"
           valor={
-            m.gananciaReal != null
-              ? pesos(m.gananciaReal)
-              : m.coberturaCosto > 0
-                ? pesos(m.ganancia)
-                : "—"
+            real?.ganancia != null
+              ? pesos(real.ganancia)
+              : m.economia?.gananciaFinal != null
+              ? pesos(m.economia.gananciaFinal)
+              : m.gananciaReal != null
+                ? pesos(m.gananciaReal)
+                : m.coberturaCosto > 0
+                  ? pesos(m.ganancia)
+                  : "—"
           }
           nota={
-            m.gananciaReal != null
-              ? `Neto depositado ${pesos(m.netoReal ?? 0)} − costo de ${n(m.unidadesLiquidadas)} pares liquidados (comisiones, envío e impuestos ya descontados)`
-              : m.coberturaCosto > 0
-                ? `Venta − costo, ANTES de comisiones de Amazon · ${Math.round(m.coberturaCosto * 100)}% con costo`
-                : "Captura costos en Productos y costos"
+            real?.ganancia != null
+              ? `${real.exacto ? "Exacta" : "Parcial"} · Dinero real de Amazon (Finances API) − costo · ${Math.round(real.coberturaCosto * 100)}% con costo`
+              : m.economia?.gananciaFinal != null
+              ? `${economiaCompleta ? "Exacta" : "Parcial"} · Neto Amazon (ventas − tarifas − publicidad) − costo · ${Math.round(m.economia.coberturaCosto * 100)}% con costo`
+              : m.gananciaReal != null
+                ? `Sin economía por producto en el rango: es lo LIQUIDADO (${pesos(m.netoReal ?? 0)}) − costo de ${n(m.unidadesLiquidadas)} pares`
+                : m.coberturaCosto > 0
+                  ? `Sin economía ni liquidaciones: venta − costo, ANTES de tarifas de Amazon · ${Math.round(m.coberturaCosto * 100)}% con costo`
+                  : "Captura costos en Productos y costos"
           }
           tono={
-            (m.gananciaReal ?? m.ganancia) < 0 && (m.gananciaReal != null || m.coberturaCosto > 0)
+            (real?.ganancia ?? m.economia?.gananciaFinal ?? m.gananciaReal ?? m.ganancia) < 0 &&
+            (real?.ganancia != null || m.economia?.gananciaFinal != null || m.gananciaReal != null || m.coberturaCosto > 0)
               ? "critico"
               : "neutro"
           }
         />
       </div>
+
+      {/* ---- El dinero REAL: eventos de la Finances API por fecha de asiento ---- */}
+      {real ? (
+        <section className="tarjeta p-4">
+          <h2 className="text-sm font-semibold">A dónde se fue el dinero (real, por fecha de asiento)</h2>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+            Cada peso sale de un evento de la Finances API de Amazon con su nombre: precio,
+            impuesto, comisión, FBA, IVA retenido, promociones, reembolsos y la factura de
+            publicidad con IVA. Nada se estima.
+            {real.cobertura.hasta ? ` Liquidaciones cerradas hasta ${real.cobertura.hasta.slice(0, 10)}.` : ""}
+          </p>
+          {real.avisos.length ? (
+            <ul className="mt-2 flex flex-col gap-1 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
+              {real.avisos.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--exito-texto)" }}>
+              Periodo cerrado: todas sus liquidaciones cuadran con lo que Amazon depositó.
+            </p>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+            <Ficha titulo="Venta bruta" valor={pesos(real.ventas.bruto)} nota={`${n(real.ventas.unidades)} unidades · ${n(real.ventas.eventos)} envíos`} />
+            <Ficha titulo="Comisión" valor={pesos(real.ventas.comision)} nota="Referral fee" tono={real.ventas.comision < 0 ? "alerta" : "neutro"} />
+            <Ficha titulo="FBA" valor={pesos(real.ventas.fba)} nota="Tarifa de logística" tono={real.ventas.fba < 0 ? "alerta" : "neutro"} />
+            <Ficha titulo="IVA retenido" valor={pesos(real.ventas.retenido)} nota="MarketplaceFacilitator" tono={real.ventas.retenido < 0 ? "alerta" : "neutro"} />
+            <Ficha
+              titulo="Promos y otras"
+              valor={pesos(real.ventas.promociones + real.ventas.otrasTarifas)}
+              nota="Promociones y otras tarifas"
+              tono={real.ventas.promociones + real.ventas.otrasTarifas < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha titulo="Devoluciones" valor={pesos(real.reembolsos.neto)} nota={`${n(real.reembolsos.unidades)} unidades · ${n(real.reembolsos.eventos)} reembolsos`} tono={real.reembolsos.neto < 0 ? "alerta" : "neutro"} />
+            <Ficha
+              titulo="Publicidad"
+              valor={pesos(real.publicidad.monto)}
+              nota={real.publicidad.impuesto ? `Factura real · incluye ${pesos(real.publicidad.impuesto)} de IVA` : "Factura real de Product Ads"}
+              tono={real.publicidad.monto < 0 ? "alerta" : "neutro"}
+            />
+            <Ficha titulo="Neto depositado" valor={pesos(real.netoDepositado)} nota={`Productos ${pesos(real.netoProductos)} · otros ${pesos(real.otrosTotal)}`} />
+          </div>
+          {real.otros.length ? (
+            <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+              Otros cargos del periodo:{" "}
+              {real.otros.map((o) => `${o.lista.replace(/EventList$/, "")} ${pesos(o.monto)}${o.sinClasificar ? ` (${o.sinClasificar} sin clasificar)` : ""}`).join(" · ")}
+            </p>
+          ) : null}
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Ficha titulo="Costo de producto" valor={real.costoProducto > 0 ? pesos(-real.costoProducto) : "—"} nota={`${Math.round(real.coberturaCosto * 100)}% de las unidades con costo capturado`} />
+            <Ficha
+              titulo="Ganancia"
+              valor={real.ganancia != null ? pesos(real.ganancia) : "—"}
+              nota={`${real.exacto ? "Exacta" : "Parcial"} · neto de productos − costo − publicidad − otros cargos`}
+              tono={real.ganancia == null ? "neutro" : real.ganancia < 0 ? "critico" : "bien"}
+            />
+            <Ficha
+              titulo="Liquidaciones"
+              valor={`${n(real.cobertura.cerrados)} cerradas`}
+              nota={`${n(real.cobertura.abiertos)} en curso · ${n(real.cobertura.incompletos)} a medio leer · ${n(real.cobertura.descuadrados)} sin cuadrar`}
+              tono={real.cobertura.descuadrados ? "critico" : real.cobertura.abiertos || real.cobertura.incompletos ? "alerta" : "bien"}
+            />
+          </div>
+        </section>
+      ) : null}
 
       {/* ---- Economía POR PRODUCTO (SKU Economics vía Data Kiosk) ---------- */}
       {m.economia ? (
@@ -110,6 +191,13 @@ export default async function VentasAmazon({
             publicidad por producto y por día
             {m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.
           </p>
+          {!economiaCompleta ? (
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
+              Datos parciales: {Math.round(m.economia.cobertura.importe * 100)}% del importe,{" "}
+              {Math.round(m.economia.cobertura.unidades * 100)}% de las unidades y{" "}
+              {m.economia.cobertura.diasCubiertos} de {m.economia.cobertura.diasVenta} días con venta.
+            </p>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
             <Ficha
               titulo="Ventas"
@@ -141,7 +229,7 @@ export default async function VentasAmazon({
             <Ficha
               titulo="Ganancia final"
               valor={m.economia.gananciaFinal != null ? pesos(m.economia.gananciaFinal) : "—"}
-              nota="Neto Amazon − costo de producto"
+              nota={`${economiaCompleta ? "Exacta" : "Parcial"} · Neto Amazon − costo de producto`}
               tono={
                 m.economia.gananciaFinal == null
                   ? "neutro"
@@ -227,10 +315,10 @@ export default async function VentasAmazon({
             <h2 className="text-base font-semibold">Por categoría</h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
               Las categorías y costos se capturan en Productos y costos (son los
-              mismos productos que en MELI). "Neto real" es lo que Amazon depositó
-              según su reporte de pagos (comisiones, envío e impuestos ya
-              descontados) y la ganancia sale de ahí; cuando aún no hay pagos
-              liquidados del periodo, la ganancia con ~ es venta − costo.
+              mismos productos que en MELI). La ganancia es UNA sola cuenta, la del
+              corte general: neto del SKU Economics (ventas − tarifas − publicidad,
+              por fecha de venta) − costo, sumada modelo por modelo. Las unidades de
+              modelos sin costo capturado quedan FUERA y se declaran.
             </p>
           </header>
           <table className="datos">
@@ -239,7 +327,7 @@ export default async function VentasAmazon({
                 <th>Categoría</th>
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
-                <th className="num">Neto real</th>
+                <th className="num">Neto liquidado</th>
                 <th className="num">Ganancia</th>
               </tr>
             </thead>
@@ -254,23 +342,26 @@ export default async function VentasAmazon({
                   </td>
                   <td
                     className="num cifra"
+                    title={c.unidadesSinGanancia > 0 ? `${n(c.unidadesSinGanancia)} unidades sin costo capturado quedan fuera de esta ganancia` : undefined}
                     style={{
                       color:
-                        (c.gananciaReal ?? c.ganancia ?? 0) < 0
+                        (c.gananciaNeta ?? 0) < 0
                           ? "var(--estado-critico)"
                           : "var(--ink-1)",
                     }}
                   >
-                    {c.gananciaReal != null
-                      ? pesos(c.gananciaReal)
-                      : c.ganancia == null
-                        ? "—"
-                        : `~${pesos(c.ganancia)}`}
+                    {c.gananciaNeta == null ? "sin costo" : pesos(c.gananciaNeta)}
+                    {c.gananciaNeta != null && c.unidadesSinGanancia > 0 ? " *" : ""}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {m.porCategoria.some((c) => c.unidadesSinGanancia > 0) ? (
+            <p className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-2)" }}>
+              * En esa categoría hay unidades de modelos sin costo capturado: su venta no entra a la ganancia. Captura el costo en Productos y costos.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -281,7 +372,9 @@ export default async function VentasAmazon({
             Todas las tallas y colores de cada modelo, juntos, en el periodo elegido. La
             publicidad viene del reporte de economía por SKU (confiable desde el 9 de
             agosto de 2026; antes está incompleto). Un modelo con publicidad en “—” o $0
-            no tiene gasto atribuido a sus SKUs en ese reporte.
+            no tiene gasto atribuido a sus SKUs en ese reporte. La ganancia es la misma
+            cuenta que arriba (neto económico − costo); con ~ es venta − costo porque a
+            ese modelo aún no le llega economía ni liquidación.
           </p>
         </header>
         <div className="max-h-[36rem] overflow-auto">
@@ -347,18 +440,27 @@ export default async function VentasAmazon({
                     </td>
                     <td
                       className="num cifra"
+                      title={
+                        f.gananciaFuente === "economia"
+                          ? "Neto del SKU Economics − costo"
+                          : f.gananciaFuente === "liquidado"
+                            ? "Sin economía del modelo: lo liquidado − costo"
+                            : f.gananciaFuente === "estimada"
+                              ? "Sin economía ni liquidación: venta − costo (antes de tarifas)"
+                              : "Sin costo capturado"
+                      }
                       style={{
                         color:
-                          (f.gananciaReal ?? f.ganancia ?? 0) < 0
+                          (f.gananciaNeta ?? 0) < 0
                             ? "var(--estado-critico)"
-                            : "var(--ink-1)",
+                            : f.gananciaNeta == null
+                              ? "var(--ink-muted)"
+                              : "var(--ink-1)",
                       }}
                     >
-                      {f.gananciaReal != null
-                        ? pesos(f.gananciaReal)
-                        : f.ganancia == null
-                          ? "—"
-                          : `~${pesos(f.ganancia)}`}
+                      {f.gananciaNeta == null
+                        ? "sin costo"
+                        : `${f.gananciaFuente === "estimada" ? "~" : ""}${pesos(f.gananciaNeta)}`}
                     </td>
                   </tr>
                 );

@@ -1,14 +1,15 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import {
-  cargarMonitor,
-  diasDeRango,
-  fechaMx,
-  normalizarRango,
-  type Movimiento,
-} from "@/lib/servicios/ventas-monitor";
+import { diasDeRango, fechaMx, normalizarRango, type Movimiento } from "@/lib/servicios/ventas-monitor";
+import { vistaVentas } from "@/lib/servicios/ventas-vista";
+import { CascadaDinero } from "@/components/cascada-dinero";
+import { AuditoriaOrdenes } from "@/components/auditoria-ordenes";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
+import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +37,10 @@ export default async function Ventas({
   const rango = normalizarRango(sp.desde, sp.hasta);
   const dias = diasDeRango(rango);
 
+  const t = cronometro("/ventas");
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
+  t.marca("cuenta");
   if (!cuenta) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
@@ -50,7 +53,14 @@ export default async function Ventas({
     );
   }
 
-  const m = await cargarMonitor(supabase, cuenta.id, rango);
+  // Todo llega masticado del servicio: el monitor con la publicidad ya
+  // descontada, la cascada real del dinero y los cuadres entre niveles.
+  // Esta página no hace ninguna cuenta.
+  const vista = await vistaVentas(supabase, cuenta, rango, t);
+  t.fin();
+  const { monitor: m, gastoAds, gananciaConAds, finanzas, cuadres } = vista;
+  const ads = { errorAds: vista.errorAds, advertencias: vista.advertenciasAds };
+  const descuadres = cuadres.filter((c) => c.diferencia !== 0);
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
 
   return (
@@ -65,6 +75,19 @@ export default async function Ventas({
       </div>
 
       <FiltroFechas base="/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+
+      {ads.errorAds || ads.advertencias.length ? (
+        <div
+          className="tarjeta p-4 text-sm"
+          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
+        >
+          <strong>Datos parciales.</strong>{" "}
+          {ads.errorAds
+            ? `${ads.errorAds} Las ventas siguen visibles, pero publicidad y ganancias después de ads se muestran como no disponibles.`
+            : ads.advertencias.join(" ")}{" "}
+          Vuelve a intentar; si continúa, revisa la conexión en Ajustes.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
@@ -90,68 +113,76 @@ export default async function Ventas({
         />
         <Ficha
           titulo="Ganancia del periodo"
-          valor={m.coberturaCosto > 0 ? pesos(m.ganancia7) : "—"}
+          valor={m.coberturaCosto > 0 ? pesos(gananciaConAds ?? m.ganancia7) : "—"}
           nota={
             m.coberturaCosto > 0
-              ? `Neto de MELI − costo · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo`
+              ? `Neto real de MELI − costo${gastoAds != null ? " − publicidad" : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo${m.desglose.ventaSinDeposito > 0 ? ` · ${pesos(m.desglose.ventaSinDeposito)} de venta sin depósito leído (fuera, nada se estima)` : ""}`
               : "Captura costos en Productos y costos"
           }
-          tono={m.coberturaCosto > 0 && m.ganancia7 < 0 ? "critico" : "neutro"}
+          tono={m.coberturaCosto > 0 && (gananciaConAds ?? m.ganancia7) < 0 ? "critico" : "neutro"}
         />
       </div>
 
       {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
-      <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">A dónde se fue el dinero del periodo</h2>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-          El neto es el depósito REAL de Mercado Pago donde ya llegó (
-          {Math.round(m.desglose.coberturaNetoReal * 100)}% del importe del periodo);
-          donde aún no, se usa importe − comisión. La publicidad de MELI tiene su
-          propia sección: Publicidad.
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
-          <Ficha titulo="Venta bruta" valor={pesos(m.desglose.bruto)} nota="Precio × unidades" />
-          <Ficha
-            titulo="Comisión MELI"
-            valor={pesos(-m.desglose.comision)}
-            nota="Cargo por venta (sale fee)"
-            tono={m.desglose.comision > 0 ? "alerta" : "neutro"}
-          />
-          <Ficha
-            titulo="Envíos y otros"
-            valor={m.desglose.enviosYOtros != null ? pesos(-m.desglose.enviosYOtros) : "—"}
-            nota={
-              m.desglose.enviosYOtros != null
-                ? "Fletes, retenciones y cargos, según el depósito real"
-                : "Se sabrá cuando llegue el neto real del periodo"
-            }
-            tono={(m.desglose.enviosYOtros ?? 0) > 0 ? "alerta" : "neutro"}
-          />
-          <Ficha
-            titulo="Neto depositado"
-            valor={pesos(m.desglose.neto)}
-            nota="Lo que Mercado Pago deposita"
-          />
+      <section className="tarjeta overflow-hidden">
+        <header className="border-b p-4 hairline">
+          <h2 className="text-base font-semibold">A dónde se fue el dinero del periodo</h2>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            Lo que Mercado Pago dice de cada orden: la venta bruta menos cada cargo,
+            hasta lo que recibes. Lo que Mercado Pago no desglosa o cuyo pago aún no
+            se ha leído aparece como «sin identificar», nunca repartido ni escondido.
+            Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
+            <Link href="/cortes" style={{ color: "var(--acento)" }}>
+              Corte general
+            </Link>
+            .
+          </p>
+        </header>
+        <CascadaDinero finanzas={finanzas} />
+        <div className="grid grid-cols-2 gap-3 border-t p-4 hairline md:grid-cols-4">
           <Ficha
             titulo="Costo de producto"
             valor={m.desglose.costoProducto > 0 ? pesos(-m.desglose.costoProducto) : "—"}
             nota={`${Math.round(m.coberturaCosto * 100)}% de la venta con costo capturado`}
           />
           <Ficha
-            titulo="Ganancia real"
+            titulo="Ganancia bruta"
             valor={m.coberturaCosto > 0 ? pesos(m.desglose.gananciaReal) : "—"}
             nota="Neto − costo de producto"
+            tono={m.coberturaCosto > 0 && m.desglose.gananciaReal < 0 ? "critico" : "neutro"}
+          />
+          <Ficha
+            titulo="Publicidad"
+            valor={gastoAds != null ? pesos(-gastoAds) : "—"}
+            nota={ads.errorAds ?? "Product Ads del periodo"}
+            tono={(gastoAds ?? 0) > 0 ? "alerta" : "neutro"}
+          />
+          <Ficha
+            titulo="Ganancia después de ads"
+            valor={m.coberturaCosto > 0 && gananciaConAds != null ? pesos(gananciaConAds) : "—"}
+            nota={gastoAds != null ? "Neto − costo − publicidad" : "Sin dato de publicidad"}
             tono={
-              m.coberturaCosto > 0 ? (m.desglose.gananciaReal < 0 ? "critico" : "bien") : "neutro"
+              m.coberturaCosto > 0 && gananciaConAds != null
+                ? gananciaConAds < 0
+                  ? "critico"
+                  : "bien"
+                : "neutro"
             }
           />
         </div>
+        {descuadres.length ? (
+          <footer
+            className="border-t p-3 text-xs hairline"
+            style={{ color: "var(--estado-critico)" }}
+            role="alert"
+          >
+            <strong>No cuadra:</strong>{" "}
+            {descuadres
+              .map((c) => `${c.que}: ${pesos(c.arriba)} arriba vs ${pesos(c.abajo)} abajo (${pesos(c.diferencia / 100)})`)
+              .join(" · ")}
+          </footer>
+        ) : null}
       </section>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
-        <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
-      </div>
 
       {m.porCategoria.length ? (
         <section className="tarjeta overflow-hidden">
@@ -159,7 +190,9 @@ export default async function Ventas({
             <h2 className="text-base font-semibold">Por categoría</h2>
             <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
               Las categorías se capturan en Productos y costos. Neto = lo que MELI
-              deposita (ya sin su comisión); ganancia = neto − costo.
+              deposita (ya sin su comisión); ganancia = neto − costo − publicidad del
+              modelo que la gastó.
+              {ads.errorAds ? " Product Ads no contestó: la ganancia va SIN publicidad." : ""}
             </p>
           </header>
           <table className="datos">
@@ -169,6 +202,7 @@ export default async function Ventas({
                 <th className="num">Unidades</th>
                 <th className="num">Venta</th>
                 <th className="num">Neto</th>
+                <th className="num">Publicidad</th>
                 <th className="num">Ganancia</th>
               </tr>
             </thead>
@@ -179,6 +213,9 @@ export default async function Ventas({
                   <td className="num cifra">{n(c.unidades7)}</td>
                   <td className="num cifra">{pesos(c.importe7)}</td>
                   <td className="num cifra">{pesos(c.neto7)}</td>
+                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                    {c.publicidad7 == null ? "—" : pesos(c.publicidad7)}
+                  </td>
                   <td
                     className="num cifra"
                     style={{
@@ -193,6 +230,22 @@ export default async function Ventas({
                 </tr>
               ))}
             </tbody>
+            {/* El total va abajo para cotejarlo con las fichas de arriba: si
+                no cuadra, el aviso de la sección del dinero lo dice. */}
+            <tfoot>
+              <tr style={{ background: "var(--surface-2)" }}>
+                <td className="font-semibold">Total</td>
+                <td className="num cifra font-semibold">{n(m.porCategoria.reduce((a, c) => a + c.unidades7, 0))}</td>
+                <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.importe7, 0))}</td>
+                <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.neto7, 0))}</td>
+                <td className="num cifra font-semibold" style={{ color: "var(--ink-2)" }}>
+                  {gastoAds == null ? "—" : pesos(m.porCategoria.reduce((a, c) => a + (c.publicidad7 ?? 0), 0))}
+                </td>
+                <td className="num cifra font-semibold">
+                  {m.coberturaCosto > 0 ? pesos(m.porCategoria.reduce((a, c) => a + (c.ganancia7 ?? 0), 0)) : "—"}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </section>
       ) : null}
@@ -202,67 +255,30 @@ export default async function Ventas({
           <h2 className="text-base font-semibold">Por modelo</h2>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             Todas las tallas y colores de cada modelo, juntos, en el periodo elegido,
-            contra el periodo anterior del mismo largo.
+            contra el periodo anterior del mismo largo. Ganancia = neto − costo −
+            publicidad del modelo{ads.errorAds ? " (sin dato de ads ahora: va sin publicidad)" : ""}. Busca por
+            modelo o SKU, filtra por categoría y da clic en una columna para ordenar.
           </p>
         </header>
-        <div className="max-h-[36rem] overflow-auto">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th className="num">Colores</th>
-                <th className="num">Hoy</th>
-                <th className="num">Periodo</th>
-                <th className="num">Previo</th>
-                <th className="num">Cambio</th>
-                <th className="num">Importe</th>
-                <th className="num">Ganancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {m.porModelo.map((f) => {
-                const delta = f.unidades7 - f.unidades7Prev;
-                return (
-                  <tr key={f.modelo}>
-                    <td className="font-medium">{f.modelo}</td>
-                    <td className="num cifra">{f.colores}</td>
-                    <td className="num cifra">{n(f.unidadesHoy)}</td>
-                    <td className="num cifra font-semibold">{n(f.unidades7)}</td>
-                    <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
-                      {n(f.unidades7Prev)}
-                    </td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color:
-                          delta > 0
-                            ? "var(--exito-texto)"
-                            : delta < 0
-                              ? "var(--estado-critico)"
-                              : "var(--ink-muted)",
-                      }}
-                    >
-                      {delta > 0 ? `+${n(delta)}` : n(delta)}
-                    </td>
-                    <td className="num cifra">{pesos(f.importe7)}</td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color:
-                          f.ganancia7 != null && f.ganancia7 < 0
-                            ? "var(--estado-critico)"
-                            : "var(--ink-1)",
-                      }}
-                    >
-                      {f.ganancia7 == null ? "—" : pesos(f.ganancia7)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <TablaModelosVentas
+          desde={rango.desde}
+          hasta={rango.hasta}
+          inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
+            busqueda: "",
+            categoria: "",
+            orden: { clave: "unidades7", desc: true },
+            pagina: 1,
+          })}
+        />
       </section>
+
+      <AuditoriaOrdenes auditoria={finanzas.auditoria} rango={rango} />
+
+      {/* ---- Lo que se mueve, al final: primero los números, luego el chisme */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
+        <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
+      </div>
     </div>
   );
 }

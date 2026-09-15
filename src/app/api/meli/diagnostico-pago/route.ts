@@ -1,0 +1,229 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { clienteDeCuenta } from "@/lib/servicios/webhooks";
+import { leerPagoMercadoPago, type PagoMercadoPago } from "@/lib/meli/pagos";
+import { CacheTarifas, costoEnvioVendedor, resumirOrdenConMeli } from "@/lib/meli/pagos-api";
+import { contextoDeOrden, type OrdenMeliCruda } from "@/lib/meli/orden";
+import { renglonesDe } from "@/lib/servicios/devoluciones";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+/**
+ * Radiografía de UNA orden y sus pagos, tal como los devuelve MELI.
+ *
+ * Existe porque el desglose de cargos salió mal y no se puede arreglar a
+ * ciegas: en la base, de 8,384 órdenes con cargos leídos, las retenciones de
+ * ISR e IVA salieron en CERO y dos tercios del dinero acabó en
+ * `cargos_sin_desglosar`. La sincronización pide `/collections/{id}`, que es
+ * la forma vieja del pago, y de ahí solo salen escalares sueltos.
+ *
+ * Esto pregunta lo mismo por TRES caminos y enseña la respuesta cruda de cada
+ * uno, para ver con qué nombre viene realmente cada cargo antes de escribir
+ * una línea de clasificación. NO guarda nada: solo lee y responde.
+ *
+ *   /api/meli/diagnostico-pago?orden=2000018341066916
+ */
+const CAMINOS = [
+  { nombre: "collections", ruta: (id: string) => `/collections/${id}` },
+  { nombre: "payments_meli", ruta: (id: string) => `/payments/${id}` },
+  { nombre: "payments_mp", ruta: (id: string) => `https://api.mercadopago.com/v1/payments/${id}` },
+];
+
+export async function GET(req: NextRequest) {
+  const supabase = await clienteServidor();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
+
+  const cuenta = await cuentaActiva(supabase);
+  if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
+
+  const ordenId = (req.nextUrl.searchParams.get("orden") ?? "").trim();
+  if (!/^\d+$/.test(ordenId)) {
+    return NextResponse.json(
+      { error: "Falta ?orden=<número de venta>. Ejemplo: /api/meli/diagnostico-pago?orden=2000018341066916" },
+      { status: 400 },
+    );
+  }
+
+  // Los tokens viven en meli_tokens, que tiene RLS con CERO políticas a
+  // propósito: solo el service role la lee. Con la sesión del usuario el
+  // helper no ve la fila y contesta "no tiene tokens" aunque sí los tenga.
+  // La sesión ya validó quién pregunta y de qué cuenta; el admin solo lee.
+  const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
+  if (!cliente) return NextResponse.json({ error: "La cuenta no tiene tokens de MELI." }, { status: 400 });
+
+  // 1. La orden cruda: de ahí salen los ids de pago y el precio de lista.
+  let orden: any = null;
+  let errorOrden: string | null = null;
+  try {
+    orden = await cliente.get<any>(`/orders/${ordenId}`, undefined, { reintentos: 1 });
+  } catch (err) {
+    errorOrden = (err as Error).message;
+  }
+
+  // ?solo=reclamos: sonda compacta de los reclamos/devoluciones de la orden
+  // (quién absorbió el reembolso y si el producto volvió a la venta), sin
+  // los pagos. Varias rutas candidatas: se enseña cuál contesta y qué trae.
+  if (req.nextUrl.searchParams.get("solo") === "reclamos") {
+    const sonda: Record<string, unknown> = { orden: ordenId, status: orden?.status ?? null, tags: orden?.tags ?? null, mediations: orden?.mediations ?? null };
+    const rutas = [
+      `/post-purchase/v1/claims/search?resource=order&resource_id=${ordenId}`,
+      `/post-purchase/v1/claims/search?order_id=${ordenId}`,
+      `/v1/claims/search?resource_id=${ordenId}&resource=order`,
+    ];
+    const claims: Record<string, unknown>[] = [];
+    for (const ruta of rutas) {
+      try {
+        const r = await cliente.get<any>(ruta, undefined, { reintentos: 0 });
+        const lista = Array.isArray(r?.data) ? r.data : Array.isArray(r?.results) ? r.results : Array.isArray(r) ? r : [];
+        sonda[ruta] = { ok: true, total: lista.length, llaves: Object.keys(r ?? {}).slice(0, 12) };
+        for (const c of lista) if (c?.id && !claims.some((x) => x.id === c.id)) claims.push(c);
+      } catch (err) {
+        sonda[ruta] = { ok: false, error: (err as Error).message.slice(0, 200) };
+      }
+    }
+    const compacta = (c: any) => ({
+      id: c?.id, type: c?.type, stage: c?.stage, status: c?.status, reason_id: c?.reason_id, parent_id: c?.parent_id,
+      resolution: c?.resolution, players: (c?.players ?? []).map((p: any) => ({ role: p?.role, type: p?.type })), date_created: c?.date_created, last_updated: c?.last_updated,
+      llaves: Object.keys(c ?? {}),
+    });
+    sonda.reclamos = claims.map(compacta);
+    const detalles: Record<string, unknown> = {};
+    for (const c of claims.slice(0, 3)) {
+      for (const ruta of [`/post-purchase/v1/claims/${c.id}`, `/post-purchase/v1/claims/${c.id}/returns`, `/post-purchase/v2/claims/${c.id}/returns`, `/post-purchase/v1/claims/${c.id}/charges`]) {
+        try {
+          const r = await cliente.get<any>(ruta, undefined, { reintentos: 0 });
+          detalles[ruta] = r;
+        } catch (err) {
+          detalles[ruta] = { error: (err as Error).message.slice(0, 160) };
+        }
+      }
+    }
+    // La revisión de la devolución en el almacén de Full (¿volvió a la venta o se descartó?).
+    for (const [ruta, r] of Object.entries(detalles)) {
+      const rid = (r as any)?.id;
+      if (!ruta.includes("/returns") || !rid || (r as any)?.error) continue;
+      // Única ruta que contesta (sonda 9-sep-2026); las demás dan 400/404.
+      for (const rr of [`/post-purchase/v1/returns/${rid}/reviews`]) {
+        try {
+          detalles[rr] = await cliente.get<any>(rr, undefined, { reintentos: 0 });
+        } catch (err) {
+          detalles[rr] = { error: (err as Error).message.slice(0, 120) };
+        }
+      }
+    }
+    sonda.detalles = detalles;
+    return NextResponse.json(sonda, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  const idsPago: string[] = (orden?.payments ?? [])
+    .map((p: any) => String(p?.id ?? ""))
+    .filter(Boolean);
+
+  // 2. Cada pago por los tres caminos, con lo que el clasificador saca de
+  //    cada respuesta. Así se ve de un vistazo cuál trae ISR/IVA y cuál no.
+  const pagos = [];
+  const pagosReales: PagoMercadoPago[] = [];
+  for (const idPago of idsPago) {
+    const intentos: Record<string, unknown> = {};
+    for (const camino of CAMINOS) {
+      try {
+        const crudo = await cliente.get<unknown>(camino.ruta(idPago), undefined, { reintentos: 0 });
+        const interpretado = leerPagoMercadoPago(crudo, camino.nombre === "payments_mp" ? "v1/payments" : "collections");
+        if (camino.nombre === "payments_mp") pagosReales.push(interpretado);
+        intentos[camino.nombre] = {
+          ok: true,
+          llaves: Object.keys((crudo as any)?.collection ?? crudo ?? {}).sort(),
+          interpretado,
+          crudo,
+        };
+      } catch (err) {
+        intentos[camino.nombre] = { ok: false, error: (err as Error).message };
+      }
+    }
+    pagos.push({ idPago, intentos });
+  }
+
+  // 3. La cascada tal como la guardaría el barrido, con el envío del
+  //    vendedor (/shipments/{id}/costs) y, en reventa, la tarifa de la
+  //    categoría para reconstruir el precio público. Sin guardar nada.
+  let cascada: unknown = null;
+  let envioVendedor: number | null = null;
+  if (orden && pagosReales.length === idsPago.length) {
+    try {
+      const o = orden as OrdenMeliCruda;
+      const contexto = contextoDeOrden(o, Date.now());
+      if (contexto.shippingId != null) envioVendedor = await costoEnvioVendedor(cliente, contexto.shippingId);
+      const renglones = renglonesDe(o, new Map());
+      const resumen = await resumirOrdenConMeli(cliente, {
+        pagos: pagosReales,
+        total: Number(o.total_amount) || 0,
+        comisionOrden: renglones.reduce((a, r) => a + r.comision, 0),
+        contexto,
+        renglones,
+        tarifas: new CacheTarifas(cliente, o.context?.site || "MLM"),
+      });
+      const { pagosCrudos: _crudos, detalleCargos: _detalle, ...resto } = resumen;
+      cascada = { contexto, renglones, ...resto };
+    } catch (err) {
+      cascada = { error: (err as Error).message };
+    }
+  }
+
+  // 4. Lo que el ERP tiene guardado hoy de esa orden, para comparar.
+  const { data: guardado } = await supabase
+    .from("ordenes_neto")
+    .select(
+      "order_id, fecha, total, pagado, envio_comprador, envio_vendedor, neto, neto_actual, neto_calculado, facturado, comision_mp, envio_mp, isr_mp, iva_mp, retencion_mp, otros_mp, cargos_sin_desglosar, tipo_venta, total_comprador, cargos_fuente, cargos_completos, libera_en, static_tags, detalle_cargos, cargos_leidos_en",
+    )
+    .eq("account_id", cuenta.id)
+    .eq("order_id", ordenId)
+    .maybeSingle();
+
+  return NextResponse.json(
+    {
+      orden: ordenId,
+      errorOrden,
+      cascada,
+      envioVendedor,
+      // Lo que se busca en la orden: qué pagó el cliente (para la reventa) y
+      // qué dice MELI que cobra de comisión y envío.
+      resumenOrden: orden && {
+        status: orden.status,
+        tags: orden.tags,
+        static_tags: orden.static_tags,
+        pack_id: orden.pack_id,
+        shipping_id: orden.shipping?.id,
+        total_amount: orden.total_amount,
+        paid_amount: orden.paid_amount,
+        llaves: Object.keys(orden).sort(),
+        pagos: (orden.payments ?? []).map((p: any) => ({
+          id: p.id,
+          status: p.status,
+          transaction_amount: p.transaction_amount,
+          total_paid_amount: p.total_paid_amount,
+          net_received_amount: p.net_received_amount,
+          marketplace_fee: p.marketplace_fee,
+          shipping_cost: p.shipping_cost,
+          taxes_amount: p.taxes_amount,
+          llaves: Object.keys(p).sort(),
+        })),
+        renglones: (orden.order_items ?? []).map((i: any) => ({
+          sku: i?.item?.seller_sku,
+          quantity: i.quantity,
+          unit_price: i.unit_price,
+          full_unit_price: i.full_unit_price,
+          sale_fee: i.sale_fee,
+          listing_type_id: i.listing_type_id,
+        })),
+      },
+      pagos,
+      guardadoEnElErp: guardado ?? null,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}

@@ -88,6 +88,19 @@ export function calcularDemanda(
 
   const tasaObservada = diasCalendario > 0 ? unidadesTotales / diasCalendario : 0;
 
+  // Lanzamiento: el primer día con evidencia (stock o venta). Si es el
+  // primer día de la ventana, el SKU ya existía antes y no se sabe cuándo
+  // nació: no cuenta como lanzamiento. Sin ningún dato, tampoco.
+  let lanzamiento: string | null = null;
+  let diasDesdeLanzamiento: number | null = null;
+  const primerConDato = dias.findIndex(
+    (d) => d.origen !== "desconocido" || d.unidades > 0 || d.fraccionConStock > 0,
+  );
+  if (primerConDato > 0) {
+    lanzamiento = dias[primerConDato].fecha;
+    diasDesdeLanzamiento = dias.length - primerConDato;
+  }
+
   // Tope de seguridad: nunca inflar la demanda más de lo permitido.
   const techo = tasaObservada * p.factorCorreccionMax;
   let tasaCorregida = tasaCorregidaRaw;
@@ -256,6 +269,8 @@ export function calcularDemanda(
     coefVariacion,
     confianza,
     notas,
+    lanzamiento,
+    diasDesdeLanzamiento,
   };
 }
 

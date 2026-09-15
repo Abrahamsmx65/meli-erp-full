@@ -1,8 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import type { EnvioPendiente } from "@/lib/servicios/industher-pendientes";
+import { Boton } from "@/components/ui/boton";
+import { avisar } from "@/components/ui/avisos";
+
+/** Solo lo que la tabla pinta: el detalle por renglón se queda en el servidor. */
+export interface PendienteBodega {
+  id: string;
+  fecha: string | null;
+  cajas: number | null;
+  pares: number;
+  omitido: boolean;
+}
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -11,22 +20,22 @@ function n(x: number): string {
 /**
  * Los envíos pendientes que la bodega (Industher) ya tiene apartados para
  * salir a MELI Full (id que empieza con 7 u 8). Van hasta arriba de Envíos
- * a Full: el plan los está CONSIDERANDO como en camino, y aquí se puede
- * tachar el que no deba contar. Cuando la bodega lo marca recibido, deja de
- * venir del API y desaparece solo.
+ * a Full: el plan los está CONSIDERANDO como en camino, y aquí se decide
+ * cuál no debe contar. Cuando la bodega lo marca recibido, deja de venir
+ * del API y desaparece solo.
+ *
+ * El cambio se aplica a la fila EN EL MOMENTO (tras confirmar el servidor),
+ * sin recargar la página: el plan lo recoge en su siguiente recálculo.
  */
 export function PendientesIndusther({
-  envios,
+  envios: iniciales,
   error,
 }: {
-  envios: EnvioPendiente[];
+  envios: PendienteBodega[];
   error: string | null;
 }) {
-  const router = useRouter();
+  const [envios, setEnvios] = useState(iniciales);
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-
-  const deMeli = envios.filter((e) => e.esMeli);
 
   if (error) {
     return (
@@ -38,11 +47,10 @@ export function PendientesIndusther({
       </section>
     );
   }
-  if (!deMeli.length) return null;
+  if (!envios.length) return null;
 
-  async function marcar(e: EnvioPendiente) {
+  async function marcar(e: PendienteBodega) {
     setOcupado(e.id);
-    setAviso(null);
     try {
       const r = await fetch("/api/envios-pendientes", {
         method: "POST",
@@ -51,15 +59,21 @@ export function PendientesIndusther({
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
-      router.refresh();
+      setEnvios((prev) => prev.map((x) => (x.id === e.id ? { ...x, omitido: !e.omitido } : x)));
+      avisar(
+        "exito",
+        e.omitido
+          ? `El envío ${e.id} vuelve a contar como en camino (${n(e.pares)} pares).`
+          : `El envío ${e.id} deja de contar: ${n(e.pares)} pares fuera del plan en el siguiente recálculo.`,
+      );
     } catch (err) {
-      setAviso((err as Error).message);
+      avisar("error", (err as Error).message);
     } finally {
       setOcupado(null);
     }
   }
 
-  const activos = deMeli.filter((e) => !e.omitido);
+  const activos = envios.filter((e) => !e.omitido);
 
   return (
     <section className="tarjeta overflow-hidden">
@@ -68,7 +82,8 @@ export function PendientesIndusther({
           <h2 className="text-sm font-semibold">Envíos pendientes en la bodega (a MELI Full)</h2>
           <p className="text-xs" style={{ color: "var(--ink-2)" }}>
             Estos ya están apartados para salir y el plan LOS ESTÁ CONSIDERANDO como en
-            camino. Tacha el que no deba contar; al recibirse en Full desaparecen solos.
+            camino. El que no deba contar, quítalo aquí; al recibirse en Full
+            desaparecen solos.
           </p>
         </div>
         <span
@@ -91,7 +106,7 @@ export function PendientesIndusther({
           </tr>
         </thead>
         <tbody>
-          {deMeli.map((e) => (
+          {envios.map((e) => (
             <tr key={e.id} style={{ opacity: e.omitido ? 0.5 : 1 }}>
               <td className="cifra font-medium" style={{ textDecoration: e.omitido ? "line-through" : "none" }}>
                 {e.id}
@@ -100,28 +115,28 @@ export function PendientesIndusther({
               <td className="num cifra">{e.cajas ? n(e.cajas) : "—"}</td>
               <td className="num cifra">{n(e.pares)}</td>
               <td className="text-xs" style={{ color: e.omitido ? "var(--ink-muted)" : "var(--exito-texto)" }}>
-                {e.omitido ? "Tachado: no cuenta" : "Contando como en camino"}
+                {e.omitido ? "No cuenta en el plan" : "Contando como en camino"}
               </td>
               <td>
-                <button
+                <Boton
                   onClick={() => marcar(e)}
-                  disabled={ocupado === e.id}
-                  className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                  style={{ borderColor: "var(--borde)" }}
+                  chico
+                  cargando={ocupado === e.id}
+                  textoCargando="…"
+                  disabled={ocupado !== null}
+                  title={
+                    e.omitido
+                      ? `Vuelve a contar sus ${n(e.pares)} pares como en camino`
+                      : `Sus ${n(e.pares)} pares dejarán de contar como en camino`
+                  }
                 >
-                  {ocupado === e.id ? "…" : e.omitido ? "Volver a contar" : "Tachar"}
-                </button>
+                  {e.omitido ? "Volver a contar" : "No contar"}
+                </Boton>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      {aviso ? (
-        <p className="border-t p-3 text-sm hairline" style={{ color: "var(--estado-critico)" }}>
-          {aviso}
-        </p>
-      ) : null}
     </section>
   );
 }

@@ -27,6 +27,12 @@ export interface LineaGuardada {
   factorCorreccion: number;
   diasSinStock: number;
   unidadesTotales: number;
+  /**
+   * Unidades REALMENTE vendidas en los últimos 30 días (bucket más reciente
+   * del motor). Opcional porque los planes cacheados viejos no lo traen; el
+   * que lo lea debe caer a `tasaObservada × 30` cuando falte.
+   */
+  unidades30?: number;
   disponible: number;
   enTransferencia: number;
   posicion: number;
@@ -40,6 +46,10 @@ export interface LineaGuardada {
   enviado: number;
   confianza: string;
   explicacion: string;
+  /** producto lanzado hace poco: cualquier faltante fuerza su caja */
+  productoNuevo?: boolean;
+  /** producto que nunca tuvo stock ni venta y viaja para estrenarse */
+  sinEstreno?: boolean;
 }
 
 export interface CajaGuardada {
@@ -67,7 +77,7 @@ export interface CajaGuardada {
  * se marca no vigente y el latido lo recalcula solo. Sin esto, un deploy
  * que corrige el motor seguía sirviendo números del motor anterior.
  */
-export const VERSION_MOTOR = "2026-08-24.2";
+export const VERSION_MOTOR = "2026-09-15.1";
 
 export interface PlanGuardado {
   versionMotor?: string;
@@ -115,6 +125,8 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
         factorCorreccion: Number(l.demanda.factorCorreccion.toFixed(3)),
         diasSinStock: l.demanda.diasSinStock,
         unidadesTotales: l.demanda.unidadesTotales,
+        // El bucket 0 siempre es el más reciente ("Últimos 30 días").
+        unidades30: l.demanda.buckets[0]?.unidades ?? 0,
         disponible: l.disponible,
         enTransferencia: l.enTransferencia,
         posicion: l.posicion,
@@ -129,6 +141,8 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
         enviado: plan.cajas.enviadoPorSku.get(l.sku) ?? 0,
         confianza: l.demanda.confianza,
         explicacion: l.explicacion,
+        ...(l.productoNuevo ? { productoNuevo: true } : {}),
+        ...(l.sinEstreno ? { sinEstreno: true } : {}),
       };
     }),
     cajas: cajasPlaneadas.map((c) => ({
@@ -255,4 +269,30 @@ export async function invalidar(
     .from("plan_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId);
+  // La lista de productos nuevos (app_cache) come de pedidos y stock: cae
+  // con lo mismo. Escritura directa, sin importar productos-nuevos (ciclo).
+  await db
+    .from("app_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId)
+    .eq("clave", "nuevos:productos");
+  // El plan de FBA come de la misma bodega (cajas, corridas, amarres,
+  // envíos): todo lo que invalida al plan de Full lo invalida a él también.
+  // La escritura va directo aquí para no importar el módulo de FBA (ciclo).
+  await db
+    .from("plan_fba_cache")
+    .update({ vigente: false, motivo })
+    .eq("meli_account_id", accountId);
+  // Y la vista de inventario (bodega + Full) guardada, por lo mismo.
+  await db
+    .from("inventario_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId);
+  // La sugerencia de compra a China se deriva del plan y del inventario:
+  // si ellos cambiaron, ella también.
+  await db
+    .from("app_cache")
+    .update({ vigente: false, motivo })
+    .eq("account_id", accountId)
+    .eq("clave", "compras-china");
 }

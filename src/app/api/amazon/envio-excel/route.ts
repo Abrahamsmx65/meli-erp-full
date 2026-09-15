@@ -12,6 +12,8 @@ import {
   sugerirEnvioFba,
 } from "@/lib/servicios/fba";
 import { planFbaConCajas } from "@/lib/servicios/fba-plan";
+import { separarEnvios } from "@/lib/servicios/envios";
+import type { CajaGuardada } from "@/lib/servicios/cache";
 import { catalogoBodega } from "@/lib/servicios/inventario";
 import { desglosarOpcionales, partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { normalizarParametros } from "@/lib/engine/params";
@@ -91,6 +93,21 @@ export async function GET(request: NextRequest) {
     indiceMeli,
     parametros: normalizarParametros((paramsBd?.data?.datos as Record<string, unknown>) ?? {}),
   });
+  // `?grupo=` limita el Excel a UN envío (una dirección de bodega:
+  // Caseshop + Industher juntos, EnvioPack aparte), igual que en Full.
+  const grupo = (request.nextUrl.searchParams.get("grupo") ?? "").trim();
+  let cajasDelExcel = planFba.cajas;
+  let nombreGrupo: string | null = null;
+  if (grupo && cuentaMeli) {
+    const separados = await separarEnvios(supabase, cuentaMeli.id, planFba.cajas as unknown as CajaGuardada[]);
+    const envio = separados.envios.find((e) => e.grupo === grupo);
+    if (!envio) {
+      return NextResponse.json({ error: `No hay envío del grupo "${grupo}" en el plan.` }, { status: 400 });
+    }
+    cajasDelExcel = envio.cajas as unknown as typeof planFba.cajas;
+    nombreGrupo = envio.nombre;
+  }
+
   const desglose = desglosarOpcionales(
     planFba.cajas.map((c) => ({
       codigo: c.codigo,
@@ -118,6 +135,9 @@ export async function GET(request: NextRequest) {
   const filasResumen: [string, string | number, string][] = [
     ["Generado", new Date().toLocaleString("es-MX"), ""],
     ["Cuenta de Amazon", cuenta.nombre ?? "", ""],
+    ...(nombreGrupo
+      ? ([["Envío (grupo de bodega)", nombreGrupo, "Solo las cajas de esta dirección; los totales de abajo son del plan completo"]] as [string, string | number, string][])
+      : []),
     ["Periodo de venta analizado", `${dias} días`, "El ritmo de venta sale de este periodo"],
     ["Cobertura objetivo", `${OBJETIVO_DIAS_FBA} días`, "Cuánta venta quieres tener en FBA"],
     ["", "", ""],
@@ -189,8 +209,16 @@ export async function GET(request: NextRequest) {
   } as const;
 
   // Igual que el Excel de envíos a Full: primero el ENVÍO BASE y abajo el
-  // bloque de OPCIONALES aparte; un renglón mixto se divide en dos.
-  const { normales, opcionales: cajasOpcionales } = partirPorOpcionales(planFba.cajas);
+  // bloque de OPCIONALES aparte; un renglón mixto se divide en dos. En
+  // alfabético natural (modelo, color, talla), como la pantalla.
+  const alfabetico = (a: (typeof planFba.cajas)[number], b: (typeof planFba.cajas)[number]) =>
+    a.almacen.localeCompare(b.almacen, "es") ||
+    a.modelo.localeCompare(b.modelo, "es", { numeric: true }) ||
+    a.color.localeCompare(b.color, "es") ||
+    a.talla.localeCompare(b.talla, "es", { numeric: true });
+  const { normales, opcionales: cajasOpcionales } = partirPorOpcionales(cajasDelExcel);
+  normales.sort(alfabetico);
+  cajasOpcionales.sort(alfabetico);
 
   const filaDeCaja = (c: (typeof planFba.cajas)[number], esOpcional: boolean) => {
     const fila = hCajas.addRow({
@@ -241,7 +269,9 @@ export async function GET(request: NextRequest) {
   ];
   encabezar(hEnvio);
 
-  for (const s of sugerencias) {
+  for (const s of [...sugerencias].sort(
+    (a, b) => a.modelo.localeCompare(b.modelo, "es", { numeric: true }) || a.color.localeCompare(b.color, "es"),
+  )) {
     hEnvio.addRow({
       modelo: s.modelo,
       color: s.color,
@@ -264,7 +294,7 @@ export async function GET(request: NextRequest) {
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const nombre = `envio-fba-${aISO(new Date())}.xlsx`;
+  const nombre = `envio-fba-${grupo ? `${grupo.toLowerCase()}-` : ""}${aISO(new Date())}.xlsx`;
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {

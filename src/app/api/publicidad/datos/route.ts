@@ -3,7 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 import { cargarPublicidad } from "@/lib/servicios/publicidad";
-import { cargarPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
+import { obtenerPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +61,7 @@ export async function GET(req: Request) {
     salida.amazon = { estado: "sin cuenta de Amazon conectada" };
   } else {
     try {
-      const a = await cargarPublicidadAmazon(supabase, amz.id, cuenta?.id ?? null, rango);
+      const a = await obtenerPublicidadAmazon(supabase, amz.id, cuenta?.id ?? null, rango);
       salida.amazon = {
         aviso: a.aviso,
         economiaHasta: a.economiaHasta,

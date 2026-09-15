@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LineaPedido } from "@/lib/yapanizcel/pedidos";
 import type { PedidoResumen } from "@/lib/yapanizcel/pedidos";
+import { claveCanonica, desglosar } from "@/lib/yapanizcel/sku";
 import { estiloInput } from "./comunes";
 
 function n(x: number): string {
@@ -29,6 +30,50 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nuevo, setNuevo] = useState({ skuBodega: "", cantidad: "", costo: "" });
+
+  /**
+   * Vuelve a amarrar contra MELI los SKUs dados (los que se corrigieron a
+   * mano o los que llegaron sin amarre calculado) y repinta los renglones.
+   * Un SKU que no amarra queda en rojo: se guardaría, pero no contaría como
+   * en camino.
+   */
+  const reamarrar = useCallback(async (skus: string[]) => {
+    const unicos = [...new Set(skus.filter(Boolean))];
+    if (!unicos.length) return;
+    try {
+      const r = await fetch("/api/yapanizcel/pedidos/amarrar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: unicos }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return;
+      const amarres = (j.amarres ?? {}) as Record<string, string | null>;
+      setLineas((ls) => ls.map((l) => (l.skuBodega in amarres ? { ...l, skuMeli: amarres[l.skuBodega] } : l)));
+    } catch {
+      // Sin red no se repinta; el aviso de la lectura sigue valiendo.
+    }
+  }, []);
+
+  // Lo que llega sin amarre calculado (la sugerencia de Pedidos a China, una
+  // línea capturada a mano) se amarra al aparecer.
+  useEffect(() => {
+    const pendientes = lineas.filter((l) => l.skuMeli === undefined).map((l) => l.skuBodega);
+    if (pendientes.length) void reamarrar(pendientes);
+  }, [lineas, reamarrar]);
+
+  /** Al salir de la celda del SKU: se canoniza, se desglosa y se vuelve a amarrar. */
+  function corregirSku(i: number, crudo: string) {
+    const sku = claveCanonica(crudo);
+    setLineas((ls) => {
+      const actual = ls[i];
+      if (!actual) return ls;
+      if (sku === actual.skuBodega) return ls;
+      if (!sku) return ls;
+      const d = desglosar(sku);
+      return ls.map((l, k) => (k === i ? { ...l, skuBodega: sku, diseno: d.diseno, modelo: d.modelo, color: d.color, skuMeli: undefined } : l));
+    });
+  }
 
   async function leerArchivo(e: React.ChangeEvent<HTMLInputElement>) {
     const archivo = e.target.files?.[0];
@@ -59,10 +104,10 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
     const sku = nuevo.skuBodega.trim().toUpperCase();
     const cantidad = Math.round(Number(nuevo.cantidad));
     if (!sku || !Number.isFinite(cantidad) || cantidad <= 0) return;
-    const partes = sku.split("-");
+    const d = desglosar(sku);
     setLineas((ls) => [
       ...ls.filter((l) => l.skuBodega !== sku),
-      { skuBodega: sku, diseno: partes[0] ?? "", modelo: partes[1] ?? "", color: partes.slice(2).join("-"), cantidad, costoUnitario: nuevo.costo ? Number(nuevo.costo) : null },
+      { skuBodega: sku, diseno: d.diseno, modelo: d.modelo, color: d.color, cantidad, costoUnitario: nuevo.costo ? Number(nuevo.costo) : null, skuMeli: undefined },
     ]);
     setNuevo({ skuBodega: "", cantidad: "", costo: "" });
   }
@@ -92,6 +137,8 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
 
   const unidades = lineas.reduce((a, l) => a + l.cantidad, 0);
   const costo = lineas.reduce((a, l) => a + l.cantidad * (l.costoUnitario ?? 0), 0);
+  const sinAmarre = lineas.filter((l) => l.skuMeli === null);
+  const estiloRojo = { background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)", color: "var(--estado-critico)" };
 
   return (
     <div className="tarjeta flex flex-col gap-4 p-4">
@@ -137,7 +184,8 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
-              <th className="px-2 py-1">SKU</th>
+              <th className="px-2 py-1">SKU de bodega</th>
+              <th className="px-2 py-1">SKU en MELI</th>
               <th className="px-2 py-1">Diseño</th>
               <th className="px-2 py-1">Modelo</th>
               <th className="px-2 py-1">Color</th>
@@ -148,8 +196,23 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
           </thead>
           <tbody>
             {lineas.map((l, i) => (
-              <tr key={l.skuBodega} className="border-t" style={{ borderColor: "var(--grid)" }}>
-                <td className="num px-2 py-1">{l.skuBodega}</td>
+              <tr key={i} className="border-t" style={{ borderColor: "var(--grid)", ...(l.skuMeli === null ? estiloRojo : {}) }}>
+                <td className="px-2 py-1">
+                  <input
+                    key={l.skuBodega}
+                    defaultValue={l.skuBodega}
+                    onBlur={(e) => corregirSku(i, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    }}
+                    title={l.skuMeli === null ? "No amarra con ningún SKU de MELI: corrígelo aquí" : undefined}
+                    className="num w-48 rounded-md border px-2 py-0.5 text-xs"
+                    style={{ ...estiloInput, ...(l.skuMeli === null ? { borderColor: "var(--estado-critico)", color: "var(--estado-critico)" } : {}) }}
+                  />
+                </td>
+                <td className="num px-2 py-1 text-xs">
+                  {l.skuMeli === undefined ? <span style={{ color: "var(--ink-muted)" }}>…</span> : l.skuMeli === null ? <b>sin amarre</b> : l.skuMeli}
+                </td>
                 <td className="px-2 py-1">{l.diseno}</td>
                 <td className="px-2 py-1">{l.modelo}</td>
                 <td className="px-2 py-1">{l.color}</td>
@@ -167,7 +230,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
               </tr>
             ))}
             <tr className="border-t" style={{ borderColor: "var(--grid)" }}>
-              <td className="px-2 py-1" colSpan={4}>
+              <td className="px-2 py-1" colSpan={5}>
                 <input value={nuevo.skuBodega} onChange={(e) => setNuevo((v) => ({ ...v, skuBodega: e.target.value }))} placeholder="SKU de bodega (DISEÑO-MODELO-COLOR)" className="num w-72 rounded-md border px-2 py-0.5 text-xs" style={estiloInput} />
               </td>
               <td className="px-2 py-1 text-right">
@@ -190,6 +253,11 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
         <span className="text-sm" style={{ color: "var(--ink-2)" }}>
           {lineas.length} líneas · <b>{n(unidades)}</b> unidades{costo > 0 ? ` · costo ${costo.toLocaleString("es-MX", { maximumFractionDigits: 2 })}` : ""}
         </span>
+        {sinAmarre.length ? (
+          <span className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+            {sinAmarre.length} en rojo sin amarre ({n(sinAmarre.reduce((a, l) => a + l.cantidad, 0))} unidades no contarán como en camino)
+          </span>
+        ) : null}
         <button onClick={confirmar} disabled={ocupado !== null || !lineas.length || !folio.trim()} className={`${btn} ml-auto`} style={{ background: "var(--acento)", color: "#fff" }}>
           {ocupado === "guardar" ? "Guardando…" : "Confirmar y guardar pedido"}
         </button>

@@ -1,0 +1,95 @@
+Voy en el orden que pediste: primero armo el análisis completo (regresión de `filtrarBodega`, límite en recursos embebidos, los commits nuevos de `main`, plan de reconstrucción) y después ejecuto. Empiezo por los datos que me faltan — los dos commits de `main` y la documentación de PostgREST sobre `max-rows` en embebidos:
+
+Sin traslape de archivos. Ahora verifico la documentación de PostgREST sobre `max-rows` y recursos embebidos:
+
+Confirmé que `db-max-rows` sí afecta a los recursos embebidos y lo hace sin ninguna señal (HTTP 200, sin 206/Content-Range), según el issue #2776 de PostgREST. Ahora reviso las llaves de `contenedor_lineas` y `envio_cajas` para preparar el arreglo.
+
+Ya tengo todo el análisis; ahora reviso los últimos detalles (cronómetro en `main`, diff de `package.json` en `7ed51e6`, manejo de errores de los consumidores) y luego ejecuto la reconstrucción.
+
+Todo verificado. Ejecuto la reconstrucción — rama limpia desde `origin/main`:
+
+La rama limpia quedó lista, con los archivos revertidos al estado de main. Ahora construyo el commit A, empezando por revisar la consulta de `listarContenedores` en main.
+
+Ahora `listarPedidos` sin embed (lectura directa de `contenedor_lineas`):
+
+Ahora la agrupación que consumía el embed:
+
+Ahora la prueba de A, con `contenedor_lineas` como tabla propia y el caso de >1,000 amarres:
+
+**Commit B** — barrido. Reviso el contexto de `latido-amazon` y las vistas que mostrarán el avance:
+
+`paso()` captura y registra en `amazon_sync_log` — puedo estrechar el catch de padres sin riesgo. Aplico el barrido:
+
+Ahora el sync de calzado, padres de Amazon (con catch estrecho) y el packing list:
+
+Ahora el packing list — `pedido_lineas` por `traerTodo` y el amarre de `contenedor_lineas` con tandas paginadas:
+
+Ahora las dos pantallas de TikTok. Veo los usos de `preparados` en el `despacho-tiktok.tsx` nuevo de main:
+
+Ahora la página de despacho (lectura paginada + avance declarado como no disponible si falla) y la de preparar (error de página completa con reintento):
+
+**Commit C — instrumentación.** Veo el helper y las dos páginas actuales:
+
+**Commit F — kit UI.** Traigo los componentes del piloto original y separo el diff de `globals.css` (familias de botones sí, fuente no):
+
+Agrego los ejemplos de uso del kit (condición 10) y committeo F:
+
+**Commit G — next/font + error.tsx:**
+
+**Commit D — Inventario.** Traigo los archivos del piloto y luego aplico la corrección de rendimiento de `filtrarBodega`:
+
+El armazón solo necesitaba `Avisos` (la búsqueda global ya estaba en main). Ahora la corrección de la regresión de `filtrarBodega`:
+
+Ahora las pruebas nuevas de precálculo en `filtro.test.ts`:
+
+**Commit E — Envíos.** Lista completa de archivos del piloto de envíos:
+
+Ahora fusiono `envios-registrados.ts`: semántica del piloto (GET de solo lectura + `conDetalle`) sobre la lectura directa de `envio_cajas` de B:
+
+**Commit H — Next aislado.** Primero el build "antes" (condición 4), luego el parche:
+
+El lockfile de la rama trae 15.5.23 pero `node_modules` quedó con 15.5.25 de la rama vieja. Para un "antes" fiel: `npm ci`, verificar, y entonces actualizar:
+
+Las 8 piezas están. Verifico qué difiere del estado final de la rama vieja (debe ser solo lo intencional) y empujo:
+
+Aquí está lo que pediste, en tu orden — análisis primero, y después el reporte de la ejecución (que ya está hecha y empujada a la rama limpia).
+
+## 1. Análisis de la regresión de `filtrarBodega`
+
+Tenías razón: `c4fedda` tiró el precálculo. El `conTexto` original armaba el texto de búsqueda una vez por carga; mi `filtrarBodega` lo reconstruía en cada corrida del filtro — con 2,717 SKUs son ~2,700 plantillas de template string y un `.map().join()` de pedidos **por tecleo** (el `useDeferredValue` lo amortiguaba, pero el trabajo existía y crece con el catálogo). **Corregido con tu diseño exacto**: `textoBusquedaBodega(renglon)` exportada desde `reporte/filtro.ts`; `filtrarBodega(renglones, filtro, textos?)` acepta los textos precalculados alineados por índice; el componente los arma una vez en `useMemo` por cambio de `renglones`; el Excel llama sin precálculo (una sola pasada, mismo resultado). Pruebas nuevas: paridad con y sin precálculo en 4 filtros; **prueba de que usa el arreglo dado** (con textos inyectados falsos, buscar la clave inyectada encuentra la fila y buscar el modelo real NO — cambiar `q` no reconstruye la representación); y búsqueda por SKU, modelo, color, talla y pedido.
+
+## 2. Análisis del truncado embebido de `contenedor_lineas` — el riesgo ES real
+
+Verifiqué contra la fuente en vez de asumir: **`db-max-rows` sí aplica a los recursos embebidos**, y peor — cuando el recorte pasa en el embebido la respuesta llega **HTTP 200 sin `Content-Range`**: ni señal. Está confirmado en el [issue #2776 de PostgREST](https://github.com/PostgREST/postgrest/issues/2776) ("the db-max-rows setting also applies to embedded tables… I always get an HTTP 200"); la [docs de configuración](https://raw.githubusercontent.com/PostgREST/postgrest-docs/main/docs/references/configuration.rst) es ambigua al respecto, por eso fui al issue. Consecuencia: paginar los contenedores padres NO protegía los renglones. **Apliqué tu remedio en los tres embebidos de este tipo**: `listarPedidos` y `listarContenedores` leen `contenedor_lineas` directo (tandas de 200 contenedores, paginado dentro de cada tanda, agrupado en JS por `contenedor_id`), y encontré **un tercero de la misma clase que nadie había señalado**: `envio_cajas` embebido en `leerEnvios` — un recorte ahí descontaría pares en camino del plan. También directo ahora. Prueba nueva que reproduce el caso: un contenedor con 1,200 renglones que el embed cortaba callado. Y `porTandas` quedó como helper compartido en `datos/repos.ts` **con concurrencia limitada a 6** (tu punto 5; el máximo esperado hoy son 1–2 tandas — 193 líneas, ~30 contenedores — así que el tope es previsión, no necesidad).
+
+## 3. Los dos commits nuevos de `main`
+
+- `ce6ae85` — "TikTok despacho: la guía lleva el código del PEDIDO en barras y hay lista de surtido por SKU": `CLAUDE.md`, `src/app/api/tiktok/cortes/[id]/surtido/route.ts` (nueva), `src/components/despacho-tiktok.tsx`, `src/lib/servicios/tiktok-despacho.ts`.
+- `e21b1df` — "TikTok guías: SKUs abajo a la izquierda, código del pedido abajo a la derecha": solo `src/lib/servicios/tiktok-despacho.ts`.
+
+**Cero traslape de archivos** con el piloto (verificado con `comm` sobre las dos listas). El único cruce **semántico** era mi cambio a `src/app/tiktok/despacho/page.tsx` (avance de preparados) contra su `despacho-tiktok.tsx` (botón de surtido nuevo): al reconstruir sobre main, mi cambio de `preparados` se aplicó sobre la versión nueva del componente, y `tsc` + las pruebas de despacho pasan con ambos juntos.
+
+## 4 y 5. Reconstrucción ejecutada — rama `claude/modernizacion-piloto-limpio`
+
+Creada desde el `main` actual (`e21b1df`), **la rama vieja quedó intacta** (sin force-push; sigue en `856aef8` por si quieres compararlas). Nada fue cherry-pick ciego: los archivos que main tocó o que tu revisión cambió se reaplicaron a mano. Los 8 commits, cada uno con `tsc` limpio y los relevantes con su suite:
+
+| | Commit | Contenido |
+|---|---|---|
+| A | `e8dd64c` | Truncado P0 pedidos/contenedores/productos-nuevos + de-embed de `contenedor_lineas` + `porTandas` (concurrencia 6) + 4 pruebas |
+| B | `bbb2a94` | Barrido: yz_skus ×4, skus, amazon_padres (catch estrecho: solo tabla ausente; lo demás sube a `amazon_sync_log`), packing-list, envio_cajas de-embed, tiktok_preparaciones ×2 + errores declarados |
+| C | `9773513` | Cronómetro en /inventario y /envios, cero cambios visuales |
+| F | `e7d9023` | Kit UI semilla + README con ejemplos de uso (aditivo) |
+| G | `56fd576` | next/font + `error.tsx` |
+| D | `a5f7f69` | Bodega: sinCrudos, 7 campos, `filtrarBodega` compartida **con el precálculo restaurado** + pruebas |
+| E | `febea5d` | Envíos: una copia de cajas, GET sin escribir, mutaciones confirmadas-locales, Excel fiel |
+| H | `e8186d1` | **Solo** Next 15.5.23 → 15.5.25 (package.json + lockfile), verificado antes (vía `npm ci` al lockfile de main) y después |
+
+F y G van antes de D/E porque las páginas del piloto consumen el kit; A/B/C no dependen de nada. Tu punto 2 (consumidores del cambio de errores) quedó así: **yz sync** → try/catch existente registra `ok:false` en `yz_sync_log` y el cron reintenta (verificado en `sync.ts:620-627`); **sync calzado** → igual con `sync_log`; **padres Amazon** → `paso()` del latido registra `estado:"error"` en `amazon_sync_log` y reintenta a la hora; **packing list** → el route ya tiene try/catch y la UI enseña el mensaje; **/tiktok/despacho** → si falla la lectura del avance, banner declarado, «— / N preparados» (nunca ceros como dato), botón de supervisor oculto (no puede calcular "faltan"), y los cortes siguen operando; **/preparar (bodega, sin sesión)** → tarjeta con el error concreto y botón **Reintentar**, nunca lista vacía como si no hubiera cortes. Ningún fallo parcial deja escrituras a medias: todos estos son caminos de lectura.
+
+## 6. Pruebas y evidencia
+
+**718 pruebas pasan** (706 de main + 12 nuevas), `tsc --noEmit` limpio, `npm run build` OK — corridos sobre el estado final, y para H también en el estado previo. Comparación contra main: **46 archivos, +2,182/−652**. Preview de la rama limpia (Vercel lo está construyendo tras el push): https://meli-erp-full-git-claude-modernizacion-piloto-limpio-getac.vercel.app
+
+Lo que ya se midió y lo que sigue pendiente, sin maquillar: la visita de hoy al preview viejo dio **/inventario 784 ms y /envios 407 ms de servidor** (arranque frío); la rama limpia trae el mismo cronómetro, así que con que abras el preview nuevo leo los `[tiempo]` y armo la tabla. Los **bytes reales de RSC, el JS por ruta comparado, y las capturas desktop/móvil siguen pendientes** — necesitan sesión iniciada y el registro está cerrado; el −50/60 % sigue siendo estimación hasta entonces, como acordamos. Dos caminos: los ves tú en la pestaña Network (documento + fetches `?_rsc=`), o me autorizas agregar una línea de `content-length` al cronómetro para que quede medido en logs sin depender de nadie.
+
+Sin merge a main, sin deploy a producción, y la actualización a Next 16 sigue sin tocarse.

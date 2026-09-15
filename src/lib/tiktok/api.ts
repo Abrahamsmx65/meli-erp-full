@@ -394,7 +394,11 @@ export async function etiquetaDePaquete(c: Cliente, packageId: string): Promise<
     `/fulfillment/202309/packages/${packageId}/shipping_documents`,
     { params: { document_type: "SHIPPING_LABEL", document_size: "A6" } },
   );
-  return d?.doc_url ?? null;
+  // Que el motivo se vea: null = TikTok no contestó (límite de llamadas o
+  // sin tiempo); sin doc_url = contestó otra cosa (guía aún no generada).
+  if (!d) throw new Error("TikTok no contestó la guía (límite de llamadas); se reintenta al volver a pedir el PDF");
+  if (!d.doc_url) throw new Error(`TikTok contestó sin guía (${Object.keys(d).join(", ") || "vacío"}); puede que aún no la genere`);
+  return String(d.doc_url);
 }
 
 export interface ProveedorEnvio {
@@ -533,7 +537,10 @@ export function interpretarLiquidacion(d: any): LiquidacionTikTok | null {
  * La liquidación de un pedido. null = TikTok todavía no lo liquida (no
  * está en ningún estado de cuenta) o no contestó nada usable.
  */
-export async function liquidacionDePedido(c: Cliente, orderId: string): Promise<LiquidacionTikTok | null> {
+export async function liquidacionDePedido(
+  c: Cliente,
+  orderId: string,
+): Promise<{ liquidacion: LiquidacionTikTok | null; crudo: unknown }> {
   const d = await c.llamar<any>("GET", `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
-  return interpretarLiquidacion(d);
+  return { liquidacion: interpretarLiquidacion(d), crudo: d ?? null };
 }

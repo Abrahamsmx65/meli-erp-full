@@ -229,6 +229,28 @@ function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: Plat
 
 /* -------------------------------------------------------------------------- */
 
+export interface PropsEtiquetas {
+  sugeridas: { sku: string; cantidad: number }[];
+  /**
+   * Raíz de las rutas del API: `/api/etiquetas` (calzado, con Amazon) o
+   * `/api/yapanizcel/etiquetas` (fundas, solo MELI). Las tres salidas
+   * (`GET ?q=`, `POST`, `POST /pdf`, `POST /zpl`) cuelgan de ahí.
+   */
+  api?: string;
+  /** Solo la etiqueta de Mercado Libre: sin selector de Amazon ni columna FNSKU. */
+  soloMeli?: boolean;
+  /** Nombre base de los archivos que se descargan (sin extensión). */
+  archivo?: string;
+  /**
+   * Textos del botón que trae lo planeado; sin ellos sale el del calzado.
+   * Son cadenas y no funciones: la página es un Server Component y a un
+   * componente de cliente solo le puede pasar datos serializables.
+   */
+  sugeridasTexto?: { boton: string; ayuda: string };
+  placeholderBusqueda?: string;
+  placeholderPegado?: string;
+}
+
 /**
  * Generador de etiquetas.
  *
@@ -236,14 +258,28 @@ function Etiqueta({ e, tamano, tipo }: { e: Etiqueta; tamano: Tamano; tipo: Plat
  * Libre en un archivo. De ahí en adelante ya no hace falta: el código Full, el
  * título y la variante viven en el catálogo que este sistema sincroniza, así
  * que basta decir qué SKU y cuántas.
+ *
+ * El mismo componente sirve a las DOS cuentas de MELI: el calzado (con su
+ * lado Amazon) y las fundas de YAPANIZCEL (solo MELI); cambia el API de
+ * donde salen los datos, no la etiqueta.
  */
-export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: number }[] }) {
+export function Etiquetas({
+  sugeridas,
+  api = "/api/etiquetas",
+  soloMeli = false,
+  archivo = "etiquetas",
+  sugeridasTexto,
+  placeholderBusqueda = "GT104-BLK-27, «sandalia» o una funda (499…)",
+  placeholderPegado = "GT104-BLK-27-MX\t48\nGT204-PINK-23-MX\t24",
+}: PropsEtiquetas) {
   const [lista, setLista] = useState<Etiqueta[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [resultados, setResultados] = useState<Resultado[]>([]);
   const [pegado, setPegado] = useState("");
   const [tamano, setTamano] = useState<Tamano>("rollo2x1");
-  const [tipo, setTipo] = useState<TipoEtiqueta>("meli");
+  const [tipoElegido, setTipo] = useState<TipoEtiqueta>("meli");
+  // En solo-MELI el tipo no se elige: siempre es la etiqueta de Full.
+  const tipo: TipoEtiqueta = soloMeli ? "meli" : tipoElegido;
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -257,7 +293,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
       return;
     }
     temporizador.current = setTimeout(() => {
-      fetch(`/api/etiquetas?q=${encodeURIComponent(q)}`)
+      fetch(`${api}?q=${encodeURIComponent(q)}`)
         .then((r) => r.json())
         .then((j) => setResultados(j.resultados ?? []))
         .catch(() => setResultados([]));
@@ -272,7 +308,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
     setCargando(true);
     setError(null);
     try {
-      const r = await fetch("/api/etiquetas", {
+      const r = await fetch(api, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skus }),
@@ -328,7 +364,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
     setDescargando(formato);
     setError(null);
     try {
-      const r = await fetch(`/api/etiquetas/${formato}`, {
+      const r = await fetch(`${api}/${formato}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -344,7 +380,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
       const a = document.createElement("a");
       a.href = url;
       const sufijo = tipo === "meli" ? "" : `-${tipo}`;
-      a.download = formato === "zpl" ? `etiquetas${sufijo}.txt` : `etiquetas${sufijo}.pdf`;
+      a.download = formato === "zpl" ? `${archivo}${sufijo}.txt` : `${archivo}${sufijo}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -384,7 +420,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               type="search"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="GT104-BLK-27, «sandalia» o una funda (499…)"
+              placeholder={placeholderBusqueda}
               className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
               style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
             />
@@ -429,7 +465,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               value={pegado}
               onChange={(e) => setPegado(e.target.value)}
               rows={5}
-              placeholder={"GT104-BLK-27-MX\t48\nGT204-PINK-23-MX\t24"}
+              placeholder={placeholderPegado}
               className="mt-1 w-full rounded-lg border px-2 py-1.5 font-mono text-xs"
               style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
             />
@@ -452,11 +488,12 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               className="rounded-lg border px-3 py-1.5 text-sm font-medium"
               style={{ borderColor: "var(--borde)" }}
             >
-              Traer las {sugeridas.length} SKUs del envío que está planeado
+              {sugeridasTexto?.boton ??
+                `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
             </button>
             <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-              Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada
-              SKU que va en las cajas.
+              {sugeridasTexto?.ayuda ??
+                "Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada SKU que va en las cajas."}
             </p>
           </div>
         ) : null}
@@ -476,21 +513,23 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               {total} etiquetas de {lista.length} SKUs
             </h2>
 
-            <label className="ml-auto flex items-center gap-2 text-sm">
-              <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
-              <select
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
-                className="rounded-lg border px-2 py-1 text-sm"
-                style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-              >
-                <option value="meli">Mercado Libre (código Full)</option>
-                <option value="amazon">Amazon (FNSKU)</option>
-                <option value="ambas">Los dos (Amazon + MELI por par)</option>
-              </select>
-            </label>
+            {soloMeli ? null : (
+              <label className="ml-auto flex items-center gap-2 text-sm">
+                <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
+                <select
+                  value={tipo}
+                  onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
+                  className="rounded-lg border px-2 py-1 text-sm"
+                  style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                >
+                  <option value="meli">Mercado Libre (código Full)</option>
+                  <option value="amazon">Amazon (FNSKU)</option>
+                  <option value="ambas">Los dos (Amazon + MELI por par)</option>
+                </select>
+              </label>
+            )}
 
-            <label className="flex items-center gap-2 text-sm">
+            <label className={`flex items-center gap-2 text-sm ${soloMeli ? "ml-auto" : ""}`}>
               <span style={{ color: "var(--ink-2)" }}>Tamaño</span>
               <select
                 value={tamano}
@@ -544,7 +583,7 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
               <tr>
                 <th>SKU</th>
                 <th>Código Full</th>
-                <th>FNSKU</th>
+                {soloMeli ? null : <th>FNSKU</th>}
                 <th>Título</th>
                 <th>Variante</th>
                 <th className="num">Etiquetas</th>
@@ -560,9 +599,11 @@ export function Etiquetas({ sugeridas }: { sugeridas: { sku: string; cantidad: n
                       <span style={{ color: "var(--estado-critico)" }}>—</span>
                     )}
                   </td>
-                  <td className="cifra">
-                    {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
-                  </td>
+                  {soloMeli ? null : (
+                    <td className="cifra">
+                      {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
+                    </td>
+                  )}
                   <td
                     className="max-w-72 truncate text-xs"
                     style={{ color: "var(--ink-2)" }}

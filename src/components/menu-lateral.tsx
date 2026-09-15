@@ -16,14 +16,17 @@ import {
   LogOut,
   Megaphone,
   PackageCheck,
+  PieChart,
   Printer,
   ReceiptText,
   RefreshCw,
   Scale,
   Settings,
   Ship,
+  Stethoscope,
   ShoppingCart,
   Smartphone,
+  Sparkles,
   Tags,
   Truck,
   Upload,
@@ -58,10 +61,17 @@ interface Grupo {
 
 const GRUPOS: Grupo[] = [
   {
+    titulo: "Negocio",
+    entradas: [
+      { href: "/cortes", texto: "Corte general", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
+    ],
+  },
+  {
     titulo: "Inventario",
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
       { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
+      { href: "/skus", texto: "SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
     ],
   },
   {
@@ -70,6 +80,7 @@ const GRUPOS: Grupo[] = [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/ventas/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
       { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
       { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
@@ -82,6 +93,7 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
       { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/amazon/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
       { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
       { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
     ],
@@ -100,6 +112,8 @@ const GRUPOS: Grupo[] = [
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
+      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
       { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
     ],
@@ -112,6 +126,7 @@ const GRUPOS: Grupo[] = [
       { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
       { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
       { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
+      { href: "/yapanizcel/etiquetas", texto: "Etiquetas fundas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
       { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
       { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
@@ -119,6 +134,7 @@ const GRUPOS: Grupo[] = [
   {
     titulo: "Sistema",
     entradas: [
+      { href: "/salud", texto: "Revisión general", icono: Stethoscope, ayuda: "Qué está mal o incompleto, en un solo lugar" },
       { href: "/pendientes", texto: "Pendientes", icono: AlertTriangle, ayuda: "Lo que falta resolver" },
       { href: "/importar", texto: "Importar", icono: Upload, ayuda: "Bodega desde Industher y corridas del sheet" },
       { href: "/sincronizar", texto: "Sincronizar", icono: RefreshCw, ayuda: "Traer datos de Mercado Libre" },

@@ -11,7 +11,9 @@
  *      lo vuelve a intentar en 15 minutos.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { buscarAmazon, mapaAmazon } from "../etiquetas/resolver";
+import { mapaAmazon } from "../etiquetas/resolver";
+import { resolverFnsku } from "../tiktok/fnsku";
+import { aliasAmazonDeCuenta } from "./tiktok-despacho";
 import { ajustesDeConteo, type ProductoConteo, type RenglonConteo } from "../tiktok/conteo";
 import { registrarMovimientos, sincronizarTikTok } from "./tiktok";
 
@@ -22,17 +24,18 @@ import { registrarMovimientos, sincronizarTikTok } from "./tiktok";
  */
 export async function catalogoParaConteo(db: DB, accountId: string): Promise<ProductoConteo[]> {
   const eq = (q: any) => q.eq("account_id", accountId);
-  const [inventario, publicados, amazon] = await Promise.all([
+  const [inventario, publicados, amazon, alias] = await Promise.all([
     traerTodo<{ sku: string; saldo: number; apartado: number }>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
     traerTodo<{ sku_interno: string | null; titulo: string | null }>(db, "tiktok_skus", "sku_interno, titulo", (q) =>
       eq(q).eq("activo", true).not("sku_interno", "is", null),
     ),
     mapaAmazon(db),
+    aliasAmazonDeCuenta(db, accountId),
   ]);
 
   const porSku = new Map<string, ProductoConteo>();
   for (const r of inventario) {
-    porSku.set(r.sku, { sku: r.sku, fnsku: buscarAmazon(amazon, r.sku)?.fnsku ?? null, saldo: r.saldo ?? 0, apartado: r.apartado ?? 0, titulo: null });
+    porSku.set(r.sku, { sku: r.sku, fnsku: resolverFnsku(amazon, alias, r.sku), saldo: r.saldo ?? 0, apartado: r.apartado ?? 0, titulo: null });
   }
   for (const p of publicados) {
     const sku = p.sku_interno as string;
@@ -41,7 +44,7 @@ export async function catalogoParaConteo(db: DB, accountId: string): Promise<Pro
       if (!ya.titulo) ya.titulo = p.titulo;
       continue;
     }
-    porSku.set(sku, { sku, fnsku: buscarAmazon(amazon, sku)?.fnsku ?? null, saldo: 0, apartado: 0, titulo: p.titulo });
+    porSku.set(sku, { sku, fnsku: resolverFnsku(amazon, alias, sku), saldo: 0, apartado: 0, titulo: p.titulo });
   }
   return [...porSku.values()].sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true }));
 }

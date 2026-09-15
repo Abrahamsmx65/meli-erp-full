@@ -13,6 +13,22 @@ export function dias(x: number): string {
   return `${Math.round(x)} d`;
 }
 
+/**
+ * "Datos de hace X min": la pantalla sirve el renglón masticado aunque esté
+ * viejo (el fondo lo refresca) y ESTO es lo que lo declara. Sin fecha no
+ * pinta nada.
+ */
+export function Frescura({ generadoEn }: { generadoEn?: string | null }) {
+  if (!generadoEn) return null;
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(generadoEn)) / 60_000));
+  const texto = min < 2 ? "recién calculados" : min < 90 ? `de hace ${min} min` : `de hace ${Math.round(min / 60)} h`;
+  return (
+    <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+      Datos {texto}; se actualizan solos en el fondo.
+    </p>
+  );
+}
+
 /** Pantalla de "conecta primero", común a toda la sección. */
 export function SinCuenta() {
   return (

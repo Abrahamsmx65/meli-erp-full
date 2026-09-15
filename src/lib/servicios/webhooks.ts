@@ -10,9 +10,12 @@
  * puede correr cada pocos segundos sin despeinar a nadie.
  */
 import { MeliClient } from "../meli/client";
+import { camposLiquidacionMeli, netoVigente, type PagoMercadoPago } from "../meli/pagos";
+import { CacheTarifas, leerPagoReal, resumirOrdenConMeli } from "../meli/pagos-api";
+import { contextoDeOrden, recortarOrden, type OrdenMeliCruda } from "../meli/orden";
 import { detallarItems, dedupePorSku, esEnTransito, claveItem } from "../meli/sync";
 import { aISO } from "../engine/fechas";
-import { desglosarSku, guardarVentasDiarias } from "./sync";
+import { desglosarSku, guardarVentasDiarias, renombresDePublicacion } from "./sync";
 import { invalidar } from "./cache";
 import { traerTodo, type DB } from "../datos/repos";
 
@@ -20,7 +23,7 @@ import { traerTodo, type DB } from "../datos/repos";
  * item+variación → SKU, desde el catálogo ya sincronizado. Es la misma
  * convención de clave que usa `obtenerVentas` en la sincronización completa.
  */
-async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
+export async function mapaItemSkuDe(db: DB, accountId: string): Promise<Map<string, string>> {
   const filas = await traerTodo<{ sku: string; item_id: string | null; variation_id: string | null }>(
     db,
     "skus",
@@ -201,23 +204,27 @@ export async function procesarPendientes(
 }
 
 // ---------------------------------------------------------------------------
-interface OrdenMeli {
-  id: number;
-  status?: string;
-  date_created: string;
-  total_amount?: number;
-  payments?: { id?: number }[];
-  order_items?: {
-    quantity?: number;
-    unit_price?: number;
-    sale_fee?: number;
-    item?: {
-      id?: string;
-      variation_id?: number | string | null;
-      seller_sku?: string | null;
-      seller_custom_field?: string | null;
-    };
-  }[];
+/** La orden tal como la devuelve /orders/search (solo lo que se lee). */
+type OrdenMeli = OrdenMeliCruda;
+
+/** Un renglón de la orden ya amarrado a SKU, con lo que la cascada necesita. */
+interface RenglonOrden {
+  clave: string;
+  sku: string;
+  unidades: number;
+  importe: number;
+  comision: number;
+  categoria: string | null;
+  listing: string | null;
+}
+
+/** Lo que el barrido guarda de cada orden para leer su pago después. */
+interface OrdenDelBarrido {
+  dia: string;
+  paymentIds: number[];
+  total: number;
+  renglones: RenglonOrden[];
+  orden: OrdenMeli;
 }
 
 /**
@@ -306,113 +313,13 @@ export async function repararVentasHistoricas(
   return { dias, completo };
 }
 
-/**
- * Reparación de NETOS, una sola vez y en abonos: los días que la reparación
- * del historial restauró se escribieron sin el depósito real (la columna cae
- * en 0), porque juntar el neto de un día pide sus órdenes a Mercado Pago de
- * 150 en 150 y un día trae más de mil. Esto re-barre cada día CON ceros
- * hasta que su neto queda completo (o se agotan los intentos: hay órdenes
- * cuyo neto es 0 de verdad, como las reembolsadas), de anteayer hacia atrás
- * hasta 35 días. Corre después de la reparación del historial y solo cuando
- * aquella ya terminó.
- */
-export async function repararNetosHistoricos(
-  db: DB,
-  accountId: string,
-  finMs: number,
-): Promise<{ pasadas: number; completo: boolean }> {
-  const { data: marca } = await db
-    .from("sync_log")
-    .select("detalle")
-    .eq("account_id", accountId)
-    .eq("tarea", "reparacion_netos_v1")
-    .eq("estado", "ok")
-    .order("inicio", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (marca?.detalle?.completo) return { pasadas: 0, completo: true };
-
-  const ahoraMx = Date.now() - 6 * 3_600_000;
-  const fondo = new Date(ahoraMx - 35 * 86_400_000).toISOString().slice(0, 10);
-  // Se arranca en anteayer: hoy y ayer los re-barre el latido solo.
-  const arranque = new Date(ahoraMx - 2 * 86_400_000).toISOString().slice(0, 10);
-  let fecha: string =
-    typeof marca?.detalle?.fecha === "string" ? marca.detalle.fecha : arranque;
-  if (fecha > arranque) fecha = arranque;
-  let intentos: number = typeof marca?.detalle?.intentos === "number" ? marca.detalle.intentos : 0;
-
-  const ceros = async (dia: string): Promise<number> => {
-    const { count } = await db
-      .from("ventas_diarias")
-      .select("sku", { count: "exact", head: true })
-      .eq("account_id", accountId)
-      .eq("fecha", dia)
-      .gt("importe", 0)
-      .lte("neto", 0);
-    return count ?? 0;
-  };
-
-  const cliente = await clienteDeCuenta(db, accountId);
-  if (!cliente) return { pasadas: 0, completo: false };
-  const mapaItemSku = await mapaItemSkuDe(db, accountId);
-
-  let pasadas = 0;
-  const bitacora: Record<string, unknown>[] = [];
-  // Cada pasada puede tardar ~30 s (150 consultas a Mercado Pago): con dos
-  // por latido basta, lo demás es avanzar gratis por días ya sanos.
-  while (fecha >= fondo && pasadas < 2 && Date.now() < finMs - 40_000) {
-    const antes = await ceros(fecha);
-    if (antes === 0) {
-      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
-      intentos = 0;
-      continue;
-    }
-    try {
-      await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
-    } catch {
-      // MELI degradado o sin cuota: el intento cuenta y se sigue después.
-    }
-    intentos++;
-    pasadas++;
-    const despues = await ceros(fecha);
-    bitacora.push({ fecha, intento: intentos, cerosAntes: antes, cerosDespues: despues });
-    // Un día de ~1,200 órdenes necesita ~8 pasadas (150 netos por pasada);
-    // 12 es el tope para los días con ceros legítimos (reembolsos).
-    if (despues === 0 || intentos >= 12) {
-      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
-      intentos = 0;
-    }
-  }
-
-  const completo = fecha < fondo;
-  // Sin avance no se deja huella: si el latido llegó sin tiempo, insertar
-  // el mismo estado cada minuto solo ensuciaría el sync_log.
-  if (
-    pasadas === 0 &&
-    marca?.detalle &&
-    marca.detalle.fecha === fecha &&
-    marca.detalle.intentos === intentos &&
-    marca.detalle.completo === completo
-  ) {
-    return { pasadas, completo };
-  }
-  await db.from("sync_log").insert({
-    account_id: accountId,
-    tarea: "reparacion_netos_v1",
-    estado: "ok",
-    fin: new Date().toISOString(),
-    detalle: { fecha, intentos, completo, pasadas, bitacora },
-  });
-  return { pasadas, completo };
-}
-
 interface ResultadoDia {
   filas: number;
   ordenesLeidas: number;
   totalSegunMeli: number | null;
 }
 
-async function recalcularDiaVentas(
+export async function recalcularDiaVentas(
   db: DB,
   accountId: string,
   cliente: MeliClient,
@@ -439,10 +346,7 @@ async function recalcularDiaVentas(
   >();
   // Por orden, para el neto real: qué renglones (sku|día) la componen y con
   // qué peso, para repartir el depósito de la orden entre sus SKUs.
-  const ordenes = new Map<
-    number,
-    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
-  >();
+  const ordenes = new Map<number, OrdenDelBarrido>();
   // Una orden nueva que entra a media paginación recorre las demás: sin
   // esto, la misma orden puede salir en dos páginas y contarse doble.
   const vistas = new Set<number>();
@@ -495,15 +399,16 @@ async function recalcularDiaVentas(
     for (const o of lote) {
       if (vistas.has(o.id)) continue;
       vistas.add(o.id);
-      const info = {
+      const info: OrdenDelBarrido = {
         dia: fecha,
         paymentIds: (o.payments ?? []).map((p) => p.id).filter((x): x is number => x != null),
         total: o.total_amount ?? 0,
-        renglones: [] as { clave: string; importe: number }[],
+        renglones: [],
+        orden: o,
       };
       // Los renglones se juntan por SKU DENTRO de la orden: así "ordenes"
       // cuenta órdenes que tocaron al SKU, no renglones de item.
-      const porSku = new Map<string, { unidades: number; importe: number; comision: number }>();
+      const porSku = new Map<string, { unidades: number; importe: number; comision: number; categoria: string | null; listing: string | null }>();
       for (const oi of o.order_items ?? []) {
         // El mismo orden de amarre que la sincronización completa: el SKU de
         // la orden, y si no viene (variantes cuyo SKU vive en /user-products),
@@ -514,7 +419,13 @@ async function recalcularDiaVentas(
           (oi.item?.id ? mapaItemSku?.get(claveItem(oi.item.id, oi.item.variation_id)) : undefined) ||
           (oi.item?.id ? mapaItemSku?.get(oi.item.id) : undefined);
         if (!sku) continue;
-        const s = porSku.get(sku) ?? { unidades: 0, importe: 0, comision: 0 };
+        const s = porSku.get(sku) ?? {
+          unidades: 0,
+          importe: 0,
+          comision: 0,
+          categoria: oi.item?.category_id ?? null,
+          listing: oi.listing_type_id ?? null,
+        };
         s.unidades += oi.quantity ?? 0;
         s.importe += (oi.quantity ?? 0) * (oi.unit_price ?? 0);
         s.comision += (oi.quantity ?? 0) * (oi.sale_fee ?? 0);
@@ -528,7 +439,7 @@ async function recalcularDiaVentas(
         prev.importe += s.importe;
         prev.comision += s.comision;
         acumulado.set(clave, prev);
-        info.renglones.push({ clave, importe: s.importe });
+        info.renglones.push({ clave, sku, unidades: s.unidades, importe: s.importe, comision: s.comision, categoria: s.categoria, listing: s.listing });
       }
       if (info.renglones.length) ordenes.set(o.id, info);
     }
@@ -572,11 +483,15 @@ async function recalcularDiaVentas(
       ordenes: v.ordenes,
       importe: v.importe,
       comision: v.comision,
+      neto_confirmado: false,
     };
     // El neto solo se escribe cuando el día quedó completo: escribir un
     // parcial pisaría un valor bueno con uno a medias.
     const neto = netoPorClave.get(clave);
-    if (neto !== undefined) base.neto = Math.round(neto * 100) / 100;
+    if (neto !== undefined) {
+      base.neto = Math.round(neto * 100) / 100;
+      base.neto_confirmado = true;
+    }
     return base;
   });
 
@@ -660,17 +575,14 @@ async function recalcularDiaVentas(
  * Va con caché en `ordenes_neto` porque cada consulta a Mercado Pago cuesta
  * una llamada: solo se piden las órdenes nuevas y las recientes (los cargos
  * de envío y retenciones llegan DIFERIDOS, minutos después del pago, así que
- * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
- * solo para los días donde TODAS sus órdenes ya tienen neto conocido.
+   * una orden se re-lee hasta que cumple un día). Devuelve el neto por clave
+   * solo cuando TODAS las órdenes de ese SKU|día tienen neto conocido.
  */
 async function netosDelDia(
   db: DB,
   accountId: string,
   cliente: MeliClient,
-  ordenes: Map<
-    number,
-    { dia: string; paymentIds: number[]; total: number; renglones: { clave: string; importe: number }[] }
-  >,
+  ordenes: Map<number, OrdenDelBarrido>,
 ): Promise<Map<string, number>> {
   const vacio = new Map<string, number>();
   if (!ordenes.size) return vacio;
@@ -678,21 +590,46 @@ async function netosDelDia(
   // Caché existente. Si la tabla no existe (migración 0012 pendiente), el
   // neto simplemente no se calcula todavía.
   const ids = [...ordenes.keys()];
-  const cache = new Map<number, { neto: number; actualizadoEn: string }>();
+  const cache = new Map<number, {
+    neto: number;
+    netoActual: number | null;
+    actualizadoEn: string;
+    cargosLeidos: boolean;
+    /** el desglose ya se leyó del pago real (/v1/payments), no de la forma vieja */
+    conPagoReal: boolean;
+    netoLeido: boolean;
+    reembolsoBase: number | null;
+    reembolsoBaseConfiable: boolean | null;
+    /** el depósito crudo de la primera liquidación (sin ajuste de envío); null en filas viejas */
+    netoPago: number | null;
+    envioLeido: boolean;
+  }>();
   for (let i = 0; i < ids.length; i += 200) {
     const { data, error } = await db
       .from("ordenes_neto")
-      .select("order_id, neto, actualizado_en")
+      .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, reembolso_incluido_neto_base, reembolso_base_confiable, neto_pago, envio_leido_en")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
     if (error) return vacio;
     for (const f of data ?? []) {
-      cache.set(Number(f.order_id), { neto: Number(f.neto), actualizadoEn: f.actualizado_en });
+      cache.set(Number(f.order_id), {
+        neto: Number(f.neto),
+        netoActual: f.neto_actual == null ? null : Number(f.neto_actual),
+        actualizadoEn: f.actualizado_en,
+        cargosLeidos: f.cargos_leidos_en != null,
+        conPagoReal: f.cargos_fuente != null,
+        netoLeido: f.neto_en != null,
+        reembolsoBase: f.reembolso_incluido_neto_base == null ? null : Number(f.reembolso_incluido_neto_base),
+        reembolsoBaseConfiable: f.reembolso_base_confiable == null ? null : Boolean(f.reembolso_base_confiable),
+        netoPago: f.neto_pago == null ? null : Number(f.neto_pago),
+        envioLeido: f.envio_leido_en != null,
+      });
     }
   }
 
-  // ¿Cuáles hay que pedir? Las que no están, y las recientes con caché de
-  // hace más de 3 horas (por los cargos diferidos).
+  // ¿Cuáles hay que pedir? Las que no están, las que nunca se leyeron con
+  // el pago real, y las recientes con caché de hace más de 3 horas (por los
+  // cargos diferidos).
   const ayer = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
   const hace3h = Date.now() - 3 * 3_600_000;
   const porPedir: number[] = [];
@@ -700,41 +637,93 @@ async function netosDelDia(
     if (!o.paymentIds.length) continue;
     const c = cache.get(id);
     if (!c) porPedir.push(id);
+    else if (!c.cargosLeidos || !c.conPagoReal || !c.envioLeido) porPedir.push(id);
     else if (o.dia >= ayer && Date.parse(c.actualizadoEn) < hace3h) porPedir.push(id);
     // Un neto cacheado en 0 con la orden cobrada es basura del error viejo
     // de multipagos (se guardaba solo el primer pago, aunque estuviera
     // rechazado): se vuelve a pedir sin importar la edad.
-    else if (c.neto <= 0 && o.total > 0) porPedir.push(id);
+    else if (!c.netoLeido && o.total > 0) porPedir.push(id);
   }
 
   // Tope por barrido para no comerse el tiempo: lo que falte lo recoge el
   // siguiente latido (corre cada pocos minutos).
   const nuevas: Record<string, unknown>[] = [];
+  const tarifas = new CacheTarifas(cliente, ordenes.values().next().value?.orden.context?.site || "MLM");
+  const ahora = Date.now();
   for (const id of porPedir.slice(0, 150)) {
     const o = ordenes.get(id)!;
     try {
       // Una orden puede tener VARIOS pagos (dos tarjetas, o un intento
       // rechazado y el bueno): el neto de la orden es la suma de todos.
-      let neto = 0;
-      let algunDato = false;
-      for (const paymentId of o.paymentIds) {
-        const r = await cliente.get<{ net_received_amount?: number }>(
-          `/collections/${paymentId}`,
-        );
-        if (typeof r?.net_received_amount === "number") {
-          neto += r.net_received_amount;
-          algunDato = true;
-        }
-      }
-      if (!algunDato) continue;
-      cache.set(id, { neto, actualizadoEn: new Date().toISOString() });
+      const pagos: PagoMercadoPago[] = [];
+      for (const paymentId of o.paymentIds) pagos.push(await leerPagoReal(cliente, paymentId));
+      const comisionOrden = o.renglones.reduce((a, r) => a + r.comision, 0);
+      const previo = cache.get(id);
+      // El control es el depósito CRUDO de la primera liquidación; las
+      // filas de antes del ajuste de envío guardaban ese crudo en `neto`.
+      const netoControl = previo?.netoLeido ? (previo.netoPago ?? previo.neto) : undefined;
+      const contexto = contextoDeOrden(o.orden, ahora);
+      const resumen = await resumirOrdenConMeli(cliente, {
+        pagos,
+        total: o.total,
+        comisionOrden,
+        netoControl,
+        reembolsoIncluidoNetoBase: previo?.reembolsoBase,
+        reembolsoBaseConfiable: previo?.reembolsoBaseConfiable,
+        contexto,
+        renglones: o.renglones.map((r) => ({ sku: r.sku, unidades: r.unidades, importe: r.importe, categoria: r.categoria, listing: r.listing })),
+        tarifas,
+      });
+      if (resumen.neto == null) continue;
+      // `neto` es la cifra original de control (con el ajuste de envío). Una
+      // relectura posterior se guarda en `neto_actual`: alimenta ventas
+      // diarias sin pisar el original que el corte necesita para conciliar
+      // devoluciones y ajustes.
+      const neto = resumen.netoBase ?? resumen.neto;
+      cache.set(id, {
+        neto,
+        netoActual: resumen.neto,
+        actualizadoEn: new Date().toISOString(),
+        // Con la comisión a medias (orden de menos de 24 h) la orden se
+        // vuelve a pedir en el siguiente barrido hasta que MP la publique.
+        cargosLeidos: resumen.cargosCompletos,
+        conPagoReal: true,
+        netoLeido: true,
+        reembolsoBase: resumen.reembolsoIncluidoNetoBase,
+        reembolsoBaseConfiable: resumen.reembolsoBaseConfiable,
+        netoPago: netoControl ?? resumen.netoPago,
+        envioLeido: resumen.envioLeido,
+      });
       nuevas.push({
         account_id: accountId,
         order_id: id,
         payment_id: o.paymentIds[0],
+        // Todos los pagos de la orden: la revisión de devoluciones los
+        // relee uno por uno (un reembolso puede caer en el segundo pago).
+        payment_ids: o.paymentIds,
+        // Qué pares llevaba (con categoría y tipo de publicación: con eso
+        // una devolución recupera el costo exacto y una reventa se
+        // reconstruye sin volver a pedir la orden).
+        renglones: o.renglones.map((r) => ({
+          sku: r.sku,
+          unidades: r.unidades,
+          importe: Math.round(r.importe * 100) / 100,
+          comision: Math.round(r.comision * 100) / 100,
+          categoria: r.categoria,
+          listing: r.listing,
+        })),
         fecha: o.dia,
         total: o.total,
         neto,
+        ...(netoControl != null ? { neto_actual: resumen.neto } : {}),
+        ...camposLiquidacionMeli(resumen),
+        pack_id: contexto.packId,
+        shipping_id: contexto.shippingId,
+        static_tags: contexto.staticTags ?? [],
+        pagado: contexto.pagado ?? null,
+        orden_cruda: recortarOrden(o.orden),
+        neto_en: new Date().toISOString(),
+        cargos_leidos_en: resumen.cargosCompletos ? new Date().toISOString() : null,
         actualizado_en: new Date().toISOString(),
       });
     } catch {
@@ -745,26 +734,23 @@ async function netosDelDia(
     await db.from("ordenes_neto").upsert(nuevas, { onConflict: "account_id,order_id" });
   }
 
-  // Repartir el neto de cada orden entre sus renglones, y solo entregar los
-  // días completos (todas sus órdenes con neto conocido).
+  // Repartir el neto de cada orden entre sus renglones. Un SKU pendiente no
+  // borra el cero/negativo confirmado de otro SKU del mismo día.
   const porClave = new Map<string, number>();
-  const diasIncompletos = new Set<string>();
+  const clavesIncompletas = new Set<string>();
   for (const [id, o] of ordenes) {
     const c = cache.get(id);
-    if (!c) {
-      diasIncompletos.add(o.dia);
+    if (!c || !c.netoLeido) {
+      for (const r of o.renglones) clavesIncompletas.add(r.clave);
       continue;
     }
     const importeOrden = o.renglones.reduce((a, r) => a + r.importe, 0);
     if (importeOrden <= 0) continue;
     for (const r of o.renglones) {
-      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + c.neto * (r.importe / importeOrden));
+      porClave.set(r.clave, (porClave.get(r.clave) ?? 0) + netoVigente(c.neto, c.netoActual) * (r.importe / importeOrden));
     }
   }
-  for (const clave of [...porClave.keys()]) {
-    const dia = clave.slice(clave.lastIndexOf("|") + 1);
-    if (diasIncompletos.has(dia)) porClave.delete(clave);
-  }
+  for (const clave of clavesIncompletas) porClave.delete(clave);
   return porClave;
 }
 
@@ -858,6 +844,7 @@ async function procesarItem(
   const filas = dedupePorSku(await detallarItems(cliente, [itemId]));
   if (!filas.length) return false;
 
+  const ahora = new Date().toISOString();
   await db.from("skus").upsert(
     filas.map((f) => {
       const d = desglosarSku(f.sku);
@@ -867,6 +854,7 @@ async function procesarItem(
         item_id: f.itemId,
         variation_id: f.variationId,
         inventory_id: f.inventoryId,
+        user_product_id: f.userProductId,
         titulo: f.titulo,
         logistica: f.logistica,
         estado: f.estado,
@@ -875,11 +863,30 @@ async function procesarItem(
         color: d.color,
         talla: d.talla,
         activo: true,
-        actualizado_en: new Date().toISOString(),
+        actualizado_en: ahora,
       };
     }),
     { onConflict: "account_id,sku" },
   );
+
+  // Si el SKU de una variante CAMBIÓ, el nombre anterior se apaga aquí
+  // mismo. Dejarlo vivo hasta el barrido del día siguiente dejaba dos
+  // renglones activos para la misma publicación, y con eso la bodega de
+  // TikTok mandaba los pares de un nombre al otro (saldo en −1 el 10-sep).
+  const { data: activos } = await db
+    .from("skus")
+    .select("sku, item_id, variation_id, user_product_id")
+    .eq("account_id", accountId)
+    .eq("item_id", itemId)
+    .eq("activo", true);
+  const viejos = renombresDePublicacion((activos ?? []) as any[], filas);
+  if (viejos.length) {
+    await db
+      .from("skus")
+      .update({ activo: false, actualizado_en: ahora })
+      .eq("account_id", accountId)
+      .in("sku", viejos);
+  }
 
   return true;
 }

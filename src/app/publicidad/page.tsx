@@ -1,7 +1,8 @@
+import { Fragment } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad, type RecomendacionAds } from "@/lib/servicios/publicidad";
+import { cargarPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 
@@ -89,6 +90,23 @@ export default async function Publicidad({
         </div>
       ) : null}
 
+      {p.errorRecomendaciones ? (
+        <div
+          role="alert"
+          className="tarjeta border p-4 text-sm"
+          style={{ borderColor: "var(--estado-alerta)" }}
+        >
+          <div className="font-semibold">Recomendaciones temporalmente no disponibles</div>
+          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
+            {p.errorRecomendaciones}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+            Las ventas y métricas de publicidad sí están completas; no se muestran
+            recomendaciones hasta recuperar el stock para evitar sugerencias falsas.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
           titulo="Gasto en publicidad"
@@ -135,52 +153,6 @@ export default async function Publicidad({
           }
         />
       </div>
-
-      {p.recomendaciones.length > 0 ? (
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Recomendaciones</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Qué hacer hoy con cada modelo, cruzando la publicidad con el stock de
-              Full y el margen. Los cambios se hacen en la consola de Product Ads de
-              Mercado Libre; su API no acepta modificarlos desde aquí.
-            </p>
-          </header>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th>Qué hacer</th>
-                <th>Por qué</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.recomendaciones.map((r) => (
-                <tr key={`${r.accion}|${r.modelo}`}>
-                  <td className="font-semibold">{r.modelo}</td>
-                  <td
-                    className="font-semibold"
-                    style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
-                  >
-                    {r.queHacer}
-                  </td>
-                  <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
-                    {r.razon}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
-
-      {p.sinAmarre.anuncios > 0 ? (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-          {p.sinAmarre.anuncios} anuncios con {pesos(p.sinAmarre.gasto)} de gasto no
-          amarraron a ningún modelo del catálogo (publicaciones fuera de la
-          sincronización); ese gasto sí cuenta en el total de arriba.
-        </p>
-      ) : null}
 
       <section className="tarjeta overflow-hidden">
         <header className="border-b p-4 hairline">
@@ -268,6 +240,73 @@ export default async function Publicidad({
           </table>
         </div>
       </section>
+
+      {p.sinAmarre.anuncios > 0 ? (
+        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          {p.sinAmarre.anuncios} anuncios con {pesos(p.sinAmarre.gasto)} de gasto no
+          amarraron a ningún modelo del catálogo (publicaciones fuera de la
+          sincronización); ese gasto sí cuenta en el total de arriba.
+        </p>
+      ) : null}
+
+      {p.recomendaciones.length > 0 ? (
+        <section className="tarjeta overflow-hidden">
+          <header className="border-b p-4 hairline">
+            <h2 className="text-base font-semibold">Recomendaciones</h2>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+              Qué hacer hoy con cada modelo, cruzando la publicidad con el stock de
+              Full y el margen. Los cambios se hacen en la consola de Product Ads de
+              Mercado Libre; su API no acepta modificarlos desde aquí.
+            </p>
+          </header>
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th>Qué hacer</th>
+                <th>Por qué</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Agrupadas por lo que hay que hacer, en el orden en que se
+                  trabaja la lista: primero se corta el gasto, después se
+                  invierte. Dentro de cada grupo, lo que más dinero mueve
+                  primero. */}
+              {GRUPOS_ACCION.map((grupo) => {
+                const delGrupo = p.recomendaciones.filter((r) => grupo.acciones.includes(r.accion));
+                if (!delGrupo.length) return null;
+                return (
+                  <Fragment key={grupo.titulo}>
+                    <tr>
+                      <th
+                        colSpan={3}
+                        className="text-left text-xs font-semibold uppercase tracking-wide"
+                        style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}
+                      >
+                        {grupo.titulo} · {delGrupo.length}
+                      </th>
+                    </tr>
+                    {delGrupo.map((r) => (
+                      <tr key={`${r.accion}|${r.modelo}`}>
+                        <td className="font-semibold">{r.modelo}</td>
+                        <td
+                          className="font-semibold"
+                          style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
+                        >
+                          {r.queHacer}
+                        </td>
+                        <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
+                          {r.razon}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -3,6 +3,31 @@
  * mejor que cualquier gráfica. La ficha lleva una línea de color arriba
  * solo cuando el tono dice algo (crítico, alerta, bien); la neutra va limpia.
  */
+
+/**
+ * De qué tamaño va la cifra para que QUEPA en su tarjeta.
+ *
+ * El tamaño fijo de antes (28 px) se salía del recuadro: en la rejilla más
+ * apretada que usa la app —ocho columnas dentro de 1400 px— cada tarjeta mide
+ * ~158 px, de los que ~126 son contenido, y "$5,301,760" a 28 px con dígitos
+ * de ancho fijo necesita ~165. Un importe de siete cifras es lo normal en un
+ * mes de venta, así que no era un caso raro.
+ *
+ * La medida se da en `cqi`: 1 % del ancho de la TARJETA, no de la pantalla.
+ * Así la misma ficha se achica en la rejilla de ocho y se ve grande cuando va
+ * en una de tres, sin depender de qué tan ancho tenga el navegador. El tope
+ * en `rem` conserva los 28 px de siempre donde hay lugar, y baja por escalones
+ * según cuántos caracteres trae la cifra, que es lo que de verdad decide si
+ * cabe.
+ */
+export function tamanoDeCifra(texto: string): string {
+  const n = texto.length;
+  if (n <= 7) return "clamp(0.9rem, 16cqi, 1.75rem)";
+  if (n <= 9) return "clamp(0.9rem, 15cqi, 1.75rem)";
+  if (n <= 11) return "clamp(0.85rem, 13cqi, 1.5rem)";
+  if (n <= 13) return "clamp(0.8rem, 11cqi, 1.25rem)";
+  return "clamp(0.75rem, 9.5cqi, 1.1rem)";
+}
 export function Ficha({
   titulo,
   valor,
@@ -23,8 +48,15 @@ export function Ficha({
           ? "var(--exito-texto)"
           : "var(--ink-1)";
 
+  const texto = typeof valor === "number" ? valor.toLocaleString("es-MX") : valor;
+
   return (
-    <div className="tarjeta relative overflow-hidden p-4">
+    // La tarjeta es el contenedor de referencia: la cifra se mide contra SU
+    // ancho, no contra el de la ventana.
+    <div
+      className="tarjeta relative overflow-hidden p-4"
+      style={{ containerType: "inline-size" }}
+    >
       {tono !== "neutro" ? (
         <span
           aria-hidden="true"
@@ -35,8 +67,12 @@ export function Ficha({
       <div className="text-[12px] font-medium" style={{ color: "var(--ink-2)" }}>
         {titulo}
       </div>
-      <div className="cifra mt-2 text-[28px] leading-none font-semibold" style={{ color }}>
-        {typeof valor === "number" ? valor.toLocaleString("es-MX") : valor}
+      <div
+        className="cifra mt-2 leading-none font-semibold"
+        style={{ color, fontSize: tamanoDeCifra(texto) }}
+        title={texto}
+      >
+        {texto}
       </div>
       {nota ? (
         <div className="mt-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>

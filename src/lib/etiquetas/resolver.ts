@@ -29,6 +29,8 @@ export interface DatoAmazon {
   fnsku: string;
   sku: string;
   titulo: string | null;
+  /** El ASIN, para el catálogo de /skus; las etiquetas no lo usan. */
+  asin?: string | null;
 }
 
 /**
@@ -48,6 +50,7 @@ export interface FilaAmazon {
   sku: string;
   fnsku: string | null;
   titulo: string | null;
+  asin?: string | null;
 }
 
 /**
@@ -58,8 +61,10 @@ export interface FilaAmazon {
  */
 export function indexarAmazon(filas: FilaAmazon[]): Map<string, DatoAmazon> {
   const titulos = new Map<string, string>();
+  const asins = new Map<string, string>();
   for (const f of filas) {
     if (f.titulo && !titulos.has(f.sku)) titulos.set(f.sku, f.titulo);
+    if (f.asin && !asins.has(f.sku)) asins.set(f.sku, f.asin);
   }
 
   const mapa = new Map<string, DatoAmazon>();
@@ -68,7 +73,12 @@ export function indexarAmazon(filas: FilaAmazon[]): Map<string, DatoAmazon> {
   };
   for (const f of filas) {
     if (!f.fnsku) continue;
-    const dato: DatoAmazon = { fnsku: f.fnsku, sku: f.sku, titulo: titulos.get(f.sku) ?? null };
+    const dato: DatoAmazon = {
+      fnsku: f.fnsku,
+      sku: f.sku,
+      titulo: titulos.get(f.sku) ?? null,
+      asin: asins.get(f.sku) ?? null,
+    };
     anotar(claveComparacion(f.sku), dato);
     anotar(claveOrdenada(f.sku), dato);
     anotar(claveAplastada(f.sku), dato);
@@ -89,50 +99,48 @@ export function indexarAmazon(filas: FilaAmazon[]): Map<string, DatoAmazon> {
  */
 export async function mapaAmazon(db: DB): Promise<Map<string, DatoAmazon>> {
   try {
-    const vacio = () => [] as { seller_sku: string; fnsku: string | null; titulo: string | null }[];
+    type Fila = { seller_sku: string; fnsku: string | null; asin: string | null; titulo: string | null };
+    const vacio = () => [] as Fila[];
     const [inventario, listings, catalogo] = await Promise.all([
-      traerTodo<{ seller_sku: string; fnsku: string | null }>(
+      traerTodo<{ seller_sku: string; fnsku: string | null; asin: string | null }>(
         db,
         "amazon_inventario",
-        "seller_sku, fnsku",
+        "seller_sku, fnsku, asin",
         (q) => q,
       ),
       // `fnsku` llegó con la migración 0047: si aún no está, se lee sin él.
-      traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
-        db,
-        "amazon_listings",
-        "seller_sku, fnsku, titulo",
-        (q) => q,
-      ).catch(() =>
-        traerTodo<{ seller_sku: string; titulo: string | null }>(
+      traerTodo<Fila>(db, "amazon_listings", "seller_sku, fnsku, asin, titulo", (q) => q).catch(() =>
+        traerTodo<{ seller_sku: string; asin: string | null; titulo: string | null }>(
           db,
           "amazon_listings",
-          "seller_sku, titulo",
+          "seller_sku, asin, titulo",
           (q) => q,
         )
           .then((f) => f.map((x) => ({ ...x, fnsku: null })))
           .catch(vacio),
       ),
-      traerTodo<{ seller_sku: string; fnsku: string | null; titulo: string | null }>(
-        db,
-        "amazon_skus",
-        "seller_sku, fnsku, titulo",
-        (q) => q,
-      ).catch(vacio),
+      traerTodo<Fila>(db, "amazon_skus", "seller_sku, fnsku, asin, titulo", (q) => q).catch(vacio),
     ]);
 
     // El orden importa: la primera fila con título gana, y el catálogo
     // trae el título tal como está publicado hoy.
     return indexarAmazon([
-      ...(inventario ?? []).map((f) => ({ sku: f.seller_sku, fnsku: f.fnsku ?? null, titulo: null })),
+      ...(inventario ?? []).map((f) => ({
+        sku: f.seller_sku,
+        fnsku: f.fnsku ?? null,
+        asin: f.asin ?? null,
+        titulo: null,
+      })),
       ...(listings ?? []).map((f) => ({
         sku: f.seller_sku,
         fnsku: f.fnsku ?? null,
+        asin: f.asin ?? null,
         titulo: f.titulo ?? null,
       })),
       ...(catalogo ?? []).map((f) => ({
         sku: f.seller_sku,
         fnsku: f.fnsku ?? null,
+        asin: f.asin ?? null,
         titulo: f.titulo ?? null,
       })),
     ]);

@@ -2,12 +2,12 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { obtenerPlan } from "@/lib/servicios/cache";
+import { conCacheApp } from "@/lib/servicios/cache-app";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
 import { sugerirCompra } from "@/lib/servicios/compras";
 import { Ficha } from "@/components/tiles";
-import { CargarPedido } from "@/components/cargar-pedido";
-import { ListaPedidos } from "@/components/lista-pedidos";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
 import { amazonParaCompras } from "@/lib/servicios/fba";
 
@@ -43,11 +43,21 @@ export default async function Pedidos() {
 
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
-  const [planEstado, inventario, pedidos, amazon] = await Promise.all([
-    obtenerPlan(supabase, cuenta.id),
-    cargarInventario(supabase, cuenta.id),
-    listarPedidos(supabase, cuenta.id),
-    amazonParaCompras(supabase),
+  const t = cronometro("/pedidos");
+  const [planEstado, inventario, pedidos, amazonEstado] = await Promise.all([
+    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    t.medir("inventario", cargarInventario(supabase, cuenta.id)),
+    t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
+    // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
+    t.medir(
+      "amazon",
+      amazonParaCompras(supabase)
+        .catch((err) => ({
+          datos: new Map(),
+          advertencias: [`No se pudieron leer ventas e inventario de Amazon: ${(err as Error).message}`],
+          disponible: false,
+        })),
+    ),
   ]);
 
   const inventarioPorSku = new Map(
@@ -62,15 +72,35 @@ export default async function Pedidos() {
     ]),
   );
 
-  const compra = await sugerirCompra(
-    supabase,
-    cuenta.id,
-    planEstado.plan.lineas,
-    inventarioPorSku,
-    undefined,
-    inventario.crudos,
-    amazon,
+  // La sugerencia es 100% determinista sobre insumos que YA están cacheados
+  // (plan, inventario, sumas de Amazon): se guarda masticada en app_cache y
+  // la invalida lo mismo que invalida al plan; la media hora de vida cubre
+  // los insumos que cambian sin aviso (las sumas de Amazon del cron).
+  const compra = await t.medir(
+    "compra",
+    amazonEstado.advertencias.length || !amazonEstado.disponible
+      ? sugerirCompra(
+          supabase,
+          cuenta.id,
+          planEstado.plan.lineas,
+          inventarioPorSku,
+          undefined,
+          inventario.crudos,
+          amazonEstado.datos,
+        )
+      : conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
+          sugerirCompra(
+            supabase,
+            cuenta.id,
+            planEstado.plan.lineas,
+            inventarioPorSku,
+            undefined,
+            inventario.crudos,
+            amazonEstado.datos,
+          ),
+        ),
   );
+  t.fin();
 
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -92,21 +122,25 @@ export default async function Pedidos() {
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Qué conviene pedir, mirando al mismo tiempo lo que se vende en Mercado
           Libre, lo que hay en Full, lo que hay en bodega y lo que ya viene en el
-          barco. Y abajo, los pedidos vivos con su contenedor.
+          barco. Los pedidos se cargan y se ven en{" "}
+          <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
+            Cargar pedidos
+          </Link>
+          .
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha
           titulo="Hay que pedir"
-          valor={n(compra.totales.cajas)}
-          nota={`${n(compra.totales.pares)} pares · ${compra.totales.modelosAPedir} modelos`}
+          valor={amazonEstado.disponible ? n(compra.totales.cajas) : "—"}
+          nota={amazonEstado.disponible ? `${n(compra.totales.pares)} pares · ${compra.totales.modelosAPedir} modelos` : "Amazon no disponible"}
           tono={compra.totales.cajas > 0 ? "alerta" : "bien"}
         />
         <Ficha
           titulo="Se acaban antes"
-          valor={n(compra.totales.enQuiebre)}
-          nota={`No aguantan los ${ciclo} días del ciclo`}
+          valor={amazonEstado.disponible ? n(compra.totales.enQuiebre) : "—"}
+          nota={amazonEstado.disponible ? `No aguantan los ${ciclo} días del ciclo` : "Amazon no disponible"}
           tono={compra.totales.enQuiebre > 0 ? "critico" : "bien"}
         />
         <Ficha titulo="Pedidos vivos" valor={n(pedidos.filter((x) => x.estado !== "recibido").length)} nota={`${pedidos.length} en total`} />
@@ -118,6 +152,25 @@ export default async function Pedidos() {
           tono={cajasSinBarco > 0 ? "alerta" : "neutro"}
         />
       </div>
+
+      {amazonEstado.advertencias.length ? (
+        <div
+          role="alert"
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
+            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
+          }}
+        >
+          <strong>Amazon no está completo.</strong> La recomendación se calculó con los demás
+          datos disponibles y puede cambiar cuando se recupere la lectura.
+          <ul className="mt-1 list-disc pl-5">
+            {amazonEstado.advertencias.map((mensaje) => (
+              <li key={mensaje}>{mensaje}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {!planEstado.vigente ? (
         <p
@@ -173,11 +226,15 @@ export default async function Pedidos() {
         </div>
       </details>
 
-      <PedidoPorModelo renglones={compra.renglones} />
+      {amazonEstado.disponible ? <PedidoPorModelo renglones={compra.renglones} /> : null}
 
-      <CargarPedido />
-
-      <ListaPedidos pedidos={pedidos} />
+      <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        Los pedidos cargados, con su contenedor y sus filtros, viven ahora en{" "}
+        <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
+          Cargar pedidos
+        </Link>
+        .
+      </p>
     </div>
   );
 }
