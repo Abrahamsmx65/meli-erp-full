@@ -150,7 +150,10 @@ function numero(v: unknown): number {
   const t = texto(v);
   if (!t || t === "-") return 0;
   const n = Number(t.replace(/[, ]/g, ""));
-  return Number.isFinite(n) ? n : 0;
+  if (Number.isFinite(n)) return n;
+  // "US$1.030", "US$11,618.400" (FUZHOU pone la moneda en la celda).
+  const pelado = Number(t.replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(pelado) && /\d/.test(t) ? pelado : 0;
 }
 
 /**
@@ -170,8 +173,15 @@ export function colorDeProforma(crudo: string): string {
 
 /** "25MX=39" -> "25". También acepta "25MX", "MX25" o un número pelón. */
 export function tallaDeEncabezado(crudo: string): string | null {
-  const t = texto(crudo).toUpperCase().replace(/\s+/g, "");
-  if (!t) return null;
+  const conEspacios = texto(crudo).toUpperCase();
+  if (!conEspacios) return null;
+
+  // FUZHOU: "Mex 23   36/37   (24cm)" — la talla mexicana va después de
+  // "MEX" y la celda trae además la europea y los centímetros.
+  const mex = conEspacios.match(/\bMEX\s*(\d{1,2}(?:\.\d)?)\b/);
+  if (mex) return normalizarTalla(mex[1]);
+
+  const t = conEspacios.replace(/\s+/g, "");
 
   const conMx = t.match(/(\d{1,2}(?:\.\d)?)MX/);
   if (conMx) return normalizarTalla(conMx[1]);
@@ -280,15 +290,31 @@ export async function importarProforma(
 
   for (let i = 0; i < Math.min(20, filas.length); i++) {
     const f = filas[i].map((c) => canonizar(c));
-    const iItem = f.findIndex((c) => c === "ITEM-NO" || c === "ITEM" || c === "ITEM-NO-");
+    // "Item No." (la mayoría), "Article no" (FUZHOU), "Style" (packing).
+    const iItem = f.findIndex(
+      (c) =>
+        c === "ITEM-NO" || c === "ITEM" || c === "ITEM-NO-" ||
+        c === "ARTICLE-NO" || c === "ARTICLE" || c === "STYLE" || c === "STYLE-NO" ||
+        c === "MODELO" || c === "MODEL",
+    );
     if (iItem < 0) continue;
     filaEnc = i;
     colItem = iItem;
     colDesc = f.findIndex((c) => c.startsWith("DESCRIPTION"));
     colColor = f.findIndex((c) => c === "COLOR" || c === "COLOUR" || c === "COLORS");
-    colPorCaja = f.findIndex((c) => c === "PER-CTN" || c === "PERCTN" || c === "PAIRS-PER-CTN");
-    colCajas = f.findIndex((c) => c === "CTNS" || c === "CTN" || c === "CARTONS");
-    colPares = f.findIndex((c) => c === "PRS" || c === "PAIRS" || c === "PCS" || c === "QUANTITY");
+    colPorCaja = f.findIndex(
+      (c) =>
+        c === "PER-CTN" || c === "PERCTN" || c === "PAIRS-PER-CTN" ||
+        c === "PRS-CTN" || c === "PRS-PER-CTN" || c === "PAIRS-CTN" || c === "PCS-CTN",
+    );
+    colCajas = f.findIndex(
+      (c) => c === "CTNS" || c === "CTN" || c === "CARTONS" || c === "TOTAL-CTNS" || c === "TOTAL-CTN",
+    );
+    colPares = f.findIndex(
+      (c) =>
+        c === "PRS" || c === "PAIRS" || c === "PCS" || c === "QUANTITY" ||
+        c === "TOTAL-PRS" || c === "TOTAL-PAIRS" || c === "TOTAL-PCS",
+    );
     colPrecio = f.findIndex((c) => c.startsWith("FOB") || c.includes("PRICE"));
     break;
   }
