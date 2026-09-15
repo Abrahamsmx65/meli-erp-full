@@ -10,7 +10,7 @@
 import type { DB } from "../datos/repos";
 import { leerHoja as leerCeldas } from "../importar/leer-hoja";
 import { conCacheYz, recalcularCacheYz } from "./cache";
-import { canonizar, claveCanonica, desglosar } from "./sku";
+import { amarrar, canonizar, claveCanonica, construirIndice, desglosar } from "./sku";
 import { todo } from "./db";
 
 export interface LineaPedido {
@@ -20,6 +20,8 @@ export interface LineaPedido {
   color: string;
   cantidad: number;
   costoUnitario: number | null;
+  /** El SKU de MELI con el que amarra (lo llena `amarrarLineas`); null = no contará como en camino. */
+  skuMeli?: string | null;
 }
 
 export interface PedidoLeido {
@@ -33,22 +35,60 @@ export interface PedidoLeido {
 }
 
 /**
- * Encabezados que se reconocen. El pedido real de la fábrica (fixture
- * `yz-pedido.xls`) viene bilingüe: "款號 #499" arriba (el diseño), "Model",
- * "Total" (la cantidad), "壳Case RMB" (el costo de la funda sola), "一套 Set"
- * (funda + caja: el costo que cuenta) y "Amount" (el importe, que no se lee).
+ * Encabezados que se reconocen. Los pedidos reales de la fábrica vienen
+ * bilingües y NO todos iguales:
+ *
+ * - Fundas (fixture `yz-pedido.xls`, el 499): "款號 #499" arriba (el diseño),
+ *   "Model", "Total" (la CANTIDAD), "壳Case RMB" (la funda sola), "一套 Set"
+ *   (funda + caja: el costo que cuenta) y "Amount" (el importe, no se lee).
+ * - Micas (fixture `yz-pedido-462.xls`): "#462" arriba, la columna del
+ *   modelo SIN encabezado (la primera trae la marca: Iphone, Samsung,
+ *   Redmi), "Qty" (la cantidad), "RMB" (la mica sola), "Tools Kit" y
+ *   "Total" que aquí es el COSTO unitario (mica + kit), no la cantidad.
+ *
+ * Por eso "Total" solo es cantidad cuando no hay otra columna de cantidad,
+ * y cuando no lo es cuenta como costo del conjunto (después de "Set").
  * Lo chino se canoniza fuera y quedan "CASE-RMB" y "SET".
  */
 const ENC = {
   sku: ["SKU", "CLAVE", "CODIGO", "CODE", "ITEM", "ITEM NO", "MODEL NO", "REF"],
   diseno: ["DISENO", "DISEÑO", "DESIGN"],
   modelo: ["MODELO", "MODEL", "PHONE MODEL", "CELULAR"],
+  marca: ["MARCA", "BRAND"],
   color: ["COLOR", "COLOUR"],
-  cantidad: ["CANTIDAD", "CANT", "QTY", "QUANTITY", "PCS", "PIEZAS", "PZAS", "UNIDADES", "TOTAL"],
+  cantidad: ["CANTIDAD", "CANT", "QTY", "QUANTITY", "PCS", "PIEZAS", "PZAS", "UNIDADES"],
   // Primero el costo del conjunto; el de la funda sola solo si no hay otro.
-  costo: ["SET", "COSTO", "COSTO UNITARIO", "PRECIO", "UNIT PRICE", "PRICE", "USD", "COSTO USD", "PRECIO UNITARIO", "CASE RMB", "CASE"],
+  costo: ["SET", "TOTAL", "COSTO", "COSTO UNITARIO", "PRECIO", "UNIT PRICE", "PRICE", "USD", "COSTO USD", "PRECIO UNITARIO", "CASE RMB", "CASE", "RMB"],
   folio: ["PEDIDO", "FOLIO", "ORDER", "ORDER NO", "ORDER NUMBER", "PO", "INVOICE", "INVOICE NO"],
 };
+
+/** "Total" vale como cantidad solo si no hay otra columna de cantidad. */
+const CANTIDAD_RESPALDO = ["TOTAL"];
+
+/**
+ * El modelo como lo escribe MELI, según la marca que la fábrica pone en la
+ * primera columna (catálogo del 462 a la vista): iPhone lleva la "i" pegada
+ * (XR → ixr, SE 2022 → ise2022, Air → iAir; I18 Pro ya la trae); iPad igual
+ * (10 → iPad10); Redmi Note es Rmn CON su red, porque MELI distingue 4G y
+ * 5G (Note 13 Pro 4G → Rmn13pro-4g); Redmi a secas es Rm (12C → Rm12c); Poco
+ * va SIN red (Poco X8 Pro 5G → PocoX8pro, MELI no la pone). Samsung y lo
+ * demás van tal cual (A57, S23 Ultra → S23ULTRA). Todo pegado sin espacios
+ * ni guiones, que es como lo escriben en bodega y en MELI.
+ */
+export function modeloSegunMarca(marca: string, modelo: string): string {
+  const pegado = canonizar(modelo).replace(/-/g, "");
+  if (!pegado) return pegado;
+  const m = canonizar(marca);
+  if (m.startsWith("IPAD")) return pegado.startsWith("IPAD") ? pegado : `IPAD${pegado}`;
+  if (/^(IPHONE|APPLE)/.test(m)) return pegado.startsWith("I") ? pegado : `I${pegado}`;
+  if (/^(REDMI|XIAOMI|POCO)/.test(m)) {
+    if (pegado.startsWith("POCO")) return pegado.replace(/[45]G$/, "");
+    if (pegado.startsWith("NOTE")) return `RMN${pegado.slice(4)}`;
+    if (/^RMN?\d/.test(pegado)) return pegado;
+    return `RM${pegado}`;
+  }
+  return pegado;
+}
 
 /** "款號 #499", "#499", "DISEÑO 499", "Design: 499N" -> "499" / "499N". */
 function disenoEnTexto(texto: string): string | null {
@@ -82,6 +122,26 @@ function numero(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Las columnas, antes de `hasta`, que en los renglones de datos que siguen
+ * al encabezado traen TEXTO (no números): ahí van marca y modelo.
+ */
+function columnasDeTexto(celdas: string[][], filaEnc: number, hasta: number): number[] {
+  const out = new Set<number>();
+  let vistas = 0;
+  for (let r = filaEnc + 1; r < celdas.length && vistas < 6; r++) {
+    const f = celdas[r] ?? [];
+    if (!f.some(Boolean)) continue;
+    if (/^total/i.test((f[0] ?? "").trim())) break;
+    vistas++;
+    for (let i = 0; i < hasta; i++) {
+      const v = (f[i] ?? "").trim();
+      if (v && numero(v) == null) out.add(i);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 /** Lee el Excel del pedido por nombre de columna. */
 export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
   let cols: Record<keyof typeof ENC, number> | null = null;
@@ -103,7 +163,7 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
 
   for (let r = 0; r < Math.min(celdas.length, 25); r++) {
     const f = celdas[r] ?? [];
-    const c = { sku: -1, diseno: -1, modelo: -1, color: -1, cantidad: -1, costo: -1, folio: -1 };
+    const c = { sku: -1, diseno: -1, modelo: -1, marca: -1, color: -1, cantidad: -1, costo: -1, folio: -1 };
     f.forEach((celda, i) => {
       if (!celda) return;
       for (const k of Object.keys(ENC) as (keyof typeof ENC)[]) {
@@ -115,23 +175,45 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
         return;
       }
     });
-    // Si hay varias columnas de costo, prefiere la mejor de la lista.
-    if (c.cantidad >= 0 && (c.sku >= 0 || c.modelo >= 0)) {
-      let mejor = -1;
-      let mejorPos = Infinity;
-      f.forEach((celda, i) => {
-        if (!celda) return;
-        const pos = ENC.costo.findIndex((e) => es(celda, [e]));
-        if (pos >= 0 && pos < mejorPos) {
-          mejorPos = pos;
-          mejor = i;
-        }
-      });
-      c.costo = mejor;
-      cols = c;
-      filaEnc = r;
-      break;
+    // "Total" es la cantidad solo cuando no hay Qty / Cantidad / Pcs.
+    if (c.cantidad < 0) c.cantidad = f.findIndex((celda) => celda && es(celda, CANTIDAD_RESPALDO));
+    if (c.cantidad < 0) continue;
+
+    // Sin encabezado de SKU ni de modelo (el 462 pone "#462" arriba de la
+    // marca y deja la columna del modelo sin título): el modelo es la
+    // columna de TEXTO más a la derecha antes de la cantidad, y la marca la
+    // de texto anterior. Se mira en los renglones de datos, no en el título.
+    const asignadas = new Set(Object.values(c).filter((i) => i >= 0));
+    const deTexto = columnasDeTexto(celdas, r, c.cantidad).filter((i) => !asignadas.has(i));
+    if (c.sku < 0 && c.modelo < 0) {
+      if (!deTexto.length) continue;
+      c.modelo = deTexto[deTexto.length - 1];
+      deTexto.pop();
     }
+    // La marca: la columna de texto inmediatamente a la izquierda del modelo
+    // (o del SKU), si no tiene otro encabezado reconocido.
+    const ancla = c.modelo >= 0 ? c.modelo : c.sku;
+    if (c.marca < 0) {
+      const izq = deTexto.filter((i) => i < ancla);
+      if (izq.length) c.marca = izq[izq.length - 1];
+    }
+
+    // Si hay varias columnas de costo, prefiere la mejor de la lista; la
+    // columna de la cantidad nunca es costo.
+    let mejor = -1;
+    let mejorPos = Infinity;
+    f.forEach((celda, i) => {
+      if (!celda || i === c.cantidad) return;
+      const pos = ENC.costo.findIndex((e) => es(celda, [e]));
+      if (pos >= 0 && pos < mejorPos) {
+        mejorPos = pos;
+        mejor = i;
+      }
+    });
+    c.costo = mejor;
+    cols = c;
+    filaEnc = r;
+    break;
   }
 
   if (!cols) {
@@ -146,6 +228,7 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     const f = celdas[r] ?? [];
     const sku = cols.sku >= 0 ? (f[cols.sku] ?? "").trim() : "";
     const modelo = cols.modelo >= 0 ? (f[cols.modelo] ?? "").trim() : "";
+    const marca = cols.marca >= 0 ? (f[cols.marca] ?? "").trim() : "";
     const color = cols.color >= 0 ? (f[cols.color] ?? "").trim() : "";
     const disenoCol = cols.diseno >= 0 ? (f[cols.diseno] ?? "").trim() : "";
     const cantTxt = f[cols.cantidad] ?? "";
@@ -160,8 +243,9 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
     if (cols.folio >= 0 && !folio && (f[cols.folio] ?? "").trim()) folio = (f[cols.folio] ?? "").trim().toUpperCase();
 
     // El modelo se pega sin espacios ni guiones ("I17 Pro Max" -> I17PROMAX),
-    // que es como lo escriben en bodega y en MELI (499-i17promax).
-    const modeloPegado = canonizar(modelo).replace(/-/g, "");
+    // que es como lo escriben en bodega y en MELI (499-i17promax), y la
+    // marca le pone lo que MELI le pone (XR -> IXR, Note 13 -> RMN13).
+    const modeloPegado = modeloSegunMarca(marca, modelo);
     const diseno = canonizar(disenoCol) || disenoArchivo || "";
     const skuBodega = sku
       ? claveCanonica(sku)
@@ -197,6 +281,31 @@ export function leerPedidoDeCeldas(celdas: string[][]): PedidoLeido {
 export async function leerPedido(buffer: ArrayBuffer | Buffer, nombre?: string): Promise<PedidoLeido> {
   const celdas = await leerCeldas(buffer, { nombre });
   return leerPedidoDeCeldas(celdas);
+}
+
+/**
+ * Amarra cada línea contra el catálogo de MELI (mismos niveles que el sheet
+ * de bodega, `cargarPedidosEnCamino`) y avisa de las que no amarran: esas
+ * se guardarían igual pero NUNCA contarían como en camino, y antes nadie se
+ * enteraba hasta que el plan salía corto.
+ */
+export async function amarrarLineas(db: DB, accountId: string, pedido: PedidoLeido): Promise<PedidoLeido> {
+  const [skus, mapeos] = await Promise.all([
+    todo<{ sku: string }>(db, "yz_skus", "sku", (q) => q.eq("account_id", accountId)),
+    todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
+  ]);
+  const indice = construirIndice(skus.map((s) => s.sku));
+  const manual = new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli]));
+  const lineas = pedido.lineas.map((l) => ({ ...l, skuMeli: amarrar(l.skuBodega, indice, manual).skuMeli }));
+  const sueltas = lineas.filter((l) => !l.skuMeli);
+  const avisos = [...pedido.avisos];
+  if (sueltas.length) {
+    avisos.push(
+      `${sueltas.length} línea(s) no amarran con ningún SKU de MELI y no contarán como en camino (revisa el nombre del modelo o amárralas en SKUs): ` +
+        sueltas.map((l) => `${l.skuBodega} (${l.cantidad})`).join(", "),
+    );
+  }
+  return { ...pedido, lineas, avisos };
 }
 
 export interface PedidoResumen {

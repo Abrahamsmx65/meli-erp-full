@@ -697,6 +697,19 @@ login, la base y el deploy.
   corrió.
 - **Envíos registrados (`yz_envios`) solo alimentan cálculos**: cuentan como
   en camino hasta caducar (`dias_caducidad_envio`) o marcarse recibidos.
+- **El Excel del pedido de la fábrica NO viene siempre igual** (`yapanizcel/pedidos.ts`,
+  fixtures `yz-pedido.xls` del 499 y `yz-pedido-462.xls` de las micas): el
+  de fundas trae "Model", "Total" = CANTIDAD y "一套 Set" = costo; el de micas
+  deja la columna del modelo SIN encabezado (la primera es la marca: Iphone,
+  Samsung, Redmi, Moto), "Qty" = cantidad y "Total" = COSTO (mica + tools
+  kit). "Total" solo es cantidad si no hay otra; sin encabezado de modelo,
+  el modelo es la columna de texto más a la derecha antes de la cantidad y
+  la marca la anterior. La marca escribe el modelo como MELI
+  (`modeloSegunMarca`: XR → ixr, SE 2022 → ise2022, Note 13 Pro 4G →
+  Rmn13pro-4g con su red, Poco X8 Pro 5G → PocoX8pro sin red, 12C → Rm12c).
+  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas`) y las
+  que no amarran se avisan con nombre y cantidad: se guardan igual pero
+  NUNCA cuentan como en camino (`cargarPedidosEnCamino` las salta).
 - **Etiquetas de Full de las fundas** (`/yapanizcel/etiquetas`,
   `yapanizcel/etiquetas.ts`, `/api/yapanizcel/etiquetas{,/pdf,/zpl}`): la
   MISMA etiqueta y la misma pantalla que la del calzado (`components/etiquetas.tsx`
