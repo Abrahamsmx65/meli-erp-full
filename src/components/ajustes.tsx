@@ -84,6 +84,13 @@ const CAMPOS: {
     min: 0,
   },
   {
+    clave: "coberturaSinForzarDias",
+    etiqueta: "Cobertura para no forzar caja (días)",
+    ayuda:
+      "Si la caja va a forzar otras tallas, la talla que la pide solo la fuerza con menos de estos días de stock en Full. 0 = siempre se fuerza.",
+    min: 0,
+  },
+  {
     clave: "cajasMinimasSinEstreno",
     etiqueta: "Cajas mínimas sin venta",
     ayuda:

@@ -45,6 +45,15 @@ guárdala numerada.
   → 1 firme + 1 opcional) y las demás cajas recortadas NO se marcan
   opcionales. La tolerancia general de rescate es de 7 días: una talla
   rápida a medio morir sí fuerza su caja.
+  **Cobertura para no forzar caja** (`coberturaSinForzarDias`, 15;
+  decisión del dueño, 15-sep-2026): cuando la caja va a FORZAR otras
+  tallas (la regla de arriba aplica: menos de la mitad de la caja tapa
+  faltantes), ya no se mira el horizonte de 30 días sino 15. Si a la talla
+  que la pide todavía le alcanza el stock para 15 días, su necesidad se
+  borra (`cobertura_suficiente`) y no viaja nada; con menos de 15, la
+  regla de la mitad / 7 días sigue igual. El rescate del optimizador
+  obedece lo mismo (tolerancia infinita para esas tallas). Los productos
+  NUEVOS quedan fuera: a ellos se les rellena la caja.
 - **Tres reglas de producto en el plan de Full** (decididas por el dueño el
   9-sep-2026 al revisar por qué EnvioPack aportaba pocas cajas; la
   preferencia Industher → Caseshop → EnvioPack de `prioridadAlmacen` se

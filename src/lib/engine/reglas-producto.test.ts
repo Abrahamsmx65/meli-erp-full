@@ -449,3 +449,122 @@ describe("generarPlan: producto SIN VENTA (posición mínima)", () => {
     expect(plan.cajas.totalCajas).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cobertura para no forzar caja (decisión del dueño, 15-sep-2026): cuando
+// la caja va a forzar otras tallas, ya no se mira el horizonte de 30 días
+// sino 15. Si a la talla le alcanza el stock, no se fuerza nada.
+// ---------------------------------------------------------------------------
+
+describe("cobertura para no forzar caja", () => {
+  const caja: Caja = {
+    codigo: "C",
+    cajasDisponibles: 5,
+    items: [
+      { sku: "A", piezas: 6 },
+      { sku: "B", piezas: 18 },
+    ],
+  };
+
+  it("con 20 días de stock la talla no fuerza la caja que sobre-surte a sus hermanas", () => {
+    const necesidad = new Map([["A", 16]]);
+    const ajustes = ajustarNecesidadPorCorrida({
+      necesidad,
+      datos: new Map([
+        ["A", { posicion: 20, demandaDiaria: 1 }],
+        ["B", { posicion: 200, demandaDiaria: 0 }],
+      ]),
+      cajas: [caja],
+      horizonteDias: 30,
+      coberturaSinForzar: 15,
+    });
+    expect(ajustes).toHaveLength(1);
+    expect(ajustes[0].regla).toBe("cobertura_suficiente");
+    expect(necesidad.has("A")).toBe(false);
+  });
+
+  it("con 10 días de stock sí se fuerza, con la regla de siempre (goteo de 7 días)", () => {
+    const necesidad = new Map([["A", 26]]);
+    const ajustes = ajustarNecesidadPorCorrida({
+      necesidad,
+      datos: new Map([
+        ["A", { posicion: 10, demandaDiaria: 1 }],
+        ["B", { posicion: 200, demandaDiaria: 0 }],
+      ]),
+      cajas: [caja],
+      horizonteDias: 30,
+      coberturaSinForzar: 15,
+    });
+    expect(ajustes[0].regla).toBe("solo_7_dias");
+    expect(necesidad.get("A")).toBe(7);
+  });
+
+  it("una caja que sí se aprovecha (la mitad o más tapa faltantes) no entra a la regla", () => {
+    const necesidad = new Map([["A", 16]]);
+    const ajustes = ajustarNecesidadPorCorrida({
+      necesidad,
+      datos: new Map([
+        ["A", { posicion: 20, demandaDiaria: 1 }],
+        ["B", { posicion: 200, demandaDiaria: 0 }],
+      ]),
+      cajas: [{ codigo: "D", cajasDisponibles: 5, items: [{ sku: "A", piezas: 12 }, { sku: "B", piezas: 6 }] }],
+      horizonteDias: 30,
+      coberturaSinForzar: 15,
+    });
+    expect(ajustes).toHaveLength(0);
+    expect(necesidad.get("A")).toBe(16);
+  });
+
+  /** Talla A que vende 1 par al día con `stock` pares parados, y B sin venta con 200. */
+  function planCon(stockA: number, extra: Partial<EntradaPlan> = {}) {
+    const inicio = sumarDias(HOY, -89);
+    const snapshots: SnapshotStock[] = [];
+    const ventas: VentaDiaria[] = [];
+    for (const f of rangoFechas(inicio, HOY)) {
+      snapshots.push({ sku: "GT400-BLK-27", fecha: f, disponible: stockA });
+      snapshots.push({ sku: "GT400-BLK-28", fecha: f, disponible: 200 });
+      ventas.push({ sku: "GT400-BLK-27", fecha: f, unidades: 1 });
+    }
+    return generarPlan({
+      ...entradaBase(),
+      skus: [{ sku: "GT400-BLK-27" }, { sku: "GT400-BLK-28" }],
+      stockActual: [
+        { sku: "GT400-BLK-27", disponible: stockA, enTransferencia: 0, noDisponible: 0, total: stockA },
+        { sku: "GT400-BLK-28", disponible: 200, enTransferencia: 0, noDisponible: 0, total: 200 },
+      ],
+      snapshots,
+      ventas,
+      cajas: [
+        {
+          codigo: "CAJA-GT400",
+          cajasDisponibles: 5,
+          producto: "GT400-BLK",
+          items: [
+            { sku: "GT400-BLK-27", piezas: 6 },
+            { sku: "GT400-BLK-28", piezas: 18 },
+          ],
+        },
+      ],
+      // Ya vendía antes: no es producto nuevo.
+      skusConVentaPrevia: new Set(["GT400-BLK-27"]),
+      ...extra,
+    });
+  }
+
+  it("generarPlan: con 20 días de stock no viaja la caja; con 10 sí", () => {
+    const holgado = planCon(20);
+    const l = holgado.lineas.find((x) => x.sku === "GT400-BLK-27")!;
+    expect(l.ajusteCorrida).toBe("cobertura_suficiente");
+    expect(l.sugerido).toBe(0);
+    expect(l.explicacion).toContain("no se fuerza la caja");
+    expect(holgado.cajas.totalCajas).toBe(0);
+
+    const corto = planCon(10);
+    expect(corto.cajas.totalCajas).toBeGreaterThanOrEqual(1);
+  });
+
+  it("generarPlan: con la regla apagada (0) vuelve a forzar como antes", () => {
+    const plan = planCon(20, { parametros: { diasHistoria: 90, coberturaSinForzarDias: 0 } });
+    expect(plan.cajas.totalCajas).toBeGreaterThanOrEqual(1);
+  });
+});

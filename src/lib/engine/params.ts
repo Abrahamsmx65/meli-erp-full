@@ -26,6 +26,7 @@ export const PARAMETROS_DEFAULT: Parametros = {
   nuevoDias: 60,
   holguraObjetivoDias: 2,
   cajasMinimasSinEstreno: 2,
+  coberturaSinForzarDias: 15,
 };
 
 export function normalizarParametros(p: Partial<Parametros> | null | undefined): Parametros {
@@ -50,6 +51,7 @@ export function normalizarParametros(p: Partial<Parametros> | null | undefined):
   out.nuevoDias = Math.max(0, Math.round(out.nuevoDias));
   out.holguraObjetivoDias = Math.max(0, out.holguraObjetivoDias);
   out.cajasMinimasSinEstreno = Math.max(0, Math.round(out.cajasMinimasSinEstreno));
+  out.coberturaSinForzarDias = Math.max(0, out.coberturaSinForzarDias);
 
   return out;
 }
