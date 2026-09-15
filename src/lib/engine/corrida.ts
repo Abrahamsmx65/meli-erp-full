@@ -45,7 +45,7 @@ export interface DatosSkuCorrida {
   demandaDiaria: number;
 }
 
-export type ReglaCorrida = "mitad_corrida" | "solo_7_dias";
+export type ReglaCorrida = "mitad_corrida" | "solo_7_dias" | "cobertura_suficiente";
 
 export interface AjusteCorrida {
   sku: string;
@@ -88,6 +88,13 @@ export function ajustarNecesidadPorCorrida(e: {
    * recortar la talla agotada por el sobrante de sus hermanas lo impediría.
    */
   exentos?: Set<string>;
+  /**
+   * Cobertura (días) a partir de la cual la talla NO fuerza la caja que
+   * sobre-surtiría a sus hermanas: cuando la caja va a forzar otras tallas
+   * el horizonte deja de ser 30 días y pasa a ser este; si a la talla
+   * todavía le alcanza, su necesidad se borra y no viaja nada.
+   */
+  coberturaSinForzar?: number;
 }): AjusteCorrida[] {
   // 1.5 lo decidió el negocio (26-ago-2026): el umbral se mide con la
   // posición completa y lo en camino la infla unos días, así que 1.3
@@ -134,6 +141,26 @@ export function ajustarNecesidadPorCorrida(e: {
       if (piezas > 0) mejorAprovechada = Math.max(mejorAprovechada, utiles / piezas);
     }
     if (mejorAprovechada >= FRACCION_CAJA_APROVECHADA) continue;
+
+    // La caja va a forzar otras tallas: ya no se mira el horizonte de 30
+    // días sino `coberturaSinForzar` (15). Si a la talla le alcanza el
+    // stock para eso, no se fuerza nada y espera al siguiente envío.
+    if (e.coberturaSinForzar && e.coberturaSinForzar > 0) {
+      const d = e.datos.get(sku);
+      const cobertura =
+        d && d.demandaDiaria > EPS ? d.posicion / d.demandaDiaria : Infinity;
+      if (cobertura >= e.coberturaSinForzar) {
+        e.necesidad.delete(sku);
+        ajustes.push({
+          sku,
+          regla: "cobertura_suficiente",
+          necesidadOriginal: pedida,
+          necesidadAjustada: 0,
+          peorSobrante: 0,
+        });
+        continue;
+      }
+    }
 
     // Salud de las hermanas SIN faltante de esas cajas: ¿cuánto les sobra
     // contra su venta del horizonte? Se mide con la posición COMPLETA
