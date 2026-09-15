@@ -51,6 +51,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(resultadoEstructurado(res) ?? res);
     }
 
+    // ?habla=url → corre el análisis de voz real (silencedetect + ffprobe)
+    // sobre ese audio/video y devuelve los tramos con voz que detectó.
+    const habla = req.nextUrl.searchParams.get("habla");
+    if (habla) {
+      const { analizarHabla, parsearSilencios } = await import("@/lib/servicios/marca-agua");
+      const analisis = await analizarHabla(sesion, habla);
+      const dur = analisis.duracion ?? 15;
+      return NextResponse.json({
+        ok: true,
+        duracion: analisis.duracion,
+        habla: parsearSilencios(analisis.salida, dur),
+        crudo: analisis.salida.slice(0, 1500),
+      });
+    }
+
     // ?sandbox=1 → ¿el sandbox del MCP trae ffmpeg y salida a internet?
     // (lo necesita la marca de agua).
     if (req.nextUrl.searchParams.get("sandbox")) {
