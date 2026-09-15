@@ -707,9 +707,11 @@ login, la base y el deploy.
   la marca la anterior. La marca escribe el modelo como MELI
   (`modeloSegunMarca`: XR → ixr, SE 2022 → ise2022, Note 13 Pro 4G →
   Rmn13pro-4g con su red, Poco X8 Pro 5G → PocoX8pro sin red, 12C → Rm12c).
-  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas`) y las
-  que no amarran se avisan con nombre y cantidad: se guardan igual pero
-  NUNCA cuentan como en camino (`cargarPedidosEnCamino` las salta).
+  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas`) y la
+  pantalla pinta EN ROJO las que no amarran, con el SKU editable en el
+  renglón y re-amarre al corregirlo (`/api/yapanizcel/pedidos/amarrar`):
+  se guardan igual pero NUNCA cuentan como en camino
+  (`cargarPedidosEnCamino` las salta).
 - **Etiquetas de Full de las fundas** (`/yapanizcel/etiquetas`,
   `yapanizcel/etiquetas.ts`, `/api/yapanizcel/etiquetas{,/pdf,/zpl}`): la
   MISMA etiqueta y la misma pantalla que la del calzado (`components/etiquetas.tsx`

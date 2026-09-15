@@ -284,25 +284,33 @@ export async function leerPedido(buffer: ArrayBuffer | Buffer, nombre?: string):
 }
 
 /**
- * Amarra cada línea contra el catálogo de MELI (mismos niveles que el sheet
- * de bodega, `cargarPedidosEnCamino`) y avisa de las que no amarran: esas
- * se guardarían igual pero NUNCA contarían como en camino, y antes nadie se
- * enteraba hasta que el plan salía corto.
+ * Amarra SKUs de bodega contra el catálogo de MELI (mismos niveles que el
+ * sheet de bodega y que `cargarPedidosEnCamino`): SKU → SKU de MELI o null.
  */
-export async function amarrarLineas(db: DB, accountId: string, pedido: PedidoLeido): Promise<PedidoLeido> {
-  const [skus, mapeos] = await Promise.all([
+export async function amarrarSkus(db: DB, accountId: string, skus: string[]): Promise<Map<string, string | null>> {
+  const [catalogo, mapeos] = await Promise.all([
     todo<{ sku: string }>(db, "yz_skus", "sku", (q) => q.eq("account_id", accountId)),
     todo<{ sku_bodega: string; sku_meli: string }>(db, "yz_mapeo_skus", "sku_bodega, sku_meli", (q) => q.eq("account_id", accountId)),
   ]);
-  const indice = construirIndice(skus.map((s) => s.sku));
+  const indice = construirIndice(catalogo.map((s) => s.sku));
   const manual = new Map(mapeos.map((m) => [m.sku_bodega, m.sku_meli]));
-  const lineas = pedido.lineas.map((l) => ({ ...l, skuMeli: amarrar(l.skuBodega, indice, manual).skuMeli }));
+  return new Map(skus.map((sku) => [sku, amarrar(sku, indice, manual).skuMeli]));
+}
+
+/**
+ * Amarra cada línea leída y avisa de las que no amarran: esas se guardarían
+ * igual pero NUNCA contarían como en camino, y antes nadie se enteraba
+ * hasta que el plan salía corto. La pantalla las pinta en rojo y deja
+ * corregir el SKU ahí mismo.
+ */
+export async function amarrarLineas(db: DB, accountId: string, pedido: PedidoLeido): Promise<PedidoLeido> {
+  const amarres = await amarrarSkus(db, accountId, pedido.lineas.map((l) => l.skuBodega));
+  const lineas = pedido.lineas.map((l) => ({ ...l, skuMeli: amarres.get(l.skuBodega) ?? null }));
   const sueltas = lineas.filter((l) => !l.skuMeli);
   const avisos = [...pedido.avisos];
   if (sueltas.length) {
     avisos.push(
-      `${sueltas.length} línea(s) no amarran con ningún SKU de MELI y no contarán como en camino (revisa el nombre del modelo o amárralas en SKUs): ` +
-        sueltas.map((l) => `${l.skuBodega} (${l.cantidad})`).join(", "),
+      `${sueltas.length} línea(s) en rojo no amarran con ningún SKU de MELI y no contarán como en camino: corrige el SKU en el renglón (o amárralo en SKUs).`,
     );
   }
   return { ...pedido, lineas, avisos };
