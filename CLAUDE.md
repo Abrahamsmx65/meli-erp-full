@@ -263,7 +263,14 @@ guárdala numerada.
   `tiktok_ordenes.corte_id`) y de él salen dos PDF reimprimibles: las guías
   de TikTok unidas con `pdf-lib` en el ORDEN DEL CORTE y "#n · SKU"
   estampado abajo a la derecha junto al CÓDIGO DEL PEDIDO en barras (nada
-  más se toca; escanear la guía en la estación enseña qué empacar), la
+  más se toca; escanear la guía en la estación enseña qué empacar). **La
+  guía de J&T deja espacio en blanco abajo y el estampado cabe ahí; la de
+  Cainiao (y cualquier paquetería desconocida) NO** —llena la hoja hasta el
+  borde con teléfono y correo y el código del pedido se encimaba—, así que
+  a esas se les agrega una FRANJA de 34 pt abajo (`necesitaFranja`,
+  `FRANJA_ESTAMPA`, con `tiktok_ordenes.paqueteria`): la guía se incrusta
+  completa arriba y el estampado va en la franja; la impresora encoge un
+  8 % y nada se encima (pedido del dueño el 15-sep-2026). Luego la
   lista de empaque en el mismo orden con los mismos números, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. **El orden del corte es: PRIMERO todo lo de UN SOLO

@@ -5,6 +5,7 @@ import {
   clavePaquete,
   codigoDeOrden,
   esDeUnModelo,
+  necesitaFranja,
   numerarPaquetes,
   numerosPreparados,
   parsearCodigoDeOrden,
@@ -240,5 +241,21 @@ describe("agruparErrores", () => {
       [0, "TikTok no dio horario de recolección para 52 paquetes: salieron como recolección sin hora fija."],
     ]);
     expect(g[1].ejemplo).toContain("1211045315452896529");
+  });
+});
+
+describe("necesitaFranja", () => {
+  it("J&T deja espacio abajo: sin franja", () => {
+    expect(necesitaFranja("J&T MX")).toBe(false);
+    expect(necesitaFranja("J&T Express")).toBe(false);
+    expect(necesitaFranja("JT MX")).toBe(false);
+  });
+  it("Cainiao llena la hoja hasta abajo: con franja", () => {
+    expect(necesitaFranja("Cainiao MX L2L ")).toBe(true);
+  });
+  it("una paquetería que no se conoce, o ninguna, lleva franja: encimarse cuesta más", () => {
+    expect(necesitaFranja("Estafeta")).toBe(true);
+    expect(necesitaFranja(null)).toBe(true);
+    expect(necesitaFranja("")).toBe(true);
   });
 });
