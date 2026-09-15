@@ -168,3 +168,36 @@ describe("CHAOZHOU cajas completas (IN10148): sin Item No. y tallas = cajas", ()
     expect(p.avisos.some((a) => a.includes("CAJAS por talla"))).toBe(true);
   });
 });
+
+describe("FUZHOU (IN10163): 'Article no', tallas 'Mex 23 36/37 (24cm)' y totales con TOTAL", () => {
+  it("lee las 7 corridas del MY2307 con sus cajas y pares", async () => {
+    const p = await importarProforma(fixture("proforma-fuzhou-IN10163.xls"), {
+      nombre: "IN10163_MY2307.xls",
+    });
+    expect(p.pedido).toBe("IN10163");
+    expect(p.proveedor).toMatch(/Fuzhou KC Trading/);
+    expect(p.tallasDetectadas).toEqual(["23", "24", "25", "26", "27", "28", "29", "30"]);
+    expect(p.lineas).toHaveLength(7);
+    expect(p.lineas.map((l) => `${l.modelo} ${l.color}`)).toEqual([
+      "MY2307 NAVY",
+      "MY2307 CHOCOLATE BROWN",
+      "MY2307 CREAM",
+      "MY2307 GREY",
+      "MY2307 LILAC",
+      "MY2307 MILITARY GREEN",
+      "MY2307 GREY BLUE",
+    ]);
+
+    const navy = p.lineas[0];
+    expect(navy.tallas).toEqual({ "23": 2, "24": 4, "26": 2, "27": 7, "28": 9, "29": 8, "30": 16 });
+    expect(navy.paresPorCaja).toBe(48);
+    expect(navy.cajas).toBe(30);
+    expect(navy.pares).toBe(1440);
+    expect(navy.cuadra).toBe(true);
+    expect(navy.precioUnitario).toBe(1.03);
+
+    expect(p.totales.cajas).toBe(235);
+    expect(p.totales.pares).toBe(11280);
+    expect(p.lineas.every((l) => l.cuadra && !l.unitalla)).toBe(true);
+  });
+});
