@@ -145,7 +145,8 @@ function tallaNumerica(t: string): number {
   return Number.isFinite(n) ? n : 999;
 }
 
-function compararSku(a: string, b: string): number {
+/** Orden de bodega: modelo, color, talla numérica. */
+export function compararSku(a: string, b: string): number {
   const x = partirSku(a);
   const y = partirSku(b);
   return (
