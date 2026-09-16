@@ -353,24 +353,29 @@ guárdala numerada.
   talla y la bodega elige las cajas. El Excel trae la hoja completa por
   SKU, UNA HOJA POR BODEGA con solo lo que se le pide a esa bodega (la que
   se manda) y por modelo. Pedido del dueño el 16-sep-2026.
-  **DEFENSA DEL CORTE: bloqueos** (`tiktok/bloqueos.ts` puro,
-  `servicios/tiktok-bloqueos.ts`, `/api/tiktok/bloqueos`, columnas
+  **DEFENSA AUTOMÁTICA DEL CORTE** (`tiktok/bloqueos.ts` puro, columnas
   `bloqueado_en`/`bloqueo_motivo`/`bloqueo_resultado` en
-  `tiktok_orden_items`, migración 0091): cuando falta stock de un SKU (o
-  pasa una falla como la del GT102-GREY-25), en Despacho se BLOQUEA ese
-  SKU en los pedidos pendientes (o un renglón suelto). Al hacer el corte,
-  ANTES de confirmar cada pedido, `decidirPedido` separa lo bloqueado y
-  se le pide a TikTok que lo CANCELE (`cancelarRenglones`, cancelación
-  parcial por `sku_id` con el motivo «sin stock» de
-  `motivosDeCancelacion`; si todo el pedido está bloqueado se cancela
-  completo) y se confirma lo demás. **Si TikTok no acepta la cancelación,
-  el pedido ENTERO se queda fuera del corte** y se declara (constancia en
+  `tiktok_orden_items`, migración 0091; decisión del dueño, 16-sep-2026:
+  «no quiero algo manual, solo que se integre en el sistema automático»):
+  al hacer el corte (y en la simulación), por cada SKU se compara lo que
+  PIDEN los pedidos pendientes contra lo que FÍSICAMENTE hay
+  (`paresFisicos`: el menor entre el kardex y el estante del 3PL menos las
+  salidas que aún no descuenta, la misma regla con la que se publica; un
+  SKU contado a mano después de la foto usa el kardex). Lo que no alcanza
+  se bloquea solo (`autoBloqueos`), de los pedidos MÁS NUEVOS hacia atrás:
+  el que compró primero se lleva el par. Un SKU sin renglón de stock NO
+  se toca: cancelar a ciegas también es error. Luego, ANTES de confirmar
+  cada pedido, `decidirPedido` separa lo bloqueado y se le pide a TikTok
+  que lo CANCELE (`cancelarRenglones`, parcial por `sku_id` con el motivo
+  «sin stock» de `motivosDeCancelacion`; todo bloqueado = pedido completo)
+  y se confirma lo demás. **Si TikTok no acepta la cancelación, el pedido
+  ENTERO se queda fuera del corte** y se declara (constancia en
   `bloqueo_resultado`): confirmar un par que no existe es el error caro.
   Un renglón cancelado no va en la etiqueta ni en la lista (`cargarCorte`
   salta reversa y `bloqueo_resultado = cancelado`), los pares del corte y
   las salidas al 3PL salen de lo VIVO, y los cancelados se releen para
-  que el kardex libere el apartado. La simulación enseña «se cancela».
-  Pedido del dueño el 16-sep-2026.
+  que el kardex libere el apartado. La simulación enseña «se cancela». No
+  hay pantalla para bloquear a mano.
   **CORREO DE FALTANTES** (`tiktok-faltantes-correo.ts`, cron
   `/api/cron/tiktok-faltantes` a las 13:30Z = 7:30 México): cada mañana,
   si algún pedido de los cortes de los últimos 3 días no se escaneó en la

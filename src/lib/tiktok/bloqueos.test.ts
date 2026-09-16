@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decidirPedido, renglonesDelSku } from "./bloqueos";
+import { autoBloqueos, decidirPedido, paresFisicos, renglonesDelSku } from "./bloqueos";
 
 const r = (lineItemId: string, sku: string, opts: Partial<{ skuId: string | null; estado: string; bloqueado: boolean; cantidad: number }> = {}) => ({
   lineItemId,
@@ -62,5 +62,67 @@ describe("renglonesDelSku", () => {
       r("5", "GT150-CAMEL-27-MX"),
     ];
     expect(renglonesDelSku(lista, "GT114-BLK-25-MX").map((x) => x.lineItemId)).toEqual(["1", "2"]);
+  });
+});
+
+describe("paresFisicos", () => {
+  it("es el menor entre el kardex y el estante ajustado por las salidas que el 3PL no ha descontado", () => {
+    expect(paresFisicos({ sku: "x", saldo: 5, estante: 8, salidasPendientes: 2, contadoDespues: false })).toBe(5);
+    expect(paresFisicos({ sku: "x", saldo: 5, estante: 4, salidasPendientes: 2, contadoDespues: false })).toBe(2);
+  });
+  it("sin lectura del estante, o contado a mano después, manda el kardex", () => {
+    expect(paresFisicos({ sku: "x", saldo: 5, estante: null, salidasPendientes: 0, contadoDespues: false })).toBe(5);
+    expect(paresFisicos({ sku: "x", saldo: 5, estante: 1, salidasPendientes: 0, contadoDespues: true })).toBe(5);
+  });
+  it("nunca negativo", () => {
+    expect(paresFisicos({ sku: "x", saldo: -1, estante: null, salidasPendientes: 0, contadoDespues: false })).toBe(0);
+  });
+});
+
+describe("autoBloqueos", () => {
+  const p = (lineItemId: string, orderId: string, sku: string, creadoEn: string | null, estado = "AWAITING_SHIPMENT") => ({
+    lineItemId, orderId, sku, creadoEn, estado, skuId: `id-${sku}`, cantidad: 1, bloqueado: false,
+  });
+  const stock = (sku: string, saldo: number, estante: number | null = null) =>
+    [sku, { sku, saldo, estante, salidasPendientes: 0, contadoDespues: false }] as const;
+
+  it("con stock para todos no bloquea nada", () => {
+    const r = autoBloqueos([p("1", "A", "GT1-BLK-25", "2026-09-15T10:00:00Z"), p("2", "B", "GT1-BLK-25", "2026-09-15T11:00:00Z")], new Map([stock("GT1-BLK-25", 2)]));
+    expect(r).toEqual([]);
+  });
+
+  it("si piden más de lo que hay, pierden los pedidos más nuevos", () => {
+    const r = autoBloqueos(
+      [
+        p("2", "B", "GT1-BLK-25", "2026-09-15T11:00:00Z"),
+        p("1", "A", "GT1-BLK-25", "2026-09-15T10:00:00Z"),
+        p("3", "C", "GT1-BLK-25", "2026-09-15T12:00:00Z"),
+      ],
+      new Map([stock("GT1-BLK-25", 1)]),
+    );
+    expect(r.map((x) => x.orderId)).toEqual(["B", "C"]);
+    expect(r[0].motivo).toBe("auto: sin stock (hay 1, piden 3)");
+  });
+
+  it("el estante manda cuando es menor que el kardex (la regla de publicar el menor)", () => {
+    const r = autoBloqueos([p("1", "A", "GT1-BLK-25", "2026-09-15T10:00:00Z")], new Map([stock("GT1-BLK-25", 3, 0)]));
+    expect(r.map((x) => x.lineItemId)).toEqual(["1"]);
+  });
+
+  it("un SKU sin dato de stock no se toca: cancelar a ciegas también es error", () => {
+    expect(autoBloqueos([p("1", "A", "RARO-1-1", "2026-09-15T10:00:00Z")], new Map())).toEqual([]);
+  });
+
+  it("solo entra lo apartado: lo ya confirmado o cancelado no se bloquea", () => {
+    const r = autoBloqueos(
+      [p("1", "A", "GT1-BLK-25", "2026-09-15T10:00:00Z", "AWAITING_COLLECTION"), p("2", "B", "GT1-BLK-25", "2026-09-15T11:00:00Z", "CANCELLED")],
+      new Map([stock("GT1-BLK-25", 0)]),
+    );
+    expect(r).toEqual([]);
+  });
+
+  it("un pedido sin fecha cuenta como el más nuevo", () => {
+    const r = autoBloqueos([p("1", "A", "GT1-BLK-25", null), p("2", "B", "GT1-BLK-25", "2026-09-15T10:00:00Z")], new Map([stock("GT1-BLK-25", 1)]));
+    expect(r.map((x) => x.orderId)).toEqual(["A"]);
   });
 });

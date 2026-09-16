@@ -34,7 +34,9 @@ import {
   type HorarioRecoleccion,
   type OpcionesEnvio,
 } from "../tiktok/api";
-import { decidirPedido, type RenglonBloqueable } from "../tiktok/bloqueos";
+import { autoBloqueos, decidirPedido, type RenglonBloqueable, type RenglonConPedido, type StockFisico } from "../tiktok/bloqueos";
+import { estadoSalidas3pl } from "./tiktok-3pl";
+import { leerEstanteTikTok } from "./tiktok-bodega";
 import {
   agruparPorModelo,
   clavePaquete,
@@ -53,6 +55,77 @@ import { efectoDeEstado } from "../tiktok/kardex";
 import { clienteDeCuenta, sincronizarPedidosPorId } from "./tiktok";
 import { urlSalidasIndusther } from "./tiktok-3pl";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
+
+/**
+ * El stock FÍSICO por SKU para la defensa automática del corte: el kardex
+ * (saldo, con lo apartado adentro), el estante del 3PL y las salidas que
+ * el 3PL aún no descuenta. `paresFisicos` en `tiktok/bloqueos.ts` los
+ * junta con la misma regla con la que se publica: gana el menor.
+ */
+async function stockFisicoDeCuenta(admin: any, accountId: string): Promise<Map<string, StockFisico>> {
+  const [inv, estante, salidas] = await Promise.all([
+    traerTodo<any>(admin, "tiktok_inventario", "sku, saldo", (q) => q.eq("account_id", accountId)),
+    leerEstanteTikTok(admin, accountId).catch(() => ({ pares: null, contadosDespues: new Set<string>() })),
+    estadoSalidas3pl(admin, accountId).catch(() => ({ pendientes: new Map<string, number>(), confirmadas: new Map<string, number>() })),
+  ]);
+  const stock = new Map<string, StockFisico>();
+  for (const r of inv ?? []) {
+    const sku = String(r.sku);
+    stock.set(sku, {
+      sku,
+      saldo: Number(r.saldo ?? 0),
+      estante: estante.pares ? (estante.pares.get(sku) ?? 0) : null,
+      salidasPendientes: salidas.pendientes.get(sku) ?? 0,
+      contadoDespues: estante.contadosDespues.has(sku),
+    });
+  }
+  return stock;
+}
+
+/**
+ * Los renglones de los pedidos con su fecha de venta, y los bloqueos que
+ * la defensa automática decide sobre ellos. Devuelve los renglones YA con
+ * `bloqueado` puesto (lo de a mano y lo automático) y la lista de lo
+ * automático, para dejarle constancia en la base.
+ */
+async function renglonesConDefensa(
+  admin: any,
+  accountId: string,
+  pendientes: PendienteConFecha[],
+): Promise<{ porPedido: Map<string, RenglonConPedido[]>; automaticos: ReturnType<typeof autoBloqueos> }> {
+  const ids = pendientes.map((p) => p.orderId);
+  const porPedido = new Map<string, RenglonConPedido[]>();
+  if (!ids.length) return { porPedido, automaticos: [] };
+  const fechaDe = new Map(pendientes.map((p) => [p.orderId, p.creadoEn]));
+  const [filas, stock] = await Promise.all([
+    traerTodo<any>(
+      admin,
+      "tiktok_orden_items",
+      "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en",
+      (q) => q.eq("account_id", accountId).in("order_id", ids),
+    ),
+    stockFisicoDeCuenta(admin, accountId),
+  ]);
+  const todos: RenglonConPedido[] = (filas ?? []).map((i: any) => ({
+    orderId: String(i.order_id),
+    creadoEn: fechaDe.get(String(i.order_id)) ?? null,
+    lineItemId: String(i.line_item_id),
+    skuId: i.sku_id ? String(i.sku_id) : null,
+    sku: String(i.sku_interno ?? i.seller_sku ?? "(sin SKU)"),
+    cantidad: Number(i.cantidad ?? 1),
+    estado: i.estado ?? null,
+    bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en,
+  }));
+  const automaticos = autoBloqueos(todos, stock);
+  const auto = new Set(automaticos.map((a) => a.lineItemId));
+  for (const r of todos) {
+    if (auto.has(r.lineItemId)) r.bloqueado = true;
+    const l = porPedido.get(r.orderId) ?? [];
+    l.push(r);
+    porPedido.set(r.orderId, l);
+  }
+  return { porPedido, automaticos };
+}
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
 const ESTADOS_DESPACHABLES = new Set(["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION"]);
@@ -189,29 +262,23 @@ export async function hacerCorte(
 
   const errores: { orderId: string; error: string }[] = [];
 
-  // Los renglones de cada pedido ANTES de confirmar: aquí viven los
-  // bloqueos (defensa: un SKU sin stock se cancela en TikTok y se confirma
-  // lo demás) y de aquí salen los pares del corte y las salidas al 3PL,
-  // ya sin lo cancelado.
-  const filasRenglones = await traerTodo<any>(
-    admin,
-    "tiktok_orden_items",
-    "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en",
-    (q) => q.eq("account_id", accountId).in("order_id", pendientes.map((p) => p.orderId)),
-  );
-  const renglonesPorPedido = new Map<string, RenglonBloqueable[]>();
-  for (const i of filasRenglones ?? []) {
-    const l = renglonesPorPedido.get(i.order_id) ?? [];
-    l.push({
-      lineItemId: String(i.line_item_id),
-      skuId: i.sku_id ? String(i.sku_id) : null,
-      sku: String(i.sku_interno ?? i.seller_sku ?? "(sin SKU)"),
-      cantidad: Number(i.cantidad ?? 1),
-      estado: i.estado ?? null,
-      bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en,
-    });
-    renglonesPorPedido.set(i.order_id, l);
+  // Los renglones de cada pedido ANTES de confirmar, ya con la DEFENSA
+  // AUTOMÁTICA aplicada: un SKU sin stock físico para todos los pedidos
+  // que lo piden se bloquea solo (los más nuevos primero), se cancela en
+  // TikTok y se confirma lo demás. De aquí salen también los pares del
+  // corte y las salidas al 3PL, ya sin lo cancelado.
+  const { porPedido: renglonesPorPedido, automaticos } = await renglonesConDefensa(admin, accountId, pendientes);
+  if (automaticos.length) {
+    // Constancia del bloqueo automático, con su motivo, antes de tocar TikTok.
+    for (const a of automaticos) {
+      await admin
+        .from("tiktok_orden_items")
+        .update({ bloqueado_en: new Date().toISOString(), bloqueo_motivo: a.motivo, bloqueo_resultado: null, bloqueo_resuelto_en: null })
+        .eq("account_id", accountId)
+        .eq("line_item_id", a.lineItemId);
+    }
   }
+  const filasRenglones = [...renglonesPorPedido.values()].flat();
   /** lo que queda vivo de cada pedido confirmado (sin lo cancelado) */
   const vivosPorPedido = new Map<string, RenglonBloqueable[]>();
   const cancelados: ResultadoCorte["cancelados"] = [];
@@ -410,7 +477,7 @@ export async function hacerCorte(
   // registran por (pedido, SKU) y se mandan; lo que no confirme se reintenta
   // en el cron. Un renglón sin SKU del ERP no se manda: el 3PL no lo conoce.
   const porPedidoYSku = new Map<string, { orderId: string; sku: string; pares: number }>();
-  const conSkuDelErp = new Set((filasRenglones ?? []).filter((i: any) => i.sku_interno).map((i: any) => String(i.line_item_id)));
+  const conSkuDelErp = new Set(filasRenglones.filter((r) => !r.sku.startsWith("(")).map((r) => r.lineItemId));
   for (const id of confirmados) {
     for (const r of vivosPorPedido.get(id) ?? []) {
       if (!conSkuDelErp.has(r.lineItemId)) continue;
@@ -1381,27 +1448,18 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
   const pendientes = await pendientesDeCorte(admin, accountId);
-  const ids = pendientes.map((p) => p.orderId);
-  const items = ids.length
-    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en", (q) =>
-        q.eq("account_id", accountId).in("order_id", ids),
-      )
-    : [];
-
+  // La misma defensa automática que aplicaría el corte, sin escribir nada.
+  const { porPedido: renglonesSim } = await renglonesConDefensa(admin, accountId, pendientes);
   const porOrden = new Map<string, Map<string, number>>();
   const bloqueadosPorOrden = new Map<string, Map<string, number>>();
-  for (const i of items ?? []) {
-    if (efectoDeEstado(i.estado) === "reversa") continue;
-    const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
-    if (i.bloqueado_en && !i.bloqueo_resuelto_en) {
-      const b = bloqueadosPorOrden.get(i.order_id) ?? new Map<string, number>();
-      b.set(sku, (b.get(sku) ?? 0) + (i.cantidad ?? 0));
-      bloqueadosPorOrden.set(i.order_id, b);
-      continue;
+  for (const [orderId, lista] of renglonesSim) {
+    for (const r of lista) {
+      if (efectoDeEstado(r.estado) === "reversa") continue;
+      const destino = r.bloqueado ? bloqueadosPorOrden : porOrden;
+      const m = destino.get(orderId) ?? new Map<string, number>();
+      m.set(r.sku, (m.get(r.sku) ?? 0) + r.cantidad);
+      destino.set(orderId, m);
     }
-    const m = porOrden.get(i.order_id) ?? new Map<string, number>();
-    m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
-    porOrden.set(i.order_id, m);
   }
 
   const salida: SimulacionCorte["pedidos"] = [];
