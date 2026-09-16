@@ -23,14 +23,18 @@ import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fn
 import { partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
+  cancelarRenglones,
   enviarPaquete,
   etiquetaDePaquete,
+  motivoSinStock,
+  motivosDeCancelacion,
   opcionesDeEntrega,
   paquetesDePedido,
   renglonesDelPaquete,
   type HorarioRecoleccion,
   type OpcionesEnvio,
 } from "../tiktok/api";
+import { decidirPedido, type RenglonBloqueable } from "../tiktok/bloqueos";
 import {
   agruparPorModelo,
   clavePaquete,
@@ -63,6 +67,8 @@ export interface ResultadoCorte {
   publicados: number;
   /** paquetes que salieron como entrega en paquetería aunque se pidió recolección */
   dropOff: number;
+  /** renglones bloqueados que TikTok canceló (defensa): pedido, SKU y pares; `completo` si se canceló todo el pedido */
+  cancelados: { orderId: string; sku: string; pares: number; completo: boolean }[];
   /** cómo le fue a la salida hacia el 3PL */
   al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
 }
@@ -183,6 +189,56 @@ export async function hacerCorte(
 
   const errores: { orderId: string; error: string }[] = [];
 
+  // Los renglones de cada pedido ANTES de confirmar: aquí viven los
+  // bloqueos (defensa: un SKU sin stock se cancela en TikTok y se confirma
+  // lo demás) y de aquí salen los pares del corte y las salidas al 3PL,
+  // ya sin lo cancelado.
+  const filasRenglones = await traerTodo<any>(
+    admin,
+    "tiktok_orden_items",
+    "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en",
+    (q) => q.eq("account_id", accountId).in("order_id", pendientes.map((p) => p.orderId)),
+  );
+  const renglonesPorPedido = new Map<string, RenglonBloqueable[]>();
+  for (const i of filasRenglones ?? []) {
+    const l = renglonesPorPedido.get(i.order_id) ?? [];
+    l.push({
+      lineItemId: String(i.line_item_id),
+      skuId: i.sku_id ? String(i.sku_id) : null,
+      sku: String(i.sku_interno ?? i.seller_sku ?? "(sin SKU)"),
+      cantidad: Number(i.cantidad ?? 1),
+      estado: i.estado ?? null,
+      bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en,
+    });
+    renglonesPorPedido.set(i.order_id, l);
+  }
+  /** lo que queda vivo de cada pedido confirmado (sin lo cancelado) */
+  const vivosPorPedido = new Map<string, RenglonBloqueable[]>();
+  const cancelados: ResultadoCorte["cancelados"] = [];
+  /** pedidos cancelados completos: se releen para que el kardex los revierta */
+  const canceladosCompletos: string[] = [];
+  // El motivo de cancelación de TikTok se pide una sola vez, y solo si hace falta.
+  let motivoCancelacion: string | null | undefined;
+  const motivoDeTikTok = async (): Promise<string> => {
+    if (motivoCancelacion === undefined) {
+      try {
+        motivoCancelacion = motivoSinStock(await motivosDeCancelacion(cliente))?.clave ?? null;
+      } catch {
+        motivoCancelacion = null;
+      }
+    }
+    if (!motivoCancelacion) throw new Error("TikTok no dio un motivo de cancelación para el vendedor.");
+    return motivoCancelacion;
+  };
+  const constancia = async (lineItemIds: string[], resultado: string) => {
+    if (!lineItemIds.length) return;
+    await admin
+      .from("tiktok_orden_items")
+      .update({ bloqueo_resultado: resultado.slice(0, 300), bloqueo_resuelto_en: resultado === "cancelado" ? new Date().toISOString() : null })
+      .eq("account_id", accountId)
+      .in("line_item_id", lineItemIds);
+  };
+
   let dropOff = 0;
   const confirmados: string[] = [];
   // Si TikTok no da horarios, se rinde a tiempo y confirma sin él (ver
@@ -198,12 +254,47 @@ export async function hacerCorte(
       errores.push({ orderId: p.orderId, error: "Se acabó el tiempo; entra al siguiente corte." });
       return;
     }
+    const renglones = renglonesPorPedido.get(p.orderId) ?? [];
     // Lo que ya salió (sin corte) no se vuelve a confirmar: solo se agrupa.
     if (efectoDeEstado(p.estado) === "salida") {
       confirmados.push(p.orderId);
+      vivosPorPedido.set(p.orderId, renglones.filter((r) => efectoDeEstado(r.estado) !== "reversa"));
       return;
     }
     try {
+      // DEFENSA: lo bloqueado se cancela en TikTok ANTES de confirmar. Si
+      // TikTok no acepta la cancelación, el pedido entero se queda fuera
+      // del corte: confirmar un par que no existe es el error caro.
+      const decision = decidirPedido(renglones);
+      if (decision.sinSkuId.length) {
+        throw new Error(
+          `Bloqueado sin sku_id de TikTok (${decision.sinSkuId.map((r) => r.sku).join(", ")}): cancélalo en el Seller Center; el pedido se queda fuera.`,
+        );
+      }
+      if (decision.cancelar.length) {
+        const motivo = await motivoDeTikTok();
+        const ids = decision.cancelar.flatMap((c) => c.lineItemIds);
+        try {
+          await cancelarRenglones(
+            cliente,
+            p.orderId,
+            motivo,
+            decision.todoBloqueado ? undefined : decision.cancelar.map((c) => ({ skuId: c.skuId, cantidad: c.cantidad })),
+          );
+        } catch (err) {
+          const m = (err as Error).message;
+          await constancia(ids, m);
+          throw new Error(`Bloqueado y TikTok no aceptó cancelarlo (${m}); el pedido se queda fuera del corte.`);
+        }
+        await constancia(ids, "cancelado");
+        for (const c of decision.cancelar) cancelados.push({ orderId: p.orderId, sku: c.sku, pares: c.cantidad, completo: decision.todoBloqueado });
+        if (decision.todoBloqueado) {
+          canceladosCompletos.push(p.orderId);
+          return;
+        }
+      }
+      vivosPorPedido.set(p.orderId, decision.quedan);
+
       const paquetes = await paquetesDePedido(cliente, p.orderId);
       if (!paquetes.length) throw new Error("TikTok no tiene paquete para este pedido.");
       for (const pk of paquetes) {
@@ -271,13 +362,12 @@ export async function hacerCorte(
     .maybeSingle();
   const numero = (ultimo?.numero ?? 0) + 1;
 
-  // Pares del corte, de los renglones ya guardados.
-  const items = confirmados.length
-    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
-        q.eq("account_id", accountId).in("order_id", confirmados),
-      )
-    : [];
-  const pares = (items ?? []).reduce((a: number, i: any) => a + (i.cantidad ?? 0), 0);
+  // Pares del corte: lo VIVO de cada pedido confirmado (sin lo cancelado
+  // ni lo que ya venía revertido).
+  const pares = confirmados.reduce(
+    (a, id) => a + (vivosPorPedido.get(id) ?? []).reduce((b, r) => b + r.cantidad, 0),
+    0,
+  );
 
   const { data: corte, error } = await admin
     .from("tiktok_cortes")
@@ -306,10 +396,13 @@ export async function hacerCorte(
   }
 
   // Una sola relectura para todos: TikTok ya los tiene en AWAITING_COLLECTION,
-  // eso genera las salidas del kardex y republica el disponible.
+  // eso genera las salidas del kardex y republica el disponible. Los
+  // cancelados (completos o por renglón) también se releen: su reversa
+  // libera el apartado.
   let publicados = 0;
-  if (confirmados.length) {
-    const r = await sincronizarPedidosPorId(admin, accountId, confirmados);
+  const releer = [...new Set([...confirmados, ...canceladosCompletos, ...cancelados.map((c) => c.orderId)])];
+  if (releer.length) {
+    const r = await sincronizarPedidosPorId(admin, accountId, releer);
     publicados = r.publicados;
   }
 
@@ -317,17 +410,20 @@ export async function hacerCorte(
   // registran por (pedido, SKU) y se mandan; lo que no confirme se reintenta
   // en el cron. Un renglón sin SKU del ERP no se manda: el 3PL no lo conoce.
   const porPedidoYSku = new Map<string, { orderId: string; sku: string; pares: number }>();
-  for (const i of items ?? []) {
-    if (!i.sku_interno || efectoDeEstado(i.estado) === "reversa") continue;
-    const k = `${i.order_id}|${i.sku_interno}`;
-    const prev = porPedidoYSku.get(k) ?? { orderId: i.order_id, sku: i.sku_interno, pares: 0 };
-    prev.pares += i.cantidad ?? 0;
-    porPedidoYSku.set(k, prev);
+  const conSkuDelErp = new Set((filasRenglones ?? []).filter((i: any) => i.sku_interno).map((i: any) => String(i.line_item_id)));
+  for (const id of confirmados) {
+    for (const r of vivosPorPedido.get(id) ?? []) {
+      if (!conSkuDelErp.has(r.lineItemId)) continue;
+      const k = `${id}|${r.sku}`;
+      const prev = porPedidoYSku.get(k) ?? { orderId: id, sku: r.sku, pares: 0 };
+      prev.pares += r.cantidad;
+      porPedidoYSku.set(k, prev);
+    }
   }
   await registrarSalidasDeCorte(admin, accountId, corte.id, [...porPedidoYSku.values()]);
   const al3pl = await empujarSalidasAl3pl(admin, accountId, corte.id);
 
-  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, al3pl };
+  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, cancelados, al3pl };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +532,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria", (q) =>
       q.eq("account_id", accountId).eq("corte_id", corteId),
     ),
-    traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad", (q) =>
+    traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
       q.eq("account_id", accountId),
     ),
   ]);
@@ -444,6 +540,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   const itemsPorOrden = new Map<string, any[]>();
   for (const i of items ?? []) {
     if (!ordenIds.has(i.order_id)) continue;
+    // Un renglón cancelado —en TikTok, o por el bloqueo del corte— no va
+    // en la etiqueta ni en la lista: ese par no se manda.
+    if (efectoDeEstado(i.estado) === "reversa" || i.bloqueo_resultado === "cancelado") continue;
     const l = itemsPorOrden.get(i.order_id) ?? [];
     l.push(i);
     itemsPorOrden.set(i.order_id, l);
@@ -1265,6 +1364,8 @@ export interface SimulacionCorte {
     /** true = TikTok ofrece recolección con horario; false = solo drop-off; null = no se pudo saber */
     recoleccion: boolean | null;
     pares: { sku: string; pares: number }[];
+    /** renglones bloqueados (defensa): se cancelan en TikTok, no se confirman */
+    bloqueados: { sku: string; pares: number }[];
     aviso: string | null;
   }[];
   totalPares: number;
@@ -1282,16 +1383,23 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
   const pendientes = await pendientesDeCorte(admin, accountId);
   const ids = pendientes.map((p) => p.orderId);
   const items = ids.length
-    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado", (q) =>
+    ? await traerTodo<any>(admin, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en", (q) =>
         q.eq("account_id", accountId).in("order_id", ids),
       )
     : [];
 
   const porOrden = new Map<string, Map<string, number>>();
+  const bloqueadosPorOrden = new Map<string, Map<string, number>>();
   for (const i of items ?? []) {
     if (efectoDeEstado(i.estado) === "reversa") continue;
-    const m = porOrden.get(i.order_id) ?? new Map<string, number>();
     const sku = i.sku_interno ?? i.seller_sku ?? "(sin SKU)";
+    if (i.bloqueado_en && !i.bloqueo_resuelto_en) {
+      const b = bloqueadosPorOrden.get(i.order_id) ?? new Map<string, number>();
+      b.set(sku, (b.get(sku) ?? 0) + (i.cantidad ?? 0));
+      bloqueadosPorOrden.set(i.order_id, b);
+      continue;
+    }
+    const m = porOrden.get(i.order_id) ?? new Map<string, number>();
     m.set(sku, (m.get(sku) ?? 0) + (i.cantidad ?? 0));
     porOrden.set(i.order_id, m);
   }
@@ -1320,7 +1428,13 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
     }
     const pares = [...(porOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
     for (const x of pares) if (!x.sku.startsWith("(")) al3pl.set(x.sku, (al3pl.get(x.sku) ?? 0) + x.pares);
-    salida.push({ orderId: p.orderId, estado: p.estado, paquetes, recoleccion, pares, aviso });
+    const bloqueados = [...(bloqueadosPorOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
+    if (bloqueados.length) {
+      aviso = pares.length
+        ? `Se cancela en TikTok ${bloqueados.map((b) => `${b.sku} ×${b.pares}`).join(", ")} y se confirma el resto`
+        : "Todo el pedido está bloqueado: se cancela en TikTok, no se confirma";
+    }
+    salida.push({ orderId: p.orderId, estado: p.estado, paquetes, recoleccion, pares, bloqueados, aviso });
   }
 
   const tandas = partirEnTandas(pendientes);

@@ -346,11 +346,38 @@ guárdala numerada.
   por par, o «cobertura a N días» = venta diaria × N − disponible— y de
   QUÉ bodega: Industher primero (la bodega de TikTok vive ahí), luego
   Caseshop, luego EnvioPack (`ORDEN_BODEGAS`), hasta donde alcance cada
-  una; lo que no alcanza se declara FALTANTE. Las bodegas guardan cajas
-  cerradas: la hoja pide PARES por talla y la bodega elige las cajas. El
-  Excel trae la hoja completa por SKU, UNA HOJA POR BODEGA con solo lo que
-  se le pide a esa bodega (la que se manda), faltantes y por modelo.
+  una. **Lo que ninguna bodega tiene NO se pide ni sale en el Excel**
+  (decisión del dueño, 16-sep-2026): el pedido se topa por la existencia y
+  el SKU sin nada en bodega solo se cuenta (`sinBodega`, «vendido sin
+  bodega»). Las bodegas guardan cajas cerradas: la hoja pide PARES por
+  talla y la bodega elige las cajas. El Excel trae la hoja completa por
+  SKU, UNA HOJA POR BODEGA con solo lo que se le pide a esa bodega (la que
+  se manda) y por modelo. Pedido del dueño el 16-sep-2026.
+  **DEFENSA DEL CORTE: bloqueos** (`tiktok/bloqueos.ts` puro,
+  `servicios/tiktok-bloqueos.ts`, `/api/tiktok/bloqueos`, columnas
+  `bloqueado_en`/`bloqueo_motivo`/`bloqueo_resultado` en
+  `tiktok_orden_items`, migración 0091): cuando falta stock de un SKU (o
+  pasa una falla como la del GT102-GREY-25), en Despacho se BLOQUEA ese
+  SKU en los pedidos pendientes (o un renglón suelto). Al hacer el corte,
+  ANTES de confirmar cada pedido, `decidirPedido` separa lo bloqueado y
+  se le pide a TikTok que lo CANCELE (`cancelarRenglones`, cancelación
+  parcial por `sku_id` con el motivo «sin stock» de
+  `motivosDeCancelacion`; si todo el pedido está bloqueado se cancela
+  completo) y se confirma lo demás. **Si TikTok no acepta la cancelación,
+  el pedido ENTERO se queda fuera del corte** y se declara (constancia en
+  `bloqueo_resultado`): confirmar un par que no existe es el error caro.
+  Un renglón cancelado no va en la etiqueta ni en la lista (`cargarCorte`
+  salta reversa y `bloqueo_resultado = cancelado`), los pares del corte y
+  las salidas al 3PL salen de lo VIVO, y los cancelados se releen para
+  que el kardex libere el apartado. La simulación enseña «se cancela».
   Pedido del dueño el 16-sep-2026.
+  **CORREO DE FALTANTES** (`tiktok-faltantes-correo.ts`, cron
+  `/api/cron/tiktok-faltantes` a las 13:30Z = 7:30 México): cada mañana,
+  si algún pedido de los cortes de los últimos 3 días no se escaneó en la
+  estación, un correo a `CORREO_FALTANTES_TIKTOK` (por omisión
+  daviddarwishb@gmail.com) con los números de pedido, su «#n» y sus
+  productos, por corte. Sin faltantes, sin correo. Pedido del dueño el
+  16-sep-2026.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,

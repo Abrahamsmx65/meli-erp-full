@@ -24,11 +24,12 @@ const base = {
 describe("armarPedidoAlmacen · modo vendido", () => {
   const p = armarPedidoAlmacen({ ...base, modo: "vendido" });
 
-  it("repone par por par lo vendido, en orden de bodega (modelo, color, talla)", () => {
-    expect(p.renglones.map((r) => [r.sku, r.pedir])).toEqual([
-      ["GT114-BEIGE-23-MX", 1],
-      ["GT114-BLK-25-MX", 4],
-      ["GT150-CAMEL-27-MX", 10],
+  it("repone lo vendido topado por lo que hay en bodega, en orden de bodega (modelo, color, talla)", () => {
+    // GT114-BEIGE solo tiene existencia en camino de China: no se pide y no aparece.
+    // GT150 vendió 10 pero Caseshop solo tiene 4: se piden 4.
+    expect(p.renglones.map((r) => [r.sku, r.deseado, r.pedir])).toEqual([
+      ["GT114-BLK-25-MX", 4, 4],
+      ["GT150-CAMEL-27-MX", 10, 4],
     ]);
   });
 
@@ -42,10 +43,9 @@ describe("armarPedidoAlmacen · modo vendido", () => {
     expect(blk.faltante).toBe(0);
   });
 
-  it("lo que ninguna bodega alcanza se declara como faltante; China y la bodega TikTok no cuentan", () => {
-    const beige = p.renglones.find((r) => r.sku === "GT114-BEIGE-23-MX")!;
-    expect(beige.faltante).toBe(1);
-    expect(beige.existencia.every((e) => e.pares === 0)).toBe(true);
+  it("lo que ninguna bodega tiene NO se pide: se declara en sinBodega; China y la bodega TikTok no cuentan", () => {
+    expect(p.renglones.find((r) => r.sku === "GT114-BEIGE-23-MX")).toBeUndefined();
+    expect(p.sinBodega).toEqual({ skus: 1, pares: 1, lista: ["GT114-BEIGE-23-MX"] });
     const camel = p.renglones.find((r) => r.sku === "GT150-CAMEL-27-MX")!;
     expect(camel.surtir.find((s) => s.almacen === "Caseshop")?.pares).toBe(4);
     expect(camel.faltante).toBe(6);
@@ -58,15 +58,15 @@ describe("armarPedidoAlmacen · modo vendido", () => {
     expect(blk.diasCobertura).toBeCloseTo(3 / (4 / 7));
   });
 
-  it("suma por modelo y por bodega", () => {
+  it("suma por modelo y por bodega: los vendidos son todos, lo pedido solo lo que hay", () => {
     expect(p.porModelo).toEqual([
-      { modelo: "GT114", vendidos: 5, pedir: 5, faltante: 1, skus: 2 },
-      { modelo: "GT150", vendidos: 10, pedir: 10, faltante: 6, skus: 1 },
+      { modelo: "GT114", vendidos: 5, pedir: 4, faltante: 1, skus: 1 },
+      { modelo: "GT150", vendidos: 10, pedir: 4, faltante: 6, skus: 1 },
     ]);
     expect(p.totales).toEqual({
-      skus: 3,
+      skus: 2,
       vendidos: 15,
-      pedir: 15,
+      pedir: 8,
       faltante: 7,
       porBodega: [
         { almacen: "Industher", pares: 3 },
@@ -75,15 +75,24 @@ describe("armarPedidoAlmacen · modo vendido", () => {
       ],
     });
   });
+
+  it("un modelo del que no se pide nada no va al resumen por modelo", () => {
+    const solo = armarPedidoAlmacen({ ...base, ventas: [{ sku: "GT114-BEIGE-23-MX", unidades: 3 }], modo: "vendido" });
+    expect(solo.renglones).toEqual([]);
+    expect(solo.porModelo).toEqual([]);
+    expect(solo.sinBodega.pares).toBe(3);
+  });
 });
 
 describe("armarPedidoAlmacen · modo cobertura", () => {
   it("pide lo que falte para N días de venta, descontando el disponible", () => {
     const p = armarPedidoAlmacen({ ...base, modo: "cobertura", diasObjetivo: 14 });
-    // GT114-BLK: 4/7 al día × 14 = 8 − 3 disponibles = 5
+    // GT114-BLK: 4/7 al día × 14 = 8 − 3 disponibles = 5 (hay 23 en bodega)
     expect(p.renglones.find((r) => r.sku === "GT114-BLK-25-MX")!.pedir).toBe(5);
-    // GT150: 10/7 × 14 = 20 − 0 = 20
-    expect(p.renglones.find((r) => r.sku === "GT150-CAMEL-27-MX")!.pedir).toBe(20);
+    // GT150: 10/7 × 14 = 20 − 0 = 20 deseados, pero Caseshop solo tiene 4
+    const camel = p.renglones.find((r) => r.sku === "GT150-CAMEL-27-MX")!;
+    expect(camel.deseado).toBe(20);
+    expect(camel.pedir).toBe(4);
     expect(p.diasObjetivo).toBe(14);
   });
 
@@ -94,7 +103,8 @@ describe("armarPedidoAlmacen · modo cobertura", () => {
       modo: "cobertura",
       diasObjetivo: 14,
     });
-    expect(p.renglones.find((r) => r.sku === "GT114-BLK-25-MX")!.pedir).toBe(0);
+    expect(p.renglones.find((r) => r.sku === "GT114-BLK-25-MX")).toBeUndefined();
+    expect(p.sinBodega.lista).not.toContain("GT114-BLK-25-MX");
   });
 });
 

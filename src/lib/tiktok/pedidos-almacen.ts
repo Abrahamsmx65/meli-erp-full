@@ -17,10 +17,14 @@
  *
  * De dónde se surte: primero Industher (la bodega de TikTok vive ahí, es un
  * traspaso interno), luego Caseshop, luego EnvioPack; cada una hasta donde
- * le alcance la existencia y lo que no alcance se declara como FALTANTE,
- * nunca se esconde. Las bodegas guardan cajas cerradas (corridas): esta
- * hoja pide PARES por talla y la bodega elige las cajas con que los cubre.
- * Lo que viene de China no cuenta: todavía no está aquí.
+ * le alcance la existencia. **Lo que ninguna bodega tiene NO se pide**
+ * (decisión del dueño, 16-sep-2026: «si no hay en mi bodega no lo pides y
+ * no sale en el Excel»): el pedido se topa por la existencia, un SKU sin
+ * nada en bodega no entra como renglón y solo se cuenta en `sinBodega`
+ * para que se sepa cuánta venta se quedó sin reponer. Las bodegas guardan
+ * cajas cerradas (corridas): esta hoja pide PARES por talla y la bodega
+ * elige las cajas con que los cubre. Lo que viene de China no cuenta:
+ * todavía no está aquí.
  */
 import { compararSku, partirSku } from "./despacho";
 
@@ -69,13 +73,15 @@ export interface RenglonPedidoAlmacen {
   disponible: number;
   /** disponible ÷ venta diaria; null sin venta */
   diasCobertura: number | null;
-  /** pares a pedir */
+  /** lo que se querría reponer, antes de topar por la existencia */
+  deseado: number;
+  /** pares a pedir: lo deseado topado por lo que hay en las bodegas */
   pedir: number;
   /** existencia por bodega de cajas (solo México, sin China) */
   existencia: SurtidoDeBodega[];
   /** de qué bodega sale cada par del pedido */
   surtir: SurtidoDeBodega[];
-  /** lo que ninguna bodega alcanza a cubrir */
+  /** lo deseado que ninguna bodega alcanza a cubrir (no se pide) */
   faltante: number;
 }
 
@@ -96,12 +102,17 @@ export interface PedidoAlmacen {
   renglones: RenglonPedidoAlmacen[];
   porModelo: ResumenModelo[];
   totales: {
+    /** SKUs que sí se piden (con algo en bodega) */
     skus: number;
+    /** pares vendidos en el periodo, de todos los SKUs */
     vendidos: number;
     pedir: number;
+    /** lo deseado que no se pide porque ninguna bodega lo tiene */
     faltante: number;
     porBodega: SurtidoDeBodega[];
   };
+  /** SKUs vendidos que no entran al pedido porque no hay nada en bodega */
+  sinBodega: { skus: number; pares: number; lista: string[] };
 }
 
 function esBodegaDeMexico(almacen: string): boolean {
@@ -109,8 +120,10 @@ function esBodegaDeMexico(almacen: string): boolean {
 }
 
 /**
- * Arma el pedido. Entra un renglón por SKU que vendió en el periodo o que
- * tiene algo que pedir; lo que no vendió y está cubierto no aparece.
+ * Arma el pedido. Entra un renglón por SKU que vendió en el periodo Y que
+ * alguna bodega puede surtir, aunque sea en parte; lo que no vendió, lo
+ * que ya está cubierto y lo que ninguna bodega tiene no aparece (esto
+ * último se cuenta en `sinBodega`).
  */
 export function armarPedidoAlmacen(entrada: {
   ventas: VentaPeriodo[];
@@ -142,7 +155,13 @@ export function armarPedidoAlmacen(entrada: {
   for (const k of entrada.kardex) if (k.sku) kardex.set(k.sku, k);
 
   const renglones: RenglonPedidoAlmacen[] = [];
+  const porModeloMapa = new Map<string, ResumenModelo>();
+  const sinBodega = { skus: 0, pares: 0, lista: [] as string[] };
+  let faltanteTotal = 0;
+  let vendidosTotal = 0;
+
   for (const [sku, unidades] of vendidos) {
+    vendidosTotal += unidades;
     const k = kardex.get(sku);
     const saldo = k?.saldo ?? 0;
     const apartado = k?.apartado ?? 0;
@@ -150,7 +169,7 @@ export function armarPedidoAlmacen(entrada: {
     const ventaDiaria = unidades / dias;
     const diasCobertura = ventaDiaria > 0 ? disponible / ventaDiaria : null;
 
-    const pedir =
+    const deseado =
       modo === "vendido" ? unidades : Math.max(0, Math.ceil(ventaDiaria * (diasObjetivo ?? DIAS_COBERTURA)) - disponible);
 
     const porBodega = existencia.get(sku) ?? new Map<string, number>();
@@ -159,8 +178,9 @@ export function armarPedidoAlmacen(entrada: {
       pares: porBodega.get(almacen) ?? 0,
     }));
 
-    // Se surte en orden de bodega hasta donde alcance cada una.
-    let resto = pedir;
+    // Se surte en orden de bodega hasta donde alcance cada una; lo que
+    // ninguna tiene no se pide.
+    let resto = deseado;
     const surtir: SurtidoDeBodega[] = [];
     for (const almacen of ORDEN_BODEGAS) {
       const hay = porBodega.get(almacen) ?? 0;
@@ -168,8 +188,27 @@ export function armarPedidoAlmacen(entrada: {
       surtir.push({ almacen, pares: toma });
       resto -= toma;
     }
+    const pedir = deseado - resto;
+    faltanteTotal += resto;
 
     const partes = partirSku(sku);
+    const m = porModeloMapa.get(partes.modelo) ?? { modelo: partes.modelo, vendidos: 0, pedir: 0, faltante: 0, skus: 0 };
+    m.vendidos += unidades;
+    m.pedir += pedir;
+    m.faltante += resto;
+    porModeloMapa.set(partes.modelo, m);
+
+    if (pedir <= 0) {
+      // Vendió, pero no hay de dónde reponerlo: se declara, no se pide.
+      if (deseado > 0) {
+        sinBodega.skus += 1;
+        sinBodega.pares += deseado;
+        sinBodega.lista.push(sku);
+      }
+      continue;
+    }
+    m.skus += 1;
+
     renglones.push({
       sku,
       modelo: partes.modelo,
@@ -181,6 +220,7 @@ export function armarPedidoAlmacen(entrada: {
       apartado,
       disponible,
       diasCobertura,
+      deseado,
       pedir,
       existencia: existenciaLista,
       surtir,
@@ -189,16 +229,9 @@ export function armarPedidoAlmacen(entrada: {
   }
 
   renglones.sort((a, b) => compararSku(a.sku, b.sku));
-
-  const porModeloMapa = new Map<string, ResumenModelo>();
-  for (const r of renglones) {
-    const m = porModeloMapa.get(r.modelo) ?? { modelo: r.modelo, vendidos: 0, pedir: 0, faltante: 0, skus: 0 };
-    m.vendidos += r.vendidos;
-    m.pedir += r.pedir;
-    m.faltante += r.faltante;
-    m.skus += 1;
-    porModeloMapa.set(r.modelo, m);
-  }
+  sinBodega.lista.sort((a, b) => compararSku(a, b));
+  // Un modelo del que no se pide nada no va al resumen del pedido.
+  for (const [modelo, m] of porModeloMapa) if (m.pedir <= 0) porModeloMapa.delete(modelo);
 
   const porBodega: SurtidoDeBodega[] = ORDEN_BODEGAS.map((almacen) => ({
     almacen,
@@ -213,10 +246,11 @@ export function armarPedidoAlmacen(entrada: {
     porModelo: [...porModeloMapa.values()].sort((a, b) => a.modelo.localeCompare(b.modelo, "es")),
     totales: {
       skus: renglones.length,
-      vendidos: renglones.reduce((a, r) => a + r.vendidos, 0),
+      vendidos: vendidosTotal,
       pedir: renglones.reduce((a, r) => a + r.pedir, 0),
-      faltante: renglones.reduce((a, r) => a + r.faltante, 0),
+      faltante: faltanteTotal,
       porBodega,
     },
+    sinBodega,
   };
 }

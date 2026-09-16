@@ -252,10 +252,11 @@ export async function excelDePedidoAlmacen(p: PedidoAlmacenGuardado): Promise<Bu
     { header: "Apartado", key: "apartado", width: 10 },
     { header: "Disponible", key: "disponible", width: 11 },
     { header: "Días de cobertura", key: "diasCobertura", width: 16 },
+    { header: "Se querría", key: "deseado", width: 10 },
     { header: "PEDIR", key: "pedir", width: 9 },
     ...ORDEN_BODEGAS.map((b) => ({ header: `Hay en ${b}`, key: `hay_${b}`, width: 14 })),
     ...ORDEN_BODEGAS.map((b) => ({ header: `Pedir a ${b}`, key: `pedir_${b}`, width: 15 })),
-    { header: "Faltante", key: "faltante", width: 10 },
+    { header: "Sin bodega que lo cubra", key: "faltante", width: 22 },
   ]);
   for (const r of p.renglones) {
     const fila: Record<string, unknown> = {
@@ -269,6 +270,7 @@ export async function excelDePedidoAlmacen(p: PedidoAlmacenGuardado): Promise<Bu
       apartado: r.apartado,
       disponible: r.disponible,
       diasCobertura: r.diasCobertura == null ? null : Math.round(r.diasCobertura * 10) / 10,
+      deseado: r.deseado,
       pedir: r.pedir,
       faltante: r.faltante,
     };
@@ -310,19 +312,6 @@ export async function excelDePedidoAlmacen(p: PedidoAlmacenGuardado): Promise<Bu
     fin.font = { bold: true };
   }
 
-  // --- Faltantes: lo que ninguna bodega alcanza -----------------------------
-  const faltantes = p.renglones.filter((r) => r.faltante > 0);
-  if (faltantes.length) {
-    const hoja = wb.addWorksheet("Faltantes");
-    encabezado(hoja, [
-      { header: "SKU", key: "sku", width: 26 },
-      { header: "Vendidos", key: "vendidos", width: 10 },
-      { header: "PEDIR", key: "pedir", width: 9 },
-      { header: "Sin bodega que lo cubra", key: "faltante", width: 22 },
-    ]);
-    for (const r of faltantes) hoja.addRow({ sku: r.sku, vendidos: r.vendidos, pedir: r.pedir, faltante: r.faltante });
-  }
-
   // --- Por modelo ------------------------------------------------------------
   const modelos = wb.addWorksheet("Por modelo");
   encabezado(modelos, [
@@ -346,8 +335,11 @@ export async function excelDePedidoAlmacen(p: PedidoAlmacenGuardado): Promise<Bu
   resumen.addRow({ concepto: "Pares vendidos", valor: p.totales.vendidos });
   resumen.addRow({ concepto: "Pares a pedir", valor: p.totales.pedir });
   for (const b of p.totales.porBodega) resumen.addRow({ concepto: `Pedir a ${b.almacen}`, valor: b.pares });
-  resumen.addRow({ concepto: "Sin bodega que lo cubra", valor: p.totales.faltante });
-  if (p.sinInventario) resumen.addRow({ concepto: "SKUs sin existencia en ninguna bodega", valor: p.sinInventario });
+  // Lo que no se pidió porque no había de dónde: se declara, no se esconde.
+  resumen.addRow({ concepto: "Pares vendidos sin bodega que los cubra (no se piden)", valor: p.totales.faltante });
+  if (p.sinBodega?.skus) {
+    resumen.addRow({ concepto: "SKUs vendidos que no entran al pedido (nada en bodega)", valor: p.sinBodega.skus });
+  }
 
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);

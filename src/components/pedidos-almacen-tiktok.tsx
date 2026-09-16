@@ -142,8 +142,9 @@ export function PedidosAlmacenTikTok({
         </div>
         <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
           «Reponer lo vendido» pide par por par lo que salió en el periodo. «Cobertura» pide lo que falte
-          para que el disponible en TikTok alcance N días de venta. Las bodegas guardan cajas cerradas: la
-          hoja pide pares por talla y la bodega elige con qué cajas los cubre.
+          para que el disponible en TikTok alcance N días de venta. Lo que ninguna bodega tiene no se pide
+          ni sale en el Excel; solo se cuenta. Las bodegas guardan cajas cerradas: la hoja pide pares por
+          talla y la bodega elige con qué cajas los cubre.
         </p>
         {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
         {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
@@ -172,7 +173,12 @@ export function PedidosAlmacenTikTok({
               titulo="De qué bodega"
               valor={vista.totales.porBodega.filter((b: any) => b.pares > 0).map((b: any) => `${b.almacen} ${n(b.pares)}`).join(" · ") || "—"}
             />
-            <Ficha titulo="Sin bodega que lo cubra" valor={vista.totales.faltante} tono={vista.totales.faltante ? "alerta" : "neutro"} nota={vista.sinInventario ? `${vista.sinInventario} SKU sin existencia en ninguna bodega` : undefined} />
+            <Ficha
+              titulo="Vendido sin bodega (no se pide)"
+              valor={vista.totales.faltante}
+              tono={vista.totales.faltante ? "alerta" : "neutro"}
+              nota={vista.sinBodega?.skus ? `${vista.sinBodega.skus} SKU sin nada en bodega: ${vista.sinBodega.lista.slice(0, 4).join(", ")}${vista.sinBodega.lista.length > 4 ? "…" : ""}` : undefined}
+            />
           </div>
 
           <div className="tarjeta overflow-x-auto">
@@ -183,7 +189,7 @@ export function PedidosAlmacenTikTok({
                   <th className="px-2 py-2 text-right">SKU</th>
                   <th className="px-2 py-2 text-right">Vendidos</th>
                   <th className="px-2 py-2 text-right">Pedir</th>
-                  <th className="px-2 py-2 text-right">Faltante</th>
+                  <th className="px-2 py-2 text-right">Sin bodega</th>
                   <th className="px-2 py-2"></th>
                 </tr>
               </thead>
@@ -272,7 +278,7 @@ function ModeloFila({ m, renglones, abierto, alternar }: { m: any; renglones: an
                     <td className="py-1 text-right cifra font-semibold">{r.pedir}</td>
                     <td className="py-1 pl-3" style={{ color: "var(--ink-2)" }}>
                       {r.surtir.filter((s: any) => s.pares > 0).map((s: any) => `${s.almacen} ${s.pares}`).join(" · ")}
-                      {r.faltante ? <span style={{ color: "var(--estado-alerta)" }}>{r.surtir.some((s: any) => s.pares > 0) ? " · " : ""}faltan {r.faltante}</span> : null}
+                      {r.faltante ? <span style={{ color: "var(--estado-alerta)" }}>{r.surtir.some((s: any) => s.pares > 0) ? " · " : ""}sin bodega {r.faltante}</span> : null}
                     </td>
                   </tr>
                 ))}
