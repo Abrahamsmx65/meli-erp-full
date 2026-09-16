@@ -4,6 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clienteNavegador } from "@/lib/supabase/client";
 
+/** Dominio de los usuarios de operación, que entran con nombre y no con correo. */
+const DOMINIO_USUARIOS = "getac.erp";
+
 function FormularioLogin() {
   const router = useRouter();
   const params = useSearchParams();
@@ -33,8 +36,11 @@ function FormularioLogin() {
     setMensaje(null);
 
     const supabase = clienteNavegador();
+    // Un usuario de operación («david») entra con su nombre a secas: por
+    // dentro es un correo del ERP (david@getac.erp), que nunca recibe nada.
+    const email = correo.includes("@") ? correo.trim() : `${correo.trim().toLowerCase()}@${DOMINIO_USUARIOS}`;
     const { error } = await supabase.auth.signInWithPassword({
-      email: correo,
+      email,
       password: clave,
     });
 
@@ -60,11 +66,11 @@ function FormularioLogin() {
 
         <form onSubmit={enviar} className="mt-6 flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--ink-2)" }}>
-            Correo
+            Correo o usuario
             <input
-              type="email"
+              type="text"
               required
-              placeholder="correo@ejemplo.com"
+              placeholder="correo@ejemplo.com o usuario"
               value={correo}
               onChange={(e) => setCorreo(e.target.value)}
               autoComplete="email"
@@ -76,7 +82,7 @@ function FormularioLogin() {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={5}
               placeholder="••••••••"
               value={clave}
               onChange={(e) => setClave(e.target.value)}

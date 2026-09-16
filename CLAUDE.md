@@ -335,6 +335,22 @@ guárdala numerada.
   paquete (pedido + paquete, `clavePaquete`), no por el "#n": el número es
   el lugar en la hoja de hoy y cambiaría al cambiar el orden del corte;
   `numerosPreparados` lo traduce a la hoja que se está enseñando.
+  **PEDIDOS DE ALMACÉN** (`tiktok/pedidos-almacen.ts` motor puro,
+  `servicios/tiktok-pedidos-almacen.ts`, `/tiktok/pedidos`, tabla
+  `tiktok_pedidos_almacen`, migración 0089): la bodega de TikTok se vacía
+  con lo que se vende y se rellena desde las bodegas de cajas. Un pedido
+  junta lo VENDIDO en un periodo (`tiktok_ventas_diarias`, arranca donde
+  terminó el último pedido) por modelo/color/talla, el kardex de TikTok y
+  la existencia por bodega (de `inventario_cache`, los `pedidos[]` de cada
+  renglón; China no cuenta), decide cuánto PEDIR —«reponer lo vendido» par
+  por par, o «cobertura a N días» = venta diaria × N − disponible— y de
+  QUÉ bodega: Industher primero (la bodega de TikTok vive ahí), luego
+  Caseshop, luego EnvioPack (`ORDEN_BODEGAS`), hasta donde alcance cada
+  una; lo que no alcanza se declara FALTANTE. Las bodegas guardan cajas
+  cerradas: la hoja pide PARES por talla y la bodega elige las cajas. El
+  Excel trae la hoja completa por SKU, UNA HOJA POR BODEGA con solo lo que
+  se le pide a esa bodega (la que se manda), faltantes y por modelo.
+  Pedido del dueño el 16-sep-2026.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
   Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
@@ -784,6 +800,23 @@ login, la base y el deploy.
 
 - El registro está **cerrado**: tabla `usuarios_permitidos` + trigger sobre
   `auth.users`. Para dar acceso a alguien, inserta su correo ahí.
+- **Usuarios de operación con acceso SOLO a TikTok** (migración 0090,
+  `src/lib/acceso/roles.ts`; el primero es «david», 16-sep-2026): el ERP
+  era de una persona y `es_mi_cuenta()` sigue siendo del dueño, NO se
+  toca. Un miembro va en `cuenta_miembros (account_id, user_id, rol)` y
+  `es_miembro_tiktok()` es su llave: SOLO las tablas `tiktok_*` la aceptan
+  (política `*_miembros_tiktok`), más la LECTURA de `meli_accounts` (para
+  `cuentaActiva`), `inventario_cache` (el pedido de almacén) y `skus` (el
+  amarre). Costos, ventas de MELI, cortes, Amazon y fundas, no. El rol viaja
+  en el JWT (`auth.users.raw_app_meta_data.rol = 'tiktok'`, que solo
+  escribe la base; `user_metadata` NO cuenta) y el middleware manda a
+  `/tiktok/despacho` cualquier ruta fuera de `/tiktok`, `/api/tiktok`,
+  `/preparar`, `/api/preparar-publico`, `/login`, `/auth` y `/api/salir`
+  (403 en las de API); el menú solo enseña la sección de TikTok. Entra
+  con su NOMBRE: el login le pega `@getac.erp` a lo que no trae arroba
+  (`DOMINIO_USUARIOS`), correo que no recibe nada. Se creó por SQL directo
+  en `auth.users` + `auth.identities` (no hay service_role en el entorno
+  de Claude); la contraseña la decidió el dueño.
 - **Solo dos pantallas van sin sesión**, las dos con el mismo patrón:
   `/contenido/{token}` (la sección de contenido de Amazon) y
   `/preparar/{token}` (la estación de preparar pedidos de TikTok, para los

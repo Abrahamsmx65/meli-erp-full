@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
+import { destinoPorOmision, rolDeSesion, rutaPermitida } from "@/lib/acceso/roles";
 
 /**
  * Refresca la sesión de Supabase en cada petición y manda al login a quien
@@ -84,6 +85,22 @@ export async function middleware(request: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("destino", ruta);
     return NextResponse.redirect(url);
+  }
+
+  // El rol viaja en el JWT (app_metadata, que solo escribe la base): quien
+  // solo es de TikTok no pasa de su sección. Las rutas públicas de arriba no
+  // se tocan. Sin viaje a Supabase: el JWT ya viene en la cookie.
+  if (user && !publica) {
+    const rol = rolDeSesion(user);
+    if (!rutaPermitida(rol, ruta)) {
+      if (ruta.startsWith("/api/")) {
+        return NextResponse.json({ error: "Sin acceso a esta sección." }, { status: 403 });
+      }
+      const url = request.nextUrl.clone();
+      url.pathname = destinoPorOmision(rol);
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;
