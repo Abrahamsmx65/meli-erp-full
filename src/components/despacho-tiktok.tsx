@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarClock, Eye, FileText, PackageX, Printer, ScanLine, Scissors, ShieldAlert, ShieldCheck } from "lucide-react";
+import { CalendarClock, Eye, FileText, PackageX, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
@@ -41,59 +41,6 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   // enseña abiertos abajo, sin cambiar de pantalla.
   const [faltantes, setFaltantes] = useState<Record<number, any>>({});
   const [pidiendoFaltantes, setPidiendoFaltantes] = useState<number | null>(null);
-  // DEFENSA: SKUs sin stock que el corte NO debe confirmar. Se cancelan en
-  // TikTok al hacer el corte y se confirma lo demás del pedido.
-  const [defensa, setDefensa] = useState<{ pendientes: any[]; bloqueos: any[] } | null>(null);
-  const [skuBloqueo, setSkuBloqueo] = useState("");
-  const [motivoBloqueo, setMotivoBloqueo] = useState("Sin stock");
-  const [bloqueando, setBloqueando] = useState(false);
-
-  async function cargarDefensa() {
-    try {
-      const r = await fetch("/api/tiktok/bloqueos");
-      const j = await r.json();
-      if (r.ok) setDefensa(j);
-    } catch {
-      /* la sección se queda sin datos; el corte no depende de ella */
-    }
-  }
-  useEffect(() => {
-    cargarDefensa();
-  }, []);
-
-  async function bloquear(cuerpo: Record<string, unknown>) {
-    setBloqueando(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/tiktok/bloqueos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo bloquear.");
-      setAviso(j.pedidos != null ? `Bloqueado en ${j.pedidos} pedidos (${j.renglones} renglones): se cancelará en TikTok al hacer el corte.` : "Renglón bloqueado.");
-      setSkuBloqueo("");
-      await cargarDefensa();
-      if (simulacion) await simular();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBloqueando(false);
-    }
-  }
-
-  async function desbloquear(cuerpo: Record<string, unknown>) {
-    setBloqueando(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/tiktok/bloqueos", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo quitar el bloqueo.");
-      await cargarDefensa();
-      if (simulacion) await simular();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBloqueando(false);
-    }
-  }
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {
@@ -171,7 +118,6 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       }
       setSimulacion(null);
       router.refresh();
-      cargarDefensa();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -189,7 +135,10 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
             </h2>
             <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
               Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén,
-              republica y deja el corte guardado con sus etiquetas y su lista.
+              republica y deja el corte guardado con sus etiquetas y su lista. Defensa automática: si un SKU
+              no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok solo ese renglón
+              (los pedidos más nuevos primero) y se confirma lo demás; si TikTok no acepta la cancelación, el
+              pedido entero se queda fuera y se avisa.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -281,82 +230,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
               {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
             </div>
-            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>Nada de esto se ha confirmado. Es solo lo que pasaría.</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+              Nada de esto se ha confirmado. Es solo lo que pasaría. «Se cancela» es la defensa automática: ese SKU
+              no tiene stock físico para todos los pedidos que lo piden, así que se cancela en TikTok solo ese
+              renglón (los pedidos más nuevos primero) y se confirma lo demás.
+            </p>
           </div>
         ) : null}
-      </section>
-
-      <section className="tarjeta p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldAlert size={16} /> Defensa: sin stock, no confirmar
-        </h2>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-          Si falta stock de un SKU, bloquéalo aquí: al hacer el corte se le pide a TikTok que CANCELE solo ese
-          SKU en cada pedido y se confirma lo demás. Si TikTok no acepta la cancelación, el pedido entero se
-          queda fuera del corte y se avisa; nunca se confirma un par que no existe.
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
-            SKU por despachar
-            <input
-              list="skus-pendientes"
-              value={skuBloqueo}
-              onChange={(e) => setSkuBloqueo(e.target.value)}
-              placeholder="GT102-GREY-25-MX"
-              className="w-56 rounded-lg border px-2 py-1.5 text-sm"
-              style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}
-            />
-            <datalist id="skus-pendientes">
-              {(defensa?.pendientes ?? []).map((p) => (
-                <option key={p.sku} value={p.sku}>{`${p.pedidos} pedidos · ${p.pares} pares${p.bloqueados ? ` · ${p.bloqueados} bloqueados` : ""}`}</option>
-              ))}
-            </datalist>
-          </label>
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
-            Motivo
-            <input value={motivoBloqueo} onChange={(e) => setMotivoBloqueo(e.target.value)} className="w-44 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }} />
-          </label>
-          <button
-            type="button"
-            disabled={bloqueando || !skuBloqueo.trim()}
-            onClick={() => bloquear({ sku: skuBloqueo.trim(), motivo: motivoBloqueo })}
-            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
-            style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
-          >
-            <ShieldAlert size={14} /> {bloqueando ? "Bloqueando…" : "Bloquear en los pendientes"}
-          </button>
-        </div>
-        {defensa?.bloqueos?.length ? (
-          <ul className="mt-3 divide-y text-sm" style={{ borderColor: "var(--grid)" }}>
-            {Object.values(
-              defensa.bloqueos.reduce((acc: Record<string, any>, b: any) => {
-                const g = acc[b.sku] ?? { sku: b.sku, pedidos: [] as string[], pares: 0, motivo: b.motivo };
-                g.pedidos.push(b.orderId);
-                g.pares += b.cantidad;
-                acc[b.sku] = g;
-                return acc;
-              }, {}),
-            ).map((g: any) => (
-              <li key={g.sku} className="flex flex-wrap items-center justify-between gap-2 py-2 hairline">
-                <div>
-                  <span className="font-semibold">{g.sku}</span>
-                  <span className="ml-2 text-xs" style={{ color: "var(--ink-2)" }}>
-                    {g.pedidos.length} pedidos · {g.pares} pares · {g.motivo ?? "sin motivo"}
-                  </span>
-                  <details className="inline">
-                    <summary className="ml-2 inline cursor-pointer text-xs underline" style={{ color: "var(--ink-2)" }}>ver pedidos</summary>
-                    <span className="cifra ml-1 text-xs" style={{ color: "var(--ink-2)" }}>{g.pedidos.join(", ")}</span>
-                  </details>
-                </div>
-                <button type="button" disabled={bloqueando} onClick={() => desbloquear({ sku: g.sku })} className="rounded-lg border px-3 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
-                  Quitar bloqueo
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>Nada bloqueado.</p>
-        )}
       </section>
 
       <section className="tarjeta overflow-hidden">
