@@ -7,6 +7,7 @@ import { LogOut, Menu, Package, Search, X } from "lucide-react";
 import { MenuLateral } from "@/components/menu-lateral";
 import { EstadoConexion } from "@/components/estado-conexion";
 import { Avisos } from "@/components/ui/avisos";
+import type { Rol } from "@/lib/acceso/roles";
 
 /**
  * Armazón de la app: barra superior azul marino, menú lateral blanco y el
@@ -19,7 +20,7 @@ import { Avisos } from "@/components/ui/avisos";
  * estación de preparar pedidos) reciben solo la franja de marca: quien entra
  * por ahí no debe ver ni los nombres del resto del ERP.
  */
-export function Armazon({ children }: { children: React.ReactNode }) {
+export function Armazon({ children, rol = "dueño" }: { children: React.ReactNode; rol?: Rol }) {
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
 
@@ -48,10 +49,10 @@ export function Armazon({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} />
+      <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} rol={rol} />
 
       <div className="flex flex-1">
-        <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} />
+        <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
         <div className="min-w-0 flex-1">
           <main className="aparece mx-auto max-w-[1400px] px-4 py-6 md:px-6" key={ruta}>
             {children}
@@ -91,7 +92,7 @@ function Logo() {
  * La barra superior. Lleva el logo, el buscador de SKUs (va directo a Bodega
  * con el filtro puesto), el estado de la conexión con MELI y la salida.
  */
-function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => void }) {
+function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alternar: () => void; rol?: Rol }) {
   const router = useRouter();
   const [q, setQ] = useState("");
 
@@ -125,6 +126,10 @@ function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => voi
         <Logo />
       </div>
 
+      {/* El buscador va a Bodega: quien solo es de TikTok no lo tiene. */}
+
+      {rol !== "tiktok" ? (
+
       <form
         onSubmit={buscar}
         role="search"
@@ -152,6 +157,8 @@ function Cabecera({ abierto, alternar }: { abierto: boolean; alternar: () => voi
           <Search size={17} strokeWidth={2.2} />
         </button>
       </form>
+
+      ) : null}
 
       <div className="ml-auto hidden items-center gap-3 md:flex">
         <EstadoConexion />

@@ -31,8 +31,10 @@ import {
   Truck,
   Upload,
   Warehouse,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
+import { grupoVisible, type Rol } from "@/lib/acceso/roles";
 
 /**
  * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
@@ -103,6 +105,7 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
       { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
       { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
       { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
       { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
@@ -167,8 +170,11 @@ export function MenuLateral({
   pendientes,
   abierto,
   cerrar,
+  rol = "dueño",
 }: {
   pendientes?: number;
+  /** quien solo es de TikTok ve nada más esa sección */
+  rol?: Rol;
   /** cajón abierto en pantallas chicas */
   abierto: boolean;
   cerrar: () => void;
@@ -176,7 +182,8 @@ export function MenuLateral({
   const ruta = usePathname();
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
-  const todos = GRUPOS.flatMap((g) => g.entradas.map((e) => e.href));
+  const grupos = GRUPOS.filter((g) => grupoVisible(rol, g.titulo));
+  const todos = grupos.flatMap((g) => g.entradas.map((e) => e.href));
 
   const activo = (href: string) => {
     if (href === "/") return ruta === "/";
@@ -184,7 +191,7 @@ export function MenuLateral({
     return !todos.some((otro) => otro !== href && otro.startsWith(href) && ruta.startsWith(otro));
   };
 
-  const grupoActivo = GRUPOS.find((g) => g.entradas.some((e) => activo(e.href)))?.titulo ?? null;
+  const grupoActivo = grupos.find((g) => g.entradas.some((e) => activo(e.href)))?.titulo ?? null;
 
   // Al arrancar, todas abiertas (el servidor no sabe qué recordó el
   // navegador); en cuanto monta se aplica lo recordado. La sección de la
@@ -229,7 +236,7 @@ export function MenuLateral({
           color: "var(--sidebar-texto)",
         }}
       >
-        {GRUPOS.map((g) => {
+        {grupos.map((g) => {
           const titulo = g.titulo ?? "principal";
           const desplegado = estaAbierto(titulo);
           const contieneActivo = titulo === grupoActivo;
