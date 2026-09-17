@@ -21,10 +21,22 @@ export function destinoPorOmision(rol: Rol): string {
 
 /**
  * Lo único que alcanza el rol de TikTok: la sección de TikTok, la
- * estación de preparar (que es de TikTok), el login y salir. Los avisos y
- * callbacks de máquinas ya son públicos por su cuenta.
+ * estación de preparar (que es de TikTok), los videos de producto (pedido
+ * del dueño el 17-sep-2026: quien empaca también hace los videos), el
+ * login y salir. Los avisos y callbacks de máquinas ya son públicos por
+ * su cuenta.
  */
-const PREFIJOS_TIKTOK = ["/tiktok", "/api/tiktok", "/preparar", "/api/preparar-publico", "/login", "/auth", "/api/salir"];
+const PREFIJOS_TIKTOK = [
+  "/tiktok",
+  "/api/tiktok",
+  "/preparar",
+  "/api/preparar-publico",
+  "/videos",
+  "/api/videos",
+  "/login",
+  "/auth",
+  "/api/salir",
+];
 
 export function rutaPermitida(rol: Rol, ruta: string): boolean {
   if (rol !== "tiktok") return true;
@@ -32,8 +44,7 @@ export function rutaPermitida(rol: Rol, ruta: string): boolean {
   return PREFIJOS_TIKTOK.some((p) => limpia === p || limpia.startsWith(p + "/") || limpia.startsWith(p + "?"));
 }
 
-/** Los grupos del menú que ve cada rol (por título). */
-export function grupoVisible(rol: Rol, titulo: string | null): boolean {
-  if (rol !== "tiktok") return true;
-  return titulo === "TikTok Shop";
+/** Las entradas del menú que ve cada rol: las que puede abrir. */
+export function entradaVisible(rol: Rol, href: string): boolean {
+  return rutaPermitida(rol, href);
 }
