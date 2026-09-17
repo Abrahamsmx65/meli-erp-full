@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { destinoPorOmision, grupoVisible, rolDeSesion, rutaPermitida } from "./roles";
+import { destinoPorOmision, entradaVisible, rolDeSesion, rutaPermitida } from "./roles";
 
 describe("rol de sesión", () => {
   it("sin rol en el JWT es el dueño; 'tiktok' solo si lo dice app_metadata", () => {
@@ -12,8 +12,8 @@ describe("rol de sesión", () => {
 });
 
 describe("rutas del rol tiktok", () => {
-  it("alcanza TikTok, la estación de preparar, login y salir", () => {
-    for (const r of ["/tiktok", "/tiktok/despacho", "/tiktok/despacho/53/preparar", "/api/tiktok/cortes", "/preparar/abc", "/api/preparar-publico/x/cortes/1/preparar", "/login", "/api/salir"]) {
+  it("alcanza TikTok, la estación de preparar, los videos, login y salir", () => {
+    for (const r of ["/tiktok", "/tiktok/despacho", "/tiktok/despacho/53/preparar", "/api/tiktok/cortes", "/preparar/abc", "/api/preparar-publico/x/cortes/1/preparar", "/videos", "/api/videos/estudio", "/login", "/api/salir"]) {
       expect(rutaPermitida("tiktok", r)).toBe(true);
     }
   });
@@ -29,9 +29,10 @@ describe("rutas del rol tiktok", () => {
     expect(destinoPorOmision("tiktok")).toBe("/tiktok/despacho");
     expect(destinoPorOmision("dueño")).toBe("/");
   });
-  it("en el menú solo ve la sección de TikTok Shop", () => {
-    expect(grupoVisible("tiktok", "TikTok Shop")).toBe(true);
-    expect(grupoVisible("tiktok", "Negocio")).toBe(false);
-    expect(grupoVisible("dueño", "Negocio")).toBe(true);
+  it("en el menú solo ve las entradas que puede abrir: TikTok y Videos", () => {
+    expect(entradaVisible("tiktok", "/tiktok/despacho")).toBe(true);
+    expect(entradaVisible("tiktok", "/videos")).toBe(true);
+    expect(entradaVisible("tiktok", "/ventas")).toBe(false);
+    expect(entradaVisible("dueño", "/ventas")).toBe(true);
   });
 });

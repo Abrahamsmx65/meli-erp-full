@@ -34,7 +34,7 @@ import {
   ClipboardList,
   type LucideIcon,
 } from "lucide-react";
-import { grupoVisible, type Rol } from "@/lib/acceso/roles";
+import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 
 /**
  * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
@@ -182,7 +182,8 @@ export function MenuLateral({
   const ruta = usePathname();
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
-  const grupos = GRUPOS.filter((g) => grupoVisible(rol, g.titulo));
+  // Cada rol ve solo las entradas que puede abrir; un grupo sin ninguna desaparece.
+  const grupos = GRUPOS.map((g) => ({ ...g, entradas: g.entradas.filter((e) => entradaVisible(rol, e.href)) })).filter((g) => g.entradas.length);
   const todos = grupos.flatMap((g) => g.entradas.map((e) => e.href));
 
   const activo = (href: string) => {
