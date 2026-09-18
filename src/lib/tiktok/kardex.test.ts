@@ -4,6 +4,7 @@ import {
   cambiosAPublicar,
   disponibleParaCompradores,
   efectoDeEstado,
+  estaComprometido,
   movimientosPendientes,
   saldosDesdeMovimientos,
   type Movimiento,
@@ -25,8 +26,15 @@ describe("efectoDeEstado", () => {
     expect(efectoDeEstado("COMPLETED")).toBe("salida");
   });
 
-  it("lo no pagado no toca el inventario", () => {
-    expect(efectoDeEstado("UNPAID")).toBe("nada");
+  it("lo creado sin pagar está EN ESPERA: TikTok ya lo apartó, no se vuelve a ofrecer", () => {
+    expect(efectoDeEstado("UNPAID")).toBe("espera");
+    expect(estaComprometido("UNPAID")).toBe(true);
+    expect(estaComprometido("AWAITING_SHIPMENT")).toBe(true);
+    expect(estaComprometido("CANCELLED")).toBe(false);
+    expect(estaComprometido("IN_TRANSIT")).toBe(false);
+  });
+
+  it("lo que no dice nada del inventario es nada", () => {
     expect(efectoDeEstado(null)).toBe("nada");
     expect(efectoDeEstado("LO_QUE_SEA")).toBe("nada");
   });
@@ -106,6 +114,12 @@ describe("movimientosPendientes", () => {
     const r = enviado({ estado: "AWAITING_SHIPMENT" });
     expect(movimientosPendientes([r], new Set()).movimientos).toHaveLength(0);
     expect(apartadosPorSku([r]).get("GT128-BEIGE-24")).toBe(1);
+  });
+
+  it("un pedido SIN PAGAR también aparta (así se sobrevendió el MINT-24 el 15-sep-2026), y no mueve el kardex", () => {
+    const sinPagar: RenglonPedido = { orderId: "5771", skuInterno: "GT128-BEIGE-24", cantidad: 2, estado: "UNPAID" };
+    expect(apartadosPorSku([sinPagar]).get("GT128-BEIGE-24")).toBe(2);
+    expect(movimientosPendientes([sinPagar], new Set()).movimientos).toHaveLength(0);
   });
 
   it("junta dos renglones del mismo SKU en un solo movimiento", () => {

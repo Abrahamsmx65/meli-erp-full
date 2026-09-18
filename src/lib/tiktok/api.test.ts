@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { catalogo, pedidosActualizados, publicarStock } from "./api";
-import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada } from "./api";
+import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada, motivosDeCancelacion, motivoSinStock, nombresDeMotivo } from "./api";
 import { ErrorTikTok, type Cliente } from "./client";
 
 function clienteFalso(respuestas: any[], msRestantes = 100_000) {
@@ -279,5 +279,34 @@ describe("cancelarRenglones (defensa del corte)", () => {
     expect(esErrorDeMotivo(new ErrorTikTok(25001021, "/x", "x"))).toBe(true);
     expect(esErrorDeMotivo(new Error("TikTok Shop 12345 en /x: invalid reason"))).toBe(true);
     expect(esErrorDeMotivo(new Error("TikTok Shop 12345 en /x: order already shipped"))).toBe(false);
+  });
+});
+
+describe("motivosDeCancelacion (aftersale eligibility)", () => {
+  it("pregunta como vendedor por el pedido y junta los available_reason_names a cualquier profundidad", async () => {
+    const llamadas: any[] = [];
+    const cliente = {
+      llamar: vi.fn(async (metodo: string, ruta: string, opciones: any) => {
+        llamadas.push({ metodo, ruta, opciones });
+        return {
+          sku_eligibility: [
+            { sku_id: "1", line_item_eligibility: [{ request_type: "CANCEL", eligible: true, available_reason_names: ["ecom_x_out_of_stock", "ecom_x_pricing_error"] }] },
+            { sku_id: "2", line_item_eligibility: [{ request_type: "CANCEL", eligible: true, available_reason_names: ["ecom_x_pricing_error"] }] },
+          ],
+        };
+      }),
+      msRestantes: () => 100_000,
+    } as unknown as Cliente;
+    const r = await motivosDeCancelacion(cliente, "586");
+    expect(llamadas[0]).toMatchObject({ metodo: "GET", ruta: "/return_refund/202309/orders/586/aftersale_eligibility", opciones: { params: { initiate_aftersale_user: "SELLER" } } });
+    expect(r.motivos).toEqual(["ecom_x_out_of_stock", "ecom_x_pricing_error"]);
+    expect(motivoSinStock(r.motivos)).toBe("ecom_x_out_of_stock");
+  });
+
+  it("acepta la forma con objetos y elige el primero si ninguno habla de stock", () => {
+    expect(nombresDeMotivo({ a: { available_reasons: [{ name: "r1" }, { reason_name: "r2" }] } })).toEqual(["r1", "r2"]);
+    expect(motivoSinStock(["r1", "r2"])).toBe("r1");
+    expect(motivoSinStock([])).toBeNull();
+    expect(nombresDeMotivo(null)).toEqual([]);
   });
 });

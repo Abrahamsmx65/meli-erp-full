@@ -78,11 +78,22 @@ export function saldosDesdeMovimientos(movs: Movimiento[]): Map<string, number> 
  * Qué significa para el almacén el estado de un renglón de pedido.
  *
  *   apartado -> pagado y todavía aquí: no se puede vender otra vez
+ *   espera   -> creado y SIN PAGAR: TikTok ya le tiene el par apartado al
+ *               comprador mientras paga (en México el pago en efectivo tarda
+ *               hasta tres días), así que tampoco se puede volver a ofrecer
  *   salida   -> ya salió del almacén: el saldo baja
  *   reversa  -> se canceló o regresó: si ya había salido, el saldo vuelve
- *   nada     -> ni siquiera está pagado
+ *   nada     -> no dice nada del inventario
+ *
+ * Hasta el 18-sep-2026 UNPAID era «nada» y por ahí se sobrevendió: el
+ * ERP publicaba `saldo − pagados` y TikTok, que sí tenía apartados los
+ * pares de los pedidos sin pagar, los volvía a vender; cuando el comprador
+ * pagaba dos días después (586077460963886586, MY2305-MINT-24-MX) el par
+ * ya se había ido en otro pedido. En diez días hubo ~570 pedidos que
+ * nacieron sin pagar y se cancelaron solos (promedio 38 h en ese estado) y
+ * ~40 que pagaron tarde: cada uno de esos era un par ofrecido dos veces.
  */
-export type EfectoInventario = "apartado" | "salida" | "reversa" | "nada";
+export type EfectoInventario = "apartado" | "espera" | "salida" | "reversa" | "nada";
 
 /**
  * `AWAITING_COLLECTION` es la frontera: ahí el vendedor ya confirmó el envío
@@ -110,12 +121,22 @@ const ESTADOS_REVERSA = new Set([
   "WILL_RETURN",
 ]);
 
+/** Creado, sin pagar: TikTok ya apartó el par; si no paga, TikTok lo cancela solo. */
+const ESTADOS_ESPERA = new Set(["UNPAID"]);
+
 export function efectoDeEstado(estado: string | null | undefined): EfectoInventario {
   const e = String(estado ?? "").trim().toUpperCase();
   if (ESTADOS_SALIDA.has(e)) return "salida";
   if (ESTADOS_APARTADO.has(e)) return "apartado";
+  if (ESTADOS_ESPERA.has(e)) return "espera";
   if (ESTADOS_REVERSA.has(e)) return "reversa";
   return "nada";
+}
+
+/** ¿El par está comprometido con un comprador (pagado o en espera de pago)? No se puede volver a ofrecer. */
+export function estaComprometido(estado: string | null | undefined): boolean {
+  const efecto = efectoDeEstado(estado);
+  return efecto === "apartado" || efecto === "espera";
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +189,7 @@ export function movimientosPendientes(
 
   for (const r of renglones) {
     const efecto = efectoDeEstado(r.estado);
-    if (efecto === "nada" || efecto === "apartado") continue;
+    if (efecto === "nada" || efecto === "apartado" || efecto === "espera") continue;
 
     if (!r.skuInterno) {
       sinAmarre.push(r);
@@ -217,12 +238,16 @@ export function movimientosPendientes(
   return { movimientos, sinAmarre };
 }
 
-/** Los pares pagados que todavía no salen, por SKU. */
+/**
+ * Los pares comprometidos que todavía no salen, por SKU: los pagados Y los
+ * que esperan el pago (TikTok ya los tiene apartados). Es lo que se resta
+ * del saldo para lo que se le publica a TikTok.
+ */
 export function apartadosPorSku(renglones: RenglonPedido[]): Map<string, number> {
   const apartados = new Map<string, number>();
   for (const r of renglones) {
     if (!r.skuInterno) continue;
-    if (efectoDeEstado(r.estado) !== "apartado") continue;
+    if (!estaComprometido(r.estado)) continue;
     apartados.set(r.skuInterno, (apartados.get(r.skuInterno) ?? 0) + r.cantidad);
   }
   return apartados;

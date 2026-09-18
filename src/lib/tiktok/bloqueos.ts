@@ -101,6 +101,19 @@ export function paresFisicos(s: StockFisico): number {
   return Math.max(0, Math.min(s.saldo, s.estante - s.salidasPendientes));
 }
 
+/** Con qué empieza el motivo de un bloqueo AUTOMÁTICO: se vuelve a evaluar en cada corte. */
+export const PREFIJO_AUTO = "auto:";
+
+/**
+ * Un bloqueo automático NO es para siempre: se decidió con el stock de ese
+ * momento. Si después llega mercancía (el 18-sep-2026 Industher metió 35
+ * pares de GT148-BLK-24 a las 12:15 y los pedidos seguían bloqueados de la
+ * mañana), el siguiente corte lo vuelve a calcular y lo libera.
+ */
+export function esBloqueoAutomatico(motivo: string | null | undefined): boolean {
+  return String(motivo ?? "").startsWith(PREFIJO_AUTO);
+}
+
 export interface AutoBloqueo {
   lineItemId: string;
   orderId: string;
@@ -139,7 +152,7 @@ export function autoBloqueos(renglones: RenglonConPedido[], stock: Map<string, S
     for (const r of ordenados) {
       acumulado += r.cantidad;
       if (acumulado > hay) {
-        salida.push({ lineItemId: r.lineItemId, orderId: r.orderId, sku, motivo: `auto: sin stock (hay ${hay}, piden ${piden})` });
+        salida.push({ lineItemId: r.lineItemId, orderId: r.orderId, sku, motivo: `${PREFIJO_AUTO} sin stock (hay ${hay}, piden ${piden})` });
       }
     }
   }

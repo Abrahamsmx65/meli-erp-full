@@ -126,3 +126,12 @@ describe("autoBloqueos", () => {
     expect(r.map((x) => x.orderId)).toEqual(["A"]);
   });
 });
+
+describe("esBloqueoAutomatico", () => {
+  it("reconoce el motivo automático por su prefijo; uno a mano no", async () => {
+    const { esBloqueoAutomatico, PREFIJO_AUTO } = await import("./bloqueos");
+    expect(esBloqueoAutomatico(`${PREFIJO_AUTO} sin stock (hay 0, piden 1)`)).toBe(true);
+    expect(esBloqueoAutomatico("falla del 14-sep")).toBe(false);
+    expect(esBloqueoAutomatico(null)).toBe(false);
+  });
+});

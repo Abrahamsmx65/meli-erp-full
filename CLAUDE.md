@@ -190,7 +190,19 @@ guárdala numerada.
   `tiktok_movimientos` (esa tabla es la fuente de verdad; `tiktok_inventario`
   solo guarda el saldo ya sumado). Un pedido pagado sin despachar APARTA, no
   descuenta; el saldo baja hasta que el envío se confirma
-  (`AWAITING_COLLECTION` en adelante). Lo que se le publica a TikTok es
+  (`AWAITING_COLLECTION` en adelante). **Un pedido creado SIN PAGAR
+  (`UNPAID`) TAMBIÉN aparta** (`efectoDeEstado` → `espera`,
+  `estaComprometido`; 18-sep-2026): TikTok le tiene el par apartado al
+  comprador mientras paga —en México el pago en efectivo tarda hasta tres
+  días— y hasta ese día el ERP lo trataba como «nada», publicaba
+  `saldo − pagados` y TikTok volvía a vender esos pares; cuando el
+  comprador pagaba dos días después (586077460963886586, MY2305-MINT-24-MX
+  el 15-sep, pagado el 17) el par ya se había ido en otro pedido. ASÍ SE
+  SOBREVENDIÓ: en diez días ~570 pedidos nacieron sin pagar y se cancelaron
+  solos (38 h promedio en ese estado) y ~40 pagaron tarde. El sin pagar
+  solo cuenta para lo que se PUBLICA; no entra al corte, no lo bloquea la
+  defensa y no mueve el kardex; si TikTok lo cancela, vuelve a ofrecerse.
+  Lo que se le publica a TikTok es
   `saldo - apartado`, nunca negativo, y se le ESCRIBE por API en cada
   movimiento del kardex y cada hora en el cron — si no se publica, la tienda
   sigue vendiendo lo que ya no hay. El doble descuento lo impide un índice
@@ -385,20 +397,37 @@ guárdala numerada.
   que lo CANCELE (`cancelarRenglones`: `POST
   /return_refund/202309/cancellations`, la ruta del VENDEDOR en 202309,
   parcial por `sku_id`; todo bloqueado = pedido completo) y se confirma lo
-  demás. **El motivo es una CLAVE FIJA de la documentación de TikTok**
-  (`MOTIVOS_SIN_STOCK`, primero
-  `ecom_order_to_ship_canceled_reason_out_of_stock`): TikTok no tiene
-  endpoint que liste motivos para el vendedor. Hasta el 18-sep-2026 el
-  corte pedía `/order/202309/orders/cancellation_reasons` (no existe) y
-  cancelaba por `/order/.../cancel` (tampoco), y el error se tragaba: la
-  defensa nunca canceló nada y 16 pedidos se quedaron fuera de cuatro
-  cortes seguidos con «no dio un motivo». Ahora los motivos se prueban en
-  orden (solo se pasa al siguiente si TikTok rechaza EL MOTIVO, código
-  25001021 o «reason» en el mensaje), el mensaje REAL de TikTok queda en
-  el corte y en `bloqueo_resultado`, y una cancelación que TikTok deje
-  PENDIENTE (`cancel_status` PENDING) NO cuenta como aceptada. **Si
-  TikTok no acepta la cancelación, el pedido ENTERO se queda fuera del
-  corte** y se declara: confirmar un par que no existe es el error caro.
+  demás. **El motivo se le pregunta a TikTok POR PEDIDO**
+  (`motivosDeCancelacion`: `GET
+  /return_refund/202309/orders/{id}/aftersale_eligibility` como vendedor;
+  `nombresDeMotivo` junta todo `available_reason_names` a cualquier
+  profundidad y `motivoSinStock` elige el que hable de stock, si no el
+  primero; el crudo de la primera respuesta se guarda en `tiktok_sync_log`
+  tarea `diagnostico-cancelacion` porque su forma no está en ningún SDK
+  público). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
+  quedan de respaldo: el 18-sep-2026 TikTok contestó a ellas 25001014
+  «cancel_reason must exactly match an available_reason_names value
+  returned by Get Aftersale Eligibility». Hasta ese día el corte pedía
+  `/order/202309/orders/cancellation_reasons` (no existe) y cancelaba por
+  `/order/.../cancel` (tampoco), y el error se tragaba: la defensa nunca
+  canceló nada y 16 pedidos se quedaron fuera de cuatro cortes seguidos con
+  «no dio un motivo». Solo se pasa a otro motivo si TikTok rechaza EL
+  MOTIVO (`esErrorDeMotivo`: código 25001021 o «reason» en el mensaje), el
+  mensaje REAL de TikTok queda en el corte y en `bloqueo_resultado`, y una
+  cancelación que TikTok deje PENDIENTE (`cancel_status` PENDING) NO
+  cuenta como aceptada. **TikTok MX contestó 11050001 a la cancelación
+  PARCIAL** («Cannot partially cancel this order: partial cancellation
+  requires the order's market and cancel_reason to support partial
+  cancellation»): mientras no se sepa qué motivo la permite, un pedido
+  grande con un renglón sin stock se queda fuera con ese mensaje; el dueño
+  decide si se cancela completo. **Si TikTok no acepta la cancelación, el
+  pedido ENTERO se queda fuera del corte** y se declara: confirmar un par
+  que no existe es el error caro. **Un bloqueo automático no es para
+  siempre** (`esBloqueoAutomatico`, prefijo `auto:`): cada corte lo vuelve
+  a decidir con el stock de hoy y, si llegó mercancía, lo libera
+  (`liberados`, `bloqueo_resultado = liberado: ya hay stock`); el 18-sep
+  Industher metió 35 pares de GT148-BLK-24 a mediodía y los pedidos seguían
+  bloqueados de la mañana.
   **Un corte donde NADIE entró no se guarda** (`corteId: null` en
   `ResultadoCorte`; el 18-sep se guardaron dos cortes vacíos seguidos):
   lo cancelado se relee igual y el resumen dice, agrupado, por qué no

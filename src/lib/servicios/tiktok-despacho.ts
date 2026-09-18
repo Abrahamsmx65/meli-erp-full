@@ -25,6 +25,8 @@ import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, de
 import {
   cancelarRenglones,
   MOTIVOS_SIN_STOCK,
+  motivosDeCancelacion,
+  motivoSinStock,
   enviarPaquete,
   etiquetaDePaquete,
   opcionesDeEntrega,
@@ -33,7 +35,7 @@ import {
   type HorarioRecoleccion,
   type OpcionesEnvio,
 } from "../tiktok/api";
-import { autoBloqueos, decidirPedido, type RenglonBloqueable, type RenglonConPedido, type StockFisico } from "../tiktok/bloqueos";
+import { autoBloqueos, decidirPedido, esBloqueoAutomatico, type RenglonBloqueable, type RenglonConPedido, type StockFisico } from "../tiktok/bloqueos";
 import type { Cancelacion } from "../tiktok/api";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 import { leerEstanteTikTok } from "./tiktok-bodega";
@@ -92,20 +94,32 @@ async function renglonesConDefensa(
   admin: any,
   accountId: string,
   pendientes: PendienteConFecha[],
-): Promise<{ porPedido: Map<string, RenglonConPedido[]>; automaticos: ReturnType<typeof autoBloqueos> }> {
+): Promise<{
+  porPedido: Map<string, RenglonConPedido[]>;
+  automaticos: ReturnType<typeof autoBloqueos>;
+  /** renglones que estaban bloqueados solos y ya no hace falta: llegó stock */
+  liberados: string[];
+}> {
   const ids = pendientes.map((p) => p.orderId);
   const porPedido = new Map<string, RenglonConPedido[]>();
-  if (!ids.length) return { porPedido, automaticos: [] };
+  if (!ids.length) return { porPedido, automaticos: [], liberados: [] };
   const fechaDe = new Map(pendientes.map((p) => [p.orderId, p.creadoEn]));
   const [filas, stock] = await Promise.all([
     traerTodo<any>(
       admin,
       "tiktok_orden_items",
-      "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_resuelto_en",
+      "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_motivo, bloqueo_resuelto_en",
       (q) => q.eq("account_id", accountId).in("order_id", ids),
     ),
     stockFisicoDeCuenta(admin, accountId),
   ]);
+  // Un bloqueo AUTOMÁTICO vigente no se hereda: se vuelve a decidir con el
+  // stock de hoy (si llegó mercancía, el pedido sale). Uno a mano sí se queda.
+  const autoPrevio = new Set<string>(
+    (filas ?? [])
+      .filter((i: any) => i.bloqueado_en && !i.bloqueo_resuelto_en && esBloqueoAutomatico(i.bloqueo_motivo))
+      .map((i: any) => String(i.line_item_id)),
+  );
   const todos: RenglonConPedido[] = (filas ?? []).map((i: any) => ({
     orderId: String(i.order_id),
     creadoEn: fechaDe.get(String(i.order_id)) ?? null,
@@ -114,7 +128,7 @@ async function renglonesConDefensa(
     sku: String(i.sku_interno ?? i.seller_sku ?? "(sin SKU)"),
     cantidad: Number(i.cantidad ?? 1),
     estado: i.estado ?? null,
-    bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en,
+    bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en && !esBloqueoAutomatico(i.bloqueo_motivo),
   }));
   const automaticos = autoBloqueos(todos, stock);
   const auto = new Set(automaticos.map((a) => a.lineItemId));
@@ -124,7 +138,8 @@ async function renglonesConDefensa(
     l.push(r);
     porPedido.set(r.orderId, l);
   }
-  return { porPedido, automaticos };
+  const liberados = [...autoPrevio].filter((id) => !auto.has(id));
+  return { porPedido, automaticos, liberados };
 }
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
@@ -268,7 +283,7 @@ export async function hacerCorte(
   // que lo piden se bloquea solo (los más nuevos primero), se cancela en
   // TikTok y se confirma lo demás. De aquí salen también los pares del
   // corte y las salidas al 3PL, ya sin lo cancelado.
-  const { porPedido: renglonesPorPedido, automaticos } = await renglonesConDefensa(admin, accountId, pendientes);
+  const { porPedido: renglonesPorPedido, automaticos, liberados } = await renglonesConDefensa(admin, accountId, pendientes);
   if (automaticos.length) {
     // Constancia del bloqueo automático, con su motivo, antes de tocar TikTok.
     for (const a of automaticos) {
@@ -279,15 +294,26 @@ export async function hacerCorte(
         .eq("line_item_id", a.lineItemId);
     }
   }
+  if (liberados.length) {
+    // Llegó stock: el bloqueo de la vez pasada ya no aplica y el pedido entra.
+    await admin
+      .from("tiktok_orden_items")
+      .update({ bloqueo_resultado: "liberado: ya hay stock", bloqueo_resuelto_en: new Date().toISOString() })
+      .eq("account_id", accountId)
+      .in("line_item_id", liberados);
+  }
   const filasRenglones = [...renglonesPorPedido.values()].flat();
   /** lo que queda vivo de cada pedido confirmado (sin lo cancelado) */
   const vivosPorPedido = new Map<string, RenglonBloqueable[]>();
   const cancelados: ResultadoCorte["cancelados"] = [];
   /** pedidos cancelados completos: se releen para que el kardex los revierta */
   const canceladosCompletos: string[] = [];
-  // El motivo de cancelación: claves fijas de TikTok (`MOTIVOS_SIN_STOCK`);
-  // la que acepte en el primer pedido se prueba primero en los demás.
-  let motivos = [...MOTIVOS_SIN_STOCK];
+  // El motivo de cancelación se le pregunta a TikTok POR PEDIDO (aftersale
+  // eligibility); las claves fijas de su documentación quedan de respaldo
+  // por si no contesta nada. La primera respuesta cruda se guarda en la
+  // bitácora: su forma exacta no está documentada en ningún SDK público.
+  const motivos = [...MOTIVOS_SIN_STOCK];
+  let elegibilidadCruda: { orderId: string; crudo: unknown } | null = null;
   const constancia = async (lineItemIds: string[], resultado: string) => {
     if (!lineItemIds.length) return;
     await admin
@@ -333,10 +359,19 @@ export async function hacerCorte(
         const ids = decision.cancelar.flatMap((c) => c.lineItemIds);
         let r: Cancelacion;
         try {
+          let motivosPedido = motivos;
+          try {
+            const e = await motivosDeCancelacion(cliente, p.orderId);
+            if (!elegibilidadCruda) elegibilidadCruda = { orderId: p.orderId, crudo: e.crudo };
+            const preferido = motivoSinStock(e.motivos);
+            if (preferido) motivosPedido = [preferido];
+          } catch (err) {
+            if (!elegibilidadCruda) elegibilidadCruda = { orderId: p.orderId, crudo: { error: (err as Error).message } };
+          }
           r = await cancelarRenglones(
             cliente,
             p.orderId,
-            motivos,
+            motivosPedido,
             decision.todoBloqueado ? undefined : decision.cancelar.map((c) => ({ skuId: c.skuId, cantidad: c.cantidad })),
           );
         } catch (err) {
@@ -346,7 +381,6 @@ export async function hacerCorte(
           await constancia(ids, m);
           throw new Error(`Bloqueado y TikTok no aceptó cancelarlo (${m}); el pedido se queda fuera del corte.`);
         }
-        if (r.motivo !== motivos[0]) motivos = [r.motivo, ...motivos.filter((x) => x !== r.motivo)];
         if (!r.aceptada) {
           // TikTok la dejó pendiente (del comprador): el par sigue vendido y
           // confirmarlo sería mandar lo que no hay.
@@ -419,6 +453,20 @@ export async function hacerCorte(
   // SÍ entraron al corte; lo que falló fue TikTok con su horario.
   const avisoHorarios = avisoDeGuardia(guardia);
   if (avisoHorarios) errores.push({ orderId: "", error: avisoHorarios });
+
+  if (elegibilidadCruda) {
+    await admin
+      .from("tiktok_sync_log")
+      .insert({
+        account_id: accountId,
+        tarea: "diagnostico-cancelacion",
+        inicio: new Date().toISOString(),
+        fin: new Date().toISOString(),
+        estado: "ok",
+        detalle: elegibilidadCruda,
+      })
+      .then(() => undefined, () => undefined);
+  }
 
   // Sin un solo pedido confirmado NO se guarda un corte: uno vacío solo
   // estorba en la lista (el 18-sep-2026 se guardaron dos seguidos con 0
