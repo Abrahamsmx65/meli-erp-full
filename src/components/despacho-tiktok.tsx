@@ -18,11 +18,18 @@ export interface CorteResumen {
   preparados: number | null;
   /** pedidos cancelados después del corte: conservan su número, ya no faltan */
   cancelados?: number;
+  /** pedidos que ya se fueron con el repartidor sin escanearse: resueltos, ya no faltan */
+  enviados?: number;
 }
 
 /** Los pedidos del corte que siguen vivos: los que entraron menos los cancelados después. */
 function vivosDe(c: CorteResumen): number {
   return Math.max(0, c.pedidos - (c.cancelados ?? 0));
+}
+
+/** Lo que ya no falta: escaneado en la estación, o ya en camino sin escanear. */
+function listosDe(c: CorteResumen): number | null {
+  return c.preparados == null ? null : c.preparados + (c.enviados ?? 0);
 }
 
 function cuando(iso: string): string {
@@ -277,11 +284,12 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <span
                     className="ml-2 rounded-full px-2 text-[11px] font-semibold"
                     style={{
-                      background: c.preparados != null && c.preparados >= vivosDe(c) && vivosDe(c) > 0 ? "var(--acento-suave)" : "var(--grid)",
-                      color: c.preparados != null && c.preparados >= vivosDe(c) && vivosDe(c) > 0 ? "var(--exito-texto)" : "var(--ink-2)",
+                      background: listosDe(c) != null && (listosDe(c) as number) >= vivosDe(c) && vivosDe(c) > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      color: listosDe(c) != null && (listosDe(c) as number) >= vivosDe(c) && vivosDe(c) > 0 ? "var(--exito-texto)" : "var(--ink-2)",
                     }}
                   >
-                    {c.preparados ?? "—"} / {vivosDe(c)} preparados
+                    {listosDe(c) ?? "—"} / {vivosDe(c)} preparados
+                    {c.enviados ? ` · ${c.enviados} ${c.enviados === 1 ? "ya enviado sin escanear" : "ya enviados sin escanear"}` : ""}
                     {c.cancelados ? ` · ${c.cancelados} ${c.cancelados === 1 ? "cancelado" : "cancelados"}` : ""}
                   </span>
                 </div>
@@ -321,7 +329,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
-                {vivosDe(c) > 0 && c.preparados != null && c.preparados < vivosDe(c) ? (
+                {vivosDe(c) > 0 && listosDe(c) != null && (listosDe(c) as number) < vivosDe(c) ? (
                   <button
                     type="button"
                     disabled={pidiendoFaltantes === c.id}
@@ -335,15 +343,15 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                       ? "Buscando…"
                       : faltantes[c.id]
                         ? "Ocultar faltantes"
-                        : `Faltantes (${vivosDe(c) - (c.preparados ?? 0)})`}
+                        : `Faltantes (${vivosDe(c) - (listosDe(c) ?? 0)})`}
                   </button>
                 ) : null}
-                {vivosDe(c) > 0 && c.preparados != null && c.preparados < vivosDe(c) ? (
+                {vivosDe(c) > 0 && listosDe(c) != null && (listosDe(c) as number) < vivosDe(c) ? (
                   <button
                     type="button"
                     disabled={preparandoTodo === c.id}
                     onClick={async () => {
-                      const faltan = vivosDe(c) - (c.preparados ?? 0);
+                      const faltan = vivosDe(c) - (listosDe(c) ?? 0);
                       const pin = window.prompt(
                         `Dar por preparado TODO el corte #${c.numero} sin escanear (faltan ${faltan}). Clave de supervisor:`,
                       );
@@ -413,6 +421,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                     <span className="font-semibold">
                       Faltan {faltantes[c.id].faltantes.length} de {faltantes[c.id].total} paquetes ·{" "}
                       {faltantes[c.id].pares.reduce((a: number, x: any) => a + x.pares, 0)} pares
+                      {faltantes[c.id].enviados
+                        ? ` · ${faltantes[c.id].enviados} ${faltantes[c.id].enviados === 1 ? "ya enviado sin escanear" : "ya enviados sin escanear"}`
+                        : ""}
                       {faltantes[c.id].cancelados
                         ? ` · ${faltantes[c.id].cancelados} ${faltantes[c.id].cancelados === 1 ? "cancelado después del corte" : "cancelados después del corte"}`
                         : ""}

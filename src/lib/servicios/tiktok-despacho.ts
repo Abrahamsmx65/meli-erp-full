@@ -45,6 +45,7 @@ import {
   agruparPorModelo,
   clavePaquete,
   faltantesDePaquetes,
+  yaSeEnvio,
   codigoDeHoja,
   codigoDeOrden,
   necesitaFranja,
@@ -758,6 +759,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     // Cancelado después del corte (el pedido entero, o todos sus renglones):
     // conserva su número, pero ya no falta por preparar.
     const cancelado = efectoDeEstado(o.estado) === "reversa" || renglones.length === 0;
+    // Ya se fue con el repartidor (TikTok lo tiene en camino o entregado):
+    // salió aunque no se haya escaneado.
+    const enviado = yaSeEnvio(o.estado);
 
     if (ids.length <= 1) {
       paquetes.push({
@@ -767,6 +771,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         paqueteria: o.paqueteria ?? null,
         pares: aPar(renglones),
         cancelado,
+        enviado,
       });
       continue;
     }
@@ -791,6 +796,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         paqueteria: o.paqueteria ?? null,
         pares: aPar(propios.length ? propios : renglones),
         cancelado,
+        enviado,
       });
     }
   }
@@ -1232,8 +1238,9 @@ export async function releerSinPrepararDeCortesRecientes(
     ),
   ]);
   const hechos = new Set((preparados ?? []).map((p: any) => String(p.order_id)));
+  // Lo cancelado y lo que ya se fue con el repartidor no cambia: no se relee.
   const pendientes = (ordenes ?? [])
-    .filter((o: any) => !hechos.has(String(o.order_id)) && efectoDeEstado(o.estado) !== "reversa")
+    .filter((o: any) => !hechos.has(String(o.order_id)) && efectoDeEstado(o.estado) !== "reversa" && !yaSeEnvio(o.estado))
     .map((o: any) => String(o.order_id))
     .slice(0, TOPE_RELEER);
   if (!pendientes.length) return { releidos: 0, cortes: ids.length };
@@ -1342,6 +1349,8 @@ export interface FaltantesCorte {
   preparados: number;
   /** paquetes cancelados después del corte: conservan su número, no faltan */
   cancelados: number;
+  /** paquetes que ya se fueron con el repartidor sin escanearse: resueltos, no faltan */
+  enviados: number;
   faltantes: PaqueteFaltante[];
   /** pares que se quedaron sin salir, sumados por SKU */
   pares: { sku: string; pares: number }[];
@@ -1406,6 +1415,7 @@ export async function faltantesDelCorte(
     total: vivos.total,
     preparados: yaNumerados.size,
     cancelados: vivos.cancelados,
+    enviados: vivos.enviados,
     faltantes,
     pares: [...porSku]
       .map(([sku, pares]) => ({ sku, pares }))

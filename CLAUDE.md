@@ -368,7 +368,14 @@ guárdala numerada.
   cancelado en el Seller Center el 15, siguió tres días como faltante):
   conserva su número en la hoja pero sale de los faltantes, del total y
   del «X / Y preparados» (la pantalla resta los cancelados y los enseña
-  aparte). Y para que se entere solo, `releerSinPrepararDeCortesRecientes`
+  aparte). **Y un pedido que TikTok ya tiene EN CAMINO o ENTREGADO tampoco
+  falta aunque nadie lo haya escaneado** (`PaqueteDespacho.enviado`,
+  `yaSeEnvio`: IN_TRANSIT, DELIVERED, COMPLETED; pedido del dueño el
+  18-sep-2026: «pedidos que no se escanearon bien pero en plataforma ya se
+  enviaron»): se fue con el repartidor, cuenta como listo y la pantalla lo
+  enseña como «ya enviado sin escanear». Con solo la guía creada
+  (AWAITING_COLLECTION) NO: eso lo hace el propio corte y no prueba que se
+  empacó. Y para que se entere solo, `releerSinPrepararDeCortesRecientes`
   vuelve a leer en TikTok los pedidos sin preparar de los cortes de los
   últimos `DIAS_RELEER_CORTES` (3) días, hasta `TOPE_RELEER` (80): de
   fondo después de cada corte y antes del correo de faltantes de la mañana.
