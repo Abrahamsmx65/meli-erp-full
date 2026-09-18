@@ -280,7 +280,13 @@ guárdala numerada.
   `FRANJA_ESTAMPA`, con `tiktok_ordenes.paqueteria`): la guía se incrusta
   completa arriba y el estampado va en la franja; la impresora encoge un
   8 % y nada se encima (pedido del dueño el 15-sep-2026). Luego la
-  lista de empaque en el mismo orden con los mismos números, y la lista de
+  lista de empaque en el mismo orden con los mismos números —SIN códigos
+  de barras desde el 18-sep-2026 («ya no me pongas el FNSKU para escanear,
+  solo el SKU y cantidades»): sección por modelo con columnas Color ·
+  Talla · Cant. (la cantidad de más de un par va sombreada), el pedido en
+  texto, un paquete con varios renglones en recuadro con su total, y en
+  REVUELTOS la columna trae el SKU completo; el escaneo se hace con la
+  guía y con la caja—, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. **El orden del corte es: PRIMERO todo lo de UN SOLO
   MODELO y al final lo REVUELTO** (`esDeUnModelo`, `numerarPaquetes`;
@@ -394,11 +400,11 @@ guárdala numerada.
   16-sep-2026.
   **Preparar pedido** (`tiktok/preparar.ts`, estación en
   `/tiktok/despacho/[id]/preparar`): se empieza por la ETIQUETA (FNSKU de
-  Amazon, impreso como barras en la guía Y en el renglón de la lista: hoja,
-  guía y caja llevan el mismo código) — elige el siguiente paquete sin
+  Amazon, impreso como barras en la GUÍA; la lista de empaque ya no lleva
+  códigos) — elige el siguiente paquete sin
   preparar con ese producto y pita UNA VEZ POR PAR; luego el PRODUCTO (FNSKU de la
   caja, un escaneo por par). El camino principal con muchos paquetes del
-  mismo producto es empezar por el PEDIDO: el renglón de la hoja lleva el
+  mismo producto es empezar por el PEDIDO: la guía lleva el
   NÚMERO DE PEDIDO en Code 128 (juego C, `codigoDeOrden`), escanearlo
   elige ese paquete exacto y pasa a pedir sus FNSKU. El código que se
   IMPRIME es SIEMPRE el FNSKU (decisión del dueño: la caja lleva la etiqueta

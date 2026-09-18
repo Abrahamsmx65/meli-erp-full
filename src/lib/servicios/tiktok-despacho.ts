@@ -47,6 +47,7 @@ import {
   renglonesDeEtiqueta,
   numerarPaquetes,
   ORDEN_ACTUAL,
+  partirSku,
   type OrdenPaquetes,
   type PaqueteDespacho,
   type PaqueteNumerado,
@@ -931,9 +932,20 @@ function esJpg(b: Uint8Array): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// PDF de la lista de empaque: por modelo, mismos números
+// PDF de la lista de empaque: por modelo, mismos números, sin códigos
 // ---------------------------------------------------------------------------
 
+/**
+ * La lista de EMPAQUE del corte: la hoja que va en la mesa junto a las
+ * guías. Mismo orden y mismos "#n" que las guías. Desde el 18-sep-2026 NO
+ * lleva códigos de barras (decisión del dueño: «ya no me pongas el FNSKU
+ * para escanear, solo el SKU y cantidades»): el escaneo en la estación se
+ * hace con la GUÍA (código del pedido) y con la CAJA (FNSKU / código Full).
+ * Así cabe un renglón por par en 16 pt y la hoja se lee de un vistazo:
+ * sección por MODELO con columnas Color · Talla · Cant.; en la sección de
+ * REVUELTOS (varios modelos en la misma caja) la columna trae el SKU
+ * completo. Un paquete con varios renglones va dentro de un recuadro.
+ */
 export async function pdfListaDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
   const corte = await cargarCorte(admin, accountId, corteId);
   const grupos = agruparPorModelo(corte.paquetes, corte.orden);
@@ -946,11 +958,14 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   const CARTA: [number, number] = [612, 792];
   const M = 36;
   const ANCHO = CARTA[0] - 2 * M;
-  // Columnas: # | PEDIDO en barras (se escanea primero) | SKU × cant. | FNSKU (barras: la caja) | destinatario | ☐
-  const COL = [26, 128, 150, 128, ANCHO - 26 - 128 - 150 - 128 - 18, 18];
-  const FILA = 34;
+  // Columnas: # | Pedido (texto) | Color (o SKU en revueltos) | Talla | Cant. | Destinatario | ☐
+  const COL = [30, 118, 150, 40, 40, ANCHO - 30 - 118 - 150 - 40 - 40 - 18, 18];
+  const XS = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
+  const FILA = 16;
+  const negro = rgb(0, 0, 0);
   const gris = rgb(0.45, 0.45, 0.45);
   const linea = rgb(0.75, 0.75, 0.75);
+  const sombra = rgb(0.93, 0.93, 0.93);
 
   let pagina = doc.addPage(CARTA);
   let y = CARTA[1] - M;
@@ -964,18 +979,22 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
     pagina = doc.addPage(CARTA);
     y = CARTA[1] - M;
   };
-  const texto = (t: string, x: number, size: number, f = normal, color = rgb(0, 0, 0)) =>
+  const texto = (t: string, x: number, size: number, f = normal, color = negro) =>
     pagina.drawText(t, { x, y, size, font: f, color });
   const recorta = (t: string, ancho: number, size: number, f = normal) => {
     let s = t;
     while (s.length > 1 && f.widthOfTextAtSize(s, size) > ancho - 4) s = s.slice(0, -1);
     return s === t ? t : s.slice(0, -1) + "…";
   };
+  const centrado = (t: string, x: number, ancho: number, size: number, f = normal, color = negro) =>
+    pagina.drawText(t, { x: x + (ancho - f.widthOfTextAtSize(t, size)) / 2, y, size, font: f, color });
 
-  const encabezado = () => {
-    const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-    const titulos = ["#", "1. Pedido (escanear)", "SKU × cant.", "2. Producto (FNSKU)", "Destinatario", ""];
-    titulos.forEach((t, i) => pagina.drawText(t, { x: xs[i] + 2, y, size: 8, font: negrita, color: gris }));
+  const encabezado = (revuelto: boolean) => {
+    const titulos = ["#", "Pedido", revuelto ? "SKU" : "Color", "Talla", "Cant.", "Destinatario", ""];
+    titulos.forEach((t, i) => {
+      if (i === 3 || i === 4) centrado(t, XS[i], COL[i], 8, negrita, gris);
+      else pagina.drawText(t, { x: XS[i] + 2, y, size: 8, font: negrita, color: gris });
+    });
     y -= 4;
     pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
     y -= FILA;
@@ -989,66 +1008,64 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   y -= 22;
 
   for (const g of grupos) {
-    if (y < M + FILA * 3) nuevaPagina();
+    if (y < M + FILA * 4) nuevaPagina();
     const titulo = g.revuelto ? `${g.modelo.toUpperCase()} (varios modelos en la misma caja)` : g.modelo;
     texto(`${titulo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}`, M, 11, negrita);
     y -= 14;
-    encabezado();
+    encabezado(g.revuelto);
 
     for (const p of g.paquetes) {
-      const renglones = renglonesDeEtiqueta(p, corte.numero);
+      // Un renglón por SKU del paquete, ya en orden modelo → color → talla.
+      const renglones = p.pares.map((x) => ({ ...partirSku(x.sku), sku: x.sku, pares: x.pares }));
+      const paresPaquete = renglones.reduce((a, r) => a + r.pares, 0);
       // El paquete completo cabe en la página o se pasa entero a la siguiente.
       if (y - FILA * (renglones.length - 1) < M) {
         nuevaPagina();
-        encabezado();
+        encabezado(g.revuelto);
       }
-      const xs = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
-      const yArribaPaquete = y + FILA - 4;
+      const yArribaPaquete = y + FILA - 3;
+      const varios = renglones.length > 1;
 
-      // UN RENGLÓN POR PRODUCTO. En el primero va el NÚMERO DE PEDIDO en
-      // barras (se escanea primero: elige ese paquete exacto aunque haya
-      // veinte iguales); en cada renglón, el FNSKU en barras (el de la caja).
-      const codigoOrden = codigoDeOrden(p.orderId);
       renglones.forEach((r, i) => {
-        const arriba = y + FILA - 12;
-        const etiquetaSku = r.pares > 1 ? `${r.sku} ×${r.pares}` : r.sku;
+        const base = y + 4;
         if (i === 0) {
-          pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 10, font: negrita });
-          if (codigoOrden) {
-            dibujarBarras(pagina, codigoOrden, xs[1] + 2, y + 9, anchoBarras(codigoOrden, COL[1] - 6), 18);
-            pagina.drawText(p.orderId, { x: xs[1] + 2, y: y + 1, size: 6, font: normal, color: gris });
-          }
-        } else {
-          pagina.drawText(`#${p.numero}`, { x: xs[0] + 2, y: arriba, size: 8, font: normal, color: gris });
+          pagina.drawText(`#${p.numero}`, { x: XS[0] + 2, y: base, size: 10, font: negrita });
+          pagina.drawText(p.orderId, { x: XS[1] + 2, y: base, size: 8, font: normal, color: gris });
         }
-        pagina.drawText(recorta(etiquetaSku, COL[2], 9, negrita), { x: xs[2] + 2, y: arriba, size: 9, font: negrita });
-        if (!r.esHoja) {
-          dibujarBarras(pagina, r.codigo, xs[3] + 2, y + 9, anchoBarras(r.codigo, COL[3] - 6), 18);
-          pagina.drawText(r.codigo, { x: xs[3] + 2, y: y + 1, size: 6, font: normal, color: gris });
-        } else {
-          pagina.drawText("sin FNSKU (Dar por bueno)", { x: xs[3] + 2, y: arriba, size: 7, font: normal, color: gris });
+        // En la sección del modelo basta el color; en revueltos, el SKU sin talla.
+        const producto = g.revuelto ? `${r.modelo}-${r.color}` : r.color || r.sku;
+        pagina.drawText(recorta(producto, COL[2], 9, negrita), { x: XS[2] + 2, y: base, size: 9, font: negrita });
+        const talla = r.talla || "—";
+        pagina.drawText(talla, { x: XS[3] + (COL[3] - negrita.widthOfTextAtSize(talla, 9)) / 2, y: base, size: 9, font: negrita });
+        // La cantidad: la de más de un par va sombreada para que no se pase.
+        if (r.pares > 1) {
+          pagina.drawRectangle({ x: XS[4] + 2, y: y, width: COL[4] - 4, height: FILA - 2, color: sombra });
         }
+        const cant = String(r.pares);
+        pagina.drawText(cant, { x: XS[4] + (COL[4] - negrita.widthOfTextAtSize(cant, 10)) / 2, y: base, size: 10, font: negrita });
         if (i === 0) {
-          pagina.drawText(recorta(p.destinatario ?? "", COL[4], 7.5), { x: xs[4] + 2, y: arriba, size: 7.5, font: normal, color: gris });
-          pagina.drawRectangle({ x: xs[5] + 3, y: y + 10, width: 11, height: 11, borderColor: rgb(0, 0, 0), borderWidth: 0.8 });
+          pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: XS[5] + 2, y: base, size: 7.5, font: normal, color: gris });
+          pagina.drawRectangle({ x: XS[6] + 3, y: y + 1, width: 11, height: 11, borderColor: negro, borderWidth: 0.8 });
         }
-        if (i < renglones.length - 1) {
-          pagina.drawLine({ start: { x: M + COL[0], y: y - 2 }, end: { x: M + ANCHO, y: y - 2 }, thickness: 0.3, color: linea });
+        if (varios && i < renglones.length - 1) {
+          pagina.drawLine({ start: { x: M + COL[0], y: y - 1 }, end: { x: M + ANCHO, y: y - 1 }, thickness: 0.3, color: linea });
         }
         y -= FILA;
       });
 
-      // Un paquete con varios productos va dentro de un recuadro negro:
-      // todo lo de adentro se empaca junto, en la misma caja.
-      if (renglones.length > 1) {
+      // Un paquete con varios renglones va dentro de un recuadro negro con
+      // su total: todo lo de adentro se empaca junto, en la misma caja.
+      if (varios) {
         pagina.drawRectangle({
           x: M - 2,
-          y: y + FILA - 4,
+          y: y + FILA - 3,
           width: ANCHO + 4,
-          height: yArribaPaquete - (y + FILA - 4),
-          borderColor: rgb(0, 0, 0),
+          height: yArribaPaquete - (y + FILA - 3),
+          borderColor: negro,
           borderWidth: 1.2,
         });
+        pagina.drawText(`${paresPaquete} pares en la misma caja`, { x: XS[5] + 2, y: y + FILA + 4, size: 7, font: normal, color: gris });
+        y -= 3;
       } else {
         pagina.drawLine({ start: { x: M, y: y + FILA - 2 }, end: { x: M + ANCHO, y: y + FILA - 2 }, thickness: 0.4, color: linea });
       }
