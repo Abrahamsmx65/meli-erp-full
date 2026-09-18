@@ -404,7 +404,12 @@ guárdala numerada.
   profundidad y `motivoSinStock` elige el que hable de stock, si no el
   primero; el crudo de la primera respuesta se guarda en `tiktok_sync_log`
   tarea `diagnostico-cancelacion` porque su forma no está en ningún SDK
-  público). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
+  público). La 202309 contestó el 18-sep-2026 SIN `available_reason_names`
+  (solo eligible/request_type por renglón), así que se prueban versiones
+  más nuevas del mismo endpoint (`VERSIONES_ELEGIBILIDAD`: 202309, 202505,
+  202507, 202510) hasta que alguna traiga motivos, y si ninguno entra el
+  error del corte dice qué contestó TikTok a CADA clave intentada
+  (`cancelarRenglones`; antes solo se veía la última). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
   quedan de respaldo: el 18-sep-2026 TikTok contestó a ellas 25001014
   «cancel_reason must exactly match an available_reason_names value
   returned by Get Aftersale Eligibility». Hasta ese día el corte pedía
