@@ -47,7 +47,6 @@ import {
   renglonesDeEtiqueta,
   numerarPaquetes,
   ORDEN_ACTUAL,
-  partirSku,
   type OrdenPaquetes,
   type PaqueteDespacho,
   type PaqueteNumerado,
@@ -941,10 +940,11 @@ function esJpg(b: Uint8Array): boolean {
  * lleva códigos de barras (decisión del dueño: «ya no me pongas el FNSKU
  * para escanear, solo el SKU y cantidades»): el escaneo en la estación se
  * hace con la GUÍA (código del pedido) y con la CAJA (FNSKU / código Full).
- * Así cabe un renglón por par en 16 pt y la hoja se lee de un vistazo:
- * sección por MODELO con columnas Color · Talla · Cant.; en la sección de
- * REVUELTOS (varios modelos en la misma caja) la columna trae el SKU
- * completo. Un paquete con varios renglones va dentro de un recuadro.
+ * Un renglón por SKU COMPLETO (el dueño lo prefiere así, no partido en
+ * color y talla), en 16 pt, con los paquetes INTERCALADOS gris y blanco
+ * para no perder la línea en la que se va; la cantidad de más de un par
+ * va en un recuadro sombreado para que no se pase, y un paquete con
+ * varios renglones va dentro de un recuadro negro con su total.
  */
 export async function pdfListaDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
   const corte = await cargarCorte(admin, accountId, corteId);
@@ -958,14 +958,15 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
   const CARTA: [number, number] = [612, 792];
   const M = 36;
   const ANCHO = CARTA[0] - 2 * M;
-  // Columnas: # | Pedido (texto) | Color (o SKU en revueltos) | Talla | Cant. | Destinatario | ☐
-  const COL = [30, 118, 150, 40, 40, ANCHO - 30 - 118 - 150 - 40 - 40 - 18, 18];
+  // Columnas: # | Pedido (texto) | SKU completo | Cant. | Destinatario | ☐
+  const COL = [30, 118, 190, 44, ANCHO - 30 - 118 - 190 - 44 - 18, 18];
   const XS = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
   const FILA = 16;
   const negro = rgb(0, 0, 0);
   const gris = rgb(0.45, 0.45, 0.45);
   const linea = rgb(0.75, 0.75, 0.75);
-  const sombra = rgb(0.93, 0.93, 0.93);
+  const fondoGris = rgb(0.9, 0.9, 0.9);
+  const sombraCant = rgb(0.8, 0.8, 0.8);
 
   let pagina = doc.addPage(CARTA);
   let y = CARTA[1] - M;
@@ -986,14 +987,12 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
     while (s.length > 1 && f.widthOfTextAtSize(s, size) > ancho - 4) s = s.slice(0, -1);
     return s === t ? t : s.slice(0, -1) + "…";
   };
-  const centrado = (t: string, x: number, ancho: number, size: number, f = normal, color = negro) =>
-    pagina.drawText(t, { x: x + (ancho - f.widthOfTextAtSize(t, size)) / 2, y, size, font: f, color });
 
-  const encabezado = (revuelto: boolean) => {
-    const titulos = ["#", "Pedido", revuelto ? "SKU" : "Color", "Talla", "Cant.", "Destinatario", ""];
+  const encabezado = () => {
+    const titulos = ["#", "Pedido", "SKU", "Cant.", "Destinatario", ""];
     titulos.forEach((t, i) => {
-      if (i === 3 || i === 4) centrado(t, XS[i], COL[i], 8, negrita, gris);
-      else pagina.drawText(t, { x: XS[i] + 2, y, size: 8, font: negrita, color: gris });
+      const x = i === 3 ? XS[i] + (COL[i] - negrita.widthOfTextAtSize(t, 8)) / 2 : XS[i] + 2;
+      pagina.drawText(t, { x, y, size: 8, font: negrita, color: gris });
     });
     y -= 4;
     pagina.drawLine({ start: { x: M, y }, end: { x: M + ANCHO, y }, thickness: 0.8, color: linea });
@@ -1012,19 +1011,31 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
     const titulo = g.revuelto ? `${g.modelo.toUpperCase()} (varios modelos en la misma caja)` : g.modelo;
     texto(`${titulo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}`, M, 11, negrita);
     y -= 14;
-    encabezado(g.revuelto);
+    encabezado();
 
-    for (const p of g.paquetes) {
+    g.paquetes.forEach((p, iPaquete) => {
       // Un renglón por SKU del paquete, ya en orden modelo → color → talla.
-      const renglones = p.pares.map((x) => ({ ...partirSku(x.sku), sku: x.sku, pares: x.pares }));
+      const renglones = p.pares;
       const paresPaquete = renglones.reduce((a, r) => a + r.pares, 0);
       // El paquete completo cabe en la página o se pasa entero a la siguiente.
       if (y - FILA * (renglones.length - 1) < M) {
         nuevaPagina();
-        encabezado(g.revuelto);
+        encabezado();
       }
       const yArribaPaquete = y + FILA - 3;
       const varios = renglones.length > 1;
+
+      // Fondo intercalado POR PAQUETE: todos los renglones de la misma caja
+      // comparten el tono, para que el recuadro y la franja digan lo mismo.
+      if (iPaquete % 2 === 0) {
+        pagina.drawRectangle({
+          x: M - 2,
+          y: y - FILA * (renglones.length - 1) - 3,
+          width: ANCHO + 4,
+          height: FILA * renglones.length,
+          color: fondoGris,
+        });
+      }
 
       renglones.forEach((r, i) => {
         const base = y + 4;
@@ -1032,20 +1043,24 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
           pagina.drawText(`#${p.numero}`, { x: XS[0] + 2, y: base, size: 10, font: negrita });
           pagina.drawText(p.orderId, { x: XS[1] + 2, y: base, size: 8, font: normal, color: gris });
         }
-        // En la sección del modelo basta el color; en revueltos, el SKU sin talla.
-        const producto = g.revuelto ? `${r.modelo}-${r.color}` : r.color || r.sku;
-        pagina.drawText(recorta(producto, COL[2], 9, negrita), { x: XS[2] + 2, y: base, size: 9, font: negrita });
-        const talla = r.talla || "—";
-        pagina.drawText(talla, { x: XS[3] + (COL[3] - negrita.widthOfTextAtSize(talla, 9)) / 2, y: base, size: 9, font: negrita });
-        // La cantidad: la de más de un par va sombreada para que no se pase.
-        if (r.pares > 1) {
-          pagina.drawRectangle({ x: XS[4] + 2, y: y, width: COL[4] - 4, height: FILA - 2, color: sombra });
-        }
+        pagina.drawText(recorta(r.sku, COL[2], 9.5, negrita), { x: XS[2] + 2, y: base, size: 9.5, font: negrita });
+        // La cantidad: la de más de un par va en un recuadro sombreado.
         const cant = String(r.pares);
-        pagina.drawText(cant, { x: XS[4] + (COL[4] - negrita.widthOfTextAtSize(cant, 10)) / 2, y: base, size: 10, font: negrita });
+        if (r.pares > 1) {
+          pagina.drawRectangle({
+            x: XS[3] + 3,
+            y: y + 0.5,
+            width: COL[3] - 6,
+            height: FILA - 2,
+            color: sombraCant,
+            borderColor: negro,
+            borderWidth: 0.8,
+          });
+        }
+        pagina.drawText(cant, { x: XS[3] + (COL[3] - negrita.widthOfTextAtSize(cant, 10)) / 2, y: base, size: 10, font: negrita });
         if (i === 0) {
-          pagina.drawText(recorta(p.destinatario ?? "", COL[5], 7.5), { x: XS[5] + 2, y: base, size: 7.5, font: normal, color: gris });
-          pagina.drawRectangle({ x: XS[6] + 3, y: y + 1, width: 11, height: 11, borderColor: negro, borderWidth: 0.8 });
+          pagina.drawText(recorta(p.destinatario ?? "", COL[4], 7.5), { x: XS[4] + 2, y: base, size: 7.5, font: normal, color: gris });
+          pagina.drawRectangle({ x: XS[5] + 3, y: y + 1, width: 11, height: 11, borderColor: negro, borderWidth: 0.8, color: rgb(1, 1, 1) });
         }
         if (varios && i < renglones.length - 1) {
           pagina.drawLine({ start: { x: M + COL[0], y: y - 1 }, end: { x: M + ANCHO, y: y - 1 }, thickness: 0.3, color: linea });
@@ -1064,12 +1079,9 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
           borderColor: negro,
           borderWidth: 1.2,
         });
-        pagina.drawText(`${paresPaquete} pares en la misma caja`, { x: XS[5] + 2, y: y + FILA + 4, size: 7, font: normal, color: gris });
-        y -= 3;
-      } else {
-        pagina.drawLine({ start: { x: M, y: y + FILA - 2 }, end: { x: M + ANCHO, y: y + FILA - 2 }, thickness: 0.4, color: linea });
+        pagina.drawText(`${paresPaquete} pares en la misma caja`, { x: XS[4] + 2, y: y + FILA + 4, size: 7, font: normal, color: gris });
       }
-    }
+    });
     y -= 10;
   }
 
