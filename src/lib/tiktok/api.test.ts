@@ -259,12 +259,12 @@ describe("cancelarRenglones (defensa del corte)", () => {
     expect(llamadas).toHaveLength(1);
   });
 
-  it("si ningún motivo entra, lanza el último error de TikTok (con su mensaje)", async () => {
+  it("si ningún motivo entra, el error dice qué contestó TikTok a CADA uno", async () => {
     const { cliente } = clienteQue([
       new ErrorTikTok(25001021, "/x", "Reason not match order status"),
-      new ErrorTikTok(25001021, "/x", "invalid cancel_reason"),
+      new ErrorTikTok(25001014, "/x", "invalid cancel_reason"),
     ]);
-    await expect(cancelarRenglones(cliente, "586", ["a", "b"])).rejects.toThrow(/invalid cancel_reason/);
+    await expect(cancelarRenglones(cliente, "586", ["a", "b"])).rejects.toThrow(/«a» → 25001021 Reason not match order status \| «b» → 25001014 invalid cancel_reason/);
   });
 
   it("una cancelación PENDIENTE no cuenta como aceptada", async () => {
@@ -298,9 +298,27 @@ describe("motivosDeCancelacion (aftersale eligibility)", () => {
       msRestantes: () => 100_000,
     } as unknown as Cliente;
     const r = await motivosDeCancelacion(cliente, "586");
+    expect(llamadas).toHaveLength(1);
     expect(llamadas[0]).toMatchObject({ metodo: "GET", ruta: "/return_refund/202309/orders/586/aftersale_eligibility", opciones: { params: { initiate_aftersale_user: "SELLER" } } });
     expect(r.motivos).toEqual(["ecom_x_out_of_stock", "ecom_x_pricing_error"]);
     expect(motivoSinStock(r.motivos)).toBe("ecom_x_out_of_stock");
+  });
+
+  it("si la 202309 no trae motivos (como el 18-sep-2026), prueba las versiones nuevas y se queda con la que sí", async () => {
+    const llamadas: string[] = [];
+    const cliente = {
+      llamar: vi.fn(async (_m: string, ruta: string) => {
+        llamadas.push(ruta);
+        if (ruta.includes("/202309/")) return { sku_eligibility: [{ sku_id: "1", line_item_eligibility: [{ request_type: "CANCEL", eligible: true, order_line_items_ids: ["9"] }] }] };
+        if (ruta.includes("/202505/")) throw new Error("TikTok Shop 404 en x: not found");
+        return { sku_eligibility: [{ sku_id: "1", line_item_eligibility: [{ request_type: "CANCEL", eligible: true, available_reason_names: ["ecom_y_out_of_stock"] }] }] };
+      }),
+      msRestantes: () => 100_000,
+    } as unknown as Cliente;
+    const r = await motivosDeCancelacion(cliente, "586");
+    expect(llamadas.map((l) => l.split("/")[2])).toEqual(["202309", "202505", "202507"]);
+    expect(r.motivos).toEqual(["ecom_y_out_of_stock"]);
+    expect((r.crudo as any[]).map((x) => x.version)).toEqual(["202309", "202505", "202507"]);
   });
 
   it("acepta la forma con objetos y elige el primero si ninguno habla de stock", () => {

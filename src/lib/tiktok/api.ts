@@ -507,11 +507,32 @@ export interface MotivosDeCancelacion {
   crudo: unknown;
 }
 
+/**
+ * Versiones del API que se prueban, en orden. La 202309 contestó el
+ * 18-sep-2026 la elegibilidad SIN `available_reason_names` (solo
+ * eligible/request_type por renglón), aunque el error de la cancelación
+ * diga que ahí vienen: las versiones nuevas del mismo endpoint sí lo
+ * traen. Se prueban hasta que alguna dé motivos; el crudo de cada intento
+ * se guarda en la bitácora.
+ */
+export const VERSIONES_ELEGIBILIDAD = ["202309", "202505", "202507", "202510"];
+
 export async function motivosDeCancelacion(c: Cliente, orderId: string): Promise<MotivosDeCancelacion> {
-  const d = await c.llamar<any>("GET", `/return_refund/202309/orders/${orderId}/aftersale_eligibility`, {
-    params: { initiate_aftersale_user: "SELLER" },
-  });
-  return { motivos: nombresDeMotivo(d), crudo: d };
+  const intentos: { version: string; crudo: unknown }[] = [];
+  for (const version of VERSIONES_ELEGIBILIDAD) {
+    let d: unknown;
+    try {
+      d = await c.llamar<any>("GET", `/return_refund/${version}/orders/${orderId}/aftersale_eligibility`, {
+        params: { initiate_aftersale_user: "SELLER" },
+      });
+    } catch (err) {
+      d = { error: (err as Error).message };
+    }
+    intentos.push({ version, crudo: d });
+    const motivos = nombresDeMotivo(d);
+    if (motivos.length) return { motivos, crudo: intentos };
+  }
+  return { motivos: [], crudo: intentos };
 }
 
 /** Todos los nombres de motivo de la respuesta, sin repetir y en su orden. */
@@ -603,7 +624,10 @@ export async function cancelarRenglones(
   motivos: string[],
   skus?: { skuId: string; cantidad: number }[],
 ): Promise<Cancelacion> {
-  let ultimo: unknown = null;
+  // Lo que TikTok contestó a CADA motivo: si ninguno entra, el error los
+  // trae todos. El 18-sep-2026 solo se veía el último y se perdió qué dijo
+  // TikTok de la clave de su documentación.
+  const intentos: string[] = [];
   for (const motivo of motivos) {
     const cuerpo: Record<string, unknown> = { order_id: orderId, cancel_reason: motivo };
     if (skus?.length) cuerpo.skus = skus.map((s) => ({ sku_id: s.skuId, quantity: s.cantidad }));
@@ -618,11 +642,16 @@ export async function cancelarRenglones(
         aceptada: cancelacionAceptada(estado),
       };
     } catch (err) {
-      ultimo = err;
       if (!esErrorDeMotivo(err)) throw err;
+      intentos.push(`«${motivo}» → ${resumenDeError((err as Error).message)}`);
     }
   }
-  throw ultimo instanceof Error ? ultimo : new Error("TikTok no aceptó ningún motivo de cancelación.");
+  throw new Error(intentos.length ? `TikTok no aceptó ningún motivo: ${intentos.join(" | ")}` : "Sin motivo de cancelación.");
+}
+
+/** El mensaje de TikTok sin el prefijo de ruta, recortado: cabe en la constancia. */
+function resumenDeError(m: string): string {
+  return m.replace(/^TikTok Shop (\d+) en \S+: /, "$1 ").slice(0, 220);
 }
 
 // ---------------------------------------------------------------------------
