@@ -4,7 +4,7 @@ import { cargarPanelTikTok, DIAS_VENTA } from "@/lib/servicios/tiktok-panel";
 import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
-import { LigarTikTok } from "@/components/ligar-tiktok";
+import { InventarioTikTok } from "@/components/inventario-tiktok";
 import { Ficha } from "@/components/tiles";
 
 export const dynamic = "force-dynamic";
@@ -149,86 +149,7 @@ export default async function TikTok({
 
       <EntradasTikTok />
 
-      <section className="tarjeta overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-4">
-          <h2 className="text-sm font-semibold">Inventario por SKU</h2>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-            Venta de los últimos {DIAS_VENTA} días
-          </span>
-        </div>
-
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
-                <th className="px-4 py-2 font-semibold">SKU</th>
-                <th className="px-4 py-2 text-right font-semibold">En almacén</th>
-                <th className="px-4 py-2 text-right font-semibold">Apartado</th>
-                <th className="px-4 py-2 text-right font-semibold">Disponible</th>
-                <th className="px-4 py-2 text-right font-semibold">En TikTok</th>
-                <th className="px-4 py-2 text-right font-semibold">Venta {DIAS_VENTA}d</th>
-                <th className="px-4 py-2 text-right font-semibold">Cobertura</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.renglones.map((r) => (
-                <tr key={r.sku} className="hairline">
-                  <td className="px-4 py-2">
-                    <span className="font-medium">{r.sku}</span>
-                    {r.titulo ? (
-                      <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
-                        {r.titulo}
-                      </span>
-                    ) : null}
-                    {!r.contado ? (
-                      <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                        sin conteo inicial: a TikTok no se le escribe hasta capturar una entrada o
-                        un ajuste
-                      </span>
-                    ) : !r.publicable ? (
-                      <>
-                        <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                          sin publicación ligada en TikTok
-                        </span>
-                        <LigarTikTok sku={r.sku} sugerencias={r.sugerencias} />
-                      </>
-                    ) : null}
-                  </td>
-                  <td
-                    className="num px-4 py-2 text-right"
-                    style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}
-                  >
-                    {n(r.saldo)}
-                  </td>
-                  <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
-                    {r.apartado ? n(r.apartado) : "—"}
-                  </td>
-                  <td className="num px-4 py-2 text-right font-semibold">{n(r.disponible)}</td>
-                  <td
-                    className="num px-4 py-2 text-right"
-                    style={{ color: r.desfasado ? "var(--estado-critico)" : "var(--ink-2)" }}
-                  >
-                    {r.publicado == null ? "—" : n(r.publicado)}
-                  </td>
-                  <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
-                    {r.ventas30 ? n(r.ventas30) : "—"}
-                  </td>
-                  <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
-                    {r.diasCobertura == null ? "—" : `${Math.round(r.diasCobertura)} d`}
-                  </td>
-                </tr>
-              ))}
-              {!p.renglones.length ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
-                    Todavía no hay nada en el almacén de TikTok. Captura la primera entrada arriba.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />
 
       <section className="tarjeta overflow-hidden">
         <h2 className="px-4 pt-4 text-sm font-semibold">Últimos movimientos</h2>
