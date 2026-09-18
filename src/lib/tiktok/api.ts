@@ -479,52 +479,77 @@ export async function horariosDeRecoleccion(c: Cliente, packageId: string): Prom
 // Cancelar renglones de un pedido (defensa del corte)
 // ---------------------------------------------------------------------------
 
-export interface MotivoCancelacion {
-  clave: string;
-  nombre: string;
-}
-
 /**
- * Los motivos con los que el VENDEDOR puede cancelar un pedido sin enviar.
- * TikTok exige uno de su lista; el que dice "stock" es el nuestro.
+ * Los motivos con los que el VENDEDOR cancela un pedido sin enviar. TikTok
+ * NO tiene un endpoint que los liste para el vendedor (el `reject_reasons`
+ * de 202309 es para RECHAZAR una solicitud del comprador): son claves fijas
+ * de su documentación «Cancel reasons». Hasta el 18-sep-2026 el corte le
+ * pedía la lista a `/order/202309/orders/cancellation_reasons`, que no
+ * existe, y el error se tragaba: la defensa nunca canceló nada y 16 pedidos
+ * se quedaron fuera de cuatro cortes seguidos. La primera clave es la de
+ * «sin stock» de un pedido por enviar; las demás son respaldo. Se prueban
+ * en orden y el corte se queda con la que TikTok acepte.
  */
-export async function motivosDeCancelacion(c: Cliente): Promise<MotivoCancelacion[]> {
-  const d = await c.llamar<any>("GET", "/order/202309/orders/cancellation_reasons", {
-    params: { cancel_type: "CANCEL", fulfillment_type: "FULFILLMENT_BY_SELLER" },
-  });
-  const lista: any[] = d?.reasons ?? d?.cancellation_reasons ?? [];
-  return lista
-    .map((r) => ({ clave: String(r.key ?? r.cancel_reason_key ?? r.id ?? ""), nombre: String(r.name ?? r.cancel_reason_name ?? "") }))
-    .filter((r) => r.clave);
+export const MOTIVOS_SIN_STOCK = ["ecom_order_to_ship_canceled_reason_out_of_stock", "seller_out_of_stock"];
+
+/** ¿TikTok rechazó la cancelación por el MOTIVO (clave inválida o que no cuadra con el estado)? */
+export function esErrorDeMotivo(err: unknown): boolean {
+  const codigo = (err as { codigo?: unknown })?.codigo;
+  const m = (err as Error)?.message ?? "";
+  return codigo === 25001021 || /reason/i.test(m);
 }
 
-/** El motivo "sin stock" de la lista de TikTok, o el primero si no lo nombra así. */
-export function motivoSinStock(motivos: MotivoCancelacion[]): MotivoCancelacion | null {
-  return (
-    motivos.find((m) => /stock|inventor|agot/i.test(`${m.clave} ${m.nombre}`)) ??
-    motivos[0] ??
-    null
-  );
+export interface Cancelacion {
+  cancelId: string | null;
+  /** el `cancel_status` de TikTok; null si no lo dijo */
+  estado: string | null;
+  /** la clave de motivo que TikTok aceptó */
+  motivo: string;
+  /** true si la cancelación ya surtió efecto; false si quedó PENDIENTE (del comprador) */
+  aceptada: boolean;
+}
+
+/** Una cancelación sin estado se da por hecha; una PENDING no: el par sigue vendido. */
+export function cancelacionAceptada(estado: string | null): boolean {
+  if (!estado) return true;
+  return !/PENDING/i.test(estado);
 }
 
 /**
- * Cancela renglones de un pedido: con `skus` es cancelación PARCIAL (solo
+ * Cancela renglones de un pedido (`POST /return_refund/202309/cancellations`,
+ * la ruta del vendedor en 202309): con `skus` es cancelación PARCIAL (solo
  * esos SKUs, esas cantidades) y lo demás sigue vivo para confirmarse; sin
- * `skus`, se cancela el pedido completo. TikTok contesta con su error si
- * no lo permite (ya enviado, plazo vencido…): quien llama decide, y en el
- * corte la decisión es NO confirmar ese pedido.
+ * `skus`, se cancela el pedido completo. Los `motivos` se prueban en orden
+ * y solo se pasa al siguiente si TikTok rechaza EL MOTIVO; cualquier otro
+ * error (ya enviado, plazo vencido…) se lanza tal cual: quien llama
+ * decide, y en el corte la decisión es NO confirmar ese pedido.
  */
 export async function cancelarRenglones(
   c: Cliente,
   orderId: string,
-  motivo: string,
+  motivos: string[],
   skus?: { skuId: string; cantidad: number }[],
-): Promise<{ cancelId: string | null }> {
-  const cuerpo: Record<string, unknown> = { cancel_reason: motivo };
-  if (skus?.length) cuerpo.skus = skus.map((s) => ({ sku_id: s.skuId, quantity: s.cantidad }));
-  const d = await c.llamar<any>("POST", `/order/202309/orders/${orderId}/cancel`, { cuerpo });
-  if (!d) throw new Error("TikTok no contestó la cancelación (sin tiempo).");
-  return { cancelId: d?.cancel_id != null ? String(d.cancel_id) : null };
+): Promise<Cancelacion> {
+  let ultimo: unknown = null;
+  for (const motivo of motivos) {
+    const cuerpo: Record<string, unknown> = { order_id: orderId, cancel_reason: motivo };
+    if (skus?.length) cuerpo.skus = skus.map((s) => ({ sku_id: s.skuId, quantity: s.cantidad }));
+    try {
+      const d = await c.llamar<any>("POST", "/return_refund/202309/cancellations", { cuerpo });
+      if (!d) throw new Error("TikTok no contestó la cancelación (sin tiempo).");
+      const estado = d?.cancel_status != null ? String(d.cancel_status) : null;
+      return {
+        cancelId: d?.cancel_id != null ? String(d.cancel_id) : null,
+        estado,
+        motivo,
+        aceptada: cancelacionAceptada(estado),
+      };
+    } catch (err) {
+      ultimo = err;
+      if (!esErrorDeMotivo(err)) throw err;
+    }
+  }
+  throw ultimo instanceof Error ? ultimo : new Error("TikTok no aceptó ningún motivo de cancelación.");
 }
 
 // ---------------------------------------------------------------------------

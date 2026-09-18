@@ -82,6 +82,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
 
   /** Lo que se dice de un corte ya hecho. */
   function resumenDeCorte(j: any): string {
+    // Sin corte guardado (nadie entró): el porqué va aquí mismo, agrupado,
+    // porque no hay renglón en la lista que lo enseñe.
+    if (j.corteId == null) {
+      const grupos = agruparErrores(j.errores ?? []);
+      const motivos = grupos.filter((g) => g.pedidos.length).map((g) => `${g.pedidos.length} ${g.pedidos.length === 1 ? "pedido" : "pedidos"}: ${g.ejemplo}`);
+      return ["Ningún pedido entró al corte; no se guardó ninguno.", ...motivos].join(" ");
+    }
     const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
     if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
     if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);

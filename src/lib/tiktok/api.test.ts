@@ -6,8 +6,8 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { catalogo, pedidosActualizados, publicarStock } from "./api";
-import { interpretarLiquidacion } from "./api";
-import type { Cliente } from "./client";
+import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada } from "./api";
+import { ErrorTikTok, type Cliente } from "./client";
 
 function clienteFalso(respuestas: any[], msRestantes = 100_000) {
   const llamadas: { metodo: string; ruta: string; opciones: any }[] = [];
@@ -203,5 +203,81 @@ describe("interpretarLiquidacion", () => {
     expect(interpretarLiquidacion({ transactions: [{ settlement_amount: "100", currency: "MXN" }, { settlement_amount: "-20" }] })).toMatchObject({ neto: 80, moneda: "MXN" });
     expect(interpretarLiquidacion({ transactions: [] })).toBeNull();
     expect(interpretarLiquidacion(null)).toBeNull();
+  });
+});
+
+describe("cancelarRenglones (defensa del corte)", () => {
+
+  function clienteQue(respuestas: (any | Error)[]) {
+    const llamadas: { metodo: string; ruta: string; cuerpo: any }[] = [];
+    let i = 0;
+    const c = {
+      llamar: vi.fn(async (metodo: string, ruta: string, opciones: any = {}) => {
+        llamadas.push({ metodo, ruta, cuerpo: opciones.cuerpo });
+        const r = respuestas[i++];
+        if (r instanceof Error) throw r;
+        return r ?? null;
+      }),
+      msRestantes: () => 100_000,
+    };
+    return { cliente: c as unknown as Cliente, llamadas };
+  }
+
+  it("cancela por la ruta del vendedor de 202309, con el pedido, los SKUs y el motivo de sin stock", async () => {
+    const { cliente, llamadas } = clienteQue([{ cancel_id: "9", cancel_status: "CANCELLATION_REQUEST_SUCCESS" }]);
+    const r = await cancelarRenglones(cliente, "586", MOTIVOS_SIN_STOCK, [{ skuId: "s1", cantidad: 2 }]);
+    expect(llamadas).toEqual([
+      {
+        metodo: "POST",
+        ruta: "/return_refund/202309/cancellations",
+        cuerpo: { order_id: "586", cancel_reason: "ecom_order_to_ship_canceled_reason_out_of_stock", skus: [{ sku_id: "s1", quantity: 2 }] },
+      },
+    ]);
+    expect(r).toEqual({ cancelId: "9", estado: "CANCELLATION_REQUEST_SUCCESS", motivo: MOTIVOS_SIN_STOCK[0], aceptada: true });
+  });
+
+  it("sin SKUs cancela el pedido completo (sin `skus` en el cuerpo)", async () => {
+    const { cliente, llamadas } = clienteQue([{}]);
+    const r = await cancelarRenglones(cliente, "586", ["m1"]);
+    expect(llamadas[0].cuerpo).toEqual({ order_id: "586", cancel_reason: "m1" });
+    expect(r.aceptada).toBe(true);
+  });
+
+  it("si TikTok rechaza EL MOTIVO prueba el siguiente y se queda con el que aceptó", async () => {
+    const { cliente, llamadas } = clienteQue([
+      new ErrorTikTok(25001021, "/return_refund/202309/cancellations", "Reason not match order status"),
+      { cancel_id: "10" },
+    ]);
+    const r = await cancelarRenglones(cliente, "586", ["malo", "bueno"]);
+    expect(llamadas.map((l) => l.cuerpo.cancel_reason)).toEqual(["malo", "bueno"]);
+    expect(r.motivo).toBe("bueno");
+  });
+
+  it("cualquier otro error se lanza tal cual, sin probar más motivos", async () => {
+    const { cliente, llamadas } = clienteQue([new ErrorTikTok(21001001, "/return_refund/202309/cancellations", "order already shipped")]);
+    await expect(cancelarRenglones(cliente, "586", ["a", "b"])).rejects.toThrow(/already shipped/);
+    expect(llamadas).toHaveLength(1);
+  });
+
+  it("si ningún motivo entra, lanza el último error de TikTok (con su mensaje)", async () => {
+    const { cliente } = clienteQue([
+      new ErrorTikTok(25001021, "/x", "Reason not match order status"),
+      new ErrorTikTok(25001021, "/x", "invalid cancel_reason"),
+    ]);
+    await expect(cancelarRenglones(cliente, "586", ["a", "b"])).rejects.toThrow(/invalid cancel_reason/);
+  });
+
+  it("una cancelación PENDIENTE no cuenta como aceptada", async () => {
+    const { cliente } = clienteQue([{ cancel_id: "11", cancel_status: "CANCELLATION_REQUEST_PENDING" }]);
+    const r = await cancelarRenglones(cliente, "586", ["a"]);
+    expect(r.aceptada).toBe(false);
+    expect(cancelacionAceptada("CANCELLATION_REQUEST_COMPLETE")).toBe(true);
+    expect(cancelacionAceptada(null)).toBe(true);
+  });
+
+  it("reconoce el error de motivo por código o por mensaje", () => {
+    expect(esErrorDeMotivo(new ErrorTikTok(25001021, "/x", "x"))).toBe(true);
+    expect(esErrorDeMotivo(new Error("TikTok Shop 12345 en /x: invalid reason"))).toBe(true);
+    expect(esErrorDeMotivo(new Error("TikTok Shop 12345 en /x: order already shipped"))).toBe(false);
   });
 });
