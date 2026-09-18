@@ -492,6 +492,67 @@ export async function horariosDeRecoleccion(c: Cliente, packageId: string): Prom
  */
 export const MOTIVOS_SIN_STOCK = ["ecom_order_to_ship_canceled_reason_out_of_stock", "seller_out_of_stock"];
 
+/**
+ * Los motivos con los que TikTok deja cancelar ESTE pedido al vendedor. El
+ * 18-sep-2026 TikTok contestó a la clave de su documentación: «cancel_reason
+ * must exactly match an available_reason_names value returned by Get
+ * Aftersale Eligibility for this order». Así que se le pregunta por pedido
+ * (`GET /return_refund/202309/orders/{id}/aftersale_eligibility`, como
+ * vendedor) y se junta todo `available_reason_names` que traiga, a la
+ * profundidad que sea: la forma exacta de la respuesta no está en ningún
+ * SDK público, por eso el crudo se guarda en la bitácora la primera vez.
+ */
+export interface MotivosDeCancelacion {
+  motivos: string[];
+  crudo: unknown;
+}
+
+export async function motivosDeCancelacion(c: Cliente, orderId: string): Promise<MotivosDeCancelacion> {
+  const d = await c.llamar<any>("GET", `/return_refund/202309/orders/${orderId}/aftersale_eligibility`, {
+    params: { initiate_aftersale_user: "SELLER" },
+  });
+  return { motivos: nombresDeMotivo(d), crudo: d };
+}
+
+/** Todos los nombres de motivo de la respuesta, sin repetir y en su orden. */
+export function nombresDeMotivo(json: unknown): string[] {
+  const vistos = new Set<string>();
+  const salida: string[] = [];
+  const agregar = (v: unknown) => {
+    const t = String(v ?? "").trim();
+    if (t && !vistos.has(t)) {
+      vistos.add(t);
+      salida.push(t);
+    }
+  };
+  const recorrer = (nodo: unknown, profundidad: number) => {
+    if (profundidad > 8 || nodo == null || typeof nodo !== "object") return;
+    if (Array.isArray(nodo)) {
+      for (const x of nodo) recorrer(x, profundidad + 1);
+      return;
+    }
+    for (const [k, v] of Object.entries(nodo as Record<string, unknown>)) {
+      if (/^available_reason_names?$/.test(k) && Array.isArray(v)) {
+        for (const x of v) {
+          if (typeof x === "string") agregar(x);
+          else if (x && typeof x === "object") agregar((x as any).name ?? (x as any).reason_name ?? (x as any).key);
+        }
+      } else if (/^available_reasons$/.test(k) && Array.isArray(v)) {
+        for (const x of v) agregar(typeof x === "string" ? x : (x as any)?.name ?? (x as any)?.reason_name ?? (x as any)?.key);
+      } else {
+        recorrer(v, profundidad + 1);
+      }
+    }
+  };
+  recorrer(json, 0);
+  return salida;
+}
+
+/** El motivo de «sin stock» entre los que TikTok ofrece; si no lo nombra así, el primero. */
+export function motivoSinStock(motivos: string[]): string | null {
+  return motivos.find((m) => /stock|inventor|agot/i.test(m)) ?? motivos[0] ?? null;
+}
+
 /** ¿TikTok rechazó la cancelación por el MOTIVO (clave inválida o que no cuadra con el estado)? */
 export function esErrorDeMotivo(err: unknown): boolean {
   const codigo = (err as { codigo?: unknown })?.codigo;

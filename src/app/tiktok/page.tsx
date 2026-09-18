@@ -123,7 +123,7 @@ export default async function TikTok({
         <Ficha
           titulo="Apartado"
           valor={n(p.totales.apartado)}
-          nota="pagado, sin salir"
+          nota="pagado o por pagar, sin salir"
           tono={p.totales.apartado ? "alerta" : "neutro"}
         />
         <Ficha titulo="Disponible" valor={n(p.totales.disponible)} nota="ofrecible a compradores" />
