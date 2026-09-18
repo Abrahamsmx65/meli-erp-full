@@ -46,6 +46,7 @@ import {
   clavePaquete,
   faltantesDePaquetes,
   yaSeEnvio,
+  cambiosDeRelectura,
   codigoDeHoja,
   codigoDeOrden,
   necesitaFranja,
@@ -1219,15 +1220,19 @@ export const TOPE_RELEER = 80;
 export async function releerSinPrepararDeCortesRecientes(
   admin: any,
   accountId: string,
-): Promise<{ releidos: number; cortes: number }> {
-  const desde = new Date(Date.now() - DIAS_RELEER_CORTES * 86_400_000).toISOString();
+  opciones: { dias?: number; tope?: number } = {},
+): Promise<ResultadoRelectura> {
+  const dias = opciones.dias ?? DIAS_RELEER_CORTES;
+  const tope = opciones.tope ?? TOPE_RELEER;
+  const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
   const { data: cortes } = await admin
     .from("tiktok_cortes")
     .select("id")
     .eq("account_id", accountId)
     .gte("creado_en", desde);
   const ids = (cortes ?? []).map((c: any) => c.id as number);
-  if (!ids.length) return { releidos: 0, cortes: 0 };
+  const nada: ResultadoRelectura = { releidos: 0, cortes: ids.length, enviados: [], cancelados: [], avisos: [] };
+  if (!ids.length) return nada;
 
   const [ordenes, preparados] = await Promise.all([
     traerTodo<any>(admin, "tiktok_ordenes", "order_id, corte_id, estado", (q) =>
@@ -1239,14 +1244,43 @@ export async function releerSinPrepararDeCortesRecientes(
   ]);
   const hechos = new Set((preparados ?? []).map((p: any) => String(p.order_id)));
   // Lo cancelado y lo que ya se fue con el repartidor no cambia: no se relee.
-  const pendientes = (ordenes ?? [])
+  const antes = (ordenes ?? [])
     .filter((o: any) => !hechos.has(String(o.order_id)) && efectoDeEstado(o.estado) !== "reversa" && !yaSeEnvio(o.estado))
-    .map((o: any) => String(o.order_id))
-    .slice(0, TOPE_RELEER);
-  if (!pendientes.length) return { releidos: 0, cortes: ids.length };
-  await sincronizarPedidosPorId(admin, accountId, pendientes);
-  return { releidos: pendientes.length, cortes: ids.length };
+    .map((o: any) => ({ orderId: String(o.order_id), estado: o.estado as string | null }))
+    .slice(0, tope);
+  if (!antes.length) return nada;
+  const pendientes = antes.map((a) => a.orderId);
+  const r = await sincronizarPedidosPorId(admin, accountId, pendientes);
+  const avisos = [...(r.avisos ?? [])];
+  if (r.ocupado) avisos.push("Otra sincronización de TikTok estaba en curso; vuelve a intentar en un momento.");
+
+  // Se vuelve a leer lo que TikTok dijo y se compara con lo de antes: eso es
+  // lo que dejó de faltar.
+  const { data: despuesRaw } = await admin
+    .from("tiktok_ordenes")
+    .select("order_id, estado")
+    .eq("account_id", accountId)
+    .in("order_id", pendientes);
+  const despues = new Map<string, string | null>((despuesRaw ?? []).map((o: any) => [String(o.order_id), o.estado as string | null]));
+  const cambios = cambiosDeRelectura(antes, despues);
+  return { releidos: pendientes.length, cortes: ids.length, ...cambios, avisos };
 }
+
+export interface ResultadoRelectura {
+  /** Pedidos que se le volvieron a pedir a TikTok. */
+  releidos: number;
+  /** Cortes de la ventana. */
+  cortes: number;
+  /** Pedidos que en esta relectura resultaron ya en camino o entregados. */
+  enviados: string[];
+  /** Pedidos que en esta relectura resultaron cancelados. */
+  cancelados: string[];
+  avisos: string[];
+}
+
+/** Ventana del botón «Actualizar» de Despacho: los cortes que la pantalla enseña. */
+export const DIAS_RELEER_BOTON = 14;
+export const TOPE_RELEER_BOTON = 200;
 
 // ---------------------------------------------------------------------------
 // PDF de la lista de surtido: cuántos pares de cada SKU, para jalar de bodega

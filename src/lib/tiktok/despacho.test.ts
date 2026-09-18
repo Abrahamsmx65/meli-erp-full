@@ -291,3 +291,25 @@ describe("faltantesDePaquetes", () => {
     expect(yaSeEnvio("CANCELLED")).toBe(false);
   });
 });
+
+describe("cambiosDeRelectura", () => {
+  it("dice qué pedidos dejaron de faltar: los que pasaron a enviados o a cancelados", async () => {
+    const { cambiosDeRelectura } = await import("./despacho");
+    const antes = [
+      { orderId: "a", estado: "AWAITING_COLLECTION" },
+      { orderId: "b", estado: "AWAITING_COLLECTION" },
+      { orderId: "c", estado: "AWAITING_SHIPMENT" },
+      { orderId: "d", estado: "IN_TRANSIT" },
+      { orderId: "e", estado: "AWAITING_COLLECTION" },
+    ];
+    const despues = new Map<string, string | null>([
+      ["a", "IN_TRANSIT"],
+      ["b", "CANCELLED"],
+      ["c", "AWAITING_COLLECTION"],
+      ["d", "DELIVERED"],
+    ]);
+    const r = cambiosDeRelectura(antes, despues);
+    expect(r.enviados).toEqual(["a"]);
+    expect(r.cancelados).toEqual(["b"]);
+  });
+});
