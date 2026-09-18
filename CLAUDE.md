@@ -282,11 +282,12 @@ guárdala numerada.
   8 % y nada se encima (pedido del dueño el 15-sep-2026). Luego la
   lista de empaque en el mismo orden con los mismos números —SIN códigos
   de barras desde el 18-sep-2026 («ya no me pongas el FNSKU para escanear,
-  solo el SKU y cantidades»): sección por modelo con columnas Color ·
-  Talla · Cant. (la cantidad de más de un par va sombreada), el pedido en
-  texto, un paquete con varios renglones en recuadro con su total, y en
-  REVUELTOS la columna trae el SKU completo; el escaneo se hace con la
-  guía y con la caja—, y la lista de
+  solo el SKU y cantidades»): sección por modelo con un renglón por SKU
+  COMPLETO (el dueño no lo quiso partido en color y talla), los paquetes
+  INTERCALADOS gris y blanco para no perder la línea, la cantidad de más
+  de un par en un recuadro sombreado, el pedido en texto y un paquete con
+  varios renglones en recuadro negro con su total; el escaneo se hace con
+  la guía y con la caja—, y la lista de
   SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
   jalar de bodega. **El orden del corte es: PRIMERO todo lo de UN SOLO
   MODELO y al final lo REVUELTO** (`esDeUnModelo`, `numerarPaquetes`;
