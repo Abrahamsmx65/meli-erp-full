@@ -273,4 +273,21 @@ describe("faltantesDePaquetes", () => {
     expect(r.cancelados).toBe(1);
     expect(r.total).toBe(2);
   });
+
+  it("uno que ya se fue con el repartidor sin escanearse está resuelto: cuenta en el total, no falta", async () => {
+    const { faltantesDePaquetes, yaSeEnvio } = await import("./despacho");
+    const paquetes: any[] = [
+      { numero: 1, orderId: "a", enviado: true },
+      { numero: 2, orderId: "b", enviado: true },
+      { numero: 3, orderId: "c" },
+    ];
+    const r = faltantesDePaquetes(paquetes, new Set([2]));
+    expect(r.faltantes.map((p) => p.numero)).toEqual([3]);
+    expect(r.enviados).toBe(1);
+    expect(r.total).toBe(3);
+    expect(yaSeEnvio("IN_TRANSIT")).toBe(true);
+    expect(yaSeEnvio("DELIVERED")).toBe(true);
+    expect(yaSeEnvio("AWAITING_COLLECTION")).toBe(false);
+    expect(yaSeEnvio("CANCELLED")).toBe(false);
+  });
 });

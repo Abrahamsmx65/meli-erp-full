@@ -78,6 +78,20 @@ export interface PaqueteDespacho {
    * seguía saliendo como faltante.
    */
   cancelado?: boolean;
+  /**
+   * true si TikTok ya lo tiene EN CAMINO o ENTREGADO (el repartidor lo
+   * recogió) aunque nadie lo haya escaneado en la estación: salió, ya no
+   * falta. Con solo la guía creada (AWAITING_COLLECTION) NO: eso lo hace el
+   * propio corte y no prueba que se empacó.
+   */
+  enviado?: boolean;
+}
+
+/** Estados en los que el paquete ya se fue con el repartidor. */
+const ESTADOS_YA_ENVIADO = new Set(["IN_TRANSIT", "DELIVERED", "COMPLETED"]);
+
+export function yaSeEnvio(estado: string | null | undefined): boolean {
+  return ESTADOS_YA_ENVIADO.has(String(estado ?? "").trim().toUpperCase());
 }
 
 /**
@@ -333,17 +347,20 @@ export function agruparPorModelo(
 }
 
 /**
- * Qué paquetes del corte faltan por preparar: los que no tienen constancia
- * y NO están cancelados. Un paquete cancelado conserva su número (la hoja
- * ya se imprimió) pero no se cuenta ni como faltante ni en el total.
+ * Qué paquetes del corte faltan por preparar: los que no tienen constancia,
+ * NO están cancelados y NO se fueron ya con el repartidor. Un paquete
+ * cancelado conserva su número (la hoja ya se imprimió) pero no se cuenta
+ * ni como faltante ni en el total; uno que ya salió sin escanearse cuenta
+ * en el total y como resuelto (`enviados`), no como faltante.
  */
 export function faltantesDePaquetes<T extends PaqueteNumerado>(
   paquetes: T[],
   yaNumerados: Set<number>,
-): { faltantes: T[]; cancelados: number; total: number } {
+): { faltantes: T[]; cancelados: number; enviados: number; total: number } {
   const cancelados = paquetes.filter((p) => p.cancelado).length;
-  const faltantes = paquetes.filter((p) => !p.cancelado && !yaNumerados.has(p.numero));
-  return { faltantes, cancelados, total: paquetes.length - cancelados };
+  const enviados = paquetes.filter((p) => !p.cancelado && p.enviado && !yaNumerados.has(p.numero)).length;
+  const faltantes = paquetes.filter((p) => !p.cancelado && !p.enviado && !yaNumerados.has(p.numero));
+  return { faltantes, cancelados, enviados, total: paquetes.length - cancelados };
 }
 
 export interface ErrorDeCorte {

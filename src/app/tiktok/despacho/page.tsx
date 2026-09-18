@@ -31,18 +31,20 @@ export default async function Despacho() {
     // esto, al pasar de 1,000 el avance "X de Y preparados" mentiría. Si la
     // lectura falla, el avance se DECLARA no disponible (null) en vez de
     // pintar ceros como si fueran dato: los cortes y el despacho siguen.
-    traerTodo<{ corte_id: number }>(supabase, "tiktok_preparaciones", "corte_id", (q) =>
+    traerTodo<{ corte_id: number; order_id: string }>(supabase, "tiktok_preparaciones", "corte_id, order_id", (q) =>
       q.eq("account_id", cuenta.id),
     ).catch((err: Error): null => {
       console.error("tiktok_preparaciones:", err.message);
       return null;
     }),
     tokenPreparar(cuenta.id),
-    // Pedidos cancelados DESPUÉS de entrar a un corte: conservan su número en
-    // la hoja pero ya no cuentan como pendientes de preparar.
-    traerTodo<{ corte_id: number }>(supabase, "tiktok_ordenes", "corte_id, order_id", (q) =>
-      q.eq("account_id", cuenta.id).not("corte_id", "is", null).in("estado", ["CANCELLED", "CANCEL"]),
-    ).catch((): { corte_id: number }[] => []),
+    // Pedidos que ya no faltan aunque nadie los haya escaneado: los
+    // cancelados DESPUÉS de entrar a un corte (conservan su número en la
+    // hoja) y los que TikTok ya tiene en camino o entregados (se fueron con
+    // el repartidor). Con solo la guía creada (AWAITING_COLLECTION) no.
+    traerTodo<{ corte_id: number; order_id: string; estado: string }>(supabase, "tiktok_ordenes", "corte_id, order_id, estado", (q) =>
+      q.eq("account_id", cuenta.id).not("corte_id", "is", null).in("estado", ["CANCELLED", "CANCEL", "IN_TRANSIT", "DELIVERED", "COMPLETED"]),
+    ).catch((): { corte_id: number; order_id: string; estado: string }[] => []),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -62,9 +64,16 @@ export default async function Despacho() {
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
   }
+  const conConstancia = new Set((prepRaw ?? []).map((r) => `${r.corte_id}|${r.order_id}`));
   const canceladosPorCorte = new Map<number, number>();
+  const enviadosPorCorte = new Map<number, number>();
   for (const r of canceladosRaw ?? []) {
-    canceladosPorCorte.set(r.corte_id, (canceladosPorCorte.get(r.corte_id) ?? 0) + 1);
+    if (r.estado === "CANCELLED" || r.estado === "CANCEL") {
+      canceladosPorCorte.set(r.corte_id, (canceladosPorCorte.get(r.corte_id) ?? 0) + 1);
+    } else if (!conConstancia.has(`${r.corte_id}|${r.order_id}`)) {
+      // Ya salió sin escanearse: resuelto, pero no se cuenta dos veces.
+      enviadosPorCorte.set(r.corte_id, (enviadosPorCorte.get(r.corte_id) ?? 0) + 1);
+    }
   }
 
   const cortes: CorteResumen[] = (cortesRaw ?? []).map((c: any) => ({
@@ -77,6 +86,7 @@ export default async function Despacho() {
     errores: c.errores ?? [],
     preparados: sinAvance ? null : (preparadosPorCorte.get(c.id) ?? 0),
     cancelados: canceladosPorCorte.get(c.id) ?? 0,
+    enviados: enviadosPorCorte.get(c.id) ?? 0,
   }));
 
   return (
