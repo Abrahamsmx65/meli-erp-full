@@ -24,10 +24,9 @@ import { partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   cancelarRenglones,
+  MOTIVOS_SIN_STOCK,
   enviarPaquete,
   etiquetaDePaquete,
-  motivoSinStock,
-  motivosDeCancelacion,
   opcionesDeEntrega,
   paquetesDePedido,
   renglonesDelPaquete,
@@ -35,6 +34,7 @@ import {
   type OpcionesEnvio,
 } from "../tiktok/api";
 import { autoBloqueos, decidirPedido, type RenglonBloqueable, type RenglonConPedido, type StockFisico } from "../tiktok/bloqueos";
+import type { Cancelacion } from "../tiktok/api";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 import { leerEstanteTikTok } from "./tiktok-bodega";
 import {
@@ -131,8 +131,9 @@ async function renglonesConDefensa(
 const ESTADOS_DESPACHABLES = new Set(["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION"]);
 
 export interface ResultadoCorte {
-  corteId: number;
-  numero: number;
+  /** null cuando NINGÚN pedido entró: no se guarda un corte vacío */
+  corteId: number | null;
+  numero: number | null;
   pedidos: number;
   pares: number;
   /** pedidos que NO entraron al corte, con el motivo; un `orderId` vacío es un aviso del corte entero */
@@ -284,19 +285,9 @@ export async function hacerCorte(
   const cancelados: ResultadoCorte["cancelados"] = [];
   /** pedidos cancelados completos: se releen para que el kardex los revierta */
   const canceladosCompletos: string[] = [];
-  // El motivo de cancelación de TikTok se pide una sola vez, y solo si hace falta.
-  let motivoCancelacion: string | null | undefined;
-  const motivoDeTikTok = async (): Promise<string> => {
-    if (motivoCancelacion === undefined) {
-      try {
-        motivoCancelacion = motivoSinStock(await motivosDeCancelacion(cliente))?.clave ?? null;
-      } catch {
-        motivoCancelacion = null;
-      }
-    }
-    if (!motivoCancelacion) throw new Error("TikTok no dio un motivo de cancelación para el vendedor.");
-    return motivoCancelacion;
-  };
+  // El motivo de cancelación: claves fijas de TikTok (`MOTIVOS_SIN_STOCK`);
+  // la que acepte en el primer pedido se prueba primero en los demás.
+  let motivos = [...MOTIVOS_SIN_STOCK];
   const constancia = async (lineItemIds: string[], resultado: string) => {
     if (!lineItemIds.length) return;
     await admin
@@ -339,19 +330,29 @@ export async function hacerCorte(
         );
       }
       if (decision.cancelar.length) {
-        const motivo = await motivoDeTikTok();
         const ids = decision.cancelar.flatMap((c) => c.lineItemIds);
+        let r: Cancelacion;
         try {
-          await cancelarRenglones(
+          r = await cancelarRenglones(
             cliente,
             p.orderId,
-            motivo,
+            motivos,
             decision.todoBloqueado ? undefined : decision.cancelar.map((c) => ({ skuId: c.skuId, cantidad: c.cantidad })),
           );
         } catch (err) {
+          // Con el mensaje REAL de TikTok: un error tragado dejó cuatro
+          // cortes diciendo «no dio motivo» sin que nadie supiera por qué.
           const m = (err as Error).message;
           await constancia(ids, m);
           throw new Error(`Bloqueado y TikTok no aceptó cancelarlo (${m}); el pedido se queda fuera del corte.`);
+        }
+        if (r.motivo !== motivos[0]) motivos = [r.motivo, ...motivos.filter((x) => x !== r.motivo)];
+        if (!r.aceptada) {
+          // TikTok la dejó pendiente (del comprador): el par sigue vendido y
+          // confirmarlo sería mandar lo que no hay.
+          const m = `TikTok dejó la cancelación pendiente (${r.estado}); el pedido se queda fuera hasta que se resuelva.`;
+          await constancia(ids, m);
+          throw new Error(`Bloqueado y ${m}`);
         }
         await constancia(ids, "cancelado");
         for (const c of decision.cancelar) cancelados.push({ orderId: p.orderId, sku: c.sku, pares: c.cantidad, completo: decision.todoBloqueado });
@@ -418,6 +419,28 @@ export async function hacerCorte(
   // SÍ entraron al corte; lo que falló fue TikTok con su horario.
   const avisoHorarios = avisoDeGuardia(guardia);
   if (avisoHorarios) errores.push({ orderId: "", error: avisoHorarios });
+
+  // Sin un solo pedido confirmado NO se guarda un corte: uno vacío solo
+  // estorba en la lista (el 18-sep-2026 se guardaron dos seguidos con 0
+  // pedidos porque los 16 pendientes estaban bloqueados y la cancelación
+  // fallaba). Lo cancelado sí se relee para que el kardex libere lo
+  // apartado, y el resultado dice con nombre por qué nadie entró.
+  if (!confirmados.length) {
+    const releerSinCorte = [...new Set([...canceladosCompletos, ...cancelados.map((c) => c.orderId)])];
+    let publicadosSinCorte = 0;
+    if (releerSinCorte.length) publicadosSinCorte = (await sincronizarPedidosPorId(admin, accountId, releerSinCorte)).publicados;
+    return {
+      corteId: null,
+      numero: null,
+      pedidos: 0,
+      pares: 0,
+      errores,
+      publicados: publicadosSinCorte,
+      dropOff,
+      cancelados,
+      al3pl: { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false },
+    };
+  }
 
   // El número del corte: consecutivo por cuenta.
   const { data: ultimo } = await admin

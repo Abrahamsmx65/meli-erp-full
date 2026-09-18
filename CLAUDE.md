@@ -382,11 +382,27 @@ guárdala numerada.
   el que compró primero se lleva el par. Un SKU sin renglón de stock NO
   se toca: cancelar a ciegas también es error. Luego, ANTES de confirmar
   cada pedido, `decidirPedido` separa lo bloqueado y se le pide a TikTok
-  que lo CANCELE (`cancelarRenglones`, parcial por `sku_id` con el motivo
-  «sin stock» de `motivosDeCancelacion`; todo bloqueado = pedido completo)
-  y se confirma lo demás. **Si TikTok no acepta la cancelación, el pedido
-  ENTERO se queda fuera del corte** y se declara (constancia en
-  `bloqueo_resultado`): confirmar un par que no existe es el error caro.
+  que lo CANCELE (`cancelarRenglones`: `POST
+  /return_refund/202309/cancellations`, la ruta del VENDEDOR en 202309,
+  parcial por `sku_id`; todo bloqueado = pedido completo) y se confirma lo
+  demás. **El motivo es una CLAVE FIJA de la documentación de TikTok**
+  (`MOTIVOS_SIN_STOCK`, primero
+  `ecom_order_to_ship_canceled_reason_out_of_stock`): TikTok no tiene
+  endpoint que liste motivos para el vendedor. Hasta el 18-sep-2026 el
+  corte pedía `/order/202309/orders/cancellation_reasons` (no existe) y
+  cancelaba por `/order/.../cancel` (tampoco), y el error se tragaba: la
+  defensa nunca canceló nada y 16 pedidos se quedaron fuera de cuatro
+  cortes seguidos con «no dio un motivo». Ahora los motivos se prueban en
+  orden (solo se pasa al siguiente si TikTok rechaza EL MOTIVO, código
+  25001021 o «reason» en el mensaje), el mensaje REAL de TikTok queda en
+  el corte y en `bloqueo_resultado`, y una cancelación que TikTok deje
+  PENDIENTE (`cancel_status` PENDING) NO cuenta como aceptada. **Si
+  TikTok no acepta la cancelación, el pedido ENTERO se queda fuera del
+  corte** y se declara: confirmar un par que no existe es el error caro.
+  **Un corte donde NADIE entró no se guarda** (`corteId: null` en
+  `ResultadoCorte`; el 18-sep se guardaron dos cortes vacíos seguidos):
+  lo cancelado se relee igual y el resumen dice, agrupado, por qué no
+  entró nadie.
   Un renglón cancelado no va en la etiqueta ni en la lista (`cargarCorte`
   salta reversa y `bloqueo_resultado = cancelado`), los pares del corte y
   las salidas al 3PL salen de lo VIVO, y los cancelados se releen para

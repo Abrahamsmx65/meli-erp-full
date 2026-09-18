@@ -36,12 +36,12 @@ export async function POST(req: NextRequest) {
     // las 48 horas, y luego lo del domingo y el lunes.
     if (body?.modo === "lunes") {
       const r = await hacerCorteLunes(admin, cuenta.id, opciones);
-      calentar(r.cortes.map((c) => c.corteId));
+      calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
       return NextResponse.json({ ok: true, modo: "lunes", ...r });
     }
 
     const r = await hacerCorte(admin, cuenta.id, opciones);
-    calentar([r.corteId]);
+    if (r.corteId != null) calentar([r.corteId]);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
