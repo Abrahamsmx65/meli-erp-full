@@ -418,9 +418,21 @@ guárdala numerada.
   cuenta como aceptada. **TikTok MX contestó 11050001 a la cancelación
   PARCIAL** («Cannot partially cancel this order: partial cancellation
   requires the order's market and cancel_reason to support partial
-  cancellation»): mientras no se sepa qué motivo la permite, un pedido
-  grande con un renglón sin stock se queda fuera con ese mensaje; el dueño
-  decide si se cancela completo. **Si TikTok no acepta la cancelación, el
+  cancellation»): un pedido grande con un renglón sin stock se queda
+  fuera del corte y se le AVISA POR CORREO a quien despacha
+  (`esErrorDeParcial`, `avisarParcialesSinCancelar`, `armarCorreoParciales`;
+  al destinatario de faltantes, con el renglón sin stock y lo que sí hay,
+  para cancelarlo a mano en el Seller Center; un pedido ya avisado no se
+  repite en `DIAS_SIN_REPETIR_AVISO`, 3; decisión del dueño, 18-sep-2026).
+  **Todo correo deja constancia en `tiktok_sync_log`** (`registrarCorreo`,
+  tareas `correo-faltantes`, `correo-parciales`, `correo-alarma`,
+  `correo-prueba`: destinatario, remitente, si Resend lo aceptó y el motivo
+  si no): el 18-sep david no recibía el de faltantes y no había cómo saber
+  por qué. Un remitente sin dominio verificado en Resend
+  (`onboarding@resend.dev`, el de omisión si falta `CORREO_REMITENTE`) SOLO
+  entrega al dueño de la cuenta de Resend: a cualquier otro correo Resend
+  contesta 403. La sonda `/api/tiktok/diagnostico/correo?para=…` manda una
+  prueba y contesta lo que dijo Resend. **Si TikTok no acepta la cancelación, el
   pedido ENTERO se queda fuera del corte** y se declara: confirmar un par
   que no existe es el error caro. **Un bloqueo automático no es para
   siempre** (`esBloqueoAutomatico`, prefijo `auto:`): cada corte lo vuelve

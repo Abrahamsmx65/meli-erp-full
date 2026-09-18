@@ -27,6 +27,7 @@ import {
   MOTIVOS_SIN_STOCK,
   motivosDeCancelacion,
   motivoSinStock,
+  esErrorDeParcial,
   enviarPaquete,
   etiquetaDePaquete,
   opcionesDeEntrega,
@@ -37,6 +38,7 @@ import {
 } from "../tiktok/api";
 import { autoBloqueos, decidirPedido, esBloqueoAutomatico, type RenglonBloqueable, type RenglonConPedido, type StockFisico } from "../tiktok/bloqueos";
 import type { Cancelacion } from "../tiktok/api";
+import { avisarParcialesSinCancelar, destinatarioFaltantes, type PedidoParcialSinCancelar } from "./tiktok-faltantes-correo";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 import { leerEstanteTikTok } from "./tiktok-bodega";
 import {
@@ -314,6 +316,8 @@ export async function hacerCorte(
   // bitácora: su forma exacta no está documentada en ningún SDK público.
   const motivos = [...MOTIVOS_SIN_STOCK];
   let elegibilidadCruda: { orderId: string; crudo: unknown } | null = null;
+  /** pedidos grandes que TikTok no dejó cancelar parcial: se avisan por correo a quien despacha */
+  const parciales: PedidoParcialSinCancelar[] = [];
   const constancia = async (lineItemIds: string[], resultado: string) => {
     if (!lineItemIds.length) return;
     await admin
@@ -379,6 +383,17 @@ export async function hacerCorte(
           // cortes diciendo «no dio motivo» sin que nadie supiera por qué.
           const m = (err as Error).message;
           await constancia(ids, m);
+          if (!decision.todoBloqueado && esErrorDeParcial(err)) {
+            // TikTok MX no cancela parcial por API: esto lo arregla una
+            // persona en el Seller Center, y hay que decírselo.
+            parciales.push({
+              orderId: p.orderId,
+              sinStock: decision.cancelar.map((c) => ({ sku: c.sku, pares: c.cantidad })),
+              vivos: decision.quedan.map((q) => ({ sku: q.sku, pares: q.cantidad })),
+              error: m,
+            });
+            throw new Error(`Pedido grande con un renglón sin stock: TikTok no deja cancelar parcial por API; se avisó por correo para cancelarlo a mano en el Seller Center (${m}).`);
+          }
           throw new Error(`Bloqueado y TikTok no aceptó cancelarlo (${m}); el pedido se queda fuera del corte.`);
         }
         if (!r.aceptada) {
@@ -453,6 +468,15 @@ export async function hacerCorte(
   // SÍ entraron al corte; lo que falló fue TikTok con su horario.
   const avisoHorarios = avisoDeGuardia(guardia);
   if (avisoHorarios) errores.push({ orderId: "", error: avisoHorarios });
+
+  if (parciales.length) {
+    const aviso = await avisarParcialesSinCancelar(admin, accountId, parciales);
+    if (aviso.correo && !aviso.correo.enviado) {
+      errores.push({ orderId: "", error: `No se pudo mandar el correo de los pedidos grandes a ${destinatarioFaltantes()}: ${aviso.correo.motivo ?? "sin detalle"}.` });
+    } else if (aviso.avisados) {
+      errores.push({ orderId: "", error: `Se avisó por correo a ${destinatarioFaltantes()} de ${aviso.avisados} ${aviso.avisados === 1 ? "pedido grande" : "pedidos grandes"} que hay que cancelar a mano en el Seller Center.` });
+    }
+  }
 
   if (elegibilidadCruda) {
     await admin

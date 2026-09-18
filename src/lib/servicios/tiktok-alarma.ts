@@ -10,7 +10,8 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { cualesAvisar, desfasesPeligrosos, HORAS_PARA_AVISAR, type LecturaSku } from "../tiktok/alarma";
-import { correoConfigurado, enviarCorreo } from "./correo";
+import { correoConfigurado, destinatarioAvisos, enviarCorreo } from "./correo";
+import { registrarCorreo } from "./tiktok-faltantes-correo";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 import { leerEstanteTikTok } from "./tiktok-bodega";
 
@@ -104,6 +105,7 @@ export async function revisarDesfasesTikTok(db: DB, accountId: string): Promise<
       texto: porAvisar.map((d) => `${d.sku}: kardex ${d.kardex}, bodega ${d.estante ?? "—"}. ${d.motivo}`).join("\n"),
     });
     correo = r.enviado ? "enviado" : (r.motivo ?? "no se pudo enviar");
+    await registrarCorreo(db, accountId, "correo-alarma", destinatarioAvisos() ?? "", `TikTok: ${pares} pares que no existen se están ofreciendo`, r);
     if (r.enviado) {
       await db
         .from("tiktok_desfases")

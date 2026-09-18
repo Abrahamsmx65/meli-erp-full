@@ -553,6 +553,18 @@ export function motivoSinStock(motivos: string[]): string | null {
   return motivos.find((m) => /stock|inventor|agot/i.test(m)) ?? motivos[0] ?? null;
 }
 
+/**
+ * ¿TikTok rechazó la cancelación PARCIAL? El 18-sep-2026 TikTok MX contestó
+ * 11050001 «Cannot partially cancel this order… otherwise request a
+ * full-order cancellation»: un pedido grande con un renglón sin stock no se
+ * arregla solo; hay que avisarle a quien despacha.
+ */
+export function esErrorDeParcial(err: unknown): boolean {
+  const codigo = (err as { codigo?: unknown })?.codigo;
+  const m = (err as Error)?.message ?? String(err ?? "");
+  return codigo === 11050001 || /11050001|partial(ly)? cancel/i.test(m);
+}
+
 /** ¿TikTok rechazó la cancelación por el MOTIVO (clave inválida o que no cuadra con el estado)? */
 export function esErrorDeMotivo(err: unknown): boolean {
   const codigo = (err as { codigo?: unknown })?.codigo;

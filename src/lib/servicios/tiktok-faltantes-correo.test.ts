@@ -36,3 +36,29 @@ describe("correo de faltantes", () => {
     expect(c.html).not.toContain("Corte #22");
   });
 });
+
+describe("correo de pedidos grandes sin cancelación parcial", () => {
+  it("sin pedidos no hay correo", async () => {
+    const { armarCorreoParciales } = await import("./tiktok-faltantes-correo");
+    expect(armarCorreoParciales([])).toBeNull();
+  });
+
+  it("dice qué renglón cancelar a mano y qué sí hay, por pedido", async () => {
+    const { armarCorreoParciales } = await import("./tiktok-faltantes-correo");
+    const c = armarCorreoParciales([
+      {
+        orderId: "586107197906126326",
+        sinStock: [{ sku: "GT148-BLK-24-MX", pares: 2 }, { sku: "GT148-DK BROWN-25-MX", pares: 1 }],
+        vivos: [{ sku: "GT148-CREAM-26-MX", pares: 1 }],
+        error: "TikTok Shop 11050001: Cannot partially cancel this order",
+      },
+    ]);
+    expect(c).not.toBeNull();
+    expect(c!.asunto).toContain("1 pedido grande necesita cancelación a mano");
+    expect(c!.html).toContain("586107197906126326");
+    expect(c!.html).toContain("GT148-BLK-24-MX ×2");
+    expect(c!.html).toContain("GT148-CREAM-26-MX");
+    expect(c!.html).toContain("Seller Center");
+    expect(c!.texto).toContain("sin stock: GT148-BLK-24-MX ×2, GT148-DK BROWN-25-MX");
+  });
+});
