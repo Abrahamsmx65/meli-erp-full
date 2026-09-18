@@ -259,3 +259,18 @@ describe("necesitaFranja", () => {
     expect(necesitaFranja("")).toBe(true);
   });
 });
+
+describe("faltantesDePaquetes", () => {
+  it("un paquete cancelado después del corte conserva su número pero no falta ni cuenta en el total", async () => {
+    const { faltantesDePaquetes } = await import("./despacho");
+    const paquetes: any[] = [
+      { numero: 1, orderId: "a", cancelado: false },
+      { numero: 2, orderId: "b", cancelado: true },
+      { numero: 3, orderId: "c" },
+    ];
+    const r = faltantesDePaquetes(paquetes, new Set([1]));
+    expect(r.faltantes.map((p) => p.numero)).toEqual([3]);
+    expect(r.cancelados).toBe(1);
+    expect(r.total).toBe(2);
+  });
+});

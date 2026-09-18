@@ -362,7 +362,16 @@ guárdala numerada.
   tuvieron guía. La constancia de preparado se sigue por la IDENTIDAD del
   paquete (pedido + paquete, `clavePaquete`), no por el "#n": el número es
   el lugar en la hoja de hoy y cambiaría al cambiar el orden del corte;
-  `numerosPreparados` lo traduce a la hoja que se está enseñando.
+  `numerosPreparados` lo traduce a la hoja que se está enseñando. **Un
+  pedido cancelado DESPUÉS del corte ya no falta** (`PaqueteDespacho.cancelado`,
+  `faltantesDePaquetes`; 18-sep-2026: el 586038646418343934 del corte #20,
+  cancelado en el Seller Center el 15, siguió tres días como faltante):
+  conserva su número en la hoja pero sale de los faltantes, del total y
+  del «X / Y preparados» (la pantalla resta los cancelados y los enseña
+  aparte). Y para que se entere solo, `releerSinPrepararDeCortesRecientes`
+  vuelve a leer en TikTok los pedidos sin preparar de los cortes de los
+  últimos `DIAS_RELEER_CORTES` (3) días, hasta `TOPE_RELEER` (80): de
+  fondo después de cada corte y antes del correo de faltantes de la mañana.
   **PEDIDOS DE ALMACÉN** (`tiktok/pedidos-almacen.ts` motor puro,
   `servicios/tiktok-pedidos-almacen.ts`, `/tiktok/pedidos`, tabla
   `tiktok_pedidos_almacen`, migración 0089): la bodega de TikTok se vacía

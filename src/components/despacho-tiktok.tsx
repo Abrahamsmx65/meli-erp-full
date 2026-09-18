@@ -16,6 +16,13 @@ export interface CorteResumen {
   errores: { orderId: string; error: string }[];
   /** paquetes que ya pasaron los tres escaneos; null = no se pudo leer */
   preparados: number | null;
+  /** pedidos cancelados después del corte: conservan su número, ya no faltan */
+  cancelados?: number;
+}
+
+/** Los pedidos del corte que siguen vivos: los que entraron menos los cancelados después. */
+function vivosDe(c: CorteResumen): number {
+  return Math.max(0, c.pedidos - (c.cancelados ?? 0));
 }
 
 function cuando(iso: string): string {
@@ -270,11 +277,12 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <span
                     className="ml-2 rounded-full px-2 text-[11px] font-semibold"
                     style={{
-                      background: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--acento-suave)" : "var(--grid)",
-                      color: c.preparados != null && c.preparados >= c.pedidos && c.pedidos > 0 ? "var(--exito-texto)" : "var(--ink-2)",
+                      background: c.preparados != null && c.preparados >= vivosDe(c) && vivosDe(c) > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      color: c.preparados != null && c.preparados >= vivosDe(c) && vivosDe(c) > 0 ? "var(--exito-texto)" : "var(--ink-2)",
                     }}
                   >
-                    {c.preparados ?? "—"} / {c.pedidos} preparados
+                    {c.preparados ?? "—"} / {vivosDe(c)} preparados
+                    {c.cancelados ? ` · ${c.cancelados} ${c.cancelados === 1 ? "cancelado" : "cancelados"}` : ""}
                   </span>
                 </div>
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
@@ -313,7 +321,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
-                {c.pedidos > 0 && c.preparados != null && c.preparados < c.pedidos ? (
+                {vivosDe(c) > 0 && c.preparados != null && c.preparados < vivosDe(c) ? (
                   <button
                     type="button"
                     disabled={pidiendoFaltantes === c.id}
@@ -327,15 +335,15 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                       ? "Buscando…"
                       : faltantes[c.id]
                         ? "Ocultar faltantes"
-                        : `Faltantes (${c.pedidos - (c.preparados ?? 0)})`}
+                        : `Faltantes (${vivosDe(c) - (c.preparados ?? 0)})`}
                   </button>
                 ) : null}
-                {c.pedidos > 0 && c.preparados != null && c.preparados < c.pedidos ? (
+                {vivosDe(c) > 0 && c.preparados != null && c.preparados < vivosDe(c) ? (
                   <button
                     type="button"
                     disabled={preparandoTodo === c.id}
                     onClick={async () => {
-                      const faltan = c.pedidos - (c.preparados ?? 0);
+                      const faltan = vivosDe(c) - (c.preparados ?? 0);
                       const pin = window.prompt(
                         `Dar por preparado TODO el corte #${c.numero} sin escanear (faltan ${faltan}). Clave de supervisor:`,
                       );
@@ -405,6 +413,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                     <span className="font-semibold">
                       Faltan {faltantes[c.id].faltantes.length} de {faltantes[c.id].total} paquetes ·{" "}
                       {faltantes[c.id].pares.reduce((a: number, x: any) => a + x.pares, 0)} pares
+                      {faltantes[c.id].cancelados
+                        ? ` · ${faltantes[c.id].cancelados} ${faltantes[c.id].cancelados === 1 ? "cancelado después del corte" : "cancelados después del corte"}`
+                        : ""}
                     </span>
                     <a
                       href={`/api/tiktok/cortes/${c.id}/faltantes?formato=pdf`}
