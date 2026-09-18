@@ -461,6 +461,15 @@ guárdala numerada.
   catálogo» con sus sugerencias y su botón Amarrar. Quedan las sugerencias
   del renglón del inventario (`LigarTikTok`) y `/api/tiktok/mapeo`; los
   amarres se consultan en la base.
+  **La tabla del Almacén TikTok es para ENCONTRAR un SKU**
+  (`components/inventario-tiktok.tsx`, motor puro en
+  `tiktok/inventario-vista.ts`; pedido del dueño el 18-sep-2026: «tienes
+  todo revuelto»): orden ALFABÉTICO por SKU con números naturales (GT102
+  antes de GT134, talla 9 antes de 24), buscador por pedazos sin importar
+  guiones ni acentos («gt134 blk 24», el título también cuenta) y arriba
+  el total de lo que se está viendo (SKU, en almacén, apartados,
+  disponibles, vendidos). Lo urgente lo gritan las fichas y Pendientes,
+  no el orden de la tabla.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
