@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarClock, Eye, FileText, PackageX, Printer, ScanLine, Scissors, ShieldCheck } from "lucide-react";
+import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
@@ -55,6 +55,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   // enseña abiertos abajo, sin cambiar de pantalla.
   const [faltantes, setFaltantes] = useState<Record<number, any>>({});
   const [pidiendoFaltantes, setPidiendoFaltantes] = useState<number | null>(null);
+  const [actualizando, setActualizando] = useState(false);
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {
@@ -118,6 +119,46 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     return partes.join(" ");
   }
 
+  /**
+   * «Actualizar»: vuelve a leer en TikTok lo que sigue sin preparar en los
+   * cortes que se ven y dice qué dejó de faltar. Los faltantes abiertos se
+   * vuelven a pedir para que la lista de abajo también cambie.
+   */
+  async function actualizar() {
+    setActualizando(true);
+    setAviso(null);
+    setError(null);
+    try {
+      const r = await fetch("/api/tiktok/cortes/releer", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo actualizar.");
+      const partes: string[] = [];
+      if (!j.releidos) partes.push("No había pedidos sin preparar que releer.");
+      else {
+        partes.push(`Se releyeron ${j.releidos} pedidos de ${j.cortes} cortes.`);
+        if (j.enviados?.length) partes.push(`${j.enviados.length} ya salieron sin escanearse: ${j.enviados.join(", ")}.`);
+        if (j.cancelados?.length) partes.push(`${j.cancelados.length} se cancelaron: ${j.cancelados.join(", ")}.`);
+        if (!j.enviados?.length && !j.cancelados?.length) partes.push("Nada cambió: lo que falta sigue faltando.");
+      }
+      for (const a of j.avisos ?? []) partes.push(String(a));
+      setAviso(partes.join(" "));
+      const abiertos = Object.keys(faltantes).map(Number);
+      setFaltantes({});
+      router.refresh();
+      for (const id of abiertos) {
+        const rf = await fetch(`/api/tiktok/cortes/${id}/faltantes`);
+        if (rf.ok) {
+          const jf = await rf.json();
+          setFaltantes((f) => ({ ...f, [id]: jf }));
+        }
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setActualizando(false);
+    }
+  }
+
   async function hacerCorte(modo?: "lunes") {
     setOcupado(true);
     setAviso(null);
@@ -173,6 +214,16 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               <option value="PICKUP">Pasa el repartidor</option>
               <option value="DROP_OFF">Los llevo a la paquetería</option>
             </select>
+            <button
+              onClick={actualizar}
+              disabled={actualizando}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--grid)" }}
+              title="Vuelve a leer en TikTok lo que sigue sin preparar en los cortes recientes: lo que ya se envió o se canceló deja de faltar"
+            >
+              <RefreshCw size={14} className={actualizando ? "animate-spin" : undefined} />
+              {actualizando ? "Leyendo TikTok…" : "Actualizar"}
+            </button>
             <button
               onClick={simular}
               disabled={simulando || !pendientes}

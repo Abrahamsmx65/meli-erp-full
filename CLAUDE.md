@@ -393,6 +393,11 @@ guárdala numerada.
   vuelve a leer en TikTok los pedidos sin preparar de los cortes de los
   últimos `DIAS_RELEER_CORTES` (3) días, hasta `TOPE_RELEER` (80): de
   fondo después de cada corte y antes del correo de faltantes de la mañana.
+  Y el botón «Actualizar» de Despacho (`/api/tiktok/cortes/releer`,
+  `DIAS_RELEER_BOTON` 14, `TOPE_RELEER_BOTON` 200; pedido del dueño el
+  18-sep-2026) hace lo mismo en el momento sobre los cortes que la pantalla
+  enseña y CONTESTA qué dejó de faltar (`cambiosDeRelectura`: pedidos que
+  pasaron a enviados o a cancelados), no solo cuántos releyó.
   **PEDIDOS DE ALMACÉN** (`tiktok/pedidos-almacen.ts` motor puro,
   `servicios/tiktok-pedidos-almacen.ts`, `/tiktok/pedidos`, tabla
   `tiktok_pedidos_almacen`, migración 0089): la bodega de TikTok se vacía

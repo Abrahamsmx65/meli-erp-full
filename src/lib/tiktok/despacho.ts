@@ -20,6 +20,7 @@
  * (`tiktok_cortes.orden_paquetes`) y se vuelve a armar siempre con ese; los
  * de antes del 14-sep-2026 se quedan con el suyo ("bodega").
  */
+import { efectoDeEstado } from "./kardex";
 import { codigosDeProducto } from "./codigos";
 
 
@@ -92,6 +93,34 @@ const ESTADOS_YA_ENVIADO = new Set(["IN_TRANSIT", "DELIVERED", "COMPLETED"]);
 
 export function yaSeEnvio(estado: string | null | undefined): boolean {
   return ESTADOS_YA_ENVIADO.has(String(estado ?? "").trim().toUpperCase());
+}
+
+/** Cancelado o devuelto: el pedido ya no existe para el despacho (misma lista que el kardex). */
+export function seCancelo(estado: string | null | undefined): boolean {
+  return efectoDeEstado(estado) === "reversa";
+}
+
+/**
+ * Qué pedidos dejaron de faltar entre una lectura de TikTok y la siguiente:
+ * los que antes seguían pendientes y ahora ya se fueron con el repartidor
+ * (`enviados`) o se cancelaron (`cancelados`). Es lo que el botón
+ * «Actualizar» de Despacho le contesta a quien lo aprieta; sin esto solo
+ * diría «se releyeron 40» y nadie sabría si sirvió de algo.
+ */
+export function cambiosDeRelectura(
+  antes: { orderId: string; estado: string | null | undefined }[],
+  despues: Map<string, string | null | undefined>,
+): { enviados: string[]; cancelados: string[] } {
+  const enviados: string[] = [];
+  const cancelados: string[] = [];
+  for (const a of antes) {
+    if (yaSeEnvio(a.estado) || seCancelo(a.estado)) continue;
+    const ahora = despues.get(a.orderId);
+    if (ahora === undefined) continue;
+    if (seCancelo(ahora)) cancelados.push(a.orderId);
+    else if (yaSeEnvio(ahora)) enviados.push(a.orderId);
+  }
+  return { enviados, cancelados };
 }
 
 /**
