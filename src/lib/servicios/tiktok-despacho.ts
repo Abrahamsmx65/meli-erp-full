@@ -44,6 +44,7 @@ import { leerEstanteTikTok } from "./tiktok-bodega";
 import {
   agruparPorModelo,
   clavePaquete,
+  faltantesDePaquetes,
   codigoDeHoja,
   codigoDeOrden,
   necesitaFranja,
@@ -691,7 +692,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   const orden: OrdenPaquetes = corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
   const [ordenes, items] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria", (q) =>
+    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria, estado", (q) =>
       q.eq("account_id", accountId).eq("corte_id", corteId),
     ),
     traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
@@ -754,6 +755,10 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       }));
     };
 
+    // Cancelado después del corte (el pedido entero, o todos sus renglones):
+    // conserva su número, pero ya no falta por preparar.
+    const cancelado = efectoDeEstado(o.estado) === "reversa" || renglones.length === 0;
+
     if (ids.length <= 1) {
       paquetes.push({
         orderId: o.order_id,
@@ -761,6 +766,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         destinatario: o.detalle?.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(renglones),
+        cancelado,
       });
       continue;
     }
@@ -784,6 +790,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
         destinatario: o.detalle?.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(propios.length ? propios : renglones),
+        cancelado,
       });
     }
   }
@@ -1184,6 +1191,57 @@ export async function pdfListaDelCorte(admin: any, accountId: string, corteId: n
 }
 
 // ---------------------------------------------------------------------------
+// Releer lo que sigue sin preparar en los cortes recientes
+// ---------------------------------------------------------------------------
+
+/** Cuántos días hacia atrás se releen los cortes; los mismos del correo de faltantes. */
+export const DIAS_RELEER_CORTES = 3;
+/** Tope de pedidos por corrida: TikTok contesta ~1 por llamada y esto corre de fondo. */
+export const TOPE_RELEER = 80;
+
+/**
+ * Vuelve a leer en TikTok los pedidos de los cortes recientes que siguen
+ * sin constancia de preparado y no están cancelados. Un pedido que se
+ * canceló después del corte (en el Seller Center, o por el comprador) deja
+ * de contar como faltante en cuanto se relee; sin esto dependía del aviso
+ * de TikTok o de la ventana del cron, y el 586038646418343934 del corte
+ * #20 siguió como faltante tres días. Corre de fondo después de cada corte
+ * y antes del correo de faltantes de la mañana (pedido del dueño,
+ * 18-sep-2026: «que se vaya actualizando cada vez que hago corte, también
+ * los pasados»).
+ */
+export async function releerSinPrepararDeCortesRecientes(
+  admin: any,
+  accountId: string,
+): Promise<{ releidos: number; cortes: number }> {
+  const desde = new Date(Date.now() - DIAS_RELEER_CORTES * 86_400_000).toISOString();
+  const { data: cortes } = await admin
+    .from("tiktok_cortes")
+    .select("id")
+    .eq("account_id", accountId)
+    .gte("creado_en", desde);
+  const ids = (cortes ?? []).map((c: any) => c.id as number);
+  if (!ids.length) return { releidos: 0, cortes: 0 };
+
+  const [ordenes, preparados] = await Promise.all([
+    traerTodo<any>(admin, "tiktok_ordenes", "order_id, corte_id, estado", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids),
+    ),
+    traerTodo<any>(admin, "tiktok_preparaciones", "order_id, id", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids),
+    ),
+  ]);
+  const hechos = new Set((preparados ?? []).map((p: any) => String(p.order_id)));
+  const pendientes = (ordenes ?? [])
+    .filter((o: any) => !hechos.has(String(o.order_id)) && efectoDeEstado(o.estado) !== "reversa")
+    .map((o: any) => String(o.order_id))
+    .slice(0, TOPE_RELEER);
+  if (!pendientes.length) return { releidos: 0, cortes: ids.length };
+  await sincronizarPedidosPorId(admin, accountId, pendientes);
+  return { releidos: pendientes.length, cortes: ids.length };
+}
+
+// ---------------------------------------------------------------------------
 // PDF de la lista de surtido: cuántos pares de cada SKU, para jalar de bodega
 // ---------------------------------------------------------------------------
 
@@ -1279,9 +1337,11 @@ export interface FaltantesCorte {
   id: number;
   numero: number;
   creadoEn: string;
-  /** paquetes del corte */
+  /** paquetes del corte que siguen vivos (sin contar los cancelados después) */
   total: number;
   preparados: number;
+  /** paquetes cancelados después del corte: conservan su número, no faltan */
+  cancelados: number;
   faltantes: PaqueteFaltante[];
   /** pares que se quedaron sin salir, sumados por SKU */
   pares: { sku: string; pares: number }[];
@@ -1315,8 +1375,8 @@ export async function faltantesDelCorte(
   ]);
 
   const yaNumerados = new Set(numerosPreparados(corte.paquetes, hechos));
-  const faltantes: PaqueteFaltante[] = corte.paquetes
-    .filter((p) => !yaNumerados.has(p.numero))
+  const vivos = faltantesDePaquetes(corte.paquetes, yaNumerados);
+  const faltantes: PaqueteFaltante[] = vivos.faltantes
     .map((p) => ({
       numero: p.numero,
       orderId: p.orderId,
@@ -1343,8 +1403,9 @@ export async function faltantesDelCorte(
     id: corte.id,
     numero: corte.numero,
     creadoEn: corte.creadoEn,
-    total: corte.paquetes.length,
+    total: vivos.total,
     preparados: yaNumerados.size,
+    cancelados: vivos.cancelados,
     faltantes,
     pares: [...porSku]
       .map(([sku, pares]) => ({ sku, pares }))

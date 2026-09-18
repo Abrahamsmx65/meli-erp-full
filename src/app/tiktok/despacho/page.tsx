@@ -19,7 +19,7 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, cortesResultado, prepRaw, token] = await Promise.all([
+  const [pendientes, cortesResultado, prepRaw, token, canceladosRaw] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
@@ -38,6 +38,11 @@ export default async function Despacho() {
       return null;
     }),
     tokenPreparar(cuenta.id),
+    // Pedidos cancelados DESPUÉS de entrar a un corte: conservan su número en
+    // la hoja pero ya no cuentan como pendientes de preparar.
+    traerTodo<{ corte_id: number }>(supabase, "tiktok_ordenes", "corte_id, order_id", (q) =>
+      q.eq("account_id", cuenta.id).not("corte_id", "is", null).in("estado", ["CANCELLED", "CANCEL"]),
+    ).catch((): { corte_id: number }[] => []),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -57,6 +62,10 @@ export default async function Despacho() {
   for (const r of prepRaw ?? []) {
     preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
   }
+  const canceladosPorCorte = new Map<number, number>();
+  for (const r of canceladosRaw ?? []) {
+    canceladosPorCorte.set(r.corte_id, (canceladosPorCorte.get(r.corte_id) ?? 0) + 1);
+  }
 
   const cortes: CorteResumen[] = (cortesRaw ?? []).map((c: any) => ({
     id: c.id,
@@ -67,6 +76,7 @@ export default async function Despacho() {
     handover: c.handover,
     errores: c.errores ?? [],
     preparados: sinAvance ? null : (preparadosPorCorte.get(c.id) ?? 0),
+    cancelados: canceladosPorCorte.get(c.id) ?? 0,
   }));
 
   return (

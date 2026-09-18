@@ -71,6 +71,13 @@ export interface PaqueteDespacho {
   /** la paquetería que TikTok le asignó (J&T MX, Cainiao MX L2L…); null si aún no se sabe */
   paqueteria?: string | null;
   pares: ParDespacho[];
+  /**
+   * true si el pedido se canceló DESPUÉS del corte (en TikTok o desde el
+   * ERP): conserva su número en la hoja, pero ya no falta por preparar. El
+   * 18-sep-2026 el 586038646418343934 del corte #20, cancelado el 15,
+   * seguía saliendo como faltante.
+   */
+  cancelado?: boolean;
 }
 
 /**
@@ -323,6 +330,20 @@ export function agruparPorModelo(
     }
   }
   return grupos;
+}
+
+/**
+ * Qué paquetes del corte faltan por preparar: los que no tienen constancia
+ * y NO están cancelados. Un paquete cancelado conserva su número (la hoja
+ * ya se imprimió) pero no se cuenta ni como faltante ni en el total.
+ */
+export function faltantesDePaquetes<T extends PaqueteNumerado>(
+  paquetes: T[],
+  yaNumerados: Set<number>,
+): { faltantes: T[]; cancelados: number; total: number } {
+  const cancelados = paquetes.filter((p) => p.cancelado).length;
+  const faltantes = paquetes.filter((p) => !p.cancelado && !yaNumerados.has(p.numero));
+  return { faltantes, cancelados, total: paquetes.length - cancelados };
 }
 
 export interface ErrorDeCorte {
