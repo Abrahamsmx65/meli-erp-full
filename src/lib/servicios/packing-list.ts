@@ -12,7 +12,7 @@
  * entre los pedidos vivos con cajas pendientes, del más viejo al más nuevo,
  * y se reparte si hace falta.
  */
-import type { LineaPacking, PackingList } from "../importar/packing-list";
+import type { LineaPacking, MedidasCaja, PackingList } from "../importar/packing-list";
 import { canonizar, claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
@@ -102,6 +102,9 @@ export interface LineaCasada {
   cajasAsignar: number;
   estado: EstadoCasado;
   detalle: string | null;
+  /** medidas de la caja (cm) y peso bruto por caja (kg), del archivo */
+  medidas: MedidasCaja | null;
+  pesoKg: number | null;
 }
 
 export interface PackingCasado {
@@ -333,6 +336,10 @@ export async function casarPackingList(
       cajasAsignar: 0,
       estado: "sin_renglon",
       detalle: null,
+      // Las medidas vienen por bloque de color; dos embarques parciales del
+      // mismo producto traen la misma caja, así que vale el primero que las traiga.
+      medidas: g.lineas.find((x) => x.medidas)?.medidas ?? null,
+      pesoKg: g.lineas.find((x) => x.pesoKg)?.pesoKg ?? null,
     };
 
     if (l.pedido) {
@@ -451,7 +458,12 @@ export async function aplicarPackingList(
 
   const asignaciones = casado.lineas
     .filter((l) => l.pedidoLineaId && l.cajasAsignar > 0)
-    .map((l) => ({ pedidoLineaId: l.pedidoLineaId as string, cajas: l.cajasAsignar }));
+    .map((l) => ({
+      pedidoLineaId: l.pedidoLineaId as string,
+      cajas: l.cajasAsignar,
+      medidas: l.medidas,
+      pesoKg: l.pesoKg,
+    }));
 
   if (!asignaciones.length) {
     throw new Error("Ningún renglón del packing list se pudo amarrar con un pedido cargado.");
@@ -459,16 +471,23 @@ export async function aplicarPackingList(
 
   // Dos líneas del archivo que caen en el MISMO renglón de pedido se suman:
   // la asignación es "cuántas cajas de este renglón van en este contenedor".
-  const porLinea = new Map<string, number>();
+  // Las medidas y el peso de la caja viajan con ella (para el packing list
+  // del agente aduanal); si se suman dos líneas, valen las de la primera.
+  const porLinea = new Map<string, { cajas: number; medidas: MedidasCaja | null; pesoKg: number | null }>();
   for (const a of asignaciones) {
-    porLinea.set(a.pedidoLineaId, (porLinea.get(a.pedidoLineaId) ?? 0) + a.cajas);
+    const ya = porLinea.get(a.pedidoLineaId);
+    porLinea.set(a.pedidoLineaId, {
+      cajas: (ya?.cajas ?? 0) + a.cajas,
+      medidas: ya?.medidas ?? a.medidas,
+      pesoKg: ya?.pesoKg ?? a.pesoKg,
+    });
   }
 
   const r = await asignarCajasAContenedor(
     db,
     accountId,
     { ...datos, numero: casado.numero },
-    [...porLinea.entries()].map(([pedidoLineaId, cajas]) => ({ pedidoLineaId, cajas })),
+    [...porLinea.entries()].map(([pedidoLineaId, x]) => ({ pedidoLineaId, ...x })),
   );
 
   // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
@@ -495,7 +514,7 @@ export async function aplicarPackingList(
     numero: r.numero,
     existia: r.existia,
     renglones: porLinea.size,
-    cajas: [...porLinea.values()].reduce((a, b) => a + b, 0),
+    cajas: [...porLinea.values()].reduce((a, b) => a + b.cajas, 0),
     omitidos: casado.lineas.length - casado.lineas.filter((l) => l.cajasAsignar > 0).length,
     recortes: r.recortes,
     problemas: problemasDelCasado(casado),

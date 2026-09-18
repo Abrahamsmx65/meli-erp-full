@@ -7,8 +7,8 @@
  * La forma del archivo (visto en S259-2026, JIAXING, contenedor MIEU3920536):
  *
  *   S259-2026 Packing List (Container :MIEU3920536 / Seal :CN8033803 )
- *   | Photo | Invoice No. | Style | color   | Size | Prs/size/ctn | Pairs/ctn | Means | Ctns | Prs | CBM | …
- *   |       | IN10079-3   | GT221 | M Brown | 23   | 4            | 24        | …     | 40   | 960 |
+ *   | Photo | Invoice No. | Style | color   | Size | Prs/size/ctn | Pairs/ctn | Means            | Ctns | Prs | CBM  | G.W/ctn | …
+ *   |       | IN10079-3   | GT221 | M Brown | 23   | 4            | 24        | 0.66  0.56  0.24 | 40   | 960 | 3.55 | 9.5     |
  *   |       |             |       |         | 24   | 7            |           |       |      |     |
  *   |       |             |       |         | 25   | 7            |           |       |      |     |
  *   |       |             |       | Tan     | 23   | 4            | 24        | …     | 40   | 960 |
@@ -17,6 +17,13 @@
  * abajo (sin color) completan la corrida talla por talla. El pedido y el
  * modelo se heredan hacia abajo. "IN10079-3" es el pedido IN10079 en su
  * tercer embarque parcial: el sufijo se quita para amarrar con el ERP.
+ *
+ * "Means" son las MEDIDAS de la caja (largo × ancho × alto, en metros en
+ * este archivo; tres celdas seguidas bajo un encabezado combinado) y
+ * "G.W/ctn" el peso bruto por caja en kilos. Se guardan por renglón del
+ * contenedor porque el packing list para el agente aduanal las pide (LARGO,
+ * ALTO, ANCHO, PESO) y el dueño no quiere capturarlas a mano: «lo tomes del
+ * packing list, ahí sí sale» (18-sep-2026).
  *
  * También se acepta el packing list del propio ERP (SKU | Cajas) y el
  * formato de proforma con una columna por talla, por si alguna fábrica lo
@@ -48,7 +55,17 @@ export interface LineaPacking {
   paresPorCaja: number;
   cajas: number;
   pares: number;
+  /** medidas de la caja en centímetros, si el archivo las trae */
+  medidas: MedidasCaja | null;
+  /** peso bruto por caja en kilos, si el archivo lo trae */
+  pesoKg: number | null;
   fila: number;
+}
+
+export interface MedidasCaja {
+  largoCm: number;
+  anchoCm: number;
+  altoCm: number;
 }
 
 export interface PackingList {
@@ -93,6 +110,34 @@ function tallaDeCelda(v: unknown): string | null {
 }
 
 /**
+ * Las tres medidas de la caja a partir de la fila: o tres celdas seguidas
+ * desde la columna "Means" (0.66 | 0.56 | 0.24), o una sola celda con
+ * "66*56*24" / "66x56x24 cm", o columnas L / W / H sueltas. Se devuelven en
+ * CENTÍMETROS: si las tres caben en 3 vienen en metros (ninguna caja de
+ * calzado mide menos de 3 cm por lado ni más de 3 m).
+ */
+export function medidasDeCeldas(celdas: unknown[]): MedidasCaja | null {
+  const nums: number[] = [];
+  for (const c of celdas) {
+    const t = texto(c);
+    if (!t) continue;
+    const partes = t
+      .toUpperCase()
+      .replace(/CM|MM|M\b/g, " ")
+      .split(/[*X×\s]+/)
+      .map((x) => Number(x.replace(",", ".")))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    nums.push(...partes);
+    if (nums.length >= 3) break;
+  }
+  if (nums.length < 3) return null;
+  const [a, b, c] = nums;
+  const enMetros = a <= 3 && b <= 3 && c <= 3;
+  const cm = (n: number) => Math.round(n * (enMetros ? 100 : 1) * 10) / 10;
+  return { largoCm: cm(a), anchoCm: cm(b), altoCm: cm(c) };
+}
+
+/**
  * Número de contenedor: cuatro letras y siete dígitos (ISO 6346). Se busca
  * primero después de la palabra "Container"; si no, cualquier celda de
  * arriba que tenga esa forma.
@@ -103,6 +148,36 @@ export function contenedorDeTexto(s: string): string | null {
     t.match(/CONT(?:AINER|ENEDOR)?\s*(?:NO\.?|#)?\s*[:：]?\s*([A-Z]{4}\s?\d{7})/) ??
     t.match(/\b([A-Z]{4}\s?\d{7})\b/);
   return m ? m[1].replace(/\s+/g, "") : null;
+}
+
+interface ColumnasMedidas {
+  medidas: number;
+  largo: number;
+  ancho: number;
+  alto: number;
+  pesoCaja: number;
+  pesoTotal: number;
+}
+
+function medidasDeFila(f: unknown[], col: ColumnasMedidas): MedidasCaja | null {
+  if (col.largo >= 0 && col.ancho >= 0 && col.alto >= 0) {
+    return medidasDeCeldas([f[col.largo], f[col.ancho], f[col.alto]]);
+  }
+  if (col.medidas >= 0) return medidasDeCeldas(f.slice(col.medidas, col.medidas + 3));
+  return null;
+}
+
+/** Peso bruto por caja: la columna por caja, o el total del renglón ÷ cajas. */
+function pesoDeFila(f: unknown[], col: ColumnasMedidas, cajas: number): number | null {
+  if (col.pesoCaja >= 0) {
+    const p = numero(f[col.pesoCaja]);
+    if (p > 0) return p;
+  }
+  if (col.pesoTotal >= 0 && cajas > 0) {
+    const t = numero(f[col.pesoTotal]);
+    if (t > 0) return Math.round((t / cajas) * 100) / 100;
+  }
+  return null;
 }
 
 export async function importarPackingList(
@@ -146,6 +221,15 @@ export async function importarPackingList(
     pares: -1,
     sku: -1,
     contenedor: -1,
+    /** "Means": tres celdas seguidas con largo, ancho y alto */
+    medidas: -1,
+    largo: -1,
+    ancho: -1,
+    alto: -1,
+    /** peso bruto por caja */
+    pesoCaja: -1,
+    /** peso bruto total del renglón (÷ cajas si no hay por caja) */
+    pesoTotal: -1,
   };
 
   for (let i = 0; i < Math.min(25, filas.length); i++) {
@@ -175,6 +259,22 @@ export async function importarPackingList(
       (c) => c === "PRS" || c === "PAIRS" || c === "PCS" || c === "PARES" || c === "QUANTITY" || c === "TOTAL-PRS" || c === "QTY",
     );
     col.contenedor = f.findIndex((c) => c === "CONTAINER" || c === "CONTENEDOR" || c === "CONTAINER-NO");
+    col.medidas = f.findIndex(
+      (c) =>
+        c === "MEANS" || c === "MEAS" || c === "MEASUREMENT" || c === "MEASUREMENTS" || c === "MEDIDAS" ||
+        c === "CTN-SIZE" || c === "CARTON-SIZE" || c === "CTN-MEAS" || c === "L-W-H" || c === "SIZE-CM" || c === "DIMENSIONS",
+    );
+    col.largo = f.findIndex((c) => c === "L" || c === "LENGTH" || c === "LARGO");
+    col.ancho = f.findIndex((c) => c === "W" || c === "WIDTH" || c === "ANCHO");
+    col.alto = f.findIndex((c) => c === "H" || c === "HEIGHT" || c === "ALTO");
+    col.pesoCaja = f.findIndex(
+      (c) =>
+        c === "G-W-CTN" || c === "GW-CTN" || c === "G-W-PER-CTN" || c === "GROSS-WEIGHT-CTN" || c === "KGS-CTN" ||
+        c === "KG-CTN" || c === "PESO" || c === "PESO-CAJA" || c === "PESO-CTN" || c === "WEIGHT-CTN",
+    );
+    col.pesoTotal = f.findIndex(
+      (c) => c === "TOTAL-G-W" || c === "TOTAL-GW" || c === "G-W" || c === "GW" || c === "GROSS-WEIGHT" || c === "TOTAL-GROSS-WEIGHT",
+    );
     break;
   }
 
@@ -228,6 +328,8 @@ export async function importarPackingList(
         paresPorCaja: 0,
         cajas,
         pares: col.pares >= 0 ? numero(f[col.pares]) : 0,
+        medidas: medidasDeFila(f, col),
+        pesoKg: pesoDeFila(f, col, cajas),
         fila: i + 1,
       });
       continue;
@@ -265,6 +367,8 @@ export async function importarPackingList(
         paresPorCaja: porCajaFila,
         cajas: cajasFila,
         pares: paresFila,
+        medidas: medidasDeFila(f, col),
+        pesoKg: pesoDeFila(f, col, cajasFila),
         fila: i + 1,
       };
       lineas.push(bloque);
