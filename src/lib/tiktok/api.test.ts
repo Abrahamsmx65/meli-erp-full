@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { catalogo, pedidosActualizados, publicarStock } from "./api";
-import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada, motivosDeCancelacion, motivoSinStock, nombresDeMotivo } from "./api";
+import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada, motivosDeCancelacion, motivoSinStock, nombresDeMotivo, esErrorDeParcial } from "./api";
 import { ErrorTikTok, type Cliente } from "./client";
 
 function clienteFalso(respuestas: any[], msRestantes = 100_000) {
@@ -308,5 +308,13 @@ describe("motivosDeCancelacion (aftersale eligibility)", () => {
     expect(motivoSinStock(["r1", "r2"])).toBe("r1");
     expect(motivoSinStock([])).toBeNull();
     expect(nombresDeMotivo(null)).toEqual([]);
+  });
+});
+
+describe("esErrorDeParcial", () => {
+  it("reconoce el 11050001 de TikTok MX por código o por mensaje", () => {
+    expect(esErrorDeParcial(new ErrorTikTok(11050001, "/x", "Operation Not Allowed. Cannot partially cancel this order"))).toBe(true);
+    expect(esErrorDeParcial(new Error("TikTok Shop 11050001 en /x: Cannot partially cancel this order"))).toBe(true);
+    expect(esErrorDeParcial(new Error("TikTok Shop 25001014 en /x: Invalid Parameter"))).toBe(false);
   });
 });
