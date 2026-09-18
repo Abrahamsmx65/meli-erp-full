@@ -899,10 +899,11 @@ login, la base y el deploy.
   en el JWT (`auth.users.raw_app_meta_data.rol = 'tiktok'`, que solo
   escribe la base; `user_metadata` NO cuenta) y el middleware manda a
   `/tiktok/despacho` cualquier ruta fuera de `/tiktok`, `/api/tiktok`,
-  `/preparar`, `/api/preparar-publico`, `/videos`, `/api/videos` (los
-  videos de producto, migración 0092: `videos_producto` y
-  `personajes_video` aceptan su llave; `higgsfield_mcp` no, es solo del
-  servidor), `/login`, `/auth` y `/api/salir` (403 en las de API); el menú
+  `/preparar`, `/api/preparar-publico`, `/login`, `/auth` y `/api/salir`
+  (403 en las de API). Los videos de producto se le dieron el 17-sep-2026
+  (migración 0092) y el dueño se los QUITÓ el 18-sep-2026 (migración 0093
+  retira esas políticas; `videos_producto` y `personajes_video` quedan
+  solo con la del dueño); el menú
   solo enseña las entradas que puede abrir (`entradaVisible`). Entra
   con su NOMBRE: el login le pega `@getac.erp` a lo que no trae arroba
   (`DOMINIO_USUARIOS`), correo que no recibe nada. Se creó por SQL directo
