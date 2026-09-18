@@ -129,7 +129,21 @@ guárdala numerada.
   con cajas libres, el color más parecido primero— para que el dueño
   confirme ahí mismo o lo descarte. Nunca se aplica solo. Subirlo dos veces al mismo contenedor no
   duplica: lo de ese contenedor se reemplaza. El pedido tiene que estar
-  cargado antes (Cargar pedidos).
+  cargado antes (Cargar pedidos). **Las MEDIDAS y el PESO de la caja también
+  salen del packing list de la fábrica** («Means» 0.66 × 0.56 × 0.24 en
+  metros → cm, «G.W/ctn» en kg; `medidasDeCeldas`) y se guardan por renglón
+  en `contenedor_lineas` (migración 0094), nunca se capturan a mano
+  (decisión del dueño, 18-sep-2026: «lo tomes del packing list, ahí sí
+  sale»). **El botón «Packing list» del contenedor descarga el formato del
+  agente aduanal** (`packing-list-contenedor.ts`): LOTE PEDIDO, MODELO,
+  COLOR, SKU (`IN10126-GT142-CREAM`, con talla si la caja es unitalla),
+  PARES por caja, CAJAS, LARGO, ALTO, ANCHO, PESO, PRECIO = costo por par de
+  Productos y costos × pares de la caja, NOMBRE (título de la publicación) y
+  CODIGO FISCAL por la categoría de MELI del modelo (Botas y Botines
+  53111500; alpargatas, mocasines, flats, zapatillas y demás zapatos
+  53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
+  53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
+  inventa.
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock
   actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
   modelo + color comparando el SKU completo sin talla ni sufijo

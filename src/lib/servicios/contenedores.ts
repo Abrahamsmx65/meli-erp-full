@@ -207,6 +207,17 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
 
 /* -------------------------------------------------------------------------- */
 
+export interface AsignacionCaja {
+  pedidoLineaId: string;
+  cajas: number;
+  /**
+   * Medidas (cm) y peso bruto (kg) de la caja, cuando vienen del packing
+   * list de la fábrica. Si no vienen, no se tocan las que ya tenga el renglón.
+   */
+  medidas?: { largoCm: number; anchoCm: number; altoCm: number } | null;
+  pesoKg?: number | null;
+}
+
 export interface DatosContenedor {
   numero: string;
   numeroNaviera?: string | null;
@@ -228,7 +239,7 @@ export async function asignarCajasAContenedor(
   db: DB,
   accountId: string,
   datos: DatosContenedor,
-  asignaciones: { pedidoLineaId: string; cajas: number }[],
+  asignaciones: AsignacionCaja[],
 ): Promise<{
   contenedorId: string;
   numero: string;
@@ -320,10 +331,14 @@ export async function asignarCajasAContenedor(
         .eq("contenedor_id", contenedorId)
         .eq("pedido_linea_id", linea.id);
     } else {
-      const { error } = await db.from("contenedor_lineas").upsert(
-        { contenedor_id: contenedorId, pedido_linea_id: linea.id, cajas: finales },
-        { onConflict: "contenedor_id,pedido_linea_id" },
-      );
+      const fila: Record<string, unknown> = { contenedor_id: contenedorId, pedido_linea_id: linea.id, cajas: finales };
+      if (a.medidas) {
+        fila.largo_cm = a.medidas.largoCm;
+        fila.ancho_cm = a.medidas.anchoCm;
+        fila.alto_cm = a.medidas.altoCm;
+      }
+      if (a.pesoKg != null && a.pesoKg > 0) fila.peso_kg = a.pesoKg;
+      const { error } = await db.from("contenedor_lineas").upsert(fila, { onConflict: "contenedor_id,pedido_linea_id" });
       if (error) throw new Error(`No se pudo guardar ${linea.modelo} ${linea.color}: ${error.message}`);
     }
     pedidosTocados.add(linea.pedido_id);
