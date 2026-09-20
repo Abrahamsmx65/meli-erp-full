@@ -609,11 +609,11 @@ const MS_CORTE_LUNES = 260_000;
 /**
  * El corte del lunes, partido en dos.
  *
- * El lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
- * sábado ya casi cumple las 48 horas que da TikTok. Así que se hace PRIMERO
- * un corte completo con eso —sale con su etiqueta, su lista y su surtido, y
- * se empaca de una vez— y luego un segundo corte con lo del domingo y el
- * lunes, que todavía tiene tiempo.
+ * El lunes se despacha lo del viernes, sábado y domingo (y lo que venga de
+ * más atrás). Regla del dueño (20-sep-2026): PRIMERO un corte completo con
+ * TODO lo pendiente hasta el domingo a las 23:59 de México —sale con su
+ * etiqueta, su lista y su surtido, y se empaca de una vez— y luego un
+ * segundo corte solo con lo del lunes, que todavía tiene tiempo.
  *
  * Si el primero se come el rato disponible, el segundo NO se hace a medias:
  * se dice cuántos pedidos quedaron y el botón normal de "Hacer corte" los
@@ -638,8 +638,8 @@ export async function hacerCorteLunes(
       cortes: [unico],
       pendientes: 0,
       aviso: urgentes.length
-        ? "Todo lo pendiente ya tenía dos días o más: se hizo un solo corte."
-        : "No hay pedidos atrasados: se hizo un solo corte.",
+        ? "Todo lo pendiente era de antes de hoy: se hizo un solo corte."
+        : "No hay pedidos de días anteriores: se hizo un solo corte.",
     };
   }
 
@@ -658,7 +658,7 @@ export async function hacerCorteLunes(
       pendientes: resto.length,
       aviso:
         `Ya salió el corte de lo atrasado (${primero.pedidos} pedidos). No alcanzó el tiempo para el segundo: ` +
-        `dale otra vez a "Hacer corte" y se lleva los ${resto.length} del domingo y el lunes.`,
+        `dale otra vez a "Hacer corte" y se lleva los ${resto.length} de hoy.`,
     };
   }
 

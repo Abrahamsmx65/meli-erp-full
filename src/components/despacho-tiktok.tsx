@@ -239,7 +239,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               disabled={ocupado || !pendientes}
               className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
               style={{ borderColor: "var(--grid)" }}
-              title="Dos cortes: primero lo del viernes y el sábado (lo que ya casi cumple 48 horas) y luego lo del domingo y el lunes"
+              title="Dos cortes: primero TODO lo pendiente hasta el domingo a las 23:59 (viernes, sábado, domingo y lo más viejo) y luego solo lo del lunes"
             >
               <CalendarClock size={14} />
               {ocupado ? "Confirmando…" : "Corte lunes"}
@@ -270,9 +270,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
             </div>
             {simulacion.tandas && simulacion.tandas.urgentes && simulacion.tandas.resto ? (
               <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-                Corte lunes: {simulacion.tandas.urgentes} pedidos de antes del {simulacion.tandas.corte} (viernes y
-                sábado, los que ya casi cumplen 48 horas) en el primer corte y {simulacion.tandas.resto} del domingo y
-                el lunes en el segundo.
+                Corte lunes: {simulacion.tandas.urgentes} pedidos hasta el {simulacion.tandas.corte} a las 23:59 (hora
+                de México: viernes, sábado, domingo y lo más viejo) en el primer corte y {simulacion.tandas.resto} de hoy
+                en el segundo.
               </p>
             ) : null}
             <ul className="mt-2 flex flex-col gap-1">
