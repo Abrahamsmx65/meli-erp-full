@@ -12,7 +12,7 @@ import { conCacheApp } from "./cache-app";
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import type { Corrida, FilaExistencia } from "../importar/excel";
-import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas } from "../tiktok/bodega";
+import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas, type BajaDetenida } from "../tiktok/bodega";
 import { confirmarSalidasAtribuidas, estadoSalidas3pl } from "./tiktok-3pl";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
@@ -27,6 +27,8 @@ export interface ResultadoBodegaTikTok {
   entradas: number;
   retiros: number;
   sinAmarre: number;
+  /** SKUs que desaparecieron de la foto con pares apartados: la baja se detuvo, no se dio de baja nada */
+  detenidas: BajaDetenida[];
 }
 
 /**
@@ -121,6 +123,7 @@ export async function sincronizarSaldoDesdeBodega(
     entradas: 0,
     retiros: 0,
     sinAmarre: 0,
+    detenidas: [],
   };
 
   const existRaw = await traerTodo<any>(
@@ -148,13 +151,17 @@ export async function sincronizarSaldoDesdeBodega(
       { onConflict: "account_id,almacen" },
     );
 
-  const [skus, corridasRaw, mapeoRaw, movsRaw, ttSkus] = await Promise.all([
+  const [skus, corridasRaw, mapeoRaw, movsRaw, ttSkus, invRaw] = await Promise.all([
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
     traerTodo<any>(db, "tiktok_movimientos", "sku, tipo, cantidad, fecha, referencia, id", eq),
     traerTodo<any>(db, "tiktok_skus", "seller_sku", (q) => eq(q).eq("activo", true)),
+    // Lo apartado por SKU: un SKU que desaparece del estante con pares
+    // vendidos sin despachar no se da de baja, se detiene y se avisa.
+    traerTodo<any>(db, "tiktok_inventario", "sku, apartado", (q) => eq(q).gt("apartado", 0)).catch(() => []),
   ]);
+  const apartados = new Map<string, number>((invRaw ?? []).map((r: any) => [String(r.sku), Number(r.apartado) || 0]));
   const alias = aliasDesdeTikTok((ttSkus ?? []).map((t: any) => t.seller_sku));
 
   const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({
@@ -200,7 +207,7 @@ export async function sincronizarSaldoDesdeBodega(
 
   // Lo que el 3PL ya descontó por nuestra cuenta no es merma ni entrada.
   const salidas = await estadoSalidas3pl(db, accountId);
-  const { movimientos: nuevos, atribuidas } = conciliarAcumulado(pares, movimientos, fechaFoto, salidas);
+  const { movimientos: nuevos, atribuidas, detenidas } = conciliarAcumulado(pares, movimientos, fechaFoto, salidas, apartados);
   if (nuevos.length) {
     await registrarMovimientos(db, accountId, nuevos);
   }
@@ -217,5 +224,6 @@ export async function sincronizarSaldoDesdeBodega(
     entradas: nuevos.filter((m) => m.tipo === "entrada").length,
     retiros: nuevos.filter((m) => m.tipo === "merma").length,
     sinAmarre: resultado.sinAmarre.length,
+    detenidas,
   };
 }

@@ -260,6 +260,19 @@ guárdala numerada.
   no serviría contra un 3PL desactualizado. Cuando el tope actúa se DECLARA
   en los avisos de la publicación: taparlo sería volver a esconder el
   problema.
+  **Un SKU que DESAPARECE de la foto con pares apartados NO se da de baja**
+  (`conciliarAcumulado` → `detenidas`, `BajaDetenida`; decisión del dueño,
+  20-sep-2026): el 19-sep a las 21:45 Industher dejó de traer el
+  MY2304-BROWN-29 (21 pares, 18 vendidos esa noche en dos pedidos de 4 y
+  9), el kardex escribió «merma 21» en silencio y el corte del lunes habría
+  cancelado los 18 pedidos. Ahora, si el SKU desaparece COMPLETO y tiene
+  apartados, la baja se detiene: el kardex conserva los pares, a TikTok se
+  le sigue publicando el menor (cero), el sync lo declara en `avisos` y la
+  alarma suena EN EL ACTO (`DesfasePeligroso.urgente`, sin esperar las 6
+  horas) para que alguien confirme con un conteo o Industher lo regrese;
+  hasta entonces el corte no surte esos pedidos. Una baja PARCIAL sigue
+  siendo merma (el 3PL corrigió a propósito) y un SKU sin nada apartado
+  también.
   **La guardia corre en el fondo, no en una pantalla** (`tiktok/alarma.ts` +
   `tiktok-alarma.ts`, migración 0087, en el cron de TikTok): el cruce de los
   tres números ya existía en `/tiktok/desfases` pero era una pantalla que
