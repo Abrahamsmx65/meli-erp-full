@@ -162,10 +162,21 @@ export interface Salidas3pl {
   pendientes: Map<string, number>;
 }
 
+/** Un SKU que desapareció del estante con pares vendidos sin despachar: la baja se detiene. */
+export interface BajaDetenida {
+  sku: string;
+  /** pares que Industher dejó de reportar y que NO se dieron de baja */
+  pares: number;
+  /** pares comprometidos en pedidos pagados (o por pagar) sin despachar */
+  apartados: number;
+}
+
 export interface Conciliacion {
   movimientos: MovimientoDesdeIndusther[];
   /** bajas del acumulado atribuidas a salidas pendientes: hay que marcarlas confirmadas */
   atribuidas: Map<string, number>;
+  /** bajas que NO se escribieron porque el SKU desapareció completo con pares apartados */
+  detenidas: BajaDetenida[];
 }
 
 /**
@@ -180,12 +191,24 @@ export interface Conciliacion {
  * Límite honesto: si en la misma foto entran 10 y el 3PL descuenta 3 sin
  * haberlo confirmado, se ve +7 y las 3 quedan pendientes; el kardex queda
  * 3 abajo del físico (del lado seguro). El ack del endpoint lo evita.
+ *
+ * GUARDA (decisión del dueño, 20-sep-2026): si un SKU DESAPARECE COMPLETO
+ * de la foto mientras tiene pares apartados —vendidos y sin despachar—, la
+ * baja NO se escribe como merma. El 19-sep a las 21:45 Industher dejó de
+ * traer el MY2304-BROWN-29 (21 pares con 18 vendidos esa misma noche) y el
+ * kardex lo dio por perdido en silencio; el corte del lunes habría cancelado
+ * los 18 pedidos. Ahora esa baja se DETIENE (`detenidas`), el kardex conserva
+ * los pares, a TikTok se le sigue publicando el menor de los dos (cero) y la
+ * alarma suena en el acto: alguien confirma con un conteo o Industher los
+ * regresa. Una baja PARCIAL sigue siendo merma (el 3PL corrigió a propósito),
+ * y un SKU que desaparece sin nada apartado también.
  */
 export function conciliarAcumulado(
   paresEnBodega: Map<string, number>,
   movimientos: Movimiento[],
   fechaFoto: string,
   salidas: Salidas3pl,
+  apartados: Map<string, number> = new Map(),
 ): Conciliacion {
   const base = new Map<string, number>();
   for (const m of movimientos) {
@@ -219,9 +242,11 @@ export function conciliarAcumulado(
   const skus = new Set<string>([...paresEnBodega.keys(), ...base.keys()]);
   const salida: MovimientoDesdeIndusther[] = [];
   const atribuidas = new Map<string, number>();
+  const detenidas: BajaDetenida[] = [];
 
   for (const sku of skus) {
-    const delta = (paresEnBodega.get(sku) ?? 0) - (base.get(sku) ?? 0);
+    const enBodega = paresEnBodega.get(sku) ?? 0;
+    const delta = enBodega - (base.get(sku) ?? 0);
     if (delta === 0) continue;
     if (delta > 0) {
       salida.push({ sku, tipo: "entrada", cantidad: delta, referencia, motivo: "Entrada a la bodega TikTok (Industher)", fecha: fechaFoto });
@@ -232,6 +257,11 @@ export function conciliarAcumulado(
     const aSalidas = Math.min(baja, pendientes);
     if (aSalidas > 0) atribuidas.set(sku, aSalidas);
     const resto = baja - aSalidas;
+    const comprometidos = apartados.get(sku) ?? 0;
+    if (resto > 0 && enBodega === 0 && comprometidos > 0) {
+      detenidas.push({ sku, pares: resto, apartados: comprometidos });
+      continue;
+    }
     if (resto > 0) {
       const porDevolucion = (devueltos.get(sku) ?? 0) >= resto;
       salida.push({
@@ -247,5 +277,9 @@ export function conciliarAcumulado(
     }
   }
 
-  return { movimientos: salida.sort((a, b) => a.sku.localeCompare(b.sku, "es")), atribuidas };
+  return {
+    movimientos: salida.sort((a, b) => a.sku.localeCompare(b.sku, "es")),
+    atribuidas,
+    detenidas: detenidas.sort((a, b) => b.pares - a.pares || a.sku.localeCompare(b.sku, "es")),
+  };
 }

@@ -59,3 +59,27 @@ describe("a quién se le avisa y cuándo", () => {
     expect(cualesAvisar([{ sku: "A", desde: hace(48), avisadoEn: hace(40) }], ahora)).toEqual([]);
   });
 });
+
+describe("la guarda del 20-sep: desaparecido del estante con pedidos vendidos", () => {
+  it("estante en cero, kardex con pares y apartados: es urgente y lo dice", () => {
+    // El MY2304-BROWN-29: Industher dejó de traerlo con 21 en el kardex y 21 apartados.
+    const r = desfasesPeligrosos([{ sku: "MY2304-BROWN-29", saldo: 21, estante: 0, apartado: 21 }]);
+    expect(r).toHaveLength(1);
+    expect(r[0].urgente).toBe(true);
+    expect(r[0].motivo).toContain("dejó de reportarlo");
+    expect(r[0].motivo).toContain("21 pares vendidos");
+  });
+
+  it("sin nada apartado es el desfase de siempre: espera sus horas", () => {
+    const r = desfasesPeligrosos([{ sku: "A", saldo: 4, estante: 0, apartado: 0 }]);
+    expect(r[0].urgente).toBeUndefined();
+  });
+
+  it("lo urgente se avisa en el acto, y una sola vez", () => {
+    const ahora = new Date("2026-09-20T03:00:00Z");
+    const recien = { sku: "MY2304-BROWN-29", desde: "2026-09-20T02:45:00Z", avisadoEn: null, urgente: true };
+    expect(cualesAvisar([recien], ahora)).toEqual([recien]);
+    expect(cualesAvisar([{ ...recien, avisadoEn: "2026-09-20T02:50:00Z" }], ahora)).toEqual([]);
+    expect(cualesAvisar([{ ...recien, urgente: false }], ahora)).toEqual([]);
+  });
+});

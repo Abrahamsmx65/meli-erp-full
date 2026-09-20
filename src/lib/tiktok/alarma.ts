@@ -22,6 +22,8 @@ export interface LecturaSku {
   estante: number | null;
   /** salidas ya mandadas al 3PL que aún no confirma: el estante todavía las trae */
   salidasPendientes?: number;
+  /** pares comprometidos en pedidos sin despachar */
+  apartado?: number;
 }
 
 export interface DesfasePeligroso {
@@ -31,6 +33,8 @@ export interface DesfasePeligroso {
   /** pares que el kardex tiene de más */
   deMas: number;
   motivo: string;
+  /** se avisa en el acto, sin esperar las horas: hay pedidos vendidos que dependen de esos pares */
+  urgente?: boolean;
 }
 
 /**
@@ -54,6 +58,21 @@ export function desfasesPeligrosos(lecturas: LecturaSku[]): DesfasePeligroso[] {
     if (l.estante == null) continue;
     const esperado = l.saldo + (l.salidasPendientes ?? 0);
     if (esperado <= l.estante) continue;
+    // El estante lo dejó de reportar con pares vendidos sin despachar: es la
+    // baja que la conciliación DETUVO en vez de darla por merma. No es un
+    // parpadeo que se arregle solo; el corte no los va a surtir hasta que
+    // alguien lo confirme, así que se avisa ya.
+    if (l.estante === 0 && l.saldo > 0 && (l.apartado ?? 0) > 0) {
+      salida.push({
+        sku: l.sku,
+        kardex: l.saldo,
+        estante: 0,
+        deMas: esperado,
+        urgente: true,
+        motivo: `La bodega dejó de reportarlo y hay ${l.apartado} ${l.apartado === 1 ? "par vendido" : "pares vendidos"} sin despachar: el kardex conserva ${l.saldo}, no se dio de baja. Confírmalo con un conteo o que Industher lo regrese; el corte no lo surte hasta entonces.`,
+      });
+      continue;
+    }
     salida.push({
       sku: l.sku,
       kardex: l.saldo,
@@ -73,10 +92,10 @@ export function desfasesPeligrosos(lecturas: LecturaSku[]): DesfasePeligroso[] {
  */
 export const HORAS_PARA_AVISAR = 6;
 
-export function cualesAvisar<T extends { sku: string; desde: string; avisadoEn: string | null }>(
+export function cualesAvisar<T extends { sku: string; desde: string; avisadoEn: string | null; urgente?: boolean }>(
   abiertos: T[],
   ahora: Date = new Date(),
 ): T[] {
   const limite = ahora.getTime() - HORAS_PARA_AVISAR * 3_600_000;
-  return abiertos.filter((d) => !d.avisadoEn && Date.parse(d.desde) <= limite);
+  return abiertos.filter((d) => !d.avisadoEn && (d.urgente || Date.parse(d.desde) <= limite));
 }

@@ -40,6 +40,7 @@ export async function revisarDesfasesTikTok(db: DB, accountId: string): Promise<
     // "la bodega tiene cero" de "el API no contestó".
     estante: estante.pares ? (estante.pares.get(r.sku) ?? 0) : null,
     salidasPendientes: salidas.pendientes.get(r.sku) ?? 0,
+    apartado: r.apartado ?? 0,
   }));
 
   const peligrosos = desfasesPeligrosos(lecturas);
@@ -92,14 +93,23 @@ export async function revisarDesfasesTikTok(db: DB, accountId: string): Promise<
   let correo: string | null = null;
   if (porAvisar.length && correoConfigurado()) {
     const pares = porAvisar.reduce((a, d) => a + d.deMas, 0);
+    const urgentes = porAvisar.filter((d) => d.urgente);
     const filas = porAvisar
       .map((d) => `<tr><td><b>${d.sku}</b></td><td align="right">${d.kardex}</td><td align="right">${d.estante ?? "—"}</td><td>${d.motivo}</td></tr>`)
       .join("");
     const r = await enviarCorreo({
-      asunto: `TikTok: ${pares} ${pares === 1 ? "par que no existe" : "pares que no existen"} se están ofreciendo`,
+      asunto: urgentes.length
+        ? `TikTok: ${urgentes.length} SKU ${urgentes.length === 1 ? "desapareció" : "desaparecieron"} de la bodega con pedidos vendidos sin despachar`
+        : `TikTok: ${pares} ${pares === 1 ? "par que no existe" : "pares que no existen"} se están ofreciendo`,
       html:
-        `<p>El kardex está por encima de lo que la bodega reporta en ${porAvisar.length} SKU, ` +
-        `desde hace más de ${HORAS_PARA_AVISAR} horas. A TikTok ya se le publica el número más bajo de los dos, ` +
+        (urgentes.length
+          ? `<p><b>${urgentes.length} SKU ${urgentes.length === 1 ? "dejó" : "dejaron"} de aparecer en la bodega TikTok de Industher ` +
+            `con pares vendidos sin despachar.</b> El kardex NO los dio de baja: hay que confirmar con un conteo ` +
+            `si los pares están, o que Industher los regrese; mientras tanto el corte no surte esos pedidos.</p>`
+          : "") +
+        `<p>El kardex está por encima de lo que la bodega reporta en ${porAvisar.length} SKU` +
+        (urgentes.length === porAvisar.length ? "" : `, desde hace más de ${HORAS_PARA_AVISAR} horas`) +
+        `. A TikTok ya se le publica el número más bajo de los dos, ` +
         `así que no se está vendiendo de más — pero la diferencia sigue ahí y hay que cerrarla con un conteo.</p>` +
         `<table cellpadding="6" border="1" style="border-collapse:collapse"><tr><th>SKU</th><th>Kardex</th><th>Bodega</th><th>Qué pasa</th></tr>${filas}</table>`,
       texto: porAvisar.map((d) => `${d.sku}: kardex ${d.kardex}, bodega ${d.estante ?? "—"}. ${d.motivo}`).join("\n"),

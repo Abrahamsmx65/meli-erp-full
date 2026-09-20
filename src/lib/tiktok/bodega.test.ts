@@ -179,6 +179,47 @@ describe("conciliarAcumulado: cuando el 3PL descuenta lo que le mandamos", () =>
   });
 });
 
+describe("la guarda del 20-sep: un SKU que desaparece con pares apartados no se da de baja", () => {
+  const FOTO = "2026-09-20T02:45:00.000Z";
+  const ref = (f: string) => `${REFERENCIA_INDUSTHER}${f}`;
+  const sinSalidas = { confirmadas: new Map<string, number>(), pendientes: new Map<string, number>() };
+  // El MY2304-BROWN-29: 102 entrados, 81 salidos y confirmados, 21 en el estante.
+  const brown29: Movimiento[] = [
+    { sku: "MY2304-BROWN-29", tipo: "entrada", cantidad: 102, referencia: ref("2026-09-08T22:15:00.000Z"), fecha: "2026-09-08T22:15:00Z" },
+  ];
+  const confirmadas81 = { confirmadas: new Map([["MY2304-BROWN-29", 81]]), pendientes: new Map<string, number>() };
+
+  it("desaparece completo con 21 apartados: la baja se DETIENE, ni merma ni entrada", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map(), brown29, FOTO, confirmadas81, new Map([["MY2304-BROWN-29", 21]]));
+    expect(r.movimientos).toEqual([]);
+    expect(r.detenidas).toEqual([{ sku: "MY2304-BROWN-29", pares: 21, apartados: 21 }]);
+  });
+
+  it("desaparece completo SIN nada apartado: sigue siendo merma, como siempre", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map(), brown29, FOTO, confirmadas81, new Map());
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku: "MY2304-BROWN-29", tipo: "merma", cantidad: 21 })]);
+    expect(r.detenidas).toEqual([]);
+  });
+
+  it("una baja PARCIAL con apartados sigue siendo merma: el 3PL corrigió a propósito", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([["MY2304-BROWN-29", 18]]), brown29, FOTO, confirmadas81, new Map([["MY2304-BROWN-29", 21]]));
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku: "MY2304-BROWN-29", tipo: "merma", cantidad: 3 })]);
+    expect(r.detenidas).toEqual([]);
+  });
+
+  it("si la baja se explica con salidas pendientes no hay nada que detener", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const movs: Movimiento[] = [{ sku: "B", tipo: "entrada", cantidad: 2, referencia: ref("2026-09-01T00:00:00.000Z"), fecha: "2026-09-01T00:00:00Z" }];
+    const r = conciliarAcumulado(new Map(), movs, FOTO, { ...sinSalidas, pendientes: new Map([["B", 2]]) }, new Map([["B", 1]]));
+    expect(r.movimientos).toEqual([]);
+    expect(r.detenidas).toEqual([]);
+    expect(r.atribuidas.get("B")).toBe(2);
+  });
+});
+
 describe("alias hacia el SKU de TikTok", () => {
   it("lo construido sin -MX que TikTok vende con -MX cae en el nombre de TikTok; lo de MELI no se toca", () => {
     const alias = aliasDesdeTikTok(["MY2304-PURPLE-23-MX", "GT134-BLK-24-MX"]);
