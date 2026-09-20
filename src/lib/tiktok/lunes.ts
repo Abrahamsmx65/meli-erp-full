@@ -1,24 +1,24 @@
 /**
- * El "corte lunes": primero lo que ya lleva días esperando.
+ * El "corte lunes": primero TODO lo de antes de hoy.
  *
- * El lunes se despacha lo del viernes, sábado y domingo. Los pedidos del
- * viernes por la tarde y los del sábado son los que ya casi cumplen las 48
- * horas que TikTok da para despachar, así que ESOS van en el primer corte,
- * completo y solo; lo que se vendió domingo y lunes se va en un segundo
+ * El lunes se despacha lo del viernes, sábado y domingo (y lo que venga de
+ * más atrás). Regla del dueño (20-sep-2026): el primer corte se lleva TODO
+ * lo pendiente hasta el domingo a las 23:59 de México —viernes, sábado,
+ * domingo y cualquier cosa más vieja—, completo y solo, con su etiqueta, su
+ * lista y su surtido; lo que se vendió HOY (el lunes) se va en un segundo
  * corte, que todavía tiene tiempo.
  *
  * La regla no está amarrada al lunes: un pedido es URGENTE cuando su día de
- * venta (en hora de México) quedó dos días o más atrás. Corrido un lunes da
- * exactamente lo que pidió el dueño —sábado y viernes en la primera tanda,
- * domingo y lunes en la segunda— y cualquier otro día se porta igual de
- * bien: lo viejo primero.
+ * venta (en hora de México, UTC−6 fijo) es anterior al día de hoy. Corrido
+ * un lunes da exactamente lo que pidió el dueño y cualquier otro día se
+ * porta igual: lo de ayer y antes primero, lo de hoy después.
  *
  * Puro: recibe los pendientes con su fecha y el momento actual.
  */
 import { diaMx } from "./ventas";
 
-/** Cuántos días de antigüedad hacen urgente a un pedido. */
-export const DIAS_URGENTE = 2;
+/** Cuántos días de antigüedad hacen urgente a un pedido: lo de ayer (México) ya lo es. */
+export const DIAS_URGENTE = 1;
 
 export interface PendienteConFecha {
   orderId: string;
@@ -28,11 +28,11 @@ export interface PendienteConFecha {
 }
 
 export interface Tandas<T> {
-  /** viernes y sábado el lunes: dos días o más de antigüedad */
+  /** el lunes: viernes, sábado, domingo y lo más viejo — todo lo de antes de hoy */
   urgentes: T[];
-  /** domingo y lunes: lo de ayer y hoy */
+  /** lo vendido HOY (día de México) */
   resto: T[];
-  /** el día (México) desde el cual un pedido YA NO es urgente */
+  /** el último día (México) que todavía es urgente: ayer */
   corte: string;
 }
 

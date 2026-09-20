@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
         await releerSinPrepararDeCortesRecientes(admin, cuenta.id).catch(() => undefined);
       });
 
-    // "Corte lunes": primero lo del viernes y el sábado, que ya casi cumple
-    // las 48 horas, y luego lo del domingo y el lunes.
+    // "Corte lunes": primero TODO lo de antes de hoy (viernes, sábado,
+    // domingo y lo más viejo, hasta las 23:59 de México) y luego lo de hoy.
     if (body?.modo === "lunes") {
       const r = await hacerCorteLunes(admin, cuenta.id, opciones);
       calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));

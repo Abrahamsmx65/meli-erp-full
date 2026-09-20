@@ -9,25 +9,34 @@ function pedido(orderId: string, creadoEn: string | null) {
 }
 
 describe("el corte del lunes parte en dos tandas", () => {
-  it("viernes y sábado en el primero; domingo y lunes en el segundo", () => {
+  it("viernes, sábado y domingo en el primero; solo lo del lunes en el segundo", () => {
     const { urgentes, resto, corte } = partirEnTandas(
       [
         pedido("viernes-tarde", "2026-09-11T23:30:00Z"), // viernes 17:30 MX
         pedido("sabado-manana", "2026-09-12T16:00:00Z"), // sábado 10:00 MX
         pedido("sabado-noche", "2026-09-13T05:00:00Z"), // sábado 23:00 MX
         pedido("domingo", "2026-09-13T18:00:00Z"), // domingo 12:00 MX
+        pedido("domingo-2359", "2026-09-14T05:59:00Z"), // domingo 23:59 MX (ya es lunes en UTC)
+        pedido("lunes-0001", "2026-09-14T06:01:00Z"), // lunes 00:01 MX
         pedido("lunes", "2026-09-14T14:00:00Z"), // lunes 8:00 MX
       ],
       LUNES_9AM,
     );
-    expect(corte).toBe("2026-09-12"); // sábado
-    expect(urgentes.map((p) => p.orderId)).toEqual(["viernes-tarde", "sabado-manana", "sabado-noche"]);
-    expect(resto.map((p) => p.orderId)).toEqual(["domingo", "lunes"]);
+    expect(corte).toBe("2026-09-13"); // domingo
+    expect(urgentes.map((p) => p.orderId)).toEqual(["viernes-tarde", "sabado-manana", "sabado-noche", "domingo", "domingo-2359"]);
+    expect(resto.map((p) => p.orderId)).toEqual(["lunes-0001", "lunes"]);
+  });
+
+  it("el día se decide en hora de MÉXICO, no en UTC: las 23:59 del domingo son domingo", () => {
+    // A las 05:59Z ya es lunes en UTC; en México son las 23:59 del domingo.
+    const { urgentes, resto } = partirEnTandas([pedido("domingo-2359", "2026-09-14T05:59:59Z")], LUNES_9AM);
+    expect(urgentes.map((p) => p.orderId)).toEqual(["domingo-2359"]);
+    expect(resto).toHaveLength(0);
   });
 
   it("lo más viejo que el viernes también corre prisa", () => {
-    const { urgentes } = partirEnTandas([pedido("jueves", "2026-09-10T20:00:00Z")], LUNES_9AM);
-    expect(urgentes.map((p) => p.orderId)).toEqual(["jueves"]);
+    const { urgentes } = partirEnTandas([pedido("jueves", "2026-09-10T20:00:00Z"), pedido("martes-pasado", "2026-09-08T20:00:00Z")], LUNES_9AM);
+    expect(urgentes.map((p) => p.orderId)).toEqual(["jueves", "martes-pasado"]);
   });
 
   it("un pedido sin fecha se va con los urgentes: se despacha antes, no después", () => {
@@ -36,14 +45,14 @@ describe("el corte del lunes parte en dos tandas", () => {
     expect(resto).toHaveLength(0);
   });
 
-  it("cualquier otro día se porta igual: lo de hace dos días o más, primero", () => {
+  it("cualquier otro día se porta igual: lo de ayer y antes primero, lo de hoy después", () => {
     const miercoles = new Date("2026-09-16T15:00:00Z");
     const { urgentes, resto } = partirEnTandas(
-      [pedido("domingo", "2026-09-13T18:00:00Z"), pedido("lunes", "2026-09-14T18:00:00Z"), pedido("martes", "2026-09-15T18:00:00Z")],
+      [pedido("domingo", "2026-09-13T18:00:00Z"), pedido("lunes", "2026-09-14T18:00:00Z"), pedido("martes", "2026-09-15T18:00:00Z"), pedido("miercoles", "2026-09-16T14:00:00Z")],
       miercoles,
     );
-    expect(urgentes.map((p) => p.orderId)).toEqual(["domingo", "lunes"]);
-    expect(resto.map((p) => p.orderId)).toEqual(["martes"]);
+    expect(urgentes.map((p) => p.orderId)).toEqual(["domingo", "lunes", "martes"]);
+    expect(resto.map((p) => p.orderId)).toEqual(["miercoles"]);
   });
 });
 

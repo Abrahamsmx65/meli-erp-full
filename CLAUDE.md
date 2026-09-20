@@ -370,12 +370,14 @@ guárdala numerada.
   y los `rechazados` de los faltantes excluyen a los pedidos que sí
   entraron al corte.
   **CORTE LUNES** (`tiktok/lunes.ts`, `hacerCorteLunes`, `modo: "lunes"`):
-  el lunes se despacha lo del viernes, sábado y domingo, y lo del viernes y
-  el sábado ya casi cumple las 48 horas que da TikTok para despachar. Ese
-  botón hace PRIMERO un corte completo con lo que tiene dos días o más de
-  antigüedad (`partirEnTandas`, día en hora de México: corrido un lunes son
-  viernes y sábado) y luego un SEGUNDO corte con lo del domingo y el lunes.
-  Un pedido sin fecha se va con los urgentes. Si el primer corte se come el
+  el lunes se despacha lo del viernes, sábado y domingo. Regla del dueño
+  (20-sep-2026; antes el domingo se iba con el lunes): ese botón hace
+  PRIMERO un corte completo con TODO lo pendiente de antes de hoy —viernes,
+  sábado, domingo y lo que venga de más atrás, hasta el domingo a las 23:59
+  de MÉXICO (`partirEnTandas`, `DIAS_URGENTE` 1, día por `diaMx`, UTC−6
+  fijo: las 23:59 del domingo son domingo aunque en UTC ya sea lunes)— y
+  luego un SEGUNDO corte solo con lo vendido el lunes. Un pedido sin fecha
+  se va con los urgentes. Si el primer corte se come el
   rato de Vercel, el segundo NO se hace a medias: dice cuántos quedaron y el
   botón normal se los lleva completos. La simulación enseña la partición
   antes de confirmar nada.
