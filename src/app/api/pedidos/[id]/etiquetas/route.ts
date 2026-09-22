@@ -12,6 +12,7 @@ import {
 } from "@/lib/etiquetas/resolver";
 import { varianteMeli } from "@/lib/etiquetas/zpl";
 import { generarPdf2Etiquetas, generarPdfCarton } from "@/lib/etiquetas/pdf";
+import { ordenarTallas, textosDeCarton } from "@/lib/etiquetas/carton";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -27,18 +28,6 @@ function nombreArchivo(s: string): string {
   return s.replace(/\//g, " - ").replace(/[\\:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Tallas en orden natural: 21, 21.5, 22 … y lo no numérico al final. */
-function ordenarTallas(tallas: string[]): string[] {
-  return [...tallas].sort((a, b) => {
-    const na = Number(a);
-    const nb = Number(b);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-    if (Number.isFinite(na)) return -1;
-    if (Number.isFinite(nb)) return 1;
-    return a.localeCompare(b);
-  });
-}
-
 /**
  * El paquete de etiquetas de un pedido, calcado de cómo ya se comparte con
  * la fábrica en China (ejemplo real: IN10128_GT125.zip). Por cada modelo va
@@ -49,7 +38,11 @@ function ordenarTallas(tallas: string[]): string[] {
  *     las dos de 2 × 1 pulgadas.
  *   - "MODELO.xlsx" con SKU | LABEL MELI | LABEL AMAZON.
  *   - "PEDIDO - BOX LABEL.pdf": una página de 10 × 5 cm por color, con el
- *     código de barras y el texto PEDIDO-MODELO-COLOR, para el cartón.
+ *     código de barras y el texto PEDIDO-MODELO-COLOR, para el cartón. Si
+ *     el pedido es de cajas de UNA talla (IN10172 de GT148: 48 pares de la
+ *     misma talla por caja), cada talla lleva su propia etiqueta
+ *     PEDIDO-MODELO-COLOR-TALLA: una etiqueta por color no dice qué caja
+ *     es cuál (pedido del dueño, 22-sep-2026).
  */
 export async function GET(
   _req: Request,
@@ -76,7 +69,7 @@ export async function GET(
 
   const { data: lineas } = await supabase
     .from("pedido_lineas")
-    .select("modelo, color, tallas")
+    .select("modelo, color, talla, tallas")
     .eq("pedido_id", id)
     .order("modelo", { ascending: true })
     .order("color", { ascending: true });
@@ -118,15 +111,19 @@ export async function GET(
     hoja.getColumn(2).width = 14;
     hoja.getColumn(3).width = 14;
 
-    const coloresCarton: string[] = [];
+    // Etiquetas del cartón: una por color para las cajas de corrida y una
+    // por color + talla para las cajas de una sola talla.
+    const cartones = new Map<string, { color: string; tallas: Set<string>; corrida: boolean }>();
     // Un color puede venir en varios renglones (la corrida + sus cajas de
-    // una sola talla): cada etiqueta y cada renglón del cartón van UNA vez.
+    // una sola talla): cada etiqueta de par va UNA vez.
     const tallasHechas = new Set<string>();
 
     for (const l of lineasModelo) {
       const color = pegado(sinAnotacion(l.color ?? ""));
-      const renglonCarton = `${numeroPedido}-${modelo}-${color}`;
-      if (!coloresCarton.includes(renglonCarton)) coloresCarton.push(renglonCarton);
+      const carton = cartones.get(color) ?? { color, tallas: new Set<string>(), corrida: false };
+      if (l.talla) carton.tallas.add(String(l.talla));
+      else carton.corrida = true;
+      cartones.set(color, carton);
 
       for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
         if (tallasHechas.has(`${color}|${talla}`)) continue;
@@ -174,7 +171,7 @@ export async function GET(
 
     carpeta.file(
       nombreArchivo(`${numeroPedido} - BOX LABEL.pdf`),
-      await generarPdfCarton(coloresCarton),
+      await generarPdfCarton(textosDeCarton(numeroPedido, modelo, [...cartones.values()])),
     );
     carpeta.file(nombreArchivo(`${modelo}.xlsx`), Buffer.from(await libro.xlsx.writeBuffer()));
   }

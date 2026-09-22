@@ -802,7 +802,11 @@ guárdala numerada.
   MELI y Open Sans Condensed Light para Amazon; el ZIP por pedido replica
   IN10128_GT125.zip (carpeta `PEDIDO (MODELO)`, un "…, 2 LABEL.pdf" por
   talla con página Amazon + página MELI, Excel `SKU|LABEL MELI|LABEL
-  AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras).
+  AMAZON`, y `PEDIDO - BOX LABEL.pdf` de 10×5 cm con código de barras: una
+  etiqueta por color para las cajas de corrida y UNA POR TALLA
+  (`PEDIDO-MODELO-COLOR-TALLA`, `etiquetas/carton.ts`) para las cajas de una
+  sola talla, como el IN10172 de GT148 con 48 pares de la misma talla por
+  caja; pedido del dueño el 22-sep-2026).
 
 ## Regla de arquitectura: datos ya masticados, decidida por el dueño
 
