@@ -227,7 +227,10 @@ guárdala numerada.
   (`tiktok-3pl.ts`, `INDUSTHER_SALIDAS_URL`, referencia `TT-CORTE-n`,
   idempotente; el endpoint lo publica el 3PL, que es de otra persona) y las
   guarda en `tiktok_salidas_3pl`. Su número entra al kardex como ENTRADA por
-  diferencia contra lo ya reconocido (movimientos `industher:*` MENOS las
+  diferencia contra lo ya reconocido (en la sincronización de TikTok cada
+  15 min, que baja la foto de Industher ella misma; el botón de Industher
+  en /importar también concilia y publica en el fondo con `after()`,
+  21-sep-2026: «sincronizo mi bodega y no se actualiza en Almacén TikTok») (movimientos `industher:*` MENOS las
   salidas que el 3PL ya confirmó MÁS las devoluciones); una BAJA se atribuye
   primero a las salidas pendientes de ese SKU y solo el resto es merma
   (`conciliarAcumulado`): una salida nunca se descuenta dos veces.
