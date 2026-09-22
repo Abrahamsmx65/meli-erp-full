@@ -92,3 +92,56 @@ export function ordenarPorAntiguedad<T extends PendienteConFecha>(pendientes: T[
     return va - vb || a.orderId.localeCompare(b.orderId);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Un corte que CONTINÚA otro se le une
+// ---------------------------------------------------------------------------
+
+export interface CorteContinuable {
+  id: number;
+  /** cuándo se hizo (ISO) */
+  creadoEn: string;
+  errores: { orderId: string; error: string }[];
+  /** paquetes ya preparados en la estación: con alguno, las hojas ya están en uso */
+  preparados: number;
+}
+
+/**
+ * Cuando un corte se queda sin tiempo, lo que sobró entra al siguiente; y
+ * ese siguiente NO es otro corte: es la continuación del mismo. Decisión
+ * del dueño (21 y 22-sep-2026: «puedes agrupar los cortes que hice hoy
+ * todos juntos», «agrupar todo en el corte 36 para que quede bien»):
+ * tres hojas del mismo día con los modelos revueltos entre ellas es doble
+ * trabajo. Así que si algún pedido que se va a cortar ahora quedó POR
+ * TIEMPO en un corte de HOY (México) al que nadie le ha preparado nada,
+ * el nuevo corte se UNE a ese en vez de abrir otro. Con algo ya preparado
+ * no se une: sus hojas están impresas y a medio trabajar, y renumerarlas
+ * dejaría el papel de la mesa sin cuadrar.
+ *
+ * Devuelve el id del corte al que unirse (el más reciente que aplique) o
+ * null para abrir uno nuevo.
+ */
+export function corteQueContinua(cortes: CorteContinuable[], orderIds: string[], ahora: Date = new Date()): number | null {
+  const hoy = diaMx(ahora.toISOString());
+  const quiere = new Set(orderIds);
+  const candidatos = (cortes ?? [])
+    .filter((c) => c.preparados === 0 && diaSeguro(c.creadoEn) === hoy)
+    .filter((c) => (c.errores ?? []).some((e) => e.orderId && e.error === ERROR_SIN_TIEMPO && quiere.has(e.orderId)))
+    .sort((a, b) => Date.parse(b.creadoEn) - Date.parse(a.creadoEn) || b.id - a.id);
+  return candidatos[0]?.id ?? null;
+}
+
+/**
+ * Los errores del corte unido: los «se acabó el tiempo» de los pedidos
+ * que esta vez SÍ se intentaron se quitan (ya tienen su resultado nuevo,
+ * bueno o malo) y lo nuevo se agrega al final.
+ */
+export function erroresAlUnir(
+  viejos: { orderId: string; error: string }[],
+  nuevos: { orderId: string; error: string }[],
+  intentados: Iterable<string>,
+): { orderId: string; error: string }[] {
+  const ahora = new Set(intentados);
+  const quedan = (viejos ?? []).filter((e) => !(e.orderId && e.error === ERROR_SIN_TIEMPO && ahora.has(e.orderId)));
+  return [...quedan, ...(nuevos ?? [])];
+}

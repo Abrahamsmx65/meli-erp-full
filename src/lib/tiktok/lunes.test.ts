@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contarSinTiempo, ERROR_SIN_TIEMPO, esLunesMx, ordenarPorAntiguedad, partirEnTandas } from "./lunes";
+import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, esLunesMx, ordenarPorAntiguedad, partirEnTandas } from "./lunes";
 
 /** Lunes 14 de septiembre de 2026, 9 de la mañana en México (UTC-6). */
 const LUNES_9AM = new Date("2026-09-14T15:00:00Z");
@@ -89,5 +89,40 @@ describe("lo que se quedó por tiempo y el orden del corte", () => {
       pedido("domingo", "2026-09-20T15:00:00Z"),
     ]);
     expect(r.map((p) => p.orderId)).toEqual(["sin-fecha", "sabado", "domingo", "hoy"]);
+  });
+});
+
+describe("un corte que continúa otro se le une", () => {
+  const ahora = new Date("2026-09-22T19:30:00Z"); // martes 22-sep 13:30 MX
+  const sinTiempo = (ids: string[]) => ids.map((orderId) => ({ orderId, error: ERROR_SIN_TIEMPO }));
+  it("se une al corte de HOY que dejó por tiempo alguno de los pedidos que se van a cortar", () => {
+    const cortes = [{ id: 68, creadoEn: "2026-09-22T19:07:00Z", errores: sinTiempo(["a", "b"]), preparados: 0 }];
+    expect(corteQueContinua(cortes, ["b", "z"], ahora)).toBe(68);
+  });
+  it("no se une si ninguno de los pedidos venía de ese corte (lo de hoy en el corte lunes abre otro)", () => {
+    const cortes = [{ id: 68, creadoEn: "2026-09-22T19:07:00Z", errores: sinTiempo(["a", "b"]), preparados: 0 }];
+    expect(corteQueContinua(cortes, ["z"], ahora)).toBeNull();
+  });
+  it("no se une a un corte de AYER (México) ni a uno con paquetes ya preparados", () => {
+    const ayer = [{ id: 67, creadoEn: "2026-09-22T02:03:00Z", errores: sinTiempo(["a"]), preparados: 0 }]; // 21-sep 20:03 MX
+    expect(corteQueContinua(ayer, ["a"], ahora)).toBeNull();
+    const enUso = [{ id: 68, creadoEn: "2026-09-22T19:07:00Z", errores: sinTiempo(["a"]), preparados: 3 }];
+    expect(corteQueContinua(enUso, ["a"], ahora)).toBeNull();
+  });
+  it("con varios candidatos, el más reciente", () => {
+    const cortes = [
+      { id: 68, creadoEn: "2026-09-22T15:00:00Z", errores: sinTiempo(["a"]), preparados: 0 },
+      { id: 69, creadoEn: "2026-09-22T17:00:00Z", errores: sinTiempo(["a"]), preparados: 0 },
+    ];
+    expect(corteQueContinua(cortes, ["a"], ahora)).toBe(69);
+  });
+  it("al unir, los «sin tiempo» de los pedidos que se intentaron se quitan y lo nuevo se agrega", () => {
+    const viejos = [...sinTiempo(["a", "b"]), { orderId: "", error: "nota" }, { orderId: "c", error: "otro error" }];
+    const nuevos = [{ orderId: "b", error: "TikTok lo rechazó" }];
+    expect(erroresAlUnir(viejos, nuevos, ["a", "b"])).toEqual([
+      { orderId: "", error: "nota" },
+      { orderId: "c", error: "otro error" },
+      { orderId: "b", error: "TikTok lo rechazó" },
+    ]);
   });
 });

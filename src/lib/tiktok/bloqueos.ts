@@ -119,6 +119,26 @@ export interface AutoBloqueo {
   orderId: string;
   sku: string;
   motivo: string;
+  /** stock EN DUDA: no se cancela, el pedido se queda fuera del corte hasta un conteo */
+  enDuda?: boolean;
+}
+
+/**
+ * Stock EN DUDA: el kardex conserva pares pero la bodega dejó de reportar
+ * el SKU POR COMPLETO. Es la baja detenida de `conciliarAcumulado`
+ * (20-sep-2026: Industher dejó de traer el MY2304-BROWN-29 con 21 pares
+ * y 18 vendidos). Ninguna de las dos fuentes es de fiar sola: si los
+ * pares existen, cancelar los pedidos los pierde; si no existen,
+ * confirmarlos manda lo que no hay. Por eso esos pedidos NO se cancelan
+ * ni se confirman: se quedan fuera del corte, declarados, hasta que un
+ * conteo o la propia bodega digan la verdad (decisión del dueño,
+ * 22-sep-2026: el corte #36 canceló 7 pedidos de ese SKU que el dueño
+ * había apartado por precaución). Un contado a mano después de la foto
+ * manda el kardex, como siempre; una baja PARCIAL sigue siendo merma y
+ * se bloquea como antes.
+ */
+export function stockEnDuda(s: StockFisico): boolean {
+  return !s.contadoDespues && s.estante === 0 && s.saldo > 0;
 }
 
 /**
@@ -139,6 +159,19 @@ export function autoBloqueos(renglones: RenglonConPedido[], stock: Map<string, S
   for (const [sku, lista] of porSku) {
     const s = stock.get(sku);
     if (!s) continue;
+    if (stockEnDuda(s)) {
+      // Ni se cancela ni se confirma: se declara y se queda fuera.
+      for (const r of lista) {
+        salida.push({
+          lineItemId: r.lineItemId,
+          orderId: r.orderId,
+          sku,
+          motivo: `${PREFIJO_AUTO} stock en duda (el kardex tiene ${s.saldo} y la bodega dejó de reportarlo)`,
+          enDuda: true,
+        });
+      }
+      continue;
+    }
     const hay = paresFisicos(s);
     const piden = lista.reduce((a, r) => a + r.cantidad, 0);
     if (piden <= hay) continue;

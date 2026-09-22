@@ -20,7 +20,8 @@ import { codificar128 } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
-import { contarSinTiempo, ERROR_SIN_TIEMPO, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
+import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
+import { diaMx } from "../tiktok/ventas";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   cancelarRenglones,
@@ -106,12 +107,14 @@ async function renglonesConDefensa(
 ): Promise<{
   porPedido: Map<string, RenglonConPedido[]>;
   automaticos: ReturnType<typeof autoBloqueos>;
+  /** renglones con stock EN DUDA (la bodega dejó de reportar el SKU y el kardex aún tiene pares): el pedido se queda fuera, sin cancelar */
+  enDuda: ReturnType<typeof autoBloqueos>;
   /** renglones que estaban bloqueados solos y ya no hace falta: llegó stock */
   liberados: string[];
 }> {
   const ids = pendientes.map((p) => p.orderId);
   const porPedido = new Map<string, RenglonConPedido[]>();
-  if (!ids.length) return { porPedido, automaticos: [], liberados: [] };
+  if (!ids.length) return { porPedido, automaticos: [], enDuda: [], liberados: [] };
   const fechaDe = new Map(pendientes.map((p) => [p.orderId, p.creadoEn]));
   const [filas, stock] = await Promise.all([
     traerTodo<any>(
@@ -143,7 +146,11 @@ async function renglonesConDefensa(
   // pares suelen estar: un estante que Industher dejó de reportar, una
   // caja que ya llegó): ningún bloqueo automático nuevo y los vigentes se
   // liberan. Los bloqueos a mano se respetan igual.
-  const automaticos = sinDefensa ? [] : autoBloqueos(todos, stock);
+  const decididos = sinDefensa ? [] : autoBloqueos(todos, stock);
+  // Lo EN DUDA no se bloquea (bloquear = cancelar en TikTok): el pedido
+  // entero se queda fuera del corte y se declara. Ver `stockEnDuda`.
+  const enDuda = decididos.filter((a) => a.enDuda);
+  const automaticos = decididos.filter((a) => !a.enDuda);
   const auto = new Set(automaticos.map((a) => a.lineItemId));
   for (const r of todos) {
     if (auto.has(r.lineItemId)) r.bloqueado = true;
@@ -152,7 +159,7 @@ async function renglonesConDefensa(
     porPedido.set(r.orderId, l);
   }
   const liberados = [...autoPrevio].filter((id) => !auto.has(id));
-  return { porPedido, automaticos, liberados };
+  return { porPedido, automaticos, enDuda, liberados };
 }
 
 /** Lo que entra en un corte: pagado sin salir, o ya salido pero sin corte. */
@@ -173,6 +180,8 @@ export interface ResultadoCorte {
   cancelados: { orderId: string; sku: string; pares: number; completo: boolean }[];
   /** cómo le fue a la salida hacia el 3PL */
   al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
+  /** true si este corte se UNIÓ a uno de hoy que había dejado pedidos por tiempo (no se abrió otro) */
+  unido?: boolean;
 }
 
 /** Corre `fn` sobre `items` con a lo más `n` a la vez, en orden de arranque. */
@@ -302,7 +311,7 @@ export async function hacerCorte(
   // que lo piden se bloquea solo (los más nuevos primero), se cancela en
   // TikTok y se confirma lo demás. De aquí salen también los pares del
   // corte y las salidas al 3PL, ya sin lo cancelado.
-  const { porPedido: renglonesPorPedido, automaticos, liberados } = await renglonesConDefensa(
+  const { porPedido: renglonesPorPedido, automaticos, enDuda, liberados } = await renglonesConDefensa(
     admin,
     accountId,
     pendientes,
@@ -382,12 +391,32 @@ export async function hacerCorte(
   // Con 200 pedidos, uno por uno no cabe en el tiempo de Vercel: se
   // confirman VARIOS a la vez (cada pedido son 2 o 3 llamadas a TikTok).
   // El orden de `confirmados` no importa: el corte se numera después.
+  // Stock EN DUDA por pedido: la bodega dejó de reportar el SKU y el kardex
+  // aún tiene pares. Ni se confirma ni se cancela: fuera del corte,
+  // declarado, hasta un conteo o que Industher lo regrese.
+  const dudaPorPedido = new Map<string, Set<string>>();
+  for (const d of enDuda) {
+    const l = dudaPorPedido.get(d.orderId) ?? new Set<string>();
+    l.add(d.sku);
+    dudaPorPedido.set(d.orderId, l);
+  }
+
   await enParalelo(pendientes, 4, async (p) => {
     if (cliente.msRestantes() < 30_000) {
       errores.push({ orderId: p.orderId, error: ERROR_SIN_TIEMPO });
       return;
     }
     const renglones = renglonesPorPedido.get(p.orderId) ?? [];
+    const duda = dudaPorPedido.get(p.orderId);
+    if (duda?.size && efectoDeEstado(p.estado) !== "salida") {
+      errores.push({
+        orderId: p.orderId,
+        error:
+          `Stock en duda de ${[...duda].join(", ")}: la bodega dejó de reportarlo y el kardex aún tiene pares. ` +
+          `Se queda fuera (ni se confirma ni se cancela) hasta un conteo o que Industher lo regrese; o corte sin defensa.`,
+      });
+      return;
+    }
     // Lo que ya salió (sin corte) no se vuelve a confirmar: solo se agrupa.
     if (efectoDeEstado(p.estado) === "salida") {
       confirmados.push(p.orderId);
@@ -559,16 +588,6 @@ export async function hacerCorte(
     };
   }
 
-  // El número del corte: consecutivo por cuenta.
-  const { data: ultimo } = await admin
-    .from("tiktok_cortes")
-    .select("numero")
-    .eq("account_id", accountId)
-    .order("numero", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const numero = (ultimo?.numero ?? 0) + 1;
-
   // Pares del corte: lo VIVO de cada pedido confirmado (sin lo cancelado
   // ni lo que ya venía revertido).
   const pares = confirmados.reduce(
@@ -576,23 +595,61 @@ export async function hacerCorte(
     0,
   );
 
-  const { data: corte, error } = await admin
-    .from("tiktok_cortes")
-    .insert({
-      account_id: accountId,
-      numero,
-      creado_por: opciones.creadoPor ?? null,
-      handover: opciones.handover,
-      pedidos: confirmados.length,
-      pares,
-      errores,
-      // Con qué orden nació: los cortes de antes se quedan con el suyo y se
-      // vuelven a armar igual, porque sus hojas ya están impresas.
-      orden_paquetes: ORDEN_ACTUAL,
-    })
-    .select("id")
-    .single();
-  if (error || !corte) throw new Error(`No se pudo guardar el corte: ${error?.message ?? "sin id"}`);
+  // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
+  // une en vez de abrir otro (ver `corteQueContinua`).
+  const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId));
+  let corte: { id: number };
+  let numero: number;
+  let unido = false;
+  if (unirA) {
+    unido = true;
+    numero = unirA.numero;
+    corte = { id: unirA.id };
+    const { error } = await admin
+      .from("tiktok_cortes")
+      .update({
+        pedidos: (unirA.pedidos ?? 0) + confirmados.length,
+        pares: (unirA.pares ?? 0) + pares,
+        errores: erroresAlUnir(unirA.errores ?? [], errores, pendientes.map((p) => p.orderId)),
+      })
+      .eq("id", unirA.id);
+    if (error) throw new Error(`No se pudo unir al corte #${numero}: ${error.message}`);
+    // El PDF del corte ya armado quedó viejo: se rearma con los paquetes
+    // nuevos (las guías de cada paquete siguen guardadas).
+    await admin.storage
+      .from(BUCKET_GUIAS)
+      .remove([`${accountId}/corte-${unirA.id}-e${VERSION_ESTAMPA}.pdf`])
+      .then(() => undefined, () => undefined);
+  } else {
+    // El número del corte: consecutivo por cuenta.
+    const { data: ultimo } = await admin
+      .from("tiktok_cortes")
+      .select("numero")
+      .eq("account_id", accountId)
+      .order("numero", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    numero = (ultimo?.numero ?? 0) + 1;
+
+    const { data: nuevo, error } = await admin
+      .from("tiktok_cortes")
+      .insert({
+        account_id: accountId,
+        numero,
+        creado_por: opciones.creadoPor ?? null,
+        handover: opciones.handover,
+        pedidos: confirmados.length,
+        pares,
+        errores,
+        // Con qué orden nació: los cortes de antes se quedan con el suyo y se
+        // vuelven a armar igual, porque sus hojas ya están impresas.
+        orden_paquetes: ORDEN_ACTUAL,
+      })
+      .select("id")
+      .single();
+    if (error || !nuevo) throw new Error(`No se pudo guardar el corte: ${error?.message ?? "sin id"}`);
+    corte = nuevo;
+  }
 
   if (confirmados.length) {
     await admin
@@ -630,7 +687,48 @@ export async function hacerCorte(
   await registrarSalidasDeCorte(admin, accountId, corte.id, [...porPedidoYSku.values()]);
   const al3pl = await empujarSalidasAl3pl(admin, accountId, corte.id);
 
-  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, cancelados, al3pl };
+  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, cancelados, al3pl, unido };
+}
+
+/**
+ * El corte de HOY (México) al que este corte se une, si alguno de los
+ * pedidos que se van a cortar quedó por tiempo en él y nadie le ha
+ * preparado nada todavía. Lo demás es `corteQueContinua`.
+ */
+async function corteDeHoyQueContinua(
+  admin: any,
+  accountId: string,
+  orderIds: string[],
+): Promise<{ id: number; numero: number; pedidos: number; pares: number; errores: { orderId: string; error: string }[] } | null> {
+  const ahora = new Date();
+  // Desde las 00:00 de hoy en México (UTC−6 fijo, como `diaMx`).
+  const desde = new Date(`${diaMx(ahora.toISOString())}T06:00:00Z`).toISOString();
+  const { data } = await admin
+    .from("tiktok_cortes")
+    .select("id, numero, creado_en, pedidos, pares, errores")
+    .eq("account_id", accountId)
+    .gte("creado_en", desde)
+    .order("id", { ascending: false })
+    .limit(10);
+  const cortes = (data ?? []) as any[];
+  if (!cortes.length) return null;
+  const preparados = new Map<number, number>();
+  for (const c of cortes) {
+    const { count } = await admin
+      .from("tiktok_preparaciones")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("corte_id", c.id);
+    preparados.set(c.id, count ?? 0);
+  }
+  const id = corteQueContinua(
+    cortes.map((c) => ({ id: c.id, creadoEn: c.creado_en, errores: c.errores ?? [], preparados: preparados.get(c.id) ?? 0 })),
+    orderIds,
+    ahora,
+  );
+  if (id == null) return null;
+  const c = cortes.find((x) => x.id === id);
+  return c ? { id: c.id, numero: c.numero, pedidos: c.pedidos ?? 0, pares: c.pares ?? 0, errores: c.errores ?? [] } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1791,9 +1889,15 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
 
   const pendientes = await pendientesDeCorte(admin, accountId);
   // La misma defensa automática que aplicaría el corte, sin escribir nada.
-  const { porPedido: renglonesSim } = await renglonesConDefensa(admin, accountId, pendientes);
+  const { porPedido: renglonesSim, enDuda } = await renglonesConDefensa(admin, accountId, pendientes);
   const porOrden = new Map<string, Map<string, number>>();
   const bloqueadosPorOrden = new Map<string, Map<string, number>>();
+  const dudaPorOrden = new Map<string, Set<string>>();
+  for (const d of enDuda) {
+    const l = dudaPorOrden.get(d.orderId) ?? new Set<string>();
+    l.add(d.sku);
+    dudaPorOrden.set(d.orderId, l);
+  }
   for (const [orderId, lista] of renglonesSim) {
     for (const r of lista) {
       if (efectoDeEstado(r.estado) === "reversa") continue;
@@ -1829,6 +1933,10 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
     const pares = [...(porOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
     for (const x of pares) if (!x.sku.startsWith("(")) al3pl.set(x.sku, (al3pl.get(x.sku) ?? 0) + x.pares);
     const bloqueados = [...(bloqueadosPorOrden.get(p.orderId) ?? new Map())].map(([sku, n]) => ({ sku, pares: n }));
+    const duda = dudaPorOrden.get(p.orderId);
+    if (duda?.size && efectoDeEstado(p.estado) !== "salida") {
+      aviso = `Stock en duda de ${[...duda].join(", ")} (la bodega dejó de reportarlo y el kardex aún tiene pares): se queda fuera sin cancelar`;
+    }
     if (bloqueados.length) {
       aviso = pares.length
         ? `Se cancela en TikTok ${bloqueados.map((b) => `${b.sku} ×${b.pares}`).join(", ")} y se confirma el resto`
