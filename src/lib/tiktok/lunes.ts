@@ -146,16 +146,15 @@ export function erroresAlUnir(
   return [...quedan, ...(nuevos ?? [])];
 }
 
-/** Cuántas rondas seguidas puede encadenar la pantalla antes de rendirse (cada una es una llamada de hasta 5 min). */
-export const RONDAS_MAXIMAS = 8;
-
 /**
  * ¿Hay que volver a lanzar el corte? Sí cuando la ronda dejó pedidos por
  * TIEMPO y además avanzó (confirmó a alguien): una ronda que no confirmó a
  * nadie y aun así se quedó sin tiempo es TikTok sin contestar, y repetirla
- * a ciegas solo gasta rondas. Decisión del dueño (22-sep-2026): «que no
- * tenga que picarle otra vez, sino automáticamente se vuelva a hacer el
- * corte hasta terminar».
+ * a ciegas no sirve. Decisión del dueño (22-sep-2026): «que no tenga que
+ * picarle otra vez, sino automáticamente se vuelva a hacer el corte hasta
+ * terminar» y «no quiero que pongas máximos»: no hay tope de rondas; se
+ * para solo cuando ya no queda nada por tiempo o cuando una ronda no
+ * avanza.
  */
 export function hayQueSeguir(ronda: { pedidos: number; errores: { orderId: string; error: string }[] }[]): boolean {
   const sinTiempo = ronda.reduce((a, c) => a + contarSinTiempo(c.errores), 0);
