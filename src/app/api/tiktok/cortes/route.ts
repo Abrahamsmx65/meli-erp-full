@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     const opciones = {
       handover: (body?.handover === "DROP_OFF" ? "DROP_OFF" : "PICKUP") as "DROP_OFF" | "PICKUP",
       creadoPor: user.id,
+      sinDefensa: body?.sinDefensa === true,
     };
     // Las guías se bajan y se guardan en cuanto se contesta: cuando el
     // usuario pida el PDF ya está armado.

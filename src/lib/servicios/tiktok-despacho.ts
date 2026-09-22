@@ -99,6 +99,8 @@ async function renglonesConDefensa(
   admin: any,
   accountId: string,
   pendientes: PendienteConFecha[],
+  /** true = corte SIN defensa: no se bloquea nada por stock y lo bloqueado solo se libera (decisión del dueño por corte) */
+  sinDefensa = false,
 ): Promise<{
   porPedido: Map<string, RenglonConPedido[]>;
   automaticos: ReturnType<typeof autoBloqueos>;
@@ -135,7 +137,11 @@ async function renglonesConDefensa(
     estado: i.estado ?? null,
     bloqueado: Boolean(i.bloqueado_en) && !i.bloqueo_resuelto_en && !esBloqueoAutomatico(i.bloqueo_motivo),
   }));
-  const automaticos = autoBloqueos(todos, stock);
+  // Sin defensa, el dueño decidió confirmar aunque el stock diga cero (los
+  // pares suelen estar: un estante que Industher dejó de reportar, una
+  // caja que ya llegó): ningún bloqueo automático nuevo y los vigentes se
+  // liberan. Los bloqueos a mano se respetan igual.
+  const automaticos = sinDefensa ? [] : autoBloqueos(todos, stock);
   const auto = new Set(automaticos.map((a) => a.lineItemId));
   for (const r of todos) {
     if (auto.has(r.lineItemId)) r.bloqueado = true;
@@ -275,6 +281,8 @@ export async function hacerCorte(
     soloPedidos?: string[];
     /** cuánto tiempo puede gastar con TikTok (el corte partido reparte el rato) */
     msDisponibles?: number;
+    /** confirmar TODO aunque no haya stock físico: sin bloqueos automáticos (decisión del dueño, 21-sep-2026) */
+    sinDefensa?: boolean;
   },
 ): Promise<ResultadoCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? 240_000);
@@ -292,7 +300,21 @@ export async function hacerCorte(
   // que lo piden se bloquea solo (los más nuevos primero), se cancela en
   // TikTok y se confirma lo demás. De aquí salen también los pares del
   // corte y las salidas al 3PL, ya sin lo cancelado.
-  const { porPedido: renglonesPorPedido, automaticos, liberados } = await renglonesConDefensa(admin, accountId, pendientes);
+  const { porPedido: renglonesPorPedido, automaticos, liberados } = await renglonesConDefensa(
+    admin,
+    accountId,
+    pendientes,
+    Boolean(opciones.sinDefensa),
+  );
+  if (opciones.sinDefensa) {
+    // Constancia en el corte: se confirmó sin mirar el stock.
+    errores.push({
+      orderId: "",
+      error: liberados.length
+        ? `Corte SIN defensa: se confirmó todo aunque no hubiera stock físico; ${liberados.length} ${liberados.length === 1 ? "renglón bloqueado se liberó" : "renglones bloqueados se liberaron"}.`
+        : "Corte SIN defensa: se confirmó todo sin mirar el stock físico.",
+    });
+  }
   if (automaticos.length) {
     // Constancia del bloqueo automático, con su motivo, antes de tocar TikTok.
     for (const a of automaticos) {
@@ -307,7 +329,10 @@ export async function hacerCorte(
     // Llegó stock: el bloqueo de la vez pasada ya no aplica y el pedido entra.
     await admin
       .from("tiktok_orden_items")
-      .update({ bloqueo_resultado: "liberado: ya hay stock", bloqueo_resuelto_en: new Date().toISOString() })
+      .update({
+        bloqueo_resultado: opciones.sinDefensa ? "liberado: corte sin defensa (decisión del dueño)" : "liberado: ya hay stock",
+        bloqueo_resuelto_en: new Date().toISOString(),
+      })
       .eq("account_id", accountId)
       .in("line_item_id", liberados);
   }
@@ -626,7 +651,7 @@ const MS_CORTE_LUNES = 260_000;
 export async function hacerCorteLunes(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean },
 ): Promise<ResultadoCorteLunes> {
   const arranque = Date.now();
   const pendientes = await pendientesDeCorte(admin, accountId);

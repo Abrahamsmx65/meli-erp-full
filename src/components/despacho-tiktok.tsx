@@ -56,6 +56,8 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   const [faltantes, setFaltantes] = useState<Record<number, any>>({});
   const [pidiendoFaltantes, setPidiendoFaltantes] = useState<number | null>(null);
   const [actualizando, setActualizando] = useState(false);
+  // Confirmar aunque el stock diga cero: se apaga solo después de cada corte.
+  const [sinDefensa, setSinDefensa] = useState(false);
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {
@@ -167,7 +169,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       const r = await fetch("/api/tiktok/cortes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handover, ...(modo ? { modo } : {}) }),
+        body: JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
@@ -179,6 +181,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         setAviso(resumenDeCorte(j));
       }
       setSimulacion(null);
+      setSinDefensa(false);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -255,6 +258,11 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
             </button>
           </div>
         </div>
+        <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: sinDefensa ? "var(--estado-critico)" : "var(--ink-2)" }}>
+          <input type="checkbox" checked={sinDefensa} onChange={(e) => setSinDefensa(e.target.checked)} disabled={ocupado} />
+          Sin defensa: confirmar todo aunque no haya stock físico (libera los bloqueos por stock; el kardex puede quedar en
+          negativo y la alarma lo va a gritar). Se apaga solo después del corte.
+        </label>
         {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
         {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
 

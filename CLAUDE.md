@@ -501,6 +501,13 @@ guárdala numerada.
   (`liberados`, `bloqueo_resultado = liberado: ya hay stock`); el 18-sep
   Industher metió 35 pares de GT148-BLK-24 a mediodía y los pedidos seguían
   bloqueados de la mañana.
+  **Corte SIN defensa** (`hacerCorte({ sinDefensa })`, casilla en Despacho
+  que se apaga sola tras el corte; decisión del dueño, 21-sep-2026: «las
+  que no se pudieron confirmar porque no hay stock igual las confirmas»):
+  no se bloquea nada por stock y los bloqueos automáticos vigentes se
+  liberan (`bloqueo_resultado = liberado: corte sin defensa`); el corte
+  lo deja anotado como NOTA. Los pares salen del kardex igual y pueden
+  dejarlo en negativo: la alarma lo grita y un conteo lo cuadra.
   **Un corte donde NADIE entró no se guarda** (`corteId: null` en
   `ResultadoCorte`; el 18-sep se guardaron dos cortes vacíos seguidos):
   lo cancelado se relee igual y el resumen dice, agrupado, por qué no
