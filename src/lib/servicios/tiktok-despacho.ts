@@ -20,7 +20,7 @@ import { codificar128 } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
-import { partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
+import { contarSinTiempo, ERROR_SIN_TIEMPO, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   cancelarRenglones,
@@ -251,9 +251,13 @@ export async function pendientesDeCorte(db: DB, accountId: string): Promise<Pend
   const filas = await traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, corte_id, fecha_creacion", (q) =>
     q.eq("account_id", accountId).is("corte_id", null),
   );
-  return (filas ?? [])
-    .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
-    .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null }));
+  // Lo más viejo primero: si el corte se queda sin tiempo, lo que sobra es
+  // lo más reciente, nunca lo que ya casi cumple las 48 horas.
+  return ordenarPorAntiguedad(
+    (filas ?? [])
+      .filter((o: any) => ESTADOS_DESPACHABLES.has(String(o.estado).toUpperCase()))
+      .map((o: any) => ({ orderId: o.order_id, estado: o.estado, creadoEn: o.fecha_creacion ?? null })),
+  );
 }
 
 /**
@@ -342,7 +346,7 @@ export async function hacerCorte(
   // El orden de `confirmados` no importa: el corte se numera después.
   await enParalelo(pendientes, 4, async (p) => {
     if (cliente.msRestantes() < 30_000) {
-      errores.push({ orderId: p.orderId, error: "Se acabó el tiempo; entra al siguiente corte." });
+      errores.push({ orderId: p.orderId, error: ERROR_SIN_TIEMPO });
       return;
     }
     const renglones = renglonesPorPedido.get(p.orderId) ?? [];
@@ -643,13 +647,28 @@ export async function hacerCorteLunes(
     };
   }
 
-  // Primero lo atrasado, con la mitad del rato: lo urgente nunca se queda
-  // sin corte por culpa de lo que todavía tiene tiempo.
+  // Primero lo atrasado, con TODO el rato si hace falta: lo de días
+  // anteriores nunca se queda sin corte por culpa de lo de hoy. El
+  // 21-sep-2026 la primera tanda tenía ~800 pedidos, con la mitad del
+  // rato solo confirmó 294, y la segunda se llevó los 205 del lunes de
+  // todos modos: lo de hoy salió antes que 485 del fin de semana.
   const primero = await hacerCorte(admin, accountId, {
     ...opciones,
     soloPedidos: urgentes.map((p) => p.orderId),
-    msDisponibles: Math.floor(MS_CORTE_LUNES / 2),
+    msDisponibles: MS_CORTE_LUNES,
   });
+
+  const sinTiempo = contarSinTiempo(primero.errores);
+  if (sinTiempo > 0) {
+    return {
+      cortes: [primero],
+      pendientes: sinTiempo + resto.length,
+      aviso:
+        `Ya salió un corte con ${primero.pedidos} pedidos de días anteriores, pero ${sinTiempo} de esos días se quedaron ` +
+        `por tiempo: dale otra vez a "Hacer corte" (toma lo más viejo primero) hasta que no quede nada de antes de hoy; ` +
+        `los ${resto.length} de hoy se cortan al final.`,
+    };
+  }
 
   const restante = MS_CORTE_LUNES - (Date.now() - arranque);
   if (restante < 45_000) {
@@ -667,7 +686,7 @@ export async function hacerCorteLunes(
     soloPedidos: resto.map((p) => p.orderId),
     msDisponibles: restante,
   });
-  return { cortes: [primero, segundo], pendientes: 0, aviso: null };
+  return { cortes: [primero, segundo], pendientes: contarSinTiempo(segundo.errores), aviso: null };
 }
 
 // ---------------------------------------------------------------------------
