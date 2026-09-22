@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esLunesMx, partirEnTandas } from "./lunes";
+import { contarSinTiempo, ERROR_SIN_TIEMPO, esLunesMx, ordenarPorAntiguedad, partirEnTandas } from "./lunes";
 
 /** Lunes 14 de septiembre de 2026, 9 de la mañana en México (UTC-6). */
 const LUNES_9AM = new Date("2026-09-14T15:00:00Z");
@@ -65,5 +65,29 @@ describe("qué día es hoy en México", () => {
   });
   it("el domingo a las 20:00 de México todavía no", () => {
     expect(esLunesMx(new Date("2026-09-14T02:00:00Z"))).toBe(false);
+  });
+});
+
+describe("lo que se quedó por tiempo y el orden del corte", () => {
+  it("cuenta solo los pedidos que no alcanzaron por tiempo, no los bloqueados ni las notas", () => {
+    expect(
+      contarSinTiempo([
+        { orderId: "a", error: ERROR_SIN_TIEMPO },
+        { orderId: "b", error: ERROR_SIN_TIEMPO },
+        { orderId: "c", error: "Bloqueado y TikTok no aceptó cancelarlo" },
+        { orderId: "", error: ERROR_SIN_TIEMPO },
+      ]),
+    ).toBe(2);
+    expect(contarSinTiempo([])).toBe(0);
+  });
+
+  it("el corte toma lo más viejo primero; lo sin fecha va al frente", () => {
+    const r = ordenarPorAntiguedad([
+      pedido("hoy", "2026-09-21T15:00:00Z"),
+      pedido("sabado", "2026-09-19T15:00:00Z"),
+      pedido("sin-fecha", null),
+      pedido("domingo", "2026-09-20T15:00:00Z"),
+    ]);
+    expect(r.map((p) => p.orderId)).toEqual(["sin-fecha", "sabado", "domingo", "hoy"]);
   });
 });

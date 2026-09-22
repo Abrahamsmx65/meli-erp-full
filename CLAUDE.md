@@ -377,10 +377,16 @@ guárdala numerada.
   de MÉXICO (`partirEnTandas`, `DIAS_URGENTE` 1, día por `diaMx`, UTC−6
   fijo: las 23:59 del domingo son domingo aunque en UTC ya sea lunes)— y
   luego un SEGUNDO corte solo con lo vendido el lunes. Un pedido sin fecha
-  se va con los urgentes. Si el primer corte se come el
-  rato de Vercel, el segundo NO se hace a medias: dice cuántos quedaron y el
-  botón normal se los lleva completos. La simulación enseña la partición
-  antes de confirmar nada.
+  se va con los urgentes. **La primera tanda tiene TODO el rato de Vercel y
+  la segunda solo arranca si la primera no dejó nada por tiempo**
+  (`contarSinTiempo`, `ERROR_SIN_TIEMPO`; 21-sep-2026: ~800 pedidos
+  atrasados, la primera tanda con medio rato confirmó 294 y dejó 485, y la
+  segunda se llevó los 205 del lunes de todos modos). Un corte confirma
+  ~300 pedidos en los 5 minutos de Vercel (TikTok contesta ~1/s); con más,
+  el aviso dice cuántos de días anteriores quedaron y se le da otra vez a
+  «Hacer corte», que SIEMPRE toma lo más viejo primero
+  (`pendientesDeCorte` → `ordenarPorAntiguedad`, sin fecha al frente).
+  La simulación enseña la partición antes de confirmar nada.
   **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
   `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
   por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos

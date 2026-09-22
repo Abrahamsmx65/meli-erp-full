@@ -67,3 +67,28 @@ export function partirEnTandas<T extends PendienteConFecha>(
 export function esLunesMx(ahora: Date = new Date()): boolean {
   return new Date(ahora.getTime() - 6 * 3_600_000).getUTCDay() === 1;
 }
+
+/** El texto con el que el corte anota un pedido que no alcanzó a confirmar por tiempo. */
+export const ERROR_SIN_TIEMPO = "Se acabó el tiempo; entra al siguiente corte.";
+
+/**
+ * Cuántos pedidos se quedaron fuera de un corte SOLO por tiempo. El corte
+ * del lunes lo usa para decidir si arranca la segunda tanda: si la primera
+ * dejó pedidos de días anteriores sin cortar, lo de hoy NO va antes que
+ * ellos (21-sep-2026: el corte #32 dejó 485 del fin de semana por tiempo y
+ * el #33 se llevó los 205 del lunes de todos modos).
+ */
+export function contarSinTiempo(errores: { orderId: string; error: string }[]): number {
+  return (errores ?? []).filter((e) => e.orderId && e.error === ERROR_SIN_TIEMPO).length;
+}
+
+/** Los pendientes en el orden en que se cortan: lo más viejo primero; sin fecha, al frente. */
+export function ordenarPorAntiguedad<T extends PendienteConFecha>(pendientes: T[]): T[] {
+  return [...(pendientes ?? [])].sort((a, b) => {
+    const ta = a.creadoEn ? Date.parse(a.creadoEn) : NaN;
+    const tb = b.creadoEn ? Date.parse(b.creadoEn) : NaN;
+    const va = Number.isFinite(ta) ? ta : -Infinity;
+    const vb = Number.isFinite(tb) ? tb : -Infinity;
+    return va - vb || a.orderId.localeCompare(b.orderId);
+  });
+}
