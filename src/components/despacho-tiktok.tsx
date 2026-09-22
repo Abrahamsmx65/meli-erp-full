@@ -6,7 +6,7 @@ import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
-import { PAQUETES_POR_TOMO, rangoDeTomo, tomosDeCorte } from "@/lib/tiktok/despacho";
+import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
   id: number;
@@ -61,6 +61,78 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   const [actualizando, setActualizando] = useState(false);
   // Confirmar aunque el stock diga cero: se apaga solo después de cada corte.
   const [sinDefensa, setSinDefensa] = useState(false);
+  // Las etiquetas de un corte grande: el servidor arma tomos de 200 guías y
+  // aquí se juntan en UN PDF antes de abrirlo. Texto de avance por corte.
+  const [armandoEtiquetas, setArmandoEtiquetas] = useState<Record<number, string>>({});
+
+  /**
+   * UN solo PDF con todas las etiquetas del corte. El servidor arma (y
+   * guarda) cada tomo de `PAQUETES_POR_TOMO` guías por separado —entero no
+   * cabe en la función de Vercel: el #36 del 22-sep-2026 eran 916 guías,
+   * ~96 MB— y el navegador los junta con pdf-lib y lo abre para imprimir
+   * (decisión del dueño: «por atrás se hagan 200 guías cada vez y el PDF
+   * sí me lo presentes junto»). La pestaña se abre en el clic (si no, el
+   * navegador la bloquea) y recibe el PDF cuando está listo.
+   */
+  async function imprimirEtiquetas(c: CorteResumen) {
+    const total = tomosDeCorte(c.pedidos);
+    const ventana = window.open("", "_blank");
+    if (ventana) {
+      ventana.document.write(`<p style="font-family:sans-serif;padding:24px">Armando las etiquetas del corte #${c.numero}… no cierres esta pestaña.</p>`);
+    }
+    const avance = (t: string) => {
+      setArmandoEtiquetas((a) => ({ ...a, [c.id]: t }));
+      if (ventana && !ventana.closed) {
+        const p = ventana.document.querySelector("p");
+        if (p) p.textContent = `Corte #${c.numero}: ${t}`;
+      }
+    };
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const junto = await PDFDocument.create();
+      junto.setTitle(`Corte ${c.numero} · etiquetas TikTok`);
+      for (let tomo = 1; tomo <= total; tomo++) {
+        avance(avanceDeTomos(tomo, total, "armando"));
+        const r = await fetch(`/api/tiktok/cortes/${c.id}/etiquetas?tomo=${tomo}`);
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error ?? `No se pudo armar el tomo ${tomo} de ${total}.`);
+        }
+        const parte = await PDFDocument.load(await r.arrayBuffer(), { ignoreEncryption: true });
+        if (total > 1) avance(avanceDeTomos(tomo, total, "uniendo"));
+        const paginas = await junto.copyPages(parte, parte.getPageIndices());
+        for (const pagina of paginas) junto.addPage(pagina);
+      }
+      const bytes = await junto.save();
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+      if (ventana && !ventana.closed) ventana.location.href = url;
+      else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `corte-${c.numero}-etiquetas.pdf`;
+        a.click();
+      }
+      setArmandoEtiquetas((a) => {
+        const { [c.id]: _quitado, ...resto } = a;
+        return resto;
+      });
+    } catch (e) {
+      if (ventana && !ventana.closed) ventana.close();
+      setArmandoEtiquetas((a) => ({ ...a, [c.id]: `No se pudieron armar las etiquetas: ${(e as Error).message}` }));
+    }
+  }
+
+  /**
+   * Deja los tomos armados en el servidor sin abrir nada: se llama en
+   * cuanto termina un corte, para que «Etiquetas PDF» salga al instante.
+   */
+  function calentarEtiquetas(corteId: number, pedidos: number) {
+    void (async () => {
+      for (let tomo = 1; tomo <= tomosDeCorte(pedidos); tomo++) {
+        await fetch(`/api/tiktok/cortes/${corteId}/etiquetas?tomo=${tomo}`).then((r) => r.arrayBuffer()).catch(() => undefined);
+      }
+    })();
+  }
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {
@@ -196,6 +268,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         const cortesRonda: any[] = j.modo === "lunes" || j.modo === "ayer" ? (j.cortes ?? []) : [j];
         resumenes.push(...cortesRonda.map((c: any) => resumenDeCorte(c)));
         router.refresh();
+        // Los tomos de etiquetas se arman por atrás desde ya (el servidor
+        // guarda cada uno); al darle a «Etiquetas PDF» solo se juntan.
+        for (const c of cortesRonda) if (c.corteId != null && !hayQueSeguir([c])) calentarEtiquetas(c.corteId, c.pedidos ?? 0);
         if (!hayQueSeguir(cortesRonda)) {
           if (j.aviso) resumenes.push(j.aviso);
           break;
@@ -393,6 +468,11 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                     {c.cancelados ? ` · ${c.cancelados} ${c.cancelados === 1 ? "cancelado" : "cancelados"}` : ""}
                   </span>
                 </div>
+                {armandoEtiquetas[c.id] ? (
+                  <p className="mt-1 text-xs font-semibold" style={{ color: armandoEtiquetas[c.id].startsWith("No se pudieron") ? "var(--estado-critico)" : "var(--ink-2)" }}>
+                    {armandoEtiquetas[c.id]}
+                  </p>
+                ) : null}
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
                     {agruparErrores(c.errores.filter((e) => !e.error.includes("solo drop-off"))).map((g) => (
@@ -488,37 +568,19 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   Lista de surtido
                 </a>
-                {tomosDeCorte(c.pedidos) === 1 ? (
-                  <a
-                    href={`/api/tiktok/cortes/${c.id}/etiquetas`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-                    style={{ background: "var(--acento)" }}
-                  >
-                    <Printer size={14} /> Etiquetas PDF
-                  </a>
-                ) : (
-                  // Un corte grande sale por tomos de 200 guías: entero no
-                  // cabe en Vercel (el #36 del 22-sep-2026, 916 guías).
-                  Array.from({ length: tomosDeCorte(c.pedidos) }, (_, i) => i + 1).map((tomo) => {
-                    const r = rangoDeTomo(tomo, c.pedidos, c.pedidos);
-                    const etiqueta = r ? `#${r.desde + 1}–${tomo === tomosDeCorte(c.pedidos) ? "fin" : `#${r.hasta}`}` : `tomo ${tomo}`;
-                    return (
-                      <a
-                        key={tomo}
-                        href={`/api/tiktok/cortes/${c.id}/etiquetas?tomo=${tomo}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-                        style={{ background: "var(--acento)" }}
-                        title={`Tomo ${tomo} de ${tomosDeCorte(c.pedidos)}: ${PAQUETES_POR_TOMO} guías por archivo`}
-                      >
-                        <Printer size={14} /> Etiquetas {etiqueta}
-                      </a>
-                    );
-                  })
-                )}
+                <button
+                  onClick={() => imprimirEtiquetas(c)}
+                  disabled={Boolean(armandoEtiquetas[c.id]) && !armandoEtiquetas[c.id].startsWith("No se pudieron")}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                  style={{ background: "var(--acento)" }}
+                  title={
+                    tomosDeCorte(c.pedidos) > 1
+                      ? `El servidor arma ${tomosDeCorte(c.pedidos)} tomos de 200 guías y aquí se juntan en un solo PDF`
+                      : "Las guías del corte en orden, con #n y el código del pedido"
+                  }
+                >
+                  <Printer size={14} /> {armandoEtiquetas[c.id] && !armandoEtiquetas[c.id].startsWith("No se pudieron") ? "Armando…" : "Etiquetas PDF"}
+                </button>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/salidas`}
                   className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"

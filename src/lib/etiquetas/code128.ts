@@ -140,3 +140,29 @@ export function svg128(
     alto,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Módulo alineado a los puntos de la impresora térmica
+// ---------------------------------------------------------------------------
+
+/** Puntos PDF que mide un punto de impresora a 203 dpi (la térmica de las guías). */
+export const PT_POR_DOT_203 = 72 / 203;
+
+/**
+ * El ancho del módulo (la barra más angosta) para que salga NÍTIDO en la
+ * térmica: un número ENTERO de puntos de impresora. Con 0.75 pt por módulo
+ * (2.1 dots) el rasterizador pintaba unas barras de 2 puntos y otras de 3,
+ * y el código del pedido salía "borroso" y a veces no escaneaba (dueño,
+ * 22-sep-2026). `escala` es cuánto encoge la impresora la hoja al
+ * imprimirla (la franja de Cainiao la encoge ~8 %): el módulo se agranda
+ * en el PDF para que, ya encogido, vuelva a medir `dots` puntos exactos.
+ */
+export function moduloParaTermica(dots = 2, escala = 1): number {
+  return (dots * PT_POR_DOT_203) / (escala > 0 ? escala : 1);
+}
+
+/** Lleva una coordenada al punto de impresora más cercano, con la misma escala. */
+export function alPuntoDeImpresora(x: number, escala = 1): number {
+  const dot = PT_POR_DOT_203 / (escala > 0 ? escala : 1);
+  return Math.round(x / dot) * dot;
+}

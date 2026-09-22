@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { codificar128, svg128 } from "./code128";
+import { alPuntoDeImpresora, moduloParaTermica, PT_POR_DOT_203 } from "./code128";
 
 describe("Code 128 B", () => {
   it("saca el dígito verificador documentado de 'Wikipedia'", () => {
@@ -42,5 +43,23 @@ describe("Code 128 B", () => {
     expect(r.alto).toBe(50);
     // margen + módulos*2 + margen
     expect(r.ancho).toBe(10 + codificar128("QPLW61342").modulos * 2 + 10);
+  });
+});
+
+describe("módulo alineado a la térmica de 203 dpi", () => {
+  it("dos puntos de impresora por módulo, sin escala", () => {
+    expect(moduloParaTermica()).toBeCloseTo(2 * 72 / 203, 6);
+    expect(moduloParaTermica(2) / PT_POR_DOT_203).toBeCloseTo(2, 6);
+  });
+  it("con la hoja encogida un 8 % el módulo crece para volver a medir 2 puntos ya impreso", () => {
+    const escala = 419.53 / (419.53 + 34);
+    const modulo = moduloParaTermica(2, escala);
+    expect((modulo * escala) / PT_POR_DOT_203).toBeCloseTo(2, 6);
+    expect(modulo).toBeGreaterThan(moduloParaTermica(2));
+  });
+  it("la coordenada se lleva al punto de impresora más cercano", () => {
+    const dot = PT_POR_DOT_203;
+    expect(alPuntoDeImpresora(dot * 10.4)).toBeCloseTo(dot * 10, 6);
+    expect(alPuntoDeImpresora(dot * 10.6)).toBeCloseTo(dot * 11, 6);
   });
 });
