@@ -230,7 +230,7 @@ describe("cancelarRenglones (defensa del corte)", () => {
       {
         metodo: "POST",
         ruta: "/return_refund/202309/cancellations",
-        cuerpo: { order_id: "586", cancel_reason: "ecom_order_to_ship_canceled_reason_out_of_stock", skus: [{ sku_id: "s1", quantity: 2 }] },
+        cuerpo: { order_id: "586", cancel_reason: "seller_cancel_reason_out_of_stock", skus: [{ sku_id: "s1", quantity: 2 }] },
       },
     ]);
     expect(r).toEqual({ cancelId: "9", estado: "CANCELLATION_REQUEST_SUCCESS", motivo: MOTIVOS_SIN_STOCK[0], aceptada: true });

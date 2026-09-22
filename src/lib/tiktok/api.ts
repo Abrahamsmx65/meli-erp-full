@@ -486,11 +486,19 @@ export async function horariosDeRecoleccion(c: Cliente, packageId: string): Prom
  * de su documentación «Cancel reasons». Hasta el 18-sep-2026 el corte le
  * pedía la lista a `/order/202309/orders/cancellation_reasons`, que no
  * existe, y el error se tragaba: la defensa nunca canceló nada y 16 pedidos
- * se quedaron fuera de cuatro cortes seguidos. La primera clave es la de
- * «sin stock» de un pedido por enviar; las demás son respaldo. Se prueban
- * en orden y el corte se queda con la que TikTok acepte.
+ * se quedaron fuera de cuatro cortes seguidos. La PRIMERA clave es la que
+ * TikTok MÉXICO acepta de verdad: `seller_cancel_reason_out_of_stock`
+ * («Sin existencias»), leída el 21-sep-2026 de las cancelaciones que el
+ * dueño hizo a mano en el Seller Center (rol SELLER, 4 veces); las de la
+ * documentación quedan de respaldo porque la calculadora contestó
+ * «reverse reason is unknown» a las dos. Se prueban en orden y el corte
+ * se queda con la que TikTok acepte.
  */
-export const MOTIVOS_SIN_STOCK = ["ecom_order_to_ship_canceled_reason_out_of_stock", "seller_out_of_stock"];
+export const MOTIVOS_SIN_STOCK = [
+  "seller_cancel_reason_out_of_stock",
+  "ecom_order_to_ship_canceled_reason_out_of_stock",
+  "seller_out_of_stock",
+];
 
 /**
  * Los motivos con los que TikTok deja cancelar ESTE pedido al vendedor. El

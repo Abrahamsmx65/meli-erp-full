@@ -477,7 +477,10 @@ guárdala numerada.
   que solo existe la 202309, que no trae nombres, y que la calculadora
   contesta «reverse reason is unknown» a las claves de la documentación.
   Lo que el dueño cancela a mano en el Seller Center trae el nombre exacto
-  y el corte lo usa ANTES que las claves fijas. Si ninguno entra el
+  y el corte lo usa ANTES que las claves fijas. **El nombre real en México
+  es `seller_cancel_reason_out_of_stock`** («Sin existencias»; visto el
+  21-sep-2026 con rol SELLER, 4 veces) y va primero en
+  `MOTIVOS_SIN_STOCK`. Si ninguno entra el
   error del corte dice qué contestó TikTok a CADA clave intentada
   (`cancelarRenglones`; antes solo se veía la última). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
   quedan de respaldo: el 18-sep-2026 TikTok contestó a ellas 25001014
