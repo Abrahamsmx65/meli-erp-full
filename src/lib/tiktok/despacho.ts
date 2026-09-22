@@ -426,3 +426,40 @@ export function agruparErrores(errores: ErrorDeCorte[]): GrupoDeErrores[] {
   }
   return [...grupos.values()].sort((a, b) => b.pedidos.length - a.pedidos.length);
 }
+
+// ---------------------------------------------------------------------------
+// Las etiquetas de un corte grande salen por TOMOS
+// ---------------------------------------------------------------------------
+
+/**
+ * Cuántos paquetes caben en un PDF de etiquetas. Cada guía de TikTok pesa
+ * ~105 KB: el corte #36 (22-sep-2026, 916 paquetes) era un solo PDF de
+ * ~96 MB que Vercel no alcanzaba a armar ni a servir (se moría sin dejar
+ * bitácora). 200 guías son ~21 MB, el tamaño de los cortes que siempre
+ * salieron bien.
+ */
+export const PAQUETES_POR_TOMO = 200;
+
+/**
+ * En cuántos tomos sale el corte. Se decide por los PEDIDOS del corte
+ * (`tiktok_cortes.pedidos`), que la pantalla ya tiene, y no por los
+ * paquetes, que solo se conocen al armar; así la pantalla y el servidor
+ * cuentan igual. Un pedido con dos paquetes (raro) cae en el último tomo.
+ */
+export function tomosDeCorte(pedidos: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, pedidos) / PAQUETES_POR_TOMO));
+}
+
+/**
+ * Qué paquetes (índices 0-based, `hasta` exclusivo) van en el tomo `tomo`
+ * (1-based) de un corte con `pedidos` pedidos y `paquetes` paquetes ya
+ * numerados. El último tomo llega hasta el final, pase lo que pase.
+ * Devuelve null si el tomo no existe.
+ */
+export function rangoDeTomo(tomo: number, pedidos: number, paquetes: number): { desde: number; hasta: number } | null {
+  const total = tomosDeCorte(pedidos);
+  if (!Number.isInteger(tomo) || tomo < 1 || tomo > total) return null;
+  const desde = (tomo - 1) * PAQUETES_POR_TOMO;
+  const hasta = tomo === total ? paquetes : Math.min(paquetes, tomo * PAQUETES_POR_TOMO);
+  return { desde, hasta: Math.max(desde, hasta) };
+}

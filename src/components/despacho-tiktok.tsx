@@ -6,6 +6,7 @@ import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
+import { PAQUETES_POR_TOMO, rangoDeTomo, tomosDeCorte } from "@/lib/tiktok/despacho";
 
 export interface CorteResumen {
   id: number;
@@ -487,15 +488,37 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 >
                   Lista de surtido
                 </a>
-                <a
-                  href={`/api/tiktok/cortes/${c.id}/etiquetas`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-                  style={{ background: "var(--acento)" }}
-                >
-                  <Printer size={14} /> Etiquetas PDF
-                </a>
+                {tomosDeCorte(c.pedidos) === 1 ? (
+                  <a
+                    href={`/api/tiktok/cortes/${c.id}/etiquetas`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+                    style={{ background: "var(--acento)" }}
+                  >
+                    <Printer size={14} /> Etiquetas PDF
+                  </a>
+                ) : (
+                  // Un corte grande sale por tomos de 200 guías: entero no
+                  // cabe en Vercel (el #36 del 22-sep-2026, 916 guías).
+                  Array.from({ length: tomosDeCorte(c.pedidos) }, (_, i) => i + 1).map((tomo) => {
+                    const r = rangoDeTomo(tomo, c.pedidos, c.pedidos);
+                    const etiqueta = r ? `#${r.desde + 1}–${tomo === tomosDeCorte(c.pedidos) ? "fin" : `#${r.hasta}`}` : `tomo ${tomo}`;
+                    return (
+                      <a
+                        key={tomo}
+                        href={`/api/tiktok/cortes/${c.id}/etiquetas?tomo=${tomo}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white"
+                        style={{ background: "var(--acento)" }}
+                        title={`Tomo ${tomo} de ${tomosDeCorte(c.pedidos)}: ${PAQUETES_POR_TOMO} guías por archivo`}
+                      >
+                        <Printer size={14} /> Etiquetas {etiqueta}
+                      </a>
+                    );
+                  })
+                )}
                 <a
                   href={`/api/tiktok/cortes/${c.id}/salidas`}
                   className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"

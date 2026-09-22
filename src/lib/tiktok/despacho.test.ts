@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   agruparErrores,
+  PAQUETES_POR_TOMO,
+  rangoDeTomo,
+  tomosDeCorte,
   agruparPorModelo,
   clavePaquete,
   codigoDeOrden,
@@ -311,5 +314,29 @@ describe("cambiosDeRelectura", () => {
     const r = cambiosDeRelectura(antes, despues);
     expect(r.enviados).toEqual(["a"]);
     expect(r.cancelados).toEqual(["b"]);
+  });
+});
+
+describe("etiquetas por tomos", () => {
+  it("un corte chico es un solo tomo; 916 pedidos son 5", () => {
+    expect(tomosDeCorte(0)).toBe(1);
+    expect(tomosDeCorte(200)).toBe(1);
+    expect(tomosDeCorte(201)).toBe(2);
+    expect(tomosDeCorte(916)).toBe(5);
+  });
+  it("cada tomo son 200 paquetes y el último llega hasta el final aunque haya más paquetes que pedidos", () => {
+    expect(rangoDeTomo(1, 916, 916)).toEqual({ desde: 0, hasta: 200 });
+    expect(rangoDeTomo(5, 916, 916)).toEqual({ desde: 800, hasta: 916 });
+    // un pedido con dos paquetes: 917 paquetes, el último tomo se los lleva
+    expect(rangoDeTomo(5, 916, 917)).toEqual({ desde: 800, hasta: 917 });
+    expect(rangoDeTomo(1, 150, 150)).toEqual({ desde: 0, hasta: 150 });
+  });
+  it("un tomo que no existe es null", () => {
+    expect(rangoDeTomo(6, 916, 916)).toBeNull();
+    expect(rangoDeTomo(0, 916, 916)).toBeNull();
+    expect(rangoDeTomo(1.5, 916, 916)).toBeNull();
+  });
+  it("el tamaño del tomo es el de los cortes que siempre salieron bien", () => {
+    expect(PAQUETES_POR_TOMO).toBe(200);
   });
 });

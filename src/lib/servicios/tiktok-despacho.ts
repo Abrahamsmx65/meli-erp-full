@@ -60,6 +60,9 @@ import {
   type OrdenPaquetes,
   type PaqueteDespacho,
   type PaqueteNumerado,
+  PAQUETES_POR_TOMO,
+  rangoDeTomo,
+  tomosDeCorte,
 } from "../tiktok/despacho";
 import { efectoDeEstado } from "../tiktok/kardex";
 import { clienteDeCuenta, sincronizarPedidosPorId } from "./tiktok";
@@ -618,7 +621,7 @@ export async function hacerCorte(
     // nuevos (las guías de cada paquete siguen guardadas).
     await admin.storage
       .from(BUCKET_GUIAS)
-      .remove([`${accountId}/corte-${unirA.id}-e${VERSION_ESTAMPA}.pdf`])
+      .remove(rutasPdfCorte(accountId, unirA.id, (unirA.pedidos ?? 0) + confirmados.length))
       .then(() => undefined, () => undefined);
   } else {
     // El número del corte: consecutivo por cuenta.
@@ -889,6 +892,8 @@ export interface CorteCargado {
   id: number;
   numero: number;
   creadoEn: string;
+  /** pedidos que entraron (lo que dice el renglón del corte); decide los tomos de etiquetas */
+  pedidos: number;
   /** con qué orden se numeró este corte; los viejos, "bodega" */
   orden: OrdenPaquetes;
   paquetes: PaqueteNumerado[];
@@ -897,7 +902,7 @@ export interface CorteCargado {
 export async function cargarCorte(admin: any, accountId: string, corteId: number): Promise<CorteCargado> {
   const { data: corte } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, orden_paquetes")
+    .select("id, numero, creado_en, orden_paquetes, pedidos")
     .eq("account_id", accountId)
     .eq("id", corteId)
     .maybeSingle();
@@ -1017,6 +1022,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     id: corte.id,
     numero: corte.numero,
     creadoEn: corte.creado_en,
+    pedidos: Number(corte.pedidos ?? 0),
     orden,
     paquetes: numerarPaquetes(paquetes, orden),
   };
@@ -1110,21 +1116,75 @@ async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageI
   return { bytes: null, error };
 }
 
-export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<Uint8Array> {
+/** La ruta en el bucket del PDF de etiquetas de un corte (o de uno de sus tomos). */
+function rutaPdfCorte(accountId: string, corteId: number, tomo: number | null): string {
+  return tomo ? `${accountId}/corte-${corteId}-e${VERSION_ESTAMPA}-t${tomo}.pdf` : `${accountId}/corte-${corteId}-e${VERSION_ESTAMPA}.pdf`;
+}
+
+/** Las rutas de TODOS los PDF guardados de un corte (entero y por tomos), para tirarlos cuando el corte cambia. */
+export function rutasPdfCorte(accountId: string, corteId: number, pedidos: number): string[] {
+  const rutas = [rutaPdfCorte(accountId, corteId, null)];
+  for (let t = 1; t <= tomosDeCorte(pedidos); t++) rutas.push(rutaPdfCorte(accountId, corteId, t));
+  return rutas;
+}
+
+/**
+ * Baja y guarda las guías del corte que todavía no están en el bucket,
+ * hasta donde alcance `msPresupuesto`. Es el calentamiento: se llama en el
+ * fondo después del corte y después de cada impresión, para que el PDF de
+ * cada tomo salga completo a la primera. No arma nada.
+ */
+export async function bajarGuiasDelCorte(admin: any, accountId: string, corteId: number, msPresupuesto: number): Promise<{ revisadas: number; sinGuia: number }> {
+  const limite = Date.now() + msPresupuesto;
+  const corte = await cargarCorte(admin, accountId, corteId);
+  const cliente = await clienteDeCuenta(admin, accountId, msPresupuesto);
+  if (!cliente || !cliente.tienda.shopCipher) return { revisadas: 0, sinGuia: 0 };
+  let revisadas = 0;
+  let sinGuia = 0;
+  await enParalelo(corte.paquetes, 3, async (p) => {
+    if (!p.packageId || Date.now() > limite - 25_000) return;
+    revisadas++;
+    const g = await bytesDeGuia(admin, cliente, accountId, p.packageId);
+    if (!g.bytes) sinGuia++;
+  });
+  return { revisadas, sinGuia };
+}
+
+/**
+ * El PDF de etiquetas del corte, o de UNO de sus tomos (`tomo`, 1-based;
+ * ver `tomosDeCorte`). Un corte de más de `PAQUETES_POR_TOMO` paquetes
+ * solo sale por tomos: entero no cabe en la función de Vercel.
+ */
+export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteId: number, tomo: number | null = null): Promise<Uint8Array> {
   // El PDF del corte ya armado: reimprimir es leer un archivo. La versión
   // del estampado va en el nombre: si cambia lo que se imprime abajo a la
   // derecha, los cortes viejos se rearman con las guías ya guardadas.
-  const rutaCorte = `${accountId}/corte-${corteId}-e${VERSION_ESTAMPA}.pdf`;
+  const rutaCorte = rutaPdfCorte(accountId, corteId, tomo);
   const listo = await leerGuia(admin, rutaCorte);
   if (listo?.length) return listo;
 
   const corte = await cargarCorte(admin, accountId, corteId);
+  const totalTomos = tomosDeCorte(corte.pedidos);
+  let paquetesDelPdf = corte.paquetes;
+  let subtitulo = "";
+  if (tomo != null) {
+    const rango = rangoDeTomo(tomo, corte.pedidos, corte.paquetes.length);
+    if (!rango) throw new Error(`El corte #${corte.numero} tiene ${totalTomos} ${totalTomos === 1 ? "tomo" : "tomos"} de etiquetas; el ${tomo} no existe.`);
+    paquetesDelPdf = corte.paquetes.slice(rango.desde, rango.hasta);
+    const primero = paquetesDelPdf[0]?.numero ?? rango.desde + 1;
+    const ultimo = paquetesDelPdf[paquetesDelPdf.length - 1]?.numero ?? rango.hasta;
+    subtitulo = ` · tomo ${tomo} de ${totalTomos} (#${primero}–#${ultimo})`;
+  } else if (totalTomos > 1) {
+    throw new Error(
+      `El corte #${corte.numero} tiene ${corte.paquetes.length} paquetes: las etiquetas salen en ${totalTomos} tomos de ${PAQUETES_POR_TOMO} (pide ?tomo=1 a ${totalTomos}).`,
+    );
+  }
   const cliente = await clienteDeCuenta(admin, accountId, 240_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
   // Todas las guías primero, varias a la vez; el armado va después, en orden.
   const guias = new Map<string, { bytes: Uint8Array | null; error: string | null }>();
-  await enParalelo(corte.paquetes, 3, async (p) => {
+  await enParalelo(paquetesDelPdf, 3, async (p) => {
     if (!p.packageId) {
       guias.set(`${p.orderId}|${p.packageId}`, { bytes: null, error: "sin paquete en TikTok" });
       return;
@@ -1134,7 +1194,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
 
   const doc = await PDFDocument.create();
   const fuente = await doc.embedFont(StandardFonts.HelveticaBold);
-  doc.setTitle(`Corte ${corte.numero} · etiquetas TikTok`);
+  doc.setTitle(`Corte ${corte.numero} · etiquetas TikTok${subtitulo}`);
 
   // Abajo: a la IZQUIERDA los SKU del paquete ("#n · SKU ×cantidad", un
   // renglón por producto) y a la DERECHA el CÓDIGO DEL PEDIDO en barras (el
@@ -1167,7 +1227,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
   };
 
   let sinGuia = 0;
-  for (const p of corte.paquetes) {
+  for (const p of paquetesDelPdf) {
     const g = guias.get(`${p.orderId}|${p.packageId}`) ?? { bytes: null, error: "sin guía" };
     const bytes = g.bytes;
     const error = g.error;
@@ -1234,7 +1294,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
       inicio: new Date().toISOString(),
       fin: new Date().toISOString(),
       estado: sinGuia || errorGuardado ? "con avisos" : "ok",
-      detalle: { corteId, paquetes: corte.paquetes.length, sinGuia, motivos: Object.fromEntries(motivos), errorGuardado },
+      detalle: { corteId, tomo, paquetes: paquetesDelPdf.length, sinGuia, motivos: Object.fromEntries(motivos), errorGuardado },
     })
     .then(() => undefined, () => undefined);
   return salida;
