@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { hacerCorte, hacerCorteLunes, pdfEtiquetasDelCorte, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { hacerCorte, hacerCorteAyer, hacerCorteLunes, pdfEtiquetasDelCorte, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,15 @@ export async function POST(req: NextRequest) {
       const r = await hacerCorteLunes(admin, cuenta.id, opciones);
       calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
       return NextResponse.json({ ok: true, modo: "lunes", ...r });
+    }
+
+    // "Corte ayer": UN corte con todo lo de antes de hoy (hasta ayer a las
+    // 23:59 de México); lo de hoy se queda para mañana. Para adelantar
+    // trabajo un día.
+    if (body?.modo === "ayer") {
+      const r = await hacerCorteAyer(admin, cuenta.id, opciones);
+      calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
+      return NextResponse.json({ ok: true, modo: "ayer", ...r });
     }
 
     const r = await hacerCorte(admin, cuenta.id, opciones);

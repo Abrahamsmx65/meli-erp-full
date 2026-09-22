@@ -390,6 +390,15 @@ guárdala numerada.
   «Hacer corte», que SIEMPRE toma lo más viejo primero
   (`pendientesDeCorte` → `ordenarPorAntiguedad`, sin fecha al frente).
   La simulación enseña la partición antes de confirmar nada.
+  **CORTE AYER** (`hacerCorteAyer`, `modo: "ayer"`; pedido del dueño el
+  22-sep-2026: «que me haga corte de todo lo que entró ayer hasta las 12 de
+  la noche, para poder ir preparándolo si tengo tiempo adelantado un día
+  antes»): UN corte con la primera tanda de `partirEnTandas` —todo lo
+  pendiente hasta ayer a las 23:59 de México y lo más viejo— y lo de HOY se
+  queda sin corte a propósito. Con puros pedidos de hoy no hace nada y lo
+  dice; si se acaba el tiempo, el aviso pide darle otra vez (toma lo más
+  viejo primero). Los tres botones: «Corte ayer» (hasta ayer), «Corte
+  lunes» (hasta ayer y luego hoy, en dos) y «Hacer corte» (todo).
   **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
   `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
   por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos
