@@ -462,8 +462,14 @@ guárdala numerada.
   tarea `diagnostico-cancelacion` porque su forma no está en ningún SDK
   público). La 202309 contestó el 18-sep-2026 SIN `available_reason_names`
   (solo eligible/request_type por renglón), así que se prueban versiones
-  más nuevas del mismo endpoint (`VERSIONES_ELEGIBILIDAD`: 202309, 202505,
-  202507, 202510) hasta que alguna traiga motivos, y si ninguno entra el
+  más nuevas del mismo endpoint (`VERSIONES_ELEGIBILIDAD`, de 202310 a
+  202510; el 21-sep-2026 TikTok contestó 36009004 «Invalid API version» a
+  202505/202507/202510, y la 202309 se prueba también con
+  `request_type=CANCEL`, `intentosDeElegibilidad`) hasta que alguna traiga
+  motivos; la sonda `/api/tiktok/diagnostico/cancelacion?pedido=…` hace
+  las mismas preguntas SIN cancelar y además prueba la calculadora de
+  reembolso (`/refunds/calculate`) y `reject_reasons`, y contesta el crudo.
+  Si ninguno entra el
   error del corte dice qué contestó TikTok a CADA clave intentada
   (`cancelarRenglones`; antes solo se veía la última). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
   quedan de respaldo: el 18-sep-2026 TikTok contestó a ellas 25001014
