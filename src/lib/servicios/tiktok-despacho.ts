@@ -16,7 +16,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { traerTodo, type DB } from "../datos/repos";
 import { conCacheApp } from "./cache-app";
-import { codificar128 } from "../etiquetas/code128";
+import { alPuntoDeImpresora, codificar128, moduloParaTermica } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
 import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "../tiktok/codigos";
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
@@ -1036,7 +1036,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
-const VERSION_ESTAMPA = 6;
+const VERSION_ESTAMPA = 7;
 
 /** Dónde va el estampado: abajo, pegado al borde (texto a la izquierda, código a la derecha). */
 const ESTAMPA = { margen: 5, tamano: 7, barrasAlto: 16, barrasAnchoMax: 120, porColumna: 3 };
@@ -1052,11 +1052,21 @@ const ESTAMPA = { margen: 5, tamano: 7, barrasAlto: 16, barrasAnchoMax: 120, por
  */
 const FRANJA_ESTAMPA = 34;
 
-/** Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son blancas ahí). */
-function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number) {
+/**
+ * Code 128 en pdf-lib: barras negras sobre lo que haya (las guías son
+ * blancas ahí). El módulo va en puntos ENTEROS de la térmica de 203 dpi y
+ * el arranque alineado a su rejilla (`moduloParaTermica`,
+ * `alPuntoDeImpresora`): con un módulo fraccionario (0.75 pt = 2.1 dots)
+ * unas barras salían de 2 puntos y otras de 3, y el código del pedido se
+ * veía borroso y a veces no escaneaba (dueño, 22-sep-2026). `escala` es
+ * cuánto encoge la impresora la hoja (la franja de Cainiao, ~8 %).
+ */
+function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, anchoTotal: number, alto: number, escala = 1) {
   const barras = codificar128(texto);
-  const modulo = anchoTotal / barras.modulos;
-  let cursor = x;
+  const natural = moduloParaTermica(2, escala);
+  // Si el natural no cabe en el ancho que hay, se reparte como antes.
+  const modulo = natural * barras.modulos <= anchoTotal + 0.01 ? natural : anchoTotal / barras.modulos;
+  let cursor = alPuntoDeImpresora(x, escala);
   let esBarra = true;
   for (const a of barras.anchos) {
     const ancho = a * modulo;
@@ -1066,9 +1076,9 @@ function dibujarBarras(page: PDFPage, texto: string, x: number, y: number, ancho
   }
 }
 
-/** Ancho natural de un Code 128 a ~0.75 pt por módulo, topado. */
-function anchoBarras(texto: string, tope: number): number {
-  return Math.min(tope, codificar128(texto).modulos * 0.75);
+/** Ancho natural de un Code 128 a dos puntos de térmica por módulo, topado. */
+function anchoBarras(texto: string, tope: number, escala = 1): number {
+  return Math.min(tope, codificar128(texto).modulos * moduloParaTermica(2, escala));
 }
 
 /** Lee un archivo del bucket de guías; null si no existe. */
@@ -1208,8 +1218,13 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     const renglones = renglonesDeEtiqueta(p, corte.numero);
     const codigoOrden = codigoDeOrden(p.orderId);
     const codigo = codigoOrden || codigoDeHoja(corte.numero, p.numero);
-    const anchoCodigo = anchoBarras(codigo, ESTAMPA.barrasAnchoMax);
-    dibujarBarras(pagina, codigo, Math.max(ESTAMPA.margen, derecha - anchoCodigo), ESTAMPA.margen + ESTAMPA.tamano + 2, anchoCodigo, ESTAMPA.barrasAlto);
+    // Con franja la impresora encoge la hoja: el módulo se compensa para
+    // que impreso vuelva a medir puntos enteros.
+    const franjaDe = necesitaFranja(p.paqueteria) ? FRANJA_ESTAMPA : 0;
+    const { height } = pagina.getSize();
+    const escala = franjaDe > 0 && height > franjaDe ? (height - franjaDe) / height : 1;
+    const anchoCodigo = anchoBarras(codigo, ESTAMPA.barrasAnchoMax, escala);
+    dibujarBarras(pagina, codigo, Math.max(ESTAMPA.margen, derecha - anchoCodigo), ESTAMPA.margen + ESTAMPA.tamano + 2, anchoCodigo, ESTAMPA.barrasAlto, escala);
     const numeroOrden = `Pedido ${p.orderId}`;
     pagina.drawText(numeroOrden, {
       x: Math.max(ESTAMPA.margen, derecha - fuente.widthOfTextAtSize(numeroOrden, 5.5)),

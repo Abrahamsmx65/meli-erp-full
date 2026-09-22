@@ -458,6 +458,24 @@ guárdala numerada.
   calentamiento ya NO arma el PDF: `bajarGuiasDelCorte` solo baja al bucket
   las guías que faltan, con presupuesto de tiempo (30 s tras el corte,
   200 s tras cada impresión), y la impresión de un tomo baja las suyas.
+  **Pero el dueño imprime UN solo archivo** («por atrás se hagan 200 guías
+  cada vez y el PDF sí me lo presentes junto para imprimirlo más fácil»,
+  22-sep-2026): el botón «Etiquetas PDF» (`imprimirEtiquetas` en
+  `components/despacho-tiktok.tsx`) pide los tomos uno por uno al servidor
+  y los junta EN EL NAVEGADOR con pdf-lib (import dinámico), enseñando el
+  avance (`avanceDeTomos`), y abre el PDF completo en la pestaña que abrió
+  en el clic (abrirla después la bloquea el navegador). Al terminar un
+  corte, la pantalla pide los tomos en el fondo (`calentarEtiquetas`) para
+  que ya estén guardados cuando se impriman. Vercel nunca sirve el archivo
+  grande.
+  **El código del pedido en la guía va alineado a los puntos de la térmica**
+  (`moduloParaTermica`, `alPuntoDeImpresora` en `etiquetas/code128.ts`;
+  `VERSION_ESTAMPA` 7; dueño, 22-sep-2026: «a veces sale borroso el código
+  de barras del pedido»): el módulo medía 0.75 pt = 2.1 puntos a 203 dpi y
+  el rasterizador pintaba unas barras de 2 puntos y otras de 3. Ahora el
+  módulo son 2 puntos EXACTOS de impresora, el arranque cae en la rejilla
+  y, en las guías con franja, se compensa el ~8 % que encoge la hoja para
+  que impreso vuelva a medir 2 puntos.
   **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
   `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
   por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos

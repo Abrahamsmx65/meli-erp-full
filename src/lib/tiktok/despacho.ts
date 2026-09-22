@@ -463,3 +463,13 @@ export function rangoDeTomo(tomo: number, pedidos: number, paquetes: number): { 
   const hasta = tomo === total ? paquetes : Math.min(paquetes, tomo * PAQUETES_POR_TOMO);
   return { desde, hasta: Math.max(desde, hasta) };
 }
+
+/**
+ * El texto de avance mientras la pantalla junta los tomos en un solo PDF
+ * (decisión del dueño, 22-sep-2026: «por atrás se hagan 200 guías cada
+ * vez y el PDF sí me lo presentes junto para imprimirlo más fácil»).
+ */
+export function avanceDeTomos(tomo: number, total: number, fase: "armando" | "uniendo"): string {
+  if (fase === "uniendo") return `Uniendo los ${total} tomos en un solo PDF…`;
+  return total === 1 ? "Armando las etiquetas…" : `Armando etiquetas: tomo ${tomo} de ${total} (${PAQUETES_POR_TOMO} guías cada uno)…`;
+}

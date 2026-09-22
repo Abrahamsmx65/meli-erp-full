@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agruparErrores,
+  avanceDeTomos,
   PAQUETES_POR_TOMO,
   rangoDeTomo,
   tomosDeCorte,
@@ -338,5 +339,13 @@ describe("etiquetas por tomos", () => {
   });
   it("el tamaño del tomo es el de los cortes que siempre salieron bien", () => {
     expect(PAQUETES_POR_TOMO).toBe(200);
+  });
+});
+
+describe("avanceDeTomos", () => {
+  it("dice en qué tomo va y cuándo está uniendo", () => {
+    expect(avanceDeTomos(2, 5, "armando")).toBe("Armando etiquetas: tomo 2 de 5 (200 guías cada uno)…");
+    expect(avanceDeTomos(1, 1, "armando")).toBe("Armando las etiquetas…");
+    expect(avanceDeTomos(5, 5, "uniendo")).toBe("Uniendo los 5 tomos en un solo PDF…");
   });
 });
