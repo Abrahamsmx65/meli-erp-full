@@ -414,15 +414,16 @@ guárdala numerada.
   NO se une: las hojas están impresas y renumerarlas descuadra la mesa.
   Lo de HOY en la segunda tanda del corte lunes no venía de ningún «sin
   tiempo», así que abre su propio corte, como debe.
-  **Y la pantalla encadena las rondas sola** (`hayQueSeguir`,
-  `RONDAS_MAXIMAS` 8 en `tiktok/lunes.ts`; `hacerCorte` en
-  `components/despacho-tiktok.tsx`; decisión del dueño, 22-sep-2026: «que
-  no tenga que picarle otra vez, sino automáticamente se vuelva a hacer el
-  corte hasta terminar»): cada clic es un bucle de llamadas al mismo
+  **Y la pantalla encadena las rondas sola, SIN TOPE** (`hayQueSeguir` en
+  `tiktok/lunes.ts`; `hacerCorte` en `components/despacho-tiktok.tsx`;
+  decisión del dueño, 22-sep-2026: «que no tenga que picarle otra vez,
+  sino automáticamente se vuelva a hacer el corte hasta terminar» y «no
+  quiero que pongas máximos»): cada clic es un bucle de llamadas al mismo
   endpoint con el mismo modo; mientras la ronda deje pedidos por tiempo Y
   haya confirmado a alguien, se lanza la siguiente (una ronda sin
-  confirmar a nadie es TikTok sin contestar y no se repite a ciegas), y
-  cada ronda se une al mismo corte por la regla de arriba. La pestaña
+  confirmar a nadie es TikTok sin contestar y no se repite a ciegas; ese
+  es el único freno, no hay número máximo de rondas), y cada ronda se une
+  al mismo corte por la regla de arriba. La pestaña
   tiene que quedarse abierta: es la pantalla la que encadena, porque el
   servidor no puede encadenarse a sí mismo dentro de los 5 min de Vercel.
   **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
-import { contarSinTiempo, hayQueSeguir, RONDAS_MAXIMAS } from "@/lib/tiktok/lunes";
+import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 
 export interface CorteResumen {
   id: number;
@@ -170,8 +170,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   /**
    * Un clic, todas las rondas. Cada llamada confirma ~300 pedidos en los 5
    * minutos de Vercel; si dejó pedidos por tiempo, la pantalla vuelve a
-   * lanzar el corte sola (decisión del dueño, 22-sep-2026: «que no tenga
-   * que picarle otra vez») y el servidor une cada ronda al mismo corte.
+   * lanzar el corte sola, sin tope de rondas (decisión del dueño,
+   * 22-sep-2026: «que no tenga que picarle otra vez», «no quiero que
+   * pongas máximos»), y el servidor une cada ronda al mismo corte.
    * Hay que dejar la pestaña abierta: la pantalla es la que encadena.
    */
   async function hacerCorte(modo?: "lunes" | "ayer") {
@@ -181,7 +182,9 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     setRonda(null);
     const resumenes: string[] = [];
     try {
-      for (let n = 1; n <= RONDAS_MAXIMAS; n++) {
+      // Sin tope de rondas (decisión del dueño): se sigue hasta que no quede
+      // nada por tiempo, o hasta que una ronda no avance.
+      for (let n = 1; ; n++) {
         const r = await fetch("/api/tiktok/cortes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -197,10 +200,6 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
           break;
         }
         const faltan = cortesRonda.reduce((a: number, c: any) => a + contarSinTiempo(c.errores ?? []), 0);
-        if (n === RONDAS_MAXIMAS) {
-          resumenes.push(`Se hicieron ${n} rondas seguidas y todavía quedan ${faltan} pedidos por tiempo: dale otra vez.`);
-          break;
-        }
         setRonda(`Ronda ${n} lista; quedaron ${faltan} pedidos por tiempo. Se vuelve a lanzar el corte solo (ronda ${n + 1})… no cierres esta pestaña.`);
         setAviso(resumenes.join(" · "));
       }
