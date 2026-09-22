@@ -399,6 +399,39 @@ guárdala numerada.
   dice; si se acaba el tiempo, el aviso pide darle otra vez (toma lo más
   viejo primero). Los tres botones: «Corte ayer» (hasta ayer), «Corte
   lunes» (hasta ayer y luego hoy, en dos) y «Hacer corte» (todo).
+  **UN CORTE QUE CONTINÚA OTRO SE LE UNE** (`corteQueContinua`,
+  `erroresAlUnir` en `tiktok/lunes.ts`, `corteDeHoyQueContinua`,
+  `ResultadoCorte.unido`; decisión del dueño, 21 y 22-sep-2026: «agrupar
+  los cortes que hice hoy todos juntos», «agrupar todo en el corte 36»;
+  el 21-sep se unieron a mano los #32–#35 por SQL): si algún pedido que
+  se va a cortar quedó POR TIEMPO (`ERROR_SIN_TIEMPO`) en un corte de HOY
+  (México) al que nadie le ha preparado nada (`tiktok_preparaciones` por
+  `corte_id` = 0), el corte nuevo NO abre otro número: suma sus pedidos y
+  pares al de antes, quita de sus errores los «sin tiempo» de los pedidos
+  que esta vez se intentaron, agrega los nuevos y tira el PDF de etiquetas
+  guardado (`corte-{id}-e{VERSION}.pdf`) para que se rearme con los
+  paquetes nuevos (las guías por paquete siguen). Con algo ya preparado
+  NO se une: las hojas están impresas y renumerarlas descuadra la mesa.
+  Lo de HOY en la segunda tanda del corte lunes no venía de ningún «sin
+  tiempo», así que abre su propio corte, como debe.
+  **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,
+  `AutoBloqueo.enDuda`, `renglonesConDefensa().enDuda`; decisión del
+  dueño, 22-sep-2026): cuando la bodega dejó de reportar el SKU POR
+  COMPLETO y el kardex aún tiene pares (la baja detenida de arriba), la
+  defensa NO bloquea (bloquear = cancelar en TikTok): el pedido entero se
+  queda fuera del corte, declarado en `errores` y en la simulación, hasta
+  un conteo, que Industher lo regrese, o un corte sin defensa. El corte
+  #36 canceló 7 pedidos (18 pares) del MY2304-BROWN-29 que el dueño había
+  apartado por precaución: los pares existían y los pedidos se perdieron.
+  Una baja PARCIAL sigue siendo merma y se bloquea como antes; un contado
+  a mano después de la foto manda el kardex.
+  **Las salidas al 3PL van por LOTES de 500 hasta vaciar** (`SALIDAS_POR_LOTE`,
+  `referenciaDeLote`: `TT-CORTE-{id}-{primera salida}`, `TT-REINTENTO-{primera
+  salida}`; única por lote y estable al reintentar el mismo): antes
+  `empujarSalidasAl3pl` mandaba UN lote de 500 con referencia `TT-CORTE-n`
+  y el resto esperaba al cron (el #36, 866 salidas, 500 descontadas al
+  hacerlo y 366 a los diez minutos), y una continuación del mismo corte
+  habría repetido la referencia, que el 3PL descarta como duplicada.
   **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
   `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
   por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos

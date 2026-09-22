@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aliasParaIndusther } from "./tiktok-3pl";
+import { aliasParaIndusther, referenciaDeLote } from "./tiktok-3pl";
 import { claveComparacion } from "../importar/sku";
 
 describe("aliasParaIndusther", () => {
@@ -12,5 +12,13 @@ describe("aliasParaIndusther", () => {
     expect(alias.get(claveComparacion("GT134-NAVY-RED-25-MX"))).toBe("GT134-NAVY / RED-25-MX");
     expect(alias.get(claveComparacion("GT134-BLK-24-MX"))).toBe("GT134-BLK-24-MX");
     expect(alias.get(claveComparacion("GT150-CAMEL-25"))).toBeUndefined();
+  });
+});
+
+describe("referenciaDeLote", () => {
+  it("es única por lote (la primera salida) y distingue corte de reintento", () => {
+    expect(referenciaDeLote(68, 1001)).toBe("TT-CORTE-68-1001");
+    expect(referenciaDeLote(68, 1501)).toBe("TT-CORTE-68-1501");
+    expect(referenciaDeLote(null, 1501)).toBe("TT-REINTENTO-1501");
   });
 });

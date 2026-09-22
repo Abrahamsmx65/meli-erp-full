@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoBloqueos, decidirPedido, paresFisicos, renglonesDelSku } from "./bloqueos";
+import { autoBloqueos, decidirPedido, paresFisicos, renglonesDelSku, stockEnDuda } from "./bloqueos";
 
 const r = (lineItemId: string, sku: string, opts: Partial<{ skuId: string | null; estado: string; bloqueado: boolean; cantidad: number }> = {}) => ({
   lineItemId,
@@ -133,5 +133,31 @@ describe("esBloqueoAutomatico", () => {
     expect(esBloqueoAutomatico(`${PREFIJO_AUTO} sin stock (hay 0, piden 1)`)).toBe(true);
     expect(esBloqueoAutomatico("falla del 14-sep")).toBe(false);
     expect(esBloqueoAutomatico(null)).toBe(false);
+  });
+});
+
+describe("stock en duda (la bodega dejó de reportar el SKU y el kardex aún tiene pares)", () => {
+  const r = (lineItemId: string, orderId: string, creadoEn: string) => ({
+    lineItemId, orderId, skuId: "s", sku: "MY2304-BROWN-29", cantidad: 1, estado: "AWAITING_SHIPMENT", bloqueado: false, creadoEn,
+  });
+  it("estante en cero con kardex arriba de cero es duda; un contado después no", () => {
+    expect(stockEnDuda({ sku: "x", saldo: 21, estante: 0, salidasPendientes: 0, contadoDespues: false })).toBe(true);
+    expect(stockEnDuda({ sku: "x", saldo: 21, estante: 0, salidasPendientes: 0, contadoDespues: true })).toBe(false);
+    expect(stockEnDuda({ sku: "x", saldo: 0, estante: 0, salidasPendientes: 0, contadoDespues: false })).toBe(false);
+    expect(stockEnDuda({ sku: "x", saldo: 21, estante: 2, salidasPendientes: 0, contadoDespues: false })).toBe(false);
+    expect(stockEnDuda({ sku: "x", saldo: 21, estante: null, salidasPendientes: 0, contadoDespues: false })).toBe(false);
+  });
+  it("marca TODOS los renglones del SKU como en duda, sin bloquearlos para cancelar", () => {
+    const stock = new Map([["MY2304-BROWN-29", { sku: "MY2304-BROWN-29", saldo: 21, estante: 0, salidasPendientes: 0, contadoDespues: false }]]);
+    const salida = autoBloqueos([r("a", "1", "2026-09-18T00:00:00Z"), r("b", "2", "2026-09-19T00:00:00Z")], stock);
+    expect(salida).toHaveLength(2);
+    expect(salida.every((a) => a.enDuda)).toBe(true);
+    expect(salida[0].motivo).toContain("stock en duda");
+  });
+  it("una baja PARCIAL sigue siendo merma y bloquea como antes", () => {
+    const stock = new Map([["MY2304-BROWN-29", { sku: "MY2304-BROWN-29", saldo: 5, estante: 1, salidasPendientes: 0, contadoDespues: false }]]);
+    const salida = autoBloqueos([r("a", "1", "2026-09-18T00:00:00Z"), r("b", "2", "2026-09-19T00:00:00Z")], stock);
+    expect(salida.map((a) => a.lineItemId)).toEqual(["b"]);
+    expect(salida[0].enDuda).toBeUndefined();
   });
 });

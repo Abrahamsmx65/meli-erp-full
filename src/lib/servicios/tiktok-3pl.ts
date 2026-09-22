@@ -81,37 +81,80 @@ export interface ResultadoEmpuje {
   sinEndpoint: boolean;
 }
 
+/** Cuántas salidas van en cada lote al 3PL. */
+export const SALIDAS_POR_LOTE = 500;
+/** Cuántos lotes seguidos se mandan en una llamada (un corte grande son 2; el reintento del cron, los que haga falta). */
+const LOTES_POR_LLAMADA = 10;
+
 /**
- * Manda al 3PL todas las salidas que todavía no confirma. Una referencia
- * por lote (corte o "reintento") para que del otro lado sea idempotente.
+ * La referencia de un lote: única por lote y estable si se reintenta el
+ * mismo (la primera salida del lote lo identifica), para que del otro lado
+ * sea idempotente. Antes era `TT-CORTE-n` a secas y un corte con más de
+ * 500 salidas solo mandaba las primeras 500 (el #36, 22-sep-2026: 866
+ * salidas, 500 descontadas; las otras 366 esperaron al cron); y una
+ * continuación del mismo corte habría repetido la referencia, que el 3PL
+ * habría descartado como duplicada.
+ */
+export function referenciaDeLote(corteId: number | null | undefined, primerId: number): string {
+  return corteId != null ? `TT-CORTE-${corteId}-${primerId}` : `TT-REINTENTO-${primerId}`;
+}
+
+/**
+ * Manda al 3PL todas las salidas que todavía no confirma, por lotes hasta
+ * que no quede ninguna (o falle uno). Una referencia por lote.
  */
 export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: number): Promise<ResultadoEmpuje> {
   const url = urlSalidasIndusther();
   const config = configuracionIndusther();
   if (!url || !config) return { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: true };
 
-  let q = db
-    .from("tiktok_salidas_3pl")
-    .select("id, corte_id, order_id, sku, pares")
-    .eq("account_id", accountId)
-    .is("confirmada_en", null)
-    .order("id", { ascending: true })
-    .limit(500);
-  if (corteId != null) q = q.eq("corte_id", corteId);
-  const { data, error: errorPendientes } = await q;
-  if (errorPendientes) throw new Error(`tiktok_salidas_3pl: ${errorPendientes.message}`);
-  const pendientes = (data ?? []) as any[];
-  if (!pendientes.length) return { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false };
+  let alias: Map<string, string> | null = null;
+  const total: ResultadoEmpuje = { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false };
+  for (let lote = 0; lote < LOTES_POR_LLAMADA; lote++) {
+    let q = db
+      .from("tiktok_salidas_3pl")
+      .select("id, corte_id, order_id, sku, pares")
+      .eq("account_id", accountId)
+      .is("confirmada_en", null)
+      .order("id", { ascending: true })
+      .limit(SALIDAS_POR_LOTE);
+    if (corteId != null) q = q.eq("corte_id", corteId);
+    const { data, error: errorPendientes } = await q;
+    if (errorPendientes) throw new Error(`tiktok_salidas_3pl: ${errorPendientes.message}`);
+    const pendientes = (data ?? []) as any[];
+    if (!pendientes.length) break;
 
-  const existencias = await traerTodo<{ sku_caja: string | null; almacen: string | null }>(
-    db,
-    "existencias",
-    "sku_caja, almacen",
-    (q) => q.eq("account_id", accountId),
-  );
-  const alias = aliasParaIndusther(existencias ?? []);
+    if (!alias) {
+      const existencias = await traerTodo<{ sku_caja: string | null; almacen: string | null }>(
+        db,
+        "existencias",
+        "sku_caja, almacen",
+        (q) => q.eq("account_id", accountId),
+      );
+      alias = aliasParaIndusther(existencias ?? []);
+    }
+    const r = await mandarLote(db, url, config.apiKey, alias, referenciaDeLote(corteId, pendientes[0].id), pendientes);
+    total.mandadas += r.mandadas;
+    total.confirmadas += r.confirmadas;
+    if (r.error) {
+      // Un lote que falló se queda marcado con su error y se reintenta en
+      // el cron; no tiene caso seguir con el siguiente ahora.
+      total.error = r.error;
+      total.sinEndpoint = r.sinEndpoint;
+      break;
+    }
+  }
+  return total;
+}
 
-  const referencia = corteId != null ? `TT-CORTE-${corteId}` : `TT-REINTENTO-${new Date().toISOString().slice(0, 16)}`;
+async function mandarLote(
+  db: DB,
+  url: string,
+  apiKey: string,
+  alias: Map<string, string>,
+  referencia: string,
+  pendientes: any[],
+): Promise<ResultadoEmpuje> {
   const cuerpo = {
     referencia,
     fecha: new Date().toISOString(),
@@ -129,7 +172,7 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
   try {
     const r = await fetch(url, {
       method: "POST",
-      headers: { "x-api-key": config.apiKey, "content-type": "application/json", accept: "application/json" },
+      headers: { "x-api-key": apiKey, "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(cuerpo),
       signal: AbortSignal.timeout(20_000),
     });

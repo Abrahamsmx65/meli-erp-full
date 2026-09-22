@@ -106,7 +106,11 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       const motivos = grupos.filter((g) => g.pedidos.length).map((g) => `${g.pedidos.length} ${g.pedidos.length === 1 ? "pedido" : "pedidos"}: ${g.ejemplo}`);
       return ["Ningún pedido entró al corte; no se guardó ninguno.", ...motivos].join(" ");
     }
-    const partes = [`Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`];
+    const partes = [
+      j.unido
+        ? `Se unió al corte #${j.numero} (continuaba lo que se quedó por tiempo): ${j.pedidos} pedidos y ${j.pares} pares más, confirmados en TikTok.`
+        : `Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`,
+    ];
     if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
     if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);
     if (j.cancelados?.length) {
