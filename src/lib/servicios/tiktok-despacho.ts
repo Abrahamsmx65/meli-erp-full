@@ -801,7 +801,7 @@ export async function hacerCorteLunes(
       pendientes: sinTiempo + resto.length,
       aviso:
         `Ya salió un corte con ${primero.pedidos} pedidos de días anteriores, pero ${sinTiempo} de esos días se quedaron ` +
-        `por tiempo: dale otra vez a "Hacer corte" (toma lo más viejo primero) hasta que no quede nada de antes de hoy; ` +
+        `por tiempo: la pantalla vuelve a lanzar el corte sola (toma lo más viejo primero) hasta que no quede nada de antes de hoy; ` +
         `los ${resto.length} de hoy se cortan al final.`,
     };
   }
@@ -813,7 +813,7 @@ export async function hacerCorteLunes(
       pendientes: resto.length,
       aviso:
         `Ya salió el corte de lo atrasado (${primero.pedidos} pedidos). No alcanzó el tiempo para el segundo: ` +
-        `dale otra vez a "Hacer corte" y se lleva los ${resto.length} de hoy.`,
+        `dale a "Hacer corte" y se lleva los ${resto.length} de hoy.`,
     };
   }
 
@@ -871,7 +871,7 @@ export async function hacerCorteAyer(
       pendientes: sinTiempo + resto.length,
       aviso:
         `Corte ayer: ${unico.pedidos} pedidos hasta el ${corte} a las 23:59 (hora de México), pero ${sinTiempo} de esos ` +
-        `días se quedaron por tiempo: dale otra vez a "Corte ayer" hasta que no quede nada de antes de hoy.${deHoy}`,
+        `días se quedaron por tiempo: la pantalla vuelve a lanzar el corte sola hasta que no quede nada de antes de hoy.${deHoy}`,
     };
   }
   return {

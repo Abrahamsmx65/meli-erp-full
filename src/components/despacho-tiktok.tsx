@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
 import { agruparErrores } from "@/lib/tiktok/despacho";
+import { contarSinTiempo, hayQueSeguir, RONDAS_MAXIMAS } from "@/lib/tiktok/lunes";
 
 export interface CorteResumen {
   id: number;
@@ -48,6 +49,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [ronda, setRonda] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [simulacion, setSimulacion] = useState<any>(null);
   const [simulando, setSimulando] = useState(false);
@@ -165,31 +167,52 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     }
   }
 
+  /**
+   * Un clic, todas las rondas. Cada llamada confirma ~300 pedidos en los 5
+   * minutos de Vercel; si dejó pedidos por tiempo, la pantalla vuelve a
+   * lanzar el corte sola (decisión del dueño, 22-sep-2026: «que no tenga
+   * que picarle otra vez») y el servidor une cada ronda al mismo corte.
+   * Hay que dejar la pestaña abierta: la pantalla es la que encadena.
+   */
   async function hacerCorte(modo?: "lunes" | "ayer") {
     setOcupado(true);
     setAviso(null);
     setError(null);
+    setRonda(null);
+    const resumenes: string[] = [];
     try {
-      const r = await fetch("/api/tiktok/cortes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
-      if (j.modo === "lunes" || j.modo === "ayer") {
-        const partes = (j.cortes ?? []).map((c: any) => resumenDeCorte(c));
-        if (j.aviso) partes.push(j.aviso);
-        setAviso(partes.join(" · "));
-      } else {
-        setAviso(resumenDeCorte(j));
+      for (let n = 1; n <= RONDAS_MAXIMAS; n++) {
+        const r = await fetch("/api/tiktok/cortes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
+        const cortesRonda: any[] = j.modo === "lunes" || j.modo === "ayer" ? (j.cortes ?? []) : [j];
+        resumenes.push(...cortesRonda.map((c: any) => resumenDeCorte(c)));
+        router.refresh();
+        if (!hayQueSeguir(cortesRonda)) {
+          if (j.aviso) resumenes.push(j.aviso);
+          break;
+        }
+        const faltan = cortesRonda.reduce((a: number, c: any) => a + contarSinTiempo(c.errores ?? []), 0);
+        if (n === RONDAS_MAXIMAS) {
+          resumenes.push(`Se hicieron ${n} rondas seguidas y todavía quedan ${faltan} pedidos por tiempo: dale otra vez.`);
+          break;
+        }
+        setRonda(`Ronda ${n} lista; quedaron ${faltan} pedidos por tiempo. Se vuelve a lanzar el corte solo (ronda ${n + 1})… no cierres esta pestaña.`);
+        setAviso(resumenes.join(" · "));
       }
+      setAviso(resumenes.join(" · "));
       setSimulacion(null);
       setSinDefensa(false);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
+      if (resumenes.length) setAviso(resumenes.join(" · "));
     } finally {
+      setRonda(null);
       setOcupado(false);
     }
   }
@@ -247,7 +270,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               disabled={ocupado || !pendientes}
               className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
               style={{ borderColor: "var(--grid)" }}
-              title="Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día"
+              title="Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día. Si se acaba el tiempo, se relanza solo hasta terminar"
             >
               <CalendarClock size={14} />
               {ocupado ? "Confirmando…" : "Corte ayer"}
@@ -278,6 +301,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
           Sin defensa: confirmar todo aunque no haya stock físico (libera los bloqueos por stock; el kardex puede quedar en
           negativo y la alarma lo va a gritar). Se apaga solo después del corte.
         </label>
+        {ronda ? <p className="mt-2 text-xs font-semibold" style={{ color: "var(--ink-2)" }}>{ronda}</p> : null}
         {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
         {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
 

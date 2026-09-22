@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, esLunesMx, ordenarPorAntiguedad, partirEnTandas } from "./lunes";
+import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, esLunesMx, hayQueSeguir, ordenarPorAntiguedad, partirEnTandas } from "./lunes";
 
 /** Lunes 14 de septiembre de 2026, 9 de la mañana en México (UTC-6). */
 const LUNES_9AM = new Date("2026-09-14T15:00:00Z");
@@ -124,5 +124,21 @@ describe("un corte que continúa otro se le une", () => {
       { orderId: "c", error: "otro error" },
       { orderId: "b", error: "TikTok lo rechazó" },
     ]);
+  });
+});
+
+describe("hayQueSeguir: el corte se relanza solo mientras deje pedidos por tiempo y avance", () => {
+  const sinTiempo = (n: number) => Array.from({ length: n }, (_, i) => ({ orderId: `p${i}`, error: ERROR_SIN_TIEMPO }));
+  it("dejó pedidos por tiempo y confirmó a otros: sigue", () => {
+    expect(hayQueSeguir([{ pedidos: 300, errores: sinTiempo(209) }])).toBe(true);
+  });
+  it("no dejó nada por tiempo: termina", () => {
+    expect(hayQueSeguir([{ pedidos: 300, errores: [{ orderId: "x", error: "TikTok lo rechazó" }] }])).toBe(false);
+  });
+  it("se quedó sin tiempo sin confirmar a nadie (TikTok sin contestar): no se repite a ciegas", () => {
+    expect(hayQueSeguir([{ pedidos: 0, errores: sinTiempo(50) }])).toBe(false);
+  });
+  it("con varios cortes en la ronda (corte lunes) se suman", () => {
+    expect(hayQueSeguir([{ pedidos: 300, errores: [] }, { pedidos: 100, errores: sinTiempo(5) }])).toBe(true);
   });
 });
