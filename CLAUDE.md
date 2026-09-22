@@ -589,7 +589,9 @@ guárdala numerada.
   `sincronizarTikTok` con `soloPedidos` (regla de oro). Contar un MODELO
   COMPLETO deja en cero lo que no apareció, con confirmación explícita.
   La sincronización lleva candado (`candados_trabajo`, recurso
-  `tiktok-sync`); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
+  `tiktok-sync`; la corrida completa del cron ESPERA hasta 60 s si un
+  aviso lo tiene tomado, no se rinde: el 21-sep-2026 se perdieron cinco
+  corridas en dos horas por rendirse al instante); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
   simula el corte; Pendientes grita los saldos negativos.
   **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
   canónico → aplastado → ordenado → PROPIO: un SKU con forma
