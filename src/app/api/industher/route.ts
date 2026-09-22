@@ -1,6 +1,9 @@
+import { after } from "next/server";
 import { NextResponse } from "next/server";
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
+import { sincronizarTikTok } from "@/lib/servicios/tiktok";
+import { sincronizarSaldoDesdeBodega } from "@/lib/servicios/tiktok-bodega";
 import {
   configuracionIndusther,
   descargarInventarioIndusther,
@@ -69,6 +72,16 @@ export async function POST() {
 
   try {
     const resumen = await sincronizarInventarioIndusther(supabase, cuenta.id);
+    // La bodega TikTok de Industher entra al kardex en la sincronización
+    // de TikTok (cada 15 min). Quien aprieta el botón quiere verlo YA en
+    // Almacén TikTok (21-sep-2026: «sincronizo mi bodega y no se actualiza»),
+    // así que aquí se concilia el kardex y se publica en el fondo, leyendo
+    // antes los pedidos recientes (regla de oro).
+    after(async () => {
+      const admin = clienteAdmin();
+      await sincronizarSaldoDesdeBodega(admin, cuenta.id).catch(() => undefined);
+      await sincronizarTikTok(admin, cuenta.id, { soloPedidos: true }).catch(() => undefined);
+    });
     return NextResponse.json({ ok: true, resumen });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 502 });
