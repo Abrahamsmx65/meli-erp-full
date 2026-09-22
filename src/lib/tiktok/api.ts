@@ -604,6 +604,61 @@ export function nombresDeMotivo(json: unknown): string[] {
 }
 
 /** El motivo de «sin stock» entre los que TikTok ofrece; si no lo nombra así, el primero. */
+/** Un motivo de cancelación que TikTok ya usó en esta tienda, con quién lo usó. */
+export interface MotivoUsado {
+  motivo: string;
+  texto: string | null;
+  /** SELLER, BUYER, SYSTEM… tal como lo dice TikTok */
+  rol: string | null;
+  veces: number;
+}
+
+/**
+ * Los motivos de cancelación que TikTok YA ACEPTÓ en esta tienda, sacados
+ * de las cancelaciones existentes (`/cancellations/search`, que trae
+ * `cancel_reason` y `role` por cancelación). Es la única lista fiable para
+ * el mercado: el 21-sep-2026 la elegibilidad no traía nombres, ninguna
+ * versión nueva del endpoint existía y la calculadora contestó «reverse
+ * reason is unknown» a las claves de la documentación. Lo que el dueño
+ * canceló a mano en el Seller Center como vendedor viene aquí con el
+ * nombre exacto que TikTok usa en México.
+ */
+export async function motivosUsadosEnCancelaciones(
+  c: Cliente,
+  opciones: { dias?: number; paginas?: number } = {},
+): Promise<MotivoUsado[]> {
+  const dias = opciones.dias ?? 90;
+  const tope = opciones.paginas ?? 6;
+  const ahora = Math.floor(Date.now() / 1000);
+  const vistos = new Map<string, MotivoUsado>();
+  let token: string | undefined;
+  for (let pagina = 0; pagina < tope; pagina++) {
+    const d = await c.llamar<any>("POST", "/return_refund/202309/cancellations/search", {
+      params: { page_size: 50, page_token: token, sort_field: "create_time", sort_order: "DESC" },
+      cuerpo: { cancel_types: ["CANCEL"], create_time_ge: ahora - dias * 86_400, create_time_lt: ahora, locale: "es-MX" },
+    });
+    for (const x of d?.cancellations ?? []) {
+      const motivo = String(x?.cancel_reason ?? "").trim();
+      if (!motivo) continue;
+      const rol = x?.role ? String(x.role).trim().toUpperCase() : null;
+      const clave = `${rol ?? ""}|${motivo}`;
+      const previo = vistos.get(clave);
+      if (previo) previo.veces++;
+      else vistos.set(clave, { motivo, texto: x?.cancel_reason_text ? String(x.cancel_reason_text) : null, rol, veces: 1 });
+    }
+    token = d?.next_page_token || undefined;
+    if (!token) break;
+  }
+  return [...vistos.values()].sort((a, b) => b.veces - a.veces || a.motivo.localeCompare(b.motivo));
+}
+
+/** Los motivos que el VENDEDOR ya usó, los que hablan de stock primero. */
+export function motivosDeVendedor(usados: MotivoUsado[]): string[] {
+  const propios = usados.filter((u) => u.rol === "SELLER").map((u) => u.motivo);
+  const stock = propios.filter((m) => /stock|inventor|agot/i.test(m));
+  return [...new Set([...stock, ...propios])];
+}
+
 export function motivoSinStock(motivos: string[]): string | null {
   return motivos.find((m) => /stock|inventor|agot/i.test(m)) ?? motivos[0] ?? null;
 }

@@ -469,7 +469,15 @@ guárdala numerada.
   motivos; la sonda `/api/tiktok/diagnostico/cancelacion?pedido=…` hace
   las mismas preguntas SIN cancelar y además prueba la calculadora de
   reembolso (`/refunds/calculate`) y `reject_reasons`, y contesta el crudo.
-  Si ninguno entra el
+  **La lista fiable del mercado son las cancelaciones que TikTok YA
+  ACEPTÓ en la tienda** (`motivosUsadosEnCancelaciones`: `POST
+  /return_refund/202309/cancellations/search`, `cancel_reason` + `role` de
+  cada cancelación de los últimos 90 días; `motivosDeVendedor` se queda
+  con las del rol SELLER, stock primero): el 21-sep-2026 la sonda enseñó
+  que solo existe la 202309, que no trae nombres, y que la calculadora
+  contesta «reverse reason is unknown» a las claves de la documentación.
+  Lo que el dueño cancela a mano en el Seller Center trae el nombre exacto
+  y el corte lo usa ANTES que las claves fijas. Si ninguno entra el
   error del corte dice qué contestó TikTok a CADA clave intentada
   (`cancelarRenglones`; antes solo se veía la última). Las claves fijas de la documentación (`MOTIVOS_SIN_STOCK`)
   quedan de respaldo: el 18-sep-2026 TikTok contestó a ellas 25001014
