@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { catalogo, pedidosActualizados, publicarStock } from "./api";
-import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada, motivosDeCancelacion, motivoSinStock, nombresDeMotivo, esErrorDeParcial } from "./api";
+import { interpretarLiquidacion, cancelarRenglones, MOTIVOS_SIN_STOCK, esErrorDeMotivo, cancelacionAceptada, motivosDeCancelacion, motivoSinStock, nombresDeMotivo, esErrorDeParcial, motivosUsadosEnCancelaciones, motivosDeVendedor } from "./api";
 import { ErrorTikTok, type Cliente } from "./client";
 
 function clienteFalso(respuestas: any[], msRestantes = 100_000) {
@@ -336,5 +336,44 @@ describe("esErrorDeParcial", () => {
     expect(esErrorDeParcial(new ErrorTikTok(11050001, "/x", "Operation Not Allowed. Cannot partially cancel this order"))).toBe(true);
     expect(esErrorDeParcial(new Error("TikTok Shop 11050001 en /x: Cannot partially cancel this order"))).toBe(true);
     expect(esErrorDeParcial(new Error("TikTok Shop 25001014 en /x: Invalid Parameter"))).toBe(false);
+  });
+});
+
+describe("motivosUsadosEnCancelaciones: la lista real del mercado sale de lo que TikTok ya aceptó", () => {
+  it("junta cancel_reason por rol, cuenta repeticiones, pagina y deja al vendedor con lo de stock primero", async () => {
+    const llamadas: any[] = [];
+    const cliente = {
+      llamar: vi.fn(async (metodo: string, ruta: string, opciones: any) => {
+        llamadas.push({ metodo, ruta, opciones });
+        if (!opciones.params.page_token) {
+          return {
+            cancellations: [
+              { order_id: "1", role: "BUYER", cancel_reason: "ecom_buyer_change_mind", cancel_reason_text: "Cambié de opinión" },
+              { order_id: "2", role: "SELLER", cancel_reason: "ecom_seller_other", cancel_reason_text: "Otro" },
+              { order_id: "3", role: "SELLER", cancel_reason: "ecom_seller_out_of_stock", cancel_reason_text: "Sin existencias" },
+            ],
+            next_page_token: "p2",
+          };
+        }
+        return { cancellations: [{ order_id: "4", role: "seller", cancel_reason: "ecom_seller_out_of_stock" }, { order_id: "5", role: "SYSTEM", cancel_reason: "" }] };
+      }),
+      msRestantes: () => 100_000,
+    } as unknown as Cliente;
+    const usados = await motivosUsadosEnCancelaciones(cliente, { dias: 30 });
+    expect(llamadas).toHaveLength(2);
+    expect(llamadas[0]).toMatchObject({ metodo: "POST", ruta: "/return_refund/202309/cancellations/search" });
+    expect(llamadas[0].opciones.cuerpo).toMatchObject({ cancel_types: ["CANCEL"], locale: "es-MX" });
+    expect(llamadas[1].opciones.params.page_token).toBe("p2");
+    expect(usados.map((u) => `${u.rol}:${u.motivo}:${u.veces}`)).toEqual([
+      "SELLER:ecom_seller_out_of_stock:2",
+      "BUYER:ecom_buyer_change_mind:1",
+      "SELLER:ecom_seller_other:1",
+    ]);
+    expect(motivosDeVendedor(usados)).toEqual(["ecom_seller_out_of_stock", "ecom_seller_other"]);
+  });
+
+  it("sin cancelaciones del vendedor no inventa nada", async () => {
+    const cliente = { llamar: vi.fn(async () => ({ cancellations: [{ role: "BUYER", cancel_reason: "x" }] })), msRestantes: () => 1 } as unknown as Cliente;
+    expect(motivosDeVendedor(await motivosUsadosEnCancelaciones(cliente))).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { motivosDeCancelacion } from "@/lib/tiktok/api";
+import { motivosDeCancelacion, motivosDeVendedor, motivosUsadosEnCancelaciones } from "@/lib/tiktok/api";
 import { clienteDeCuenta } from "@/lib/servicios/tiktok";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
@@ -39,6 +39,16 @@ export async function GET(req: NextRequest) {
     .eq("order_id", orderId);
 
   const elegibilidad = await motivosDeCancelacion(cliente, orderId);
+  // Lo que TikTok YA aceptó en esta tienda: la lista real del mercado.
+  let usados: unknown;
+  let deVendedor: string[] = [];
+  try {
+    const u = await motivosUsadosEnCancelaciones(cliente);
+    usados = u;
+    deVendedor = motivosDeVendedor(u);
+  } catch (err) {
+    usados = { error: (err as Error).message };
+  }
 
   const probar = async (nombre: string, metodo: "GET" | "POST", ruta: string, opciones: any) => {
     try {
@@ -64,5 +74,5 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ pedido: orderId, renglones, elegibilidad, sondas });
+  return NextResponse.json({ pedido: orderId, renglones, motivosUsados: usados, motivosDeVendedor: deVendedor, elegibilidad, sondas });
 }

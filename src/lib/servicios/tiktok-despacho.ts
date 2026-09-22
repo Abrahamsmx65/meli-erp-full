@@ -26,6 +26,8 @@ import {
   cancelarRenglones,
   MOTIVOS_SIN_STOCK,
   motivosDeCancelacion,
+  motivosDeVendedor,
+  motivosUsadosEnCancelaciones,
   motivoSinStock,
   esErrorDeParcial,
   enviarPaquete,
@@ -346,7 +348,18 @@ export async function hacerCorte(
   // eligibility); las claves fijas de su documentación quedan de respaldo
   // por si no contesta nada. La primera respuesta cruda se guarda en la
   // bitácora: su forma exacta no está documentada en ningún SDK público.
-  const motivos = [...MOTIVOS_SIN_STOCK];
+  // Los motivos que TikTok ya aceptó en esta tienda van PRIMERO: son la
+  // única lista fiable para el mercado (ver `motivosUsadosEnCancelaciones`).
+  // Las claves fijas de la documentación quedan al final, de respaldo.
+  let aprendidos: string[] = [];
+  if (automaticos.length || filasRenglones.some((r) => r.bloqueado)) {
+    try {
+      aprendidos = motivosDeVendedor(await motivosUsadosEnCancelaciones(cliente));
+    } catch {
+      aprendidos = [];
+    }
+  }
+  const motivos = [...new Set([...aprendidos, ...MOTIVOS_SIN_STOCK])];
   let elegibilidadCruda: { orderId: string; crudo: unknown } | null = null;
   /** pedidos grandes que TikTok no dejó cancelar parcial: se avisan por correo a quien despacha */
   const parciales: PedidoParcialSinCancelar[] = [];
@@ -400,7 +413,7 @@ export async function hacerCorte(
             const e = await motivosDeCancelacion(cliente, p.orderId);
             if (!elegibilidadCruda) elegibilidadCruda = { orderId: p.orderId, crudo: e.crudo };
             const preferido = motivoSinStock(e.motivos);
-            if (preferido) motivosPedido = [preferido];
+            if (preferido) motivosPedido = [preferido, ...motivos.filter((m) => m !== preferido)];
           } catch (err) {
             if (!elegibilidadCruda) elegibilidadCruda = { orderId: p.orderId, crudo: { error: (err as Error).message } };
           }
