@@ -728,6 +728,62 @@ export async function hacerCorteLunes(
 }
 
 // ---------------------------------------------------------------------------
+// El corte de AYER: solo lo de antes de hoy, para adelantar trabajo
+// ---------------------------------------------------------------------------
+
+/**
+ * "Corte ayer": UN corte con todo lo pendiente hasta ayer a las 23:59 de
+ * México (y lo más viejo, si hay); lo vendido HOY se queda sin corte.
+ *
+ * Pedido del dueño (22-sep-2026): «quiero una que se llame corte ayer, que
+ * me haga corte de todo lo que entró ayer hasta las 12 de la noche, para
+ * poder ir preparándolo si tengo tiempo adelantado un día antes». Es la
+ * primera tanda del corte lunes, sola: mismo día de referencia
+ * (`partirEnTandas`, hora de México), sin la segunda tanda. Lo de hoy sigue
+ * entrando y se corta mañana con este mismo botón o cuando sea con "Hacer
+ * corte".
+ */
+export async function hacerCorteAyer(
+  admin: any,
+  accountId: string,
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean },
+): Promise<ResultadoCorteLunes> {
+  const pendientes = await pendientesDeCorte(admin, accountId);
+  if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
+
+  const { urgentes, resto, corte } = partirEnTandas(pendientes);
+  if (!urgentes.length) {
+    throw new Error(
+      `No hay pedidos de ayer ni de antes: los ${resto.length} pendientes son de hoy. ` +
+        `Se cortan mañana con "Corte ayer" o ahora con "Hacer corte".`,
+    );
+  }
+
+  const unico = await hacerCorte(admin, accountId, {
+    ...opciones,
+    soloPedidos: urgentes.map((p) => p.orderId),
+    msDisponibles: MS_CORTE_LUNES,
+  });
+
+  const sinTiempo = contarSinTiempo(unico.errores);
+  const deHoy = resto.length ? ` Los ${resto.length} de hoy se quedan pendientes.` : "";
+  if (sinTiempo > 0) {
+    return {
+      cortes: [unico],
+      pendientes: sinTiempo + resto.length,
+      aviso:
+        `Corte ayer: ${unico.pedidos} pedidos hasta el ${corte} a las 23:59 (hora de México), pero ${sinTiempo} de esos ` +
+        `días se quedaron por tiempo: dale otra vez a "Corte ayer" hasta que no quede nada de antes de hoy.${deHoy}`,
+    };
+  }
+  return {
+    cortes: [unico],
+    pendientes: resto.length,
+    aviso: `Corte ayer: todo lo pendiente hasta el ${corte} a las 23:59 (hora de México).${deHoy}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Los paquetes de un corte, ya ordenados y numerados
 // ---------------------------------------------------------------------------
 

@@ -161,7 +161,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     }
   }
 
-  async function hacerCorte(modo?: "lunes") {
+  async function hacerCorte(modo?: "lunes" | "ayer") {
     setOcupado(true);
     setAviso(null);
     setError(null);
@@ -173,7 +173,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
-      if (j.modo === "lunes") {
+      if (j.modo === "lunes" || j.modo === "ayer") {
         const partes = (j.cortes ?? []).map((c: any) => resumenDeCorte(c));
         if (j.aviso) partes.push(j.aviso);
         setAviso(partes.join(" · "));
@@ -200,7 +200,8 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
             </h2>
             <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
               Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén,
-              republica y deja el corte guardado con sus etiquetas y su lista. Defensa automática: si un SKU
+              republica y deja el corte guardado con sus etiquetas y su lista. Corte ayer toma solo lo de hasta ayer a
+              las 23:59 (hora de México) y deja lo de hoy pendiente, para adelantar un día. Defensa automática: si un SKU
               no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok solo ese renglón
               (los pedidos más nuevos primero) y se confirma lo demás; si TikTok no acepta la cancelación, el
               pedido entero se queda fuera y se avisa.
@@ -236,6 +237,16 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
             >
               <Eye size={14} />
               {simulando ? "Simulando…" : "Simular"}
+            </button>
+            <button
+              onClick={() => hacerCorte("ayer")}
+              disabled={ocupado || !pendientes}
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--grid)" }}
+              title="Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día"
+            >
+              <CalendarClock size={14} />
+              {ocupado ? "Confirmando…" : "Corte ayer"}
             </button>
             <button
               onClick={() => hacerCorte("lunes")}
@@ -276,11 +287,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                 cerrar
               </button>
             </div>
-            {simulacion.tandas && simulacion.tandas.urgentes && simulacion.tandas.resto ? (
+            {simulacion.tandas && simulacion.tandas.urgentes ? (
               <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-                Corte lunes: {simulacion.tandas.urgentes} pedidos hasta el {simulacion.tandas.corte} a las 23:59 (hora
-                de México: viernes, sábado, domingo y lo más viejo) en el primer corte y {simulacion.tandas.resto} de hoy
-                en el segundo.
+                Corte ayer: {simulacion.tandas.urgentes} pedidos hasta el {simulacion.tandas.corte} a las 23:59 (hora de
+                México; ayer y lo más viejo){simulacion.tandas.resto ? `, y los ${simulacion.tandas.resto} de hoy se quedan pendientes` : ""}.
+                {simulacion.tandas.resto
+                  ? ` Corte lunes: los mismos ${simulacion.tandas.urgentes} en el primer corte y los ${simulacion.tandas.resto} de hoy en el segundo.`
+                  : ""}
               </p>
             ) : null}
             <ul className="mt-2 flex flex-col gap-1">
