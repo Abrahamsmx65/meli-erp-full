@@ -201,3 +201,26 @@ describe("FUZHOU (IN10163): 'Article no', tallas 'Mex 23 36/37 (24cm)' y totales
     expect(p.lineas.every((l) => l.cuadra && !l.unitalla)).toBe(true);
   });
 });
+
+describe("IN10172 (JIAXING, GT148): cajas de UNA talla, una fila por talla", () => {
+  const buf = readFileSync(join(process.cwd(), "fixtures", "proforma-IN10172-GT148.xls"));
+
+  it("cada fila es una línea unitalla con sus propias cajas; el total cuadra con el TTL", async () => {
+    const p = await importarProforma(buf, { nombre: "IN10172_GT148.xls" });
+    expect(p.pedido).toBe("IN10172");
+    expect(p.lineas).toHaveLength(20);
+    expect(p.lineas.every((l) => l.unitalla && l.paresPorCaja === 48 && l.cuadra)).toBe(true);
+    expect(p.totales.cajas).toBe(379);
+    expect(p.totales.pares).toBe(18192);
+    expect(p.avisos).toEqual([]);
+
+    const negro23 = p.lineas[0];
+    expect(negro23).toMatchObject({ modelo: "GT148", color: "BLACK", unitalla: "23", cajas: 20, pares: 960, tallas: { "23": 48 } });
+    const negro24 = p.lineas[1];
+    expect(negro24).toMatchObject({ color: "BLACK", unitalla: "24", cajas: 35, pares: 1680 });
+    // Los colores se heredan a las filas de abajo.
+    expect(p.lineas.map((l) => l.color)).toEqual([
+      ...Array(5).fill("BLACK"), ...Array(5).fill("M BROWN"), ...Array(5).fill("M BROWN-RED"), ...Array(5).fill("CREAM"),
+    ]);
+  });
+});

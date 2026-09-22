@@ -168,7 +168,9 @@ export function colorDeProforma(crudo: string): string {
   if (!limpio) return "";
   // Corta ante el primer carácter fuera de ASCII (el chino).
   const soloLatino = limpio.split(/[^\x20-\x7E]/)[0]?.trim() ?? limpio;
-  return soloLatino || limpio;
+  // "M BROWN -RED" (IN10172) es el "M BROWN-RED" de MELI: los espacios
+  // alrededor del guion y los dobles espacios son dedazos de la fábrica.
+  return (soloLatino || limpio).replace(/\s*-\s*/g, "-").replace(/\s{2,}/g, " ");
 }
 
 /** "25MX=39" -> "25". También acepta "25MX", "MX25" o un número pelón. */
@@ -452,14 +454,19 @@ export async function importarProforma(
     }
     if (!modeloActual) continue;
 
-    // ---- Unitalla: una sola talla cuyo valor son las CAJAS ----------------
+    // ---- Unitalla: una sola talla con cajas y pares propios ---------------
+    // Dos formas. (a) El número bajo la talla son las CAJAS (coincide con
+    // CTNS). (b) El número bajo la talla son los PARES POR CAJA (coincide
+    // con PER CTN) y cada talla va en su propia fila con sus CTNS y PRS:
+    // así vino el IN10172 de GT148 (48 pares de una sola talla por caja,
+    // 20 cajas de la 23, 35 de la 24…). Antes esas filas se tomaban como
+    // continuación de la corrida y el pedido salía con 71 cajas de 240
+    // pares en vez de 379 cajas de 48.
+    const unaTalla = tallasFila.length === 1 && porCajaFila > 0 && cajasFila > 0 && paresFila === cajasFila * porCajaFila;
     const esUnitalla =
-      tallasFila.length === 1 &&
-      porCajaFila > 0 &&
-      cajasFila > 0 &&
-      paresFila === cajasFila * porCajaFila &&
-      tallasFila[0].valor === cajasFila &&
-      tallasFila[0].valor !== porCajaFila;
+      unaTalla &&
+      ((tallasFila[0].valor === cajasFila && tallasFila[0].valor !== porCajaFila) ||
+        tallasFila[0].valor === porCajaFila);
 
     if (esUnitalla) {
       const t = tallasFila[0].talla;

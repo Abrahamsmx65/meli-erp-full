@@ -20,6 +20,8 @@ describe("piezas sueltas del lector", () => {
     expect(colorDeProforma("NAVY 深藍 AZUL MARINO")).toBe("NAVY");
     expect(colorDeProforma("GREY 灰GRIS")).toBe("GREY");
     expect(colorDeProforma("BROWN")).toBe("BROWN");
+    expect(colorDeProforma("M BROWN -RED")).toBe("M BROWN-RED");
+    expect(colorDeProforma("M  BROWN      ")).toBe("M BROWN");
   });
 
   it("lee la talla mexicana del encabezado", () => {
