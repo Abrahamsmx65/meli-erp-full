@@ -530,9 +530,13 @@ export async function sincronizarTikTok(
   accountId: string,
   opciones: { limiteMs?: number; soloPedidos?: boolean } = {},
 ): Promise<ResultadoSync> {
-  // El botón y la captura a mano esperan un poco; el cron se rinde y vuelve
-  // en 15 minutos.
-  const r = await conCandadoTikTok(admin, accountId, 290, opciones.soloPedidos ? 30_000 : 0, () =>
+  // Todos esperan el candado un rato. La corrida completa (cron cada 15
+  // min) se rendía al instante si un aviso de pedido lo tenía tomado ese
+  // segundo, y así se perdían corridas enteras: el 21-sep-2026 faltaron
+  // las de 20:00, 20:30, 20:45, 21:00 y 22:00, y la bodega de Industher
+  // tardó media hora en verse en Almacén TikTok. Un minuto de espera cabe
+  // de sobra en el rato de Vercel.
+  const r = await conCandadoTikTok(admin, accountId, 290, opciones.soloPedidos ? 30_000 : 60_000, () =>
     sincronizarTikTokSinCandado(admin, accountId, opciones),
   );
   return r ?? { ...VACIO, conectado: true, avisos: ["Otra sincronización de TikTok está en curso."] };
