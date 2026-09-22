@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { hacerCorte, hacerCorteAyer, hacerCorteLunes, pdfEtiquetasDelCorte, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { bajarGuiasDelCorte, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +26,12 @@ export async function POST(req: NextRequest) {
       creadoPor: user.id,
       sinDefensa: body?.sinDefensa === true,
     };
-    // Las guías se bajan y se guardan en cuanto se contesta: cuando el
-    // usuario pida el PDF ya está armado.
+    // Las guías se bajan y se guardan en cuanto se contesta, con el rato
+    // que le quede a la función: cuando el usuario pida el PDF, la mayoría
+    // ya está en el bucket (el resto lo baja esa misma impresión).
     const calentar = (ids: number[]) =>
       after(async () => {
-        for (const id of ids) await pdfEtiquetasDelCorte(admin, cuenta.id, id).catch(() => undefined);
+        for (const id of ids) await bajarGuiasDelCorte(admin, cuenta.id, id, 30_000).catch(() => undefined);
         // Y los cortes recientes se ponen al día: lo que se canceló después
         // del corte deja de salir como faltante.
         await releerSinPrepararDeCortesRecientes(admin, cuenta.id).catch(() => undefined);

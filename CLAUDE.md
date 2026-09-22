@@ -444,6 +444,20 @@ guárdala numerada.
   y el resto esperaba al cron (el #36, 866 salidas, 500 descontadas al
   hacerlo y 366 a los diez minutos), y una continuación del mismo corte
   habría repetido la referencia, que el 3PL descarta como duplicada.
+  **Las etiquetas de un corte grande salen por TOMOS de 200 guías**
+  (`PAQUETES_POR_TOMO`, `tomosDeCorte`, `rangoDeTomo` en `tiktok/despacho.ts`;
+  `pdfEtiquetasDelCorte(…, tomo)`, `?tomo=n` en `/api/tiktok/cortes/{id}/etiquetas`;
+  22-sep-2026): cada guía de TikTok pesa ~105 KB y el #36 (916 paquetes)
+  era un solo PDF de ~96 MB que la función de Vercel no alcanzaba a armar
+  ni a servir —se moría sin dejar bitácora—; ni el #35 de ayer (798) llegó
+  a guardarse. Los tomos se cuentan por los PEDIDOS del corte (la pantalla
+  ya los tiene; el servidor lee `tiktok_cortes.pedidos`), el último tomo
+  llega hasta el último paquete, cada tomo se guarda aparte en el bucket
+  (`corte-{id}-e{VERSION}-t{n}.pdf`) y la numeración "#n" es la del corte
+  completo. Un corte de hasta 200 pedidos sigue siendo un solo botón. El
+  calentamiento ya NO arma el PDF: `bajarGuiasDelCorte` solo baja al bucket
+  las guías que faltan, con presupuesto de tiempo (30 s tras el corte,
+  200 s tras cada impresión), y la impresión de un tomo baja las suyas.
   **FALTANTES del corte** (`faltantesDelCorte`, `pdfFaltantesDelCorte`,
   `/api/tiktok/cortes/{id}/faltantes`): un corte que quedó a medias no dice
   por sí solo QUÉ se quedó, así que el renglón del corte enseña los pedidos

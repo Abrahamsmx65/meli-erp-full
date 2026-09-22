@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { bajarGuiasDelCorte, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,24 +21,29 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const corteId = Number(id);
   if (!Number.isFinite(corteId)) return NextResponse.json({ error: "Corte inválido." }, { status: 400 });
 
+  // Un corte grande sale por TOMOS de `PAQUETES_POR_TOMO` (?tomo=1..k): el
+  // #36 del 22-sep-2026 (916 guías, ~96 MB) no cabía entero en Vercel.
+  const tomoParam = _req.nextUrl.searchParams.get("tomo");
+  const tomo = tomoParam ? Number(tomoParam) : null;
+  if (tomo != null && (!Number.isInteger(tomo) || tomo < 1)) return NextResponse.json({ error: "Tomo inválido." }, { status: 400 });
+
   try {
     const admin = clienteAdmin();
-    const pdf = await pdfEtiquetasDelCorte(admin, cuenta.id, corteId);
-    // Un corte grande (el #35 del 21-sep-2026 juntó 798 pedidos) no alcanza
-    // a bajar todas sus guías en una sola petición: las que faltaron salen
-    // como «SIN GUÍA» y el PDF del corte no se guarda. Aquí se sigue bajando
-    // lo que falta en el fondo, para que la siguiente impresión ya salga
-    // completa; si ya estaba completo, esto es leer un archivo y nada más.
+    const pdf = await pdfEtiquetasDelCorte(admin, cuenta.id, corteId, tomo);
+    // Las guías que aún no están guardadas (las de los otros tomos) se
+    // siguen bajando en el fondo, para que la siguiente impresión salga
+    // completa a la primera; si ya están todas, esto no baja nada.
     after(async () => {
-      await pdfEtiquetasDelCorte(admin, cuenta.id, corteId).catch(() => undefined);
+      await bajarGuiasDelCorte(admin, cuenta.id, corteId, 200_000).catch(() => undefined);
     });
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="corte-${corteId}-etiquetas.pdf"`,
+        "Content-Disposition": `inline; filename="corte-${corteId}-etiquetas${tomo ? `-tomo${tomo}` : ""}.pdf"`,
       },
     });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const m = (err as Error).message;
+    return NextResponse.json({ error: m }, { status: m.includes("tomo") ? 400 : 500 });
   }
 }
