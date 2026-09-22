@@ -515,20 +515,54 @@ export interface MotivosDeCancelacion {
  * traen. Se prueban hasta que alguna dé motivos; el crudo de cada intento
  * se guarda en la bitácora.
  */
-export const VERSIONES_ELEGIBILIDAD = ["202309", "202505", "202507", "202510"];
+export const VERSIONES_ELEGIBILIDAD = [
+  "202309",
+  "202310",
+  "202312",
+  "202402",
+  "202403",
+  "202404",
+  "202405",
+  "202406",
+  "202407",
+  "202409",
+  "202410",
+  "202502",
+  "202503",
+  "202505",
+  "202506",
+  "202507",
+  "202510",
+];
+
+/**
+ * Cada intento de preguntar los motivos: la 202309 se prueba con la
+ * consulta de siempre y luego pidiendo explícitamente el tipo CANCEL (el
+ * 21-sep-2026 seguía contestando sin `available_reason_names`), y después
+ * cada versión de la lista. Una versión que no existe contesta 36009004 en
+ * el acto, así que probar de más no cuesta.
+ */
+export function intentosDeElegibilidad(): { version: string; params: Record<string, string> }[] {
+  const base = { initiate_aftersale_user: "SELLER" };
+  return [
+    { version: "202309", params: base },
+    { version: "202309", params: { ...base, request_type: "CANCEL" } },
+    ...VERSIONES_ELEGIBILIDAD.filter((v) => v !== "202309").map((version) => ({ version, params: base })),
+  ];
+}
 
 export async function motivosDeCancelacion(c: Cliente, orderId: string): Promise<MotivosDeCancelacion> {
-  const intentos: { version: string; crudo: unknown }[] = [];
-  for (const version of VERSIONES_ELEGIBILIDAD) {
+  const intentos: { version: string; params?: Record<string, string>; crudo: unknown }[] = [];
+  for (const intento of intentosDeElegibilidad()) {
     let d: unknown;
     try {
-      d = await c.llamar<any>("GET", `/return_refund/${version}/orders/${orderId}/aftersale_eligibility`, {
-        params: { initiate_aftersale_user: "SELLER" },
+      d = await c.llamar<any>("GET", `/return_refund/${intento.version}/orders/${orderId}/aftersale_eligibility`, {
+        params: intento.params,
       });
     } catch (err) {
       d = { error: (err as Error).message };
     }
-    intentos.push({ version, crudo: d });
+    intentos.push({ version: intento.version, params: intento.params, crudo: d });
     const motivos = nombresDeMotivo(d);
     if (motivos.length) return { motivos, crudo: intentos };
   }
@@ -651,7 +685,9 @@ export async function cancelarRenglones(
 
 /** El mensaje de TikTok sin el prefijo de ruta, recortado: cabe en la constancia. */
 function resumenDeError(m: string): string {
-  return m.replace(/^TikTok Shop (\d+) en \S+: /, "$1 ").slice(0, 220);
+  // Sin recortar la pista de TikTok: el 21-sep-2026 el mensaje que decía
+  // qué consultar quedó cortado en «Query Get A».
+  return m.replace(/^TikTok Shop (\d+) en \S+: /, "$1 ").slice(0, 600);
 }
 
 // ---------------------------------------------------------------------------

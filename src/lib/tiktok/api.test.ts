@@ -316,9 +316,11 @@ describe("motivosDeCancelacion (aftersale eligibility)", () => {
       msRestantes: () => 100_000,
     } as unknown as Cliente;
     const r = await motivosDeCancelacion(cliente, "586");
-    expect(llamadas.map((l) => l.split("/")[2])).toEqual(["202309", "202505", "202507"]);
+    // La 202309 se prueba dos veces (con y sin request_type=CANCEL) y luego las versiones en orden.
+    expect(llamadas.map((l) => l.split("/")[2])).toEqual(["202309", "202309", "202310"]);
     expect(r.motivos).toEqual(["ecom_y_out_of_stock"]);
-    expect((r.crudo as any[]).map((x) => x.version)).toEqual(["202309", "202505", "202507"]);
+    expect((r.crudo as any[]).map((x) => x.version)).toEqual(["202309", "202309", "202310"]);
+    expect((r.crudo as any[])[1].params).toMatchObject({ initiate_aftersale_user: "SELLER", request_type: "CANCEL" });
   });
 
   it("acepta la forma con objetos y elige el primero si ninguno habla de stock", () => {
