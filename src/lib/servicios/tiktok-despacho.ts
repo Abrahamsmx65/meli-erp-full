@@ -14,7 +14,7 @@
  * confirmar primero no es una decisión: es el único orden posible.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
-import { traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
 import { conCacheApp } from "./cache-app";
 import { alPuntoDeImpresora, codificar128, moduloParaTermica } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
@@ -732,6 +732,34 @@ async function corteDeHoyQueContinua(
   if (id == null) return null;
   const c = cortes.find((x) => x.id === id);
   return c ? { id: c.id, numero: c.numero, pedidos: c.pedidos ?? 0, pares: c.pares ?? 0, errores: c.errores ?? [] } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Un solo corte a la vez
+// ---------------------------------------------------------------------------
+
+/** Recurso del candado: mientras un corte corre, otro no arranca. */
+const CANDADO_CORTE = "tiktok-corte";
+/** El mensaje con el que se rechaza el segundo clic. */
+export const ERROR_CORTE_EN_CURSO = "Ya hay un corte en curso: espera a que termine (la pantalla lo relanza sola si se queda sin tiempo).";
+
+/**
+ * Corre un corte con candado. Dos cortes AL MISMO TIEMPO se pisan: el
+ * 23-sep-2026 a las 10:33 la ronda automática y otro clic corrieron
+ * juntos sobre los mismos 118 pedidos; uno se unió al #37 y el otro,
+ * que ya no encontró los «sin tiempo» en sus errores, abrió el #38 con
+ * los mismos pedidos (hubo que unirlos a mano). El segundo NO espera:
+ * contesta `ERROR_CORTE_EN_CURSO`, porque el primero ya se está llevando
+ * esos pedidos.
+ */
+export async function conCandadoDeCorte<T>(admin: any, accountId: string, tarea: () => Promise<T>): Promise<T> {
+  const token = await adquirirCandado(admin, accountId, CANDADO_CORTE, 320);
+  if (!token) throw new Error(ERROR_CORTE_EN_CURSO);
+  try {
+    return await tarea();
+  } finally {
+    await liberarCandado(admin, accountId, CANDADO_CORTE, token).catch(() => false);
+  }
 }
 
 // ---------------------------------------------------------------------------

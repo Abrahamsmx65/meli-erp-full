@@ -426,7 +426,14 @@ guárdala numerada.
   al mismo corte por la regla de arriba. La pestaña
   tiene que quedarse abierta: es la pantalla la que encadena, porque el
   servidor no puede encadenarse a sí mismo dentro de los 5 min de Vercel.
-  **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,
+  **UN SOLO CORTE A LA VEZ** (`conCandadoDeCorte`, recurso `tiktok-corte`
+  en `candados_trabajo`, `ERROR_CORTE_EN_CURSO`, 409 en la ruta): el
+  23-sep-2026 a las 10:33 la ronda automática y otro clic corrieron
+  juntos sobre los mismos 118 pedidos; el primero se unió al #37 y el
+  segundo, que ya no encontró los «sin tiempo» en los errores del #37,
+  abrió el #38 con los mismos pedidos (se unieron a mano por SQL). El
+  segundo clic ya no arranca: contesta que hay un corte en curso.
+    **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,
   `AutoBloqueo.enDuda`, `renglonesConDefensa().enDuda`; decisión del
   dueño, 22-sep-2026): cuando la bodega dejó de reportar el SKU POR
   COMPLETO y el kardex aún tiene pares (la baja detenida de arriba), la
