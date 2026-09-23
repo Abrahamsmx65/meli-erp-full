@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { bajarGuiasDelCorte, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { bajarGuiasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     // "Corte lunes": primero TODO lo de antes de hoy (viernes, sábado,
     // domingo y lo más viejo, hasta las 23:59 de México) y luego lo de hoy.
     if (body?.modo === "lunes") {
-      const r = await hacerCorteLunes(admin, cuenta.id, opciones);
+      const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorteLunes(admin, cuenta.id, opciones));
       calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
       return NextResponse.json({ ok: true, modo: "lunes", ...r });
     }
@@ -49,15 +49,16 @@ export async function POST(req: NextRequest) {
     // 23:59 de México); lo de hoy se queda para mañana. Para adelantar
     // trabajo un día.
     if (body?.modo === "ayer") {
-      const r = await hacerCorteAyer(admin, cuenta.id, opciones);
+      const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorteAyer(admin, cuenta.id, opciones));
       calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
       return NextResponse.json({ ok: true, modo: "ayer", ...r });
     }
 
-    const r = await hacerCorte(admin, cuenta.id, opciones);
+    const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorte(admin, cuenta.id, opciones));
     calentar(r.corteId != null ? [r.corteId] : []);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const m = (err as Error).message;
+    return NextResponse.json({ error: m }, { status: m === ERROR_CORTE_EN_CURSO ? 409 : 500 });
   }
 }
