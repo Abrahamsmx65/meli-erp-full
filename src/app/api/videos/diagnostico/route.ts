@@ -145,6 +145,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(una ?? { error: "No existe esa herramienta." });
     }
     // Nombres + descripción corta + campos del esquema (sin inundar).
+    // ?herramienta=generate_video → esa herramienta COMPLETA: descripción
+    // sin recortar y el esquema entero de entrada (lo que va dentro de
+    // `params`), para saber con qué se le contesta un aviso del MCP.
+    const nombreHerramienta = req.nextUrl.searchParams.get("herramienta");
+    if (nombreHerramienta) {
+      const h = herramientas.find((x: any) => x?.name === nombreHerramienta);
+      if (!h) return NextResponse.json({ error: `No hay herramienta ${nombreHerramienta}.` }, { status: 404 });
+      return NextResponse.json({ nombre: h.name, descripcion: h.description ?? "", inputSchema: h.inputSchema ?? null, annotations: h.annotations ?? null });
+    }
+
     const resumen = herramientas.map((h: any) => ({
       nombre: h.name,
       descripcion: String(h.description ?? "").slice(0, 200),
