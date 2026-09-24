@@ -267,3 +267,56 @@ export function resultadoEstructurado(resultado: any): any {
   }
   return null;
 }
+
+/**
+ * Antes de dar el folio, el MCP a veces CONTESTA CON UNA PREGUNTA en vez de
+ * generar: `unlim_choice` («¿usas tus generaciones ilimitadas?») o un
+ * `notice.type = preset_recommendation` («el prompt se parece al preset X,
+ * ¿lo usas o generas literal?»). El ERP no tiene a quién preguntarle: las
+ * ilimitadas se usan (son gratis) y el preset se DECLINA para que genere
+ * literal lo que se pidió (`declined_preset_id`, 24-sep-2026: david veía
+ * «El Studio no devolvió folio: {"notice":…}» y no había cómo contestar).
+ * Devuelve los parámetros con los que hay que volver a llamar, o null si
+ * la respuesta no es una pregunta.
+ */
+export function paramsTrasAviso(
+  sc: any,
+  params: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (sc?.unlim_choice && !params.use_unlim) {
+    return { ...params, use_unlim: true };
+  }
+  const aviso = sc?.notice;
+  if (aviso?.type === "preset_recommendation") {
+    const presetId = aviso?.data?.preset?.id ?? aviso?.preset?.id ?? aviso?.preset_id;
+    if (presetId && params.declined_preset_id !== presetId) {
+      return { ...params, declined_preset_id: presetId };
+    }
+  }
+  return null;
+}
+
+/** Cuántas veces se le vuelve a llamar a la herramienta por sus avisos. */
+export const REINTENTOS_POR_AVISO = 3;
+
+/**
+ * Llama una herramienta de generación (`generate_video`, `generate_image`,
+ * `generate_audio`, `voice_change`…) y le contesta sola sus preguntas
+ * (`paramsTrasAviso`) hasta `REINTENTOS_POR_AVISO` veces. Devuelve el
+ * resultado estructurado de la última llamada.
+ */
+export async function generarContestandoAvisos(
+  s: SesionMCP,
+  herramienta: string,
+  params: Record<string, unknown>,
+): Promise<any> {
+  let actuales = params;
+  let sc = resultadoEstructurado(await llamarHerramienta(s, herramienta, { params: actuales }));
+  for (let i = 0; i < REINTENTOS_POR_AVISO; i++) {
+    const siguientes = paramsTrasAviso(sc, actuales);
+    if (!siguientes) break;
+    actuales = siguientes;
+    sc = resultadoEstructurado(await llamarHerramienta(s, herramienta, { params: actuales }));
+  }
+  return sc;
+}

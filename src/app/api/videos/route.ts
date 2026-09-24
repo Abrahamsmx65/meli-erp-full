@@ -13,6 +13,7 @@ import {
 import { validarPrompt, validarImagenUrl, construirEntradaDop } from "@/lib/higgsfield/presets";
 import {
   abrirSesion,
+  generarContestandoAvisos,
   llamarHerramienta,
   resultadoEstructurado,
 } from "@/lib/higgsfield/mcp";
@@ -469,25 +470,18 @@ async function generarEstudio(
       if (avatarId) params.avatar_ids = [avatarId];
     }
 
-    // 2. El video. Si la cuenta tiene generaciones ilimitadas de prueba, el
-    //    MCP pregunta antes de gastar: se usan (gratis) en automático.
-    let res = await llamarHerramienta(sesion, "generate_video", { params });
-    let sc = resultadoEstructurado(res);
-    if (sc?.unlim_choice) {
-      res = await llamarHerramienta(sesion, "generate_video", {
-        params: { ...params, use_unlim: true },
-      });
-      sc = resultadoEstructurado(res);
-    }
+    // 2. El video. Si el MCP contesta con una PREGUNTA en vez de folio
+    //    (generaciones ilimitadas de prueba, o «tu prompt se parece al
+    //    preset X»), `generarContestandoAvisos` la contesta sola: usa las
+    //    ilimitadas y DECLINA el preset para generar literal lo pedido.
+    const sc = await generarContestandoAvisos(sesion, "generate_video", params);
     if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
     requestId = sc?.results?.[0]?.id ?? "";
     if (!requestId) {
-      // Un AVISO del MCP (por ejemplo `notice.type = preset_recommendation`:
-      // «el prompt se parece al preset X, pregunta si lo usa o genera
-      // literal») no es un folio. Se enseña COMPLETO, con el crudo de la
-      // respuesta: recortado a 200 letras (24-sep-2026, david) no se veía
-      // ni el nombre del preset ni cómo contestarle.
-      const crudo = JSON.stringify(sc ?? res ?? {});
+      // Lo que quede sin folio después de contestar los avisos se enseña
+      // COMPLETO con el crudo de la respuesta (recortado a 200 letras,
+      // 24-sep-2026, david no veía ni qué preguntaba el Studio).
+      const crudo = JSON.stringify(sc ?? {});
       throw new Error(`El Studio no devolvió folio: ${crudo.slice(0, 3000)}`);
     }
   } catch (err) {
