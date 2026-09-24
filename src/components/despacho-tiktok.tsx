@@ -196,7 +196,13 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     if (fuera) partes.push(`${fuera} pedidos no entraron (abajo el motivo).`);
     if (j.al3pl?.sinEndpoint) partes.push("Salidas al 3PL: Industher todavía no tiene el endpoint; se reintentan solas.");
     else if (j.al3pl?.error) partes.push(`Salidas al 3PL: ${j.al3pl.error}`);
-    else if (j.al3pl?.confirmadas) partes.push(`${j.al3pl.confirmadas} salidas descontadas en Industher.`);
+    else if (j.al3pl?.confirmadas) {
+      // Se dicen PARES, que es lo que se descuenta del estante: el #38
+      // (24-sep-2026) decía «683 salidas» contra 696 pares confirmados y
+      // parecía que faltaban 13, cuando eran 13 renglones de dos pares.
+      const pares = j.al3pl.paresConfirmados ?? j.al3pl.confirmadas;
+      partes.push(`${pares} pares descontados en Industher (${j.al3pl.confirmadas} renglones pedido + SKU).`);
+    }
     return partes.join(" ");
   }
 

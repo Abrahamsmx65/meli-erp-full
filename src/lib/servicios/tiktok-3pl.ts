@@ -74,8 +74,12 @@ export async function registrarSalidasDeCorte(
 }
 
 export interface ResultadoEmpuje {
+  /** renglones (pedido + SKU) mandados */
   mandadas: number;
+  /** renglones que el 3PL aceptó */
   confirmadas: number;
+  /** PARES de esos renglones: es lo que se descontó del estante (un renglón de 2 pares descuenta 2) */
+  paresConfirmados: number;
   error: string | null;
   /** el endpoint aún no existe o no está configurado */
   sinEndpoint: boolean;
@@ -99,6 +103,11 @@ export function referenciaDeLote(corteId: number | null | undefined, primerId: n
   return corteId != null ? `TT-CORTE-${corteId}-${primerId}` : `TT-REINTENTO-${primerId}`;
 }
 
+/** Pares que suman unos renglones de salida (un renglón de 2 pares descuenta 2). */
+export function paresDeSalidas(salidas: Array<{ pares: number | null | undefined }>): number {
+  return salidas.reduce((t, s) => t + (Number(s.pares) || 0), 0);
+}
+
 /**
  * Manda al 3PL todas las salidas que todavía no confirma, por lotes hasta
  * que no quede ninguna (o falle uno). Una referencia por lote.
@@ -106,10 +115,10 @@ export function referenciaDeLote(corteId: number | null | undefined, primerId: n
 export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: number): Promise<ResultadoEmpuje> {
   const url = urlSalidasIndusther();
   const config = configuracionIndusther();
-  if (!url || !config) return { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: true };
+  if (!url || !config) return { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: true };
 
   let alias: Map<string, string> | null = null;
-  const total: ResultadoEmpuje = { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false };
+  const total: ResultadoEmpuje = { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: false };
   for (let lote = 0; lote < LOTES_POR_LLAMADA; lote++) {
     let q = db
       .from("tiktok_salidas_3pl")
@@ -136,6 +145,7 @@ export async function empujarSalidasAl3pl(db: DB, accountId: string, corteId?: n
     const r = await mandarLote(db, url, config.apiKey, alias, referenciaDeLote(corteId, pendientes[0].id), pendientes);
     total.mandadas += r.mandadas;
     total.confirmadas += r.confirmadas;
+    total.paresConfirmados += r.paresConfirmados;
     if (r.error) {
       // Un lote que falló se queda marcado con su error y se reintenta en
       // el cron; no tiene caso seguir con el siguiente ahora.
@@ -197,7 +207,14 @@ async function mandarLote(
     .update(ok ? { enviada_en: ahora, confirmada_en: ahora, error: null } : { enviada_en: ahora, error })
     .in("id", ids);
 
-  return { mandadas: pendientes.length, confirmadas: ok ? pendientes.length : 0, error, sinEndpoint: error?.includes("todavía no tiene") ?? false };
+  const pares = paresDeSalidas(pendientes);
+  return {
+    mandadas: pendientes.length,
+    confirmadas: ok ? pendientes.length : 0,
+    paresConfirmados: ok ? pares : 0,
+    error,
+    sinEndpoint: error?.includes("todavía no tiene") ?? false,
+  };
 }
 
 /** Lo que el 3PL ya descontó y lo que le falta, por SKU, para conciliar la foto. */

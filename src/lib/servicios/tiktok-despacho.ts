@@ -182,7 +182,7 @@ export interface ResultadoCorte {
   /** renglones bloqueados que TikTok canceló (defensa): pedido, SKU y pares; `completo` si se canceló todo el pedido */
   cancelados: { orderId: string; sku: string; pares: number; completo: boolean }[];
   /** cómo le fue a la salida hacia el 3PL */
-  al3pl: { mandadas: number; confirmadas: number; error: string | null; sinEndpoint: boolean };
+  al3pl: { mandadas: number; confirmadas: number; paresConfirmados?: number; error: string | null; sinEndpoint: boolean };
   /** true si este corte se UNIÓ a uno de hoy que había dejado pedidos por tiempo (no se abrió otro) */
   unido?: boolean;
 }
@@ -587,7 +587,7 @@ export async function hacerCorte(
       publicados: publicadosSinCorte,
       dropOff,
       cancelados,
-      al3pl: { mandadas: 0, confirmadas: 0, error: null, sinEndpoint: false },
+      al3pl: { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: false },
     };
   }
 
