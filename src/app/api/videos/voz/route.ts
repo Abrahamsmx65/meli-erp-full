@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import {
   abrirSesion,
+  generarContestandoAvisos,
   llamarHerramienta,
   resultadoEstructurado,
 } from "@/lib/higgsfield/mcp";
@@ -46,14 +47,7 @@ export async function POST(req: NextRequest) {
         params.voice_id = String(body.vozId);
         params.voice_type = body?.vozTipo === "element" ? "element" : "preset";
       }
-      let res = await llamarHerramienta(sesion, "generate_audio", { params });
-      let sc = resultadoEstructurado(res);
-      if (sc?.unlim_choice) {
-        res = await llamarHerramienta(sesion, "generate_audio", {
-          params: { ...params, use_unlim: true },
-        });
-        sc = resultadoEstructurado(res);
-      }
+      const sc = await generarContestandoAvisos(sesion, "generate_audio", params);
       if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
       const jobId = sc?.results?.[0]?.id ?? "";
       if (!jobId) {

@@ -5,6 +5,7 @@ import { dispararVideos } from "@/lib/servicios/disparar-videos";
 import { origenReal } from "@/lib/servicios/origen";
 import {
   abrirSesion,
+  generarContestandoAvisos,
   llamarHerramienta,
   resultadoEstructurado,
 } from "@/lib/higgsfield/mcp";
@@ -117,14 +118,7 @@ export async function POST(req: NextRequest) {
       voice_id: vozId,
       voice_type: vozTipo,
     };
-    let res = await llamarHerramienta(sesion, "voice_change", { params });
-    let sc = resultadoEstructurado(res);
-    if (sc?.unlim_choice) {
-      res = await llamarHerramienta(sesion, "voice_change", {
-        params: { ...params, use_unlim: true },
-      });
-      sc = resultadoEstructurado(res);
-    }
+    const sc = await generarContestandoAvisos(sesion, "voice_change", params);
     if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
     requestId = sc?.results?.[0]?.id ?? "";
     if (!requestId) {

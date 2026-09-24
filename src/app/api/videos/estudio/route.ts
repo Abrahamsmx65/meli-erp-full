@@ -5,6 +5,7 @@ import { subirArchivo } from "@/lib/higgsfield/client";
 import { ESTILO_PERSONA } from "@/lib/higgsfield/ugc";
 import {
   abrirSesion,
+  generarContestandoAvisos,
   llamarHerramienta,
   resultadoEstructurado,
   type SesionMCP,
@@ -156,14 +157,7 @@ export async function POST(req: Request) {
         prompt,
         aspect_ratio: "3:4",
       };
-      let res = await llamarHerramienta(sesion, "generate_image", { params });
-      let sc = resultadoEstructurado(res);
-      if (sc?.unlim_choice) {
-        res = await llamarHerramienta(sesion, "generate_image", {
-          params: { ...params, use_unlim: true },
-        });
-        sc = resultadoEstructurado(res);
-      }
+      const sc = await generarContestandoAvisos(sesion, "generate_image", params);
       if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
       const jobId = sc?.results?.[0]?.id ?? "";
       if (!jobId) {
