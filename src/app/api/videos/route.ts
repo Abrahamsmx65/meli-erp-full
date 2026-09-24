@@ -482,7 +482,13 @@ async function generarEstudio(
     if (sc?.error) throw new Error(String(sc.error).slice(0, 300));
     requestId = sc?.results?.[0]?.id ?? "";
     if (!requestId) {
-      throw new Error(`El Studio no devolvió folio: ${JSON.stringify(sc ?? {}).slice(0, 200)}`);
+      // Un AVISO del MCP (por ejemplo `notice.type = preset_recommendation`:
+      // «el prompt se parece al preset X, pregunta si lo usa o genera
+      // literal») no es un folio. Se enseña COMPLETO, con el crudo de la
+      // respuesta: recortado a 200 letras (24-sep-2026, david) no se veía
+      // ni el nombre del preset ni cómo contestarle.
+      const crudo = JSON.stringify(sc ?? res ?? {});
+      throw new Error(`El Studio no devolvió folio: ${crudo.slice(0, 3000)}`);
     }
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 502 });
