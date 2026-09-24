@@ -21,9 +21,10 @@ export function destinoPorOmision(rol: Rol): string {
 
 /**
  * Lo único que alcanza el rol de TikTok: la sección de TikTok, la
- * estación de preparar (que es de TikTok), el login y salir. Los videos
- * de producto se le dieron el 17-sep-2026 y se le quitaron el 18-sep-2026
- * (pedido del dueño; migración 0093 retira sus políticas). Los avisos y
+ * estación de preparar (que es de TikTok), los videos de producto, el
+ * login y salir. Los videos se le dieron el 17-sep-2026, se le quitaron el
+ * 18-sep-2026 (migración 0093) y el dueño se los VOLVIÓ a dar el
+ * 24-sep-2026 (migración 0095 regresa sus políticas). Los avisos y
  * callbacks de máquinas ya son públicos por su cuenta.
  */
 const PREFIJOS_TIKTOK = [
@@ -31,6 +32,8 @@ const PREFIJOS_TIKTOK = [
   "/api/tiktok",
   "/preparar",
   "/api/preparar-publico",
+  "/videos",
+  "/api/videos",
   "/login",
   "/auth",
   "/api/salir",

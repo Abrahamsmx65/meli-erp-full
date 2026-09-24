@@ -1143,11 +1143,13 @@ login, la base y el deploy.
   en el JWT (`auth.users.raw_app_meta_data.rol = 'tiktok'`, que solo
   escribe la base; `user_metadata` NO cuenta) y el middleware manda a
   `/tiktok/despacho` cualquier ruta fuera de `/tiktok`, `/api/tiktok`,
-  `/preparar`, `/api/preparar-publico`, `/login`, `/auth` y `/api/salir`
+  `/preparar`, `/api/preparar-publico`, `/videos`, `/api/videos`, `/login`,
+  `/auth` y `/api/salir`
   (403 en las de API). Los videos de producto se le dieron el 17-sep-2026
-  (migración 0092) y el dueño se los QUITÓ el 18-sep-2026 (migración 0093
-  retira esas políticas; `videos_producto` y `personajes_video` quedan
-  solo con la del dueño); el menú
+  (migración 0092), el dueño se los QUITÓ el 18-sep-2026 (migración 0093)
+  y se los VOLVIÓ A DAR el 24-sep-2026 (migración 0095: `videos_producto`
+  y `personajes_video` aceptan otra vez `es_miembro_tiktok`; `/videos` y
+  `/api/videos` en `PREFIJOS_TIKTOK`); el menú
   solo enseña las entradas que puede abrir (`entradaVisible`). Entra
   con su NOMBRE: el login le pega `@getac.erp` a lo que no trae arroba
   (`DOMINIO_USUARIOS`), correo que no recibe nada. Se creó por SQL directo
