@@ -12,13 +12,13 @@ describe("rol de sesión", () => {
 });
 
 describe("rutas del rol tiktok", () => {
-  it("alcanza TikTok, la estación de preparar, login y salir", () => {
-    for (const r of ["/tiktok", "/tiktok/despacho", "/tiktok/despacho/53/preparar", "/api/tiktok/cortes", "/preparar/abc", "/api/preparar-publico/x/cortes/1/preparar", "/login", "/api/salir"]) {
+  it("alcanza TikTok, la estación de preparar, los videos, login y salir", () => {
+    for (const r of ["/tiktok", "/tiktok/despacho", "/tiktok/despacho/53/preparar", "/api/tiktok/cortes", "/preparar/abc", "/api/preparar-publico/x/cortes/1/preparar", "/videos", "/api/videos/estudio", "/login", "/api/salir"]) {
       expect(rutaPermitida("tiktok", r)).toBe(true);
     }
   });
   it("no alcanza nada más del sistema", () => {
-    for (const r of ["/", "/ventas", "/ventas/cortes", "/inventario", "/api/ventas/cortes", "/amazon", "/yapanizcel", "/cortes", "/tiktoks", "/api/plan/excel", "/videos", "/api/videos/estudio"]) {
+    for (const r of ["/", "/ventas", "/ventas/cortes", "/inventario", "/api/ventas/cortes", "/amazon", "/yapanizcel", "/cortes", "/tiktoks", "/api/plan/excel"]) {
       expect(rutaPermitida("tiktok", r)).toBe(false);
     }
   });
@@ -29,9 +29,9 @@ describe("rutas del rol tiktok", () => {
     expect(destinoPorOmision("tiktok")).toBe("/tiktok/despacho");
     expect(destinoPorOmision("dueño")).toBe("/");
   });
-  it("en el menú solo ve las entradas que puede abrir: TikTok", () => {
+  it("en el menú solo ve las entradas que puede abrir: TikTok y Videos", () => {
     expect(entradaVisible("tiktok", "/tiktok/despacho")).toBe(true);
-    expect(entradaVisible("tiktok", "/videos")).toBe(false);
+    expect(entradaVisible("tiktok", "/videos")).toBe(true);
     expect(entradaVisible("tiktok", "/ventas")).toBe(false);
     expect(entradaVisible("dueño", "/ventas")).toBe(true);
   });
