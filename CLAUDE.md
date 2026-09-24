@@ -451,6 +451,11 @@ guárdala numerada.
   y el resto esperaba al cron (el #36, 866 salidas, 500 descontadas al
   hacerlo y 366 a los diez minutos), y una continuación del mismo corte
   habría repetido la referencia, que el 3PL descarta como duplicada.
+  **El resumen del corte dice PARES descontados, no renglones**
+  (`ResultadoEmpuje.paresConfirmados`, `paresDeSalidas`; 24-sep-2026): una
+  salida al 3PL es un renglón pedido + SKU con sus pares, y el #38 decía
+  «683 salidas descontadas» contra 696 pares confirmados; el dueño leyó
+  que faltaban 13 y eran 13 renglones de dos pares. Todo se descontó.
   **Las etiquetas de un corte grande salen por TOMOS de 200 guías**
   (`PAQUETES_POR_TOMO`, `tomosDeCorte`, `rangoDeTomo` en `tiktok/despacho.ts`;
   `pdfEtiquetasDelCorte(…, tomo)`, `?tomo=n` en `/api/tiktok/cortes/{id}/etiquetas`;
