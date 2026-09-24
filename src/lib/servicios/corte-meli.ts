@@ -762,7 +762,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   // que la reconstrucción le puso de comisión y envío, para que se compare
   // con las ventas normales y la cascada cierre con esos cargos contemplados.
   const reventaInflacion = Math.max(0, reventaTotalComprador - sinDescTotal);
-  if (usarDesglosePorOrden) ventaBruta += reventaInflacion;
+  // Esa alza vive dentro de depósitos YA leídos (la reventa se reconoce por
+  // su pago): cuenta como venta cubierta. Sin esto septiembre 2026 salía con
+  // 71 % de cobertura teniendo el 100 % de los depósitos leídos.
+  if (usarDesglosePorOrden) {
+    ventaBruta += reventaInflacion;
+    importeConNetoReal += reventaInflacion;
+  }
 
   // --- Costo, publicidad y ganancia por modelo -----------------------------
   const filasModelo: RenglonModelo[] = [];

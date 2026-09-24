@@ -756,6 +756,29 @@ describe("ventas en reventa", () => {
     expect(e.utilidadBruta).toBe(306 - 121);
     expect(e.avisos.some((a) => a.includes("REVENTA"))).toBe(true);
   });
+
+  it("la reventa reconstruida al precio público no baja la cobertura del neto (sep-2026: 71 % con todo depositado)", () => {
+    // MELI pagó 200 ya neto; al precio público fue 320. La venta bruta sube
+    // 120, pero ese dinero está dentro de un depósito ya leído: nada falta.
+    const e = armarEstadoResultados(
+      base({
+        ventas: [{ sku: "GT135-TABACO-25", fecha: "2026-09-03", unidades: 1, ordenes: 1, importe: 200, comision: 0, neto: 200 }],
+        desde: "2026-09-01",
+        hasta: "2026-09-07",
+        periodo: "2026-09",
+        ordenes: [{
+          orderId: 1, fecha: "2026-09-03", total: 200, neto: 200, netoActual: null,
+          netoLeido: true, reembolsado: 0, estado: "paid", estadoPago: "approved", revisiones: 2,
+          comisionMp: 80, envio: 40, isr: 0, iva: 0, otrosCargos: 0,
+          cargosSinDesglosar: 0, cargosLeidos: true, tipoVenta: "reventa", totalComprador: 320,
+          renglones: [{ sku: "GT135-TABACO-25", importe: 200, unidades: 1 }],
+        }],
+      }),
+    );
+    expect(e.ventaBruta).toBe(320);
+    expect(e.coberturaNetoReal).toBe(1);
+    expect(e.avisos.join(" ")).not.toContain("todavía no tiene el depósito");
+  });
 });
 
 describe("costo recuperado de devoluciones", () => {
