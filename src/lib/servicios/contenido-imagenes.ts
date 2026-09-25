@@ -47,6 +47,40 @@ interface Pendiente {
   link: string;
 }
 
+/**
+ * Los colores cuyas fotos son EXACTAMENTE las mismas que las de otro color.
+ *
+ * A un color sin fotos propias (los que nunca se publicaron de verdad, o se
+ * despublicaron) Amazon le contesta las fotos de la FAMILIA — o sea las del
+ * color que sí está publicado. Sin este filtro, el ZIP de GT125 bajaba WHITE
+ * y BLK/BROWN llenos de fotos de BROWN (reporte del dueño, 25-sep-2026), y
+ * quien trabaja el contenido habría subido fotos del color equivocado.
+ *
+ * Un juego de fotos idéntico se lo queda UN solo dueño: el color con más
+ * publicaciones vivas (empate: el primero por nombre). Devuelve, para cada
+ * color repetido, el nombre de su dueño.
+ */
+export function fotosRepetidas(
+  colores: { nombre: string; activos: number; links: string[] }[],
+): Map<string, string> {
+  const porHuella = new Map<string, { nombre: string; activos: number }[]>();
+  for (const c of colores) {
+    if (!c.links.length) continue;
+    const huella = [...new Set(c.links)].sort().join("\n");
+    porHuella.set(huella, [...(porHuella.get(huella) ?? []), c]);
+  }
+
+  const repetidos = new Map<string, string>();
+  for (const grupo of porHuella.values()) {
+    if (grupo.length < 2) continue;
+    const [duenio, ...resto] = [...grupo].sort(
+      (a, b) => b.activos - a.activos || a.nombre.localeCompare(b.nombre, "es"),
+    );
+    for (const c of resto) repetidos.set(c.nombre, duenio.nombre);
+  }
+  return repetidos;
+}
+
 export type ResultadoZip =
   | { ok: true; zip: Buffer; nombre: string }
   | { ok: false; error: string; status: number };
@@ -113,11 +147,28 @@ export async function armarZipDeModelo(
   const avisos: string[] = avisoCatalogo ? [avisoCatalogo] : [];
   const pendientes: Pendiente[] = [];
 
+  const repetidas = fotosRepetidas(
+    colores.map((c) => ({
+      nombre: varios ? `${c.modelo} ${c.color}` : c.color,
+      activos: c.activos,
+      links: (c.asin ? (porAsin.get(c.asin) ?? []) : []).map((i) => i.link),
+    })),
+  );
+
   for (const c of colores) {
     // Cuando la publicación junta varios códigos, la carpeta dice de cuál es.
     const nombreColor = varios ? `${c.modelo} ${c.color}` : c.color;
     const carpeta = nombreArchivo(nombreColor) || "COLOR";
     const suyas = c.asin ? (porAsin.get(c.asin) ?? []) : [];
+
+    // Fotos prestadas de otro color: mejor ninguna que las equivocadas.
+    const duenio = repetidas.get(nombreColor);
+    if (duenio) {
+      avisos.push(
+        `${nombreColor}: en Amazon trae exactamente las mismas fotos que ${duenio} — no tiene fotos propias y no se incluye.`,
+      );
+      continue;
+    }
 
     if (suyas.length) {
       suyas.forEach((img, i) => {
