@@ -20,6 +20,7 @@ import { configuracionIndusther, sincronizarInventarioIndusther } from "./indust
 import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { agregarVentasDiarias } from "../tiktok/ventas";
+import { estadoDePago } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
@@ -28,7 +29,8 @@ import {
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
-  liquidacionDePedido,
+  transaccionesDePedido,
+  VERSION_TRANSACCIONES_VIEJA,
   paquetesDePedido,
   pedidosActualizados,
   pedidosPorId,
@@ -1338,52 +1340,90 @@ export async function reamarrarPendientes(
   return resueltos;
 }
 
-/** Estados en los que TikTok ya puede haber liquidado el pedido. */
-const ESTADOS_LIQUIDABLES = ["DELIVERED", "COMPLETED"];
-/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno). */
-const LIQUIDACIONES_POR_CORRIDA = 25;
-/** Un pedido sin liquidar se vuelve a preguntar cada día, no cada 15 min. */
-const REINTENTO_LIQUIDACION_MS = 24 * 3_600_000;
+/** Estados de un pedido EN PIE (pagado y no cancelado): a esos se les pregunta su pago. */
+const ESTADOS_EN_PIE = ["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION", "IN_TRANSIT", "DELIVERED", "COMPLETED", "ON_HOLD"];
+/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno, ~1/s). */
+const LIQUIDACIONES_POR_CORRIDA = 60;
+/** Un pedido del que TikTok aún no tiene transacciones se vuelve a preguntar cada 12 h. */
+const REINTENTO_SIN_DATO_MS = 12 * 3_600_000;
+/** Uno por liquidar se relee cada día: el monto cambia con devoluciones y ajustes. */
+const RELECTURA_POR_LIQUIDAR_MS = 24 * 3_600_000;
+/** Uno ya liquidado se relee cada semana, por si entra un reembolso después. */
+const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
 
 /**
- * Pregunta a finanzas de TikTok cuánto liquidó por cada pedido entregado
- * que todavía no tiene neto. Las muestras no se preguntan (liquidan 0). Si
- * TikTok contesta que no hay permiso, se avisa una vez y se deja de
- * insistir en esta corrida.
+ * Pregunta a finanzas de TikTok cuánto va a pagar por cada pedido EN PIE
+ * (`transaccionesDePedido`, versión 202501: trae también lo no liquidado)
+ * y lo guarda tal cual en `pago_esperado` / `pago_estado` /
+ * `pago_afiliado` / `pago_desglose`; si ya está liquidado, también en
+ * `neto_recibido`. Decisión del dueño (25-sep-2026): nada se estima, es el
+ * número de TikTok. Primero lo nunca leído, luego lo que toca releer. Las
+ * muestras no se preguntan (liquidan 0). Si TikTok contesta que no hay
+ * permiso, se avisa una vez y se deja de insistir en esta corrida.
  */
-export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[]): Promise<number> {
-  const limite = new Date(Date.now() - REINTENTO_LIQUIDACION_MS).toISOString();
+export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[], tope = LIQUIDACIONES_POR_CORRIDA): Promise<number> {
+  const ahoraMs = Date.now();
+  const iso = (ms: number) => new Date(ahoraMs - ms).toISOString();
   const { data } = await db
     .from("tiktok_ordenes")
-    .select("order_id, liquidacion_intento_en")
+    .select("order_id, pago_leido_en, pago_estado")
     .eq("account_id", accountId)
     .eq("es_muestra", false)
-    .in("estado", ESTADOS_LIQUIDABLES)
-    .is("neto_recibido", null)
-    .or(`liquidacion_intento_en.is.null,liquidacion_intento_en.lt.${limite}`)
+    .in("estado", ESTADOS_EN_PIE)
+    .or(
+      [
+        "pago_leido_en.is.null",
+        `and(pago_estado.eq.sin_dato,pago_leido_en.lt.${iso(REINTENTO_SIN_DATO_MS)})`,
+        `and(pago_estado.eq.por_liquidar,pago_leido_en.lt.${iso(RELECTURA_POR_LIQUIDAR_MS)})`,
+        `and(pago_estado.eq.liquidado,pago_leido_en.lt.${iso(RELECTURA_LIQUIDADO_MS)})`,
+      ].join(","),
+    )
+    .order("pago_leido_en", { ascending: true, nullsFirst: true })
     .order("fecha_creacion", { ascending: true })
-    .limit(LIQUIDACIONES_POR_CORRIDA);
+    .limit(tope);
   const pendientes = (data ?? []) as { order_id: string }[];
-  let liquidados = 0;
+  let leidos = 0;
+  let versionVieja = false;
   for (const p of pendientes) {
     if (cliente.msRestantes() < 10_000) break;
     const ahora = new Date().toISOString();
     try {
-      const { liquidacion: liq, crudo } = await liquidacionDePedido(cliente, p.order_id);
+      const { transacciones: t, crudo, version } = await transaccionesDePedido(cliente, p.order_id);
+      if (version === VERSION_TRANSACCIONES_VIEJA) versionVieja = true;
+      const estado = estadoDePago(t);
       // El crudo se guarda aunque no se haya entendido: es la única forma de
       // ver qué contesta TikTok y afinar la lectura.
-      await db
-        .from("tiktok_ordenes")
-        .update(
-          liq
-            ? { neto_recibido: liq.neto, liquidado_en: ahora, liquidacion: liq.crudo, liquidacion_intento_en: ahora }
-            : { liquidacion_intento_en: ahora, liquidacion: crudo ?? null },
-        )
-        .eq("account_id", accountId)
-        .eq("order_id", p.order_id);
-      if (liq) liquidados++;
+      const cambios: Record<string, unknown> = {
+        pago_leido_en: ahora,
+        pago_estado: estado,
+        liquidacion: crudo ?? null,
+      };
+      if (t) {
+        cambios.pago_esperado = t.pago;
+        cambios.pago_afiliado = t.afiliado;
+        cambios.pago_desglose = {
+          version,
+          transacciones: t.transacciones,
+          estados: t.estados,
+          ingreso: t.ingreso,
+          cargos: t.cargos,
+          afiliado: t.afiliado,
+          envio: t.envio,
+          ivaRetenido: t.ivaRetenido,
+          isrRetenido: t.isrRetenido,
+          reembolsos: t.reembolsos,
+          statementId: t.statementId,
+        };
+        if (t.liquidado) {
+          cambios.neto_recibido = t.pago;
+          cambios.liquidado_en = t.liquidadoEn ?? ahora;
+          cambios.liquidacion_intento_en = ahora;
+        }
+      }
+      await db.from("tiktok_ordenes").update(cambios).eq("account_id", accountId).eq("order_id", p.order_id);
+      if (t) leidos++;
     } catch (err) {
-      await db.from("tiktok_ordenes").update({ liquidacion_intento_en: ahora }).eq("account_id", accountId).eq("order_id", p.order_id);
+      await db.from("tiktok_ordenes").update({ pago_leido_en: ahora, pago_estado: "sin_dato" }).eq("account_id", accountId).eq("order_id", p.order_id);
       const e = err as ErrorTikTok;
       // Sin permiso de finanzas (o ruta que no existe): no tiene caso seguir
       // pedido por pedido. Se dice una vez.
@@ -1391,10 +1431,11 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
         avisos.push(`Finanzas de TikTok: ${e.message}. Falta el permiso de finanzas en la app o volver a autorizar la tienda.`);
         break;
       }
-      avisos.push(`Liquidación ${p.order_id}: ${(err as Error).message}`);
+      avisos.push(`Pago del pedido ${p.order_id}: ${(err as Error).message}`);
     }
   }
-  return liquidados;
+  if (versionVieja) avisos.push("Finanzas de TikTok contestó con la versión vieja (202309): solo se ve lo ya liquidado, no lo por liquidar.");
+  return leidos;
 }
 
 /** Supabase se atraganta con upserts enormes; se mandan de 500 en 500. */

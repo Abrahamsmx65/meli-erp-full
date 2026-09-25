@@ -28,6 +28,14 @@ export interface OrdenParaVentas {
   esMuestra?: boolean;
   /** lo que TikTok liquidó por el pedido; null = todavía no */
   netoRecibido?: number | null;
+  /**
+   * Lo que TikTok DICE que va a pagar por el pedido (sus transacciones,
+   * liquidadas o no; `tiktok/liquidacion.ts`); null = TikTok aún no tiene
+   * transacciones del pedido (sin dato). Nunca es una estimación del ERP.
+   */
+  pagoEsperado?: number | null;
+  /** comisión a afiliados/creadores que TikTok descuenta en ese pedido */
+  afiliado?: number | null;
 }
 
 export interface RenglonParaVentas {
@@ -95,43 +103,38 @@ export interface ResumenModelo {
   pedidos: number;
   /** precio de venta al cliente */
   cobrado: number;
-  /** lo que TikTok ya liquidó, repartido entre los renglones del pedido */
-  recibido: number;
-  /** pedidos del modelo que todavía no liquida TikTok */
-  sinLiquidar: number;
-  /** cobrado de los pedidos ya liquidados, para leer la comisión real */
-  cobradoLiquidado: number;
-  /** pares de los pedidos ya liquidados: contra estos se resta el costo */
-  unidadesLiquidadas: number;
-  /** cobrado de los pedidos que TikTok AÚN no liquida: la base del "por cobrar" */
-  cobradoSinLiquidar: number;
-  /** pares de esos pedidos sin liquidar */
-  unidadesSinLiquidar: number;
-  tallas: { sku: string; unidades: number; cobrado: number; recibido: number }[];
+  /**
+   * Lo que TikTok va a pagar por estos pares según SUS transacciones
+   * (liquidadas o por liquidar), repartido entre los renglones del pedido
+   * por precio. Solo de los pedidos con dato.
+   */
+  aRecibir: number;
+  /** la parte de `aRecibir` que TikTok ya liquidó */
+  aRecibirLiquidado: number;
+  /** la parte de `aRecibir` que TikTok tiene por liquidar */
+  aRecibirPorLiquidar: number;
+  /** comisión a afiliados descontada por TikTok en esos pedidos, repartida igual */
+  afiliado: number;
+  /** pares de los pedidos CON dato de TikTok: contra estos se resta el costo */
+  unidadesConDato: number;
+  /** pedidos del modelo de los que TikTok aún no tiene transacciones */
+  pedidosSinDato: number;
+  /** cobrado de esos pedidos sin dato */
+  cobradoSinDato: number;
+  /** pares de esos pedidos sin dato */
+  unidadesSinDato: number;
+  /** pedidos del modelo que TikTok ya liquidó */
+  pedidosLiquidados: number;
+  tallas: { sku: string; unidades: number; cobrado: number; aRecibir: number }[];
 }
 
 /**
- * Cuánto va a pagar TikTok por lo que aún no liquida, ESTIMADO con el
- * porcentaje observado en lo ya liquidado del mismo rango (recibido ÷
- * cobrado liquidado, que ya trae comisión y envío). Sin base observada
- * (nada liquidado) no se estima: null, nunca un invento. Pura.
- */
-export function estimarPorCobrar(modelos: ResumenModelo[]): {
-  ratio: number | null;
-  porCobrar: number | null;
-} {
-  const cobradoLiquidado = modelos.reduce((a, m) => a + m.cobradoLiquidado, 0);
-  const recibido = modelos.reduce((a, m) => a + m.recibido, 0);
-  const sinLiquidar = modelos.reduce((a, m) => a + m.cobradoSinLiquidar, 0);
-  if (!(cobradoLiquidado > 0) || !(recibido > 0)) return { ratio: null, porCobrar: null };
-  const ratio = Math.min(1, recibido / cobradoLiquidado);
-  return { ratio, porCobrar: sinLiquidar * ratio };
-}
-
-/**
- * Ventas del rango por modelo. El neto de un pedido se reparte entre sus
+ * Ventas del rango por modelo. Lo que TikTok va a pagar por un pedido
+ * (liquidado o por liquidar, siempre SU número) se reparte entre sus
  * renglones en proporción al precio (un pedido con dos modelos le da a cada
- * uno su parte). Las muestras y lo cancelado o sin pagar no entran.
+ * uno su parte). Las muestras y lo cancelado o sin pagar no entran: solo
+ * lo que está EN PIE (decisión del dueño, 25-sep-2026: «lo cancelado ni me
+ * lo enseñes»).
  */
 export function resumenPorModelo(
   ordenes: OrdenParaVentas[],
@@ -157,11 +160,16 @@ export function resumenPorModelo(
     else porOrden.set(r.orderId, [r]);
   }
 
-  const modelos = new Map<string, ResumenModelo & { pedidosSet: Set<string>; sinLiquidarSet: Set<string>; tallasMap: Map<string, ResumenModelo["tallas"][number]> }>();
+  type Acum = ResumenModelo & { pedidosSet: Set<string>; sinDatoSet: Set<string>; liquidadosSet: Set<string>; tallasMap: Map<string, ResumenModelo["tallas"][number]> };
+  const modelos = new Map<string, Acum>();
   const de = (modelo: string) => {
     let m = modelos.get(modelo);
     if (!m) {
-      m = { modelo, unidades: 0, pedidos: 0, cobrado: 0, recibido: 0, sinLiquidar: 0, cobradoLiquidado: 0, unidadesLiquidadas: 0, cobradoSinLiquidar: 0, unidadesSinLiquidar: 0, tallas: [], pedidosSet: new Set(), sinLiquidarSet: new Set(), tallasMap: new Map() };
+      m = {
+        modelo, unidades: 0, pedidos: 0, cobrado: 0, aRecibir: 0, aRecibirLiquidado: 0, aRecibirPorLiquidar: 0, afiliado: 0,
+        unidadesConDato: 0, pedidosSinDato: 0, cobradoSinDato: 0, unidadesSinDato: 0, pedidosLiquidados: 0, tallas: [],
+        pedidosSet: new Set(), sinDatoSet: new Set(), liquidadosSet: new Set(), tallasMap: new Map(),
+      };
       modelos.set(modelo, m);
     }
     return m;
@@ -171,39 +179,51 @@ export function resumenPorModelo(
     const o = ordenesValidas.get(orderId) as OrdenParaVentas;
     const cobradoOrden = lista.reduce((a, r) => a + (r.precio ?? 0) * r.cantidad, 0);
     const unidadesOrden = lista.reduce((a, r) => a + r.cantidad, 0);
+    // Lo que TikTok va a pagar por el pedido: lo liquidado si ya liquidó; si
+    // no, lo que sus transacciones dicen que pagará; si no tiene
+    // transacciones todavía, NO hay número (sin dato). Nada se estima.
     const liquidado = o.netoRecibido != null;
+    const pagoPedido = liquidado ? (o.netoRecibido as number) : o.pagoEsperado ?? null;
+    const afiliadoPedido = o.afiliado ?? 0;
     for (const r of lista) {
       const cobrado = (r.precio ?? 0) * r.cantidad;
-      // La parte del neto que le toca al renglón: por precio; si el pedido
+      // La parte del pago que le toca al renglón: por precio; si el pedido
       // no tiene precios, por unidades.
       const parte = cobradoOrden > 0 ? cobrado / cobradoOrden : unidadesOrden > 0 ? r.cantidad / unidadesOrden : 0;
-      const recibido = liquidado ? (o.netoRecibido as number) * parte : 0;
       const m = de(modeloDeSku(r.skuInterno as string));
       m.unidades += r.cantidad;
       m.cobrado += cobrado;
-      m.recibido += recibido;
-      if (liquidado) {
-        m.cobradoLiquidado += cobrado;
-        m.unidadesLiquidadas += r.cantidad;
-      } else {
-        m.cobradoSinLiquidar += cobrado;
-        m.unidadesSinLiquidar += r.cantidad;
-      }
       m.pedidosSet.add(orderId);
-      if (!liquidado) m.sinLiquidarSet.add(orderId);
-      const t = m.tallasMap.get(r.skuInterno as string) ?? { sku: r.skuInterno as string, unidades: 0, cobrado: 0, recibido: 0 };
+      const t = m.tallasMap.get(r.skuInterno as string) ?? { sku: r.skuInterno as string, unidades: 0, cobrado: 0, aRecibir: 0 };
       t.unidades += r.cantidad;
       t.cobrado += cobrado;
-      t.recibido += recibido;
+      if (pagoPedido == null) {
+        m.sinDatoSet.add(orderId);
+        m.cobradoSinDato += cobrado;
+        m.unidadesSinDato += r.cantidad;
+      } else {
+        const aRecibir = pagoPedido * parte;
+        m.aRecibir += aRecibir;
+        if (liquidado) {
+          m.aRecibirLiquidado += aRecibir;
+          m.liquidadosSet.add(orderId);
+        } else {
+          m.aRecibirPorLiquidar += aRecibir;
+        }
+        m.afiliado += afiliadoPedido * parte;
+        m.unidadesConDato += r.cantidad;
+        t.aRecibir += aRecibir;
+      }
       m.tallasMap.set(t.sku, t);
     }
   }
 
   return [...modelos.values()]
-    .map(({ pedidosSet, sinLiquidarSet, tallasMap, ...m }) => ({
+    .map(({ pedidosSet, sinDatoSet, liquidadosSet, tallasMap, ...m }) => ({
       ...m,
       pedidos: pedidosSet.size,
-      sinLiquidar: sinLiquidarSet.size,
+      pedidosSinDato: sinDatoSet.size,
+      pedidosLiquidados: liquidadosSet.size,
       tallas: [...tallasMap.values()].sort((a, b) => a.sku.localeCompare(b.sku, "es", { numeric: true })),
     }))
     .sort((a, b) => b.unidades - a.unidades || a.modelo.localeCompare(b.modelo));

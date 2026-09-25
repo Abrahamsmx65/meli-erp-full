@@ -733,13 +733,43 @@ guárdala numerada.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
-  **Lo recibido** sale de finanzas de TikTok por pedido
-  (`liquidacionDePedido`, `/finance/202309/orders/{id}/statement_transactions`),
-  solo para entregados, 25 por corrida, reintento diario; queda en
-  `neto_recibido` con el crudo en `liquidacion`. Hasta que TikTok liquida,
-  la pantalla dice "sin liquidar", nunca estima. Ventas por MODELO
-  (`resumenPorModelo`): el neto del pedido se reparte por precio entre sus
-  renglones.
+  **Lo que TikTok VA A PAGAR por cada pedido en pie se lee de TikTok, no se
+  calcula** (`tiktok/liquidacion.ts` puro: `interpretarTransacciones`,
+  `estadoDePago`; `transaccionesDePedido` en `tiktok/api.ts`;
+  `liquidarPedidos` en `servicios/tiktok.ts`; migración 0096; decisión del
+  dueño, 25-sep-2026: «no me interesa lo liquidado, me interesa cuánto me
+  van a pagar por cuánto pedido y sumar solo lo que está en pie […] no
+  quiero que me lo calcules tú según estimaciones, sino revisar exactamente
+  cuánto me pagan, y también hay comisiones a afiliados»). TikTok liquida
+  cada pedido ~10 días después de la venta (4 a 15; 1,176 pedidos vistos),
+  así que la versión 202309 del endpoint (`/finance/202309/orders/{id}/
+  statement_transactions`, solo lo YA liquidado) dejaba casi todo el mes en
+  «sin liquidar». La **202501** trae también las transacciones NO
+  liquidadas con su `settlement_amount` y su `status` (SETTLED o no): ese
+  es el número que se enseña, liquidado o por liquidar. Se pregunta por
+  cada pedido EN PIE (`ESTADOS_EN_PIE`: pagado y no cancelado; muestras no),
+  60 por corrida del sync (~1/s), primero lo nunca leído; lo «sin dato»
+  (TikTok aún sin transacciones, pedidos recién creados) se reintenta cada
+  12 h, lo por liquidar se relee cada día (cambia con devoluciones) y lo
+  liquidado cada semana. Queda en `pago_esperado` / `pago_estado`
+  (`liquidado` | `por_liquidar` | `sin_dato`) / `pago_afiliado` /
+  `pago_desglose` (versión, ingreso, cargos, afiliado, envío neto del
+  subsidio, IVA e ISR retenidos, reembolsos) con el crudo en `liquidacion`;
+  `neto_recibido` sigue siendo SOLO lo ya liquidado. Si TikTok contesta que
+  la 202501 no existe (36009004 / 404) se cae a la 202309 y se avisa. La
+  sonda `/api/tiktok/diagnostico/liquidacion?pedido=…` contesta el crudo
+  de las dos versiones sin escribir, y `/api/tiktok/diagnostico/pagos?
+  cuantos=250` lee de un jalón hasta 250 pedidos (para el arranque). La
+  fórmula de TikTok MX, verificada campo por campo en lo liquidado por si
+  hace falta cotejar: comisión 8 % de lo pagado + $6 por par, IVA retenido
+  8 % e ISR 2.5 % sobre la base sin IVA, envío del vendedor (~$19 por
+  renglón, subsidiado por TikTok en ~72 %) y comisión de afiliados (~7 %
+  del pago en el 8 % de los renglones); NO se usa para estimar. **Ventas
+  TikTok** (`resumenPorModelo`, `/tiktok/ventas`): por modelo, «Me paga
+  TikTok» = ese número repartido por precio entre los renglones del pedido
+  (liquidado + por liquidar), afiliados aparte, «sin dato» aparte y fuera
+  de la ganancia (= lo que paga TikTok − costo de los pares con dato); los
+  cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
 
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
