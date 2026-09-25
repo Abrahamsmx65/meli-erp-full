@@ -15,6 +15,7 @@ import type { DB } from "../datos/repos";
 import { clienteAdmin } from "../supabase/server";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
 import { imagenesDeAsins, type ImagenCatalogo } from "../amazon/catalogo";
+import { fotosCapturadasPorSku } from "../amazon/fotos-publicacion";
 import { enRangoContenido, etiquetaGrupo, grupoDeModelo } from "./contenido-amazon";
 
 /**
@@ -113,9 +114,12 @@ export async function armarZipDeModelo(
   const credenciales = (await cuentasAmazon(admin)).find((c) => c.accountId === cuenta.id);
 
   const porAsin = new Map<string, ImagenCatalogo[]>();
+  // Las fotos CAPTURADAS en la publicación, por SKU: el rescate para los
+  // colores a los que el catálogo público les presta las fotos de otro.
+  let capturadas = new Map<string, string[]>();
   let avisoCatalogo: string | null = null;
-  if (credenciales) {
-    const cliente = new Cliente(credenciales, Date.now() + PLAZO_MS);
+  const cliente = credenciales ? new Cliente(credenciales, Date.now() + PLAZO_MS) : null;
+  if (cliente && credenciales) {
     try {
       const primeras = await imagenesDeAsins(
         cliente,
@@ -155,22 +159,42 @@ export async function armarZipDeModelo(
     })),
   );
 
+  // Los colores con fotos prestadas (o sin nada) van al rescate: la API de
+  // publicaciones devuelve lo que el vendedor CAPTURÓ, aunque el listing
+  // esté inactivo — «en la API sí está» (dueño, 25-sep-2026, GT125).
+  const porRescatar = colores.filter((c) => {
+    const nombre = varios ? `${c.modelo} ${c.color}` : c.color;
+    return repetidas.has(nombre) || !(c.asin && porAsin.get(c.asin)?.length);
+  });
+  if (cliente && credenciales?.sellingPartnerId && porRescatar.length) {
+    try {
+      capturadas = await fotosCapturadasPorSku(
+        cliente,
+        credenciales.sellingPartnerId,
+        porRescatar.flatMap((c) => c.sellerSkus.slice(0, 2)),
+      );
+    } catch (err) {
+      avisos.push(
+        `Amazon no entregó las fotos capturadas en las publicaciones (${(err as Error).message}).`,
+      );
+    }
+  }
+  const capturadasDe = (c: { sellerSkus: string[] }): string[] =>
+    c.sellerSkus.map((sku) => capturadas.get(sku.toUpperCase())).find((f) => f?.length) ?? [];
+
   for (const c of colores) {
     // Cuando la publicación junta varios códigos, la carpeta dice de cuál es.
     const nombreColor = varios ? `${c.modelo} ${c.color}` : c.color;
     const carpeta = nombreArchivo(nombreColor) || "COLOR";
     const suyas = c.asin ? (porAsin.get(c.asin) ?? []) : [];
 
-    // Fotos prestadas de otro color: mejor ninguna que las equivocadas.
+    // La página pública le presta a un color sin fotos las del publicado:
+    // esas no se bajan. Lo suyo de verdad son las CAPTURADAS en su
+    // publicación, y de ahí se rescatan.
     const duenio = repetidas.get(nombreColor);
-    if (duenio) {
-      avisos.push(
-        `${nombreColor}: en Amazon trae exactamente las mismas fotos que ${duenio} — no tiene fotos propias y no se incluye.`,
-      );
-      continue;
-    }
+    const rescate = duenio || !suyas.length ? capturadasDe(c) : [];
 
-    if (suyas.length) {
+    if (suyas.length && !duenio) {
       suyas.forEach((img, i) => {
         const orden = String(i + 1).padStart(2, "0");
         pendientes.push({
@@ -179,6 +203,22 @@ export async function armarZipDeModelo(
           link: img.link,
         });
       });
+    } else if (rescate.length) {
+      avisos.push(
+        `${nombreColor}: no está publicado con fotos propias en la página; van las capturadas en su publicación.`,
+      );
+      rescate.forEach((link, i) => {
+        const orden = String(i + 1).padStart(2, "0");
+        pendientes.push({
+          carpeta,
+          nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} ${orden}${i === 0 ? " MAIN" : ""}${extension(link)}`,
+          link,
+        });
+      });
+    } else if (duenio) {
+      avisos.push(
+        `${nombreColor}: en la página trae las mismas fotos que ${duenio} y su publicación no tiene fotos capturadas — no hay fotos propias que bajar.`,
+      );
     } else if (c.imagenUrl) {
       avisos.push(`${nombreColor}: Amazon no devolvió sus fotos; va solo la principal del listado.`);
       pendientes.push({
