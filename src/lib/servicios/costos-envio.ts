@@ -87,6 +87,8 @@ export interface EnvioReal {
   mediana: number;
   /** pedidos que tuvieron alguna hermana al mismo precio con qué compararse */
   comparables: number;
+  /** pedidos que pagaron más de $5 sobre lo normal de las hermanas */
+  ordenesDeMas: number;
   /** pesos pagados de más en la ventana (solo diferencias mayores a $5 por pedido) */
   pagadoDeMas: number;
   /** mediana de (cobrado − normal) en los comparables; negativo = paga menos que las hermanas */
@@ -129,6 +131,12 @@ export interface ModeloRevisado {
 
 /** Con menos pedidos comparables el veredicto real no vale: manda el simulador. */
 const MIN_COMPARABLES = 2;
+/**
+ * Un solo pedido con envío doble casi siempre es un carrito cuya otra orden
+ * no está registrada, no una medida mal capturada: para señalar una talla
+ * hacen falta al menos dos pedidos que hayan pagado de más.
+ */
+const MIN_ORDENES_DE_MAS = 2;
 
 // ---------------------------------------------------------------------------
 // Lectura de los atributos de MELI
@@ -332,7 +340,9 @@ export function armarRevision(
     // Manda lo real: una variante con ventas comparables es mala solo si de
     // verdad pagó de más. Sin ventas en la ventana, vale lo que dice el
     // simulador (es lo único que hay, y avisa de lo que va a pasar al vender).
-    const malas = revisadas.filter((v) => (v.conVentas ? v.pagadoDeMas > 0 : v.sobrecosto > 0));
+    const malas = revisadas.filter((v) =>
+      v.conVentas ? v.pagadoDeMas > 0 && (v.envioReal?.ordenesDeMas ?? 0) >= MIN_ORDENES_DE_MAS : v.sobrecosto > 0,
+    );
     const redondear = (n: number) => Math.round(n * 100) / 100;
     salida.push({
       modelo,
@@ -946,6 +956,7 @@ interface FilaEnvioReal {
   unidades: number;
   mediana: number | string;
   comparables: number;
+  ordenes_de_mas: number;
   pagado_de_mas: number | string;
   de_mas_por_venta: number | string | null;
   ultimos: { fecha: string; total: number; envio: number; normal: number | null; hermanas: number }[] | null;
@@ -960,6 +971,7 @@ export function armarEnviosReales(filas: FilaEnvioReal[]): Map<string, EnvioReal
       unidades: Number(f.unidades),
       mediana: Number(f.mediana),
       comparables: Number(f.comparables),
+      ordenesDeMas: Number(f.ordenes_de_mas ?? 0),
       pagadoDeMas: Number(f.pagado_de_mas),
       deMasPorVenta: f.de_mas_por_venta == null ? null : Number(f.de_mas_por_venta),
       ultimos: (f.ultimos ?? []).map((u) => ({

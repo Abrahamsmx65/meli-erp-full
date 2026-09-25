@@ -211,11 +211,19 @@ guárdala numerada.
   contra los pedidos de sus hermanas AL MISMO PRECIO por unidad —el envío
   cambia con el precio del pedido: la misma talla pagó $59.60, $67.60 y $76
   el mismo día en reventa, y abajo de $299 la medida casi no pesa— y lo
-  pagado de más es la diferencia mayor a $5, pedido por pedido, en 60 días.
-  El GT229-TABACO BROWN-24 (28 × 25 × 25 en MELI, $152 vs $76 en el
-  simulador) pagó en 26 ventas lo mismo que sus hermanas: NO cobra de más.
-  Con ≥2 pedidos comparables manda lo real (`conVentas`); sin ventas, el
-  simulador. La pantalla enseña los DOS últimos cobros por variante con el
+  pagado de más es la diferencia mayor a $5, pedido por pedido, en 60 días
+  (los ±$1–2 entre tallas son normales: una talla grande pesa más). **Solo
+  pedidos que VIAJARON SOLOS**: un carrito es un pack de varias órdenes que
+  comparten UN envío y `/shipments/{id}/costs` le pone el paquete completo a
+  cada orden (GT114: solo $39, con otro producto $80, con dos más $121…); la
+  primera versión marcó 53 tallas del GT114 con $38 mil "de más" por eso.
+  Y una talla se señala solo con ≥2 pedidos de más (`MIN_ORDENES_DE_MAS`):
+  uno solo con envío doble es un carrito a medias. El GT229-TABACO BROWN-24
+  (28 × 25 × 25 en MELI, $152 vs $76 en el simulador) pagó en 26 ventas lo
+  mismo que sus hermanas: NO cobra de más. Con ≥2 pedidos comparables manda
+  lo real (`conVentas`); sin ventas, el simulador. El RPC no hace self-join
+  (el planificador sin estadísticas del CTE se iba a minutos): la mediana de
+  las hermanas sale de un arreglo por ventana, 1.5 s en 60 días. La pantalla enseña los DOS últimos cobros por variante con el
   precio del pedido y lo que pagaron las hermanas a ese precio. Sonda sin
   escribir: `/api/costos-envio/diagnostico?sku=…` (item, variación, user
   product, `/items/{id}/shipping_options/free`, simulador a cada precio y

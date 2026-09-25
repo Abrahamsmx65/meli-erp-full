@@ -238,11 +238,18 @@ describe("ventas reales contra el simulador", () => {
     base("GT229-TAB-26", [9, 23.6, 27.2, 620], 76),
     base("GT229-TAB-27", [10.2, 29.6, 30.2, 560], 139.5), // "mal medida" según el simulador
   ];
-  const real = (ordenes: number, comparables: number, pagadoDeMas: number, ultimos: [number, number | null][]) => ({
+  const real = (
+    ordenes: number,
+    comparables: number,
+    pagadoDeMas: number,
+    ultimos: [number, number | null][],
+    ordenesDeMas = pagadoDeMas > 0 ? 2 : 0,
+  ) => ({
     ordenes,
     unidades: ordenes,
     mediana: 67.6,
     comparables,
+    ordenesDeMas,
     pagadoDeMas,
     deMasPorVenta: 0,
     ultimos: ultimos.map(([envio, normal]) => ({ fecha: "2026-09-24", total: 222.25, envio, normal, hermanas: 12 })),
@@ -274,6 +281,14 @@ describe("ventas reales contra el simulador", () => {
     expect(m.pagadoDeMas).toBe(123.4);
   });
 
+  it("un solo pedido con envío doble no señala la talla: suele ser un carrito a medias", () => {
+    const reales = new Map([["GT229-TAB-25", real(8, 8, 39, [[78, 39], [39, 39]], 1)]]);
+    const [m] = armarRevision(lista, reales);
+    expect(m.malas.map((v) => v.sku)).not.toContain("GT229-TAB-25");
+    // pero el dinero sí se enseña
+    expect(m.variantes.find((v) => v.sku === "GT229-TAB-25")!.pagadoDeMas).toBe(39);
+  });
+
   it("con una sola venta comparable no hay veredicto real: sigue el simulador", () => {
     const reales = new Map([["GT229-TAB-24", real(1, 1, 0, [[67.6, 67.6]])]]);
     const [m] = armarRevision(lista, reales);
@@ -289,6 +304,7 @@ describe("ventas reales contra el simulador", () => {
         unidades: 3,
         mediana: "67.6",
         comparables: 2,
+        ordenes_de_mas: 1,
         pagado_de_mas: "41",
         de_mas_por_venta: null,
         ultimos: [{ fecha: "2026-09-24", total: 499, envio: 193, normal: 152, hermanas: 4 }],
@@ -299,6 +315,7 @@ describe("ventas reales contra el simulador", () => {
       unidades: 3,
       mediana: 67.6,
       comparables: 2,
+      ordenesDeMas: 1,
       pagadoDeMas: 41,
       deMasPorVenta: null,
       ultimos: [{ fecha: "2026-09-24", total: 499, envio: 193, normal: 152, hermanas: 4 }],
