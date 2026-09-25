@@ -7,6 +7,7 @@ import { NOMBRE_CANAL, type Canal } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
+import { Frescura } from "@/components/yapanizcel/comunes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -59,6 +60,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
           gastos generales de cada plataforma (Full, FBA, colecta, devoluciones netas, otros cargos) se dividen entre las
           unidades vendidas en esa plataforma, así cada modelo y categoría carga su parte y la ganancia es la real.
         </p>
+        <Frescura generadoEn={cns.generadoEn} />
       </div>
 
       <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">

@@ -844,6 +844,18 @@ guárdala numerada.
   vendidas en esa plataforma (`cargoPorUnidad`) y cada modelo y categoría
   carga su parte. El total del canal cuadra con su corte individual. Excel
   con hoja por canal (`consolidado-excel.ts`).
+  **Se mastica POR ATRÁS** (`refrescarConsolidadosDeFondo`, cron
+  `/api/cron/consolidado` cada 10 min, candado `consolidado`; dueño,
+  24-sep-2026: «toma como 5 minutos en lo que cuadran los números desde que
+  lo abro»): antes solo se recalculaba al abrir /cortes. La pantalla dice de
+  cuándo son los datos (`Frescura`).
+  **Amazon: lo asentado que aún no se deposita SÍ cuenta** (misma fecha):
+  la liquidación en curso entra al neto como dinero por cobrar, una
+  liquidación que descuadra se declara con su diferencia y NO tumba lo
+  demás; la cobertura del neto de Amazon es 1 con eventos leídos y `exacto`
+  sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
+  reconstruida al precio público cuenta como venta cubierta (antes
+  septiembre salía con 71 % teniendo todos los depósitos leídos).
 - **El dinero de Amazon EXACTO sale de la Finances API por grupo de
   liquidación** (`amazon/finanzas.ts` + `finanzas-sync.ts`, tablas
   `amazon_finanzas_grupos` / `amazon_finanzas_eventos`, migración 0071, cron

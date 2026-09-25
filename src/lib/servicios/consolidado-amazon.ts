@@ -87,15 +87,28 @@ function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<st
   if (v.promociones) descuentos.push({ concepto: "Promociones absorbidas", monto: redondea(-v.promociones) });
   if (v.otrasTarifas) descuentos.push({ concepto: "Otras tarifas por renglón", monto: redondea(-v.otrasTarifas) });
 
+  // Regla del dueño (24-sep-2026): lo que Amazon ya asentó pero todavía no
+  // deposita (la liquidación en curso) SÍ cuenta, y una liquidación que
+  // descuadra no tumba lo demás: el dinero leído queda en pie y lo pendiente
+  // se declara. La cobertura del neto es la de los eventos leídos; `exacto`
+  // sigue exigiendo todo cerrado y cuadrado.
   const cob = real.cobertura;
+  const porPagar = cob.grupos.filter((g) => g.estado !== "Closed").reduce((a, g) => a + (g.sumaEventos ?? g.totalOriginal ?? 0), 0);
+  const notas: string[] = [];
+  if (cob.abiertos) notas.push("incluye liquidación en curso (por depositar)");
+  if (cob.descuadrados) notas.push(`${cob.descuadrados} liquidación(es) con descuadre declarado`);
+  if (cob.incompletos) notas.push(`${cob.incompletos} liquidación(es) a medio leer`);
+  if (cob.abiertos && porPagar) {
+    avisos.push(`Amazon: la liquidación en curso lleva ${redondea(porPagar).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} asentados que Amazon todavía no deposita; ya están en el neto y la utilidad como dinero por cobrar.`);
+  }
   return {
     canal: "amazon",
     unidades: v.unidades,
     ordenes: v.eventos,
     ventaBruta: v.bruto,
     neto: real.netoProductos,
-    fuenteNeto: cob.completa ? "Finances API · fecha de asiento · liquidaciones cerradas y cuadradas" : "Finances API · fecha de asiento · liquidación en curso",
-    coberturaNeto: cob.completa ? 1 : null,
+    fuenteNeto: cob.completa ? "Finances API · fecha de asiento · liquidaciones cerradas y cuadradas" : `Finances API · fecha de asiento · ${notas.join(" · ")}`,
+    coberturaNeto: 1,
     descuentos,
     desglosePlataforma: { comision: redondea(-v.comision), envio: redondea(-v.fba), isr: 0, iva: redondea(-v.retenido), otros: redondea(-(v.promociones + v.otrasTarifas)) },
     desgloseDisponible: true,

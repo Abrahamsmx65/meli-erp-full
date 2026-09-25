@@ -75,7 +75,7 @@ describe("armarFinanzasAmazon", () => {
     expect(f.exacto).toBe(false);
     expect(f.avisos.join(" ")).toMatch(/en curso/);
     expect(f.avisos.join(" ")).toMatch(/a medio leer/);
-    expect(f.avisos.join(" ")).toMatch(/NO da el total/);
+    expect(f.avisos.join(" ")).toMatch(/descuadra por/);
     expect(f.avisos.join(" ")).toMatch(/no sabe leer/);
   });
 });

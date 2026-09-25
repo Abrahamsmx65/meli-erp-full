@@ -252,7 +252,13 @@ export function armarFinanzasAmazon(
   if (!grupos.length) avisos.push("Amazon: todavía no hay liquidaciones leídas para este periodo (la ingesta de la Finances API corre cada 10 minutos).");
   if (abiertos) avisos.push("Amazon: la liquidación en curso aún no cierra; sus eventos entran conforme Amazon los asienta y el total puede crecer.");
   if (incompletos) avisos.push(`Amazon: ${incompletos} liquidación(es) cerrada(s) todavía a medio leer: faltan eventos del periodo.`);
-  if (descuadrados) avisos.push(`Amazon: ${descuadrados} liquidación(es) cuya suma de eventos NO da el total que Amazon depositó: hay dinero sin clasificar.`);
+  for (const g of grupos.filter((x) => x.cuadra === false)) {
+    const dif = r2((g.totalOriginal ?? 0) - (g.sumaEventos ?? 0));
+    const dia = (t: string | null) => (t ? t.slice(0, 10) : "hoy");
+    avisos.push(
+      `Amazon: la liquidación del ${dia(g.inicio)} al ${dia(g.fin)} descuadra por ${Math.abs(dif).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}: Amazon depositó ${(g.totalOriginal ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} y sus eventos suman ${(g.sumaEventos ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}. Las cifras usan los eventos; solo esa diferencia queda sin clasificar.`,
+    );
+  }
   if (sinClasificar) avisos.push(`Amazon: ${sinClasificar} evento(s) de un tipo que el ERP no sabe leer; su monto no está en ninguna cifra.`);
   const coberturaCosto = unidadesVendidas > 0 ? unidadesConCosto / unidadesVendidas : 0;
   if (unidadesVendidas > 0 && coberturaCosto < 0.999) avisos.push(`Amazon: ${Math.round((1 - coberturaCosto) * 100)}% de las unidades vendidas son de modelos sin costo capturado; su ganancia no se calcula.`);

@@ -3,7 +3,7 @@
  * Amazon del mismo mes, y el consolidado. Cada canal que falle o no exista
  * se declara en los avisos en vez de tumbar la pantalla.
  */
-import { cuentaActiva, type Cuenta, type DB } from "../datos/repos";
+import { conCandado, cuentaActiva, RecursoOcupadoError, type Cuenta, type DB } from "../datos/repos";
 import { cuentaActiva as cuentaYz } from "../yapanizcel/cuenta";
 import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
 import { obtenerMonitorAmazon } from "./amazon-monitor";
@@ -11,7 +11,7 @@ import { cuentaAmazon } from "./amazon";
 import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
-import { cargarEstadoResultados, rangoDelPeriodo } from "./corte-meli";
+import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 import { listarGastosEmpresariales } from "./gastos-empresariales";
@@ -273,6 +273,82 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
   }
 
   return recalcularConsolidado(db, cuenta, periodo);
+}
+
+/**
+ * Un solo recálculo de fondo a la vez por cuenta. El candado es de
+ * service_role (`candados_trabajo`), así que solo lo toma el cron; el
+ * refresco que lanza la pantalla con la sesión del dueño sigue sin él.
+ */
+const CANDADO_CONSOLIDADO = "consolidado";
+
+/** Recalcula con candado; `null` si otro recálculo ya lo está haciendo. */
+async function recalcularConCandado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado | null> {
+  try {
+    return await conCandado(db, cuenta.id, CANDADO_CONSOLIDADO, 290, () => recalcularConsolidado(db, cuenta, periodo));
+  } catch (err) {
+    if (err instanceof RecursoOcupadoError) return null;
+    throw err;
+  }
+}
+
+export interface RefrescoConsolidado {
+  periodo: string;
+  refrescado: boolean;
+  motivo: string;
+  ms?: number;
+  error?: string;
+}
+
+/**
+ * El corte general masticado POR ATRÁS (cron `/api/cron/consolidado` cada
+ * 10 min; decisión del dueño, 24-sep-2026): antes solo se recalculaba cuando
+ * alguien abría /cortes, así que la pantalla enseñaba el renglón de hace
+ * horas y los números «cuadraban» unos minutos después. Refresca el mes
+ * corriente y el anterior con la misma política que la pantalla
+ * (`corteNecesitaRefresco`): el corriente cada 10 min, el cerrado casi
+ * congelado.
+ */
+export async function refrescarConsolidadosDeFondo(
+  db: DB,
+  cuenta: Cuenta,
+  opts: { periodos?: string[]; /** no arranca otro mes después de esta hora (ms) */ limite?: number } = {},
+): Promise<RefrescoConsolidado[]> {
+  const hoy = periodoActual();
+  const lista = opts.periodos ?? [hoy, periodoAnterior(hoy)];
+  const resultados: RefrescoConsolidado[] = [];
+  for (const periodo of lista) {
+    const { data } = await db
+      .from("consolidado_cache")
+      .select("datos, generado_en, vigente")
+      .eq("account_id", cuenta.id)
+      .eq("periodo", periodo)
+      .maybeSingle();
+    const guardado = data?.datos ? leerConsolidadoCache(data.datos) : null;
+    const motivo = !guardado
+      ? "sin renglón guardado"
+      : // Tres minutos de adelanto: con el cron cada 10 min, un renglón de
+        // 9 min 50 s no llegaba a «viejo» y se refrescaba cada 20.
+        data && corteNecesitaRefresco(periodo, data.generado_en, data.vigente ?? true, Date.now() + 3 * 60_000)
+        ? data.vigente === false ? "invalidado" : "viejo"
+        : null;
+    if (!motivo) {
+      resultados.push({ periodo, refrescado: false, motivo: "al día" });
+      continue;
+    }
+    if (opts.limite && Date.now() > opts.limite) {
+      resultados.push({ periodo, refrescado: false, motivo: `${motivo}; sin tiempo en esta corrida, va en la siguiente` });
+      continue;
+    }
+    const t0 = Date.now();
+    try {
+      const r = await recalcularConCandado(db, cuenta, periodo);
+      resultados.push({ periodo, refrescado: r != null, motivo: r ? motivo : "otro recálculo en curso", ms: Date.now() - t0 });
+    } catch (err) {
+      resultados.push({ periodo, refrescado: false, motivo, error: (err as Error).message });
+    }
+  }
+  return resultados;
 }
 
 export interface CorteGeneralGuardado {
