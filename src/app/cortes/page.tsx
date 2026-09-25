@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { nombreDelPeriodo, periodoActual, periodoAnterior, periodoSiguiente, validarPeriodo } from "@/lib/servicios/corte-meli";
-import { leerConsolidadoGuardado, leerMismosDiasGuardado, listarCortesGenerales, obtenerConsolidado } from "@/lib/servicios/consolidado-cargar";
+import { nombreDelPeriodo, periodoActual, periodoAnterior, validarPeriodo } from "@/lib/servicios/corte-meli";
+import { leerConsolidadoGuardado, leerMismosDiasGuardado, listarCortesGenerales, obtenerConsolidado, periodosDesde, PRIMER_PERIODO_CORTES } from "@/lib/servicios/consolidado-cargar";
 import { compararMeses } from "@/lib/servicios/consolidado-comparar";
 import { fechaMx } from "@/lib/servicios/ventas-monitor";
 import { ComparacionMensualVista } from "@/components/comparacion-mensual";
@@ -75,15 +75,23 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </div>
 
       <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        <Link href={`/cortes?mes=${periodoAnterior(periodo)}`} className="rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--borde)" }}>
-          ← {nombreDelPeriodo(periodoAnterior(periodo))}
-        </Link>
-        <span className="text-base font-semibold">{nombreDelPeriodo(periodo)}</span>
-        {periodo < hoy ? (
-          <Link href={`/cortes?mes=${periodoSiguiente(periodo)}`} className="rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--borde)" }}>
-            {nombreDelPeriodo(periodoSiguiente(periodo))} →
-          </Link>
-        ) : null}
+        {/* Todos los meses a la vista (dueño, 25-sep-2026: «elegir, no pasar de mes en mes»). */}
+        <nav aria-label="Mes del corte" className="flex flex-wrap gap-1.5">
+          {periodosDesde(PRIMER_PERIODO_CORTES, hoy).map((p) => {
+            const activo = p === periodo;
+            return (
+              <Link
+                key={p}
+                href={`/cortes?mes=${p}`}
+                aria-current={activo ? "page" : undefined}
+                className="rounded-full border px-3 py-1 text-xs font-medium capitalize"
+                style={activo ? { background: "var(--acento)", borderColor: "var(--acento)", color: "#fff" } : { borderColor: "var(--borde)" }}
+              >
+                {nombreDelPeriodo(p)}
+              </Link>
+            );
+          })}
+        </nav>
         <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
           {cns.desde} → {cns.hasta}
         </span>

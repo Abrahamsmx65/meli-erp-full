@@ -299,11 +299,14 @@ export async function leerConsolidadoGuardado(db: DB, cuenta: Cuenta, periodo: s
   }
 }
 
-/** `periodo` menos `n` meses (YYYY-MM). */
-function restarMeses(periodo: string, n: number): string {
-  let p = periodo;
-  for (let i = 0; i < n; i++) p = periodoAnterior(p);
-  return p;
+/** El primer mes con corte general (decisión del dueño: desde el inicio del año). */
+export const PRIMER_PERIODO_CORTES = "2026-01";
+
+/** Los periodos YYYY-MM de `desde` a `hasta`, en orden. */
+export function periodosDesde(desde: string, hasta: string): string[] {
+  const lista: string[] = [];
+  for (let p = hasta; p >= desde; p = periodoAnterior(p)) lista.unshift(p);
+  return lista;
 }
 
 /**
@@ -403,9 +406,10 @@ export async function refrescarConsolidadosDeFondo(
   opts: { periodos?: string[]; /** no arranca otro mes después de esta hora (ms) */ limite?: number } = {},
 ): Promise<RefrescoConsolidado[]> {
   const hoy = periodoActual();
-  // El corriente, y los cinco anteriores para que cada mes cerrado tenga
-  // contra qué compararse (un cerrado casi no cambia: se rehace a las 6 h).
-  const lista = opts.periodos ?? [hoy, ...Array.from({ length: 5 }, (_, i) => restarMeses(hoy, i + 1))];
+  // El corriente y todos los anteriores hasta el inicio del año, para que
+  // cualquier mes que se elija ya esté masticado y tenga contra qué
+  // compararse (un cerrado casi no cambia: se rehace a las 6 h).
+  const lista = opts.periodos ?? periodosDesde(PRIMER_PERIODO_CORTES, hoy).reverse();
   const resultados: RefrescoConsolidado[] = [];
   for (const [i, periodo] of lista.entries()) {
     // Justo después del mes corriente: los mismos días del anterior, para

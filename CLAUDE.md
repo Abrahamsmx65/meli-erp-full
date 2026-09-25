@@ -860,8 +860,10 @@ guárdala numerada.
   facturación de MELI en ese día, y el cron lo guarda en `app_cache`
   (`consolidado-mismos-dias:v1:{periodo}:{hasta}`). Mientras no exista,
   queda el RITMO por día como respaldo. Los meses cerrados se comparan
-  contra el anterior completo; el cron mantiene calculados el corriente
-  y los CINCO anteriores para que siempre haya contra qué. Todo solo se
+  contra el anterior completo; el cron mantiene calculados TODOS los meses
+  desde `PRIMER_PERIODO_CORTES` (enero 2026) para que siempre haya contra
+  qué, y arriba de /cortes salen todos esos meses para elegir (dueño,
+  25-sep-2026: «elegir todo, no pasar de mes en mes»). Todo solo se
   LEE en la pantalla (`leerConsolidadoGuardado`, `leerMismosDiasGuardado`).
   **Amazon: lo asentado que aún no se deposita SÍ cuenta** (misma fecha):
   la liquidación en curso entra al neto como dinero por cobrar, una
@@ -872,13 +874,14 @@ guárdala numerada.
   septiembre salía con 71 % teniendo todos los depósitos leídos).
 - **Órdenes viejas sin registrar** (`reparar-ordenes.ts`, cron
   `/api/cron/reparar-ordenes` cada 10 min, tarea `reparacion_ordenes_v1`
-  en `sync_log`; dueño, 25-sep-2026): la reparación de agosto solo llegó
+  en `sync_log`, hoy `reparacion_ordenes_v2` hasta `FONDO_REPARAR_ORDENES`
+  = 1-ene-2026 por decisión del dueño; dueño, 25-sep-2026): la reparación de agosto solo llegó
   60 días atrás y del 1 al 19 de junio el calzado no tenía NINGUNA orden
   en `ordenes_neto` (~12,600 órdenes, $2.8 millones fuera del neto; el
   corte de junio salía con 29 %). Barre un día a la vez con
   `recalcularDiaVentas` (150 órdenes con pago real por barrido) y se queda
   en el día mientras registre órdenes nuevas; luego pasa al anterior,
-  hasta `FONDO_RECARGA_CARGOS`. Un barrido que MELI contesta degradado se
+  hasta el fondo. La v1 (junio) dejó el 1-jun al 19-jun al 100 %. Un barrido que MELI contesta degradado se
   anota en la bitácora y se sigue. Invalida el corte del mes que toca.
 - **El dinero de Amazon EXACTO sale de la Finances API por grupo de
   liquidación** (`amazon/finanzas.ts` + `finanzas-sync.ts`, tablas
