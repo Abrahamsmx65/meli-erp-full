@@ -58,6 +58,13 @@ describe("partirEnHojas", () => {
     expect(hojas.map((h) => h.paquetes.length)).toEqual([1, 1, 1]);
   });
 
+  it("la cabecera más alta de la primera hoja del modelo también cuenta", () => {
+    // alto 60: la primera hoja cuesta 35 de fijo (caben 2), las demás 25 (caben 3).
+    const paquetes = Array.from({ length: 8 }, () => paq(["GT114-BEIGE-23-MX", 1]));
+    const hojas = partirEnHojas(paquetes, 60, costoPaquete, (s, i) => costoFijo(s) + (i === 0 ? 10 : 0));
+    expect(hojas.map((h) => h.paquetes.length)).toEqual([2, 3, 3]);
+  });
+
   it("sin paquetes no hay hojas", () => {
     expect(partirEnHojas([], 100, costoPaquete, costoFijo)).toEqual([]);
   });

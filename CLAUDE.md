@@ -338,7 +338,12 @@ guárdala numerada.
   «SURTIR PARA ESTA HOJA» con un renglón por modelo + color y sus tallas
   con pares («GT114 BEIGE  23 ×2  24 ×4  25 ×1  26 ×6 = 13»), se surte eso
   y luego se empaca la hoja completa; un paquete nunca se parte entre
-  hojas y el bloque de surtido cuenta en lo que cabe. La lista de
+  hojas y el bloque de surtido cuenta en lo que cabe. La línea del corte
+  (fecha, paquetes, resumen por modelo) va SOLO en la primera hoja y el
+  título grande del modelo solo en su primera hoja; las de continuación
+  llevan una línea («Corte #39 · lista de empaque · GT114», a la derecha
+  «GT114: hoja 2 de 4 · hoja 2 de 16»; dueño, 25-sep-2026: «esto no lo
+  tienes que repetir en cada hoja»). La lista de
   SURTIDO del corte completo (`pdfSurtidoDelCorte`: pares por SKU en orden
   alfabético para jalar de bodega) se queda por si hace falta. **El orden del corte es: PRIMERO todo lo de UN SOLO
   MODELO y al final lo REVUELTO** (`esDeUnModelo`, `numerarPaquetes`;
