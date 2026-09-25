@@ -849,6 +849,15 @@ guárdala numerada.
   24-sep-2026: «toma como 5 minutos en lo que cuadran los números desde que
   lo abro»): antes solo se recalculaba al abrir /cortes. La pantalla dice de
   cuándo son los datos (`Frescura`).
+  **Cada mes contra el anterior** (`consolidado-comparar.ts`,
+  `components/comparacion-mensual.tsx`; dueño, 25-sep-2026: «si el mes
+  creció o decreció contra el mes pasado, más que nada en unidades y
+  ganancia»): unidades y ganancia por canal y total con su %, y la
+  utilidad neta final. Con el mes EN CURSO el total se compara contra un
+  mes completo, así que va también el RITMO por día (lo del mes ÷ días
+  cerrados, hasta ayer, contra el anterior ÷ sus días). El mes anterior
+  solo se LEE de `consolidado_cache` (`leerConsolidadoGuardado`); si
+  nunca se calculó, la pantalla lo dice y no lo estrena en el clic.
   **Amazon: lo asentado que aún no se deposita SÍ cuenta** (misma fecha):
   la liquidación en curso entra al neto como dinero por cobrar, una
   liquidación que descuadra se declara con su diferencia y NO tumba lo

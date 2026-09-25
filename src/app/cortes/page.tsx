@@ -2,7 +2,10 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { nombreDelPeriodo, periodoActual, periodoAnterior, periodoSiguiente, validarPeriodo } from "@/lib/servicios/corte-meli";
-import { listarCortesGenerales, obtenerConsolidado } from "@/lib/servicios/consolidado-cargar";
+import { leerConsolidadoGuardado, listarCortesGenerales, obtenerConsolidado } from "@/lib/servicios/consolidado-cargar";
+import { compararMeses } from "@/lib/servicios/consolidado-comparar";
+import { fechaMx } from "@/lib/servicios/ventas-monitor";
+import { ComparacionMensualVista } from "@/components/comparacion-mensual";
 import { NOMBRE_CANAL, type Canal } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
@@ -43,7 +46,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   }
   // El consolidado vive en consolidado_cache (10 min): correr los tres
   // canales completos en cada visita costaba hasta 300 s de función.
-  const [cns, cortes] = await Promise.all([obtenerConsolidado(supabase, cuenta, periodo), listarCortesGenerales(supabase, cuenta.id)]);
+  const [cns, cortes, anterior] = await Promise.all([
+    obtenerConsolidado(supabase, cuenta, periodo),
+    listarCortesGenerales(supabase, cuenta.id),
+    // El mes anterior solo se LEE: si nunca se ha calculado no se estrena aquí.
+    leerConsolidadoGuardado(supabase, cuenta, periodoAnterior(periodo)),
+  ]);
+  const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0)) : null;
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   const canales: Canal[] = cns.canales.map((k) => k.canal);
   const detalleCanal = (k: (typeof cns.canales)[number], campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
@@ -93,6 +102,14 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <Ficha titulo="Gastos empresariales" valor={pesos(-cns.total.gastosEmpresariales)} nota="se descuentan una sola vez" tono={cns.total.gastosEmpresariales > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Utilidad neta final" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
       </div>
+
+      {comparacion ? (
+        <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
+      ) : (
+        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))}: ese mes todavía no se ha calculado. Ábrelo una vez y la comparación aparece aquí.
+        </p>
+      )}
 
       {/* ---- Por canal ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
