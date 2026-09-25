@@ -24,7 +24,9 @@ import { enRangoContenido, etiquetaGrupo, grupoDeModelo } from "./contenido-amaz
 const PLAZO_MS = 45_000;
 /** Deja de bajar imágenes cuando quede menos que esto para armar el ZIP. */
 const RESERVA_MS = 8_000;
-const MAX_IMAGENES = 80;
+// MY2307 junta 21 colores en una publicación: con ~7 fotos por color el ZIP
+// completo ronda las 150. El tope de tiempo y el de bytes siguen mandando.
+const MAX_IMAGENES = 200;
 const MAX_BYTES = 60 * 1024 * 1024;
 const EN_PARALELO = 5;
 
@@ -76,15 +78,30 @@ export async function armarZipDeModelo(
   const admin = clienteAdmin();
   const credenciales = (await cuentasAmazon(admin)).find((c) => c.accountId === cuenta.id);
 
-  let porAsin = new Map<string, ImagenCatalogo[]>();
+  const porAsin = new Map<string, ImagenCatalogo[]>();
   let avisoCatalogo: string | null = null;
   if (credenciales) {
     const cliente = new Cliente(credenciales, Date.now() + PLAZO_MS);
     try {
-      porAsin = await imagenesDeAsins(
+      const primeras = await imagenesDeAsins(
         cliente,
         colores.map((c) => c.asin).filter((a): a is string => Boolean(a)),
       );
+      for (const [asin, fotos] of primeras) porAsin.set(asin, fotos);
+
+      // Un color agotado o borrado puede tener un ASIN que el catálogo ya no
+      // contesta; las fotos son las mismas en cualquier talla, así que se
+      // reintenta con sus otras tallas antes de darlo por perdido.
+      const sinFotos = colores.filter(
+        (c) => c.asin && !porAsin.get(c.asin)?.length && c.asinsExtra.length,
+      );
+      if (sinFotos.length) {
+        const extras = await imagenesDeAsins(cliente, sinFotos.flatMap((c) => c.asinsExtra));
+        for (const c of sinFotos) {
+          const alterno = c.asinsExtra.find((a) => extras.get(a)?.length);
+          if (alterno && c.asin) porAsin.set(c.asin, extras.get(alterno)!);
+        }
+      }
     } catch (err) {
       avisoCatalogo = `Amazon no entregó el catálogo de imágenes (${(err as Error).message}).`;
     }

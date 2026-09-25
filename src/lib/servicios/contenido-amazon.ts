@@ -92,6 +92,12 @@ export interface ColorModelo {
   /** Tal como lo escribió Amazon: "BLK", "DK BROWN", "BLK/RED". */
   color: string;
   asin: string | null;
+  /**
+   * Otras tallas del mismo color, por si el ASIN elegido ya no contesta en el
+   * catálogo de Amazon (pasa con los colores agotados o borrados): las fotos
+   * son las mismas en cualquier talla.
+   */
+  asinsExtra: string[];
   url: string | null;
   imagenUrl: string | null;
   skus: number;
@@ -285,11 +291,16 @@ export function armarContenido(
     const colores: ColorModelo[] = [...m.colores.values()]
       .map((c) => {
         const t = mejor(c.tallas);
+        const asin = t?.asin ?? null;
+        const asinsExtra = [
+          ...new Set(c.tallas.map((x) => x.asin).filter((a): a is string => Boolean(a && a !== asin))),
+        ].slice(0, 3);
         return {
           modelo,
           color: c.color,
-          asin: t?.asin ?? null,
-          url: urlAmazon(t?.asin ?? null, pais),
+          asin,
+          asinsExtra,
+          url: urlAmazon(asin, pais),
           imagenUrl: c.imagenUrl,
           skus: c.skus,
           activos: c.activos,
@@ -437,15 +448,42 @@ export async function leerCatalogo(
   }
 
   if (!faltaTablaListings) {
+    // Lo que vendió alguna vez y ya no viene en el reporte (una publicación
+    // borrada, como GT210 completo) no puede desaparecer de la sección: entra
+    // como inactivo, con el ASIN que quedó de las órdenes, y sus fotos siguen
+    // bajándose mientras Amazon las sirva. SOLO cuando el reporte trae datos:
+    // un catálogo válidamente vacío se respeta tal cual, sin inventarle
+    // historia encima.
+    const enListings = new Set(listings.map((f) => String(f.seller_sku ?? "")));
+    const borrados = !listings.length
+      ? ([] as any[])
+      : (
+          await traerTodo<any>(
+            db,
+            "amazon_skus",
+            "seller_sku, asin, titulo, estado",
+            acotar,
+          ).catch(() => [] as any[])
+        ).filter((f) => !enListings.has(String(f.seller_sku ?? "")));
     return {
       sinRefrescar: false,
-      filas: listings.map((f) => ({
-        sellerSku: String(f.seller_sku ?? ""),
-        asin: f.asin ?? null,
-        titulo: f.titulo ?? null,
-        estado: f.estado ?? null,
-        imagenUrl: f.imagen_url ?? null,
-      })),
+      filas: [
+        ...listings.map((f) => ({
+          sellerSku: String(f.seller_sku ?? ""),
+          asin: f.asin ?? null,
+          titulo: f.titulo ?? null,
+          estado: f.estado ?? null,
+          imagenUrl: f.imagen_url ?? null,
+        })),
+        ...borrados.map((f) => ({
+          sellerSku: String(f.seller_sku ?? ""),
+          asin: f.asin ?? null,
+          titulo: f.titulo ?? null,
+          // Si Amazon ya no la reporta, viva no está.
+          estado: "Inactive",
+          imagenUrl: null,
+        })),
+      ],
     };
   }
 

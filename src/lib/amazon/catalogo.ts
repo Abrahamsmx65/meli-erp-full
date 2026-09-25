@@ -74,6 +74,10 @@ async function porLotes(
             identifiersType: "ASIN",
             marketplaceIds: cliente.cuenta.marketplaceId,
             includedData,
+            // Sin esto Amazon contesta 10 por omisión y se traga la mitad del
+            // lote SIN avisar: así se perdían los colores del final (el
+            // agotado de GT110, la mitad de los 21 de MY2307…).
+            pageSize: POR_LLAMADA,
           },
         },
       );

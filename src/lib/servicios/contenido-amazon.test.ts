@@ -262,6 +262,22 @@ describe("armarContenido", () => {
     expect(color.asin).toBe("A-GT160-BLK-25-MX");
   });
 
+  // Las fotos son las mismas en cualquier talla: si el ASIN elegido de un
+  // color agotado ya no contesta, el ZIP reintenta con estas.
+  it("cada color guarda otras tallas de respaldo para las fotos", () => {
+    const filas = [
+      fila("GT160-BLK-22-MX", "Inactive"),
+      fila("GT160-BLK-25-MX"),
+      fila("GT160-BLK-26-MX"),
+    ];
+    const color = armar(filas).modelos[0].colores[0];
+    expect(color.asin).toBe("A-GT160-BLK-25-MX");
+    expect(color.asinsExtra).toEqual(
+      expect.arrayContaining(["A-GT160-BLK-22-MX", "A-GT160-BLK-26-MX"]),
+    );
+    expect(color.asinsExtra).not.toContain(color.asin);
+  });
+
   it("el link del modelo apunta al color con más publicaciones vivas", () => {
     const gt128 = armar().modelos.find((m) => m.modelo === "GT128")!;
     expect(gt128.url).toBe("https://www.amazon.com.mx/dp/A-GT128-23-BLK-MX");
