@@ -820,7 +820,7 @@ guárdala numerada.
   de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
   distinto según la URL. Se trabaja SOLO en
   `https://meli-erp-full.vercel.app`. El candado es
-  `Consolidado.versionContable` (hoy 3): al cambiar las reglas del dinero se
+  `Consolidado.versionContable` (hoy 4; subió el 25-sep-2026 con la cobertura nueva): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
   recalcula en vez de enseñarse.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
