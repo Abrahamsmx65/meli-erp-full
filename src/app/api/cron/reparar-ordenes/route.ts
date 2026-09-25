@@ -12,8 +12,8 @@ const PLAZO_MS = 220_000;
 
 /**
  * Registra hacia atrás las órdenes de calzado que nunca entraron a
- * `ordenes_neto` (junio 2026), un día a la vez, cada 10 minutos
- * (vercel.json). Cuando llega al fondo se marca completo y ya no hace nada.
+ * `ordenes_neto` (desde enero 2026), un día a la vez
+ * (vercel.json, cada 5 min). Cuando llega al fondo se marca completo y ya no hace nada.
  * Mismo secreto que /api/cron/plan.
  */
 export async function GET(req: NextRequest) {
