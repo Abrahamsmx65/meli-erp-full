@@ -1407,6 +1407,7 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
           estados: t.estados,
           ingreso: t.ingreso,
           cargos: t.cargos,
+          comision: t.comision,
           afiliado: t.afiliado,
           envio: t.envio,
           ivaRetenido: t.ivaRetenido,
