@@ -329,9 +329,18 @@ guárdala numerada.
   INTERCALADOS gris y blanco para no perder la línea, la cantidad de más
   de un par en un recuadro sombreado, el pedido en texto y un paquete con
   varios renglones en recuadro negro con su total; el escaneo se hace con
-  la guía y con la caja—, y la lista de
-  SURTIDO (`pdfSurtidoDelCorte`): pares por SKU en orden alfabético para
-  jalar de bodega. **El orden del corte es: PRIMERO todo lo de UN SOLO
+  la guía y con la caja—. **Cada MODELO empieza en su propia hoja y cada
+  hoja trae ARRIBA lo que hay que surtir para ESA hoja** (`tiktok/empaque.ts`
+  motor puro: `partirEnHojas`, `surtidoDeHoja`, `renglonesDeTallas`;
+  `tiktok/empaque-pdf.ts` dibuja sin base; decisión del dueño, 25-sep-2026:
+  «la lista de surtido no la estamos ocupando porque es demasiado junto
+  sacar todo lo que hay y nada más se hace más bolas»): un recuadro
+  «SURTIR PARA ESTA HOJA» con un renglón por modelo + color y sus tallas
+  con pares («GT114 BEIGE  23 ×2  24 ×4  25 ×1  26 ×6 = 13»), se surte eso
+  y luego se empaca la hoja completa; un paquete nunca se parte entre
+  hojas y el bloque de surtido cuenta en lo que cabe. La lista de
+  SURTIDO del corte completo (`pdfSurtidoDelCorte`: pares por SKU en orden
+  alfabético para jalar de bodega) se queda por si hace falta. **El orden del corte es: PRIMERO todo lo de UN SOLO
   MODELO y al final lo REVUELTO** (`esDeUnModelo`, `numerarPaquetes`;
   decisión del dueño el 14-sep-2026: «así se me hace más fácil despachar o
   preparar pedidos más rápido»). Un paquete de una pieza, de dos pares del
