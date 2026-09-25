@@ -498,8 +498,12 @@ export async function sincronizarMedidas(
   // llamadas simultáneas pasaron 16 y 4 contestaron 429. Cinco en vuelo
   // avanza cinco veces más rápido y los rebotes ocasionales los absorbe el
   // reintento con espera del cliente, que respeta el Retry-After de MELI.
+  // Las medidas se llevan hasta el 70 % del tiempo: el resto es para los
+  // precios de venta, que si no nunca arrancaban (con 1,110 user products
+  // por leer, cada pasada se acababa antes de llegar a ellos).
+  const limiteMedidas = limite * 0.7;
   await enLotes(cola, 5, async ([up, grupo]) => {
-    if (Date.now() - arranque > limite) {
+    if (Date.now() - arranque > limiteMedidas) {
       pendientes += grupo.length;
       return;
     }
@@ -640,14 +644,21 @@ interface RespuestaSimulador {
   coverage?: {
     all_country?: {
       list_cost?: number | null;
+      cost?: number | null;
       billable_weight?: number | null;
+      discount?: unknown;
     } | null;
   } | null;
 }
 
 export interface Tarifa {
+  /** `list_cost`: el costo de lista del envío para el vendedor */
   costo: number | null;
   pesoFacturable: number | null;
+  /** `cost`: lo que MELI dice que paga el vendedor ya con sus descuentos, si lo manda */
+  costoConDescuento?: number | null;
+  /** la respuesta cruda de `coverage.all_country`, para la sonda */
+  crudo?: unknown;
 }
 
 /**
@@ -679,6 +690,8 @@ export async function preguntarTarifa(
   return {
     costo: typeof c?.list_cost === "number" ? c.list_cost : null,
     pesoFacturable: typeof c?.billable_weight === "number" ? c.billable_weight : null,
+    costoConDescuento: typeof c?.cost === "number" ? c.cost : null,
+    crudo: c,
   };
 }
 
