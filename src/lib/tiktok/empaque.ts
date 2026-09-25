@@ -64,16 +64,16 @@ export interface Hoja<T> {
 
 /**
  * Reparte los paquetes de UN modelo en hojas. Un paquete nunca se parte;
- * cabe en la hoja si el costo fijo de la hoja (cabecera + bloque de
- * surtido, que crece con los colores que lleva) más lo que ocupan sus
- * paquetes no pasa de `alto`. Si un paquete solo no cabe ni en una hoja
+ * cabe en la hoja si el costo fijo de la hoja (cabecera, que depende de
+ * qué hoja del modelo es, + bloque de surtido, que crece con los colores
+ * que lleva) más lo que ocupan sus paquetes no pasa de `alto`. Si un paquete solo no cabe ni en una hoja
  * vacía, va de todos modos: mejor que se salga que perderlo.
  */
 export function partirEnHojas<T extends ConPares>(
   paquetes: T[],
   alto: number,
   costoPaquete: (p: T) => number,
-  costoFijo: (surtido: LineaSurtido[]) => number,
+  costoFijo: (surtido: LineaSurtido[], indiceHoja: number) => number,
 ): Hoja<T>[] {
   const hojas: Hoja<T>[] = [];
   let actual: T[] = [];
@@ -81,7 +81,9 @@ export function partirEnHojas<T extends ConPares>(
   for (const p of paquetes) {
     const candidato = [...actual, p];
     const surtido = surtidoDeHoja(candidato);
-    const total = costoFijo(surtido) + ocupado + costoPaquete(p);
+    // La cabecera de la primera hoja del modelo es más alta (título y, en
+    // la primera del corte, su resumen): el costo fijo sabe qué hoja es.
+    const total = costoFijo(surtido, hojas.length) + ocupado + costoPaquete(p);
     if (actual.length && total > alto) {
       hojas.push({ paquetes: actual, surtido: surtidoDeHoja(actual) });
       actual = [p];

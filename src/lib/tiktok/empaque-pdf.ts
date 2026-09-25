@@ -32,8 +32,12 @@ const ANCHO = CARTA[0] - 2 * M;
 const COL = [30, 118, 190, 44, ANCHO - 30 - 118 - 190 - 44 - 18, 18];
 const XS = COL.reduce<number[]>((acc, w, i) => [...acc, (acc[i - 1] ?? M) + (i ? COL[i - 1] : 0)], []);
 const FILA = 16;
-/** Lo que mide la cabecera de la hoja (corte, modelo) más el encabezado de la tabla. */
-const ALTO_CABECERA = 16 + 14 + 18 + 4 + FILA;
+/** La cabecera de una hoja de continuación (una línea) más el encabezado de la tabla. */
+const ALTO_CABECERA = 18 + 4 + FILA;
+/** Lo que agrega el título grande del modelo en su primera hoja. */
+const ALTO_TITULO_MODELO = 20;
+/** Lo que agrega la línea del corte (fecha, paquetes, resumen) en la primera hoja del corte. */
+const ALTO_LINEA_CORTE = 14;
 /** El bloque de surtido: título, un renglón por línea, márgenes. */
 const SURTIDO_TITULO = 13;
 const SURTIDO_RENGLON = 14;
@@ -61,12 +65,20 @@ export async function pdfListaDeEmpaque(corte: CorteParaLista): Promise<Uint8Arr
     s.reduce((n, l) => n + Math.max(1, renglonesDeTallas(l.tallas, anchoTallas, medirTallas).length), 0);
   const altoSurtido = (s: LineaSurtido[]) =>
     SURTIDO_TITULO + renglonesSurtido(s) * SURTIDO_RENGLON + 2 * SURTIDO_MARGEN + SURTIDO_HUECO;
-  const costoFijo = (s: LineaSurtido[]) => ALTO_CABECERA + altoSurtido(s);
+  // La línea del corte (fecha, paquetes, resumen por modelo) va SOLO en la
+  // primera hoja y el título grande del modelo solo en la primera hoja de
+  // ese modelo; las de continuación llevan una sola línea de cabecera
+  // (dueño, 25-sep-2026: «esto no lo tienes que repetir en cada hoja»).
+  const costoFijoDe = (iGrupo: number) => (s: LineaSurtido[], iHoja: number) =>
+    ALTO_CABECERA +
+    (iHoja === 0 ? ALTO_TITULO_MODELO : 0) +
+    (iGrupo === 0 && iHoja === 0 ? ALTO_LINEA_CORTE : 0) +
+    altoSurtido(s);
   const costoPaquete = (p: PaqueteNumerado) => FILA * Math.max(1, p.pares.length);
   const altoUtil = CARTA[1] - 2 * M;
 
   // Primero se planean TODAS las hojas (para saber «hoja X de Y»), luego se dibujan.
-  const plan = grupos.map((g) => ({ grupo: g, hojas: partirEnHojas(g.paquetes, altoUtil, costoPaquete, costoFijo) }));
+  const plan = grupos.map((g, iGrupo) => ({ grupo: g, hojas: partirEnHojas(g.paquetes, altoUtil, costoPaquete, costoFijoDe(iGrupo)) }));
   const totalHojas = plan.reduce((n, p) => n + p.hojas.length, 0);
   const totalPares = grupos.reduce((a, g) => a + g.pares, 0);
   const fecha = new Date(corte.creadoEn).toLocaleString("es-MX", {
@@ -75,24 +87,33 @@ export async function pdfListaDeEmpaque(corte: CorteParaLista): Promise<Uint8Arr
   const resumen = grupos.map((g) => `${g.modelo} ${g.pares}`).join("  ·  ");
 
   let hojaN = 0;
-  for (const { grupo: g, hojas } of plan) {
+  plan.forEach(({ grupo: g, hojas }, iGrupo) => {
     hojas.forEach((hoja, i) => {
       hojaN++;
       const pagina = doc.addPage(CARTA);
       let y = CARTA[1] - M;
       const titulo = g.revuelto ? `${g.modelo.toUpperCase()} (varios modelos en la misma caja)` : g.modelo;
+      const primeraDelModelo = i === 0;
+      const primeraDelCorte = iGrupo === 0 && i === 0;
 
-      // Cabecera: el corte, y el modelo con su hoja.
-      pagina.drawText(`Corte #${corte.numero} · TikTok Shop · lista de empaque`, { x: M, y, size: 11, font: negrita });
-      const derecha = `hoja ${hojaN} de ${totalHojas}`;
+      // Cabecera de una línea: el corte y, en una hoja de continuación, el
+      // modelo; a la derecha, qué hoja es (del modelo y del corte).
+      const izquierda = primeraDelModelo
+        ? `Corte #${corte.numero} · TikTok Shop · lista de empaque`
+        : `Corte #${corte.numero} · lista de empaque · ${titulo}`;
+      pagina.drawText(izquierda, { x: M, y, size: 11, font: negrita });
+      const derecha = (hojas.length > 1 ? `${titulo}: hoja ${i + 1} de ${hojas.length}   ·   ` : "") + `hoja ${hojaN} de ${totalHojas}`;
       pagina.drawText(derecha, { x: M + ANCHO - normal.widthOfTextAtSize(derecha, 9), y, size: 9, font: normal, color: gris });
-      y -= 16;
-      pagina.drawText(recorta(`${fecha}   ·   ${corte.paquetes.length} paquetes   ·   ${totalPares} pares   ·   ${resumen}`, ANCHO, 8, normal), { x: M, y, size: 8, font: normal, color: gris });
-      y -= 14;
-      const paresHoja = hoja.surtido.reduce((a, l) => a + l.pares, 0);
-      const deModelo = hojas.length > 1 ? `  ·  hoja ${i + 1} de ${hojas.length} del modelo` : "";
-      pagina.drawText(`${titulo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}${deModelo}`, { x: M, y, size: 13, font: negrita });
       y -= 18;
+      if (primeraDelCorte) {
+        pagina.drawText(recorta(`${fecha}   ·   ${corte.paquetes.length} paquetes   ·   ${totalPares} pares   ·   ${resumen}`, ANCHO, 8, normal), { x: M, y, size: 8, font: normal, color: gris });
+        y -= ALTO_LINEA_CORTE;
+      }
+      if (primeraDelModelo) {
+        pagina.drawText(`${titulo}  —  ${g.pares} ${g.pares === 1 ? "par" : "pares"} en ${g.paquetes.length} ${g.paquetes.length === 1 ? "paquete" : "paquetes"}${hojas.length > 1 ? `  ·  ${hojas.length} hojas` : ""}`, { x: M, y, size: 13, font: negrita });
+        y -= ALTO_TITULO_MODELO;
+      }
+      const paresHoja = hoja.surtido.reduce((a, l) => a + l.pares, 0);
 
       // Bloque de surtido de ESTA hoja.
       y = dibujarSurtido(pagina, hoja, paresHoja, y, normal, negrita, anchoTallas, medirTallas);
@@ -103,7 +124,7 @@ export async function pdfListaDeEmpaque(corte: CorteParaLista): Promise<Uint8Arr
         y = dibujarPaquete(pagina, p, iPaquete, y, normal, negrita);
       });
     });
-  }
+  });
 
   return doc.save();
 }
