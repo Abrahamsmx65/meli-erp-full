@@ -1342,8 +1342,19 @@ export async function reamarrarPendientes(
 
 /** Estados de un pedido EN PIE (pagado y no cancelado): a esos se les pregunta su pago. */
 const ESTADOS_EN_PIE = ["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION", "IN_TRANSIT", "DELIVERED", "COMPLETED", "ON_HOLD"];
-/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno, ~1/s). */
-const LIQUIDACIONES_POR_CORRIDA = 60;
+/**
+ * Los que YA SALIERON: TikTok solo publica transacciones de un pedido
+ * después de que se envía (25-sep-2026: 246 pedidos del día, por surtir o
+ * esperando al repartidor, contestaron todos `total_count: 0`). Estos van
+ * primero; los que aún no salen se preguntan al final, por si acaso.
+ */
+const ESTADOS_CON_TRANSACCIONES = ["PARTIALLY_SHIPPING", "IN_TRANSIT", "DELIVERED", "COMPLETED", "ON_HOLD"];
+/**
+ * Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada
+ * uno, ~1/s). El tope real lo pone el tiempo que le quede a la corrida
+ * (`msRestantes`); este número solo evita una consulta enorme.
+ */
+const LIQUIDACIONES_POR_CORRIDA = 250;
 /** Un pedido del que TikTok aún no tiene transacciones se vuelve a preguntar cada 12 h. */
 const REINTENTO_SIN_DATO_MS = 12 * 3_600_000;
 /** Uno por liquidar se relee cada día: el monto cambia con devoluciones y ajustes. */
@@ -1357,31 +1368,39 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
  * y lo guarda tal cual en `pago_esperado` / `pago_estado` /
  * `pago_afiliado` / `pago_desglose`; si ya está liquidado, también en
  * `neto_recibido`. Decisión del dueño (25-sep-2026): nada se estima, es el
- * número de TikTok. Primero lo nunca leído, luego lo que toca releer. Las
- * muestras no se preguntan (liquidan 0). Si TikTok contesta que no hay
- * permiso, se avisa una vez y se deja de insistir en esta corrida.
+ * número de TikTok. Primero lo nunca leído (los que ya salieron, y dentro
+ * de eso lo más nuevo), luego lo que toca releer. Las muestras no se
+ * preguntan (liquidan 0). Si TikTok contesta que no hay permiso, se avisa
+ * una vez y se deja de insistir en esta corrida.
  */
 export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[], tope = LIQUIDACIONES_POR_CORRIDA): Promise<number> {
   const ahoraMs = Date.now();
   const iso = (ms: number) => new Date(ahoraMs - ms).toISOString();
-  const { data } = await db
-    .from("tiktok_ordenes")
-    .select("order_id, pago_leido_en, pago_estado")
-    .eq("account_id", accountId)
-    .eq("es_muestra", false)
-    .in("estado", ESTADOS_EN_PIE)
-    .or(
-      [
-        "pago_leido_en.is.null",
-        `and(pago_estado.eq.sin_dato,pago_leido_en.lt.${iso(REINTENTO_SIN_DATO_MS)})`,
-        `and(pago_estado.eq.por_liquidar,pago_leido_en.lt.${iso(RELECTURA_POR_LIQUIDAR_MS)})`,
-        `and(pago_estado.eq.liquidado,pago_leido_en.lt.${iso(RELECTURA_LIQUIDADO_MS)})`,
-      ].join(","),
-    )
-    .order("pago_leido_en", { ascending: true, nullsFirst: true })
-    .order("fecha_creacion", { ascending: true })
-    .limit(tope);
-  const pendientes = (data ?? []) as { order_id: string }[];
+  const filtroPendientes = [
+    "pago_leido_en.is.null",
+    `and(pago_estado.eq.sin_dato,pago_leido_en.lt.${iso(REINTENTO_SIN_DATO_MS)})`,
+    `and(pago_estado.eq.por_liquidar,pago_leido_en.lt.${iso(RELECTURA_POR_LIQUIDAR_MS)})`,
+    `and(pago_estado.eq.liquidado,pago_leido_en.lt.${iso(RELECTURA_LIQUIDADO_MS)})`,
+  ].join(",");
+  const candidatos = async (estados: string[], limite: number) => {
+    if (limite <= 0) return [] as { order_id: string }[];
+    const { data } = await db
+      .from("tiktok_ordenes")
+      .select("order_id")
+      .eq("account_id", accountId)
+      .eq("es_muestra", false)
+      .in("estado", estados)
+      .or(filtroPendientes)
+      // Lo nunca leído primero y, dentro de eso, lo MÁS NUEVO primero: la
+      // pantalla se mira por los últimos días y tiene que llenarse por ahí.
+      .order("pago_leido_en", { ascending: true, nullsFirst: true })
+      .order("fecha_creacion", { ascending: false })
+      .limit(limite);
+    return (data ?? []) as { order_id: string }[];
+  };
+  const salidos = await candidatos(ESTADOS_CON_TRANSACCIONES, tope);
+  const sinSalir = await candidatos(ESTADOS_EN_PIE.filter((e) => !ESTADOS_CON_TRANSACCIONES.includes(e)), tope - salidos.length);
+  const pendientes = [...salidos, ...sinSalir];
   let leidos = 0;
   let versionVieja = false;
   for (const p of pendientes) {
