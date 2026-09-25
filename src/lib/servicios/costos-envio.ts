@@ -588,7 +588,7 @@ export interface Tarifa {
  * El costo depende del vendedor (su nivel y sus descuentos), de las medidas y
  * del precio de la publicación, así que la caché lleva las tres cosas.
  */
-async function preguntarTarifa(
+export async function preguntarTarifa(
   cliente: MeliClient,
   meliUserId: number,
   m: Medida,
