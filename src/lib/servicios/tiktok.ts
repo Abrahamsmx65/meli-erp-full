@@ -1342,8 +1342,12 @@ export async function reamarrarPendientes(
 
 /** Estados de un pedido EN PIE (pagado y no cancelado): a esos se les pregunta su pago. */
 const ESTADOS_EN_PIE = ["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING", "AWAITING_COLLECTION", "IN_TRANSIT", "DELIVERED", "COMPLETED", "ON_HOLD"];
-/** Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada uno, ~1/s). */
-const LIQUIDACIONES_POR_CORRIDA = 60;
+/**
+ * Cuántos pedidos se le preguntan a finanzas por corrida (una llamada cada
+ * uno, ~1/s). El tope real lo pone el tiempo que le quede a la corrida
+ * (`msRestantes`); este número solo evita una consulta enorme.
+ */
+const LIQUIDACIONES_POR_CORRIDA = 250;
 /** Un pedido del que TikTok aún no tiene transacciones se vuelve a preguntar cada 12 h. */
 const REINTENTO_SIN_DATO_MS = 12 * 3_600_000;
 /** Uno por liquidar se relee cada día: el monto cambia con devoluciones y ajustes. */
@@ -1378,8 +1382,12 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
         `and(pago_estado.eq.liquidado,pago_leido_en.lt.${iso(RELECTURA_LIQUIDADO_MS)})`,
       ].join(","),
     )
+    // Lo nunca leído primero y, dentro de eso, lo MÁS NUEVO primero: la
+    // pantalla se mira por los últimos días y tiene que llenarse por ahí
+    // (25-sep-2026: leyendo del 1-sep hacia adelante, la semana en curso
+    // seguía toda «sin dato» horas después).
     .order("pago_leido_en", { ascending: true, nullsFirst: true })
-    .order("fecha_creacion", { ascending: true })
+    .order("fecha_creacion", { ascending: false })
     .limit(tope);
   const pendientes = (data ?? []) as { order_id: string }[];
   let leidos = 0;
