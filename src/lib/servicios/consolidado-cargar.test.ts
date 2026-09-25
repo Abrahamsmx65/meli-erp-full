@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { armarConsolidado, type BloqueCanal } from "./consolidado";
-import { canalesPerdidos, leerConsolidadoCache, normalizarConsolidadoCache } from "./consolidado-cargar";
+import { canalesPerdidos, leerConsolidadoCache, normalizarConsolidadoCache, periodosDesde } from "./consolidado-cargar";
 import { marcarTipos } from "./plan-fba-cache";
 
 describe("esquema de consolidado_cache", () => {
@@ -110,5 +110,12 @@ describe("un recálculo no puede perder un canal", () => {
 
   it("sin renglón guardado no hay nada que conservar", () => {
     expect(canalesPerdidos(null, conCanales(["amazon"]))).toEqual([]);
+  });
+});
+
+describe("periodosDesde", () => {
+  it("todos los meses del inicio del año al corriente, en orden", () => {
+    expect(periodosDesde("2026-01", "2026-04")).toEqual(["2026-01", "2026-02", "2026-03", "2026-04"]);
+    expect(periodosDesde("2026-01", "2026-01")).toEqual(["2026-01"]);
   });
 });

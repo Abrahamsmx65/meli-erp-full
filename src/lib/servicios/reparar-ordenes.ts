@@ -10,16 +10,20 @@
  * siempre: pide el día a MELI y registra hasta 150 órdenes con su pago real
  * de Mercado Pago— y se queda en ese día mientras siga registrando órdenes
  * nuevas. Cuando un barrido ya no agrega ninguna, el día está completo y
- * pasa al anterior, hasta `FONDO_RECARGA_CARGOS`. Corre en el cron
+ * pasa al anterior, hasta `FONDO_REPARAR_ORDENES`. Corre en el cron
  * `/api/cron/reparar-ordenes` con presupuesto de reloj; el avance vive en
  * `sync_log` (tarea `TAREA_REPARAR_ORDENES`).
  */
 import type { DB } from "../datos/repos";
 import { invalidarCortesDePeriodos } from "./corte-invalidar";
-import { FONDO_RECARGA_CARGOS } from "./devoluciones";
 import { clienteDeCuenta, recalcularDiaVentas } from "./webhooks";
 
-export const TAREA_REPARAR_ORDENES = "reparacion_ordenes_v1";
+// v2: el dueño la extendió al inicio del año (25-sep-2026); la v1 terminó
+// junio y arrancaba del 1-jun.
+export const TAREA_REPARAR_ORDENES = "reparacion_ordenes_v2";
+
+/** Hasta dónde hacia atrás se registran órdenes (decisión del dueño: todo el año). */
+export const FONDO_REPARAR_ORDENES = "2026-01-01";
 
 export interface EstadoReparacion {
   /** el día que toca barrer (YYYY-MM-DD, México) */
@@ -92,7 +96,7 @@ export async function repararOrdenesAntiguas(db: DB, accountId: string, finMs: n
       .maybeSingle();
     fecha = primerDiaFaltante(primera?.fecha ?? null, hoyMx());
   }
-  if (fecha < FONDO_RECARGA_CARGOS) {
+  if (fecha < FONDO_REPARAR_ORDENES) {
     await db.from("sync_log").insert({ account_id: accountId, tarea: TAREA_REPARAR_ORDENES, estado: "ok", fin: new Date().toISOString(), detalle: { siguiente: null, completo: true } });
     return { ...vacio, completo: true };
   }
@@ -117,7 +121,7 @@ export async function repararOrdenesAntiguas(db: DB, accountId: string, finMs: n
     r.barridos++;
     r.bitacora.push({ fecha, ordenesDelDia, antes, despues, ...(error ? { error } : {}) });
     if (despues > antes) periodos.add(fecha.slice(0, 7));
-    const paso = siguienteDia(fecha, antes, despues, FONDO_RECARGA_CARGOS);
+    const paso = siguienteDia(fecha, antes, despues, FONDO_REPARAR_ORDENES);
     fecha = paso.siguiente;
     r.siguiente = paso.siguiente;
     r.completo = paso.completo;
