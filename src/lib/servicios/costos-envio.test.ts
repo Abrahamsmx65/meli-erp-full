@@ -91,6 +91,27 @@ describe("lectura de los atributos de MELI", () => {
     expect(fuente).toBe("MEASUREMENT");
   });
 
+  it("lee el user product, que manda el valor SOLO en values[0] (tal cual contestó MELI el 25-sep-2026)", () => {
+    const up = [
+      { id: "SELLER_PACKAGE_HEIGHT", name: "Altura del paquete del seller", values: [{ id: null, name: "26 cm", struct: { number: 26, unit: "cm" } }] },
+      { id: "SELLER_PACKAGE_LENGTH", values: [{ id: null, name: "10 cm", struct: { number: 10, unit: "cm" } }] },
+      { id: "PACKAGE_DATA_SOURCE", values: [{ id: "52228227", name: "MEASUREMENT", struct: null }] },
+      { id: "SELLER_PACKAGE_WEIGHT", values: [{ id: null, name: "480 g", struct: { number: 480, unit: "g" } }] },
+      { id: "PACKAGE_WEIGHT", values: [{ id: null, name: "480 g", struct: { number: 480, unit: "g" } }] },
+      { id: "PACKAGE_LENGTH", values: [{ id: null, name: "28.4 cm", struct: { number: 28.4, unit: "cm" } }] },
+      { id: "PACKAGE_HEIGHT", values: [{ id: null, name: "25.2 cm", struct: { number: 25.2, unit: "cm" } }] },
+      { id: "SELLER_PACKAGE_WIDTH", values: [{ id: null, name: "21 cm", struct: { number: 21, unit: "cm" } }] },
+      { id: "PACKAGE_WIDTH", values: [{ id: null, name: "25.4 cm", struct: { number: 25.4, unit: "cm" } }] },
+    ];
+    expect(medidasDeAtributos(up)).toEqual({
+      medida: { alto: 25.2, ancho: 25.4, largo: 28.4, peso: 480 },
+      medidaVendedor: { alto: 26, ancho: 21, largo: 10, peso: 480 },
+      fuente: "MEASUREMENT",
+    });
+    // Y si solo viene el texto, también.
+    expect(numeroDeAtributo({ id: "PACKAGE_WEIGHT", values: [{ name: "1.2 kg" }] }, true)).toBe(1200);
+  });
+
   it("una publicación sin medidas completas no inventa ninguna", () => {
     const { medida } = medidasDeAtributos([{ id: "PACKAGE_HEIGHT", value_name: "10 cm" }]);
     expect(medida).toBeNull();

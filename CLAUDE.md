@@ -195,7 +195,18 @@ guárdala numerada.
   **solo acepta enteros** (con decimales contesta 400). La verdad de qué mide
   la caja son las hermanas del mismo modelo: se ordenan los tres lados de
   mayor a menor (MELI permuta los ejes y eso NO es un error) y se saca la
-  mediana lado por lado.
+  mediana lado por lado. **El user product manda el valor SOLO en
+  `values[0].struct`** (ni `value_name` ni `value_struct`): hasta el
+  25-sep-2026 no se leía y 1,110 de 1,693 publicaciones quedaban "sin
+  medida". **El envío se cobra por TRAMO DE PRECIO** ($299–$498 con
+  descuento, desde $499 completo) y MELI lo enseña al precio de VENTA
+  (`/items/{id}/sale_price`, la promoción), no al de lista: la revisión
+  guarda `precio_venta` y le pregunta al simulador con ese (el dueño leía
+  «MELI ya lo corrigió» cuando solo había cambiado el precio). Las que
+  cobran de más se releen en CADA pasada; `medidas_en` es la fecha de
+  LECTURA real, no de la pasada. Sonda sin escribir:
+  `/api/costos-envio/diagnostico?sku=…` (item, variación, user product y
+  simulador a cada precio).
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.

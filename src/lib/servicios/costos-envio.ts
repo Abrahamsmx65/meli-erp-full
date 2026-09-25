@@ -86,25 +86,37 @@ export interface ModeloRevisado {
 // ---------------------------------------------------------------------------
 // Lectura de los atributos de MELI
 // ---------------------------------------------------------------------------
+interface ValorCrudo {
+  name?: string | null;
+  struct?: { number?: number | null; unit?: string | null } | null;
+}
+
 interface AtributoCrudo {
   id?: string;
   value_name?: string | null;
   value_struct?: { number?: number | null; unit?: string | null } | null;
+  /** el user product manda el valor SOLO aquí: sin value_name ni value_struct */
+  values?: ValorCrudo[] | null;
 }
 
 /**
  * Saca un número de un atributo de medida. MELI manda `value_struct`
  * ({number: 26.2, unit: "cm"}) cuando puede, y "26.2 cm" en texto cuando no.
- * El peso llega en g o en kg según la publicación: aquí siempre sale en g,
- * y las medidas siempre en cm.
+ * El user product (`/user-products/{id}`) no manda ninguno de los dos: su
+ * valor viene SOLO en `values[0].struct` / `values[0].name`. Hasta el
+ * 25-sep-2026 eso no se leía y 1,110 de 1,693 publicaciones —todas las que
+ * guardan la medida en el user product— quedaban "sin medida" y fuera de la
+ * revisión. El peso llega en g o en kg según la publicación: aquí siempre
+ * sale en g, y las medidas siempre en cm.
  */
 export function numeroDeAtributo(a: AtributoCrudo | undefined, aGramos = false): number | null {
   if (!a) return null;
-  let n = typeof a.value_struct?.number === "number" ? a.value_struct.number : null;
-  let unidad = a.value_struct?.unit ?? null;
+  const struct = a.value_struct ?? a.values?.[0]?.struct ?? null;
+  let n = typeof struct?.number === "number" ? struct.number : null;
+  let unidad = struct?.unit ?? null;
 
   if (n == null) {
-    const texto = (a.value_name ?? "").trim();
+    const texto = (a.value_name ?? a.values?.[0]?.name ?? "").trim();
     const m = texto.match(/^([\d.,]+)\s*([a-zA-Z]*)$/);
     if (!m) return null;
     n = Number(m[1].replace(",", "."));
@@ -146,7 +158,7 @@ export function medidasDeAtributos(atributos: AtributoCrudo[] | undefined): {
   return {
     medida: medidaDe(mapa, "PACKAGE"),
     medidaVendedor: medidaDe(mapa, "SELLER_PACKAGE"),
-    fuente: mapa.get("PACKAGE_DATA_SOURCE")?.value_name ?? null,
+    fuente: mapa.get("PACKAGE_DATA_SOURCE")?.value_name ?? mapa.get("PACKAGE_DATA_SOURCE")?.values?.[0]?.name ?? null,
   };
 }
 
@@ -323,7 +335,12 @@ interface FilaPrevia {
   medidas_en: string | null;
   costo: number | null;
   costo_normal: number | null;
+  precio_venta: number | null;
+  precio_en: string | null;
 }
+
+/** Cada cuánto se vuelve a leer el precio de venta: las promociones cambian a diario. */
+const REFRESCO_PRECIO_MS = 86_400_000;
 
 /**
  * ¿Hay que volver a pedirle a MELI la medida de esta publicación?
@@ -409,7 +426,7 @@ export async function sincronizarMedidas(
   const previas = await traerTodo<FilaPrevia>(
     db,
     "medidas_envio",
-    "sku, alto, ancho, largo, peso, fuente, medidas_en, costo, costo_normal",
+    "sku, alto, ancho, largo, peso, fuente, medidas_en, costo, costo_normal, precio_venta, precio_en",
     (q) => q.eq("account_id", accountId),
   );
   const antes = new Map(previas.map((p) => [p.sku, p]));
@@ -502,6 +519,52 @@ export async function sincronizarMedidas(
     }
   });
 
+  // ------------------------------------------------------------ precio de venta
+  // El costo de envío se cobra por tramo de PRECIO ($299–$498 con descuento,
+  // desde $499 completo) y el precio de la publicación no es el que se vende:
+  // una de $499 puede estar en promoción a $341, y MELI enseña y cobra el
+  // envío a $341. `/items/{id}/sale_price` da ese precio; es una llamada por
+  // publicación, así que va por tandas con el mismo presupuesto de tiempo:
+  // primero las que nunca se han leído, después las más viejas (se refresca
+  // cada día: las promociones cambian).
+  const porItem = new Map<string, { skus: string[]; desde: number }>();
+  for (const f of filas) {
+    if (!f.item_id || !base.has(f.sku)) continue;
+    const previa = antes.get(f.sku);
+    const leidoEn = previa?.precio_en ? Date.parse(previa.precio_en) : 0;
+    const entrada = porItem.get(f.item_id);
+    if (entrada) {
+      entrada.skus.push(f.sku);
+      entrada.desde = Math.min(entrada.desde, leidoEn);
+    } else porItem.set(f.item_id, { skus: [f.sku], desde: leidoEn });
+  }
+  const preciosLeidos = new Map<string, number>(); // sku → precio de venta
+  const colaPrecios = [...porItem.entries()]
+    .filter(([, e]) => Date.now() - e.desde >= REFRESCO_PRECIO_MS)
+    .sort((a, b) => a[1].desde - b[1].desde);
+  let preciosPendientes = 0;
+  await enLotes(colaPrecios, 5, async ([itemId, e]) => {
+    if (Date.now() - arranque > limite) {
+      preciosPendientes += e.skus.length;
+      return;
+    }
+    try {
+      const sp = await cliente.get<{ amount?: number | null }>(
+        `/items/${itemId}/sale_price`,
+        { context: "channel_marketplace" },
+        { reintentos: 2 },
+      );
+      // Si MELI no da precio de venta, vale el de la publicación (se anota
+      // igual para no volver a preguntar hoy).
+      const item = items.get(itemId);
+      const precio = typeof sp?.amount === "number" && sp.amount > 0 ? sp.amount : (item?.price ?? null);
+      if (precio != null) for (const sku of e.skus) preciosLeidos.set(sku, precio);
+    } catch {
+      preciosPendientes += e.skus.length;
+    }
+  });
+  pendientes += preciosPendientes;
+
   // ------------------------------------------------------------------ guardar
   const ahora = new Date().toISOString();
   let conMedidas = 0;
@@ -517,10 +580,13 @@ export async function sincronizarMedidas(
       const previa = antes.get(f.sku);
       const huella = (a: number | null, b: number | null, c: number | null, d: number | null) =>
         `${a}x${b}x${c},${d}`;
+      const precioVenta = preciosLeidos.get(f.sku);
+      // Si cambiaron las medidas O el precio de venta, el costo guardado ya no vale.
       const cambio =
         !previa ||
         huella(previa.alto, previa.ancho, previa.largo, previa.peso) !==
-          huella(medida?.alto ?? null, medida?.ancho ?? null, medida?.largo ?? null, medida?.peso ?? null);
+          huella(medida?.alto ?? null, medida?.ancho ?? null, medida?.largo ?? null, medida?.peso ?? null) ||
+        (precioVenta != null && Number(previa.precio_venta) !== precioVenta);
 
       return {
         account_id: accountId,
@@ -548,6 +614,7 @@ export async function sincronizarMedidas(
         ...(cambio ? { costo: null, costo_normal: null, peso_facturable: null } : {}),
         // La fecha de lectura solo cambia si de verdad se le preguntó a MELI.
         ...(medida && leidasAhora.has(f.sku) ? { medidas_en: ahora } : {}),
+        ...(precioVenta != null ? { precio_venta: precioVenta, precio_en: ahora } : {}),
         actualizado_en: ahora,
       };
     });
@@ -632,6 +699,7 @@ interface FilaMedida {
   largo_vendedor: number | null;
   peso_vendedor: number | null;
   precio: number | null;
+  precio_venta: number | null;
   tipo_publicacion: string | null;
   envio_gratis: boolean | null;
   estado: string | null;
@@ -653,7 +721,9 @@ function aVariante(f: FilaMedida): VarianteEnvio {
     medida: completa(f.alto, f.ancho, f.largo, f.peso),
     fuente: f.fuente,
     medidaVendedor: completa(f.alto_vendedor, f.ancho_vendedor, f.largo_vendedor, f.peso_vendedor),
-    precio: f.precio,
+    // El precio con el que se cobra el envío es el de VENTA (promoción), no
+    // el de lista; sin él, el de lista.
+    precio: f.precio_venta ?? f.precio,
     tipoPublicacion: f.tipo_publicacion,
     envioGratis: f.envio_gratis ?? true,
     estado: f.estado,
@@ -689,7 +759,7 @@ export async function calcularCostos(
   const filas = await traerTodo<FilaMedida>(
     db,
     "medidas_envio",
-    "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
+    "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, precio_venta, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
     (q) => {
       const base = q.eq("account_id", accountId);
       return opts?.soloModelo ? base.eq("modelo", opts.soloModelo) : base;
@@ -795,7 +865,7 @@ export async function leerRevision(db: DB, accountId: string): Promise<ModeloRev
   const filas = await traerTodo<FilaMedida>(
     db,
     "medidas_envio",
-    "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
+    "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, precio_venta, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
     (q) => q.eq("account_id", accountId),
   );
   return armarRevision(filas.map(aVariante));

@@ -81,12 +81,14 @@ describe("sincronizarMedidas y las correcciones de MELI", () => {
 
   it("relee la que cobra de más, ve la corrección y tira su costo viejo; la buena ni se toca", async () => {
     const ayer = new Date(Date.now() - DIA).toISOString();
+    const haceUnRato = new Date(Date.now() - 3_600_000).toISOString();
     traerTodo
       .mockResolvedValueOnce(skus) // skus
       .mockResolvedValueOnce([
         // medidas_envio: la DK-26 quedó parada (36.6) y cobra $139.50; la DK-27 está bien.
-        { sku: "GT229-DK-26", alto: 36.6, ancho: 29.4, largo: 11.2, peso: 530, fuente: "MEASUREMENT", medidas_en: ayer, costo: 139.5, costo_normal: 88.5 },
-        { sku: "GT229-DK-27", alto: 9.6, ancho: 25, largo: 29.8, peso: 560, fuente: "MEASUREMENT", medidas_en: ayer, costo: 88.5, costo_normal: 88.5 },
+        // El precio de venta se leyó hace un rato: hoy no se vuelve a pedir.
+        { sku: "GT229-DK-26", alto: 36.6, ancho: 29.4, largo: 11.2, peso: 530, fuente: "MEASUREMENT", medidas_en: ayer, costo: 139.5, costo_normal: 88.5, precio_venta: 341, precio_en: haceUnRato },
+        { sku: "GT229-DK-27", alto: 9.6, ancho: 25, largo: 29.8, peso: 560, fuente: "MEASUREMENT", medidas_en: ayer, costo: 88.5, costo_normal: 88.5, precio_venta: 341, precio_en: haceUnRato },
       ]);
 
     const pedidas: string[] = [];
@@ -120,7 +122,7 @@ describe("sincronizarMedidas y las correcciones de MELI", () => {
     traerTodo
       .mockResolvedValueOnce(skus.slice(1))
       .mockResolvedValueOnce([
-        { sku: "GT229-DK-27", alto: 9.6, ancho: 25, largo: 29.8, peso: 560, fuente: "MEASUREMENT", medidas_en: hace31, costo: 88.5, costo_normal: 88.5 },
+        { sku: "GT229-DK-27", alto: 9.6, ancho: 25, largo: 29.8, peso: 560, fuente: "MEASUREMENT", medidas_en: hace31, costo: 88.5, costo_normal: 88.5, precio_venta: 341, precio_en: new Date().toISOString() },
       ]);
     const cliente = {
       get: vi.fn(async (ruta: string) => {
@@ -132,5 +134,52 @@ describe("sincronizarMedidas y las correcciones de MELI", () => {
     const r = await sincronizarMedidas(cliente as never, db as never, "cuenta", { limiteMs: 10_000 });
     expect(r.userProducts).toBe(1);
     expect(guardado[0].medidas_en).toBeDefined();
+  });
+
+  /**
+   * El envío se cobra por tramo de PRECIO: una publicación de $499 en
+   * promoción a $341 paga otro envío. MELI enseña el costo al precio de venta
+   * y el ERP preguntaba al de lista: por eso "MELI ya lo corrigió" y la lista
+   * seguía igual (GT229-TABACO BROWN-24, 25-sep-2026).
+   */
+  it("lee el precio de venta de la publicación y, si cambió, tira el costo para recalcularlo", async () => {
+    const ayer = new Date(Date.now() - DIA).toISOString();
+    traerTodo
+      .mockResolvedValueOnce(skus.slice(1))
+      .mockResolvedValueOnce([
+        { sku: "GT229-DK-27", alto: 9.6, ancho: 25, largo: 29.8, peso: 560, fuente: "MEASUREMENT", medidas_en: ayer, costo: 88.5, costo_normal: 88.5, precio_venta: null, precio_en: null },
+      ]);
+    const cliente = {
+      get: vi.fn(async (ruta: string, params?: Record<string, unknown>) => {
+        if (ruta === "/items") return [{ code: 200, body: item }];
+        if (ruta === "/items/MLM1/sale_price") {
+          expect(params?.context).toBe("channel_marketplace");
+          return { amount: 341, regular_amount: 499, currency_id: "MXN" };
+        }
+        throw new Error(`no se esperaba ${ruta}`);
+      }),
+    };
+    await sincronizarMedidas(cliente as never, db as never, "cuenta", { limiteMs: 10_000 });
+    const fila = guardado[0];
+    expect(fila.precio).toBe(499); // el de lista se sigue guardando
+    expect(fila.precio_venta).toBe(341);
+    expect(fila.precio_en).toBeDefined();
+    expect(fila.costo).toBeNull(); // se recalcula al precio de venta
+    expect(fila).not.toHaveProperty("medidas_en"); // la medida no se releyó
+  });
+
+  it("sin precio de venta en MELI vale el de la publicación, y no se vuelve a preguntar hoy", async () => {
+    traerTodo.mockResolvedValueOnce(skus.slice(1)).mockResolvedValueOnce([]);
+    const cliente = {
+      get: vi.fn(async (ruta: string) => {
+        if (ruta === "/items") return [{ code: 200, body: item }];
+        if (ruta === "/items/MLM1/sale_price") return { amount: null };
+        if (ruta === "/user-products/UP-BUENA") return { attributes: medidaCorregida(9.6) };
+        throw new Error(`no se esperaba ${ruta}`);
+      }),
+    };
+    await sincronizarMedidas(cliente as never, db as never, "cuenta", { limiteMs: 10_000 });
+    expect(guardado[0].precio_venta).toBe(499);
+    expect(guardado[0].precio_en).toBeDefined();
   });
 });
