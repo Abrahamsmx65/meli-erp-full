@@ -98,6 +98,12 @@ export interface ColorModelo {
    * son las mismas en cualquier talla.
    */
   asinsExtra: string[];
+  /**
+   * SKUs del color (activas primero), para rescatar de la API de
+   * publicaciones las fotos CAPTURADAS cuando el catálogo público le presta
+   * las de otro color.
+   */
+  sellerSkus: string[];
   url: string | null;
   imagenUrl: string | null;
   skus: number;
@@ -195,13 +201,17 @@ interface Talla {
 }
 
 /** Las tallas ordenadas: primero las activas, luego de la más chica a la más grande. */
-function mejor(tallas: Talla[]): Talla | null {
-  const orden = [...tallas].sort(
+function ordenarTallas(tallas: Talla[]): Talla[] {
+  return [...tallas].sort(
     (a, b) =>
       Number(b.activo) - Number(a.activo) ||
       a.talla - b.talla ||
       a.sellerSku.localeCompare(b.sellerSku),
   );
+}
+
+function mejor(tallas: Talla[]): Talla | null {
+  const orden = ordenarTallas(tallas);
   return orden.find((t) => t.asin) ?? orden[0] ?? null;
 }
 
@@ -290,7 +300,8 @@ export function armarContenido(
   const codigos: Codigo[] = [...porModelo.entries()].map(([modelo, m]) => {
     const colores: ColorModelo[] = [...m.colores.values()]
       .map((c) => {
-        const t = mejor(c.tallas);
+        const orden = ordenarTallas(c.tallas);
+        const t = orden.find((x) => x.asin) ?? orden[0] ?? null;
         const asin = t?.asin ?? null;
         const asinsExtra = [
           ...new Set(c.tallas.map((x) => x.asin).filter((a): a is string => Boolean(a && a !== asin))),
@@ -300,6 +311,7 @@ export function armarContenido(
           color: c.color,
           asin,
           asinsExtra,
+          sellerSkus: orden.slice(0, 3).map((x) => x.sellerSku),
           url: urlAmazon(asin, pais),
           imagenUrl: c.imagenUrl,
           skus: c.skus,

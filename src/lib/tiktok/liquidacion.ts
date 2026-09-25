@@ -22,8 +22,10 @@ export interface TransaccionesPedido {
   transacciones: number;
   /** lo que pagó el cliente (Σ customer_payment_amount, o revenue) */
   ingreso: number | null;
-  /** Σ fee_amount (todos los cargos juntos), en positivo */
+  /** Σ fee_amount (todos los cargos juntos, con impuestos), en positivo */
   cargos: number | null;
+  /** la comisión de TikTok propiamente (porcentaje + cargo por par), en positivo; 0 si la respuesta no la desglosa */
+  comision: number;
   /** comisiones a afiliados/creadores (todas las variantes), en positivo */
   afiliado: number;
   /** envío a cargo del vendedor ya neto del subsidio de TikTok, en positivo */
@@ -46,19 +48,35 @@ function numero(x: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Los campos de comisión a afiliados que TikTok reparte en varias llaves. */
+/**
+ * Las llaves de comisión a afiliados/creadores. En la 202309 van en el
+ * renglón; en la 202501 dentro de `fee_tax_breakdown.fee`. `_deposit` y
+ * `_release` NO se suman: son el apartado y la liberación de la misma
+ * comisión, no un cargo más.
+ */
 const CAMPOS_AFILIADO = [
   "affiliate_commission_amount",
   "affiliate_partner_commission_amount",
   "affiliate_ads_commission_amount",
-  "affiliate_commission_before_pit",
+  "external_affiliate_marketing_fee_amount",
+  "brand_amplification_program_commission",
+  "auto_post_shoppable_video_commission_fee",
 ];
+/** La comisión de TikTok propiamente (202501, `fee_tax_breakdown.fee`). */
+const CAMPOS_COMISION = ["sfp_service_fee_amount", "platform_commission_amount", "dynamic_commission_amount", "referral_fee_amount", "tsp_commission_amount"];
 
+function numeroEn(t: any, ruta: string[]): number | null {
+  let x = t;
+  for (const k of ruta) x = x?.[k];
+  return numero(x);
+}
+
+/** Suma un campo por todos los renglones, buscándolo en la raíz del renglón o en `fee_tax_breakdown.fee/.tax`. */
 function sumaDe(lista: any[], campo: string): number | null {
   let hay = false;
   let total = 0;
   for (const t of lista) {
-    const n = numero(t?.[campo]);
+    const n = numero(t?.[campo]) ?? numeroEn(t, ["fee_tax_breakdown", "fee", campo]) ?? numeroEn(t, ["fee_tax_breakdown", "tax", campo]);
     if (n == null) continue;
     hay = true;
     total += n;
@@ -66,10 +84,10 @@ function sumaDe(lista: any[], campo: string): number | null {
   return hay ? total : null;
 }
 
-/** La lista de transacciones venga como venga (202309, 202501 o alguna forma nueva). */
+/** La lista de transacciones venga como venga (202309: `statement_transactions`; 202501: `sku_transactions`). */
 export function listaDeTransacciones(d: any): any[] {
   if (!d || typeof d !== "object") return [];
-  for (const llave of ["statement_transactions", "transactions", "unsettled_transactions", "order_transactions"]) {
+  for (const llave of ["sku_transactions", "statement_transactions", "transactions", "unsettled_transactions", "order_transactions"]) {
     if (Array.isArray(d[llave])) return d[llave];
   }
   // Una llave desconocida cuyos elementos traigan settlement_amount también sirve.
@@ -82,43 +100,57 @@ export function listaDeTransacciones(d: any): any[] {
 function esLiquidada(t: any): boolean {
   const s = String(t?.status ?? t?.settlement_status ?? "").trim().toUpperCase();
   if (s) return s === "SETTLED" || s === "PAID";
-  // Sin estado: la 202309 solo devolvía liquidadas (con statement_id).
-  return Boolean(t?.statement_id);
+  // Sin estado: una transacción ya dentro de un estado de cuenta (statement_id) está liquidada.
+  return Boolean(String(t?.statement_id ?? "").trim());
 }
 
 /**
- * Interpreta la respuesta de finanzas de un pedido. null = TikTok todavía
- * no tiene transacciones de ese pedido (sin dato) o no contestó nada
- * usable. Nunca inventa: solo suma lo que TikTok mandó.
+ * Interpreta la respuesta de finanzas de un pedido (202309 o 202501).
+ * null = TikTok todavía no tiene transacciones de ese pedido (sin dato) o
+ * no contestó nada usable. Nunca inventa: solo suma lo que TikTok mandó.
+ * Una DEVOLUCIÓN entra como transacción con ingreso negativo, y el pago
+ * del pedido puede quedar negativo: TikTok no regresa la comisión.
  */
 export function interpretarTransacciones(d: any): TransaccionesPedido | null {
   const lista = listaDeTransacciones(d);
   if (!lista.length) return null;
-  const pago = sumaDe(lista, "settlement_amount");
+  const suma = sumaDe(lista, "settlement_amount");
+  // La 202501 trae el total del pedido arriba; si está, es el que manda.
+  const pago = numero(d?.settlement_amount) ?? suma;
   if (pago == null) return null;
   const estados = [...new Set(lista.map((t) => String(t?.status ?? t?.settlement_status ?? "").trim().toUpperCase()).filter(Boolean))];
   const liquidado = lista.every(esLiquidada);
   const afiliado = CAMPOS_AFILIADO.reduce((a, c) => a + (sumaDe(lista, c) ?? 0), 0);
-  const envio = (sumaDe(lista, "fbm_shipping_cost_amount") ?? 0) + (sumaDe(lista, "shipping_cost_discount_amount") ?? 0);
-  const iva = sumaDe(lista, "iva_vat_amount") ?? 0;
-  const isr = sumaDe(lista, "isr_income_tax_amount") ?? 0;
-  const reembolsos = (sumaDe(lista, "customer_refund_amount") ?? 0) + (sumaDe(lista, "adjustment_amount") ?? 0);
-  const cargos = sumaDe(lista, "fee_amount");
-  const primera = lista.find((t) => t?.statement_id) ?? lista[0];
+  const comision = CAMPOS_COMISION.reduce((a, c) => a + (sumaDe(lista, c) ?? 0), 0) + (sumaDe(lista, "fee_per_item_sold_amount") ?? 0);
+  // Envío: la 202501 lo trae ya neto del subsidio en `shipping_cost_amount`;
+  // la 202309 en bruto (fbm) más el descuento.
+  const envio202501 = sumaDe(lista, "shipping_cost_amount");
+  const envio = envio202501 != null && lista.some((t) => t?.fee_tax_breakdown)
+    ? envio202501
+    : (sumaDe(lista, "fbm_shipping_cost_amount") ?? 0) + (sumaDe(lista, "shipping_cost_discount_amount") ?? 0);
+  const iva = (sumaDe(lista, "iva_vat_amount") ?? 0) + (sumaDe(lista, "iva_amount") ?? 0);
+  const isr = (sumaDe(lista, "isr_income_tax_amount") ?? 0) + (sumaDe(lista, "isr_amount") ?? 0);
+  // Reembolsos: en la 202309 vienen como campo; en la 202501 como
+  // transacciones con ingreso negativo.
+  const ingresosNegativos = lista.reduce((a, t) => a + Math.min(0, numero(t?.revenue_amount) ?? 0), 0);
+  const reembolsos = (sumaDe(lista, "customer_refund_amount") ?? 0) + (sumaDe(lista, "adjustment_amount") ?? 0) + ingresosNegativos;
+  const cargos = sumaDe(lista, "fee_amount") ?? sumaDe(lista, "fee_tax_amount") ?? numero(d?.fee_and_tax_amount);
+  const primera = lista.find((t) => String(t?.statement_id ?? "").trim()) ?? lista[0];
   const statementTime = numero(primera?.statement_time);
   return {
     pago,
     liquidado,
     estados,
     transacciones: lista.length,
-    ingreso: sumaDe(lista, "customer_payment_amount") ?? sumaDe(lista, "revenue_amount"),
+    ingreso: sumaDe(lista, "customer_payment_amount") ?? numero(d?.revenue_amount) ?? sumaDe(lista, "revenue_amount"),
     cargos: cargos == null ? null : Math.abs(cargos),
+    comision: Math.abs(comision),
     afiliado: Math.abs(afiliado),
     envio: Math.abs(envio),
     ivaRetenido: Math.abs(iva),
     isrRetenido: Math.abs(isr),
     reembolsos: Math.abs(reembolsos),
-    statementId: primera?.statement_id ? String(primera.statement_id) : null,
+    statementId: String(primera?.statement_id ?? "").trim() || null,
     liquidadoEn: liquidado && statementTime ? new Date(statementTime * 1000).toISOString() : null,
     moneda: d?.currency ?? primera?.currency ?? null,
   };
