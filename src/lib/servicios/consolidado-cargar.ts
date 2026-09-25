@@ -276,6 +276,25 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
 }
 
 /**
+ * El consolidado GUARDADO de un mes, sin calcular nada (para compararlo con
+ * el que se está viendo). `null` si ese mes nunca se ha calculado: la
+ * pantalla no estrena un corte completo solo para una comparación.
+ */
+export async function leerConsolidadoGuardado(db: DB, cuenta: Cuenta, periodo: string): Promise<Consolidado | null> {
+  try {
+    const { desde, hasta } = rangoDelPeriodo(periodo);
+    const [{ data }, gastos] = await Promise.all([
+      db.from("consolidado_cache").select("datos").eq("account_id", cuenta.id).eq("periodo", periodo).maybeSingle(),
+      listarGastosEmpresariales(db, cuenta.id, desde, hasta),
+    ]);
+    const guardado = data?.datos ? leerConsolidadoCache(data.datos) : null;
+    return guardado ? aplicarGastosEmpresariales(normalizarConsolidadoCache(guardado), gastos) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Un solo recálculo de fondo a la vez por cuenta. El candado es de
  * service_role (`candados_trabajo`), así que solo lo toma el cron; el
  * refresco que lanza la pantalla con la sesión del dueño sigue sin él.
@@ -433,7 +452,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 3
+    consolidado.versionContable !== 4
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)

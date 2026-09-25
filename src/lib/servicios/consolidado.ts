@@ -126,7 +126,7 @@ export interface Consolidado {
    * pantalla lo sirvió como bueno. Al subir el número, lo que escribió un
    * build que no conoce estas reglas se descarta y se vuelve a calcular.
    */
-  versionContable: 3;
+  versionContable: 4;
   periodo: string;
   desde: string;
   hasta: string;
@@ -428,7 +428,7 @@ export function armarConsolidado(entrada: {
 
   const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto);
   return aplicarGastosEmpresariales({
-    versionContable: 3,
+    versionContable: 4,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,
