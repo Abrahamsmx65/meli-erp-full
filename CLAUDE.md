@@ -853,11 +853,16 @@ guárdala numerada.
   `components/comparacion-mensual.tsx`; dueño, 25-sep-2026: «si el mes
   creció o decreció contra el mes pasado, más que nada en unidades y
   ganancia»): unidades y ganancia por canal y total con su %, y la
-  utilidad neta final. Con el mes EN CURSO el total se compara contra un
-  mes completo, así que va también el RITMO por día (lo del mes ÷ días
-  cerrados, hasta ayer, contra el anterior ÷ sus días). El mes anterior
-  solo se LEE de `consolidado_cache` (`leerConsolidadoGuardado`); si
-  nunca se calculó, la pantalla lo dice y no lo estrena en el clic.
+  utilidad neta final. Con el mes EN CURSO se compara contra LOS MISMOS
+  DÍAS del mes anterior (mismo día, «del 1 al 25»; dueño, 25-sep-2026:
+  «no contra el total»): `mismosDiasDelAnterior`, `cargarConsolidado({
+  hasta })` corta los tres canales, la publicidad, los gastos y la
+  facturación de MELI en ese día, y el cron lo guarda en `app_cache`
+  (`consolidado-mismos-dias:v1:{periodo}:{hasta}`). Mientras no exista,
+  queda el RITMO por día como respaldo. Los meses cerrados se comparan
+  contra el anterior completo; el cron mantiene calculados el corriente
+  y los CINCO anteriores para que siempre haya contra qué. Todo solo se
+  LEE en la pantalla (`leerConsolidadoGuardado`, `leerMismosDiasGuardado`).
   **Amazon: lo asentado que aún no se deposita SÍ cuenta** (misma fecha):
   la liquidación en curso entra al neto como dinero por cobrar, una
   liquidación que descuadra se declara con su diferencia y NO tumba lo
@@ -865,6 +870,16 @@ guárdala numerada.
   sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
+- **Órdenes viejas sin registrar** (`reparar-ordenes.ts`, cron
+  `/api/cron/reparar-ordenes` cada 10 min, tarea `reparacion_ordenes_v1`
+  en `sync_log`; dueño, 25-sep-2026): la reparación de agosto solo llegó
+  60 días atrás y del 1 al 19 de junio el calzado no tenía NINGUNA orden
+  en `ordenes_neto` (~12,600 órdenes, $2.8 millones fuera del neto; el
+  corte de junio salía con 29 %). Barre un día a la vez con
+  `recalcularDiaVentas` (150 órdenes con pago real por barrido) y se queda
+  en el día mientras registre órdenes nuevas; luego pasa al anterior,
+  hasta `FONDO_RECARGA_CARGOS`. Un barrido que MELI contesta degradado se
+  anota en la bitácora y se sigue. Invalida el corte del mes que toca.
 - **El dinero de Amazon EXACTO sale de la Finances API por grupo de
   liquidación** (`amazon/finanzas.ts` + `finanzas-sync.ts`, tablas
   `amazon_finanzas_grupos` / `amazon_finanzas_eventos`, migración 0071, cron

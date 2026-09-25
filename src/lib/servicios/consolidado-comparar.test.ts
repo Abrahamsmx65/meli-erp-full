@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { comparar, compararMeses, diasTranscurridos } from "./consolidado-comparar";
 import type { Consolidado } from "./consolidado";
 
-function consolidado(periodo: string, canales: { canal: string; unidades: number; utilidad: number; venta: number }[], utilidadNeta: number): Consolidado {
+function consolidado(periodo: string, canales: { canal: string; unidades: number; utilidad: number; venta: number }[], utilidadNeta: number, hasta = `${periodo}-28`): Consolidado {
   const unidades = canales.reduce((a, k) => a + k.unidades, 0);
   const antes = canales.reduce((a, k) => a + k.utilidad, 0);
   return {
     periodo,
+    hasta,
     canales: canales.map((k) => ({ canal: k.canal, nombre: k.canal, unidades: k.unidades, utilidadNeta: k.utilidad, ventaBruta: k.venta })),
     total: { unidades, utilidadAntesGastosEmpresariales: antes, utilidadNeta, ventaBruta: canales.reduce((a, k) => a + k.venta, 0) },
   } as unknown as Consolidado;
@@ -64,6 +65,30 @@ describe("compararMeses", () => {
     expect(c.ritmo!.unidades.actual).toBe(1_000);
     expect(c.ritmo!.unidades.anterior).toBe(1_200);
     expect(c.ritmo!.unidades.cambio).toBeCloseTo(-1 / 6);
+  });
+
+  it("mes en curso con los mismos días del anterior: compara contra esos, no contra el mes completo ni por ritmo", () => {
+    const septiembre = consolidado("2026-09", [
+      { canal: "meli_calzado", unidades: 20_000, utilidad: 200_000, venta: 4_000_000 },
+      { canal: "amazon", unidades: 4_000, utilidad: 40_000, venta: 2_000_000 },
+    ], 240_000);
+    const agostoAl25 = consolidado("2026-08", [
+      { canal: "meli_calzado", unidades: 25_000, utilidad: 250_000, venta: 5_000_000 },
+      { canal: "amazon", unidades: 5_000, utilidad: 50_000, venta: 2_500_000 },
+    ], 300_000, "2026-08-25");
+    const c = compararMeses(septiembre, agosto, "2026-09-25", agostoAl25);
+    expect(c.base).toBe("mismos-dias");
+    expect(c.hastaAnterior).toBe(25);
+    expect(c.ritmo).toBeNull();
+    expect(c.renglones.find((r) => r.canal === "total")!.unidades).toMatchObject({ actual: 24_000, anterior: 30_000, cambio: -0.2 });
+    expect(c.utilidadNeta.cambio).toBeCloseTo(-0.2);
+  });
+
+  it("un mes cerrado ignora los mismos días y compara contra el anterior completo", () => {
+    const julio = consolidado("2026-07", [{ canal: "meli_calzado", unidades: 1, utilidad: 1, venta: 1 }], 1);
+    const c = compararMeses(agosto, julio, "2026-09-25", consolidado("2026-07", [], 0, "2026-07-10"));
+    expect(c.base).toBe("mes-completo");
+    expect(c.hastaAnterior).toBe(31);
   });
 
   it("un canal que el mes pasado vendía y este no, sale cayendo a cero", () => {

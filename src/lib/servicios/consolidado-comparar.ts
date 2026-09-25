@@ -4,10 +4,10 @@
  * unidades y ganancia»). Motor puro: recibe los dos consolidados ya
  * masticados y devuelve las cifras con su cambio.
  *
- * Un mes EN CURSO no se compara a secas contra uno completo (el 10 del mes
- * siempre «decrecería»): además del total se da el RITMO por día —lo del
- * mes ÷ días transcurridos contra lo del anterior ÷ sus días—, que es la
- * comparación justa mientras el mes no cierra.
+ * Un mes EN CURSO no se compara contra uno completo (el 10 del mes siempre
+ * «decrecería»): se compara contra LOS MISMOS DÍAS del mes anterior
+ * (decisión del dueño, 25-sep-2026), que el fondo calcula aparte. Mientras
+ * ese cálculo no exista, queda el RITMO por día como respaldo.
  */
 import type { Canal, Consolidado } from "./consolidado";
 
@@ -35,6 +35,10 @@ export interface ComparacionMensual {
   diasActual: number;
   diasAnterior: number;
   enCurso: boolean;
+  /** contra qué se comparó: el mes anterior completo o sus mismos días */
+  base: "mes-completo" | "mismos-dias";
+  /** último día del mes anterior que entra en la comparación */
+  hastaAnterior: number;
   /** totales: unidades, utilidad antes de gastos empresariales y venta, por canal y total */
   renglones: RenglonComparado[];
   /** la utilidad neta FINAL (después de gastos empresariales) */
@@ -70,10 +74,13 @@ export function diasTranscurridos(periodo: string, hoy: string): number {
   return Math.max(1, Math.min(total, dia - 1));
 }
 
-export function compararMeses(actual: Consolidado, anterior: Consolidado, hoy: string): ComparacionMensual {
+export function compararMeses(actual: Consolidado, anteriorCompleto: Consolidado, hoy: string, mismosDias?: Consolidado | null): ComparacionMensual {
   const diasActual = diasTranscurridos(actual.periodo, hoy);
-  const diasAnterior = diasDelPeriodo(anterior.periodo);
   const enCurso = diasActual < diasDelPeriodo(actual.periodo);
+  const usarMismosDias = enCurso && mismosDias != null;
+  const anterior = usarMismosDias ? mismosDias! : anteriorCompleto;
+  const diasAnterior = diasDelPeriodo(anteriorCompleto.periodo);
+  const hastaAnterior = usarMismosDias ? Number(mismosDias!.hasta.slice(8, 10)) : diasAnterior;
 
   const previos = new Map(anterior.canales.map((k) => [k.canal, k]));
   const renglones: RenglonComparado[] = actual.canales.map((k) => {
@@ -113,9 +120,11 @@ export function compararMeses(actual: Consolidado, anterior: Consolidado, hoy: s
     diasActual,
     diasAnterior,
     enCurso,
+    base: usarMismosDias ? "mismos-dias" : "mes-completo",
+    hastaAnterior,
     renglones,
     utilidadNeta: comparar(actual.total.utilidadNeta, anterior.total.utilidadNeta),
-    ritmo: enCurso
+    ritmo: enCurso && !usarMismosDias
       ? {
           unidades: comparar(porDia(actual.total.unidades, diasActual), porDia(anterior.total.unidades, diasAnterior)),
           utilidadNeta: comparar(porDia(actual.total.utilidadNeta, diasActual), porDia(anterior.total.utilidadNeta, diasAnterior)),

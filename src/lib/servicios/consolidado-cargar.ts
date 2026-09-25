@@ -13,6 +13,8 @@ import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
+import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { fechaMx } from "./ventas-monitor";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 import { listarGastosEmpresariales } from "./gastos-empresariales";
 
@@ -66,12 +68,15 @@ export async function cargarConsolidado(
     cortesMasticados?: boolean;
     alUsarCorteInvalidado?: (canal: string, motivo: string) => void;
     alFallarCanal?: (canal: string, motivo: string) => void;
+    /** corta el mes en este día (YYYY-MM-DD); los cortes masticados son de mes completo, así que se calcula */
+    hasta?: string;
   },
 ): Promise<Consolidado> {
-  const { desde, hasta } = rangoDelPeriodo(periodo);
+  const corte = opts?.hasta;
+  const { desde, hasta } = corte ? rangoDelPeriodo(periodo, corte) : rangoDelPeriodo(periodo);
   const avisos: string[] = [];
   const bloques: BloqueCanal[] = [];
-  const masticados = opts?.cortesMasticados === true;
+  const masticados = opts?.cortesMasticados === true && !corte;
   // El corte general CONGELA lo que lee, así que un corte de canal
   // invalidado se recalcula en el momento en vez de servirse viejo (ver
   // `exigirVigente`). Si ni así se pudo, se avisa y el renglón del corte
@@ -93,7 +98,7 @@ export async function cargarConsolidado(
   const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
     (masticados
       ? obtenerEstadoResultadosMeli(db, cuenta, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Calzado · Mercado Libre") })
-      : cargarEstadoResultados(db, cuenta, periodo)
+      : cargarEstadoResultados(db, cuenta, periodo, { hasta: corte })
     ).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
@@ -107,7 +112,7 @@ export async function cargarConsolidado(
       try {
         const e = masticados
           ? await obtenerEstadoResultadosYz(db, yz, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Fundas · Mercado Libre") })
-          : await cargarEstadoResultadosYz(db, yz, periodo);
+          : await cargarEstadoResultadosYz(db, yz, periodo, { hasta: corte });
         return bloqueDesdeEstado("meli_fundas", e);
       } catch (err) {
         fallo("Fundas · Mercado Libre", err);
@@ -294,6 +299,70 @@ export async function leerConsolidadoGuardado(db: DB, cuenta: Cuenta, periodo: s
   }
 }
 
+/** `periodo` menos `n` meses (YYYY-MM). */
+function restarMeses(periodo: string, n: number): string {
+  let p = periodo;
+  for (let i = 0; i < n; i++) p = periodoAnterior(p);
+  return p;
+}
+
+/**
+ * LOS MISMOS DÍAS del mes anterior (dueño, 25-sep-2026: «cuando un mes no
+ * está cerrado hay que comparar contra los mismos días del mes pasado, no
+ * contra el total»). Con hoy = 25-sep es agosto del 1 al 25; si el mes
+ * anterior es más corto, hasta su último día. `null` con el mes cerrado.
+ */
+export function mismosDiasDelAnterior(periodo: string, hoy: string): { periodo: string; hasta: string } | null {
+  if (hoy.slice(0, 7) !== periodo) return null;
+  const anterior = periodoAnterior(periodo);
+  const [a, m] = anterior.split("-").map(Number);
+  const ultimo = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  const dia = Math.min(Number(hoy.slice(8, 10)), ultimo);
+  return { periodo: anterior, hasta: `${anterior}-${String(dia).padStart(2, "0")}` };
+}
+
+const claveMismosDias = (periodo: string, hasta: string) => `consolidado-mismos-dias:v1:${periodo}:${hasta}`;
+
+/** El mes anterior cortado a los mismos días, ya masticado; `null` si aún no se calcula. */
+export async function leerMismosDiasGuardado(db: DB, cuenta: Cuenta, periodo: string, hoy = fechaMx(0)): Promise<Consolidado | null> {
+  const corte = mismosDiasDelAnterior(periodo, hoy);
+  if (!corte) return null;
+  try {
+    const [r, gastos] = await Promise.all([
+      leerCacheAppGuardado<Consolidado>(db, cuenta.id, claveMismosDias(corte.periodo, corte.hasta)),
+      listarGastosEmpresariales(db, cuenta.id, `${corte.periodo}-01`, corte.hasta),
+    ]);
+    if (r.estado !== "encontrado") return null;
+    const c = leerConsolidadoCache(r.valor.datos);
+    return c ? aplicarGastosEmpresariales(normalizarConsolidadoCache(c), gastos) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Calcula (por atrás) los mismos días del mes anterior. El mes anterior ya
+ * cerró, así que un día calculado casi no cambia: se rehace a las 6 horas.
+ */
+async function refrescarMismosDias(db: DB, cuenta: Cuenta, hoy: string): Promise<RefrescoConsolidado | null> {
+  const corte = mismosDiasDelAnterior(hoy.slice(0, 7), hoy);
+  if (!corte) return null;
+  const clave = claveMismosDias(corte.periodo, corte.hasta);
+  const previo = await leerCacheAppGuardado<unknown>(db, cuenta.id, clave);
+  const etiqueta = `${corte.periodo} al ${corte.hasta.slice(8)}`;
+  if (previo.estado === "encontrado" && leerConsolidadoCache(previo.valor.datos) && Date.now() - Date.parse(previo.valor.generadoEn) < 6 * 3_600_000) {
+    return { periodo: etiqueta, refrescado: false, motivo: "al día" };
+  }
+  const t0 = Date.now();
+  try {
+    const c = await cargarConsolidado(db, cuenta, corte.periodo, { hasta: corte.hasta });
+    await guardarCacheApp(db, cuenta.id, clave, c, Date.now() - t0);
+    return { periodo: etiqueta, refrescado: true, motivo: "mismos días del mes anterior", ms: Date.now() - t0 };
+  } catch (err) {
+    return { periodo: etiqueta, refrescado: false, motivo: "mismos días del mes anterior", error: (err as Error).message };
+  }
+}
+
 /**
  * Un solo recálculo de fondo a la vez por cuenta. El candado es de
  * service_role (`candados_trabajo`), así que solo lo toma el cron; el
@@ -334,9 +403,17 @@ export async function refrescarConsolidadosDeFondo(
   opts: { periodos?: string[]; /** no arranca otro mes después de esta hora (ms) */ limite?: number } = {},
 ): Promise<RefrescoConsolidado[]> {
   const hoy = periodoActual();
-  const lista = opts.periodos ?? [hoy, periodoAnterior(hoy)];
+  // El corriente, y los cinco anteriores para que cada mes cerrado tenga
+  // contra qué compararse (un cerrado casi no cambia: se rehace a las 6 h).
+  const lista = opts.periodos ?? [hoy, ...Array.from({ length: 5 }, (_, i) => restarMeses(hoy, i + 1))];
   const resultados: RefrescoConsolidado[] = [];
-  for (const periodo of lista) {
+  for (const [i, periodo] of lista.entries()) {
+    // Justo después del mes corriente: los mismos días del anterior, para
+    // compararlo contra lo mismo y no contra el mes completo.
+    if (i === 1 && !opts.periodos && (!opts.limite || Date.now() < opts.limite)) {
+      const r = await refrescarMismosDias(db, cuenta, fechaMx(0)).catch((err) => ({ periodo: "mismos días", refrescado: false, motivo: "error", error: (err as Error).message }));
+      if (r) resultados.push(r);
+    }
     const { data } = await db
       .from("consolidado_cache")
       .select("datos, generado_en, vigente")

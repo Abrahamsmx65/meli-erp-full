@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/consolidado",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/reparar-ordenes",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
