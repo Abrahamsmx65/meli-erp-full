@@ -1336,14 +1336,19 @@ export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: stri
   return ordenes >= 50 && total > 0 ? neto / total : null;
 }
 
-export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string): Promise<EstadoResultados> {
-  const { desde, hasta } = rangoDelPeriodo(periodo);
+/**
+ * `hasta` corta el mes en ese día (los MISMOS días del mes anterior para
+ * compararlo con uno en curso): la venta, las órdenes, la publicidad, los
+ * gastos y la facturación de MELI llegan solo hasta ahí.
+ */
+export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string, opts: { hasta?: string } = {}): Promise<EstadoResultados> {
+  const { desde, hasta } = opts.hasta ? rangoDelPeriodo(periodo, opts.hasta) : rangoDelPeriodo(periodo);
   const [ventas, skus, config, gastos, cargos, ordenesPorDia, desglosePorSku, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
     gastosDelRango(db, cuenta.id, desde, hasta),
-    cargosGuardados(db, cuenta.id, periodo),
+    cargosGuardados(db, cuenta.id, periodo).then((c) => (opts.hasta ? c.filter((x) => !x.fecha || x.fecha.slice(0, 10) <= hasta) : c)),
     // Sumadas en la base: traer 35 mil órdenes a la página se pasaba del tiempo.
     ordenesPorDiaDesdeRpc(db, "cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     desglosePorSkuDesdeRpc(db, "cortes_desglose_por_sku", cuenta.id, desde, hasta),

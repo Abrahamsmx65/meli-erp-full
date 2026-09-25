@@ -38,14 +38,21 @@ function Celda({ c, formato }: { c: Comparada; formato: (x: number) => string })
  */
 export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: { comp: ComparacionMensual; nombreActual: string; nombreAnterior: string }) {
   const total = comp.renglones.find((r) => r.canal === "total")!;
+  const columnaAnterior = comp.base === "mismos-dias" ? `${nombreAnterior} 1–${comp.hastaAnterior}` : nombreAnterior;
   return (
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-4 hairline">
-        <h2 className="text-base font-semibold">Contra {nombreAnterior}</h2>
+        <h2 className="text-base font-semibold">
+          Contra {nombreAnterior}
+          {comp.base === "mismos-dias" ? ` · del 1 al ${comp.hastaAnterior}` : ""}
+        </h2>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          {comp.enCurso
-            ? `${nombreActual} lleva ${comp.diasActual} días cerrados contra los ${comp.diasAnterior} de ${nombreAnterior}: el total todavía va a crecer, así que la comparación justa es el ritmo por día.`
-            : `Mes completo contra mes completo. La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.`}
+          {comp.base === "mismos-dias"
+            ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
+            : comp.enCurso
+              ? `${nombreActual} va en curso y los mismos días de ${nombreAnterior} todavía se están calculando por atrás (unos minutos): mientras, la comparación justa es el ritmo por día.`
+              : `Mes completo contra mes completo.`}{" "}
+          La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.
         </p>
       </header>
       <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
@@ -55,8 +62,8 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
             <Ficha titulo="Utilidad neta por día" valor={pesos(comp.ritmo.utilidadNeta.actual)} nota={`${cambioTexto(comp.ritmo.utilidadNeta)} · antes ${pesos(comp.ritmo.utilidadNeta.anterior)} al día`} tono={tono(comp.ritmo.utilidadNeta)} />
           </>
         ) : null}
-        <Ficha titulo={comp.enCurso ? "Unidades en el mes (hasta hoy)" : "Unidades"} valor={n(total.unidades.actual)} nota={`${cambioTexto(total.unidades)} · ${n(total.unidades.diferencia)} vs ${n(total.unidades.anterior)}`} tono={comp.enCurso ? "neutro" : tono(total.unidades)} />
-        <Ficha titulo={comp.enCurso ? "Utilidad neta (hasta hoy)" : "Utilidad neta final"} valor={pesos(comp.utilidadNeta.actual)} nota={`${cambioTexto(comp.utilidadNeta)} · antes ${pesos(comp.utilidadNeta.anterior)}`} tono={comp.enCurso ? "neutro" : tono(comp.utilidadNeta)} />
+        <Ficha titulo={comp.ritmo ? "Unidades en el mes (hasta hoy)" : "Unidades"} valor={n(total.unidades.actual)} nota={`${cambioTexto(total.unidades)} · ${n(total.unidades.diferencia)} vs ${n(total.unidades.anterior)}`} tono={comp.ritmo ? "neutro" : tono(total.unidades)} />
+        <Ficha titulo={comp.ritmo ? "Utilidad neta (hasta hoy)" : "Utilidad neta final"} valor={pesos(comp.utilidadNeta.actual)} nota={`${cambioTexto(comp.utilidadNeta)} · antes ${pesos(comp.utilidadNeta.anterior)}`} tono={comp.ritmo ? "neutro" : tono(comp.utilidadNeta)} />
       </div>
       <div className="overflow-x-auto">
         <table className="datos">
@@ -64,10 +71,10 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
             <tr>
               <th>Canal</th>
               <th className="num">Unidades</th>
-              <th className="num">{nombreAnterior}</th>
+              <th className="num">{columnaAnterior}</th>
               <th className="num">Cambio</th>
               <th className="num">Ganancia</th>
-              <th className="num">{nombreAnterior}</th>
+              <th className="num">{columnaAnterior}</th>
               <th className="num">Cambio</th>
             </tr>
           </thead>
