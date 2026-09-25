@@ -773,8 +773,10 @@ guárdala numerada.
   es el número que se enseña, liquidado o por liquidar. Se pregunta por
   cada pedido EN PIE (`ESTADOS_EN_PIE`: pagado y no cancelado; muestras no),
   hasta 250 por corrida del sync (~1/s, lo que alcance el tiempo), primero
-  lo nunca leído y dentro de eso lo MÁS NUEVO (la pantalla se mira por los
-  últimos días); lo «sin dato»
+  lo nunca leído de los pedidos que YA SALIERON (`ESTADOS_CON_TRANSACCIONES`:
+  TikTok no publica transacciones hasta que el pedido se envía; 246 del
+  día contestaron `total_count: 0`) y dentro de eso lo MÁS NUEVO (la
+  pantalla se mira por los últimos días); lo «sin dato»
   (TikTok aún sin transacciones, pedidos recién creados) se reintenta cada
   12 h, lo por liquidar se relee cada día (cambia con devoluciones) y lo
   liquidado cada semana. Queda en `pago_esperado` / `pago_estado`
