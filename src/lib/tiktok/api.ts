@@ -5,7 +5,8 @@
  * ("trae los pedidos que se movieron desde ayer") y no el ruido de la
  * paginación por token, que TikTok hace distinto en cada familia de rutas.
  */
-import type { Cliente } from "./client";
+import { ErrorTikTok, type Cliente } from "./client";
+import { interpretarTransacciones, type TransaccionesPedido } from "./liquidacion";
 
 // ---------------------------------------------------------------------------
 // Autorización
@@ -812,8 +813,9 @@ export function interpretarLiquidacion(d: any): LiquidacionTikTok | null {
 }
 
 /**
- * La liquidación de un pedido. null = TikTok todavía no lo liquida (no
- * está en ningún estado de cuenta) o no contestó nada usable.
+ * La liquidación de un pedido (forma vieja, solo lo YA liquidado). null =
+ * TikTok todavía no lo liquida (no está en ningún estado de cuenta) o no
+ * contestó nada usable.
  */
 export async function liquidacionDePedido(
   c: Cliente,
@@ -821,4 +823,31 @@ export async function liquidacionDePedido(
 ): Promise<{ liquidacion: LiquidacionTikTok | null; crudo: unknown }> {
   const d = await c.llamar<any>("GET", `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
   return { liquidacion: interpretarLiquidacion(d), crudo: d ?? null };
+}
+
+/** Versión del endpoint de transacciones por pedido que trae también las NO liquidadas. */
+export const VERSION_TRANSACCIONES = "202501";
+/** La versión vieja, que solo trae lo ya liquidado; respaldo si la nueva no existe para la tienda. */
+export const VERSION_TRANSACCIONES_VIEJA = "202309";
+
+/**
+ * Las transacciones de finanzas de un pedido, liquidadas o no: lo que
+ * TikTok dice que va a pagar por él (`interpretarTransacciones`). Va por
+ * la 202501; si TikTok contesta que esa versión no existe (36009004) o
+ * 404, cae a la 202309 y lo declara en `version`. El crudo viaja siempre.
+ */
+export async function transaccionesDePedido(
+  c: Cliente,
+  orderId: string,
+): Promise<{ transacciones: TransaccionesPedido | null; crudo: unknown; version: string }> {
+  const ruta = (v: string) => `/finance/${v}/orders/${encodeURIComponent(orderId)}/statement_transactions`;
+  try {
+    const d = await c.llamar<any>("GET", ruta(VERSION_TRANSACCIONES));
+    return { transacciones: interpretarTransacciones(d), crudo: d ?? null, version: VERSION_TRANSACCIONES };
+  } catch (err) {
+    const e = err as ErrorTikTok;
+    if (!(e instanceof ErrorTikTok) || !(e.codigo === 36009004 || e.codigo === 404)) throw err;
+    const d = await c.llamar<any>("GET", ruta(VERSION_TRANSACCIONES_VIEJA));
+    return { transacciones: interpretarTransacciones(d), crudo: d ?? null, version: VERSION_TRANSACCIONES_VIEJA };
+  }
 }
