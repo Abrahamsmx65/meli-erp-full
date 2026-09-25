@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/reparar-ordenes",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }
