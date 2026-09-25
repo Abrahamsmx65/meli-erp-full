@@ -22,6 +22,36 @@ function caja(m: Medida | null): string {
   return `${n(m.largo)} × ${n(m.ancho)} × ${n(m.alto)}`;
 }
 
+const fechaCorta = (iso: string) => {
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)}/${Number(m)}/${y.slice(2)}`;
+};
+
+/** Los dos últimos cobros reales: "$59.60 (24/9, pedido $230.25, hermanas $59.60)". */
+function UltimosCobros({ real }: { real: VarianteRevisada["envioReal"] }) {
+  if (!real || !real.ultimos.length) return <span style={{ color: "var(--ink-muted)" }}>sin ventas</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      {real.ultimos.map((u, i) => {
+        const deMas = u.normal != null ? u.envio - u.normal : null;
+        const malo = deMas != null && deMas > 5;
+        return (
+          <div key={i} className="cifra text-xs" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
+            <strong>{pesos(u.envio)}</strong>
+            <span style={{ color: "var(--ink-muted)" }}>
+              {" "}
+              {fechaCorta(u.fecha)} · pedido {pesos(u.total)} ·{" "}
+              {u.normal == null
+                ? "sin hermana a ese precio"
+                : `hermanas ${pesos(u.normal)}${malo ? ` (+${pesos(deMas!)})` : ""}`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
   return (
     <tr>
@@ -53,8 +83,19 @@ function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
       <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
         {pesos(v.costoNormal)}
       </td>
-      <td className="num cifra text-sm font-semibold">
+      <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
         {v.sobrecosto > 0 ? `+${pesos(v.sobrecosto)}` : "—"}
+      </td>
+      <td>
+        <UltimosCobros real={v.envioReal} />
+      </td>
+      <td className="num cifra text-sm font-semibold" style={{ color: v.pagadoDeMas > 0 ? "var(--estado-critico)" : undefined }}>
+        {v.conVentas ? (v.pagadoDeMas > 0 ? `+${pesos(v.pagadoDeMas)}` : "$0") : "—"}
+        {v.envioReal && (
+          <div className="text-[11px] font-normal" style={{ color: "var(--ink-muted)" }}>
+            {v.envioReal.ordenes} ventas · {v.envioReal.comparables} comparables
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -72,9 +113,11 @@ function Tabla({ variantes, malas }: { variantes: VarianteRevisada[]; malas: Set
             <th>Medida en sistema</th>
             <th>Medida real (hermanas)</th>
             <th>Paga</th>
-            <th className="num">Envío hoy</th>
-            <th className="num">Debería</th>
-            <th className="num">De más</th>
+            <th className="num">Simulador: hoy</th>
+            <th className="num">Simulador: debería</th>
+            <th className="num">Simulador: de más</th>
+            <th>Últimos 2 cobros reales</th>
+            <th className="num">Pagado de más (60 d, real)</th>
           </tr>
         </thead>
         <tbody>
@@ -115,6 +158,8 @@ export function CostosEnvio({
         0,
       ),
       sobrecosto: conProblema.reduce((a, m) => a + m.sobrecosto, 0),
+      pagadoDeMas: conProblema.reduce((a, m) => a + m.pagadoDeMas, 0),
+      conVentas: conProblema.reduce((a, m) => a + m.malas.filter((v) => v.conVentas).length, 0),
       sinCosto: modelos.reduce(
         (a, m) => a + m.variantes.filter((v) => v.medida && v.costo == null).length,
         0,
@@ -284,13 +329,14 @@ export function CostosEnvio({
           <strong className="cifra">{totales.malas}</strong> publicaciones cobran de más, en{" "}
           <strong className="cifra">{conProblema.length}</strong> modelos ·{" "}
           <span style={{ color: "var(--estado-critico)" }}>
-            <strong className="cifra">{pesos(totales.sobrecosto)}</strong> de más por cada venta,
-            de mi bolsa
+            <strong className="cifra">{pesos(totales.pagadoDeMas)}</strong> pagados de más en los
+            últimos 60 días
           </span>{" "}
-          (<span className="cifra">{totales.mias}</span> con envío gratis; las otras{" "}
-          <span className="cifra">{totales.malas - totales.mias}</span> se lo cobran al comprador)
-          ·{" "}
-          · revisadas <span className="cifra">{totales.medidas}</span> de{" "}
+          según lo que MELI cobró de verdad en cada venta (
+          <span className="cifra">{totales.conVentas}</span> con ventas comparables; las otras{" "}
+          <span className="cifra">{totales.malas - totales.conVentas}</span> solo las señala el
+          simulador, {pesos(totales.sobrecosto)} de más por venta) · revisadas{" "}
+          <span className="cifra">{totales.medidas}</span> de{" "}
           <span className="cifra">{totales.publicaciones}</span> publicaciones
           {totales.sinCosto > 0 && (
             <>
@@ -341,7 +387,8 @@ export function CostosEnvio({
                   className="rounded-full px-2 py-0.5 text-[11px] font-bold"
                   style={{ background: "var(--acento-suave)", color: "var(--estado-critico)" }}
                 >
-                  {m.malas.length} mal medidas · +{pesos(m.sobrecosto)} por venta
+                  {m.malas.length} cobran de más ·{" "}
+                  {m.pagadoDeMas > 0 ? `+${pesos(m.pagadoDeMas)} en 60 días` : `+${pesos(m.sobrecosto)} por venta (simulador)`}
                 </span>
               )}
               <button

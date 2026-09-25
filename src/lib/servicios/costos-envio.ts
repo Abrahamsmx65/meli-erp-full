@@ -63,11 +63,49 @@ export interface VarianteEnvio {
   pesoFacturable: number | null;
 }
 
+/** Un pedido real: lo que MELI cobró y lo que cobró a las hermanas a ese mismo precio. */
+export interface CobroReal {
+  fecha: string;
+  /** total del pedido por unidad: el envío cambia con él */
+  total: number;
+  envio: number;
+  /** lo que pagaron las hermanas del modelo al mismo precio; null si ninguna vendió a ese precio */
+  normal: number | null;
+  hermanas: number;
+}
+
+/**
+ * Lo que MELI cobró de envío en las ventas REALES de un SKU (por unidad),
+ * comparado pedido por pedido contra las hermanas AL MISMO PRECIO (RPC
+ * `envio_real_por_sku`). El envío cambia con el precio de cada pedido, así
+ * que dos pedidos a distinto precio no se comparan.
+ */
+export interface EnvioReal {
+  ordenes: number;
+  unidades: number;
+  /** mediana de todo lo cobrado por unidad, sin distinguir precio */
+  mediana: number;
+  /** pedidos que tuvieron alguna hermana al mismo precio con qué compararse */
+  comparables: number;
+  /** pesos pagados de más en la ventana (solo diferencias mayores a $5 por pedido) */
+  pagadoDeMas: number;
+  /** mediana de (cobrado − normal) en los comparables; negativo = paga menos que las hermanas */
+  deMasPorVenta: number | null;
+  /** los dos últimos pedidos, el más reciente primero */
+  ultimos: CobroReal[];
+}
+
 export interface VarianteRevisada extends VarianteEnvio {
   /** la medida de consenso del modelo (lo que miden sus hermanas) */
   medidaReal: Medida | null;
-  /** costo - costoNormal, solo si es positivo */
+  /** costo - costoNormal según el SIMULADOR, solo si es positivo */
   sobrecosto: number;
+  /** lo que MELI cobró en sus ventas reales; null si no vendió en la ventana */
+  envioReal: EnvioReal | null;
+  /** pesos pagados de más en la ventana, real (0 si no cobra de más o no hay con qué comparar) */
+  pagadoDeMas: number;
+  /** true si el veredicto sale de ventas reales comparables; false si solo del simulador */
+  conVentas: boolean;
 }
 
 export interface ModeloRevisado {
@@ -76,12 +114,21 @@ export interface ModeloRevisado {
   /** cuántas hermanas sostienen la medida de consenso */
   hermanas: number;
   medidaReal: Medida | null;
+  /** el costo normal según el simulador */
   costoNormal: number | null;
-  /** las que cobran de más, pague quien pague */
+  /**
+   * las que cobran de más. Con ventas comparables manda lo real
+   * (pagadoDeMas > 0); sin ventas en la ventana, lo que dice el simulador.
+   */
   malas: VarianteRevisada[];
-  /** el sobrecosto que sale de MI bolsa: solo las de envío gratis */
+  /** el sobrecosto SIMULADO que sale de MI bolsa: solo las de envío gratis */
   sobrecosto: number;
+  /** pesos pagados de más en la ventana, real, sumando las malas con ventas */
+  pagadoDeMas: number;
 }
+
+/** Con menos pedidos comparables el veredicto real no vale: manda el simulador. */
+const MIN_COMPARABLES = 2;
 
 // ---------------------------------------------------------------------------
 // Lectura de los atributos de MELI
@@ -237,7 +284,10 @@ export function claveTarifa(m: Medida, precio: number, tipo: string): string {
 // ---------------------------------------------------------------------------
 // Armado del diagnóstico (puro: se prueba sin tocar MELI ni la base)
 // ---------------------------------------------------------------------------
-export function armarRevision(variantes: VarianteEnvio[]): ModeloRevisado[] {
+export function armarRevision(
+  variantes: VarianteEnvio[],
+  enviosReales: Map<string, EnvioReal> = new Map(),
+): ModeloRevisado[] {
   const porModelo = new Map<string, VarianteEnvio[]>();
   for (const v of variantes) {
     const k = v.modelo || "(sin modelo)";
@@ -258,38 +308,51 @@ export function armarRevision(variantes: VarianteEnvio[]): ModeloRevisado[] {
       .filter((c): c is number => typeof c === "number");
     const costoNormal = normales.length ? mediana(normales) : null;
 
-    const revisadas: VarianteRevisada[] = lista.map((v) => ({
-      ...v,
-      medidaReal,
-      // El sobrecosto se calcula pague quien pague. Con envío gratis lo absorbe
-      // el vendedor; sin él lo paga el comprador, y un envío inflado por una
-      // medida mal capturada espanta la venta igual. Las dos cosas hay que
-      // verlas; lo que NO se mezcla es el dinero: la suma del modelo cuenta
-      // solo lo que sale de la bolsa propia.
-      sobrecosto:
-        v.costo != null && v.costoNormal != null
-          ? Math.max(0, Math.round((v.costo - v.costoNormal) * 100) / 100)
-          : 0,
-    }));
+    const revisadas: VarianteRevisada[] = lista.map((v) => {
+      const real = enviosReales.get(v.sku) ?? null;
+      const conVentas = !!real && real.comparables >= MIN_COMPARABLES;
+      return {
+        ...v,
+        medidaReal,
+        // El sobrecosto se calcula pague quien pague. Con envío gratis lo absorbe
+        // el vendedor; sin él lo paga el comprador, y un envío inflado por una
+        // medida mal capturada espanta la venta igual. Las dos cosas hay que
+        // verlas; lo que NO se mezcla es el dinero: la suma del modelo cuenta
+        // solo lo que sale de la bolsa propia.
+        sobrecosto:
+          v.costo != null && v.costoNormal != null
+            ? Math.max(0, Math.round((v.costo - v.costoNormal) * 100) / 100)
+            : 0,
+        envioReal: real,
+        pagadoDeMas: conVentas ? Math.round(real.pagadoDeMas * 100) / 100 : 0,
+        conVentas,
+      };
+    });
 
-    const malas = revisadas.filter((v) => v.sobrecosto > 0);
+    // Manda lo real: una variante con ventas comparables es mala solo si de
+    // verdad pagó de más. Sin ventas en la ventana, vale lo que dice el
+    // simulador (es lo único que hay, y avisa de lo que va a pasar al vender).
+    const malas = revisadas.filter((v) => (v.conVentas ? v.pagadoDeMas > 0 : v.sobrecosto > 0));
+    const redondear = (n: number) => Math.round(n * 100) / 100;
     salida.push({
       modelo,
       variantes: revisadas.sort((a, b) => a.sku.localeCompare(b.sku, "es")),
       hermanas,
       medidaReal,
       costoNormal,
-      malas: malas.sort((a, b) => b.sobrecosto - a.sobrecosto),
-      sobrecosto:
-        Math.round(
-          malas.filter((v) => v.envioGratis).reduce((a, v) => a + v.sobrecosto, 0) * 100,
-        ) / 100,
+      malas: malas.sort((a, b) => b.pagadoDeMas - a.pagadoDeMas || b.sobrecosto - a.sobrecosto),
+      sobrecosto: redondear(
+        malas.filter((v) => v.envioGratis).reduce((a, v) => a + v.sobrecosto, 0),
+      ),
+      pagadoDeMas: redondear(malas.reduce((a, v) => a + v.pagadoDeMas, 0)),
     });
   }
 
-  // Primero los modelos con dinero de por medio, después el resto por nombre.
+  // Primero los modelos con dinero REAL de por medio, luego los que solo el
+  // simulador señala, después el resto por nombre.
   return salida.sort(
-    (a, b) => b.sobrecosto - a.sobrecosto || a.modelo.localeCompare(b.modelo, "es"),
+    (a, b) =>
+      b.pagadoDeMas - a.pagadoDeMas || b.sobrecosto - a.sobrecosto || a.modelo.localeCompare(b.modelo, "es"),
   );
 }
 
@@ -874,12 +937,65 @@ export async function calcularCostos(
 }
 
 /** Lo guardado, ya comparado y ordenado, para la pantalla y para el Excel. */
+/** Ventana de ventas reales con la que se compara: dos meses de cobros. */
+export const DIAS_VENTAS_REALES = 60;
+
+interface FilaEnvioReal {
+  sku: string;
+  ordenes: number;
+  unidades: number;
+  mediana: number | string;
+  comparables: number;
+  pagado_de_mas: number | string;
+  de_mas_por_venta: number | string | null;
+  ultimos: { fecha: string; total: number; envio: number; normal: number | null; hermanas: number }[] | null;
+}
+
+/** Arma el mapa sku → EnvioReal con lo que contesta el RPC. */
+export function armarEnviosReales(filas: FilaEnvioReal[]): Map<string, EnvioReal> {
+  const salida = new Map<string, EnvioReal>();
+  for (const f of filas) {
+    salida.set(f.sku, {
+      ordenes: Number(f.ordenes),
+      unidades: Number(f.unidades),
+      mediana: Number(f.mediana),
+      comparables: Number(f.comparables),
+      pagadoDeMas: Number(f.pagado_de_mas),
+      deMasPorVenta: f.de_mas_por_venta == null ? null : Number(f.de_mas_por_venta),
+      ultimos: (f.ultimos ?? []).map((u) => ({
+        fecha: u.fecha,
+        total: Number(u.total),
+        envio: Number(u.envio),
+        normal: u.normal == null ? null : Number(u.normal),
+        hermanas: Number(u.hermanas ?? 0),
+      })),
+    });
+  }
+  return salida;
+}
+
+/**
+ * Lo que MELI cobró de envío en las ventas reales de cada SKU (RPC
+ * `envio_real_por_sku`, sobre `ordenes_neto.envio_vendedor`). Si el RPC
+ * falla se devuelve vacío y la revisión se queda con el simulador: se
+ * declara con `conVentas = false`, no se inventa.
+ */
+export async function leerEnviosReales(db: DB, accountId: string): Promise<Map<string, EnvioReal>> {
+  const desde = new Date(Date.now() - DIAS_VENTAS_REALES * 86_400_000).toISOString();
+  const { data, error } = await db.rpc("envio_real_por_sku", { p_account: accountId, p_desde: desde });
+  if (error) return new Map();
+  return armarEnviosReales((data ?? []) as FilaEnvioReal[]);
+}
+
 export async function leerRevision(db: DB, accountId: string): Promise<ModeloRevisado[]> {
-  const filas = await traerTodo<FilaMedida>(
-    db,
-    "medidas_envio",
-    "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, precio_venta, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
-    (q) => q.eq("account_id", accountId),
-  );
-  return armarRevision(filas.map(aVariante));
+  const [filas, reales] = await Promise.all([
+    traerTodo<FilaMedida>(
+      db,
+      "medidas_envio",
+      "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, precio_venta, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
+      (q) => q.eq("account_id", accountId),
+    ),
+    leerEnviosReales(db, accountId),
+  ]);
+  return armarRevision(filas.map(aVariante), reales);
 }

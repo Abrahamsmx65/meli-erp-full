@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  armarEnviosReales,
   armarRevision,
   claveTarifa,
   dimensionesParaMeli,
@@ -202,5 +203,105 @@ describe("revisión del modelo", () => {
     expect(revision.malas.map((v) => v.sku)).toEqual(["GT229-DK-26-MX"]);
     expect(revision.malas[0].sobrecosto).toBe(51);
     expect(revision.sobrecosto).toBe(0);
+  });
+});
+
+/**
+ * Lo que manda es lo que MELI COBRÓ de verdad (25-sep-2026, el dueño: «¿por
+ * qué simulas y no revisas exactamente?»): la GT229-TABACO BROWN-24 mide
+ * 28 × 25 × 25 en MELI y el simulador la marca con $152 contra $76, pero en
+ * 26 ventas reales pagó lo mismo que sus hermanas al mismo precio.
+ */
+describe("ventas reales contra el simulador", () => {
+  const base = (sku: string, medida: [number, number, number, number], costo: number): VarianteEnvio => ({
+    sku,
+    itemId: "MLM1",
+    inventoryId: null,
+    modelo: "GT229",
+    color: "TAB",
+    talla: sku.split("-")[2],
+    medida: { alto: medida[0], ancho: medida[1], largo: medida[2], peso: medida[3] },
+    fuente: "MEASUREMENT",
+    medidaVendedor: null,
+    precio: 341,
+    tipoPublicacion: "gold_special",
+    envioGratis: true,
+    estado: "active",
+    costo,
+    costoNormal: 76,
+    pesoFacturable: null,
+  });
+  const lista = [
+    base("GT229-TAB-23", [11.2, 23.4, 29.6, 440], 76),
+    base("GT229-TAB-24", [25.2, 25.4, 28.4, 480], 152), // "mal medida" según el simulador
+    base("GT229-TAB-25", [9.8, 24.2, 28.6, 520], 76),
+    base("GT229-TAB-26", [9, 23.6, 27.2, 620], 76),
+    base("GT229-TAB-27", [10.2, 29.6, 30.2, 560], 139.5), // "mal medida" según el simulador
+  ];
+  const real = (ordenes: number, comparables: number, pagadoDeMas: number, ultimos: [number, number | null][]) => ({
+    ordenes,
+    unidades: ordenes,
+    mediana: 67.6,
+    comparables,
+    pagadoDeMas,
+    deMasPorVenta: 0,
+    ultimos: ultimos.map(([envio, normal]) => ({ fecha: "2026-09-24", total: 222.25, envio, normal, hermanas: 12 })),
+  });
+
+  it("con ventas comparables manda lo real: la 24 no cobra de más, la 27 sin ventas queda por el simulador", () => {
+    const reales = new Map([
+      ["GT229-TAB-24", real(26, 25, 0, [[59.6, 59.6], [67.6, 67.6]])],
+      ["GT229-TAB-23", real(6, 6, 0, [[67.6, 67.6], [76, 76]])],
+    ]);
+    const [m] = armarRevision(lista, reales);
+    expect(m.malas.map((v) => v.sku)).toEqual(["GT229-TAB-27"]); // la 24 ya no
+    const v24 = m.variantes.find((v) => v.sku === "GT229-TAB-24")!;
+    expect(v24.conVentas).toBe(true);
+    expect(v24.pagadoDeMas).toBe(0);
+    expect(v24.sobrecosto).toBe(76); // el simulador la sigue señalando, pero no manda
+    expect(v24.envioReal?.ultimos[0]).toMatchObject({ envio: 59.6, normal: 59.6 });
+    const v27 = m.variantes.find((v) => v.sku === "GT229-TAB-27")!;
+    expect(v27.conVentas).toBe(false);
+    expect(v27.envioReal).toBeNull();
+    expect(m.pagadoDeMas).toBe(0);
+  });
+
+  it("una que de verdad pagó de más entra por lo real, aunque el simulador diga que está bien", () => {
+    const reales = new Map([["GT229-TAB-25", real(8, 8, 123.4, [[193, 152], [67.6, 67.6]])]]);
+    const [m] = armarRevision(lista, reales);
+    expect(m.malas.map((v) => v.sku)).toEqual(["GT229-TAB-25", "GT229-TAB-24", "GT229-TAB-27"]);
+    expect(m.malas[0].pagadoDeMas).toBe(123.4);
+    expect(m.pagadoDeMas).toBe(123.4);
+  });
+
+  it("con una sola venta comparable no hay veredicto real: sigue el simulador", () => {
+    const reales = new Map([["GT229-TAB-24", real(1, 1, 0, [[67.6, 67.6]])]]);
+    const [m] = armarRevision(lista, reales);
+    expect(m.malas.map((v) => v.sku)).toContain("GT229-TAB-24");
+    expect(m.variantes.find((v) => v.sku === "GT229-TAB-24")!.conVentas).toBe(false);
+  });
+
+  it("arma el mapa con lo que contesta el RPC", () => {
+    const mapa = armarEnviosReales([
+      {
+        sku: "A",
+        ordenes: 3,
+        unidades: 3,
+        mediana: "67.6",
+        comparables: 2,
+        pagado_de_mas: "41",
+        de_mas_por_venta: null,
+        ultimos: [{ fecha: "2026-09-24", total: 499, envio: 193, normal: 152, hermanas: 4 }],
+      },
+    ]);
+    expect(mapa.get("A")).toEqual({
+      ordenes: 3,
+      unidades: 3,
+      mediana: 67.6,
+      comparables: 2,
+      pagadoDeMas: 41,
+      deMasPorVenta: null,
+      ultimos: [{ fecha: "2026-09-24", total: 499, envio: 193, normal: 152, hermanas: 4 }],
+    });
   });
 });

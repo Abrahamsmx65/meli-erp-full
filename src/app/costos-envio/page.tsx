@@ -37,8 +37,11 @@ export default async function PaginaCostosEnvio() {
           tallas pagan $88.50 y dos pagan $139.50 y $190 por la misma pantufla. Aquí se
           compara cada publicación contra sus hermanas del mismo modelo —que son la misma
           caja— y sale la lista de las que están mal, con las dos medidas juntas para
-          abrir el caso. Para la solicitud, MELI pide su Excel (Item ID, Site y la medida
-          correcta) y un link a una imagen de evidencia por modelo: las dos cosas salen de aquí.
+          abrir el caso. Lo que manda es lo que MELI COBRÓ de verdad en cada venta (los
+          últimos 60 días, pedido por pedido contra las hermanas al mismo precio, porque el
+          envío cambia con el precio del pedido); el simulador solo señala lo que no ha
+          vendido. Para la solicitud, MELI pide su Excel (Item ID, Site y la medida correcta)
+          y un link a una imagen de evidencia por modelo: las dos cosas salen de aquí.
         </p>
       </div>
 

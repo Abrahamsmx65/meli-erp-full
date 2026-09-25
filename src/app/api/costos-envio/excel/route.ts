@@ -9,6 +9,16 @@ import { leerEvidencias } from "@/lib/servicios/evidencia-envio-generar";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+/** "$59.60 el 24/9 (pedido $230.25; hermanas $59.60)" */
+function cobro(u: { fecha: string; total: number; envio: number; normal: number | null } | undefined): string {
+  if (!u) return "";
+  const n = (x: number) => `$${x.toFixed(2)}`;
+  const [y, m, d] = u.fecha.split("-");
+  return `${n(u.envio)} el ${Number(d)}/${Number(m)}/${y.slice(2)} (pedido ${n(u.total)}; ${
+    u.normal == null ? "sin hermana a ese precio" : `hermanas ${n(u.normal)}`
+  })`;
+}
+
 /** "27.9 × 23.8 × 10 cm" — como se lee una caja, no como la manda el API. */
 function caja(m: Medida | null): string {
   if (!m) return "";
@@ -150,6 +160,11 @@ export async function GET(req: NextRequest) {
     { header: "Se cobra de más", key: "sobrecosto", width: 15 },
     { header: "Peso facturable (g)", key: "facturable", width: 17 },
     { header: "Precio", key: "precio", width: 10 },
+    { header: "Ventas 60 d", key: "ventas", width: 11 },
+    { header: "Envío real (mediana)", key: "realMediana", width: 18 },
+    { header: "Último cobro", key: "ultimo", width: 34 },
+    { header: "Penúltimo cobro", key: "penultimo", width: 34 },
+    { header: "Pagado de más 60 d (real)", key: "pagadoDeMas", width: 22 },
   ];
   hoja.getRow(1).font = { bold: true };
   hoja.views = [{ state: "frozen", ySplit: 1 }];
@@ -174,11 +189,17 @@ export async function GET(req: NextRequest) {
         sobrecosto: v.sobrecosto || null,
         facturable: v.pesoFacturable,
         precio: v.precio,
+        ventas: v.envioReal?.ordenes ?? null,
+        realMediana: v.envioReal?.mediana ?? null,
+        ultimo: cobro(v.envioReal?.ultimos[0]),
+        penultimo: cobro(v.envioReal?.ultimos[1]),
+        pagadoDeMas: v.conVentas ? v.pagadoDeMas : null,
       });
-      for (const k of ["costo", "normal", "sobrecosto", "precio"]) {
+      for (const k of ["costo", "normal", "sobrecosto", "precio", "realMediana", "pagadoDeMas"]) {
         fila.getCell(k).numFmt = '"$"#,##0.00';
       }
       if (v.sobrecosto > 0) fila.getCell("sobrecosto").font = { bold: true };
+      if (v.pagadoDeMas > 0) fila.getCell("pagadoDeMas").font = { bold: true };
     }
   }
 
@@ -189,8 +210,9 @@ export async function GET(req: NextRequest) {
     { header: "Publicaciones", key: "total", width: 14 },
     { header: "Mal medidas", key: "malas", width: 13 },
     { header: "Medida real (hermanas)", key: "real", width: 22 },
-    { header: "Costo normal", key: "normal", width: 14 },
-    { header: "Se cobra de más (suma)", key: "sobrecosto", width: 21 },
+    { header: "Costo normal (simulador)", key: "normal", width: 22 },
+    { header: "Se cobra de más por venta (simulador)", key: "sobrecosto", width: 30 },
+    { header: "Pagado de más 60 d (real)", key: "pagadoDeMas", width: 22 },
   ];
   resumen.getRow(1).font = { bold: true };
   resumen.views = [{ state: "frozen", ySplit: 1 }];
@@ -204,9 +226,11 @@ export async function GET(req: NextRequest) {
       real: caja(m.medidaReal),
       normal: m.costoNormal,
       sobrecosto: m.sobrecosto || null,
+      pagadoDeMas: m.pagadoDeMas || null,
     });
     fila.getCell("normal").numFmt = '"$"#,##0.00';
     fila.getCell("sobrecosto").numFmt = '"$"#,##0.00';
+    fila.getCell("pagadoDeMas").numFmt = '"$"#,##0.00';
   }
 
   const buffer = await libro.xlsx.writeBuffer();

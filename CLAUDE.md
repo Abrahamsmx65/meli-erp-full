@@ -204,9 +204,22 @@ guárdala numerada.
   guarda `precio_venta` y le pregunta al simulador con ese (el dueño leía
   «MELI ya lo corrigió» cuando solo había cambiado el precio). Las que
   cobran de más se releen en CADA pasada; `medidas_en` es la fecha de
-  LECTURA real, no de la pasada. Sonda sin escribir:
-  `/api/costos-envio/diagnostico?sku=…` (item, variación, user product y
-  simulador a cada precio).
+  LECTURA real, no de la pasada. **Lo que MANDA es lo que MELI COBRÓ de
+  verdad** (RPC `envio_real_por_sku`, migración 0097, sobre
+  `ordenes_neto.envio_vendedor`; decisión del dueño, 25-sep-2026: «¿por qué
+  simulas y no revisas exactamente?»): cada pedido de un SKU se compara
+  contra los pedidos de sus hermanas AL MISMO PRECIO por unidad —el envío
+  cambia con el precio del pedido: la misma talla pagó $59.60, $67.60 y $76
+  el mismo día en reventa, y abajo de $299 la medida casi no pesa— y lo
+  pagado de más es la diferencia mayor a $5, pedido por pedido, en 60 días.
+  El GT229-TABACO BROWN-24 (28 × 25 × 25 en MELI, $152 vs $76 en el
+  simulador) pagó en 26 ventas lo mismo que sus hermanas: NO cobra de más.
+  Con ≥2 pedidos comparables manda lo real (`conVentas`); sin ventas, el
+  simulador. La pantalla enseña los DOS últimos cobros por variante con el
+  precio del pedido y lo que pagaron las hermanas a ese precio. Sonda sin
+  escribir: `/api/costos-envio/diagnostico?sku=…` (item, variación, user
+  product, `/items/{id}/shipping_options/free`, simulador a cada precio y
+  ventas reales).
 - **Los envíos a Full registrados (`envios_full`) SOLO alimentan cálculos**:
   cuentan como "en camino" en el plan, nunca descuentan inventario. Caducan
   solos a los 7 días y se quedan visibles como caducados.

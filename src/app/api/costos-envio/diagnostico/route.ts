@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import {
+  leerEnviosReales,
   leerRevision,
   medidasDeAtributos,
   preguntarTarifa,
@@ -60,6 +61,8 @@ export async function GET(req: NextRequest) {
   if (!itemId) return NextResponse.json({ error: "Ese SKU no tiene publicación.", fila, catalogo }, { status: 404 });
 
   const salida: Record<string, unknown> = { sku, guardado: fila, catalogo };
+  // Y lo que MELI cobró de verdad en sus últimas ventas (de la base, sin llamar a MELI).
+  salida.ventasReales = (await leerEnviosReales(supabase, cuenta.id)).get(sku) ?? null;
 
   try {
     const item = await cliente.get<{
@@ -103,6 +106,19 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         salida.userProduct = { id: up, error: (err as Error).message };
       }
+    }
+
+    // Lo que MELI dice que cuesta HOY el envío de ESTA publicación, con sus
+    // propias medidas y su propio precio: es lo que debería cuadrar con lo
+    // que enseña el panel del vendedor.
+    try {
+      salida.envioDeLaPublicacion = await cliente.get<unknown>(
+        `/items/${itemId}/shipping_options/free`,
+        { verbose: "true" },
+        { reintentos: 1 },
+      );
+    } catch (err) {
+      salida.envioDeLaPublicacion = { error: (err as Error).message };
     }
 
     // Los precios que MELI le conoce a la publicación: el de lista, el de la
