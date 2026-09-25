@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
       listing_type_id?: string;
       shipping?: unknown;
       attributes?: unknown[];
-      variations?: { id: number | string; user_product_id?: string; inventory_id?: string; attributes?: unknown[] }[];
+      variations?: { id: number | string; price?: number; user_product_id?: string; inventory_id?: string; attributes?: unknown[] }[];
     }>(`/items/${itemId}`, undefined, { reintentos: 1 });
     const variacion =
       item.variations?.find((v) => String(v.id) === String(catalogo?.variation_id ?? "")) ?? null;
@@ -105,20 +105,64 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // El simulador, con la medida guardada y con la de consenso del modelo.
-    const precio = fila?.precio ?? item.price ?? null;
+    // Los precios que MELI le conoce a la publicación: el de lista, el de la
+    // promoción vigente y el de reventa. El costo de envío cambia de tramo con
+    // el precio ($299–$498 lleva descuento; desde $499 se paga completo), así
+    // que el simulador se pregunta con CADA precio distinto.
+    const precios: { origen: string; precio: number }[] = [];
+    const agregar = (origen: string, p: unknown) => {
+      if (typeof p === "number" && p > 0 && !precios.some((x) => x.precio === p)) precios.push({ origen, precio: p });
+    };
+    agregar("guardado en medidas_envio", fila?.precio != null ? Number(fila.precio) : null);
+    agregar("item.price (lista)", item.price);
+    if (variacion) agregar("variación.price", (variacion as { price?: number }).price);
+    try {
+      const sp = await cliente.get<{ amount?: number; regular_amount?: number; metadata?: unknown }>(
+        `/items/${itemId}/sale_price`,
+        { context: "channel_marketplace" },
+        { reintentos: 1 },
+      );
+      salida.salePrice = sp;
+      agregar("sale_price.amount (lo que ve el comprador)", sp?.amount);
+      agregar("sale_price.regular_amount", sp?.regular_amount);
+    } catch (err) {
+      salida.salePrice = { error: (err as Error).message };
+    }
+    try {
+      const pr = await cliente.get<{ prices?: { type?: string; amount?: number; conditions?: unknown }[] }>(
+        `/items/${itemId}/prices`,
+        undefined,
+        { reintentos: 1 },
+      );
+      salida.prices = pr?.prices?.map((x) => ({ type: x.type, amount: x.amount, conditions: x.conditions }));
+      for (const x of pr?.prices ?? []) agregar(`prices[${x.type}]`, x.amount);
+    } catch (err) {
+      salida.prices = { error: (err as Error).message };
+    }
+
+    // El simulador, con la medida guardada y con la de consenso del modelo,
+    // a cada precio.
     const tipo = fila?.tipo_publicacion ?? item.listing_type_id ?? "gold_special";
     const guardada: Medida | null =
-      fila?.alto != null ? { alto: fila.alto, ancho: fila.ancho, largo: fila.largo, peso: fila.peso } : null;
+      fila?.alto != null
+        ? { alto: Number(fila.alto), ancho: Number(fila.ancho), largo: Number(fila.largo), peso: Number(fila.peso) }
+        : null;
     const modelo = (await leerRevision(supabase, cuenta.id)).find((m) => m.modelo === (fila?.modelo ?? catalogo?.modelo));
     const consenso = modelo?.medidaReal ?? null;
-    if (precio != null) {
-      salida.simulador = {
-        conMedidaGuardada: guardada ? await preguntarTarifa(cliente, cuenta.meli_user_id, guardada, precio, tipo) : null,
-        conMedidaDeConsenso: consenso ? await preguntarTarifa(cliente, cuenta.meli_user_id, consenso, precio, tipo) : null,
-        consenso,
-      };
+    const simulador: unknown[] = [];
+    for (const { origen, precio } of precios) {
+      try {
+        simulador.push({
+          precio,
+          origen,
+          conMedidaGuardada: guardada ? await preguntarTarifa(cliente, cuenta.meli_user_id, guardada, precio, tipo) : null,
+          conMedidaDeConsenso: consenso ? await preguntarTarifa(cliente, cuenta.meli_user_id, consenso, precio, tipo) : null,
+        });
+      } catch (err) {
+        simulador.push({ precio, origen, error: (err as Error).message });
+      }
     }
+    salida.simulador = { tipo, guardada, consenso, porPrecio: simulador };
   } catch (err) {
     salida.error = (err as Error).message;
   }
