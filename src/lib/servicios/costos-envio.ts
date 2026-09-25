@@ -321,6 +321,32 @@ interface FilaPrevia {
   peso: number | null;
   fuente: string | null;
   medidas_en: string | null;
+  costo: number | null;
+  costo_normal: number | null;
+}
+
+/**
+ * ¿Hay que volver a pedirle a MELI la medida de esta publicación?
+ *
+ *   · Sin medida guardada: sí, obvio.
+ *   · Cobra de más: SIEMPRE. Son justo las que se reclamaron; la corrección
+ *     de MELI se ve cuando se relee, y son pocas (decenas, no miles).
+ *   · El resto: cuando la lectura guardada ya cumplió `refrescoMs`.
+ *
+ * `medidas_en` es la fecha en que se LEYÓ de MELI, no la de la última pasada:
+ * una pasada que reutiliza la medida guardada no la vuelve fresca. Ese era el
+ * bug que dejaba las corregidas como pendientes para siempre: cada "revisar
+ * de nuevo" les ponía fecha de hoy sin releerlas y los 30 días nunca corrían.
+ */
+export function hayQueReleer(
+  previa: Pick<FilaPrevia, "alto" | "medidas_en" | "costo" | "costo_normal"> | undefined,
+  refrescoMs: number,
+  ahora = Date.now(),
+): boolean {
+  if (!previa || previa.alto == null) return true;
+  if (previa.costo != null && previa.costo_normal != null && previa.costo > previa.costo_normal) return true;
+  const leidaEn = previa.medidas_en ? Date.parse(previa.medidas_en) : 0;
+  return ahora - leidaEn >= refrescoMs;
 }
 
 /**
@@ -383,10 +409,13 @@ export async function sincronizarMedidas(
   const previas = await traerTodo<FilaPrevia>(
     db,
     "medidas_envio",
-    "sku, alto, ancho, largo, peso, fuente, medidas_en",
+    "sku, alto, ancho, largo, peso, fuente, medidas_en, costo, costo_normal",
     (q) => q.eq("account_id", accountId),
   );
   const antes = new Map(previas.map((p) => [p.sku, p]));
+  // Las que sí se le preguntaron a MELI en ESTA pasada: solo esas estrenan
+  // fecha de lectura. Las que se reutilizaron de la base conservan la suya.
+  const leidasAhora = new Set<string>();
 
   // ------------------------------------------------------------ primera vuelta
   // Lo que se puede resolver con lo que ya trajo el multiget.
@@ -415,6 +444,7 @@ export async function sincronizarMedidas(
     const delItem = medidasDeAtributos(item.attributes);
     if (delItem.medida) {
       resueltas.set(f.sku, delItem);
+      leidasAhora.add(f.sku);
       continue;
     }
 
@@ -424,7 +454,7 @@ export async function sincronizarMedidas(
 
     const previa = antes.get(f.sku);
     const leidaEn = previa?.medidas_en ? Date.parse(previa.medidas_en) : 0;
-    if (previa?.alto != null && Date.now() - leidaEn < refresco) {
+    if (previa?.alto != null && !hayQueReleer(previa, refresco)) {
       // La medida guardada sigue fresca: no se gasta una llamada en ella.
       resueltas.set(f.sku, {
         medida: { alto: previa.alto, ancho: previa.ancho!, largo: previa.largo!, peso: previa.peso! },
@@ -462,7 +492,10 @@ export async function sincronizarMedidas(
       });
       leidos++;
       const m = medidasDeAtributos(cuerpo?.attributes);
-      for (const p of grupo) resueltas.set(p.fila.sku, m);
+      for (const p of grupo) {
+        resueltas.set(p.fila.sku, m);
+        leidasAhora.add(p.fila.sku);
+      }
     } catch {
       // Una que MELI no contesta se queda pendiente y se reintenta después.
       pendientes += grupo.length;
@@ -513,7 +546,8 @@ export async function sincronizarMedidas(
         estado: item.status ?? f.estado,
         // Si las medidas cambiaron, el costo guardado ya no vale.
         ...(cambio ? { costo: null, costo_normal: null, peso_facturable: null } : {}),
-        ...(medida ? { medidas_en: ahora } : {}),
+        // La fecha de lectura solo cambia si de verdad se le preguntó a MELI.
+        ...(medida && leidasAhora.has(f.sku) ? { medidas_en: ahora } : {}),
         actualizado_en: ahora,
       };
     });
