@@ -1,11 +1,14 @@
 /**
  * El ZIP con todas las imágenes de un modelo.
  *
- * Las fotos son del COLOR, no de la talla: se pide un ASIN por color (hasta 20
- * caben en una sola llamada al catálogo de Amazon) en vez de los cuarenta
- * hijos del modelo. Si Amazon no entrega las de algún color, va al menos su
- * imagen principal, la que trae el reporte de listados, y el ZIP lleva un
- * LEEME.txt diciendo qué faltó.
+ * Las fotos son del COLOR, no de la talla. La fuente PRINCIPAL son las fotos
+ * CAPTURADAS en la publicación de cada color (los atributos de Listings
+ * Items): son lo que el vendedor subió, existen aunque el color esté agotado
+ * o despublicado y nunca traen fotos prestadas de la familia («¿por qué no
+ * tomamos todo de la API?», dueño, 25-sep-2026). El catálogo público queda de
+ * respaldo para publicaciones viejas sin fotos capturadas, filtrado para que
+ * un color sin fotos no baje las del color publicado. El LEEME.txt solo dice
+ * qué color se quedó SIN fotos (y los errores de Amazon, si hubo).
  *
  * Vive aparte de la ruta porque hay dos puertas a la misma pantalla: la del
  * dueño y la del link sin contraseña.
@@ -113,42 +116,63 @@ export async function armarZipDeModelo(
   const admin = clienteAdmin();
   const credenciales = (await cuentasAmazon(admin)).find((c) => c.accountId === cuenta.id);
 
+  const avisos: string[] = [];
   const porAsin = new Map<string, ImagenCatalogo[]>();
-  // Las fotos CAPTURADAS en la publicación, por SKU: el rescate para los
-  // colores a los que el catálogo público les presta las fotos de otro.
+  // Las fotos CAPTURADAS en la publicación, por SKU: la fuente principal.
   let capturadas = new Map<string, string[]>();
-  let avisoCatalogo: string | null = null;
   const cliente = credenciales ? new Cliente(credenciales, Date.now() + PLAZO_MS) : null;
-  if (cliente && credenciales) {
-    try {
-      const primeras = await imagenesDeAsins(
-        cliente,
-        colores.map((c) => c.asin).filter((a): a is string => Boolean(a)),
-      );
-      for (const [asin, fotos] of primeras) porAsin.set(asin, fotos);
+  const capturadasDe = (c: { sellerSkus: string[] }): string[] =>
+    c.sellerSkus.map((sku) => capturadas.get(sku.toUpperCase())).find((f) => f?.length) ?? [];
 
-      // Un color agotado o borrado puede tener un ASIN que el catálogo ya no
-      // contesta; las fotos son las mismas en cualquier talla, así que se
-      // reintenta con sus otras tallas antes de darlo por perdido.
-      const sinFotos = colores.filter(
-        (c) => c.asin && !porAsin.get(c.asin)?.length && c.asinsExtra.length,
-      );
-      if (sinFotos.length) {
-        const extras = await imagenesDeAsins(cliente, sinFotos.flatMap((c) => c.asinsExtra));
-        for (const c of sinFotos) {
-          const alterno = c.asinsExtra.find((a) => extras.get(a)?.length);
-          if (alterno && c.asin) porAsin.set(c.asin, extras.get(alterno)!);
-        }
-      }
-    } catch (err) {
-      avisoCatalogo = `Amazon no entregó el catálogo de imágenes (${(err as Error).message}).`;
-    }
+  if (!cliente || !credenciales) {
+    avisos.push("La cuenta de Amazon no tiene credenciales guardadas.");
   } else {
-    avisoCatalogo = "La cuenta de Amazon no tiene credenciales guardadas.";
+    if (credenciales.sellingPartnerId) {
+      try {
+        capturadas = await fotosCapturadasPorSku(
+          cliente,
+          credenciales.sellingPartnerId,
+          colores.flatMap((c) => c.sellerSkus.slice(0, 2)),
+        );
+      } catch (err) {
+        avisos.push(
+          `Amazon no entregó las fotos capturadas en las publicaciones (${(err as Error).message}).`,
+        );
+      }
+    }
+
+    // El catálogo público es el RESPALDO del color sin fotos capturadas. Se
+    // pide para TODOS los colores, no solo esos: sin el juego completo, el
+    // filtro de fotos prestadas no tendría contra quién comparar.
+    const sinCapturar = colores.filter((c) => !capturadasDe(c).length);
+    if (sinCapturar.length) {
+      try {
+        const primeras = await imagenesDeAsins(
+          cliente,
+          colores.map((c) => c.asin).filter((a): a is string => Boolean(a)),
+        );
+        for (const [asin, fotos] of primeras) porAsin.set(asin, fotos);
+
+        // Un color agotado o borrado puede tener un ASIN que el catálogo ya
+        // no contesta; las fotos son las mismas en cualquier talla, así que
+        // se reintenta con sus otras tallas antes de darlo por perdido.
+        const sinFotos = sinCapturar.filter(
+          (c) => c.asin && !porAsin.get(c.asin)?.length && c.asinsExtra.length,
+        );
+        if (sinFotos.length) {
+          const extras = await imagenesDeAsins(cliente, sinFotos.flatMap((c) => c.asinsExtra));
+          for (const c of sinFotos) {
+            const alterno = c.asinsExtra.find((a) => extras.get(a)?.length);
+            if (alterno && c.asin) porAsin.set(c.asin, extras.get(alterno)!);
+          }
+        }
+      } catch (err) {
+        avisos.push(`Amazon no entregó el catálogo de imágenes (${(err as Error).message}).`);
+      }
+    }
   }
 
   const corte = Date.now() + PLAZO_MS - RESERVA_MS;
-  const avisos: string[] = avisoCatalogo ? [avisoCatalogo] : [];
   const pendientes: Pendiente[] = [];
 
   const repetidas = fotosRepetidas(
@@ -159,42 +183,26 @@ export async function armarZipDeModelo(
     })),
   );
 
-  // Los colores con fotos prestadas (o sin nada) van al rescate: la API de
-  // publicaciones devuelve lo que el vendedor CAPTURÓ, aunque el listing
-  // esté inactivo — «en la API sí está» (dueño, 25-sep-2026, GT125).
-  const porRescatar = colores.filter((c) => {
-    const nombre = varios ? `${c.modelo} ${c.color}` : c.color;
-    return repetidas.has(nombre) || !(c.asin && porAsin.get(c.asin)?.length);
-  });
-  if (cliente && credenciales?.sellingPartnerId && porRescatar.length) {
-    try {
-      capturadas = await fotosCapturadasPorSku(
-        cliente,
-        credenciales.sellingPartnerId,
-        porRescatar.flatMap((c) => c.sellerSkus.slice(0, 2)),
-      );
-    } catch (err) {
-      avisos.push(
-        `Amazon no entregó las fotos capturadas en las publicaciones (${(err as Error).message}).`,
-      );
-    }
-  }
-  const capturadasDe = (c: { sellerSkus: string[] }): string[] =>
-    c.sellerSkus.map((sku) => capturadas.get(sku.toUpperCase())).find((f) => f?.length) ?? [];
-
   for (const c of colores) {
     // Cuando la publicación junta varios códigos, la carpeta dice de cuál es.
     const nombreColor = varios ? `${c.modelo} ${c.color}` : c.color;
     const carpeta = nombreArchivo(nombreColor) || "COLOR";
-    const suyas = c.asin ? (porAsin.get(c.asin) ?? []) : [];
-
+    const propias = capturadasDe(c);
     // La página pública le presta a un color sin fotos las del publicado:
-    // esas no se bajan. Lo suyo de verdad son las CAPTURADAS en su
-    // publicación, y de ahí se rescatan.
+    // esas nunca se bajan.
     const duenio = repetidas.get(nombreColor);
-    const rescate = duenio || !suyas.length ? capturadasDe(c) : [];
+    const suyas = !duenio && c.asin ? (porAsin.get(c.asin) ?? []) : [];
 
-    if (suyas.length && !duenio) {
+    if (propias.length) {
+      propias.forEach((link, i) => {
+        const orden = String(i + 1).padStart(2, "0");
+        pendientes.push({
+          carpeta,
+          nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} ${orden}${i === 0 ? " MAIN" : ""}${extension(link)}`,
+          link,
+        });
+      });
+    } else if (suyas.length) {
       suyas.forEach((img, i) => {
         const orden = String(i + 1).padStart(2, "0");
         pendientes.push({
@@ -203,31 +211,8 @@ export async function armarZipDeModelo(
           link: img.link,
         });
       });
-    } else if (rescate.length) {
-      avisos.push(
-        `${nombreColor}: no está publicado con fotos propias en la página; van las capturadas en su publicación.`,
-      );
-      rescate.forEach((link, i) => {
-        const orden = String(i + 1).padStart(2, "0");
-        pendientes.push({
-          carpeta,
-          nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} ${orden}${i === 0 ? " MAIN" : ""}${extension(link)}`,
-          link,
-        });
-      });
-    } else if (duenio) {
-      avisos.push(
-        `${nombreColor}: en la página trae las mismas fotos que ${duenio} y su publicación no tiene fotos capturadas — no hay fotos propias que bajar.`,
-      );
-    } else if (c.imagenUrl) {
-      avisos.push(`${nombreColor}: Amazon no devolvió sus fotos; va solo la principal del listado.`);
-      pendientes.push({
-        carpeta,
-        nombre: `${nombreArchivo(`${c.modelo} ${c.color}`)} 01 MAIN${extension(c.imagenUrl)}`,
-        link: c.imagenUrl,
-      });
     } else {
-      avisos.push(`${nombreColor}: no encontré ninguna imagen${c.asin ? ` de ${c.asin}` : ""}.`);
+      avisos.push(`${nombreColor}: no tiene fotos en Amazon.`);
     }
   }
 

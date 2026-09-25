@@ -6,8 +6,9 @@
  * distinguir lo suyo. Pero lo que el vendedor SUBIÓ vive en los ATRIBUTOS de
  * la publicación (`main_product_image_locator`,
  * `other_product_image_locator_1…8`), y Listings Items los devuelve aunque
- * la publicación esté Inactive: es la fuente para el color agotado o
- * despublicado cuyo dueño dice «en la API sí está» (25-sep-2026, GT125).
+ * la publicación esté Inactive: por eso es la fuente PRINCIPAL del ZIP de
+ * contenido, para todos los colores («en la API sí está» y «¿por qué no
+ * tomamos todo de la API?», dueño, 25-sep-2026, GT125).
  *
  * Mismo camino que los FNSKU (`fnskus.ts`): de 20 SKUs por llamada, con el
  * Seller ID capturado en `amazon_accounts.selling_partner_id`.

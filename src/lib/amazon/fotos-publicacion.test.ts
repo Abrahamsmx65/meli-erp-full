@@ -1,6 +1,6 @@
 /**
- * El rescate de fotos para un color sin fotos públicas propias sale de los
- * ATRIBUTOS de su publicación (lo que el vendedor capturó): estas pruebas
+ * La fuente principal de fotos del ZIP de contenido son los ATRIBUTOS de la
+ * publicación de cada color (lo que el vendedor capturó): estas pruebas
  * protegen el orden de la ficha y que no se invente nada.
  */
 import { describe, expect, it } from "vitest";
