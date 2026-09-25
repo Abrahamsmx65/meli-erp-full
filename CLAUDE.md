@@ -887,7 +887,7 @@ guárdala numerada.
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
 - **Órdenes viejas sin registrar** (`reparar-ordenes.ts`, cron
-  `/api/cron/reparar-ordenes` cada 10 min, tarea `reparacion_ordenes_v1`
+  `/api/cron/reparar-ordenes` cada 5 min, tarea `reparacion_ordenes_v1`
   en `sync_log`, hoy `reparacion_ordenes_v2` hasta `FONDO_REPARAR_ORDENES`
   = 1-ene-2026 por decisión del dueño; dueño, 25-sep-2026): la reparación de agosto solo llegó
   60 días atrás y del 1 al 19 de junio el calzado no tenía NINGUNA orden
