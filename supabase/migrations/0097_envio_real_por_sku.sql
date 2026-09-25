@@ -41,7 +41,7 @@ returns table (
   ordenes_de_mas bigint,    -- pedidos que pagaron más de $5 sobre lo normal
   pagado_de_mas numeric,    -- Σ (cobrado − normal de las hermanas) × unidades, solo lo positivo
   de_mas_por_venta numeric, -- mediana de (cobrado − normal) en los comparables; negativo = paga MENOS
-  ultimos jsonb             -- los 2 últimos pedidos: fecha, total, envio, normal, hermanas
+  ultimos jsonb             -- los 2 últimos pedidos COMPARABLES: fecha, total, envio, normal, hermanas
 )
 language sql stable
 as $$
@@ -107,7 +107,10 @@ as $$
   ),
   comparado as (
     select x.*, n.normal, n.hermanas,
-           row_number() over (partition by x.sku order by x.fecha desc, x.order_id desc) as rn
+           -- los últimos pedidos COMPARABLES (con hermana al mismo precio): son
+           -- los que dicen si HOY sigue cobrando de más (regla del dueño:
+           -- «hay que fijarse siempre en los últimos dos pedidos por variante»)
+           row_number() over (partition by x.sku, (n.normal is not null) order by x.fecha desc, x.order_id desc) as rn
     from x
     left join n on n.modelo = x.modelo and n.total_u = x.total_u and n.sku = x.sku
   )
@@ -128,7 +131,7 @@ as $$
              'envio', envio_u,
              'normal', normal,
              'hermanas', hermanas)
-           order by fecha desc) filter (where rn <= 2) as ultimos
+           order by fecha desc) filter (where rn <= 2 and normal is not null) as ultimos
   from comparado
   group by sku
   order by sku;

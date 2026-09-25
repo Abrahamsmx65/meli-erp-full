@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarEnviosReales,
   armarRevision,
+  sigueCobrandoDeMas,
   claveTarifa,
   dimensionesParaMeli,
   ladosOrdenados,
@@ -273,20 +274,31 @@ describe("ventas reales contra el simulador", () => {
     expect(m.pagadoDeMas).toBe(0);
   });
 
-  it("una que de verdad pagó de más entra por lo real, aunque el simulador diga que está bien", () => {
-    const reales = new Map([["GT229-TAB-25", real(8, 8, 123.4, [[193, 152], [67.6, 67.6]])]]);
+  it("una que de verdad SIGUE pagando de más entra por lo real, aunque el simulador diga que está bien", () => {
+    const reales = new Map([["GT229-TAB-25", real(8, 8, 123.4, [[193, 152], [193, 152]])]]);
     const [m] = armarRevision(lista, reales);
     expect(m.malas.map((v) => v.sku)).toEqual(["GT229-TAB-25", "GT229-TAB-24", "GT229-TAB-27"]);
     expect(m.malas[0].pagadoDeMas).toBe(123.4);
     expect(m.pagadoDeMas).toBe(123.4);
   });
 
+  it("una que MELI ya corrigió no se señala: sus dos últimos pedidos pagan lo normal, lo de antes es historial", () => {
+    // GT229-TABACO BROWN-26 real: $111.60 hasta el 3-sep, $76 desde el 16-sep.
+    const reales = new Map([["GT229-TAB-26", real(10, 10, 71.2, [[76, 76], [76, 76]], 2)]]);
+    const [m] = armarRevision(lista, reales);
+    expect(m.malas.map((v) => v.sku)).not.toContain("GT229-TAB-26");
+    expect(m.variantes.find((v) => v.sku === "GT229-TAB-26")!.pagadoDeMas).toBe(71.2); // el dinero sí se enseña
+  });
+
   it("un solo pedido con envío doble no señala la talla: suele ser un carrito a medias", () => {
     const reales = new Map([["GT229-TAB-25", real(8, 8, 39, [[78, 39], [39, 39]], 1)]]);
     const [m] = armarRevision(lista, reales);
     expect(m.malas.map((v) => v.sku)).not.toContain("GT229-TAB-25");
-    // pero el dinero sí se enseña
-    expect(m.variantes.find((v) => v.sku === "GT229-TAB-25")!.pagadoDeMas).toBe(39);
+    expect(sigueCobrandoDeMas(reales.get("GT229-TAB-25")!)).toBe(false);
+    expect(sigueCobrandoDeMas(null)).toBe(false);
+    expect(sigueCobrandoDeMas(real(2, 2, 78, [[78, 39], [78, 39]]))).toBe(true);
+    // Un pedido sin hermana a ese precio no prueba nada.
+    expect(sigueCobrandoDeMas(real(2, 1, 39, [[78, null], [78, 39]]))).toBe(false);
   });
 
   it("con una sola venta comparable no hay veredicto real: sigue el simulador", () => {

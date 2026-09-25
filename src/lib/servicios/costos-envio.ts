@@ -93,7 +93,7 @@ export interface EnvioReal {
   pagadoDeMas: number;
   /** mediana de (cobrado − normal) en los comparables; negativo = paga menos que las hermanas */
   deMasPorVenta: number | null;
-  /** los dos últimos pedidos, el más reciente primero */
+  /** los dos últimos pedidos COMPARABLES (con hermana al mismo precio), el más reciente primero */
   ultimos: CobroReal[];
 }
 
@@ -131,12 +131,21 @@ export interface ModeloRevisado {
 
 /** Con menos pedidos comparables el veredicto real no vale: manda el simulador. */
 const MIN_COMPARABLES = 2;
+/** Más de esto sobre las hermanas al mismo precio es cobrar de más; ±$1–2 por talla es normal. */
+const HOLGURA_REAL = 5;
+
 /**
- * Un solo pedido con envío doble casi siempre es un carrito cuya otra orden
- * no está registrada, no una medida mal capturada: para señalar una talla
- * hacen falta al menos dos pedidos que hayan pagado de más.
+ * ¿Sigue cobrando de más HOY? Regla del dueño (25-sep-2026): «hay que
+ * fijarse siempre en los últimos dos pedidos por variante». MELI corrige
+ * medidas de vez en cuando (la GT229-TABACO BROWN-26 pagó $111.60 hasta el
+ * 3-sep y $76 desde el 16-sep): lo pagado de más en 60 días es historial,
+ * y una talla se señala solo si sus DOS últimos pedidos comparables pagaron
+ * de más. Un solo pedido con envío doble suele ser un carrito a medias.
  */
-const MIN_ORDENES_DE_MAS = 2;
+export function sigueCobrandoDeMas(real: EnvioReal | null): boolean {
+  if (!real || real.ultimos.length < 2) return false;
+  return real.ultimos.slice(0, 2).every((u) => u.normal != null && u.envio - u.normal > HOLGURA_REAL);
+}
 
 // ---------------------------------------------------------------------------
 // Lectura de los atributos de MELI
@@ -340,9 +349,7 @@ export function armarRevision(
     // Manda lo real: una variante con ventas comparables es mala solo si de
     // verdad pagó de más. Sin ventas en la ventana, vale lo que dice el
     // simulador (es lo único que hay, y avisa de lo que va a pasar al vender).
-    const malas = revisadas.filter((v) =>
-      v.conVentas ? v.pagadoDeMas > 0 && (v.envioReal?.ordenesDeMas ?? 0) >= MIN_ORDENES_DE_MAS : v.sobrecosto > 0,
-    );
+    const malas = revisadas.filter((v) => (v.conVentas ? sigueCobrandoDeMas(v.envioReal) : v.sobrecosto > 0));
     const redondear = (n: number) => Math.round(n * 100) / 100;
     salida.push({
       modelo,

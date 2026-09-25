@@ -217,8 +217,13 @@ guárdala numerada.
   comparten UN envío y `/shipments/{id}/costs` le pone el paquete completo a
   cada orden (GT114: solo $39, con otro producto $80, con dos más $121…); la
   primera versión marcó 53 tallas del GT114 con $38 mil "de más" por eso.
-  Y una talla se señala solo con ≥2 pedidos de más (`MIN_ORDENES_DE_MAS`):
-  uno solo con envío doble es un carrito a medias. El GT229-TABACO BROWN-24
+  Y una talla se señala solo si sus DOS ÚLTIMOS pedidos comparables pagaron
+  de más (`sigueCobrandoDeMas`; regla del dueño: «hay que fijarse siempre
+  en los últimos dos pedidos por variante»): MELI corrige medidas de vez en
+  cuando (la GT229-TABACO BROWN-26 pagó $111.60 hasta el 3-sep y $76 desde
+  el 16-sep), lo de 60 días es historial y uno solo con envío doble es un
+  carrito a medias. El 25-sep-2026 con esa regla quedaban 4 tallas de toda
+  la cuenta ($123.60 en 60 días): MELI ya había corregido casi todo. El GT229-TABACO BROWN-24
   (28 × 25 × 25 en MELI, $152 vs $76 en el simulador) pagó en 26 ventas lo
   mismo que sus hermanas: NO cobra de más. Con ≥2 pedidos comparables manda
   lo real (`conVentas`); sin ventas, el simulador. El RPC no hace self-join
