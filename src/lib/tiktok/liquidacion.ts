@@ -156,6 +156,33 @@ export function interpretarTransacciones(d: any): TransaccionesPedido | null {
   };
 }
 
+/** El pedido al que pertenece un renglón de transacciones, venga en la raíz o anidado. */
+export function idDePedido(t: any): string | null {
+  const id = t?.order_id ?? t?.order?.order_id ?? t?.order_info?.order_id ?? t?.orderId ?? null;
+  const s = id == null ? "" : String(id).trim();
+  return s || null;
+}
+
+/**
+ * Agrupa por pedido los renglones de una lista de transacciones de TODA
+ * la tienda (la de «sin liquidar»: un renglón por SKU o por movimiento,
+ * cada uno con su `order_id` y su `settlement_amount`). Cada grupo se
+ * interpreta con `interpretarTransacciones({ sku_transactions: grupo })`:
+ * sin `settlement_amount` en la raíz, el pago es la suma de los renglones.
+ * Un renglón sin pedido se descarta: no hay a quién anotárselo.
+ */
+export function agruparPorPedido(lista: any[]): Map<string, any[]> {
+  const grupos = new Map<string, any[]>();
+  for (const t of lista) {
+    const id = idDePedido(t);
+    if (!id) continue;
+    const g = grupos.get(id);
+    if (g) g.push(t);
+    else grupos.set(id, [t]);
+  }
+  return grupos;
+}
+
 /** Cómo se guarda el pedido según lo que contestó TikTok. */
 export type EstadoPago = "liquidado" | "por_liquidar" | "sin_dato";
 

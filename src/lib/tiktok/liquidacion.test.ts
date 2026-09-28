@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estadoDePago, interpretarTransacciones, listaDeTransacciones } from "./liquidacion";
+import { agruparPorPedido, estadoDePago, idDePedido, interpretarTransacciones, listaDeTransacciones } from "./liquidacion";
 
 // Un pedido real ya liquidado (586039883311973941, 25-sep-2026), recortado
 // a los campos que se usan.
@@ -170,5 +170,24 @@ describe("interpretarTransacciones", () => {
     expect(listaDeTransacciones({ transactions: [{ settlement_amount: "1" }] })).toHaveLength(1);
     expect(listaDeTransacciones({ lo_que_sea: [{ settlement_amount: "1" }] })).toHaveLength(1);
     expect(listaDeTransacciones({ lo_que_sea: [{ otra: 1 }] })).toHaveLength(0);
+  });
+
+  it("la lista de toda la tienda se agrupa por pedido y cada grupo se interpreta sin liquidar", () => {
+    const lista = [
+      { order_id: "A", settlement_amount: "61.20", revenue_amount: "100", fee_tax_breakdown: { fee: { sfp_service_fee_amount: "-8", affiliate_commission_amount: "-7" } } },
+      { order_id: "B", settlement_amount: "30" },
+      { order: { order_id: "A" }, settlement_amount: "-3", revenue_amount: "-5" },
+      { settlement_amount: "99" }, // sin pedido: se descarta
+    ];
+    const grupos = agruparPorPedido(lista);
+    expect([...grupos.keys()]).toEqual(["A", "B"]);
+    const a = interpretarTransacciones({ sku_transactions: grupos.get("A") });
+    expect(a!.pago).toBeCloseTo(58.2, 2);
+    expect(a!.afiliado).toBe(7);
+    expect(a!.reembolsos).toBe(5);
+    expect(estadoDePago(a)).toBe("por_liquidar");
+    expect(interpretarTransacciones({ sku_transactions: grupos.get("B") })!.pago).toBe(30);
+    expect(idDePedido({ order_info: { order_id: " 7 " } })).toBe("7");
+    expect(idDePedido({})).toBeNull();
   });
 });
