@@ -801,15 +801,23 @@ guárdala numerada.
   publica NADA hasta que liquida** (25-sep-2026: los pedidos en camino o
   entregados esa semana contestaron `total_count: 0` en las dos
   versiones), así que el «por liquidar» sale de la LISTA de toda la tienda
-  («Get Unsettled Transactions»: `transaccionesSinLiquidar` en
-  `tiktok/api.ts`, rutas candidatas `RUTAS_SIN_LIQUIDAR` —la documentación
-  no se alcanza desde el entorno de Claude; una guía de terceros la cita
-  como `/finance/202309/transactions/unsettled`— y la que exista se
-  recuerda; `leerSinLiquidar` en `servicios/tiktok.ts`, ANTES de
-  `liquidarPedidos` en cada sync, hasta 60 páginas de 100): se agrupa por
-  `order_id` (`agruparPorPedido`, motor puro), cada grupo se interpreta
-  igual que un pedido y se guarda como `por_liquidar` con
-  `pago_desglose.version = "sin-liquidar"`; un pedido ya liquidado no se
+  («Get Unsettled Transactions» = `GET /finance/202507/orders/unsettled`,
+  `transaccionesSinLiquidar` en `tiktok/api.ts`, `RUTAS_SIN_LIQUIDAR`;
+  la ruta y la forma salieron del SDK generado de TikTok en npm porque la
+  documentación no se alcanza desde el entorno de Claude y las cinco rutas
+  adivinadas el 28-sep-2026 contestaron 36009009 «Invalid path»;
+  `sort_field=order_create_time` es obligatorio, `page_size` 1–100,
+  ventana opcional `search_time_ge/lt`; solo lo creado desde el 1-ene-2025
+  y lo ya liquidado desaparece de ahí. Cada renglón trae `order_id` (un
+  AJUSTE trae `adjustment_order_id`), `type`, `status`, `unsettled_reason`
+  y los montos con prefijo `est_` —`est_settlement_amount` es lo que
+  TikTok ESTIMA que pagará hasta liquidar, y así se declara: es su
+  número, no uno nuestro; `normalizarSinLiquidar` los copia a los nombres
+  sin prefijo y el IVA viene como `vat_amount`—. `leerSinLiquidar` en
+  `servicios/tiktok.ts` corre ANTES de `liquidarPedidos` en cada sync,
+  hasta 60 páginas de 100): se agrupa por pedido (`agruparPorPedido`,
+  motor puro), cada grupo se interpreta igual que un pedido y se guarda
+  como `por_liquidar` con `pago_desglose.version = "sin-liquidar"`; un pedido ya liquidado no se
   toca y `liquidarPedidos` NO degrada a «sin dato» un pedido que trae su
   número de la lista. La primera página cruda (dos renglones), qué contestó
   cada ruta que no sirvió y cuántos pedidos quedaron con dato van a

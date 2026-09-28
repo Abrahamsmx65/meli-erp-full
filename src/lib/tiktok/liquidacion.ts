@@ -128,7 +128,8 @@ export function interpretarTransacciones(d: any): TransaccionesPedido | null {
   const envio = envio202501 != null && lista.some((t) => t?.fee_tax_breakdown)
     ? envio202501
     : (sumaDe(lista, "fbm_shipping_cost_amount") ?? 0) + (sumaDe(lista, "shipping_cost_discount_amount") ?? 0);
-  const iva = (sumaDe(lista, "iva_vat_amount") ?? 0) + (sumaDe(lista, "iva_amount") ?? 0);
+  // La lista de sin liquidar (202507) trae el IVA como `vat_amount`.
+  const iva = (sumaDe(lista, "iva_vat_amount") ?? 0) + (sumaDe(lista, "iva_amount") ?? 0) + (sumaDe(lista, "vat_amount") ?? 0);
   const isr = (sumaDe(lista, "isr_income_tax_amount") ?? 0) + (sumaDe(lista, "isr_amount") ?? 0);
   // Reembolsos: en la 202309 vienen como campo; en la 202501 como
   // transacciones con ingreso negativo.
@@ -156,9 +157,27 @@ export function interpretarTransacciones(d: any): TransaccionesPedido | null {
   };
 }
 
-/** El pedido al que pertenece un renglón de transacciones, venga en la raíz o anidado. */
+/**
+ * Un renglón de la lista de SIN LIQUIDAR (`/finance/202507/orders/unsettled`)
+ * trae los montos con prefijo `est_` (`est_settlement_amount`,
+ * `est_revenue_amount`, `est_fee_tax_amount`, `est_shipping_cost_amount`,
+ * `est_adjustment_amount`): es lo que TikTok ESTIMA que va a pagar hasta
+ * que liquida. Se copian a los nombres sin prefijo para que
+ * `interpretarTransacciones` los lea igual que los de un estado de cuenta;
+ * lo demás (desglose de comisiones e impuestos, status, type) se queda.
+ */
+export function normalizarSinLiquidar(t: any): any {
+  if (!t || typeof t !== "object") return t;
+  const n: Record<string, unknown> = { ...t };
+  for (const campo of ["settlement_amount", "revenue_amount", "fee_tax_amount", "shipping_cost_amount", "adjustment_amount"]) {
+    if (n[campo] == null && t[`est_${campo}`] != null) n[campo] = t[`est_${campo}`];
+  }
+  return n;
+}
+
+/** El pedido al que pertenece un renglón de transacciones, venga en la raíz o anidado (un AJUSTE trae `adjustment_order_id`). */
 export function idDePedido(t: any): string | null {
-  const id = t?.order_id ?? t?.order?.order_id ?? t?.order_info?.order_id ?? t?.orderId ?? null;
+  const id = t?.order_id ?? t?.adjustment_order_id ?? t?.order?.order_id ?? t?.order_info?.order_id ?? t?.orderId ?? null;
   const s = id == null ? "" : String(id).trim();
   return s || null;
 }
@@ -173,7 +192,8 @@ export function idDePedido(t: any): string | null {
  */
 export function agruparPorPedido(lista: any[]): Map<string, any[]> {
   const grupos = new Map<string, any[]>();
-  for (const t of lista) {
+  for (const crudo of lista) {
+    const t = normalizarSinLiquidar(crudo);
     const id = idDePedido(t);
     if (!id) continue;
     const g = grupos.get(id);
