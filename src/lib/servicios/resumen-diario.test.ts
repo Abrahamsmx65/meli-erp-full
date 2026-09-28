@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarCorreoResumen, armarResumen, diaAnterior, fechaLarga, filasDeConsolidado, tiktokDelRango } from "./resumen-diario";
+import { armarCorreoResumen, armarResumen, diaAnterior, fechaLarga, filasDeConsolidado } from "./resumen-diario";
 import { cargosDelRango, rangoRecortado } from "./corte-meli";
 import type { Consolidado } from "./consolidado";
 
@@ -36,37 +36,14 @@ describe("filasDeConsolidado", () => {
   });
 });
 
-describe("tiktokDelRango", () => {
-  const ordenes = [
-    { orderId: "a", estado: "IN_TRANSIT", creadoEn: "2026-09-27T18:00:00Z", pagoEsperado: 400 },
-    { orderId: "b", estado: "AWAITING_SHIPMENT", creadoEn: "2026-09-27T20:00:00Z", pagoEsperado: null },
-    { orderId: "c", estado: "CANCELLED", creadoEn: "2026-09-27T20:00:00Z", pagoEsperado: 999 },
-    // 04:00Z del 28 = 22:00 del 27 en México
-    { orderId: "d", estado: "COMPLETED", creadoEn: "2026-09-28T04:00:00Z", netoRecibido: 200 },
-  ];
-  const renglones = [
-    { orderId: "a", skuInterno: "GT134-BLK-24-MX", cantidad: 2, precio: 250, estado: null },
-    { orderId: "b", skuInterno: "GT134-BLK-25-MX", cantidad: 1, precio: 250, estado: null },
-    { orderId: "c", skuInterno: "GT134-BLK-25-MX", cantidad: 1, precio: 250, estado: null },
-    { orderId: "d", skuInterno: "MY2304-PURPLE-23-MX", cantidad: 1, precio: 300, estado: null },
-  ];
-  it("pares y cobrado de lo en pie; ganancia solo de lo que TikTok ya calcula y tiene costo", () => {
-    const t = tiktokDelRango(ordenes, renglones, new Map([["GT134", 100]]), { desde: "2026-09-27", hasta: "2026-09-27" });
-    expect(t.unidades).toBe(4);
-    expect(t.facturacion).toBe(1_050);
-    // GT134: 400 − 2 × 100; el MY2304 no tiene costo y el pedido b no tiene dato.
-    expect(t.ganancia).toBe(200);
-    expect(t.notas.join(" ")).toContain("1 pares ($250) que TikTok aún no calcula");
-    expect(t.notas.join(" ")).toContain("1 pares sin costo");
-  });
-});
-
 describe("armarResumen y correo", () => {
   it("siempre las cuatro plataformas, en orden, con su total", () => {
-    const r = armarResumen("2026-09-27", consolidado([calzado]), { unidades: 4, facturacion: 1_050, ganancia: 200, notas: [] }, null);
+    const tiktok = { canal: "tiktok", nombre: "TikTok Shop", unidades: 4, unidadesConCosto: 4, ventaBruta: 1_050, neto: 400, coberturaNeto: 1_050 > 0 ? 800 / 1_050 : null, utilidadBruta: 200, publicidad: 0, utilidadNeta: 200 };
+    const r = armarResumen("2026-09-27", consolidado([calzado, tiktok]), null);
     expect(r.filas.map((f) => f.canal)).toEqual(["meli_calzado", "meli_fundas", "amazon", "tiktok"]);
     expect(r.filas[1].ganancia).toBeNull();
     expect(r.total).toEqual({ unidades: 1_004, facturacion: 301_050, ganancia: 70_200 });
+    expect(r.filas[3].notas[0]).toContain("TikTok aún no dice cuánto paga");
     const correo = armarCorreoResumen(r);
     expect(correo.asunto).toContain("domingo 27 de septiembre");
     expect(correo.html).toContain("TikTok Shop");

@@ -11,6 +11,7 @@ import { cuentaAmazon } from "./amazon";
 import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
+import { bloqueTikTok, cargarVentasTikTok, rangoTikTok } from "./consolidado-tiktok";
 import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo, rangoRecortado } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
@@ -98,7 +99,7 @@ export async function cargarConsolidado(
     opts?.alFallarCanal?.(canal, motivo);
   };
 
-  const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
+  const [calzado, fundas, amazon, tiktok, gastosEmpresariales] = await Promise.all([
     (masticados
       ? obtenerEstadoResultadosMeli(db, cuenta, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Calzado · Mercado Libre") })
       : cargarEstadoResultados(db, cuenta, periodo, tramo)
@@ -133,9 +134,22 @@ export async function cargarConsolidado(
         return null;
       }
     })(),
+    // TikTok cuelga de la cuenta de calzado (sus pedidos se guardan con ese
+    // account_id) y solo existe desde que empezó a vender.
+    (async () => {
+      const r = rangoTikTok({ desde, hasta });
+      if (!r) return null;
+      try {
+        const [ventas, config] = await Promise.all([cargarVentasTikTok(db, cuenta.id, r.desde, r.hasta), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
+        return bloqueTikTok(ventas, config, { desde, hasta });
+      } catch (err) {
+        fallo("TikTok Shop", err);
+        return null;
+      }
+    })(),
     listarGastosEmpresariales(db, cuenta.id, desde, hasta),
   ]);
-  for (const b of [calzado, fundas, amazon]) if (b) bloques.push(b);
+  for (const b of [calzado, fundas, amazon, tiktok]) if (b) bloques.push(b);
 
   return armarConsolidado({ periodo, desde, hasta, bloques, gastosEmpresariales, avisos });
 }
@@ -536,7 +550,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 4
+    consolidado.versionContable !== 5
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)

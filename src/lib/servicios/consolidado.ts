@@ -15,12 +15,13 @@
 import type { EstadoResultados } from "./corte-meli";
 import type { GastoEmpresarial } from "./gastos-empresariales";
 
-export type Canal = "meli_calzado" | "meli_fundas" | "amazon";
+export type Canal = "meli_calzado" | "meli_fundas" | "amazon" | "tiktok";
 
 export const NOMBRE_CANAL: Record<Canal, string> = {
   meli_calzado: "Calzado · Mercado Libre",
   meli_fundas: "Fundas · Mercado Libre",
   amazon: "Amazon",
+  tiktok: "TikTok Shop",
 };
 
 /** Lo que cada canal aporta al consolidado, en pesos. */
@@ -126,7 +127,7 @@ export interface Consolidado {
    * pantalla lo sirvió como bueno. Al subir el número, lo que escribió un
    * build que no conoce estas reglas se descarta y se vuelve a calcular.
    */
-  versionContable: 4;
+  versionContable: 5;
   periodo: string;
   desde: string;
   hasta: string;
@@ -428,7 +429,7 @@ export function armarConsolidado(entrada: {
 
   const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto);
   return aplicarGastosEmpresariales({
-    versionContable: 4,
+    versionContable: 5,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,
