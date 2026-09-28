@@ -17,7 +17,8 @@ import {
   gastosDelRango,
   guardarCorte,
   ordenesPorDiaDesdeRpc,
-  rangoDelPeriodo,
+  cargosDelRango,
+  rangoRecortado,
   type EstadoResultados,
   type OrdenDelCorte,
   type VentaDelCorte,
@@ -115,8 +116,8 @@ export async function almacenYz(admin: DB, accountId: string): Promise<AlmacenCa
 }
 
 /** `hasta` corta el mes en ese día, como en `cargarEstadoResultados`. */
-export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string, opts: { hasta?: string } = {}): Promise<EstadoResultados> {
-  const { desde, hasta } = opts.hasta ? rangoDelPeriodo(periodo, opts.hasta) : rangoDelPeriodo(periodo);
+export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo: string, opts: { desde?: string; hasta?: string } = {}): Promise<EstadoResultados> {
+  const { desde, hasta } = rangoRecortado(periodo, opts);
   // Primero el estado de sincronización: DECIDE cuál de las dos fuentes de
   // venta se lee. Antes se bajaban las DOS en paralelo (la de renglones
   // diarios son ~126 mil filas paginadas) y una siempre se tiraba.
@@ -141,7 +142,7 @@ export async function cargarEstadoResultadosYz(db: DB, cuenta: CuentaYz, periodo
     todo<{ sku: string; diseno: string | null }>(db, "yz_skus", "sku, diseno", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
     gastosDelRango(db, cuenta.id, desde, hasta, "yz_gastos"),
-    cargosGuardados(db, cuenta.id, periodo, "yz_cargos").then((c) => (opts.hasta ? c.filter((x) => !x.fecha || x.fecha.slice(0, 10) <= hasta) : c)),
+    cargosGuardados(db, cuenta.id, periodo, "yz_cargos").then((c) => cargosDelRango(c, opts, desde, hasta)),
     progresoCargosYz(db, cuenta.id, periodo).catch(() => progresoDeDetalle(periodo, null, null)),
     adsPorDisenoCacheado(db, cuenta, periodo, { desde, hasta }).catch((err) => ({ porDiseno: new Map<string, number>(), sinAmarre: 0, error: (err as Error).message })),
   ]);

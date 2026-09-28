@@ -9,6 +9,7 @@
  */
 import type { DB } from "../datos/repos";
 import { MeliError } from "../meli/client";
+import { rangoDelPeriodo } from "../servicios/corte-meli";
 import { resolverAdvertiser, traerAnunciosAds } from "../servicios/publicidad";
 import { clienteAdmin } from "../supabase/server";
 import { guardarCacheYz, leerCacheYz } from "./cache";
@@ -37,7 +38,11 @@ export async function adsPorDisenoCacheado(
   periodo: string,
   rango: { desde: string; hasta: string },
 ): Promise<AdsPorDiseno> {
-  const clave = `ads:${periodo}`;
+  // Un tramo del mes (los mismos días, el resumen de un día) lleva su propia
+  // clave: con la del mes leía la publicidad del mes completo, o dejaba
+  // guardado el tramo como si fuera el mes.
+  const { desde, hasta } = rangoDelPeriodo(periodo);
+  const clave = rango.desde === desde && rango.hasta >= hasta ? `ads:${periodo}` : `ads:${periodo}:${rango.desde}:${rango.hasta}`;
   const claveRecalculo = `${cuenta.id}:${clave}`;
   const recalculoEnCurso = recalculosAdsEnCurso.get(claveRecalculo);
   if (recalculoEnCurso) return recalculoEnCurso;

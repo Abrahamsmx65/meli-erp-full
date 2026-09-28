@@ -11,7 +11,7 @@ import { cuentaAmazon } from "./amazon";
 import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
-import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo } from "./corte-meli";
+import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo, rangoRecortado } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { fechaMx } from "./ventas-monitor";
@@ -70,13 +70,16 @@ export async function cargarConsolidado(
     alFallarCanal?: (canal: string, motivo: string) => void;
     /** corta el mes en este día (YYYY-MM-DD); los cortes masticados son de mes completo, así que se calcula */
     hasta?: string;
+    /** arranca el tramo en este día (el resumen diario pide uno solo); también se calcula */
+    desde?: string;
   },
 ): Promise<Consolidado> {
   const corte = opts?.hasta;
-  const { desde, hasta } = corte ? rangoDelPeriodo(periodo, corte) : rangoDelPeriodo(periodo);
+  const tramo = { desde: opts?.desde, hasta: corte };
+  const { desde, hasta } = rangoRecortado(periodo, tramo);
   const avisos: string[] = [];
   const bloques: BloqueCanal[] = [];
-  const masticados = opts?.cortesMasticados === true && !corte;
+  const masticados = opts?.cortesMasticados === true && !corte && !opts?.desde;
   // El corte general CONGELA lo que lee, así que un corte de canal
   // invalidado se recalcula en el momento en vez de servirse viejo (ver
   // `exigirVigente`). Si ni así se pudo, se avisa y el renglón del corte
@@ -98,7 +101,7 @@ export async function cargarConsolidado(
   const [calzado, fundas, amazon, gastosEmpresariales] = await Promise.all([
     (masticados
       ? obtenerEstadoResultadosMeli(db, cuenta, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Calzado · Mercado Libre") })
-      : cargarEstadoResultados(db, cuenta, periodo, { hasta: corte })
+      : cargarEstadoResultados(db, cuenta, periodo, tramo)
     ).then(
       (e) => bloqueDesdeEstado("meli_calzado", e),
       (err) => {
@@ -112,7 +115,7 @@ export async function cargarConsolidado(
       try {
         const e = masticados
           ? await obtenerEstadoResultadosYz(db, yz, periodo, { exigirVigente: true, alUsarInvalidado: usarInvalidado("Fundas · Mercado Libre") })
-          : await cargarEstadoResultadosYz(db, yz, periodo, { hasta: corte });
+          : await cargarEstadoResultadosYz(db, yz, periodo, tramo);
         return bloqueDesdeEstado("meli_fundas", e);
       } catch (err) {
         fallo("Fundas · Mercado Libre", err);
