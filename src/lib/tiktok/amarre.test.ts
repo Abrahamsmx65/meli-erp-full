@@ -8,6 +8,13 @@ const indice = indexarCatalogo([
 ]);
 
 describe("amarrarSkuTikTok", () => {
+  it("lo que el catálogo de TikTok ya tiene amarrado manda sobre el catálogo de MELI de hoy (después de lo manual)", () => {
+    const memoria = new Map([["GT128-BEIGE-24", "GT128-BEIGE-24-MX"]]);
+    expect(amarrarSkuTikTok("gt128-beige-24", indice, new Map(), memoria)).toEqual({ skuInterno: "GT128-BEIGE-24-MX", origen: "catalogo" });
+    expect(amarrarSkuTikTok("GT128-BEIGE-24", indice, new Map([["GT128-BEIGE-24", "A-MANO"]]), memoria).skuInterno).toBe("A-MANO");
+    expect(amarrarSkuTikTok("GT135-DK BROWN-26", indice, new Map(), memoria).origen).toBe("exacto");
+  });
+
   it("amarra igual", () => {
     const a = amarrarSkuTikTok("GT128-BEIGE-24", indice, new Map());
     expect(a).toEqual({ skuInterno: "GT128-BEIGE-24", origen: "exacto" });

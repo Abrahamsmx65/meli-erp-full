@@ -289,6 +289,21 @@ guárdala numerada.
   plan de Full y al pedido a China). A TikTok solo se le escribe un SKU que alguna vez
   se contó (entrada o ajuste): uno con puras salidas se queda con el número
   que TikTok ya tiene.
+  **UN SOLO NOMBRE EN EL KARDEX POR VARIANTE, y es el de TikTok**
+  (`aliasDesdeTikTok` / `AliasTikTok` con `siempre`, `paresPorSkuDesdeCajas`
+  en `tiktok/bodega.ts`; 28-sep-2026): MELI escribe la misma variante de
+  dos formas («GT134-NAVY / RED-28-MX» por user product, «GT134-NAVY-RED-28-MX»
+  por el item) y `skus.activo` alterna entre las dos cada día (el barrido
+  de las 14:00Z apaga una, el webhook del latido revive la otra), así que
+  la caja de Industher, que se amarra contra los `skus` ACTIVOS, se movía
+  dos veces al día de un renglón del kardex al otro (merma 15 / entrada 15)
+  mientras el par vendido esperaba en el otro nombre con estante en cero:
+  la alarma de «SKU desaparecido» del 28-sep era eso. Ahora la caja cae
+  SIEMPRE en el nombre con el que TikTok vende esa variante
+  (`tiktok_skus.sku_interno`, por clave canónica), sea cual sea el nombre
+  activo en MELI; un SKU sin amarre solo bautiza lo que MELI no tiene, como
+  antes. Los renglones viejos con el otro nombre se vacían solos (merma
+  contra la foto) y se quedan en cero.
   **A TikTok se le publica el MENOR entre el kardex y el ESTANTE del 3PL**
   (`disponibleConEstante`, decisión del dueño el 14-sep-2026 después de
   sobrevender): mientras las dos fuentes no coincidan gana la más baja,
@@ -749,8 +764,10 @@ guárdala numerada.
   aviso lo tiene tomado, no se rinde: el 21-sep-2026 se perdieron cinco
   corridas en dos horas por rendirse al instante); `/tiktok/desfases` cruza TikTok vs kardex vs Industher y
   simula el corte; Pendientes grita los saldos negativos.
-  **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → exacto →
-  canónico → aplastado → ordenado → PROPIO: un SKU con forma
+  **Amarre de SKUs de TikTok** (`tiktok/amarre.ts`): manual → CATÁLOGO
+  (`tiktok_skus.sku_interno`, lo ya amarrado es memoria: el nombre del
+  kardex de un SKU no cambia porque MELI escriba hoy la variante distinto)
+  → exacto → canónico → aplastado → ordenado → PROPIO: un SKU con forma
   MODELO-COLOR-TALLA que MELI no tiene (el MY2304 morado solo se vende en
   TikTok) se acepta tal cual, con su `-MX`, porque ese par también sale de
   la bodega. Industher lo construye SIN sufijo (`MY2304-PURPLE-23`) y
@@ -828,9 +845,13 @@ guárdala numerada.
   pedidos ENTREGADOS que ya salieron de esta lista y aún no aparecen en un
   estado de cuenta (184 del 11 al 18-sep ese día): los recoge la lectura
   por pedido cada 12 h cuando TikTok los liquide. `leerSinLiquidar` en
-  `servicios/tiktok.ts` corre ANTES de `liquidarPedidos`, UNA VEZ POR HORA
-  (`CADA_CUANTO_SIN_LIQUIDAR_MS`; la última lectura `ok` en
-  `tiktok_sync_log` vale una hora), hasta 60 páginas de 100): se agrupa
+  `servicios/tiktok.ts` corre en SU PROPIO CRON (`/api/cron/tiktok-pagos`
+  cada hora → `sincronizarPagosTikTok`, bitácora tarea `pagos`; decisión
+  del dueño, 28-sep-2026: «cada función debería vivir por su propia parte»:
+  el dinero no comparte tiempo ni el candado `tiktok-sync` con el
+  inventario ni con el despacho), seguido de `liquidarPedidos`; la lista
+  completa se relee si la última lectura `ok` en `tiktok_sync_log` tiene
+  más de 50 min (`CADA_CUANTO_SIN_LIQUIDAR_MS`), hasta 60 páginas de 100): se agrupa
   por pedido (`agruparPorPedido`, motor puro), cada grupo se interpreta
   igual que un pedido y se guarda de un jalón con el RPC
   `tiktok_guardar_pagos_por_liquidar` (migración 0098, lotes de 500) como

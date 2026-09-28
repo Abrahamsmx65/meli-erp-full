@@ -266,17 +266,27 @@ export async function clienteDeCuenta(
  * amarres a mano. Se arma una vez por corrida y sirve a todo.
  */
 async function amarradorDeCuenta(admin: any, accountId: string) {
-  const [skusErp, mapeoRaw] = await Promise.all([
+  const [skusErp, mapeoRaw, catalogoRaw] = await Promise.all([
     traerTodo<any>(admin, "skus", "sku", (q) => q.eq("account_id", accountId).eq("activo", true)),
     traerTodo<any>(admin, "tiktok_mapeo_sku", "sku_tiktok, sku_interno", (q) =>
       q.eq("account_id", accountId),
+    ),
+    // Lo ya amarrado en el catálogo de TikTok es memoria: el nombre del
+    // kardex de un SKU no cambia porque MELI escriba hoy la variante distinto.
+    traerTodo<any>(admin, "tiktok_skus", "seller_sku, sku_interno", (q) =>
+      q.eq("account_id", accountId).not("sku_interno", "is", null),
     ),
   ]);
   const indice = indexarCatalogo(skusErp ?? []);
   const manual = new Map(
     (mapeoRaw ?? []).map((m: any) => [String(m.sku_tiktok).toUpperCase(), m.sku_interno]),
   );
-  return (sellerSku: string | null) => amarrarSkuTikTok(sellerSku, indice, manual);
+  const memoria = new Map<string, string>();
+  for (const c of catalogoRaw ?? []) {
+    const llave = String(c.seller_sku ?? "").trim().toUpperCase();
+    if (llave && c.sku_interno && !memoria.has(llave)) memoria.set(llave, String(c.sku_interno));
+  }
+  return (sellerSku: string | null) => amarrarSkuTikTok(sellerSku, indice, manual, memoria);
 }
 
 /**
@@ -669,22 +679,9 @@ async function sincronizarTikTokSinCandado(
     avisos.push(`Ventas por día: ${(err as Error).message}`);
   }
 
-  // ---- 3. Lo que TikTok va a pagar por cada pedido en pie ---------------
-  // Primero la lista de TODA la tienda de lo que aún no liquida (una
-  // llamada por página, cientos de pedidos), luego pedido por pedido lo
-  // que toque releer.
-  let liquidados = 0;
-  let porLiquidar = 0;
-  if (!opciones.soloPedidos) try {
-    porLiquidar = await leerSinLiquidar(admin, accountId, cliente, avisos);
-  } catch (err) {
-    avisos.push(`Por liquidar: ${(err as Error).message}`);
-  }
-  if (!opciones.soloPedidos) try {
-    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
-  } catch (err) {
-    avisos.push(`Liquidaciones: ${(err as Error).message}`);
-  }
+  // (Lo que TikTok va a pagar por cada pedido vive en SU propio cron,
+  // `sincronizarPagosTikTok`: el dinero no comparte tiempo ni candado con
+  // el inventario ni con el despacho; decisión del dueño, 28-sep-2026.)
 
   // El saldo se recalcula siempre, aunque no haya habido pedidos: los
   // apartados cambian con cada cancelación, y el disponible con ellos.
@@ -712,8 +709,6 @@ async function sincronizarTikTokSinCandado(
       publicados: pub.publicados,
       skusCatalogo,
       sinAmarre,
-      liquidados,
-      porLiquidar,
       reamarrados,
       bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
@@ -1385,6 +1380,46 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
  * preguntan (liquidan 0). Si TikTok contesta que no hay permiso, se avisa
  * una vez y se deja de insistir en esta corrida.
  */
+/**
+ * El cron de PAGOS de TikTok (`/api/cron/tiktok-pagos`, cada hora), aparte
+ * del sync de inventario y pedidos: lee la lista de lo que TikTok aún no
+ * liquida (`leerSinLiquidar`) y, con el rato que quede, pedido por pedido
+ * lo que toque releer (`liquidarPedidos`). No toma el candado
+ * `tiktok-sync`: no escribe kardex ni publica nada, solo columnas de pago
+ * en `tiktok_ordenes`. Constancia en `tiktok_sync_log` tarea `pagos`.
+ */
+export async function sincronizarPagosTikTok(
+  admin: any,
+  accountId: string,
+  limiteMs = 280_000,
+): Promise<{ porLiquidar: number; liquidados: number; avisos: string[] }> {
+  const inicio = new Date().toISOString();
+  const cliente = await clienteDeCuenta(admin, accountId, limiteMs);
+  if (!cliente || !cliente.tienda.shopCipher) return { porLiquidar: 0, liquidados: 0, avisos: ["TikTok Shop no está conectado."] };
+  const avisos: string[] = [];
+  let porLiquidar = 0;
+  let liquidados = 0;
+  try {
+    porLiquidar = await leerSinLiquidar(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Por liquidar: ${(err as Error).message}`);
+  }
+  try {
+    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Liquidaciones: ${(err as Error).message}`);
+  }
+  await admin.from("tiktok_sync_log").insert({
+    account_id: accountId,
+    tarea: "pagos",
+    inicio,
+    fin: new Date().toISOString(),
+    estado: avisos.length ? "con avisos" : "ok",
+    detalle: { porLiquidar, liquidados, avisos },
+  });
+  return { porLiquidar, liquidados, avisos };
+}
+
 /** Versión que se anota en `pago_desglose` cuando el dato salió de la lista de la tienda, no del pedido. */
 const VERSION_SIN_LIQUIDAR = "sin-liquidar";
 /** Páginas de la lista de sin liquidar por corrida (100 pedidos-renglón cada una, ~1 s por página). */
@@ -1395,7 +1430,7 @@ const PAGINAS_SIN_LIQUIDAR = 60;
  * 28-sep-2026 leerla en cada sync de 15 min (más 5,300 UPDATE uno por uno)
  * dejó el sync en 250–316 s y dos corridas se murieron por tiempo (504).
  */
-const CADA_CUANTO_SIN_LIQUIDAR_MS = 60 * 60_000;
+const CADA_CUANTO_SIN_LIQUIDAR_MS = 50 * 60_000;
 /** Pedidos por llamada al RPC que guarda los pagos (jsonb de ~1 KB por pedido). */
 const PAGOS_POR_LOTE = 500;
 
