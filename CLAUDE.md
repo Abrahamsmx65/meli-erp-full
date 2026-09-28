@@ -813,7 +813,14 @@ guárdala numerada.
   y los montos con prefijo `est_` —`est_settlement_amount` es lo que
   TikTok ESTIMA que pagará hasta liquidar, y así se declara: es su
   número, no uno nuestro; `normalizarSinLiquidar` los copia a los nombres
-  sin prefijo y el IVA viene como `vat_amount`—. `leerSinLiquidar` en
+  sin prefijo y el IVA viene como `vat_amount`—. La lista trae el pedido
+  desde que se PAGA, aunque todavía no salga (`unsettled_reason`
+  `WAITING_FOR_PACKAGE_DELIVERY`): la primera lectura real (28-sep-2026,
+  52 páginas, 5,149 pedidos, $709,719 por liquidar y $56,391 de afiliados)
+  le puso dato a 1,296 pedidos por enviar. Lo que queda «sin dato» son
+  pedidos ENTREGADOS que ya salieron de esta lista y aún no aparecen en un
+  estado de cuenta (184 del 11 al 18-sep ese día): los recoge la lectura
+  por pedido cada 12 h cuando TikTok los liquide. `leerSinLiquidar` en
   `servicios/tiktok.ts` corre ANTES de `liquidarPedidos` en cada sync,
   hasta 60 páginas de 100): se agrupa por pedido (`agruparPorPedido`,
   motor puro), cada grupo se interpreta igual que un pedido y se guarda
