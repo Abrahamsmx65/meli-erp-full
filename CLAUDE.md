@@ -550,6 +550,27 @@ guárdala numerada.
   calentamiento ya NO arma el PDF: `bajarGuiasDelCorte` solo baja al bucket
   las guías que faltan, con presupuesto de tiempo (30 s tras el corte,
   200 s tras cada impresión), y la impresión de un tomo baja las suyas.
+  **Las etiquetas se ARMAN Y SE GUARDAN POR ATRÁS en cuanto termina el
+  corte** (`calentarEtiquetasDelCorte`, `estadoEtiquetasDelCorte`,
+  `calentarCortesRecientes` en `tiktok-despacho.ts`; ruta
+  `/api/tiktok/cortes/{id}/calentar`: GET estado, POST un rato de trabajo;
+  candado `tiktok-etiquetas-{id}` en `candados_trabajo`; pedido del dueño,
+  28-sep-2026: «al mismo tiempo que hace corte se hagan las etiquetas, se
+  guarde por atrás y no cada vez que genera las etiquetas se vuelva a hacer
+  todo de nuevo»; antes el corte solo bajaba guías 30 s y el primer
+  «Etiquetas PDF» de 700 pedidos tardaba ~15 min bajando y armando cada
+  tomo): la ruta del corte, en su `after()`, baja las guías que falten y
+  arma y guarda cada tomo con TODO el rato que le quede a la función (si el
+  corte quedó por tiempo solo baja guías: la siguiente ronda se le une y
+  renumera, y armar tomos sería trabajo perdido); la pantalla sigue con
+  llamadas cortas (`calentarEtiquetas`, POST cada ~2 s, 75 s de trabajo por
+  llamada) hasta que `completo`, enseña «Armando las etiquetas por atrás:
+  2 de 4 tomos» / «Etiquetas listas para imprimir» y al abrirse retoma los
+  cortes de las últimas 24 h que no estén completos; y el cron de TikTok
+  termina lo de los cortes de los últimos 2 días aunque nadie tenga la
+  pestaña abierta. Un tomo solo se guarda si salió COMPLETO (una guía que
+  TikTok aún no da se reintenta en cada pasada), así que imprimir es leer
+  los tomos del bucket y juntarlos en el navegador.
   **Pero el dueño imprime UN solo archivo** («por atrás se hagan 200 guías
   cada vez y el PDF sí me lo presentes junto para imprimirlo más fácil»,
   22-sep-2026): el botón «Etiquetas PDF» (`imprimirEtiquetas` en

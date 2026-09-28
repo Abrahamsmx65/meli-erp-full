@@ -1175,6 +1175,114 @@ export function rutasPdfCorte(accountId: string, corteId: number, pedidos: numbe
   return rutas;
 }
 
+export interface EstadoEtiquetas {
+  tomos: number;
+  /** tomos ya armados y guardados en el bucket (1-based) */
+  listos: number[];
+  completo: boolean;
+}
+
+/**
+ * Qué tomos del PDF de etiquetas ya están guardados. Es una lista del
+ * bucket, no arma nada: la pantalla lo enseña («Etiquetas listas» / «armando
+ * 2 de 4») y el calentamiento decide qué le falta.
+ */
+export async function estadoEtiquetasDelCorte(admin: any, accountId: string, corteId: number, pedidos?: number): Promise<EstadoEtiquetas> {
+  let n = pedidos;
+  if (n == null) {
+    const { data } = await admin.from("tiktok_cortes").select("pedidos").eq("account_id", accountId).eq("id", corteId).maybeSingle();
+    n = Number(data?.pedidos ?? 0);
+  }
+  const tomos = tomosDeCorte(n ?? 0);
+  const prefijo = `corte-${corteId}-e${VERSION_ESTAMPA}-t`;
+  const { data } = await admin.storage.from(BUCKET_GUIAS).list(accountId, { limit: 1000, search: prefijo });
+  const listos: number[] = [];
+  for (const f of (data ?? []) as { name: string }[]) {
+    if (!f.name.startsWith(prefijo) || !f.name.endsWith(".pdf")) continue;
+    const t = Number(f.name.slice(prefijo.length, -".pdf".length));
+    if (Number.isInteger(t)) listos.push(t);
+  }
+  listos.sort((a, b) => a - b);
+  const dentro = listos.filter((t) => t >= 1 && t <= tomos);
+  return { tomos, listos: dentro, completo: dentro.length >= tomos };
+}
+
+/** Recurso del candado del calentamiento de un corte: dos calentadores a la vez bajarían y armarían lo mismo. */
+const candadoEtiquetas = (corteId: number) => `tiktok-etiquetas-${corteId}`;
+
+/**
+ * Deja las etiquetas del corte LISTAS por atrás: baja las guías que faltan
+ * y arma y guarda cada tomo que aún no está, hasta donde alcance el
+ * presupuesto. Se llama al terminar el corte (con el rato que le quede a la
+ * función), desde la pantalla en bucle hasta que `completo`, y desde el
+ * cron de TikTok como red de seguridad. Con candado por corte: si otro
+ * calentador lo tiene, contesta `ocupado` con el estado y no hace nada.
+ * Pedido del dueño (28-sep-2026): «al mismo tiempo que hace corte se hagan
+ * las etiquetas, se guarde por atrás y no cada vez que genera las etiquetas
+ * se vuelva a hacer todo de nuevo».
+ */
+export async function calentarEtiquetasDelCorte(
+  admin: any,
+  accountId: string,
+  corteId: number,
+  msPresupuesto: number,
+  opciones: { soloGuias?: boolean } = {},
+): Promise<EstadoEtiquetas & { ocupado: boolean; guiasSinBajar: number }> {
+  const inicio = Date.now();
+  const restante = () => msPresupuesto - (Date.now() - inicio);
+  const estado0 = await estadoEtiquetasDelCorte(admin, accountId, corteId);
+  if (estado0.completo && !opciones.soloGuias) return { ...estado0, ocupado: false, guiasSinBajar: 0 };
+  const token = await adquirirCandado(admin, accountId, candadoEtiquetas(corteId), Math.ceil(msPresupuesto / 1000) + 30);
+  if (!token) return { ...estado0, ocupado: true, guiasSinBajar: 0 };
+  let guiasSinBajar = 0;
+  try {
+    // 1. Las guías que faltan (las que ya están no cuestan nada).
+    if (restante() > 30_000) {
+      const g = await bajarGuiasDelCorte(admin, accountId, corteId, restante() - 5_000);
+      guiasSinBajar = g.sinGuia;
+    }
+    if (opciones.soloGuias) return { ...(await estadoEtiquetasDelCorte(admin, accountId, corteId)), ocupado: false, guiasSinBajar };
+    // 2. Los tomos que faltan, en orden; cada uno se guarda al armarse si
+    //    salió completo (`pdfEtiquetasDelCorte`).
+    const listos = new Set(estado0.listos);
+    for (let t = 1; t <= estado0.tomos; t++) {
+      if (listos.has(t)) continue;
+      if (restante() < 60_000) break;
+      await pdfEtiquetasDelCorte(admin, accountId, corteId, t).catch(() => undefined);
+    }
+    return { ...(await estadoEtiquetasDelCorte(admin, accountId, corteId)), ocupado: false, guiasSinBajar };
+  } finally {
+    await liberarCandado(admin, accountId, candadoEtiquetas(corteId), token).catch(() => false);
+  }
+}
+
+/** Cuántos días hacia atrás el cron sigue calentando etiquetas de cortes sin armar. */
+const DIAS_CALENTAR_CORTES = 2;
+
+/**
+ * Red de seguridad del cron de TikTok: los cortes recientes cuyas
+ * etiquetas aún no están completas se terminan de armar aunque nadie tenga
+ * la pantalla abierta (el navegador puede soltar la conexión a medio
+ * corte). Del más nuevo al más viejo, hasta donde alcance el presupuesto.
+ */
+export async function calentarCortesRecientes(admin: any, accountId: string, msPresupuesto: number): Promise<{ cortes: number; completos: number }> {
+  const inicio = Date.now();
+  const desde = new Date(Date.now() - DIAS_CALENTAR_CORTES * 86_400_000).toISOString();
+  const { data } = await admin.from("tiktok_cortes").select("id, pedidos").eq("account_id", accountId).gte("creado_en", desde).order("id", { ascending: false });
+  let cortes = 0;
+  let completos = 0;
+  for (const c of (data ?? []) as { id: number; pedidos: number }[]) {
+    const restante = msPresupuesto - (Date.now() - inicio);
+    if (restante < 70_000) break;
+    const e = await estadoEtiquetasDelCorte(admin, accountId, c.id, c.pedidos);
+    if (e.completo) continue;
+    cortes++;
+    const r = await calentarEtiquetasDelCorte(admin, accountId, c.id, restante - 5_000).catch(() => null);
+    if (r?.completo) completos++;
+  }
+  return { cortes, completos };
+}
+
 /**
  * Baja y guarda las guías del corte que todavía no están en el bucket,
  * hasta donde alcance `msPresupuesto`. Es el calentamiento: se llama en el

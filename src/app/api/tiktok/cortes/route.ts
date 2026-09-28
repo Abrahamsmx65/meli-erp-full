@@ -1,7 +1,8 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { bajarGuiasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { calentarEtiquetasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { contarSinTiempo } from "@/lib/tiktok/lunes";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const maxDuration = 300;
 
 /** Hace un corte: confirma todos los envíos pendientes en TikTok y los agrupa. */
 export async function POST(req: NextRequest) {
+  const inicioRuta = Date.now();
   const supabase = await clienteServidor();
   const {
     data: { user },
@@ -26,12 +28,20 @@ export async function POST(req: NextRequest) {
       creadoPor: user.id,
       sinDefensa: body?.sinDefensa === true,
     };
-    // Las guías se bajan y se guardan en cuanto se contesta, con el rato
-    // que le quede a la función: cuando el usuario pida el PDF, la mayoría
-    // ya está en el bucket (el resto lo baja esa misma impresión).
-    const calentar = (ids: number[]) =>
+    // Las etiquetas se arman y se guardan en cuanto se contesta, con TODO
+    // el rato que le quede a la función (hasta ~5 min): cuando el usuario
+    // pida el PDF ya está en el bucket. Si el corte se quedó por tiempo
+    // (viene otra ronda que se le va a unir y renumerar), solo se bajan las
+    // guías: armar tomos que se van a tirar es trabajo perdido. Lo que no
+    // alcance lo sigue la pantalla (`calentar`) y el cron de TikTok.
+    const calentar = (cortes: { corteId: number | null; errores?: { orderId: string; error: string }[] }[]) =>
       after(async () => {
-        for (const id of ids) await bajarGuiasDelCorte(admin, cuenta.id, id, 30_000).catch(() => undefined);
+        for (const c of cortes) {
+          if (c.corteId == null) continue;
+          const restante = 295_000 - (Date.now() - inicioRuta) - 5_000;
+          if (restante < 20_000) break;
+          await calentarEtiquetasDelCorte(admin, cuenta.id, c.corteId, restante, { soloGuias: contarSinTiempo(c.errores ?? []) > 0 }).catch(() => undefined);
+        }
         // Y los cortes recientes se ponen al día: lo que se canceló después
         // del corte deja de salir como faltante.
         await releerSinPrepararDeCortesRecientes(admin, cuenta.id).catch(() => undefined);
@@ -41,7 +51,7 @@ export async function POST(req: NextRequest) {
     // domingo y lo más viejo, hasta las 23:59 de México) y luego lo de hoy.
     if (body?.modo === "lunes") {
       const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorteLunes(admin, cuenta.id, opciones));
-      calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
+      calentar(r.cortes);
       return NextResponse.json({ ok: true, modo: "lunes", ...r });
     }
 
@@ -50,12 +60,12 @@ export async function POST(req: NextRequest) {
     // trabajo un día.
     if (body?.modo === "ayer") {
       const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorteAyer(admin, cuenta.id, opciones));
-      calentar(r.cortes.map((c) => c.corteId).filter((id): id is number => id != null));
+      calentar(r.cortes);
       return NextResponse.json({ ok: true, modo: "ayer", ...r });
     }
 
     const r = await conCandadoDeCorte(admin, cuenta.id, () => hacerCorte(admin, cuenta.id, opciones));
-    calentar(r.corteId != null ? [r.corteId] : []);
+    calentar([r]);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     const m = (err as Error).message;

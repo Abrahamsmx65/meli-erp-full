@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, Scissors, ShieldCheck } from "lucide-react";
@@ -64,6 +64,10 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   // Las etiquetas de un corte grande: el servidor arma tomos de 200 guías y
   // aquí se juntan en UN PDF antes de abrirlo. Texto de avance por corte.
   const [armandoEtiquetas, setArmandoEtiquetas] = useState<Record<number, string>>({});
+  // Qué tomos ya están guardados por corte (el servidor los arma por atrás
+  // en cuanto termina el corte; ver `calentarEtiquetas`).
+  const [etiquetas, setEtiquetas] = useState<Record<number, { tomos: number; listos: number; completo: boolean; ocupado?: boolean; guiasSinBajar?: number }>>({});
+  const calentando = useRef<Set<number>>(new Set());
 
   /**
    * UN solo PDF con todas las etiquetas del corte. El servidor arma (y
@@ -123,16 +127,54 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   }
 
   /**
-   * Deja los tomos armados en el servidor sin abrir nada: se llama en
-   * cuanto termina un corte, para que «Etiquetas PDF» salga al instante.
+   * Deja las etiquetas del corte armadas y guardadas en el servidor sin
+   * abrir nada, y enseña el avance en el renglón del corte: el servidor
+   * trabaja un rato por llamada (baja guías, arma tomos) y contesta qué
+   * tomos ya están; se le vuelve a llamar hasta que estén todos. Se lanza
+   * al terminar un corte y al abrir la pantalla si un corte reciente no
+   * tiene sus etiquetas completas. El corte también lo arranca solo del
+   * lado del servidor y el cron lo termina si esta pestaña se cierra.
    */
-  function calentarEtiquetas(corteId: number, pedidos: number) {
+  function calentarEtiquetas(corteId: number) {
+    if (calentando.current.has(corteId)) return;
+    calentando.current.add(corteId);
     void (async () => {
-      for (let tomo = 1; tomo <= tomosDeCorte(pedidos); tomo++) {
-        await fetch(`/api/tiktok/cortes/${corteId}/etiquetas?tomo=${tomo}`).then((r) => r.arrayBuffer()).catch(() => undefined);
+      try {
+        for (let intento = 0; intento < 60; intento++) {
+          const r = await fetch(`/api/tiktok/cortes/${corteId}/calentar`, { method: "POST" }).catch(() => null);
+          const j = r && r.ok ? await r.json().catch(() => null) : null;
+          if (j && typeof j.tomos === "number") {
+            setEtiquetas((e) => ({ ...e, [corteId]: { tomos: j.tomos, listos: (j.listos ?? []).length, completo: Boolean(j.completo), ocupado: Boolean(j.ocupado), guiasSinBajar: j.guiasSinBajar } }));
+            if (j.completo) return;
+          }
+          // Ocupado (el servidor o el cron ya lo están armando) o sin
+          // respuesta: se espera y se vuelve a preguntar.
+          await new Promise((res) => setTimeout(res, j?.ocupado || !j ? 15_000 : 2_000));
+        }
+      } finally {
+        calentando.current.delete(corteId);
       }
     })();
   }
+
+  // Al abrir la pantalla: los cortes de las últimas 24 h que no tengan sus
+  // etiquetas completas se terminan de armar por atrás (el navegador pudo
+  // soltar la conexión a medio corte y nadie las calentó).
+  useEffect(() => {
+    const recientes = cortes.filter((c) => Date.now() - new Date(c.creadoEn).getTime() < 24 * 3_600_000);
+    for (const c of recientes) {
+      void fetch(`/api/tiktok/cortes/${c.id}/calentar`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!j || typeof j.tomos !== "number") return;
+          setEtiquetas((e) => ({ ...e, [c.id]: { tomos: j.tomos, listos: (j.listos ?? []).length, completo: Boolean(j.completo) } }));
+          if (!j.completo) calentarEtiquetas(c.id);
+        })
+        .catch(() => undefined);
+    }
+    // Solo al montar: los cortes nuevos se calientan desde `hacerCorte`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {
@@ -299,7 +341,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         router.refresh();
         // Los tomos de etiquetas se arman por atrás desde ya (el servidor
         // guarda cada uno); al darle a «Etiquetas PDF» solo se juntan.
-        for (const c of cortesRonda) if (c.corteId != null && !hayQueSeguir([c])) calentarEtiquetas(c.corteId, c.pedidos ?? 0);
+        for (const c of cortesRonda) if (c.corteId != null && !hayQueSeguir([c])) calentarEtiquetas(c.corteId);
         if (!hayQueSeguir(cortesRonda)) {
           if (j.aviso) resumenes.push(j.aviso);
           break;
@@ -501,6 +543,14 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                   <p className="mt-1 text-xs font-semibold" style={{ color: armandoEtiquetas[c.id].startsWith("No se pudieron") ? "var(--estado-critico)" : "var(--ink-2)" }}>
                     {armandoEtiquetas[c.id]}
                   </p>
+                ) : etiquetas[c.id] ? (
+                  <p className="mt-1 text-xs" style={{ color: etiquetas[c.id].completo ? "var(--exito-texto)" : "var(--ink-2)" }}>
+                    {etiquetas[c.id].completo
+                      ? "Etiquetas listas para imprimir."
+                      : `Armando las etiquetas por atrás: ${etiquetas[c.id].listos} de ${etiquetas[c.id].tomos} ${etiquetas[c.id].tomos === 1 ? "tomo" : "tomos"} guardados${
+                          etiquetas[c.id].guiasSinBajar ? ` · ${etiquetas[c.id].guiasSinBajar} guías que TikTok aún no da (se reintentan)` : ""
+                        }${etiquetas[c.id].ocupado ? " · el servidor las está armando" : ""}…`}
+                  </p>
                 ) : null}
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (
                   <ul className="mt-1 text-xs" style={{ color: "var(--estado-critico)" }}>
@@ -608,7 +658,12 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                       : "Las guías del corte en orden, con #n y el código del pedido"
                   }
                 >
-                  <Printer size={14} /> {armandoEtiquetas[c.id] && !armandoEtiquetas[c.id].startsWith("No se pudieron") ? "Armando…" : "Etiquetas PDF"}
+                  <Printer size={14} />{" "}
+                  {armandoEtiquetas[c.id] && !armandoEtiquetas[c.id].startsWith("No se pudieron")
+                    ? "Armando…"
+                    : etiquetas[c.id] && !etiquetas[c.id].completo
+                      ? "Etiquetas PDF (armándose…)"
+                      : "Etiquetas PDF"}
                 </button>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/salidas`}

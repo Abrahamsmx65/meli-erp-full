@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { procesarWebhooksPendientes, sincronizarTikTok } from "@/lib/servicios/tiktok";
 import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
+import { calentarCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { revisarDesfasesTikTok } from "@/lib/servicios/tiktok-alarma";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
@@ -21,6 +22,7 @@ export const maxDuration = 300;
  * mientras el API estaba caído.
  */
 export async function GET(req: NextRequest) {
+  const inicioRuta = Date.now();
   const secreto = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
   if (!secreto || auth !== `Bearer ${secreto}`) {
@@ -58,7 +60,16 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         al3pl = { error: (err as Error).message };
       }
-      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl });
+      // Las etiquetas de los cortes recientes que aún no están armadas se
+      // terminan por atrás, aunque nadie tenga la pantalla abierta.
+      let etiquetas: unknown = null;
+      try {
+        const restante = 290_000 - (Date.now() - inicioRuta);
+        if (restante > 80_000) etiquetas = await calentarCortesRecientes(admin, c.id, Math.min(restante - 10_000, 150_000));
+      } catch (err) {
+        etiquetas = { error: (err as Error).message };
+      }
+      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }
