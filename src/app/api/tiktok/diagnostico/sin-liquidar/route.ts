@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
+import { RUTAS_SIN_LIQUIDAR } from "@/lib/tiktok/api";
 import { ErrorTikTok } from "@/lib/tiktok/client";
 import { clienteDeCuenta } from "@/lib/servicios/tiktok";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
@@ -8,28 +9,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Las rutas candidatas del endpoint «Get Unsettled Transactions» de
- * finanzas de TikTok (la lista oficial lo tiene junto a Get Statements,
- * Get Payments, Get Transactions by Order…; la documentación no se alcanza
- * desde el entorno de Claude). Se prueban todas: la que exista contesta
- * 200; las demás, 36009004 (versión inválida) o 404.
- */
-const CANDIDATAS = [
-  "/finance/202501/transactions/unsettled",
-  "/finance/202309/transactions/unsettled",
-  "/finance/202501/unsettled_transactions",
-  "/finance/202309/unsettled_transactions",
-  "/finance/202501/orders/unsettled_transactions",
-  "/finance/202507/transactions/unsettled",
-  "/finance/202509/transactions/unsettled",
-  "/finance/202506/transactions/unsettled",
-];
-
-/**
  * Sonda de las transacciones NO liquidadas de la tienda, sin escribir
- * nada. Le pega a cada ruta candidata con una ventana de 30 días y una
- * página chica, y contesta por ruta: si existió, qué llaves trae y los
- * primeros dos renglones crudos. Es para ver con qué forma llega lo que
+ * nada. Le pega a la ruta real (`RUTAS_SIN_LIQUIDAR`, sacada del SDK de
+ * TikTok) con una ventana de 30 días y una página chica, y contesta por
+ * ruta: si existió, qué llaves trae y los primeros dos renglones crudos. Es para ver con qué forma llega lo que
  * TikTok todavía no paga (25-sep-2026: por pedido, `…/orders/{id}/
  * statement_transactions` contesta vacío hasta que liquida).
  *
@@ -54,7 +37,7 @@ export async function GET(req: NextRequest) {
   const desde = ahora - dias * 86_400;
   const resultado: Record<string, unknown> = { ventana: { desde, hasta: ahora, dias }, rutas: {} as Record<string, unknown> };
   const rutas = resultado.rutas as Record<string, unknown>;
-  for (const ruta of CANDIDATAS) {
+  for (const ruta of RUTAS_SIN_LIQUIDAR) {
     try {
       const d = await cliente.llamar<any>("GET", ruta, {
         params: { page_size: pagina, search_time_ge: desde, search_time_lt: ahora, sort_field: "order_create_time", sort_order: "DESC" },

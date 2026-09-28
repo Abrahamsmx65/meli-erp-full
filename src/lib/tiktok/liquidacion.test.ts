@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparPorPedido, estadoDePago, idDePedido, interpretarTransacciones, listaDeTransacciones } from "./liquidacion";
+import { agruparPorPedido, estadoDePago, idDePedido, interpretarTransacciones, listaDeTransacciones, normalizarSinLiquidar } from "./liquidacion";
 
 // Un pedido real ya liquidado (586039883311973941, 25-sep-2026), recortado
 // a los campos que se usan.
@@ -189,5 +189,36 @@ describe("interpretarTransacciones", () => {
     expect(interpretarTransacciones({ sku_transactions: grupos.get("B") })!.pago).toBe(30);
     expect(idDePedido({ order_info: { order_id: " 7 " } })).toBe("7");
     expect(idDePedido({})).toBeNull();
+  });
+
+  it("forma 202507 (orders/unsettled): los montos est_* cuentan como el pago estimado por TikTok, con afiliados e IVA, y un ajuste se anota a su pedido", () => {
+    const d = {
+      total_count: 3,
+      sum_est_settlement_amount: "150.10",
+      transactions: [
+        { id: "t1", order_id: "A", type: "ORDER", status: "UNSETTLED", unsettled_reason: "IN_TRANSIT", currency: "MXN", order_create_time: 1790000000,
+          est_revenue_amount: "199.16", est_fee_tax_amount: "-40.00", est_settlement_amount: "140.16", est_shipping_cost_amount: "-19",
+          fee_tax_breakdown: { fee: { sfp_service_fee_amount: "-15.93", platform_commission_amount: "-6", affiliate_commission_amount: "-13.94" }, tax: { vat_amount: "-13.73", isr_amount: "-4.29" } } },
+        { id: "t2", adjustment_id: "j1", adjustment_order_id: "A", type: "SHIPPING_FEE_COMPENSATION", status: "UNSETTLED", est_adjustment_amount: "5", est_settlement_amount: "5" },
+        { id: "t3", order_id: "B", type: "ORDER", status: "UNSETTLED", est_settlement_amount: "4.94" },
+      ],
+    };
+    expect(listaDeTransacciones(d)).toHaveLength(3);
+    expect(normalizarSinLiquidar({ est_settlement_amount: "1" }).settlement_amount).toBe("1");
+    const grupos = agruparPorPedido(listaDeTransacciones(d));
+    expect([...grupos.keys()]).toEqual(["A", "B"]);
+    const a = interpretarTransacciones({ sku_transactions: grupos.get("A") });
+    expect(a!.pago).toBeCloseTo(145.16, 2);
+    expect(a!.liquidado).toBe(false);
+    expect(a!.estados).toEqual(["UNSETTLED"]);
+    expect(a!.ingreso).toBeCloseTo(199.16, 2);
+    expect(a!.afiliado).toBeCloseTo(13.94, 2);
+    expect(a!.comision).toBeCloseTo(21.93, 2);
+    expect(a!.ivaRetenido).toBeCloseTo(13.73, 2);
+    expect(a!.isrRetenido).toBeCloseTo(4.29, 2);
+    expect(a!.envio).toBe(19);
+    expect(a!.cargos).toBeCloseTo(40, 2);
+    expect(estadoDePago(a)).toBe("por_liquidar");
+    expect(interpretarTransacciones({ sku_transactions: grupos.get("B") })!.pago).toBeCloseTo(4.94, 2);
   });
 });
