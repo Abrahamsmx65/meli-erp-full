@@ -841,8 +841,12 @@ guárdala numerada.
   TikTok** (`resumenPorModelo`, `/tiktok/ventas`): por modelo, «Me paga
   TikTok» = ese número repartido por precio entre los renglones del pedido
   (liquidado + por liquidar), afiliados aparte, «sin dato» aparte y fuera
-  de la ganancia (= lo que paga TikTok − costo de los pares con dato); los
-  cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
+  de la ganancia (= lo que paga TikTok − costo de los pares con dato), y
+  «Por par» = esa ganancia ÷ pares con dato (pedido del dueño, 28-sep-2026:
+  «cuánto gano por unidad vendida después de todos los gastos»; el pago de
+  TikTok ya trae descontados comisión, cargo por par, afiliados, envío e
+  IVA/ISR retenidos; el ERP no lleva gastos propios de TikTok como el 3PL);
+  los cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
 
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
