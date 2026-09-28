@@ -941,7 +941,7 @@ guárdala numerada.
   de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
   distinto según la URL. Se trabaja SOLO en
   `https://meli-erp-full.vercel.app`. El candado es
-  `Consolidado.versionContable` (hoy 4; subió el 25-sep-2026 con la cobertura nueva): al cambiar las reglas del dinero se
+  `Consolidado.versionContable` (hoy 5; subió a 4 el 25-sep-2026 con la cobertura nueva y a 5 el 28-sep-2026 al entrar TikTok): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
   recalcula en vez de enseñarse.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
@@ -958,7 +958,12 @@ guárdala numerada.
   nunca se congela un número que se sabe viejo.
 - **Corte GENERAL** (`servicios/consolidado.ts`, `/cortes`, `cortes_generales`):
   calzado en MELI + fundas en MELI + Amazon (`consolidado-amazon.ts` desde el
-  monitor de Amazon: neto liquidado o SKU Economics). Regla del dueño: la
+  monitor de Amazon: neto liquidado o SKU Economics) + TikTok Shop DESDE
+  SEPTIEMBRE 2026 (`consolidado-tiktok.ts`, `TIKTOK_DESDE`; dueño,
+  28-sep-2026: «antes no vendía»): neto = lo que TikTok paga por cada
+  pedido en pie (liquidado o su «por liquidar»), costo solo de los pares
+  con ese número; lo que TikTok aún no calcula queda fuera y se declara,
+  como la venta sin depósito de MELI. Regla del dueño: la
   publicidad se descuenta al modelo que la gastó; los GASTOS GENERALES de
   cada plataforma (Full, colecta, FBA, otros cargos, devoluciones netas del
   costo recuperado, ads sin amarre y a mano) se dividen entre las unidades
@@ -1279,6 +1284,7 @@ login, la base y el deploy.
 | Recordatorios del contenedor por correo (migración 0082, en el cron diario de packing lists): una SEMANA antes de la llegada estimada, las fotos que faltan; el día que LLEGA, aviso de que está en USA. Uno por contenedor (`aviso_previo_en`, `aviso_llegada_en`); lo ya recibido o con más de 30 días de retraso no dispara nada | `src/lib/servicios/avisos-contenedor.ts` |
 | Compartir los documentos del embarque: lee la subcarpeta de Drive de ESE contenedor y abre un borrador de correo con los enlaces (un `mailto:` no lleva adjuntos) | `/api/contenedores/[id]/documentos` + botón «Compartir docs» |
 | Correo con las fotos que faltan al cargar un contenedor NUEVO (a mano o desde Drive): productos nuevos de sus pedidos sin publicar o con menos de 2 fotos; Resend por HTTP (`RESEND_API_KEY`, `CORREO_REMITENTE`, `CORREO_AVISOS`); constancia en `contenedores.fotos_aviso_en` | `src/lib/servicios/fotos-contenedor.ts` + `correo.ts` |
+| Resumen de ventas de AYER por correo a las 7:00 de México (cron `/api/cron/resumen-diario` 13:00Z; pedido del dueño, 28-sep-2026): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatario `CORREO_RESUMEN_DIARIO` (por omisión el correo del dueño); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar) | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |

@@ -41,6 +41,7 @@ export const NOMBRE_CANAL: Record<string, string> = {
   meli_calzado: "Calzado · Mercado Libre",
   meli_fundas: "Fundas · Mercado Libre",
   amazon: "Amazon",
+  tiktok: "TikTok Shop",
 };
 
 export interface MesDeCorte {

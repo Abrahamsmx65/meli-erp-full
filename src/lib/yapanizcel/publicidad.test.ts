@@ -73,6 +73,17 @@ describe("publicidad cacheada", () => {
     vi.useRealTimers();
   });
 
+  it("un tramo del mes lleva su propia clave: no lee ni pisa la del mes completo", async () => {
+    const db = { from: vi.fn() };
+    leerCache.mockResolvedValue({ estado: "ausente" });
+    conectarCuenta.mockResolvedValue({} as MeliClient);
+    resolverPublicidad.mockResolvedValue({ advertiserId: "a", siteId: "MLM" });
+    traerPublicidad.mockResolvedValue([anuncioSinAmarre("x", 5)]);
+    await adsPorDisenoCacheado(db as any, cuenta, "2026-08", { desde: "2026-08-01", hasta: "2026-08-25" });
+    expect(leerCache).toHaveBeenCalledWith(db, cuenta.id, "ads:2026-08:2026-08-01:2026-08-25", undefined);
+    expect(guardarCache).toHaveBeenCalledWith(db, cuenta.id, "ads:2026-08:2026-08-01:2026-08-25", expect.anything(), expect.any(Number));
+  });
+
   it("propaga un fallo de lectura sin conectar la cuenta ni llamar a MELI", async () => {
     const fallo = new Error("statement timeout");
     leerCache.mockResolvedValue({ estado: "fallo", error: fallo });
@@ -204,6 +215,7 @@ describe("publicidad cacheada", () => {
     const publicidadCuentaB = new Promise<AnuncioAds[]>((resolve) => {
       liberarCuentaB = resolve;
     });
+    const rango = { desde: "2026-09-01", hasta: "2026-09-30" };
     const db = { from: vi.fn() };
     leerCache.mockResolvedValue({ estado: "ausente" });
     conectarCuenta.mockImplementation(async (_admin, cuentaId) =>

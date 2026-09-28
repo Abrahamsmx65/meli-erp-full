@@ -268,6 +268,25 @@ export function rangoDelPeriodo(periodo: string, hoy = fechaMx(0)): { desde: str
   return { desde, hasta: ultimo > hoy ? hoy : ultimo };
 }
 
+/**
+ * El rango del periodo recortado por `desde` y `hasta` (el resumen diario
+ * pide UN día; la comparación con el mes en curso, los mismos días).
+ */
+export function rangoRecortado(periodo: string, opts: { desde?: string; hasta?: string } = {}): { desde: string; hasta: string } {
+  const r = opts.hasta ? rangoDelPeriodo(periodo, opts.hasta) : rangoDelPeriodo(periodo);
+  return { desde: opts.desde && opts.desde > r.desde ? opts.desde : r.desde, hasta: r.hasta };
+}
+
+/**
+ * La facturación del periodo que cae en el rango. Sin recorte, toda; con
+ * `hasta`, lo que no tiene fecha se queda (es del mes); con `desde` (un
+ * tramo que no arranca el día 1) lo que no tiene fecha no es de ese tramo.
+ */
+export function cargosDelRango<T extends { fecha?: string | null }>(cargos: T[], opts: { desde?: string; hasta?: string }, desde: string, hasta: string): T[] {
+  if (!opts.desde && !opts.hasta) return cargos;
+  return cargos.filter((x) => (x.fecha ? x.fecha.slice(0, 10) >= desde && x.fecha.slice(0, 10) <= hasta : !opts.desde));
+}
+
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -1341,14 +1360,14 @@ export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: stri
  * compararlo con uno en curso): la venta, las órdenes, la publicidad, los
  * gastos y la facturación de MELI llegan solo hasta ahí.
  */
-export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string, opts: { hasta?: string } = {}): Promise<EstadoResultados> {
-  const { desde, hasta } = opts.hasta ? rangoDelPeriodo(periodo, opts.hasta) : rangoDelPeriodo(periodo);
+export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string, opts: { desde?: string; hasta?: string } = {}): Promise<EstadoResultados> {
+  const { desde, hasta } = rangoRecortado(periodo, opts);
   const [ventas, skus, config, gastos, cargos, ordenesPorDia, desglosePorSku, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
     gastosDelRango(db, cuenta.id, desde, hasta),
-    cargosGuardados(db, cuenta.id, periodo).then((c) => (opts.hasta ? c.filter((x) => !x.fecha || x.fecha.slice(0, 10) <= hasta) : c)),
+    cargosGuardados(db, cuenta.id, periodo).then((c) => cargosDelRango(c, opts, desde, hasta)),
     // Sumadas en la base: traer 35 mil órdenes a la página se pasaba del tiempo.
     ordenesPorDiaDesdeRpc(db, "cortes_ordenes_por_dia", cuenta.id, desde, hasta),
     desglosePorSkuDesdeRpc(db, "cortes_desglose_por_sku", cuenta.id, desde, hasta),
