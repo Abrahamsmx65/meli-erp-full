@@ -469,7 +469,11 @@ export function rangoDeTomo(tomo: number, pedidos: number, paquetes: number): { 
  * (decisión del dueño, 22-sep-2026: «por atrás se hagan 200 guías cada
  * vez y el PDF sí me lo presentes junto para imprimirlo más fácil»).
  */
-export function avanceDeTomos(tomo: number, total: number, fase: "armando" | "uniendo"): string {
+export function avanceDeTomos(tomo: number, total: number, fase: "armando" | "bajando" | "uniendo"): string {
   if (fase === "uniendo") return `Uniendo los ${total} tomos en un solo PDF…`;
+  if (fase === "bajando") {
+    // Los tomos ya están armados y guardados: solo se bajan del almacén.
+    return total === 1 ? "Bajando las etiquetas ya armadas…" : `Bajando las etiquetas ya armadas: ${tomo} de ${total} tomos (${PAQUETES_POR_TOMO} guías cada uno)…`;
+  }
   return total === 1 ? "Armando las etiquetas…" : `Armando etiquetas: tomo ${tomo} de ${total} (${PAQUETES_POR_TOMO} guías cada uno)…`;
 }

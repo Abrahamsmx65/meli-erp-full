@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { bajarGuiasDelCorte, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { bajarGuiasDelCorte, enlaceDeTomo, pdfEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +26,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const tomoParam = _req.nextUrl.searchParams.get("tomo");
   const tomo = tomoParam ? Number(tomoParam) : null;
   if (tomo != null && (!Number.isInteger(tomo) || tomo < 1)) return NextResponse.json({ error: "Tomo inválido." }, { status: 400 });
+  // `formato=enlace`: si el tomo ya está guardado, se contesta un ENLACE
+  // firmado al bucket y el navegador lo baja directo (la función de Vercel
+  // sirve a ~2 MB/s: un tomo de 21 MB tardaba ~10 s). Si aún no está, se
+  // arma aquí (y se guarda si salió completo) y se contesta el enlace o,
+  // si quedó incompleto, el PDF mismo.
+  const quiereEnlace = _req.nextUrl.searchParams.get("formato") === "enlace";
 
   try {
     const admin = clienteAdmin();
+    if (quiereEnlace) {
+      const listo = await enlaceDeTomo(admin, cuenta.id, corteId, tomo);
+      if (listo) return NextResponse.json({ url: listo, tomo, guardado: true });
+    }
     const pdf = await pdfEtiquetasDelCorte(admin, cuenta.id, corteId, tomo);
     // Las guías que aún no están guardadas (las de los otros tomos) se
     // siguen bajando en el fondo, para que la siguiente impresión salga
@@ -36,6 +46,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     after(async () => {
       await bajarGuiasDelCorte(admin, cuenta.id, corteId, 200_000).catch(() => undefined);
     });
+    if (quiereEnlace) {
+      const recien = await enlaceDeTomo(admin, cuenta.id, corteId, tomo);
+      if (recien) return NextResponse.json({ url: recien, tomo, guardado: true });
+    }
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",

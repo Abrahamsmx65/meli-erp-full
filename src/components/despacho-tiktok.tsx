@@ -8,6 +8,9 @@ import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
 
+/** Cuántos tomos de etiquetas se bajan a la vez al imprimir (cada uno ~21 MB). */
+const TOMOS_A_LA_VEZ = 3;
+
 export interface CorteResumen {
   id: number;
   numero: number;
@@ -75,14 +78,17 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
    * cabe en la función de Vercel: el #36 del 22-sep-2026 eran 916 guías,
    * ~96 MB— y el navegador los junta con pdf-lib y lo abre para imprimir
    * (decisión del dueño: «por atrás se hagan 200 guías cada vez y el PDF
-   * sí me lo presentes junto»). La pestaña se abre en el clic (si no, el
-   * navegador la bloquea) y recibe el PDF cuando está listo.
+   * sí me lo presentes junto»). Los tomos ya guardados se bajan DIRECTO del
+   * bucket con un enlace firmado, varios a la vez (por la función de Vercel
+   * cada uno tardaba ~10 s: 28-sep-2026, «me metí y me sale otra vez eso»).
+   * La pestaña se abre en el clic (si no, el navegador la bloquea) y recibe
+   * el PDF cuando está listo.
    */
   async function imprimirEtiquetas(c: CorteResumen) {
     const total = tomosDeCorte(c.pedidos);
     const ventana = window.open("", "_blank");
     if (ventana) {
-      ventana.document.write(`<p style="font-family:sans-serif;padding:24px">Armando las etiquetas del corte #${c.numero}… no cierres esta pestaña.</p>`);
+      ventana.document.write(`<p style="font-family:sans-serif;padding:24px">Bajando las etiquetas del corte #${c.numero}… no cierres esta pestaña.</p>`);
     }
     const avance = (t: string) => {
       setArmandoEtiquetas((a) => ({ ...a, [c.id]: t }));
@@ -91,19 +97,51 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         if (p) p.textContent = `Corte #${c.numero}: ${t}`;
       }
     };
+    // Un tomo: si ya está guardado, el servidor contesta un ENLACE al bucket
+    // y se baja directo de ahí (por la función de Vercel un tomo de 21 MB
+    // tardaba ~10 s); si no, el servidor lo arma y manda el PDF.
+    const bajarTomo = async (tomo: number): Promise<ArrayBuffer> => {
+      const r = await fetch(`/api/tiktok/cortes/${c.id}/etiquetas?tomo=${tomo}&formato=enlace`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error ?? `No se pudo armar el tomo ${tomo} de ${total}.`);
+      }
+      const tipo = r.headers.get("content-type") ?? "";
+      if (tipo.includes("application/json")) {
+        const { url } = (await r.json()) as { url?: string };
+        if (!url) throw new Error(`El servidor no dio el enlace del tomo ${tomo} de ${total}.`);
+        const d = await fetch(url);
+        if (!d.ok) throw new Error(`No se pudo bajar el tomo ${tomo} de ${total} del almacén (${d.status}).`);
+        return d.arrayBuffer();
+      }
+      return r.arrayBuffer();
+    };
     try {
+      // Varios tomos a la vez (cada uno es una descarga independiente) y se
+      // unen en orden cuando están todos.
+      const partes: (ArrayBuffer | null)[] = Array.from({ length: total }, () => null);
+      let siguiente = 0;
+      let bajados = 0;
+      avance(avanceDeTomos(0, total, "bajando"));
+      const trabajador = async () => {
+        for (;;) {
+          const i = siguiente++;
+          if (i >= total) return;
+          partes[i] = await bajarTomo(i + 1);
+          bajados++;
+          avance(avanceDeTomos(bajados, total, "bajando"));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(TOMOS_A_LA_VEZ, total) }, trabajador));
+
       const { PDFDocument } = await import("pdf-lib");
       const junto = await PDFDocument.create();
       junto.setTitle(`Corte ${c.numero} · etiquetas TikTok`);
       for (let tomo = 1; tomo <= total; tomo++) {
-        avance(avanceDeTomos(tomo, total, "armando"));
-        const r = await fetch(`/api/tiktok/cortes/${c.id}/etiquetas?tomo=${tomo}`);
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(j.error ?? `No se pudo armar el tomo ${tomo} de ${total}.`);
-        }
-        const parte = await PDFDocument.load(await r.arrayBuffer(), { ignoreEncryption: true });
+        const bytes = partes[tomo - 1];
+        if (!bytes) throw new Error(`Faltó el tomo ${tomo} de ${total}.`);
         if (total > 1) avance(avanceDeTomos(tomo, total, "uniendo"));
+        const parte = await PDFDocument.load(bytes, { ignoreEncryption: true });
         const paginas = await junto.copyPages(parte, parte.getPageIndices());
         for (const pagina of paginas) junto.addPage(pagina);
       }

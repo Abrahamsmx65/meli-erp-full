@@ -574,13 +574,21 @@ guárdala numerada.
   **Pero el dueño imprime UN solo archivo** («por atrás se hagan 200 guías
   cada vez y el PDF sí me lo presentes junto para imprimirlo más fácil»,
   22-sep-2026): el botón «Etiquetas PDF» (`imprimirEtiquetas` en
-  `components/despacho-tiktok.tsx`) pide los tomos uno por uno al servidor
-  y los junta EN EL NAVEGADOR con pdf-lib (import dinámico), enseñando el
-  avance (`avanceDeTomos`), y abre el PDF completo en la pestaña que abrió
-  en el clic (abrirla después la bloquea el navegador). Al terminar un
-  corte, la pantalla pide los tomos en el fondo (`calentarEtiquetas`) para
-  que ya estén guardados cuando se impriman. Vercel nunca sirve el archivo
-  grande.
+  `components/despacho-tiktok.tsx`) pide cada tomo al servidor con
+  `?formato=enlace`: si ya está guardado, el servidor contesta un ENLACE
+  FIRMADO al bucket (`enlaceDeTomo`, 10 min) y el navegador lo baja
+  DIRECTO de ahí, `TOMOS_A_LA_VEZ` (3) a la vez —por la función de Vercel
+  el flujo es de ~2 MB/s y un tomo de 21 MB tardaba ~10 s: el #40 con sus
+  8 tomos ya armados seguía en «tomo 1 de 8» un minuto (28-sep-2026, el
+  dueño: «me metí y me sale otra vez eso»)—; si no está, el servidor lo
+  arma, lo guarda y manda el enlace (o el PDF si quedó incompleto). Luego
+  los junta EN EL NAVEGADOR con pdf-lib (import dinámico; unir 8 tomos
+  toma ~2 s), enseñando el avance (`avanceDeTomos`: «Bajando las etiquetas
+  ya armadas: 3 de 8 tomos»), y abre el PDF completo en la pestaña que
+  abrió en el clic (abrirla después la bloquea el navegador). Al terminar
+  un corte, la pantalla pide los tomos en el fondo (`calentarEtiquetas`)
+  para que ya estén guardados cuando se impriman. Vercel nunca sirve el
+  archivo grande ni los tomos ya guardados.
   **El código del pedido en la guía va alineado a los puntos de la térmica**
   (`moduloParaTermica`, `alPuntoDeImpresora` en `etiquetas/code128.ts`;
   `VERSION_ESTAMPA` 7; dueño, 22-sep-2026: «a veces sale borroso el código

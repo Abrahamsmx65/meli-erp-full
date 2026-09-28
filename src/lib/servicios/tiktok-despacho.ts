@@ -1207,6 +1207,27 @@ export async function estadoEtiquetasDelCorte(admin: any, accountId: string, cor
   return { tomos, listos: dentro, completo: dentro.length >= tomos };
 }
 
+/** Cuánto vive el enlace firmado de un tomo: lo que tarda una impresión en bajarlo. */
+const SEGUNDOS_ENLACE_TOMO = 600;
+
+/**
+ * Enlace firmado para que el NAVEGADOR baje un tomo ya guardado DIRECTO del
+ * bucket, sin pasar por la función de Vercel. Servirlo por la función
+ * limita el flujo a ~2 MB/s: un tomo de 200 guías (~21 MB) tardaba ~10 s
+ * y el #40 (8 tomos) más de un minuto en «tomo 1 de 8» aunque ya estaban
+ * todos armados (28-sep-2026, el dueño: «me metí y me sale otra vez eso»).
+ * Devuelve null si el tomo no está guardado (o el bucket no contesta).
+ */
+export async function enlaceDeTomo(admin: any, accountId: string, corteId: number, tomo: number | null): Promise<string | null> {
+  try {
+    const { data, error } = await admin.storage.from(BUCKET_GUIAS).createSignedUrl(rutaPdfCorte(accountId, corteId, tomo), SEGUNDOS_ENLACE_TOMO);
+    if (error || !data?.signedUrl) return null;
+    return String(data.signedUrl);
+  } catch {
+    return null;
+  }
+}
+
 /** Recurso del candado del calentamiento de un corte: dos calentadores a la vez bajarían y armarían lo mismo. */
 const candadoEtiquetas = (corteId: number) => `tiktok-etiquetas-${corteId}`;
 
