@@ -881,7 +881,8 @@ export interface PaginaSinLiquidar {
 
 /**
  * Una página de las transacciones NO liquidadas de toda la tienda: lo que
- * TikTok dice que va a pagar por los pedidos que ya salieron y todavía no
+ * TikTok dice que va a pagar por los pedidos pagados (desde antes de que
+ * salgan: `unsettled_reason` WAITING_FOR_PACKAGE_DELIVERY) que todavía no
  * entran a un estado de cuenta (25-sep-2026: por pedido,
  * `…/orders/{id}/statement_transactions` contesta vacío hasta que liquida,
  * así que la única forma de ver el «por liquidar» es esta lista). Primero
