@@ -492,6 +492,13 @@ guárdala numerada.
   al mismo corte por la regla de arriba. La pestaña
   tiene que quedarse abierta: es la pantalla la que encadena, porque el
   servidor no puede encadenarse a sí mismo dentro de los 5 min de Vercel.
+  **Si el navegador suelta la conexión a medio corte, la pantalla espera y
+  sigue** (`hacerCorte` en `components/despacho-tiktok.tsx`; 28-sep-2026:
+  el dueño vio «Load failed» en Safari mientras el servidor guardaba el
+  corte #40 con 700 pedidos): un error de red en el POST no es un error
+  del corte; se reintenta cada 15 s, un 409 (corte en curso) también se
+  espera, hasta 10 min, y la siguiente ronda toma lo que quedó y se une al
+  mismo corte. Solo después de esos 10 min se enseña el error.
   **Las consultas del corte van por TANDAS de ids** (`porTandas`,
   `TANDA_IDS` 300, en `renglonesConDefensa`, la marca del corte y la
   relectura): el lunes 28-sep-2026 había 1,400 pedidos pendientes y un
