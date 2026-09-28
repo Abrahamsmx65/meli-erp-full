@@ -232,6 +232,22 @@ describe("alias hacia el SKU de TikTok", () => {
     expect(pares.get("MY2304-PURPLE-23")).toBeUndefined();
     expect(pares.get("GT134-BLK-24")).toBe(1);
   });
+
+  it("un SKU AMARRADO en el catálogo de TikTok manda para cualquier caja con la misma clave, escriba MELI como escriba la variante", () => {
+    const alias = aliasDesdeTikTok([
+      { sellerSku: "GT134-NAVY / RED-28-MX", skuInterno: "GT134-NAVY-RED-28-MX" },
+      { sellerSku: "GT134-BLK-24-MX", skuInterno: null },
+    ]);
+    const cajas: any[] = [
+      { cajasDisponibles: 1, cajasApartadas: 0, detalle: [{ sku: "GT134-NAVY / RED-28-MX", piezas: 15, talla: "28", origen: "exacto" }] },
+      { cajasDisponibles: 1, cajasApartadas: 0, detalle: [{ sku: "GT134-BLK-24", piezas: 1, talla: "24", origen: "exacto" }] },
+    ];
+    const pares = paresPorSkuDesdeCajas(cajas, alias);
+    expect(pares.get("GT134-NAVY-RED-28-MX")).toBe(15);
+    expect(pares.get("GT134-NAVY / RED-28-MX")).toBeUndefined();
+    // sin amarre, lo de MELI se queda como está
+    expect(pares.get("GT134-BLK-24")).toBe(1);
+  });
 });
 
 describe("una devolución solo vale si la bodega la confirma", () => {

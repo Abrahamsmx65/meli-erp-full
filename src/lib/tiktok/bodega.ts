@@ -60,7 +60,7 @@ export function disponibleConEstante(
  * "apartada" no significa "para un envío a Full", y lo que TikTok tiene
  * apartado el ERP ya lo resta por su lado con los pedidos pagados.
  */
-export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: Map<string, string>): Map<string, number> {
+export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: AliasTikTok): Map<string, number> {
   const pares = new Map<string, number>();
   for (const caja of cajas) {
     const fisicas = (caja.cajasDisponibles ?? 0) + (caja.cajasApartadas ?? 0);
@@ -70,22 +70,48 @@ export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: Map<strin
       // Lo que MELI no tiene sale construido sin sufijo ("MY2304-PURPLE-23");
       // si TikTok lo vende con otro nombre ("MY2304-PURPLE-23-MX"), es el
       // mismo par y se lleva a ESE nombre: un solo renglón en el kardex.
+      // Y lo que TikTok ya tiene AMARRADO a un nombre del catálogo cae
+      // SIEMPRE en ese nombre, aunque MELI escriba hoy la variante distinto
+      // ("GT134-NAVY / RED-28-MX" vs "GT134-NAVY-RED-28-MX"): la caja no
+      // puede cambiar de renglón según qué nombre esté activo en `skus`.
       const sinMeli = it.origen === "sin_amarre" || it.origen === "sin_catalogo";
-      const sku = (sinMeli && alias?.get(claveComparacion(it.sku))) || it.sku;
+      const a = alias?.get(claveComparacion(it.sku));
+      const sku = a && (a.siempre || sinMeli) ? a.sku : it.sku;
       pares.set(sku, (pares.get(sku) ?? 0) + it.piezas * fisicas);
     }
   }
   return pares;
 }
 
-/** clave canónica → SKU tal cual lo escribe TikTok, para los modelos que MELI no tiene. */
-export function aliasDesdeTikTok(sellerSkus: (string | null | undefined)[]): Map<string, string> {
-  const alias = new Map<string, string>();
-  for (const s of sellerSkus) {
-    const sku = String(s ?? "").trim().toUpperCase();
-    if (!sku) continue;
-    const clave = claveComparacion(sku);
-    if (!alias.has(clave)) alias.set(clave, sku);
+/** clave canónica → nombre del kardex; `siempre` = vale para cualquier caja, no solo las que MELI no tiene. */
+export type AliasTikTok = Map<string, { sku: string; siempre: boolean }>;
+
+/**
+ * El nombre con el que cada par vive en el kardex, desde el catálogo de
+ * TikTok. Un SKU AMARRADO (`skuInterno`, el nombre con el que se registran
+ * sus ventas) manda para cualquier caja con la misma clave; uno sin
+ * amarre solo bautiza lo que MELI no tiene (los modelos propios de TikTok).
+ * Regla del 28-sep-2026: los 15 pares de GT134 NAVY/RED 28 se movían dos
+ * veces al día entre «GT134-NAVY / RED-28-MX» y «GT134-NAVY-RED-28-MX»
+ * (MELI escribe la variante de las dos formas y `skus.activo` alterna),
+ * mientras el par vendido esperaba en el segundo nombre con estante en cero.
+ */
+export function aliasDesdeTikTok(
+  skus: (string | { sellerSku: string | null | undefined; skuInterno?: string | null } | null | undefined)[],
+): AliasTikTok {
+  const alias: AliasTikTok = new Map();
+  for (const entrada of skus) {
+    const sellerSku = String((typeof entrada === "string" ? entrada : entrada?.sellerSku) ?? "").trim().toUpperCase();
+    const skuInterno = String((typeof entrada === "string" ? "" : entrada?.skuInterno) ?? "").trim();
+    if (skuInterno) {
+      const clave = claveComparacion(skuInterno);
+      const previo = alias.get(clave);
+      if (!previo || !previo.siempre) alias.set(clave, { sku: skuInterno, siempre: true });
+      continue;
+    }
+    if (!sellerSku) continue;
+    const clave = claveComparacion(sellerSku);
+    if (!alias.has(clave)) alias.set(clave, { sku: sellerSku, siempre: false });
   }
   return alias;
 }

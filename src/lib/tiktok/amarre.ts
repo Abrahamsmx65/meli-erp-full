@@ -26,7 +26,7 @@
 import { claveOrdenada, type IndiceCatalogo } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 
-export type OrigenAmarreTikTok = "manual" | "exacto" | "canonico" | "aplastado" | "ordenado" | "propio";
+export type OrigenAmarreTikTok = "manual" | "catalogo" | "exacto" | "canonico" | "aplastado" | "ordenado" | "propio";
 
 export interface AmarreTikTok {
   skuInterno: string | null;
@@ -37,12 +37,23 @@ export function amarrarSkuTikTok(
   sellerSku: string | null | undefined,
   indice: IndiceCatalogo,
   manual: Map<string, string>,
+  /**
+   * Lo que el catálogo de TikTok YA tiene amarrado (`tiktok_skus.sku_interno`,
+   * en mayúsculas por seller_sku): un SKU amarrado se queda con ese nombre
+   * aunque hoy MELI escriba la variante distinto. Sin esto, el 28-sep-2026
+   * la venta de «GT134-NAVY / RED-28-MX» caía un día en un nombre del
+   * kardex y otro día en otro, según cuál estuviera activo en `skus`.
+   */
+  memoria?: Map<string, string>,
 ): AmarreTikTok {
   const crudo = String(sellerSku ?? "").trim();
   if (!crudo) return { skuInterno: null, origen: null };
 
   const aMano = manual.get(crudo.toUpperCase());
   if (aMano) return { skuInterno: aMano, origen: "manual" };
+
+  const recordado = memoria?.get(crudo.toUpperCase());
+  if (recordado) return { skuInterno: recordado, origen: "catalogo" };
 
   const exacto = indice.exacto.get(crudo.toUpperCase());
   if (exacto) return { skuInterno: exacto.sku, origen: "exacto" };
