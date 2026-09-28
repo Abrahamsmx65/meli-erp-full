@@ -941,7 +941,7 @@ guárdala numerada.
   de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
   distinto según la URL. Se trabaja SOLO en
   `https://meli-erp-full.vercel.app`. El candado es
-  `Consolidado.versionContable` (hoy 5; subió a 4 el 25-sep-2026 con la cobertura nueva y a 5 el 28-sep-2026 al entrar TikTok): al cambiar las reglas del dinero se
+  `Consolidado.versionContable` (hoy 6; subió a 4 el 25-sep-2026 con la cobertura nueva, a 5 el 28-sep-2026 al entrar TikTok y a 6 ese mismo día al sacar los depósitos rebotados de Amazon): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
   recalcula en vez de enseñarse.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
@@ -1029,7 +1029,14 @@ guárdala numerada.
   gasto general; las devoluciones de Amazon NO recuperan costo (no se sabe
   si el par regresó vendible). SKU Economics es una ESTIMACIÓN de Amazon y
   para julio 2026 solo cubría ~15 % de las unidades: nunca es la fuente
-  final. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
+  final. **Un depósito REBOTADO no es ingreso** (`AdjustmentEventList` con
+  `FailedDisbursement`; migración 0098, `LISTAS_QUE_NO_SON_RESULTADO`): el
+  2-ene-2026 el banco devolvió los $326,732.82 de la liquidación del 30-dic
+  al 2-ene y Amazon los regresó al saldo como «ajuste»; contado así, enero
+  ganaba ese dinero dos veces. `amazon_finanzas_otros` lo separa de su
+  lista, queda fuera de la ganancia y se declara. Las `SellerRewards`
+  (recompensas de Amazon, $538,896 en enero) sí son abono y van con su
+  nombre. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
   o `?grupo=…`. **Lo real solo arma un mes si lo cubre DESDE SU PRIMER DÍA**
   (`realCubreDesde`: alguna liquidación completa que empiece ese día o
   antes); si no, el mes sale del respaldo y se declara. La ingesta

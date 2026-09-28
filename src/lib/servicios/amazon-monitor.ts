@@ -160,7 +160,7 @@ export async function obtenerMonitorAmazon(
 ): Promise<MonitorAmazon> {
   const r = rango ?? normalizarRango();
   const cerrado = r.hasta < fechaMx(0);
-  return conCacheApp(db, amazonAccountId, `monitor:v3:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
+  return conCacheApp(db, amazonAccountId, `monitor:v4:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
     cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
   );
 }

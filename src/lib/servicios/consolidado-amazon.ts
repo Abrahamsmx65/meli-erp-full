@@ -143,6 +143,8 @@ function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<st
 const NOMBRE_LISTA: Record<string, string> = {
   ServiceFeeEventList: "cargos de servicio (almacenaje, suscripción…)",
   AdjustmentEventList: "ajustes de Amazon",
+  "AdjustmentEventList:SellerRewards": "recompensas de Amazon al vendedor (abono)",
+  "AdjustmentEventList:FailedDisbursement": "depósito rebotado que Amazon regresó al saldo",
   TaxWithholdingEventList: "retención de impuestos del periodo",
   DebtRecoveryEventList: "recuperación de saldo",
   SAFETReimbursementEventList: "reembolsos SAFE-T",
