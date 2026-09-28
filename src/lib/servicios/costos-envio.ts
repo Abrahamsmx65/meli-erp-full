@@ -29,6 +29,8 @@
  */
 import { MeliClient, enLotes, trozos } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
+import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { mensajeErrorDatos } from "./errores-datos";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -993,20 +995,127 @@ export function armarEnviosReales(filas: FilaEnvioReal[]): Map<string, EnvioReal
   return salida;
 }
 
-/**
- * Lo que MELI cobró de envío en las ventas reales de cada SKU (RPC
- * `envio_real_por_sku`, sobre `ordenes_neto.envio_vendedor`). Si el RPC
- * falla se devuelve vacío y la revisión se queda con el simulador: se
- * declara con `conVentas = false`, no se inventa.
- */
-export async function leerEnviosReales(db: DB, accountId: string): Promise<Map<string, EnvioReal>> {
-  const desde = new Date(Date.now() - DIAS_VENTAS_REALES * 86_400_000).toISOString();
-  const { data, error } = await db.rpc("envio_real_por_sku", { p_account: accountId, p_desde: desde });
-  if (error) return new Map();
-  return armarEnviosReales((data ?? []) as FilaEnvioReal[]);
+/** Clave en `app_cache` donde vive el RPC ya masticado, por cuenta. */
+export const CLAVE_ENVIO_REAL = "envio-real";
+/** Cada cuánto se vuelve a preguntar el RPC (las ventas entran todo el día; una hora basta). */
+export const EDAD_ENVIO_REAL_MS = 60 * 60_000;
+
+interface GuardadoEnvioReal {
+  filas: FilaEnvioReal[];
+  desde: string;
 }
 
-export async function leerRevision(db: DB, accountId: string): Promise<ModeloRevisado[]> {
+/** De cuándo son las ventas reales que se están enseñando, y si no se pudieron leer, por qué. */
+export interface EstadoVentasReales {
+  /** cuándo se leyó el RPC; null si nunca se ha podido leer */
+  generadoEn: string | null;
+  /** SKUs con ventas en la ventana */
+  skus: number;
+  /** lo que impidió leerlas hoy (se enseña; nunca se cae al simulador en silencio) */
+  aviso: string | null;
+}
+
+async function preguntarEnviosReales(
+  db: DB,
+  accountId: string,
+): Promise<{ filas: FilaEnvioReal[]; desde: string }> {
+  const desde = new Date(Date.now() - DIAS_VENTAS_REALES * 86_400_000).toISOString();
+  const { data, error } = await db.rpc("envio_real_por_sku", { p_account: accountId, p_desde: desde });
+  if (error) throw new Error(mensajeErrorDatos(error));
+  return { filas: (data ?? []) as FilaEnvioReal[], desde };
+}
+
+/**
+ * Vuelve a preguntar el RPC y deja el resultado masticado en `app_cache`.
+ * Lo llama el latido cada hora (con el cliente de servicio) y la lectura de
+ * la pantalla cuando no hay nada guardado o ya envejeció.
+ */
+export async function refrescarEnviosReales(
+  db: DB,
+  accountId: string,
+): Promise<{ skus: number; ms: number }> {
+  const t0 = Date.now();
+  const r = await preguntarEnviosReales(db, accountId);
+  const guardado: GuardadoEnvioReal = { filas: r.filas, desde: r.desde };
+  await guardarCacheApp(db, accountId, CLAVE_ENVIO_REAL, guardado, Date.now() - t0);
+  return { skus: r.filas.length, ms: Date.now() - t0 };
+}
+
+/**
+ * Lo que MELI cobró de envío en las ventas reales de cada SKU (RPC
+ * `envio_real_por_sku`, sobre `ordenes_neto.envio_vendedor`), servido del
+ * renglón masticado en `app_cache` y refrescado cuando envejece.
+ *
+ * El 28-sep-2026 el RPC se cancelaba por tiempo desde la app (8 s del rol
+ * `authenticated` bajo RLS) y esta función devolvía un mapa vacío SIN DECIR
+ * NADA: la revisión caía al simulador, cada talla salía «sin ventas» y el
+ * GT229 volvía a aparecer con «4 cobran de más». Ahora, si el RPC falla y
+ * hay un renglón guardado, se sirve ese (con su fecha); si no hay nada, la
+ * revisión sale con el simulador y `aviso` lo declara en la pantalla.
+ */
+export async function leerEnviosRealesConEstado(
+  db: DB,
+  accountId: string,
+): Promise<{ reales: Map<string, EnvioReal>; estado: EstadoVentasReales }> {
+  const guardado = await leerCacheAppGuardado<GuardadoEnvioReal>(db, accountId, CLAVE_ENVIO_REAL);
+  const previo = guardado.estado === "encontrado" ? guardado.valor : null;
+  const fresco =
+    previo != null && previo.vigente && Date.now() - Date.parse(previo.generadoEn) < EDAD_ENVIO_REAL_MS;
+
+  if (fresco && previo) {
+    return {
+      reales: armarEnviosReales(previo.datos.filas),
+      estado: { generadoEn: previo.generadoEn, skus: previo.datos.filas.length, aviso: null },
+    };
+  }
+
+  try {
+    const t0 = Date.now();
+    const r = await preguntarEnviosReales(db, accountId);
+    const ahora = new Date().toISOString();
+    // Guardar es cortesía para la siguiente visita: si no se puede, el dato
+    // de hoy se enseña igual.
+    try {
+      const nuevo: GuardadoEnvioReal = { filas: r.filas, desde: r.desde };
+      await guardarCacheApp(db, accountId, CLAVE_ENVIO_REAL, nuevo, Date.now() - t0);
+    } catch (err) {
+      console.error("envio-real: no se pudo guardar en app_cache:", (err as Error).message);
+    }
+    return {
+      reales: armarEnviosReales(r.filas),
+      estado: { generadoEn: ahora, skus: r.filas.length, aviso: null },
+    };
+  } catch (err) {
+    const motivo = (err as Error).message;
+    if (previo) {
+      return {
+        reales: armarEnviosReales(previo.datos.filas),
+        estado: {
+          generadoEn: previo.generadoEn,
+          skus: previo.datos.filas.length,
+          aviso: `No se pudieron releer las ventas reales (${motivo}); se enseñan las de la última lectura.`,
+        },
+      };
+    }
+    return {
+      reales: new Map(),
+      estado: {
+        generadoEn: null,
+        skus: 0,
+        aviso: `No se pudieron leer las ventas reales (${motivo}): la revisión sale solo del simulador.`,
+      },
+    };
+  }
+}
+
+export async function leerEnviosReales(db: DB, accountId: string): Promise<Map<string, EnvioReal>> {
+  return (await leerEnviosRealesConEstado(db, accountId)).reales;
+}
+
+export async function leerRevisionConEstado(
+  db: DB,
+  accountId: string,
+): Promise<{ modelos: ModeloRevisado[]; ventasReales: EstadoVentasReales }> {
   const [filas, reales] = await Promise.all([
     traerTodo<FilaMedida>(
       db,
@@ -1014,7 +1123,11 @@ export async function leerRevision(db: DB, accountId: string): Promise<ModeloRev
       "sku, item_id, inventory_id, modelo, color, talla, alto, ancho, largo, peso, fuente, alto_vendedor, ancho_vendedor, largo_vendedor, peso_vendedor, precio, precio_venta, tipo_publicacion, envio_gratis, estado, costo, costo_normal, peso_facturable",
       (q) => q.eq("account_id", accountId),
     ),
-    leerEnviosReales(db, accountId),
+    leerEnviosRealesConEstado(db, accountId),
   ]);
-  return armarRevision(filas.map(aVariante), reales);
+  return { modelos: armarRevision(filas.map(aVariante), reales.reales), ventasReales: reales.estado };
+}
+
+export async function leerRevision(db: DB, accountId: string): Promise<ModeloRevisado[]> {
+  return (await leerRevisionConEstado(db, accountId)).modelos;
 }

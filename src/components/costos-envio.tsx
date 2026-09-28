@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Medida, ModeloRevisado, VarianteRevisada } from "@/lib/servicios/costos-envio";
+import type { EstadoVentasReales, Medida, ModeloRevisado, VarianteRevisada } from "@/lib/servicios/costos-envio";
 
 /**
  * Pantalla de costos de envío: qué publicaciones están mal medidas en MELI y
@@ -15,6 +15,15 @@ import type { Medida, ModeloRevisado, VarianteRevisada } from "@/lib/servicios/c
 
 const pesos = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+
+/** "hace 5 min" / "hace 3 h" / "el 28/9/2026": de cuándo es un dato guardado. */
+function hace(iso: string): string {
+  const minutos = Math.floor((Date.now() - Date.parse(iso)) / 60_000);
+  if (minutos < 1) return "hace un momento";
+  if (minutos < 60) return `hace ${minutos} min`;
+  if (minutos < 1440) return `hace ${Math.floor(minutos / 60)} h`;
+  return `el ${new Date(iso).toLocaleDateString("es-MX")}`;
+}
 
 function caja(m: Medida | null): string {
   if (!m) return "—";
@@ -133,13 +142,17 @@ function Tabla({ variantes, malas }: { variantes: VarianteRevisada[]; malas: Set
 export function CostosEnvio({
   modelos: inicial,
   evidencias: evidenciasIniciales,
+  ventasReales: ventasRealesIniciales,
 }: {
   modelos: ModeloRevisado[];
   /** modelo → link público de su ficha de evidencia (la que se le manda a MELI) */
   evidencias: Record<string, string>;
+  /** de cuándo son las ventas reales con las que se juzga, o por qué no se pudieron leer */
+  ventasReales: EstadoVentasReales;
 }) {
   const [modelos, setModelos] = useState(inicial);
   const [evidencias, setEvidencias] = useState(evidenciasIniciales);
+  const [ventasReales, setVentasReales] = useState(ventasRealesIniciales);
   const [busqueda, setBusqueda] = useState("");
   const [revisando, setRevisando] = useState(false);
   const [generando, setGenerando] = useState(false);
@@ -180,6 +193,7 @@ export function CostosEnvio({
     if (!r.ok) throw new Error(j?.error ?? "No se pudo leer la revisión.");
     setModelos(j.modelos as ModeloRevisado[]);
     setEvidencias((j.evidencias ?? {}) as Record<string, string>);
+    if (j.ventasReales) setVentasReales(j.ventasReales as EstadoVentasReales);
   };
 
   /**
@@ -345,7 +359,23 @@ export function CostosEnvio({
               «Revisar de nuevo»
             </>
           )}
+          {ventasReales.generadoEn && (
+            <>
+              {" "}
+              · ventas reales de <span className="cifra">{ventasReales.skus}</span> SKUs leídas{" "}
+              {hace(ventasReales.generadoEn)}
+            </>
+          )}
         </p>
+
+        {ventasReales.aviso && (
+          <p
+            className="mt-2 rounded-md px-3 py-2 text-sm"
+            style={{ background: "var(--alerta-fondo, #fef3c7)", color: "var(--alerta-texto, #92400e)" }}
+          >
+            {ventasReales.aviso}
+          </p>
+        )}
 
         {aviso && (
           <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>

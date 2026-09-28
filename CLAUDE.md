@@ -204,7 +204,20 @@ guárdala numerada.
   guarda `precio_venta` y le pregunta al simulador con ese (el dueño leía
   «MELI ya lo corrigió» cuando solo había cambiado el precio). Las que
   cobran de más se releen en CADA pasada; `medidas_en` es la fecha de
-  LECTURA real, no de la pasada. **Lo que MANDA es lo que MELI COBRÓ de
+  LECTURA real, no de la pasada. **El RPC de ventas reales vive MASTICADO en
+  `app_cache` (clave `envio-real`, `leerEnviosRealesConEstado`,
+  `refrescarEnviosReales` cada hora en el latido; migración 0099)**: el
+  28-sep-2026 `envio_real_por_sku` corría bajo RLS y se cancelaba a los 8 s
+  del rol `authenticated` (la política por renglón dejaba al planificador
+  sin estimaciones: 17 s), `leerEnviosReales` se tragaba el error y la
+  pantalla caía al simulador con TODO «sin ventas» y el GT229 otra vez con
+  «4 cobran de más». Ahora la función es `security definer` con su propio
+  control de acceso (`es_mi_cuenta`, service_role o `session_user`
+  postgres; NUNCA `current_user`, que dentro de una security definer es el
+  dueño de la función) y contesta en ~1 s; la pantalla lee el renglón
+  guardado, lo refresca si tiene más de una hora, y si el RPC falla sirve
+  la última lectura o declara en ámbar que la revisión salió solo del
+  simulador (`EstadoVentasReales.aviso`). Nunca en silencio. **Lo que MANDA es lo que MELI COBRÓ de
   verdad** (RPC `envio_real_por_sku`, migración 0097, sobre
   `ordenes_neto.envio_vendedor`; decisión del dueño, 25-sep-2026: «¿por qué
   simulas y no revisas exactamente?»): cada pedido de un SKU se compara

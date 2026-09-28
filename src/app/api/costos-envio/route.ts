@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
-import { calcularCostos, leerRevision, sincronizarMedidas } from "@/lib/servicios/costos-envio";
+import { calcularCostos, leerRevisionConEstado, sincronizarMedidas } from "@/lib/servicios/costos-envio";
 import { leerEvidencias } from "@/lib/servicios/evidencia-envio-generar";
 
 export const dynamic = "force-dynamic";
@@ -24,11 +24,11 @@ export async function GET() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "Sin cuenta conectada." }, { status: 400 });
 
-  const [modelos, evidencias] = await Promise.all([
-    leerRevision(supabase, cuenta.id),
+  const [{ modelos, ventasReales }, evidencias] = await Promise.all([
+    leerRevisionConEstado(supabase, cuenta.id),
     leerEvidencias(supabase, cuenta.id),
   ]);
-  return NextResponse.json({ ok: true, modelos, evidencias: Object.fromEntries(evidencias) });
+  return NextResponse.json({ ok: true, modelos, ventasReales, evidencias: Object.fromEntries(evidencias) });
 }
 
 /**

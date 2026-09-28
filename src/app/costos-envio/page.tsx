@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { leerRevision } from "@/lib/servicios/costos-envio";
+import { leerRevisionConEstado } from "@/lib/servicios/costos-envio";
 import { leerEvidencias } from "@/lib/servicios/evidencia-envio-generar";
 import { CostosEnvio } from "@/components/costos-envio";
 
@@ -22,8 +22,8 @@ export default async function PaginaCostosEnvio() {
     );
   }
 
-  const [modelos, evidencias] = await Promise.all([
-    leerRevision(supabase, cuenta.id),
+  const [{ modelos, ventasReales }, evidencias] = await Promise.all([
+    leerRevisionConEstado(supabase, cuenta.id),
     leerEvidencias(supabase, cuenta.id),
   ]);
 
@@ -45,7 +45,11 @@ export default async function PaginaCostosEnvio() {
         </p>
       </div>
 
-      <CostosEnvio modelos={modelos} evidencias={Object.fromEntries(evidencias)} />
+      <CostosEnvio
+        modelos={modelos}
+        evidencias={Object.fromEntries(evidencias)}
+        ventasReales={ventasReales}
+      />
     </div>
   );
 }

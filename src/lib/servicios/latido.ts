@@ -7,6 +7,7 @@ import { recalcular } from "./cache";
 import { latidoAmazon } from "./latido-amazon";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { sincronizarPublicidadDiaria } from "./publicidad-sync";
+import { CLAVE_ENVIO_REAL, EDAD_ENVIO_REAL_MS, refrescarEnviosReales } from "./costos-envio";
 
 /** Cuánto puede tener el plan de viejo antes de recalcularse solo. */
 export const EDAD_MAX_PLAN_MS = 3 * 60_000;
@@ -183,6 +184,27 @@ export async function latido(
             mensaje: (err as Error).message.slice(0, 300),
           });
         }
+      }
+    }
+
+    // Las ventas reales de la revisión de costos de envío (RPC
+    // `envio_real_por_sku`, ~1 s sin RLS) se dejan masticadas en `app_cache`
+    // cada hora: así /costos-envio lee un renglón y nunca depende de que el
+    // RPC alcance a contestar dentro del request (el 28-sep-2026 se cancelaba
+    // por tiempo y la pantalla caía al simulador en silencio).
+    if (Date.now() < finDrenado - 30_000) {
+      try {
+        const { data: real } = await admin
+          .from("app_cache")
+          .select("generado_en, vigente")
+          .eq("account_id", accountId)
+          .eq("clave", CLAVE_ENVIO_REAL)
+          .maybeSingle();
+        const viejo =
+          !real?.generado_en || real.vigente === false || Date.now() - Date.parse(real.generado_en) > EDAD_ENVIO_REAL_MS;
+        if (viejo) await refrescarEnviosReales(admin, accountId);
+      } catch (err) {
+        console.error("refrescarEnviosReales:", (err as Error).message);
       }
     }
 
