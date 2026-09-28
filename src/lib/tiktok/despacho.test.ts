@@ -347,5 +347,7 @@ describe("avanceDeTomos", () => {
     expect(avanceDeTomos(2, 5, "armando")).toBe("Armando etiquetas: tomo 2 de 5 (200 guías cada uno)…");
     expect(avanceDeTomos(1, 1, "armando")).toBe("Armando las etiquetas…");
     expect(avanceDeTomos(5, 5, "uniendo")).toBe("Uniendo los 5 tomos en un solo PDF…");
+    expect(avanceDeTomos(3, 8, "bajando")).toBe("Bajando las etiquetas ya armadas: 3 de 8 tomos (200 guías cada uno)…");
+    expect(avanceDeTomos(1, 1, "bajando")).toBe("Bajando las etiquetas ya armadas…");
   });
 });
