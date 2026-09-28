@@ -420,7 +420,19 @@ export function CostosEnvio({
                 </a>
               )}
             </header>
-            <Tabla variantes={abierto ? m.variantes : m.malas} malas={malas} />
+            {!abierto && m.malas.length === 0 ? (
+              // Un modelo buscado a mano que está bien: decirlo, no enseñar una tabla vacía.
+              <p className="p-4 text-sm" style={{ color: "var(--estado-ok, #15803d)" }}>
+                Ninguna talla del {m.modelo} cobra de más según sus últimas ventas
+                {m.variantes.some((v) => v.conVentas)
+                  ? `: en las ${m.variantes.filter((v) => v.conVentas).length} con ventas comparables, los dos últimos pedidos pagaron lo mismo que sus hermanas.`
+                  : " (sin ventas comparables en 60 días; el simulador tampoco la señala)."}
+                {m.variantes.some((v) => v.pagadoDeMas > 0) &&
+                  " Hubo cobros de más antes que MELI ya corrigió; están en «Pagado de más (60 d)»."}
+              </p>
+            ) : (
+              <Tabla variantes={abierto ? m.variantes : m.malas} malas={malas} />
+            )}
           </section>
         );
       })}
