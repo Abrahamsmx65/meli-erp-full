@@ -113,7 +113,13 @@ export default async function VentasTikTok({
     const costoUnitario = costoDe.get(m.modelo) ?? null;
     const costo = costoUnitario != null ? costoUnitario * m.unidadesConDato : null;
     const ganancia = costo != null && m.unidadesConDato > 0 ? m.aRecibir - costo : null;
-    return { ...m, costoUnitario, costo, ganancia };
+    // Por PAR vendido (pedido del dueño, 28-sep-2026: «cuánto gano por
+    // unidad vendida después de todos los gastos»): lo que TikTok paga por
+    // par ya trae descontados comisión, afiliados, envío e impuestos
+    // retenidos; menos el costo del par.
+    const pagaPorPar = m.unidadesConDato > 0 ? m.aRecibir / m.unidadesConDato : null;
+    const gananciaPorPar = ganancia != null && m.unidadesConDato > 0 ? ganancia / m.unidadesConDato : null;
+    return { ...m, costoUnitario, costo, ganancia, pagaPorPar, gananciaPorPar };
   });
   const gananciaTotal = conCosto.reduce((a, m) => a + (m.ganancia ?? 0), 0);
   const hayGanancia = conCosto.some((m) => m.ganancia != null);
@@ -126,6 +132,9 @@ export default async function VentasTikTok({
   const cobradoSinDato = modelos.reduce((a, m) => a + m.cobradoSinDato, 0);
   const costoTotal = conCosto.reduce((a, m) => a + (m.costo ?? 0), 0);
   const comision = cobradoConDato > 0 ? 1 - aRecibir / cobradoConDato : null;
+  // Ganancia por par de toda la tienda: solo sobre los pares que tienen dato de TikTok Y costo capturado.
+  const paresConGanancia = conCosto.reduce((a, m) => a + (m.ganancia != null ? m.unidadesConDato : 0), 0);
+  const gananciaPorParTotal = paresConGanancia > 0 ? gananciaTotal / paresConGanancia : null;
   // Pedidos EN PIE del rango: pagados, no cancelados, no muestra.
   const enPie = pedidosDeVenta(ordenesParaVentas, rango);
   const pedidosEnPie = enPie.length;
@@ -168,7 +177,7 @@ export default async function VentasTikTok({
         <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-9">
         <Ficha titulo="Pares vendidos" valor={n(unidades)} nota={`${n(pedidosEnPie)} pedidos en pie · sin muestras ni cancelados`} />
         <Ficha titulo="Cobrado" valor={pesos(importe)} nota="precio de venta al cliente" />
         <Ficha
@@ -199,6 +208,12 @@ export default async function VentasTikTok({
           tono={hayGanancia && gananciaTotal < 0 ? "critico" : "neutro"}
         />
         <Ficha
+          titulo="Ganancia por par"
+          valor={gananciaPorParTotal != null ? pesos(gananciaPorParTotal) : "—"}
+          nota={gananciaPorParTotal != null ? `sobre ${n(paresConGanancia)} pares con dato y costo` : "se calcula con costo capturado"}
+          tono={gananciaPorParTotal != null && gananciaPorParTotal < 0 ? "critico" : "neutro"}
+        />
+        <Ficha
           titulo="Pedidos por enviar"
           valor={idsPorEnviar.size}
           nota={`pagados, sin despachar · ${n(paresPorEnviar)} pares apartados`}
@@ -215,7 +230,8 @@ export default async function VentasTikTok({
               pedidos según sus propias transacciones (ya sin comisión, afiliados, envío ni retenciones), estén
               liquidados o no; el ERP no lo estima. Un pedido recién creado del que TikTok aún no publica
               transacciones va en «sin dato» y no entra a la ganancia hasta que llega. Ganancia = lo que paga
-              TikTok − costo (Productos y costos) de esos pares. Los cancelados no se enseñan. Abre un modelo
+              TikTok − costo (Productos y costos) de esos pares; «Por par» es esa ganancia entre los pares con dato: lo que
+              queda por cada par vendido después de comisión, afiliados, envío, impuestos retenidos y costo. Los cancelados no se enseñan. Abre un modelo
               para ver sus tallas.
             </p>
           </div>
@@ -232,6 +248,7 @@ export default async function VentasTikTok({
                   <th className="px-4 py-2 text-right font-semibold">Sin dato</th>
                   <th className="px-4 py-2 text-right font-semibold">Costo</th>
                   <th className="px-4 py-2 text-right font-semibold">Ganancia</th>
+                  <th className="px-4 py-2 text-right font-semibold">Por par</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,11 +290,22 @@ export default async function VentasTikTok({
                     <td className="num px-4 py-2 text-right font-semibold" style={{ color: m.ganancia == null ? "var(--ink-2)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}>
                       {m.ganancia != null ? pesos(m.ganancia) : "—"}
                     </td>
+                    <td
+                      className="num px-4 py-2 text-right font-semibold"
+                      style={{ color: m.gananciaPorPar == null ? "var(--ink-2)" : m.gananciaPorPar < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}
+                      title={
+                        m.pagaPorPar != null
+                          ? `TikTok paga ${pesos(m.pagaPorPar)} por par${m.costoUnitario != null ? ` − costo ${pesos(m.costoUnitario)} = ${pesos(m.gananciaPorPar ?? 0)}` : " (sin costo capturado)"} · ${n(m.unidadesConDato)} pares con dato`
+                          : "sin dato de TikTok"
+                      }
+                    >
+                      {m.gananciaPorPar != null ? pesos(m.gananciaPorPar) : m.pagaPorPar != null && m.costoUnitario == null ? "sin costo" : "—"}
+                    </td>
                   </tr>
                 ))}
                 {!modelos.length ? (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm" colSpan={9} style={{ color: "var(--ink-2)" }}>
+                    <td className="px-4 py-6 text-center text-sm" colSpan={10} style={{ color: "var(--ink-2)" }}>
                       Sin ventas en el rango.
                     </td>
                   </tr>
