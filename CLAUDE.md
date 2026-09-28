@@ -797,7 +797,24 @@ guárdala numerada.
   `pago_desglose` (versión, ingreso, cargos, afiliado, envío neto del
   subsidio, IVA e ISR retenidos, reembolsos) con el crudo en `liquidacion`;
   `neto_recibido` sigue siendo SOLO lo ya liquidado. Si TikTok contesta que
-  la 202501 no existe (36009004 / 404) se cae a la 202309 y se avisa. La
+  la 202501 no existe (36009004 / 404) se cae a la 202309 y se avisa. **Pero por pedido TikTok no
+  publica NADA hasta que liquida** (25-sep-2026: los pedidos en camino o
+  entregados esa semana contestaron `total_count: 0` en las dos
+  versiones), así que el «por liquidar» sale de la LISTA de toda la tienda
+  («Get Unsettled Transactions»: `transaccionesSinLiquidar` en
+  `tiktok/api.ts`, rutas candidatas `RUTAS_SIN_LIQUIDAR` —la documentación
+  no se alcanza desde el entorno de Claude; una guía de terceros la cita
+  como `/finance/202309/transactions/unsettled`— y la que exista se
+  recuerda; `leerSinLiquidar` en `servicios/tiktok.ts`, ANTES de
+  `liquidarPedidos` en cada sync, hasta 60 páginas de 100): se agrupa por
+  `order_id` (`agruparPorPedido`, motor puro), cada grupo se interpreta
+  igual que un pedido y se guarda como `por_liquidar` con
+  `pago_desglose.version = "sin-liquidar"`; un pedido ya liquidado no se
+  toca y `liquidarPedidos` NO degrada a «sin dato» un pedido que trae su
+  número de la lista. La primera página cruda (dos renglones), qué contestó
+  cada ruta que no sirvió y cuántos pedidos quedaron con dato van a
+  `tiktok_sync_log` tarea `sin-liquidar` en cada corrida: desde la base se
+  ve con qué forma llega y se afina la lectura sin abrir nada a mano. La
   sonda `/api/tiktok/diagnostico/liquidacion?pedido=…` contesta el crudo
   de las dos versiones sin escribir, y `/api/tiktok/diagnostico/pagos?
   cuantos=250` lee de un jalón hasta 250 pedidos (para el arranque). La

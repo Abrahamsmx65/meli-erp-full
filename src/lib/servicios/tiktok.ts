@@ -20,7 +20,7 @@ import { configuracionIndusther, sincronizarInventarioIndusther } from "./indust
 import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { agregarVentasDiarias } from "../tiktok/ventas";
-import { estadoDePago } from "../tiktok/liquidacion";
+import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
@@ -30,6 +30,7 @@ import {
   etiquetaDePaquete,
   horariosDeRecoleccion,
   transaccionesDePedido,
+  transaccionesSinLiquidar,
   VERSION_TRANSACCIONES_VIEJA,
   paquetesDePedido,
   pedidosActualizados,
@@ -38,6 +39,7 @@ import {
   tiendasAutorizadas,
   type DiagnosticoPedidos,
   type OpcionesEnvio,
+  type PaginaSinLiquidar,
   type PedidoTikTok,
 } from "../tiktok/api";
 import {
@@ -667,8 +669,17 @@ async function sincronizarTikTokSinCandado(
     avisos.push(`Ventas por día: ${(err as Error).message}`);
   }
 
-  // ---- 3. Lo que TikTok liquida por cada pedido entregado -------------
+  // ---- 3. Lo que TikTok va a pagar por cada pedido en pie ---------------
+  // Primero la lista de TODA la tienda de lo que aún no liquida (una
+  // llamada por página, cientos de pedidos), luego pedido por pedido lo
+  // que toque releer.
   let liquidados = 0;
+  let porLiquidar = 0;
+  if (!opciones.soloPedidos) try {
+    porLiquidar = await leerSinLiquidar(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Por liquidar: ${(err as Error).message}`);
+  }
   if (!opciones.soloPedidos) try {
     liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
   } catch (err) {
@@ -702,6 +713,7 @@ async function sincronizarTikTokSinCandado(
       skusCatalogo,
       sinAmarre,
       liquidados,
+      porLiquidar,
       reamarrados,
       bodega,
       ventana: { desde: new Date(desdeMs).toISOString(), hasta: new Date(hastaMs).toISOString() },
@@ -1373,6 +1385,116 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
  * preguntan (liquidan 0). Si TikTok contesta que no hay permiso, se avisa
  * una vez y se deja de insistir en esta corrida.
  */
+/** Versión que se anota en `pago_desglose` cuando el dato salió de la lista de la tienda, no del pedido. */
+const VERSION_SIN_LIQUIDAR = "sin-liquidar";
+/** Páginas de la lista de sin liquidar por corrida (100 pedidos-renglón cada una, ~1 s por página). */
+const PAGINAS_SIN_LIQUIDAR = 60;
+
+/**
+ * Lee la lista de transacciones NO liquidadas de toda la tienda
+ * (`transaccionesSinLiquidar`), la agrupa por pedido y guarda en cada
+ * pedido en pie lo que TikTok dice que va a pagar (`pago_esperado`,
+ * `pago_estado = por_liquidar`, `pago_afiliado`, `pago_desglose` con
+ * versión `sin-liquidar`). Un pedido ya LIQUIDADO no se toca: su número
+ * es el del estado de cuenta. La primera página cruda (dos renglones) y
+ * lo que contestó cada ruta que no sirvió quedan en `tiktok_sync_log`
+ * (tarea `sin-liquidar`): es la única forma de ver con qué forma llega
+ * y afinar la lectura sin abrir nada a mano. Devuelve cuántos pedidos
+ * quedaron con dato.
+ */
+export async function leerSinLiquidar(db: DB, accountId: string, cliente: Cliente, avisos: string[]): Promise<number> {
+  const inicio = new Date().toISOString();
+  const ahoraS = Math.floor(Date.now() / 1000);
+  const renglones: any[] = [];
+  let token: string | undefined;
+  let paginas = 0;
+  let primera: PaginaSinLiquidar | null = null;
+  let seAcaboElTiempo = false;
+  while (paginas < PAGINAS_SIN_LIQUIDAR) {
+    if (cliente.msRestantes() < 20_000) {
+      seAcaboElTiempo = true;
+      break;
+    }
+    const pagina = await transaccionesSinLiquidar(cliente, { pageToken: token, pageSize: 100, desde: ahoraS - 90 * 86_400, hasta: ahoraS });
+    if (!primera) primera = pagina;
+    if (!pagina.ruta) break;
+    paginas++;
+    renglones.push(...pagina.renglones);
+    token = pagina.siguiente;
+    if (!token || !pagina.renglones.length) break;
+  }
+  const grupos = agruparPorPedido(renglones);
+  const ahora = new Date().toISOString();
+  let conDato = 0;
+  const sinEntender: string[] = [];
+  for (const [orderId, lista] of grupos) {
+    const t = interpretarTransacciones({ sku_transactions: lista });
+    if (!t) {
+      sinEntender.push(orderId);
+      continue;
+    }
+    const { data } = await db
+      .from("tiktok_ordenes")
+      .update({
+        pago_leido_en: ahora,
+        pago_estado: "por_liquidar",
+        pago_esperado: t.pago,
+        pago_afiliado: t.afiliado,
+        liquidacion: { unsettled: lista },
+        pago_desglose: {
+          version: VERSION_SIN_LIQUIDAR,
+          ruta: primera?.ruta ?? null,
+          transacciones: t.transacciones,
+          estados: t.estados,
+          ingreso: t.ingreso,
+          cargos: t.cargos,
+          comision: t.comision,
+          afiliado: t.afiliado,
+          envio: t.envio,
+          ivaRetenido: t.ivaRetenido,
+          isrRetenido: t.isrRetenido,
+          reembolsos: t.reembolsos,
+          statementId: t.statementId,
+        },
+      })
+      .eq("account_id", accountId)
+      .eq("order_id", orderId)
+      // Un pedido nunca leído tiene pago_estado NULL y `neq` lo dejaría fuera.
+      .or("pago_estado.is.null,pago_estado.neq.liquidado")
+      .select("order_id");
+    if (data?.length) conDato++;
+  }
+  const crudo = primera?.crudo as any;
+  const lista = crudo ? listaDeTransacciones(crudo) : [];
+  await db.from("tiktok_sync_log").insert({
+    account_id: accountId,
+    tarea: "sin-liquidar",
+    inicio,
+    fin: new Date().toISOString(),
+    estado: primera?.ruta ? (seAcaboElTiempo ? "con avisos" : "ok") : "error",
+    detalle: {
+      ruta: primera?.ruta ?? null,
+      paginas,
+      renglones: renglones.length,
+      pedidos: grupos.size,
+      conDato,
+      sinEntender: sinEntender.slice(0, 20),
+      seAcaboElTiempo,
+      llaves: crudo && typeof crudo === "object" ? Object.keys(crudo) : null,
+      total: crudo?.total_count ?? null,
+      primeros: lista.slice(0, 2),
+      intentos: primera?.intentos ?? [],
+    },
+  });
+  if (!primera?.ruta) {
+    const ultimo = primera?.intentos.at(-1);
+    avisos.push(`Por liquidar: ninguna ruta de «transacciones sin liquidar» contestó${ultimo ? ` (última: ${ultimo.ruta} → ${ultimo.error})` : ""}.`);
+  } else if (seAcaboElTiempo) {
+    avisos.push(`Por liquidar: se acabó el tiempo en la página ${paginas + 1}; la siguiente corrida sigue.`);
+  }
+  return conDato;
+}
+
 export async function liquidarPedidos(db: DB, accountId: string, cliente: Cliente, avisos: string[], tope = LIQUIDACIONES_POR_CORRIDA): Promise<number> {
   const ahoraMs = Date.now();
   const iso = (ms: number) => new Date(ahoraMs - ms).toISOString();
@@ -1383,10 +1505,10 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
     `and(pago_estado.eq.liquidado,pago_leido_en.lt.${iso(RELECTURA_LIQUIDADO_MS)})`,
   ].join(",");
   const candidatos = async (estados: string[], limite: number) => {
-    if (limite <= 0) return [] as { order_id: string }[];
+    if (limite <= 0) return [];
     const { data } = await db
       .from("tiktok_ordenes")
-      .select("order_id")
+      .select("order_id, pago_estado, pago_desglose")
       .eq("account_id", accountId)
       .eq("es_muestra", false)
       .in("estado", estados)
@@ -1396,7 +1518,7 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
       .order("pago_leido_en", { ascending: true, nullsFirst: true })
       .order("fecha_creacion", { ascending: false })
       .limit(limite);
-    return (data ?? []) as { order_id: string }[];
+    return (data ?? []) as { order_id: string; pago_estado: string | null; pago_desglose: { version?: string } | null }[];
   };
   const salidos = await candidatos(ESTADOS_CON_TRANSACCIONES, tope);
   const sinSalir = await candidatos(ESTADOS_EN_PIE.filter((e) => !ESTADOS_CON_TRANSACCIONES.includes(e)), tope - salidos.length);
@@ -1410,6 +1532,14 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
       const { transacciones: t, crudo, version } = await transaccionesDePedido(cliente, p.order_id);
       if (version === VERSION_TRANSACCIONES_VIEJA) versionVieja = true;
       const estado = estadoDePago(t);
+      // Un pedido que ya tiene su «por liquidar» de la lista de la tienda
+      // no se degrada a «sin dato» porque el endpoint por pedido conteste
+      // vacío: por pedido TikTok no publica nada hasta que liquida.
+      const traeDeLaLista = !t && p.pago_estado === "por_liquidar" && p.pago_desglose?.version === VERSION_SIN_LIQUIDAR;
+      if (traeDeLaLista) {
+        await db.from("tiktok_ordenes").update({ pago_leido_en: ahora }).eq("account_id", accountId).eq("order_id", p.order_id);
+        continue;
+      }
       // El crudo se guarda aunque no se haya entendido: es la única forma de
       // ver qué contesta TikTok y afinar la lectura.
       const cambios: Record<string, unknown> = {

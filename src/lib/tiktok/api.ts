@@ -6,7 +6,7 @@
  * paginación por token, que TikTok hace distinto en cada familia de rutas.
  */
 import { ErrorTikTok, type Cliente } from "./client";
-import { interpretarTransacciones, type TransaccionesPedido } from "./liquidacion";
+import { interpretarTransacciones, listaDeTransacciones, type TransaccionesPedido } from "./liquidacion";
 
 // ---------------------------------------------------------------------------
 // Autorización
@@ -850,4 +850,69 @@ export async function transaccionesDePedido(
     const d = await c.llamar<any>("GET", ruta(VERSION_TRANSACCIONES_VIEJA));
     return { transacciones: interpretarTransacciones(d), crudo: d ?? null, version: VERSION_TRANSACCIONES_VIEJA };
   }
+}
+
+/**
+ * Las rutas candidatas del endpoint «Get Unsettled Transactions» de la
+ * lista oficial de finanzas (la documentación no se alcanza desde el
+ * entorno de Claude; una guía de terceros lo cita como
+ * `/finance/202309/transactions/unsettled`). Se prueban en orden y la que
+ * exista se recuerda para el resto del proceso; 36009004 (versión
+ * inválida) y 404 son «esta no es».
+ */
+export const RUTAS_SIN_LIQUIDAR = [
+  "/finance/202501/transactions/unsettled",
+  "/finance/202309/transactions/unsettled",
+  "/finance/202501/unsettled_transactions",
+  "/finance/202309/unsettled_transactions",
+  "/finance/202501/orders/unsettled_transactions",
+];
+let rutaSinLiquidarQueExiste: string | null = null;
+
+export interface PaginaSinLiquidar {
+  /** renglones de transacciones (cada uno con su order_id y settlement_amount) */
+  renglones: any[];
+  siguiente: string | undefined;
+  crudo: unknown;
+  ruta: string | null;
+  /** qué contestó cada ruta que NO sirvió (para la bitácora) */
+  intentos: { ruta: string; params: string; codigo: number | null; error: string }[];
+}
+
+/**
+ * Una página de las transacciones NO liquidadas de toda la tienda: lo que
+ * TikTok dice que va a pagar por los pedidos que ya salieron y todavía no
+ * entran a un estado de cuenta (25-sep-2026: por pedido,
+ * `…/orders/{id}/statement_transactions` contesta vacío hasta que liquida,
+ * así que la única forma de ver el «por liquidar» es esta lista). Primero
+ * con ventana de tiempo y orden; si la ruta existe pero rechaza esos
+ * parámetros, se vuelve a pedir solo con el tamaño de página.
+ */
+export async function transaccionesSinLiquidar(
+  c: Cliente,
+  opciones: { pageToken?: string; pageSize?: number; desde?: number; hasta?: number } = {},
+): Promise<PaginaSinLiquidar> {
+  const intentos: PaginaSinLiquidar["intentos"] = [];
+  const pageSize = opciones.pageSize ?? 100;
+  const juegos: Record<string, string | number | undefined>[] = [
+    { page_size: pageSize, page_token: opciones.pageToken, search_time_ge: opciones.desde, search_time_lt: opciones.hasta, sort_field: "order_create_time", sort_order: "DESC" },
+    { page_size: pageSize, page_token: opciones.pageToken },
+  ];
+  const rutas = rutaSinLiquidarQueExiste ? [rutaSinLiquidarQueExiste] : RUTAS_SIN_LIQUIDAR;
+  for (const ruta of rutas) {
+    for (const params of juegos) {
+      try {
+        const d = await c.llamar<any>("GET", ruta, { params });
+        rutaSinLiquidarQueExiste = ruta;
+        return { renglones: listaDeTransacciones(d), siguiente: d?.next_page_token || undefined, crudo: d ?? null, ruta, intentos };
+      } catch (err) {
+        const e = err as ErrorTikTok;
+        const codigo = e instanceof ErrorTikTok ? e.codigo : null;
+        intentos.push({ ruta, params: Object.keys(params).filter((k) => params[k] !== undefined).join(","), codigo, error: (err as Error).message.slice(0, 300) });
+        // La ruta no existe: no tiene caso probarle otros parámetros.
+        if (codigo === 36009004 || codigo === 404) break;
+      }
+    }
+  }
+  return { renglones: [], siguiente: undefined, crudo: null, ruta: null, intentos };
 }
