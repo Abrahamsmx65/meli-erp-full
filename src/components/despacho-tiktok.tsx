@@ -264,13 +264,36 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       // Sin tope de rondas (decisión del dueño): se sigue hasta que no quede
       // nada por tiempo, o hasta que una ronda no avance.
       for (let n = 1; ; n++) {
-        const r = await fetch("/api/tiktok/cortes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error ?? "No se pudo hacer el corte.");
+        const cuerpo = JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) });
+        // El corte tarda hasta 5 min y el navegador (Safari en el iPhone,
+        // sobre todo) suelta la conexión a medias con «Load failed» aunque
+        // el servidor siga trabajando y guarde el corte. Si eso pasa, se
+        // espera y se vuelve a pedir: mientras el corte anterior siga en
+        // curso el servidor contesta 409 y se sigue esperando; cuando
+        // termine, la siguiente ronda toma lo que quedó (y se une al mismo
+        // corte). Hasta 10 min de espera; después sí es error.
+        const limiteEspera = Date.now() + 10 * 60_000;
+        let j: any;
+        let r: Response | null = null;
+        for (;;) {
+          try {
+            r = await fetch("/api/tiktok/cortes", { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpo });
+            j = await r.json();
+          } catch (e) {
+            if (Date.now() > limiteEspera) throw new Error(`Se perdió la conexión con el servidor (${(e as Error).message}). Revisa la lista de cortes: el corte pudo haberse guardado; vuelve a darle al botón para seguir con lo que falte.`);
+            setRonda(`Se perdió la conexión con el servidor; el corte sigue trabajando por atrás. Reintentando en 15 s… no cierres esta pestaña.`);
+            await new Promise((res) => setTimeout(res, 15_000));
+            continue;
+          }
+          if (r.status === 409) {
+            if (Date.now() > limiteEspera) throw new Error(j.error ?? "Hay un corte en curso.");
+            setRonda(`Hay un corte en curso en el servidor; se espera a que termine para seguir con lo que falte… no cierres esta pestaña.`);
+            await new Promise((res) => setTimeout(res, 15_000));
+            continue;
+          }
+          break;
+        }
+        if (!r || !r.ok) throw new Error(j?.error ?? "No se pudo hacer el corte.");
         const cortesRonda: any[] = j.modo === "lunes" || j.modo === "ayer" ? (j.cortes ?? []) : [j];
         resumenes.push(...cortesRonda.map((c: any) => resumenDeCorte(c)));
         router.refresh();
