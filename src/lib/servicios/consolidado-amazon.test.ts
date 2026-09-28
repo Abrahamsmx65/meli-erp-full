@@ -121,7 +121,7 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
       unidadesConCosto: 1,
       coberturaCosto: 1,
       ganancia: -287.35,
-      cobertura: { grupos: [], cerrados: 1, abiertos: 0, incompletos: 0, descuadrados: 0, completa: true, hasta: "2026-08-26T14:16:37Z" },
+      cobertura: { grupos: [{ grupoId: "g", inicio: "2026-07-29T00:00:00Z", fin: "2026-08-26T14:16:37Z", estado: "Closed", totalOriginal: 0, sumaEventos: 0, eventos: 1, sinClasificar: 0, completo: true, cuadra: true }], cerrados: 1, abiertos: 0, incompletos: 0, descuadrados: 0, completa: true, hasta: "2026-08-26T14:16:37Z" },
       avisos: [],
       exacto: true,
       generadoEn: "2026-09-09T18:00:00Z",
@@ -155,7 +155,7 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
       unidadesConCosto: 1,
       coberturaCosto: 1,
       ganancia: 90.65,
-      cobertura: { grupos: [grupo("Closed", false, 100, 90), grupo("Open", null, 348360.88, 348360.88)], cerrados: 1, abiertos: 1, incompletos: 0, descuadrados: 1, completa: false, hasta: null },
+      cobertura: { grupos: [{ ...grupo("Closed", false, 100, 90), inicio: "2026-08-28T05:27:56Z" }, grupo("Open", null, 348360.88, 348360.88)], cerrados: 1, abiertos: 1, incompletos: 0, descuadrados: 1, completa: false, hasta: null },
       avisos: [],
       exacto: false,
       generadoEn: "2026-09-24T18:00:00Z",
@@ -167,5 +167,32 @@ describe("bloqueAmazon con el dinero real (Finances API)", () => {
     expect(b.fuenteNeto).toMatch(/por depositar/);
     expect(b.fuenteNeto).toMatch(/descuadre/);
     expect(b.avisos.join(" ")).toMatch(/348,360\.88/);
+  });
+
+  it("un mes que la Finances API no cubre desde su primer día usa el respaldo y lo declara (marzo 2026: 3 días de eventos)", () => {
+    const cascada = { eventos: 1, unidades: 1, bruto: 239, principal: 206.03, impuestoCobrado: 32.97, otrosCargos: 0, comision: -35.86, fba: -36, otrasTarifas: 0, retenido: -16.49, promociones: 0, neto: 150.65 };
+    const real = {
+      rango: { desde: "2026-03-01", hasta: "2026-03-31" },
+      ventas: cascada,
+      reembolsos: { ...cascada, eventos: 0, unidades: 0, bruto: 0, principal: 0, impuestoCobrado: 0, comision: 0, fba: 0, retenido: 0, neto: 0 },
+      publicidad: { eventos: 0, monto: 0, base: 0, impuesto: 0 },
+      otros: [],
+      otrosTotal: 0,
+      netoProductos: 150.65,
+      netoDepositado: 150.65,
+      porModelo: [],
+      costoProducto: 0,
+      unidadesConCosto: 0,
+      coberturaCosto: 0,
+      ganancia: null,
+      cobertura: { grupos: [{ grupoId: "g", inicio: "2026-03-29T02:24:46Z", fin: "2026-04-10T05:41:43Z", estado: "Closed", totalOriginal: 0, sumaEventos: 0, eventos: 1, sinClasificar: 0, completo: true, cuadra: true }], cerrados: 1, abiertos: 0, incompletos: 0, descuadrados: 0, completa: true, hasta: null },
+      avisos: [],
+      exacto: true,
+      generadoEn: "2026-09-28T00:00:00Z",
+    };
+    const b = bloqueAmazon(monitor({ real }), new Map([["GT114", { categoria: null, costo: 1 }], ["GT135", { categoria: null, costo: 1 }]]), { desde: "2026-03-01", hasta: "2026-03-31" });
+    expect(b.fuenteNeto).not.toMatch(/Finances API/);
+    expect(b.unidades).toBe(10);
+    expect(b.avisos[0]).toMatch(/todavía no cubre desde el 2026-03-01/);
   });
 });

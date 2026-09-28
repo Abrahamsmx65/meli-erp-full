@@ -989,7 +989,14 @@ guárdala numerada.
   si el par regresó vendible). SKU Economics es una ESTIMACIÓN de Amazon y
   para julio 2026 solo cubría ~15 % de las unidades: nunca es la fuente
   final. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
-  o `?grupo=…`.
+  o `?grupo=…`. **Lo real solo arma un mes si lo cubre DESDE SU PRIMER DÍA**
+  (`realCubreDesde`: alguna liquidación completa que empiece ese día o
+  antes); si no, el mes sale del respaldo y se declara. La ingesta
+  arrancaba en abril y la primera liquidación leída empezó el 29-mar: marzo
+  salía con 3 días de eventos (1,960 unidades contra ~16,600). Desde el
+  28-sep-2026 `FINANZAS_DESDE` es 15-dic-2025 y, si lo guardado no llega al
+  fondo, la lista de grupos se vuelve a pedir desde ahí (si Amazon no
+  acepta la fecha vieja, sigue con la ventana reciente).
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
