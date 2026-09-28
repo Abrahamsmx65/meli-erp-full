@@ -14,14 +14,28 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   // Con eventos de la Finances API en el rango, el bloque es EXACTO: cada
   // peso viene de un evento con nombre. Lo demás queda como respaldo para
   // los periodos anteriores a la ingesta.
+  const conEventos = Boolean(m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0));
+  // Lo real solo sirve si cubre el mes DESDE SU PRIMER DÍA: la ingesta de la
+  // Finances API arrancó a fines de marzo y marzo salía con 3 días de eventos
+  // (1,960 unidades contra ~16,600 vendidas). Sin su primera liquidación, el
+  // mes se arma con el respaldo y se declara.
+  const cubreDesdeInicio = !rango || !m.real || realCubreDesde(m.real, rango.desde);
   const bloque =
-    m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0)
-      ? bloqueAmazonReal(m.real, m, config)
+    conEventos && cubreDesdeInicio
+      ? bloqueAmazonReal(m.real!, m, config)
       : bloqueAmazonAgregado(m, config, rango);
+  if (conEventos && !cubreDesdeInicio) {
+    bloque.avisos.unshift(`Amazon: el dinero exacto (Finances API) todavía no cubre desde el ${rango!.desde}; este mes se arma con el respaldo de Amazon mientras se leen sus liquidaciones.`);
+  }
   // Una fuente de respaldo que no se pudo leer se DECLARA; antes su error
   // tumbaba el canal entero y Amazon desaparecía del corte general.
   if (m.avisosFuentes?.length) bloque.avisos = [...m.avisosFuentes, ...bloque.avisos];
   return bloque;
+}
+
+/** ¿Alguna liquidación leída (en pesos) empieza el primer día del rango o antes? */
+export function realCubreDesde(real: FinanzasAmazon, desde: string): boolean {
+  return real.cobertura.grupos.some((g) => g.inicio != null && g.inicio.slice(0, 10) <= desde && g.completo);
 }
 
 /**

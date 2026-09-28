@@ -22,8 +22,15 @@ import { ErrorAmazon } from "./spapi";
 import { clasificarEventos, gruposFinancieros, paginaDeEventosDeGrupo, type EventoClasificadoAmazon, type GrupoFinancieroAmazon } from "./finanzas";
 import { guardarEnLotes } from "./sync";
 
-/** Desde cuándo se leen grupos la primera vez (mayo 2026: el primer mes con Amazon en el ERP). */
-export const FINANZAS_DESDE = "2026-04-01T00:00:00Z";
+/**
+ * Desde cuándo se leen grupos. Era abril 2026 y la primera liquidación
+ * leída empezó el 29 de marzo: enero a marzo no tenían dinero exacto. El
+ * dueño quiere el corte desde el inicio del año (25-sep-2026), así que se
+ * piden desde mediados de diciembre (una liquidación dura ~2 semanas).
+ */
+export const FINANZAS_DESDE = "2025-12-15T00:00:00Z";
+/** Si el grupo más viejo guardado empieza después de esto, falta traer el fondo. */
+const HOLGURA_FONDO = "2026-01-05";
 /** Cada cuánto se relee el grupo abierto. */
 export const RELEER_ABIERTO_MS = 60 * 60_000;
 /** Cada cuánto se vuelve a pedir la lista de grupos (para ver cerrarse el abierto). */
@@ -153,8 +160,21 @@ async function gruposDeLaCuenta(admin: any, cliente: Cliente, opts: { forzarList
   if (toca) {
     // Los grupos recientes bastan para ver cerrarse el abierto; la primera
     // vez se piden desde el fondo.
-    const desde = lista.length ? new Date(Date.now() - 45 * 86_400_000).toISOString() : FINANZAS_DESDE;
-    const remotos = (await gruposFinancieros(cliente, desde)).filter((g) => g.FinancialEventGroupId);
+    // Si lo guardado aún no llega al fondo (se movió FINANZAS_DESDE hacia
+    // atrás), se vuelve a pedir la lista desde ahí para traer los grupos viejos.
+    const masViejo = lista.reduce((m, g) => (g.moneda === "MXN" && g.inicio && g.inicio.slice(0, 10) < m ? g.inicio.slice(0, 10) : m), "9999-12-31");
+    const faltaFondo = !lista.length || masViejo > HOLGURA_FONDO;
+    const reciente = new Date(Date.now() - 45 * 86_400_000).toISOString();
+    let remotosCrudos: GrupoFinancieroAmazon[];
+    try {
+      remotosCrudos = await gruposFinancieros(cliente, faltaFondo ? FINANZAS_DESDE : reciente);
+    } catch (err) {
+      // Si Amazon no acepta una fecha tan vieja, la ingesta de todos los días
+      // no puede caerse por eso: sigue con la ventana reciente.
+      if (!faltaFondo || !lista.length) throw err;
+      remotosCrudos = await gruposFinancieros(cliente, reciente);
+    }
+    const remotos = remotosCrudos.filter((g) => g.FinancialEventGroupId);
     if (remotos.length) {
       const conocidos = new Set(lista.map((g) => g.grupo_id));
       nuevos = remotos.filter((g) => !conocidos.has(g.FinancialEventGroupId!)).length;
