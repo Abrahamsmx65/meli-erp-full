@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarCorreoResumen, armarResumen, diaAnterior, fechaLarga, filasDeConsolidado } from "./resumen-diario";
+import { armarCorreoResumen, armarResumen, conSemana, destinatariosResumen, diaAnterior, fechaLarga, filasDeConsolidado, semanaQueCierra, tramosPorMes } from "./resumen-diario";
 import { cargosDelRango, rangoRecortado } from "./corte-meli";
 import type { Consolidado } from "./consolidado";
 
@@ -52,5 +52,40 @@ describe("armarResumen y correo", () => {
   it("fechas", () => {
     expect(diaAnterior("2026-10-01")).toBe("2026-09-30");
     expect(fechaLarga("2026-09-28")).toBe("lunes 28 de septiembre");
+  });
+});
+
+describe("semana de los lunes", () => {
+  it("solo el domingo cierra semana, de lunes a domingo", () => {
+    expect(semanaQueCierra("2026-09-27")).toEqual({ desde: "2026-09-21", hasta: "2026-09-27" });
+    expect(semanaQueCierra("2026-09-28")).toBeNull();
+  });
+  it("una semana que cruza de mes se parte por periodo", () => {
+    expect(tramosPorMes("2026-09-28", "2026-10-04")).toEqual([
+      { periodo: "2026-09", desde: "2026-09-28", hasta: "2026-09-30" },
+      { periodo: "2026-10", desde: "2026-10-01", hasta: "2026-10-04" },
+    ]);
+  });
+  it("suma los tramos por plataforma y arma el correo con la semana", () => {
+    const sep = consolidado([calzado]);
+    const oct = consolidado([{ ...calzado, unidades: 500, ventaBruta: 100_000, utilidadBruta: 30_000, publicidad: 5_000, coberturaNeto: 1 }]);
+    const r = conSemana(armarResumen("2026-10-04", sep, null), { desde: "2026-09-28", hasta: "2026-10-04" }, [sep, oct]);
+    expect(r.semana!.filas[0]).toMatchObject({ canal: "meli_calzado", unidades: 1_500, facturacion: 400_000, ganancia: 95_000 });
+    expect(r.semana!.filas).toHaveLength(4);
+    const correo = armarCorreoResumen(r);
+    expect(correo.asunto).toContain("semana");
+    expect(correo.html).toContain("Semana pasada");
+  });
+});
+
+describe("destinatarios", () => {
+  it("los tres del dueño si no hay variable de entorno", () => {
+    const antes = process.env.CORREO_RESUMEN_DIARIO;
+    delete process.env.CORREO_RESUMEN_DIARIO;
+    expect(destinatariosResumen()).toEqual(["abraham.darwish@yapanizcel.com.mx", "danidarwish1@gmail.com", "izickd@gmail.com"]);
+    process.env.CORREO_RESUMEN_DIARIO = "a@x.mx, b@y.mx";
+    expect(destinatariosResumen()).toEqual(["a@x.mx", "b@y.mx"]);
+    if (antes == null) delete process.env.CORREO_RESUMEN_DIARIO;
+    else process.env.CORREO_RESUMEN_DIARIO = antes;
   });
 });

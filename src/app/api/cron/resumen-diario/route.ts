@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 /**
- * Correo de las 7:00 de México (13:00Z, vercel.json) con las ventas de AYER
+ * Correo de las 8:00 de México (14:00Z, vercel.json) con las ventas de AYER
  * de las cuatro plataformas. Mismo secreto que los demás crons. Para
  * probarlo a mano: `?dia=YYYY-MM-DD&forzar=1` (sin `forzar`, un día ya
  * mandado no se repite).

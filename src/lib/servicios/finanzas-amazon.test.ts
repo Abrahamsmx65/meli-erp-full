@@ -39,6 +39,22 @@ describe("armarFinanzasAmazon", () => {
     expect(f.avisos).toEqual([]);
   });
 
+  it("un depósito rebotado no es ingreso: queda fuera de la ganancia y se declara; las recompensas sí cuentan", () => {
+    const f = armarFinanzasAmazon(
+      { desde: "2026-01-01", hasta: "2026-01-31" },
+      [fila("GT128-24-BLK-MX", "ShipmentEventList", { unidades: 1, principal: 206.03, impuesto_cobrado: 32.97, comision: -35.86, fba: -36, retenido: -16.49, neto: 150.65 })],
+      [
+        { lista: "AdjustmentEventList:FailedDisbursement", eventos: 1, monto: 326732.82, base: null, impuesto: null, sin_clasificar: 0 },
+        { lista: "AdjustmentEventList:SellerRewards", eventos: 3, monto: 538896, base: null, impuesto: null, sin_clasificar: 0 },
+      ],
+      [grupoCerrado],
+      new Map([["GT128", { categoria: "Tenis", costo: 60 }]]),
+    );
+    expect(f.otros.map((o) => o.lista)).toEqual(["AdjustmentEventList:SellerRewards"]);
+    expect(f.ganancia).toBe(538986.65); // 150.65 − 60 + 538,896
+    expect(f.avisos.some((a) => a.includes("rebotó") && a.includes("326,732.82"))).toBe(true);
+  });
+
   it("los reembolsos van aparte y le restan al modelo; sin costo la ganancia es null y se declara", () => {
     const f = armarFinanzasAmazon(
       { desde: "2026-08-01", hasta: "2026-08-31" },

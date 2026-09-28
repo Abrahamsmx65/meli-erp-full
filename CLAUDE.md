@@ -941,7 +941,7 @@ guárdala numerada.
   de canal viejos, y la pantalla lo sirvió como bueno; el mismo julio se veía
   distinto según la URL. Se trabaja SOLO en
   `https://meli-erp-full.vercel.app`. El candado es
-  `Consolidado.versionContable` (hoy 5; subió a 4 el 25-sep-2026 con la cobertura nueva y a 5 el 28-sep-2026 al entrar TikTok): al cambiar las reglas del dinero se
+  `Consolidado.versionContable` (hoy 6; subió a 4 el 25-sep-2026 con la cobertura nueva, a 5 el 28-sep-2026 al entrar TikTok y a 6 ese mismo día al sacar los depósitos rebotados de Amazon): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
   recalcula en vez de enseñarse.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
@@ -1029,7 +1029,14 @@ guárdala numerada.
   gasto general; las devoluciones de Amazon NO recuperan costo (no se sabe
   si el par regresó vendible). SKU Economics es una ESTIMACIÓN de Amazon y
   para julio 2026 solo cubría ~15 % de las unidades: nunca es la fuente
-  final. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
+  final. **Un depósito REBOTADO no es ingreso** (`AdjustmentEventList` con
+  `FailedDisbursement`; migración 0098, `LISTAS_QUE_NO_SON_RESULTADO`): el
+  2-ene-2026 el banco devolvió los $326,732.82 de la liquidación del 30-dic
+  al 2-ene y Amazon los regresó al saldo como «ajuste»; contado así, enero
+  ganaba ese dinero dos veces. `amazon_finanzas_otros` lo separa de su
+  lista, queda fuera de la ganancia y se declara. Las `SellerRewards`
+  (recompensas de Amazon, $538,896 en enero) sí son abono y van con su
+  nombre. Sonda sin escribir: `/api/amazon/diagnostico-finanzas?pedido=…`
   o `?grupo=…`. **Lo real solo arma un mes si lo cubre DESDE SU PRIMER DÍA**
   (`realCubreDesde`: alguna liquidación completa que empiece ese día o
   antes); si no, el mes sale del respaldo y se declara. La ingesta
@@ -1284,7 +1291,7 @@ login, la base y el deploy.
 | Recordatorios del contenedor por correo (migración 0082, en el cron diario de packing lists): una SEMANA antes de la llegada estimada, las fotos que faltan; el día que LLEGA, aviso de que está en USA. Uno por contenedor (`aviso_previo_en`, `aviso_llegada_en`); lo ya recibido o con más de 30 días de retraso no dispara nada | `src/lib/servicios/avisos-contenedor.ts` |
 | Compartir los documentos del embarque: lee la subcarpeta de Drive de ESE contenedor y abre un borrador de correo con los enlaces (un `mailto:` no lleva adjuntos) | `/api/contenedores/[id]/documentos` + botón «Compartir docs» |
 | Correo con las fotos que faltan al cargar un contenedor NUEVO (a mano o desde Drive): productos nuevos de sus pedidos sin publicar o con menos de 2 fotos; Resend por HTTP (`RESEND_API_KEY`, `CORREO_REMITENTE`, `CORREO_AVISOS`); constancia en `contenedores.fotos_aviso_en` | `src/lib/servicios/fotos-contenedor.ts` + `correo.ts` |
-| Resumen de ventas de AYER por correo a las 7:00 de México (cron `/api/cron/resumen-diario` 13:00Z; pedido del dueño, 28-sep-2026): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatario `CORREO_RESUMEN_DIARIO` (por omisión el correo del dueño); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar) | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
+| Resumen de ventas de AYER por correo a las 8:00 de México (cron `/api/cron/resumen-diario` 14:00Z; pedido del dueño, 28-sep-2026) y cada LUNES además la SEMANA pasada de lunes a domingo (`semanaQueCierra`, `tramosPorMes` si cruza de mes, `sumarFilas`): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatarios `CORREO_RESUMEN_DIARIO` separados por coma (por omisión los tres del dueño, `DESTINATARIOS_RESUMEN`); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar) | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |

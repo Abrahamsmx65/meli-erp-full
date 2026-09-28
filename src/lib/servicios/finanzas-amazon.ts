@@ -69,6 +69,12 @@ export interface GrupoCobertura {
   cuadra: boolean | null;
 }
 
+/**
+ * Eventos que mueven el saldo de Amazon sin ser resultado del negocio. El
+ * RPC `amazon_finanzas_otros` los separa de su lista (migración 0098).
+ */
+export const LISTAS_QUE_NO_SON_RESULTADO = new Set(["AdjustmentEventList:FailedDisbursement"]);
+
 export interface FinanzasAmazon {
   rango: { desde: string; hasta: string };
   ventas: CascadaAmazon;
@@ -183,7 +189,14 @@ export function armarFinanzasAmazon(
   const otros: OtroFinanzasAmazon[] = [];
   let otrosTotal = 0;
   let sinClasificar = 0;
+  let rebotado = 0;
   for (const o of filasOtros) {
+    // Un depósito que el banco rebotó y Amazon regresó al saldo NO es
+    // ingreso: es el mismo dinero de una liquidación anterior volviendo.
+    if (LISTAS_QUE_NO_SON_RESULTADO.has(o.lista)) {
+      rebotado = r2(rebotado + num(o.monto));
+      continue;
+    }
     if (o.lista === "ProductAdsPaymentEventList") {
       publicidad.eventos += num(o.eventos);
       publicidad.monto = r2(publicidad.monto + num(o.monto));
@@ -258,6 +271,9 @@ export function armarFinanzasAmazon(
     avisos.push(
       `Amazon: la liquidación del ${dia(g.inicio)} al ${dia(g.fin)} descuadra por ${Math.abs(dif).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}: Amazon depositó ${(g.totalOriginal ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} y sus eventos suman ${(g.sumaEventos ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}. Las cifras usan los eventos; solo esa diferencia queda sin clasificar.`,
     );
+  }
+  if (rebotado) {
+    avisos.push(`Amazon: ${rebotado.toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de depósitos que el banco rebotó y Amazon regresó al saldo quedan FUERA: es dinero de una liquidación anterior, no venta ni ganancia de este periodo.`);
   }
   if (sinClasificar) avisos.push(`Amazon: ${sinClasificar} evento(s) de un tipo que el ERP no sabe leer; su monto no está en ninguna cifra.`);
   const coberturaCosto = unidadesVendidas > 0 ? unidadesConCosto / unidadesVendidas : 0;

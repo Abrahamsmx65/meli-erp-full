@@ -10,7 +10,8 @@
  */
 
 export interface Correo {
-  para?: string;
+  /** uno o varios destinatarios */
+  para?: string | string[];
   asunto: string;
   html: string;
   texto?: string;
@@ -34,13 +35,13 @@ export async function enviarCorreo(c: Correo): Promise<ResultadoCorreo> {
   const llave = process.env.RESEND_API_KEY;
   const para = c.para ?? destinatarioAvisos();
   if (!llave) return { enviado: false, motivo: "Falta RESEND_API_KEY en el entorno." };
-  if (!para) return { enviado: false, motivo: "Falta CORREO_AVISOS en el entorno." };
+  if (!para || (Array.isArray(para) && !para.length)) return { enviado: false, motivo: "Falta CORREO_AVISOS en el entorno." };
   const from = process.env.CORREO_REMITENTE?.trim() || "ERP GETAC <onboarding@resend.dev>";
 
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${llave}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [para], subject: c.asunto, html: c.html, text: c.texto }),
+    body: JSON.stringify({ from, to: Array.isArray(para) ? para : [para], subject: c.asunto, html: c.html, text: c.texto }),
     signal: AbortSignal.timeout(15_000),
   });
   const cuerpo = (await r.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
