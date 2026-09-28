@@ -14,7 +14,7 @@
  * confirmar primero no es una decisión: es el único orden posible.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
-import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
 import { conCacheApp } from "./cache-app";
 import { alPuntoDeImpresora, codificar128, moduloParaTermica } from "../etiquetas/code128";
 import { mapaAmazon } from "../etiquetas/resolver";
@@ -102,6 +102,9 @@ async function stockFisicoDeCuenta(admin: any, accountId: string): Promise<Map<s
  * `bloqueado` puesto (lo de a mano y lo automático) y la lista de lo
  * automático, para dejarle constancia en la base.
  */
+/** Cuántos ids caben en un `.in()` sin que la URL pase del tope del gateway (~16 KB). */
+const TANDA_IDS = 300;
+
 async function renglonesConDefensa(
   admin: any,
   accountId: string,
@@ -120,12 +123,18 @@ async function renglonesConDefensa(
   const porPedido = new Map<string, RenglonConPedido[]>();
   if (!ids.length) return { porPedido, automaticos: [], enDuda: [], liberados: [] };
   const fechaDe = new Map(pendientes.map((p) => [p.orderId, p.creadoEn]));
+  // Por TANDAS de ids: con más de ~1,000 pedidos pendientes (el lunes
+  // 28-sep-2026, 1,400) un solo .in() ponía 28 KB de ids en la URL y el
+  // gateway de Supabase contestaba «Bad Request»; el corte y la simulación
+  // se caían enteros antes de tocar TikTok.
   const [filas, stock] = await Promise.all([
-    traerTodo<any>(
-      admin,
-      "tiktok_orden_items",
-      "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_motivo, bloqueo_resuelto_en",
-      (q) => q.eq("account_id", accountId).in("order_id", ids),
+    porTandas(ids, TANDA_IDS, (tanda) =>
+      traerTodo<any>(
+        admin,
+        "tiktok_orden_items",
+        "order_id, line_item_id, sku_id, sku_interno, seller_sku, cantidad, estado, bloqueado_en, bloqueo_motivo, bloqueo_resuelto_en",
+        (q) => q.eq("account_id", accountId).in("order_id", tanda),
+      ),
     ),
     stockFisicoDeCuenta(admin, accountId),
   ]);
@@ -656,11 +665,10 @@ export async function hacerCorte(
   }
 
   if (confirmados.length) {
-    await admin
-      .from("tiktok_ordenes")
-      .update({ corte_id: corte.id })
-      .eq("account_id", accountId)
-      .in("order_id", confirmados);
+    await porTandas(confirmados, TANDA_IDS, async (tanda) => {
+      await admin.from("tiktok_ordenes").update({ corte_id: corte.id }).eq("account_id", accountId).in("order_id", tanda);
+      return [];
+    });
   }
 
   // Una sola relectura para todos: TikTok ya los tiene en AWAITING_COLLECTION,
@@ -1428,12 +1436,11 @@ export async function releerSinPrepararDeCortesRecientes(
 
   // Se vuelve a leer lo que TikTok dijo y se compara con lo de antes: eso es
   // lo que dejó de faltar.
-  const { data: despuesRaw } = await admin
-    .from("tiktok_ordenes")
-    .select("order_id, estado")
-    .eq("account_id", accountId)
-    .in("order_id", pendientes);
-  const despues = new Map<string, string | null>((despuesRaw ?? []).map((o: any) => [String(o.order_id), o.estado as string | null]));
+  const despuesRaw = await porTandas(pendientes, TANDA_IDS, async (tanda) => {
+    const { data } = await admin.from("tiktok_ordenes").select("order_id, estado").eq("account_id", accountId).in("order_id", tanda);
+    return (data ?? []) as any[];
+  });
+  const despues = new Map<string, string | null>(despuesRaw.map((o: any) => [String(o.order_id), o.estado as string | null]));
   const cambios = cambiosDeRelectura(antes, despues);
   return { releidos: pendientes.length, cortes: ids.length, ...cambios, avisos };
 }

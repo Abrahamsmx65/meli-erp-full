@@ -477,6 +477,13 @@ guárdala numerada.
   al mismo corte por la regla de arriba. La pestaña
   tiene que quedarse abierta: es la pantalla la que encadena, porque el
   servidor no puede encadenarse a sí mismo dentro de los 5 min de Vercel.
+  **Las consultas del corte van por TANDAS de ids** (`porTandas`,
+  `TANDA_IDS` 300, en `renglonesConDefensa`, la marca del corte y la
+  relectura): el lunes 28-sep-2026 había 1,400 pedidos pendientes y un
+  solo `.in("order_id", …)` ponía ~28 KB de ids en la URL; el gateway de
+  Supabase contestaba «Bad Request» y el corte y la simulación se caían
+  ENTEROS antes de tocar TikTok (tres 500 en `/api/tiktok/cortes` y uno en
+  `/simular`; el dueño: «no me dejó hacer un corte, me sale bad request»).
   **UN SOLO CORTE A LA VEZ** (`conCandadoDeCorte`, recurso `tiktok-corte`
   en `candados_trabajo`, `ERROR_CORTE_EN_CURSO`, 409 en la ruta): el
   23-sep-2026 a las 10:33 la ronda automática y otro clic corrieron
@@ -821,10 +828,16 @@ guárdala numerada.
   pedidos ENTREGADOS que ya salieron de esta lista y aún no aparecen en un
   estado de cuenta (184 del 11 al 18-sep ese día): los recoge la lectura
   por pedido cada 12 h cuando TikTok los liquide. `leerSinLiquidar` en
-  `servicios/tiktok.ts` corre ANTES de `liquidarPedidos` en cada sync,
-  hasta 60 páginas de 100): se agrupa por pedido (`agruparPorPedido`,
-  motor puro), cada grupo se interpreta igual que un pedido y se guarda
-  como `por_liquidar` con `pago_desglose.version = "sin-liquidar"`; un pedido ya liquidado no se
+  `servicios/tiktok.ts` corre ANTES de `liquidarPedidos`, UNA VEZ POR HORA
+  (`CADA_CUANTO_SIN_LIQUIDAR_MS`; la última lectura `ok` en
+  `tiktok_sync_log` vale una hora), hasta 60 páginas de 100): se agrupa
+  por pedido (`agruparPorPedido`, motor puro), cada grupo se interpreta
+  igual que un pedido y se guarda de un jalón con el RPC
+  `tiktok_guardar_pagos_por_liquidar` (migración 0098, lotes de 500) como
+  `por_liquidar` con `pago_desglose.version = "sin-liquidar"` —la primera
+  versión hacía 5,300 UPDATE uno por uno en CADA sync de 15 min: el sync
+  pasó de ~60 s a 250–316 s y el 28-sep-2026 dos corridas murieron por
+  tiempo (504)—; un pedido ya liquidado no se
   toca y `liquidarPedidos` NO degrada a «sin dato» un pedido que trae su
   número de la lista. La primera página cruda (dos renglones), qué contestó
   cada ruta que no sirvió y cuántos pedidos quedaron con dato van a

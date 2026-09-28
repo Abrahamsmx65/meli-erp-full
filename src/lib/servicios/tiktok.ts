@@ -1389,6 +1389,15 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
 const VERSION_SIN_LIQUIDAR = "sin-liquidar";
 /** Páginas de la lista de sin liquidar por corrida (100 pedidos-renglón cada una, ~1 s por página). */
 const PAGINAS_SIN_LIQUIDAR = 60;
+/**
+ * La lista completa se relee cada hora, no en cada corrida: son ~53
+ * páginas (~50 s) y el número de TikTok casi no cambia entre corridas; el
+ * 28-sep-2026 leerla en cada sync de 15 min (más 5,300 UPDATE uno por uno)
+ * dejó el sync en 250–316 s y dos corridas se murieron por tiempo (504).
+ */
+const CADA_CUANTO_SIN_LIQUIDAR_MS = 60 * 60_000;
+/** Pedidos por llamada al RPC que guarda los pagos (jsonb de ~1 KB por pedido). */
+const PAGOS_POR_LOTE = 500;
 
 /**
  * Lee la lista de transacciones NO liquidadas de toda la tienda
@@ -1404,6 +1413,16 @@ const PAGINAS_SIN_LIQUIDAR = 60;
  */
 export async function leerSinLiquidar(db: DB, accountId: string, cliente: Cliente, avisos: string[]): Promise<number> {
   const inicio = new Date().toISOString();
+  // Una lectura completa reciente (ok, sin quedarse sin tiempo) vale por una hora.
+  const { data: ultima } = await db
+    .from("tiktok_sync_log")
+    .select("inicio, estado")
+    .eq("account_id", accountId)
+    .eq("tarea", "sin-liquidar")
+    .eq("estado", "ok")
+    .gte("inicio", new Date(Date.now() - CADA_CUANTO_SIN_LIQUIDAR_MS).toISOString())
+    .limit(1);
+  if (ultima?.length) return 0;
   const ahoraS = Math.floor(Date.now() / 1000);
   const renglones: any[] = [];
   let token: string | undefined;
@@ -1424,45 +1443,43 @@ export async function leerSinLiquidar(db: DB, accountId: string, cliente: Client
     if (!token || !pagina.renglones.length) break;
   }
   const grupos = agruparPorPedido(renglones);
-  const ahora = new Date().toISOString();
   let conDato = 0;
   const sinEntender: string[] = [];
+  const filas: Record<string, unknown>[] = [];
   for (const [orderId, lista] of grupos) {
     const t = interpretarTransacciones({ sku_transactions: lista });
     if (!t) {
       sinEntender.push(orderId);
       continue;
     }
-    const { data } = await db
-      .from("tiktok_ordenes")
-      .update({
-        pago_leido_en: ahora,
-        pago_estado: "por_liquidar",
-        pago_esperado: t.pago,
-        pago_afiliado: t.afiliado,
-        liquidacion: { unsettled: lista },
-        pago_desglose: {
-          version: VERSION_SIN_LIQUIDAR,
-          ruta: primera?.ruta ?? null,
-          transacciones: t.transacciones,
-          estados: t.estados,
-          ingreso: t.ingreso,
-          cargos: t.cargos,
-          comision: t.comision,
-          afiliado: t.afiliado,
-          envio: t.envio,
-          ivaRetenido: t.ivaRetenido,
-          isrRetenido: t.isrRetenido,
-          reembolsos: t.reembolsos,
-          statementId: t.statementId,
-        },
-      })
-      .eq("account_id", accountId)
-      .eq("order_id", orderId)
-      // Un pedido nunca leído tiene pago_estado NULL y `neq` lo dejaría fuera.
-      .or("pago_estado.is.null,pago_estado.neq.liquidado")
-      .select("order_id");
-    if (data?.length) conDato++;
+    filas.push({
+      order_id: orderId,
+      pago_esperado: t.pago,
+      pago_afiliado: t.afiliado,
+      liquidacion: { unsettled: lista },
+      pago_desglose: {
+        version: VERSION_SIN_LIQUIDAR,
+        ruta: primera?.ruta ?? null,
+        transacciones: t.transacciones,
+        estados: t.estados,
+        ingreso: t.ingreso,
+        cargos: t.cargos,
+        comision: t.comision,
+        afiliado: t.afiliado,
+        envio: t.envio,
+        ivaRetenido: t.ivaRetenido,
+        isrRetenido: t.isrRetenido,
+        reembolsos: t.reembolsos,
+        statementId: t.statementId,
+      },
+    });
+  }
+  // De un jalón en la base (RPC, migración 0098): un pedido ya liquidado no
+  // se toca; un pedido que el ERP no conoce no cuenta.
+  for (let i = 0; i < filas.length; i += PAGOS_POR_LOTE) {
+    const { data, error } = await db.rpc("tiktok_guardar_pagos_por_liquidar", { p_account_id: accountId, p_filas: filas.slice(i, i + PAGOS_POR_LOTE) });
+    if (error) throw new Error(`guardar pagos por liquidar: ${error.message}`);
+    conDato += Number(data ?? 0);
   }
   const crudo = primera?.crudo as any;
   const lista = crudo ? listaDeTransacciones(crudo) : [];
