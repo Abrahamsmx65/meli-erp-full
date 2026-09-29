@@ -785,7 +785,10 @@ guárdala numerada.
   preparado SIN escanear solo con la CLAVE DE SUPERVISOR
   (`tiktok_acceso.pin_supervisor`, capturada directo en la base, nunca en
   el repo; se valida en `acceso-preparar.ts` en tiempo constante) y queda
-  como `SUPERVISOR:` en la constancia. Decisión del dueño: la etiqueta lleva el
+  como `SUPERVISOR:` en la constancia. La clave se pide en un cuadro
+  propio de la estación con teclado de DÍGITOS (`inputMode="numeric"`,
+  `pidiendoClave` en `components/preparar-tiktok.tsx`; el dueño la cambió
+  y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y

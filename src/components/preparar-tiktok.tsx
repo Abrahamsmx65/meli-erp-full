@@ -35,6 +35,11 @@ export function PrepararTikTok({
   // haga falta el teclado en pantalla, que tapa todo. Se apaga con
   // inputMode="none" y se enciende solo cuando alguien quiere teclear.
   const [teclado, setTeclado] = useState(false);
+  // El paquete al que se le está pidiendo la clave de supervisor (cuadro
+  // propio con teclado de DÍGITOS, no `window.prompt`: en la tablet el
+  // prompt abría el teclado completo; pedido del dueño, 29-sep-2026).
+  const [pidiendoClave, setPidiendoClave] = useState<PaqueteNumerado | null>(null);
+  const [clave, setClave] = useState("");
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -119,9 +124,15 @@ export function PrepararTikTok({
    * deja leer. El servidor valida la clave y lo deja registrado como
    * SUPERVISOR en la constancia, no como escaneo.
    */
-  async function confirmarConClave(p: PaqueteNumerado) {
-    const pin = window.prompt(`Confirmar #${p.numero} sin escanear. Clave de supervisor:`);
-    if (pin == null) return;
+  function confirmarConClave(p: PaqueteNumerado) {
+    setPidiendoClave(p);
+    setClave("");
+  }
+
+  async function enviarClave() {
+    const p = pidiendoClave;
+    const pin = clave.trim();
+    if (!p || !pin) return;
     setGuardando(true);
     try {
       const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
@@ -134,15 +145,17 @@ export function PrepararTikTok({
       pitar(true, 1);
       if (voz) hablar(`${p.numero} confirmado con clave`);
       setPreparados((prev) => new Set([...prev, p.numero]));
+      setPidiendoClave(null);
+      setClave("");
       setEstado({ ...estadoInicial(), indicacion: `#${p.numero} confirmado con clave, sin escanear. Escanea la siguiente etiqueta.` });
     } catch (e) {
       pitar(false);
       setEstado({ ...estado, error: (e as Error).message });
     } finally {
       setGuardando(false);
-      input.current?.focus();
     }
   }
+
   const manual = () => aplicar(darPorBueno(estado));
   const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.codigos.length && f.faltan > 0);
 
@@ -275,6 +288,58 @@ export function PrepararTikTok({
           empezar por el renglón de la hoja.
         </p>
       </section>
+
+      {pidiendoClave ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void enviarClave();
+          }}
+          className="tarjeta p-4"
+          style={{ borderColor: "var(--acento)" }}
+        >
+          <p className="text-sm font-semibold">
+            Confirmar #{pidiendoClave.numero} sin escanear
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            {pidiendoClave.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")} · pedido {pidiendoClave.orderId}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
+              autoFocus
+              value={clave}
+              onChange={(e) => setClave(e.target.value.replace(/\D/g, ""))}
+              placeholder="Clave de supervisor"
+              className="cifra w-48 rounded-lg border px-3 py-2 text-lg tracking-widest"
+              style={{ borderColor: "var(--grid)" }}
+            />
+            <button
+              type="submit"
+              disabled={guardando || !clave}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: "var(--acento)" }}
+            >
+              Confirmar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPidiendoClave(null);
+                setClave("");
+                input.current?.focus();
+              }}
+              className="rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: "var(--grid)" }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       <section className="tarjeta overflow-hidden">
         <h2 className="px-4 pt-4 text-sm font-semibold">Renglones</h2>
