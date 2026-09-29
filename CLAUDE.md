@@ -583,7 +583,18 @@ guárdala numerada.
   termina lo de los cortes de los últimos 2 días aunque nadie tenga la
   pestaña abierta. Un tomo solo se guarda si salió COMPLETO (una guía que
   TikTok aún no da se reintenta en cada pasada), así que imprimir es leer
-  los tomos del bucket y juntarlos en el navegador.
+  los tomos del bucket y juntarlos en el navegador. **Una descarga que no
+  es PDF ni imagen NO es guía** (`bytesDeGuia`, «formato desconocido»
+  con el content-type y los bytes): cuenta como sin guía y el tomo no se
+  guarda. El 29-sep-2026 el #347 del corte #42 bajó una página de error,
+  se contó como buena, el tomo 2 se guardó «completo» con la hoja «SIN
+  GUÍA — formato desconocido» y nunca se volvió a pedir (la guía real
+  llegó 8 s después por `bajarGuiasDelCorte`). Supabase NO deja borrar
+  objetos del bucket por SQL (`storage.protect_delete`), así que el botón
+  «Rearmar etiquetas» del renglón del corte (`rearmarEtiquetasDelCorte`,
+  DELETE en `/api/tiktok/cortes/{id}/calentar`) tira los tomos guardados
+  y la pantalla los vuelve a armar por atrás; las guías por paquete se
+  quedan.
   **Pero el dueño imprime UN solo archivo** («por atrás se hagan 200 guías
   cada vez y el PDF sí me lo presentes junto para imprimirlo más fácil»,
   22-sep-2026): el botón «Etiquetas PDF» (`imprimirEtiquetas` en

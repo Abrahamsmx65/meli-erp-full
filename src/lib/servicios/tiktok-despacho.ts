@@ -1153,7 +1153,16 @@ async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageI
       const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
       if (!r.ok) throw new Error(`descarga ${r.status}`);
       const bytes = new Uint8Array(await r.arrayBuffer());
-      if (esPdf(bytes) || esPng(bytes) || esJpg(bytes)) await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
+      // Lo que no es PDF ni imagen NO es una guía (una página de error del
+      // CDN, un enlace vencido): cuenta como SIN guía, se reintenta y el
+      // tomo no se guarda. Hasta el 29-sep-2026 se devolvía como buena, la
+      // hoja salía «SIN GUÍA — formato desconocido» y el tomo quedaba
+      // guardado como completo, así que nunca se volvía a pedir (#347 del
+      // corte #42).
+      if (!esPdf(bytes) && !esPng(bytes) && !esJpg(bytes)) {
+        throw new Error(`formato desconocido (${r.headers.get("content-type") ?? "sin tipo"}, ${bytes.length} bytes)`);
+      }
+      await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
       return { bytes, error: null };
     } catch (err) {
       error = (err as Error).message;
@@ -1226,6 +1235,24 @@ export async function enlaceDeTomo(admin: any, accountId: string, corteId: numbe
   } catch {
     return null;
   }
+}
+
+/**
+ * Tira los tomos guardados de un corte para que se vuelvan a armar por
+ * atrás (las guías de cada paquete se quedan: rearmar es solo juntarlas y
+ * estamparlas). Es el botón «Rearmar etiquetas» de Despacho, para cuando
+ * una hoja salió mal y el tomo ya se había guardado como completo (el
+ * 29-sep-2026 el #347 del corte #42 salió «SIN GUÍA — formato
+ * desconocido» y Supabase no deja borrar objetos del bucket por SQL).
+ * Contesta el estado ya vacío; la pantalla arranca el calentamiento.
+ */
+export async function rearmarEtiquetasDelCorte(admin: any, accountId: string, corteId: number): Promise<EstadoEtiquetas> {
+  const { data } = await admin.from("tiktok_cortes").select("pedidos").eq("account_id", accountId).eq("id", corteId).maybeSingle();
+  if (!data) throw new Error("Ese corte no existe.");
+  const pedidos = Number(data.pedidos ?? 0);
+  const { error } = await admin.storage.from(BUCKET_GUIAS).remove(rutasPdfCorte(accountId, corteId, pedidos));
+  if (error) throw new Error(`No se pudieron tirar los tomos: ${String(error.message ?? error)}`);
+  return estadoEtiquetasDelCorte(admin, accountId, corteId, pedidos);
 }
 
 /** Recurso del candado del calentamiento de un corte: dos calentadores a la vez bajarían y armarían lo mismo. */

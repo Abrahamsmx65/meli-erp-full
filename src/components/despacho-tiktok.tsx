@@ -195,6 +195,24 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     })();
   }
 
+  /**
+   * Tira los tomos guardados del corte y los vuelve a armar por atrás: para
+   * cuando una hoja salió mal («SIN GUÍA») y el tomo ya estaba guardado.
+   * Las guías de cada paquete se quedan; solo se vuelven a juntar.
+   */
+  async function rearmarEtiquetas(c: CorteResumen) {
+    if (!window.confirm(`¿Rearmar las etiquetas del corte #${c.numero}? Se tiran los tomos guardados y se vuelven a armar por atrás.`)) return;
+    const r = await fetch(`/api/tiktok/cortes/${c.id}/calentar`, { method: "DELETE" }).catch(() => null);
+    const j = r && r.ok ? await r.json().catch(() => null) : null;
+    if (!j || typeof j.tomos !== "number") {
+      const e = r && !r.ok ? await r.json().catch(() => ({})) : {};
+      setArmandoEtiquetas((a) => ({ ...a, [c.id]: `No se pudieron armar las etiquetas: ${e.error ?? "no se pudieron tirar los tomos"}` }));
+      return;
+    }
+    setEtiquetas((e) => ({ ...e, [c.id]: { tomos: j.tomos, listos: (j.listos ?? []).length, completo: Boolean(j.completo) } }));
+    calentarEtiquetas(c.id);
+  }
+
   // Al abrir la pantalla: los cortes de las últimas 24 h que no tengan sus
   // etiquetas completas se terminan de armar por atrás (el navegador pudo
   // soltar la conexión a medio corte y nadie las calentó).
@@ -588,6 +606,17 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
                       : `Armando las etiquetas por atrás: ${etiquetas[c.id].listos} de ${etiquetas[c.id].tomos} ${etiquetas[c.id].tomos === 1 ? "tomo" : "tomos"} guardados${
                           etiquetas[c.id].guiasSinBajar ? ` · ${etiquetas[c.id].guiasSinBajar} guías que TikTok aún no da (se reintentan)` : ""
                         }${etiquetas[c.id].ocupado ? " · el servidor las está armando" : ""}…`}
+                    {etiquetas[c.id].completo ? (
+                      <button
+                        type="button"
+                        onClick={() => rearmarEtiquetas(c)}
+                        title="Tira los tomos guardados y los vuelve a armar por atrás (si alguna hoja salió SIN GUÍA)"
+                        className="ml-2 rounded border px-1.5 py-0.5 text-xs"
+                        style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                      >
+                        Rearmar etiquetas
+                      </button>
+                    ) : null}
                   </p>
                 ) : null}
                 {c.errores?.filter((e) => !e.error.includes("solo drop-off")).length ? (

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { calentarEtiquetasDelCorte, estadoEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
+import { calentarEtiquetasDelCorte, estadoEtiquetasDelCorte, rearmarEtiquetasDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +45,21 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   if ("error" in c) return c.error;
   try {
     return NextResponse.json(await calentarEtiquetasDelCorte(clienteAdmin(), c.cuenta.id, c.corteId, MS_POR_LLAMADA));
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+/**
+ * Tira los tomos guardados del corte para que se rearmen (botón «Rearmar
+ * etiquetas»: una hoja salió mal y el tomo ya estaba guardado). Contesta
+ * el estado vacío; la pantalla llama al POST en bucle para rearmarlos.
+ */
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const c = await contexto(ctx);
+  if ("error" in c) return c.error;
+  try {
+    return NextResponse.json(await rearmarEtiquetasDelCorte(clienteAdmin(), c.cuenta.id, c.corteId));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
