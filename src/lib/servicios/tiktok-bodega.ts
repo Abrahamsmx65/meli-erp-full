@@ -12,7 +12,7 @@ import { conCacheApp } from "./cache-app";
 import { construirCajas } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import type { Corrida, FilaExistencia } from "../importar/excel";
-import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresPorSkuDesdeCajas, type BajaDetenida } from "../tiktok/bodega";
+import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresApartadosPorSkuDesdeCajas, paresDisponiblesPorSkuDesdeCajas, type BajaDetenida } from "../tiktok/bodega";
 import { confirmarSalidasAtribuidas, estadoSalidas3pl } from "./tiktok-3pl";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
@@ -23,11 +23,14 @@ export interface ResultadoBodegaTikTok {
   fechaFoto: string | null;
   cajas: number;
   skus: number;
+  /** pares DISPONIBLES en el 3PL (los que entran al kardex) */
   pares: number;
+  /** pares que Industher tiene APARTADOS: físicos pero no ofrecibles */
+  apartadasBodega: number;
   entradas: number;
   retiros: number;
   sinAmarre: number;
-  /** SKUs que desaparecieron de la foto con pares apartados: la baja se detuvo, no se dio de baja nada */
+  /** SKUs que se quedaron sin disponibles en la foto con pares apartados en pedidos: la baja se detuvo, no se dio de baja nada */
   detenidas: BajaDetenida[];
 }
 
@@ -71,7 +74,9 @@ export async function paresEnBodegaTikTok(
   return {
     almacen,
     fechaFoto,
-    pares: paresPorSkuDesdeCajas(r.cajas, aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })))),
+    // Solo lo DISPONIBLE: lo apartado por el 3PL ya está vendido (o
+    // reservado) y no se ofrece ni tapa el kardex.
+    pares: paresDisponiblesPorSkuDesdeCajas(r.cajas, aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })))),
   };
 }
 
@@ -120,6 +125,7 @@ export async function sincronizarSaldoDesdeBodega(
     cajas: 0,
     skus: 0,
     pares: 0,
+    apartadasBodega: 0,
     entradas: 0,
     retiros: 0,
     sinAmarre: 0,
@@ -196,7 +202,12 @@ export async function sincronizarSaldoDesdeBodega(
     incluirTikTok: true,
   });
 
-  const pares = paresPorSkuDesdeCajas(resultado.cajas, alias);
+  // Solo las cajas DISPONIBLES entran al kardex: las APARTADAS por Industher
+  // son salidas que el ERP ya descontó (o pares que el 3PL reservó) y
+  // contarlas los volvía a meter como «entrada» (GT114-LT BROWN-28-MX,
+  // 29-sep-2026). Lo apartado solo sirve para explicar la baja.
+  const pares = paresDisponiblesPorSkuDesdeCajas(resultado.cajas, alias);
+  const apartadasBodega = paresApartadosPorSkuDesdeCajas(resultado.cajas, alias);
   const movimientos: Movimiento[] = (movsRaw ?? []).map((m: any) => ({
     sku: m.sku,
     tipo: m.tipo,
@@ -207,7 +218,7 @@ export async function sincronizarSaldoDesdeBodega(
 
   // Lo que el 3PL ya descontó por nuestra cuenta no es merma ni entrada.
   const salidas = await estadoSalidas3pl(db, accountId);
-  const { movimientos: nuevos, atribuidas, detenidas } = conciliarAcumulado(pares, movimientos, fechaFoto, salidas, apartados);
+  const { movimientos: nuevos, atribuidas, detenidas } = conciliarAcumulado(pares, movimientos, fechaFoto, salidas, apartados, apartadasBodega);
   if (nuevos.length) {
     await registrarMovimientos(db, accountId, nuevos);
   }
@@ -221,6 +232,7 @@ export async function sincronizarSaldoDesdeBodega(
     cajas: resultado.cajas.reduce((a, c) => a + c.cajasDisponibles + (c.cajasApartadas ?? 0), 0),
     skus: pares.size,
     pares: [...pares.values()].reduce((a, b) => a + b, 0),
+    apartadasBodega: [...apartadasBodega.values()].reduce((a, b) => a + b, 0),
     entradas: nuevos.filter((m) => m.tipo === "entrada").length,
     retiros: nuevos.filter((m) => m.tipo === "merma").length,
     sinAmarre: resultado.sinAmarre.length,

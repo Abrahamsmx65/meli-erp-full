@@ -605,9 +605,12 @@ async function sincronizarTikTokSinCandado(
     bodega = await sincronizarSaldoDesdeBodega(admin, accountId);
     if (bodega.detenidas.length) {
       avisos.push(
-        `${bodega.detenidas.length} SKU ${bodega.detenidas.length === 1 ? "desapareció" : "desaparecieron"} de la bodega TikTok con pares vendidos sin despachar; ` +
+        `${bodega.detenidas.length} SKU ${bodega.detenidas.length === 1 ? "se quedó" : "se quedaron"} sin disponibles en la bodega TikTok con pares vendidos sin despachar; ` +
           `NO se dieron de baja, confírmalo con un conteo o que Industher los regrese: ` +
-          bodega.detenidas.slice(0, 8).map((d) => `${d.sku} (${d.pares} pares, ${d.apartados} apartados)`).join(", ") +
+          bodega.detenidas
+            .slice(0, 8)
+            .map((d) => `${d.sku} (${d.pares} pares, ${d.apartados} apartados en pedidos${d.apartadasBodega ? `, ${d.apartadasBodega} apartados por Industher` : ""})`)
+            .join(", ") +
           (bodega.detenidas.length > 8 ? "…" : ""),
       );
     }

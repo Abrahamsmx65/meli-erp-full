@@ -293,8 +293,21 @@ guárdala numerada.
   no existían: el 14-sep-2026 eran 18 pares en 10 SKUs, y en TODOS la
   diferencia contra la bodega era exactamente su número de devoluciones
   (GT102-GREY-25-MX ofrecía 3 con el estante en cero). NUNCA como ajuste absoluto, que
-  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). Se cuentan cajas
-  FÍSICAS. **Esa bodega NO existe para el calzado**: `construirCajas` la
+  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). **Se cuentan
+  SOLO las cajas DISPONIBLES del 3PL** (`paresDisponiblesPorSkuDesdeCajas`;
+  hasta el 29-sep-2026 se contaban las físicas = disponibles + apartadas):
+  Industher marca APARTADA la caja de cada salida que el ERP le manda (y
+  a veces reserva pares por su cuenta) y la descuenta del físico solo al
+  despachar; el kardex ya restó esa salida con el ack del endpoint, así que
+  contar el físico volvía a meter el par como «entrada» mientras el 3PL
+  tardaba: el GT114-LT BROWN-28-MX (7 entrados, 7 vendidos, Industher con
+  físico 1 / apartado 1 / disponible 0 porque el par no aparecía) recibió
+  «entrada 1» a los 3 minutos del corte #42, TikTok volvió a ofrecerlo y el
+  dueño lo cancelaba y se volvía a publicar. Lo apartado por Industher se
+  lee aparte (`paresApartadosPorSkuDesdeCajas`, `apartadasBodega`) solo
+  para explicar la baja («Apartado en Industher: N pares reservados») y el
+  aviso de una baja detenida. El estante que topa la publicación y la
+  alarma también es el disponible. **Esa bodega NO existe para el calzado**: `construirCajas` la
   descarta siempre (`esAlmacenTikTok`, salvo `incluirTikTok` que solo usa el
   kardex de TikTok), /corridas la ignora y un trigger deja
   `almacenes_activos.surte_full = false` pase lo que pase (migración 0045;
