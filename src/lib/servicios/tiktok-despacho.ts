@@ -1153,7 +1153,16 @@ async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageI
       const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
       if (!r.ok) throw new Error(`descarga ${r.status}`);
       const bytes = new Uint8Array(await r.arrayBuffer());
-      if (esPdf(bytes) || esPng(bytes) || esJpg(bytes)) await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
+      // Lo que no es PDF ni imagen NO es una guía (una página de error del
+      // CDN, un enlace vencido): cuenta como SIN guía, se reintenta y el
+      // tomo no se guarda. Hasta el 29-sep-2026 se devolvía como buena, la
+      // hoja salía «SIN GUÍA — formato desconocido» y el tomo quedaba
+      // guardado como completo, así que nunca se volvía a pedir (#347 del
+      // corte #42).
+      if (!esPdf(bytes) && !esPng(bytes) && !esJpg(bytes)) {
+        throw new Error(`formato desconocido (${r.headers.get("content-type") ?? "sin tipo"}, ${bytes.length} bytes)`);
+      }
+      await guardarGuia(admin, ruta, bytes, r.headers.get("content-type") ?? "application/pdf");
       return { bytes, error: null };
     } catch (err) {
       error = (err as Error).message;
