@@ -60,10 +60,14 @@ export function disponibleConEstante(
  * "apartada" no significa "para un envío a Full", y lo que TikTok tiene
  * apartado el ERP ya lo resta por su lado con los pedidos pagados.
  */
-export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: AliasTikTok): Map<string, number> {
+export function paresPorSkuDesdeCajas(
+  cajas: CajaConstruida[],
+  alias?: AliasTikTok,
+  contar: (caja: CajaConstruida) => number = (c) => (c.cajasDisponibles ?? 0) + (c.cajasApartadas ?? 0),
+): Map<string, number> {
   const pares = new Map<string, number>();
   for (const caja of cajas) {
-    const fisicas = (caja.cajasDisponibles ?? 0) + (caja.cajasApartadas ?? 0);
+    const fisicas = contar(caja);
     if (fisicas <= 0) continue;
     for (const it of caja.detalle ?? []) {
       if (!it.sku || it.piezas <= 0) continue;
@@ -81,6 +85,27 @@ export function paresPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: AliasTikT
     }
   }
   return pares;
+}
+
+/**
+ * Solo las cajas DISPONIBLES del 3PL: lo que de verdad se puede vender. Las
+ * cajas APARTADAS son pares que Industher ya reservó —casi siempre para una
+ * salida que el ERP le mandó y que su kardex ya descontó— y contarlas como
+ * físicas los volvía a meter al kardex como «entrada» mientras el 3PL
+ * tardaba en despacharlas: el 29-sep-2026 el GT114-LT BROWN-28-MX (7
+ * entrados, 7 vendidos y confirmados, Industher con físico 1 / apartado 1 /
+ * disponible 0 porque el par no aparecía) recibió «entrada 1» a los tres
+ * minutos del corte y TikTok volvió a ofrecer un par que no existía; el
+ * dueño lo cancelaba y el ERP lo volvía a publicar. Esta es la lectura del
+ * kardex y del estante para TikTok desde ese día.
+ */
+export function paresDisponiblesPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: AliasTikTok): Map<string, number> {
+  return paresPorSkuDesdeCajas(cajas, alias, (c) => c.cajasDisponibles ?? 0);
+}
+
+/** Lo que Industher tiene APARTADO por SKU: para explicar una baja, no para ofrecerlo. */
+export function paresApartadosPorSkuDesdeCajas(cajas: CajaConstruida[], alias?: AliasTikTok): Map<string, number> {
+  return paresPorSkuDesdeCajas(cajas, alias, (c) => c.cajasApartadas ?? 0);
 }
 
 /** clave canónica → nombre del kardex; `siempre` = vale para cualquier caja, no solo las que MELI no tiene. */
@@ -195,6 +220,8 @@ export interface BajaDetenida {
   pares: number;
   /** pares comprometidos en pedidos pagados (o por pagar) sin despachar */
   apartados: number;
+  /** pares que Industher tiene APARTADOS (físicos pero no disponibles), si los hay */
+  apartadasBodega?: number;
 }
 
 export interface Conciliacion {
@@ -235,6 +262,8 @@ export function conciliarAcumulado(
   fechaFoto: string,
   salidas: Salidas3pl,
   apartados: Map<string, number> = new Map(),
+  /** lo que Industher tiene APARTADO por SKU: solo para explicar la baja en el motivo y el aviso */
+  apartadasBodega: Map<string, number> = new Map(),
 ): Conciliacion {
   const base = new Map<string, number>();
   for (const m of movimientos) {
@@ -284,8 +313,9 @@ export function conciliarAcumulado(
     if (aSalidas > 0) atribuidas.set(sku, aSalidas);
     const resto = baja - aSalidas;
     const comprometidos = apartados.get(sku) ?? 0;
+    const reservadas = apartadasBodega.get(sku) ?? 0;
     if (resto > 0 && enBodega === 0 && comprometidos > 0) {
-      detenidas.push({ sku, pares: resto, apartados: comprometidos });
+      detenidas.push(reservadas > 0 ? { sku, pares: resto, apartados: comprometidos, apartadasBodega: reservadas } : { sku, pares: resto, apartados: comprometidos });
       continue;
     }
     if (resto > 0) {
@@ -297,7 +327,9 @@ export function conciliarAcumulado(
         referencia,
         motivo: porDevolucion
           ? "Devolución que no volvió al estante de Industher"
-          : "Industher reportó menos en la bodega TikTok",
+          : reservadas >= resto
+            ? `Apartado en Industher: ${reservadas} ${reservadas === 1 ? "par reservado" : "pares reservados"} por la bodega, no disponibles`
+            : "Industher reportó menos en la bodega TikTok",
         fecha: fechaFoto,
       });
     }

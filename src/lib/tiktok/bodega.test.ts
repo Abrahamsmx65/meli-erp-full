@@ -5,6 +5,8 @@ import {
   disponibleConEstante,
   esAlmacenTikTok,
   movimientosDesdeAcumulado,
+  paresApartadosPorSkuDesdeCajas,
+  paresDisponiblesPorSkuDesdeCajas,
   paresPorSkuDesdeCajas,
   REFERENCIA_INDUSTHER,
 } from "./bodega";
@@ -69,6 +71,66 @@ describe("paresPorSkuDesdeCajas", () => {
       caja({ skuCaja: "otra", detalle: [{ sku: "A", piezas: 5, talla: "25", origen: "exacto" }] }),
     ]);
     expect(pares.get("A")).toBe(8);
+  });
+});
+
+describe("solo lo DISPONIBLE del 3PL entra al kardex (29-sep-2026)", () => {
+  const cajas = [
+    caja({
+      cajasDisponibles: 2,
+      cajasApartadas: 1,
+      detalle: [
+        { sku: "GT135-DK BROWN-25", piezas: 4, talla: "25", origen: "exacto" },
+        { sku: "GT135-DK BROWN-26", piezas: 8, talla: "26", origen: "exacto" },
+      ],
+    }),
+  ];
+
+  it("las cajas apartadas por Industher no cuentan como disponibles", () => {
+    const pares = paresDisponiblesPorSkuDesdeCajas(cajas);
+    expect(pares.get("GT135-DK BROWN-25")).toBe(8);
+    expect(pares.get("GT135-DK BROWN-26")).toBe(16);
+  });
+
+  it("y se conocen aparte, para explicar la baja", () => {
+    const apartadas = paresApartadosPorSkuDesdeCajas(cajas);
+    expect(apartadas.get("GT135-DK BROWN-25")).toBe(4);
+    expect(apartadas.get("GT135-DK BROWN-26")).toBe(8);
+  });
+
+  it("una caja solo apartada no aparece en lo disponible", () => {
+    const pares = paresDisponiblesPorSkuDesdeCajas([caja({ cajasDisponibles: 0, cajasApartadas: 1, detalle: [{ sku: "A", piezas: 1, talla: "28", origen: "exacto" }] })]);
+    expect(pares.has("A")).toBe(false);
+  });
+
+  describe("el caso del GT114-LT BROWN-28-MX", () => {
+    const FOTO = "2026-09-29T13:15:44.925568+00:00";
+    const sku = "GT114-LT BROWN-28-MX";
+    // 7 entrados el 16-sep, 7 vendidos y confirmados por el 3PL.
+    const movs: Movimiento[] = [{ sku, tipo: "entrada", cantidad: 7, referencia: `${REFERENCIA_INDUSTHER}2026-09-16T17:00:51Z`, fecha: "2026-09-16T17:00:51Z" }];
+    const confirmadas7 = { confirmadas: new Map([[sku, 7]]), pendientes: new Map<string, number>() };
+
+    it("Industher con físico 1 / apartado 1 / disponible 0 a los 3 minutos del corte: NO entra nada", () => {
+      // Antes se leía el físico (1) contra la base (0) y entraba «entrada 1».
+      const r = conciliarAcumulado(new Map(), movs, FOTO, confirmadas7, new Map(), new Map([[sku, 1]]));
+      expect(r.movimientos).toEqual([]);
+      expect(r.detenidas).toEqual([]);
+    });
+
+    it("la entrada fantasma que ya se escribió sale como merma explicada por lo apartado en Industher", () => {
+      const conFantasma: Movimiento[] = [...movs, { sku, tipo: "entrada", cantidad: 1, referencia: `${REFERENCIA_INDUSTHER}${FOTO}`, fecha: FOTO }];
+      const r = conciliarAcumulado(new Map(), conFantasma, "2026-09-29T22:31:15Z", confirmadas7, new Map(), new Map([[sku, 1]]));
+      expect(r.movimientos).toEqual([
+        expect.objectContaining({ sku, tipo: "merma", cantidad: 1, motivo: "Apartado en Industher: 1 par reservado por la bodega, no disponibles" }),
+      ]);
+    });
+
+    it("sin disponibles pero con pedidos pagados sin despachar, la baja se detiene y dice cuántos apartó Industher", () => {
+      const conFantasma: Movimiento[] = [...movs, { sku, tipo: "entrada", cantidad: 1, referencia: `${REFERENCIA_INDUSTHER}${FOTO}`, fecha: FOTO }];
+      const r = conciliarAcumulado(new Map(), conFantasma, "2026-09-29T22:31:15Z", confirmadas7, new Map([[sku, 2]]), new Map([[sku, 1]]));
+      expect(r.movimientos).toEqual([]);
+      expect(r.detenidas).toEqual([{ sku, pares: 1, apartados: 2, apartadasBodega: 1 }]);
+    });
   });
 });
 
