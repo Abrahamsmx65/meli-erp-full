@@ -598,7 +598,7 @@ guárdala numerada.
   (`disparar-etiquetas.ts` → `POST /api/tiktok/cortes/{id}/calentar?cuenta=…
   &eslabon=n` con el bearer de CRON_SECRET, ruta pública en el middleware
   para ese patrón; `eslabonDeFondo`: contesta 202 y trabaja 280 s en
-  `after()`; `MAX_ESLABONES_ETIQUETAS` 12; bitácora tarea `etiquetas` por
+  `after()`; `MAX_ESLABONES_ETIQUETAS` 24 (~2 h; el freno real es `avanzo`); bitácora tarea `etiquetas` por
   eslabón con `guiasBajadas`, `tomosArmados`, `guiasSinRevisar`, `seguir`):
   TikTok entrega ~1 guía por segundo y una función vive 5 min, así que un
   corte de 600 pedidos necesita más de lo que le queda a la ruta del corte.
