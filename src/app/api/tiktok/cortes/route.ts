@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { calentarEtiquetasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { contarSinTiempo } from "@/lib/tiktok/lunes";
+import { dispararEtiquetasDelCorte } from "@/lib/servicios/disparar-etiquetas";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -33,14 +34,24 @@ export async function POST(req: NextRequest) {
     // pida el PDF ya está en el bucket. Si el corte se quedó por tiempo
     // (viene otra ronda que se le va a unir y renumerar), solo se bajan las
     // guías: armar tomos que se van a tirar es trabajo perdido. Lo que no
-    // alcance lo sigue la pantalla (`calentar`) y el cron de TikTok.
+    // alcance aquí lo sigue un ESLABÓN de fondo (`dispararEtiquetasDelCorte`
+    // → POST a `/calentar` con CRON_SECRET, que se encadena hasta acabar):
+    // TikTok da ~1 guía por segundo y un corte grande necesita más de lo
+    // que le queda a esta función. Dueño, 30-sep-2026: «que después de
+    // confirmar el corte se hagan y se guarden ahí».
+    const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
     const calentar = (cortes: { corteId: number | null; errores?: { orderId: string; error: string }[] }[]) =>
       after(async () => {
         for (const c of cortes) {
           if (c.corteId == null) continue;
           const restante = 295_000 - (Date.now() - inicioRuta) - 5_000;
-          if (restante < 20_000) break;
-          await calentarEtiquetasDelCorte(admin, cuenta.id, c.corteId, restante, { soloGuias: contarSinTiempo(c.errores ?? []) > 0 }).catch(() => undefined);
+          const soloGuias = contarSinTiempo(c.errores ?? []) > 0;
+          let falta = true;
+          if (restante >= 20_000) {
+            const r = await calentarEtiquetasDelCorte(admin, cuenta.id, c.corteId, restante, { soloGuias }).catch(() => null);
+            falta = !r || r.ocupado ? !r : !r.completo || r.guiasSinRevisar > 0 || soloGuias;
+          }
+          if (falta) await dispararEtiquetasDelCorte(origen, cuenta.id, c.corteId, 1);
         }
         // Y los cortes recientes se ponen al día: lo que se canceló después
         // del corte deja de salir como faltante.

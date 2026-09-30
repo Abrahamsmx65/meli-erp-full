@@ -1139,10 +1139,15 @@ async function guardarGuia(admin: any, ruta: string, bytes: Uint8Array, contentT
  * de TikTok, y se guarda para la próxima. Las URLs de TikTok caducan y
  * bajar 170 guías en cada impresión no cabe en el tiempo de Vercel.
  */
-async function bytesDeGuia(admin: any, cliente: any, accountId: string, packageId: string): Promise<{ bytes: Uint8Array | null; error: string | null }> {
+async function bytesDeGuia(
+  admin: any,
+  cliente: any,
+  accountId: string,
+  packageId: string,
+): Promise<{ bytes: Uint8Array | null; error: string | null; desdeBucket?: boolean }> {
   const ruta = `${accountId}/${packageId}.pdf`;
   const guardada = await leerGuia(admin, ruta);
-  if (guardada?.length) return { bytes: guardada, error: null };
+  if (guardada?.length) return { bytes: guardada, error: null, desdeBucket: true };
   let error = "sin guía";
   // Dos intentos con pausa: TikTok limita las llamadas y la guía de un
   // paquete recién confirmado a veces tarda unos segundos en existir.
@@ -1269,27 +1274,50 @@ const candadoEtiquetas = (corteId: number) => `tiktok-etiquetas-${corteId}`;
  * las etiquetas, se guarde por atrás y no cada vez que genera las etiquetas
  * se vuelva a hacer todo de nuevo».
  */
+export interface ResultadoCalentar extends EstadoEtiquetas {
+  ocupado: boolean;
+  guiasSinBajar: number;
+  /** guías que esta pasada BAJÓ de TikTok */
+  guiasBajadas: number;
+  /** tomos que esta pasada armó y guardó */
+  tomosArmados: number;
+  /** paquetes que no se alcanzaron a revisar por tiempo (falta trabajo) */
+  guiasSinRevisar: number;
+  /** true si esta pasada avanzó algo (bajó guías o armó tomos): con eso se prende otro eslabón */
+  avanzo: boolean;
+}
+
 export async function calentarEtiquetasDelCorte(
   admin: any,
   accountId: string,
   corteId: number,
   msPresupuesto: number,
   opciones: { soloGuias?: boolean } = {},
-): Promise<EstadoEtiquetas & { ocupado: boolean; guiasSinBajar: number }> {
+): Promise<ResultadoCalentar> {
   const inicio = Date.now();
   const restante = () => msPresupuesto - (Date.now() - inicio);
   const estado0 = await estadoEtiquetasDelCorte(admin, accountId, corteId);
-  if (estado0.completo && !opciones.soloGuias) return { ...estado0, ocupado: false, guiasSinBajar: 0 };
+  const sinAvance = (e: EstadoEtiquetas, ocupado: boolean): ResultadoCalentar => ({ ...e, ocupado, guiasSinBajar: 0, guiasBajadas: 0, tomosArmados: 0, guiasSinRevisar: 0, avanzo: false });
+  if (estado0.completo && !opciones.soloGuias) return sinAvance(estado0, false);
   const token = await adquirirCandado(admin, accountId, candadoEtiquetas(corteId), Math.ceil(msPresupuesto / 1000) + 30);
-  if (!token) return { ...estado0, ocupado: true, guiasSinBajar: 0 };
+  if (!token) return sinAvance(estado0, true);
   let guiasSinBajar = 0;
+  let guiasBajadas = 0;
+  let guiasSinRevisar = 0;
   try {
     // 1. Las guías que faltan (las que ya están no cuestan nada).
     if (restante() > 30_000) {
       const g = await bajarGuiasDelCorte(admin, accountId, corteId, restante() - 5_000);
       guiasSinBajar = g.sinGuia;
+      guiasBajadas = g.bajadas;
+      guiasSinRevisar = g.sinTiempo;
     }
-    if (opciones.soloGuias) return { ...(await estadoEtiquetasDelCorte(admin, accountId, corteId)), ocupado: false, guiasSinBajar };
+    const cerrar = async (): Promise<ResultadoCalentar> => {
+      const e = await estadoEtiquetasDelCorte(admin, accountId, corteId);
+      const tomosArmados = Math.max(0, e.listos.length - estado0.listos.length);
+      return { ...e, ocupado: false, guiasSinBajar, guiasBajadas, tomosArmados, guiasSinRevisar, avanzo: guiasBajadas > 0 || tomosArmados > 0 };
+    };
+    if (opciones.soloGuias) return cerrar();
     // 2. Los tomos que faltan, en orden; cada uno se guarda al armarse si
     //    salió completo (`pdfEtiquetasDelCorte`).
     const listos = new Set(estado0.listos);
@@ -1298,10 +1326,24 @@ export async function calentarEtiquetasDelCorte(
       if (restante() < 60_000) break;
       await pdfEtiquetasDelCorte(admin, accountId, corteId, t).catch(() => undefined);
     }
-    return { ...(await estadoEtiquetasDelCorte(admin, accountId, corteId)), ocupado: false, guiasSinBajar };
+    return cerrar();
   } finally {
     await liberarCandado(admin, accountId, candadoEtiquetas(corteId), token).catch(() => false);
   }
+}
+
+/** Cuántos eslabones seguidos puede encadenar el armado de un corte (~5 min cada uno). */
+export const MAX_ESLABONES_ETIQUETAS = 12;
+
+/**
+ * ¿El corte todavía va a recibir otra ronda (quedó «sin tiempo»)? Mientras
+ * sí, un eslabón solo baja guías: los tomos se renumeran al unirse la ronda
+ * y armarlos sería trabajo perdido.
+ */
+export async function corteSigueAbierto(admin: any, accountId: string, corteId: number): Promise<boolean> {
+  const { data } = await admin.from("tiktok_cortes").select("errores").eq("account_id", accountId).eq("id", corteId).maybeSingle();
+  const errores = Array.isArray(data?.errores) ? (data.errores as { orderId?: string; error?: string }[]) : [];
+  return errores.some((e) => String(e?.error ?? "") === ERROR_SIN_TIEMPO);
 }
 
 /** Cuántos días hacia atrás el cron sigue calentando etiquetas de cortes sin armar. */
@@ -1337,20 +1379,34 @@ export async function calentarCortesRecientes(admin: any, accountId: string, msP
  * fondo después del corte y después de cada impresión, para que el PDF de
  * cada tomo salga completo a la primera. No arma nada.
  */
-export async function bajarGuiasDelCorte(admin: any, accountId: string, corteId: number, msPresupuesto: number): Promise<{ revisadas: number; sinGuia: number }> {
+export async function bajarGuiasDelCorte(
+  admin: any,
+  accountId: string,
+  corteId: number,
+  msPresupuesto: number,
+): Promise<{ revisadas: number; sinGuia: number; bajadas: number; sinTiempo: number }> {
   const limite = Date.now() + msPresupuesto;
   const corte = await cargarCorte(admin, accountId, corteId);
   const cliente = await clienteDeCuenta(admin, accountId, msPresupuesto);
-  if (!cliente || !cliente.tienda.shopCipher) return { revisadas: 0, sinGuia: 0 };
+  if (!cliente || !cliente.tienda.shopCipher) return { revisadas: 0, sinGuia: 0, bajadas: 0, sinTiempo: 0 };
   let revisadas = 0;
   let sinGuia = 0;
+  /** guías que se BAJARON de TikTok en esta pasada (las del bucket no cuentan): el avance */
+  let bajadas = 0;
+  /** paquetes que no se alcanzaron a revisar por tiempo */
+  let sinTiempo = 0;
   await enParalelo(corte.paquetes, 3, async (p) => {
-    if (!p.packageId || Date.now() > limite - 25_000) return;
+    if (!p.packageId) return;
+    if (Date.now() > limite - 25_000) {
+      sinTiempo++;
+      return;
+    }
     revisadas++;
     const g = await bytesDeGuia(admin, cliente, accountId, p.packageId);
     if (!g.bytes) sinGuia++;
+    else if (!g.desdeBucket) bajadas++;
   });
-  return { revisadas, sinGuia };
+  return { revisadas, sinGuia, bajadas, sinTiempo };
 }
 
 /**

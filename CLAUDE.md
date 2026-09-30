@@ -594,7 +594,23 @@ guárdala numerada.
   2 de 4 tomos» / «Etiquetas listas para imprimir» y al abrirse retoma los
   cortes de las últimas 24 h que no estén completos; y el cron de TikTok
   termina lo de los cortes de los últimos 2 días aunque nadie tenga la
-  pestaña abierta. Un tomo solo se guarda si salió COMPLETO (una guía que
+  pestaña abierta. **Y el corte se ENCADENA solo hasta terminar**
+  (`disparar-etiquetas.ts` → `POST /api/tiktok/cortes/{id}/calentar?cuenta=…
+  &eslabon=n` con el bearer de CRON_SECRET, ruta pública en el middleware
+  para ese patrón; `eslabonDeFondo`: contesta 202 y trabaja 280 s en
+  `after()`; `MAX_ESLABONES_ETIQUETAS` 12; bitácora tarea `etiquetas` por
+  eslabón con `guiasBajadas`, `tomosArmados`, `guiasSinRevisar`, `seguir`):
+  TikTok entrega ~1 guía por segundo y una función vive 5 min, así que un
+  corte de 600 pedidos necesita más de lo que le queda a la ruta del corte.
+  El `after()` del corte trabaja lo que alcanza y, si falta, prende el
+  eslabón 1; cada eslabón prende el siguiente solo si AVANZÓ (`avanzo`:
+  bajó guías o armó tomos) y no estaba `ocupado`; mientras el corte siga
+  «sin tiempo» (`corteSigueAbierto`) el eslabón solo baja guías. El 30-sep-2026
+  el corte #43 (638 pedidos) terminó a las 13:31Z y a las 13:39Z solo había
+  152 guías bajadas (el cron de inventario le daba 150 s cada 15 min); el
+  dueño abrió media hora después y la impresión tuvo que bajar y armar todo.
+  Dueño: «no necesita un cron cada 5, solo que después de confirmar el
+  corte se hagan y se guarden ahí». Un tomo solo se guarda si salió COMPLETO (una guía que
   TikTok aún no da se reintenta en cada pasada), así que imprimir es leer
   los tomos del bucket y juntarlos en el navegador. **Una descarga que no
   es PDF ni imagen NO es guía** (`bytesDeGuia`, «formato desconocido»
