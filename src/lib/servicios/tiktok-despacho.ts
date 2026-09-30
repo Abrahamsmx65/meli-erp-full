@@ -1332,8 +1332,14 @@ export async function calentarEtiquetasDelCorte(
   }
 }
 
-/** Cuántos eslabones seguidos puede encadenar el armado de un corte (~5 min cada uno). */
-export const MAX_ESLABONES_ETIQUETAS = 12;
+/**
+ * Cuántos eslabones seguidos puede encadenar el armado de un corte (~5 min
+ * cada uno, ~2 h en total). El freno real contra un bucle es `avanzo`
+ * (un eslabón que no bajó ni armó nada no prende otro); el tope es solo
+ * por si TikTok contesta a cuentagotas. Un corte de 2,000 guías necesita
+ * ~7 eslabones de descarga (~1.3 guías/s) y ~2 de armado de 10 tomos.
+ */
+export const MAX_ESLABONES_ETIQUETAS = 24;
 
 /**
  * ¿El corte todavía va a recibir otra ronda (quedó «sin tiempo»)? Mientras
