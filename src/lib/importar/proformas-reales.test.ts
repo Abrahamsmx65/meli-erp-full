@@ -224,3 +224,21 @@ describe("IN10172 (JIAXING, GT148): cajas de UNA talla, una fila por talla", () 
     ]);
   });
 });
+
+describe("IN10173 (Huaian Tengchuang, GT179 y GT181): .xlsx con modelo y color en cada fila de talla", () => {
+  const buf = readFileSync(join(process.cwd(), "fixtures", "proforma-IN10173-GT179.xlsx"));
+
+  it("cada fila es una línea unitalla y nada se pierde", async () => {
+    const p = await importarProforma(buf, { nombre: "IN10173_GT179_GT181.xlsx" });
+    expect(p.pedido).toBe("IN10173");
+    expect(p.lineas).toHaveLength(11);
+    expect(p.lineas.every((l) => l.unitalla && l.paresPorCaja === 12 && l.cuadra)).toBe(true);
+    expect(p.totales.cajas).toBe(140);
+    expect(p.totales.pares).toBe(1680);
+    expect(p.avisos).toEqual([]);
+    expect(p.lineas.map((l) => `${l.modelo} ${l.color} ${l.unitalla}`)).toEqual([
+      "GT179 BROWN 26", "GT179 BROWN 27", "GT179 BROWN 28", "GT179 BROWN 29", "GT179 BROWN 30",
+      "GT181 BLACK 25", "GT181 BLACK 26", "GT181 BLACK 27", "GT181 BLACK 28", "GT181 BLACK 29", "GT181 BLACK 30",
+    ]);
+  });
+});

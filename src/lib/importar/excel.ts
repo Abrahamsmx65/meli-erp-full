@@ -9,7 +9,7 @@
  * sin que la importación truene.
  */
 import ExcelJS from "exceljs";
-import { canonizar, esCorrida, normalizarTalla } from "./sku";
+import { canonizar, claveComparacion, esCorrida, normalizarTalla } from "./sku";
 
 export type Celda = string | number | null;
 
@@ -242,8 +242,16 @@ export async function importarCorridas(
   };
 }
 
+/**
+ * La llave con la que una caja del almacén encuentra la receta de su corrida.
+ * El color va con los sinónimos del amarre de SKUs (`claveComparacion`):
+ * la proforma dice "BLACK" y EnvioPack escribe "BLK", y hasta el 30-sep-2026
+ * eso dejaba 7 combinaciones del IN10105 (GT251…GT259) como «caja de corrida
+ * sin receta» aunque el pedido estaba cargado. "DK.BROWN" y "DK BROWN" ya
+ * caían juntos por `canonizar`.
+ */
 export function claveCorrida(pedido: string, modelo: string, color: string): string {
-  return `${canonizar(pedido)}|${canonizar(modelo)}|${canonizar(color)}`;
+  return `${canonizar(pedido)}|${canonizar(modelo)}|${claveComparacion(color)}`;
 }
 
 // ---------------------------------------------------------------------------
