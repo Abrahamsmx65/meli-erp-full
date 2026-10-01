@@ -129,10 +129,12 @@ export async function armarZipDeModelo(
   } else {
     if (credenciales.sellingPartnerId) {
       try {
+        // TODAS las tallas de cada color: las fotos se capturan por
+        // publicación y a veces solo viven en algunas tallas.
         capturadas = await fotosCapturadasPorSku(
           cliente,
           credenciales.sellingPartnerId,
-          colores.flatMap((c) => c.sellerSkus.slice(0, 2)),
+          [...new Set(colores.flatMap((c) => c.sellerSkus))],
         );
       } catch (err) {
         avisos.push(

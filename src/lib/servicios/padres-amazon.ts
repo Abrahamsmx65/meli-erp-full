@@ -15,7 +15,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import type { Cliente } from "../amazon/spapi";
 import { resolverPadres } from "../amazon/catalogo";
 import { fotosCapturadasPorSku } from "../amazon/fotos-publicacion";
-import { asinsRepresentativos } from "./contenido-amazon";
+import { coloresRepresentativos } from "./contenido-amazon";
 
 /**
  * Cuántos ASINs se resuelven por corrida. Cada llamada lleva 20 y la cuota es
@@ -40,8 +40,8 @@ export async function sincronizarPadres(
 
   // Paginado con traerTodo: cortado en 1,000, ASINs ya resueltos volvían a
   // entrar como "nuevos" y quemaban cuota de SP-API en cada corrida.
-  const [representativos, yaResueltos] = await Promise.all([
-    asinsRepresentativos(admin, accountId),
+  const [porColor, yaResueltos] = await Promise.all([
+    coloresRepresentativos(admin, accountId),
     traerTodo<{
       asin: string;
       parent_asin: string | null;
@@ -65,7 +65,7 @@ export async function sincronizarPadres(
 
   const filas = yaResueltos as any[];
   const conocidos = new Set(filas.map((f) => String(f.asin ?? "")));
-  const nuevos = representativos.filter((a) => !conocidos.has(a));
+  const nuevos = [...porColor.keys()].filter((a) => !conocidos.has(a));
   // Los que se resolvieron antes de que se guardara la foto del padre se
   // vuelven a preguntar, para que la miniatura se rellene sola.
   const sinFoto = filas
@@ -105,24 +105,17 @@ export async function sincronizarPadres(
   });
   let fotosCapturadas = 0;
   if (sinImagen.length && cliente.cuenta.sellingPartnerId) {
-    const { data, error } = await admin
-      .from("amazon_listings")
-      .select("asin, seller_sku")
-      .eq("account_id", accountId)
-      .in("asin", sinImagen);
-    if (error) throw new Error(`amazon_listings: ${error.message}`);
-    const skuDeAsin = new Map<string, string>();
-    for (const f of data ?? []) {
-      const asin = String(f.asin ?? "");
-      if (asin && f.seller_sku && !skuDeAsin.has(asin)) skuDeAsin.set(asin, String(f.seller_sku));
-    }
+    // TODAS las tallas del color: las fotos se capturan por publicación y a
+    // veces solo viven en algunas tallas (el GT214 las tenía en la primera
+    // y el GT211 no).
+    const skusDeAsin = new Map(sinImagen.map((asin) => [asin, porColor.get(asin) ?? []]));
     const capturadas = await fotosCapturadasPorSku(
       cliente,
       cliente.cuenta.sellingPartnerId,
-      [...skuDeAsin.values()],
+      [...new Set([...skusDeAsin.values()].flat())],
     );
-    for (const [asin, sku] of skuDeAsin) {
-      const foto = capturadas.get(sku.toUpperCase())?.[0];
+    for (const [asin, skus] of skusDeAsin) {
+      const foto = skus.map((s) => capturadas.get(s.toUpperCase())?.[0]).find(Boolean);
       if (!foto) continue;
       const guardar = porGuardar.get(asin);
       if (guardar) {

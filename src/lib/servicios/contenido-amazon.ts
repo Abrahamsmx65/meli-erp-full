@@ -658,16 +658,27 @@ async function leerPadres(db: DB, amazonAccountId: string): Promise<Map<string, 
 /**
  * Un ASIN por modelo y color: los únicos cuyo padre vale la pena preguntar.
  * Las imágenes y el padre son del color, no de la talla, así que resolver los
- * cuarenta hijos de un modelo sería tirar cuota a la basura.
+ * cuarenta hijos de un modelo sería tirar cuota a la basura. Cada uno trae
+ * los seller SKUs de TODAS las tallas de su color: las fotos capturadas
+ * viven por publicación y a veces solo en algunas tallas.
  */
-export async function asinsRepresentativos(db: DB, amazonAccountId: string): Promise<string[]> {
+export async function coloresRepresentativos(
+  db: DB,
+  amazonAccountId: string,
+): Promise<Map<string, string[]>> {
   const catalogo = await leerCatalogo(db, amazonAccountId);
   const armado = armarContenido(catalogo.filas, [], [], null, { verEliminados: true });
-  const asins = new Set<string>();
+  const salida = new Map<string, string[]>();
   for (const m of armado.modelos) {
-    for (const c of m.colores) if (c.asin) asins.add(c.asin);
+    for (const c of m.colores) {
+      if (c.asin) salida.set(c.asin, [...(salida.get(c.asin) ?? []), ...c.sellerSkus]);
+    }
   }
-  return [...asins];
+  return salida;
+}
+
+export async function asinsRepresentativos(db: DB, amazonAccountId: string): Promise<string[]> {
+  return [...(await coloresRepresentativos(db, amazonAccountId)).keys()];
 }
 
 /**
