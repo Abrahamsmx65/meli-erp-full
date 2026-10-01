@@ -610,7 +610,28 @@ guárdala numerada.
   152 guías bajadas (el cron de inventario le daba 150 s cada 15 min); el
   dueño abrió media hora después y la impresión tuvo que bajar y armar todo.
   Dueño: «no necesita un cron cada 5, solo que después de confirmar el
-  corte se hagan y se guarden ahí». Un tomo solo se guarda si salió COMPLETO (una guía que
+  corte se hagan y se guarden ahí». **El eslabón NUNCA había prendido, y la causa era el
+  ORIGEN** (`origenDeLaApp` en `servicios/origen-app.ts`; 1-oct-2026: el
+  corte #45 de 611 pedidos se quedó con 23 guías y las etiquetas salieron
+  64 minutos después, a golpes del cron de 15 min; ni un 202 en los logs
+  ni un renglón `etiquetas` en tres días): el POST se mandaba a
+  `NEXT_PUBLIC_APP_URL`, que es otro dominio del proyecto detrás de la
+  autenticación de Vercel, así que nunca llegaba a la función. Ahora todo
+  lo que el servidor se manda a sí mismo (etiquetas, publicación en
+  TikTok, SKUs pendientes de MELI) va a `VERCEL_PROJECT_PRODUCTION_URL`,
+  igual que el link de los empleados, y cada disparo deja constancia en
+  `tiktok_sync_log` (tarea `etiquetas-disparo` / `publicar-disparo` con el
+  status). Y como seguro, **un cron CADA MINUTO** (`/api/cron/tiktok-etiquetas`,
+  `calentarCortesRecientes` con todo el rato de la función y bitácora
+  `etiquetas` por corte con `origen: cron-minuto`): sin cortes pendientes
+  cuesta dos lecturas; con uno, trabaja ~4.5 min y el candado por corte
+  hace que las corridas encimadas contesten «ocupado». Dueño, 1-oct-2026:
+  «al momento que hago el corte, tomas todas las etiquetas, las juntas y
+  están disponibles para descargar; no hay que armar nada después». Las
+  guías se piden de OCHO en ocho (`GUIAS_A_LA_VEZ`; con 3 obreros salían a
+  ~1 por segundo) y la pantalla vuelve a calentar cada vez que la lista de
+  cortes cambia (`idsCortes`), porque la ronda que perdía la conexión
+  volvía con `corteId: null` y nunca calentaba el corte que sí se guardó. Un tomo solo se guarda si salió COMPLETO (una guía que
   TikTok aún no da se reintenta en cada pasada), así que imprimir es leer
   los tomos del bucket y juntarlos en el navegador. **Una descarga que no
   es PDF ni imagen NO es guía** (`bytesDeGuia`, «formato desconocido»

@@ -13,6 +13,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/tiktok-etiquetas",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/tiktok-pagos",
       "schedule": "7 * * * *"
     },
