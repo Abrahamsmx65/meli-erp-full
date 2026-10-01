@@ -63,7 +63,7 @@ export async function producto(c: Cliente, productId: string): Promise<any | nul
   });
 }
 
-export type UsoDeImagen = "MAIN_IMAGE" | "ATTRIBUTE_IMAGE" | "DESCRIPTION_IMAGE";
+export type UsoDeImagen = "MAIN_IMAGE" | "ATTRIBUTE_IMAGE" | "DESCRIPTION_IMAGE" | "SIZE_CHART_IMAGE";
 
 /**
  * Sube una imagen a TikTok y devuelve su `uri`, que es lo que el producto
