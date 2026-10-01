@@ -11,6 +11,8 @@
  * y adivinarlo descontaría del par equivocado.
  */
 import { partirSku } from "../tiktok/despacho";
+import { precioDeSku } from "../tiktok/api";
+import { claveAplastada, claveComparacion } from "../importar/sku";
 
 export interface VarianteTienda {
   skuId: string;
@@ -141,8 +143,8 @@ export function interpretarProducto(
     const sellerSku = s.seller_sku ? String(s.seller_sku).trim() : null;
     const skuInterno = amarres.porSkuId.get(skuId) ?? (sellerSku ? amarres.porSellerSku.get(sellerSku) : undefined) ?? null;
     const { color, talla, imagen } = colorYTalla(s.sales_attributes ?? []);
-    const precio = numero(s.price?.sale_price ?? s.price?.tax_exclusive_price);
-    const lista = numero(s.list_price?.amount ?? s.price?.original_price);
+    const precio = precioDeSku(s.price);
+    const lista = numero(s.list_price?.amount ?? s.price?.original_price ?? s.price?.amount);
     variantes.push({
       skuId,
       skuInterno,
@@ -186,4 +188,53 @@ export function compararTallas(a: string | null, b: string | null): number {
   if (nx) return -1;
   if (ny) return 1;
   return String(a ?? "").localeCompare(String(b ?? ""), "es");
+}
+
+// ---------------------------------------------------------------------------
+// Las fotos de Amazon (decisión del dueño, 1-oct-2026: «principalmente las
+// mismas imágenes»). Cada color de TikTok se empareja con SUS publicaciones
+// de Amazon por el SKU del kardex, con los amarres del ERP: canónico →
+// pedazos ordenados (Amazon a veces pone la talla antes del color,
+// GT128-23-BLK-MX) → aplastado.
+// ---------------------------------------------------------------------------
+
+const ordenada = (s: string) => claveComparacion(s).split("-").sort().join("-");
+
+/** Cuántas publicaciones de Amazon se prueban por color (la primera sin fotos no deja el color vacío). */
+export const CANDIDATOS_POR_COLOR = 2;
+
+/**
+ * Por producto y color de TikTok, los SKUs de Amazon de ese mismo color
+ * (cualquier talla sirve: las fotos son del color). Devuelve
+ * productId → color → [sku de Amazon, …].
+ */
+export function emparejarAmazon(
+  variantes: { productId: string; color: string | null; skuInterno: string | null }[],
+  skusAmazon: string[],
+): Map<string, Map<string, string[]>> {
+  const porCanonica = new Map<string, string>();
+  const porOrdenada = new Map<string, string>();
+  const porAplastada = new Map<string, string>();
+  for (const a of skusAmazon) {
+    if (!a) continue;
+    if (!porCanonica.has(claveComparacion(a))) porCanonica.set(claveComparacion(a), a);
+    if (!porOrdenada.has(ordenada(a))) porOrdenada.set(ordenada(a), a);
+    if (!porAplastada.has(claveAplastada(a))) porAplastada.set(claveAplastada(a), a);
+  }
+  const salida = new Map<string, Map<string, string[]>>();
+  for (const v of variantes) {
+    if (!v.skuInterno) continue;
+    const color = (v.color ?? "").trim() || "Único";
+    const sku =
+      porCanonica.get(claveComparacion(v.skuInterno)) ??
+      porOrdenada.get(ordenada(v.skuInterno)) ??
+      porAplastada.get(claveAplastada(v.skuInterno));
+    if (!sku) continue;
+    const colores = salida.get(v.productId) ?? new Map<string, string[]>();
+    const lista = colores.get(color) ?? [];
+    if (lista.length < CANDIDATOS_POR_COLOR && !lista.includes(sku)) lista.push(sku);
+    colores.set(color, lista);
+    salida.set(v.productId, colores);
+  }
+  return salida;
 }

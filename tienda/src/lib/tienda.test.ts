@@ -61,3 +61,18 @@ describe("datos de envío", () => {
     expect(ok.datos.email).toBe("a@b.mx");
   });
 });
+
+describe("fotos de Amazon", () => {
+  it("cada color usa sus fotos de Amazon; sin ellas, las de TikTok", () => {
+    const p = armarProducto(
+      { ...producto, imagenes: ["tt1", "tt2"], fotos_amazon: { Negro: ["amz1", "amz2"] } },
+      [v("a", "Negro", "25", "N25"), v("c", "Café", "24", "C24")],
+      new Map([["N25", 1], ["C24", 1]]),
+    );
+    const negro = p.colores.find((c) => c.color === "Negro")!;
+    const cafe = p.colores.find((c) => c.color === "Café")!;
+    expect(negro.fotos).toEqual(["amz1", "amz2"]);
+    expect(negro.imagen).toBe("amz1");
+    expect(cafe.fotos).toEqual(["tt1", "tt2"]);
+  });
+});

@@ -13,15 +13,8 @@ export function Ficha({ producto }: { producto: ProductoVista }) {
   const [cantidad, setCantidad] = useState(1);
   const [agregado, setAgregado] = useState(false);
 
-  const fotos = useMemo(() => {
-    const lista = [...producto.imagenes];
-    if (color?.imagen && !lista.includes(color.imagen)) lista.unshift(color.imagen);
-    else if (color?.imagen) {
-      lista.splice(lista.indexOf(color.imagen), 1);
-      lista.unshift(color.imagen);
-    }
-    return lista;
-  }, [producto.imagenes, color]);
+  // Las fotos del color elegido: las de Amazon si las hay, si no las de TikTok.
+  const fotos = useMemo(() => (color?.fotos.length ? color.fotos : producto.imagenes), [producto.imagenes, color]);
   const [fotoIdx, setFotoIdx] = useState(0);
   const foto = fotos[Math.min(fotoIdx, fotos.length - 1)];
 
@@ -144,6 +137,17 @@ export function Ficha({ producto }: { producto: ProductoVista }) {
           <p className="nota nota-bien" role="status">
             Agregado. <Link href="/carrito">Ir al carrito</Link>
           </p>
+        )}
+
+        {producto.bullets && producto.bullets.length > 0 && (
+          <div className="descripcion">
+            <div className="grupo-titulo">Lo que tiene</div>
+            <ul className="puntos">
+              {producto.bullets.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {producto.descripcion && (

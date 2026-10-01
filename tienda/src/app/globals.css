@@ -209,6 +209,19 @@ h3 {
   gap: 8px;
   margin: 0 0 20px;
 }
+.filtros-modelo .filtro {
+  font-family: var(--f-mono), monospace;
+  font-size: 12.5px;
+  padding: 4px 10px;
+}
+.puntos {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--tinta-2);
+}
+.puntos li {
+  margin-bottom: 6px;
+}
 .filtro {
   border: 1px solid var(--linea);
   background: var(--hoja);

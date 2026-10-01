@@ -21,6 +21,12 @@ export interface Producto {
   titulo: string;
   descripcion: string | null;
   imagenes: string[];
+  /** fotos de la ficha de Amazon por color (decisión del dueño: las mismas imágenes que Amazon) */
+  fotos_amazon?: Record<string, string[]>;
+  /** puntos clave de la ficha de Amazon */
+  bullets?: string[];
+  /** categoría de Productos y costos del ERP (Botas y Botines, Tenis…) */
+  categoria?: string | null;
 }
 
 export interface TallaVista {
@@ -34,6 +40,8 @@ export interface TallaVista {
 export interface ColorVista {
   color: string;
   imagen: string | null;
+  /** las fotos de ESTE color (Amazon primero; si no hay, las del producto en TikTok) */
+  fotos: string[];
   tallas: TallaVista[];
   disponible: number;
 }
@@ -69,7 +77,7 @@ export function armarProducto(p: Producto, variantes: Variante[], disponibles: M
   for (const v of variantes) {
     if (!v.sku_interno || v.precio == null || !(Number(v.precio) > 0)) continue;
     const nombre = (v.color ?? "").trim() || "Único";
-    const c = porColor.get(nombre) ?? { color: nombre, imagen: null, tallas: [], disponible: 0 };
+    const c = porColor.get(nombre) ?? { color: nombre, imagen: null, fotos: [], tallas: [], disponible: 0 };
     if (!c.imagen && v.imagen) c.imagen = v.imagen;
     const disponible = Math.max(0, disponibles.get(v.sku_interno) ?? 0);
     c.tallas.push({
@@ -83,7 +91,11 @@ export function armarProducto(p: Producto, variantes: Variante[], disponibles: M
     porColor.set(nombre, c);
   }
   const colores = [...porColor.values()]
-    .map((c) => ({ ...c, tallas: c.tallas.sort((a, b) => compararTallas(a.talla, b.talla)) }))
+    .map((c) => {
+      const deAmazon = p.fotos_amazon?.[c.color] ?? [];
+      const fotos = deAmazon.length ? deAmazon : [...(c.imagen ? [c.imagen] : []), ...p.imagenes.filter((u) => u !== c.imagen)];
+      return { ...c, fotos, imagen: deAmazon[0] ?? c.imagen, tallas: c.tallas.sort((a, b) => compararTallas(a.talla, b.talla)) };
+    })
     // Lo que hay primero; lo agotado al final, pero se enseña.
     .sort((a, b) => Number(b.disponible > 0) - Number(a.disponible > 0) || a.color.localeCompare(b.color, "es"));
 
