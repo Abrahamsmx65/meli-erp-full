@@ -58,6 +58,8 @@ import {
   type ProductoAmazonParaTikTok,
 } from "../tiktok/publicar";
 import { pareceSkuDeCalzado } from "../tiktok/amarre";
+import { guiaDeTallas, textoGuiaTallas } from "../tiktok/guia-tallas";
+import { dibujarGuiaTallas } from "../tiktok/guia-tallas-imagen";
 import { guardarCacheApp, invalidarApp, leerCacheApp } from "./cache-app";
 import { amarradorDeCuenta, clienteDeCuenta } from "./tiktok";
 
@@ -540,10 +542,14 @@ export async function publicarPendientes(
             errores++;
             const mensaje = (err as Error).message;
             const intentos = Number(fila.intentos ?? 0) + 1;
+            // Un rechazo de TikTok, un cuerpo inarmable o un pedido que ya no
+            // procede (TikTok ya vende esos colores, el modelo ya no está en
+            // Amazon) es definitivo: se queda en error para que alguien lo
+            // mire. Solo la red y el tiempo se reintentan.
             const definitivo =
               intentos >= INTENTOS_MAXIMOS ||
               err instanceof ErrorTikTok ||
-              /plantilla|título|imagen|precio|bodega|variantes|talla/i.test(
+              /plantilla|título|imagen|precio|bodega|variantes|talla|ya vende|catálogo/i.test(
                 mensaje,
               );
             // Las fotos que ya subieron se quedan anotadas: el reintento no las vuelve a subir.
@@ -573,7 +579,10 @@ export async function publicarPendientes(
                 definitivo,
               },
             );
-            if (!definitivo) break; // un fallo de red o de tiempo: mejor seguir en la próxima vuelta
+            // Se acabó el tiempo: lo que falta se queda para la siguiente
+            // vuelta. Cualquier otro fallo NO detiene a los demás productos de
+            // la cola (el 30-sep-2026 un GT168 repetido dejó parado al GT169).
+            if (err instanceof ErrorSinTiempo || /tiempo/i.test(mensaje)) break;
           }
         }
 
@@ -844,6 +853,49 @@ async function publicarUno(
   }
   const imagenesUri = elegirImagenesPrincipales(urisPorColor);
 
+  // 2b. La guía de tallas (talla MX = largo en cm) dibujada y subida como
+  //     imagen de size chart; si TikTok no la acepta, el producto sale sin
+  //     ella y queda avisado (el texto va en la descripción de todos modos).
+  const guia = guiaDeTallas(
+    colores.flatMap((c) => c.tallas.map((t) => t.talla)),
+  );
+  const avisosProducto: string[] = [];
+  let guiaTallasUri: string | null = null;
+  if (guia.length) {
+    const llaveGuia = `guia:${guia.map((r) => r.talla).join(",")}`;
+    if (subidas[llaveGuia]) guiaTallasUri = subidas[llaveGuia];
+    else {
+      try {
+        const png = await dibujarGuiaTallas(String(fila.titulo), guia);
+        let r = null as Awaited<ReturnType<typeof subirImagen>>;
+        try {
+          r = await subirImagen(
+            tiktok,
+            new Uint8Array(png),
+            "image/png",
+            "SIZE_CHART_IMAGE",
+          );
+        } catch (err) {
+          if (!(err instanceof ErrorTikTok)) throw err;
+          avisosProducto.push(
+            `TikTok no aceptó la guía de tallas como SIZE_CHART_IMAGE (${err.message}); se intentó como imagen de descripción.`,
+          );
+          r = await subirImagen(
+            tiktok,
+            new Uint8Array(png),
+            "image/png",
+            "DESCRIPTION_IMAGE",
+          );
+        }
+        if (!r) return { sinTiempo: true, parcial: { subidas } };
+        subidas[llaveGuia] = r.uri;
+        guiaTallasUri = r.uri;
+      } catch (err) {
+        avisosProducto.push(`Sin guía de tallas: ${(err as Error).message}`);
+      }
+    }
+  }
+
   // 3. El cuerpo y la creación.
   const fichaTexto = colores
     .map((_, i) => fichaDeColor(i))
@@ -852,6 +904,7 @@ async function publicarUno(
     bullets: fichaTexto?.bullets ?? [],
     descripcion: fichaTexto?.descripcion ?? null,
     titulo: String(fila.titulo),
+    guiaTallas: textoGuiaTallas(guia),
   });
   const coloresAPublicar: ColorAPublicar[] = colores.map((c, i) => ({
     color: c.color,
@@ -949,16 +1002,14 @@ async function bitacora(
   detalle: unknown,
 ): Promise<void> {
   try {
-    await admin
-      .from("tiktok_sync_log")
-      .insert({
-        account_id: accountId,
-        tarea,
-        inicio,
-        fin: new Date().toISOString(),
-        estado,
-        detalle,
-      });
+    await admin.from("tiktok_sync_log").insert({
+      account_id: accountId,
+      tarea,
+      inicio,
+      fin: new Date().toISOString(),
+      estado,
+      detalle,
+    });
   } catch {
     /* la bitácora nunca tumba la publicación */
   }

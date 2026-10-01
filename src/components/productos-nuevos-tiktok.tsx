@@ -39,7 +39,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   const [datos, setDatos] = useState(inicial);
   const [filtro, setFiltro] = useState("");
   const [verPublicados, setVerPublicados] = useState(false);
-  const [soloActivos, setSoloActivos] = useState(true);
+  const [soloActivos, setSoloActivos] = useState(false);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [precios, setPrecios] = useState<Record<string, string>>({});
   const [titulos, setTitulos] = useState<Record<string, string>>({});
@@ -67,6 +67,23 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     if (!r.ok) throw new Error(j.error ?? "No se pudo leer la lista.");
     setDatos(j);
   }
+
+  // Mientras haya pendientes, la pantalla EMPUJA la cola cada 45 s (el
+  // candado evita que dos empujones se encimen): si el eslabón de fondo no
+  // prendió, la cola sigue avanzando con la pestaña abierta, y el cron de
+  // TikTok la termina si se cierra.
+  const hayPendientes = datos.cola.some((c) => c.estado === "pendiente");
+  useEffect(() => {
+    if (!hayPendientes || !esDueno) return;
+    const t = setInterval(() => {
+      fetch("/api/tiktok/publicar-productos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "continuar" }),
+      }).catch(() => {});
+    }, 45_000);
+    return () => clearInterval(t);
+  }, [hayPendientes, esDueno]);
 
   // Mientras haya algo en cola, se vuelve a leer cada 5 s.
   useEffect(() => {
@@ -238,8 +255,8 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 </button>
               </div>
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir colores sin tallas activas en Amazon
+            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }} title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
+              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
             </label>
             <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
               <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)

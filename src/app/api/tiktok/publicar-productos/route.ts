@@ -1,7 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { dispararPublicacionTikTok, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
+import { dispararYAnotar, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
 import {
   encolarPublicaciones,
   hayPendientes,
@@ -101,7 +101,7 @@ function programarFondo(admin: any, accountId: string, origen: string) {
     try {
       const r = await publicarPendientes(admin, accountId, MS_TRAS_ENCOLAR);
       if (r.ocupado) return; // ya hay un eslabón trabajando
-      if (r.faltan > 0 || (await hayPendientes(admin, accountId))) await dispararPublicacionTikTok(origen, accountId, 1);
+      if (r.faltan > 0 || (await hayPendientes(admin, accountId))) await dispararYAnotar(admin, origen, accountId, 1);
     } catch (err) {
       console.error("publicarPendientes (tras encolar):", (err as Error).message);
     }
@@ -126,7 +126,7 @@ async function eslabonDeFondo(req: NextRequest, accountId: string, eslabon: numb
         estado: r.ocupado ? "ocupado" : r.errores ? "con avisos" : "ok",
         detalle: { eslabon, ...r, seguir },
       });
-      if (seguir) await dispararPublicacionTikTok(origen, accountId, eslabon + 1);
+      if (seguir) await dispararYAnotar(admin, origen, accountId, eslabon + 1);
     } catch (err) {
       await admin.from("tiktok_sync_log").insert({
         account_id: accountId,

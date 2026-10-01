@@ -47,7 +47,8 @@ describe("nombreColorEspanol", () => {
     expect(nombreColorEspanol("DK BROWN")).toEqual({ nombre: "Café oscuro", traducido: true });
     expect(nombreColorEspanol("DK-BROWN").nombre).toBe("Café oscuro");
     expect(nombreColorEspanol("LIGHT GREY").nombre).toBe("Gris claro");
-    expect(nombreColorEspanol("TABACO BROWN").nombre).toBe("Café tabaco");
+    // TikTok rechaza «tabaco» como término prohibido en una variante.
+    expect(nombreColorEspanol("TABACO BROWN").nombre).toBe("Café tostado");
     expect(nombreColorEspanol("MILITARY GREEN").nombre).toBe("Verde militar");
     expect(nombreColorEspanol("navy").nombre).toBe("Azul marino");
   });
@@ -131,21 +132,28 @@ describe("agruparProductosAmazon", () => {
     expect(gt134.activas).toBe(3);
   });
 
+  it("un modelo sin ninguna talla activa en Amazon publica todos sus colores", () => {
+    const p = agruparProductosAmazon([fila("GT265-BLK-24-MX", "Inactive"), fila("GT265-RED-24-MX", "Incomplete")]);
+    expect(p[0].activas).toBe(0);
+    expect(p[0].coloresActivosPorPublicar).toEqual(["BLK", "RED"]);
+  });
+
   it("marca los colores que TikTok ya vende, con alias de color", () => {
     const p = agruparProductosAmazon(filas, {
       enTikTok: [
         { sellerSku: "GT134-BLK-24-MX", skuInterno: "GT134-BLK-24-MX", productId: "P1", estado: "ACTIVATE" },
         { sellerSku: "GT150-BROWN-23-MX", skuInterno: "GT150-BROWN-23-MX", productId: "P2", estado: "ACTIVATE" },
         { sellerSku: "GT134-RED-26-MX", skuInterno: null, productId: "P3", estado: "DELETED" },
+        { sellerSku: "GT150-GREY-23-MX", skuInterno: null, productId: "P4", estado: "DRAFT" },
       ],
       alias: [{ modelo: "GT150", colorTikTok: "BROWN", colorAmazon: "CAMEL" }],
     });
     expect(p[0].coloresEnTikTok).toEqual(["BLK"]);
     expect(p[0].coloresPorPublicar).toEqual(["RED"]);
     expect(p[0].colores[0].enTikTok).toEqual(["GT134-BLK-24-MX"]);
-    expect(p[1].coloresEnTikTok).toEqual(["CAMEL"]);
-    // GREY solo tiene tallas apagadas: se puede publicar a propósito, no por omisión.
-    expect(p[1].coloresPorPublicar).toEqual(["GREY"]);
+    expect(p[1].coloresEnTikTok).toEqual(["CAMEL", "GREY"]);
+    // Un borrador en TikTok también cuenta: publicarlo otra vez lo duplica.
+    expect(p[1].coloresPorPublicar).toEqual([]);
     expect(p[1].coloresActivosPorPublicar).toEqual([]);
   });
 });
@@ -233,6 +241,12 @@ describe("armarCuerpoProducto", () => {
     expect(c.is_cod_allowed).toBe(true);
   });
 
+  it("con la guía de tallas subida manda size_chart", () => {
+    const c = armarCuerpoProducto({ ...datos, guiaTallasUri: "u-guia" }, plantilla) as any;
+    expect(c.size_chart).toEqual({ image: { uri: "u-guia" } });
+    expect((armarCuerpoProducto(datos, plantilla) as any).size_chart).toBeUndefined();
+  });
+
   it("como borrador manda DRAFT", () => {
     expect((armarCuerpoProducto({ ...datos, borrador: true }, plantilla) as any).save_mode).toBe("AS_DRAFT");
   });
@@ -263,6 +277,7 @@ describe("imágenes y descripción", () => {
   it("la descripción junta puntos clave y descripción; sin nada, el título", () => {
     expect(descripcionDesdeAmazon({ bullets: ["Suela <EVA>", " "], descripcion: "Larga", titulo: "T" })).toBe("<p>Suela &lt;EVA&gt;</p><p>Larga</p>");
     expect(descripcionDesdeAmazon({ bullets: [], descripcion: null, titulo: "T" })).toBe("<p>T</p>");
+    expect(descripcionDesdeAmazon({ bullets: [], descripcion: "D", titulo: "T", guiaTallas: "Guía: 23 = 23 cm" })).toBe("<p>D</p><p>Guía: 23 = 23 cm</p>");
   });
   it("interpreta la respuesta de creación", () => {
     const r = interpretarRespuestaCreacion({ product_id: "P", skus: [{ id: "S", seller_sku: "GT1-BLK-24-MX" }], warnings: [{ message: "ojo" }] });

@@ -76,7 +76,12 @@ export interface ProductoAmazonParaTikTok {
   precioAmazon: number | null;
   /** Colores que faltan en TikTok: lo que se publicaría. */
   coloresPorPublicar: string[];
-  /** De esos, los que tienen alguna talla ACTIVA en Amazon (lo que se publica por omisión). */
+  /**
+   * De esos, los que tienen alguna talla ACTIVA en Amazon (lo que se publica
+   * por omisión). Si NINGÚN color del modelo está activo en Amazon (GT265,
+   * GT266: aún no se estrenan allá), van todos: el dueño los quiere en
+   * TikTok de todos modos (30-sep-2026).
+   */
   coloresActivosPorPublicar: string[];
   /** Colores que la tienda ya vende. */
   coloresEnTikTok: string[];
@@ -153,8 +158,8 @@ const COLORES: Record<string, string> = {
   CREAM: "Crema",
   BEIGE: "Beige",
   SAND: "Arena",
-  NUDE: "Nude",
-  TAN: "Tostado",
+  NUDE: "Color piel",
+  TAN: "Canela",
   TAUPE: "Taupe",
   TOFFEE: "Toffee",
   CAMEL: "Camel",
@@ -163,9 +168,11 @@ const COLORES: Record<string, string> = {
   MOCHA: "Moka",
   "M BROWN": "Café medio",
   "MEDIUM BROWN": "Café medio",
-  "TABACO BROWN": "Café tabaco",
-  TABACO: "Tabaco",
-  TOBACCO: "Tabaco",
+  // TikTok rechaza «tabaco» en el nombre de una variante (12052153 Policy
+  // Violation «prohibited term `tabaco`», 30-sep-2026, GT169 y GT135).
+  "TABACO BROWN": "Café tostado",
+  TABACO: "Café tostado",
+  TOBACCO: "Café tostado",
   "CHOCOLETTE BROWN": "Café chocolate",
   "CHOCOLATTE BROWN": "Café chocolate",
   "CHOCOLATE BROWN": "Café chocolate",
@@ -367,7 +374,9 @@ export function agruparProductosAmazon(
   for (const a of opciones.alias ?? []) alias.set(claveColor(a.modelo, a.colorTikTok), a.colorAmazon);
   const vendidosEnTikTok = new Map<string, Set<string>>();
   for (const s of opciones.enTikTok ?? []) {
-    if (s.estado && /DELETED|DRAFT|FAILED|DEACTIVATED/i.test(s.estado)) continue;
+    // Un borrador o un producto apagado SIGUE existiendo en la tienda:
+    // volverlo a publicar lo duplica. Solo lo borrado no cuenta.
+    if (s.estado && /DELETED/i.test(s.estado)) continue;
     const nombre = s.skuInterno ?? s.sellerSku;
     const p = nombre ? partirSkuAmazon(nombre) : null;
     if (!p) continue;
@@ -460,6 +469,8 @@ export function agruparProductosAmazon(
     const precioAmazon = [...precios.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? null;
 
     const titulo = m.tituloPadre || [...m.titulos.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || m.modelo;
+    const porPublicar = colores.filter((c) => !c.enTikTok.length).map((c) => c.color);
+    const activosPorPublicar = colores.filter((c) => !c.enTikTok.length && c.activas > 0).map((c) => c.color);
     const skus = colores.reduce((a, c) => a + c.tallas.length, 0);
     salida.push({
       modelo: m.modelo,
@@ -469,8 +480,8 @@ export function agruparProductosAmazon(
       skus,
       activas: colores.reduce((a, c) => a + c.activas, 0),
       precioAmazon,
-      coloresPorPublicar: colores.filter((c) => !c.enTikTok.length).map((c) => c.color),
-      coloresActivosPorPublicar: colores.filter((c) => !c.enTikTok.length && c.activas > 0).map((c) => c.color),
+      coloresPorPublicar: porPublicar,
+      coloresActivosPorPublicar: activosPorPublicar.length ? activosPorPublicar : porPublicar,
       coloresEnTikTok: colores.filter((c) => c.enTikTok.length).map((c) => c.color),
     });
   }
@@ -602,6 +613,8 @@ export interface DatosPublicacion {
   imagenesUri: string[];
   colores: ColorAPublicar[];
   borrador: boolean;
+  /** La guía de tallas ya subida (uri), para `size_chart.image`. */
+  guiaTallasUri?: string | null;
 }
 
 export const MAX_IMAGENES_PRINCIPALES = 9;
@@ -625,7 +638,13 @@ function escaparHtml(s: string): string {
  * párrafos y la descripción larga después. Sin nada, el título (TikTok no
  * acepta una descripción vacía).
  */
-export function descripcionDesdeAmazon(datos: { bullets: string[]; descripcion: string | null; titulo: string }): string {
+export function descripcionDesdeAmazon(datos: {
+  bullets: string[];
+  descripcion: string | null;
+  titulo: string;
+  /** El párrafo de la guía de tallas (`textoGuiaTallas`), al final. */
+  guiaTallas?: string;
+}): string {
   const partes: string[] = [];
   for (const b of datos.bullets) {
     const t = String(b ?? "").replace(/\s+/g, " ").trim();
@@ -634,6 +653,8 @@ export function descripcionDesdeAmazon(datos: { bullets: string[]; descripcion: 
   const d = String(datos.descripcion ?? "").replace(/\s+/g, " ").trim();
   if (d) partes.push(`<p>${escaparHtml(d)}</p>`);
   if (!partes.length) partes.push(`<p>${escaparHtml(datos.titulo)}</p>`);
+  const g = String(datos.guiaTallas ?? "").trim();
+  if (g) partes.push(`<p>${escaparHtml(g)}</p>`);
   return partes.join("");
 }
 
@@ -697,6 +718,7 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
   if (plantilla.productAttributes.length) cuerpo.product_attributes = plantilla.productAttributes;
   if (plantilla.packageDimensions) cuerpo.package_dimensions = plantilla.packageDimensions;
   if (plantilla.isCodAllowed != null) cuerpo.is_cod_allowed = plantilla.isCodAllowed;
+  if (datos.guiaTallasUri) cuerpo.size_chart = { image: { uri: datos.guiaTallasUri } };
   return cuerpo;
 }
 
