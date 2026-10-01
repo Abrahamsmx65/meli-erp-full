@@ -15,11 +15,28 @@ import { clienteDeCuenta } from "./webhooks";
 import { enLotes, trozos } from "../meli/client";
 import { Cliente, cuentasAmazon } from "../amazon/spapi";
 import { imagenesDeAsins } from "../amazon/catalogo";
+import { fotosCapturadasPorSku } from "../amazon/fotos-publicacion";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
-import { CLAVE_FOTOS_NUEVOS, cargarProductosNuevos, type ProductoNuevo } from "./productos-nuevos";
+import { CLAVE_FOTOS_NUEVOS, FOTOS_MINIMAS, cargarProductosNuevos, type ProductoNuevo } from "./productos-nuevos";
 import { huellaPublicaciones, tocaRevisar, type FotosGuardada, type FotosProducto } from "./productos-nuevos-fotos";
 
 const PLAZO_AMAZON_MS = 40_000;
+
+/** El ASIN padre de cada hijo, de `amazon_padres` (lo resuelve el latido). */
+async function padresDeHijos(admin: DB, accountId: string, hijos: string[]): Promise<Map<string, string>> {
+  const salida = new Map<string, string>();
+  for (let i = 0; i < hijos.length; i += 200) {
+    const { data } = await admin
+      .from("amazon_padres")
+      .select("asin, parent_asin")
+      .eq("account_id", accountId)
+      .in("asin", hijos.slice(i, i + 200));
+    for (const f of (data ?? []) as { asin: string; parent_asin: string | null }[]) {
+      if (f.parent_asin) salida.set(f.asin, f.parent_asin);
+    }
+  }
+  return salida;
+}
 
 interface ItemMeli {
   id: string;
@@ -116,20 +133,47 @@ export async function revisarFotosDeNuevos(db: DB, admin: DB, cuentaId: string, 
   }
 
   // ---- Amazon ---------------------------------------------------------------
+  // Hasta el 1-oct-2026 se preguntaba por UN ASIN por color y solo al
+  // catálogo: Amazon no siempre copia las fotos a cada talla, las deja en
+  // el PADRE, y el catálogo tarda en publicar lo recién subido; el dueño
+  // veía «0 fotos» en productos a los que ya les había cargado imágenes.
+  // Ahora se cuentan todas las tallas del color y su padre, y lo que el
+  // catálogo aún no publica se busca en la ficha CAPTURADA del vendedor
+  // (Listings Items, lo mismo que ya ve Productos nuevos de TikTok).
   if (amazonConectado) {
     try {
-      const conAsin = productos.filter((p) => p.amazon.asins.length);
-      if (conAsin.length) {
+      const conAmazon = productos.filter((p) => p.amazon.asins.length || p.amazon.skus.length);
+      if (conAmazon.length) {
         const credenciales = (await cuentasAmazon(admin))[0];
         if (!credenciales) throw new Error("Amazon no tiene credenciales guardadas.");
         const cliente = new Cliente(credenciales, Date.now() + PLAZO_AMAZON_MS);
-        // Las fotos son del color: un ASIN por producto basta.
-        const asins = conAsin.map((p) => p.amazon.asins[0]);
-        const imagenes = await imagenesDeAsins(cliente, asins);
-        for (const p of conAsin) {
-          const asin = p.amazon.asins[0];
+        const hijos = [...new Set(conAmazon.flatMap((p) => p.amazon.asins))];
+        const padres = await padresDeHijos(admin, cliente.cuenta.accountId, hijos);
+        const asins = [...new Set([...hijos, ...padres.values()])];
+        const imagenes = asins.length ? await imagenesDeAsins(cliente, asins) : new Map<string, unknown[]>();
+        for (const p of conAmazon) {
           const f = salida.get(p.clave)!;
-          f.amazon = { fotos: imagenes.get(asin)?.length ?? 0, asin };
+          let mejor: { fotos: number; asin: string | null } = { fotos: 0, asin: p.amazon.asins[0] ?? null };
+          const candidatos = [...p.amazon.asins, ...p.amazon.asins.map((h) => padres.get(h)).filter((x): x is string => Boolean(x))];
+          for (const asin of candidatos) {
+            const n = imagenes.get(asin)?.length ?? 0;
+            if (n > mejor.fotos) mejor = { fotos: n, asin };
+          }
+          f.amazon = mejor;
+        }
+        // Lo que sigue corto: la ficha capturada por SKU (fotos que el
+        // vendedor ya subió aunque el catálogo no las enseñe todavía).
+        const cortos = conAmazon.filter((p) => (salida.get(p.clave)!.amazon.fotos ?? 0) < FOTOS_MINIMAS && p.amazon.skus.length);
+        if (cortos.length && credenciales.sellingPartnerId && cliente.msRestantes() > 5_000) {
+          const skus = [...new Set(cortos.flatMap((p) => p.amazon.skus))];
+          const capturadas = await fotosCapturadasPorSku(cliente, credenciales.sellingPartnerId, skus);
+          for (const p of cortos) {
+            const f = salida.get(p.clave)!;
+            for (const sku of p.amazon.skus) {
+              const n = capturadas.get(sku.toUpperCase())?.length ?? 0;
+              if (n > (f.amazon.fotos ?? 0)) f.amazon = { fotos: n, asin: f.amazon.asin ?? p.amazon.asins[0] ?? null };
+            }
+          }
         }
       }
     } catch (err) {

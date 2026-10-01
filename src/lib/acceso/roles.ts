@@ -39,9 +39,16 @@ const PREFIJOS_TIKTOK = [
   "/api/salir",
 ];
 
+/**
+ * Lo que vive bajo /tiktok pero es SOLO del dueño: Precios para TikTok lleva
+ * lo que deja MELI por par y los costos (1-oct-2026).
+ */
+const SOLO_DUENO = ["/tiktok/precios"];
+
 export function rutaPermitida(rol: Rol, ruta: string): boolean {
   if (rol !== "tiktok") return true;
   const limpia = ruta.replace(/\/{2,}/g, "/");
+  if (SOLO_DUENO.some((p) => limpia === p || limpia.startsWith(p + "/") || limpia.startsWith(p + "?"))) return false;
   return PREFIJOS_TIKTOK.some((p) => limpia === p || limpia.startsWith(p + "/") || limpia.startsWith(p + "?"));
 }
 

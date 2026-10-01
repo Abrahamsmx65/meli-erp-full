@@ -24,9 +24,16 @@ import { interpretarPedidosAfiliados, resumirAfiliado, type FilaAfiliado } from 
 import { guardarCacheApp, invalidarApp, leerCacheAppGuardado } from "./cache-app";
 
 const DIAS_RECIENTES = 3;
-const DIAS_POR_TRAMO = 7;
+/**
+ * Tres días por tramo, no siete: la tienda vende ~700 pedidos al día y una
+ * ventana tiene que caber COMPLETA en las páginas de una corrida para que
+ * el fondo avance (la primera corrida real, 1-oct-2026, leyó 40 páginas de
+ * un tramo de 7 días —3,490 pedidos— y no lo cerró: con 7 días el cursor
+ * nunca se habría movido).
+ */
+const DIAS_POR_TRAMO = 3;
 /** Páginas de 100 por ventana y corrida: ~1 s cada una. */
-const PAGINAS_POR_VENTANA = 40;
+const PAGINAS_POR_VENTANA = 60;
 const FILAS_POR_LOTE = 500;
 const CLAVE_FONDO = "tiktok:afiliados:fondo";
 /** Prefijo de las pantallas masticadas que cambian cuando cambia el creador de un pedido. */
