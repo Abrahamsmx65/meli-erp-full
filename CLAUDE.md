@@ -1015,10 +1015,11 @@ guárdala numerada.
   `publicado` con su `product_id` (y sus SKUs entran a `tiktok_skus` ya
   amarrados) o `error` con el mensaje REAL de TikTok (un rechazo de TikTok
   o un cuerpo inarmable es definitivo; red o tiempo se reintenta hasta
-  `INTENTOS_MAXIMOS` 3), con «Reintentar» y «Quitar»; bitácora
+  `INTENTOS_MAXIMOS` 3; las fotos ya subidas quedan en `resultado.subidas`
+  y el reintento no las vuelve a subir), con «Reintentar» y «Quitar»; bitácora
   `tiktok_sync_log` tareas `publicar-producto` (cuerpo enviado y respuesta)
   y `publicar` (por eslabón). «Dejarlos como borrador» manda `save_mode
-  DRAFT`. Publicar es del dueño (403 al rol tiktok, que solo ve). Lista
+  AS_DRAFT` (TikTok rechazó `DRAFT`, que es lo que decía el SDK). Publicar es del dueño (403 al rol tiktok, que solo ve). Lista
   masticada en `app_cache` `tiktok:nuevos` (15 min; cae con cada corrida).
 
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
