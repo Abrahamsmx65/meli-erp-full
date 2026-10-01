@@ -196,6 +196,9 @@ h3 {
   margin-bottom: 28px;
   border-radius: var(--radio);
 }
+.banners a {
+  scroll-snap-align: start;
+}
 .banners img {
   scroll-snap-align: start;
   width: 100%;

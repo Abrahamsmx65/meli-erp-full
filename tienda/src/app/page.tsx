@@ -37,6 +37,14 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
     tiendaAmazon().catch(() => [] as PaginaAmazon[]),
   ]);
   const [principal, ...secciones] = amazon;
+  // Sin la tienda de marca, los banners salen del A+ de cada producto (su
+  // primera imagen es el encabezado de la marca) y llevan a ese producto.
+  const bannersAplus = principal
+    ? []
+    : productos
+        .filter((p) => p.disponible > 0 && p.aplus && p.aplus.length)
+        .map((p) => ({ src: p.aplus![0], href: `/p/${p.product_id}`, titulo: p.titulo }))
+        .slice(0, 8);
   const filtrando = Boolean(modelo || categoria);
   const modelos = [...new Set(productos.map((p) => p.modelo).filter(Boolean) as string[])].sort((a, b) =>
     a.localeCompare(b, "es", { numeric: true }),
@@ -56,8 +64,20 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
           {principal && <Mosaico pagina={principal} />}
         </section>
       )}
+      {!filtrando && bannersAplus.length > 0 && (
+        <section className="escaparate" aria-label="Destacados">
+          <div className="banners">
+            {bannersAplus.map((b) => (
+              <Link key={b.src} href={b.href} aria-label={b.titulo}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={b.src} alt="" />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     <div className="contenedor">
-      {!filtrando && !principal && !propios.length && (
+      {!filtrando && !principal && !propios.length && !bannersAplus.length && (
         <section className="portada">
           <h1>Calzado GETAC</h1>
           <p>Botas, botines, tenis y sandalias. Elige tu talla, paga con Mercado Pago y te lo mandamos a todo México.</p>

@@ -60,3 +60,51 @@ export function imagenesDeTiendaAmazon(html: string, anchoMinimo = 0): ImagenTie
 export function esPaginaDeCaptcha(html: string): boolean {
   return /captcha|Robot Check|api-services-support@amazon\.com/i.test(String(html ?? "").slice(0, 20_000));
 }
+
+// ---------------------------------------------------------------------------
+// Contenido A+ por la API OFICIAL de Amazon (SP-API «A+ Content 2020-11-01»).
+// La página del producto pide captcha a los servidores (1-oct-2026), así que
+// las imágenes A+ se piden a la API con las credenciales del ERP: cada módulo
+// trae sus imágenes como `uploadDestinationId` («aplus-media/sc/….jpg»), que
+// Amazon sirve en m.media-amazon.com/images/S/<uploadDestinationId>.
+// ---------------------------------------------------------------------------
+
+export interface ImagenAplus {
+  url: string;
+  ancho: number | null;
+  alto: number | null;
+  texto: string | null;
+}
+
+export const BASE_IMAGENES_AMAZON = "https://m.media-amazon.com/images/S/";
+
+/**
+ * Las imágenes del documento A+ en el orden de sus módulos (un recorrido en
+ * profundidad: el orden del JSON es el orden en la página). Sin repetir.
+ */
+export function imagenesDeDocumentoAplus(documento: unknown): ImagenAplus[] {
+  const salida: ImagenAplus[] = [];
+  const vistas = new Set<string>();
+  const visitar = (nodo: any) => {
+    if (!nodo || typeof nodo !== "object") return;
+    if (Array.isArray(nodo)) {
+      for (const n of nodo) visitar(n);
+      return;
+    }
+    const id = typeof nodo.uploadDestinationId === "string" ? nodo.uploadDestinationId.trim() : "";
+    if (id && !vistas.has(id)) {
+      vistas.add(id);
+      const tam = nodo.imageCropSpecification?.size;
+      const num = (v: any) => (v?.value != null && Number.isFinite(Number(v.value)) ? Number(v.value) : null);
+      salida.push({
+        url: /^https?:\/\//.test(id) ? id : BASE_IMAGENES_AMAZON + id.replace(/^\/+/, ""),
+        ancho: num(tam?.width),
+        alto: num(tam?.height),
+        texto: typeof nodo.altText === "string" ? nodo.altText : null,
+      });
+    }
+    for (const v of Object.values(nodo)) if (v && typeof v === "object") visitar(v);
+  };
+  visitar(documento);
+  return salida;
+}
