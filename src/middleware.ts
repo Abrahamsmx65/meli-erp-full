@@ -72,6 +72,9 @@ export async function middleware(request: NextRequest) {
     // bearer o la sesión): sin esto el eslabón rebotaba al login.
     /^\/api\/tiktok\/cortes\/\d+\/calentar$/.test(ruta) ||
     ruta === "/api/tiktok/publicar-productos" ||
+    // La tienda en línea (otro despliegue) avisa que apartó o soltó pares;
+    // la ruta valida el bearer TIENDA_SECRET.
+    ruta === "/api/tiktok/tienda/aviso" ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
     // El acceso sin contraseña a la sección de contenido: la puerta es el

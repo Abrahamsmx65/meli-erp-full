@@ -778,8 +778,11 @@ export async function publicarDisponibilidad(
   }
 
   const [inv, skusTikTok, contados, estante] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_inventario", "sku, saldo, apartado, publicado, publicado_en", (q) =>
-      q.eq("account_id", accountId),
+    traerTodo<any>(
+      admin,
+      "tiktok_inventario",
+      "sku, saldo, apartado, apartado_web, tope_estante, contado, publicado, publicado_en",
+      (q) => q.eq("account_id", accountId),
     ),
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, sku_interno, cantidad_tiktok", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
@@ -800,17 +803,35 @@ export async function publicarDisponibilidad(
   // las dos fuentes no coincidan gana la más baja (regla del dueño,
   // 14-sep-2026). Un SKU contado a mano después de la foto del 3PL no se
   // topa: ese conteo es el dato más fresco que hay.
+  //
+  // Lo que apartó la TIENDA EN LÍNEA (`apartado_web`, migración 0101) se
+  // resta igual que lo apartado por TikTok: un par, un dueño. Y las mismas
+  // dos reglas (contado, tope del estante) se le dejan escritas al renglón
+  // para que la tienda ofrezca exactamente lo mismo (`tienda_disponible_de`).
   const disponibles = new Map<string, number>();
   const topados: string[] = [];
+  const reglasTienda: { account_id: string; sku: string; contado: boolean; tope_estante: number | null }[] = [];
   for (const r of inv ?? []) {
-    if (!contados.has(r.sku)) continue;
-    const sinTope = disponibleParaCompradores(r.saldo, r.apartado);
+    const contado = contados.has(r.sku);
     const pares = estante.pares && !estante.contadosDespues.has(r.sku)
       ? (estante.pares.get(r.sku) ?? 0)
       : null;
-    const conTope = disponibleConEstante(r.saldo, r.apartado, pares);
+    if (Boolean(r.contado) !== contado || (r.tope_estante ?? null) !== pares) {
+      reglasTienda.push({ account_id: accountId, sku: r.sku, contado, tope_estante: pares });
+    }
+    if (!contado) continue;
+    const apartado = (r.apartado ?? 0) + (r.apartado_web ?? 0);
+    const sinTope = disponibleParaCompradores(r.saldo, apartado);
+    const conTope = disponibleConEstante(r.saldo, apartado, pares);
     if (conTope < sinTope) topados.push(`${r.sku} (${sinTope}→${conTope})`);
     disponibles.set(r.sku, conTope);
+  }
+  if (reglasTienda.length) {
+    try {
+      await guardarEnLotes(admin, "tiktok_inventario", reglasTienda, "account_id,sku");
+    } catch {
+      /* la tienda sigue con las reglas de la corrida anterior; la siguiente lo reintenta */
+    }
   }
 
   // Se compara contra lo que TikTok DICE tener (cantidad_tiktok, del
@@ -941,7 +962,7 @@ async function causasDeSubida(
   if (!pendientes.length) return causa;
   const desdeMin = [...desdeDe.values()].filter(Boolean).sort()[0] as string;
 
-  const [{ data: movs }, { data: cancelados }] = await Promise.all([
+  const [{ data: movs }, { data: cancelados }, { data: soltadosWeb }] = await Promise.all([
     db
       .from("tiktok_movimientos")
       .select("sku, fecha")
@@ -956,7 +977,21 @@ async function causasDeSubida(
       .in("estado", ["CANCELLED", "CANCEL"])
       .gt("fecha_actualizacion", desdeMin)
       .in("tiktok_orden_items.sku_interno", pendientes),
+    // La tienda en línea soltó pares (pedido sin pagar que caducó o se canceló).
+    db
+      .from("tienda_pedidos")
+      .select("actualizado_en, tienda_pedido_items!inner(sku_interno)")
+      .eq("account_id", accountId)
+      .in("estado", ["expirado", "cancelado"])
+      .gt("actualizado_en", desdeMin)
+      .in("tienda_pedido_items.sku_interno", pendientes),
   ]);
+  for (const o of (soltadosWeb ?? []) as any[]) {
+    for (const it of o.tienda_pedido_items ?? []) {
+      const desde = desdeDe.get(it.sku_interno);
+      if (desde && o.actualizado_en > desde) causa.add(it.sku_interno);
+    }
+  }
   for (const m of (movs ?? []) as { sku: string; fecha: string }[]) {
     const desde = desdeDe.get(m.sku);
     if (desde && m.fecha > desde) causa.add(m.sku);

@@ -110,7 +110,7 @@ export async function armarPedidoDeCuenta(
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
       q.eq("account_id", accountId).gte("fecha", p.desde).lte("fecha", p.hasta),
     ),
-    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado", (q) => q.eq("account_id", accountId)),
+    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", (q) => q.eq("account_id", accountId)),
     cargarInventario(db, accountId, { sinCrudos: true }),
   ]);
 
@@ -128,7 +128,7 @@ export async function armarPedidoDeCuenta(
   const pedido = armarPedidoAlmacen({
     ventas: (ventas ?? []).map((v: any) => ({ sku: String(v.sku), unidades: Number(v.unidades ?? 0) })),
     existencias,
-    kardex: (kardex ?? []).map((k: any) => ({ sku: String(k.sku), saldo: Number(k.saldo ?? 0), apartado: Number(k.apartado ?? 0) })),
+    kardex: (kardex ?? []).map((k: any) => ({ sku: String(k.sku), saldo: Number(k.saldo ?? 0), apartado: Number(k.apartado ?? 0) + Number(k.apartado_web ?? 0) })),
     dias: diasEntre(p.desde, p.hasta),
     modo: p.modo,
     diasObjetivo: p.diasObjetivo,

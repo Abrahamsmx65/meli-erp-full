@@ -80,7 +80,10 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
       .eq("account_id", accountId)
       .maybeSingle(),
-    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, publicado", eq),
+    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web, publicado", eq).then((filas) =>
+      // Lo apartado por la tienda en línea también tiene dueño (migración 0101).
+      (filas ?? []).map((r: any) => ({ ...r, apartado: (r.apartado ?? 0) + (r.apartado_web ?? 0) })),
+    ),
     traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok", (q) =>
       eq(q).eq("activo", true),
     ),
@@ -214,7 +217,9 @@ export interface PanelDesfases {
 export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDesfases> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [inv, skusTikTok, contados, bodega, salidas] = await Promise.all([
-    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
+    traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", eq).then((filas) =>
+      (filas ?? []).map((r: any) => ({ ...r, apartado: (r.apartado ?? 0) + (r.apartado_web ?? 0) })),
+    ),
     traerTodo<any>(db, "tiktok_skus", "sku_interno, cantidad_tiktok, estado", (q) => eq(q).eq("activo", true)),
     skusContados(db, accountId),
     // El armado de cajas de la bodega TikTok, masticado 15 min: la foto de
