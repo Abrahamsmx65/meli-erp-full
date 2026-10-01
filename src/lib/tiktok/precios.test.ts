@@ -4,15 +4,16 @@ import { factorNeto, netoTikTok, nivelesDePrecio, parametrosDesde, PARAMETROS_PO
 const p = PARAMETROS_POR_OMISION;
 
 describe("netoTikTok", () => {
-  it("descuenta comisión, cargo por par, afiliado al 4 %, retenciones sobre la base sin IVA y el envío", () => {
+  it("descuenta comisión 6 %, cargo por par, afiliado 4 %, envío 8 %, retenciones sobre la base sin IVA y $2 de empaque", () => {
     const d = netoTikTok(500, p);
-    expect(d.comision).toBeCloseTo(40, 6);
+    expect(d.comision).toBeCloseTo(30, 6);
     expect(d.cargo).toBe(6);
     expect(d.afiliado).toBeCloseTo(20, 6);
+    expect(d.envio).toBeCloseTo(40, 6);
     expect(d.ivaRetenido).toBeCloseTo((500 / 1.16) * 0.08, 6);
     expect(d.isrRetenido).toBeCloseTo((500 / 1.16) * 0.025, 6);
-    expect(d.envio).toBe(19);
-    expect(d.neto).toBeCloseTo(500 - 40 - 6 - 20 - (500 / 1.16) * 0.105 - 19, 6);
+    expect(d.empaque).toBe(2);
+    expect(d.neto).toBeCloseTo(500 - 30 - 6 - 20 - 40 - (500 / 1.16) * 0.105 - 2, 6);
   });
 });
 
@@ -45,11 +46,12 @@ describe("nivelesDePrecio", () => {
 
 describe("parametrosDesde", () => {
   it("toma lo que viene y deja lo demás por omisión; lo inválido no entra", () => {
-    const q = parametrosDesde({ afiliadoPct: "6", envioPorPedido: "abc", escalonPct: ["7"], comisionPct: "-1" });
+    const q = parametrosDesde({ afiliadoPct: "6", envioPct: "abc", escalonPct: ["7"], comisionPct: "-1", empaquePorPar: "3" });
     expect(q.afiliadoPct).toBe(6);
-    expect(q.envioPorPedido).toBe(19);
+    expect(q.envioPct).toBe(8);
     expect(q.escalonPct).toBe(7);
-    expect(q.comisionPct).toBe(8);
+    expect(q.comisionPct).toBe(6);
+    expect(q.empaquePorPar).toBe(3);
   });
 });
 

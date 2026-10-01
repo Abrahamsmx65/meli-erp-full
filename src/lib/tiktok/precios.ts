@@ -10,14 +10,17 @@
  * Lo que TikTok le paga al vendedor por un par vendido a precio P (fórmula
  * de TikTok MX verificada campo por campo en lo liquidado, ver CLAUDE.md):
  *
- *   neto = P − comisión (8 % de P) − cargo fijo por par ($6)
+ *   neto = P − comisión (6 % de P; dueño, 1-oct-2026: «es 6 % pero no me
+ *                han cobrado, aunque van a comenzar pronto»: se descuenta ya)
+ *            − cargo fijo por par ($6, el que sale en lo liquidado)
  *            − afiliado (4 % de P, regla del dueño)
+ *            − envío (8 % de P; dueño: «el envío no es $19, es 8 %»)
  *            − IVA retenido (8 %) e ISR retenido (2.5 %) sobre la base SIN IVA (P / 1.16)
- *            − envío que paga el vendedor (~$19 por pedido, ya con el subsidio de TikTok)
+ *            − empaque ($2 por par, dueño)
  *
- * Despejando P para un neto objetivo N:  P = (N + cargo + envío) / k, con
- * k = 1 − comisión − afiliado − (ivaRet + isrRet) / (1 + IVA). Todo es
- * parámetro: la pantalla los enseña y deja cambiarlos.
+ * Despejando P para un neto objetivo N:  P = (N + cargo + empaque) / k, con
+ * k = 1 − comisión − afiliado − envío − (ivaRet + isrRet) / (1 + IVA). Todo
+ * es parámetro: la pantalla los enseña y deja cambiarlos.
  */
 
 export interface ParametrosPrecioTikTok {
@@ -33,20 +36,23 @@ export interface ParametrosPrecioTikTok {
   isrRetenidoPct: number;
   /** IVA de la venta, en % (para sacar la base sin IVA) */
   ivaPct: number;
-  /** envío que paga el vendedor por pedido, en pesos, ya con el subsidio de TikTok */
-  envioPorPedido: number;
+  /** envío que paga el vendedor, en % del precio */
+  envioPct: number;
+  /** empaque, en pesos por par */
+  empaquePorPar: number;
   /** escalón entre niveles, en % (live → normal → campaña) */
   escalonPct: number;
 }
 
 export const PARAMETROS_POR_OMISION: ParametrosPrecioTikTok = {
-  comisionPct: 8,
+  comisionPct: 6,
   cargoPorPar: 6,
   afiliadoPct: 4,
   ivaRetenidoPct: 8,
   isrRetenidoPct: 2.5,
   ivaPct: 16,
-  envioPorPedido: 19,
+  envioPct: 8,
+  empaquePorPar: 2,
   escalonPct: 5,
 };
 
@@ -64,7 +70,8 @@ export function parametrosDesde(q: Record<string, string | string[] | undefined>
     ivaRetenidoPct: lee("ivaRetenidoPct"),
     isrRetenidoPct: lee("isrRetenidoPct"),
     ivaPct: lee("ivaPct"),
-    envioPorPedido: lee("envioPorPedido"),
+    envioPct: lee("envioPct"),
+    empaquePorPar: lee("empaquePorPar"),
     escalonPct: lee("escalonPct"),
   };
 }
@@ -77,13 +84,14 @@ export interface DesgloseNetoTikTok {
   ivaRetenido: number;
   isrRetenido: number;
   envio: number;
-  /** lo que TikTok le paga al vendedor */
+  empaque: number;
+  /** lo que queda después de TikTok y del empaque */
   neto: number;
 }
 
 /** La fracción del precio que queda después de lo proporcional (comisión, afiliado, retenciones). */
 export function factorNeto(p: ParametrosPrecioTikTok): number {
-  return 1 - p.comisionPct / 100 - p.afiliadoPct / 100 - (p.ivaRetenidoPct + p.isrRetenidoPct) / 100 / (1 + p.ivaPct / 100);
+  return 1 - p.comisionPct / 100 - p.afiliadoPct / 100 - p.envioPct / 100 - (p.ivaRetenidoPct + p.isrRetenidoPct) / 100 / (1 + p.ivaPct / 100);
 }
 
 /** Lo que TikTok paga por UN par vendido a `precio`. */
@@ -94,15 +102,16 @@ export function netoTikTok(precio: number, p: ParametrosPrecioTikTok): DesgloseN
   const ivaRetenido = (base * p.ivaRetenidoPct) / 100;
   const isrRetenido = (base * p.isrRetenidoPct) / 100;
   const cargo = p.cargoPorPar;
-  const envio = p.envioPorPedido;
-  return { precio, comision, cargo, afiliado, ivaRetenido, isrRetenido, envio, neto: precio - comision - cargo - afiliado - ivaRetenido - isrRetenido - envio };
+  const envio = (precio * p.envioPct) / 100;
+  const empaque = p.empaquePorPar;
+  return { precio, comision, cargo, afiliado, ivaRetenido, isrRetenido, envio, empaque, neto: precio - comision - cargo - afiliado - ivaRetenido - isrRetenido - envio - empaque };
 }
 
 /** El precio (exacto, sin redondear) al que TikTok deja `netoObjetivo` por par; null si la fórmula no deja nada. */
 export function precioParaNeto(netoObjetivo: number, p: ParametrosPrecioTikTok): number | null {
   const k = factorNeto(p);
   if (!(k > 0)) return null;
-  return (netoObjetivo + p.cargoPorPar + p.envioPorPedido) / k;
+  return (netoObjetivo + p.cargoPorPar + p.empaquePorPar) / k;
 }
 
 export interface NivelPrecio {

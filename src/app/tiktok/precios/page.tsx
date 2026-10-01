@@ -36,7 +36,8 @@ const CAMPOS: { clave: keyof ParametrosPrecioTikTok; nombre: string; unidad: str
   { clave: "ivaRetenidoPct", nombre: "IVA retenido", unidad: "% de la base sin IVA", paso: "0.5" },
   { clave: "isrRetenidoPct", nombre: "ISR retenido", unidad: "% de la base sin IVA", paso: "0.1" },
   { clave: "ivaPct", nombre: "IVA de la venta", unidad: "%", paso: "1" },
-  { clave: "envioPorPedido", nombre: "Envío que pago por pedido", unidad: "$ (ya con subsidio)", paso: "1" },
+  { clave: "envioPct", nombre: "Envío que pago", unidad: "% del precio", paso: "0.5" },
+  { clave: "empaquePorPar", nombre: "Empaque", unidad: "$ por par", paso: "0.5" },
   { clave: "escalonPct", nombre: "Escalón entre niveles", unidad: "%", paso: "0.5" },
 ];
 
@@ -151,13 +152,13 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
           </a>
         </div>
         <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
-          Por cada par vendido a $500, TikTok se queda {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos +{" "}
-          {pesosC(ejemplo.afiliado)} de afiliados + {pesosC(ejemplo.ivaRetenido + ejemplo.isrRetenido)} de IVA e ISR retenidos +{" "}
-          {pesosC(ejemplo.envio)} de envío: me paga {pesosC(ejemplo.neto)}. Del precio llega el {Math.round(k * 1000) / 10} % menos lo fijo.
-          Afiliados al {p.afiliadoPct} % fijo aunque la comisión real sea otra (regla del dueño). Los de omisión son los de TikTok MX
-          verificados en lo liquidado: {PARAMETROS_POR_OMISION.comisionPct} % + ${PARAMETROS_POR_OMISION.cargoPorPar} por par, IVA{" "}
-          {PARAMETROS_POR_OMISION.ivaRetenidoPct} % e ISR {PARAMETROS_POR_OMISION.isrRetenidoPct} % sobre la base sin IVA, envío ~$
-          {PARAMETROS_POR_OMISION.envioPorPedido}.
+          Por cada par vendido a $500: {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos + {pesosC(ejemplo.afiliado)} de
+          afiliados + {pesosC(ejemplo.envio)} de envío + {pesosC(ejemplo.ivaRetenido + ejemplo.isrRetenido)} de IVA e ISR retenidos +{" "}
+          {pesosC(ejemplo.empaque)} de empaque: me quedan {pesosC(ejemplo.neto)}. Del precio llega el {Math.round(k * 1000) / 10} % menos lo
+          fijo. Por omisión: comisión {PARAMETROS_POR_OMISION.comisionPct} % (todavía no la cobran, pero va a empezar), ${PARAMETROS_POR_OMISION.cargoPorPar} por par,
+          afiliados {PARAMETROS_POR_OMISION.afiliadoPct} % fijo aunque la comisión real sea otra, envío {PARAMETROS_POR_OMISION.envioPct} %, IVA{" "}
+          {PARAMETROS_POR_OMISION.ivaRetenidoPct} % e ISR {PARAMETROS_POR_OMISION.isrRetenidoPct} % sobre la base sin IVA y ${PARAMETROS_POR_OMISION.empaquePorPar} de
+          empaque por par.
         </p>
       </form>
 

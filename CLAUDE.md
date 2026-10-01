@@ -1040,9 +1040,11 @@ guárdala numerada.
   campaña regular otro 5 % arriba»): por modelo, el objetivo es el neto de
   MELI por par del periodo (monitor de ventas, depósito real, 30 días por
   omisión) y el precio live es el que deja ese neto con la fórmula de
-  TikTok MX (`netoTikTok` / `precioParaNeto`: comisión 8 % + $6 por par,
-  afiliado 4 %, IVA 8 % e ISR 2.5 % retenidos sobre la base sin IVA, envío
-  del vendedor ~$19), redondeado al peso hacia arriba; normal = live + 5 %
+  TikTok (`netoTikTok` / `precioParaNeto`; parámetros del dueño,
+  1-oct-2026: comisión 6 % —«no me han cobrado, pero van a comenzar
+  pronto», se descuenta ya—, $6 por par, afiliado 4 % fijo, envío 8 % del
+  precio —«no es $19, es 8 %»—, IVA 8 % e ISR 2.5 % retenidos sobre la base
+  sin IVA, y $2 por par de empaque), redondeado al peso hacia arriba; normal = live + 5 %
   y campaña = normal + 5 % (`nivelesDePrecio`). Los parámetros van en la
   URL (`parametrosDesde`) para cambiarlos y compartirlos. La tabla enseña
   costo, el precio promedio actual en TikTok (`tiktok_skus` activos) con
