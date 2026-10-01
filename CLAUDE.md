@@ -1055,6 +1055,18 @@ guárdala numerada.
   producto, se sube como `SIZE_CHART_IMAGE` (si TikTok no acepta ese
   `use_case`, se intenta como `DESCRIPTION_IMAGE` y se avisa) y va en
   `size_chart.image`; el mismo texto va al final de la descripción.
+  (g) **Lo ya publicado se CORRIGE por edición parcial, no se rehace**
+  (`corregirPublicado`, `correccionesPendientes`; `POST
+  /product/202309/products/{id}/partial_edit`, `editarProductoParcial`:
+  solo cambia lo que viaja; la edición completa exige mandar todo y un
+  campo de menos lo borra): un renglón `publicado` sin
+  `resultado.guiaTallas` se corrige con el tiempo que le sobre a la cola
+  (y el cron lo recoge por `hayPendientes`): guía de tallas con las tallas
+  que el producto TIENE en TikTok, y las variantes cuyo color quedó en
+  código de Amazon (los 16 primeros) se renombran en español mandando el
+  `value_name` nuevo sin `value_id`. Hasta `INTENTOS_CORRECCION` (2);
+  bitácora tarea `corregir-producto`. Dueño, 30-sep-2026: «me corriges lo
+  que subió mal».
 
 - **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
   `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el
