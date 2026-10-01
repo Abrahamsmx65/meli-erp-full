@@ -109,6 +109,7 @@ const GRUPOS: Grupo[] = [
       { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
       { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
       { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
+      { href: "/tiktok/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
     ],
   },
   {

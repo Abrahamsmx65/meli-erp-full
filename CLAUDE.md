@@ -973,6 +973,51 @@ guárdala numerada.
   TikTok ya trae descontados comisión, cargo por par, afiliados, envío e
   IVA/ISR retenidos; el ERP no lleva gastos propios de TikTok como el 3PL);
   los cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
+  **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
+  Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
+  `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla
+  `tiktok_publicaciones`, migración 0100; pedido del dueño, 30-sep-2026:
+  «toma todos los productos que tengo en Amazon de calzado —SKUs, imágenes,
+  variantes y todo—, le pongo el precio y se me publica masivamente»). La
+  pantalla agrupa `amazon_listings` por MODELO → color → talla
+  (`partirSkuAmazon`: Amazon a veces pone la talla antes del color,
+  GT128-23-BLK-MX), con el título limpio del padre (`amazon_padres`) o el
+  del listing sin su paréntesis de variante (`tituloLimpio`), tacha los
+  colores que TikTok ya vende (`tiktok_skus` activos, traduciendo el color
+  con `tiktok_alias_amazon`), y por omisión publica solo los colores con
+  alguna talla ACTIVA en Amazon (`coloresActivosPorPublicar`; la casilla
+  «Incluir colores sin tallas activas» mete los demás). UN producto de
+  TikTok por modelo con sus colores y tallas como variantes, precio ÚNICO
+  por producto; el `seller_sku` es el nombre con que el ERP conoce el par
+  (el de MELI si existe, si no `MODELO-COLOR-TALLA-MX`, `skuParaTikTok`)
+  para que el amarre y el kardex lo reconozcan desde el primer pedido, y
+  nace con el inventario que el ERP ya le publica a ese SKU
+  (`tiktok_inventario.publicado`; sin kardex, 0). La categoría, la marca,
+  los atributos del producto, el peso/medidas del paquete y los IDs de los
+  atributos de venta Color y Talla se COPIAN de una PLANTILLA: un producto
+  ACTIVO de la tienda del mismo modelo, si no cualquiera de calzado
+  (`plantillaDesdeProducto` sobre `GET /product/202309/products/{id}`;
+  si le falta Color o Talla se completan con
+  `/categories/{id}/attributes`). Las fotos salen de la ficha CAPTURADA de
+  Amazon (`fichasCapturadasPorSku`: `main/other_product_image_locator`,
+  `bullet_point` y `product_description` de Listings Items) y, si no hay,
+  del catálogo público por ASIN; se bajan y se suben a TikTok por multipart
+  (`Cliente.llamarMultipart`, firma SIN cuerpo como el SDK de referencia;
+  `/product/202309/images/upload`, `use_case` MAIN_IMAGE), hasta 4 por color
+  y 9 principales (`elegirImagenesPrincipales`), la primera de cada color
+  como `sku_img`. La cola corre POR ATRÁS: la ruta encola, trabaja 240 s en
+  `after()` y encadena eslabones con el bearer de CRON_SECRET
+  (`disparar-publicacion.ts`, `?cuenta=&eslabon=`, 202 y 270 s de trabajo,
+  `MAX_ESLABONES_PUBLICACION` 48; el cron de TikTok empuja lo pendiente si
+  un eslabón se perdió); candado `tiktok-publicar`; un renglón queda
+  `publicado` con su `product_id` (y sus SKUs entran a `tiktok_skus` ya
+  amarrados) o `error` con el mensaje REAL de TikTok (un rechazo de TikTok
+  o un cuerpo inarmable es definitivo; red o tiempo se reintenta hasta
+  `INTENTOS_MAXIMOS` 3), con «Reintentar» y «Quitar»; bitácora
+  `tiktok_sync_log` tareas `publicar-producto` (cuerpo enviado y respuesta)
+  y `publicar` (por eslabón). «Dejarlos como borrador» manda `save_mode
+  DRAFT`. Publicar es del dueño (403 al rol tiktok, que solo ve). Lista
+  masticada en `app_cache` `tiktok:nuevos` (15 min; cae con cada corrida).
 
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
@@ -1435,6 +1480,7 @@ login, la base y el deploy.
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
+| TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,pedidos/cargar,pedidos/nuevos,contenedores,corridas,etiquetas,videos,pendientes,ajustes}` |

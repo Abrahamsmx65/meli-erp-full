@@ -71,6 +71,7 @@ export async function middleware(request: NextRequest) {
     // (`disparar-etiquetas.ts`, bearer de CRON_SECRET; la ruta valida el
     // bearer o la sesión): sin esto el eslabón rebotaba al login.
     /^\/api\/tiktok\/cortes\/\d+\/calentar$/.test(ruta) ||
+    ruta === "/api/tiktok/publicar-productos" ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
     // El acceso sin contraseña a la sección de contenido: la puerta es el

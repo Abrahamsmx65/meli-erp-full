@@ -265,7 +265,7 @@ export async function clienteDeCuenta(
  * El amarre TikTok -> ERP de una cuenta: catálogo real de MELI más los
  * amarres a mano. Se arma una vez por corrida y sirve a todo.
  */
-async function amarradorDeCuenta(admin: any, accountId: string) {
+export async function amarradorDeCuenta(admin: any, accountId: string) {
   const [skusErp, mapeoRaw, catalogoRaw] = await Promise.all([
     traerTodo<any>(admin, "skus", "sku", (q) => q.eq("account_id", accountId).eq("activo", true)),
     traerTodo<any>(admin, "tiktok_mapeo_sku", "sku_tiktok, sku_interno", (q) =>

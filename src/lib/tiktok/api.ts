@@ -53,6 +53,59 @@ export async function bodegas(c: Cliente): Promise<BodegaTikTok[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Productos: leer uno, subir imágenes y crear (sección Productos nuevos)
+// ---------------------------------------------------------------------------
+
+/** Un producto completo tal cual lo contesta TikTok: la PLANTILLA para publicar otros. */
+export async function producto(c: Cliente, productId: string): Promise<any | null> {
+  return c.llamar<any>("GET", `/product/202309/products/${encodeURIComponent(productId)}`, {
+    params: { return_under_review_version: "false" },
+  });
+}
+
+export type UsoDeImagen = "MAIN_IMAGE" | "ATTRIBUTE_IMAGE" | "DESCRIPTION_IMAGE";
+
+/**
+ * Sube una imagen a TikTok y devuelve su `uri`, que es lo que el producto
+ * referencia. La imagen tiene que ser JPG o PNG; TikTok la guarda y la
+ * devuelve también como `url` pública.
+ */
+export async function subirImagen(
+  c: Cliente,
+  bytes: Uint8Array,
+  tipo: string,
+  uso: UsoDeImagen = "MAIN_IMAGE",
+): Promise<{ uri: string; url: string | null; ancho: number | null; alto: number | null } | null> {
+  const ext = /png/i.test(tipo) ? "png" : "jpg";
+  const d = await c.llamarMultipart<any>(
+    "/product/202309/images/upload",
+    { use_case: uso },
+    { campo: "data", bytes, nombre: `imagen.${ext}`, tipo },
+  );
+  if (!d) return null;
+  if (!d.uri) throw new ErrorTikTok(0, "/product/202309/images/upload", `sin uri en la respuesta: ${JSON.stringify(d).slice(0, 200)}`);
+  return {
+    uri: String(d.uri),
+    url: d.url ? String(d.url) : null,
+    ancho: d.width != null ? Number(d.width) : null,
+    alto: d.height != null ? Number(d.height) : null,
+  };
+}
+
+/** Crea el producto. El cuerpo lo arma `tiktok/publicar.ts`; aquí solo viaja. */
+export async function crearProducto(c: Cliente, cuerpo: Record<string, unknown>): Promise<any | null> {
+  return c.llamar<any>("POST", "/product/202309/products", { cuerpo });
+}
+
+/** Los atributos (de producto y de venta) de una categoría hoja. */
+export async function atributosDeCategoria(c: Cliente, categoryId: string): Promise<any[]> {
+  const d = await c.llamar<any>("GET", `/product/202309/categories/${encodeURIComponent(categoryId)}/attributes`, {
+    params: { locale: "es-MX" },
+  });
+  return d?.attributes ?? [];
+}
+
+// ---------------------------------------------------------------------------
 // Catálogo
 // ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { procesarWebhooksPendientes, sincronizarTikTok } from "@/lib/servicios/tiktok";
 import { empujarSalidasAl3pl } from "@/lib/servicios/tiktok-3pl";
 import { calentarCortesRecientes } from "@/lib/servicios/tiktok-despacho";
+import { hayPendientes, publicarPendientes } from "@/lib/servicios/tiktok-publicar";
 import { revisarDesfasesTikTok } from "@/lib/servicios/tiktok-alarma";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
@@ -69,7 +70,18 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         etiquetas = { error: (err as Error).message };
       }
-      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas });
+      // La cola de publicaciones en TikTok (Productos nuevos), por si un
+      // eslabón de fondo se perdió: lo que haya pendiente avanza aquí.
+      let publicaciones: unknown = null;
+      try {
+        const restante = 290_000 - (Date.now() - inicioRuta);
+        if (restante > 90_000 && (await hayPendientes(admin, c.id))) {
+          publicaciones = await publicarPendientes(admin, c.id, Math.min(restante - 10_000, 120_000));
+        }
+      } catch (err) {
+        publicaciones = { error: (err as Error).message };
+      }
+      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas, publicaciones });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }
