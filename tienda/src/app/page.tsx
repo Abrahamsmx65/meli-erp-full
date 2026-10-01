@@ -1,20 +1,26 @@
 import Link from "next/link";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { listarProductos } from "@/lib/catalogo";
+import { bannersAmazon, listarProductos } from "@/lib/catalogo";
 import { pesos } from "@/lib/tienda";
 
 // El catálogo va en caché de un minuto (lib/catalogo.ts); la existencia se lee en cada visita.
 export const dynamic = "force-dynamic";
 
-/** Banners de la portada: las imágenes que estén en public/banners, en orden alfabético. */
+/**
+ * Banners de la portada: los que se pongan a mano en public/banners (en
+ * orden alfabético) y luego los copiados de la tienda de marca de Amazon.
+ */
 async function banners(): Promise<string[]> {
+  let propios: string[] = [];
   try {
     const archivos = await readdir(path.join(process.cwd(), "public", "banners"));
-    return archivos.filter((a) => /\.(jpe?g|png|webp|avif)$/i.test(a)).sort().map((a) => `/banners/${a}`);
+    propios = archivos.filter((a) => /\.(jpe?g|png|webp|avif)$/i.test(a)).sort().map((a) => `/banners/${a}`);
   } catch {
-    return [];
+    /* sin carpeta */
   }
+  const deAmazon = await bannersAmazon().catch(() => [] as string[]);
+  return [...propios, ...deAmazon];
 }
 
 export default async function Inicio({ searchParams }: { searchParams: Promise<{ modelo?: string; categoria?: string }> }) {
