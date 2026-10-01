@@ -54,6 +54,10 @@ export interface TallaAmazon {
 
 export interface ColorAmazon {
   color: string;
+  /** Cómo se llama la variante en TikTok: el color en español. */
+  nombre: string;
+  /** false si el código no está en la lista y se publicaría tal cual. */
+  traducido: boolean;
   tallas: TallaAmazon[];
   activas: number;
   imagenUrl: string | null;
@@ -122,6 +126,160 @@ export function partirSkuAmazon(sku: string): { modelo: string; color: string; t
     .trim();
   if (!color) return null;
   return { modelo: partes[0].toUpperCase(), color: color.toUpperCase(), talla: partes[idx] };
+}
+
+/**
+ * Un modelo de calzado: letras y número (GT134, MY2304, H816). Las fundas
+ * de la misma cuenta de Amazon (499-IPAD10-BLK, 462-A9-BLK) no son de aquí.
+ */
+export function esModeloDeCalzado(modelo: string): boolean {
+  return /^[A-Z]{1,5}\d{2,6}$/.test(String(modelo ?? "").trim().toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
+// Colores en español (pedido del dueño, 30-sep-2026: «los nombres de los
+// colores se hagan en español»). El SKU conserva el código (BLK, DK BROWN);
+// lo que el comprador ve en la variante de TikTok es el nombre.
+// ---------------------------------------------------------------------------
+
+const COLORES: Record<string, string> = {
+  BLK: "Negro",
+  BLACK: "Negro",
+  NEGRO: "Negro",
+  WHITE: "Blanco",
+  "OFF WHITE": "Blanco hueso",
+  BONE: "Hueso",
+  IVORY: "Marfil",
+  CREAM: "Crema",
+  BEIGE: "Beige",
+  SAND: "Arena",
+  NUDE: "Nude",
+  TAN: "Tostado",
+  TAUPE: "Taupe",
+  TOFFEE: "Toffee",
+  CAMEL: "Camel",
+  BROWN: "Café",
+  COFFEE: "Café",
+  MOCHA: "Moka",
+  "M BROWN": "Café medio",
+  "MEDIUM BROWN": "Café medio",
+  "TABACO BROWN": "Café tabaco",
+  TABACO: "Tabaco",
+  TOBACCO: "Tabaco",
+  "CHOCOLETTE BROWN": "Café chocolate",
+  "CHOCOLATTE BROWN": "Café chocolate",
+  "CHOCOLATE BROWN": "Café chocolate",
+  CHOCOLATE: "Chocolate",
+  GREY: "Gris",
+  GRAY: "Gris",
+  CHARCOAL: "Gris carbón",
+  SMOKE: "Humo",
+  SILVER: "Plateado",
+  GOLD: "Dorado",
+  "ROSE GOLD": "Oro rosa",
+  BRONZE: "Bronce",
+  COPPER: "Cobre",
+  RED: "Rojo",
+  WINE: "Vino",
+  BURGUNDY: "Guinda",
+  MAROON: "Granate",
+  CORAL: "Coral",
+  ORANGE: "Naranja",
+  PEACH: "Durazno",
+  APRICOT: "Chabacano",
+  YELLOW: "Amarillo",
+  MUSTARD: "Mostaza",
+  CHAMPAGNE: "Champaña",
+  GREEN: "Verde",
+  "MILITARY GREEN": "Verde militar",
+  "MILITARY/GREEN": "Verde militar",
+  MILITARY: "Verde militar",
+  OLIVE: "Verde olivo",
+  KHAKI: "Caqui",
+  MINT: "Menta",
+  TEAL: "Verde azulado",
+  TURQUOISE: "Turquesa",
+  TURQOISE: "Turquesa",
+  BLUE: "Azul",
+  NAVY: "Azul marino",
+  "ROYAL BLUE": "Azul rey",
+  "STEEL BLUE": "Azul acero",
+  "SKY BLUE": "Azul cielo",
+  "GREY BLUE": "Gris azulado",
+  "GREY/BLUE": "Gris azulado",
+  DENIM: "Mezclilla",
+  JEANS: "Mezclilla",
+  PURPLE: "Morado",
+  LILAC: "Lila",
+  LAVENDER: "Lavanda",
+  VIOLET: "Violeta",
+  PINK: "Rosa",
+  "HOT PINK": "Rosa fuerte",
+  ROSE: "Rosa",
+  FUCHSIA: "Fucsia",
+  FUCSIA: "Fucsia",
+  MAGENTA: "Magenta",
+  LEOPARD: "Leopardo",
+  ZEBRA: "Cebra",
+  CAMO: "Camuflaje",
+  "CAMO BLK": "Camuflaje negro",
+  FLORAL: "Floral",
+  FLOWER: "Floral",
+  "ANIMAL PRINT": "Animal print",
+  TRANSPARENT: "Transparente",
+  CLEAR: "Transparente",
+  NATURAL: "Natural",
+  MULTICOLOR: "Multicolor",
+  MULTI: "Multicolor",
+};
+
+const PREFIJOS_TONO: Record<string, string> = {
+  DK: "oscuro",
+  DARK: "oscuro",
+  LT: "claro",
+  LIGHT: "claro",
+};
+
+function traducirPedazo(pedazo: string): { nombre: string; traducido: boolean } {
+  const limpio = pedazo.trim().toUpperCase().replace(/\s+/g, " ");
+  if (!limpio) return { nombre: "", traducido: true };
+  const directo = COLORES[limpio];
+  if (directo) return { nombre: directo, traducido: true };
+  const partes = limpio.split(" ");
+  // «DK BROWN» → Café oscuro; «LIGHT GREY» → Gris claro.
+  if (partes.length >= 2 && PREFIJOS_TONO[partes[0]]) {
+    const base = COLORES[partes.slice(1).join(" ")];
+    if (base) return { nombre: `${base} ${PREFIJOS_TONO[partes[0]]}`, traducido: true };
+  }
+  // «DK-BROWN» escrito con guion.
+  const conGuion = limpio.replace(/-/g, " ");
+  if (conGuion !== limpio) return traducirPedazo(conGuion);
+  // Desconocido: se deja como está, en Capital.
+  return { nombre: limpio.charAt(0) + limpio.slice(1).toLowerCase(), traducido: false };
+}
+
+/**
+ * El nombre en español de un color de Amazon: "BLK" → "Negro", "DK BROWN"
+ * → "Café oscuro", "BLK/RED" → "Negro / Rojo", "BLK / BLK" → "Negro". Lo
+ * que no está en la lista se deja tal cual (en Capital) y `traducido`
+ * avisa para que se agregue a la lista.
+ */
+export function nombreColorEspanol(color: string): { nombre: string; traducido: boolean } {
+  const crudo = String(color ?? "").trim();
+  if (!crudo) return { nombre: "", traducido: true };
+  const directo = COLORES[crudo.toUpperCase().replace(/\s+/g, " ")];
+  if (directo) return { nombre: directo, traducido: true };
+
+  // Combinaciones: «BLK/RED», «NAVY / RED», «BLK-RED» (solo si cada pedazo es un color conocido).
+  let pedazos = crudo.split(/\s*\/\s*/);
+  if (pedazos.length === 1 && crudo.includes("-")) {
+    const porGuion = crudo.split("-");
+    if (porGuion.every((x) => traducirPedazo(x).traducido)) pedazos = porGuion;
+  }
+  const traducidos = pedazos.map(traducirPedazo).filter((x) => x.nombre);
+  const nombres: string[] = [];
+  for (const t of traducidos) if (nombres[nombres.length - 1] !== t.nombre) nombres.push(t.nombre);
+  return { nombre: nombres.join(" / "), traducido: traducidos.every((x) => x.traducido) };
 }
 
 /** "GT134", "BLK / RED" → "GT134-BLK / RED": la llave de un color, sin importar separadores. */
@@ -231,7 +389,7 @@ export function agruparProductosAmazon(
 
   for (const f of filas) {
     const p = partirSkuAmazon(f.sellerSku);
-    if (!p) continue;
+    if (!p || !esModeloDeCalzado(p.modelo)) continue;
     let m = porModelo.get(p.modelo);
     if (!m) {
       m = { modelo: p.modelo, titulos: new Map(), tituloPadre: null, imagen: null, imagenActiva: false, colores: new Map() };
@@ -280,8 +438,11 @@ export function agruparProductosAmazon(
     const colores: ColorAmazon[] = [];
     for (const [kc, c] of m.colores) {
       const tallas = [...c.tallas.values()].sort((a, b) => tallaNumerica(a.talla) - tallaNumerica(b.talla));
+      const esp = nombreColorEspanol(c.color);
       colores.push({
         color: c.color,
+        nombre: esp.nombre,
+        traducido: esp.traducido,
         tallas,
         activas: tallas.filter((t) => t.estado === "Active").length,
         imagenUrl: c.imagen,
@@ -499,7 +660,11 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
     for (const t of c.tallas) {
       const sales: Record<string, unknown>[] = [];
       if (plantilla.atributoColor) {
-        const attr: Record<string, unknown> = { id: plantilla.atributoColor.id, name: plantilla.atributoColor.name, value_name: c.color };
+        const attr: Record<string, unknown> = {
+          id: plantilla.atributoColor.id,
+          name: plantilla.atributoColor.name,
+          value_name: nombreColorEspanol(c.color).nombre || c.color,
+        };
         if (c.imagenUri) attr.sku_img = { uri: c.imagenUri };
         sales.push(attr);
       }
