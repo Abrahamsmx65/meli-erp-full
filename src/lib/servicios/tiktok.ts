@@ -1427,6 +1427,9 @@ const RELECTURA_LIQUIDADO_MS = 7 * 24 * 3_600_000;
  * `tiktok-sync`: no escribe kardex ni publica nada, solo columnas de pago
  * en `tiktok_ordenes`. Constancia en `tiktok_sync_log` tarea `pagos`.
  */
+/** Rato de cada corrida de pagos para los afiliados (unos 5 tramos de 3 días). */
+const MS_AFILIADOS = 130_000;
+
 export async function sincronizarPagosTikTok(
   admin: any,
   accountId: string,
@@ -1443,20 +1446,24 @@ export async function sincronizarPagosTikTok(
   } catch (err) {
     avisos.push(`Por liquidar: ${(err as Error).message}`);
   }
-  try {
-    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
-  } catch (err) {
-    avisos.push(`Liquidaciones: ${(err as Error).message}`);
-  }
-  // Quién trajo cada venta (creadores vs tienda), con el tiempo que sobre:
-  // deja su propio renglón `afiliados` en la bitácora.
+  // Quién trajo cada venta (creadores vs tienda), ANTES de las
+  // liquidaciones y con su propio rato (`MS_AFILIADOS`): las liquidaciones
+  // por pedido se comen todo lo que les den y el fondo de afiliados nunca
+  // avanzaba (dueño, 1-oct-2026: «los números están incompletos»). Deja su
+  // propio renglón `afiliados` en la bitácora.
   let afiliados: ResultadoAfiliados | null = null;
-  if (cliente.msRestantes() > 40_000) {
-    afiliados = await leerAfiliados(admin, accountId, cliente).catch((err) => {
+  const clienteAfiliados = await clienteDeCuenta(admin, accountId, Math.min(MS_AFILIADOS, cliente.msRestantes() - 60_000));
+  if (clienteAfiliados && clienteAfiliados.msRestantes() > 40_000) {
+    afiliados = await leerAfiliados(admin, accountId, clienteAfiliados).catch((err) => {
       avisos.push(`Afiliados: ${(err as Error).message}`);
       return null;
     });
     if (afiliados?.error) avisos.push(`Afiliados: ${afiliados.error}`);
+  }
+  try {
+    liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Liquidaciones: ${(err as Error).message}`);
   }
   await admin.from("tiktok_sync_log").insert({
     account_id: accountId,

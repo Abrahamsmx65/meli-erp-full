@@ -14,6 +14,7 @@ import {
   type ParametrosPrecioTikTok,
 } from "@/lib/tiktok/precios";
 import { Ficha } from "@/components/tiles";
+import { MiPrecioTikTok } from "@/components/mi-precio-tiktok";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ function pesosC(x: number): string {
 }
 
 const DIAS_POR_OMISION = 30;
+/** Días de pedidos de TikTok para el precio real pagado (ofertas y relámpagos incluidos). */
+const DIAS_PRECIO_REAL = 14;
 
 const CAMPOS: { clave: keyof ParametrosPrecioTikTok; nombre: string; unidad: string; paso: string }[] = [
   { clave: "comisionPct", nombre: "Comisión de TikTok", unidad: "% del precio", paso: "0.1" },
@@ -73,49 +76,114 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
   const rango = { desde: fechaMx(dias - 1), hasta: fechaMx(0) };
 
   const admin = clienteAdmin();
-  const [monitor, costosRaw, skusTikTok] = await Promise.all([
+  // «TikTok hoy» es el precio REAL que pagan los clientes en los pedidos de
+  // los últimos días (relámpagos y ofertas incluidos), no el de lista del
+  // catálogo (dueño, 1-oct-2026: «toma el real que está en oferta, no el
+  // precio base»); el de lista solo cuando el modelo no vendió.
+  const desdePedidos = new Date(Date.now() - DIAS_PRECIO_REAL * 86_400_000).toISOString();
+  const [monitor, costosRaw, skusTikTok, pedidosRpc, relampagoRpc, misPreciosRaw] = await Promise.all([
     cargarMonitor(admin, cuenta.id, rango),
     traerTodo<any>(admin, "productos_config", "modelo, costo_mxn", (q) => q.eq("account_id", cuenta.id).not("costo_mxn", "is", null)),
     traerTodo<any>(admin, "tiktok_skus", "sku_interno, seller_sku, precio, activo", (q) => q.eq("account_id", cuenta.id).eq("activo", true).not("precio", "is", null)),
+    admin.rpc("tiktok_ventas_pedidos", { p_account: cuenta.id, p_desde: desdePedidos, p_hasta: new Date(Date.now() + 86_400_000).toISOString() }),
+    // El RELÁMPAGO de MELI por modelo: el escalón de precio más bajo con
+    // volumen y su neto por par (dueño, 1-oct-2026: «el neto de cuando se
+    // vende el relámpago»; el GT148 relámpago $128.99 deja $128.99).
+    admin.rpc("meli_neto_relampago_por_modelo", { p_account: cuenta.id, p_desde: rango.desde }),
+    traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio", (q) => q.eq("account_id", cuenta.id)),
   ]);
+  if (relampagoRpc.error) throw new Error(`meli_neto_relampago_por_modelo: ${relampagoRpc.error.message}`);
+  const relampago = new Map<string, { precio: number | null; pares: number; neto: number | null; paresTotal: number; netoTotal: number | null }>();
+  for (const f of (relampagoRpc.data ?? []) as any[]) {
+    relampago.set(String(f.modelo).toUpperCase(), {
+      precio: f.precio_relampago != null ? Number(f.precio_relampago) : null,
+      pares: Number(f.pares_relampago ?? 0) || 0,
+      neto: f.neto_relampago != null ? Number(f.neto_relampago) : null,
+      paresTotal: Number(f.pares_total ?? 0) || 0,
+      netoTotal: f.neto_total != null ? Number(f.neto_total) : null,
+    });
+  }
+  const misPrecios = new Map<string, number>();
+  for (const f of misPreciosRaw ?? []) {
+    const precio = Number(f.precio);
+    if (f.modelo && Number.isFinite(precio) && precio > 0) misPrecios.set(String(f.modelo).toUpperCase(), precio);
+  }
 
   const costoDe = new Map<string, number>();
   for (const c of costosRaw ?? []) {
     const modelo = String(c.modelo ?? "").toUpperCase();
     if (modelo && c.costo_mxn != null && !costoDe.has(modelo)) costoDe.set(modelo, Number(c.costo_mxn));
   }
-  const precioTikTok = new Map<string, { suma: number; n: number }>();
+  const precioLista = new Map<string, { suma: number; n: number }>();
   for (const s of skusTikTok ?? []) {
     const modelo = modeloDeSku(s.sku_interno ?? s.seller_sku ?? "");
     const precio = Number(s.precio);
     if (!modelo || !Number.isFinite(precio) || precio <= 0) continue;
-    const acc = precioTikTok.get(modelo) ?? { suma: 0, n: 0 };
+    const acc = precioLista.get(modelo) ?? { suma: 0, n: 0 };
     acc.suma += precio;
     acc.n += 1;
-    precioTikTok.set(modelo, acc);
+    precioLista.set(modelo, acc);
+  }
+  const precioPagado = new Map<string, { suma: number; pares: number }>();
+  if (!pedidosRpc.error) {
+    const fuera = new Set<string>();
+    for (const o of (pedidosRpc.data?.ordenes ?? []) as any[]) {
+      const estado = String(o.estado ?? "").toUpperCase();
+      if (estado.startsWith("CANCEL") || estado === "UNPAID" || o.esMuestra) fuera.add(String(o.orderId));
+    }
+    for (const r of (pedidosRpc.data?.renglones ?? []) as any[]) {
+      if (fuera.has(String(r.orderId)) || String(r.estado ?? "").toUpperCase().startsWith("CANCEL")) continue;
+      const modelo = modeloDeSku(r.skuInterno ?? r.sellerSku ?? "");
+      const precio = Number(r.precio);
+      const pares = Number(r.cantidad ?? 0) || 0;
+      if (!modelo || !Number.isFinite(precio) || precio <= 0 || pares <= 0) continue;
+      const acc = precioPagado.get(modelo) ?? { suma: 0, pares: 0 };
+      acc.suma += precio * pares;
+      acc.pares += pares;
+      precioPagado.set(modelo, acc);
+    }
   }
 
   const entradas = new Map<string, EntradaModelo>();
-  for (const m of monitor.porModelo) {
-    const modelo = m.modelo.toUpperCase();
-    entradas.set(modelo, {
+  const nueva = (modelo: string, categoria: string | null = null): EntradaModelo => {
+    const r = relampago.get(modelo);
+    return {
       modelo,
-      categoria: m.categoria,
-      paresMeli: m.unidades7,
-      netoMeli: m.neto7,
+      categoria,
+      paresMeli: r?.paresTotal ?? 0,
+      netoMeli: r && r.netoTotal != null ? r.netoTotal * r.paresTotal : 0,
+      precioRelampagoMeli: r?.precio ?? null,
+      paresRelampago: r?.pares ?? 0,
+      netoRelampago: r?.neto ?? null,
+      miPrecio: misPrecios.get(modelo) ?? null,
       costo: costoDe.get(modelo) ?? null,
       precioTikTok: null,
-    });
+    };
+  };
+  for (const m of monitor.porModelo) {
+    const modelo = m.modelo.toUpperCase();
+    entradas.set(modelo, nueva(modelo, m.categoria));
   }
-  for (const [modelo, acc] of precioTikTok) {
-    const e = entradas.get(modelo) ?? { modelo, categoria: null, paresMeli: 0, netoMeli: 0, costo: costoDe.get(modelo) ?? null, precioTikTok: null };
-    e.precioTikTok = acc.suma / acc.n;
+  for (const modelo of relampago.keys()) if (!entradas.has(modelo)) entradas.set(modelo, nueva(modelo));
+  for (const modelo of misPrecios.keys()) if (!entradas.has(modelo)) entradas.set(modelo, nueva(modelo));
+  for (const modelo of new Set([...precioLista.keys(), ...precioPagado.keys()])) {
+    const e = entradas.get(modelo) ?? nueva(modelo);
+    const pagado = precioPagado.get(modelo);
+    const lista = precioLista.get(modelo);
+    if (pagado && pagado.pares > 0) {
+      e.precioTikTok = pagado.suma / pagado.pares;
+      e.origenPrecio = "pedidos";
+    } else if (lista) {
+      e.precioTikTok = lista.suma / lista.n;
+      e.origenPrecio = "lista";
+    }
     entradas.set(modelo, e);
   }
   const renglones = renglonesDePrecio([...entradas.values()], p);
   const conObjetivo = renglones.filter((r) => r.niveles);
+  const conMiPrecio = renglones.filter((r) => r.origenNivel === "mi-precio").length;
   const enTikTok = renglones.filter((r) => r.precioTikTok != null);
-  const porDebajo = enTikTok.filter((r) => r.niveles && (r.precioTikTok as number) < r.niveles[0].precio).length;
+  const porDebajo = enTikTok.filter((r) => r.niveles && (r.precioTikTok as number) < r.niveles[1].precio).length;
   const k = factorNeto(p);
   const ejemplo = netoTikTok(500, p);
 
@@ -125,7 +193,8 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
         <div>
           <h1 className="titulo-pagina">Precios para TikTok</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            El precio que deja en TikTok el mismo neto por par que deja MELI ({rango.desde} → {rango.hasta}, depósito real de Mercado Pago).
+            El precio que deja en TikTok el mismo neto por par que deja el RELÁMPAGO de MELI ({rango.desde} → {rango.hasta}, depósito real
+            de Mercado Pago), o el precio que tú pongas.
           </p>
         </div>
       </div>
@@ -163,25 +232,27 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
       </form>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Ficha titulo="Modelos con neto de MELI" valor={n(conObjetivo.length)} nota={`vendieron en MELI en ${dias} días`} />
+        <Ficha titulo="Modelos con objetivo" valor={n(conObjetivo.length)} nota={`${n(conMiPrecio)} con tu precio · el resto por el relámpago de MELI en ${dias} días`} />
         <Ficha titulo="Publicados en TikTok" valor={n(enTikTok.length)} nota="con precio activo en TikTok" />
         <Ficha
-          titulo="Hoy por debajo del live"
+          titulo="Hoy por debajo del normal"
           valor={n(porDebajo)}
-          nota="el precio actual de TikTok deja menos que MELI"
+          nota="el precio real de TikTok deja menos que MELI"
           tono={porDebajo ? "alerta" : "bien"}
         />
-        <Ficha titulo="Escalón" valor={`${p.escalonPct}%`} nota="live → relámpago normal → campaña regular" />
+        <Ficha titulo="Escalón" valor={`${p.escalonPct}%`} nota="live abajo del normal · campaña arriba del normal" />
       </div>
 
       <section className="tarjeta overflow-hidden">
         <div className="px-4 pt-4">
           <h2 className="text-sm font-semibold">Precio por modelo</h2>
           <p className="text-xs" style={{ color: "var(--ink-2)" }}>
-            «Neto MELI/par» es lo que Mercado Pago depositó por par en el periodo: el objetivo. «TikTok hoy» es el precio promedio de las
-            tallas activas en TikTok y lo que deja a ese precio. Los tres niveles dejan al menos el objetivo: {NOMBRES_NIVEL.live} es el
-            piso, {NOMBRES_NIVEL.normal} {p.escalonPct} % arriba y {NOMBRES_NIVEL.campana} otro {p.escalonPct} %. Un modelo sin venta
-            en MELI no tiene objetivo.
+            «Relámpago MELI» es el precio más bajo al que el modelo vendió con volumen en el periodo (al menos el 10 % de sus pares) y
+            «Neto relámpago/par» lo que Mercado Pago depositó por par a ESE precio: el objetivo. «Mi precio» manda si lo capturas
+            (vacío = volver al calculado). «TikTok hoy» es el precio REAL que pagaron los clientes en los pedidos de los últimos{" "}
+            {DIAS_PRECIO_REAL} días (ofertas y relámpagos incluidos) y lo que deja; si el modelo no vendió, el de lista del catálogo.{" "}
+            {NOMBRES_NIVEL.normal} es el precio que deja lo mismo que el relámpago de MELI (o tu precio); {NOMBRES_NIVEL.live} va{" "}
+            {p.escalonPct} % abajo (deja menos, a propósito) y {NOMBRES_NIVEL.campana} {p.escalonPct} % arriba.
           </p>
         </div>
         <div className="mt-3 overflow-x-auto">
@@ -190,7 +261,9 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
               <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
                 <th className="px-4 py-2 font-semibold">Modelo</th>
                 <th className="px-4 py-2 text-right font-semibold">Pares MELI</th>
-                <th className="px-4 py-2 text-right font-semibold">Neto MELI/par</th>
+                <th className="px-4 py-2 text-right font-semibold">Relámpago MELI</th>
+                <th className="px-4 py-2 text-right font-semibold">Neto relámpago/par</th>
+                <th className="px-4 py-2 text-right font-semibold">Mi precio</th>
                 <th className="px-4 py-2 text-right font-semibold">Costo</th>
                 <th className="px-4 py-2 text-right font-semibold">TikTok hoy</th>
                 <th className="px-4 py-2 text-right font-semibold">{NOMBRES_NIVEL.live}</th>
@@ -200,7 +273,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
             </thead>
             <tbody>
               {renglones.map((r) => {
-                const bajo = r.niveles && r.precioTikTok != null && r.precioTikTok < r.niveles[0].precio;
+                const bajo = r.niveles && r.precioTikTok != null && r.precioTikTok < r.niveles[1].precio;
                 return (
                   <tr key={r.modelo} className="hairline align-top">
                     <td className="px-4 py-2">
@@ -211,19 +284,36 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
                         </div>
                       ) : null}
                     </td>
-                    <td className="num px-4 py-2 text-right">{r.paresMeli ? n(r.paresMeli) : "—"}</td>
-                    <td className="num px-4 py-2 text-right font-medium" title={r.paresMeli ? `${pesos(r.netoMeli)} netos en ${n(r.paresMeli)} pares` : "sin venta en MELI en el periodo"}>
+                    <td className="num px-4 py-2 text-right" title={r.paresMeli ? `${pesos(r.netoMeli)} netos en ${n(r.paresMeli)} pares (todo el periodo)` : "sin venta en MELI en el periodo"}>
+                      {r.paresMeli ? n(r.paresMeli) : "—"}
+                    </td>
+                    <td className="num px-4 py-2 text-right" title={r.precioRelampagoMeli != null ? `${n(r.paresRelampago)} pares a este precio` : "sin un escalón con volumen"}>
+                      {r.precioRelampagoMeli != null ? (
+                        <>
+                          {pesosC(r.precioRelampagoMeli)}
+                          <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                            {n(r.paresRelampago)} pares
+                          </div>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="num px-4 py-2 text-right font-medium" style={{ color: r.origenNivel === "mi-precio" ? "var(--ink-2)" : undefined }}>
                       {r.netoPorPar != null ? pesosC(r.netoPorPar) : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <MiPrecioTikTok modelo={r.modelo} inicial={r.miPrecio} />
                     </td>
                     <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
                       {r.costo != null ? pesos(r.costo) : "sin costo"}
                     </td>
-                    <td className="num px-4 py-2 text-right" style={{ color: bajo ? "var(--estado-alerta)" : undefined }} title={r.netoTikTokActual != null ? `deja ${pesosC(r.netoTikTokActual)} por par` : "no está en TikTok"}>
+                    <td className="num px-4 py-2 text-right" style={{ color: bajo ? "var(--estado-alerta)" : undefined }} title={r.netoTikTokActual != null ? `deja ${pesosC(r.netoTikTokActual)} por par · ${r.origenPrecio === "pedidos" ? `precio pagado en los pedidos de ${DIAS_PRECIO_REAL} días` : "precio de lista del catálogo (sin pedidos recientes)"}` : "no está en TikTok"}>
                       {r.precioTikTok != null ? (
                         <>
                           {pesos(r.precioTikTok)}
                           <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
-                            deja {pesosC(r.netoTikTokActual ?? 0)}
+                            deja {pesosC(r.netoTikTokActual ?? 0)}{r.origenPrecio === "lista" ? " · lista" : ""}
                           </div>
                         </>
                       ) : (
@@ -234,7 +324,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
                       <td key={i} className="num px-4 py-2 text-right">
                         {nivel ? (
                           <>
-                            <span className={i === 0 ? "font-semibold" : "font-medium"}>{pesos(nivel.precio)}</span>
+                            <span className={i === 1 ? "font-semibold" : "font-medium"}>{pesos(nivel.precio)}</span>
                             <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
                               deja {pesosC(nivel.neto)}
                               {r.costo != null ? ` · gano ${pesos(nivel.neto - r.costo)}` : ""}
@@ -250,7 +340,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
               })}
               {!renglones.length ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-sm" colSpan={8} style={{ color: "var(--ink-2)" }}>
+                  <td className="px-4 py-6 text-center text-sm" colSpan={10} style={{ color: "var(--ink-2)" }}>
                     Sin ventas en MELI ni productos en TikTok.
                   </td>
                 </tr>

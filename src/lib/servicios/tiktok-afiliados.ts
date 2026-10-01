@@ -121,17 +121,20 @@ export async function leerAfiliados(db: DB, accountId: string, cliente: Cliente)
     const recienteDesde = ahora - DIAS_RECIENTES * 86_400_000;
     const ventanas: { desde: number; hasta: number; esFondo: boolean }[] = [{ desde: recienteDesde, hasta: ahora, esFondo: false }];
 
-    // 2. Un tramo de fondo, desde donde se quedó la vez pasada.
+    // 2. Tramos de fondo, desde donde se quedó la vez pasada, TANTOS como
+    //    quepan en el tiempo (dueño, 1-oct-2026: «los números están
+    //    incompletos»: con un tramo por hora la historia tardaba un día).
     const guardado = await leerCacheAppGuardado<Fondo>(db, accountId, CLAVE_FONDO);
     const fondoHasta = guardado.estado === "encontrado" && guardado.valor.datos?.hasta ? Date.parse(guardado.valor.datos.hasta) : recienteDesde;
-    if (fondoHasta > primerPedidoMs) {
-      ventanas.push({ desde: Math.max(primerPedidoMs - 60_000, fondoHasta - DIAS_POR_TRAMO * 86_400_000), hasta: fondoHasta, esFondo: true });
-    } else {
-      r.llegoAlPrimero = true;
-    }
-
+    if (fondoHasta <= primerPedidoMs) r.llegoAlPrimero = true;
     let nuevoFondo = fondoHasta;
-    for (const v of ventanas) {
+    const siguienteTramo = (): { desde: number; hasta: number; esFondo: boolean } | null => {
+      if (nuevoFondo <= primerPedidoMs) return null;
+      return { desde: Math.max(primerPedidoMs - 60_000, nuevoFondo - DIAS_POR_TRAMO * 86_400_000), hasta: nuevoFondo, esFondo: true };
+    };
+    for (let i = 0; i < ventanas.length + 40; i++) {
+      const v = i < ventanas.length ? ventanas[i] : siguienteTramo();
+      if (!v) break;
       if (cliente.msRestantes() < 25_000) break;
       const lectura = await leerVentana(db, accountId, cliente, v.desde, v.hasta, primera);
       primera = lectura.primera;
@@ -148,6 +151,10 @@ export async function leerAfiliados(db: DB, accountId: string, cliente: Cliente)
         if (error) throw new Error(`tiktok_marcar_afiliados_leidos: ${error.message}`);
         marcados = Number(data ?? 0);
         if (v.esFondo) nuevoFondo = v.desde;
+      } else if (v.esFondo) {
+        // Un tramo a medias no mueve el cursor y no tiene caso seguir.
+        r.ventanas.push({ desde: new Date(v.desde).toISOString(), hasta: new Date(v.hasta).toISOString(), paginas: lectura.paginas, pedidos: lectura.filas.length, completa: false, marcados });
+        break;
       }
       r.ventanas.push({
         desde: new Date(v.desde).toISOString(),

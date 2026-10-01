@@ -1039,16 +1039,30 @@ guárdala numerada.
   niveles: relámpago live el más bajo, relámpago normal 5 % arriba y
   campaña regular otro 5 % arriba»): por modelo, el objetivo es el neto de
   MELI por par del periodo (monitor de ventas, depósito real, 30 días por
-  omisión) y el precio live es el que deja ese neto con la fórmula de
+  omisión) — NO: desde el mismo 1-oct-2026 el objetivo es el neto de MELI
+  por par CUANDO SE VENDE EL RELÁMPAGO (RPC `meli_neto_relampago_por_modelo`,
+  migración 0106: por modelo, las órdenes de UN renglón se agrupan por
+  precio unitario y el escalón MÁS BAJO con volumen —≥ 10 % de los pares,
+  mínimo 3— es el relámpago; su neto ÷ pares es el objetivo; dueño: «el
+  neto de cuando se vende el relámpago», «el GT148 debería estar en $128.99,
+  no en $157»: el promedio mezclaba precio lleno y oferta), y manda sobre
+  todo el precio que el dueño capture en «Mi precio»
+  (`tiktok_precios_objetivo`, `POST /api/tiktok/precios`,
+  `components/mi-precio-tiktok.tsx`; vacío = volver al calculado). El
+  relámpago NORMAL es el que deja ese neto con la fórmula de
   TikTok (`netoTikTok` / `precioParaNeto`; parámetros del dueño,
   1-oct-2026: comisión 6 % —«no me han cobrado, pero van a comenzar
   pronto», se descuenta ya—, $6 por par, afiliado 4 % fijo, envío 8 % del
   precio —«no es $19, es 8 %»—, IVA 8 % e ISR 2.5 % retenidos sobre la base
-  sin IVA, y $2 por par de empaque), redondeado al peso hacia arriba; normal = live + 5 %
-  y campaña = normal + 5 % (`nivelesDePrecio`). Los parámetros van en la
-  URL (`parametrosDesde`) para cambiarlos y compartirlos. La tabla enseña
-  costo, el precio promedio actual en TikTok (`tiktok_skus` activos) con
-  lo que deja hoy, y marca en ámbar los que están por debajo del live.
+  sin IVA, y $2 por par de empaque), redondeado al peso hacia arriba: ese
+  es el RELÁMPAGO NORMAL; el live va 5 % ABAJO «aunque me deje menos
+  dinero que MELI» y la campaña regular 5 % arriba (`nivelesDePrecio`;
+  ajuste del dueño el mismo día). Los parámetros van en la URL
+  (`parametrosDesde`). «TikTok hoy» es el precio REAL pagado en los
+  pedidos de los últimos 14 días (`tiktok_ventas_pedidos`, ofertas y
+  relámpagos incluidos; dueño: «toma el real que está en oferta, no el
+  precio base»), y solo sin pedidos el de lista de `tiktok_skus`; en ámbar
+  los que están por debajo del normal.
   **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
   Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
   `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla
