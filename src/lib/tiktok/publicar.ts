@@ -524,7 +524,9 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
     main_images: datos.imagenesUri.slice(0, MAX_IMAGENES_PRINCIPALES).map((uri) => ({ uri })),
     skus,
     package_weight: plantilla.packageWeight,
-    save_mode: datos.borrador ? "DRAFT" : "LISTING",
+    // TikTok: «SaveMode is invalid, allowed values: LISTING,AS_DRAFT»
+    // (30-sep-2026; el SDK decía DRAFT).
+    save_mode: datos.borrador ? "AS_DRAFT" : "LISTING",
   };
   if (plantilla.brandId) cuerpo.brand_id = plantilla.brandId;
   if (plantilla.productAttributes.length) cuerpo.product_attributes = plantilla.productAttributes;

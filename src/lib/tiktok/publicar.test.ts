@@ -201,7 +201,7 @@ describe("armarCuerpoProducto", () => {
   });
 
   it("como borrador manda DRAFT", () => {
-    expect((armarCuerpoProducto({ ...datos, borrador: true }, plantilla) as any).save_mode).toBe("DRAFT");
+    expect((armarCuerpoProducto({ ...datos, borrador: true }, plantilla) as any).save_mode).toBe("AS_DRAFT");
   });
 
   it("sin imágenes, sin precio o sin talla no se publica", () => {
