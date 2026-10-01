@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       // El catálogo de la tienda (fotos, colores y tallas de TikTok; el precio va en cada corrida).
       try {
         const restante = 290_000 - (Date.now() - inicioRuta);
-        if (restante > 40_000) tienda.catalogo = await refrescarCatalogoTienda(admin, c.id, Math.min(restante - 10_000, 45_000));
+        if (restante > 40_000) tienda.catalogo = await refrescarCatalogoTienda(admin, c.id, Math.min(restante - 10_000, 45_000), { sinAmazon: true });
       } catch (err) {
         tienda.catalogo = { error: (err as Error).message };
       }

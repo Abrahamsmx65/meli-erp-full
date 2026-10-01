@@ -1,30 +1,43 @@
 import Link from "next/link";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { bannersAmazon, listarProductos } from "@/lib/catalogo";
+import { listarProductos, tiendaAmazon, type PaginaAmazon } from "@/lib/catalogo";
 import { pesos } from "@/lib/tienda";
 
 // El catálogo va en caché de un minuto (lib/catalogo.ts); la existencia se lee en cada visita.
 export const dynamic = "force-dynamic";
 
-/**
- * Banners de la portada: los que se pongan a mano en public/banners (en
- * orden alfabético) y luego los copiados de la tienda de marca de Amazon.
- */
-async function banners(): Promise<string[]> {
-  let propios: string[] = [];
+/** Banners propios: las imágenes en public/banners, en orden alfabético. */
+async function bannersPropios(): Promise<string[]> {
   try {
     const archivos = await readdir(path.join(process.cwd(), "public", "banners"));
-    propios = archivos.filter((a) => /\.(jpe?g|png|webp|avif)$/i.test(a)).sort().map((a) => `/banners/${a}`);
+    return archivos.filter((a) => /\.(jpe?g|png|webp|avif)$/i.test(a)).sort().map((a) => `/banners/${a}`);
   } catch {
-    /* sin carpeta */
+    return [];
   }
-  const deAmazon = await bannersAmazon().catch(() => [] as string[]);
-  return [...propios, ...deAmazon];
+}
+
+/** Una imagen de la tienda de Amazon: las anchas a todo lo ancho, las chicas en mosaico. */
+function Mosaico({ pagina }: { pagina: PaginaAmazon }) {
+  return (
+    <div className="mosaico">
+      {pagina.imagenes.map((i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={i.url} src={i.url} alt="" loading="lazy" className={i.ancho == null || i.ancho >= 1400 ? "ancha" : ""} />
+      ))}
+    </div>
+  );
 }
 
 export default async function Inicio({ searchParams }: { searchParams: Promise<{ modelo?: string; categoria?: string }> }) {
-  const [{ modelo, categoria }, productos, imagenes] = await Promise.all([searchParams, listarProductos(), banners()]);
+  const [{ modelo, categoria }, productos, propios, amazon] = await Promise.all([
+    searchParams,
+    listarProductos(),
+    bannersPropios(),
+    tiendaAmazon().catch(() => [] as PaginaAmazon[]),
+  ]);
+  const [principal, ...secciones] = amazon;
+  const filtrando = Boolean(modelo || categoria);
   const modelos = [...new Set(productos.map((p) => p.modelo).filter(Boolean) as string[])].sort((a, b) =>
     a.localeCompare(b, "es", { numeric: true }),
   );
@@ -32,20 +45,25 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   const visibles = productos.filter((p) => (!modelo || p.modelo === modelo) && (!categoria || p.categoria === categoria));
 
   return (
-    <div className="contenedor">
-      <section className="portada">
-        <h1>Calzado GETAC</h1>
-        <p>Botas, botines, tenis y sandalias. Elige tu talla, paga con Mercado Pago y te lo mandamos a todo México.</p>
-      </section>
-
-      {imagenes.length > 0 && (
-        <div className="banners" aria-label="Novedades">
-          {imagenes.map((src) => (
+    <>
+      {/* La portada copia la tienda de marca de GETAC en Amazon: sus banners primero. */}
+      {!filtrando && (propios.length > 0 || principal) && (
+        <section className="escaparate" aria-label="GETAC">
+          {propios.map((src) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={src} src={src} alt="" />
+            <img key={src} src={src} alt="" className="ancha" />
           ))}
-        </div>
+          {principal && <Mosaico pagina={principal} />}
+        </section>
       )}
+    <div className="contenedor">
+      {!filtrando && !principal && !propios.length && (
+        <section className="portada">
+          <h1>Calzado GETAC</h1>
+          <p>Botas, botines, tenis y sandalias. Elige tu talla, paga con Mercado Pago y te lo mandamos a todo México.</p>
+        </section>
+      )}
+      <h2 className="titulo-catalogo">{categoria ?? modelo ?? "Catálogo"}</h2>
 
       {categorias.length > 1 && (
         <nav className="filtros" aria-label="Categorías">
@@ -108,5 +126,13 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
         </div>
       )}
     </div>
+      {!filtrando &&
+        secciones.map((p) => (
+          <section key={p.url} className="escaparate seccion-amazon">
+            {p.titulo && <h2 className="contenedor titulo-catalogo">{p.titulo}</h2>}
+            <Mosaico pagina={p} />
+          </section>
+        ))}
+    </>
   );
 }

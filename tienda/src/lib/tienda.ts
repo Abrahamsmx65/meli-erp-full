@@ -27,6 +27,8 @@ export interface Producto {
   bullets?: string[];
   /** categoría de Productos y costos del ERP (Botas y Botines, Tenis…) */
   categoria?: string | null;
+  /** imágenes del contenido A+ de Amazon, en orden */
+  aplus?: string[];
 }
 
 export interface TallaVista {

@@ -20,8 +20,18 @@ export default async function Producto({ params }: { params: Promise<{ id: strin
   const p = await unProducto((await params).id);
   if (!p) notFound();
   return (
-    <div className="contenedor">
-      <Ficha producto={p} />
-    </div>
+    <>
+      <div className="contenedor">
+        <Ficha producto={p} />
+      </div>
+      {p.aplus && p.aplus.length > 0 && (
+        <section className="aplus" aria-label="Más sobre este producto">
+          {p.aplus.map((src, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={src} src={src} alt="" loading={i < 2 ? "eager" : "lazy"} />
+          ))}
+        </section>
+      )}
+    </>
   );
 }
