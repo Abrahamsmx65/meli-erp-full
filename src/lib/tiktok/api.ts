@@ -6,7 +6,11 @@
  * paginación por token, que TikTok hace distinto en cada familia de rutas.
  */
 import { ErrorTikTok, type Cliente } from "./client";
-import { interpretarTransacciones, listaDeTransacciones, type TransaccionesPedido } from "./liquidacion";
+import {
+  interpretarTransacciones,
+  listaDeTransacciones,
+  type TransaccionesPedido,
+} from "./liquidacion";
 
 // ---------------------------------------------------------------------------
 // Autorización
@@ -20,8 +24,12 @@ export interface TiendaAutorizada {
 }
 
 /** Las tiendas que autorizaron esta app. Es la única ruta sin shop_cipher. */
-export async function tiendasAutorizadas(c: Cliente): Promise<TiendaAutorizada[]> {
-  const d = await c.llamar<any>("GET", "/authorization/202309/shops", { conCipher: false });
+export async function tiendasAutorizadas(
+  c: Cliente,
+): Promise<TiendaAutorizada[]> {
+  const d = await c.llamar<any>("GET", "/authorization/202309/shops", {
+    conCipher: false,
+  });
   return (d?.shops ?? []).map((s: any) => ({
     id: String(s.id),
     cipher: String(s.cipher ?? ""),
@@ -57,13 +65,24 @@ export async function bodegas(c: Cliente): Promise<BodegaTikTok[]> {
 // ---------------------------------------------------------------------------
 
 /** Un producto completo tal cual lo contesta TikTok: la PLANTILLA para publicar otros. */
-export async function producto(c: Cliente, productId: string): Promise<any | null> {
-  return c.llamar<any>("GET", `/product/202309/products/${encodeURIComponent(productId)}`, {
-    params: { return_under_review_version: "false" },
-  });
+export async function producto(
+  c: Cliente,
+  productId: string,
+): Promise<any | null> {
+  return c.llamar<any>(
+    "GET",
+    `/product/202309/products/${encodeURIComponent(productId)}`,
+    {
+      params: { return_under_review_version: "false" },
+    },
+  );
 }
 
-export type UsoDeImagen = "MAIN_IMAGE" | "ATTRIBUTE_IMAGE" | "DESCRIPTION_IMAGE" | "SIZE_CHART_IMAGE";
+export type UsoDeImagen =
+  | "MAIN_IMAGE"
+  | "ATTRIBUTE_IMAGE"
+  | "DESCRIPTION_IMAGE"
+  | "SIZE_CHART_IMAGE";
 
 /**
  * Sube una imagen a TikTok y devuelve su `uri`, que es lo que el producto
@@ -75,7 +94,12 @@ export async function subirImagen(
   bytes: Uint8Array,
   tipo: string,
   uso: UsoDeImagen = "MAIN_IMAGE",
-): Promise<{ uri: string; url: string | null; ancho: number | null; alto: number | null } | null> {
+): Promise<{
+  uri: string;
+  url: string | null;
+  ancho: number | null;
+  alto: number | null;
+} | null> {
   const ext = /png/i.test(tipo) ? "png" : "jpg";
   const d = await c.llamarMultipart<any>(
     "/product/202309/images/upload",
@@ -86,7 +110,12 @@ export async function subirImagen(
     { conCipher: false },
   );
   if (!d) return null;
-  if (!d.uri) throw new ErrorTikTok(0, "/product/202309/images/upload", `sin uri en la respuesta: ${JSON.stringify(d).slice(0, 200)}`);
+  if (!d.uri)
+    throw new ErrorTikTok(
+      0,
+      "/product/202309/images/upload",
+      `sin uri en la respuesta: ${JSON.stringify(d).slice(0, 200)}`,
+    );
   return {
     uri: String(d.uri),
     url: d.url ? String(d.url) : null,
@@ -96,15 +125,42 @@ export async function subirImagen(
 }
 
 /** Crea el producto. El cuerpo lo arma `tiktok/publicar.ts`; aquí solo viaja. */
-export async function crearProducto(c: Cliente, cuerpo: Record<string, unknown>): Promise<any | null> {
+export async function crearProducto(
+  c: Cliente,
+  cuerpo: Record<string, unknown>,
+): Promise<any | null> {
   return c.llamar<any>("POST", "/product/202309/products", { cuerpo });
 }
 
+/**
+ * Edición PARCIAL de un producto ya publicado: solo lo que viaja cambia
+ * (la guía de tallas, el nombre de una variante…). La edición completa
+ * (`PUT /products/{id}`) exige mandar TODO y un campo de menos lo borra.
+ */
+export async function editarProductoParcial(
+  c: Cliente,
+  productId: string,
+  cuerpo: Record<string, unknown>,
+): Promise<any | null> {
+  return c.llamar<any>(
+    "POST",
+    `/product/202309/products/${encodeURIComponent(productId)}/partial_edit`,
+    { cuerpo },
+  );
+}
+
 /** Los atributos (de producto y de venta) de una categoría hoja. */
-export async function atributosDeCategoria(c: Cliente, categoryId: string): Promise<any[]> {
-  const d = await c.llamar<any>("GET", `/product/202309/categories/${encodeURIComponent(categoryId)}/attributes`, {
-    params: { locale: "es-MX" },
-  });
+export async function atributosDeCategoria(
+  c: Cliente,
+  categoryId: string,
+): Promise<any[]> {
+  const d = await c.llamar<any>(
+    "GET",
+    `/product/202309/categories/${encodeURIComponent(categoryId)}/attributes`,
+    {
+      params: { locale: "es-MX" },
+    },
+  );
   return d?.attributes ?? [];
 }
 
@@ -159,7 +215,8 @@ export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
           sellerSku: s.seller_sku ? String(s.seller_sku) : null,
           titulo: p.title ?? null,
           talla: tallas || null,
-          precio: s.price?.sale_price != null ? Number(s.price.sale_price) : null,
+          precio:
+            s.price?.sale_price != null ? Number(s.price.sale_price) : null,
           estado: p.status ?? null,
           disponibleEnTikTok: (s.inventory ?? []).length ? inventario : null,
         });
@@ -240,7 +297,13 @@ export function normalizarPedido(o: any): PedidoTikTok {
 
   const dest = o.recipient_address;
   const destinatario = dest
-    ? [dest.name, dest.district_info?.map?.((d: any) => d.address_name).slice(-2).join(", ")]
+    ? [
+        dest.name,
+        dest.district_info
+          ?.map?.((d: any) => d.address_name)
+          .slice(-2)
+          .join(", "),
+      ]
         .filter(Boolean)
         .join(" · ")
     : null;
@@ -251,7 +314,8 @@ export function normalizarPedido(o: any): PedidoTikTok {
     creadoEn: iso(o.create_time),
     actualizadoEn: iso(o.update_time),
     enviadoEn: iso(o.rts_time ?? o.collection_time),
-    total: o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
+    total:
+      o.payment?.total_amount != null ? Number(o.payment.total_amount) : null,
     moneda: o.payment?.currency ?? null,
     // TikTok marca las muestras con is_sample_order; por si un día no lo
     // manda, un pedido de $0 también es muestra: nadie regala un par sin
@@ -272,7 +336,10 @@ export function normalizarPedido(o: any): PedidoTikTok {
  * Pedidos concretos, por id. Es lo que usa el webhook (TikTok avisa de UN
  * pedido) y la confirmación de envío desde el ERP.
  */
-export async function pedidosPorId(c: Cliente, ids: string[]): Promise<PedidoTikTok[]> {
+export async function pedidosPorId(
+  c: Cliente,
+  ids: string[],
+): Promise<PedidoTikTok[]> {
   const salida: PedidoTikTok[] = [];
   for (let i = 0; i < ids.length; i += 50) {
     const d = await c.llamar<any>("GET", "/order/202309/orders", {
@@ -311,7 +378,12 @@ export async function pedidosActualizados(
 
   for (let pagina = 0; pagina < tope; pagina++) {
     const d = await c.llamar<any>("POST", "/order/202309/orders/search", {
-      params: { page_size: 50, page_token: token, sort_field: "update_time", sort_order: "ASC" },
+      params: {
+        page_size: 50,
+        page_token: token,
+        sort_field: "update_time",
+        sort_order: "ASC",
+      },
       cuerpo: { update_time_ge: desde, update_time_lt: hasta },
     });
     if (!d) break;
@@ -375,14 +447,18 @@ export async function publicarStock(
   for (const [productId, skus] of porProducto) {
     if (c.msRestantes() < 10_000) break;
     try {
-      await c.llamar("POST", `/product/202309/products/${productId}/inventory/update`, {
-        cuerpo: {
-          skus: skus.map((s) => ({
-            id: s.skuId,
-            inventory: [{ warehouse_id: warehouseId, quantity: s.cantidad }],
-          })),
+      await c.llamar(
+        "POST",
+        `/product/202309/products/${productId}/inventory/update`,
+        {
+          cuerpo: {
+            skus: skus.map((s) => ({
+              id: s.skuId,
+              inventory: [{ warehouse_id: warehouseId, quantity: s.cantidad }],
+            })),
+          },
         },
-      });
+      );
       publicados += skus.length;
     } catch (err) {
       const mensaje = (err as Error).message;
@@ -411,7 +487,10 @@ export interface OpcionesEnvio {
  * Los paquetes de un pedido. Con guía de TikTok el paquete ya existe; con
  * paquetería propia a veces hay que crearlo primero.
  */
-export async function paquetesDePedido(c: Cliente, orderId: string): Promise<PaqueteTikTok[]> {
+export async function paquetesDePedido(
+  c: Cliente,
+  orderId: string,
+): Promise<PaqueteTikTok[]> {
   const [p] = await pedidosPorId(c, [orderId]);
   if (p?.paquetes.length) return p.paquetes;
 
@@ -431,9 +510,14 @@ export async function enviarPaquete(
   packageId: string,
   opciones: OpcionesEnvio,
 ): Promise<void> {
-  const cuerpo: Record<string, unknown> = { handover_method: opciones.handover };
+  const cuerpo: Record<string, unknown> = {
+    handover_method: opciones.handover,
+  };
   if (opciones.handover === "PICKUP" && opciones.horario) {
-    cuerpo.pickup_slot = { start_time: opciones.horario.inicio, end_time: opciones.horario.fin };
+    cuerpo.pickup_slot = {
+      start_time: opciones.horario.inicio,
+      end_time: opciones.horario.fin,
+    };
   }
   if (opciones.guia && opciones.proveedorId) {
     cuerpo.self_shipment = {
@@ -441,11 +525,16 @@ export async function enviarPaquete(
       shipping_provider_id: opciones.proveedorId,
     };
   }
-  await c.llamar("POST", `/fulfillment/202309/packages/${packageId}/ship`, { cuerpo });
+  await c.llamar("POST", `/fulfillment/202309/packages/${packageId}/ship`, {
+    cuerpo,
+  });
 }
 
 /** La guía en PDF del paquete (la que se pega en la caja). */
-export async function etiquetaDePaquete(c: Cliente, packageId: string): Promise<string | null> {
+export async function etiquetaDePaquete(
+  c: Cliente,
+  packageId: string,
+): Promise<string | null> {
   const d = await c.llamar<any>(
     "GET",
     `/fulfillment/202309/packages/${packageId}/shipping_documents`,
@@ -453,8 +542,14 @@ export async function etiquetaDePaquete(c: Cliente, packageId: string): Promise<
   );
   // Que el motivo se vea: null = TikTok no contestó (límite de llamadas o
   // sin tiempo); sin doc_url = contestó otra cosa (guía aún no generada).
-  if (!d) throw new Error("TikTok no contestó la guía (límite de llamadas); se reintenta al volver a pedir el PDF");
-  if (!d.doc_url) throw new Error(`TikTok contestó sin guía (${Object.keys(d).join(", ") || "vacío"}); puede que aún no la genere`);
+  if (!d)
+    throw new Error(
+      "TikTok no contestó la guía (límite de llamadas); se reintenta al volver a pedir el PDF",
+    );
+  if (!d.doc_url)
+    throw new Error(
+      `TikTok contestó sin guía (${Object.keys(d).join(", ") || "vacío"}); puede que aún no la genere`,
+    );
   return String(d.doc_url);
 }
 
@@ -464,7 +559,9 @@ export interface ProveedorEnvio {
 }
 
 /** Las paqueterías que TikTok acepta para envío propio (Estafeta, DHL…). */
-export async function proveedoresDeEnvio(c: Cliente): Promise<ProveedorEnvio[]> {
+export async function proveedoresDeEnvio(
+  c: Cliente,
+): Promise<ProveedorEnvio[]> {
   const d = await c.llamar<any>("GET", "/logistics/202309/shipping_providers", {
     params: { delivery_option_id: undefined },
   });
@@ -475,8 +572,14 @@ export async function proveedoresDeEnvio(c: Cliente): Promise<ProveedorEnvio[]> 
 }
 
 /** Qué renglones del pedido van en un paquete (para pedidos de varios paquetes). */
-export async function renglonesDelPaquete(c: Cliente, packageId: string): Promise<string[]> {
-  const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}`);
+export async function renglonesDelPaquete(
+  c: Cliente,
+  packageId: string,
+): Promise<string[]> {
+  const d = await c.llamar<any>(
+    "GET",
+    `/fulfillment/202309/packages/${packageId}`,
+  );
   const ids = d?.order_line_item_ids ?? d?.line_item_ids ?? [];
   return (ids as unknown[]).map(String);
 }
@@ -502,8 +605,14 @@ export interface OpcionesDeEntrega {
  * drop-off. Y si `puedeRecoleccion` es false, la tienda o la paquetería no
  * tienen recolección habilitada y no hay horario que valga.
  */
-export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<OpcionesDeEntrega> {
-  const d = await c.llamar<any>("GET", `/fulfillment/202309/packages/${packageId}/handover_time_slots`);
+export async function opcionesDeEntrega(
+  c: Cliente,
+  packageId: string,
+): Promise<OpcionesDeEntrega> {
+  const d = await c.llamar<any>(
+    "GET",
+    `/fulfillment/202309/packages/${packageId}/handover_time_slots`,
+  );
   const listas: any[] = [
     ...(d?.pickup_time_slots ?? []),
     ...(d?.time_slots ?? []),
@@ -518,9 +627,11 @@ export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<
   // así en producción (paquete J&T MX, Naucalpan). Así que "no viene" con
   // drop-off presente = no hay recolección.
   const canPickup = typeof d?.can_pickup === "boolean" ? d.can_pickup : null;
-  const canDropOff = typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null;
+  const canDropOff =
+    typeof d?.can_drop_off === "boolean" ? d.can_drop_off : null;
   return {
-    puedeRecoleccion: canPickup ?? (canDropOff === true && !horarios.length ? false : null),
+    puedeRecoleccion:
+      canPickup ?? (canDropOff === true && !horarios.length ? false : null),
     puedeDropOff: canDropOff,
     horarios,
     llaves: d ? Object.keys(d) : [],
@@ -528,7 +639,10 @@ export async function opcionesDeEntrega(c: Cliente, packageId: string): Promise<
 }
 
 /** Solo los horarios (compatibilidad). */
-export async function horariosDeRecoleccion(c: Cliente, packageId: string): Promise<HorarioRecoleccion[]> {
+export async function horariosDeRecoleccion(
+  c: Cliente,
+  packageId: string,
+): Promise<HorarioRecoleccion[]> {
   return (await opcionesDeEntrega(c, packageId)).horarios;
 }
 
@@ -607,27 +721,48 @@ export const VERSIONES_ELEGIBILIDAD = [
  * cada versión de la lista. Una versión que no existe contesta 36009004 en
  * el acto, así que probar de más no cuesta.
  */
-export function intentosDeElegibilidad(): { version: string; params: Record<string, string> }[] {
+export function intentosDeElegibilidad(): {
+  version: string;
+  params: Record<string, string>;
+}[] {
   const base = { initiate_aftersale_user: "SELLER" };
   return [
     { version: "202309", params: base },
     { version: "202309", params: { ...base, request_type: "CANCEL" } },
-    ...VERSIONES_ELEGIBILIDAD.filter((v) => v !== "202309").map((version) => ({ version, params: base })),
+    ...VERSIONES_ELEGIBILIDAD.filter((v) => v !== "202309").map((version) => ({
+      version,
+      params: base,
+    })),
   ];
 }
 
-export async function motivosDeCancelacion(c: Cliente, orderId: string): Promise<MotivosDeCancelacion> {
-  const intentos: { version: string; params?: Record<string, string>; crudo: unknown }[] = [];
+export async function motivosDeCancelacion(
+  c: Cliente,
+  orderId: string,
+): Promise<MotivosDeCancelacion> {
+  const intentos: {
+    version: string;
+    params?: Record<string, string>;
+    crudo: unknown;
+  }[] = [];
   for (const intento of intentosDeElegibilidad()) {
     let d: unknown;
     try {
-      d = await c.llamar<any>("GET", `/return_refund/${intento.version}/orders/${orderId}/aftersale_eligibility`, {
-        params: intento.params,
-      });
+      d = await c.llamar<any>(
+        "GET",
+        `/return_refund/${intento.version}/orders/${orderId}/aftersale_eligibility`,
+        {
+          params: intento.params,
+        },
+      );
     } catch (err) {
       d = { error: (err as Error).message };
     }
-    intentos.push({ version: intento.version, params: intento.params, crudo: d });
+    intentos.push({
+      version: intento.version,
+      params: intento.params,
+      crudo: d,
+    });
     const motivos = nombresDeMotivo(d);
     if (motivos.length) return { motivos, crudo: intentos };
   }
@@ -655,10 +790,20 @@ export function nombresDeMotivo(json: unknown): string[] {
       if (/^available_reason_names?$/.test(k) && Array.isArray(v)) {
         for (const x of v) {
           if (typeof x === "string") agregar(x);
-          else if (x && typeof x === "object") agregar((x as any).name ?? (x as any).reason_name ?? (x as any).key);
+          else if (x && typeof x === "object")
+            agregar(
+              (x as any).name ?? (x as any).reason_name ?? (x as any).key,
+            );
         }
       } else if (/^available_reasons$/.test(k) && Array.isArray(v)) {
-        for (const x of v) agregar(typeof x === "string" ? x : (x as any)?.name ?? (x as any)?.reason_name ?? (x as any)?.key);
+        for (const x of v)
+          agregar(
+            typeof x === "string"
+              ? x
+              : ((x as any)?.name ??
+                  (x as any)?.reason_name ??
+                  (x as any)?.key),
+          );
       } else {
         recorrer(v, profundidad + 1);
       }
@@ -698,10 +843,24 @@ export async function motivosUsadosEnCancelaciones(
   const vistos = new Map<string, MotivoUsado>();
   let token: string | undefined;
   for (let pagina = 0; pagina < tope; pagina++) {
-    const d = await c.llamar<any>("POST", "/return_refund/202309/cancellations/search", {
-      params: { page_size: 50, page_token: token, sort_field: "create_time", sort_order: "DESC" },
-      cuerpo: { cancel_types: ["CANCEL"], create_time_ge: ahora - dias * 86_400, create_time_lt: ahora, locale: "es-MX" },
-    });
+    const d = await c.llamar<any>(
+      "POST",
+      "/return_refund/202309/cancellations/search",
+      {
+        params: {
+          page_size: 50,
+          page_token: token,
+          sort_field: "create_time",
+          sort_order: "DESC",
+        },
+        cuerpo: {
+          cancel_types: ["CANCEL"],
+          create_time_ge: ahora - dias * 86_400,
+          create_time_lt: ahora,
+          locale: "es-MX",
+        },
+      },
+    );
     for (const x of d?.cancellations ?? []) {
       const motivo = String(x?.cancel_reason ?? "").trim();
       if (!motivo) continue;
@@ -709,12 +868,20 @@ export async function motivosUsadosEnCancelaciones(
       const clave = `${rol ?? ""}|${motivo}`;
       const previo = vistos.get(clave);
       if (previo) previo.veces++;
-      else vistos.set(clave, { motivo, texto: x?.cancel_reason_text ? String(x.cancel_reason_text) : null, rol, veces: 1 });
+      else
+        vistos.set(clave, {
+          motivo,
+          texto: x?.cancel_reason_text ? String(x.cancel_reason_text) : null,
+          rol,
+          veces: 1,
+        });
     }
     token = d?.next_page_token || undefined;
     if (!token) break;
   }
-  return [...vistos.values()].sort((a, b) => b.veces - a.veces || a.motivo.localeCompare(b.motivo));
+  return [...vistos.values()].sort(
+    (a, b) => b.veces - a.veces || a.motivo.localeCompare(b.motivo),
+  );
 }
 
 /** Los motivos que el VENDEDOR ya usó, los que hablan de stock primero. */
@@ -725,7 +892,9 @@ export function motivosDeVendedor(usados: MotivoUsado[]): string[] {
 }
 
 export function motivoSinStock(motivos: string[]): string | null {
-  return motivos.find((m) => /stock|inventor|agot/i.test(m)) ?? motivos[0] ?? null;
+  return (
+    motivos.find((m) => /stock|inventor|agot/i.test(m)) ?? motivos[0] ?? null
+  );
 }
 
 /**
@@ -783,11 +952,23 @@ export async function cancelarRenglones(
   // TikTok de la clave de su documentación.
   const intentos: string[] = [];
   for (const motivo of motivos) {
-    const cuerpo: Record<string, unknown> = { order_id: orderId, cancel_reason: motivo };
-    if (skus?.length) cuerpo.skus = skus.map((s) => ({ sku_id: s.skuId, quantity: s.cantidad }));
+    const cuerpo: Record<string, unknown> = {
+      order_id: orderId,
+      cancel_reason: motivo,
+    };
+    if (skus?.length)
+      cuerpo.skus = skus.map((s) => ({
+        sku_id: s.skuId,
+        quantity: s.cantidad,
+      }));
     try {
-      const d = await c.llamar<any>("POST", "/return_refund/202309/cancellations", { cuerpo });
-      if (!d) throw new Error("TikTok no contestó la cancelación (sin tiempo).");
+      const d = await c.llamar<any>(
+        "POST",
+        "/return_refund/202309/cancellations",
+        { cuerpo },
+      );
+      if (!d)
+        throw new Error("TikTok no contestó la cancelación (sin tiempo).");
       const estado = d?.cancel_status != null ? String(d.cancel_status) : null;
       return {
         cancelId: d?.cancel_id != null ? String(d.cancel_id) : null,
@@ -800,7 +981,11 @@ export async function cancelarRenglones(
       intentos.push(`«${motivo}» → ${resumenDeError((err as Error).message)}`);
     }
   }
-  throw new Error(intentos.length ? `TikTok no aceptó ningún motivo: ${intentos.join(" | ")}` : "Sin motivo de cancelación.");
+  throw new Error(
+    intentos.length
+      ? `TikTok no aceptó ningún motivo: ${intentos.join(" | ")}`
+      : "Sin motivo de cancelación.",
+  );
 }
 
 /** El mensaje de TikTok sin el prefijo de ruta, recortado: cabe en la constancia. */
@@ -877,7 +1062,10 @@ export async function liquidacionDePedido(
   c: Cliente,
   orderId: string,
 ): Promise<{ liquidacion: LiquidacionTikTok | null; crudo: unknown }> {
-  const d = await c.llamar<any>("GET", `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`);
+  const d = await c.llamar<any>(
+    "GET",
+    `/finance/202309/orders/${encodeURIComponent(orderId)}/statement_transactions`,
+  );
   return { liquidacion: interpretarLiquidacion(d), crudo: d ?? null };
 }
 
@@ -895,16 +1083,33 @@ export const VERSION_TRANSACCIONES_VIEJA = "202309";
 export async function transaccionesDePedido(
   c: Cliente,
   orderId: string,
-): Promise<{ transacciones: TransaccionesPedido | null; crudo: unknown; version: string }> {
-  const ruta = (v: string) => `/finance/${v}/orders/${encodeURIComponent(orderId)}/statement_transactions`;
+): Promise<{
+  transacciones: TransaccionesPedido | null;
+  crudo: unknown;
+  version: string;
+}> {
+  const ruta = (v: string) =>
+    `/finance/${v}/orders/${encodeURIComponent(orderId)}/statement_transactions`;
   try {
     const d = await c.llamar<any>("GET", ruta(VERSION_TRANSACCIONES));
-    return { transacciones: interpretarTransacciones(d), crudo: d ?? null, version: VERSION_TRANSACCIONES };
+    return {
+      transacciones: interpretarTransacciones(d),
+      crudo: d ?? null,
+      version: VERSION_TRANSACCIONES,
+    };
   } catch (err) {
     const e = err as ErrorTikTok;
-    if (!(e instanceof ErrorTikTok) || !(e.codigo === 36009004 || e.codigo === 404)) throw err;
+    if (
+      !(e instanceof ErrorTikTok) ||
+      !(e.codigo === 36009004 || e.codigo === 404)
+    )
+      throw err;
     const d = await c.llamar<any>("GET", ruta(VERSION_TRANSACCIONES_VIEJA));
-    return { transacciones: interpretarTransacciones(d), crudo: d ?? null, version: VERSION_TRANSACCIONES_VIEJA };
+    return {
+      transacciones: interpretarTransacciones(d),
+      crudo: d ?? null,
+      version: VERSION_TRANSACCIONES_VIEJA,
+    };
   }
 }
 
@@ -922,7 +1127,10 @@ export async function transaccionesDePedido(
  * versión más nueva de respaldo por si TikTok retira la 202507; la que
  * exista se recuerda; 36009004/36009009/404 son «esta no es».
  */
-export const RUTAS_SIN_LIQUIDAR = ["/finance/202507/orders/unsettled", "/finance/202509/orders/unsettled"];
+export const RUTAS_SIN_LIQUIDAR = [
+  "/finance/202507/orders/unsettled",
+  "/finance/202509/orders/unsettled",
+];
 let rutaSinLiquidarQueExiste: string | null = null;
 
 export interface PaginaSinLiquidar {
@@ -932,7 +1140,12 @@ export interface PaginaSinLiquidar {
   crudo: unknown;
   ruta: string | null;
   /** qué contestó cada ruta que NO sirvió (para la bitácora) */
-  intentos: { ruta: string; params: string; codigo: number | null; error: string }[];
+  intentos: {
+    ruta: string;
+    params: string;
+    codigo: number | null;
+    error: string;
+  }[];
 }
 
 /**
@@ -947,30 +1160,68 @@ export interface PaginaSinLiquidar {
  */
 export async function transaccionesSinLiquidar(
   c: Cliente,
-  opciones: { pageToken?: string; pageSize?: number; desde?: number; hasta?: number } = {},
+  opciones: {
+    pageToken?: string;
+    pageSize?: number;
+    desde?: number;
+    hasta?: number;
+  } = {},
 ): Promise<PaginaSinLiquidar> {
   const intentos: PaginaSinLiquidar["intentos"] = [];
   const pageSize = opciones.pageSize ?? 100;
   const juegos: Record<string, string | number | undefined>[] = [
-    { page_size: pageSize, page_token: opciones.pageToken, search_time_ge: opciones.desde, search_time_lt: opciones.hasta, sort_field: "order_create_time", sort_order: "DESC" },
+    {
+      page_size: pageSize,
+      page_token: opciones.pageToken,
+      search_time_ge: opciones.desde,
+      search_time_lt: opciones.hasta,
+      sort_field: "order_create_time",
+      sort_order: "DESC",
+    },
     // `sort_field` es obligatorio; la ventana de tiempo no.
-    { page_size: pageSize, page_token: opciones.pageToken, sort_field: "order_create_time", sort_order: "DESC" },
+    {
+      page_size: pageSize,
+      page_token: opciones.pageToken,
+      sort_field: "order_create_time",
+      sort_order: "DESC",
+    },
   ];
-  const rutas = rutaSinLiquidarQueExiste ? [rutaSinLiquidarQueExiste] : RUTAS_SIN_LIQUIDAR;
+  const rutas = rutaSinLiquidarQueExiste
+    ? [rutaSinLiquidarQueExiste]
+    : RUTAS_SIN_LIQUIDAR;
   for (const ruta of rutas) {
     for (const params of juegos) {
       try {
         const d = await c.llamar<any>("GET", ruta, { params });
         rutaSinLiquidarQueExiste = ruta;
-        return { renglones: listaDeTransacciones(d), siguiente: d?.next_page_token || undefined, crudo: d ?? null, ruta, intentos };
+        return {
+          renglones: listaDeTransacciones(d),
+          siguiente: d?.next_page_token || undefined,
+          crudo: d ?? null,
+          ruta,
+          intentos,
+        };
       } catch (err) {
         const e = err as ErrorTikTok;
         const codigo = e instanceof ErrorTikTok ? e.codigo : null;
-        intentos.push({ ruta, params: Object.keys(params).filter((k) => params[k] !== undefined).join(","), codigo, error: (err as Error).message.slice(0, 300) });
+        intentos.push({
+          ruta,
+          params: Object.keys(params)
+            .filter((k) => params[k] !== undefined)
+            .join(","),
+          codigo,
+          error: (err as Error).message.slice(0, 300),
+        });
         // La ruta no existe: no tiene caso probarle otros parámetros.
         if (codigo === 36009004 || codigo === 36009009 || codigo === 404) break;
       }
     }
   }
-  return { renglones: [], siguiente: undefined, crudo: null, ruta: null, intentos };
+  return {
+    renglones: [],
+    siguiente: undefined,
+    crudo: null,
+    ruta: null,
+    intentos,
+  };
 }

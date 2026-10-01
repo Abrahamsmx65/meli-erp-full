@@ -42,6 +42,7 @@ import {
   subirImagen,
   atributosDeCategoria,
   crearProducto,
+  editarProductoParcial,
 } from "../tiktok/api";
 import { ErrorTikTok, type Cliente as ClienteTikTok } from "../tiktok/client";
 import {
@@ -52,6 +53,7 @@ import {
   elegirImagenesPrincipales,
   indexarSkusMeli,
   interpretarRespuestaCreacion,
+  nombreColorEspanol,
   plantillaDesdeProducto,
   type ColorAPublicar,
   type PlantillaTikTok,
@@ -407,7 +409,36 @@ export async function hayPendientes(
     .select("id", { count: "exact", head: true })
     .eq("account_id", accountId)
     .eq("estado", "pendiente");
-  return (count ?? 0) > 0;
+  if ((count ?? 0) > 0) return true;
+  return (await correccionesPendientes(admin, accountId)).length > 0;
+}
+
+/** Hasta cuántas veces se intenta corregir un producto ya publicado. */
+const INTENTOS_CORRECCION = 2;
+
+/**
+ * Los productos ya publicados a los que les falta algo que hoy sí se manda
+ * (la guía de tallas como imagen; los colores en español de los primeros):
+ * se corrigen por edición parcial, sin rehacer el producto. Un producto
+ * que ya se intentó `INTENTOS_CORRECCION` veces se deja en paz.
+ */
+export async function correccionesPendientes(
+  admin: any,
+  accountId: string,
+): Promise<any[]> {
+  const { data } = await admin
+    .from("tiktok_publicaciones")
+    .select("id, modelo, titulo, product_id, resultado")
+    .eq("account_id", accountId)
+    .eq("estado", "publicado")
+    .not("product_id", "is", null)
+    .is("resultado->>guiaTallas", null)
+    .order("id", { ascending: true })
+    .limit(100);
+  return (data ?? []).filter(
+    (r: any) =>
+      Number(r.resultado?.correccionIntentos ?? 0) < INTENTOS_CORRECCION,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +487,8 @@ export async function publicarPendientes(
           .order("creado_en", { ascending: true })
           .limit(50);
         const cola: any[] = pendientes ?? [];
-        if (!cola.length)
+        const correcciones = await correccionesPendientes(admin, accountId);
+        if (!cola.length && !correcciones.length)
           return { publicados, errores, faltan: 0, ocupado: false, avisos };
 
         const tiktok = await clienteDeCuenta(admin, accountId, msPresupuesto);
@@ -587,6 +619,16 @@ export async function publicarPendientes(
         }
 
         const faltan = cola.length - i;
+
+        // Lo ya publicado que le falta algo se corrige con el tiempo que
+        // sobre, solo cuando la cola de nuevos ya no tiene nada por delante.
+        if (faltan === 0) {
+          for (const fila of correcciones) {
+            if (Date.now() > limite - 40_000) break;
+            await corregirPublicado(admin, accountId, tiktok, fila, limite);
+          }
+        }
+
         await invalidarApp(admin, accountId, "publicación en TikTok", {
           claves: [CLAVE_CACHE_NUEVOS],
         }).catch(() => {});
@@ -993,6 +1035,156 @@ async function publicarUno(
       },
     },
   };
+}
+
+/**
+ * Corrige UN producto ya publicado por edición parcial: la guía de tallas
+ * (dibujada con las tallas que el producto tiene en TikTok) y, si alguna
+ * variante quedó con el código de color de Amazon (BEIGE, DK BROWN: los
+ * primeros productos salieron antes de la traducción), su nombre en
+ * español. Pedido del dueño, 30-sep-2026: «me corriges lo que subió mal».
+ */
+async function corregirPublicado(
+  admin: any,
+  accountId: string,
+  tiktok: ClienteTikTok,
+  fila: any,
+  limite: number,
+): Promise<void> {
+  const id = Number(fila.id);
+  const productId = String(fila.product_id);
+  const resultado: Record<string, any> = { ...(fila.resultado ?? {}) };
+  const intentos = Number(resultado.correccionIntentos ?? 0) + 1;
+  const inicio = new Date().toISOString();
+  const subidas: Record<string, string> = { ...(resultado.subidas ?? {}) };
+  try {
+    const crudo = await productoTikTok(tiktok, productId);
+    if (!crudo) throw new ErrorSinTiempo();
+
+    // 1. Qué atributo es la talla y cuál el color, y qué tallas tiene.
+    const skus: any[] = crudo.skus ?? [];
+    const esNumero = (v: unknown) =>
+      /^\d{1,2}(\.\d)?$/.test(String(v ?? "").trim());
+    const idsTalla = new Set<string>();
+    for (const s of skus)
+      for (const a of s.sales_attributes ?? [])
+        if (esNumero(a?.value_name)) idsTalla.add(String(a.id));
+    const tallas = skus.flatMap((s) =>
+      (s.sales_attributes ?? [])
+        .filter((a: any) => idsTalla.has(String(a.id)))
+        .map((a: any) => String(a.value_name).trim()),
+    );
+
+    const cambios: Record<string, unknown> = {};
+    const hecho: string[] = [];
+
+    // 2. La guía de tallas: una sola imagen por juego de tallas.
+    const guia = guiaDeTallas(tallas);
+    if (guia.length) {
+      const llave = `guia:${guia.map((r) => r.talla).join(",")}`;
+      let uri = subidas[llave];
+      if (!uri) {
+        const png = await dibujarGuiaTallas(
+          String(fila.titulo ?? crudo.title ?? fila.modelo),
+          guia,
+        );
+        const r = await subirImagen(
+          tiktok,
+          new Uint8Array(png),
+          "image/png",
+          "SIZE_CHART_IMAGE",
+        );
+        if (!r) throw new ErrorSinTiempo();
+        uri = r.uri;
+        subidas[llave] = uri;
+      }
+      cambios.size_chart = { image: { uri } };
+      hecho.push("guía de tallas");
+    }
+
+    // 3. Colores que quedaron en código de Amazon → español.
+    const skusCorregidos: Record<string, unknown>[] = [];
+    for (const s of skus) {
+      let cambio = false;
+      const attrs = (s.sales_attributes ?? []).map((a: any) => {
+        const base: Record<string, unknown> = {
+          id: String(a.id),
+          name: String(a.name ?? ""),
+          value_name: String(a.value_name ?? ""),
+        };
+        if (a.value_id) base.value_id = String(a.value_id);
+        if (a.sku_img?.uri) base.sku_img = { uri: String(a.sku_img.uri) };
+        if (idsTalla.has(String(a.id))) return base;
+        const esp = nombreColorEspanol(String(a.value_name ?? ""));
+        if (
+          esp.traducido &&
+          esp.nombre &&
+          esp.nombre !== String(a.value_name)
+        ) {
+          cambio = true;
+          // Un valor nuevo del atributo: sin value_id, TikTok lo crea.
+          delete base.value_id;
+          base.value_name = esp.nombre;
+        }
+        return base;
+      });
+      if (cambio)
+        skusCorregidos.push({ id: String(s.id), sales_attributes: attrs });
+    }
+    if (skusCorregidos.length) {
+      cambios.skus = skusCorregidos;
+      hecho.push(`${skusCorregidos.length} variantes con el color en español`);
+    }
+
+    if (!Object.keys(cambios).length) {
+      resultado.guiaTallas = "sin tallas";
+      resultado.correccionEn = new Date().toISOString();
+    } else {
+      const respuesta = await editarProductoParcial(tiktok, productId, cambios);
+      if (!respuesta) throw new ErrorSinTiempo();
+      if (cambios.size_chart)
+        resultado.guiaTallas = (cambios.size_chart as any).image.uri;
+      resultado.correccionEn = new Date().toISOString();
+      resultado.correccion = hecho;
+      resultado.avisos = [
+        ...(resultado.avisos ?? []),
+        ...(respuesta?.warnings ?? [])
+          .map((w: any) => String(w?.message ?? ""))
+          .filter(Boolean),
+      ];
+    }
+    delete resultado.correccionError;
+    resultado.subidas = subidas;
+    resultado.correccionIntentos = intentos;
+    await admin
+      .from("tiktok_publicaciones")
+      .update({ resultado, actualizado_en: new Date().toISOString() })
+      .eq("id", id);
+    await bitacora(admin, accountId, "corregir-producto", inicio, "ok", {
+      id,
+      modelo: fila.modelo,
+      productId,
+      hecho,
+      cambios: { ...cambios, skus: skusCorregidos.length },
+    });
+  } catch (err) {
+    const mensaje = (err as Error).message;
+    if (err instanceof ErrorSinTiempo) return; // sin contar el intento: se sigue en la próxima vuelta
+    resultado.subidas = subidas;
+    resultado.correccionIntentos = intentos;
+    resultado.correccionError = mensaje;
+    await admin
+      .from("tiktok_publicaciones")
+      .update({ resultado, actualizado_en: new Date().toISOString() })
+      .eq("id", id);
+    await bitacora(admin, accountId, "corregir-producto", inicio, "error", {
+      id,
+      modelo: fila.modelo,
+      productId,
+      error: mensaje,
+      intentos,
+    });
+  }
 }
 
 async function bitacora(
