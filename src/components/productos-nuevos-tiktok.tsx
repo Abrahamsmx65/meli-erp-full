@@ -39,9 +39,10 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   const [datos, setDatos] = useState(inicial);
   const [filtro, setFiltro] = useState("");
   const [verPublicados, setVerPublicados] = useState(false);
-  const [soloActivos, setSoloActivos] = useState(true);
+  const [soloActivos, setSoloActivos] = useState(false);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [precios, setPrecios] = useState<Record<string, string>>({});
+  const [titulos, setTitulos] = useState<Record<string, string>>({});
   const [precioTodos, setPrecioTodos] = useState("");
   const [borrador, setBorrador] = useState(false);
   const [incluirApagados, setIncluirApagados] = useState(false);
@@ -66,6 +67,23 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     if (!r.ok) throw new Error(j.error ?? "No se pudo leer la lista.");
     setDatos(j);
   }
+
+  // Mientras haya pendientes, la pantalla EMPUJA la cola cada 45 s (el
+  // candado evita que dos empujones se encimen): si el eslabón de fondo no
+  // prendió, la cola sigue avanzando con la pestaña abierta, y el cron de
+  // TikTok la termina si se cierra.
+  const hayPendientes = datos.cola.some((c) => c.estado === "pendiente");
+  useEffect(() => {
+    if (!hayPendientes || !esDueno) return;
+    const t = setInterval(() => {
+      fetch("/api/tiktok/publicar-productos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "continuar" }),
+      }).catch(() => {});
+    }, 45_000);
+    return () => clearInterval(t);
+  }, [hayPendientes, esDueno]);
 
   // Mientras haya algo en cola, se vuelve a leer cada 5 s.
   useEffect(() => {
@@ -138,7 +156,12 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productos: listos.map((m) => ({ modelo: m, precio: Number(precios[m]), colores: coloresDe(porModelo.get(m)!) })),
+          productos: listos.map((m) => ({
+            modelo: m,
+            precio: Number(precios[m]),
+            colores: coloresDe(porModelo.get(m)!),
+            titulo: (titulos[m] ?? porModelo.get(m)!.titulo).trim(),
+          })),
           borrador,
         }),
       });
@@ -232,8 +255,8 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 </button>
               </div>
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir colores sin tallas activas en Amazon
+            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }} title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
+              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
             </label>
             <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
               <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
@@ -283,11 +306,13 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 esDueno={esDueno}
                 marcado={marcados.has(p.modelo)}
                 precio={precios[p.modelo] ?? ""}
+                titulo={titulos[p.modelo] ?? p.titulo}
                 enCola={enCola.get(p.modelo) ?? null}
                 abierto={abierto === p.modelo}
                 onAbrir={() => setAbierto(abierto === p.modelo ? null : p.modelo)}
                 onMarcar={(si) => marcar(p.modelo, si)}
                 onPrecio={(v) => setPrecios((s) => ({ ...s, [p.modelo]: v }))}
+                onTitulo={(v) => setTitulos((s) => ({ ...s, [p.modelo]: v }))}
               />
             ))}
             {!visibles.length ? (
@@ -383,22 +408,26 @@ function FilaProducto({
   esDueno,
   marcado,
   precio,
+  titulo,
   enCola,
   abierto,
   onAbrir,
   onMarcar,
   onPrecio,
+  onTitulo,
 }: {
   p: ProductoAmazonParaTikTok;
   moneda: string;
   esDueno: boolean;
   marcado: boolean;
   precio: string;
+  titulo: string;
   enCola: PublicacionEnCola | null;
   abierto: boolean;
   onAbrir: () => void;
   onMarcar: (si: boolean) => void;
   onPrecio: (v: string) => void;
+  onTitulo: (v: string) => void;
 }) {
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = p.coloresPorPublicar.length > 0 && !bloqueado;
@@ -428,13 +457,26 @@ function FilaProducto({
             ) : (
               <div className="h-14 w-14 flex-none rounded-md" style={{ background: "var(--grid)" }} />
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <button onClick={onAbrir} className="font-semibold hover:underline">
                 {p.modelo}
               </button>
-              <p className="line-clamp-2 text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
-                {p.titulo}
-              </p>
+              {esDueno && publicable ? (
+                // El título con el que se publica: se puede corregir aquí antes de confirmar.
+                <textarea
+                  value={titulo}
+                  onChange={(e) => onTitulo(e.target.value)}
+                  rows={2}
+                  maxLength={255}
+                  className="mt-0.5 w-full min-w-64 rounded-lg border px-2 py-1 text-xs"
+                  style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}
+                  title="Título con el que se publica en TikTok (hasta 255 caracteres)"
+                />
+              ) : (
+                <p className="line-clamp-2 text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                  {p.titulo}
+                </p>
+              )}
             </div>
           </div>
         </td>
@@ -443,7 +485,11 @@ function FilaProducto({
             {p.colores.map((c) => (
               <span
                 key={c.color}
-                title={c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon`}
+                title={
+                  (c.enTikTok.length ? `Ya en TikTok: ${c.enTikTok.join(", ")}. ` : `${c.activas} de ${c.tallas.length} tallas activas en Amazon. `) +
+                  `Código en Amazon: ${c.color}` +
+                  (c.traducido ? "" : " (sin traducción al español: se publica tal cual)")
+                }
                 className="rounded-full border px-2 py-0.5 text-xs"
                 style={
                   c.enTikTok.length
@@ -451,7 +497,8 @@ function FilaProducto({
                     : { borderColor: "var(--acento)", color: "var(--ink-1)" }
                 }
               >
-                {c.color}
+                {c.nombre || c.color}
+                {!c.traducido ? " ⚠" : ""}
                 {!c.activas ? " (sin activas)" : ""}
               </span>
             ))}
@@ -495,7 +542,8 @@ function FilaProducto({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={c.imagenUrl} alt="" className="h-10 w-10 rounded object-cover" />
                     ) : null}
-                    <span className="font-medium">{c.color}</span>
+                    <span className="font-medium">{c.nombre || c.color}</span>
+                    <span style={{ color: "var(--ink-2)" }}>{c.color}</span>
                     {c.enTikTok.length ? <span style={{ color: "#15803d" }}>ya en TikTok</span> : null}
                   </div>
                   <table className="mt-1">

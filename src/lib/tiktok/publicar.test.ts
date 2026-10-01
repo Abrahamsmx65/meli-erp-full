@@ -7,6 +7,8 @@ import {
   elegirImagenesPrincipales,
   indexarSkusMeli,
   interpretarRespuestaCreacion,
+  nombreColorEspanol,
+  esModeloDeCalzado,
   partirSkuAmazon,
   plantillaDesdeProducto,
   skuParaTikTok,
@@ -36,6 +38,36 @@ describe("partirSkuAmazon", () => {
   it("lo que no es calzado se descarta", () => {
     expect(partirSkuAmazon("FUNDA-499-IPHONE")).toBeNull();
     expect(partirSkuAmazon("GT134-BLK")).toBeNull();
+  });
+});
+
+describe("nombreColorEspanol", () => {
+  it("traduce los códigos de Amazon", () => {
+    expect(nombreColorEspanol("BLK")).toEqual({ nombre: "Negro", traducido: true });
+    expect(nombreColorEspanol("DK BROWN")).toEqual({ nombre: "Café oscuro", traducido: true });
+    expect(nombreColorEspanol("DK-BROWN").nombre).toBe("Café oscuro");
+    expect(nombreColorEspanol("LIGHT GREY").nombre).toBe("Gris claro");
+    // TikTok rechaza «tabaco» como término prohibido en una variante.
+    expect(nombreColorEspanol("TABACO BROWN").nombre).toBe("Café tostado");
+    expect(nombreColorEspanol("MILITARY GREEN").nombre).toBe("Verde militar");
+    expect(nombreColorEspanol("navy").nombre).toBe("Azul marino");
+  });
+  it("combinaciones: con diagonal, con guion y repetidos", () => {
+    expect(nombreColorEspanol("BLK/RED").nombre).toBe("Negro / Rojo");
+    expect(nombreColorEspanol("NAVY / RED").nombre).toBe("Azul marino / Rojo");
+    expect(nombreColorEspanol("BLK-RED").nombre).toBe("Negro / Rojo");
+    expect(nombreColorEspanol("BLK / BLK").nombre).toBe("Negro");
+  });
+  it("lo desconocido se queda tal cual y lo avisa", () => {
+    expect(nombreColorEspanol("ZANAHORIA X")).toEqual({ nombre: "Zanahoria x", traducido: false });
+    expect(nombreColorEspanol("BLK/ZANAHORIA").traducido).toBe(false);
+  });
+  it("solo modelos de calzado", () => {
+    expect(esModeloDeCalzado("GT134")).toBe(true);
+    expect(esModeloDeCalzado("MY2304")).toBe(true);
+    expect(esModeloDeCalzado("H816")).toBe(true);
+    expect(esModeloDeCalzado("499")).toBe(false);
+    expect(esModeloDeCalzado("N")).toBe(false);
   });
 });
 
@@ -79,6 +111,7 @@ describe("agruparProductosAmazon", () => {
     fila("GT150-CAMEL-23-MX", "Active", { asin: "A5", titulo: "GT150 Botas", precio: 699 }),
     fila("GT150-GREY-23-MX", "Inactive", { asin: "A6", precio: 699 }),
     fila("499-IPHONE15", "Active"),
+    fila("601-IPAD10-BLK-10", "Active"),
   ];
 
   it("agrupa modelo → color → talla, con tallas ordenadas y precio de referencia", () => {
@@ -87,6 +120,7 @@ describe("agruparProductosAmazon", () => {
     const gt134 = p[0];
     expect(gt134.titulo).toBe("GETAC Sandalias GT134 Mujer");
     expect(gt134.colores.map((c) => c.color)).toEqual(["BLK", "RED"]);
+    expect(gt134.colores.map((c) => c.nombre)).toEqual(["Negro", "Rojo"]);
     expect(gt134.colores[0].tallas.map((t) => t.talla)).toEqual(["24", "25"]);
     // la talla 25 Active gana a la Inactive con el mismo número
     expect(gt134.colores[0].tallas[1].sellerSku).toBe("GT134-BLK-25-MX");
@@ -98,21 +132,28 @@ describe("agruparProductosAmazon", () => {
     expect(gt134.activas).toBe(3);
   });
 
+  it("un modelo sin ninguna talla activa en Amazon publica todos sus colores", () => {
+    const p = agruparProductosAmazon([fila("GT265-BLK-24-MX", "Inactive"), fila("GT265-RED-24-MX", "Incomplete")]);
+    expect(p[0].activas).toBe(0);
+    expect(p[0].coloresActivosPorPublicar).toEqual(["BLK", "RED"]);
+  });
+
   it("marca los colores que TikTok ya vende, con alias de color", () => {
     const p = agruparProductosAmazon(filas, {
       enTikTok: [
         { sellerSku: "GT134-BLK-24-MX", skuInterno: "GT134-BLK-24-MX", productId: "P1", estado: "ACTIVATE" },
         { sellerSku: "GT150-BROWN-23-MX", skuInterno: "GT150-BROWN-23-MX", productId: "P2", estado: "ACTIVATE" },
         { sellerSku: "GT134-RED-26-MX", skuInterno: null, productId: "P3", estado: "DELETED" },
+        { sellerSku: "GT150-GREY-23-MX", skuInterno: null, productId: "P4", estado: "DRAFT" },
       ],
       alias: [{ modelo: "GT150", colorTikTok: "BROWN", colorAmazon: "CAMEL" }],
     });
     expect(p[0].coloresEnTikTok).toEqual(["BLK"]);
     expect(p[0].coloresPorPublicar).toEqual(["RED"]);
     expect(p[0].colores[0].enTikTok).toEqual(["GT134-BLK-24-MX"]);
-    expect(p[1].coloresEnTikTok).toEqual(["CAMEL"]);
-    // GREY solo tiene tallas apagadas: se puede publicar a propósito, no por omisión.
-    expect(p[1].coloresPorPublicar).toEqual(["GREY"]);
+    expect(p[1].coloresEnTikTok).toEqual(["CAMEL", "GREY"]);
+    // Un borrador en TikTok también cuenta: publicarlo otra vez lo duplica.
+    expect(p[1].coloresPorPublicar).toEqual([]);
     expect(p[1].coloresActivosPorPublicar).toEqual([]);
   });
 });
@@ -188,16 +229,22 @@ describe("armarCuerpoProducto", () => {
     expect(c.skus).toHaveLength(3);
     expect(c.skus[0]).toEqual({
       sales_attributes: [
-        { id: "c1", name: "Color", value_name: "BLK", sku_img: { uri: "u-main" } },
+        { id: "c1", name: "Color", value_name: "Negro", sku_img: { uri: "u-main" } },
         { id: "t1", name: "Talla", value_name: "24" },
       ],
       seller_sku: "GT134-BLK-24-MX",
       price: { amount: "399.00", currency: "MXN" },
       inventory: [{ warehouse_id: "W1", quantity: 3 }],
     });
-    expect(c.skus[2].sales_attributes[0]).toEqual({ id: "c1", name: "Color", value_name: "RED" });
+    expect(c.skus[2].sales_attributes[0]).toEqual({ id: "c1", name: "Color", value_name: "Rojo" });
     expect(c.package_weight).toEqual({ value: "0.6", unit: "KILOGRAM" });
     expect(c.is_cod_allowed).toBe(true);
+  });
+
+  it("con la guía de tallas subida manda size_chart", () => {
+    const c = armarCuerpoProducto({ ...datos, guiaTallasUri: "u-guia" }, plantilla) as any;
+    expect(c.size_chart).toEqual({ image: { uri: "u-guia" } });
+    expect((armarCuerpoProducto(datos, plantilla) as any).size_chart).toBeUndefined();
   });
 
   it("como borrador manda DRAFT", () => {
@@ -230,6 +277,7 @@ describe("imágenes y descripción", () => {
   it("la descripción junta puntos clave y descripción; sin nada, el título", () => {
     expect(descripcionDesdeAmazon({ bullets: ["Suela <EVA>", " "], descripcion: "Larga", titulo: "T" })).toBe("<p>Suela &lt;EVA&gt;</p><p>Larga</p>");
     expect(descripcionDesdeAmazon({ bullets: [], descripcion: null, titulo: "T" })).toBe("<p>T</p>");
+    expect(descripcionDesdeAmazon({ bullets: [], descripcion: "D", titulo: "T", guiaTallas: "Guía: 23 = 23 cm" })).toBe("<p>D</p><p>Guía: 23 = 23 cm</p>");
   });
   it("interpreta la respuesta de creación", () => {
     const r = interpretarRespuestaCreacion({ product_id: "P", skus: [{ id: "S", seller_sku: "GT1-BLK-24-MX" }], warnings: [{ message: "ojo" }] });

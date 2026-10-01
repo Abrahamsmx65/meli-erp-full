@@ -1021,6 +1021,40 @@ guárdala numerada.
   y `publicar` (por eslabón). «Dejarlos como borrador» manda `save_mode
   AS_DRAFT` (TikTok rechazó `DRAFT`, que es lo que decía el SDK). Publicar es del dueño (403 al rol tiktok, que solo ve). Lista
   masticada en `app_cache` `tiktok:nuevos` (15 min; cae con cada corrida).
+  **El título se corrige en el renglón antes de confirmar** (textarea por
+  modelo, viaja en `titulo` del pedido) y **los colores de las variantes
+  van en ESPAÑOL** (`nombreColorEspanol`, lista `COLORES` en
+  `tiktok/publicar.ts`: BLK → Negro, DK BROWN → Café oscuro, BLK/RED →
+  Negro / Rojo; el seller_sku conserva el código; un código que no está en
+  la lista se publica tal cual en Capital y la pantalla lo marca con ⚠ para
+  agregarlo); pedido del dueño, 30-sep-2026. Solo entran modelos de
+  CALZADO (`esModeloDeCalzado`, letras + número): las fundas de la misma
+  cuenta de Amazon (499-IPAD10-BLK) no son de aquí.
+  **Lo aprendido el 30-sep-2026 con las primeras 10 publicaciones reales:**
+  (a) TikTok rechaza la palabra «tabaco» en el nombre de una variante
+  (12052153 «prohibited term `tabaco`»; GT169 y GT135): TABACO BROWN es
+  «Café tostado», TAN «Canela», NUDE «Color piel»; si TikTok rechaza otro
+  término, el error lo dice y se cambia en `COLORES`. (b) Un BORRADOR ya
+  cuenta como «en TikTok» (solo `DELETED` no): el GT168 como borrador
+  seguía saliendo como publicable y el dueño lo volvió a encolar. (c) Un
+  rechazo NO detiene la cola: antes un error no definitivo hacía `break` y
+  el GT169 se quedó atrás del GT168 repetido; ahora solo el tiempo corta la
+  vuelta, y «ya vende» / «ya no está en el catálogo» son definitivos.
+  (d) Un modelo SIN ninguna talla activa en Amazon (GT265, GT266) publica
+  todos sus colores de todos modos (`coloresActivosPorPublicar` cae a
+  todos) y el filtro «solo con tallas activas» nace apagado. (e) El eslabón
+  de fondo (`dispararPublicacionTikTok`) no dejó NINGÚN rastro en dos
+  horas (ni los de etiquetas en tres días: `tiktok_sync_log` sin tarea
+  `etiquetas`), así que el disparo se anota en la bitácora (tarea
+  `publicar-disparo` con status y error, `dispararYAnotar`) y la PANTALLA
+  empuja la cola cada 45 s mientras haya pendientes (`accion: continuar`,
+  el candado evita encimarse); el cron de TikTok la termina sin pestaña.
+  (f) **Guía de tallas** (`tiktok/guia-tallas.ts` puro + `guia-tallas-imagen.tsx`
+  con `next/og`; dueño: «cada uno es 23 = 23 cm»): la talla MX es el largo
+  de la plantilla en cm; se dibuja la tabla talla → cm con las tallas del
+  producto, se sube como `SIZE_CHART_IMAGE` (si TikTok no acepta ese
+  `use_case`, se intenta como `DESCRIPTION_IMAGE` y se avisa) y va en
+  `size_chart.image`; el mismo texto va al final de la descripción.
 
 - **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
   `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el
