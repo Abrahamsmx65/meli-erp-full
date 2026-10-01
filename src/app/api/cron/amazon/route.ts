@@ -4,6 +4,7 @@ import { Cliente, cuentasAmazon } from "@/lib/amazon/spapi";
 import { sincronizarInventario, sincronizarVentas } from "@/lib/amazon/sync";
 import { procesarRecarga } from "@/lib/amazon/recarga";
 import { sincronizarFnskus } from "@/lib/amazon/fnskus";
+import { sincronizarPadres } from "@/lib/servicios/padres-amazon";
 
 export const dynamic = "force-dynamic";
 // zlib para descomprimir los reportes: hace falta el runtime de Node, no edge.
@@ -21,6 +22,7 @@ const PLAZO_MS = 50_000;
  *   ?tarea=inventario  cada hora   · stock en FBA
  *   ?tarea=recarga     cada 5 min  · avanza una ventana de la cola histórica
  *   ?tarea=fnskus      cada 10 min · FNSKU de las publicaciones que faltan
+ *   ?tarea=padres      a mano      · ASIN padre y miniatura de contenido
  *
  * Quien la dispara NO es Vercel Cron: el plan Hobby sólo permite frecuencia
  * diaria. La programación vive en pg_cron dentro de Supabase, que llama a
@@ -55,9 +57,9 @@ export async function GET(req: NextRequest) {
   }
 
   const tarea = req.nextUrl.searchParams.get("tarea") ?? "ventas";
-  if (!["ventas", "inventario", "recarga", "fnskus"].includes(tarea)) {
+  if (!["ventas", "inventario", "recarga", "fnskus", "padres"].includes(tarea)) {
     return NextResponse.json(
-      { error: "tarea debe ser 'ventas', 'inventario', 'recarga' o 'fnskus'." },
+      { error: "tarea debe ser 'ventas', 'inventario', 'recarga', 'fnskus' o 'padres'." },
       { status: 400 },
     );
   }
@@ -90,7 +92,9 @@ export async function GET(req: NextRequest) {
             ? await sincronizarInventario(admin, cliente)
             : tarea === "fnskus"
               ? await sincronizarFnskus(admin, cliente)
-              : await procesarRecarga(admin, cliente);
+              : tarea === "padres"
+                ? await sincronizarPadres(admin, cliente)
+                : await procesarRecarga(admin, cliente);
 
       resultados.push({ cuenta: cuenta.nombre, ok: true, ...r });
 
