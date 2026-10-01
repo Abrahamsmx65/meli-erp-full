@@ -1,7 +1,8 @@
 import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { dispararEtiquetasDelCorte } from "@/lib/servicios/disparar-etiquetas";
+import { dispararEtiquetasYAnotar } from "@/lib/servicios/disparar-etiquetas";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import {
   calentarEtiquetasDelCorte,
   corteSigueAbierto,
@@ -34,7 +35,7 @@ function eslabonDeFondo(req: NextRequest, corteId: number): NextResponse | null 
   const eslabon = Number(req.nextUrl.searchParams.get("eslabon") ?? "1");
   if (!accountId || !Number.isInteger(eslabon) || eslabon < 1) return NextResponse.json({ error: "Faltan cuenta o eslabón." }, { status: 400 });
   const inicio = Date.now();
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(async () => {
     const admin = clienteAdmin();
     try {
@@ -54,7 +55,7 @@ function eslabonDeFondo(req: NextRequest, corteId: number): NextResponse | null 
           detalle: { corteId, eslabon, soloGuias, ...r, seguir },
         })
         .then(() => undefined, () => undefined);
-      if (seguir) await dispararEtiquetasDelCorte(origen, accountId, corteId, eslabon + 1);
+      if (seguir) await dispararEtiquetasYAnotar(admin, origen, accountId, corteId, eslabon + 1);
     } catch (err) {
       await admin
         .from("tiktok_sync_log")

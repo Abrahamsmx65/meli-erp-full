@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { dispararYAnotar, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
@@ -21,7 +22,7 @@ const MS_POR_ESLABON = 270_000;
 const MS_TRAS_ENCOLAR = 240_000;
 
 function origenDe(req: NextRequest): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  return origenDeLaApp(req);
 }
 
 /** La lista de productos de Amazon y la cola. `?refrescar=1` vuelve a masticar la lista. */

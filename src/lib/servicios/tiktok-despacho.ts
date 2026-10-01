@@ -197,6 +197,15 @@ export interface ResultadoCorte {
   unido?: boolean;
 }
 
+/**
+ * Cuántas guías se le piden a TikTok A LA VEZ. Con 3, cada obrero tardaba
+ * ~3 s por guía (pedir el enlace, bajar el PDF del CDN, guardarlo en el
+ * bucket) y el corte entero salía a ~1 guía por segundo: 611 guías eran
+ * 10 minutos de descarga. Con 8 el ritmo sube a varias por segundo; si
+ * TikTok limita (429), el cliente espera y reintenta solo.
+ */
+const GUIAS_A_LA_VEZ = 8;
+
 /** Corre `fn` sobre `items` con a lo más `n` a la vez, en orden de arranque. */
 async function enParalelo<T>(items: T[], n: number, fn: (item: T, i: number) => Promise<void>): Promise<void> {
   let siguiente = 0;
@@ -1356,27 +1365,56 @@ export async function corteSigueAbierto(admin: any, accountId: string, corteId: 
 const DIAS_CALENTAR_CORTES = 2;
 
 /**
- * Red de seguridad del cron de TikTok: los cortes recientes cuyas
- * etiquetas aún no están completas se terminan de armar aunque nadie tenga
- * la pantalla abierta (el navegador puede soltar la conexión a medio
- * corte). Del más nuevo al más viejo, hasta donde alcance el presupuesto.
+ * Red de seguridad de los crons: los cortes recientes cuyas etiquetas aún
+ * no están completas se terminan de armar aunque nadie tenga la pantalla
+ * abierta y aunque el eslabón de fondo no haya prendido. Del más nuevo al
+ * más viejo, hasta donde alcance el presupuesto. Un corte que todavía va a
+ * recibir otra ronda («sin tiempo») solo baja guías: sus tomos se
+ * renumeran al unirse la ronda. Cada corte en el que se avanzó deja un
+ * renglón `etiquetas` en la bitácora con el `origen` que lo trabajó.
  */
-export async function calentarCortesRecientes(admin: any, accountId: string, msPresupuesto: number): Promise<{ cortes: number; completos: number }> {
+export async function calentarCortesRecientes(
+  admin: any,
+  accountId: string,
+  msPresupuesto: number,
+  origen = "cron",
+): Promise<{ cortes: number; completos: number; guiasBajadas: number; tomosArmados: number }> {
   const inicio = Date.now();
   const desde = new Date(Date.now() - DIAS_CALENTAR_CORTES * 86_400_000).toISOString();
   const { data } = await admin.from("tiktok_cortes").select("id, pedidos").eq("account_id", accountId).gte("creado_en", desde).order("id", { ascending: false });
   let cortes = 0;
   let completos = 0;
+  let guiasBajadas = 0;
+  let tomosArmados = 0;
   for (const c of (data ?? []) as { id: number; pedidos: number }[]) {
+    if (!(c.pedidos > 0)) continue;
     const restante = msPresupuesto - (Date.now() - inicio);
-    if (restante < 70_000) break;
+    if (restante < 40_000) break;
     const e = await estadoEtiquetasDelCorte(admin, accountId, c.id, c.pedidos);
     if (e.completo) continue;
     cortes++;
-    const r = await calentarEtiquetasDelCorte(admin, accountId, c.id, restante - 5_000).catch(() => null);
-    if (r?.completo) completos++;
+    const inicioCorte = new Date().toISOString();
+    const soloGuias = await corteSigueAbierto(admin, accountId, c.id);
+    const r = await calentarEtiquetasDelCorte(admin, accountId, c.id, restante - 5_000, { soloGuias }).catch(() => null);
+    if (!r) continue;
+    if (r.completo) completos++;
+    guiasBajadas += r.guiasBajadas;
+    tomosArmados += r.tomosArmados;
+    if (r.avanzo) {
+      await admin
+        .from("tiktok_sync_log")
+        .insert({
+          account_id: accountId,
+          tarea: "etiquetas",
+          inicio: inicioCorte,
+          fin: new Date().toISOString(),
+          estado: "ok",
+          detalle: { corteId: c.id, origen, soloGuias, ...r },
+        })
+        .then(() => undefined, () => undefined);
+    }
   }
-  return { cortes, completos };
+  return { cortes, completos, guiasBajadas, tomosArmados };
 }
 
 /**
@@ -1401,7 +1439,7 @@ export async function bajarGuiasDelCorte(
   let bajadas = 0;
   /** paquetes que no se alcanzaron a revisar por tiempo */
   let sinTiempo = 0;
-  await enParalelo(corte.paquetes, 3, async (p) => {
+  await enParalelo(corte.paquetes, GUIAS_A_LA_VEZ, async (p) => {
     if (!p.packageId) return;
     if (Date.now() > limite - 25_000) {
       sinTiempo++;
@@ -1449,7 +1487,7 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
 
   // Todas las guías primero, varias a la vez; el armado va después, en orden.
   const guias = new Map<string, { bytes: Uint8Array | null; error: string | null }>();
-  await enParalelo(paquetesDelPdf, 3, async (p) => {
+  await enParalelo(paquetesDelPdf, GUIAS_A_LA_VEZ, async (p) => {
     if (!p.packageId) {
       guias.set(`${p.orderId}|${p.packageId}`, { bytes: null, error: "sin paquete en TikTok" });
       return;

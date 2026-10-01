@@ -213,12 +213,19 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     calentarEtiquetas(c.id);
   }
 
-  // Al abrir la pantalla: los cortes de las últimas 24 h que no tengan sus
-  // etiquetas completas se terminan de armar por atrás (el navegador pudo
-  // soltar la conexión a medio corte y nadie las calentó).
+  // Al abrir la pantalla Y cada vez que aparece un corte nuevo en la lista:
+  // los cortes de las últimas 24 h que no tengan sus etiquetas completas se
+  // terminan de armar por atrás. Antes solo al montar: si el navegador
+  // soltaba la conexión a medio corte (Safari, «Load failed»), la ronda que
+  // reintentaba volvía con `corteId: null` y nadie calentaba el corte que
+  // sí se había guardado (el #45 del 1-oct-2026 se quedó así 64 minutos).
+  const revisados = useRef<Set<number>>(new Set());
+  const idsCortes = cortes.map((c) => c.id).join(",");
   useEffect(() => {
     const recientes = cortes.filter((c) => Date.now() - new Date(c.creadoEn).getTime() < 24 * 3_600_000);
     for (const c of recientes) {
+      if (revisados.current.has(c.id)) continue;
+      revisados.current.add(c.id);
       void fetch(`/api/tiktok/cortes/${c.id}/calentar`)
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
@@ -228,9 +235,10 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
         })
         .catch(() => undefined);
     }
-    // Solo al montar: los cortes nuevos se calientan desde `hacerCorte`.
+    // Se vuelve a correr cuando cambia la lista de cortes (router.refresh
+    // tras cada ronda); lo ya revisado no se vuelve a preguntar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [idsCortes]);
 
   /** Pide (o cierra) la lista de lo que quedó sin preparar en un corte. */
   async function verFaltantes(corteId: number) {

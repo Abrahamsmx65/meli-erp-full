@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { calentarEtiquetasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { contarSinTiempo } from "@/lib/tiktok/lunes";
-import { dispararEtiquetasDelCorte } from "@/lib/servicios/disparar-etiquetas";
+import { dispararEtiquetasYAnotar } from "@/lib/servicios/disparar-etiquetas";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     // TikTok da ~1 guía por segundo y un corte grande necesita más de lo
     // que le queda a esta función. Dueño, 30-sep-2026: «que después de
     // confirmar el corte se hagan y se guarden ahí».
-    const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+    const origen = origenDeLaApp(req);
     const calentar = (cortes: { corteId: number | null; errores?: { orderId: string; error: string }[] }[]) =>
       after(async () => {
         for (const c of cortes) {
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
             const r = await calentarEtiquetasDelCorte(admin, cuenta.id, c.corteId, restante, { soloGuias }).catch(() => null);
             falta = !r || r.ocupado ? !r : !r.completo || r.guiasSinRevisar > 0 || soloGuias;
           }
-          if (falta) await dispararEtiquetasDelCorte(origen, cuenta.id, c.corteId, 1);
+          if (falta) await dispararEtiquetasYAnotar(admin, origen, cuenta.id, c.corteId, 1);
         }
         // Y los cortes recientes se ponen al día: lo que se canceló después
         // del corte deja de salir como faltante.

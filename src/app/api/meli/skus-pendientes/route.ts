@@ -1,4 +1,5 @@
 import { NextResponse, after, type NextRequest } from "next/server";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { registrarSync, cerrarSync, upsertEnTandas } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
 
   // Se contesta de inmediato y el trabajo corre después de responder.
   // El que dispara no puede quedarse esperando los ~4 minutos que esto puede
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
   }
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => procesar(origen));
 
   const admin = clienteAdmin();
