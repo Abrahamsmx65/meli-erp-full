@@ -20,6 +20,7 @@ import { ESTADO_ACTIVO, emparejarAmazon, interpretarProducto, seVende } from "..
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
 import { fichasCapturadasPorSku } from "../amazon/fotos-publicacion";
 import { configPorProducto } from "./productos";
+import { leerTiendaAmazon } from "./tienda-banners";
 import { clienteDeCuenta } from "./tiktok";
 
 export const HORAS_RELEER = 12;
@@ -203,6 +204,16 @@ export async function refrescarCatalogoTienda(
       avisos.push(...amazon.avisos);
     } catch (err) {
       avisos.push(`Fotos de Amazon: ${(err as Error).message}`);
+    }
+  }
+
+  // Banners de la tienda de marca de Amazon (una vez al día; el botón fuerza).
+  if (presupuestoMs - (Date.now() - inicio) > 30_000) {
+    try {
+      const b = await leerTiendaAmazon(admin, accountId, { forzar: opciones.todo });
+      if (!b.omitido && !b.imagenes) avisos.push(...b.avisos.slice(0, 2));
+    } catch (err) {
+      avisos.push(`Banners de Amazon: ${(err as Error).message}`);
     }
   }
 

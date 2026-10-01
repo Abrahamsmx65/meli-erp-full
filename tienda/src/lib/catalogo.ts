@@ -107,3 +107,36 @@ export async function variantesVivas(skuIds: string[]): Promise<Map<string, Reng
   }
   return salida;
 }
+
+interface PaginaAmazon {
+  url: string;
+  titulo: string | null;
+  imagenes: { url: string; ancho: number | null }[];
+}
+
+/**
+ * Banners copiados de la tienda de marca de GETAC en Amazon (el ERP los lee
+ * una vez al día, `servicios/tienda-banners.ts`, y los deja en app_cache
+ * clave `tienda:amazon-store`). Las imágenes anchas de la página principal
+ * primero; luego las de cada sección.
+ */
+async function leerBannersAmazon(): Promise<string[]> {
+  const { data } = await db()
+    .from("app_cache")
+    .select("datos")
+    .eq("account_id", config.cuenta())
+    .eq("clave", "tienda:amazon-store")
+    .maybeSingle();
+  const paginas = ((data as any)?.datos?.paginas ?? []) as PaginaAmazon[];
+  const urls: string[] = [];
+  for (const p of paginas) {
+    for (const i of p.imagenes ?? []) {
+      // Banner = ancho; las miniaturas de producto se quedan fuera.
+      if (i.ancho != null && i.ancho < 1000) continue;
+      if (!urls.includes(i.url)) urls.push(i.url);
+    }
+  }
+  return urls.slice(0, 12);
+}
+
+export const bannersAmazon = unstable_cache(leerBannersAmazon, ["banners-amazon"], { revalidate: 600 });
