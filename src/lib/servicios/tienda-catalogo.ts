@@ -19,6 +19,8 @@ import { producto as productoTikTok } from "../tiktok/api";
 import { ESTADO_ACTIVO, emparejarAmazon, interpretarProducto, seVende } from "../tienda/catalogo";
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
 import { fichasCapturadasPorSku } from "../amazon/fotos-publicacion";
+import { imagenesDeAsins } from "../amazon/catalogo";
+import { esPaginaDeCaptcha, imagenesDeTiendaAmazon } from "../tienda/amazon-store";
 import { configPorProducto } from "./productos";
 import { leerTiendaAmazon } from "./tienda-banners";
 import { clienteDeCuenta } from "./tiktok";
@@ -48,7 +50,7 @@ export async function refrescarCatalogoTienda(
   admin: any,
   accountId: string,
   presupuestoMs = 60_000,
-  opciones: { todo?: boolean } = {},
+  opciones: { todo?: boolean; sinAmazon?: boolean } = {},
 ): Promise<ResultadoCatalogoTienda> {
   const inicio = Date.now();
   const avisos: string[] = [];
@@ -198,7 +200,7 @@ export async function refrescarCatalogoTienda(
   // Fotos de Amazon y categoría con el tiempo que quede.
   let amazon: ResultadoAmazonTienda | null = null;
   const restante = presupuestoMs - (Date.now() - inicio);
-  if (restante > 15_000) {
+  if (!opciones.sinAmazon && restante > 15_000) {
     try {
       amazon = await enriquecerConAmazon(admin, accountId, restante - 5_000, opciones);
       avisos.push(...amazon.avisos);
@@ -208,7 +210,7 @@ export async function refrescarCatalogoTienda(
   }
 
   // Banners de la tienda de marca de Amazon (una vez al día; el botón fuerza).
-  if (presupuestoMs - (Date.now() - inicio) > 30_000) {
+  if (!opciones.sinAmazon && presupuestoMs - (Date.now() - inicio) > 30_000) {
     try {
       const b = await leerTiendaAmazon(admin, accountId, { forzar: opciones.todo });
       if (!b.omitido && !b.imagenes) avisos.push(...b.avisos.slice(0, 2));
@@ -269,7 +271,7 @@ export async function enriquecerConAmazon(
   const [productos, variantes, listings, config] = await Promise.all([
     traerTodo<any>(admin, "tienda_productos", "product_id, modelo, categoria, amazon_leido_en", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, color", (q) => eq(q).eq("activo", true)),
-    traerTodo<any>(admin, "amazon_listings", "seller_sku, imagen_url", (q) => q).catch(() => [] as any[]),
+    traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, imagen_url", (q) => q).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),
   ]);
 
@@ -292,8 +294,13 @@ export async function enriquecerConAmazon(
     .map((p: any) => String(p.product_id));
   if (!porLeer.length) return { productos: 0, pendientes: 0, avisos };
 
-  const imagenPorSku = new Map<string, string>();
-  for (const l of listings ?? []) if (l.seller_sku && l.imagen_url) imagenPorSku.set(String(l.seller_sku).toUpperCase(), String(l.imagen_url));
+  const asinDe = new Map<string, string>();
+  const imagenDe = new Map<string, string>();
+  for (const l of listings ?? []) {
+    const sku = String(l.seller_sku ?? "").toUpperCase();
+    if (l.asin) asinDe.set(sku, String(l.asin));
+    if (l.imagen_url) imagenDe.set(sku, String(l.imagen_url));
+  }
   const pareo = emparejarAmazon(
     (variantes ?? [])
       .filter((v: any) => porLeer.includes(String(v.product_id)))
@@ -302,41 +309,97 @@ export async function enriquecerConAmazon(
   );
 
   const cuenta = (await cuentasAmazon(admin))[0] ?? null;
-  const cliente = cuenta?.sellingPartnerId ? new ClienteAmazon(cuenta, Date.now() + presupuestoMs) : null;
-  if (!cliente) avisos.push("Amazon sin Seller ID: la tienda usa solo la imagen principal del reporte de Amazon.");
+  const cliente = cuenta ? new ClienteAmazon(cuenta, Date.now() + presupuestoMs) : null;
+  if (!cliente) avisos.push("Amazon no está conectado: la tienda se queda con las fotos de TikTok.");
 
   let hechos = 0;
   for (const productId of porLeer) {
-    if (Date.now() - inicio > presupuestoMs - 8_000) break;
+    if (Date.now() - inicio > presupuestoMs - 15_000) break;
     const colores = pareo.get(productId) ?? new Map<string, string[]>();
-    const skus = [...colores.values()].flat();
-    let fichas = new Map<string, { fotos: string[]; bullets: string[] }>();
-    if (cliente && skus.length) {
+
+    // 1. Fotos por COLOR del catálogo de Amazon por ASIN (las mismas de
+    //    «Contenido de Amazon»): MAIN y luego PT01, PT02… de ESE color.
+    const asinsPorColor = new Map<string, string[]>();
+    for (const [color, skus] of colores) {
+      asinsPorColor.set(color, skus.map((s) => asinDe.get(s.toUpperCase())).filter(Boolean) as string[]);
+    }
+    const todosAsins = [...new Set([...asinsPorColor.values()].flat())];
+    let porAsin = new Map<string, { link: string }[]>();
+    if (cliente && todosAsins.length) {
       try {
-        fichas = await fichasCapturadasPorSku(cliente, cuenta!.sellingPartnerId!, skus);
+        porAsin = await imagenesDeAsins(cliente, todosAsins);
       } catch (err) {
-        if (avisos.length < 5) avisos.push(`Amazon (${productId}): ${(err as Error).message}`);
+        if (avisos.length < 5) avisos.push(`Catálogo de Amazon (${productId}): ${(err as Error).message}`);
+      }
+    }
+    // 2. Puntos clave de la ficha capturada (necesita el Seller ID).
+    let bullets: string[] = [];
+    const skusFicha = [...colores.values()].map((l) => l[0]).filter(Boolean);
+    if (cliente && cuenta?.sellingPartnerId && skusFicha.length) {
+      try {
+        const fichas = await fichasCapturadasPorSku(cliente, cuenta.sellingPartnerId, skusFicha.slice(0, 5));
+        for (const f of fichas.values()) if (!bullets.length && f.bullets.length) bullets = f.bullets.slice(0, 6);
+      } catch {
+        /* los puntos clave son opcionales */
       }
     }
     const fotos: Record<string, string[]> = {};
-    let bullets: string[] = [];
-    for (const [color, candidatos] of colores) {
-      for (const sku of candidatos) {
-        const ficha = fichas.get(sku.toUpperCase());
-        const lista = ficha?.fotos?.length ? ficha.fotos : imagenPorSku.has(sku.toUpperCase()) ? [imagenPorSku.get(sku.toUpperCase())!] : [];
-        if (!bullets.length && ficha?.bullets?.length) bullets = ficha.bullets.slice(0, 6);
+    for (const [color, asins] of asinsPorColor) {
+      for (const asin of asins) {
+        const lista = (porAsin.get(asin) ?? []).map((i) => i.link);
         if (lista.length) {
           fotos[color] = lista;
           break;
         }
       }
+      if (!fotos[color]) {
+        const img = (colores.get(color) ?? []).map((s) => imagenDe.get(s.toUpperCase())).find(Boolean);
+        if (img) fotos[color] = [img];
+      }
     }
-    await admin
-      .from("tienda_productos")
-      .update({ fotos_amazon: fotos, bullets, amazon_leido_en: new Date().toISOString() })
-      .eq("account_id", accountId)
-      .eq("product_id", productId);
+    // 3. Contenido A+ de la página del producto en Amazon.
+    const asinAplus = todosAsins[0] ?? null;
+    let aplus: string[] | null = null;
+    if (asinAplus) {
+      const r = await aplusDeAsin(asinAplus);
+      if (r.imagenes) aplus = r.imagenes;
+      else if (avisos.length < 5 && r.motivo) avisos.push(`A+ ${asinAplus}: ${r.motivo}`);
+    }
+
+    const cambios: Record<string, unknown> = { fotos_amazon: fotos, bullets, asin: asinAplus, amazon_leido_en: new Date().toISOString() };
+    if (aplus) cambios.aplus = aplus;
+    await admin.from("tienda_productos").update(cambios).eq("account_id", accountId).eq("product_id", productId);
     hechos++;
   }
   return { productos: hechos, pendientes: porLeer.length - hechos, avisos };
+}
+
+/**
+ * Las imágenes A+ de un producto, leídas de su página en Amazon desde el
+ * servidor del ERP (la API de A+ no da URLs públicas de sus imágenes).
+ * Captcha o error: null y el motivo; se conserva lo anterior.
+ */
+export async function aplusDeAsin(asin: string): Promise<{ imagenes: string[] | null; motivo?: string }> {
+  try {
+    const r = await fetch(`https://www.amazon.com.mx/dp/${encodeURIComponent(asin)}`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Accept-Language": "es-MX,es;q=0.9",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    });
+    const html = await r.text();
+    if (!r.ok) return { imagenes: null, motivo: `HTTP ${r.status}` };
+    if (esPaginaDeCaptcha(html)) return { imagenes: null, motivo: "Amazon pidió captcha" };
+    // Solo el bloque A+ (aplus-media); nada de las fotos del producto ni de anuncios.
+    const imagenes = imagenesDeTiendaAmazon(html)
+      .map((i) => i.url)
+      .filter((u) => /\/images\/S\/aplus-media/.test(u));
+    return { imagenes };
+  } catch (err) {
+    return { imagenes: null, motivo: (err as Error).message };
+  }
 }

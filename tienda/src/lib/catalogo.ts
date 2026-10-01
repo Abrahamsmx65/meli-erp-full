@@ -9,7 +9,7 @@ async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Vari
   const [{ data: productos, error: e1 }, { data: variantes, error: e2 }] = await Promise.all([
     db()
       .from("tienda_productos")
-      .select("product_id, modelo, titulo, descripcion, imagenes, fotos_amazon, bullets, categoria")
+      .select("product_id, modelo, titulo, descripcion, imagenes, fotos_amazon, bullets, categoria, aplus")
       .eq("account_id", cuenta)
       .eq("activo", true)
       .order("modelo", { ascending: true })
@@ -29,6 +29,7 @@ async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Vari
       imagenes: Array.isArray(p.imagenes) ? p.imagenes : [],
       fotos_amazon: p.fotos_amazon && typeof p.fotos_amazon === "object" ? p.fotos_amazon : {},
       bullets: Array.isArray(p.bullets) ? p.bullets : [],
+      aplus: Array.isArray(p.aplus) ? p.aplus : [],
     })),
     variantes: (variantes ?? []) as any,
   };
@@ -108,35 +109,25 @@ export async function variantesVivas(skuIds: string[]): Promise<Map<string, Reng
   return salida;
 }
 
-interface PaginaAmazon {
+export interface PaginaAmazon {
   url: string;
   titulo: string | null;
   imagenes: { url: string; ancho: number | null }[];
 }
 
 /**
- * Banners copiados de la tienda de marca de GETAC en Amazon (el ERP los lee
- * una vez al día, `servicios/tienda-banners.ts`, y los deja en app_cache
- * clave `tienda:amazon-store`). Las imágenes anchas de la página principal
- * primero; luego las de cada sección.
+ * La tienda de marca de GETAC en Amazon tal cual la copió el ERP
+ * (`servicios/tienda-banners.ts`, app_cache clave `tienda:amazon-store`):
+ * la página principal y sus secciones, cada una con sus imágenes en orden.
  */
-async function leerBannersAmazon(): Promise<string[]> {
+async function leerTiendaAmazon(): Promise<PaginaAmazon[]> {
   const { data } = await db()
     .from("app_cache")
     .select("datos")
     .eq("account_id", config.cuenta())
     .eq("clave", "tienda:amazon-store")
     .maybeSingle();
-  const paginas = ((data as any)?.datos?.paginas ?? []) as PaginaAmazon[];
-  const urls: string[] = [];
-  for (const p of paginas) {
-    for (const i of p.imagenes ?? []) {
-      // Banner = ancho; las miniaturas de producto se quedan fuera.
-      if (i.ancho != null && i.ancho < 1000) continue;
-      if (!urls.includes(i.url)) urls.push(i.url);
-    }
-  }
-  return urls.slice(0, 12);
+  return (((data as any)?.datos?.paginas ?? []) as PaginaAmazon[]).filter((p) => p.imagenes?.length);
 }
 
-export const bannersAmazon = unstable_cache(leerBannersAmazon, ["banners-amazon"], { revalidate: 600 });
+export const tiendaAmazon = unstable_cache(leerTiendaAmazon, ["tienda-amazon"], { revalidate: 600 });
