@@ -36,6 +36,12 @@ export interface OrdenParaVentas {
   pagoEsperado?: number | null;
   /** comisión a afiliados/creadores que TikTok descuenta en ese pedido */
   afiliado?: number | null;
+  /** el creador (afiliado) que trajo la venta, según el endpoint de afiliados; null = ninguno */
+  creador?: string | null;
+  /** true si el pedido ya se revisó contra el endpoint de afiliados (sin creador = venta de la tienda) */
+  afiliadoLeido?: boolean;
+  /** nombre del destinatario, para la lista de muestras */
+  destinatario?: string | null;
 }
 
 export interface RenglonParaVentas {
@@ -251,4 +257,100 @@ export function muestrasEnRango<T extends OrdenParaVentas>(ordenes: T[], rango: 
       return dia >= rango.desde && dia <= rango.hasta;
     })
     .sort((a, b) => String(b.creadoEn ?? "").localeCompare(String(a.creadoEn ?? "")));
+}
+
+// ---------------------------------------------------------------------------
+// Origen de la venta: creadores (afiliados) vs la tienda
+// ---------------------------------------------------------------------------
+
+export interface BloqueOrigen {
+  pedidos: number;
+  unidades: number;
+  cobrado: number;
+  /** % del cobrado del rango (0–100) */
+  porcentaje: number;
+}
+
+export interface CreadorTop extends BloqueOrigen {
+  creador: string;
+}
+
+export interface OrigenVentas {
+  total: BloqueOrigen;
+  /** pedidos que trajo un creador (afiliado) */
+  creadores: BloqueOrigen;
+  /** pedidos sin creador, ya revisados: venta de la tienda (nuestra) */
+  tienda: BloqueOrigen;
+  /** pedidos que aún no se revisan contra el endpoint de afiliados: no se asume nada */
+  sinRevisar: BloqueOrigen;
+  /** los creadores que más vendieron en el rango, por cobrado */
+  top: CreadorTop[];
+  /** cuántos creadores distintos vendieron en el rango */
+  creadoresDistintos: number;
+}
+
+/**
+ * De dónde vino la venta del rango: cuánto trajeron los creadores y cuánto
+ * la tienda, y el top de creadores con su % de lo cobrado. Mismas reglas
+ * que `resumenPorModelo`: solo pedidos EN PIE del rango, sin muestras ni
+ * cancelados; el cobrado es el precio al cliente de sus renglones vivos.
+ * Un pedido sin revisar contra afiliados se declara aparte (`sinRevisar`):
+ * contarlo como tienda inflaría nuestra parte.
+ */
+export function origenDeVentas(
+  ordenes: OrdenParaVentas[],
+  renglones: RenglonParaVentas[],
+  rango: { desde: string; hasta: string },
+  topN = 10,
+): OrigenVentas {
+  const validas = pedidosDeVenta(ordenes, rango);
+  const porOrden = new Map<string, { unidades: number; cobrado: number }>();
+  for (const o of validas) porOrden.set(o.orderId, { unidades: 0, cobrado: 0 });
+  for (const r of renglones) {
+    const acum = porOrden.get(r.orderId);
+    if (!acum || NO_CUENTAN.has(String(r.estado ?? "").toUpperCase())) continue;
+    acum.unidades += r.cantidad;
+    acum.cobrado += (r.precio ?? 0) * r.cantidad;
+  }
+  const vacio = (): BloqueOrigen => ({ pedidos: 0, unidades: 0, cobrado: 0, porcentaje: 0 });
+  const total = vacio();
+  const creadores = vacio();
+  const tienda = vacio();
+  const sinRevisar = vacio();
+  const porCreador = new Map<string, BloqueOrigen>();
+  const suma = (b: BloqueOrigen, v: { unidades: number; cobrado: number }) => {
+    b.pedidos += 1;
+    b.unidades += v.unidades;
+    b.cobrado += v.cobrado;
+  };
+  for (const o of validas) {
+    const v = porOrden.get(o.orderId) as { unidades: number; cobrado: number };
+    suma(total, v);
+    if (o.creador) {
+      suma(creadores, v);
+      const c = porCreador.get(o.creador) ?? vacio();
+      suma(c, v);
+      porCreador.set(o.creador, c);
+    } else if (o.afiliadoLeido) {
+      suma(tienda, v);
+    } else {
+      suma(sinRevisar, v);
+    }
+  }
+  const pct = (b: BloqueOrigen) => {
+    b.porcentaje = total.cobrado > 0 ? (b.cobrado / total.cobrado) * 100 : 0;
+    return b;
+  };
+  const top = [...porCreador.entries()]
+    .map(([creador, b]) => ({ creador, ...pct(b) }))
+    .sort((a, b) => b.cobrado - a.cobrado || b.unidades - a.unidades || a.creador.localeCompare(b.creador))
+    .slice(0, topN);
+  return {
+    total: pct(total),
+    creadores: pct(creadores),
+    tienda: pct(tienda),
+    sinRevisar: pct(sinRevisar),
+    top,
+    creadoresDistintos: porCreador.size,
+  };
 }

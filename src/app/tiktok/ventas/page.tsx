@@ -1,10 +1,12 @@
-import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
+import { after } from "next/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { cuentaActiva } from "@/lib/datos/repos";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { efectoDeEstado } from "@/lib/tiktok/kardex";
-import { muestrasEnRango, pedidosDeVenta, resumenPorModelo } from "@/lib/tiktok/ventas";
+import { leerVentasTikTok, recalcularVentasTikTok } from "@/lib/servicios/tiktok-ventas";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
+import { Frescura } from "@/components/yapanizcel/comunes";
+import { OrigenVentasTikTok } from "@/components/origen-ventas-tiktok";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,11 @@ const NOMBRE_ESTADO: Record<string, string> = {
  * Lo primero que se ve no son las cifras sino LO QUE HAY QUE ENVIAR: en un
  * canal de envío propio, un pedido pagado sin despachar es trabajo pendiente,
  * y además tiene apartado un par que nadie más puede comprar.
+ *
+ * Todo sale MASTICADO de `app_cache` (`servicios/tiktok-ventas.ts`): la
+ * pantalla lee un renglón y, si está viejo, pide el recálculo por atrás.
+ * Como MELI y Amazon (dueño, 1-oct-2026): «que la info se vaya guardando,
+ * no que cada vez jale todo».
  */
 export default async function VentasTikTok({
   searchParams,
@@ -56,114 +63,21 @@ export default async function VentasTikTok({
     );
   }
 
-  const [ventas, ordenes, items] = await Promise.all([
-    traerTodo<any>(supabase, "tiktok_ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
-      q.eq("account_id", cuenta.id).gte("fecha", rango.desde).lte("fecha", rango.hasta),
-    ),
-    traerTodo<any>(supabase, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion, total, guia, shipping_type, detalle, es_muestra, neto_recibido, pago_esperado, pago_estado, pago_afiliado", (q) =>
-      q.eq("account_id", cuenta.id),
-    ),
-    traerTodo<any>(supabase, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad, precio, estado", (q) =>
-      q.eq("account_id", cuenta.id),
-    ),
-  ]);
-
-  const unidades = (ventas ?? []).reduce((a, v) => a + (v.unidades ?? 0), 0);
-  const importe = (ventas ?? []).reduce((a, v) => a + Number(v.importe ?? 0), 0);
-
-  // Por MODELO (GT134), no por color y talla: es el nivel al que se decide
-  // qué comprar y qué empujar. Las muestras van aparte: no son venta.
-  const ordenesParaVentas = (ordenes ?? []).map((o) => ({
-    orderId: o.order_id as string,
-    estado: o.estado as string,
-    creadoEn: o.fecha_creacion as string | null,
-    actualizadoEn: o.fecha_actualizacion as string | null,
-    esMuestra: Boolean(o.es_muestra),
-    netoRecibido: o.neto_recibido != null ? Number(o.neto_recibido) : null,
-    pagoEsperado: o.pago_esperado != null ? Number(o.pago_esperado) : null,
-    afiliado: o.pago_afiliado != null ? Number(o.pago_afiliado) : null,
-    destinatario: (o.detalle?.destinatario ?? null) as string | null,
-  }));
-  const renglonesParaVentas = (items ?? []).map((i) => ({
-    orderId: i.order_id as string,
-    skuInterno: (i.sku_interno ?? null) as string | null,
-    cantidad: (i.cantidad ?? 0) as number,
-    precio: i.precio != null ? Number(i.precio) : null,
-    estado: (i.estado ?? null) as string | null,
-  }));
-  const modelos = resumenPorModelo(ordenesParaVentas, renglonesParaVentas, rango);
-
-  // Costo por MODELO (productos_config, MXN final): ganancia = lo que TikTok
-  // va a pagar − costo de los pares con dato. Sin costo capturado no se
-  // inventa nada.
-  const costosRaw = await traerTodo<any>(supabase, "productos_config", "modelo, costo_mxn", (q) =>
-    q.eq("account_id", cuenta.id).not("costo_mxn", "is", null),
-  );
-  const costoDe = new Map<string, number>();
-  for (const c of costosRaw ?? []) {
-    const modelo = String(c.modelo ?? "").toUpperCase();
-    if (modelo && c.costo_mxn != null && !costoDe.has(modelo)) costoDe.set(modelo, Number(c.costo_mxn));
+  const admin = clienteAdmin();
+  const lectura = await leerVentasTikTok(admin, cuenta.id, rango);
+  if (lectura.refrescar) {
+    after(async () => {
+      await recalcularVentasTikTok(admin, cuenta.id, rango).catch(() => undefined);
+    });
   }
-  // «Cuánto me van a pagar» y «cuánto gano» salen del número de TikTok
-  // (sus transacciones por pedido, liquidadas o por liquidar), nunca de una
-  // estimación del ERP (decisión del dueño, 25-sep-2026). Lo que TikTok
-  // todavía no calcula se declara como «sin dato» y se deja fuera de la
-  // ganancia hasta que llegue.
-  const conCosto = modelos.map((m) => {
-    const costoUnitario = costoDe.get(m.modelo) ?? null;
-    const costo = costoUnitario != null ? costoUnitario * m.unidadesConDato : null;
-    const ganancia = costo != null && m.unidadesConDato > 0 ? m.aRecibir - costo : null;
-    // Por PAR vendido (pedido del dueño, 28-sep-2026: «cuánto gano por
-    // unidad vendida después de todos los gastos»): lo que TikTok paga por
-    // par ya trae descontados comisión, afiliados, envío e impuestos
-    // retenidos; menos el costo del par.
-    const pagaPorPar = m.unidadesConDato > 0 ? m.aRecibir / m.unidadesConDato : null;
-    const gananciaPorPar = ganancia != null && m.unidadesConDato > 0 ? ganancia / m.unidadesConDato : null;
-    return { ...m, costoUnitario, costo, ganancia, pagaPorPar, gananciaPorPar };
-  });
-  const gananciaTotal = conCosto.reduce((a, m) => a + (m.ganancia ?? 0), 0);
-  const hayGanancia = conCosto.some((m) => m.ganancia != null);
-  const sinCosto = conCosto.filter((m) => m.costoUnitario == null).length;
-  const aRecibir = modelos.reduce((a, m) => a + m.aRecibir, 0);
-  const aRecibirLiquidado = modelos.reduce((a, m) => a + m.aRecibirLiquidado, 0);
-  const aRecibirPorLiquidar = modelos.reduce((a, m) => a + m.aRecibirPorLiquidar, 0);
-  const afiliados = modelos.reduce((a, m) => a + m.afiliado, 0);
-  const cobradoConDato = modelos.reduce((a, m) => a + (m.cobrado - m.cobradoSinDato), 0);
-  const cobradoSinDato = modelos.reduce((a, m) => a + m.cobradoSinDato, 0);
-  const costoTotal = conCosto.reduce((a, m) => a + (m.costo ?? 0), 0);
-  const comision = cobradoConDato > 0 ? 1 - aRecibir / cobradoConDato : null;
-  // Ganancia por par de toda la tienda: solo sobre los pares que tienen dato de TikTok Y costo capturado.
-  const paresConGanancia = conCosto.reduce((a, m) => a + (m.ganancia != null ? m.unidadesConDato : 0), 0);
-  const gananciaPorParTotal = paresConGanancia > 0 ? gananciaTotal / paresConGanancia : null;
-  // Pedidos EN PIE del rango: pagados, no cancelados, no muestra.
-  const enPie = pedidosDeVenta(ordenesParaVentas, rango);
-  const pedidosEnPie = enPie.length;
-  const pedidosLiquidados = enPie.filter((o) => o.netoRecibido != null).length;
-  const pedidosSinDato = enPie.filter((o) => o.netoRecibido == null && o.pagoEsperado == null).length;
-  const pedidosPorLiquidar = pedidosEnPie - pedidosLiquidados - pedidosSinDato;
-
-  const muestras = muestrasEnRango(ordenesParaVentas, rango);
-  const skusPorPedido = new Map<string, string[]>();
-  for (const i of items ?? []) {
-    const lista = skusPorPedido.get(i.order_id) ?? [];
-    lista.push(i.sku_interno ?? i.seller_sku ?? "(sin SKU)");
-    skusPorPedido.set(i.order_id, lista);
-  }
-  const paresMuestra = muestras.reduce((a, m) => a + (skusPorPedido.get(m.orderId)?.length ?? 0), 0);
-
-  // Lo que falta despachar, que es la lista de trabajo del día.
-  const porEnviar = (items ?? []).filter((i) => efectoDeEstado(i.estado) === "apartado");
-  const paresPorEnviar = porEnviar.reduce((a, i) => a + (i.cantidad ?? 0), 0);
-  const idsPorEnviar = new Set(porEnviar.map((i) => i.order_id));
-
-  // Pedido por pedido, para empacar y confirmar desde aquí.
-  // Lo cancelado no se enseña (decisión del dueño, 25-sep-2026: «lo
-  // cancelado ni me lo enseñes porque hay mucho ahí»).
-  const porEstado = new Map<string, number>();
-  for (const o of ordenes ?? []) {
-    if (String(o.estado ?? "").toUpperCase().startsWith("CANCEL")) continue;
-    porEstado.set(o.estado, (porEstado.get(o.estado) ?? 0) + 1);
-  }
+  const d = lectura.datos;
+  const t = d.totales;
+  const { unidades, importe, modelos, muestras, porEnviar, porEstado, origen } = d;
+  const conCosto = modelos;
+  const {
+    gananciaTotal, hayGanancia, sinCosto, aRecibir, aRecibirLiquidado, aRecibirPorLiquidar, afiliados, cobradoSinDato, costoTotal, comision,
+    paresConGanancia, gananciaPorParTotal, pedidosEnPie, pedidosSinDato,
+  } = t;
 
   return (
     <div className="flex flex-col gap-6">
@@ -173,6 +87,7 @@ export default async function VentasTikTok({
           <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
             {rango.desde} → {rango.hasta}
           </p>
+          <Frescura generadoEn={lectura.generadoEn} />
         </div>
         <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} />
       </div>
@@ -215,11 +130,13 @@ export default async function VentasTikTok({
         />
         <Ficha
           titulo="Pedidos por enviar"
-          valor={idsPorEnviar.size}
-          nota={`pagados, sin despachar · ${n(paresPorEnviar)} pares apartados`}
-          tono={idsPorEnviar.size ? "alerta" : "bien"}
+          valor={porEnviar.pedidos}
+          nota={`pagados, sin despachar · ${n(porEnviar.pares)} pares apartados`}
+          tono={porEnviar.pedidos ? "alerta" : "bien"}
         />
       </div>
+
+      <OrigenVentasTikTok origen={origen} />
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="tarjeta overflow-hidden">
@@ -317,18 +234,19 @@ export default async function VentasTikTok({
 
         <section className="tarjeta overflow-hidden">
           <h2 className="px-4 pt-4 text-sm font-semibold">Pedidos por estado</h2>
+          <p className="px-4 pt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            Los del rango y, de cualquier fecha, los que todavía no salen.
+          </p>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
               <tbody>
-                {[...porEstado]
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([estado, cuantos]) => (
+                {porEstado.map(([estado, cuantos]) => (
                     <tr key={estado} className="hairline">
                       <td className="px-4 py-2">{NOMBRE_ESTADO[estado] ?? estado}</td>
                       <td className="num px-4 py-2 text-right">{n(cuantos)}</td>
                     </tr>
                   ))}
-                {!porEstado.size ? (
+                {!porEstado.length ? (
                   <tr>
                     <td className="px-4 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
                       Sin pedidos sincronizados.
@@ -367,7 +285,7 @@ export default async function VentasTikTok({
                     {m.creadoEn ? new Date(m.creadoEn).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : ""}
                   </td>
                   <td className="px-4 py-2 font-medium">{m.orderId}</td>
-                  <td className="px-4 py-2">{(skusPorPedido.get(m.orderId) ?? []).join(", ")}</td>
+                  <td className="px-4 py-2">{m.skus.join(", ")}</td>
                   <td className="px-4 py-2" style={{ color: "var(--ink-2)" }}>{m.destinatario ?? ""}</td>
                   <td className="px-4 py-2">{NOMBRE_ESTADO[m.estado ?? ""] ?? m.estado}</td>
                 </tr>

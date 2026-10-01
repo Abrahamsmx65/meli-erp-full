@@ -19,6 +19,7 @@ import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/re
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
+import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
 import { agregarVentasDiarias } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
@@ -1447,13 +1448,23 @@ export async function sincronizarPagosTikTok(
   } catch (err) {
     avisos.push(`Liquidaciones: ${(err as Error).message}`);
   }
+  // Quién trajo cada venta (creadores vs tienda), con el tiempo que sobre:
+  // deja su propio renglón `afiliados` en la bitácora.
+  let afiliados: ResultadoAfiliados | null = null;
+  if (cliente.msRestantes() > 40_000) {
+    afiliados = await leerAfiliados(admin, accountId, cliente).catch((err) => {
+      avisos.push(`Afiliados: ${(err as Error).message}`);
+      return null;
+    });
+    if (afiliados?.error) avisos.push(`Afiliados: ${afiliados.error}`);
+  }
   await admin.from("tiktok_sync_log").insert({
     account_id: accountId,
     tarea: "pagos",
     inicio,
     fin: new Date().toISOString(),
     estado: avisos.length ? "con avisos" : "ok",
-    detalle: { porLiquidar, liquidados, avisos },
+    detalle: { porLiquidar, liquidados, afiliados: afiliados ? { guardados: afiliados.guardados, creadores: afiliados.creadores, fondo: afiliados.fondo, llegoAlPrimero: afiliados.llegoAlPrimero } : null, avisos },
   });
   return { porLiquidar, liquidados, avisos };
 }

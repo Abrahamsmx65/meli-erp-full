@@ -994,6 +994,39 @@ guárdala numerada.
   TikTok ya trae descontados comisión, cargo por par, afiliados, envío e
   IVA/ISR retenidos; el ERP no lleva gastos propios de TikTok como el 3PL);
   los cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
+  **Ventas TikTok se lee MASTICADA, como MELI y Amazon** (`servicios/
+  tiktok-ventas.ts`, `app_cache` clave `tiktok:ventas:v1:{desde}:{hasta}`,
+  TTL 10 min, `Frescura`; RPC `tiktok_ventas_pedidos`, migración 0105;
+  dueño, 1-oct-2026: «que la info se vaya guardando, no que cada vez jale
+  todo»): hasta ese día la pantalla bajaba las 12 mil órdenes COMPLETAS
+  (con el JSON crudo del pedido) y los 15 mil renglones bajo RLS en cada
+  apertura; Postgres las cancelaba a los 8 s («Algo falló al cargar esta
+  pantalla») y, cuando alcanzaba, tardaba medio minuto. Ahora el RPC trae
+  de un jalón los pedidos del rango (un día de margen por UTC→México) más
+  los que aún no salen, sin `detalle`; el motor puro de `tiktok/ventas.ts`
+  mastica, se guarda, la pantalla lee el renglón y si está viejo o
+  invalidado pide el recálculo en `after()`; solo sin renglón se calcula en
+  el clic. «Pedidos por estado» cuenta los del rango y los pendientes.
+  **ORIGEN DE LA VENTA: creadores vs tienda** (`tiktok/afiliados.ts` puro,
+  `servicios/tiktok-afiliados.ts`, `origenDeVentas` en `tiktok/ventas.ts`,
+  `components/origen-ventas-tiktok.tsx`; dueño, 1-oct-2026: «una gráfica
+  de cuánto es por creadores y cuánto por mí, y el top 10 de creadores que
+  generaron la venta y su porcentaje»): TikTok no pone al creador en el
+  pedido; vive en `POST /affiliate_seller/202410/orders/search` (ruta y
+  forma del SDK de npm; `creator_username`, tasa y comisión por SKU;
+  ventana por `create_time`, 100 por página; el SDK marca `program_id` y
+  no se manda: si TikTok lo exige, el error queda en la bitácora
+  `afiliados` con el crudo de la primera página). `leerAfiliados` corre en
+  el cron de PAGOS (cada hora, tras el dinero, con el tiempo que sobre):
+  ventana reciente de 3 días + un tramo de fondo de 7 días hacia atrás
+  desde donde se quedó (`app_cache` `tiktok:afiliados:fondo`) hasta el
+  primer pedido; escribe por LOTE (`tiktok_guardar_afiliados`:
+  `creador` = el que más pares trajo, `creador_detalle` por SKU) y, solo si
+  la ventana se leyó COMPLETA, marca lo que no apareció como revisado sin
+  creador (`tiktok_marcar_afiliados_leidos`, `afiliado_leido_en`) = venta
+  de la TIENDA. Un pedido sin revisar se declara aparte («sin revisar»),
+  nunca se cuenta como nuestro. La pantalla: barra apilada creadores /
+  tienda / sin revisar con % de lo cobrado y el top 10 por cobrado.
   **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
   Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
   `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla
@@ -1587,7 +1620,7 @@ login, la base y el deploy.
 | Contenido de marca en Amazon     | `src/lib/servicios/contenido-amazon.ts` + `src/app/amazon/contenido` (imágenes y padres en `src/lib/amazon/catalogo.ts`) |
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
-| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes) |
+| TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |

@@ -1240,3 +1240,33 @@ export async function transaccionesSinLiquidar(
     intentos,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Afiliados: qué creador trajo cada pedido
+// ---------------------------------------------------------------------------
+
+export interface PaginaAfiliados {
+  /** lo que contestó TikTok, tal cual (la forma la interpreta `tiktok/afiliados.ts`) */
+  crudo: any;
+  siguiente?: string;
+}
+
+/**
+ * Pedidos de afiliados creados en la ventana [desde, hasta) (segundos
+ * epoch), 100 por página. `POST /affiliate_seller/202410/orders/search`
+ * (la ruta y la forma salieron del SDK generado de TikTok en npm; el SDK
+ * marca `program_id` en el cuerpo pero no tenemos programa: se manda solo
+ * la ventana y, si TikTok lo exige, el error queda en la bitácora). null
+ * si se acabó el tiempo de la función.
+ */
+export async function pedidosDeAfiliados(
+  c: Cliente,
+  opciones: { desde: number; hasta: number; pageToken?: string; pageSize?: number },
+): Promise<PaginaAfiliados | null> {
+  const d = await c.llamar<any>("POST", "/affiliate_seller/202410/orders/search", {
+    params: { page_size: opciones.pageSize ?? 100, page_token: opciones.pageToken },
+    cuerpo: { create_time_ge: opciones.desde, create_time_lt: opciones.hasta },
+  });
+  if (!d) return null;
+  return { crudo: d, siguiente: d?.next_page_token || undefined };
+}
