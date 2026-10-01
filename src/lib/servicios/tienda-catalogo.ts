@@ -286,7 +286,11 @@ export async function enriquecerConAmazon(
       return cat && cat !== p.categoria ? { account_id: accountId, product_id: p.product_id, categoria: cat } : null;
     })
     .filter(Boolean) as any[];
-  if (categorias.length) await guardar(admin, "tienda_productos", categorias, "account_id,product_id");
+  // UPDATE renglón por renglón (son decenas): un upsert sin `titulo` choca con
+  // el NOT NULL de la parte de inserción y tumbaba todo lo de Amazon (1-oct-2026).
+  for (const c of categorias) {
+    await admin.from("tienda_productos").update({ categoria: c.categoria }).eq("account_id", accountId).eq("product_id", c.product_id);
+  }
 
   const limite = Date.now() - HORAS_RELEER_AMAZON * 3_600_000;
   const porLeer = (productos ?? [])
