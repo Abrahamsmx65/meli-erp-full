@@ -271,4 +271,61 @@ export class Cliente {
     }
     return null;
   }
+
+  /**
+   * Una llamada multipart (subir una imagen o un archivo). La firma va SIN
+   * cuerpo —así lo hace el SDK de referencia de TikTok: el multipart nunca
+   * entra al HMAC— y el archivo viaja en el campo `data`. Devuelve `data`
+   * desenvuelto o null si se acabó el plazo.
+   */
+  async llamarMultipart<T = any>(
+    ruta: string,
+    campos: Record<string, string>,
+    archivo: { campo: string; bytes: Uint8Array; nombre: string; tipo: string },
+  ): Promise<T | null> {
+    if (this.msRestantes() < 5_000) return null;
+    const token = await this.accessToken();
+
+    for (let intento = 0; intento < 4; intento++) {
+      const params: Record<string, string | number> = {
+        app_key: this.app.appKey,
+        timestamp: timestamp(),
+      };
+      if (this.tienda.shopCipher) params.shop_cipher = this.tienda.shopCipher;
+      params.sign = firmar(ruta, params, "", this.app.appSecret);
+
+      const url = new URL(API + ruta);
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+
+      const form = new FormData();
+      for (const [k, v] of Object.entries(campos)) form.set(k, v);
+      form.set(archivo.campo, new Blob([archivo.bytes as BlobPart], { type: archivo.tipo }), archivo.nombre);
+
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "x-tts-access-token": token },
+        body: form,
+      });
+      const texto = await r.text();
+      let json: any = null;
+      let ilegible = false;
+      try {
+        json = texto ? JSON.parse(texto) : {};
+      } catch {
+        ilegible = true;
+      }
+      if (!ilegible && r.ok && json?.code === 0) return (json.data ?? {}) as T;
+
+      const reintentable = r.status === 429 || r.status >= 500 || json?.code === 90000;
+      if (reintentable && intento < 3) {
+        const espera = Math.min(2000 * 2 ** intento, 20_000);
+        if (espera > this.msRestantes() - 10_000) return null;
+        await new Promise((res) => setTimeout(res, espera));
+        continue;
+      }
+      if (ilegible) throw new ErrorTikTok(r.status, ruta, resumirCuerpoHtml(texto, r.status));
+      throw new ErrorTikTok(json?.code ?? r.status, ruta, json?.message ?? texto);
+    }
+    return null;
+  }
 }
