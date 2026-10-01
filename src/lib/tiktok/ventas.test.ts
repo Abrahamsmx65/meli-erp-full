@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarVentasDiarias, diaMx, modeloDeSku, muestrasEnRango, resumenPorModelo } from "./ventas";
+import { agregarVentasDiarias, diaMx, modeloDeSku, muestrasEnRango, origenDeVentas, resumenPorModelo } from "./ventas";
 
 describe("diaMx", () => {
   it("un pedido de las 20:19 hora México del día 1 es del día 1, aunque en UTC ya sea día 2", () => {
@@ -95,5 +95,50 @@ describe("muestras y resumen por modelo", () => {
     expect(r[1].aRecibir).toBeCloseTo(320);
     expect(r[1].afiliado).toBeCloseTo(20);
     expect(modeloDeSku("gt134-blk-24-mx")).toBe("GT134");
+  });
+});
+
+describe("origenDeVentas", () => {
+  const rango = { desde: "2026-09-01", hasta: "2026-09-30" };
+  const ordenes = [
+    { orderId: "1", estado: "COMPLETED", creadoEn: "2026-09-10T15:00:00Z", creador: "ana", afiliadoLeido: true },
+    { orderId: "2", estado: "DELIVERED", creadoEn: "2026-09-11T15:00:00Z", creador: "ana", afiliadoLeido: true },
+    { orderId: "3", estado: "IN_TRANSIT", creadoEn: "2026-09-12T15:00:00Z", creador: "beto", afiliadoLeido: true },
+    { orderId: "4", estado: "COMPLETED", creadoEn: "2026-09-13T15:00:00Z", creador: null, afiliadoLeido: true },
+    { orderId: "5", estado: "COMPLETED", creadoEn: "2026-09-14T15:00:00Z", creador: null, afiliadoLeido: false },
+    { orderId: "6", estado: "CANCELLED", creadoEn: "2026-09-14T15:00:00Z", creador: "ana", afiliadoLeido: true },
+    { orderId: "7", estado: "COMPLETED", creadoEn: "2026-10-02T15:00:00Z", creador: "ana", afiliadoLeido: true },
+    { orderId: "8", estado: "COMPLETED", creadoEn: "2026-09-15T15:00:00Z", creador: "ana", afiliadoLeido: true, esMuestra: true },
+  ];
+  const renglones = [
+    { orderId: "1", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 400, estado: "COMPLETED" },
+    { orderId: "2", skuInterno: "GT1-BLK-25-MX", cantidad: 2, precio: 300, estado: "COMPLETED" },
+    { orderId: "3", skuInterno: "GT2-BLK-25-MX", cantidad: 1, precio: 200, estado: "IN_TRANSIT" },
+    { orderId: "3", skuInterno: "GT2-BLK-26-MX", cantidad: 1, precio: 100, estado: "CANCELLED" },
+    { orderId: "4", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 500, estado: "COMPLETED" },
+    { orderId: "5", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 100, estado: "COMPLETED" },
+    { orderId: "6", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 900, estado: "CANCELLED" },
+    { orderId: "7", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 900, estado: "COMPLETED" },
+    { orderId: "8", skuInterno: "GT1-BLK-24-MX", cantidad: 1, precio: 0, estado: "COMPLETED" },
+  ];
+  it("reparte lo cobrado entre creadores, tienda y sin revisar; cancelados, muestras y fuera de rango no entran", () => {
+    const o = origenDeVentas(ordenes, renglones, rango);
+    expect(o.total).toMatchObject({ pedidos: 5, unidades: 6, cobrado: 1800 });
+    expect(o.creadores).toMatchObject({ pedidos: 3, unidades: 4, cobrado: 1200, porcentaje: (1200 / 1800) * 100 });
+    expect(o.tienda).toMatchObject({ pedidos: 1, unidades: 1, cobrado: 500 });
+    expect(o.sinRevisar).toMatchObject({ pedidos: 1, unidades: 1, cobrado: 100 });
+  });
+  it("el top va por cobrado, con su % del total del rango", () => {
+    const o = origenDeVentas(ordenes, renglones, rango);
+    expect(o.top.map((t) => t.creador)).toEqual(["ana", "beto"]);
+    expect(o.top[0]).toMatchObject({ pedidos: 2, unidades: 3, cobrado: 1000 });
+    expect(o.top[0].porcentaje).toBeCloseTo(55.56, 1);
+    expect(o.creadoresDistintos).toBe(2);
+  });
+  it("se topa en N y sin ventas todo es cero", () => {
+    expect(origenDeVentas(ordenes, renglones, rango, 1).top).toHaveLength(1);
+    const vacio = origenDeVentas([], [], rango);
+    expect(vacio.total.porcentaje).toBe(0);
+    expect(vacio.top).toEqual([]);
   });
 });
