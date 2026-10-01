@@ -1056,6 +1056,44 @@ guárdala numerada.
   `use_case`, se intenta como `DESCRIPTION_IMAGE` y se avisa) y va en
   `size_chart.image`; el mismo texto va al final de la descripción.
 
+- **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
+  `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el
+  mismo inventario que tenemos en TikTok y va a ser sincronizado porque si algo
+  se vende aquí ya no se puede vender en el otro; de ahí tomamos listados,
+  imágenes y precios»). No tiene stock propio: aparta pares en
+  `tiktok_inventario.apartado_web` y `publicarDisponibilidad` los RESTA de lo
+  que le publica a TikTok igual que el `apartado` de TikTok (un par, un dueño);
+  la tienda ofrece `tienda_disponibles` = la misma regla (menor entre kardex y
+  estante, solo SKUs contados: `tope_estante` y `contado` los escribe
+  `publicarDisponibilidad` en cada corrida) menos los dos apartados. El
+  apartado se decide DENTRO de Postgres con los renglones del kardex
+  bloqueados (`tienda_crear_pedido`, `for update`): dos compradores no se
+  llevan el último par, y el precio sale del catálogo, nunca del navegador.
+  `apartado_web` lo mantiene SOLO `tienda_recalcular_apartado` (pedidos
+  `pendiente_pago` y `pagado`); `recalcularSaldos` no lo toca. Lo apartado
+  por la tienda también cuenta en el panel, en Pedidos de almacén y en la
+  baja detenida de la bodega; lo que la tienda suelta (caducado, cancelado)
+  es causa de subida (`causasDeSubida`). Catálogo copiado de TikTok
+  (`tienda/catalogo.ts` puro, `servicios/tienda-catalogo.ts`): productos
+  ACTIVOS de TikTok leídos completos cada 12 h (fotos, descripción en texto,
+  colores y tallas de `sales_attributes`) y el PRECIO copiado de
+  `tiktok_skus` en cada corrida; una variante sin amarre al kardex no se
+  vende. Pago con Mercado Pago Checkout Pro: el aviso solo dice qué pago
+  leer y el pago se lee de MP con la llave (`aplicarPago`), tiene que ser de
+  ese pedido y cubrir su total; 45 min de apartado, 72 h con OXXO/SPEI
+  pendiente; un pago que llega tarde vuelve a apartar si aún hay, si no el
+  pedido queda `sin_stock` (devolver el dinero). La tienda avisa al ERP
+  (`POST /api/tiktok/tienda/aviso`, bearer `TIENDA_SECRET`, ruta pública)
+  y el ERP publica pasando por `sincronizarTikTok` con `soloPedidos` (regla
+  de oro). El despacho es en el ERP (`/tiktok/tienda`, rol tiktok incluido):
+  «Marcar enviado» = salida en el kardex con referencia = folio (GW000123),
+  salida al 3PL (`tiktok_salidas_3pl`, order_id = folio, `corte_id` null) y
+  se suelta el apartado DESPUÉS de la salida; cancelar devuelve el dinero
+  con `MP_ACCESS_TOKEN`. El cron de TikTok caduca lo no pagado
+  (`tienda_expirar`) ANTES de publicar y refresca el catálogo. Clientes sin
+  contraseña (código de 6 dígitos al correo) en tablas propias: el registro
+  del ERP sigue cerrado. La guía de paquetería se captura a mano por ahora.
+  Variables y despliegue en `tienda/README.md`.
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −
@@ -1520,6 +1558,7 @@ login, la base y el deploy.
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
+| Tienda en línea de GETAC (catálogo copiado de TikTok, pedidos y despacho en el ERP) | `src/lib/tienda/` + `src/lib/servicios/tienda-catalogo.ts`, `tienda-pedidos.ts` + `src/app/tiktok/tienda` + `/api/tiktok/tienda/*`; la página pública vive en `tienda/` |
 | Páginas                          | `src/app/{envios,inventario,ventas,amazon,tiktok,pedidos,pedidos/cargar,pedidos/nuevos,contenedores,corridas,etiquetas,videos,pendientes,ajustes}` |
 
 ## Seguridad — cosas que ya se decidieron
@@ -1584,6 +1623,15 @@ login, la base y el deploy.
   `/marketplace/items/{id}/clips` (Global Selling) y el PolicyAgent la niega
   (403 PA_UNAUTHORIZED). La sección /clips se construyó y se retiró; vive en
   el historial de git (commits e861525…6b75355) por si MELI publica el API.
+
+## Proyecto aparte: `tienda/` (tienda en línea de GETAC)
+
+Next.js con su propio `package.json` y su propio despliegue en Vercel (Root
+Directory = `tienda`), pero sobre la MISMA base y el MISMO almacén que TikTok
+(ver la regla de la tienda arriba). Solo habla con la base desde el servidor
+con service_role y por los RPC `tienda_*`. Sus pruebas y tipos se corren desde
+`tienda/`; la raíz la excluye en `vitest.config.ts` y `tsconfig.json`. Léase
+`tienda/README.md`.
 
 ## Proyecto aparte: `boletos/` (venta de boletos para eventos)
 

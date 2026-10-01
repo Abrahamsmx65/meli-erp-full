@@ -165,9 +165,14 @@ export async function sincronizarSaldoDesdeBodega(
     traerTodo<any>(db, "tiktok_skus", "seller_sku, sku_interno", (q) => eq(q).eq("activo", true)),
     // Lo apartado por SKU: un SKU que desaparece del estante con pares
     // vendidos sin despachar no se da de baja, se detiene y se avisa.
-    traerTodo<any>(db, "tiktok_inventario", "sku, apartado", (q) => eq(q).gt("apartado", 0)).catch(() => []),
+    // (Lo apartado por la tienda en línea cuenta igual: también se vendió.)
+    traerTodo<any>(db, "tiktok_inventario", "sku, apartado, apartado_web", (q) =>
+      eq(q).or("apartado.gt.0,apartado_web.gt.0"),
+    ).catch(() => []),
   ]);
-  const apartados = new Map<string, number>((invRaw ?? []).map((r: any) => [String(r.sku), Number(r.apartado) || 0]));
+  const apartados = new Map<string, number>(
+    (invRaw ?? []).map((r: any) => [String(r.sku), (Number(r.apartado) || 0) + (Number(r.apartado_web) || 0)]),
+  );
   const alias = aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })));
 
   const corridas: Corrida[] = (corridasRaw ?? []).map((c: any) => ({

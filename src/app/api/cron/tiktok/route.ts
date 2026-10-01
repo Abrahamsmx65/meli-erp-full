@@ -6,6 +6,8 @@ import { hayPendientes, publicarPendientes } from "@/lib/servicios/tiktok-public
 import { revisarDesfasesTikTok } from "@/lib/servicios/tiktok-alarma";
 import { configuracionTikTok } from "@/lib/tiktok/client";
 import { clienteAdmin } from "@/lib/supabase/server";
+import { refrescarCatalogoTienda } from "@/lib/servicios/tienda-catalogo";
+import { expirarPedidosTienda } from "@/lib/servicios/tienda-pedidos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -40,6 +42,14 @@ export async function GET(req: NextRequest) {
   const resultados: Record<string, unknown>[] = [];
   for (const c of cuentas ?? []) {
     try {
+      // La tienda en línea: lo que no se pagó a tiempo suelta sus pares ANTES
+      // de publicar, para que esta misma corrida se los ofrezca a TikTok.
+      const tienda: Record<string, unknown> = {};
+      try {
+        tienda.soltados = await expirarPedidosTienda(admin, c.id);
+      } catch (err) {
+        tienda.error = (err as Error).message;
+      }
       const r = await sincronizarTikTok(admin, c.id);
       // Avisos que quedaron sin procesar porque el candado estaba tomado.
       try {
@@ -81,7 +91,14 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         publicaciones = { error: (err as Error).message };
       }
-      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas, publicaciones });
+      // El catálogo de la tienda (fotos, colores y tallas de TikTok; el precio va en cada corrida).
+      try {
+        const restante = 290_000 - (Date.now() - inicioRuta);
+        if (restante > 40_000) tienda.catalogo = await refrescarCatalogoTienda(admin, c.id, Math.min(restante - 10_000, 45_000));
+      } catch (err) {
+        tienda.catalogo = { error: (err as Error).message };
+      }
+      resultados.push({ cuenta: c.nickname, ok: true, ...r, al3pl, etiquetas, publicaciones, tienda });
     } catch (err) {
       resultados.push({ cuenta: c.nickname, ok: false, error: (err as Error).message });
     }
