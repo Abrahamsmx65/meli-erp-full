@@ -930,6 +930,7 @@ async function publicarUno(
         imagenesUri,
         colores: coloresAPublicar,
         borrador: Boolean(fila.borrador),
+        guiaTallasUri,
       },
       plantilla,
     );
@@ -979,7 +980,8 @@ async function publicarUno(
     resultado: {
       productId: creado.productId,
       skus: creado.skus,
-      avisos: creado.avisos,
+      avisos: [...creado.avisos, ...avisosProducto],
+      guiaTallas: guiaTallasUri,
       subidas,
       plantilla: plantilla.productoId,
       categoria: plantilla.categoryId,
