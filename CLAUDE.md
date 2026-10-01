@@ -1021,6 +1021,15 @@ guárdala numerada.
   y `publicar` (por eslabón). «Dejarlos como borrador» manda `save_mode
   AS_DRAFT` (TikTok rechazó `DRAFT`, que es lo que decía el SDK). Publicar es del dueño (403 al rol tiktok, que solo ve). Lista
   masticada en `app_cache` `tiktok:nuevos` (15 min; cae con cada corrida).
+  **El título se corrige en el renglón antes de confirmar** (textarea por
+  modelo, viaja en `titulo` del pedido) y **los colores de las variantes
+  van en ESPAÑOL** (`nombreColorEspanol`, lista `COLORES` en
+  `tiktok/publicar.ts`: BLK → Negro, DK BROWN → Café oscuro, BLK/RED →
+  Negro / Rojo; el seller_sku conserva el código; un código que no está en
+  la lista se publica tal cual en Capital y la pantalla lo marca con ⚠ para
+  agregarlo); pedido del dueño, 30-sep-2026. Solo entran modelos de
+  CALZADO (`esModeloDeCalzado`, letras + número): las fundas de la misma
+  cuenta de Amazon (499-IPAD10-BLK) no son de aquí.
 
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago

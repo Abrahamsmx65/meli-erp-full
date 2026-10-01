@@ -33,9 +33,10 @@ export default async function ProductosNuevosTikTokPage() {
         <h1 className="titulo-pagina">Productos nuevos · TikTok</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Todo el calzado publicado en Amazon, por modelo con sus colores y tallas. Marca los que quieras,
-          ponles precio y «Publicar en TikTok»: las fotos, la descripción y las variantes salen de la ficha de
-          Amazon; la categoría, la marca y los atributos se copian de un producto que la tienda ya tiene. Lo que
-          TikTok ya vende se queda tachado. La publicación corre por atrás y se ve en la cola de abajo.
+          corrige el título si hace falta, ponles precio y «Publicar en TikTok»: las fotos, la descripción y las
+          variantes salen de la ficha de Amazon; los colores van en español; la categoría, la marca y los atributos
+          se copian de un producto que la tienda ya tiene. Lo que TikTok ya vende se queda tachado. La publicación
+          corre por atrás y se ve en la cola de abajo.
         </p>
       </div>
       <ProductosNuevosTikTok inicial={datos} esDueno={rolDeSesion(user) === "dueño"} />
