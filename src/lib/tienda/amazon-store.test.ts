@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esPaginaDeCaptcha, imagenesDeTiendaAmazon } from "./amazon-store";
+import { esPaginaDeCaptcha, imagenesDeDocumentoAplus, imagenesDeTiendaAmazon } from "./amazon-store";
 
 describe("imágenes de la tienda de marca de Amazon", () => {
   it("saca las imágenes subidas a la tienda, en orden, sin repetir y en su tamaño más grande", () => {
@@ -20,5 +20,33 @@ describe("imágenes de la tienda de marca de Amazon", () => {
   it("reconoce la página de captcha", () => {
     expect(esPaginaDeCaptcha("<title>Robot Check</title>")).toBe(true);
     expect(esPaginaDeCaptcha("<html>GETAC</html>")).toBe(false);
+  });
+});
+
+describe("A+ por la API", () => {
+  it("saca las imágenes de los módulos en orden y arma la URL pública", () => {
+    const doc = {
+      contentDocument: {
+        contentModuleList: [
+          {
+            contentModuleType: "STANDARD_HEADER_IMAGE_TEXT",
+            standardHeaderImageText: {
+              block: {
+                image: {
+                  uploadDestinationId: "aplus-media/sc/aaa.jpg",
+                  imageCropSpecification: { size: { width: { value: 970 }, height: { value: 600 } } },
+                  altText: "GETAC",
+                },
+              },
+            },
+          },
+          { standardFourImageText: { block1: { image: { uploadDestinationId: "aplus-media/sc/bbb.png" } }, block2: { image: { uploadDestinationId: "aplus-media/sc/aaa.jpg" } } } },
+        ],
+      },
+    };
+    expect(imagenesDeDocumentoAplus(doc)).toEqual([
+      { url: "https://m.media-amazon.com/images/S/aplus-media/sc/aaa.jpg", ancho: 970, alto: 600, texto: "GETAC" },
+      { url: "https://m.media-amazon.com/images/S/aplus-media/sc/bbb.png", ancho: null, alto: null, texto: null },
+    ]);
   });
 });

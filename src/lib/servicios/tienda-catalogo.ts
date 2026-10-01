@@ -20,7 +20,7 @@ import { ESTADO_ACTIVO, emparejarAmazon, interpretarProducto, seVende } from "..
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
 import { fichasCapturadasPorSku } from "../amazon/fotos-publicacion";
 import { imagenesDeAsins } from "../amazon/catalogo";
-import { esPaginaDeCaptcha, imagenesDeTiendaAmazon } from "../tienda/amazon-store";
+import { esPaginaDeCaptcha, imagenesDeDocumentoAplus, imagenesDeTiendaAmazon } from "../tienda/amazon-store";
 import { configPorProducto } from "./productos";
 import { leerTiendaAmazon } from "./tienda-banners";
 import { clienteDeCuenta } from "./tiktok";
@@ -269,7 +269,7 @@ export async function enriquecerConAmazon(
   const avisos: string[] = [];
   const eq = (q: any) => q.eq("account_id", accountId);
   const [productos, variantes, listings, config] = await Promise.all([
-    traerTodo<any>(admin, "tienda_productos", "product_id, modelo, categoria, amazon_leido_en", (q) => eq(q).eq("activo", true)),
+    traerTodo<any>(admin, "tienda_productos", "product_id, modelo, categoria, amazon_leido_en, aplus", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, color", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, imagen_url", (q) => q).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),
@@ -294,7 +294,14 @@ export async function enriquecerConAmazon(
 
   const limite = Date.now() - HORAS_RELEER_AMAZON * 3_600_000;
   const porLeer = (productos ?? [])
-    .filter((p: any) => opciones.todo || !p.amazon_leido_en || Date.parse(p.amazon_leido_en) < limite)
+    .filter(
+      (p: any) =>
+        opciones.todo ||
+        !p.amazon_leido_en ||
+        Date.parse(p.amazon_leido_en) < limite ||
+        // Sin A+ todavía: se reintenta cada hora (la API de A+ entró el 1-oct-2026).
+        ((!Array.isArray(p.aplus) || !p.aplus.length) && Date.parse(p.amazon_leido_en) < Date.now() - 3_600_000),
+    )
     .map((p: any) => String(p.product_id));
   if (!porLeer.length) return { productos: 0, pendientes: 0, avisos };
 
@@ -362,12 +369,13 @@ export async function enriquecerConAmazon(
       }
     }
     // 3. Contenido A+ de la página del producto en Amazon.
+    // 3. Contenido A+ por la API OFICIAL (la página pide captcha a los servidores).
     const asinAplus = todosAsins[0] ?? null;
     let aplus: string[] | null = null;
-    if (asinAplus) {
-      const r = await aplusDeAsin(asinAplus);
-      if (r.imagenes) aplus = r.imagenes;
-      else if (avisos.length < 5 && r.motivo) avisos.push(`A+ ${asinAplus}: ${r.motivo}`);
+    if (cliente && todosAsins.length) {
+      const r = await aplusPorApi(admin, accountId, cliente, todosAsins);
+      if (r.imagenes.length) aplus = r.imagenes;
+      else if (avisos.length < 5 && r.motivo) avisos.push(`A+ (${productId}): ${r.motivo}`);
     }
 
     const cambios: Record<string, unknown> = { fotos_amazon: fotos, bullets, asin: asinAplus, amazon_leido_en: new Date().toISOString() };
@@ -406,4 +414,72 @@ export async function aplusDeAsin(asin: string): Promise<{ imagenes: string[] | 
   } catch (err) {
     return { imagenes: null, motivo: (err as Error).message };
   }
+}
+
+let diagnosticoAplusGuardado = false;
+
+/**
+ * Las imágenes A+ publicadas para alguno de estos ASINs (los colores de un
+ * mismo producto suelen compartir el contenido A+), por la API oficial:
+ * searchContentPublishRecords → getContentDocument (CONTENTS). La primera
+ * respuesta cruda de cada corrida va a `tiktok_sync_log` tarea
+ * `tienda-aplus` para verificar la forma desde la base.
+ */
+export async function aplusPorApi(
+  admin: any,
+  accountId: string,
+  cliente: ClienteAmazon,
+  asins: string[],
+): Promise<{ imagenes: string[]; motivo?: string }> {
+  const marketplaceId = cliente.cuenta.marketplaceId;
+  let motivo: string | undefined;
+  for (const asin of asins.slice(0, 3)) {
+    try {
+      const pub = await cliente.llamar<any>("GET", "/aplus/2020-11-01/contentPublishRecords", "searchContentPublishRecords", {
+        params: { marketplaceId, asin },
+      });
+      const registros: any[] = pub?.publishRecordList ?? [];
+      if (!diagnosticoAplusGuardado) {
+        diagnosticoAplusGuardado = true;
+        await admin.from("tiktok_sync_log").insert({
+          account_id: accountId,
+          tarea: "tienda-aplus",
+          inicio: new Date().toISOString(),
+          fin: new Date().toISOString(),
+          estado: registros.length ? "ok" : "sin registros",
+          detalle: { asin, publicacion: pub },
+        });
+      }
+      const urls: string[] = [];
+      for (const reg of registros) {
+        const clave = reg?.contentReferenceKey;
+        if (!clave) continue;
+        const doc = await cliente.llamar<any>(
+          "GET",
+          `/aplus/2020-11-01/contentDocuments/${encodeURIComponent(clave)}`,
+          "getContentDocument",
+          { params: { marketplaceId, includedDataSet: "CONTENTS" } },
+        );
+        for (const img of imagenesDeDocumentoAplus(doc?.contentRecord ?? doc)) if (!urls.includes(img.url)) urls.push(img.url);
+      }
+      if (urls.length) return { imagenes: urls };
+      motivo = registros.length ? "el contenido A+ no trae imágenes" : "Amazon no tiene A+ publicado para este ASIN";
+    } catch (err) {
+      motivo = (err as Error).message.slice(0, 300);
+      if (!diagnosticoAplusGuardado) {
+        diagnosticoAplusGuardado = true;
+        await admin.from("tiktok_sync_log").insert({
+          account_id: accountId,
+          tarea: "tienda-aplus",
+          inicio: new Date().toISOString(),
+          fin: new Date().toISOString(),
+          estado: "error",
+          detalle: { asin, error: motivo },
+        });
+      }
+      // Un 403 (la app sin el rol de A+) no se arregla probando otro ASIN.
+      if (/\b403\b|Unauthorized|denied/i.test(motivo)) break;
+    }
+  }
+  return { imagenes: [], motivo };
 }
