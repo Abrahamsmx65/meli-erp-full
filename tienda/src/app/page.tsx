@@ -17,12 +17,13 @@ async function banners(): Promise<string[]> {
   }
 }
 
-export default async function Inicio({ searchParams }: { searchParams: Promise<{ modelo?: string }> }) {
-  const [{ modelo }, productos, imagenes] = await Promise.all([searchParams, listarProductos(), banners()]);
+export default async function Inicio({ searchParams }: { searchParams: Promise<{ modelo?: string; categoria?: string }> }) {
+  const [{ modelo, categoria }, productos, imagenes] = await Promise.all([searchParams, listarProductos(), banners()]);
   const modelos = [...new Set(productos.map((p) => p.modelo).filter(Boolean) as string[])].sort((a, b) =>
     a.localeCompare(b, "es", { numeric: true }),
   );
-  const visibles = modelo ? productos.filter((p) => p.modelo === modelo) : productos;
+  const categorias = [...new Set(productos.map((p) => p.categoria).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "es"));
+  const visibles = productos.filter((p) => (!modelo || p.modelo === modelo) && (!categoria || p.categoria === categoria));
 
   return (
     <div className="contenedor">
@@ -40,8 +41,21 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
         </div>
       )}
 
+      {categorias.length > 1 && (
+        <nav className="filtros" aria-label="Categorías">
+          <Link href="/" className="filtro" aria-current={!categoria && !modelo}>
+            Todo
+          </Link>
+          {categorias.map((c) => (
+            <Link key={c} href={`/?categoria=${encodeURIComponent(c)}`} className="filtro" aria-current={categoria === c}>
+              {c}
+            </Link>
+          ))}
+        </nav>
+      )}
+
       {modelos.length > 1 && (
-        <nav className="filtros" aria-label="Modelos">
+        <nav className="filtros filtros-modelo" aria-label="Modelos">
           <Link href="/" className="filtro" aria-current={!modelo}>
             Todos
           </Link>
@@ -58,7 +72,8 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
       ) : (
         <div className="rejilla">
           {visibles.map((p) => {
-            const foto = p.imagenes[0] ?? p.colores[0]?.imagen ?? null;
+            // La foto de la tarjeta: la principal de Amazon del primer color con existencia.
+            const foto = p.colores[0]?.fotos[0] ?? p.imagenes[0] ?? null;
             const agotado = p.disponible <= 0;
             return (
               <Link key={p.product_id} href={`/p/${p.product_id}`} className={`tarjeta ${agotado ? "tarjeta-agotada" : ""}`}>

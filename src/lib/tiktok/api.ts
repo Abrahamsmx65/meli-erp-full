@@ -188,6 +188,22 @@ export interface SkuTikTok {
  * algo legible cuando el seller_sku viene vacío. NUNCA se deduce el SKU de
  * ahí: un SKU inventado descuenta del par equivocado.
  */
+/**
+ * El precio de una variante. TikTok no lo manda siempre en el mismo campo:
+ * `sale_price` (con promoción), `amount` (el de lista, como se publica) o
+ * `tax_exclusive_price`. Hasta el 1-oct-2026 solo se leía `sale_price` y los
+ * 752 SKUs activos quedaron con precio vacío (la tienda en línea no pudo
+ * ofrecer nada).
+ */
+export function precioDeSku(price: any): number | null {
+  for (const v of [price?.sale_price, price?.amount, price?.tax_exclusive_price, price?.original_price]) {
+    if (v == null || v === "") continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
   const salida: SkuTikTok[] = [];
   let token: string | undefined;
@@ -215,8 +231,7 @@ export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
           sellerSku: s.seller_sku ? String(s.seller_sku) : null,
           titulo: p.title ?? null,
           talla: tallas || null,
-          precio:
-            s.price?.sale_price != null ? Number(s.price.sale_price) : null,
+          precio: precioDeSku(s.price),
           estado: p.status ?? null,
           disponibleEnTikTok: (s.inventory ?? []).length ? inventario : null,
         });

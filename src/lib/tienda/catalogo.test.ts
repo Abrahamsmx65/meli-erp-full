@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorYTalla, compararTallas, descripcionEnTexto, interpretarProducto, seVende } from "./catalogo";
+import { colorYTalla, compararTallas, descripcionEnTexto, emparejarAmazon, interpretarProducto, seVende } from "./catalogo";
 
 const amarres = {
   porSkuId: new Map<string, string>([["s1", "GT134-BLK-24-MX"]]),
@@ -64,5 +64,33 @@ describe("catálogo de la tienda desde TikTok", () => {
 
   it("descripción vacía es null", () => {
     expect(descripcionEnTexto("<p> </p>")).toBeNull();
+  });
+});
+
+describe("emparejar con Amazon", () => {
+  it("encuentra el color aunque Amazon ponga la talla antes del color o pegue el color", () => {
+    const m = emparejarAmazon(
+      [
+        { productId: "p1", color: "Negro", skuInterno: "GT128-BLK-23-MX" },
+        { productId: "p1", color: "Negro", skuInterno: "GT128-BLK-24-MX" },
+        { productId: "p1", color: "Negro", skuInterno: "GT128-BLK-25-MX" },
+        { productId: "p1", color: "Verde", skuInterno: "GT110-MILITARY GREEN-26-MX" },
+        { productId: "p1", color: "Rojo", skuInterno: "GT128-RED-23-MX" },
+      ],
+      ["GT128-23-BLK-MX", "GT128-24-BLK-MX", "GT128-25-BLK-MX", "GT110-MILITARYGREEN-26-MX"],
+    );
+    expect(m.get("p1")?.get("Negro")).toEqual(["GT128-23-BLK-MX", "GT128-24-BLK-MX"]);
+    expect(m.get("p1")?.get("Verde")).toEqual(["GT110-MILITARYGREEN-26-MX"]);
+    expect(m.get("p1")?.has("Rojo")).toBe(false);
+  });
+});
+
+describe("precio de TikTok", () => {
+  it("lee sale_price, amount o tax_exclusive_price", () => {
+    const p = interpretarProducto(
+      { id: "1", title: "x", skus: [{ id: "s1", price: { amount: "899.00", currency: "MXN" }, sales_attributes: [] }] },
+      { porSkuId: new Map([["s1", "GT1-BLK-24-MX"]]), porSellerSku: new Map() },
+    )!;
+    expect(p.variantes[0].precio).toBe(899);
   });
 });

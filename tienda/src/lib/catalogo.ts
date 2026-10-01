@@ -9,7 +9,7 @@ async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Vari
   const [{ data: productos, error: e1 }, { data: variantes, error: e2 }] = await Promise.all([
     db()
       .from("tienda_productos")
-      .select("product_id, modelo, titulo, descripcion, imagenes")
+      .select("product_id, modelo, titulo, descripcion, imagenes, fotos_amazon, bullets, categoria")
       .eq("account_id", cuenta)
       .eq("activo", true)
       .order("modelo", { ascending: true })
@@ -24,7 +24,12 @@ async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Vari
   ]);
   if (e1 || e2) throw new Error(`Catálogo: ${(e1 ?? e2)!.message}`);
   return {
-    productos: (productos ?? []).map((p: any) => ({ ...p, imagenes: Array.isArray(p.imagenes) ? p.imagenes : [] })),
+    productos: (productos ?? []).map((p: any) => ({
+      ...p,
+      imagenes: Array.isArray(p.imagenes) ? p.imagenes : [],
+      fotos_amazon: p.fotos_amazon && typeof p.fotos_amazon === "object" ? p.fotos_amazon : {},
+      bullets: Array.isArray(p.bullets) ? p.bullets : [],
+    })),
     variantes: (variantes ?? []) as any,
   };
 }
@@ -96,7 +101,7 @@ export async function variantesVivas(skuIds: string[]): Promise<Map<string, Reng
       color: v.color,
       talla: v.talla,
       precio: Number(v.precio),
-      imagen: v.imagen ?? p.imagenes[0] ?? null,
+      imagen: p.fotos_amazon?.[(v.color ?? "").trim() || "Único"]?.[0] ?? v.imagen ?? p.imagenes[0] ?? null,
       disponible: Math.max(0, existencia.get(v.sku_interno!) ?? 0),
     });
   }
