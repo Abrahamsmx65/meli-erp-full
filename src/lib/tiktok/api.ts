@@ -81,6 +81,9 @@ export async function subirImagen(
     "/product/202309/images/upload",
     { use_case: uso },
     { campo: "data", bytes, nombre: `imagen.${ext}`, tipo },
+    // La subida de imágenes NO es una ruta de tienda: con shop_cipher
+    // contesta 36009004 (30-sep-2026, primera publicación real).
+    { conCipher: false },
   );
   if (!d) return null;
   if (!d.uri) throw new ErrorTikTok(0, "/product/202309/images/upload", `sin uri en la respuesta: ${JSON.stringify(d).slice(0, 200)}`);

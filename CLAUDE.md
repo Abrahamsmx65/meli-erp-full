@@ -1002,7 +1002,9 @@ guárdala numerada.
   Amazon (`fichasCapturadasPorSku`: `main/other_product_image_locator`,
   `bullet_point` y `product_description` de Listings Items) y, si no hay,
   del catálogo público por ASIN; se bajan y se suben a TikTok por multipart
-  (`Cliente.llamarMultipart`, firma SIN cuerpo como el SDK de referencia;
+  (`Cliente.llamarMultipart`, firma SIN cuerpo como el SDK de referencia y
+  SIN `shop_cipher`: con él TikTok contesta 36009004 «not required for
+  this request», visto en la primera publicación real el 30-sep-2026;
   `/product/202309/images/upload`, `use_case` MAIN_IMAGE), hasta 4 por color
   y 9 principales (`elegirImagenesPrincipales`), la primera de cada color
   como `sku_img`. La cola corre POR ATRÁS: la ruta encola, trabaja 240 s en

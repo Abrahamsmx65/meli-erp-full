@@ -282,6 +282,15 @@ export class Cliente {
     ruta: string,
     campos: Record<string, string>,
     archivo: { campo: string; bytes: Uint8Array; nombre: string; tipo: string },
+    opciones: {
+      /**
+       * false para las rutas que NO son de tienda. `images/upload` es una:
+       * con shop_cipher TikTok contesta 36009004 «The 'shop_cipher' query
+       * parameter is not required for this request» (visto el 30-sep-2026
+       * en la primera publicación real).
+       */
+      conCipher?: boolean;
+    } = {},
   ): Promise<T | null> {
     if (this.msRestantes() < 5_000) return null;
     const token = await this.accessToken();
@@ -291,7 +300,7 @@ export class Cliente {
         app_key: this.app.appKey,
         timestamp: timestamp(),
       };
-      if (this.tienda.shopCipher) params.shop_cipher = this.tienda.shopCipher;
+      if (opciones.conCipher !== false && this.tienda.shopCipher) params.shop_cipher = this.tienda.shopCipher;
       params.sign = firmar(ruta, params, "", this.app.appSecret);
 
       const url = new URL(API + ruta);
