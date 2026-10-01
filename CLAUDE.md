@@ -1027,6 +1027,26 @@ guárdala numerada.
   de la TIENDA. Un pedido sin revisar se declara aparte («sin revisar»),
   nunca se cuenta como nuestro. La pantalla: barra apilada creadores /
   tienda / sin revisar con % de lo cobrado y el top 10 por cobrado.
+  Primera lectura real (1-oct-2026, 19:09Z): 24 páginas, 2,066 pedidos
+  de 3 días, 5,550 pedidos con creador y 298 creadores; TikTok NO exigió
+  `program_id`. El tramo de fondo es de 3 días (`DIAS_POR_TRAMO`) porque
+  con 7 no cabía en las 60 páginas de una corrida y el cursor no avanzaba.
+  **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
+  `/tiktok/precios`, SOLO del dueño: `SOLO_DUENO` en `acceso/roles.ts`;
+  pedido del dueño, 1-oct-2026: «basándome en lo que recibo de MELI por un
+  producto quiero recibir lo mismo en TikTok, tomando en cuenta sus
+  comisiones e impuestos; afiliados al 4 % fijo aunque sea más; tres
+  niveles: relámpago live el más bajo, relámpago normal 5 % arriba y
+  campaña regular otro 5 % arriba»): por modelo, el objetivo es el neto de
+  MELI por par del periodo (monitor de ventas, depósito real, 30 días por
+  omisión) y el precio live es el que deja ese neto con la fórmula de
+  TikTok MX (`netoTikTok` / `precioParaNeto`: comisión 8 % + $6 por par,
+  afiliado 4 %, IVA 8 % e ISR 2.5 % retenidos sobre la base sin IVA, envío
+  del vendedor ~$19), redondeado al peso hacia arriba; normal = live + 5 %
+  y campaña = normal + 5 % (`nivelesDePrecio`). Los parámetros van en la
+  URL (`parametrosDesde`) para cambiarlos y compartirlos. La tabla enseña
+  costo, el precio promedio actual en TikTok (`tiktok_skus` activos) con
+  lo que deja hoy, y marca en ámbar los que están por debajo del live.
   **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
   Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
   `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla
@@ -1590,7 +1610,7 @@ login, la base y el deploy.
 | Motor de demanda / stock / cajas | `src/lib/engine/` (`demand.ts`, `stockHistory.ts`, `boxes.ts`, `replenish.ts`) |
 | Sincronización con MELI          | `src/lib/servicios/sync.ts`, `webhooks.ts`  |
 | Latido (drena avisos, recalcula, repara historial; candado atómico `candados_trabajo` recurso `latido`, las lecturas de `sync_log` solo son pre-filtro) | `src/lib/servicios/latido.ts` (+ `latido-amazon.ts`) |
-| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`) | `src/lib/servicios/productos-nuevos.ts` + `/api/pedidos/nuevos/fotos` |
+| Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
 | Lógica del pedido a China explicada para el dueño | `docs/PLANIFICACION-CHINA.md` |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
 | Sugerencia de compra a China     | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon) |
