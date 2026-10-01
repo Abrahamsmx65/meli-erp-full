@@ -4,8 +4,10 @@
  * Pedido del dueño (1-oct-2026): «basándome en lo que recibo de MELI por un
  * producto quiero recibir lo mismo en TikTok, tomando en cuenta sus
  * comisiones e impuestos; el costo de afiliados lo calculamos a 4 % fijo
- * aunque sea más. Tres niveles: relámpago live (el más bajo), relámpago
- * normal 5 % arriba, y campaña regular otro 5 % arriba».
+ * aunque sea más». Tres niveles (ajuste del dueño, 1-oct-2026): relámpago
+ * NORMAL = el precio que deja lo mismo que MELI; relámpago LIVE = 5 % abajo
+ * de ese «aunque me deje menos dinero que MELI»; campaña regular = 5 %
+ * arriba del normal.
  *
  * Lo que TikTok le paga al vendedor por un par vendido a precio P (fórmula
  * de TikTok MX verificada campo por campo en lo liquidado, ver CLAUDE.md):
@@ -130,15 +132,36 @@ export const NOMBRES_NIVEL: Record<NivelPrecio["clave"], string> = {
 };
 
 /**
- * Los tres niveles para un neto objetivo: live = el precio que deja ese
- * neto (al peso, hacia arriba); normal = live + escalón; campaña = normal +
- * escalón. null si el objetivo no se alcanza con esos parámetros.
+ * Los tres niveles para un neto objetivo: normal = el precio que deja ese
+ * neto (al peso, hacia arriba); live = normal − escalón (al peso; deja
+ * menos que el objetivo, a propósito); campaña = normal + escalón. null si
+ * el objetivo no se alcanza con esos parámetros.
  */
 export function nivelesDePrecio(netoObjetivo: number, p: ParametrosPrecioTikTok): NivelPrecio[] | null {
   const exacto = precioParaNeto(netoObjetivo, p);
   if (exacto == null || !Number.isFinite(exacto) || exacto <= 0) return null;
-  const live = Math.ceil(exacto);
-  const normal = Math.ceil(live * (1 + p.escalonPct / 100));
+  const normal = Math.ceil(exacto);
+  const live = Math.max(1, Math.round(normal * (1 - p.escalonPct / 100)));
+  const campana = Math.ceil(normal * (1 + p.escalonPct / 100));
+  return (
+    [
+      ["live", live],
+      ["normal", normal],
+      ["campana", campana],
+    ] as const
+  ).map(([clave, precio]) => ({ clave, nombre: NOMBRES_NIVEL[clave], precio, neto: netoTikTok(precio, p).neto }));
+}
+
+/**
+ * Los tres niveles a partir del precio NORMAL que el dueño quiere poner
+ * (al peso): live = normal − escalón, campaña = normal + escalón, cada uno
+ * con lo que deja. Dueño, 1-oct-2026: «yo quiero el precio que yo quiero
+ * poner».
+ */
+export function nivelesDesdeNormal(precioNormal: number, p: ParametrosPrecioTikTok): NivelPrecio[] | null {
+  if (!Number.isFinite(precioNormal) || precioNormal <= 0) return null;
+  const normal = Math.round(precioNormal);
+  const live = Math.max(1, Math.round(normal * (1 - p.escalonPct / 100)));
   const campana = Math.ceil(normal * (1 + p.escalonPct / 100));
   return (
     [
@@ -156,12 +179,22 @@ export interface RenglonPrecio {
   paresMeli: number;
   /** neto real depositado por MELI en el periodo */
   netoMeli: number;
-  /** neto de MELI por par = objetivo */
+  /** precio unitario del RELÁMPAGO de MELI (el escalón más bajo con volumen) */
+  precioRelampagoMeli: number | null;
+  /** pares vendidos a ese precio */
+  paresRelampago: number;
+  /** neto de MELI por par CUANDO SE VENDE EL RELÁMPAGO = objetivo (dueño, 1-oct-2026) */
   netoPorPar: number | null;
+  /** el precio que el dueño quiere poner (relámpago normal); manda sobre el calculado */
+  miPrecio: number | null;
+  /** de dónde salió el normal */
+  origenNivel: "mi-precio" | "relampago-meli" | null;
   /** costo por par capturado (Productos y costos); null sin costo */
   costo: number | null;
-  /** precio actual promedio en TikTok (tiktok_skus activos); null si no está en TikTok */
+  /** precio actual en TikTok: el pagado en los pedidos recientes si lo hay, si no el de lista; null si no está en TikTok */
   precioTikTok: number | null;
+  /** de dónde salió `precioTikTok` */
+  origenPrecio: "pedidos" | "lista" | null;
   /** lo que TikTok paga hoy por par a ese precio */
   netoTikTokActual: number | null;
   niveles: NivelPrecio[] | null;
@@ -172,25 +205,44 @@ export interface EntradaModelo {
   categoria: string | null;
   paresMeli: number;
   netoMeli: number;
+  /** precio y neto por par del relámpago de MELI (RPC `meli_neto_relampago_por_modelo`) */
+  precioRelampagoMeli?: number | null;
+  paresRelampago?: number;
+  netoRelampago?: number | null;
+  miPrecio?: number | null;
   costo: number | null;
   precioTikTok: number | null;
+  origenPrecio?: "pedidos" | "lista" | null;
 }
 
-/** Arma los renglones de la pantalla: un modelo por renglón, los que vendieron en MELI primero. */
+/**
+ * Arma los renglones de la pantalla: un modelo por renglón, los que vendieron
+ * en MELI primero. El objetivo es el neto de MELI por par CUANDO SE VENDE
+ * EL RELÁMPAGO (no el promedio del periodo, que mezcla precio lleno y
+ * oferta: el GT148 salía a $157 cuando su relámpago deja $128.99); si el
+ * dueño capturó su precio, ese manda como relámpago normal.
+ */
 export function renglonesDePrecio(entradas: EntradaModelo[], p: ParametrosPrecioTikTok): RenglonPrecio[] {
   return entradas
     .map((e) => {
-      const netoPorPar = e.paresMeli > 0 ? e.netoMeli / e.paresMeli : null;
+      const netoPorPar = e.netoRelampago != null && e.netoRelampago > 0 ? e.netoRelampago : null;
+      const miPrecio = e.miPrecio != null && e.miPrecio > 0 ? e.miPrecio : null;
+      const niveles = miPrecio != null ? nivelesDesdeNormal(miPrecio, p) : netoPorPar != null ? nivelesDePrecio(netoPorPar, p) : null;
       return {
         modelo: e.modelo,
         categoria: e.categoria,
         paresMeli: e.paresMeli,
         netoMeli: e.netoMeli,
+        precioRelampagoMeli: e.precioRelampagoMeli ?? null,
+        paresRelampago: e.paresRelampago ?? 0,
         netoPorPar,
+        miPrecio,
+        origenNivel: (niveles ? (miPrecio != null ? "mi-precio" : "relampago-meli") : null) as RenglonPrecio["origenNivel"],
         costo: e.costo,
         precioTikTok: e.precioTikTok,
+        origenPrecio: e.precioTikTok != null ? (e.origenPrecio ?? "lista") : null,
         netoTikTokActual: e.precioTikTok != null ? netoTikTok(e.precioTikTok, p).neto : null,
-        niveles: netoPorPar != null && netoPorPar > 0 ? nivelesDePrecio(netoPorPar, p) : null,
+        niveles,
       };
     })
     .sort((a, b) => b.paresMeli - a.paresMeli || a.modelo.localeCompare(b.modelo));

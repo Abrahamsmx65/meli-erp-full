@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { factorNeto, netoTikTok, nivelesDePrecio, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio } from "./precios";
+import { factorNeto, netoTikTok, nivelesDePrecio, nivelesDesdeNormal, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio } from "./precios";
 
 const p = PARAMETROS_POR_OMISION;
 
@@ -29,13 +29,14 @@ describe("precioParaNeto", () => {
 });
 
 describe("nivelesDePrecio", () => {
-  it("live al peso hacia arriba y cada nivel 5 % sobre el anterior, con su neto", () => {
+  it("normal deja lo de MELI (al peso hacia arriba); live 5 % abajo aunque deje menos; campaña 5 % arriba", () => {
     const n = nivelesDePrecio(300, p) as ReturnType<typeof nivelesDePrecio> & object;
     expect(n.map((x) => x.clave)).toEqual(["live", "normal", "campana"]);
     const exacto = precioParaNeto(300, p) as number;
-    expect(n[0].precio).toBe(Math.ceil(exacto));
-    expect(n[0].neto).toBeGreaterThanOrEqual(300);
-    expect(n[1].precio).toBe(Math.ceil(n[0].precio * 1.05));
+    expect(n[1].precio).toBe(Math.ceil(exacto));
+    expect(n[1].neto).toBeGreaterThanOrEqual(300);
+    expect(n[0].precio).toBe(Math.round(n[1].precio * 0.95));
+    expect(n[0].neto).toBeLessThan(300);
     expect(n[2].precio).toBe(Math.ceil(n[1].precio * 1.05));
     expect(n[2].neto).toBeGreaterThan(n[1].neto);
   });
@@ -56,20 +57,34 @@ describe("parametrosDesde", () => {
 });
 
 describe("renglonesDePrecio", () => {
-  it("neto por par de MELI = objetivo; sin pares no hay niveles; ordena por pares", () => {
+  it("el objetivo es el neto del RELÁMPAGO de MELI, no el promedio; mi precio manda; sin relámpago no hay niveles", () => {
     const r = renglonesDePrecio(
       [
-        { modelo: "GT1", categoria: null, paresMeli: 10, netoMeli: 3000, costo: 150, precioTikTok: 399 },
+        { modelo: "GT1", categoria: null, paresMeli: 10, netoMeli: 3000, netoRelampago: 128.99, precioRelampagoMeli: 128.99, paresRelampago: 4, costo: 80, precioTikTok: 399 },
         { modelo: "GT2", categoria: "Botas", paresMeli: 0, netoMeli: 0, costo: null, precioTikTok: null },
-        { modelo: "GT3", categoria: null, paresMeli: 50, netoMeli: 10000, costo: null, precioTikTok: null },
+        { modelo: "GT3", categoria: null, paresMeli: 50, netoMeli: 10000, netoRelampago: 150, miPrecio: 180, costo: null, precioTikTok: null },
       ],
       p,
     );
     expect(r.map((x) => x.modelo)).toEqual(["GT3", "GT1", "GT2"]);
-    expect(r[1].netoPorPar).toBe(300);
-    expect(r[1].niveles?.[0].neto).toBeGreaterThanOrEqual(300);
+    expect(r[1].netoPorPar).toBe(128.99);
+    expect(r[1].origenNivel).toBe("relampago-meli");
+    expect(r[1].niveles?.[1].neto).toBeGreaterThanOrEqual(128.99);
+    expect(r[1].origenPrecio).toBe("lista");
     expect(r[1].netoTikTokActual).toBeCloseTo(netoTikTok(399, p).neto, 6);
+    expect(r[0].origenNivel).toBe("mi-precio");
+    expect(r[0].niveles?.map((n) => n.precio)).toEqual([171, 180, 189]);
     expect(r[2].niveles).toBeNull();
     expect(r[2].netoPorPar).toBeNull();
+  });
+});
+
+describe("nivelesDesdeNormal", () => {
+  it("normal es el precio del dueño al peso; live 5 % abajo; campaña 5 % arriba; cada uno con su neto", () => {
+    const n = nivelesDesdeNormal(400, p) as ReturnType<typeof nivelesDesdeNormal> & object;
+    expect(n.map((x) => x.precio)).toEqual([380, 400, 420]);
+    expect(n[1].neto).toBeCloseTo(netoTikTok(400, p).neto, 6);
+    expect(n[0].neto).toBeLessThan(n[1].neto);
+    expect(nivelesDesdeNormal(0, p)).toBeNull();
   });
 });
