@@ -858,3 +858,15 @@ h3 {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* .campo abarca 6 columnas en el formulario de pago; dentro de la tarjeta, una. */
+.creador .campo,
+.creador-panel .campo,
+.creador-busca {
+  grid-column: auto;
+}
+.creador-panel li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
