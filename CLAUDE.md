@@ -1291,7 +1291,16 @@ guárdala numerada.
   `https://meli-erp-full.vercel.app`. El candado es
   `Consolidado.versionContable` (hoy 6; subió a 4 el 25-sep-2026 con la cobertura nueva, a 5 el 28-sep-2026 al entrar TikTok y a 6 ese mismo día al sacar los depósitos rebotados de Amazon): al cambiar las reglas del dinero se
   sube, y lo que escribió un build que no las conoce se descarta y se
-  recalcula en vez de enseñarse.
+  recalcula en vez de enseñarse. **Y Vercel YA NO construye previews**
+  (`ignoreCommand` en `vercel.json`: solo se construye `main`; decisión del
+  dueño, 2-oct-2026, al revisar la factura): cada cambio se construía hasta
+  tres veces (preview al subir la rama, producción al mezclar y otro preview
+  al alinear la rama), ~$0.27 USD por build, 58 builds el 1-oct; en
+  septiembre los builds fueron $30 de $261. Las URL de preview tampoco
+  existen ya para escribir en la base. El pico de septiembre ($222 del 31-ago
+  al 10-sep) fue la avalancha de avisos de YAPANIZCEL con Observability Plus
+  encendido ($115 en eventos); el complemento quedó DESACTIVADO y no se
+  vuelve a prender.
 - **Lo que se CONGELA no se arma con un renglón invalidado** (decisión del
   dueño, 10-sep-2026). La regla de servir lo guardado aunque esté viejo es
   para las PANTALLAS; un derivado que se guarda como fresco (el corte
