@@ -903,7 +903,13 @@ guárdala numerada.
   guiones ni acentos («gt134 blk 24», el título también cuenta) y arriba
   el total de lo que se está viendo (SKU, en almacén, apartados,
   disponibles, vendidos). Lo urgente lo gritan las fichas y Pendientes,
-  no el orden de la tabla.
+  no el orden de la tabla. **Solo una publicación ACTIVATE cuenta como
+  «en línea»** (`conPublicacion` en `tiktok-panel.ts`,
+  `RenglonTikTok.estadoPublicacion`; dueño, 2-oct-2026: «lista de todo lo
+  que hay stock TikTok que no está en línea»): un borrador (GT168 BLK) o una
+  desactivada por el vendedor (GT074, GT100, GT102, GT105, GT110…) tiene el
+  stock fuera de línea; el renglón lo dice y la casilla «Solo con stock sin
+  publicación activa» los lista. Ese día eran 48 SKU.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
@@ -1032,7 +1038,8 @@ guárdala numerada.
   `program_id`. El tramo de fondo es de 3 días (`DIAS_POR_TRAMO`) porque
   con 7 no cabía en las 60 páginas de una corrida y el cursor no avanzaba.
   **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
-  `/tiktok/precios`, SOLO del dueño: `SOLO_DUENO` en `acceso/roles.ts`;
+  `/tiktok/precios`; fue SOLO del dueño hasta el 2-oct-2026, hoy también
+  la abre el rol de TikTok;
   pedido del dueño, 1-oct-2026: «basándome en lo que recibo de MELI por un
   producto quiero recibir lo mismo en TikTok, tomando en cuenta sus
   comisiones e impuestos; afiliados al 4 % fijo aunque sea más; tres
@@ -1145,6 +1152,13 @@ guárdala numerada.
   rechazo NO detiene la cola: antes un error no definitivo hacía `break` y
   el GT169 se quedó atrás del GT168 repetido; ahora solo el tiempo corta la
   vuelta, y «ya vende» / «ya no está en el catálogo» son definitivos.
+  (c2) **«Volver a publicar aunque TikTok ya lo tenga»** (casilla en
+  Productos nuevos, `PedidoDePublicacion.forzar` → `resultado.forzar`;
+  dueño, 2-oct-2026: «quiero volver a publicar el GT168 porque quedó mal
+  pero ya no me sale»): un borrador o un producto mal hecho cuenta como «ya
+  en TikTok» y el modelo desaparece de lo publicable; con la casilla se
+  encola con TODOS sus colores y sale OTRO producto; el malo se borra en el
+  Seller Center y la siguiente lectura del catálogo lo marca DELETED.
   (d) Un modelo SIN ninguna talla activa en Amazon (GT265, GT266) publica
   todos sus colores de todos modos (`coloresActivosPorPublicar` cae a
   todos) y el filtro «solo con tallas activas» nace apagado. (e) El eslabón
@@ -1734,7 +1748,12 @@ login, la base y el deploy.
   `/tiktok/despacho` cualquier ruta fuera de `/tiktok`, `/api/tiktok`,
   `/preparar`, `/api/preparar-publico`, `/videos`, `/api/videos`, `/login`,
   `/auth` y `/api/salir`
-  (403 en las de API). Los videos de producto se le dieron el 17-sep-2026
+  (403 en las de API). **Desde el 2-oct-2026 ese rol abre TODAS las
+  secciones de TikTok** (dueño: «dale acceso al usuario david a todas las
+  secciones adentro de TikTok»): `SOLO_DUENO` quedó vacío, Precios para
+  TikTok (netos de MELI y costos) y publicar Productos nuevos ya no exigen
+  ser dueño; las pantallas leen con el cliente admin, así que la RLS no
+  estorba. Los videos de producto se le dieron el 17-sep-2026
   (migración 0092), el dueño se los QUITÓ el 18-sep-2026 (migración 0093)
   y se los VOLVIÓ A DAR el 24-sep-2026 (migración 0095: `videos_producto`
   y `personajes_video` aceptan otra vez `es_miembro_tiktok`; `/videos` y

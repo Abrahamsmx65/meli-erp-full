@@ -1,4 +1,3 @@
-import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarProductosNuevos } from "@/lib/servicios/tiktok-publicar";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
@@ -39,7 +38,8 @@ export default async function ProductosNuevosTikTokPage() {
           corre por atrás y se ve en la cola de abajo.
         </p>
       </div>
-      <ProductosNuevosTikTok inicial={datos} esDueno={rolDeSesion(user) === "dueño"} />
+      {/* El rol de TikTok también publica desde el 2-oct-2026 (dueño: «acceso a todas las secciones adentro de TikTok»). */}
+      <ProductosNuevosTikTok inicial={datos} esDueno={Boolean(user)} />
     </div>
   );
 }

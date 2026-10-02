@@ -40,10 +40,13 @@ const PREFIJOS_TIKTOK = [
 ];
 
 /**
- * Lo que vive bajo /tiktok pero es SOLO del dueño: Precios para TikTok lleva
- * lo que deja MELI por par y los costos (1-oct-2026).
+ * Lo que vive bajo /tiktok pero es SOLO del dueño. Precios para TikTok lo
+ * fue del 1 al 2-oct-2026 (lleva lo que deja MELI por par y los costos);
+ * ese día el dueño pidió «acceso al usuario david a todas las secciones
+ * adentro de TikTok», así que hoy no hay ninguna: el rol de TikTok abre
+ * todo lo que cuelga de /tiktok, incluidos Precios y Productos nuevos.
  */
-const SOLO_DUENO = ["/tiktok/precios"];
+const SOLO_DUENO: string[] = [];
 
 export function rutaPermitida(rol: Rol, ruta: string): boolean {
   if (rol !== "tiktok") return true;

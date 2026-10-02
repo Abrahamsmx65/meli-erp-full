@@ -47,6 +47,10 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   const [precioTodos, setPrecioTodos] = useState("");
   const [borrador, setBorrador] = useState(false);
   const [incluirApagados, setIncluirApagados] = useState(false);
+  // Volver a publicar lo que TikTok ya tiene (crea otro producto; el malo se
+  // borra en el Seller Center). Dueño, 2-oct-2026: «quiero volver a publicar
+  // el GT168 porque quedó mal pero ya no me sale».
+  const [volverAPublicar, setVolverAPublicar] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,13 +112,13 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     return datos.productos.filter((p) => {
       const estado = enCola.get(p.modelo)?.estado;
       const bloqueado = estado === "pendiente" || estado === "publicando";
-      if (!verPublicados && !p.coloresPorPublicar.length) return false;
+      if (!verPublicados && !volverAPublicar && !p.coloresPorPublicar.length) return false;
       if (!verPublicados && bloqueado) return false;
       if (soloActivos && !p.activas) return false;
       if (q && !normalizar(`${p.modelo} ${p.titulo} ${p.colores.map((c) => c.color).join(" ")}`).includes(q)) return false;
       return true;
     });
-  }, [datos.productos, enCola, filtro, verPublicados, soloActivos]);
+  }, [datos.productos, enCola, filtro, verPublicados, soloActivos, volverAPublicar]);
 
   function marcar(modelo: string, si: boolean) {
     setMarcados((s) => {
@@ -126,7 +130,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   }
 
   function marcarTodos(si: boolean) {
-    setMarcados(si ? new Set(visibles.filter((p) => p.coloresPorPublicar.length).map((p) => p.modelo)) : new Set());
+    setMarcados(si ? new Set(visibles.filter((p) => volverAPublicar || p.coloresPorPublicar.length).map((p) => p.modelo)) : new Set());
   }
 
   function aplicarPrecioATodos() {
@@ -139,7 +143,8 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     });
   }
 
-  const coloresDe = (p: ProductoAmazonParaTikTok) => (incluirApagados ? p.coloresPorPublicar : p.coloresActivosPorPublicar);
+  const coloresDe = (p: ProductoAmazonParaTikTok) =>
+    volverAPublicar ? p.colores.map((c) => c.color) : incluirApagados ? p.coloresPorPublicar : p.coloresActivosPorPublicar;
   const porModelo = useMemo(() => new Map(datos.productos.map((p) => [p.modelo, p])), [datos.productos]);
   const listos = [...marcados].filter((m) => Number(precios[m]) > 0 && (coloresDe(porModelo.get(m)!)?.length ?? 0) > 0);
   const sinPrecio = [...marcados].filter((m) => !(Number(precios[m]) > 0)).length;
@@ -148,7 +153,13 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   async function publicar() {
     if (!listos.length) return;
     const n = listos.length;
-    if (!window.confirm(`¿Publicar ${n} producto${n === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? Se crean con sus colores y tallas y el precio capturado.`)) return;
+    if (
+      !window.confirm(
+        `¿Publicar ${n} producto${n === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? Se crean con sus colores y tallas y el precio capturado.` +
+          (volverAPublicar ? " Lo que TikTok ya tiene se publica OTRA VEZ como producto nuevo: borra el viejo en el Seller Center." : ""),
+      )
+    )
+      return;
     setEnviando(true);
     setError(null);
     setAviso(null);
@@ -162,6 +173,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             precio: Number(precios[m]),
             colores: coloresDe(porModelo.get(m)!),
             titulo: (titulos[m] ?? porModelo.get(m)!.titulo).trim(),
+            forzar: volverAPublicar,
           })),
           borrador,
         }),
@@ -285,6 +297,13 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
               <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
             </label>
+            <label
+              className="flex items-center gap-1.5 text-sm"
+              style={{ color: volverAPublicar ? "#92400e" : "var(--ink-2)" }}
+              title="Para un producto que quedó mal: se publica OTRA VEZ con TODOS sus colores como producto nuevo. El viejo hay que borrarlo en el Seller Center; en la siguiente lectura del catálogo deja de contar."
+            >
+              <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
+            </label>
             <button onClick={publicar} disabled={enviando || !listos.length} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: "var(--acento)" }}>
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})
             </button>
@@ -332,6 +351,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 precio={precios[p.modelo] ?? ""}
                 titulo={titulos[p.modelo] ?? p.titulo}
                 enCola={enCola.get(p.modelo) ?? null}
+                forzar={volverAPublicar}
                 abierto={abierto === p.modelo}
                 onAbrir={() => setAbierto(abierto === p.modelo ? null : p.modelo)}
                 onMarcar={(si) => marcar(p.modelo, si)}
@@ -450,6 +470,7 @@ function FilaProducto({
   precio,
   titulo,
   enCola,
+  forzar,
   abierto,
   onAbrir,
   onMarcar,
@@ -463,6 +484,8 @@ function FilaProducto({
   precio: string;
   titulo: string;
   enCola: PublicacionEnCola | null;
+  /** «Volver a publicar»: también lo que TikTok ya tiene */
+  forzar: boolean;
   abierto: boolean;
   onAbrir: () => void;
   onMarcar: (si: boolean) => void;
@@ -470,9 +493,9 @@ function FilaProducto({
   onTitulo: (v: string) => void;
 }) {
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
-  const publicable = p.coloresPorPublicar.length > 0 && !bloqueado;
+  const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
   const estado = !p.coloresPorPublicar.length
-    ? { texto: "Ya en TikTok", color: "#15803d" }
+    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "#92400e" : "#15803d" }
     : bloqueado
       ? { texto: enCola?.estado === "publicando" ? "Publicando…" : "En cola", color: "var(--acento)" }
       : enCola?.estado === "error"
