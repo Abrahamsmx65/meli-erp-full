@@ -17,10 +17,18 @@ function n(x: number): string {
  */
 export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonTikTok[]; diasVenta: number }) {
   const [busqueda, setBusqueda] = useState("");
+  // Lo que tiene stock y NO está en línea: sin publicación activa en TikTok
+  // (ninguna, en borrador o desactivada). Dueño, 2-oct-2026: «me haces una
+  // lista de todo lo que hay stock TikTok que no está en línea».
+  const [soloSinLinea, setSoloSinLinea] = useState(false);
   const ordenados = useMemo(() => ordenarPorSku(renglones), [renglones]);
-  const vistos = useMemo(() => filtrarInventario(ordenados, busqueda), [ordenados, busqueda]);
+  const vistos = useMemo(() => {
+    const base = filtrarInventario(ordenados, busqueda);
+    return soloSinLinea ? base.filter((r) => !r.publicable && r.disponible > 0) : base;
+  }, [ordenados, busqueda, soloSinLinea]);
   const totales = useMemo(() => totalesDeInventario(vistos), [vistos]);
-  const filtrando = busqueda.trim().length > 0;
+  const filtrando = busqueda.trim().length > 0 || soloSinLinea;
+  const sinLinea = useMemo(() => renglones.filter((r) => !r.publicable && r.disponible > 0).length, [renglones]);
 
   return (
     <section className="tarjeta overflow-hidden">
@@ -41,6 +49,10 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           className="min-w-[16rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
+        <label className="flex items-center gap-1.5 text-xs" style={{ color: sinLinea ? "var(--estado-alerta)" : "var(--ink-2)" }}>
+          <input type="checkbox" checked={soloSinLinea} onChange={(e) => setSoloSinLinea(e.target.checked)} />
+          Solo con stock sin publicación activa ({n(sinLinea)})
+        </label>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "var(--ink-2)" }}>
           <span>
             <b className="num" style={{ color: "var(--ink)" }}>{n(totales.skus)}</b> SKU
@@ -92,9 +104,15 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                   ) : !r.publicable ? (
                     <>
                       <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                        sin publicación ligada en TikTok
+                        {r.estadoPublicacion === "DRAFT"
+                          ? "publicación en BORRADOR en TikTok: no vende"
+                          : r.estadoPublicacion === "SELLER_DEACTIVATED"
+                            ? "publicación DESACTIVADA en TikTok: no vende"
+                            : r.estadoPublicacion
+                              ? `publicación en TikTok en estado ${r.estadoPublicacion}: no vende`
+                              : "sin publicación ligada en TikTok"}
                       </span>
-                      <LigarTikTok sku={r.sku} sugerencias={r.sugerencias} />
+                      {r.estadoPublicacion ? null : <LigarTikTok sku={r.sku} sugerencias={r.sugerencias} />}
                     </>
                   ) : null}
                 </td>

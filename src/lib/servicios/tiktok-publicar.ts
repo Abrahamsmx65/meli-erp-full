@@ -441,6 +441,12 @@ export interface PedidoDePublicacion {
   colores?: string[];
   precio: number;
   titulo?: string;
+  /**
+   * Volver a publicar aunque TikTok ya tenga esos colores (crea OTRO
+   * producto; el malo se borra en el Seller Center). Dueño, 2-oct-2026:
+   * «quiero volver a publicar el GT168 porque quedó mal pero ya no me sale».
+   */
+  forzar?: boolean;
 }
 
 /**
@@ -487,11 +493,11 @@ export async function encolarPublicaciones(
     const pedidosColores = (p.colores ?? [])
       .map((c) => c.trim().toUpperCase())
       .filter(Boolean);
-    const colores = (
-      pedidosColores.length ? pedidosColores : producto.coloresPorPublicar
-    ).filter((c) => producto.coloresPorPublicar.includes(c));
+    const forzar = Boolean(p.forzar);
+    const permitidos = forzar ? producto.colores.map((c) => c.color) : producto.coloresPorPublicar;
+    const colores = (pedidosColores.length ? pedidosColores : permitidos).filter((c) => permitidos.includes(c));
     if (!colores.length) {
-      rechazados.push({ modelo, motivo: "TikTok ya vende todos sus colores." });
+      rechazados.push({ modelo, motivo: forzar ? "Sin colores en Amazon." : "TikTok ya vende todos sus colores." });
       continue;
     }
     const titulo = String(p.titulo ?? "").trim() || producto.titulo;
@@ -504,6 +510,9 @@ export async function encolarPublicaciones(
       borrador: Boolean(opciones.borrador),
       estado: "pendiente",
       creado_por: opciones.creadoPor ?? null,
+      // La marca de «volver a publicar» viaja en resultado para que
+      // publicarUno no descarte lo que TikTok ya tiene.
+      ...(forzar ? { resultado: { forzar: true } } : {}),
     });
     enCola.add(modelo);
   }
@@ -959,8 +968,10 @@ async function publicarUno(
   const producto = lista.productos.find((p) => p.modelo === modelo);
   if (!producto)
     throw new Error(`${modelo} ya no está en el catálogo de Amazon.`);
+  // «Volver a publicar»: lo que TikTok ya tiene también entra (sale OTRO producto).
+  const forzar = Boolean(fila.resultado?.forzar);
   const colores = producto.colores.filter(
-    (c) => coloresPedidos.includes(c.color) && !c.enTikTok.length,
+    (c) => coloresPedidos.includes(c.color) && (forzar || !c.enTikTok.length),
   );
   if (!colores.length)
     throw new Error(

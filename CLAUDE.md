@@ -903,7 +903,13 @@ guárdala numerada.
   guiones ni acentos («gt134 blk 24», el título también cuenta) y arriba
   el total de lo que se está viendo (SKU, en almacén, apartados,
   disponibles, vendidos). Lo urgente lo gritan las fichas y Pendientes,
-  no el orden de la tabla.
+  no el orden de la tabla. **Solo una publicación ACTIVATE cuenta como
+  «en línea»** (`conPublicacion` en `tiktok-panel.ts`,
+  `RenglonTikTok.estadoPublicacion`; dueño, 2-oct-2026: «lista de todo lo
+  que hay stock TikTok que no está en línea»): un borrador (GT168 BLK) o una
+  desactivada por el vendedor (GT074, GT100, GT102, GT105, GT110…) tiene el
+  stock fuera de línea; el renglón lo dice y la casilla «Solo con stock sin
+  publicación activa» los lista. Ese día eran 48 SKU.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
@@ -1146,6 +1152,13 @@ guárdala numerada.
   rechazo NO detiene la cola: antes un error no definitivo hacía `break` y
   el GT169 se quedó atrás del GT168 repetido; ahora solo el tiempo corta la
   vuelta, y «ya vende» / «ya no está en el catálogo» son definitivos.
+  (c2) **«Volver a publicar aunque TikTok ya lo tenga»** (casilla en
+  Productos nuevos, `PedidoDePublicacion.forzar` → `resultado.forzar`;
+  dueño, 2-oct-2026: «quiero volver a publicar el GT168 porque quedó mal
+  pero ya no me sale»): un borrador o un producto mal hecho cuenta como «ya
+  en TikTok» y el modelo desaparece de lo publicable; con la casilla se
+  encola con TODOS sus colores y sale OTRO producto; el malo se borra en el
+  Seller Center y la siguiente lectura del catálogo lo marca DELETED.
   (d) Un modelo SIN ninguna talla activa en Amazon (GT265, GT266) publica
   todos sus colores de todos modos (`coloresActivosPorPublicar` cae a
   todos) y el filtro «solo con tallas activas» nace apagado. (e) El eslabón

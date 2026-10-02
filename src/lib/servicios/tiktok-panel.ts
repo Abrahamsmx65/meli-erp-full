@@ -35,6 +35,14 @@ export interface RenglonTikTok {
   enRojo: boolean;
   /** tiene publicación en TikTok a la cual escribirle */
   publicable: boolean;
+  /**
+   * Estado de la publicación de TikTok que lleva este SKU cuando NO está
+   * activa (DRAFT, SELLER_DEACTIVATED, FAILED…); null si está ACTIVATE o no
+   * hay ninguna. Un borrador o una desactivada no venden: el stock no está
+   * en línea (dueño, 2-oct-2026: «lista de todo lo que hay stock TikTok que
+   * no está en línea»).
+   */
+  estadoPublicacion: string | null;
   /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
   contado: boolean;
   /** publicaciones de TikTok del mismo modelo y talla, para ligar a mano */
@@ -84,7 +92,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       // Lo apartado por la tienda en línea también tiene dueño (migración 0101).
       (filas ?? []).map((r: any) => ({ ...r, apartado: (r.apartado ?? 0) + (r.apartado_web ?? 0) })),
     ),
-    traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok", (q) =>
+    traerTodo<any>(db, "tiktok_skus", "sku_id, seller_sku, titulo, talla, sku_interno, cantidad_tiktok, estado", (q) =>
       eq(q).eq("activo", true),
     ),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
@@ -109,14 +117,23 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const tienda = tiendaRes.data ?? null;
 
   const titulos = new Map<string, string>();
+  // Solo una publicación ACTIVA vende: un borrador (GT168 el 1-oct-2026) o
+  // una desactivada por el vendedor (GT074, GT102…) tiene stock que NO está
+  // en línea. `estadoNoActivo` guarda ese estado para decirlo en el renglón.
   const conPublicacion = new Set<string>();
+  const estadoNoActivo = new Map<string, string>();
   // Lo que TikTok DICE tener por SKU del ERP. Si un SKU está en varias
   // publicaciones, la más baja: es la que primero se agotaría.
   const enTikTok = new Map<string, number>();
   for (const s of skusTikTok ?? []) {
     if (!s.sku_interno) continue;
-    conPublicacion.add(s.sku_interno);
     if (s.titulo && !titulos.has(s.sku_interno)) titulos.set(s.sku_interno, s.titulo);
+    if (s.estado && s.estado !== "ACTIVATE") {
+      if (!conPublicacion.has(s.sku_interno)) estadoNoActivo.set(s.sku_interno, String(s.estado));
+      continue;
+    }
+    conPublicacion.add(s.sku_interno);
+    estadoNoActivo.delete(s.sku_interno);
     if (s.cantidad_tiktok != null) {
       const previo = enTikTok.get(s.sku_interno);
       enTikTok.set(s.sku_interno, previo == null ? s.cantidad_tiktok : Math.min(previo, s.cantidad_tiktok));
@@ -151,7 +168,8 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         diasCobertura: porDia > 0 ? disponible / porDia : null,
         enRojo: r.saldo < 0,
         publicable: conPublicacion.has(r.sku) && contado,
-        sugerencias: conPublicacion.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
+        estadoPublicacion: conPublicacion.has(r.sku) ? null : (estadoNoActivo.get(r.sku) ?? null),
+        sugerencias: conPublicacion.has(r.sku) || estadoNoActivo.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })
     // Un renglón muerto —sin saldo, sin apartado, sin venta, sin publicación
