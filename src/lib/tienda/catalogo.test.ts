@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorYTalla, compararTallas, descripcionEnTexto, emparejarAmazon, interpretarProducto, seVende } from "./catalogo";
+import { colorYTalla, compararTallas, descripcionEnTexto, elegirFotosPorColor, emparejarAmazon, interpretarProducto, seVende } from "./catalogo";
 
 const amarres = {
   porSkuId: new Map<string, string>([["s1", "GT134-BLK-24-MX"]]),
@@ -79,9 +79,40 @@ describe("emparejar con Amazon", () => {
       ],
       ["GT128-23-BLK-MX", "GT128-24-BLK-MX", "GT128-25-BLK-MX", "GT110-MILITARYGREEN-26-MX"],
     );
-    expect(m.get("p1")?.get("Negro")).toEqual(["GT128-23-BLK-MX", "GT128-24-BLK-MX"]);
+    expect(m.get("p1")?.get("Negro")).toEqual(["GT128-23-BLK-MX", "GT128-24-BLK-MX", "GT128-25-BLK-MX"]);
     expect(m.get("p1")?.get("Verde")).toEqual(["GT110-MILITARYGREEN-26-MX"]);
     expect(m.get("p1")?.has("Rojo")).toBe(false);
+  });
+
+  it("pone primero las publicaciones activas de Amazon", () => {
+    const m = emparejarAmazon(
+      [
+        { productId: "p1", color: "Café", skuInterno: "GT135-DK BROWN-23-MX" },
+        { productId: "p1", color: "Café", skuInterno: "GT135-DK BROWN-25-MX" },
+      ],
+      ["GT135-DK BROWN-23-MX", "GT135-DK BROWN-25-MX"],
+      new Set(["GT135-DK BROWN-25-MX"]),
+    );
+    expect(m.get("p1")?.get("Café")).toEqual(["GT135-DK BROWN-25-MX", "GT135-DK BROWN-23-MX"]);
+  });
+});
+
+describe("fotos por color", () => {
+  it("evita la foto que Amazon repite en otro color (GT135)", () => {
+    const beige = ["beige1", "beige2"];
+    const r = elegirFotosPorColor(
+      new Map([
+        ["Beige", [beige]],
+        ["Café oscuro", [beige, ["cafe1", "cafe2"]]],
+        ["Olivo", [beige]],
+        ["Negro", [[], ["negro1"]]],
+      ]),
+    );
+    expect(r["Café oscuro"]).toEqual(["cafe1", "cafe2"]);
+    expect(r["Negro"]).toEqual(["negro1"]);
+    // Sin otra opción se queda con lo que hay.
+    expect(r["Olivo"]).toEqual(beige);
+    expect(r["Beige"]).toEqual(beige);
   });
 });
 

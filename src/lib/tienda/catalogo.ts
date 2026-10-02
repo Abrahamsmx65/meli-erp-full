@@ -200,8 +200,13 @@ export function compararTallas(a: string | null, b: string | null): number {
 
 const ordenada = (s: string) => claveComparacion(s).split("-").sort().join("-");
 
-/** Cuántas publicaciones de Amazon se prueban por color (la primera sin fotos no deja el color vacío). */
-export const CANDIDATOS_POR_COLOR = 2;
+/**
+ * Cuántas publicaciones de Amazon se prueban por color. Las ACTIVAS primero:
+ * una talla inactiva a veces trae en el catálogo las fotos de OTRO color
+ * (GT135, 2-oct-2026: café oscuro, café tostado y olivo salían con las del
+ * beige), así que hace falta más de una para escoger.
+ */
+export const CANDIDATOS_POR_COLOR = 4;
 
 /**
  * Por producto y color de TikTok, los SKUs de Amazon de ese mismo color
@@ -211,6 +216,7 @@ export const CANDIDATOS_POR_COLOR = 2;
 export function emparejarAmazon(
   variantes: { productId: string; color: string | null; skuInterno: string | null }[],
   skusAmazon: string[],
+  activos: Set<string> = new Set(),
 ): Map<string, Map<string, string[]>> {
   const porCanonica = new Map<string, string>();
   const porOrdenada = new Map<string, string>();
@@ -232,9 +238,46 @@ export function emparejarAmazon(
     if (!sku) continue;
     const colores = salida.get(v.productId) ?? new Map<string, string[]>();
     const lista = colores.get(color) ?? [];
-    if (lista.length < CANDIDATOS_POR_COLOR && !lista.includes(sku)) lista.push(sku);
+    if (!lista.includes(sku)) lista.push(sku);
     colores.set(color, lista);
     salida.set(v.productId, colores);
+  }
+  // Las activas primero (orden estable dentro de cada grupo) y solo las primeras.
+  for (const colores of salida.values()) {
+    for (const [color, lista] of colores) {
+      const orden = lista
+        .map((sku, i) => ({ sku, i, activo: activos.has(sku.toUpperCase()) }))
+        .sort((a, b) => Number(b.activo) - Number(a.activo) || a.i - b.i)
+        .map((x) => x.sku);
+      colores.set(color, orden.slice(0, CANDIDATOS_POR_COLOR));
+    }
+  }
+  return salida;
+}
+
+/**
+ * Las fotos de cada color de un producto, escogidas entre los candidatos de
+ * ese color (en su orden de preferencia). Una foto principal que aparece
+ * entre los candidatos de DOS o más colores es de otro color mal cargado en
+ * Amazon: se evita mientras el color tenga otro candidato con foto propia.
+ * Sin ninguno propio, se queda el primero (mejor una foto que ninguna).
+ */
+export function elegirFotosPorColor(candidatos: Map<string, string[][]>): Record<string, string[]> {
+  const coloresDe = new Map<string, Set<string>>();
+  for (const [color, opciones] of candidatos) {
+    for (const fotos of opciones) {
+      if (!fotos.length) continue;
+      const c = coloresDe.get(fotos[0]) ?? new Set<string>();
+      c.add(color);
+      coloresDe.set(fotos[0], c);
+    }
+  }
+  const salida: Record<string, string[]> = {};
+  for (const [color, opciones] of candidatos) {
+    const conFotos = opciones.filter((f) => f.length);
+    const propia = conFotos.find((f) => (coloresDe.get(f[0])?.size ?? 0) <= 1);
+    const elegida = propia ?? conFotos[0];
+    if (elegida) salida[color] = elegida;
   }
   return salida;
 }

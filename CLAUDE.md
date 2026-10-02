@@ -1267,16 +1267,21 @@ guárdala numerada.
   del ERP sigue cerrado. La guía de paquetería se captura a mano por ahora.
   Variables y despliegue en `tienda/README.md`.
   **Catálogo para CREADORES** (`tienda/` → `/influencers`, `lib/influencers.ts`
-  puro; pedido del dueño, 2-oct-2026: «un catálogo de lo que tengo en TikTok
-  activo e inactivo para que los influencers elijan»): el ERP copia también
-  los productos INACTIVOS y borradores de TikTok (no los `DELETED`,
-  `ESTADOS_FUERA_DE_CATALOGO`) a `tienda_productos` con `activo = false`
-  —después de los activos— y les pone fotos de Amazon igual; la tienda NO
-  los vende (`tienda_crear_pedido` exige producto activo), la página de
-  creadores sí los enseña con la marca Activo/Inactivo. El creador elige
-  color y talla y manda la selección por WhatsApp (`INFLUENCERS_WHATSAPP`
-  en el proyecto de la tienda; sin él, WhatsApp deja elegir el contacto) o
-  la copia. Sin buscadores (`noindex`).
+  puro; pedido del dueño, 2-oct-2026): enseña SOLO lo ACTIVO en TikTok
+  (el mismo día el dueño pidió primero activos e inactivos y luego «no
+  enseñes los inactivos»), aunque la tienda no lo venda. El ERP sigue
+  copiando los inactivos y borradores (no los `DELETED`,
+  `ESTADOS_FUERA_DE_CATALOGO`) con `activo = false`, por si se vuelven a
+  pedir; la tienda no los vende (`tienda_crear_pedido` exige producto
+  activo). El creador elige color y talla y manda la selección por WhatsApp
+  (`INFLUENCERS_WHATSAPP` en el proyecto de la tienda; sin él, WhatsApp
+  deja elegir el contacto) o la copia. Sin buscadores (`noindex`).
+  **Fotos por color: Amazon a veces carga en una talla las fotos de OTRO
+  color** (GT135, 2-oct-2026: café oscuro, café tostado y olivo salían con
+  las del beige). Por color se prueban hasta 4 publicaciones de Amazon con
+  las ACTIVAS primero (`emparejarAmazon`), con el catálogo por ASIN y la
+  ficha capturada de cada una, y `elegirFotosPorColor` descarta la foto
+  principal que se repite en dos o más colores mientras haya otra propia.
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −
