@@ -20,7 +20,7 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { producto as productoTikTok } from "../tiktok/api";
-import { ESTADO_ACTIVO, emparejarAmazon, interpretarProducto, seVende } from "../tienda/catalogo";
+import { ESTADO_ACTIVO, elegirFotosPorColor, emparejarAmazon, interpretarProducto, seVende } from "../tienda/catalogo";
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
 import { fichasCapturadasPorSku } from "../amazon/fotos-publicacion";
 import { imagenesDeAsins } from "../amazon/catalogo";
@@ -291,7 +291,7 @@ export async function enriquecerConAmazon(
       ps.filter((p: any) => p.modelo && p.titulo !== p.product_id && !ESTADOS_FUERA_DE_CATALOGO.has(String(p.estado_tiktok ?? ""))),
     ),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, color", (q) => eq(q).eq("activo", true)),
-    traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, imagen_url", (q) => q).catch(() => [] as any[]),
+    traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, imagen_url, estado", (q) => q).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),
   ]);
 
@@ -327,16 +327,19 @@ export async function enriquecerConAmazon(
 
   const asinDe = new Map<string, string>();
   const imagenDe = new Map<string, string>();
+  const activosAmazon = new Set<string>();
   for (const l of listings ?? []) {
     const sku = String(l.seller_sku ?? "").toUpperCase();
     if (l.asin) asinDe.set(sku, String(l.asin));
     if (l.imagen_url) imagenDe.set(sku, String(l.imagen_url));
+    if (String(l.estado ?? "").toLowerCase() === "active") activosAmazon.add(sku);
   }
   const pareo = emparejarAmazon(
     (variantes ?? [])
       .filter((v: any) => porLeer.includes(String(v.product_id)))
       .map((v: any) => ({ productId: String(v.product_id), color: v.color, skuInterno: v.sku_interno })),
     (listings ?? []).map((l: any) => String(l.seller_sku)),
+    activosAmazon,
   );
 
   const cuenta = (await cuentasAmazon(admin))[0] ?? null;
@@ -363,32 +366,35 @@ export async function enriquecerConAmazon(
         if (avisos.length < 5) avisos.push(`Catálogo de Amazon (${productId}): ${(err as Error).message}`);
       }
     }
-    // 2. Puntos clave de la ficha capturada (necesita el Seller ID).
+    // 2. La ficha capturada de cada candidato (necesita el Seller ID): sus
+    //    puntos clave y sus fotos, que son las que el vendedor subió a ESE SKU.
     let bullets: string[] = [];
-    const skusFicha = [...colores.values()].map((l) => l[0]).filter(Boolean);
+    let fichas = new Map<string, { fotos: string[]; bullets: string[] }>();
+    const skusFicha = [...new Set([...colores.values()].flat())];
     if (cliente && cuenta?.sellingPartnerId && skusFicha.length) {
       try {
-        const fichas = await fichasCapturadasPorSku(cliente, cuenta.sellingPartnerId, skusFicha.slice(0, 5));
+        fichas = await fichasCapturadasPorSku(cliente, cuenta.sellingPartnerId, skusFicha.slice(0, 40));
         for (const f of fichas.values()) if (!bullets.length && f.bullets.length) bullets = f.bullets.slice(0, 6);
       } catch {
-        /* los puntos clave son opcionales */
+        /* la ficha es opcional: quedan las fotos del catálogo */
       }
     }
-    const fotos: Record<string, string[]> = {};
-    for (const [color, asins] of asinsPorColor) {
-      for (const asin of asins) {
-        const lista = (porAsin.get(asin) ?? []).map((i) => i.link);
-        if (lista.length) {
-          fotos[color] = lista;
-          break;
-        }
+    // Opciones por color: catálogo por ASIN y ficha de cada candidato, en ese
+    // orden; `elegirFotosPorColor` descarta la foto que Amazon repite en
+    // otro color (GT135: tres colores con las fotos del beige).
+    const opciones = new Map<string, string[][]>();
+    for (const [color, skus] of colores) {
+      const lista: string[][] = [];
+      for (const sku of skus) {
+        const asin = asinDe.get(sku.toUpperCase());
+        if (asin) lista.push((porAsin.get(asin) ?? []).map((i) => i.link));
       }
-      if (!fotos[color]) {
-        const img = (colores.get(color) ?? []).map((s) => imagenDe.get(s.toUpperCase())).find(Boolean);
-        if (img) fotos[color] = [img];
-      }
+      for (const sku of skus) lista.push(fichas.get(sku)?.fotos ?? fichas.get(sku.toUpperCase())?.fotos ?? []);
+      const img = skus.map((s) => imagenDe.get(s.toUpperCase())).find(Boolean);
+      if (img) lista.push([img]);
+      opciones.set(color, lista);
     }
-    // 3. Contenido A+ de la página del producto en Amazon.
+    const fotos = elegirFotosPorColor(opciones);
     // 3. Contenido A+ por la API OFICIAL (la página pide captcha a los servidores).
     const asinAplus = todosAsins[0] ?? null;
     let aplus: string[] | null = null;

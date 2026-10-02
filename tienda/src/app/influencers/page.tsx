@@ -21,7 +21,7 @@ export default async function Influencers() {
       <section className="portada portada-creadores">
         <h1 className="titulo-catalogo">Catálogo para creadores</h1>
         <p>
-          Todo lo que GETAC tiene en TikTok Shop, activo e inactivo. Elige los modelos, colores y tallas que quieres
+          Todo lo que GETAC tiene en TikTok Shop. Elige los modelos, colores y tallas que quieres
           promocionar y mándanos tu selección por WhatsApp.
         </p>
       </section>

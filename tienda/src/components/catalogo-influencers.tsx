@@ -5,7 +5,6 @@ import { mensajeDeSeleccion, type Eleccion, type ProductoInfluencer } from "@/li
 import { pesos } from "@/lib/tienda";
 
 const LLAVE = "getac:creadores:seleccion";
-type Estado = "todos" | "activos" | "inactivos";
 
 const clave = (e: Pick<Eleccion, "productId" | "color">) => `${e.productId}|${e.color}`;
 
@@ -38,7 +37,6 @@ function Tarjeta({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {c.fotos[foto] && <img src={c.fotos[foto]} alt={`${p.titulo} ${c.color}`} loading="lazy" />}
         {p.modelo && <span className="sello-caja modelo">{p.modelo}</span>}
-        <span className={`estado-tiktok ${p.activo ? "estado-activo" : "estado-inactivo"}`}>{p.activo ? "Activo" : "Inactivo"}</span>
       </div>
       {c.fotos.length > 1 && (
         <div className="creador-fotos" aria-label="Más fotos">
@@ -105,7 +103,6 @@ function Tarjeta({
 }
 
 export function CatalogoInfluencers({ productos, whatsapp }: { productos: ProductoInfluencer[]; whatsapp: string | null }) {
-  const [estado, setEstado] = useState<Estado>("todos");
   const [categoria, setCategoria] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [elegidos, setElegidos] = useState<Map<string, Eleccion>>(new Map());
@@ -135,11 +132,8 @@ export function CatalogoInfluencers({ productos, whatsapp }: { productos: Produc
     () => [...new Set(productos.map((p) => p.categoria).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "es")),
     [productos],
   );
-  const cuenta = { todos: productos.length, activos: productos.filter((p) => p.activo).length, inactivos: productos.filter((p) => !p.activo).length };
   const palabras = sinAcentos(busca).split(/[\s-]+/).filter(Boolean);
   const visibles = productos.filter((p) => {
-    if (estado === "activos" && !p.activo) return false;
-    if (estado === "inactivos" && p.activo) return false;
     if (categoria && p.categoria !== categoria) return false;
     const texto = sinAcentos(`${p.modelo ?? ""} ${p.titulo} ${p.colores.map((c) => c.color).join(" ")}`);
     return palabras.every((w) => texto.includes(w));
@@ -176,13 +170,6 @@ export function CatalogoInfluencers({ productos, whatsapp }: { productos: Produc
 
   return (
     <>
-      <nav className="filtros" aria-label="Estado en TikTok">
-        {(["todos", "activos", "inactivos"] as Estado[]).map((e) => (
-          <button key={e} type="button" className="filtro" aria-current={estado === e} onClick={() => setEstado(e)}>
-            {e === "todos" ? "Todos" : e === "activos" ? "Activos" : "Inactivos"} ({cuenta[e]})
-          </button>
-        ))}
-      </nav>
       {categorias.length > 1 && (
         <nav className="filtros" aria-label="Categorías">
           <button type="button" className="filtro" aria-current={!categoria} onClick={() => setCategoria(null)}>

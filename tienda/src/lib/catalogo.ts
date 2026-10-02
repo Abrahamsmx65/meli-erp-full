@@ -134,9 +134,8 @@ async function leerTiendaAmazon(): Promise<PaginaAmazon[]> {
 export const tiendaAmazon = unstable_cache(leerTiendaAmazon, ["tienda-amazon"], { revalidate: 600 });
 
 /**
- * Catálogo para influencers: activos E inactivos de TikTok (no los borrados).
- * El ERP copia los inactivos con `activo = false` para que la tienda no los
- * venda; aquí sí se enseñan.
+ * Catálogo para influencers: lo que está ACTIVO en TikTok Shop, aunque la
+ * tienda no lo venda (sin amarre o sin existencia).
  */
 async function leerCatalogoInfluencers(): Promise<ProductoInfluencer[]> {
   const cuenta = config.cuenta();
@@ -144,8 +143,8 @@ async function leerCatalogoInfluencers(): Promise<ProductoInfluencer[]> {
     .from("tienda_productos")
     .select("product_id, modelo, titulo, descripcion, imagenes, fotos_amazon, bullets, categoria, activo, estado_tiktok")
     .eq("account_id", cuenta)
-    .not("estado_tiktok", "is", null)
-    .neq("estado_tiktok", "DELETED")
+    // Solo lo ACTIVO en TikTok (dueño, 2-oct-2026: «no enseñes los inactivos»).
+    .eq("estado_tiktok", "ACTIVATE")
     .order("product_id", { ascending: true });
   if (error) throw new Error(`Catálogo: ${error.message}`);
   const vivos = (productos ?? []).filter((p: any) => p.titulo && p.titulo !== p.product_id);
