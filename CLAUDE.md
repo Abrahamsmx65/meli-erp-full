@@ -1067,7 +1067,17 @@ guárdala numerada.
   `components/tabla-precios-tiktok.tsx`; dueño, 2-oct-2026: «me lo puedes
   ordenar por SKU y poner un buscador»): por pedazos en modelo y categoría
   («gt148», «botas»), sin guiones ni acentos, y arriba cuántos modelos se
-  ven. Antes iba por pares vendidos en MELI.
+  ven. Antes iba por pares vendidos en MELI. **Casilla «quitar 10.5 %» por
+  modelo** (`tiktok_precios_objetivo.quitar_retencion`, migración 0108,
+  `precio` ya opcional; `netoSinRetencionMeli`, `RenglonPrecio.quitarRetencion`
+  / `netoRelampagoReal` / `retencionQuitada`; `QuitarRetencionTikTok`;
+  dueño, 2-oct-2026: «muchos precios de MELI los consideré tomando en cuenta
+  el 10.5 % y ahora que ya no hay por reventa gano más de lo que tenía
+  planeado; quiero elegir en cada SKU si se calcula como está o como si sí
+  me quitaran el 10.5 % de MELI»): con la casilla el objetivo de ese modelo
+  es el neto del relámpago × (1 − (IVA ret. + ISR ret.) ÷ 1.16) y el precio
+  de TikTok sale más bajo; la columna lo declara («−$11.68 de retención»).
+  «Mi precio» sigue mandando sobre todo.
   **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
   Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
   `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla

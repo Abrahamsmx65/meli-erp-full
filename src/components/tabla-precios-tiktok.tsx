@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { filtrarPrecios, NOMBRES_NIVEL, type RenglonPrecio } from "@/lib/tiktok/precios";
-import { MiPrecioTikTok } from "./mi-precio-tiktok";
+import { MiPrecioTikTok, QuitarRetencionTikTok } from "./mi-precio-tiktok";
 
 /**
  * La tabla de Precios para TikTok: ordenada por modelo (orden natural, la
@@ -10,7 +10,18 @@ import { MiPrecioTikTok } from "./mi-precio-tiktok";
  * arriba dice cuántos modelos se están viendo. Pedido del dueño,
  * 2-oct-2026: «me lo puedes ordenar por SKU y poner un buscador».
  */
-export function TablaPreciosTikTok({ renglones, escalonPct, diasPrecioReal }: { renglones: RenglonPrecio[]; escalonPct: number; diasPrecioReal: number }) {
+export function TablaPreciosTikTok({
+  renglones,
+  escalonPct,
+  diasPrecioReal,
+  retencionPct,
+}: {
+  renglones: RenglonPrecio[];
+  escalonPct: number;
+  diasPrecioReal: number;
+  /** IVA + ISR retenidos (10.5 %), para la casilla «quitar» por modelo */
+  retencionPct: number;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const visibles = filtrarPrecios(renglones, busqueda);
 
@@ -22,8 +33,10 @@ export function TablaPreciosTikTok({ renglones, escalonPct, diasPrecioReal }: { 
             <h2 className="text-sm font-semibold">Precio por modelo</h2>
             <p className="text-xs" style={{ color: "var(--ink-2)" }}>
               «Relámpago MELI» es el precio más bajo al que el modelo vendió con volumen en el periodo (al menos el 10 % de sus pares) y
-              «Neto relámpago/par» lo que Mercado Pago depositó por par a ESE precio: el objetivo. «Mi precio» manda si lo capturas
-              (vacío = volver al calculado). «TikTok hoy» es el precio REAL que pagaron los clientes en los pedidos de los últimos{" "}
+              «Neto relámpago/par» lo que Mercado Pago depositó por par a ESE precio: el objetivo. En reventa MELI ya no retiene el{" "}
+              {retencionPct} % (IVA + ISR sobre la base sin IVA) y muchos precios de MELI se pusieron contando con eso: la casilla «quitar{" "}
+              {retencionPct} %» calcula ese modelo como si MELI sí lo retuviera (objetivo y precio de TikTok más bajos). «Mi precio» manda si lo
+              capturas (vacío = volver al calculado). «TikTok hoy» es el precio REAL que pagaron los clientes en los pedidos de los últimos{" "}
               {diasPrecioReal} días (ofertas y relámpagos incluidos) y lo que deja; si el modelo no vendió, el de lista del catálogo.{" "}
               {NOMBRES_NIVEL.normal} es el precio que deja lo mismo que el relámpago de MELI (o tu precio); {NOMBRES_NIVEL.live} va{" "}
               {escalonPct} % abajo (deja menos, a propósito) y {NOMBRES_NIVEL.campana} {escalonPct} % arriba.
@@ -91,6 +104,14 @@ export function TablaPreciosTikTok({ renglones, escalonPct, diasPrecioReal }: { 
                   </td>
                   <td className="num px-4 py-2 text-right font-medium" style={{ color: r.origenNivel === "mi-precio" ? "var(--ink-2)" : undefined }}>
                     {r.netoPorPar != null ? pesosC(r.netoPorPar) : "—"}
+                    {r.quitarRetencion && r.netoRelampagoReal != null ? (
+                      <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }} title={`neto real ${pesosC(r.netoRelampagoReal)}`}>
+                        −{pesosC(r.retencionQuitada)} de retención
+                      </div>
+                    ) : null}
+                    <div className="mt-1 text-right">
+                      <QuitarRetencionTikTok modelo={r.modelo} inicial={r.quitarRetencion} pct={retencionPct} />
+                    </div>
                   </td>
                   <td className="px-4 py-2 text-right">
                     <MiPrecioTikTok modelo={r.modelo} inicial={r.miPrecio} />

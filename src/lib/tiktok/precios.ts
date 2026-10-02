@@ -183,8 +183,18 @@ export interface RenglonPrecio {
   precioRelampagoMeli: number | null;
   /** pares vendidos a ese precio */
   paresRelampago: number;
-  /** neto de MELI por par CUANDO SE VENDE EL RELÁMPAGO = objetivo (dueño, 1-oct-2026) */
+  /**
+   * neto de MELI por par CUANDO SE VENDE EL RELÁMPAGO = objetivo (dueño,
+   * 1-oct-2026); con `quitarRetencion`, ese neto como si MELI sí retuviera
+   * el 10.5 % (dueño, 2-oct-2026)
+   */
   netoPorPar: number | null;
+  /** el neto real del relámpago, sin quitarle nada */
+  netoRelampagoReal: number | null;
+  /** el dueño pidió calcular este modelo como si MELI retuviera IVA + ISR */
+  quitarRetencion: boolean;
+  /** lo que se le quitó al neto real por esa casilla (0 si no aplica) */
+  retencionQuitada: number;
   /** el precio que el dueño quiere poner (relámpago normal); manda sobre el calculado */
   miPrecio: number | null;
   /** de dónde salió el normal */
@@ -210,9 +220,23 @@ export interface EntradaModelo {
   paresRelampago?: number;
   netoRelampago?: number | null;
   miPrecio?: number | null;
+  /** calcular como si MELI sí retuviera el 10.5 % (muchos precios de MELI se pusieron contando con eso) */
+  quitarRetencion?: boolean;
   costo: number | null;
   precioTikTok: number | null;
   origenPrecio?: "pedidos" | "lista" | null;
+}
+
+/**
+ * El neto de MELI COMO SI MELI retuviera IVA + ISR sobre la base sin IVA
+ * (10.5 % con los parámetros de omisión): neto × (1 − 10.5 % ÷ 1.16). En
+ * REVENTA MELI ya no lo retiene y muchos precios de MELI se pusieron
+ * contando con que sí (dueño, 2-oct-2026: «entonces gano más dinero, no
+ * es que tenía planeado eso»).
+ */
+export function netoSinRetencionMeli(neto: number, p: ParametrosPrecioTikTok): number {
+  const factor = 1 - (p.ivaRetenidoPct + p.isrRetenidoPct) / 100 / (1 + p.ivaPct / 100);
+  return neto * factor;
 }
 
 /**
@@ -226,7 +250,9 @@ export interface EntradaModelo {
 export function renglonesDePrecio(entradas: EntradaModelo[], p: ParametrosPrecioTikTok): RenglonPrecio[] {
   return entradas
     .map((e) => {
-      const netoPorPar = e.netoRelampago != null && e.netoRelampago > 0 ? e.netoRelampago : null;
+      const netoRelampagoReal = e.netoRelampago != null && e.netoRelampago > 0 ? e.netoRelampago : null;
+      const quitarRetencion = Boolean(e.quitarRetencion);
+      const netoPorPar = netoRelampagoReal != null && quitarRetencion ? netoSinRetencionMeli(netoRelampagoReal, p) : netoRelampagoReal;
       const miPrecio = e.miPrecio != null && e.miPrecio > 0 ? e.miPrecio : null;
       const niveles = miPrecio != null ? nivelesDesdeNormal(miPrecio, p) : netoPorPar != null ? nivelesDePrecio(netoPorPar, p) : null;
       return {
@@ -237,6 +263,9 @@ export function renglonesDePrecio(entradas: EntradaModelo[], p: ParametrosPrecio
         precioRelampagoMeli: e.precioRelampagoMeli ?? null,
         paresRelampago: e.paresRelampago ?? 0,
         netoPorPar,
+        netoRelampagoReal,
+        quitarRetencion,
+        retencionQuitada: netoRelampagoReal != null && netoPorPar != null ? netoRelampagoReal - netoPorPar : 0,
         miPrecio,
         origenNivel: (niveles ? (miPrecio != null ? "mi-precio" : "relampago-meli") : null) as RenglonPrecio["origenNivel"],
         costo: e.costo,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { factorNeto, netoTikTok, nivelesDePrecio, nivelesDesdeNormal, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio, filtrarPrecios } from "./precios";
+import { factorNeto, netoTikTok, nivelesDePrecio, nivelesDesdeNormal, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio, filtrarPrecios, netoSinRetencionMeli } from "./precios";
 
 const p = PARAMETROS_POR_OMISION;
 
@@ -119,5 +119,43 @@ describe("nivelesDesdeNormal", () => {
     expect(n[1].neto).toBeCloseTo(netoTikTok(400, p).neto, 6);
     expect(n[0].neto).toBeLessThan(n[1].neto);
     expect(nivelesDesdeNormal(0, p)).toBeNull();
+  });
+});
+
+describe("quitar la retención de MELI", () => {
+  it("el neto como si MELI retuviera el 10.5 % sobre la base sin IVA", () => {
+    // 128.99 × (1 − 0.105 / 1.16) = 117.31
+    expect(netoSinRetencionMeli(128.99, p)).toBeCloseTo(128.99 * (1 - 0.105 / 1.16), 6);
+    expect(netoSinRetencionMeli(116, p)).toBeCloseTo(116 - 10.5, 6);
+  });
+
+  it("con la casilla el objetivo baja y el precio de TikTok también; sin ella queda el neto real", () => {
+    const base = { categoria: null, paresMeli: 10, netoMeli: 1290, netoRelampago: 128.99, precioRelampagoMeli: 128.99, paresRelampago: 4, costo: 80, precioTikTok: null };
+    const [con, sin] = renglonesDePrecio(
+      [
+        { modelo: "GT1", ...base, quitarRetencion: true },
+        { modelo: "GT2", ...base },
+      ],
+      p,
+    );
+    expect(sin.netoPorPar).toBe(128.99);
+    expect(sin.quitarRetencion).toBe(false);
+    expect(sin.retencionQuitada).toBe(0);
+    expect(con.quitarRetencion).toBe(true);
+    expect(con.netoRelampagoReal).toBe(128.99);
+    expect(con.netoPorPar).toBeCloseTo(netoSinRetencionMeli(128.99, p), 6);
+    expect(con.retencionQuitada).toBeCloseTo(128.99 - netoSinRetencionMeli(128.99, p), 6);
+    expect(con.niveles![1].precio).toBeLessThan(sin.niveles![1].precio);
+    expect(con.origenNivel).toBe("relampago-meli");
+  });
+
+  it("mi precio sigue mandando aunque la casilla esté puesta", () => {
+    const [r] = renglonesDePrecio(
+      [{ modelo: "GT1", categoria: null, paresMeli: 10, netoMeli: 1290, netoRelampago: 128.99, miPrecio: 180, quitarRetencion: true, costo: null, precioTikTok: null }],
+      p,
+    );
+    expect(r.origenNivel).toBe("mi-precio");
+    expect(r.niveles![1].precio).toBe(180);
+    expect(r.quitarRetencion).toBe(true);
   });
 });
