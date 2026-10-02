@@ -743,3 +743,118 @@ h3 {
     transition: none !important;
   }
 }
+
+/* ---------- catálogo para creadores (/influencers) ---------- */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.portada-creadores .titulo-catalogo {
+  margin: 0;
+}
+.portada-creadores p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--tinta-2);
+}
+.creador-busca {
+  margin: 0 0 20px;
+  max-width: 420px;
+}
+.creador-elegido {
+  border-color: var(--sello);
+  box-shadow: 0 0 0 1px var(--sello);
+}
+.estado-tiktok {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.estado-activo {
+  background: color-mix(in srgb, var(--bien) 14%, var(--hoja));
+  color: var(--bien);
+}
+.estado-inactivo {
+  background: var(--papel-2);
+  color: var(--tinta-2);
+}
+.creador-fotos {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  overflow-x: auto;
+}
+.creador-fotos button {
+  flex: 0 0 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--linea);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.creador-fotos button[aria-current="true"] {
+  border-color: var(--tinta);
+}
+.creador-fotos img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.creador-colores {
+  margin: 4px 0 0;
+  gap: 6px;
+}
+.creador-colores .filtro {
+  font-size: 12.5px;
+  padding: 3px 9px;
+}
+.creador-talla {
+  margin-top: 4px;
+}
+.creador .boton {
+  height: 42px;
+  margin-top: 6px;
+  font-size: 14px;
+  padding: 0 12px;
+}
+.creador-barra {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--hoja);
+  border-top: 1px solid var(--linea);
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+}
+.creador-barra-in {
+  display: grid;
+  gap: 10px;
+}
+.creador-panel {
+  display: grid;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.creador-panel ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+.creador-panel li span {
+  margin-right: 8px;
+}
+.creador-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { config } from "./config";
 import { db } from "./db";
 import { armarProducto, type Producto, type ProductoVista, type Variante } from "./tienda";
+import { armarCatalogoInfluencers, type ProductoInfluencer } from "./influencers";
 
 async function leerCatalogo(): Promise<{ productos: Producto[]; variantes: (Variante & { product_id: string })[] }> {
   const cuenta = config.cuenta();
@@ -131,3 +132,49 @@ async function leerTiendaAmazon(): Promise<PaginaAmazon[]> {
 }
 
 export const tiendaAmazon = unstable_cache(leerTiendaAmazon, ["tienda-amazon"], { revalidate: 600 });
+
+/**
+ * Catálogo para influencers: activos E inactivos de TikTok (no los borrados).
+ * El ERP copia los inactivos con `activo = false` para que la tienda no los
+ * venda; aquí sí se enseñan.
+ */
+async function leerCatalogoInfluencers(): Promise<ProductoInfluencer[]> {
+  const cuenta = config.cuenta();
+  const { data: productos, error } = await db()
+    .from("tienda_productos")
+    .select("product_id, modelo, titulo, descripcion, imagenes, fotos_amazon, bullets, categoria, activo, estado_tiktok")
+    .eq("account_id", cuenta)
+    .not("estado_tiktok", "is", null)
+    .neq("estado_tiktok", "DELETED")
+    .order("product_id", { ascending: true });
+  if (error) throw new Error(`Catálogo: ${error.message}`);
+  const vivos = (productos ?? []).filter((p: any) => p.titulo && p.titulo !== p.product_id);
+  const ids = vivos.map((p: any) => String(p.product_id));
+  const variantes: any[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error: e2 } = await db()
+      .from("tienda_variantes")
+      .select("sku_id, product_id, sku_interno, color, talla, precio, precio_lista, imagen")
+      .eq("account_id", cuenta)
+      .eq("activo", true)
+      .in("product_id", ids.slice(i, i + 200))
+      .order("sku_id", { ascending: true })
+      .limit(5000);
+    if (e2) throw new Error(`Catálogo: ${e2.message}`);
+    variantes.push(...(data ?? []));
+  }
+  const existencia = await disponibles();
+  return armarCatalogoInfluencers(
+    vivos.map((p: any) => ({
+      ...p,
+      activo: p.estado_tiktok === "ACTIVATE",
+      imagenes: Array.isArray(p.imagenes) ? p.imagenes : [],
+      fotos_amazon: p.fotos_amazon && typeof p.fotos_amazon === "object" ? p.fotos_amazon : {},
+      bullets: Array.isArray(p.bullets) ? p.bullets : [],
+    })),
+    variantes,
+    existencia,
+  );
+}
+
+export const catalogoInfluencers = unstable_cache(leerCatalogoInfluencers, ["catalogo-influencers"], { revalidate: 300 });
