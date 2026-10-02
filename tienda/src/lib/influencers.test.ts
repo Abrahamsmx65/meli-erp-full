@@ -26,6 +26,15 @@ describe("catálogo de influencers", () => {
     expect(r[1].colores[0].fotos).toEqual(["https://tt/1.jpg"]);
   });
 
+  it("un producto sin ninguna foto no sale", () => {
+    const r = armarCatalogoInfluencers(
+      [{ ...base, imagenes: [], product_id: "9", modelo: "402", titulo: "Borrador", activo: false, fotos_amazon: {} as Record<string, string[]> }],
+      [{ product_id: "9", sku_id: "z", sku_interno: null, color: "azul", talla: "24", precio: 399, precio_lista: null, imagen: null }],
+      new Map(),
+    );
+    expect(r).toEqual([]);
+  });
+
   it("arma el mensaje de la selección", () => {
     const m = mensajeDeSeleccion("@ana", [{ productId: "1", modelo: "GT102", titulo: "Bota", color: "Negro", talla: "24" }], "https://x/influencers");
     expect(m).toContain("soy @ana");
