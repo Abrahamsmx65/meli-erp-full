@@ -69,6 +69,8 @@ export function armarCatalogoInfluencers(
         };
       })
       .sort((a, b) => Number(b.tallasConStock.length > 0) - Number(a.tallasConStock.length > 0) || a.color.localeCompare(b.color, "es"));
+    // Sin una sola foto no hay nada que elegir (borradores a medio armar en TikTok).
+    if (!lista.some((c) => c.fotos.length)) continue;
     salida.push({
       productId: p.product_id,
       modelo: p.modelo,
