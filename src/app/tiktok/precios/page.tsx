@@ -86,7 +86,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     // volumen y su neto por par (dueño, 1-oct-2026: «el neto de cuando se
     // vende el relámpago»; el GT148 relámpago $128.99 deja $128.99).
     admin.rpc("meli_neto_relampago_por_modelo", { p_account: cuenta.id, p_desde: rango.desde }),
-    traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio", (q) => q.eq("account_id", cuenta.id)),
+    traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", cuenta.id)),
   ]);
   if (relampagoRpc.error) throw new Error(`meli_neto_relampago_por_modelo: ${relampagoRpc.error.message}`);
   const relampago = new Map<string, { precio: number | null; pares: number; neto: number | null; paresTotal: number; netoTotal: number | null }>();
@@ -100,9 +100,14 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     });
   }
   const misPrecios = new Map<string, number>();
+  // Modelos que el dueño pidió calcular como si MELI retuviera el 10.5 % (2-oct-2026).
+  const quitarRetencion = new Set<string>();
   for (const f of misPreciosRaw ?? []) {
+    const modelo = String(f.modelo ?? "").toUpperCase();
+    if (!modelo) continue;
     const precio = Number(f.precio);
-    if (f.modelo && Number.isFinite(precio) && precio > 0) misPrecios.set(String(f.modelo).toUpperCase(), precio);
+    if (Number.isFinite(precio) && precio > 0) misPrecios.set(modelo, precio);
+    if (f.quitar_retencion) quitarRetencion.add(modelo);
   }
 
   const costoDe = new Map<string, number>();
@@ -152,6 +157,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
       paresRelampago: r?.pares ?? 0,
       netoRelampago: r?.neto ?? null,
       miPrecio: misPrecios.get(modelo) ?? null,
+      quitarRetencion: quitarRetencion.has(modelo),
       costo: costoDe.get(modelo) ?? null,
       precioTikTok: null,
     };
@@ -161,7 +167,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     entradas.set(modelo, nueva(modelo, m.categoria));
   }
   for (const modelo of relampago.keys()) if (!entradas.has(modelo)) entradas.set(modelo, nueva(modelo));
-  for (const modelo of misPrecios.keys()) if (!entradas.has(modelo)) entradas.set(modelo, nueva(modelo));
+  for (const modelo of [...misPrecios.keys(), ...quitarRetencion]) if (!entradas.has(modelo)) entradas.set(modelo, nueva(modelo));
   for (const modelo of new Set([...precioLista.keys(), ...precioPagado.keys()])) {
     const e = entradas.get(modelo) ?? nueva(modelo);
     const pagado = precioPagado.get(modelo);
@@ -239,7 +245,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
         <Ficha titulo="Escalón" valor={`${p.escalonPct}%`} nota="live abajo del normal · campaña arriba del normal" />
       </div>
 
-      <TablaPreciosTikTok renglones={renglones} escalonPct={p.escalonPct} diasPrecioReal={DIAS_PRECIO_REAL} />
+      <TablaPreciosTikTok renglones={renglones} escalonPct={p.escalonPct} diasPrecioReal={DIAS_PRECIO_REAL} retencionPct={p.ivaRetenidoPct + p.isrRetenidoPct} />
     </div>
   );
 }

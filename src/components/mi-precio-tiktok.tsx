@@ -55,3 +55,43 @@ export function MiPrecioTikTok({ modelo, inicial }: { modelo: string; inicial: n
     />
   );
 }
+
+/**
+ * Por modelo: calcular el objetivo como si MELI sí retuviera el 10.5 %
+ * (IVA 8 % + ISR 2.5 % sobre la base sin IVA). En reventa MELI ya no lo
+ * retiene y muchos precios de MELI se pusieron contando con eso (dueño,
+ * 2-oct-2026): con la casilla el precio de TikTok sale más bajo.
+ */
+export function QuitarRetencionTikTok({ modelo, inicial, pct }: { modelo: string; inicial: boolean; pct: number }) {
+  const router = useRouter();
+  const [valor, setValor] = useState(inicial);
+  const [estado, setEstado] = useState<"quieto" | "guardando" | "error">("quieto");
+
+  async function cambiar(si: boolean) {
+    setValor(si);
+    setEstado("guardando");
+    const r = await fetch("/api/tiktok/precios", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ modelo, quitarRetencion: si }),
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      setValor(!si);
+      setEstado("error");
+      return;
+    }
+    setEstado("quieto");
+    router.refresh();
+  }
+
+  return (
+    <label
+      className="inline-flex items-center gap-1.5 text-xs"
+      style={{ color: estado === "error" ? "var(--estado-critico)" : "var(--ink-2)", opacity: estado === "guardando" ? 0.6 : 1 }}
+      title={`Calcular este modelo como si MELI sí retuviera el ${pct} % (IVA + ISR sobre la base sin IVA): el objetivo baja y el precio de TikTok también`}
+    >
+      <input type="checkbox" checked={valor} disabled={estado === "guardando"} onChange={(e) => cambiar(e.target.checked)} />
+      quitar {pct} %
+    </label>
+  );
+}
