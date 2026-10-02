@@ -77,6 +77,9 @@ export async function middleware(request: NextRequest) {
     ruta === "/api/tiktok/tienda/aviso" ||
     ruta.startsWith("/api/videos/procesar") ||
     ruta.startsWith("/api/videos/diagnostico") ||
+    // La sonda de fotos de Amazon se dispara también desde la base con el
+    // bearer del cron; la ruta valida el bearer o la sesión.
+    ruta.startsWith("/api/amazon/diagnostico-fotos") ||
     // El acceso sin contraseña a la sección de contenido: la puerta es el
     // token del link, que valida `acceso-contenido.ts`. Sin esto el link
     // rebotaría al login, que es justo lo que no debe pedir.
