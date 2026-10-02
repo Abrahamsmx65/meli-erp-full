@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { factorNeto, netoTikTok, nivelesDePrecio, nivelesDesdeNormal, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio } from "./precios";
+import { factorNeto, netoTikTok, nivelesDePrecio, nivelesDesdeNormal, parametrosDesde, PARAMETROS_POR_OMISION, precioParaNeto, renglonesDePrecio, filtrarPrecios } from "./precios";
 
 const p = PARAMETROS_POR_OMISION;
 
@@ -66,16 +66,49 @@ describe("renglonesDePrecio", () => {
       ],
       p,
     );
-    expect(r.map((x) => x.modelo)).toEqual(["GT3", "GT1", "GT2"]);
-    expect(r[1].netoPorPar).toBe(128.99);
-    expect(r[1].origenNivel).toBe("relampago-meli");
-    expect(r[1].niveles?.[1].neto).toBeGreaterThanOrEqual(128.99);
-    expect(r[1].origenPrecio).toBe("lista");
-    expect(r[1].netoTikTokActual).toBeCloseTo(netoTikTok(399, p).neto, 6);
-    expect(r[0].origenNivel).toBe("mi-precio");
-    expect(r[0].niveles?.map((n) => n.precio)).toEqual([171, 180, 189]);
-    expect(r[2].niveles).toBeNull();
-    expect(r[2].netoPorPar).toBeNull();
+    expect(r.map((x) => x.modelo)).toEqual(["GT1", "GT2", "GT3"]);
+    expect(r[0].netoPorPar).toBe(128.99);
+    expect(r[0].origenNivel).toBe("relampago-meli");
+    expect(r[0].niveles?.[1].neto).toBeGreaterThanOrEqual(128.99);
+    expect(r[0].origenPrecio).toBe("lista");
+    expect(r[0].netoTikTokActual).toBeCloseTo(netoTikTok(399, p).neto, 6);
+    expect(r[2].origenNivel).toBe("mi-precio");
+    expect(r[2].niveles?.map((n) => n.precio)).toEqual([171, 180, 189]);
+    expect(r[1].niveles).toBeNull();
+    expect(r[1].netoPorPar).toBeNull();
+  });
+
+  it("va en orden alfabético natural por modelo, sin importar la venta", () => {
+    const vacio = { categoria: null, netoMeli: 0, costo: null, precioTikTok: null };
+    const r = renglonesDePrecio(
+      [
+        { modelo: "GT134", paresMeli: 900, ...vacio },
+        { modelo: "GT102", paresMeli: 1, ...vacio },
+        { modelo: "MY2304", paresMeli: 50, ...vacio },
+        { modelo: "GT104-1", paresMeli: 0, ...vacio },
+        { modelo: "GT99", paresMeli: 0, ...vacio },
+      ],
+      p,
+    );
+    expect(r.map((x) => x.modelo)).toEqual(["GT99", "GT102", "GT104-1", "GT134", "MY2304"]);
+  });
+});
+
+describe("filtrarPrecios", () => {
+  const filas = [
+    { modelo: "GT148", categoria: "Botas y Botines" },
+    { modelo: "GT102", categoria: "Tenis" },
+    { modelo: "MY2304", categoria: null },
+  ];
+  it("busca por pedazos en modelo y categoría, sin acentos ni guiones; vacío = todos", () => {
+    expect(filtrarPrecios(filas, "")).toHaveLength(3);
+    expect(filtrarPrecios(filas, "gt148").map((f) => f.modelo)).toEqual(["GT148"]);
+    expect(filtrarPrecios(filas, "botás").map((f) => f.modelo)).toEqual(["GT148"]);
+    expect(filtrarPrecios(filas, "gt1 ten").map((f) => f.modelo)).toEqual(["GT102"]);
+    expect(filtrarPrecios(filas, "my-2304")).toHaveLength(1);
+    expect(filtrarPrecios(filas, "my 2304")).toHaveLength(1);
+    expect(filtrarPrecios(filas, "my2304")).toHaveLength(1);
+    expect(filtrarPrecios(filas, "zz")).toHaveLength(0);
   });
 });
 
