@@ -1230,6 +1230,17 @@ guárdala numerada.
   contraseña (código de 6 dígitos al correo) en tablas propias: el registro
   del ERP sigue cerrado. La guía de paquetería se captura a mano por ahora.
   Variables y despliegue en `tienda/README.md`.
+  **Catálogo para CREADORES** (`tienda/` → `/influencers`, `lib/influencers.ts`
+  puro; pedido del dueño, 2-oct-2026: «un catálogo de lo que tengo en TikTok
+  activo e inactivo para que los influencers elijan»): el ERP copia también
+  los productos INACTIVOS y borradores de TikTok (no los `DELETED`,
+  `ESTADOS_FUERA_DE_CATALOGO`) a `tienda_productos` con `activo = false`
+  —después de los activos— y les pone fotos de Amazon igual; la tienda NO
+  los vende (`tienda_crear_pedido` exige producto activo), la página de
+  creadores sí los enseña con la marca Activo/Inactivo. El creador elige
+  color y talla y manda la selección por WhatsApp (`INFLUENCERS_WHATSAPP`
+  en el proyecto de la tienda; sin él, WhatsApp deja elegir el contacto) o
+  la copia. Sin buscadores (`noindex`).
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −

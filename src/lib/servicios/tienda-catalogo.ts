@@ -13,6 +13,10 @@
  *    (que el sync de 15 min ya trae): un cambio de precio en TikTok llega a
  *    la página sin esperar la relectura del producto.
  *  · Un producto que TikTok ya no tiene activo sale de la tienda.
+ *  · Los INACTIVOS y borradores (no los borrados) también se leen, con
+ *    `activo = false`: la tienda no los vende, pero el catálogo para
+ *    influencers (`tienda/` → `/influencers`) los enseña con sus fotos para
+ *    que elijan (pedido del dueño, 2-oct-2026). Van después de los activos.
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { producto as productoTikTok } from "../tiktok/api";
@@ -26,6 +30,9 @@ import { leerTiendaAmazon } from "./tienda-banners";
 import { clienteDeCuenta } from "./tiktok";
 
 export const HORAS_RELEER = 12;
+
+/** Estados de TikTok que ni la tienda ni el catálogo de influencers enseñan. */
+export const ESTADOS_FUERA_DE_CATALOGO = new Set(["DELETED", ""]);
 
 export interface ResultadoCatalogoTienda {
   conectado: boolean;
@@ -66,11 +73,14 @@ export async function refrescarCatalogoTienda(
 
   // Lo que TikTok tiene ACTIVO (según el catálogo del sync de 15 min).
   const activosTikTok = new Set<string>();
+  /** Inactivos y borradores: se copian para el catálogo de influencers, nunca se venden. */
+  const otrosTikTok = new Set<string>();
   const porSkuId = new Map<string, string>();
   const porSellerSku = new Map<string, string>();
   const precioPorSku = new Map<string, number | null>();
   for (const s of skus ?? []) {
     if (s.product_id && String(s.estado ?? "") === ESTADO_ACTIVO) activosTikTok.add(String(s.product_id));
+    else if (s.product_id && !ESTADOS_FUERA_DE_CATALOGO.has(String(s.estado ?? ""))) otrosTikTok.add(String(s.product_id));
     if (s.sku_interno) {
       porSkuId.set(String(s.sku_id), String(s.sku_interno));
       if (s.seller_sku) porSellerSku.set(String(s.seller_sku).trim(), String(s.sku_interno));
@@ -111,9 +121,13 @@ export async function refrescarCatalogoTienda(
   // 3. Qué productos leer completos.
   const leidoEn = new Map<string, number>((productos ?? []).map((p: any) => [String(p.product_id), Date.parse(p.leido_en)]));
   const limite = Date.now() - HORAS_RELEER * 3_600_000;
-  const porLeer = [...activosTikTok]
-    .filter((id) => opciones.todo || !leidoEn.has(id) || (leidoEn.get(id) ?? 0) < limite)
-    .sort((a, b) => (leidoEn.get(a) ?? 0) - (leidoEn.get(b) ?? 0));
+  const toca = (id: string) => opciones.todo || !leidoEn.has(id) || (leidoEn.get(id) ?? 0) < limite;
+  const masViejo = (a: string, b: string) => (leidoEn.get(a) ?? 0) - (leidoEn.get(b) ?? 0);
+  // Los activos primero: son los que se venden.
+  const porLeer = [
+    ...[...activosTikTok].filter(toca).sort(masViejo),
+    ...[...otrosTikTok].filter((id) => !activosTikTok.has(id)).filter(toca).sort(masViejo),
+  ];
 
   const cliente = porLeer.length ? await clienteDeCuenta(admin, accountId, presupuestoMs) : null;
   if (porLeer.length && !cliente) {
@@ -180,7 +194,8 @@ export async function refrescarCatalogoTienda(
           precio: v.precio,
           precio_lista: v.precioLista,
           imagen: v.imagen,
-          activo: Boolean(v.skuInterno),
+          // Viva en TikTok; sin amarre la tienda no la vende igual (armarProducto pide sku_interno).
+          activo: true,
         })),
         "account_id,sku_id",
       );
@@ -269,7 +284,10 @@ export async function enriquecerConAmazon(
   const avisos: string[] = [];
   const eq = (q: any) => q.eq("account_id", accountId);
   const [productos, variantes, listings, config] = await Promise.all([
-    traerTodo<any>(admin, "tienda_productos", "product_id, modelo, categoria, amazon_leido_en, aplus", (q) => eq(q).eq("activo", true)),
+    // Activos e inactivos (el catálogo de influencers también enseña fotos de los inactivos).
+    traerTodo<any>(admin, "tienda_productos", "product_id, modelo, titulo, estado_tiktok, categoria, amazon_leido_en, aplus", eq).then((ps) =>
+      ps.filter((p: any) => p.modelo && p.titulo !== p.product_id && !ESTADOS_FUERA_DE_CATALOGO.has(String(p.estado_tiktok ?? ""))),
+    ),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, color", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, imagen_url", (q) => q).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),

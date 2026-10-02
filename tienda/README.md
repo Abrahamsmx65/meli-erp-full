@@ -33,6 +33,7 @@ en el acto, y lo que vende TikTok deja de ofrecerse aquí.
 | `ERP_URL` | `https://meli-erp-full.vercel.app` (por omisión). |
 | `CRON_SECRET` | Para `/api/cron/expirar`. |
 | `RESEND_API_KEY`, `CORREO_REMITENTE` | Correos de código y de pago. El remitente debe ser de un dominio verificado en Resend: `onboarding@resend.dev` solo entrega al dueño de la cuenta de Resend. |
+| `INFLUENCERS_WHATSAPP` | WhatsApp del dueño con lada (5233…) para el catálogo de creadores `/influencers`. Opcional. |
 | `ENVIO_COSTO`, `ENVIO_GRATIS_DESDE` | Costo de envío (149 por omisión) y desde cuánto es gratis (999 por omisión). |
 
 En el **ERP** van `TIENDA_SECRET` (la misma), `TIENDA_URL` (para el enlace de
