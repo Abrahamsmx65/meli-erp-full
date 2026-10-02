@@ -910,6 +910,28 @@ guárdala numerada.
   desactivada por el vendedor (GT074, GT100, GT102, GT105, GT110…) tiene el
   stock fuera de línea; el renglón lo dice y la casilla «Solo con stock sin
   publicación activa» los lista. Ese día eran 48 SKU.
+  **EXCEL POR MODELO del Almacén TikTok** (`tiktok/resumen-modelos.ts`
+  motor puro con pruebas, `servicios/tiktok-resumen-modelos.ts`, botón
+  «Excel por modelo» en la tabla del inventario → `GET
+  /api/tiktok/resumen-modelos`; pedido del dueño, 2-oct-2026: «un Excel que
+  tenga el SKU, por ejemplo GT142, el ID de publicación de TikTok, el stock
+  en mi bodega de TikTok, el stock en mi bodega en general entre todas,
+  cuántas ventas tengo en Mercado Libre en total, el tipo de producto y la
+  foto»): un renglón por MODELO (el que está en TikTok por catálogo o
+  kardex, o tiene pares en alguna bodega de cajas; el que solo vendió en
+  MELI no abre renglón) con la foto INCRUSTADA en la celda (primera del
+  producto de TikTok copiada en `tienda_productos`; si no está en TikTok,
+  la de Amazon por `amazon_listings.asin` → `amazon_padres.imagen_url`; la
+  URL va aparte por si la descarga falla, «sin bajar»), categoría de
+  `productos_config`, el producto ACTIVO de TikTok con su estado y los
+  demás productos del modelo en otra columna (borradores, desactivados,
+  borrados), kardex de la bodega TikTok (saldo, apartado incluido el de la
+  tienda, disponible), pares DISPONIBLES por bodega de cajas (cajas
+  disponibles × pares por caja de `existencias`, sin la bodega TIKTOK) y
+  las ventas de MELI de TODA la historia (`ventas_resumen_sku` con rango
+  abierto; los últimos 30 días en la ventana previa del mismo RPC). Lee
+  con el cliente admin (junta bodega, costos y Amazon) y el rol de TikTok
+  también lo baja.
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.

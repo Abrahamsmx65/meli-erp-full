@@ -34,9 +34,19 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
     <section className="tarjeta overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
         <h2 className="text-sm font-semibold">Inventario por SKU</h2>
-        <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-          Orden alfabético · venta de los últimos {diasVenta} días
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+            Orden alfabético · venta de los últimos {diasVenta} días
+          </span>
+          <a
+            href="/api/tiktok/resumen-modelos"
+            className="rounded-lg border px-3 py-1 text-xs font-medium"
+            style={{ borderColor: "var(--borde)", color: "var(--ink)" }}
+            title="Un renglón por modelo: foto, categoría, ID y estado en TikTok, stock en la bodega TikTok, stock por bodega de cajas y ventas de MELI de toda la historia"
+          >
+            Excel por modelo
+          </a>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 px-4">
