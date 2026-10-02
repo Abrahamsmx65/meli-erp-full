@@ -50,13 +50,22 @@ export async function GET(req: NextRequest) {
 
   const modelo = (req.nextUrl.searchParams.get("modelo") ?? "").trim().toUpperCase();
   // ?sku=A,B pregunta SKUs sueltos tal cual (p. ej. el SKU padre generado
-  // por Amazon, V1-KW9T-E95I, que no empieza con el modelo).
+  // por Amazon, V1-KW9T-E95I, que no empieza con el modelo). ?asin=B0…
+  // pregunta por ASIN: Amazon contesta TODOS los SKUs del vendedor amarrados
+  // a ese ASIN, aunque el ERP no los conozca (un SKU recreado, por ejemplo).
   const skusSueltos = (req.nextUrl.searchParams.get("sku") ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter((s) => /^[A-Za-z0-9 \/._-]{1,60}$/.test(s));
-  if (!skusSueltos.length && !/^[A-Z0-9]{3,12}$/.test(modelo)) {
-    return NextResponse.json({ error: "Falta ?modelo=GT211 (o ?sku=A,B)." }, { status: 400 });
+  const asinsSueltos = (req.nextUrl.searchParams.get("asin") ?? "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => /^B0[A-Z0-9]{8}$/.test(s));
+  if (!skusSueltos.length && !asinsSueltos.length && !/^[A-Z0-9]{3,12}$/.test(modelo)) {
+    return NextResponse.json(
+      { error: "Falta ?modelo=GT211 (o ?sku=A,B, o ?asin=B0…,B0…)." },
+      { status: 400 },
+    );
   }
 
   const cuentas = await cuentasAmazon(admin);
@@ -64,11 +73,11 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta de Amazon conectada." }, { status: 400 });
   const cliente = new Cliente(cuenta, Date.now() + 100_000);
 
-  let filas: { seller_sku: string; asin: string | null }[] = skusSueltos.map((s) => ({
-    seller_sku: s,
-    asin: null,
-  }));
-  if (!skusSueltos.length) {
+  const porAsinSuelto = asinsSueltos.length > 0;
+  let filas: { seller_sku: string; asin: string | null }[] = porAsinSuelto
+    ? asinsSueltos.map((a) => ({ seller_sku: a, asin: a }))
+    : skusSueltos.map((s) => ({ seller_sku: s, asin: null }));
+  if (!skusSueltos.length && !porAsinSuelto) {
     const { data, error } = await admin
       .from("amazon_listings")
       .select("seller_sku, asin, estado")
@@ -98,7 +107,14 @@ export async function GET(req: NextRequest) {
     const { lotes: grupos } = partirEnLotes(filas.map((f) => String(f.seller_sku)));
     for (const lote of grupos) {
       try {
-        const r = await cliente.llamar<{ items?: { sku?: string; attributes?: Record<string, unknown[]> }[] }>(
+        const r = await cliente.llamar<{
+          items?: {
+            sku?: string;
+            attributes?: Record<string, unknown[]>;
+            summaries?: { lastUpdatedDate?: string; mainImage?: { link?: string }; status?: string[] }[];
+            issues?: { code?: string; message?: string; severity?: string }[];
+          }[];
+        }>(
           "GET",
           `/listings/2021-08-01/items/${encodeURIComponent(cuenta.sellingPartnerId)}`,
           "searchListingsItems",
@@ -106,9 +122,9 @@ export async function GET(req: NextRequest) {
             params: {
               marketplaceIds: cuenta.marketplaceId,
               identifiers: lote.join(","),
-              identifiersType: "SKU",
-              pageSize: lote.length,
-              includedData: "attributes,summaries",
+              identifiersType: porAsinSuelto ? "ASIN" : "SKU",
+              pageSize: 20,
+              includedData: "attributes,summaries,issues",
             },
           },
         );
@@ -123,11 +139,16 @@ export async function GET(req: NextRequest) {
           contestados.add(sku.toUpperCase());
           const fotos = fotosDeAtributos(item.attributes as never, cuenta.marketplaceId);
           if (crudoPrimero === null) crudoPrimero = item;
+          const resumen = item.summaries?.[0];
           porSku.push({
             sku,
             fotos: fotos.length,
             primera: fotos[0] ?? null,
             padre: padreDeAtributos(item.attributes as never),
+            mainImage: resumen?.mainImage?.link ?? null,
+            actualizado: resumen?.lastUpdatedDate ?? null,
+            estado: resumen?.status ?? null,
+            issues: (item.issues ?? []).slice(0, 5).map((i) => `${i.severity ?? ""} ${i.code ?? ""}: ${i.message ?? ""}`.trim()),
             atributos: Object.keys(item.attributes ?? {}).sort(),
           });
         }
