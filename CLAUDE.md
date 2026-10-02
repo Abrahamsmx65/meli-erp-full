@@ -1162,6 +1162,25 @@ guárdala numerada.
   `value_name` nuevo sin `value_id`. Hasta `INTENTOS_CORRECCION` (2);
   bitácora tarea `corregir-producto`. Dueño, 30-sep-2026: «me corriges lo
   que subió mal».
+  **(h) Una publicación de MELI con VARIOS modelos se publica como UN
+  producto** (`agruparPublicacionesMeli`, `agruparVariantesMeli`,
+  `nombreVarianteMeli` en `tiktok/publicar.ts`; `encolarPublicacionesMeli`
+  y `publicarUnoDeMeli` en el servicio; `components/publicaciones-meli-
+  tiktok.tsx`; `tiktok_publicaciones.fuente` = `meli` + `item_id`,
+  migración 0107; dueño, 2-oct-2026: «quiero crear en TikTok el listado
+  GT117 a GT122, pero se agrupan en un solo listado aunque son diferentes
+  SKUs»): en MELI la publicación MLM2745026941 junta GT117…GT122 (36
+  variantes) y en Amazon no existen, así que el publicador por modelo no
+  las veía. Productos nuevos enseña aparte las publicaciones de MELI con
+  2+ modelos (de `skus` activos por `item_id`) y las encola completas: la
+  variante de TikTok es «modelo + color en español» («GT117 Café», «GT118
+  Negro»; `ColorAPublicar.nombre` manda sobre el color), las fotos salen
+  de `variations[].picture_ids` contra `pictures` de `/items/{id}` (sin
+  fotos propias, las del producto), la descripción de
+  `/items/{id}/description` y el seller_sku es el SKU de MELI tal cual.
+  Para esos renglones `modelo` = item y `colores` = sus modelos. Lo común
+  (subir fotos, guía de tallas, cuerpo, crear, SKUs al catálogo) vive en
+  `publicarArmado`, que usan las dos fuentes.
 
 - **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
   `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el

@@ -598,6 +598,12 @@ export function atributosDeVentaDeCategoria(atributos: any[]): { color: Atributo
 /** Lo que se le manda a TikTok por color: sus tallas y la foto de la variante. */
 export interface ColorAPublicar {
   color: string;
+  /**
+   * Cómo se llama la variante en TikTok. Sin esto, el color en español
+   * (`nombreColorEspanol`); una publicación de MELI con varios modelos manda
+   * «GT117 Café» para que el comprador distinga el modelo.
+   */
+  nombre?: string;
   /** uri ya subido a TikTok (images/upload), para `sku_img` */
   imagenUri: string | null;
   tallas: { talla: string; sellerSku: string; cantidad: number }[];
@@ -684,7 +690,7 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
         const attr: Record<string, unknown> = {
           id: plantilla.atributoColor.id,
           name: plantilla.atributoColor.name,
-          value_name: nombreColorEspanol(c.color).nombre || c.color,
+          value_name: c.nombre?.trim() || nombreColorEspanol(c.color).nombre || c.color,
         };
         if (c.imagenUri) attr.sku_img = { uri: c.imagenUri };
         sales.push(attr);
@@ -745,4 +751,159 @@ export function interpretarRespuestaCreacion(d: any): { productId: string; skus:
     skus: (d?.skus ?? []).map((s: any) => ({ skuId: String(s?.id ?? ""), sellerSku: s?.seller_sku ? String(s.seller_sku) : null })),
     avisos: (d?.warnings ?? []).map((w: any) => String(w?.message ?? "")).filter(Boolean),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Publicaciones de MELI con VARIOS modelos → un solo producto de TikTok
+// (pedido del dueño, 2-oct-2026: «quiero crear en TikTok el listado GT117 a
+// GT122, pero se agrupan en un solo listado aunque son diferentes SKUs»).
+// En MELI la publicación MLM2745026941 junta GT117…GT122 como variantes; en
+// TikTok se publica igual: una variante «GT117 Café», «GT118 Negro»… con sus
+// tallas, las fotos de cada variación de MELI y el SKU de MELI tal cual.
+// ---------------------------------------------------------------------------
+
+/** Un renglón de `skus` de MELI: una variante de una publicación. */
+export interface VarianteMeli {
+  sku: string;
+  itemId: string;
+  variationId: string | null;
+  modelo: string | null;
+  color: string | null;
+  talla: string | null;
+  titulo: string | null;
+  precio: number | null;
+  activo: boolean;
+}
+
+/** Lo que se enseña en Productos nuevos: una publicación de MELI con 2+ modelos. */
+export interface PublicacionMeliParaTikTok {
+  itemId: string;
+  titulo: string;
+  modelos: string[];
+  colores: number;
+  variantes: number;
+  /** precio de lista más común en MELI, de referencia */
+  precioMeli: number | null;
+  /** SKUs de la publicación que TikTok ya vende (seller_sku de la tienda) */
+  enTikTok: string[];
+}
+
+/**
+ * Las publicaciones de MELI que juntan VARIOS modelos (2 o más), con sus
+ * variantes activas: son las que el publicador por modelo de Amazon no
+ * sabe armar como un solo producto. Lo que TikTok ya vende se marca.
+ */
+export function agruparPublicacionesMeli(filas: VarianteMeli[], enTikTok: SkuEnTikTok[] = []): PublicacionMeliParaTikTok[] {
+  const vendidos = new Set<string>();
+  for (const s of enTikTok) {
+    if (s.estado && /DELETED/i.test(s.estado)) continue;
+    for (const n of [s.skuInterno, s.sellerSku]) if (n) vendidos.add(claveSkuSuelto(n));
+  }
+  const porItem = new Map<string, VarianteMeli[]>();
+  for (const f of filas) {
+    if (!f.activo || !f.itemId || !f.modelo) continue;
+    if (!porItem.has(f.itemId)) porItem.set(f.itemId, []);
+    porItem.get(f.itemId)!.push(f);
+  }
+  const salida: PublicacionMeliParaTikTok[] = [];
+  for (const [itemId, vs] of porItem) {
+    const modelos = [...new Set(vs.map((v) => String(v.modelo).toUpperCase()))].sort((a, b) =>
+      a.localeCompare(b, "es", { numeric: true }),
+    );
+    if (modelos.length < 2) continue;
+    const colores = new Set(vs.map((v) => claveColor(String(v.modelo), String(v.color ?? ""))));
+    const precios = new Map<number, number>();
+    for (const v of vs) if (v.precio != null && v.precio > 0) precios.set(v.precio, (precios.get(v.precio) ?? 0) + 1);
+    const precioMeli = [...precios.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? null;
+    const titulos = new Map<string, number>();
+    for (const v of vs) {
+      const t = tituloLimpio(v.titulo);
+      if (t) titulos.set(t, (titulos.get(t) ?? 0) + 1);
+    }
+    const titulo = [...titulos.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || modelos.join(" / ");
+    salida.push({
+      itemId,
+      titulo,
+      modelos,
+      colores: colores.size,
+      variantes: vs.length,
+      precioMeli,
+      enTikTok: vs.filter((v) => vendidos.has(claveSkuSuelto(v.sku))).map((v) => v.sku).sort(),
+    });
+  }
+  return salida.sort((a, b) => a.modelos[0].localeCompare(b.modelos[0], "es", { numeric: true }));
+}
+
+/** Un SKU sin importar separadores, mayúsculas ni el sufijo de sitio. */
+function claveSkuSuelto(sku: string): string {
+  const p = partirSkuAmazon(sku);
+  if (p) return claveVariante(p.modelo, p.color, p.talla);
+  return normalizarPedazo(sku);
+}
+
+/** La publicación de MELI tal como contesta `/items/{id}`: fotos y variaciones. */
+export interface ItemMeliParaTikTok {
+  pictures: { id: string; url: string }[];
+  variations: { id: string; pictureIds: string[] }[];
+}
+
+/** Una variante del producto de TikTok: un modelo + color de la publicación de MELI. */
+export interface ColorMeliParaTikTok {
+  modelo: string;
+  color: string;
+  /** «GT117 Café»: lo que ve el comprador */
+  nombre: string;
+  traducido: boolean;
+  /** fotos de la variación en MELI (las de la primera talla que tenga), si no las del producto */
+  fotos: string[];
+  tallas: { talla: string; sellerSku: string }[];
+}
+
+/** «GT117» + «BROWN» → «GT117 Café». */
+export function nombreVarianteMeli(modelo: string, color: string): { nombre: string; traducido: boolean } {
+  const esp = nombreColorEspanol(color);
+  const nombre = [String(modelo).toUpperCase().trim(), esp.nombre].filter(Boolean).join(" ");
+  return { nombre, traducido: esp.traducido };
+}
+
+/**
+ * Las variantes de una publicación de MELI agrupadas modelo + color → tallas,
+ * con las fotos de la variación de MELI (`variations[].picture_ids` contra
+ * `pictures`), en orden natural de modelo y luego color. El seller_sku es el
+ * SKU de MELI tal cual: el amarre y el kardex ya lo conocen.
+ */
+export function agruparVariantesMeli(filas: VarianteMeli[], item: ItemMeliParaTikTok): ColorMeliParaTikTok[] {
+  const urlDeFoto = new Map(item.pictures.map((p) => [String(p.id), p.url]));
+  const fotosDeVariacion = new Map<string, string[]>();
+  for (const v of item.variations) {
+    const urls = v.pictureIds.map((id) => urlDeFoto.get(String(id))).filter((u): u is string => Boolean(u));
+    fotosDeVariacion.set(String(v.id), urls);
+  }
+  const fotosDelProducto = item.pictures.map((p) => p.url);
+
+  const grupos = new Map<string, ColorMeliParaTikTok & { _fotosPorTalla: string[][] }>();
+  for (const f of filas) {
+    if (!f.activo || !f.modelo || !f.talla) continue;
+    const modelo = String(f.modelo).toUpperCase().trim();
+    const color = String(f.color ?? "").trim();
+    const k = claveColor(modelo, color);
+    let g = grupos.get(k);
+    if (!g) {
+      const n = nombreVarianteMeli(modelo, color);
+      g = { modelo, color, nombre: n.nombre, traducido: n.traducido, fotos: [], tallas: [], _fotosPorTalla: [] };
+      grupos.set(k, g);
+    }
+    const talla = String(f.talla).replace(/\.0$/, "").trim();
+    if (!g.tallas.some((t) => t.talla === talla)) g.tallas.push({ talla, sellerSku: f.sku.trim() });
+    g._fotosPorTalla.push(f.variationId ? (fotosDeVariacion.get(String(f.variationId)) ?? []) : []);
+  }
+  const salida: ColorMeliParaTikTok[] = [];
+  for (const g of grupos.values()) {
+    const fotos = g._fotosPorTalla.find((f) => f.length) ?? fotosDelProducto;
+    g.tallas.sort((a, b) => tallaNumerica(a.talla) - tallaNumerica(b.talla));
+    salida.push({ modelo: g.modelo, color: g.color, nombre: g.nombre, traducido: g.traducido, fotos: [...new Set(fotos)], tallas: g.tallas });
+  }
+  return salida.sort(
+    (a, b) => a.modelo.localeCompare(b.modelo, "es", { numeric: true }) || a.color.localeCompare(b.color, "es"),
+  );
 }
