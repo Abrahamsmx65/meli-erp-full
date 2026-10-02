@@ -36,9 +36,10 @@ describe("rutas del rol tiktok", () => {
     expect(entradaVisible("dueño", "/ventas")).toBe(true);
   });
   it("Precios para TikTok es solo del dueño aunque viva bajo /tiktok (lleva netos de MELI y costos)", () => {
-    expect(rutaPermitida("tiktok", "/tiktok/precios")).toBe(false);
-    expect(rutaPermitida("tiktok", "/tiktok/precios?dias=30")).toBe(false);
-    expect(entradaVisible("tiktok", "/tiktok/precios")).toBe(false);
+    // Desde el 2-oct-2026 el rol de TikTok abre TODO lo de /tiktok, Precios incluido.
+    expect(rutaPermitida("tiktok", "/tiktok/precios")).toBe(true);
+    expect(rutaPermitida("tiktok", "/tiktok/precios?dias=30")).toBe(true);
+    expect(entradaVisible("tiktok", "/tiktok/precios")).toBe(true);
     expect(rutaPermitida("tiktok", "/tiktok/ventas")).toBe(true);
     expect(entradaVisible("dueño", "/tiktok/precios")).toBe(true);
   });

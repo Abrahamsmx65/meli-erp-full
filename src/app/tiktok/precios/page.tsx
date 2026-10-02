@@ -1,6 +1,5 @@
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { rolDeSesion } from "@/lib/acceso/roles";
 import { cargarMonitor, fechaMx } from "@/lib/servicios/ventas-monitor";
 import { modeloDeSku } from "@/lib/tiktok/ventas";
 import {
@@ -46,7 +45,8 @@ const CAMPOS: { clave: keyof ParametrosPrecioTikTok; nombre: string; unidad: str
  * live, relámpago normal +5 %, campaña regular +5 % más). Los parámetros
  * van en la URL para cambiarlos y compartirlos; el neto de MELI sale del
  * monitor de ventas (depósito real, nada estimado) del periodo elegido.
- * Solo el dueño: lleva netos de MELI y costos.
+ * Lleva netos de MELI y costos; desde el 2-oct-2026 también la ve el rol
+ * de TikTok (dueño: «acceso a todas las secciones adentro de TikTok»).
  */
 export default async function PreciosTikTok({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
@@ -55,13 +55,10 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     data: { user },
   } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta || rolDeSesion(user) !== "dueño") {
+  if (!cuenta || !user) {
     return (
       <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Esta pantalla es del dueño</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lleva lo que deja MELI por par y los costos.
-        </p>
+        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
       </div>
     );
   }

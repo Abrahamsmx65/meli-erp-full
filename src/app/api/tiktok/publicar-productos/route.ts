@@ -1,6 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { origenDeLaApp } from "@/lib/servicios/origen-app";
-import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { dispararYAnotar, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
 import {
@@ -60,7 +59,8 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
-  if (rolDeSesion(user) !== "dueño") return NextResponse.json({ error: "Publicar en TikTok es del dueño." }, { status: 403 });
+  // Desde el 2-oct-2026 el rol de TikTok también publica (dueño: «acceso a
+  // todas las secciones adentro de TikTok»).
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
 

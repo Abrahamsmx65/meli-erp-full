@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { rolDeSesion } from "@/lib/acceso/roles";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Lo que el dueño decide por modelo para el precio de TikTok. Solo el dueño.
+ * Lo que se decide por modelo para el precio de TikTok (el dueño o el rol de
+ * TikTok: desde el 2-oct-2026 ese rol abre todas las secciones de TikTok).
  * · `{ modelo, precio }`: el precio que QUIERE poner (relámpago normal);
  *   `precio: null` lo borra y el modelo vuelve al calculado.
  * · `{ modelo, quitarRetencion }`: calcular el objetivo como si MELI sí
@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "No has iniciado sesión." }, { status: 401 });
-  if (rolDeSesion(user) !== "dueño") return NextResponse.json({ error: "Solo el dueño." }, { status: 403 });
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
 

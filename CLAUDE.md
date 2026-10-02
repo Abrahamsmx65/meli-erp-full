@@ -1032,7 +1032,8 @@ guárdala numerada.
   `program_id`. El tramo de fondo es de 3 días (`DIAS_POR_TRAMO`) porque
   con 7 no cabía en las 60 páginas de una corrida y el cursor no avanzaba.
   **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
-  `/tiktok/precios`, SOLO del dueño: `SOLO_DUENO` en `acceso/roles.ts`;
+  `/tiktok/precios`; fue SOLO del dueño hasta el 2-oct-2026, hoy también
+  la abre el rol de TikTok;
   pedido del dueño, 1-oct-2026: «basándome en lo que recibo de MELI por un
   producto quiero recibir lo mismo en TikTok, tomando en cuenta sus
   comisiones e impuestos; afiliados al 4 % fijo aunque sea más; tres
@@ -1723,7 +1724,12 @@ login, la base y el deploy.
   `/tiktok/despacho` cualquier ruta fuera de `/tiktok`, `/api/tiktok`,
   `/preparar`, `/api/preparar-publico`, `/videos`, `/api/videos`, `/login`,
   `/auth` y `/api/salir`
-  (403 en las de API). Los videos de producto se le dieron el 17-sep-2026
+  (403 en las de API). **Desde el 2-oct-2026 ese rol abre TODAS las
+  secciones de TikTok** (dueño: «dale acceso al usuario david a todas las
+  secciones adentro de TikTok»): `SOLO_DUENO` quedó vacío, Precios para
+  TikTok (netos de MELI y costos) y publicar Productos nuevos ya no exigen
+  ser dueño; las pantallas leen con el cliente admin, así que la RLS no
+  estorba. Los videos de producto se le dieron el 17-sep-2026
   (migración 0092), el dueño se los QUITÓ el 18-sep-2026 (migración 0093)
   y se los VOLVIÓ A DAR el 24-sep-2026 (migración 0095: `videos_producto`
   y `personajes_video` aceptan otra vez `es_miembro_tiktok`; `/videos` y
