@@ -4,7 +4,7 @@
  * protegen el orden de la ficha y que no se invente nada.
  */
 import { describe, expect, it } from "vitest";
-import { fotosDeAtributos } from "./fotos-publicacion";
+import { fotosDeAtributos, padreDeAtributos } from "./fotos-publicacion";
 
 const MX = "A1AM78C64UM0Y8";
 
@@ -37,6 +37,18 @@ describe("fotosDeAtributos", () => {
       MX,
     );
     expect(fotos).toEqual(["https://img/mx.jpg"]);
+  });
+
+  it("el SKU padre sale de child_parent_sku_relationship (GT211: V1-KW9T-E95I)", () => {
+    expect(
+      padreDeAtributos({
+        child_parent_sku_relationship: [
+          { marketplace_id: MX, child_relationship_type: "variation", parent_sku: "V1-KW9T-E95I" },
+        ],
+      }),
+    ).toBe("V1-KW9T-E95I");
+    expect(padreDeAtributos({})).toBeNull();
+    expect(padreDeAtributos(undefined)).toBeNull();
   });
 
   it("un locator sin URL o repetido no cuenta", () => {

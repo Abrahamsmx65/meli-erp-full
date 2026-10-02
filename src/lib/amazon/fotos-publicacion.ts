@@ -82,15 +82,32 @@ export function fichaDeAtributos(attributes: Record<string, any[] | undefined> |
 }
 
 /**
- * La ficha capturada (fotos, puntos clave, descripción, título) de varios
- * SKUs: mapa sku (mayúsculas) → ficha. Mismo camino que las fotos.
+ * El SKU PADRE declarado en los atributos de una variante
+ * (`child_parent_sku_relationship`). Amazon lo genera solo al crear la
+ * familia desde Seller Central (`V1-KW9T-E95I` en el GT211) y ahí es donde
+ * quedan las fotos cuando se suben a nivel familia: las tallas contestan su
+ * ficha completa SIN ningún atributo de imagen (visto con la sonda el
+ * 2-oct-2026).
  */
-export async function fichasCapturadasPorSku(
+export function padreDeAtributos(
+  attributes: Record<string, any[] | undefined> | undefined,
+): string | null {
+  const rel = attributes?.child_parent_sku_relationship ?? [];
+  const r = rel.find((x) => x && typeof x.parent_sku === "string" && x.parent_sku.trim());
+  return r ? String(r.parent_sku).trim() : null;
+}
+
+/**
+ * Los atributos capturados de varios SKUs: mapa sku (mayúsculas) →
+ * attributes. Un lote que Amazon rechaza se salta sin tumbar a los demás y
+ * un `null` (se acabó el plazo) entrega lo ya juntado.
+ */
+async function atributosPorSku(
   cliente: Cliente,
   sellingPartnerId: string,
   skus: string[],
-): Promise<Map<string, FichaCapturada>> {
-  const salida = new Map<string, FichaCapturada>();
+): Promise<Map<string, Record<string, any[] | undefined>>> {
+  const salida = new Map<string, Record<string, any[] | undefined>>();
   const { lotes } = partirEnLotes(skus);
 
   for (const lote of lotes) {
@@ -119,56 +136,99 @@ export async function fichasCapturadasPorSku(
     for (const item of r.items ?? []) {
       const sku = String(item.sku ?? "").trim();
       if (!sku) continue;
-      salida.set(sku.toUpperCase(), fichaDeAtributos(item.attributes, cliente.cuenta.marketplaceId));
+      salida.set(sku.toUpperCase(), item.attributes ?? {});
     }
   }
   return salida;
 }
 
 /**
+ * Las fotos de los SKUs PADRE de las variantes que no traen foto propia:
+ * mapa sku hijo (mayúsculas) → fotos del padre. Una pasada extra solo con
+ * los padres que hagan falta.
+ */
+async function fotosDeLosPadres(
+  cliente: Cliente,
+  sellingPartnerId: string,
+  atributos: Map<string, Record<string, any[] | undefined>>,
+  sinFoto: (sku: string) => boolean,
+): Promise<Map<string, string[]>> {
+  const padreDe = new Map<string, string>();
+  for (const [sku, attrs] of atributos) {
+    if (!sinFoto(sku)) continue;
+    const padre = padreDeAtributos(attrs);
+    if (padre) padreDe.set(sku, padre);
+  }
+  const salida = new Map<string, string[]>();
+  if (!padreDe.size) return salida;
+
+  const dePadres = await atributosPorSku(cliente, sellingPartnerId, [
+    ...new Set(padreDe.values()),
+  ]);
+  for (const [sku, padre] of padreDe) {
+    const fotos = fotosDeAtributos(
+      dePadres.get(padre.toUpperCase()) as Record<string, Locator[] | undefined> | undefined,
+      cliente.cuenta.marketplaceId,
+    );
+    if (fotos.length) salida.set(sku, fotos);
+  }
+  return salida;
+}
+
+/**
+ * La ficha capturada (fotos, puntos clave, descripción, título) de varios
+ * SKUs: mapa sku (mayúsculas) → ficha. Una variante sin fotos propias
+ * hereda las de su SKU padre; el texto sigue siendo el suyo.
+ */
+export async function fichasCapturadasPorSku(
+  cliente: Cliente,
+  sellingPartnerId: string,
+  skus: string[],
+): Promise<Map<string, FichaCapturada>> {
+  const atributos = await atributosPorSku(cliente, sellingPartnerId, skus);
+  const salida = new Map<string, FichaCapturada>();
+  for (const [sku, attrs] of atributos) {
+    salida.set(sku, fichaDeAtributos(attrs, cliente.cuenta.marketplaceId));
+  }
+  const heredadas = await fotosDeLosPadres(
+    cliente,
+    sellingPartnerId,
+    atributos,
+    (sku) => !salida.get(sku)?.fotos.length,
+  );
+  for (const [sku, fotos] of heredadas) {
+    const ficha = salida.get(sku);
+    if (ficha) ficha.fotos = fotos;
+  }
+  return salida;
+}
+
+/**
  * Las fotos capturadas de varios SKUs: mapa sku → URLs. Un SKU que Amazon no
- * contesta (o sin fotos capturadas) no aparece en el mapa; un lote que
- * Amazon rechaza se salta sin tumbar a los demás, y un `null` (se acabó el
- * plazo) entrega lo ya juntado.
+ * contesta (o sin fotos capturadas ni en él ni en su SKU padre) no aparece
+ * en el mapa.
  */
 export async function fotosCapturadasPorSku(
   cliente: Cliente,
   sellingPartnerId: string,
   skus: string[],
 ): Promise<Map<string, string[]>> {
+  const atributos = await atributosPorSku(cliente, sellingPartnerId, skus);
   const salida = new Map<string, string[]>();
-  const { lotes } = partirEnLotes(skus);
-
-  for (const lote of lotes) {
-    let r: { items?: ItemConAtributos[] } | null;
-    try {
-      r = await cliente.llamar<{ items?: ItemConAtributos[] }>(
-        "GET",
-        `/listings/2021-08-01/items/${encodeURIComponent(sellingPartnerId)}`,
-        "searchListingsItems",
-        {
-          params: {
-            marketplaceIds: cliente.cuenta.marketplaceId,
-            identifiers: lote.join(","),
-            identifiersType: "SKU",
-            pageSize: lote.length,
-            includedData: "attributes",
-          },
-        },
-      );
-    } catch (err) {
-      if (err instanceof ErrorAmazon && err.status < 500) continue;
-      throw err;
-    }
-    if (r === null) break;
-
-    for (const item of r.items ?? []) {
-      const sku = String(item.sku ?? "").trim();
-      if (!sku) continue;
-      const fotos = fotosDeAtributos(item.attributes as Record<string, Locator[] | undefined> | undefined, cliente.cuenta.marketplaceId);
-      if (fotos.length) salida.set(sku.toUpperCase(), fotos);
-    }
+  for (const [sku, attrs] of atributos) {
+    const fotos = fotosDeAtributos(
+      attrs as Record<string, Locator[] | undefined>,
+      cliente.cuenta.marketplaceId,
+    );
+    if (fotos.length) salida.set(sku, fotos);
   }
+  const heredadas = await fotosDeLosPadres(
+    cliente,
+    sellingPartnerId,
+    atributos,
+    (sku) => !salida.has(sku),
+  );
+  for (const [sku, fotos] of heredadas) salida.set(sku, fotos);
 
   return salida;
 }

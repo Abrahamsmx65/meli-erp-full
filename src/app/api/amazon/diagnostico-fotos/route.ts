@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { Cliente, cuentasAmazon, ErrorAmazon } from "@/lib/amazon/spapi";
 import { imagenesDeAsins } from "@/lib/amazon/catalogo";
-import { fotosDeAtributos } from "@/lib/amazon/fotos-publicacion";
+import { fotosDeAtributos, padreDeAtributos } from "@/lib/amazon/fotos-publicacion";
 import { partirEnLotes } from "@/lib/amazon/fnskus";
 
 export const dynamic = "force-dynamic";
@@ -49,8 +49,14 @@ export async function GET(req: NextRequest) {
   if (!autorizado) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
 
   const modelo = (req.nextUrl.searchParams.get("modelo") ?? "").trim().toUpperCase();
-  if (!/^[A-Z0-9]{3,12}$/.test(modelo)) {
-    return NextResponse.json({ error: "Falta ?modelo=GT211." }, { status: 400 });
+  // ?sku=A,B pregunta SKUs sueltos tal cual (p. ej. el SKU padre generado
+  // por Amazon, V1-KW9T-E95I, que no empieza con el modelo).
+  const skusSueltos = (req.nextUrl.searchParams.get("sku") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => /^[A-Za-z0-9 \/._-]{1,60}$/.test(s));
+  if (!skusSueltos.length && !/^[A-Z0-9]{3,12}$/.test(modelo)) {
+    return NextResponse.json({ error: "Falta ?modelo=GT211 (o ?sku=A,B)." }, { status: 400 });
   }
 
   const cuentas = await cuentasAmazon(admin);
@@ -58,15 +64,22 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta de Amazon conectada." }, { status: 400 });
   const cliente = new Cliente(cuenta, Date.now() + 100_000);
 
-  const { data: filas, error } = await admin
-    .from("amazon_listings")
-    .select("seller_sku, asin, estado")
-    .eq("account_id", cuenta.accountId)
-    .ilike("seller_sku", `${modelo}-%`)
-    .order("seller_sku");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!filas?.length) {
-    return NextResponse.json({ error: `No hay SKUs de ${modelo} en amazon_listings.` }, { status: 404 });
+  let filas: { seller_sku: string; asin: string | null }[] = skusSueltos.map((s) => ({
+    seller_sku: s,
+    asin: null,
+  }));
+  if (!skusSueltos.length) {
+    const { data, error } = await admin
+      .from("amazon_listings")
+      .select("seller_sku, asin, estado")
+      .eq("account_id", cuenta.accountId)
+      .ilike("seller_sku", `${modelo}-%`)
+      .order("seller_sku");
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data?.length) {
+      return NextResponse.json({ error: `No hay SKUs de ${modelo} en amazon_listings.` }, { status: 404 });
+    }
+    filas = data;
   }
 
   const salida: Record<string, unknown> = {
@@ -114,6 +127,7 @@ export async function GET(req: NextRequest) {
             sku,
             fotos: fotos.length,
             primera: fotos[0] ?? null,
+            padre: padreDeAtributos(item.attributes as never),
             atributos: Object.keys(item.attributes ?? {}).sort(),
           });
         }
