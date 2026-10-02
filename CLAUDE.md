@@ -1062,7 +1062,12 @@ guárdala numerada.
   pedidos de los últimos 14 días (`tiktok_ventas_pedidos`, ofertas y
   relámpagos incluidos; dueño: «toma el real que está en oferta, no el
   precio base»), y solo sin pedidos el de lista de `tiktok_skus`; en ámbar
-  los que están por debajo del normal.
+  los que están por debajo del normal. **La tabla va en orden ALFABÉTICO
+  natural por modelo y tiene buscador** (`filtrarPrecios` en el motor,
+  `components/tabla-precios-tiktok.tsx`; dueño, 2-oct-2026: «me lo puedes
+  ordenar por SKU y poner un buscador»): por pedazos en modelo y categoría
+  («gt148», «botas»), sin guiones ni acentos, y arriba cuántos modelos se
+  ven. Antes iba por pares vendidos en MELI.
   **PRODUCTOS NUEVOS de TikTok: publicar en TikTok Shop lo que ya está en
   Amazon** (`tiktok/publicar.ts` motor puro, `servicios/tiktok-publicar.ts`,
   `/tiktok/nuevos`, `/api/tiktok/publicar-productos`, tabla

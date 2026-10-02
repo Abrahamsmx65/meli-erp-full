@@ -216,8 +216,9 @@ export interface EntradaModelo {
 }
 
 /**
- * Arma los renglones de la pantalla: un modelo por renglón, los que vendieron
- * en MELI primero. El objetivo es el neto de MELI por par CUANDO SE VENDE
+ * Arma los renglones de la pantalla: un modelo por renglón, en orden
+ * ALFABÉTICO natural por modelo (GT102 antes que GT134; dueño, 2-oct-2026:
+ * «me lo puedes ordenar por SKU»). El objetivo es el neto de MELI por par CUANDO SE VENDE
  * EL RELÁMPAGO (no el promedio del periodo, que mezcla precio lleno y
  * oferta: el GT148 salía a $157 cuando su relámpago deja $128.99); si el
  * dueño capturó su precio, ese manda como relámpago normal.
@@ -245,5 +246,27 @@ export function renglonesDePrecio(entradas: EntradaModelo[], p: ParametrosPrecio
         niveles,
       };
     })
-    .sort((a, b) => b.paresMeli - a.paresMeli || a.modelo.localeCompare(b.modelo));
+    .sort((a, b) => a.modelo.localeCompare(b.modelo, "es", { numeric: true, sensitivity: "base" }));
+}
+
+/**
+ * Buscador de la tabla, por pedazos y sin importar guiones ni acentos:
+ * «gt148» encuentra GT148 y «botas» todos los de esa categoría; «gt1 bot»
+ * exige las dos cosas. Vacío = todos.
+ */
+export function filtrarPrecios<T extends { modelo: string; categoria: string | null }>(renglones: T[], busqueda: string): T[] {
+  const partes = normalizarBusqueda(busqueda).split(/\s+/).filter(Boolean);
+  if (!partes.length) return renglones;
+  return renglones.filter((r) => {
+    const texto = normalizarBusqueda(`${r.modelo} ${r.categoria ?? ""}`);
+    return partes.every((x) => texto.includes(x));
+  });
+}
+
+function normalizarBusqueda(s: string): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[-_/]+/g, " ");
 }
