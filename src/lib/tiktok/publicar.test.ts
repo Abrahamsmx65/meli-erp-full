@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agruparProductosAmazon,
+  agruparPublicacionesMeli,
+  agruparVariantesMeli,
   armarCuerpoProducto,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
@@ -8,6 +10,7 @@ import {
   indexarSkusMeli,
   interpretarRespuestaCreacion,
   nombreColorEspanol,
+  nombreVarianteMeli,
   esModeloDeCalzado,
   partirSkuAmazon,
   plantillaDesdeProducto,
@@ -283,5 +286,68 @@ describe("imágenes y descripción", () => {
     const r = interpretarRespuestaCreacion({ product_id: "P", skus: [{ id: "S", seller_sku: "GT1-BLK-24-MX" }], warnings: [{ message: "ojo" }] });
     expect(r).toEqual({ productId: "P", skus: [{ skuId: "S", sellerSku: "GT1-BLK-24-MX" }], avisos: ["ojo"] });
     expect(() => interpretarRespuestaCreacion({})).toThrow();
+  });
+});
+
+describe("publicaciones de MELI con varios modelos", () => {
+  const filas = [
+    { sku: "GT117-BROWN-25-MX", itemId: "MLM1", variationId: "v1", modelo: "GT117", color: "BROWN", talla: "25", titulo: "Chanclas Sandalias Hombre", precio: 148.99, activo: true },
+    { sku: "GT117-BROWN-26-MX", itemId: "MLM1", variationId: "v2", modelo: "GT117", color: "BROWN", talla: "26", titulo: "Chanclas Sandalias Hombre", precio: 148.99, activo: true },
+    { sku: "GT118-BLK-25-MX", itemId: "MLM1", variationId: "v3", modelo: "GT118", color: "BLK", talla: "25", titulo: "Chanclas Sandalias Hombre", precio: 148.99, activo: true },
+    { sku: "GT118-BLK-27-MX", itemId: "MLM1", variationId: "v4", modelo: "GT118", color: "BLK", talla: "27", titulo: "Chanclas Sandalias Hombre", precio: 199, activo: false },
+    { sku: "GT200-BLK-25-MX", itemId: "MLM2", variationId: "v9", modelo: "GT200", color: "BLK", talla: "25", titulo: "Un solo modelo", precio: 100, activo: true },
+  ];
+  const item = {
+    pictures: [
+      { id: "p0", url: "https://m/p0.jpg" },
+      { id: "p1", url: "https://m/p1.jpg" },
+      { id: "p2", url: "https://m/p2.jpg" },
+    ],
+    variations: [
+      { id: "v1", pictureIds: ["p1", "p0"] },
+      { id: "v2", pictureIds: ["p1"] },
+      { id: "v3", pictureIds: [] },
+    ],
+  };
+
+  it("solo entran las publicaciones con 2+ modelos, con sus variantes activas y lo que TikTok ya vende", () => {
+    const r = agruparPublicacionesMeli(filas, [{ sellerSku: "GT118-BLK-25-MX", skuInterno: null, productId: "1", estado: "ACTIVATE" }]);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ itemId: "MLM1", modelos: ["GT117", "GT118"], colores: 2, variantes: 3, precioMeli: 148.99, titulo: "Chanclas Sandalias Hombre" });
+    expect(r[0].enTikTok).toEqual(["GT118-BLK-25-MX"]);
+    expect(agruparPublicacionesMeli(filas, [{ sellerSku: "X", skuInterno: null, productId: "1", estado: "DELETED" }])[0].enTikTok).toEqual([]);
+  });
+
+  it("agrupa modelo + color → tallas con nombre «GT117 Café» y las fotos de la variación de MELI", () => {
+    const r = agruparVariantesMeli(filas.filter((f) => f.itemId === "MLM1"), item);
+    expect(r.map((c) => c.nombre)).toEqual(["GT117 Café", "GT118 Negro"]);
+    expect(r[0].tallas).toEqual([
+      { talla: "25", sellerSku: "GT117-BROWN-25-MX" },
+      { talla: "26", sellerSku: "GT117-BROWN-26-MX" },
+    ]);
+    expect(r[0].fotos).toEqual(["https://m/p1.jpg", "https://m/p0.jpg"]);
+    // sin fotos propias de la variación, las del producto
+    expect(r[1].fotos).toEqual(["https://m/p0.jpg", "https://m/p1.jpg", "https://m/p2.jpg"]);
+    expect(r[1].tallas).toEqual([{ talla: "25", sellerSku: "GT118-BLK-25-MX" }]);
+    expect(nombreVarianteMeli("gt119", "OLIVE")).toEqual({ nombre: "GT119 Verde olivo", traducido: true });
+  });
+
+  it("armarCuerpoProducto usa el nombre de la variante cuando viene", () => {
+    const plantilla = plantillaDesdeProducto(productoCrudo);
+    const cuerpo = armarCuerpoProducto(
+      {
+        titulo: "Chanclas",
+        descripcionHtml: "<p>x</p>",
+        precio: 199,
+        moneda: "MXN",
+        warehouseId: "w1",
+        imagenesUri: ["u1"],
+        colores: [{ color: "BROWN", nombre: "GT117 Café", imagenUri: null, tallas: [{ talla: "25", sellerSku: "GT117-BROWN-25-MX", cantidad: 3 }] }],
+        borrador: true,
+      },
+      plantilla,
+    ) as any;
+    expect(cuerpo.skus[0].sales_attributes[0].value_name).toBe("GT117 Café");
+    expect(cuerpo.save_mode).toBe("AS_DRAFT");
   });
 });

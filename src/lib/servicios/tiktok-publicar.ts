@@ -47,6 +47,8 @@ import {
 import { ErrorTikTok, type Cliente as ClienteTikTok } from "../tiktok/client";
 import {
   agruparProductosAmazon,
+  agruparPublicacionesMeli,
+  agruparVariantesMeli,
   armarCuerpoProducto,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
@@ -58,7 +60,10 @@ import {
   type ColorAPublicar,
   type PlantillaTikTok,
   type ProductoAmazonParaTikTok,
+  type PublicacionMeliParaTikTok,
+  type VarianteMeli,
 } from "../tiktok/publicar";
+import { clienteDeCuenta as clienteMeliDeCuenta } from "./webhooks";
 import { pareceSkuDeCalzado } from "../tiktok/amarre";
 import { guiaDeTallas, textoGuiaTallas } from "../tiktok/guia-tallas";
 import { dibujarGuiaTallas } from "../tiktok/guia-tallas-imagen";
@@ -76,6 +81,10 @@ const MS_POR_DESCARGA = 20_000;
 
 export interface PublicacionEnCola {
   id: number;
+  /** de dónde sale: un modelo de Amazon o una publicación de MELI completa */
+  fuente: "amazon" | "meli";
+  /** la publicación de MELI (fuente `meli`); `modelo` la repite y `colores` lleva sus modelos */
+  itemId: string | null;
   modelo: string;
   colores: string[];
   titulo: string;
@@ -92,6 +101,8 @@ export interface PublicacionEnCola {
 
 export interface ProductosNuevosTikTok {
   productos: ProductoAmazonParaTikTok[];
+  /** publicaciones de MELI que juntan varios modelos: se publican como UN producto */
+  publicacionesMeli: PublicacionMeliParaTikTok[];
   cola: PublicacionEnCola[];
   moneda: string;
   /** Cuándo se masticó la lista de Amazon. */
@@ -118,7 +129,7 @@ export async function leerCola(
   const { data, error } = await db
     .from("tiktok_publicaciones")
     .select(
-      "id, modelo, colores, titulo, precio, borrador, estado, product_id, error, intentos, creado_en, publicado_en, resultado",
+      "id, fuente, item_id, modelo, colores, titulo, precio, borrador, estado, product_id, error, intentos, creado_en, publicado_en, resultado",
     )
     .eq("account_id", accountId)
     .order("creado_en", { ascending: false })
@@ -126,6 +137,8 @@ export async function leerCola(
   if (error) throw new Error(`tiktok_publicaciones: ${error.message}`);
   return (data ?? []).map((r: any) => ({
     id: Number(r.id),
+    fuente: r.fuente === "meli" ? "meli" : "amazon",
+    itemId: r.item_id ?? null,
     modelo: String(r.modelo),
     colores: Array.isArray(r.colores) ? r.colores.map(String) : [],
     titulo: String(r.titulo ?? ""),
@@ -155,19 +168,28 @@ export async function listarProductosNuevos(
   const avisos: string[] = [];
   let lista: {
     productos: ProductoAmazonParaTikTok[];
+    publicacionesMeli: PublicacionMeliParaTikTok[];
     generadoEn: string;
   } | null = null;
   if (!opciones.forzar) {
     const g = await leerCacheApp<{
       productos: ProductoAmazonParaTikTok[];
+      publicacionesMeli?: PublicacionMeliParaTikTok[];
       generadoEn: string;
     }>(admin, accountId, CLAVE_CACHE_NUEVOS, EDAD_CACHE_NUEVOS_MS);
-    if (g.estado === "encontrado") lista = g.valor;
+    // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI: se rehace.
+    if (g.estado === "encontrado" && Array.isArray(g.valor.publicacionesMeli))
+      lista = { ...g.valor, publicacionesMeli: g.valor.publicacionesMeli };
   }
   if (!lista) {
     const t0 = Date.now();
+    const [productos, publicacionesMeli] = await Promise.all([
+      agruparDesdeLaBase(admin, accountId),
+      agruparMeliDesdeLaBase(admin, accountId),
+    ]);
     lista = {
-      productos: await agruparDesdeLaBase(admin, accountId),
+      productos,
+      publicacionesMeli,
       generadoEn: new Date().toISOString(),
     };
     await guardarCacheApp(
@@ -198,6 +220,7 @@ export async function listarProductosNuevos(
 
   return {
     productos: lista.productos,
+    publicacionesMeli: lista.publicacionesMeli,
     cola,
     moneda: tienda?.moneda ?? "MXN",
     generadoEn: lista.generadoEn,
@@ -278,9 +301,139 @@ async function agruparDesdeLaBase(
   );
 }
 
+/** Las variantes activas de MELI de la cuenta, como las ve el motor puro. */
+async function variantesMeliDeLaBase(
+  admin: any,
+  accountId: string,
+  itemId?: string,
+): Promise<VarianteMeli[]> {
+  const filas = await traerTodo<any>(
+    admin,
+    "skus",
+    "sku, item_id, variation_id, modelo, color, talla, titulo, precio, activo",
+    (q) => {
+      let r = q.eq("account_id", accountId).eq("activo", true);
+      if (itemId) r = r.eq("item_id", itemId);
+      return r;
+    },
+  );
+  return (filas ?? []).map((f: any) => ({
+    sku: String(f.sku ?? ""),
+    itemId: String(f.item_id ?? ""),
+    variationId: f.variation_id != null ? String(f.variation_id) : null,
+    modelo: f.modelo ?? null,
+    color: f.color ?? null,
+    talla: f.talla != null ? String(f.talla) : null,
+    titulo: f.titulo ?? null,
+    precio: num(f.precio),
+    activo: Boolean(f.activo),
+  }));
+}
+
+async function skusEnTikTok(admin: any, accountId: string) {
+  const filas = await traerTodo<any>(
+    admin,
+    "tiktok_skus",
+    "seller_sku, sku_interno, product_id, estado",
+    (q) => q.eq("account_id", accountId).eq("activo", true),
+  );
+  return (filas ?? []).map((s: any) => ({
+    sellerSku: s.seller_sku ?? null,
+    skuInterno: s.sku_interno ?? null,
+    productId: String(s.product_id ?? ""),
+    estado: s.estado ?? null,
+  }));
+}
+
+/**
+ * Las publicaciones de MELI que juntan VARIOS modelos (GT117…GT122 en
+ * MLM2745026941): el publicador por modelo de Amazon no sabe armarlas como
+ * un solo producto, así que se enseñan aparte y se publican completas.
+ */
+async function agruparMeliDesdeLaBase(
+  admin: any,
+  accountId: string,
+): Promise<PublicacionMeliParaTikTok[]> {
+  const [variantes, enTikTok] = await Promise.all([
+    variantesMeliDeLaBase(admin, accountId),
+    skusEnTikTok(admin, accountId),
+  ]);
+  return agruparPublicacionesMeli(variantes, enTikTok);
+}
+
 // ---------------------------------------------------------------------------
 // Encolar
 // ---------------------------------------------------------------------------
+
+export interface PedidoDePublicacionMeli {
+  itemId: string;
+  precio: number;
+  titulo?: string;
+}
+
+/**
+ * Deja en la cola una publicación de MELI completa (sus modelos como
+ * variantes de UN producto de TikTok). Una que ya está pendiente no se
+ * duplica; una cuyas variantes TikTok ya vende todas, tampoco.
+ */
+export async function encolarPublicacionesMeli(
+  admin: any,
+  accountId: string,
+  pedidos: PedidoDePublicacionMeli[],
+  opciones: { borrador?: boolean; creadoPor?: string | null } = {},
+): Promise<{
+  encolados: number;
+  rechazados: { modelo: string; motivo: string }[];
+}> {
+  const lista = await listarProductosNuevos(admin, accountId);
+  const porItem = new Map(lista.publicacionesMeli.map((p) => [p.itemId, p]));
+  const enCola = new Set(
+    lista.cola
+      .filter((c) => (c.estado === "pendiente" || c.estado === "publicando") && c.itemId)
+      .map((c) => String(c.itemId)),
+  );
+  const filas: Record<string, unknown>[] = [];
+  const rechazados: { modelo: string; motivo: string }[] = [];
+  for (const p of pedidos) {
+    const itemId = String(p.itemId ?? "").trim().toUpperCase();
+    const pub = porItem.get(itemId);
+    if (!pub) {
+      rechazados.push({ modelo: itemId, motivo: "No es una publicación de MELI con varios modelos." });
+      continue;
+    }
+    if (enCola.has(itemId)) {
+      rechazados.push({ modelo: itemId, motivo: "Ya está en la cola." });
+      continue;
+    }
+    const precio = Number(p.precio);
+    if (!(precio > 0)) {
+      rechazados.push({ modelo: itemId, motivo: "Sin precio." });
+      continue;
+    }
+    if (pub.enTikTok.length >= pub.variantes) {
+      rechazados.push({ modelo: itemId, motivo: "TikTok ya vende todas sus variantes." });
+      continue;
+    }
+    filas.push({
+      account_id: accountId,
+      fuente: "meli",
+      item_id: itemId,
+      modelo: itemId,
+      colores: pub.modelos,
+      titulo: String(p.titulo ?? "").trim() || pub.titulo,
+      precio,
+      borrador: Boolean(opciones.borrador),
+      estado: "pendiente",
+      creado_por: opciones.creadoPor ?? null,
+    });
+    enCola.add(itemId);
+  }
+  if (filas.length) {
+    const { error } = await admin.from("tiktok_publicaciones").insert(filas);
+    if (error) throw new Error(`tiktok_publicaciones: ${error.message}`);
+  }
+  return { encolados: filas.length, rechazados };
+}
 
 export interface PedidoDePublicacion {
   modelo: string;
@@ -480,7 +633,7 @@ export async function publicarPendientes(
         const { data: pendientes } = await admin
           .from("tiktok_publicaciones")
           .select(
-            "id, modelo, colores, titulo, precio, borrador, intentos, resultado",
+            "id, fuente, item_id, modelo, colores, titulo, precio, borrador, intentos, resultado",
           )
           .eq("account_id", accountId)
           .eq("estado", "pendiente")
@@ -529,16 +682,27 @@ export async function publicarPendientes(
             .eq("id", id);
           const inicio = new Date().toISOString();
           try {
-            const r = await publicarUno(
-              admin,
-              accountId,
-              tiktok,
-              amazon,
-              contexto,
-              plantillas,
-              fila,
-              limite,
-            );
+            const r =
+              fila.fuente === "meli"
+                ? await publicarUnoDeMeli(
+                    admin,
+                    accountId,
+                    tiktok,
+                    contexto,
+                    plantillas,
+                    fila,
+                    limite,
+                  )
+                : await publicarUno(
+                    admin,
+                    accountId,
+                    tiktok,
+                    amazon,
+                    contexto,
+                    plantillas,
+                    fila,
+                    limite,
+                  );
             if (r.sinTiempo) {
               await admin
                 .from("tiktok_publicaciones")
@@ -870,14 +1034,59 @@ async function publicarUno(
     return colores[i].imagenUrl ? [colores[i].imagenUrl as string] : [];
   };
 
+  const fichaTexto = colores
+    .map((_, i) => fichaDeColor(i))
+    .find((f) => f && (f.bullets.length || f.descripcion));
+  return publicarArmado(
+    admin,
+    accountId,
+    tiktok,
+    ctx,
+    plantilla,
+    fila,
+    limite,
+    colores.map((c, i) => ({
+      color: c.color,
+      fotos: fotosDeColor(i),
+      tallas: c.tallas.map((t) => ({ talla: t.talla, sellerSku: t.skuTikTok })),
+    })),
+    { bullets: fichaTexto?.bullets ?? [], descripcion: fichaTexto?.descripcion ?? null },
+  );
+}
+
+/** Una variante del producto ya resuelta: de dónde salen sus fotos y qué tallas lleva. */
+interface EntradaArmado {
+  color: string;
+  /** nombre de la variante en TikTok; sin esto, el color en español */
+  nombre?: string;
+  fotos: string[];
+  tallas: { talla: string; sellerSku: string }[];
+}
+
+/**
+ * Lo común a cualquier fuente (Amazon por modelo, MELI por publicación):
+ * sube las fotos, dibuja la guía de tallas, arma el cuerpo, crea el
+ * producto y deja los SKUs nuevos en el catálogo de TikTok del ERP.
+ */
+async function publicarArmado(
+  admin: any,
+  accountId: string,
+  tiktok: ClienteTikTok,
+  ctx: ContextoCuenta,
+  plantilla: PlantillaTikTok,
+  fila: any,
+  limite: number,
+  entradas: EntradaArmado[],
+  texto: { bullets: string[]; descripcion: string | null },
+): Promise<ResultadoUno> {
   // 2. Subir las fotos a TikTok (las ya subidas en un intento anterior se reusan).
   const subidas: Record<string, string> = {
     ...(fila.resultado?.subidas ?? {}),
   };
   const urisPorColor: string[][] = [];
-  for (let i = 0; i < colores.length; i++) {
+  for (let i = 0; i < entradas.length; i++) {
     const uris: string[] = [];
-    for (const url of fotosDeColor(i).slice(0, FOTOS_POR_COLOR)) {
+    for (const url of entradas[i].fotos.slice(0, FOTOS_POR_COLOR)) {
       if (Date.now() > limite - 30_000)
         return { sinTiempo: true, parcial: { subidas } };
       if (subidas[url]) {
@@ -899,7 +1108,7 @@ async function publicarUno(
   //     imagen de size chart; si TikTok no la acepta, el producto sale sin
   //     ella y queda avisado (el texto va en la descripción de todos modos).
   const guia = guiaDeTallas(
-    colores.flatMap((c) => c.tallas.map((t) => t.talla)),
+    entradas.flatMap((c) => c.tallas.map((t) => t.talla)),
   );
   const avisosProducto: string[] = [];
   let guiaTallasUri: string | null = null;
@@ -939,24 +1148,22 @@ async function publicarUno(
   }
 
   // 3. El cuerpo y la creación.
-  const fichaTexto = colores
-    .map((_, i) => fichaDeColor(i))
-    .find((f) => f && (f.bullets.length || f.descripcion));
   const descripcionHtml = descripcionDesdeAmazon({
-    bullets: fichaTexto?.bullets ?? [],
-    descripcion: fichaTexto?.descripcion ?? null,
+    bullets: texto.bullets,
+    descripcion: texto.descripcion,
     titulo: String(fila.titulo),
     guiaTallas: textoGuiaTallas(guia),
   });
-  const coloresAPublicar: ColorAPublicar[] = colores.map((c, i) => ({
+  const coloresAPublicar: ColorAPublicar[] = entradas.map((c, i) => ({
     color: c.color,
+    nombre: c.nombre,
     imagenUri: urisPorColor[i][0] ?? null,
     tallas: c.tallas.map((t) => ({
       talla: t.talla,
-      sellerSku: t.skuTikTok,
+      sellerSku: t.sellerSku,
       cantidad:
         ctx.publicadoPorSku.get(
-          (ctx.amarrar(t.skuTikTok).skuInterno ?? t.skuTikTok).toUpperCase(),
+          (ctx.amarrar(t.sellerSku).skuInterno ?? t.sellerSku).toUpperCase(),
         ) ?? 0,
     })),
   }));
@@ -1028,13 +1235,86 @@ async function publicarUno(
       plantilla: plantilla.productoId,
       categoria: plantilla.categoryId,
       imagenes: imagenesUri.length,
-      colores: colores.map((c) => c.color),
+      colores: entradas.map((c) => c.nombre ?? c.color),
       cuerpo: {
         ...cuerpo,
         description: String(cuerpo.description).slice(0, 500),
       },
     },
   };
+}
+
+/**
+ * Una publicación de MELI COMPLETA como un solo producto de TikTok: sus
+ * modelos son las variantes («GT117 Café», «GT118 Negro»…), con las fotos
+ * de cada variación de MELI, la descripción de la publicación y el SKU de
+ * MELI tal cual. Lo que TikTok ya vende de esa publicación se salta.
+ */
+async function publicarUnoDeMeli(
+  admin: any,
+  accountId: string,
+  tiktok: ClienteTikTok,
+  ctx: ContextoCuenta,
+  plantillas: Map<string, PlantillaTikTok>,
+  fila: any,
+  limite: number,
+): Promise<ResultadoUno> {
+  const itemId = String(fila.item_id ?? fila.modelo).trim().toUpperCase();
+  const [variantes, enTikTok] = await Promise.all([
+    variantesMeliDeLaBase(admin, accountId, itemId),
+    skusEnTikTok(admin, accountId),
+  ]);
+  if (!variantes.length)
+    throw new Error(`${itemId} ya no tiene variantes activas en el catálogo de MELI.`);
+  const [resumen] = agruparPublicacionesMeli(variantes, enTikTok);
+  const yaVende = new Set(resumen?.enTikTok ?? []);
+  const porPublicar = variantes.filter((v) => !yaVende.has(v.sku));
+  if (!porPublicar.length)
+    throw new Error(`${itemId}: TikTok ya vende todas sus variantes.`);
+
+  const meli = await clienteMeliDeCuenta(admin, accountId);
+  if (!meli)
+    throw new Error("Mercado Libre no está conectado: sin sus fotos no hay producto.");
+  if (Date.now() > limite - 60_000) return { sinTiempo: true, parcial: fila.resultado ?? {} };
+  const item = await meli.get<any>(`/items/${itemId}`, {
+    attributes: "id,title,pictures,variations",
+  });
+  let descripcion: string | null = null;
+  try {
+    const d = await meli.get<any>(`/items/${itemId}/description`, undefined, { reintentos: 1 });
+    descripcion = typeof d?.plain_text === "string" && d.plain_text.trim() ? d.plain_text.trim() : null;
+  } catch {
+    descripcion = null;
+  }
+  const colores = agruparVariantesMeli(porPublicar, {
+    pictures: (item?.pictures ?? [])
+      .map((p: any) => ({ id: String(p.id ?? ""), url: String(p.secure_url ?? p.url ?? "") }))
+      .filter((p: { url: string }) => p.url),
+    variations: (item?.variations ?? []).map((v: any) => ({
+      id: String(v.id ?? ""),
+      pictureIds: (v.picture_ids ?? []).map((x: unknown) => String(x)),
+    })),
+  });
+  if (!colores.length) throw new Error(`${itemId}: no hay variantes con modelo y talla que publicar.`);
+
+  const plantilla = await plantillaPara(
+    admin,
+    accountId,
+    tiktok,
+    colores[0].modelo,
+    plantillas,
+  );
+  return publicarArmado(
+    admin,
+    accountId,
+    tiktok,
+    ctx,
+    plantilla,
+    fila,
+    limite,
+    colores.map((c) => ({ color: c.color, nombre: c.nombre, fotos: c.fotos, tallas: c.tallas })),
+    { bullets: [], descripcion },
+  );
 }
 
 /**

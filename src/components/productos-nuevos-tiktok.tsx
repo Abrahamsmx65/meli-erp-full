@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
 import type { ProductosNuevosTikTok, PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { ProductoAmazonParaTikTok } from "@/lib/tiktok/publicar";
+import { PublicacionesMeliTikTok } from "./publicaciones-meli-tiktok";
 
 function dinero(x: number | null | undefined, moneda: string): string {
   if (x == null) return "—";
@@ -181,6 +182,29 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     }
   }
 
+  /** Una publicación de MELI con varios modelos, como UN producto de TikTok. */
+  async function encolarDeMeli(pedidos: { itemId: string; precio: number; titulo: string }[]) {
+    setError(null);
+    setAviso(null);
+    try {
+      const r = await fetch("/api/tiktok/publicar-productos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicacionesMeli: pedidos, borrador }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo encolar.");
+      const rechazos = (j.rechazados ?? []) as { modelo: string; motivo: string }[];
+      setAviso(
+        `${j.encolados} en la cola; se publica por atrás.` +
+          (rechazos.length ? ` No entraron: ${rechazos.map((x) => `${x.modelo} (${x.motivo})`).join(", ")}.` : ""),
+      );
+      await recargar();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function accion(accionNombre: "reintentar" | "quitar" | "continuar", id?: number) {
     setError(null);
     try {
@@ -326,6 +350,15 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
         </table>
       </section>
 
+      <PublicacionesMeliTikTok
+        publicaciones={datos.publicacionesMeli ?? []}
+        cola={datos.cola}
+        moneda={datos.moneda}
+        esDueno={esDueno}
+        borrador={borrador}
+        onEncolar={encolarDeMeli}
+      />
+
       {datos.cola.length ? (
         <section className="tarjeta p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -362,7 +395,14 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 const e = ETIQUETA_ESTADO[c.estado];
                 return (
                   <tr key={c.id} className="border-t" style={{ borderColor: "var(--grid)" }}>
-                    <td className="px-2 py-1.5 font-medium">{c.modelo}</td>
+                    <td className="px-2 py-1.5 font-medium">
+                      {c.modelo}
+                      {c.fuente === "meli" ? (
+                        <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                          publicación de MELI · {c.titulo}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-2 py-1.5">{c.colores.join(", ")}</td>
                     <td className="px-2 py-1.5 text-right">{dinero(c.precio, datos.moneda)}</td>
                     <td className="px-2 py-1.5">

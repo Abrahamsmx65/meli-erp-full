@@ -5,6 +5,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { dispararYAnotar, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
 import {
   encolarPublicaciones,
+  encolarPublicacionesMeli,
   hayPendientes,
   listarProductosNuevos,
   publicarPendientes,
@@ -85,6 +86,13 @@ export async function POST(req: NextRequest) {
     if (cuerpo.accion === "continuar") {
       programarFondo(admin, cuenta.id, origen);
       return NextResponse.json({ ok: true });
+    }
+    // Una publicación de MELI con varios modelos, como UN producto (2-oct-2026).
+    const deMeli = Array.isArray(cuerpo.publicacionesMeli) ? cuerpo.publicacionesMeli : [];
+    if (deMeli.length) {
+      const r = await encolarPublicacionesMeli(admin, cuenta.id, deMeli, { borrador: Boolean(cuerpo.borrador), creadoPor: user.id });
+      if (r.encolados) programarFondo(admin, cuenta.id, origen);
+      return NextResponse.json(r);
     }
     const pedidos = Array.isArray(cuerpo.productos) ? cuerpo.productos : [];
     if (!pedidos.length) return NextResponse.json({ error: "No marcaste ningún producto." }, { status: 400 });
