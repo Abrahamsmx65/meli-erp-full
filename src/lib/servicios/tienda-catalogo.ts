@@ -67,7 +67,7 @@ export async function refrescarCatalogoTienda(
     traerTodo<any>(admin, "tiktok_skus", "sku_id, product_id, seller_sku, sku_interno, precio, estado", (q) =>
       eq(q).eq("activo", true),
     ),
-    traerTodo<any>(admin, "tienda_productos", "product_id, leido_en, activo", eq),
+    traerTodo<any>(admin, "tienda_productos", "product_id, leido_en, activo, estado_tiktok", eq),
     traerTodo<any>(admin, "tienda_variantes", "sku_id, product_id, sku_interno, precio, activo", eq),
   ]);
 
@@ -75,12 +75,14 @@ export async function refrescarCatalogoTienda(
   const activosTikTok = new Set<string>();
   /** Inactivos y borradores: se copian para el catálogo de influencers, nunca se venden. */
   const otrosTikTok = new Set<string>();
+  const estadoTikTok = new Map<string, string>();
   const porSkuId = new Map<string, string>();
   const porSellerSku = new Map<string, string>();
   const precioPorSku = new Map<string, number | null>();
   for (const s of skus ?? []) {
     if (s.product_id && String(s.estado ?? "") === ESTADO_ACTIVO) activosTikTok.add(String(s.product_id));
     else if (s.product_id && !ESTADOS_FUERA_DE_CATALOGO.has(String(s.estado ?? ""))) otrosTikTok.add(String(s.product_id));
+    if (s.product_id && s.estado) estadoTikTok.set(String(s.product_id), String(s.estado));
     if (s.sku_interno) {
       porSkuId.set(String(s.sku_id), String(s.sku_interno));
       if (s.seller_sku) porSellerSku.set(String(s.seller_sku).trim(), String(s.sku_interno));
@@ -104,18 +106,18 @@ export async function refrescarCatalogoTienda(
     .filter(Boolean) as any[];
   if (cambiosVariante.length) await guardar(admin, "tienda_variantes", cambiosVariante, "account_id,sku_id");
 
-  // 2. Lo que TikTok ya no tiene activo sale de la tienda.
+  // 2. Lo que TikTok ya no tiene activo sale de la tienda, con su estado de
+  //    hoy (el catálogo de influencers lo enseña como inactivo sin esperar la
+  //    relectura del producto).
   const apagar = (productos ?? [])
-    .filter((p: any) => p.activo && !activosTikTok.has(String(p.product_id)))
+    .filter((p: any) => !activosTikTok.has(String(p.product_id)) && (p.activo || p.estado_tiktok === ESTADO_ACTIVO))
     .map((p: any) => String(p.product_id));
-  if (apagar.length) {
-    for (let i = 0; i < apagar.length; i += 300) {
-      await admin
-        .from("tienda_productos")
-        .update({ activo: false, actualizado_en: new Date().toISOString() })
-        .eq("account_id", accountId)
-        .in("product_id", apagar.slice(i, i + 300));
-    }
+  for (const id of apagar) {
+    await admin
+      .from("tienda_productos")
+      .update({ activo: false, estado_tiktok: estadoTikTok.get(id) ?? "DELETED", actualizado_en: new Date().toISOString() })
+      .eq("account_id", accountId)
+      .eq("product_id", id);
   }
 
   // 3. Qué productos leer completos.

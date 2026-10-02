@@ -219,8 +219,8 @@ export function CatalogoInfluencers({ productos, whatsapp }: { productos: Produc
                   {lista.map((e) => (
                     <li key={clave(e)}>
                       <span>
-                        {e.modelo ? <span className="modelo">{e.modelo}</span> : null} {e.color}
-                        {e.talla ? ` · talla ${e.talla}` : ""}
+                        {e.modelo ? <span className="modelo">{e.modelo}</span> : e.titulo} · {e.color}
+                        {e.talla ? ` · talla ${e.talla}` : " · sin talla"}
                       </span>
                       <button type="button" className="enlace" onClick={() => alternar(e)}>
                         Quitar
