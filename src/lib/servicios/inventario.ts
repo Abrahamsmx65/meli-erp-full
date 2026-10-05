@@ -8,6 +8,7 @@
  */
 import { construirCajas } from "../importar/cajas";
 import { canonizar, construirIndice } from "../importar/sku";
+import { pendientePorLinea } from "../engine/pendiente-china";
 import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
 import { VERSION_MOTOR } from "./cache";
@@ -396,7 +397,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
     traerTodo<any>(
       db,
       "pedidos",
-      "pedido, estado, pedido_lineas(modelo, color, tallas, cajas, pares)",
+      "pedido, estado, pedido_lineas(id, modelo, color, tallas, cajas, pares, contenedor_lineas(cajas, contenedores(estado)))",
       (q) => eq(q).not("estado", "in", "(recibido,cancelado)"),
     ),
   ]);
@@ -472,26 +473,56 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
   // con espacios o guiones ("IN 10128", "IN-10128") y una comparación literal
   // dejaría pasar el mismo pedido dos veces (una por el reporte, otra por
   // las líneas del pedido).
-  const pedidosEnAlmacen = new Set(
-    existRaw.map((e) => canonizar(String(e.pedido ?? ""))).filter(Boolean),
-  );
+  // Lo que el almacén ya tiene (o ya reporta en camino) de cada pedido, por
+  // modelo. Un pedido que el almacén conoce NO se salta entero: llegó por
+  // partes (IN10079: 31 mil de 98 mil pares) y lo que falta sigue contando
+  // (`pendientePorLinea`, 5-oct-2026).
+  const bodegaPorPedido = new Map<string, Map<string, { fisico: number; enCamino: number }>>();
+  for (const e of existRaw) {
+    const k = canonizar(String(e.pedido ?? ""));
+    if (!k) continue;
+    const porModelo = bodegaPorPedido.get(k) ?? new Map<string, { fisico: number; enCamino: number }>();
+    const modelo = String(e.modelo ?? "").trim().toUpperCase();
+    const b = porModelo.get(modelo) ?? { fisico: 0, enCamino: 0 };
+    const porCaja = Number(e.pares_por_caja) || 0;
+    b.fisico += (Number(e.cajas_fisicas) || 0) * porCaja;
+    b.enCamino += (Number(e.en_camino) || 0) * porCaja;
+    porModelo.set(modelo, b);
+    bodegaPorPedido.set(k, porModelo);
+  }
   const indiceMeli = indexarCatalogo(skus);
   const pedidosEnCamino: { pedido: string; cajas: number; pares: number }[] = [];
 
   for (const p of pedidosVivos ?? []) {
     const numero = String(p.pedido ?? "").trim();
-    if (!numero || pedidosEnAlmacen.has(canonizar(numero))) continue;
+    if (!numero) continue;
+    const lineas = (p.pedido_lineas ?? []) as any[];
+    const pendiente = pendientePorLinea(
+      lineas.map((l, i) => ({
+        id: l.id ?? i,
+        modelo: String(l.modelo ?? ""),
+        pares: Number(l.pares) || 0,
+        cajas: Number(l.cajas) || 0,
+        cajasRecibidas: ((l.contenedor_lineas ?? []) as any[])
+          .filter((cl) => cl?.contenedores?.estado === "recibido")
+          .reduce((a, cl) => a + (Number(cl.cajas) || 0), 0),
+      })),
+      bodegaPorPedido.get(canonizar(numero)) ?? null,
+    );
 
     let cajasPedido = 0;
     let paresPedido = 0;
-    for (const l of p.pedido_lineas ?? []) {
+    for (const [i, l] of lineas.entries()) {
       const tallas: Record<string, number> = l.tallas ?? {};
       const suma = Object.values(tallas).reduce((a, b) => a + (Number(b) || 0), 0);
-      if (!suma) continue;
+      if (!suma || !(l.pares > 0)) continue;
+      const falta = pendiente.get(l.id ?? i) ?? 0;
+      if (!(falta > 0)) continue;
       // En renglones de corrida `tallas` trae pares POR CAJA y en unitallas
-      // trae totales; el factor contra `pares` cubre los dos casos.
-      const factor = (l.pares ?? 0) / suma;
-      cajasPedido += l.cajas ?? 0;
+      // trae totales; el factor contra `pares` cubre los dos casos. Solo
+      // viaja la parte del renglón que todavía no llega.
+      const factor = ((l.pares ?? 0) / suma) * (falta / l.pares);
+      cajasPedido += (l.cajas ?? 0) * (falta / l.pares);
 
       for (const [talla, valor] of Object.entries(tallas)) {
         const paresTalla = Math.round((Number(valor) || 0) * factor);
@@ -509,7 +540,7 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
         paresPedido += paresTalla;
       }
     }
-    if (paresPedido > 0) pedidosEnCamino.push({ pedido: numero, cajas: cajasPedido, pares: paresPedido });
+    if (paresPedido > 0) pedidosEnCamino.push({ pedido: numero, cajas: Math.round(cajasPedido), pares: paresPedido });
   }
 
   // --- Un renglón por SKU --------------------------------------------------
