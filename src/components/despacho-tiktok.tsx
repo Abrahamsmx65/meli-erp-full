@@ -7,6 +7,7 @@ import { CalendarClock, Eye, FileText, PackageX, Printer, RefreshCw, ScanLine, S
 import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
+import { etiquetaDeModelos, type PendientesPorModelo } from "@/lib/tiktok/corte-modelos";
 
 /** Cuántos tomos de etiquetas se bajan a la vez al imprimir (cada uno ~21 MB). */
 const TOMOS_A_LA_VEZ = 3;
@@ -25,6 +26,8 @@ export interface CorteResumen {
   cancelados?: number;
   /** pedidos que ya se fueron con el repartidor sin escanearse: resueltos, ya no faltan */
   enviados?: number;
+  /** filtro de modelos con el que nació (corte por modelo); null = corte general */
+  modelos?: string[] | null;
 }
 
 /** Los pedidos del corte que siguen vivos: los que entraron menos los cancelados después. */
@@ -47,9 +50,13 @@ function cuando(iso: string): string {
  * lista de empaque, en el mismo orden y con los mismos números, y se
  * reimprimen cuantas veces haga falta.
  */
-export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cortes: CorteResumen[] }) {
+export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: number; cortes: CorteResumen[]; porModelo: PendientesPorModelo }) {
   const router = useRouter();
   const [handover, setHandover] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
+  // Corte por MODELO (dueño, 5-oct-2026): marcar uno o varios modelos y el
+  // corte toma solo los paquetes que son únicamente de esos modelos; los
+  // revueltos se quedan para el corte general. Se apaga solo al terminar.
+  const [soloModelos, setSoloModelos] = useState<string[]>([]);
   const [preparandoTodo, setPreparandoTodo] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -71,6 +78,8 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
   // en cuanto termina el corte; ver `calentarEtiquetas`).
   const [etiquetas, setEtiquetas] = useState<Record<number, { tomos: number; listos: number; completo: boolean; ocupado?: boolean; guiasSinBajar?: number }>>({});
   const calentando = useRef<Set<number>>(new Set());
+  /** cuántos pendientes entrarían con el filtro de modelo marcado */
+  const pendientesFiltrados = porModelo.modelos.filter((m) => soloModelos.includes(m.modelo)).reduce((a, m) => a + m.pedidos, 0);
 
   /**
    * UN solo PDF con todas las etiquetas del corte. El servidor arma (y
@@ -267,7 +276,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     setSimulando(true);
     setError(null);
     try {
-      const r = await fetch("/api/tiktok/cortes/simular");
+      const r = await fetch(`/api/tiktok/cortes/simular${soloModelos.length ? `?modelos=${encodeURIComponent(soloModelos.join(","))}` : ""}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo simular.");
       setSimulacion(j);
@@ -290,7 +299,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
     const partes = [
       j.unido
         ? `Se unió al corte #${j.numero} (continuaba lo que se quedó por tiempo): ${j.pedidos} pedidos y ${j.pares} pares más, confirmados en TikTok.`
-        : `Corte #${j.numero}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`,
+        : `Corte #${j.numero}${etiquetaDeModelos(j.modelos) ? ` (${etiquetaDeModelos(j.modelos)})` : ""}: ${j.pedidos} pedidos, ${j.pares} pares confirmados en TikTok.`,
     ];
     if (j.publicados) partes.push(`${j.publicados} SKU republicados.`);
     if (j.dropOff) partes.push(`${j.dropOff} salieron como entrega en paquetería.`);
@@ -370,7 +379,12 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       // Sin tope de rondas (decisión del dueño): se sigue hasta que no quede
       // nada por tiempo, o hasta que una ronda no avance.
       for (let n = 1; ; n++) {
-        const cuerpo = JSON.stringify({ handover, ...(modo ? { modo } : {}), ...(sinDefensa ? { sinDefensa: true } : {}) });
+        const cuerpo = JSON.stringify({
+          handover,
+          ...(modo ? { modo } : {}),
+          ...(sinDefensa ? { sinDefensa: true } : {}),
+          ...(soloModelos.length ? { soloModelos } : {}),
+        });
         // El corte tarda hasta 5 min y el navegador (Safari en el iPhone,
         // sobre todo) suelta la conexión a medias con «Load failed» aunque
         // el servidor siga trabajando y guarde el corte. Si eso pasa, se
@@ -417,6 +431,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
       setAviso(resumenes.join(" · "));
       setSimulacion(null);
       setSinDefensa(false);
+      setSoloModelos([]);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -502,10 +517,65 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               style={{ background: "var(--acento)" }}
             >
               <Scissors size={14} />
-              {ocupado ? "Confirmando en TikTok…" : `Hacer corte (${pendientes})`}
+              {ocupado ? "Confirmando en TikTok…" : soloModelos.length ? `Hacer corte ${etiquetaDeModelos(soloModelos)} (${pendientesFiltrados})` : `Hacer corte (${pendientes})`}
             </button>
           </div>
         </div>
+        {porModelo.modelos.length ? (
+          <div className="mt-3 rounded-lg border p-3" style={{ borderColor: "var(--grid)" }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold">
+                Corte por modelo
+                {soloModelos.length ? (
+                  <span className="ml-2 font-normal" style={{ color: "var(--ink-2)" }}>
+                    {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos. Los tres botones de arriba toman SOLO esos
+                    paquetes; los revueltos y los demás modelos esperan al corte general.
+                  </span>
+                ) : (
+                  <span className="ml-2 font-normal" style={{ color: "var(--ink-2)" }}>
+                    marca uno o varios modelos para despacharlos aparte (solo paquetes de un solo modelo; los revueltos van con el
+                    corte general)
+                  </span>
+                )}
+              </span>
+              {soloModelos.length ? (
+                <button onClick={() => setSoloModelos([])} disabled={ocupado} className="text-xs underline" style={{ color: "var(--ink-2)" }}>
+                  quitar filtro
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {porModelo.modelos.map((m) => {
+                const marcado = soloModelos.includes(m.modelo);
+                return (
+                  <button
+                    key={m.modelo}
+                    type="button"
+                    disabled={ocupado}
+                    onClick={() =>
+                      setSoloModelos((s) => (s.includes(m.modelo) ? s.filter((x) => x !== m.modelo) : [...s, m.modelo]))
+                    }
+                    className="rounded-full border px-3 py-1 text-xs disabled:opacity-60"
+                    style={{
+                      borderColor: marcado ? "var(--acento)" : "var(--grid)",
+                      background: marcado ? "var(--acento-suave)" : "transparent",
+                      color: marcado ? "var(--exito-texto)" : "var(--ink)",
+                      fontWeight: marcado ? 600 : 400,
+                    }}
+                    title={`${m.pedidos} pedidos de solo ${m.modelo} (${m.pares} pares)`}
+                  >
+                    {m.modelo} · {m.pedidos}
+                  </button>
+                );
+              })}
+              {porModelo.revueltos.pedidos ? (
+                <span className="rounded-full border px-3 py-1 text-xs" style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }} title="Paquetes con más de un modelo: siempre van con el corte general">
+                  revueltos · {porModelo.revueltos.pedidos}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: sinDefensa ? "var(--estado-critico)" : "var(--ink-2)" }}>
           <input type="checkbox" checked={sinDefensa} onChange={(e) => setSinDefensa(e.target.checked)} disabled={ocupado} />
           Sin defensa: confirmar todo aunque no haya stock físico (libera los bloqueos por stock; el kardex puede quedar en
@@ -519,7 +589,7 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
           <div className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--grid)" }}>
             <div className="flex items-center justify-between">
               <span className="font-semibold">
-                Simulación: {simulacion.pedidos.length} pedidos · {simulacion.totalPares} pares
+                Simulación{etiquetaDeModelos(simulacion.modelos) ? ` (${etiquetaDeModelos(simulacion.modelos)})` : ""}: {simulacion.pedidos.length} pedidos · {simulacion.totalPares} pares
               </span>
               <button onClick={() => setSimulacion(null)} className="text-xs underline" style={{ color: "var(--ink-2)" }}>
                 cerrar
@@ -587,6 +657,11 @@ export function DespachoTikTok({ pendientes, cortes }: { pendientes: number; cor
               <div>
                 <div className="text-sm font-semibold">
                   Corte #{c.numero}
+                  {etiquetaDeModelos(c.modelos) ? (
+                    <span className="ml-2 rounded-full px-2 text-[11px] font-semibold" style={{ background: "var(--acento-suave)", color: "var(--exito-texto)" }}>
+                      {etiquetaDeModelos(c.modelos)}
+                    </span>
+                  ) : null}
                   <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
                     {cuando(c.creadoEn)} · {c.pedidos} pedidos · {c.pares} pares ·{" "}
                     {c.handover === "DROP_OFF" ? "a la paquetería" : "pasa el repartidor"}

@@ -22,6 +22,7 @@ import { codigosMeliDeSku, indexarCodigosMeli, type IndiceCodigosMeli } from "..
 import { indexarAlias, resolverFnsku, type AliasColorAmazon } from "../tiktok/fnsku";
 import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ordenarPorAntiguedad, partirEnTandas, type PendienteConFecha } from "../tiktok/lunes";
 import { diaMx } from "../tiktok/ventas";
+import { mismoFiltro, normalizarModelos, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
 import { pdfListaDeEmpaque } from "../tiktok/empaque-pdf";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
@@ -195,6 +196,8 @@ export interface ResultadoCorte {
   al3pl: { mandadas: number; confirmadas: number; paresConfirmados?: number; error: string | null; sinEndpoint: boolean };
   /** true si este corte se UNIÓ a uno de hoy que había dejado pedidos por tiempo (no se abrió otro) */
   unido?: boolean;
+  /** filtro de modelos con el que se hizo (corte por modelo); null = corte general */
+  modelos?: string[] | null;
 }
 
 /**
@@ -299,6 +302,49 @@ export async function pendientesDeCorte(db: DB, accountId: string): Promise<Pend
   );
 }
 
+/** Los renglones (SKU y pares) de cada pedido pendiente, sin defensa: para decidir qué modelos lleva cada uno. */
+async function renglonesLigerosDe(db: DB, accountId: string, pendientes: PendienteConFecha[]): Promise<Map<string, { sku: string; cantidad: number }[]>> {
+  const porPedido = new Map<string, { sku: string; cantidad: number }[]>();
+  const ids = pendientes.map((p) => p.orderId);
+  if (!ids.length) return porPedido;
+  const filas = await porTandas(ids, TANDA_IDS, (tanda) =>
+    traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, seller_sku, cantidad", (q) => q.eq("account_id", accountId).in("order_id", tanda)),
+  );
+  for (const i of filas ?? []) {
+    const id = String(i.order_id);
+    const lista = porPedido.get(id) ?? [];
+    lista.push({ sku: String(i.sku_interno ?? i.seller_sku ?? "(sin SKU)"), cantidad: Number(i.cantidad ?? 1) });
+    porPedido.set(id, lista);
+  }
+  for (const id of ids) if (!porPedido.has(id)) porPedido.set(id, []);
+  return porPedido;
+}
+
+/**
+ * Los pendientes de corte con el filtro de MODELO aplicado (corte por
+ * modelo, 5-oct-2026): solo los pedidos cuyos pares son todos de UN modelo
+ * de la lista; los revueltos se quedan para el corte general. Sin filtro,
+ * todos.
+ */
+export async function pendientesDeCorteFiltrados(
+  db: DB,
+  accountId: string,
+  soloModelos?: string[] | null,
+): Promise<{ pendientes: PendienteConFecha[]; todos: PendienteConFecha[]; modelos: string[] }> {
+  const todos = await pendientesDeCorte(db, accountId);
+  const modelos = normalizarModelos(soloModelos);
+  if (!modelos.length) return { pendientes: todos, todos, modelos };
+  const renglones = await renglonesLigerosDe(db, accountId, todos);
+  const entran = pedidosDeSoloModelos(renglones, modelos);
+  return { pendientes: todos.filter((p) => entran.has(p.orderId)), todos, modelos };
+}
+
+/** Cuántos pendientes son de un solo modelo, por modelo (el selector de «corte por modelo»). */
+export async function pendientesPorModeloDeCuenta(db: DB, accountId: string): Promise<PendientesPorModelo> {
+  const pendientes = await pendientesDeCorte(db, accountId);
+  return pendientesPorModelo(await renglonesLigerosDe(db, accountId, pendientes));
+}
+
 /**
  * Confirma en TikTok todos los envíos pendientes y los deja en un corte.
  * Un pedido que TikTok rechace se anota y se queda fuera del corte (entra
@@ -316,6 +362,8 @@ export async function hacerCorte(
     msDisponibles?: number;
     /** confirmar TODO aunque no haya stock físico: sin bloqueos automáticos (decisión del dueño, 21-sep-2026) */
     sinDefensa?: boolean;
+    /** corte por MODELO: solo los pedidos de UN solo modelo de esta lista; los revueltos se quedan para el corte general */
+    soloModelos?: string[] | null;
   },
 ): Promise<ResultadoCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? 240_000);
@@ -323,7 +371,8 @@ export async function hacerCorte(
 
   const todos = await pendientesDeCorte(admin, accountId);
   const filtro = opciones.soloPedidos ? new Set(opciones.soloPedidos) : null;
-  const pendientes = filtro ? todos.filter((p) => filtro.has(p.orderId)) : todos;
+  let pendientes = filtro ? todos.filter((p) => filtro.has(p.orderId)) : todos;
+  const soloModelos = normalizarModelos(opciones.soloModelos);
   if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
 
   const errores: { orderId: string; error: string }[] = [];
@@ -333,12 +382,25 @@ export async function hacerCorte(
   // que lo piden se bloquea solo (los más nuevos primero), se cancela en
   // TikTok y se confirma lo demás. De aquí salen también los pares del
   // corte y las salidas al 3PL, ya sin lo cancelado.
-  const { porPedido: renglonesPorPedido, automaticos, enDuda, liberados } = await renglonesConDefensa(
-    admin,
-    accountId,
-    pendientes,
-    Boolean(opciones.sinDefensa),
-  );
+  // La defensa se decide sobre TODOS los pendientes aunque el corte sea
+  // por modelo: «el que compró primero se lleva el par» vale igual si su
+  // paquete va en otro corte. Luego se recorta a lo que entra.
+  const defensa = await renglonesConDefensa(admin, accountId, pendientes, Boolean(opciones.sinDefensa));
+  let renglonesPorPedido = defensa.porPedido;
+  let automaticos = defensa.automaticos;
+  let liberados = defensa.liberados;
+  const enDuda = defensa.enDuda;
+  if (soloModelos.length) {
+    // Corte por MODELO (dueño, 5-oct-2026): solo los paquetes de UN solo
+    // modelo de la lista; un paquete revuelto se va con el corte general.
+    const entran = pedidosDeSoloModelos(renglonesPorPedido, soloModelos);
+    pendientes = pendientes.filter((p) => entran.has(p.orderId));
+    if (!pendientes.length) throw new Error(`No hay pedidos por despachar que sean solo de ${soloModelos.join(", ")}.`);
+    renglonesPorPedido = new Map([...renglonesPorPedido].filter(([id]) => entran.has(id)));
+    automaticos = automaticos.filter((a) => entran.has(a.orderId));
+    const lineasDelCorte = new Set([...renglonesPorPedido.values()].flat().map((r) => r.lineItemId));
+    liberados = liberados.filter((id) => lineasDelCorte.has(id));
+  }
   if (opciones.sinDefensa) {
     // Constancia en el corte: se confirmó sin mirar el stock.
     errores.push({
@@ -607,6 +669,7 @@ export async function hacerCorte(
       dropOff,
       cancelados,
       al3pl: { mandadas: 0, confirmadas: 0, paresConfirmados: 0, error: null, sinEndpoint: false },
+      modelos: soloModelos.length ? soloModelos : null,
     };
   }
 
@@ -619,7 +682,7 @@ export async function hacerCorte(
 
   // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
   // une en vez de abrir otro (ver `corteQueContinua`).
-  const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId));
+  const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos);
   let corte: { id: number };
   let numero: number;
   let unido = false;
@@ -666,6 +729,8 @@ export async function hacerCorte(
         // Con qué orden nació: los cortes de antes se quedan con el suyo y se
         // vuelven a armar igual, porque sus hojas ya están impresas.
         orden_paquetes: ORDEN_ACTUAL,
+        // Corte por modelo: con qué filtro nació (null = general).
+        modelos: soloModelos.length ? soloModelos : null,
       })
       .select("id")
       .single();
@@ -708,7 +773,19 @@ export async function hacerCorte(
   await registrarSalidasDeCorte(admin, accountId, corte.id, [...porPedidoYSku.values()]);
   const al3pl = await empujarSalidasAl3pl(admin, accountId, corte.id);
 
-  return { corteId: corte.id, numero, pedidos: confirmados.length, pares, errores, publicados, dropOff, cancelados, al3pl, unido };
+  return {
+    corteId: corte.id,
+    numero,
+    pedidos: confirmados.length,
+    pares,
+    errores,
+    publicados,
+    dropOff,
+    cancelados,
+    al3pl,
+    unido,
+    modelos: soloModelos.length ? soloModelos : null,
+  };
 }
 
 /**
@@ -720,18 +797,22 @@ async function corteDeHoyQueContinua(
   admin: any,
   accountId: string,
   orderIds: string[],
+  /** filtro del corte que se está haciendo: solo se une a uno de hoy con el MISMO filtro */
+  soloModelos: string[] = [],
 ): Promise<{ id: number; numero: number; pedidos: number; pares: number; errores: { orderId: string; error: string }[] } | null> {
   const ahora = new Date();
   // Desde las 00:00 de hoy en México (UTC−6 fijo, como `diaMx`).
   const desde = new Date(`${diaMx(ahora.toISOString())}T06:00:00Z`).toISOString();
   const { data } = await admin
     .from("tiktok_cortes")
-    .select("id, numero, creado_en, pedidos, pares, errores")
+    .select("id, numero, creado_en, pedidos, pares, errores, modelos")
     .eq("account_id", accountId)
     .gte("creado_en", desde)
     .order("id", { ascending: false })
     .limit(10);
-  const cortes = (data ?? []) as any[];
+  // Un corte por modelo nunca se une a uno general ni al de otro modelo:
+  // sus hojas son de un solo producto a propósito.
+  const cortes = ((data ?? []) as any[]).filter((c) => mismoFiltro(c.modelos ?? null, soloModelos));
   if (!cortes.length) return null;
   const preparados = new Map<number, number>();
   for (const c of cortes) {
@@ -811,11 +892,12 @@ const MS_CORTE_LUNES = 260_000;
 export async function hacerCorteLunes(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null },
 ): Promise<ResultadoCorteLunes> {
   const arranque = Date.now();
-  const pendientes = await pendientesDeCorte(admin, accountId);
-  if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
+  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos);
+  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
 
   const { urgentes, resto } = partirEnTandas(pendientes);
 
@@ -893,10 +975,11 @@ export async function hacerCorteLunes(
 export async function hacerCorteAyer(
   admin: any,
   accountId: string,
-  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean },
+  opciones: { handover: OpcionesEnvio["handover"]; creadoPor?: string | null; sinDefensa?: boolean; soloModelos?: string[] | null },
 ): Promise<ResultadoCorteLunes> {
-  const pendientes = await pendientesDeCorte(admin, accountId);
-  if (!pendientes.length) throw new Error("No hay pedidos por despachar.");
+  // Corte por modelo: las tandas se parten sobre lo que ENTRA con el filtro.
+  const { pendientes, modelos } = await pendientesDeCorteFiltrados(admin, accountId, opciones.soloModelos);
+  if (!pendientes.length) throw new Error(modelos.length ? `No hay pedidos por despachar que sean solo de ${modelos.join(", ")}.` : "No hay pedidos por despachar.");
 
   const { urgentes, resto, corte } = partirEnTandas(pendientes);
   if (!urgentes.length) {
@@ -2105,13 +2188,18 @@ export interface SimulacionCorte {
   /** lo que se le mandaría al 3PL */
   salidasAl3pl: { sku: string; pares: number }[];
   endpoint3pl: string | null;
+  /** filtro de modelo con el que se simuló (corte por modelo); vacío = general */
+  modelos: string[];
+  /** cuántos pendientes (de TODOS, sin filtro) son de un solo modelo, por modelo */
+  porModelo: PendientesPorModelo;
 }
 
-export async function simularCorte(admin: any, accountId: string): Promise<SimulacionCorte> {
+export async function simularCorte(admin: any, accountId: string, soloModelos?: string[] | null): Promise<SimulacionCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
-  const pendientes = await pendientesDeCorte(admin, accountId);
+  const { pendientes, todos, modelos } = await pendientesDeCorteFiltrados(admin, accountId, soloModelos);
+  const porModelo = pendientesPorModelo(await renglonesLigerosDe(admin, accountId, todos));
   // La misma defensa automática que aplicaría el corte, sin escribir nada.
   const { porPedido: renglonesSim, enDuda } = await renglonesConDefensa(admin, accountId, pendientes);
   const porOrden = new Map<string, Map<string, number>>();
@@ -2177,5 +2265,7 @@ export async function simularCorte(admin: any, accountId: string): Promise<Simul
     tandas: { urgentes: tandas.urgentes.length, resto: tandas.resto.length, corte: tandas.corte },
     salidasAl3pl: [...al3pl].map(([sku, pares]) => ({ sku, pares })).sort((a, b) => a.sku.localeCompare(b.sku, "es")),
     endpoint3pl: urlSalidasIndusther(),
+    modelos,
+    porModelo,
   };
 }

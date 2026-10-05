@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { calentarEtiquetasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { contarSinTiempo } from "@/lib/tiktok/lunes";
+import { normalizarModelos } from "@/lib/tiktok/corte-modelos";
 import { dispararEtiquetasYAnotar } from "@/lib/servicios/disparar-etiquetas";
 import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
@@ -29,6 +30,8 @@ export async function POST(req: NextRequest) {
       handover: (body?.handover === "DROP_OFF" ? "DROP_OFF" : "PICKUP") as "DROP_OFF" | "PICKUP",
       creadoPor: user.id,
       sinDefensa: body?.sinDefensa === true,
+      // Corte por MODELO: solo los paquetes de un solo modelo de esta lista.
+      soloModelos: normalizarModelos(body?.soloModelos),
     };
     // Las etiquetas se arman y se guardan en cuanto se contesta, con TODO
     // el rato que le quede a la función (hasta ~5 min): cuando el usuario

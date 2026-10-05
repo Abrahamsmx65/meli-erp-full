@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { pendientesDeCorte } from "@/lib/servicios/tiktok-despacho";
+import { pendientesDeCorte, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
@@ -19,11 +19,11 @@ export default async function Despacho() {
     );
   }
 
-  const [pendientes, cortesResultado, prepRaw, token, canceladosRaw] = await Promise.all([
+  const [pendientes, cortesResultado, prepRaw, token, canceladosRaw, porModelo] = await Promise.all([
     pendientesDeCorte(supabase, cuenta.id),
     supabase
       .from("tiktok_cortes")
-      .select("id, numero, creado_en, pedidos, pares, handover, errores")
+      .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos")
       .eq("account_id", cuenta.id)
       .order("numero", { ascending: false })
       .limit(30),
@@ -45,6 +45,8 @@ export default async function Despacho() {
     traerTodo<{ corte_id: number; order_id: string; estado: string }>(supabase, "tiktok_ordenes", "corte_id, order_id, estado", (q) =>
       q.eq("account_id", cuenta.id).not("corte_id", "is", null).in("estado", ["CANCELLED", "CANCEL", "IN_TRANSIT", "DELIVERED", "COMPLETED"]),
     ).catch((): { corte_id: number; order_id: string; estado: string }[] => []),
+    // Corte por modelo: cuántos pendientes son de un solo modelo, por modelo.
+    pendientesPorModeloDeCuenta(supabase, cuenta.id).catch(() => ({ modelos: [], revueltos: { pedidos: 0, pares: 0 }, sinSku: 0 })),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -84,6 +86,7 @@ export default async function Despacho() {
     pares: c.pares,
     handover: c.handover,
     errores: c.errores ?? [],
+    modelos: c.modelos ?? null,
     preparados: sinAvance ? null : (preparadosPorCorte.get(c.id) ?? 0),
     cancelados: canceladosPorCorte.get(c.id) ?? 0,
     enviados: enviadosPorCorte.get(c.id) ?? 0,
@@ -107,7 +110,7 @@ export default async function Despacho() {
           y el despacho siguen funcionando; recarga la página para reintentar.
         </div>
       ) : null}
-      <DespachoTikTok pendientes={pendientes.length} cortes={cortes} />
+      <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} />
       <EnlacePreparar tokenInicial={token} origen={origen} />
     </div>
   );
