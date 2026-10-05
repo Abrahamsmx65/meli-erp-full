@@ -176,6 +176,46 @@ describe("numerarPaquetes: primero un modelo, luego lo revuelto", () => {
   });
 });
 
+describe("numerarPaquetes con orden un-color: dentro del modelo, primero un solo color", () => {
+  it("los paquetes de un solo color van primero (por color y talla) y los de varios colores del mismo modelo al final del modelo", () => {
+    const n = numerarPaquetes([
+      mezcla("dos-colores", [["GT148-BLK-24", 1], ["GT148-CREAM-25", 1]]),
+      paq("cream25", "GT148-CREAM-25"),
+      mezcla("blk-dos-tallas", [["GT148-BLK-23", 1], ["GT148-BLK-26", 1]]),
+      paq("blk24", "GT148-BLK-24"),
+      mezcla("revuelto", [["GT114-BEIGE-23", 1], ["GT148-BLK-24", 1]]),
+    ], "un-color");
+    expect(n.map((p) => [p.numero, p.orderId, p.variosColores, p.revuelto])).toEqual([
+      [1, "blk-dos-tallas", false, false],
+      [2, "blk24", false, false],
+      [3, "cream25", false, false],
+      [4, "dos-colores", true, false],
+      [5, "revuelto", false, true],
+    ]);
+  });
+
+  it("con varios modelos, los de varios colores cierran SU modelo, no el corte", () => {
+    const n = numerarPaquetes([
+      mezcla("gt148-mix", [["GT148-BLK-24", 1], ["GT148-CREAM-25", 1]]),
+      paq("gt150", "GT150-CAMEL-27"),
+      paq("gt148", "GT148-CREAM-25"),
+      mezcla("gt114-mix", [["GT114-BEIGE-23", 1], ["GT114-BLK-25", 1]]),
+      paq("gt114", "GT114-BLK-25"),
+    ], "un-color");
+    expect(n.map((p) => p.orderId)).toEqual(["gt114", "gt114-mix", "gt148", "gt148-mix", "gt150"]);
+    // La lista de empaque los deja en la sección de su modelo.
+    expect(agruparPorModelo(n, "un-color").map((g) => [g.modelo, g.paquetes.length])).toEqual([["GT114", 2], ["GT148", 2], ["GT150", 1]]);
+  });
+
+  it("con el orden un-modelo (cortes de antes) un paquete de dos colores sigue cayendo por su primer par", () => {
+    const n = numerarPaquetes([
+      paq("cream25", "GT148-CREAM-25"),
+      mezcla("dos-colores", [["GT148-BLK-24", 1], ["GT148-CREAM-25", 1]]),
+    ], "un-modelo");
+    expect(n.map((p) => p.orderId)).toEqual(["dos-colores", "cream25"]);
+  });
+});
+
 describe("agruparPorModelo con revueltos", () => {
   it("los revueltos van en su propia sección al final, no con el modelo de su primer par", () => {
     const g = agruparPorModelo(

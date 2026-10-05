@@ -438,6 +438,16 @@ guárdala numerada.
   (`tiktok_cortes.orden_paquetes`, migración 0088: `bodega` los 20 de antes,
   `un-modelo` los nuevos) y `cargarCorte` lo vuelve a armar SIEMPRE con ese.
   Una fecha de corte no serviría: dependería de la hora del despliegue.
+  **Orden «un-color» desde el 5-oct-2026** (`ORDEN_ACTUAL`, `esDeUnColor`,
+  `PaqueteNumerado.variosColores`; dueño: «cuando hago corte por modelo,
+  aunque sea el mismo modelo, que se divida primero todo el color completo
+  y al final los que son revueltos de un color u otro»): dentro de cada
+  modelo van primero los paquetes de UN solo color (por color y talla) y al
+  final los que mezclan colores del mismo modelo; los revueltos de varios
+  modelos siguen al final de todo y en su propia sección. El corte #49
+  (solo GT148, sin nada preparado) se pasó a mano a este orden por SQL y
+  `VERSION_ESTAMPA` subió a 8 para que sus tomos guardados con los números
+  viejos se rearmaran.
   El siguiente corte solo toma lo que
   no tiene corte. Un pedido que TikTok rechace se anota y se queda fuera,
   pero un 503 PASAJERO ya no cuenta como rechazo: el borde (Akamai) contesta
