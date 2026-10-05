@@ -391,8 +391,10 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
         // espera y se vuelve a pedir: mientras el corte anterior siga en
         // curso el servidor contesta 409 y se sigue esperando; cuando
         // termine, la siguiente ronda toma lo que quedó (y se une al mismo
-        // corte). Hasta 10 min de espera; después sí es error.
-        const limiteEspera = Date.now() + 10 * 60_000;
+        // corte). Hasta 20 min de espera (la función del corte vive hasta 800 s); después sí es error.
+        // La función del corte vive hasta 800 s: la espera por un 409 o una
+        // conexión perdida tiene que aguantar más que eso.
+        const limiteEspera = Date.now() + 20 * 60_000;
         let j: any;
         let r: Response | null = null;
         for (;;) {

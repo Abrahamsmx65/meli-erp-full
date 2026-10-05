@@ -559,6 +559,15 @@ guárdala numerada.
   continuación por tiempo (`corteDeHoyQueContinua`) solo se une a un corte
   de hoy con el MISMO filtro: nunca se mezcla un corte de GT148 con uno
   general. El filtro se apaga solo al terminar, como «sin defensa».
+  **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
+  `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
+  compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
+  minutos?»): con 300 s el corte #49 (solo GT148, 1,363 pedidos) necesitó
+  5 rondas y una ronda sin pestaña dejó 57 pedidos «por tiempo». La
+  pantalla espera hasta 20 min por un 409 o una conexión perdida. Y al
+  UNIR rondas, TODO error viejo de un pedido reintentado se quita
+  (`erroresAlUnir`), no solo el «sin tiempo»: el #49 decía 56 «stock en
+  duda» por 26 pedidos.
     **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,
   `AutoBloqueo.enDuda`, `renglonesConDefensa().enDuda`; decisión del
   dueño, 22-sep-2026): cuando la bodega dejó de reportar el SKU POR

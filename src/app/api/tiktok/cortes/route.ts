@@ -9,7 +9,14 @@ import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// 800 s: el tope del plan Pro con Fluid compute. Con 300 s un corte de
+// 1,300 pedidos (TikTok confirma ~2 por segundo) necesitaba 5 rondas y
+// cada ronda que se quedaba sin pestaña dejaba pedidos «por tiempo»
+// (5-oct-2026, corte #49 solo GT148: 57 pedidos huérfanos). Si Vercel
+// rechaza el valor, el build lo dice y se vuelve a 300.
+export const maxDuration = 800;
+/** lo que dura la función, en ms, para repartir el rato entre el corte y las etiquetas */
+const MS_FUNCION = 800_000;
 
 /** Hace un corte: confirma todos los envíos pendientes en TikTok y los agrupa. */
 export async function POST(req: NextRequest) {
@@ -48,7 +55,7 @@ export async function POST(req: NextRequest) {
       after(async () => {
         for (const c of cortes) {
           if (c.corteId == null) continue;
-          const restante = 295_000 - (Date.now() - inicioRuta) - 5_000;
+          const restante = MS_FUNCION - 5_000 - (Date.now() - inicioRuta) - 5_000;
           const soloGuias = contarSinTiempo(c.errores ?? []) > 0;
           let falta = true;
           if (restante >= 20_000) {
