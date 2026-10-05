@@ -647,7 +647,8 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
         <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
           Surtido: pares por SKU en orden alfabético, para jalar de bodega. En los cortes nuevos,
           etiquetas y lista de empaque van PRIMERO con los paquetes de un solo modelo (una pieza o
-          varias del mismo modelo) y al final los revueltos, y dentro de cada bloque en orden de
+          varias del mismo modelo) y al final los revueltos; dentro de cada modelo, primero los de un
+          solo color y al final los que mezclan colores, y dentro de cada bloque en orden de
           modelo → color → talla, con el mismo número. Un corte ya hecho conserva el orden y los
           números con los que se imprimió. En la etiqueta va el CÓDIGO DEL PEDIDO en barras: escanearlo
           en la estación enseña qué empacar, y luego se escanea el FNSKU de cada caja. Si un corte

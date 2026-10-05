@@ -1042,7 +1042,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     .eq("id", corteId)
     .maybeSingle();
   if (!corte) throw new Error("Ese corte no existe.");
-  const orden: OrdenPaquetes = corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
+  const orden: OrdenPaquetes = corte.orden_paquetes === "un-color" ? "un-color" : corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
   const [ordenes, items] = await Promise.all([
     traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria, estado", (q) =>
@@ -1171,7 +1171,9 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 const A6: [number, number] = [297.64, 419.53];
 
 /** Sube cuando cambia el estampado de la guía (invalida los PDF de corte guardados). */
-const VERSION_ESTAMPA = 7;
+// 8 (5-oct-2026): el orden "un-color" cambió la numeración del corte #49 y
+// sus tomos guardados con la versión 7 traían los números viejos.
+const VERSION_ESTAMPA = 8;
 
 /** Dónde va el estampado: abajo, pegado al borde (texto a la izquierda, código a la derecha). */
 const ESTAMPA = { margen: 5, tamano: 7, barrasAlto: 16, barrasAnchoMax: 120, porColumna: 3 };

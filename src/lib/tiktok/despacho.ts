@@ -60,10 +60,10 @@ export function parsearCodigoDeHoja(codigo: string): { corte: number; numero: nu
  * color → talla) y "un-modelo" el nuevo (primero lo de un solo modelo, al
  * final lo revuelto). Lo guarda el corte al nacer.
  */
-export type OrdenPaquetes = "bodega" | "un-modelo";
+export type OrdenPaquetes = "bodega" | "un-modelo" | "un-color";
 
 /** El orden con el que nacen los cortes nuevos. */
-export const ORDEN_ACTUAL: OrdenPaquetes = "un-modelo";
+export const ORDEN_ACTUAL: OrdenPaquetes = "un-color";
 
 export interface PaqueteDespacho {
   orderId: string;
@@ -147,6 +147,8 @@ export interface PaqueteNumerado extends PaqueteDespacho {
   talla: string;
   /** true si el paquete lleva DOS modelos distintos o más */
   revuelto: boolean;
+  /** true si el paquete es de un solo modelo pero lleva DOS colores o más (va al final de su modelo con el orden "un-color") */
+  variosColores: boolean;
 }
 
 /**
@@ -173,6 +175,24 @@ export function modelosDePaquete(p: { pares: ParDespacho[] }): string[] {
  */
 export function esDeUnModelo(p: { pares: ParDespacho[] }): boolean {
   return modelosDePaquete(p).length <= 1;
+}
+
+/** Los modelo + color distintos que lleva el paquete. */
+export function coloresDePaquete(p: { pares: ParDespacho[] }): string[] {
+  const colores = new Set<string>();
+  for (const x of p.pares) {
+    const { modelo, color } = partirSku(x.sku);
+    colores.add(`${modelo}|${color}`);
+  }
+  return [...colores];
+}
+
+/**
+ * ¿El paquete es de UN SOLO color (y por tanto de un solo modelo)? Dos
+ * tallas del mismo color cuentan como uno; dos colores del mismo modelo, no.
+ */
+export function esDeUnColor(p: { pares: ParDespacho[] }): boolean {
+  return coloresDePaquete(p).length <= 1;
 }
 
 /** MODELO-COLOR-TALLA → sus tres pedazos; lo que no cuadre se va al final. */
@@ -211,6 +231,11 @@ export function compararSku(a: string, b: string): number {
  * Ordena y numera los paquetes. Con el orden "un-modelo": PRIMERO los de un
  * solo modelo y luego los revueltos, y dentro de cada bloque por su PRIMER
  * par (ya ordenado); un paquete con dos tallas cae donde cae la menor. Con
+ * "un-color" (los cortes desde el 5-oct-2026; pedido del dueño: «primero
+ * todo el color completo y al final los que son revueltos de un color u
+ * otro») además, DENTRO de cada modelo, van primero los paquetes de un solo
+ * color (por color y talla) y al final los que mezclan colores del mismo
+ * modelo; los revueltos de varios modelos siguen al final de todo. Con
  * "bodega" (el de los cortes de antes) va todo en un solo bloque, para que
  * sus números sigan siendo los que ya se imprimieron.
  */
@@ -222,17 +247,30 @@ export function numerarPaquetes(
     ...p,
     pares: [...p.pares].sort((a, b) => compararSku(a.sku, b.sku)),
   }));
-  const bloque = (p: PaqueteDespacho) =>
-    orden === "un-modelo" && !esDeUnModelo(p) ? 1 : 0;
-  conOrden.sort(
-    (a, b) =>
-      bloque(a) - bloque(b) ||
-      compararSku(a.pares[0]?.sku ?? "", b.pares[0]?.sku ?? "") ||
-      a.orderId.localeCompare(b.orderId),
-  );
+  const bloque = (p: PaqueteDespacho) => (orden !== "bodega" && !esDeUnModelo(p) ? 1 : 0);
+  const primerSku = (p: PaqueteDespacho) => p.pares[0]?.sku ?? "";
+  const comparar =
+    orden === "un-color"
+      ? (a: PaqueteDespacho, b: PaqueteDespacho) => {
+          const ba = bloque(a);
+          const bb = bloque(b);
+          if (ba !== bb) return ba - bb;
+          if (ba === 1) return compararSku(primerSku(a), primerSku(b)) || a.orderId.localeCompare(b.orderId);
+          // Un solo modelo: por modelo, luego los de UN color antes que los
+          // de varios, y dentro por color y talla del primer par.
+          return (
+            partirSku(primerSku(a)).modelo.localeCompare(partirSku(primerSku(b)).modelo, "es") ||
+            Number(!esDeUnColor(a)) - Number(!esDeUnColor(b)) ||
+            compararSku(primerSku(a), primerSku(b)) ||
+            a.orderId.localeCompare(b.orderId)
+          );
+        }
+      : (a: PaqueteDespacho, b: PaqueteDespacho) =>
+          bloque(a) - bloque(b) || compararSku(primerSku(a), primerSku(b)) || a.orderId.localeCompare(b.orderId);
+  conOrden.sort(comparar);
   return conOrden.map((p, i) => {
     const primero = partirSku(p.pares[0]?.sku ?? "");
-    return { ...p, numero: i + 1, ...primero, revuelto: !esDeUnModelo(p) };
+    return { ...p, numero: i + 1, ...primero, revuelto: !esDeUnModelo(p), variosColores: esDeUnModelo(p) && !esDeUnColor(p) };
   });
 }
 
@@ -359,7 +397,7 @@ export function agruparPorModelo(
   orden: OrdenPaquetes = "bodega",
 ): GrupoModelo[] {
   const grupos: GrupoModelo[] = [];
-  const separar = orden === "un-modelo";
+  const separar = orden !== "bodega";
   for (const p of numerados) {
     const ultimo = grupos[grupos.length - 1];
     const pares = p.pares.reduce((a, x) => a + x.pares, 0);
