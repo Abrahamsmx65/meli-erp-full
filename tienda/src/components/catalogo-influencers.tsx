@@ -39,6 +39,9 @@ function Tarjeta({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {c.fotos[foto] && <img src={c.fotos[foto]} alt={`${p.titulo} ${c.color}`} loading="lazy" />}
         {p.modelo && <span className="sello-caja modelo">{p.modelo}</span>}
+        {p.total != null ? (
+          <span className="creador-stock">{p.total > 0 ? `${p.total.toLocaleString("es-MX")} pares en stock` : "Sin stock"}</span>
+        ) : null}
       </div>
       {c.fotos.length > 1 && (
         <div className="creador-fotos" aria-label="Más fotos">
@@ -74,13 +77,6 @@ function Tarjeta({
             ))}
           </div>
         )}
-        {p.bodega != null || p.mar != null ? (
-          <span className="datos-chicos creador-cantidad">
-            {(p.bodega ?? 0) + (p.mar ?? 0) > 0
-              ? `${((p.bodega ?? 0) + (p.mar ?? 0)).toLocaleString("es-MX")} pares · ${(p.bodega ?? 0).toLocaleString("es-MX")} en bodega, ${(p.mar ?? 0).toLocaleString("es-MX")} en camino`
-              : "Sin pares en bodega ni en camino"}
-          </span>
-        ) : null}
         <span className="datos-chicos">
           {p.colores.length === 1 ? `${c.color} · ` : ""}Tallas {c.tallas.join(", ")}
           {mostrarExistencia && (c.tallasConStock.length ? ` · con existencia: ${c.tallasConStock.join(", ")}` : " · sin existencia hoy")}

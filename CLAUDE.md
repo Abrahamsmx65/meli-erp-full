@@ -1357,10 +1357,15 @@ guárdala numerada.
   la CATEGORÍA, que se escribe en `productos_config` (la fuente única: la
   ven también cortes y ventas; el costo no se toca), y los pares en
   BODEGA (`enBodega`) y en el MAR (`enCamino`, lo que viene de China) de
-  `inventario_cache`, sumados por modelo (`stockPorModelo`). El renglón
-  `catalogo-amazon` lleva TODO (lo oculto también, con `oculto`, `bodega`,
-  `mar`); la página filtra lo oculto y enseña en cada tarjeta el total de
-  pares y su reparto. Al guardar, la ruta rearma el catálogo con lo ya
+  `inventario_cache` —que ya incluye los pedidos de China que la bodega
+  todavía no ve— más la bodega de TikTok (saldo de `tiktok_inventario`,
+  que la vista de inventario descarta), sumados por modelo
+  (`stockPorModelo`). El renglón `catalogo-amazon` lleva TODO (lo oculto
+  también, con `oculto`, `bodega`, `mar`, `tiktok`, `total`); la página
+  filtra lo oculto y enseña en cada tarjeta, ARRIBA de la foto, SOLO el
+  total («N pares en stock»; dueño, 5-oct-2026: «no me interesa cuánto hay
+  en detalle ni colores, solo arriba que diga cuánto hay en total»); el
+  desglose queda en el back. Al guardar, la ruta rearma el catálogo con lo ya
   leído de Amazon sin preguntarle (`refrescarCatalogoAmazon({ soloArmar })`
   en `after()`) y la tienda lo toma en 2 minutos.
   **PRECIO DE TIKTOK en el catálogo** (`preciosTikTokPorModelo`; dueño,

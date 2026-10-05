@@ -47,8 +47,8 @@ export default async function CatalogoCreadores() {
           <a href="/tiktok/precios" className="underline">
             Precios para TikTok
           </a>{" "}
-          (relámpago normal en la página; «Mi precio» manda). Bodega y mar salen de la vista de inventario (Bodega y
-          Planificación China). Datos de {(data as any)?.generado_en ? new Date((data as any).generado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" }) : "—"};
+          (relámpago normal en la página; «Mi precio» manda). El total suma la bodega y lo que viene de China (en el mar y
+          los pedidos, de la vista de inventario) más la bodega de TikTok; la página solo enseña ese total. Datos de {(data as any)?.generado_en ? new Date((data as any).generado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" }) : "—"};
           se actualizan cada hora y al guardar un cambio.
         </p>
       </div>

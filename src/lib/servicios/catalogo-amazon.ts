@@ -55,7 +55,7 @@ export async function refrescarCatalogoAmazon(
 ): Promise<ResultadoCatalogoAmazon> {
   const inicio = Date.now();
   const avisos: string[] = [];
-  const [listings, padres, config, guardado, ajustes, inventario, relampago, objetivos] = await Promise.all([
+  const [listings, padres, config, guardado, ajustes, inventario, relampago, objetivos, kardex] = await Promise.all([
     traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, estado, titulo", (q) => q.order("seller_sku", { ascending: true })),
     traerTodo<any>(admin, "amazon_padres", "asin, titulo, parent_asin", (q) => q.order("asin", { ascending: true })).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),
@@ -76,12 +76,14 @@ export async function refrescarCatalogoAmazon(
     traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", accountId).order("modelo", { ascending: true })).catch(
       () => [] as any[],
     ),
+    traerTodo<any>(admin, "tiktok_inventario", "sku, saldo", (q) => q.eq("account_id", accountId).order("sku", { ascending: true })).catch(() => null),
   ]);
+  if (!kardex) avisos.push("Sin el kardex de TikTok: su bodega sale en cero.");
   if (!relampago) avisos.push("Sin el relámpago de MELI: solo salen los precios capturados en «Mi precio».");
   const precios = preciosTikTokPorModelo(relampago ?? [], objetivos ?? []);
   if (!inventario) avisos.push("Sin la vista de inventario: bodega y mar salen en cero.");
   const ocultos = new Set<string>((ajustes ?? []).filter((a: any) => a.oculto).map((a: any) => String(a.modelo).toUpperCase()));
-  const stock = stockPorModelo(inventario ?? []);
+  const stock = stockPorModelo(inventario ?? [], kardex ?? []);
   const previas = guardado && guardado.estado === "encontrado" ? guardado.valor.datos?.asins : null;
   const fichas: FichasGuardadas = { asins: { ...(previas ?? {}) } };
 

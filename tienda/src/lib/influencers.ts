@@ -29,6 +29,9 @@ export interface ProductoInfluencer {
   /** catálogo completo: pares en bodega y en el mar (de China) */
   bodega?: number;
   mar?: number;
+  tiktok?: number;
+  /** catálogo completo: bodega + China (mar y pedidos) + bodega de TikTok */
+  total?: number;
   /** catálogo completo: escondido desde el back del ERP */
   oculto?: boolean;
 }

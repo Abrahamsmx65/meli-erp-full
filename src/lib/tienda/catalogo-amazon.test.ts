@@ -49,14 +49,14 @@ describe("catálogo completo desde Amazon", () => {
       { sku: "GT135-BEIGE-23-MX", enBodega: 24, enCamino: 0 },
       { sku: "GT135-BLK-24-MX", enBodega: 6, enCamino: 120 },
       { sku: "GT128-BLK-23-MX", enBodega: -2, enCamino: 0 },
-    ]);
-    expect(stock.get("GT135")).toEqual({ bodega: 30, mar: 120 });
-    expect(stock.get("GT128")).toEqual({ bodega: 0, mar: 0 });
+    ], [{ sku: "GT135-BEIGE-24-MX", saldo: 7 }, { sku: "GT135-BLK-24-MX", saldo: -1 }]);
+    expect(stock.get("GT135")).toEqual({ bodega: 30, mar: 120, tiktok: 7 });
+    expect(stock.get("GT128")).toEqual({ bodega: 0, mar: 0, tiktok: 0 });
     const fichas = new Map([["B2", { f: ["b.jpg"], c: null, t: null }], ["N1", { f: ["n.jpg"], c: null, t: null }]]);
     const r = armarCatalogoAmazon(agruparAmazon(filas), fichas, new Map(), new Map(), { ocultos: new Set(["GT128"]), stock });
-    expect(r.map((p) => [p.modelo, p.oculto, p.bodega, p.mar])).toEqual([
-      ["GT128", true, 0, 0],
-      ["GT135", false, 30, 120],
+    expect(r.map((p) => [p.modelo, p.oculto, p.bodega, p.mar, p.tiktok, p.total])).toEqual([
+      ["GT128", true, 0, 0, 0, 0],
+      ["GT135", false, 30, 120, 7, 157],
     ]);
   });
 
