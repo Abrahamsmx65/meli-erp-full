@@ -877,3 +877,7 @@ h3 {
   font-size: 0.5em;
   font-weight: 600;
 }
+.creador-cantidad {
+  color: var(--tinta);
+  font-weight: 600;
+}

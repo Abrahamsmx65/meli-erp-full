@@ -74,6 +74,13 @@ function Tarjeta({
             ))}
           </div>
         )}
+        {p.bodega != null || p.mar != null ? (
+          <span className="datos-chicos creador-cantidad">
+            {(p.bodega ?? 0) + (p.mar ?? 0) > 0
+              ? `${((p.bodega ?? 0) + (p.mar ?? 0)).toLocaleString("es-MX")} pares · ${(p.bodega ?? 0).toLocaleString("es-MX")} en bodega, ${(p.mar ?? 0).toLocaleString("es-MX")} en camino`
+              : "Sin pares en bodega ni en camino"}
+          </span>
+        ) : null}
         <span className="datos-chicos">
           {p.colores.length === 1 ? `${c.color} · ` : ""}Tallas {c.tallas.join(", ")}
           {mostrarExistencia && (c.tallasConStock.length ? ` · con existencia: ${c.tallasConStock.join(", ")}` : " · sin existencia hoy")}
