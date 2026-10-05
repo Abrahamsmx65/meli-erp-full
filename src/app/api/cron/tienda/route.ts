@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { refrescarCatalogoAmazon } from "@/lib/servicios/catalogo-amazon";
 import { refrescarCatalogoTienda } from "@/lib/servicios/tienda-catalogo";
 import { clienteAdmin } from "@/lib/supabase/server";
 
@@ -10,7 +11,9 @@ export const maxDuration = 300;
  * catálogo de TikTok (precio, colores, tallas), las fotos de Amazon por
  * color (catálogo por ASIN), los puntos clave, el contenido A+ y los
  * banners de la tienda de marca. En el cron de TikTok solo le tocaba lo que
- * sobraba del rato y casi nunca alcanzaba para Amazon (1-oct-2026).
+ * sobraba del rato y casi nunca alcanzaba para Amazon (1-oct-2026). Con el
+ * tiempo que sobre, el catálogo COMPLETO de Amazon para creadores
+ * (`catalogo-amazon.ts`, 5-oct-2026).
  *
  * Bearer CRON_SECRET (el cron de Vercel) o TIENDA_SECRET (para lanzarlo a
  * mano). `?todo=1` relee todo aunque esté fresco.
@@ -30,9 +33,16 @@ export async function GET(req: NextRequest) {
     const restante = 285_000 - (Date.now() - inicio);
     if (restante < 30_000) break;
     try {
-      resultados.push({ cuenta: t.account_id, ...(await refrescarCatalogoTienda(admin, t.account_id, restante, { todo })) });
+      resultados.push({ cuenta: t.account_id, ...(await refrescarCatalogoTienda(admin, t.account_id, Math.min(restante, 150_000), { todo })) });
     } catch (err) {
       resultados.push({ cuenta: t.account_id, error: (err as Error).message });
+    }
+    const queda = 285_000 - (Date.now() - inicio);
+    if (queda < 60_000) continue;
+    try {
+      resultados.push({ cuenta: t.account_id, catalogoAmazon: await refrescarCatalogoAmazon(admin, t.account_id, queda) });
+    } catch (err) {
+      resultados.push({ cuenta: t.account_id, catalogoAmazon: { error: (err as Error).message } });
     }
   }
   return NextResponse.json({ ok: true, resultados });

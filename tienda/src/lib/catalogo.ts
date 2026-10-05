@@ -177,3 +177,25 @@ async function leerCatalogoInfluencers(): Promise<ProductoInfluencer[]> {
 }
 
 export const catalogoInfluencers = unstable_cache(leerCatalogoInfluencers, ["catalogo-influencers"], { revalidate: 300 });
+
+/**
+ * El catálogo COMPLETO de Amazon para creadores (activos e inactivos, con
+ * fotos, por categoría), tal cual lo dejó masticado el ERP en `app_cache`
+ * clave `catalogo-amazon` (`servicios/catalogo-amazon.ts`).
+ */
+async function leerCatalogoCompleto(): Promise<{ productos: ProductoInfluencer[]; generado: string | null; pendientes: number }> {
+  const { data } = await db()
+    .from("app_cache")
+    .select("datos")
+    .eq("account_id", config.cuenta())
+    .eq("clave", "catalogo-amazon")
+    .maybeSingle();
+  const d = (data as any)?.datos ?? {};
+  return {
+    productos: Array.isArray(d.productos) ? (d.productos as ProductoInfluencer[]) : [],
+    generado: typeof d.generado === "string" ? d.generado : null,
+    pendientes: Number(d.asinsPendientes ?? 0) || 0,
+  };
+}
+
+export const catalogoCompleto = unstable_cache(leerCatalogoCompleto, ["catalogo-completo"], { revalidate: 600 });
