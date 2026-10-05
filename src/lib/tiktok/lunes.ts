@@ -121,12 +121,27 @@ export interface CorteContinuable {
  * Devuelve el id del corte al que unirse (el más reciente que aplique) o
  * null para abrir uno nuevo.
  */
-export function corteQueContinua(cortes: CorteContinuable[], orderIds: string[], ahora: Date = new Date()): number | null {
+export function corteQueContinua(
+  cortes: CorteContinuable[],
+  orderIds: string[],
+  ahora: Date = new Date(),
+  opciones: {
+    /**
+     * true = basta que el corte sea de HOY y no tenga nada preparado, aunque
+     * no haya dejado nada «por tiempo». Es el corte POR MODELO (dueño,
+     * 5-oct-2026: el #51 «solo GT114» de un pedido se abrió aparte del #50
+     * «solo GT114» de 713: «se armó por separado»): dos cortes del mismo
+     * modelo el mismo día son el mismo trabajo en la mesa. La lista que se
+     * recibe ya viene filtrada por el MISMO filtro de modelos.
+     */
+    sinExigirTiempo?: boolean;
+  } = {},
+): number | null {
   const hoy = diaMx(ahora.toISOString());
   const quiere = new Set(orderIds);
   const candidatos = (cortes ?? [])
     .filter((c) => c.preparados === 0 && diaSeguro(c.creadoEn) === hoy)
-    .filter((c) => (c.errores ?? []).some((e) => e.orderId && e.error === ERROR_SIN_TIEMPO && quiere.has(e.orderId)))
+    .filter((c) => opciones.sinExigirTiempo || (c.errores ?? []).some((e) => e.orderId && e.error === ERROR_SIN_TIEMPO && quiere.has(e.orderId)))
     .sort((a, b) => Date.parse(b.creadoEn) - Date.parse(a.creadoEn) || b.id - a.id);
   return candidatos[0]?.id ?? null;
 }

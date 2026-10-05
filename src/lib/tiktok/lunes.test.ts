@@ -103,6 +103,13 @@ describe("un corte que continúa otro se le une", () => {
     const cortes = [{ id: 68, creadoEn: "2026-09-22T19:07:00Z", errores: sinTiempo(["a", "b"]), preparados: 0 }];
     expect(corteQueContinua(cortes, ["z"], ahora)).toBeNull();
   });
+  it("corte por modelo: se une al de hoy del mismo filtro aunque no haya dejado nada por tiempo (si nadie preparó nada)", () => {
+    const cortes = [{ id: 83, creadoEn: "2026-09-22T19:07:00Z", errores: [], preparados: 0 }];
+    expect(corteQueContinua(cortes, ["z"], ahora, { sinExigirTiempo: true })).toBe(83);
+    expect(corteQueContinua(cortes, ["z"], ahora)).toBeNull();
+    const enUso = [{ id: 83, creadoEn: "2026-09-22T19:07:00Z", errores: [], preparados: 2 }];
+    expect(corteQueContinua(enUso, ["z"], ahora, { sinExigirTiempo: true })).toBeNull();
+  });
   it("no se une a un corte de AYER (México) ni a uno con paquetes ya preparados", () => {
     const ayer = [{ id: 67, creadoEn: "2026-09-22T02:03:00Z", errores: sinTiempo(["a"]), preparados: 0 }]; // 21-sep 20:03 MX
     expect(corteQueContinua(ayer, ["a"], ahora)).toBeNull();
