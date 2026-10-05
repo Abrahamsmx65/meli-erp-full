@@ -539,6 +539,26 @@ guárdala numerada.
   segundo, que ya no encontró los «sin tiempo» en los errores del #37,
   abrió el #38 con los mismos pedidos (se unieron a mano por SQL). El
   segundo clic ya no arranca: contesta que hay un corte en curso.
+  **CORTE POR MODELO** (`tiktok/corte-modelos.ts` motor puro con pruebas:
+  `pedidosDeSoloModelos`, `pendientesPorModelo`, `etiquetaDeModelos`,
+  `mismoFiltro`; `hacerCorte({ soloModelos })`, `pendientesDeCorteFiltrados`,
+  `pendientesPorModeloDeCuenta` en `tiktok-despacho.ts`; `soloModelos` en el
+  cuerpo de `POST /api/tiktok/cortes` y `?modelos=` en `/simular`;
+  `tiktok_cortes.modelos`, migración 0109; selector de fichas en Despacho;
+  pedido del dueño, 5-oct-2026: «quiero poder despachar modelos que tienen
+  muchas ventas por separado; el GT148 va a tener como 2,000 ventas, y los
+  demás modelos por separado»; ese día 1,363 de 2,247 pendientes eran solo
+  GT148): se marcan uno o varios modelos y los tres botones (Corte ayer,
+  Corte lunes, Hacer corte) toman SOLO los pedidos cuyos pares son todos de
+  UN modelo de la lista; un paquete REVUELTO (GT148 + GT114) se va con el
+  corte general (decisión del dueño). La defensa se decide sobre TODOS los
+  pendientes y luego se recorta a lo que entra («el que compró primero se
+  lleva el par» aunque su paquete vaya en otro corte); las tandas del corte
+  lunes/ayer se parten sobre lo filtrado. El corte guarda su filtro
+  (`modelos`, null = general), la lista lo enseña («solo GT148») y la
+  continuación por tiempo (`corteDeHoyQueContinua`) solo se une a un corte
+  de hoy con el MISMO filtro: nunca se mezcla un corte de GT148 con uno
+  general. El filtro se apaga solo al terminar, como «sin defensa».
     **STOCK EN DUDA: ni se confirma ni se cancela** (`stockEnDuda`,
   `AutoBloqueo.enDuda`, `renglonesConDefensa().enDuda`; decisión del
   dueño, 22-sep-2026): cuando la bodega dejó de reportar el SKU POR
