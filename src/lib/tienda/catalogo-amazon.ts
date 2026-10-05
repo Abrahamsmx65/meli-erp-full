@@ -127,8 +127,12 @@ export interface ProductoCatalogo {
   oculto: boolean;
   /** pares en cajas cerradas en las bodegas (Industher, Caseshop, EnvioPack) */
   bodega: number;
-  /** pares que vienen de China (en el mar) */
+  /** pares que vienen de China: en el mar y los pedidos que la bodega aún no ve */
   mar: number;
+  /** pares en la bodega de TikTok (saldo del kardex) */
+  tiktok: number;
+  /** bodega + mar + TikTok: lo que la tarjeta enseña arriba */
+  total: number;
 }
 
 export interface PreciosTikTok {
@@ -180,22 +184,37 @@ export function preciosTikTokPorModelo(
 export interface StockModelo {
   bodega: number;
   mar: number;
+  tiktok: number;
 }
 
 /**
- * Pares por modelo en bodega y en el mar, desde los renglones de
- * `inventario_cache` (los mismos de Bodega y Planificación China). El
- * modelo es el primer pedazo del SKU, igual que en Amazon.
+ * Pares por modelo: bodega y en camino de China (en el mar + pedidos que
+ * la bodega aún no ve) desde los renglones de `inventario_cache` (los mismos
+ * de Bodega y Planificación China), más la bodega de TikTok (saldo de su
+ * kardex). El modelo es el primer pedazo del SKU, igual que en Amazon.
  */
-export function stockPorModelo(renglones: { sku: string; enBodega?: number; enCamino?: number }[]): Map<string, StockModelo> {
+export function stockPorModelo(
+  renglones: { sku: string; enBodega?: number; enCamino?: number }[],
+  kardexTikTok: { sku: string; saldo?: number | null }[] = [],
+): Map<string, StockModelo> {
   const m = new Map<string, StockModelo>();
+  const de = (sku: string) => {
+    const modelo = String(sku ?? "").split("-")[0].trim().toUpperCase();
+    if (!modelo) return null;
+    const s = m.get(modelo) ?? { bodega: 0, mar: 0, tiktok: 0 };
+    m.set(modelo, s);
+    return s;
+  };
   for (const r of renglones) {
-    const modelo = String(r.sku ?? "").split("-")[0].trim().toUpperCase();
-    if (!modelo) continue;
-    const s = m.get(modelo) ?? { bodega: 0, mar: 0 };
+    const s = de(r.sku);
+    if (!s) continue;
     s.bodega += Math.max(0, Number(r.enBodega) || 0);
     s.mar += Math.max(0, Number(r.enCamino) || 0);
-    m.set(modelo, s);
+  }
+  // La bodega de TikTok no está en la vista de inventario (construirCajas la descarta): sale de su kardex.
+  for (const k of kardexTikTok) {
+    const s = de(k.sku);
+    if (s) s.tiktok += Math.max(0, Number(k.saldo) || 0);
   }
   return m;
 }
@@ -242,6 +261,8 @@ export function armarCatalogoAmazon(
       oculto: extras.ocultos?.has(m.modelo) ?? false,
       bodega: extras.stock?.get(m.modelo)?.bodega ?? 0,
       mar: extras.stock?.get(m.modelo)?.mar ?? 0,
+      tiktok: extras.stock?.get(m.modelo)?.tiktok ?? 0,
+      total: (extras.stock?.get(m.modelo)?.bodega ?? 0) + (extras.stock?.get(m.modelo)?.mar ?? 0) + (extras.stock?.get(m.modelo)?.tiktok ?? 0),
     });
   }
   return salida;

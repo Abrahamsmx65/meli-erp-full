@@ -33,7 +33,10 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
       }),
     [renglones, filtro, categoria, palabras],
   );
-  const totales = visibles.reduce((t, p) => ({ bodega: t.bodega + (p.bodega ?? 0), mar: t.mar + (p.mar ?? 0) }), { bodega: 0, mar: 0 });
+  const totales = visibles.reduce(
+    (t, p) => ({ bodega: t.bodega + (p.bodega ?? 0), mar: t.mar + (p.mar ?? 0), tiktok: t.tiktok + (p.tiktok ?? 0) }),
+    { bodega: 0, mar: 0, tiktok: 0 },
+  );
   const ocultos = renglones.filter((p) => p.oculto).length;
 
   async function guardar(modelo: string, cambio: { oculto?: boolean; categoria?: string }) {
@@ -83,7 +86,8 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
         </div>
       </div>
       <p className="mt-2 px-4 text-xs" style={{ color: "var(--ink-muted)" }}>
-        {n(visibles.length)} modelos · {n(totales.bodega)} pares en bodega · {n(totales.mar)} en el mar · {n(totales.bodega + totales.mar)} en total
+        {n(visibles.length)} modelos · {n(totales.bodega)} pares en bodega · {n(totales.mar)} en camino de China (mar y pedidos) ·{" "}
+        {n(totales.tiktok)} en la bodega de TikTok · {n(totales.bodega + totales.mar + totales.tiktok)} en total
       </p>
       {error ? (
         <p className="mx-4 mt-2 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--estado-alerta)" }}>
@@ -106,7 +110,10 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                 Precio TikTok
               </th>
               <th className="px-4 py-2 text-right font-semibold">Bodega</th>
-              <th className="px-4 py-2 text-right font-semibold">En el mar</th>
+              <th className="px-4 py-2 text-right font-semibold" title="En el mar y pedidos de China que la bodega aún no ve">
+                China
+              </th>
+              <th className="px-4 py-2 text-right font-semibold">TikTok</th>
               <th className="px-4 py-2 text-right font-semibold">Total</th>
             </tr>
           </thead>
@@ -175,7 +182,8 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                 </td>
                 <td className="num px-4 py-2 text-right">{n(p.bodega ?? 0)}</td>
                 <td className="num px-4 py-2 text-right">{n(p.mar ?? 0)}</td>
-                <td className="num px-4 py-2 text-right font-semibold">{n((p.bodega ?? 0) + (p.mar ?? 0))}</td>
+                <td className="num px-4 py-2 text-right">{n(p.tiktok ?? 0)}</td>
+                <td className="num px-4 py-2 text-right font-semibold">{n(p.total ?? (p.bodega ?? 0) + (p.mar ?? 0) + (p.tiktok ?? 0))}</td>
               </tr>
             ))}
           </tbody>
