@@ -1329,6 +1329,25 @@ guárdala numerada.
   las ACTIVAS primero (`emparejarAmazon`), con el catálogo por ASIN y la
   ficha capturada de cada una, y `elegirFotosPorColor` descarta la foto
   principal que se repite en dos o más colores mientras haya otra propia.
+  **CATÁLOGO COMPLETO** (`tienda/` → `/catalogo`; `tienda/catalogo-amazon.ts`
+  motor puro con pruebas, `servicios/catalogo-amazon.ts`; dueño, 5-oct-2026:
+  «un catálogo de todos los productos que tenemos aunque no estén activos
+  en TikTok, dividido por categorías […] todo lo que hay en Amazon aunque
+  no esté activo, solamente que tenga fotos»): TODO el calzado de
+  `amazon_listings`, activo o inactivo, MENOS los GT viejos (hasta el GT100,
+  `esModeloVigente`; «hay muchos modelos viejos que son hasta GT100 que no
+  hay que meterlos»; los de otro prefijo sí). Por color se le preguntan al
+  catálogo de Amazon hasta 2 ASINs, activos primero (`fichasDeCatalogo`:
+  fotos, clasificación y título en una llamada por cada 20), lo contestado
+  se guarda por ASIN en `app_cache` `catalogo-amazon:asins` y se relee cada
+  7 días; solo entra el color con fotos y el modelo con algún color. La
+  CATEGORÍA es la de Productos y costos y, si el modelo no tiene, la
+  clasificación de Amazon («Otros» si ninguna). Corre en el cron de la
+  tienda (`/api/cron/tienda`, cada hora) con el tiempo que sobre y avanza
+  por tandas de 200 ASINs; el resultado va a `app_cache` `catalogo-amazon`
+  y la página lo lee (secciones por categoría, misma tarjeta y selección
+  por WhatsApp que `/influencers`, sin existencia). Bitácora
+  `tiktok_sync_log` tarea `catalogo-amazon`.
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −

@@ -17,11 +17,13 @@ function Tarjeta({
   elegidos,
   alternar,
   cambiarTalla,
+  mostrarExistencia,
 }: {
   p: ProductoInfluencer;
   elegidos: Map<string, Eleccion>;
   alternar: (e: Eleccion) => void;
   cambiarTalla: (k: string, talla: string | null) => void;
+  mostrarExistencia: boolean;
 }) {
   const [color, setColor] = useState(0);
   const [foto, setFoto] = useState(0);
@@ -74,7 +76,7 @@ function Tarjeta({
         )}
         <span className="datos-chicos">
           {p.colores.length === 1 ? `${c.color} · ` : ""}Tallas {c.tallas.join(", ")}
-          {c.tallasConStock.length ? ` · con existencia: ${c.tallasConStock.join(", ")}` : " · sin existencia hoy"}
+          {mostrarExistencia && (c.tallasConStock.length ? ` · con existencia: ${c.tallasConStock.join(", ")}` : " · sin existencia hoy")}
         </span>
 
         {elegido && (
@@ -102,7 +104,22 @@ function Tarjeta({
   );
 }
 
-export function CatalogoInfluencers({ productos, whatsapp }: { productos: ProductoInfluencer[]; whatsapp: string | null }) {
+export function CatalogoInfluencers({
+  productos,
+  whatsapp,
+  porCategoria = false,
+  mostrarExistencia = true,
+  llave = LLAVE,
+}: {
+  productos: ProductoInfluencer[];
+  whatsapp: string | null;
+  /** una sección por categoría (el catálogo completo) */
+  porCategoria?: boolean;
+  /** tallas con existencia hoy (el catálogo completo de Amazon no la tiene) */
+  mostrarExistencia?: boolean;
+  /** dónde se recuerda la selección en el navegador */
+  llave?: string;
+}) {
   const [categoria, setCategoria] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [elegidos, setElegidos] = useState<Map<string, Eleccion>>(new Map());
@@ -113,20 +130,20 @@ export function CatalogoInfluencers({ productos, whatsapp }: { productos: Produc
   // La selección se recuerda en este navegador (si se puede).
   useEffect(() => {
     try {
-      const g = JSON.parse(localStorage.getItem(LLAVE) ?? "null");
+      const g = JSON.parse(localStorage.getItem(llave) ?? "null");
       if (g?.elegidos) setElegidos(new Map((g.elegidos as Eleccion[]).map((e) => [clave(e), e])));
       if (g?.quien) setQuien(String(g.quien));
     } catch {
       /* sin almacenamiento: empieza vacía */
     }
-  }, []);
+  }, [llave]);
   useEffect(() => {
     try {
-      localStorage.setItem(LLAVE, JSON.stringify({ elegidos: [...elegidos.values()], quien }));
+      localStorage.setItem(llave, JSON.stringify({ elegidos: [...elegidos.values()], quien }));
     } catch {
       /* sin almacenamiento */
     }
-  }, [elegidos, quien]);
+  }, [elegidos, quien, llave]);
 
   const categorias = useMemo(
     () => [...new Set(productos.map((p) => p.categoria).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "es")),
@@ -188,11 +205,30 @@ export function CatalogoInfluencers({ productos, whatsapp }: { productos: Produc
       </label>
 
       {visibles.length ? (
-        <div className="rejilla">
-          {visibles.map((p) => (
-            <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} />
-          ))}
-        </div>
+        porCategoria ? (
+          (categoria ? [categoria] : [...categorias, ...(visibles.some((p) => !p.categoria) ? [""] : [])]).map((cat) => {
+            const suyos = visibles.filter((p) => (p.categoria ?? "") === cat);
+            if (!suyos.length) return null;
+            return (
+              <section key={cat || "sin"} className="creador-seccion" aria-label={cat || "Otros"}>
+                <h2 className="titulo-catalogo">
+                  {cat || "Otros"} <span className="suave">({suyos.length})</span>
+                </h2>
+                <div className="rejilla">
+                  {suyos.map((p) => (
+                    <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} />
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        ) : (
+          <div className="rejilla">
+            {visibles.map((p) => (
+              <Tarjeta key={p.productId} p={p} elegidos={elegidos} alternar={alternar} cambiarTalla={cambiarTalla} mostrarExistencia={mostrarExistencia} />
+            ))}
+          </div>
+        )
       ) : (
         <p className="nota">Nada coincide con la búsqueda.</p>
       )}

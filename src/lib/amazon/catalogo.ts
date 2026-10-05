@@ -42,6 +42,10 @@ interface ItemCatalogo {
     relationships?: { type?: string; parentAsins?: string[] }[];
   }[];
   summaries?: { marketplaceId?: string; itemName?: string }[];
+  classifications?: {
+    marketplaceId?: string;
+    classifications?: { displayName?: string; classificationId?: string }[];
+  }[];
 }
 
 /**
@@ -201,5 +205,45 @@ export async function resolverPadres(
     salida.set(asin, { ...p, titulo: d?.titulo ?? null, imagenUrl: d?.imagenUrl ?? null });
   }
 
+  return salida;
+}
+
+export interface FichaCatalogo {
+  /** links de las fotos: MAIN primero y luego PT01, PT02… (sin muestras de color) */
+  imagenes: string[];
+  /** el nodo de navegación de Amazon («Pantuflas», «Sandalias», «Botas»…) */
+  clasificacion: string | null;
+  titulo: string | null;
+}
+
+/**
+ * Fotos, clasificación y título de cada ASIN en UNA pasada (el catálogo de
+ * creadores de la tienda, 5-oct-2026): pedir los tres pedazos juntos cuesta
+ * lo mismo que pedir solo las fotos.
+ */
+export async function fichasDeCatalogo(cliente: Cliente, asins: string[]): Promise<Map<string, FichaCatalogo>> {
+  const salida = new Map<string, FichaCatalogo>();
+  for (const item of await porLotes(cliente, asins, "images,classifications,summaries")) {
+    const asin = item.asin;
+    if (!asin) continue;
+    const mejores = new Map<string, { link: string; area: number }>();
+    for (const img of delMarketplace(item.images, cliente.cuenta.marketplaceId)?.images ?? []) {
+      const variante = (img.variant ?? "").toUpperCase();
+      if (!img.link || !variante || variante === MUESTRA) continue;
+      const area = (img.width ?? 0) * (img.height ?? 0);
+      const previa = mejores.get(variante);
+      if (!previa || area > previa.area) mejores.set(variante, { link: img.link, area });
+    }
+    const imagenes = [...mejores.entries()]
+      .sort(([a], [b]) => (a === "MAIN" ? -1 : b === "MAIN" ? 1 : a.localeCompare(b)))
+      .map(([, v]) => v.link);
+    const clases = delMarketplace(item.classifications, cliente.cuenta.marketplaceId)?.classifications ?? [];
+    const resumen = delMarketplace(item.summaries, cliente.cuenta.marketplaceId);
+    salida.set(asin, {
+      imagenes,
+      clasificacion: clases.map((c) => (c.displayName ?? "").trim()).find(Boolean) ?? null,
+      titulo: resumen?.itemName?.trim() || null,
+    });
+  }
   return salida;
 }

@@ -870,3 +870,10 @@ h3 {
   align-items: baseline;
   flex-wrap: wrap;
 }
+.creador-seccion .titulo-catalogo {
+  scroll-margin-top: 80px;
+}
+.titulo-catalogo .suave {
+  font-size: 0.5em;
+  font-weight: 600;
+}
