@@ -364,6 +364,13 @@ export async function hacerCorte(
     sinDefensa?: boolean;
     /** corte por MODELO: solo los pedidos de UN solo modelo de esta lista; los revueltos se quedan para el corte general */
     soloModelos?: string[] | null;
+    /**
+     * false = NO unirse al corte de hoy del mismo filtro salvo que continúe
+     * uno «por tiempo» (la segunda tanda del corte lunes, que es de HOY y
+     * va aparte). Por omisión, un corte por modelo se une al de hoy del
+     * mismo modelo si nadie le ha preparado nada.
+     */
+    unirAlDeHoy?: boolean;
   },
 ): Promise<ResultadoCorte> {
   const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? MS_CORTE);
@@ -682,7 +689,9 @@ export async function hacerCorte(
 
   // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
   // une en vez de abrir otro (ver `corteQueContinua`).
-  const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos);
+  const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
+    sinExigirTiempo: soloModelos.length > 0 && opciones.unirAlDeHoy !== false,
+  });
   let corte: { id: number };
   let numero: number;
   let unido = false;
@@ -799,6 +808,7 @@ async function corteDeHoyQueContinua(
   orderIds: string[],
   /** filtro del corte que se está haciendo: solo se une a uno de hoy con el MISMO filtro */
   soloModelos: string[] = [],
+  opciones: { sinExigirTiempo?: boolean } = {},
 ): Promise<{ id: number; numero: number; pedidos: number; pares: number; errores: { orderId: string; error: string }[] } | null> {
   const ahora = new Date();
   // Desde las 00:00 de hoy en México (UTC−6 fijo, como `diaMx`).
@@ -827,6 +837,7 @@ async function corteDeHoyQueContinua(
     cortes.map((c) => ({ id: c.id, creadoEn: c.creado_en, errores: c.errores ?? [], preparados: preparados.get(c.id) ?? 0 })),
     orderIds,
     ahora,
+    opciones,
   );
   if (id == null) return null;
   const c = cortes.find((x) => x.id === id);
@@ -954,10 +965,13 @@ export async function hacerCorteLunes(
     };
   }
 
+  // Lo de HOY va en su propio corte aunque sea por modelo (regla del corte
+  // lunes): solo se uniría a uno que continúe «por tiempo».
   const segundo = await hacerCorte(admin, accountId, {
     ...opciones,
     soloPedidos: resto.map((p) => p.orderId),
     msDisponibles: restante,
+    unirAlDeHoy: false,
   });
   return { cortes: [primero, segundo], pendientes: contarSinTiempo(segundo.errores), aviso: null };
 }

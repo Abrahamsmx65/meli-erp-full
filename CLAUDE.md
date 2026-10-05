@@ -569,6 +569,14 @@ guárdala numerada.
   continuación por tiempo (`corteDeHoyQueContinua`) solo se une a un corte
   de hoy con el MISMO filtro: nunca se mezcla un corte de GT148 con uno
   general. El filtro se apaga solo al terminar, como «sin defensa».
+  **Un corte por modelo se UNE al de hoy del mismo modelo aunque no haya
+  nada «por tiempo»** (`corteQueContinua({ sinExigirTiempo })`,
+  `hacerCorte({ unirAlDeHoy })`; dueño, 5-oct-2026: el #51 «solo GT114» de
+  un pedido se abrió aparte del #50 «solo GT114» de 713 y se unió a mano
+  por SQL: «se armó por separado»): si nadie le ha preparado nada, dos
+  cortes del mismo modelo el mismo día son el mismo trabajo. La segunda
+  tanda del corte lunes (lo de HOY) pasa `unirAlDeHoy: false` y sigue
+  abriendo su propio corte.
   **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
   `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
   compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
