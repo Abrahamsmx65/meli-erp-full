@@ -9,6 +9,7 @@
  * El inventario que cuenta aquí es TODO el que existe:
  *
  *   en Full  +  viajando a Full  +  en cajas en bodega  +  en el barco
+ *   +  en FBA (y viajando a FBA)  +  libre en la bodega de TikTok
  *
  * Contar solo el de bodega haría pedir de más (lo de Full ya está comprado);
  * olvidar el del barco haría pedir dos veces lo mismo, que es el error caro
@@ -31,6 +32,7 @@ import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
 import type { LineaGuardada } from "./cache";
+import type { TikTokCompraSku } from "./tiktok-compras";
 
 export interface ParametrosCompra {
   /** días que tarda la fábrica en producir */
@@ -153,12 +155,19 @@ export interface RenglonCompra {
   ventaMesAmazon: number;
   /** venta mensual REALMENTE observada en Amazon (últimos 30 días, sin corrección) */
   ventaMesRealAmazon: number;
+  /**
+   * venta mensual de TikTok, la observada tal cual (últimos 30 días ÷ 30):
+   * por decisión del dueño NO se corrige por agotamiento ni por tendencia.
+   */
+  ventaMesTikTok: number;
   enFull: number;
   enTransferencia: number;
   enBodega: number;
   enCamino: number;
   /** stock en FBA + lo que viaja hacia FBA */
   enFba: number;
+  /** pares libres en la bodega de TikTok (saldo del kardex − apartado) */
+  enTikTok: number;
   inventarioTotal: number;
   /** días que aguanta el inventario actual */
   coberturaDias: number | null;
@@ -227,10 +236,14 @@ export interface DetalleSkuCompra {
   ventaMesAmazon: number;
   /** venta mensual realmente observada en Amazon (sin corrección) */
   ventaMesRealAmazon: number;
+  /** venta mensual de TikTok observada (sin corrección) */
+  ventaMesTikTok: number;
   /** stock en Full + lo que viaja hacia Full */
   enFull: number;
   /** stock en FBA + lo que de verdad viene en camino a FBA */
   enFba: number;
+  /** pares libres en la bodega de TikTok */
+  enTikTok: number;
   enBodega: number;
   /** lo que viene de China (pedidos vivos y contenedores) */
   deChina: number;
@@ -402,6 +415,11 @@ export async function sugerirCompra(
    * MELI deja corto todo lo que también vende en Amazon.
    */
   amazonPorSku?: Map<string, { ventaDiaria: number; stock: number; ventaDiariaReal?: number }>,
+  /**
+   * TikTok por SKU: venta diaria OBSERVADA (sin corrección, regla del
+   * dueño) y pares libres en su bodega. Tercer canal que surte el pedido.
+   */
+  tiktokPorSku?: Map<string, TikTokCompraSku>,
 ): Promise<SugerenciaCompra> {
   const p = { ...COMPRA_POR_DEFECTO, ...opciones };
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -468,11 +486,13 @@ export async function sugerirCompra(
     ventaMesReal: number;
     ventaMesAmazon: number;
     ventaMesRealAmazon: number;
+    ventaMesTikTok: number;
     enFull: number;
     enTransferencia: number;
     enBodega: number;
     enCamino: number;
     enFba: number;
+    enTikTok: number;
     demandaPorTalla: Map<string, number>;
     inventarioPorTalla: Map<string, number>;
   }
@@ -495,8 +515,10 @@ export async function sugerirCompra(
         ventaMesRealMeli: 0,
         ventaMesAmazon: 0,
         ventaMesRealAmazon: 0,
+        ventaMesTikTok: 0,
         enFull: 0,
         enFba: 0,
+        enTikTok: 0,
         enBodega: 0,
         deChina: 0,
         inventarioTotal: 0,
@@ -520,11 +542,13 @@ export async function sugerirCompra(
         ventaMesReal: 0,
         ventaMesAmazon: 0,
         ventaMesRealAmazon: 0,
+        ventaMesTikTok: 0,
         enFull: 0,
         enTransferencia: 0,
         enBodega: 0,
         enCamino: 0,
         enFba: 0,
+        enTikTok: 0,
         demandaPorTalla: new Map(),
         inventarioPorTalla: new Map(),
       };
@@ -605,8 +629,28 @@ export async function sugerirCompra(
     d.enFba += amz.stock;
   }
 
+  // TikTok: su venta OBSERVADA se suma a la demanda (sin corrección ni
+  // tendencia, regla del dueño del 5-oct-2026: «no es predecible») y lo
+  // libre en su bodega cuenta como inventario ya comprado.
+  for (const [sku, tt] of tiktokPorSku ?? []) {
+    const { modelo, color, talla } = partes(sku);
+    const g = grupo(modelo, color);
+    g.skus.add(sku);
+    g.demandaDiaria += tt.ventaDiaria;
+    g.ventaMesTikTok += tt.ventaDiaria * 30;
+    g.enTikTok += tt.stock;
+    if (talla) {
+      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + tt.ventaDiaria);
+      g.inventarioPorTalla.set(talla, (g.inventarioPorTalla.get(talla) ?? 0) + tt.stock);
+    }
+
+    const d = filaDetalle(sku, modelo, color, talla || "");
+    d.ventaMesTikTok += tt.ventaDiaria * 30;
+    d.enTikTok += tt.stock;
+  }
+
   // El faltante por SKU, con la misma aritmética del pedido: venta total
-  // (MELI corregida + Amazon) sobre el horizonte, menos TODO el inventario.
+  // (MELI corregida + Amazon + TikTok) sobre el horizonte, menos TODO el inventario.
   // Es la misma cuenta del Pedido 1, así que ambos deben cuadrar.
   const detalleSkus = [...detalle.values()]
     .map((d) => {
@@ -614,14 +658,16 @@ export async function sugerirCompra(
       d.ventaMesRealMeli = Math.round(d.ventaMesRealMeli);
       d.ventaMesAmazon = Math.round(d.ventaMesAmazon);
       d.ventaMesRealAmazon = Math.round(d.ventaMesRealAmazon);
+      d.ventaMesTikTok = Math.round(d.ventaMesTikTok);
       d.enFull = Math.round(d.enFull);
       d.enFba = Math.round(d.enFba);
+      d.enTikTok = Math.round(d.enTikTok);
       d.enBodega = Math.round(d.enBodega);
       d.deChina = Math.round(d.deChina);
-      d.inventarioTotal = d.enFull + d.enFba + d.enBodega + d.deChina;
+      d.inventarioTotal = d.enFull + d.enFba + d.enTikTok + d.enBodega + d.deChina;
       d.faltante = Math.max(
         0,
-        Math.round(((d.ventaMesMeli + d.ventaMesAmazon) / 30) * horizonte - d.inventarioTotal),
+        Math.round(((d.ventaMesMeli + d.ventaMesAmazon + d.ventaMesTikTok) / 30) * horizonte - d.inventarioTotal),
       );
       return d;
     })
@@ -637,7 +683,7 @@ export async function sugerirCompra(
   const hoy = new Date();
 
   for (const g of grupos.values()) {
-    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino + g.enFba;
+    const inventarioTotal = g.enFull + g.enTransferencia + g.enBodega + g.enCamino + g.enFba + g.enTikTok;
     const demanda = g.demandaDiaria;
 
     if (demanda < p.ventaMinimaDiaria && inventarioTotal === 0) continue;
@@ -738,11 +784,13 @@ export async function sugerirCompra(
       ventaMesReal: Math.round(g.ventaMesReal),
       ventaMesAmazon: Math.round(g.ventaMesAmazon),
       ventaMesRealAmazon: Math.round(g.ventaMesRealAmazon),
+      ventaMesTikTok: Math.round(g.ventaMesTikTok),
       enFull: Math.round(g.enFull),
       enTransferencia: Math.round(g.enTransferencia),
       enBodega: Math.round(g.enBodega),
       enCamino: Math.round(g.enCamino),
       enFba: Math.round(g.enFba),
+      enTikTok: Math.round(g.enTikTok),
       inventarioTotal: Math.round(inventarioTotal),
       coberturaDias: cobertura === null ? null : Number(cobertura.toFixed(1)),
       fechaQuiebre,

@@ -13,6 +13,7 @@ reparten** las cajas (corrida vs. unitalla).
 ## 2. El inventario que cuenta es TODO el que existe
 
     en Full + viajando a Full + en cajas en bodega + en FBA y viajando a FBA
+    + libre en la bodega de TikTok (saldo del kardex − apartado)
     + en el barco (pedidos cargados que no han llegado)
 
 - Contar solo la bodega pediría de más (lo de Full ya está comprado).
@@ -21,12 +22,19 @@ reparten** las cajas (corrida vs. unitalla).
 - Un pedido cargado cuenta como "en camino" hasta que su contenedor se
   marca recibido; lo que ya llegó lo trae el API de Industher como bodega.
 
-## 3. La demanda es la de los DOS canales
+## 3. La demanda es la de los TRES canales
 
 Demanda diaria del color = suma de la demanda corregida de sus SKUs en MELI
 (la misma del plan de Full: venta real ÷ días con stock, corregida por
-agotamiento) **+** la venta diaria de esos SKUs en Amazon. Pedir solo con
-MELI deja corto todo lo que también vende en FBA.
+agotamiento) **+** la venta diaria de esos SKUs en Amazon (corregida por
+agotamiento con las fotos de FBA) **+** la venta diaria de TikTok. Pedir
+solo con MELI deja corto todo lo que también vende en FBA y en TikTok.
+
+**TikTok entra TAL CUAL se vendió** (unidades de los últimos 30 días ÷ 30),
+sin corrección por agotamiento ni por tendencia. Decisión del dueño
+(5-oct-2026): «no quiero que me tomes eso de que subes las ventas según la
+tendencia porque no es predecible». Motor en
+`servicios/tiktok-compras.ts`.
 
 Un color que vende menos de `ventaMinimaDiaria` (0.1 pares al día) y no
 tiene inventario, no aparece.
@@ -91,7 +99,7 @@ antes de que llegue el pedido (cobertura < `umbralAgotamientoDias`),
 
 ## 8. Qué NO hace
 
-- No pide para TikTok (su bodega no existe para el calzado).
+- No corrige la venta de TikTok: entra la observada, punto (ver 3).
 - No estima demanda de productos sin venta: un producto nuevo entra por su
   venta real en cuanto la tiene.
 - No descuenta stock "a medias": el faltante es exacto siempre.
