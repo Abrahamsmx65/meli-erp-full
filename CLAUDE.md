@@ -153,6 +153,20 @@ guárdala numerada.
   (NEGRO)") y MELI/Amazon lo tienen como "BLK / RED", "BLK-BLK" o "BLK";
   sin paréntesis y con repetidos seguidos colapsados caen en el mismo lugar
   (verificado con GT134).
+- **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
+  la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
+  `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el
+  sistema no está tomando en cuenta lo que está pedido en China»): un
+  pedido que llega por partes dejaba de contar ENTERO en cuanto la bodega
+  reportaba la primera parte; el IN10079 (97,680 pares) tenía 31,272
+  recibidos y los 66,408 que siguen en el mar o en China no existían para
+  Bodega, Planificación China ni el catálogo (69,576 pares en total ese
+  día). Por pedido y modelo: pendiente = pedido − máx(cajas en contenedores
+  RECIBIDOS, físico de la bodega de ese pedido) − lo que la bodega ya
+  reporta en camino de ese pedido, repartido entre sus renglones por lo que
+  a cada uno le falta por contenedores. Un pedido que la bodega no conoce
+  cuenta completo, como antes; uno que ya llegó completo (aunque siga
+  abierto) no suma nada.
 - **Recibir un contenedor NO crea existencias.** El inventario de bodega llega
   del **API de Industher** (sincronización diaria en el cron y botón en
   /importar; llave en `INDUSTHER_API_KEY`); crear filas propias lo contaría dos
