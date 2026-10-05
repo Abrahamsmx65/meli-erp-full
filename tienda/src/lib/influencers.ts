@@ -26,6 +26,11 @@ export interface ProductoInfluencer {
   bullets: string[];
   colores: ColorInfluencer[];
   pares: number;
+  /** catálogo completo: pares en bodega y en el mar (de China) */
+  bodega?: number;
+  mar?: number;
+  /** catálogo completo: escondido desde el back del ERP */
+  oculto?: boolean;
 }
 
 export function armarCatalogoInfluencers(

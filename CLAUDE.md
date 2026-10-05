@@ -1348,6 +1348,21 @@ guárdala numerada.
   y la página lo lee (secciones por categoría, misma tarjeta y selección
   por WhatsApp que `/influencers`, sin existencia). Bitácora
   `tiktok_sync_log` tarea `catalogo-amazon`.
+  **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
+  menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
+  dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean
+  visibles y cuáles no, poner cantidad total entre stock en mi bodega y en
+  mar, y poder cambiar las categorías»): por modelo, la casilla «se ve»
+  (`tienda_catalogo_ajustes.oculto`, migración 0110; sin renglón = visible),
+  la CATEGORÍA, que se escribe en `productos_config` (la fuente única: la
+  ven también cortes y ventas; el costo no se toca), y los pares en
+  BODEGA (`enBodega`) y en el MAR (`enCamino`, lo que viene de China) de
+  `inventario_cache`, sumados por modelo (`stockPorModelo`). El renglón
+  `catalogo-amazon` lleva TODO (lo oculto también, con `oculto`, `bodega`,
+  `mar`); la página filtra lo oculto y enseña en cada tarjeta el total de
+  pares y su reparto. Al guardar, la ruta rearma el catálogo con lo ya
+  leído de Amazon sin preguntarle (`refrescarCatalogoAmazon({ soloArmar })`
+  en `after()`) y la tienda lo toma en 2 minutos.
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −

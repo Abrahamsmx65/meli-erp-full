@@ -192,10 +192,12 @@ async function leerCatalogoCompleto(): Promise<{ productos: ProductoInfluencer[]
     .maybeSingle();
   const d = (data as any)?.datos ?? {};
   return {
-    productos: Array.isArray(d.productos) ? (d.productos as ProductoInfluencer[]) : [],
+    // Lo escondido desde el back del ERP (/tiktok/catalogo) no se enseña.
+    productos: Array.isArray(d.productos) ? (d.productos as ProductoInfluencer[]).filter((p) => !p.oculto) : [],
     generado: typeof d.generado === "string" ? d.generado : null,
     pendientes: Number(d.asinsPendientes ?? 0) || 0,
   };
 }
 
-export const catalogoCompleto = unstable_cache(leerCatalogoCompleto, ["catalogo-completo"], { revalidate: 600 });
+// Dos minutos: un cambio en el back (ocultar, categoría) se ve pronto.
+export const catalogoCompleto = unstable_cache(leerCatalogoCompleto, ["catalogo-completo"], { revalidate: 120 });

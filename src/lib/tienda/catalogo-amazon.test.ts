@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparAmazon, armarCatalogoAmazon, esModeloVigente, SIN_CATEGORIA } from "./catalogo-amazon";
+import { agruparAmazon, armarCatalogoAmazon, esModeloVigente, SIN_CATEGORIA, stockPorModelo } from "./catalogo-amazon";
 
 const filas = [
   { seller_sku: "GT135-BEIGE-23-MX", asin: "B1", estado: "Inactive", titulo: "Zueco GETAC (Beige, measurement_23)" },
@@ -42,5 +42,21 @@ describe("catálogo completo desde Amazon", () => {
     expect(r[1].activo).toBe(true);
     const sinErp = armarCatalogoAmazon(m, fichas, new Map());
     expect(sinErp[1].categoria).toBe("Zuecos");
+  });
+
+  it("marca lo oculto y suma bodega y mar por modelo", () => {
+    const stock = stockPorModelo([
+      { sku: "GT135-BEIGE-23-MX", enBodega: 24, enCamino: 0 },
+      { sku: "GT135-BLK-24-MX", enBodega: 6, enCamino: 120 },
+      { sku: "GT128-BLK-23-MX", enBodega: -2, enCamino: 0 },
+    ]);
+    expect(stock.get("GT135")).toEqual({ bodega: 30, mar: 120 });
+    expect(stock.get("GT128")).toEqual({ bodega: 0, mar: 0 });
+    const fichas = new Map([["B2", { f: ["b.jpg"], c: null, t: null }], ["N1", { f: ["n.jpg"], c: null, t: null }]]);
+    const r = armarCatalogoAmazon(agruparAmazon(filas), fichas, new Map(), new Map(), { ocultos: new Set(["GT128"]), stock });
+    expect(r.map((p) => [p.modelo, p.oculto, p.bodega, p.mar])).toEqual([
+      ["GT128", true, 0, 0],
+      ["GT135", false, 30, 120],
+    ]);
   });
 });

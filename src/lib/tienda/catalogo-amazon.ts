@@ -119,6 +119,35 @@ export interface ProductoCatalogo {
   bullets: string[];
   colores: ColorCatalogo[];
   pares: number;
+  /** escondido desde el back (`tienda_catalogo_ajustes.oculto`): la página no lo enseña */
+  oculto: boolean;
+  /** pares en cajas cerradas en las bodegas (Industher, Caseshop, EnvioPack) */
+  bodega: number;
+  /** pares que vienen de China (en el mar) */
+  mar: number;
+}
+
+export interface StockModelo {
+  bodega: number;
+  mar: number;
+}
+
+/**
+ * Pares por modelo en bodega y en el mar, desde los renglones de
+ * `inventario_cache` (los mismos de Bodega y Planificación China). El
+ * modelo es el primer pedazo del SKU, igual que en Amazon.
+ */
+export function stockPorModelo(renglones: { sku: string; enBodega?: number; enCamino?: number }[]): Map<string, StockModelo> {
+  const m = new Map<string, StockModelo>();
+  for (const r of renglones) {
+    const modelo = String(r.sku ?? "").split("-")[0].trim().toUpperCase();
+    if (!modelo) continue;
+    const s = m.get(modelo) ?? { bodega: 0, mar: 0 };
+    s.bodega += Math.max(0, Number(r.enBodega) || 0);
+    s.mar += Math.max(0, Number(r.enCamino) || 0);
+    m.set(modelo, s);
+  }
+  return m;
 }
 
 /**
@@ -130,6 +159,7 @@ export function armarCatalogoAmazon(
   fichas: Map<string, FichaGuardada>,
   categoriaDe: Map<string, string | null>,
   tituloPadre: Map<string, string | null> = new Map(),
+  extras: { ocultos?: Set<string>; stock?: Map<string, StockModelo> } = {},
 ): ProductoCatalogo[] {
   const salida: ProductoCatalogo[] = [];
   for (const m of modelos) {
@@ -158,6 +188,9 @@ export function armarCatalogoAmazon(
       bullets: [],
       colores,
       pares: 0,
+      oculto: extras.ocultos?.has(m.modelo) ?? false,
+      bodega: extras.stock?.get(m.modelo)?.bodega ?? 0,
+      mar: extras.stock?.get(m.modelo)?.mar ?? 0,
     });
   }
   return salida;
