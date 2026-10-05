@@ -12,6 +12,7 @@
  */
 import { esModeloDeCalzado, nombreColorEspanol, partirSkuAmazon, tituloLimpio } from "../tiktok/publicar";
 import { compararTallas, elegirFotosPorColor } from "./catalogo";
+import { PARAMETROS_POR_OMISION, renglonesDePrecio, type ParametrosPrecioTikTok } from "../tiktok/precios";
 
 /** ASINs que se le preguntan al catálogo por color: con dos casi siempre hay una con fotos propias. */
 export const ASINS_POR_COLOR = 2;
@@ -114,8 +115,11 @@ export interface ProductoCatalogo {
   categoria: string;
   /** alguna talla activa en Amazon */
   activo: boolean;
-  precioDesde: null;
-  precioHasta: null;
+  /** el relámpago NORMAL de Precios para TikTok (lo que la tarjeta enseña) */
+  precioDesde: number | null;
+  precioHasta: number | null;
+  /** los tres niveles de Precios para TikTok; null sin relámpago de MELI ni «Mi precio» */
+  precios: PreciosTikTok | null;
   bullets: string[];
   colores: ColorCatalogo[];
   pares: number;
@@ -125,6 +129,52 @@ export interface ProductoCatalogo {
   bodega: number;
   /** pares que vienen de China (en el mar) */
   mar: number;
+}
+
+export interface PreciosTikTok {
+  live: number;
+  normal: number;
+  campana: number;
+}
+
+/**
+ * El precio que tendría cada modelo en TikTok según la lista de Precios
+ * para TikTok (dueño, 5-oct-2026: «aumentarle el precio que tendría en
+ * TikTok según la lista de precios que tenemos»): la MISMA cuenta que esa
+ * pantalla —relámpago de MELI (`meli_neto_relampago_por_modelo`), casilla
+ * «quitar 10.5 %» y «Mi precio», que manda— con los parámetros de omisión.
+ */
+export function preciosTikTokPorModelo(
+  relampago: { modelo: string; precio_relampago?: number | null; pares_relampago?: number | null; neto_relampago?: number | null }[],
+  objetivos: { modelo: string; precio?: number | null; quitar_retencion?: boolean | null }[],
+  p: ParametrosPrecioTikTok = PARAMETROS_POR_OMISION,
+): Map<string, PreciosTikTok> {
+  const entradas = new Map<string, Parameters<typeof renglonesDePrecio>[0][number]>();
+  const nueva = (modelo: string) =>
+    entradas.get(modelo) ?? { modelo, categoria: null, paresMeli: 0, netoMeli: 0, costo: null, precioTikTok: null };
+  for (const r of relampago) {
+    const modelo = String(r.modelo ?? "").toUpperCase();
+    if (!modelo) continue;
+    entradas.set(modelo, {
+      ...nueva(modelo),
+      precioRelampagoMeli: r.precio_relampago != null ? Number(r.precio_relampago) : null,
+      paresRelampago: Number(r.pares_relampago ?? 0) || 0,
+      netoRelampago: r.neto_relampago != null ? Number(r.neto_relampago) : null,
+    });
+  }
+  for (const o of objetivos) {
+    const modelo = String(o.modelo ?? "").toUpperCase();
+    if (!modelo) continue;
+    const precio = Number(o.precio);
+    entradas.set(modelo, { ...nueva(modelo), miPrecio: Number.isFinite(precio) && precio > 0 ? precio : null, quitarRetencion: Boolean(o.quitar_retencion) });
+  }
+  const salida = new Map<string, PreciosTikTok>();
+  for (const r of renglonesDePrecio([...entradas.values()], p)) {
+    if (!r.niveles) continue;
+    const de = (clave: string) => r.niveles!.find((n) => n.clave === clave)?.precio ?? 0;
+    salida.set(r.modelo, { live: de("live"), normal: de("normal"), campana: de("campana") });
+  }
+  return salida;
 }
 
 export interface StockModelo {
@@ -159,7 +209,7 @@ export function armarCatalogoAmazon(
   fichas: Map<string, FichaGuardada>,
   categoriaDe: Map<string, string | null>,
   tituloPadre: Map<string, string | null> = new Map(),
-  extras: { ocultos?: Set<string>; stock?: Map<string, StockModelo> } = {},
+  extras: { ocultos?: Set<string>; stock?: Map<string, StockModelo>; precios?: Map<string, PreciosTikTok> } = {},
 ): ProductoCatalogo[] {
   const salida: ProductoCatalogo[] = [];
   for (const m of modelos) {
@@ -183,8 +233,9 @@ export function armarCatalogoAmazon(
       titulo,
       categoria: (categoriaDe.get(m.modelo) ?? "").trim() || clasificacion || SIN_CATEGORIA,
       activo: m.colores.some((c) => c.activo),
-      precioDesde: null,
-      precioHasta: null,
+      precioDesde: extras.precios?.get(m.modelo)?.normal ?? null,
+      precioHasta: extras.precios?.get(m.modelo)?.normal ?? null,
+      precios: extras.precios?.get(m.modelo) ?? null,
       bullets: [],
       colores,
       pares: 0,

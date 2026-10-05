@@ -43,7 +43,11 @@ export default async function CatalogoCreadores() {
           <a href={`${urlTienda}/catalogo`} target="_blank" rel="noopener noreferrer" className="underline">
             la página del catálogo
           </a>{" "}
-          y en qué categoría sale. La categoría se guarda en Productos y costos. Bodega y mar salen de la vista de inventario (Bodega y
+          y en qué categoría sale. La categoría se guarda en Productos y costos. El precio es el de{" "}
+          <a href="/tiktok/precios" className="underline">
+            Precios para TikTok
+          </a>{" "}
+          (relámpago normal en la página; «Mi precio» manda). Bodega y mar salen de la vista de inventario (Bodega y
           Planificación China). Datos de {(data as any)?.generado_en ? new Date((data as any).generado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" }) : "—"};
           se actualizan cada hora y al guardar un cambio.
         </p>
