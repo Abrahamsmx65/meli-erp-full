@@ -102,6 +102,9 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
               <th className="px-4 py-2 font-semibold">Visible</th>
               <th className="px-4 py-2 font-semibold">Modelo</th>
               <th className="px-4 py-2 font-semibold">Categoría</th>
+              <th className="px-4 py-2 text-right font-semibold" title="De Precios para TikTok: relámpago normal (el que sale en la página); abajo live y campaña">
+                Precio TikTok
+              </th>
               <th className="px-4 py-2 text-right font-semibold">Bodega</th>
               <th className="px-4 py-2 text-right font-semibold">En el mar</th>
               <th className="px-4 py-2 text-right font-semibold">Total</th>
@@ -155,6 +158,20 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                     }}
                     className="w-48 rounded-lg border px-2 py-1 text-sm"
                   />
+                </td>
+                <td className="num px-4 py-2 text-right">
+                  {p.precios ? (
+                    <>
+                      <span className="font-semibold">${n(p.precios.normal)}</span>
+                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                        live ${n(p.precios.live)} · campaña ${n(p.precios.campana)}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-xs" style={{ color: "var(--ink-muted)" }} title="Sin relámpago de MELI en 30 días ni «Mi precio» en Precios para TikTok">
+                      sin precio
+                    </span>
+                  )}
                 </td>
                 <td className="num px-4 py-2 text-right">{n(p.bodega ?? 0)}</td>
                 <td className="num px-4 py-2 text-right">{n(p.mar ?? 0)}</td>

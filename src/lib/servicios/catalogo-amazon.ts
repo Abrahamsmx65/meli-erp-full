@@ -14,14 +14,17 @@
  *  · El resultado (`armarCatalogoAmazon`) va a `app_cache` clave
  *    `catalogo-amazon` y la tienda solo lee ese renglón. Lleva TODO, también
  *    lo oculto desde el back (`tienda_catalogo_ajustes`), con los pares en
- *    bodega y en el mar de `inventario_cache`; la página filtra lo oculto.
+ *    bodega y en el mar de `inventario_cache` y el precio que tendría en
+ *    TikTok según Precios para TikTok (`preciosTikTokPorModelo`, 30 días de
+ *    MELI como esa pantalla); la página filtra lo oculto.
  *  · `soloArmar` rearma con lo ya leído sin preguntarle nada a Amazon: lo
  *    usa el back al ocultar un modelo o cambiarle la categoría.
  */
 import { traerTodo } from "../datos/repos";
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
 import { fichasDeCatalogo } from "../amazon/catalogo";
-import { agruparAmazon, armarCatalogoAmazon, stockPorModelo, type FichaGuardada } from "../tienda/catalogo-amazon";
+import { agruparAmazon, armarCatalogoAmazon, preciosTikTokPorModelo, stockPorModelo, type FichaGuardada } from "../tienda/catalogo-amazon";
+import { fechaMx } from "./ventas-monitor";
 import { configPorProducto } from "./productos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 
@@ -52,7 +55,7 @@ export async function refrescarCatalogoAmazon(
 ): Promise<ResultadoCatalogoAmazon> {
   const inicio = Date.now();
   const avisos: string[] = [];
-  const [listings, padres, config, guardado, ajustes, inventario] = await Promise.all([
+  const [listings, padres, config, guardado, ajustes, inventario, relampago, objetivos] = await Promise.all([
     traerTodo<any>(admin, "amazon_listings", "seller_sku, asin, estado, titulo", (q) => q.order("seller_sku", { ascending: true })),
     traerTodo<any>(admin, "amazon_padres", "asin, titulo, parent_asin", (q) => q.order("asin", { ascending: true })).catch(() => [] as any[]),
     configPorProducto(admin, accountId).catch(() => new Map()),
@@ -66,7 +69,16 @@ export async function refrescarCatalogoAmazon(
       .eq("account_id", accountId)
       .maybeSingle()
       .then((r: any) => (Array.isArray(r?.data?.renglones) ? r.data.renglones : null)),
+    // Lo mismo que lee Precios para TikTok (30 días de MELI por omisión).
+    admin
+      .rpc("meli_neto_relampago_por_modelo", { p_account: accountId, p_desde: fechaMx(29) })
+      .then((r: any) => (r?.error ? null : ((r?.data ?? []) as any[]))),
+    traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", accountId).order("modelo", { ascending: true })).catch(
+      () => [] as any[],
+    ),
   ]);
+  if (!relampago) avisos.push("Sin el relámpago de MELI: solo salen los precios capturados en «Mi precio».");
+  const precios = preciosTikTokPorModelo(relampago ?? [], objetivos ?? []);
   if (!inventario) avisos.push("Sin la vista de inventario: bodega y mar salen en cero.");
   const ocultos = new Set<string>((ajustes ?? []).filter((a: any) => a.oculto).map((a: any) => String(a.modelo).toUpperCase()));
   const stock = stockPorModelo(inventario ?? []);
@@ -115,7 +127,7 @@ export async function refrescarCatalogoAmazon(
   for (const p of padres ?? []) tituloPadre.set(p.asin, p.titulo ?? (p.parent_asin ? (tituloDeParent.get(p.parent_asin) ?? null) : null));
 
   const mapa = new Map<string, FichaGuardada>(Object.entries(fichas.asins));
-  const productos = armarCatalogoAmazon(modelos, mapa, categoriaDe, tituloPadre, { ocultos, stock });
+  const productos = armarCatalogoAmazon(modelos, mapa, categoriaDe, tituloPadre, { ocultos, stock, precios });
   const pendientes = Math.max(0, porLeer.length - leidos);
   await guardarCacheApp(
     admin,

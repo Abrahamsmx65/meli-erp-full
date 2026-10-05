@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agruparAmazon, armarCatalogoAmazon, esModeloVigente, SIN_CATEGORIA, stockPorModelo } from "./catalogo-amazon";
+import { agruparAmazon, armarCatalogoAmazon, esModeloVigente, preciosTikTokPorModelo, SIN_CATEGORIA, stockPorModelo } from "./catalogo-amazon";
 
 const filas = [
   { seller_sku: "GT135-BEIGE-23-MX", asin: "B1", estado: "Inactive", titulo: "Zueco GETAC (Beige, measurement_23)" },
@@ -58,5 +58,22 @@ describe("catálogo completo desde Amazon", () => {
       ["GT128", true, 0, 0],
       ["GT135", false, 30, 120],
     ]);
+  });
+
+  it("pone el precio de la lista de TikTok: «Mi precio» manda, si no el relámpago de MELI", () => {
+    const precios = preciosTikTokPorModelo(
+      [
+        { modelo: "GT135", precio_relampago: 299, pares_relampago: 40, neto_relampago: 220 },
+        { modelo: "GT128", precio_relampago: 399, pares_relampago: 10, neto_relampago: 300 },
+      ],
+      [{ modelo: "GT128", precio: 450, quitar_retencion: false }],
+    );
+    expect(precios.get("GT128")?.normal).toBe(450);
+    const gt135 = precios.get("GT135")!;
+    expect(gt135.live).toBeLessThan(gt135.normal);
+    expect(gt135.campana).toBeGreaterThan(gt135.normal);
+    const fichas = new Map([["B2", { f: ["b.jpg"], c: null, t: null }]]);
+    const r = armarCatalogoAmazon(agruparAmazon(filas), fichas, new Map(), new Map(), { precios });
+    expect(r.find((p) => p.modelo === "GT135")).toMatchObject({ precioDesde: gt135.normal, precios: gt135 });
   });
 });

@@ -1,8 +1,10 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { refrescarCatalogoAmazon } from "@/lib/servicios/catalogo-amazon";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * Lo que se decide por modelo para el precio de TikTok (el dueño o el rol de
@@ -35,6 +37,8 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = clienteAdmin();
+  // El catálogo para creadores enseña el precio de esta lista: se rearma (sin Amazon).
+  after(() => refrescarCatalogoAmazon(admin, cuenta.id, 50_000, { soloArmar: true }).catch(() => undefined));
   const { data: actual } = await admin
     .from("tiktok_precios_objetivo")
     .select("precio, quitar_retencion")

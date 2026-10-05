@@ -1363,6 +1363,15 @@ guárdala numerada.
   pares y su reparto. Al guardar, la ruta rearma el catálogo con lo ya
   leído de Amazon sin preguntarle (`refrescarCatalogoAmazon({ soloArmar })`
   en `after()`) y la tienda lo toma en 2 minutos.
+  **PRECIO DE TIKTOK en el catálogo** (`preciosTikTokPorModelo`; dueño,
+  5-oct-2026: «aumentarle el precio que tendría en TikTok según la lista de
+  precios que tenemos»): la MISMA cuenta de Precios para TikTok
+  (`renglonesDePrecio` con `PARAMETROS_POR_OMISION`, relámpago de MELI de
+  30 días por `meli_neto_relampago_por_modelo`, casilla «quitar 10.5 %» y
+  «Mi precio», que manda). La tarjeta enseña el relámpago NORMAL
+  (`precioDesde`) y el back los tres niveles; un modelo sin relámpago ni
+  «Mi precio» sale sin precio. Guardar en Precios para TikTok también
+  rearma el catálogo (`after()` en `/api/tiktok/precios`).
 - **La ganancia de MELI se cuenta con dinero real, orden por orden**
   (`corte-meli.ts`, `/ventas/cortes`): neto DEPOSITADO por Mercado Pago
   (`ordenes_neto.neto`, ya sin comisión, envío de Full ni retenciones) −
