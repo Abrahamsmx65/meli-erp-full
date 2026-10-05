@@ -25,6 +25,9 @@ interface Renglon {
   ventaMesReal: number;
   ventaMesAmazon: number;
   ventaMesRealAmazon?: number;
+  /** venta observada de TikTok (sin corrección); los planes viejos no la traen */
+  ventaMesTikTok?: number;
+  enTikTok?: number;
 }
 
 function n(x: number): string {
@@ -52,11 +55,13 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
         bodega: number;
         meli: number;
         amazon: number;
+        tiktok: number;
         china: number;
         vMeli: number;
         vAmz: number;
         vReal: number;
         vAmzReal: number;
+        vTt: number;
       }
     >();
     // El modelo se suma COMPLETO, con todos sus colores — también los que no
@@ -66,18 +71,20 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
     for (const r of renglones) {
       const m =
         porModelo.get(r.modelo) ??
-        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0 };
+        { colores: [], cajas: 0, pares: 0, bodega: 0, meli: 0, amazon: 0, tiktok: 0, china: 0, vMeli: 0, vAmz: 0, vReal: 0, vAmzReal: 0, vTt: 0 };
       m.colores.push(r);
       m.cajas += r.cajasSugeridas;
       m.pares += r.paresSugeridos;
       m.bodega += r.enBodega;
       m.meli += r.enFull + r.enTransferencia;
       m.amazon += r.enFba;
+      m.tiktok += r.enTikTok ?? 0;
       m.china += r.enCamino;
       m.vMeli += r.ventaMes;
       m.vAmz += r.ventaMesAmazon;
       m.vReal += r.ventaMesReal ?? r.ventaMes;
       m.vAmzReal += r.ventaMesRealAmazon ?? r.ventaMesAmazon;
+      m.vTt += r.ventaMesTikTok ?? 0;
       porModelo.set(r.modelo, m);
     }
     return (
@@ -119,6 +126,9 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
             <th className="num">Bodega</th>
             <th className="num">MELI</th>
             <th className="num">Amazon</th>
+            <th className="num" title="Pares libres en la bodega de TikTok (saldo del kardex menos apartados)">
+              TikTok
+            </th>
             <th className="num">De China</th>
             <th
               className="num"
@@ -140,6 +150,12 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
               title="Venta de Amazon corregida por agotamiento con las fotos diarias del inventario FBA (la que usa el cálculo)"
             >
               Vta AMZ/mes
+            </th>
+            <th
+              className="num"
+              title="Unidades vendidas en TikTok en los últimos 30 días. Entra tal cual al cálculo: sin corrección por agotamiento ni tendencia (decisión del dueño)"
+            >
+              Vta TikTok/mes
             </th>
             <th className="num">Cajas a pedir</th>
             <th className="num">Pares</th>
@@ -163,6 +179,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 <td className="num cifra">{n(m.bodega)}</td>
                 <td className="num cifra">{n(m.meli)}</td>
                 <td className="num cifra">{n(m.amazon)}</td>
+                <td className="num cifra">{n(m.tiktok)}</td>
                 <td className="num cifra" style={{ color: "var(--ink-2)" }}>
                   {m.china ? n(m.china) : "—"}
                 </td>
@@ -198,6 +215,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 >
                   {n(m.vAmz)}
                 </td>
+                <td className="num cifra">{n(m.vTt)}</td>
                 <td className="num cifra font-semibold">{n(m.cajas)}</td>
                 <td className="num cifra">{n(m.pares)}</td>
                 <td className="text-right">
@@ -231,7 +249,7 @@ function DetalleColor({ r }: { r: Renglon }) {
 
   return (
     <tr style={{ background: "var(--surface-2)" }}>
-      <td colSpan={13} className="p-4">
+      <td colSpan={15} className="p-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-semibold">{r.color || "(sin color)"}</span>
@@ -240,9 +258,10 @@ function DetalleColor({ r }: { r: Renglon }) {
             </span>
             <span className="text-xs" style={{ color: "var(--ink-2)" }}>
               bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
-              {n(r.enFba)} · de China {n(r.enCamino)} · vendió {n(r.ventaMesReal ?? r.ventaMes)}{" "}
-              MELI + {n(r.ventaMesRealAmazon ?? r.ventaMesAmazon)} AMZ real / usa{" "}
-              {n(r.ventaMes)} + {n(r.ventaMesAmazon)} al mes
+              {n(r.enFba)} · TikTok {n(r.enTikTok ?? 0)} · de China {n(r.enCamino)} · vendió{" "}
+              {n(r.ventaMesReal ?? r.ventaMes)} MELI + {n(r.ventaMesRealAmazon ?? r.ventaMesAmazon)} AMZ
+              + {n(r.ventaMesTikTok ?? 0)} TikTok real / usa {n(r.ventaMes)} + {n(r.ventaMesAmazon)} +{" "}
+              {n(r.ventaMesTikTok ?? 0)} al mes
             </span>
             {r.unitallas.length ? (
               <span className="text-sm" style={{ color: "var(--acento)" }}>

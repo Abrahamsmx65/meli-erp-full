@@ -4,6 +4,7 @@ import {
   faltantesPorRegimen,
   paresPorCajaNormalizado,
   repartirCorrida,
+  sugerirCompra,
 } from "./compras";
 
 describe("corrida propuesta", () => {
@@ -166,5 +167,53 @@ describe("opción 2: pedido solo según la venta (sin descontar stock)", () => {
     // se reparte en corrida a partes iguales (12/12 en 24).
     expect(pedido.unitallas).toEqual([{ talla: "25", cajas: 5 }]);
     expect(pedido.corridaPropuesta).toEqual({ "26": 12, "27": 12 });
+  });
+});
+
+describe("sugerirCompra con TikTok como tercer canal", () => {
+  const skus = [
+    { sku: "GT148-BLK-24-MX", modelo: "GT148", color: "BLK", talla: "24" },
+    { sku: "GT148-BLK-25-MX", modelo: "GT148", color: "BLK", talla: "25" },
+  ];
+  const corridas = [{ pedido: "IN10172", modelo: "GT148", color: "BLK", tallas: { "24": 24, "25": 24 }, total: 48 }];
+  const dbMuda = {} as any;
+
+  it("la venta de TikTok suma a la demanda y su bodega libre cuenta como inventario", async () => {
+    const r = await sugerirCompra(
+      dbMuda,
+      "cuenta",
+      [],
+      new Map(),
+      undefined,
+      { corridas, skus },
+      undefined,
+      new Map([
+        ["GT148-BLK-24-MX", { ventaDiaria: 2, stock: 30 }],
+        ["GT148-BLK-25-MX", { ventaDiaria: 1, stock: 0 }],
+      ]),
+    );
+    const g = r.renglones.find((x) => x.modelo === "GT148" && x.color === "BLK")!;
+    expect(g.demandaDiaria).toBe(3);
+    expect(g.ventaMesTikTok).toBe(90);
+    expect(g.enTikTok).toBe(30);
+    expect(g.inventarioTotal).toBe(30);
+    // Horizonte 180 días: 3 × 180 = 540 − 30 = 510 pares de faltante, por talla exacto.
+    expect(g.faltante).toBe(510);
+    expect(g.faltantePorTalla).toEqual({ "24": 2 * 180 - 30, "25": 1 * 180 });
+    expect(g.cajasSugeridas).toBeGreaterThan(0);
+
+    const d24 = r.detalleSkus.find((d) => d.sku === "GT148-BLK-24-MX")!;
+    expect(d24.ventaMesTikTok).toBe(60);
+    expect(d24.enTikTok).toBe(30);
+    expect(d24.inventarioTotal).toBe(30);
+    expect(d24.faltante).toBe(2 * 180 - 30);
+  });
+
+  it("sin TikTok el cálculo es el de siempre", async () => {
+    const r = await sugerirCompra(dbMuda, "cuenta", [], new Map([["GT148-BLK-24-MX", { enFull: 10, enTransferencia: 0, enBodega: 0, enCamino: 0 }]]), undefined, { corridas, skus });
+    const g = r.renglones.find((x) => x.modelo === "GT148")!;
+    expect(g.ventaMesTikTok).toBe(0);
+    expect(g.enTikTok).toBe(0);
+    expect(g.inventarioTotal).toBe(10);
   });
 });

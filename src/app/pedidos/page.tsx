@@ -10,6 +10,7 @@ import { sugerirCompra } from "@/lib/servicios/compras";
 import { Ficha } from "@/components/tiles";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
 import { amazonParaCompras } from "@/lib/servicios/fba";
+import { tiktokParaCompras } from "@/lib/servicios/tiktok-compras";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -44,7 +45,7 @@ export default async function Pedidos() {
   // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
   // hay en todos lados (inventario) y qué ya está pedido (pedidos).
   const t = cronometro("/pedidos");
-  const [planEstado, inventario, pedidos, amazonEstado] = await Promise.all([
+  const [planEstado, inventario, pedidos, amazonEstado, tiktokEstado] = await Promise.all([
     t.medir("plan", obtenerPlan(supabase, cuenta.id)),
     t.medir("inventario", cargarInventario(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
@@ -58,6 +59,8 @@ export default async function Pedidos() {
           disponible: false,
         })),
     ),
+    // TikTok: venta observada tal cual y lo libre en su bodega. Tercer canal.
+    t.medir("tiktok", tiktokParaCompras(supabase, cuenta.id)),
   ]);
 
   const inventarioPorSku = new Map(
@@ -78,7 +81,7 @@ export default async function Pedidos() {
   // los insumos que cambian sin aviso (las sumas de Amazon del cron).
   const compra = await t.medir(
     "compra",
-    amazonEstado.advertencias.length || !amazonEstado.disponible
+    amazonEstado.advertencias.length || !amazonEstado.disponible || !tiktokEstado.disponible
       ? sugerirCompra(
           supabase,
           cuenta.id,
@@ -87,8 +90,10 @@ export default async function Pedidos() {
           undefined,
           inventario.crudos,
           amazonEstado.datos,
+          tiktokEstado.datos,
         )
-      : conCacheApp(supabase, cuenta.id, "compras-china", 30 * 60_000, () =>
+      : // La clave cambia con la receta: lo guardado sin TikTok no sirve.
+        conCacheApp(supabase, cuenta.id, "compras-china:v2", 30 * 60_000, () =>
           sugerirCompra(
             supabase,
             cuenta.id,
@@ -97,6 +102,7 @@ export default async function Pedidos() {
             undefined,
             inventario.crudos,
             amazonEstado.datos,
+            tiktokEstado.datos,
           ),
         ),
   );
@@ -121,8 +127,8 @@ export default async function Pedidos() {
         <h1 className="titulo-pagina">Pedidos a China</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
           Qué conviene pedir, mirando al mismo tiempo lo que se vende en Mercado
-          Libre, lo que hay en Full, lo que hay en bodega y lo que ya viene en el
-          barco. Los pedidos se cargan y se ven en{" "}
+          Libre, Amazon y TikTok, lo que hay en Full, FBA y la bodega de TikTok,
+          lo que hay en bodega y lo que ya viene en el barco. Los pedidos se cargan y se ven en{" "}
           <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
             Cargar pedidos
           </Link>
@@ -166,6 +172,25 @@ export default async function Pedidos() {
           datos disponibles y puede cambiar cuando se recupere la lectura.
           <ul className="mt-1 list-disc pl-5">
             {amazonEstado.advertencias.map((mensaje) => (
+              <li key={mensaje}>{mensaje}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {tiktokEstado.advertencias.length ? (
+        <div
+          role="alert"
+          className="rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
+            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
+          }}
+        >
+          <strong>TikTok no está completo.</strong> La recomendación se calculó sin su venta ni
+          su bodega y saldría corta en lo que también se vende ahí.
+          <ul className="mt-1 list-disc pl-5">
+            {tiktokEstado.advertencias.map((mensaje) => (
               <li key={mensaje}>{mensaje}</li>
             ))}
           </ul>

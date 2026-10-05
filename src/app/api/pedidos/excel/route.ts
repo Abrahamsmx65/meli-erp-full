@@ -6,6 +6,7 @@ import { obtenerPlan } from "@/lib/servicios/cache";
 import { cargarInventario } from "@/lib/servicios/inventario";
 import { sugerirCompra } from "@/lib/servicios/compras";
 import { amazonParaCompras } from "@/lib/servicios/fba";
+import { tiktokParaCompras } from "@/lib/servicios/tiktok-compras";
 import { aISO } from "@/lib/engine/fechas";
 
 export const dynamic = "force-dynamic";
@@ -50,11 +51,13 @@ export async function GET(request: NextRequest) {
   let planEstado;
   let inventario;
   let amazonEstado;
+  let tiktokEstado;
   try {
-    [planEstado, inventario, amazonEstado] = await Promise.all([
+    [planEstado, inventario, amazonEstado, tiktokEstado] = await Promise.all([
       obtenerPlan(supabase, cuenta.id),
       cargarInventario(supabase, cuenta.id),
       amazonParaCompras(supabase),
+      tiktokParaCompras(supabase, cuenta.id),
     ]);
   } catch (err) {
     return NextResponse.json(
@@ -68,6 +71,16 @@ export async function GET(request: NextRequest) {
         error:
           "No se generó el Excel porque los datos de Amazon están incompletos. Intenta de nuevo cuando se recupere la lectura.",
         detalles: amazonEstado.advertencias,
+      },
+      { status: 503 },
+    );
+  }
+  if (!tiktokEstado.disponible) {
+    return NextResponse.json(
+      {
+        error:
+          "No se generó el Excel porque no se pudo leer TikTok: el pedido saldría corto en lo que también se vende ahí.",
+        detalles: tiktokEstado.advertencias,
       },
       { status: 503 },
     );
@@ -93,6 +106,7 @@ export async function GET(request: NextRequest) {
     undefined,
     inventario.crudos,
     amazonEstado.datos,
+    tiktokEstado.datos,
   );
 
   // Opción 1 (descontando stock) y opción 2 (solo venta) traen listas
@@ -278,8 +292,10 @@ export async function GET(request: NextRequest) {
     { header: "Vendido MELI 30 días (real)", key: "vReal", width: 21 },
     { header: "Venta AMZ/mes (usada)", key: "vAmz", width: 18 },
     { header: "Vendido AMZ 30 días (real)", key: "vAmzReal", width: 20 },
+    { header: "Vendido TikTok 30 días (usada tal cual)", key: "vTt", width: 24 },
     { header: "Stock Full (+camino)", key: "full", width: 17 },
     { header: "Stock FBA (+camino)", key: "fba", width: 17 },
+    { header: "Stock TikTok (libre)", key: "tt", width: 16 },
     { header: "Bodega", key: "bodega", width: 10 },
     { header: "De China", key: "china", width: 10 },
     { header: "Inventario total", key: "inv", width: 14 },
@@ -298,8 +314,10 @@ export async function GET(request: NextRequest) {
       vReal: d.ventaMesRealMeli,
       vAmz: d.ventaMesAmazon,
       vAmzReal: d.ventaMesRealAmazon,
+      vTt: d.ventaMesTikTok,
       full: d.enFull,
       fba: d.enFba,
+      tt: d.enTikTok,
       bodega: d.enBodega,
       china: d.deChina,
       inv: d.inventarioTotal,
