@@ -366,7 +366,7 @@ export async function hacerCorte(
     soloModelos?: string[] | null;
   },
 ): Promise<ResultadoCorte> {
-  const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? 240_000);
+  const cliente = await clienteDeCuenta(admin, accountId, opciones.msDisponibles ?? MS_CORTE);
   if (!cliente || !cliente.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
 
   const todos = await pendientesDeCorte(admin, accountId);
@@ -874,7 +874,13 @@ export interface ResultadoCorteLunes {
 }
 
 /** Tiempo total que se puede gastar en los dos cortes (el techo de Vercel es 300 s). */
-const MS_CORTE_LUNES = 260_000;
+/**
+ * Cuánto rato tiene un corte con TikTok. La función vive 800 s (Fluid
+ * compute, plan Pro; antes 300): se dejan ~60 s para guardar el corte,
+ * releer y mandar las salidas al 3PL.
+ */
+const MS_CORTE = 740_000;
+const MS_CORTE_LUNES = 760_000;
 
 /**
  * El corte del lunes, partido en dos.

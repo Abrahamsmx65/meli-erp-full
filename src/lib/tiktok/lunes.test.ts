@@ -125,6 +125,15 @@ describe("un corte que continúa otro se le une", () => {
       { orderId: "b", error: "TikTok lo rechazó" },
     ]);
   });
+  it("al unir, un pedido reintentado no repite su error viejo (stock en duda en cada ronda)", () => {
+    const viejos = [{ orderId: "d", error: "Stock en duda de X" }, { orderId: "e", error: "Stock en duda de X" }, { orderId: "", error: "nota" }];
+    const nuevos = [{ orderId: "d", error: "Stock en duda de X" }];
+    expect(erroresAlUnir(viejos, nuevos, ["d", "f"])).toEqual([
+      { orderId: "e", error: "Stock en duda de X" },
+      { orderId: "", error: "nota" },
+      { orderId: "d", error: "Stock en duda de X" },
+    ]);
+  });
 });
 
 describe("hayQueSeguir: el corte se relanza solo mientras deje pedidos por tiempo y avance", () => {

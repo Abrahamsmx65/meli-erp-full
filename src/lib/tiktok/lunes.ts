@@ -132,9 +132,12 @@ export function corteQueContinua(cortes: CorteContinuable[], orderIds: string[],
 }
 
 /**
- * Los errores del corte unido: los «se acabó el tiempo» de los pedidos
- * que esta vez SÍ se intentaron se quitan (ya tienen su resultado nuevo,
- * bueno o malo) y lo nuevo se agrega al final.
+ * Los errores del corte unido: TODO lo viejo de los pedidos que esta vez
+ * SÍ se intentaron se quita (ya tienen su resultado nuevo, bueno o malo) y
+ * lo nuevo se agrega al final. Antes solo se quitaba el «se acabó el
+ * tiempo» y un pedido con stock en duda se repetía en cada ronda: el #49
+ * del 5-oct-2026 decía 56 «stock en duda» por 26 pedidos. Las NOTAS del
+ * corte (sin pedido) se quedan.
  */
 export function erroresAlUnir(
   viejos: { orderId: string; error: string }[],
@@ -142,7 +145,7 @@ export function erroresAlUnir(
   intentados: Iterable<string>,
 ): { orderId: string; error: string }[] {
   const ahora = new Set(intentados);
-  const quedan = (viejos ?? []).filter((e) => !(e.orderId && e.error === ERROR_SIN_TIEMPO && ahora.has(e.orderId)));
+  const quedan = (viejos ?? []).filter((e) => !(e.orderId && ahora.has(e.orderId)));
   return [...quedan, ...(nuevos ?? [])];
 }
 
