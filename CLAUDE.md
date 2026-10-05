@@ -1379,7 +1379,10 @@ guárdala numerada.
   filtra lo oculto y enseña en cada tarjeta, ARRIBA de la foto, SOLO el
   total («N pares en stock»; dueño, 5-oct-2026: «no me interesa cuánto hay
   en detalle ni colores, solo arriba que diga cuánto hay en total»); el
-  desglose queda en el back. Al guardar, la ruta rearma el catálogo con lo ya
+  desglose queda en el back. **Cada vez que el latido recalcula la vista de
+  inventario, rearma también el catálogo** (`soloArmar`, sin Amazon; el
+  GT213 se quedó en 0 con 1,200 pares en camino porque el catálogo se armó
+  un minuto antes que el inventario). Al guardar, la ruta rearma el catálogo con lo ya
   leído de Amazon sin preguntarle (`refrescarCatalogoAmazon({ soloArmar })`
   en `after()`) y la tienda lo toma en 2 minutos.
   **PRECIO DE TIKTOK en el catálogo** (`preciosTikTokPorModelo`; dueño,

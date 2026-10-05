@@ -271,6 +271,18 @@ export async function latido(
         if (!inv || inv.vigente === false || viejo) {
           const { recalcularInventario } = await import("./inventario");
           await recalcularInventario(admin, accountId);
+          // El catálogo para creadores enseña bodega + China + TikTok de esta
+          // vista: se rearma en el acto (sin Amazon), no hasta su cron de cada
+          // hora (5-oct-2026: el GT213 seguía en 0 con 1,200 pares en camino
+          // porque el catálogo se armó un minuto antes que el inventario).
+          if (Date.now() < limite - 15_000) {
+            try {
+              const { refrescarCatalogoAmazon } = await import("./catalogo-amazon");
+              await refrescarCatalogoAmazon(admin, accountId, Math.max(5_000, limite - Date.now() - 10_000), { soloArmar: true });
+            } catch (err) {
+              console.error("catalogo-amazon tras inventario:", (err as Error).message);
+            }
+          }
         }
       } catch (err) {
         console.error("recalcularInventario:", (err as Error).message);
