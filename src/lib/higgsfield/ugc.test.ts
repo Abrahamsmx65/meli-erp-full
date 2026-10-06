@@ -175,6 +175,39 @@ describe("motor de conceptos UGC", () => {
     expect(ids.has("con-que-me-las-pongo")).toBe(true);
   });
 
+  it("unas BOTAS antiderrapantes o térmicas no hablan de la regadera ni del sillón", () => {
+    for (const semilla of Array.from({ length: 40 }, (_, i) => i / 40)) {
+      const anti = armarConceptoUGC({
+        tipo: "bota",
+        genero: "mujer",
+        semilla,
+        texto: "Bota Dama Suela Antiderrapante",
+        largo: true,
+      });
+      expect(anti.guionSugerido).not.toMatch(/regadera|cocina|en mi casa|jabón/i);
+      const termica = armarConceptoUGC({
+        tipo: "bota",
+        genero: "mujer",
+        semilla,
+        texto: "Bota Térmica con Borrega Invierno",
+        largo: true,
+      });
+      expect(termica.guionSugerido).not.toMatch(/sillón|a la cama|té caliente|piso helado/i);
+    }
+    // Y en una PANTUFLA antiderrapante la regadera sí tiene sentido: el
+    // material de casa sigue vivo para los tipos de casa.
+    const deCasa = Array.from({ length: 80 }, (_, i) =>
+      armarConceptoUGC({
+        tipo: "pantufla",
+        genero: "mujer",
+        semilla: i / 80,
+        texto: "Pantufla antiderrapante de borrega",
+        largo: true,
+      }).guionSugerido,
+    );
+    expect(deCasa.some((g) => /regadera|cocina|patio|en mi casa/i.test(g))).toBe(true);
+  });
+
   it("los guiones cortos también hablan de moda una buena parte de las veces", () => {
     const conEstilo = Array.from({ length: 200 }, (_, i) =>
       armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: i / 200 }),

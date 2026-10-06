@@ -94,6 +94,20 @@ const CONFLICTOS_RASGO: Record<string, string[]> = {
   calor: ["frio", "navidad"],
 };
 
+/**
+ * El material de algunos rasgos cambia si el calzado vive en la CASA o en la
+ * CALLE: «en mi casa ya nadie patina» (regadera, cocina) está bien en una
+ * pantufla antiderrapante, pero en unas BOTAS antiderrapantes suena absurdo
+ * (6-oct-2026: «mete cosas de regadera con botas»). Las pantuflas y las
+ * sandalias de agua usan la versión de casa; todo lo demás, la de calle.
+ */
+const TIPOS_DE_CASA: TipoCalzado[] = ["pantufla", "sandalia_agua"];
+
+function clavesDeRasgos(rasgos: string[], tipo: TipoCalzado): string[] {
+  if (TIPOS_DE_CASA.includes(tipo)) return rasgos;
+  return rasgos.map((r) => (r === "antiderrapante" || r === "frio" ? `${r}_calle` : r));
+}
+
 /** GANCHOS originales por rasgo (los primeros 2 segundos del guion). */
 const GANCHOS_RASGO: Record<string, string[]> = {
   frio: [
@@ -103,6 +117,15 @@ const GANCHOS_RASGO: Record<string, string[]> = {
     "Mis pies no vuelven a pasar frío este año, lo juré.",
     "Diciembre a las 6 de la mañana no me vuelve a agarrar desprevenida.",
     "¿Sienten ese friíto? Yo ya no.",
+  ],
+  // Versión de CALLE del mismo rasgo: unas botas térmicas no viven en el
+  // sillón de la casa.
+  frio_calle: [
+    "Bajó la temperatura y yo subí de nivel.",
+    "El frío llegó sin avisar; yo sí estaba preparada.",
+    "Salir temprano con frío ya no es sufrimiento.",
+    "Diciembre a las 6 de la mañana no me vuelve a agarrar desprevenida.",
+    "Mis pies no vuelven a pasar frío este año, lo juré.",
   ],
   calor: [
     "Con este calorón, esto es lo ÚNICO que aguanto en los pies.",
@@ -145,6 +168,12 @@ const GANCHOS_RASGO: Record<string, string[]> = {
     "El resbalón que NO me di, gracias a esto.",
     "En mi casa ya nadie patina, y les digo por qué.",
   ],
+  // Antiderrapante de CALLE: banqueta y lluvia, no la regadera de la casa.
+  antiderrapante_calle: [
+    "El resbalón que NO me di, gracias a esto.",
+    "Piso mojado y yo caminando como si nada.",
+    "En temporada de lluvias, la suela importa más que nunca.",
+  ],
   piel: [
     "Piel de verdad se nota a un metro de distancia.",
     "Lo barato se cuartea; la piel genuina envejece bonito.",
@@ -164,6 +193,14 @@ const MOTIVOS_RASGO: Record<string, string[]> = {
     "El forro abriga hasta en los días de 5 grados.",
     "Té caliente en la mano, pies calientes abajo: felicidad completa.",
     "Para las noches de diciembre no existe nada mejor.",
+    "Se sienten calientitas desde el segundo uno, sin 'entrar en calor'.",
+  ],
+  frio_calle: [
+    "El forro abriga hasta en los días de 5 grados.",
+    "Guardan el calor sin que sude el pie: el equilibrio perfecto.",
+    "Aguantan el invierno entero sin aplastarse ni deformarse.",
+    "La caminata de la madrugada ya no se siente, de verdad.",
+    "Con calcetín normal alcanza: el forro hace el resto.",
     "Se sienten calientitas desde el segundo uno, sin 'entrar en calor'.",
   ],
   calor: [
@@ -208,6 +245,12 @@ const MOTIVOS_RASGO: Record<string, string[]> = {
     "Regadera, cocina o patio: cero patinadas.",
     "Diseñadas para pisos donde otros se van de lado.",
   ],
+  antiderrapante_calle: [
+    "La suela se aferra al piso mojado como llanta nueva.",
+    "Banqueta mojada, rampa o escalera: cero patinadas.",
+    "Llovió toda la semana y ni un resbalón.",
+    "Diseñadas para pisos donde otros se van de lado.",
+  ],
   piel: [
     "Piel genuina que se amolda al pie y dura años, no meses.",
     "Envejecen bonito: cada uso las deja mejor.",
@@ -222,6 +265,11 @@ const CIERRES_RASGO: Record<string, string[]> = {
     "Invierno: 0. Mis pies: 1.",
     "Calientitos los pies, contenta la vida.",
     "Este invierno se pasa rico.",
+  ],
+  frio_calle: [
+    "Que dure el frío: ya estoy lista.",
+    "Invierno: 0. Mis pies: 1.",
+    "Este invierno se sale sin miedo.",
   ],
   calor: [
     "Al calor se le gana desde los pies.",
@@ -252,6 +300,10 @@ const CIERRES_RASGO: Record<string, string[]> = {
   antiderrapante: [
     "Firmes en cualquier piso.",
     "Cero resbalones este año: la meta.",
+  ],
+  antiderrapante_calle: [
+    "Firmes en cualquier piso.",
+    "Pisada segura, llueva o no.",
   ],
   piel: [
     "Calidad de la de antes.",
@@ -1378,6 +1430,9 @@ export function armarConceptoUGC(datos: {
   // combinaciones con falda/vestido solo en guiones de mujer; a los videos de
   // calzado de niños no se les mete moda de adulto.
   const conEstilo = hablaDeEstilo(datos.tipo, rasgos) && !esNinos;
+  // Material de casa o de calle según el tipo (la afinidad de conceptos y los
+  // conflictos siguen usando el rasgo a secas).
+  const clavesRasgo = clavesDeRasgos(rasgos, datos.tipo);
   const motivosEstilo = conEstilo
     ? [
         ...MOTIVOS_ESTILO[datos.tipo],
@@ -1387,20 +1442,20 @@ export function armarConceptoUGC(datos: {
 
   const hook = elegir(
     [
-      ...conRasgos(GANCHOS_RASGO, rasgos, concepto.hooks),
+      ...conRasgos(GANCHOS_RASGO, clavesRasgo, concepto.hooks),
       ...(conEstilo ? GANCHOS_ESTILO : []),
     ],
     datos.semilla,
     19,
   );
   const motivosPool = [
-    ...conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]),
+    ...conRasgos(MOTIVOS_RASGO, clavesRasgo, concepto.motivos ?? MOTIVOS[datos.tipo]),
     ...motivosEstilo,
   ];
   const motivo = elegir(motivosPool, datos.semilla, 23);
   const cierre = elegir(
     [
-      ...conRasgos(CIERRES_RASGO, rasgos, concepto.cierres),
+      ...conRasgos(CIERRES_RASGO, clavesRasgo, concepto.cierres),
       ...(conEstilo ? CIERRES_ESTILO : []),
     ],
     datos.semilla,
