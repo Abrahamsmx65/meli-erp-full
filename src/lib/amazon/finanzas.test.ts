@@ -113,3 +113,30 @@ describe("eventos idénticos en la misma página", () => {
     expect(a[0].postedEn).toBeNull();
   });
 });
+
+describe("la clave del evento lleva el grupo de liquidación", () => {
+  const suscripcion = { FeeList: [{ FeeType: "Subscription", FeeAmount: { CurrencyCode: "MXN", CurrencyAmount: -600 } }] };
+
+  it("el mismo cargo mensual en dos liquidaciones son dos cobros, no uno", () => {
+    const a = clasificarEventos({ ServiceFeeEventList: [suscripcion] } as any, "grupo-enero");
+    const b = clasificarEventos({ ServiceFeeEventList: [suscripcion] } as any, "grupo-febrero");
+    expect(a[0].clave).not.toBe(b[0].clave);
+    expect(a[0].clave.startsWith("g:")).toBe(true);
+  });
+
+  it("releer la misma página del mismo grupo da la misma clave", () => {
+    const a = clasificarEventos({ ServiceFeeEventList: [suscripcion] } as any, "grupo-enero");
+    const b = clasificarEventos({ ServiceFeeEventList: [suscripcion] } as any, "grupo-enero");
+    expect(a[0].clave).toBe(b[0].clave);
+  });
+
+  it("sin grupo conserva la huella vieja (sin prefijo), para reconocer los renglones antiguos", () => {
+    expect(claveDeEvento("ServiceFeeEventList", suscripcion).startsWith("g:")).toBe(false);
+    expect(claveDeEvento("ServiceFeeEventList", suscripcion)).toBe(clasificarEventos({ ServiceFeeEventList: [suscripcion] } as any)[0].clave);
+  });
+
+  it("dos cobros idénticos en la misma página del mismo grupo siguen sin colapsar", () => {
+    const a = clasificarEventos({ ServiceFeeEventList: [suscripcion, suscripcion] } as any, "grupo-enero");
+    expect(a[1].clave).toBe(`${a[0].clave}#2`);
+  });
+});

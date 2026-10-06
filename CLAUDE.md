@@ -1570,7 +1570,14 @@ guárdala numerada.
   `/api/cron/amazon-finanzas` cada 10 min). Cada evento se guarda crudo y
   clasificado (principal, impuesto cobrado, comisión, FBA, IVA retenido,
   promociones, por renglón/SKU; publicidad con base e IVA; cargos de
-  servicio, ajustes…) con clave = huella del JSON (releer es idempotente).
+  servicio, ajustes…) con clave = huella del JSON **más el grupo** (`g:`;
+  releer es idempotente). Sin el grupo, los cargos mensuales idénticos
+  («Premium Services Fee» −$16,240, «Subscription» −$600, mismo JSON cada
+  mes y sin fecha) se colapsaban en un solo renglón y seis liquidaciones de
+  2026 quedaron sin su cargo (~$101 mil sin restar, 6-oct-2026). Al releer
+  un grupo desde su primera página se retiran sus renglones con la clave
+  vieja. `amazon_finanzas_recuadrar` (migración 0086) recalcula el control
+  `cuadra` desde lo guardado en cada corrida del sync.
   El NÚMERO DE CONTROL es el `OriginalTotal` del grupo cerrado: la suma de
   sus eventos tiene que darlo (`cuadra`); si no, se declara. El grupo
   abierto se relee cada hora. Los RPC `amazon_finanzas_por_sku` / `_otros` /

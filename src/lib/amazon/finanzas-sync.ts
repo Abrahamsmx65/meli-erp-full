@@ -267,7 +267,15 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
       }
       if (!pagina) break; // sin plazo
 
-      const eventos = clasificarEventos(pagina.eventos);
+      // La clave lleva el grupo (`g:`): un cargo mensual idéntico en dos
+      // liquidaciones son dos cobros. Al empezar un grupo desde su primera
+      // página se retiran sus renglones con la clave vieja (sin grupo), que
+      // de otro modo quedarían duplicados junto a los nuevos; mientras el
+      // grupo se relee queda incompleto, y así se declara.
+      if (paginasDelGrupo === 0) {
+        await admin.from("amazon_finanzas_eventos").delete().eq("account_id", accountId).eq("grupo_id", g.grupo_id).not("clave", "like", "g:%");
+      }
+      const eventos = clasificarEventos(pagina.eventos, g.grupo_id);
       if (eventos.length) await guardarEnLotes(admin, "amazon_finanzas_eventos", eventos.map((e) => filaDeEvento(accountId, g, e)));
       paginasDelGrupo++;
       salida.paginas++;

@@ -329,9 +329,27 @@ const mAmt = (x: unknown): number => monto(x as MontoAmazon | undefined);
 const texto = (x: unknown): string | null => (typeof x === "string" && x.trim() ? x.trim() : null);
 const sumaLista = (lista: unknown, campo: string): number => (Array.isArray(lista) ? lista.reduce<number>((s, x) => s + mAmt(obj(x)[campo]), 0) : 0);
 
-/** Huella estable del JSON crudo (mismas llaves en el mismo orden → misma clave). */
-export function claveDeEvento(lista: string, crudo: unknown): string {
-  return createHash("sha256").update(lista).update("\n").update(JSON.stringify(crudo)).digest("hex").slice(0, 40);
+/**
+ * Huella estable del JSON crudo (mismas llaves en el mismo orden → misma
+ * clave), amarrada al GRUPO de liquidación cuando se conoce.
+ *
+ * Por qué el grupo: los cargos mensuales de Amazon («Premium Services Fee»
+ * −$16,240, «Subscription» −$600) llegan con el MISMO JSON cada mes, sin
+ * fecha ni id. Con la huella solo del JSON, los doce cobros del año eran
+ * UNA clave: el upsert los colapsaba en un renglón que se iba al último
+ * grupo leído, y seis liquidaciones de 2026 quedaron sin su cargo (~$101 mil
+ * de gasto que no se restó; descubierto el 6-oct-2026 porque la suma de
+ * eventos de esas liquidaciones pasaba de lo depositado por justo esa
+ * cantidad). El mismo cargo en dos grupos son dos cobros; en el mismo grupo
+ * lo cubre el `#2` de abajo. Las claves nuevas llevan el prefijo `g:` para
+ * reconocer y retirar las viejas al releer un grupo.
+ */
+export function claveDeEvento(lista: string, crudo: unknown, grupoId?: string | null): string {
+  const h = createHash("sha256");
+  if (grupoId) h.update(grupoId).update("\n");
+  h.update(lista).update("\n").update(JSON.stringify(crudo));
+  const hex = h.digest("hex").slice(0, 40);
+  return grupoId ? `g:${hex}` : hex;
 }
 
 /**
@@ -419,11 +437,11 @@ function montoDeOtro(lista: string, e: Obj): { monto: number | null; base: numbe
  * la clave con `#2`, el tercero `#3`… Así no se colapsan y releer la misma
  * página da las mismas claves.
  */
-export function clasificarEventos(ev: EventosFinancierosAmazon): EventoClasificadoAmazon[] {
+export function clasificarEventos(ev: EventosFinancierosAmazon, grupoId?: string | null): EventoClasificadoAmazon[] {
   const salida: EventoClasificadoAmazon[] = [];
   const vistas = new Map<string, number>();
   const clave = (lista: string, crudo: unknown): string => {
-    const base = claveDeEvento(lista, crudo);
+    const base = claveDeEvento(lista, crudo, grupoId);
     const n = (vistas.get(base) ?? 0) + 1;
     vistas.set(base, n);
     return n === 1 ? base : `${base}#${n}`;

@@ -70,6 +70,18 @@ function adminFalso(gruposIniciales: ReturnType<typeof grupo>[]) {
           },
         }),
       }),
+      // `.delete().eq(cuenta).eq(grupo).not("clave","like","g:%")`: retira
+      // los renglones del grupo con la clave vieja (sin grupo).
+      delete: () => ({
+        eq: (_k: string, _v: unknown) => ({
+          eq: (_k2: string, id: string) => ({
+            not: (_campo: string, _op: string, _patron: string) => {
+              for (const [clave, e] of eventos) if (e.grupo_id === id && !String(clave).startsWith("g:")) eventos.delete(clave);
+              return Promise.resolve({ error: null });
+            },
+          }),
+        }),
+      }),
     };
     return q;
   };
@@ -156,5 +168,25 @@ describe("periodosDeGrupo", () => {
     expect(periodosDeGrupo("2026-06-28T02:32:00Z", "2026-07-10T13:20:59Z")).toEqual(["2026-06", "2026-07"]);
     expect(periodosDeGrupo("2026-09-07T18:19:41Z", null, new Date("2026-09-09T18:00:00Z"))).toEqual(["2026-09"]);
     expect(periodosDeGrupo(null, null)).toEqual([]);
+  });
+});
+
+describe("la relectura de un grupo retira sus renglones con la clave vieja", () => {
+  it("un cargo guardado sin grupo (clave sin «g:») se va al releer el grupo desde su primera página; lo nuevo entra con «g:»", async () => {
+    const admin = adminFalso([grupo({ grupo_id: "g1", total_original: 90 })]);
+    // La suscripción mensual colapsada bajo la huella vieja, estorbando en g1.
+    admin.eventos.set("abc123", { clave: "abc123", grupo_id: "g1", lista: "ServiceFeeEventList", monto: -600, clasificado: true });
+    const paginas = [{ payload: { FinancialEvents: { ShipmentEventList: [envio("A", 100, -10)] } } }];
+    const cliente: any = {
+      cuenta: { accountId: "cta" },
+      msRestantes: () => 100_000,
+      llamar: vi.fn(async () => paginas.shift() ?? null),
+    };
+    const r = await sincronizarFinanzas(admin, cliente);
+    expect(r.gruposLeidos).toEqual(["g1"]);
+    expect(admin.eventos.has("abc123")).toBe(false);
+    expect([...admin.eventos.keys()].every((k) => k.startsWith("g:"))).toBe(true);
+    // Y el cierre cuadra contra el total sin el renglón fantasma.
+    expect(admin.grupos.get("g1")).toMatchObject({ completo: true, cuadra: true, suma_eventos: 90 });
   });
 });
