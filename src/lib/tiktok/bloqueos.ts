@@ -40,6 +40,14 @@ export interface DecisionDePedido {
   todoBloqueado: boolean;
   /** renglones bloqueados sin sku_id: TikTok no los puede cancelar por SKU; el pedido se queda fuera */
   sinSkuId: RenglonBloqueable[];
+  /**
+   * true si el pedido NO tiene ningún renglón vivo (todos ya cancelados en
+   * TikTok): no hay nada que cancelar NI que confirmar. El 6-oct-2026 el
+   * corte #54 le pidió a TikTok el envío de 8 pedidos así (la defensa los
+   * había cancelado minutos antes y TikTok aún los enseñaba pendientes) y
+   * TikTok contestó 21011027 «Arrange shipment failed».
+   */
+  nadaQueConfirmar: boolean;
 }
 
 /**
@@ -66,6 +74,7 @@ export function decidirPedido(renglones: RenglonBloqueable[]): DecisionDePedido 
     quedan,
     todoBloqueado: vivos.length > 0 && quedan.length === 0,
     sinSkuId,
+    nadaQueConfirmar: vivos.length === 0,
   };
 }
 

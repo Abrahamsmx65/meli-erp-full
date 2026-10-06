@@ -241,6 +241,62 @@ describe("conciliarAcumulado: cuando el 3PL descuenta lo que le mandamos", () =>
   });
 });
 
+describe("conciliarAcumulado: un conteo a mano pisa la base (6-oct-2026)", () => {
+  const FOTO = "2026-10-06T18:45:48.940Z";
+  const ref = (f: string) => `${REFERENCIA_INDUSTHER}${f}`;
+  const sinSalidas = { confirmadas: new Map<string, number>(), pendientes: new Map<string, number>() };
+  // El GT148-CREAM-23-MX: 173 entrados por Industher, 9 de merma, 149 salidos y
+  // confirmados, 6 devueltos, y el 5-oct el dueño lo contó a CERO (no existían).
+  const sku = "GT148-CREAM-23-MX";
+  const cream23: Movimiento[] = [
+    { sku, tipo: "entrada", cantidad: 173, referencia: ref("2026-09-11T17:01:02.000Z"), fecha: "2026-09-11T17:01:02Z" },
+    { sku, tipo: "salida", cantidad: 149, referencia: "pedidos", fecha: "2026-09-20T10:00:00Z" },
+    { sku, tipo: "merma", cantidad: 9, referencia: ref("2026-09-28T14:31:03.000Z"), fecha: "2026-09-28T14:31:03Z" },
+    { sku, tipo: "devolucion", cantidad: 6, referencia: "586377151325308582", fecha: "2026-10-05T19:32:07Z" },
+    { sku, tipo: "ajuste", cantidad: 0, referencia: "conteo:2026-10-05T23:08:12.988Z", fecha: "2026-10-05T23:08:12Z" },
+  ];
+  const confirmadas149 = { confirmadas: new Map([[sku, 149]]), pendientes: new Map<string, number>() };
+
+  it("contado a cero y el estante en cero: NO vuelve a restar los 21 (antes: merma 21 y kardex en −21)", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map(), cream23, FOTO, confirmadas149);
+    expect(r.movimientos).toEqual([]);
+    expect(r.detenidas).toEqual([]);
+  });
+
+  it("contado a cero y luego Industher trae 5: entrada de 5, no de 5 − 21", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const r = conciliarAcumulado(new Map([[sku, 5]]), cream23, FOTO, confirmadas149);
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku, tipo: "entrada", cantidad: 5 })]);
+  });
+
+  it("contado en 10 con 3 salidas pendientes y el 3PL en 7: las 3 se atribuyen, nada de merma", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const movs: Movimiento[] = [
+      ...cream23,
+      { sku, tipo: "ajuste", cantidad: 10, referencia: "conteo:2026-10-06T10:00:00.000Z", fecha: "2026-10-06T10:00:00Z" },
+      { sku, tipo: "salida", cantidad: 3, referencia: "nuevos", fecha: "2026-10-06T12:00:00Z" },
+    ];
+    const r = conciliarAcumulado(new Map([[sku, 7]]), movs, FOTO, { confirmadas: new Map([[sku, 149]]), pendientes: new Map([[sku, 3]]) });
+    expect(r.movimientos).toEqual([]);
+    expect(r.atribuidas.get(sku)).toBe(3);
+  });
+
+  it("una devolución DESPUÉS del conteo que no vuelve al estante sigue saliendo como retiro", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const movs: Movimiento[] = [...cream23, { sku, tipo: "devolucion", cantidad: 1, referencia: "586377031076971888", fecha: "2026-10-06T12:00:00Z" }];
+    const r = conciliarAcumulado(new Map(), movs, FOTO, confirmadas149);
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku, tipo: "merma", cantidad: 1, motivo: "Devolución que no volvió al estante de Industher" })]);
+  });
+
+  it("un SKU sin conteo sigue con la base de siempre (la historia de Industher)", async () => {
+    const { conciliarAcumulado } = await import("./bodega");
+    const otro: Movimiento[] = [{ sku: "B", tipo: "entrada", cantidad: 10, referencia: ref("2026-10-01T10:00:00.000Z"), fecha: "2026-10-01T10:00:00Z" }];
+    const r = conciliarAcumulado(new Map([["B", 8]]), otro, FOTO, sinSalidas);
+    expect(r.movimientos).toEqual([expect.objectContaining({ sku: "B", tipo: "merma", cantidad: 2 })]);
+  });
+});
+
 describe("la guarda del 20-sep: un SKU que desaparece con pares apartados no se da de baja", () => {
   const FOTO = "2026-09-20T02:45:00.000Z";
   const ref = (f: string) => `${REFERENCIA_INDUSTHER}${f}`;

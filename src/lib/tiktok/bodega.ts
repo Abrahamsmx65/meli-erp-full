@@ -19,7 +19,7 @@
  */
 import { esAlmacenTikTok, type CajaConstruida } from "../importar/cajas";
 import { claveComparacion } from "../importar/sku";
-import type { Movimiento } from "./kardex";
+import { saldosDesdeMovimientos, type Movimiento } from "./kardex";
 
 /** Cómo se reconoce la bodega de TikTok en Industher (vive junto al armado de cajas, que la excluye). */
 export { esAlmacenTikTok };
@@ -255,6 +255,10 @@ export interface Conciliacion {
  * alarma suena en el acto: alguien confirma con un conteo o Industher los
  * regresa. Una baja PARCIAL sigue siendo merma (el 3PL corrigió a propósito),
  * y un SKU que desaparece sin nada apartado también.
+ *
+ * Y un SKU CONTADO a mano (`ajuste`) se compara desde su conteo: la base es
+ * el saldo del kardex más las salidas pendientes, no la historia de Industher
+ * (ver abajo; 6-oct-2026).
  */
 export function conciliarAcumulado(
   paresEnBodega: Map<string, number>,
@@ -292,6 +296,20 @@ export function conciliarAcumulado(
     devueltos.set(m.sku, (devueltos.get(m.sku) ?? 0) + m.cantidad);
   }
   for (const [sku, n] of devueltos) base.set(sku, (base.get(sku) ?? 0) + n);
+
+  // Un CONTEO (`ajuste`) pisa el kardex, así que también tiene que pisar la
+  // base: lo que el estante debería enseñar es lo que el kardex dice HOY más
+  // las salidas que el 3PL aún no descuenta. Si la base siguiera sumando la
+  // historia de Industher, la foto siguiente volvería a restar lo que el
+  // conteo ya quitó: el 5-oct-2026 se contó a cero el GT148-CREAM-23-MX
+  // (21 pares que no existían) y la conciliación de la mañana siguiente
+  // escribió «merma 21» y dejó el kardex en −21; al GT134-BLK-23-MX le pasó
+  // igual el 30-sep (conteo a 0 y merma 4 esa noche, −4).
+  const contados = new Set(movimientos.filter((m) => m.tipo === "ajuste").map((m) => m.sku));
+  if (contados.size) {
+    const saldos = saldosDesdeMovimientos(movimientos.filter((m) => contados.has(m.sku)));
+    for (const sku of contados) base.set(sku, (saldos.get(sku) ?? 0) + (salidas.pendientes.get(sku) ?? 0));
+  }
 
   const referencia = `${REFERENCIA_INDUSTHER}${fechaFoto}`;
   const skus = new Set<string>([...paresEnBodega.keys(), ...base.keys()]);
