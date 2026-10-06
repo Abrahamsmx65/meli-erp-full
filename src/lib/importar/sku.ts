@@ -25,6 +25,38 @@ export function canonizar(s: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/** Sin espacios ni signos, para comparar colores: "M Brown" = "MBROWN". */
+export function colorPlano(color: string): string {
+  return (color || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * ¿Son el mismo texto salvo UNA letra de más, de menos o cambiada?
+ * La fábrica escribe "Toffe" por TOFFEE y MELI publicó "CHOCOLATTE BROWN"
+ * donde la proforma dice "CHOCOLATE BROWN": una letra alcanza para el
+ * dedazo y NO alcanza para confundir dos colores de verdad ("MBROWN" y
+ * "LTBROWN" están a dos).
+ */
+export function aUnaLetra(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [largo, corto] = a.length >= b.length ? [a, b] : [b, a];
+  if (largo.length - corto.length > 1) return false;
+  let i = 0;
+  let j = 0;
+  let fallos = 0;
+  while (i < largo.length && j < corto.length) {
+    if (largo[i] === corto[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++fallos > 1) return false;
+    i++;
+    if (largo.length === corto.length) j++;
+  }
+  return fallos + (largo.length - i) + (corto.length - j) <= 1;
+}
+
 /** Talla como texto estable: 25, 25.5, "CORRIDA". */
 export function normalizarTalla(t: unknown): string {
   if (t == null) return "";

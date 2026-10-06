@@ -6,7 +6,8 @@
  * decir exactamente lo mismo.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
+import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli, normalizarTalla } from "../importar/sku";
+import { desglosarSku } from "../servicios/sync";
 
 export interface EtiquetaResuelta {
   sku: string;
@@ -169,15 +170,21 @@ export interface IndiceCatalogo {
   canonico: Map<string, any>;
   aplastado: Map<string, any>;
   ordenado: Map<string, any>;
+  /**
+   * Las variantes de cada modelo (clave canónica del modelo), con su color
+   * y talla desglosados: para el rescate de un color a UNA letra.
+   */
+  porModelo: Map<string, { fila: any; color: string; talla: string }[]>;
 }
 
-/** Indexa el catálogo de MELI con los cuatro amarres. */
-export function indexarCatalogo(catalogo: { sku: string }[]): IndiceCatalogo {
+/** Indexa el catálogo de MELI con los cuatro amarres (y por modelo). */
+export function indexarCatalogo<T extends { sku: string }>(catalogo: T[]): IndiceCatalogo {
   const ix: IndiceCatalogo = {
     exacto: new Map(),
     canonico: new Map(),
     aplastado: new Map(),
     ordenado: new Map(),
+    porModelo: new Map(),
   };
   for (const s of catalogo ?? []) {
     ix.exacto.set(s.sku.trim().toUpperCase(), s);
@@ -187,6 +194,16 @@ export function indexarCatalogo(catalogo: { sku: string }[]): IndiceCatalogo {
     if (!ix.aplastado.has(a)) ix.aplastado.set(a, s);
     const o = claveOrdenada(s.sku);
     if (!ix.ordenado.has(o)) ix.ordenado.set(o, s);
+
+    const d = desglosarSku(s.sku);
+    const fila = s as { modelo?: string | null; color?: string | null; talla?: string | null };
+    const modelo = canonizar(fila.modelo || d.modelo || "");
+    const talla = normalizarTalla(fila.talla || d.talla || "");
+    const color = fila.color || d.color || "";
+    if (!modelo || !color) continue;
+    const lista = ix.porModelo.get(modelo) ?? [];
+    lista.push({ fila: s, color, talla });
+    ix.porModelo.set(modelo, lista);
   }
   return ix;
 }
@@ -221,10 +238,35 @@ export function buscarVariante(
       ix.ordenado.get(claveOrdenada(construido));
     if (dado) return { construido, encontrado: dado };
   }
+  // Quinto nivel: el DEDAZO. La proforma dice "CHOCOLATE BROWN" y MELI
+  // publicó "CHOCOLATTE BROWN" (MY2307): sin esto, los 1,920 pares del
+  // pedido caían en un color fantasma, Planificación China pedía 22 cajas
+  // más del color real y Productos nuevos lo enseñaba como sin publicar.
+  // Solo si en el modelo hay UN color a una letra: un empate no se adivina.
+  const cerca = varianteAUnaLetra(ix, modelo, colores[colores.length - 1], talla);
+  if (cerca) return { construido: construirSkuMeli(modelo, colores[colores.length - 1], talla), encontrado: cerca };
   return {
     construido: construirSkuMeli(modelo, colores[colores.length - 1], talla),
     encontrado: null,
   };
+}
+
+/** La variante del modelo cuyo color está a UNA letra, si es la única. */
+function varianteAUnaLetra(ix: IndiceCatalogo, modelo: string, color: string, talla: string): any | null {
+  const variantes = ix.porModelo?.get(canonizar(modelo)) ?? [];
+  if (!variantes.length) return null;
+  const objetivo = colorPlano(claveComparacion(color));
+  if (objetivo.length < 4) return null;
+  const tallaBuscada = normalizarTalla(talla || "");
+  const coloresCerca = new Set<string>();
+  let hallada: any | null = null;
+  for (const v of variantes) {
+    const plano = colorPlano(claveComparacion(v.color));
+    if (plano === objetivo || !aUnaLetra(plano, objetivo)) continue;
+    coloresCerca.add(plano);
+    if (!tallaBuscada || v.talla === tallaBuscada) hallada = hallada ?? v.fila;
+  }
+  return coloresCerca.size === 1 ? hallada : null;
 }
 
 function variante(color: string | null, talla: string | null): string {

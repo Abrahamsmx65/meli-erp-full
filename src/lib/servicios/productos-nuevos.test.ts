@@ -5,6 +5,7 @@ import {
   claveProductoDeSku,
   claveProductoLaxa,
   claveProductoLaxaDeSku,
+  colorAUnaLetra,
   partesLaxasDeSku,
   tokensColorLaxos,
 } from "./productos-nuevos";
@@ -105,5 +106,18 @@ describe("amarre por contención (GT157: la proforma dice BROWN, MELI dice DK BR
   it("NAVY no cabe en DK BROWN", () => {
     const sku = partesLaxasDeSku("GT157-DK BROWN-30-MX")!;
     expect(tokensColorLaxos("NAVY").every((t) => sku.color.includes(t))).toBe(false);
+  });
+});
+
+describe("amarre a una letra (MY2307: la proforma dice CHOCOLATE BROWN, MELI publicó CHOCOLATTE BROWN)", () => {
+  it("una letra de diferencia es el mismo producto", () => {
+    const sku = partesLaxasDeSku("MY2307-CHOCOLATTE BROWN-24-MX")!;
+    expect(colorAUnaLetra("CHOCOLATE BROWN", sku.color)).toBe(true);
+  });
+  it("dos letras o un color distinto, no", () => {
+    expect(colorAUnaLetra("NAVY", partesLaxasDeSku("MY2307-BLUE-24-MX")!.color)).toBe(false);
+    expect(colorAUnaLetra("M BROWN", partesLaxasDeSku("GT214-LT BROWN-24-MX")!.color)).toBe(false);
+    // Igualito no es «a una letra»: ese caso ya lo resolvió el nivel exacto.
+    expect(colorAUnaLetra("BLK", partesLaxasDeSku("GT134-BLK-24-MX")!.color)).toBe(false);
   });
 });

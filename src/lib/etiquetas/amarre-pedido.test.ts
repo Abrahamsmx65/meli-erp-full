@@ -82,3 +82,23 @@ test("el título viene del catálogo aunque el FNSKU venga del inventario", () =
   expect(buscarAmazon(mapa, "GT211-BLK-25")?.titulo).toBeNull();
   expect(buscarAmazon(mapa, "GT212-BLK-25")).toBeNull();
 });
+
+test("un dedazo de UNA letra en el color publicado amarra si es el único del modelo (MY2307 CHOCOLATTE)", () => {
+  const ix = indexarCatalogo([
+    { sku: "MY2307-CHOCOLATTE BROWN-24-MX", modelo: "MY2307", color: "CHOCOLATTE BROWN", talla: "24", inventory_id: "CHOC24" },
+    { sku: "MY2307-CHOCOLATTE BROWN-25-MX", modelo: "MY2307", color: "CHOCOLATTE BROWN", talla: "25", inventory_id: "CHOC25" },
+    { sku: "MY2307-BLUE-24-MX", modelo: "MY2307", color: "BLUE", talla: "24", inventory_id: "BLUE24" },
+  ]);
+  const r = buscarVariante(ix, "MY2307", "CHOCOLATE BROWN", "25");
+  expect(r.encontrado?.inventory_id).toBe("CHOC25");
+  // NAVY no está a una letra de nada: no se adivina.
+  expect(buscarVariante(ix, "MY2307", "NAVY", "24").encontrado).toBeNull();
+});
+
+test("con dos colores igual de cerca no se resuelve solo", () => {
+  const ix = indexarCatalogo([
+    { sku: "GT150-TOFFEE-24-MX", modelo: "GT150", color: "TOFFEE", talla: "24" },
+    { sku: "GT150-TOFFEX-24-MX", modelo: "GT150", color: "TOFFEX", talla: "24" },
+  ]);
+  expect(buscarVariante(ix, "GT150", "TOFFE", "24").encontrado).toBeNull();
+});

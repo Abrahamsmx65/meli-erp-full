@@ -19,7 +19,7 @@
  * compara aplastado: "GT104-1-BLK-25-MX" y "GT128-23-BLK" caen los dos en
  * su producto aunque Amazon ponga la talla antes del color.
  */
-import { canonizar, claveAplastada, claveComparacion } from "../importar/sku";
+import { aUnaLetra, canonizar, claveAplastada, claveComparacion } from "../importar/sku";
 import { traerTodo, type DB } from "../datos/repos";
 import { cuentaAmazon } from "./amazon";
 import { conCacheApp, invalidarApp } from "./cache-app";
@@ -135,6 +135,17 @@ export function partesLaxasDeSku(sku: string): { modelo: string; color: string[]
 export function claveProductoLaxaDeSku(sku: string): string | null {
   const partes = partesLaxasDeSku(sku);
   return partes ? `${partes.modelo}|${partes.color.join("")}` : null;
+}
+
+/**
+ * Cuarto nivel: el color del pedido y el del SKU están a UNA letra
+ * ("CHOCOLATE BROWN" contra el "CHOCOLATTE BROWN" que se publicó en MELI
+ * y Amazon, MY2307). Se compara aplastado y sin repetidos; dos letras no.
+ */
+export function colorAUnaLetra(colorPedido: string, colorSku: string[]): boolean {
+  const a = tokensColorLaxos(colorPedido).join("");
+  const b = tokensLaxos(colorSku).join("");
+  return a.length >= 4 && b.length >= 4 && a !== b && aUnaLetra(a, b);
 }
 
 /** Los pedazos laxos del color del pedido (sin anotación, sin repetidos). */
@@ -324,7 +335,10 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
     const contenidos = (porModelo.get(partes.modelo) ?? []).filter(({ tokens }) =>
       tokens.every((t) => partes.color.includes(t)),
     );
-    return contenidos.length === 1 ? [contenidos[0].p] : [];
+    if (contenidos.length === 1) return [contenidos[0].p];
+    // Dedazo de una letra, solo si hay UN producto del modelo así de cerca.
+    const cerca = (porModelo.get(partes.modelo) ?? []).filter(({ p }) => colorAUnaLetra(p.color, partes.color));
+    return cerca.length === 1 ? [cerca[0].p] : [];
   };
 
   // --- Publicaciones de MELI, por producto --------------------------------
