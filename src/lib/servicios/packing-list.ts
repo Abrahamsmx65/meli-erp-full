@@ -13,7 +13,7 @@
  * y se reparte si hace falta.
  */
 import type { LineaPacking, MedidasCaja, PackingList } from "../importar/packing-list";
-import { canonizar, claveAplastada, claveComparacion, construirSkuMeli } from "../importar/sku";
+import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli } from "../importar/sku";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
@@ -26,35 +26,7 @@ export type EstadoCasado =
   | "sin_renglon"
   | "sin_espacio";
 
-/** El color sin espacios ni signos, para compararlo: "M Brown" = "MBROWN". */
-const colorPlano = (color: string): string => color.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-/**
- * ¿Son el mismo texto salvo UNA letra de más, de menos o cambiada?
- * La fábrica escribe "Toffe" donde el pedido dice "TOFFEE" (S260-2026,
- * 10-sep-2026: 103 cajas de GT150 se quedaron fuera del contenedor por esa
- * letra). Una sola letra alcanza para el dedazo y NO alcanza para confundir
- * dos colores de verdad: "MBROWN" y "LTBROWN" están a dos.
- */
-export function aUnaLetra(a: string, b: string): boolean {
-  if (a === b) return true;
-  const [largo, corto] = a.length >= b.length ? [a, b] : [b, a];
-  if (largo.length - corto.length > 1) return false;
-  let i = 0;
-  let j = 0;
-  let fallos = 0;
-  while (i < largo.length && j < corto.length) {
-    if (largo[i] === corto[j]) {
-      i++;
-      j++;
-      continue;
-    }
-    if (++fallos > 1) return false;
-    i++;
-    if (largo.length === corto.length) j++;
-  }
-  return fallos + (largo.length - i) + (corto.length - j) <= 1;
-}
+export { aUnaLetra } from "../importar/sku";
 
 /**
  * El renglón del pedido cuyo color está a una letra del que trae el archivo.
