@@ -4,6 +4,7 @@ import {
   debeAvisar,
   diasDelMes,
   hallazgoDeSincronizacion,
+  hallazgosDeFacturacion,
   hallazgosDeFuentes,
   hallazgosDelMes,
   huellaDeSalud,
@@ -206,6 +207,50 @@ describe("las fuentes, un hallazgo por causa", () => {
     const h = hallazgosDeFuentes([fuente("2026-02", { ventaCalzado: 0, ordenesCalzado: 0, cargos: 0, diasPublicidad: 0, eventosAmazon: 0 })], HOY_FECHA);
     expect(h).toHaveLength(1);
     expect(h[0].area).toBe("Finanzas de Amazon");
+  });
+});
+
+describe("la facturación de MELI contra lo que MELI declara", () => {
+  const avance = (periodo: string, x: Partial<Parameters<typeof hallazgosDeFacturacion>[0][number]> = {}) => ({
+    periodo, leidos: 70_000, total: 70_000, completo: true, leidoEn: "2026-10-06T10:00:00Z", error: null, ...x,
+  });
+
+  it("un mes leído completo después de cerrar no dice nada", () => {
+    expect(hallazgosDeFacturacion([avance("2026-08")], [fuente("2026-08")], HOY_FECHA)).toEqual([]);
+  });
+
+  it("agosto 2026 en 9,900 de 74,059 renglones es grave, con el error que lo detuvo", () => {
+    const h = hallazgosDeFacturacion(
+      [avance("2026-08", { leidos: 9_900, total: 74_059, completo: false, error: "MELI 422: offset + limit > 10_000" })],
+      [fuente("2026-08")],
+      HOY_FECHA,
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0].severidad).toBe("grave");
+    expect(h[0].que).toContain("a medias");
+    expect(h[0].detalle).toContain("2026-08 (9,900 de 74,059 renglones; MELI 422");
+  });
+
+  it("el mes en curso a medias es solo una falta (se sigue leyendo)", () => {
+    const h = hallazgosDeFacturacion([avance("2026-10", { leidos: 3_000, total: 12_000, completo: false })], [fuente("2026-10")], HOY_FECHA);
+    expect(h).toHaveLength(1);
+    expect(h[0].severidad).toBe("falta");
+  });
+
+  it("septiembre 2026 dado por completo el 7-sep se reclama: se leyó con el mes abierto", () => {
+    const h = hallazgosDeFacturacion([avance("2026-09", { leidos: 9_132, total: 9_132, leidoEn: "2026-09-07T14:33:25Z" })], [fuente("2026-09")], HOY_FECHA);
+    expect(h).toHaveLength(1);
+    expect(h[0].severidad).toBe("falta");
+    expect(h[0].que).toContain("con el mes todavía abierto");
+    expect(h[0].detalle).toContain("2026-09 (leído el 2026-09-07, 9,132 renglones)");
+  });
+
+  it("un mes sin venta de calzado o sin lectura no se juzga aquí (eso lo dice la de fuentes)", () => {
+    expect(hallazgosDeFacturacion(
+      [avance("2026-02", { leidos: 10, total: 100 }), avance("2026-05", { leidos: 0, total: null, completo: false, leidoEn: null })],
+      [fuente("2026-02", { ventaCalzado: 0 }), fuente("2026-05", { cargos: 0 })],
+      HOY_FECHA,
+    )).toEqual([]);
   });
 });
 

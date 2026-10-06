@@ -25,6 +25,7 @@
  */
 import type { DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { leidoAntesDeCerrar } from "./cargos-meli";
 
 export type Severidad = "grave" | "falta";
 
@@ -333,6 +334,87 @@ export interface Salud {
   errores: string[];
 }
 
+/** El avance de la lectura de la facturación de MELI de un mes (bitácora `cargos_meli`). */
+export interface AvanceFacturacion {
+  periodo: string;
+  /** renglones leídos */
+  leidos: number;
+  /** renglones que MELI declara para el periodo; null = no lo dijo */
+  total: number | null;
+  completo: boolean;
+  /** última lectura (ISO) */
+  leidoEn: string | null;
+  error: string | null;
+}
+
+/**
+ * La facturación de MELI contra lo que MELI declara, un hallazgo por causa.
+ * Puro. Hasta el 6-oct-2026 la revisión solo preguntaba «¿hay renglones?»,
+ * y así agosto 2026 pasaba con 9,900 de 74,059 renglones (MELI topa la
+ * paginación en 10 mil) y septiembre con la lectura del día 7 dada por
+ * completa.
+ */
+export function hallazgosDeFacturacion(avances: AvanceFacturacion[], fuentes: FuentesDelMes[], hoyFecha: string): Hallazgo[] {
+  const out: Hallazgo[] = [];
+  const hoy = hoyFecha.slice(0, 7);
+  const conVenta = new Set(fuentes.filter((f) => f.ventaCalzado > 0).map((f) => f.mes));
+  const relevantes = avances.filter((a) => conVenta.has(a.periodo) && a.leidos > 0);
+  const n = (x: number) => x.toLocaleString("es-MX");
+
+  const incompletos = relevantes.filter((a) => a.total != null && a.total > 0 && a.leidos < a.total * COBERTURA_COMPLETA);
+  if (incompletos.length) {
+    out.push({
+      area: "Facturación de MELI",
+      periodo: null,
+      severidad: incompletos.some((a) => a.periodo < hoy) ? "grave" : "falta",
+      que: `${incompletos.length} mes(es) con la facturación de MELI a medias: sus gastos de Full salen incompletos.`,
+      detalle: lista(incompletos.map((a) => `${a.periodo} (${n(a.leidos)} de ${n(a.total!)} renglones${a.error ? `; ${a.error}` : ""})`)),
+    });
+  }
+
+  const antesDeCerrar = relevantes.filter(
+    (a) => a.periodo < hoy && a.completo && !incompletos.includes(a) && leidoAntesDeCerrar({ actualizadoEn: a.leidoEn }, a.periodo),
+  );
+  if (antesDeCerrar.length) {
+    out.push({
+      area: "Facturación de MELI",
+      periodo: null,
+      severidad: "falta",
+      que: `${antesDeCerrar.length} mes(es) cuya facturación se dio por leída con el mes todavía abierto: le faltan los cargos de los días siguientes.`,
+      detalle: lista(antesDeCerrar.map((a) => `${a.periodo} (leído el ${(a.leidoEn ?? "?").slice(0, 10)}, ${n(a.leidos)} renglones)`)) + ". El latido lo relee solo.",
+    });
+  }
+  return out;
+}
+
+/** El último avance de la facturación de cada mes, de la bitácora. */
+export async function avancesDeFacturacion(db: DB, accountId: string, meses: string[]): Promise<AvanceFacturacion[]> {
+  const out: AvanceFacturacion[] = [];
+  for (const periodo of meses) {
+    const { data, error } = await db
+      .from("sync_log")
+      .select("detalle, fin")
+      .eq("account_id", accountId)
+      .eq("tarea", "cargos_meli")
+      .eq("detalle->>periodo", periodo)
+      .order("inicio", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) continue;
+    const d: any = data.detalle ?? {};
+    out.push({
+      periodo,
+      leidos: Number(d.offset) || 0,
+      total: d.total == null ? null : Number(d.total),
+      completo: Boolean(d.completo),
+      leidoEn: (data as any).fin ?? null,
+      error: typeof d.error === "string" && d.error ? d.error.slice(0, 160) : null,
+    });
+  }
+  return out;
+}
+
 /**
  * La revisión completa. Dos RPC (un renglón por mes cada uno) y un conteo.
  * No calcula ningún corte.
@@ -415,6 +497,16 @@ export async function revisarSalud(
     agregar(hallazgosDeFuentes(fuentes, hoyFecha));
   } catch (err) {
     errores.push(`No se pudieron revisar las fuentes: ${(err as Error).message}`);
+  }
+
+  // La facturación de MELI contra lo que MELI declara (un renglón de
+  // bitácora por mes con venta de calzado).
+  try {
+    const meses = fuentes.filter((f) => f.ventaCalzado > 0).map((f) => f.mes);
+    const avances = await avancesDeFacturacion(db, cuenta.id, meses);
+    agregar(hallazgosDeFacturacion(avances, fuentes, hoyFecha));
+  } catch (err) {
+    errores.push(`No se pudo revisar la facturación de MELI: ${(err as Error).message}`);
   }
 
   // TikTok: un saldo negativo es que se vendió algo que no existe.

@@ -1553,6 +1553,19 @@ guárdala numerada.
   sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
+- **La facturación de MELI (`cargos-meli.ts`) se lee REANUDABLE y PARTIDA**:
+  el endpoint de detalles da 5 llamadas por minuto y topa offset + limit en
+  10 mil, y un mes de calzado trae ~74 mil renglones (agosto 2026). El tope
+  se revisa ANTES de pedir la página (6-oct-2026: agosto se quedó en 9,900
+  contestando 422 en cada latido, y como siempre estaba «pendiente», mayo,
+  junio y julio nunca empezaron); el sondeo del filtro de partición
+  (`sondearParticion`, por día y si no por subtipo) es reanudable
+  (`ProgresoCargos.sondeados`): quedarse sin tiempo NO es «ningún filtro
+  sirve». Un mes dado por completo CON EL MES ABIERTO (septiembre 2026 se
+  leyó el día 7 con 9,132 renglones) se relee solo (`leidoAntesDeCerrar`,
+  cada `HORAS_RELECTURA_MES_ABIERTO` sin tirar lo guardado) hasta que la
+  lectura sea posterior al cierre. La revisión general compara lo leído
+  contra el total que declara MELI (`hallazgosDeFacturacion`).
 - **Órdenes viejas sin registrar** (`reparar-ordenes.ts`, cron
   `/api/cron/reparar-ordenes` cada 5 min, tarea `reparacion_ordenes_v1`
   en `sync_log`, hoy `reparacion_ordenes_v2` hasta `FONDO_REPARAR_ORDENES`

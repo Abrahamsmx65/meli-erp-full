@@ -284,6 +284,12 @@ export interface ProgresoCargos {
   /** el día o el subtipo que se está leyendo, y el offset dentro de él */
   cursor?: string | null;
   offsetParticion?: number;
+  /**
+   * Filtros de partición ya sondeados sin éxito (`modo:param`): el sondeo
+   * cuesta una llamada de cuota por candidato y un latido no alcanza para
+   * los ocho, así que lo probado se recuerda y el siguiente latido sigue.
+   */
+  sondeados?: string[];
 }
 
 /** Los subtipos de la factura que el corte necesita cuando hay que leer por tipo. */
@@ -331,6 +337,8 @@ export interface AlmacenCargos {
   guardarProgreso(p: ProgresoCargos, extra?: Record<string, unknown>): Promise<void>;
   /** periodos con lectura a medias (offset > 0 y no completo), el más reciente primero */
   pendientes(): Promise<string[]>;
+  /** la espera entre llamadas (las pruebas la vuelven instantánea) */
+  dormir?: (ms: number) => Promise<void>;
 }
 
 /** El avance de la lectura de detalles del periodo (bitácora en sync_log). */
@@ -359,6 +367,7 @@ export function progresoDeDetalle(periodo: string, detalle: unknown, actualizado
     particion: d.particion && typeof d.particion === "object" ? (d.particion as ParticionCargos) : null,
     cursor: typeof d.cursor === "string" ? d.cursor : null,
     offsetParticion: Number(d.offsetParticion) || 0,
+    sondeados: Array.isArray(d.sondeados) ? d.sondeados.filter((s: unknown) => typeof s === "string") : [],
   };
 }
 
@@ -376,7 +385,7 @@ export async function almacenMeli(admin: DB, accountId: string): Promise<Almacen
         tarea: "cargos_meli",
         estado: "ok",
         fin: new Date().toISOString(),
-        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, ...extra },
+        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, sondeados: p.sondeados ?? [], ...extra },
       });
     },
     pendientes: async () => {
@@ -449,11 +458,37 @@ const TOPE_OFFSET = 10_000;
 const totalDe = (crudo: any): number | null =>
   typeof crudo?.total === "number" ? crudo.total : typeof crudo?.paging?.total === "number" ? crudo.paging.total : null;
 
+/** Los filtros que se prueban para partir un periodo grande, en orden. */
+export const CANDIDATOS_PARTICION: Exclude<ParticionCargos, { modo: "ninguna" }>[] = [
+  { modo: "dia", param: "date_from" },
+  { modo: "dia", param: "from" },
+  { modo: "dia", param: "date_created_from" },
+  { modo: "dia", param: "creation_date_from" },
+  { modo: "subtipo", param: "detail_sub_type" },
+  { modo: "subtipo", param: "sub_type" },
+  { modo: "subtipo", param: "charge_sub_type" },
+  { modo: "subtipo", param: "detail_type" },
+];
+
+const nombreDeCandidato = (c: Exclude<ParticionCargos, { modo: "ninguna" }>): string => `${c.modo}:${c.param}`;
+
+export type ResultadoSondeo =
+  | { tipo: "encontrada"; particion: Exclude<ParticionCargos, { modo: "ninguna" }> }
+  /** ningún filtro bajó el total: MELI no deja partir el periodo */
+  | { tipo: "agotado" }
+  /** se acabó el plazo a media sonda; `sondeados` trae lo ya descartado */
+  | { tipo: "sin_tiempo"; sondeados: string[] };
+
 /**
  * Averigua qué filtro acepta MELI para partir un periodo grande: se pide UN
  * renglón con cada candidato y se acepta el primero cuyo total baje del
  * total del periodo (un parámetro desconocido lo ignora o contesta 4xx).
  * Primero por día (lectura completa); si no, por subtipo de cargo.
+ *
+ * REANUDABLE: cada candidato cuesta una llamada de la cuota (5 por minuto)
+ * y un latido no alcanza para los ocho; lo descartado se devuelve en
+ * `sondeados` para que el siguiente latido siga donde se quedó. Hasta el
+ * 6-oct-2026 quedarse sin tiempo se confundía con «ningún filtro sirve».
  */
 export async function sondearParticion(
   cliente: MeliClient,
@@ -461,38 +496,37 @@ export async function sondearParticion(
   periodo: string,
   totalPeriodo: number,
   finMs: number,
-): Promise<Exclude<ParticionCargos, { modo: "ninguna" }> | null> {
+  opts: { sondeados?: string[]; dormir?: (ms: number) => Promise<void> } = {},
+): Promise<ResultadoSondeo> {
+  const espera = opts.dormir ?? dormir;
   const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
   const dia = diasDelPeriodo(periodo)[0];
-  const candidatos: Exclude<ParticionCargos, { modo: "ninguna" }>[] = [
-    { modo: "dia", param: "date_from" },
-    { modo: "dia", param: "from" },
-    { modo: "dia", param: "date_created_from" },
-    { modo: "dia", param: "creation_date_from" },
-    { modo: "subtipo", param: "detail_sub_type" },
-    { modo: "subtipo", param: "sub_type" },
-    { modo: "subtipo", param: "charge_sub_type" },
-    { modo: "subtipo", param: "detail_type" },
-  ];
-  for (const cand of candidatos) {
-    if (Date.now() + PASO_CUOTA_MS > finMs) return null;
+  const sondeados = [...(opts.sondeados ?? [])];
+  const pendientes = CANDIDATOS_PARTICION.filter((c) => !sondeados.includes(nombreDeCandidato(c)));
+  let i = 0;
+  while (i < pendientes.length) {
+    const cand = pendientes[i];
+    if (Date.now() + PASO_CUOTA_MS > finMs) return { tipo: "sin_tiempo", sondeados };
     const cursor = cand.modo === "dia" ? dia : "CFWA";
     try {
       const crudo = await cliente.get<unknown>(ruta, { document_type: "BILL", limit: 1, offset: 0, ...paramsDeParticion(cand, cursor) }, { reintentos: 0 });
       const t = totalDe(crudo);
-      if (t != null && t < totalPeriodo) return cand;
+      if (t != null && t < totalPeriodo) return { tipo: "encontrada", particion: cand };
     } catch (err) {
       const e = err as MeliError;
       if (e instanceof MeliError && e.status === 429) {
-        if (Date.now() + 62_000 > finMs) return null;
-        await dormir(62_000);
+        // Cuota agotada: el MISMO candidato se vuelve a preguntar tras un minuto.
+        if (Date.now() + 62_000 > finMs) return { tipo: "sin_tiempo", sondeados };
+        await espera(62_000);
         continue;
       }
       // 400/422: parámetro desconocido, siguiente candidato.
     }
-    await dormir(PASO_CUOTA_MS);
+    sondeados.push(nombreDeCandidato(cand));
+    i++;
+    await espera(PASO_CUOTA_MS);
   }
-  return null;
+  return { tipo: "agotado" };
 }
 
 /**
@@ -520,14 +554,19 @@ export async function sincronizarCargosCon(
   };
 
   const progreso = await almacen.leerProgreso(periodo);
+  // Releer un periodo que ya se dio por completo (a mano, o porque se leyó
+  // con el mes todavía abierto): se vuelve a empezar SIN tirar lo guardado,
+  // que el upsert por detalle_id actualiza; así el corte no se queda en
+  // cero mientras dura la relectura.
+  const relectura = progreso.completo;
   if (progreso.completo) {
-    // Releer desde cero: el usuario lo pidió a propósito.
     progreso.completo = false;
     progreso.offset = 0;
     progreso.total = null;
     progreso.particion = null;
     progreso.cursor = null;
     progreso.offsetParticion = 0;
+    progreso.sondeados = [];
   }
 
   try {
@@ -540,7 +579,7 @@ export async function sincronizarCargosCon(
 
   // Al arrancar de cero: fuera lo viejo del periodo, y el resumen si existe.
   if (progreso.offset === 0 && !progreso.particion) {
-    await admin.from(tabla).delete().eq("account_id", accountId).eq("periodo", periodo);
+    if (!relectura) await admin.from(tabla).delete().eq("account_id", accountId).eq("periodo", periodo);
     try {
       const crudo = await cliente.get<unknown>(
         `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/summary`,
@@ -558,6 +597,7 @@ export async function sincronizarCargosCon(
   let paginas = 0;
   const vistos = new Set<string>();
   const avisos: string[] = [];
+  const espera = almacen.dormir ?? dormir;
   let particion: ParticionCargos = progreso.particion ?? { modo: "ninguna" };
   let cursores = cursoresDe(particion, periodo);
   let iCursor = Math.max(0, progreso.cursor ? cursores.indexOf(progreso.cursor) : 0);
@@ -578,6 +618,44 @@ export async function sincronizarCargosCon(
       break;
     }
     const cursor = cursores[iCursor];
+
+    // El tope de MELI se revisa ANTES de pedir: con el offset en 9,900 la
+    // siguiente página pasa de 10 mil y MELI contesta 422. Hasta el
+    // 6-oct-2026 el tope solo se miraba después de una página buena, así
+    // que agosto 2026 (74,059 renglones) se quedó en 9,900 contestando 422
+    // en cada latido, y como siempre estaba «pendiente», mayo, junio y
+    // julio nunca empezaron.
+    if (offsetParticion + LIMITE_DETALLES > TOPE_OFFSET) {
+      if (particion.modo === "ninguna") {
+        // El periodo pasa de 10 mil: hay que partirlo.
+        const sondeo = await sondearParticion(cliente, clave, periodo, progreso.total ?? TOPE_OFFSET + 1, finMs, {
+          sondeados: progreso.sondeados,
+          dormir: espera,
+        });
+        if (sondeo.tipo === "sin_tiempo") {
+          progreso.sondeados = sondeo.sondeados;
+          error = `El periodo pasa de 10 mil renglones; se está buscando cómo partirlo (${sondeo.sondeados.length} de ${CANDIDATOS_PARTICION.length} filtros descartados). Sigue en el fondo.`;
+          break;
+        }
+        if (sondeo.tipo === "agotado") {
+          error = "El periodo pasa de 10 mil renglones y MELI no aceptó ningún filtro para partirlo: se leyeron los primeros 10 mil.";
+          progreso.completo = true;
+          break;
+        }
+        particion = sondeo.particion;
+        cursores = cursoresDe(particion, periodo);
+        iCursor = 0;
+        offsetParticion = 0;
+        avisos.push(`Periodo partido por ${particion.modo} (${particion.param}).`);
+        await guardar();
+        continue;
+      }
+      avisos.push(`${cursor} pasa de 10 mil renglones: se leyeron los primeros 10 mil.`);
+      iCursor++;
+      offsetParticion = 0;
+      continue;
+    }
+
     let crudo: any;
     try {
       crudo = await cliente.get<unknown>(
@@ -591,7 +669,7 @@ export async function sincronizarCargosCon(
         // Cuota agotada: si cabe un minuto de espera, se espera; si no, el
         // fondo retoma donde se quedó.
         if (Date.now() + 62_000 < finMs) {
-          await dormir(62_000);
+          await espera(62_000);
           continue;
         }
         error = "MELI limita este endpoint a 5 llamadas por minuto: la lectura sigue sola en segundo plano.";
@@ -608,35 +686,15 @@ export async function sincronizarCargosCon(
     const totalAqui = totalDe(crudo);
     if (particion.modo === "ninguna" && totalAqui != null) progreso.total = totalAqui;
 
-    // ¿Se acabó este cursor?
+    // ¿Se acabó este cursor? (Si no, y la siguiente página pasa del tope,
+    // la vuelta de arriba lo parte o salta de cursor.)
     const agotado = lote.length < LIMITE_DETALLES || (totalAqui != null && offsetParticion >= totalAqui);
-    if (!agotado && offsetParticion + LIMITE_DETALLES > TOPE_OFFSET) {
-      if (particion.modo === "ninguna") {
-        // El periodo pasa de 10 mil: hay que partirlo.
-        await guardar();
-        const encontrada = await sondearParticion(cliente, clave, periodo, progreso.total ?? TOPE_OFFSET + 1, finMs);
-        if (!encontrada) {
-          error = "El periodo pasa de 10 mil renglones y MELI no aceptó ningún filtro para partirlo: se leyeron los primeros 10 mil.";
-          progreso.completo = true;
-          break;
-        }
-        particion = encontrada;
-        cursores = cursoresDe(particion, periodo);
-        iCursor = 0;
-        offsetParticion = 0;
-        avisos.push(`Periodo partido por ${encontrada.modo} (${encontrada.param}).`);
-        await guardar();
-        continue;
-      }
-      avisos.push(`${cursor} pasa de 10 mil renglones: se leyeron los primeros 10 mil.`);
-      iCursor++;
-      offsetParticion = 0;
-    } else if (agotado) {
+    if (agotado) {
       iCursor++;
       offsetParticion = 0;
     }
     if (Date.now() + PASO_CUOTA_MS >= finMs) break;
-    await dormir(PASO_CUOTA_MS);
+    await espera(PASO_CUOTA_MS);
   }
   if (iCursor >= cursores.length && !error) progreso.completo = true;
   await guardar();
@@ -666,8 +724,13 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
   const anterior = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
   for (const periodo of [anterior, actual]) {
     const p = await almacen.leerProgreso(periodo);
-    if (p.completo) continue;
-    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 6 * 3_600_000) continue;
+    // Un mes «completo» que se leyó con el mes todavía abierto sigue
+    // creciendo en MELI: septiembre 2026 se leyó el 7-sep (9,132 renglones)
+    // y se quedó así todo el mes. Se relee cada tanto hasta que la última
+    // lectura sea posterior al cierre del mes.
+    if (p.completo && !leidoAntesDeCerrar(p, periodo)) continue;
+    const cadaMs = (p.completo ? HORAS_RELECTURA_MES_ABIERTO : 6) * 3_600_000;
+    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - cadaMs) continue;
     return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
   }
   // Con el mes anterior y el actual al día, los meses VIEJOS que nunca se
@@ -695,6 +758,24 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
 
 /** El primer mes con venta de calzado: antes no hay facturación que pedir. */
 export const PRIMER_PERIODO_FACTURACION = "2026-05";
+
+/** Cada cuántas horas se relee un mes que sigue abierto en MELI. */
+export const HORAS_RELECTURA_MES_ABIERTO = 12;
+
+/** El instante en que cierra el periodo YYYY-MM: el primer día del mes siguiente a las 0:00 de México (UTC−6). */
+export function cierreDelPeriodoMs(periodo: string): number {
+  const [a, m] = periodo.split("-").map(Number);
+  return Date.UTC(a, m, 1, 6);
+}
+
+/**
+ * ¿La última lectura del periodo se hizo cuando el mes aún no cerraba? Un
+ * progreso sin fecha cuenta como leído antes de tiempo (no se sabe).
+ */
+export function leidoAntesDeCerrar(p: Pick<ProgresoCargos, "actualizadoEn">, periodo: string): boolean {
+  if (!p.actualizadoEn) return true;
+  return Date.parse(p.actualizadoEn) < cierreDelPeriodoMs(periodo);
+}
 
 /** Los meses ANTERIORES a `desde` (exclusivo), del más reciente al más viejo, hasta `hasta` (inclusivo). */
 export function mesesHaciaAtras(desde: string, hasta: string): string[] {
