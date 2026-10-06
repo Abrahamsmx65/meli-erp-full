@@ -7,6 +7,7 @@ import {
   continuarCargosCon,
   extraerCargos,
   leidoAntesDeCerrar,
+  necesitaRelecturaPorTotal,
   sincronizarCargosCon,
   type AlmacenCargos,
   type ProgresoCargos,
@@ -211,13 +212,22 @@ const renglon = (id: string) => ({ charge_info: { detail_id: id, detail_type: "A
  * Un MELI de mentira para un periodo de 74,059 renglones: sin filtro,
  * topa en 10 mil (422); con el filtro de día que `acepta`, cada día trae 2
  * renglones; cualquier otro filtro es «parámetro desconocido» (422).
+ * La paginación por id (`from_id`) la rechaza con 422, salvo que se le dé
+ * `porId`: entonces contesta páginas con `last_id` sobre `porId.total`
+ * renglones numerados.
  */
-function clienteFalso(acepta: string) {
+function clienteFalso(acepta: string, porId?: { total: number }) {
   const llamadas: { ruta: string; params: Record<string, any> }[] = [];
   const cliente: any = {
     get: async (ruta: string, params: Record<string, any>) => {
       llamadas.push({ ruta, params });
       if (ruta.endsWith("/summary")) return {};
+      if (params.from_id != null) {
+        if (!porId) throw new MeliError("MELI 422: from_id no es un parámetro válido", 422);
+        const desde = Number(params.from_id);
+        const ids = Array.from({ length: porId.total }, (_, i) => i + 1).filter((id) => id > desde).slice(0, params.limit);
+        return { results: ids.map((id) => renglon(String(id))), last_id: ids.at(-1) ?? desde, total: porId.total };
+      }
       const filtro = PARAMS_DIA.find((p) => params[p] != null);
       if (filtro) {
         if (filtro !== acepta) throw new MeliError("MELI 422: parámetro desconocido", 422);
@@ -306,6 +316,82 @@ describe("un periodo de más de 10 mil renglones se parte ANTES de pedir la pág
     expect(r.completo).toBe(true);
     expect(r.error).toContain("no aceptó ningún filtro");
     expect(guardados.at(-1).completo).toBe(true);
+  });
+});
+
+describe("la lectura por id (from_id / last_id): sin tope de 10 mil", () => {
+  it("lee 2,500 renglones en tres páginas de 1,000 sin usar offset ni partir el periodo", async () => {
+    const { admin, filas } = adminFalso();
+    const { cliente, llamadas } = clienteFalso("ninguno", { total: 2_500 });
+    const { almacen, guardados } = almacenFalso(cliente, { "2026-08": { completo: false, offset: 0, total: null } });
+    const r = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 600_000);
+    expect(r.completo).toBe(true);
+    expect(r.error).toBeNull();
+    expect(filas.size).toBe(2_500);
+    const detalles = llamadas.filter((l) => l.ruta.endsWith("/details"));
+    expect(detalles.map((l) => l.params.from_id)).toEqual([0, 1000, 2000]);
+    expect(detalles.every((l) => l.params.offset == null && l.params.limit === 1000 && l.params.sort_by === "ID")).toBe(true);
+    expect(guardados.at(-1)).toMatchObject({ modo: "id", completo: true, offset: 2_500, total: 2_500 });
+  });
+
+  it("si se acaba el plazo, guarda el last_id y el siguiente latido sigue desde ahí", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+      const { admin, filas } = adminFalso();
+      const { cliente, llamadas } = clienteFalso("ninguno", { total: 2_500 });
+      const { almacen, guardados } = almacenFalso(cliente, { "2026-08": { completo: false, offset: 0, total: null } });
+      almacen.dormir = async (ms) => {
+        vi.setSystemTime(Date.now() + ms);
+      };
+      // 10 s: cabe UNA página (la espera de cuota es de 12.5 s).
+      const r1 = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 10_000);
+      expect(r1.completo).toBe(false);
+      expect(guardados.at(-1)).toMatchObject({ modo: "id", desdeId: 1000, offset: 1_000 });
+
+      llamadas.length = 0;
+      const r2 = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 600_000);
+      expect(llamadas.filter((l) => l.ruta.endsWith("/details"))[0].params.from_id).toBe(1000);
+      expect(r2.completo).toBe(true);
+      expect(filas.size).toBe(2_500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("agosto 2026 «completo» con 9,900 de 74,059 por offset se relee por id en el fondo; leído por id corto no se insiste", async () => {
+    const { admin } = adminFalso();
+    const { cliente } = clienteFalso("ninguno", { total: 1_500 });
+    const hoyMx = new Date(Date.now() - 6 * 3_600_000);
+    const actual = hoyMx.toISOString().slice(0, 7);
+    const anterior = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const dosAtras = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 2, 1)).toISOString().slice(0, 7);
+    const alDia = { completo: true, offset: 100, total: 100, modo: "id" as const, actualizadoEn: new Date().toISOString() };
+    const { almacen, guardados } = almacenFalso(cliente, {
+      [actual]: alDia,
+      [anterior]: alDia,
+      [dosAtras]: { completo: true, offset: 9_900, total: 74_059, modo: null, actualizadoEn: new Date().toISOString() },
+    });
+    const r = await continuarCargosCon(admin, "cta", almacen, Date.now() + 600_000);
+    expect(r).not.toBeNull();
+    expect(guardados[0].periodo).toBe(dosAtras);
+    expect(guardados.at(-1)).toMatchObject({ periodo: dosAtras, modo: "id", completo: true, offset: 1_500 });
+
+    expect(necesitaRelecturaPorTotal({ completo: true, offset: 9_900, total: 74_059, modo: "offset" })).toBe(false);
+    expect(necesitaRelecturaPorTotal({ completo: true, offset: 9_900, total: 74_059, modo: null })).toBe(true);
+    expect(necesitaRelecturaPorTotal({ completo: false, offset: 9_900, total: 74_059, modo: null })).toBe(false);
+  });
+
+  it("si MELI rechaza from_id, se cae a la lectura por offset y lo anota", async () => {
+    const { admin, filas } = adminFalso();
+    const { cliente, llamadas } = clienteFalso("date_from");
+    const { almacen, guardados } = almacenFalso(cliente, { "2026-08": { ...AGOSTO_ATORADO } });
+    const r = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 600_000);
+    expect(llamadas.filter((l) => l.params.from_id != null)).toHaveLength(1);
+    expect(r.completo).toBe(true);
+    expect(filas.size).toBe(62);
+    expect(guardados.at(-1).modo).toBe("offset");
+    expect(guardados.at(-1).avisos.some((a: string) => a.startsWith("MELI no aceptó la paginación por id"))).toBe(true);
   });
 });
 

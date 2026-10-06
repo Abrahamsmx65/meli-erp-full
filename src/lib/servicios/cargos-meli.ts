@@ -290,6 +290,14 @@ export interface ProgresoCargos {
    * los ocho, así que lo probado se recuerda y el siguiente latido sigue.
    */
   sondeados?: string[];
+  /**
+   * Cómo se está leyendo: `id` = por `from_id`/`last_id` (la paginación que
+   * MELI recomienda, sin tope), `offset` = la vieja, topada en 10 mil (solo
+   * si MELI rechaza la de id). null = todavía no se sabe.
+   */
+  modo?: "id" | "offset" | null;
+  /** el `last_id` de la última página leída por id; desde ahí se retoma */
+  desdeId?: string | number | null;
 }
 
 /** Los subtipos de la factura que el corte necesita cuando hay que leer por tipo. */
@@ -368,6 +376,8 @@ export function progresoDeDetalle(periodo: string, detalle: unknown, actualizado
     cursor: typeof d.cursor === "string" ? d.cursor : null,
     offsetParticion: Number(d.offsetParticion) || 0,
     sondeados: Array.isArray(d.sondeados) ? d.sondeados.filter((s: unknown) => typeof s === "string") : [],
+    modo: d.modo === "id" || d.modo === "offset" ? d.modo : null,
+    desdeId: typeof d.desdeId === "string" || typeof d.desdeId === "number" ? d.desdeId : null,
   };
 }
 
@@ -385,7 +395,7 @@ export async function almacenMeli(admin: DB, accountId: string): Promise<Almacen
         tarea: "cargos_meli",
         estado: "ok",
         fin: new Date().toISOString(),
-        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, sondeados: p.sondeados ?? [], ...extra },
+        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, sondeados: p.sondeados ?? [], modo: p.modo ?? null, desdeId: p.desdeId ?? null, ...extra },
       });
     },
     pendientes: async () => {
@@ -567,6 +577,8 @@ export async function sincronizarCargosCon(
     progreso.cursor = null;
     progreso.offsetParticion = 0;
     progreso.sondeados = [];
+    progreso.modo = null;
+    progreso.desdeId = null;
   }
 
   try {
@@ -598,6 +610,24 @@ export async function sincronizarCargosCon(
   const vistos = new Set<string>();
   const avisos: string[] = [];
   const espera = almacen.dormir ?? dormir;
+
+  // PRIMERO por id (`from_id`/`last_id`), que es la paginación que MELI
+  // documenta para este endpoint y no tiene tope; solo si MELI la rechaza
+  // se cae a la vieja por offset (topada en 10 mil, partida por día).
+  if (progreso.modo !== "offset" && (!progreso.particion || progreso.particion.modo === "ninguna")) {
+    const porId = await leerPorId(admin, accountId, periodo, almacen, ruta, progreso, finMs, { vistos, avisos, espera });
+    paginas += porId.paginas;
+    if (porId.estado !== "rechazado") {
+      if (porId.estado === "completo") progreso.completo = true;
+      error = porId.error;
+      await almacen.guardarProgreso(progreso, { paginas, error, avisos });
+      const t = await totalesGuardados();
+      return { ...t, total: progreso.total, completo: progreso.completo, error };
+    }
+    progreso.modo = "offset";
+    avisos.push(`MELI no aceptó la paginación por id (${porId.error ?? "sin detalle"}): se lee por offset.`);
+  }
+
   let particion: ParticionCargos = progreso.particion ?? { modo: "ninguna" };
   let cursores = cursoresDe(particion, periodo);
   let iCursor = Math.max(0, progreso.cursor ? cursores.indexOf(progreso.cursor) : 0);
@@ -702,6 +732,100 @@ export async function sincronizarCargosCon(
   return { ...t, total: progreso.total, completo: progreso.completo, error };
 }
 
+/** Renglones por página en la lectura por id: el máximo que MELI documenta. */
+export const LIMITE_POR_ID = 1000;
+
+/** El `last_id` de una página de detalles, o null si MELI no lo manda. */
+export function ultimoIdDe(crudo: unknown): string | number | null {
+  const r: any = crudo ?? {};
+  for (const v of [r.last_id, r.paging?.last_id, r.lastId]) {
+    if (typeof v === "number" || (typeof v === "string" && v !== "")) return v;
+  }
+  return null;
+}
+
+/**
+ * Lee el periodo por id: `from_id` = el `last_id` de la página anterior,
+ * `limit` 1000, orden por ID ascendente (la paginación que MELI recomienda;
+ * la de offset topa en 10 mil y agosto 2026 trae 74 mil renglones).
+ * Reanudable: `progreso.desdeId` guarda desde dónde seguir.
+ *
+ * `rechazado` = MELI no entendió la paginación por id (4xx en la primera
+ * página, o una página llena sin `last_id`): el que llama se cae a la
+ * lectura por offset. Lo ya guardado se queda (upsert por detalle_id).
+ */
+async function leerPorId(
+  admin: DB,
+  accountId: string,
+  periodo: string,
+  almacen: AlmacenCargos,
+  ruta: string,
+  progreso: ProgresoCargos,
+  finMs: number,
+  ctx: { vistos: Set<string>; avisos: string[]; espera: (ms: number) => Promise<void> },
+): Promise<{ estado: "completo" | "sin_plazo" | "rechazado"; paginas: number; error: string | null }> {
+  const { cliente, tabla } = almacen;
+  let paginas = 0;
+  let desdeId: string | number = progreso.desdeId ?? 0;
+  const offsetAntes = progreso.offset;
+  if (progreso.desdeId == null) {
+    // Arranque por id: el contador de renglones vuelve a cero (lo que se
+    // haya leído por offset se vuelve a leer y el upsert lo deja igual).
+    progreso.offset = 0;
+  }
+  const rechazado = (motivo: string) => {
+    progreso.offset = offsetAntes;
+    return { estado: "rechazado" as const, paginas, error: motivo };
+  };
+  while (Date.now() < finMs) {
+    let crudo: any;
+    try {
+      crudo = await cliente.get<unknown>(
+        ruta,
+        { document_type: "BILL", limit: LIMITE_POR_ID, from_id: desdeId, sort_by: "ID", order_by: "ASC" },
+        { reintentos: 0 },
+      );
+    } catch (err) {
+      const e = err as MeliError;
+      if (e instanceof MeliError && e.status === 429) {
+        if (Date.now() + 62_000 < finMs) {
+          await ctx.espera(62_000);
+          continue;
+        }
+        return { estado: "sin_plazo", paginas, error: "MELI limita este endpoint a 5 llamadas por minuto: la lectura sigue sola en segundo plano." };
+      }
+      if (e instanceof MeliError && (e.status === 400 || e.status === 422) && progreso.modo !== "id") {
+        return rechazado(e.message.slice(0, 300));
+      }
+      return { estado: "sin_plazo", paginas, error: e.message };
+    }
+    const resultados: unknown[] = Array.isArray(crudo?.results) ? crudo.results : Array.isArray(crudo) ? crudo : [];
+    const ultimo = ultimoIdDe(crudo);
+    if (progreso.modo !== "id" && ultimo == null && resultados.length >= LIMITE_POR_ID) {
+      // Página llena y sin cursor: MELI ignoró `from_id`, no hay cómo seguir.
+      return rechazado("la respuesta no trae last_id");
+    }
+    progreso.modo = "id";
+    paginas++;
+    const lote = extraerCargos(crudo, periodo).filter((c) => !ctx.vistos.has(c.detalleId) && ctx.vistos.add(c.detalleId));
+    await guardarCargos(admin, accountId, tabla, periodo, lote);
+    progreso.offset += lote.length;
+    const totalAqui = totalDe(crudo);
+    if (totalAqui != null) progreso.total = totalAqui;
+
+    if (!resultados.length || ultimo == null || String(ultimo) === String(desdeId) || resultados.length < LIMITE_POR_ID) {
+      return { estado: "completo", paginas, error: null };
+    }
+    desdeId = ultimo;
+    progreso.desdeId = desdeId;
+    if (Date.now() + PASO_CUOTA_MS >= finMs) break;
+    // Avance guardado por página: si Vercel corta, se retoma aquí.
+    await almacen.guardarProgreso(progreso, { paginas, error: null, avisos: ctx.avisos });
+    await ctx.espera(PASO_CUOTA_MS);
+  }
+  return { estado: "sin_plazo", paginas, error: null };
+}
+
 /** La cuenta de calzado: lee (o sigue leyendo) los cargos del periodo. */
 export async function sincronizarCargos(admin: DB, accountId: string, periodo: string, finMs = Date.now() + 100_000): Promise<ResultadoCargos> {
   const almacen = await almacenMeli(admin, accountId);
@@ -739,8 +863,12 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
   // venta. Un mes que MELI ya no lista no se insiste más que una vez al día.
   for (const periodo of mesesHaciaAtras(anterior, PRIMER_PERIODO_FACTURACION)) {
     const p = await almacen.leerProgreso(periodo);
-    if (p.completo) continue;
-    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 24 * 3_600_000) continue;
+    // Un mes «completo» que se quedó corto por el tope de offset (agosto
+    // 2026: 9,900 de 74,059) se relee por id en cuanto se pueda; si la
+    // lectura por id también falló (modo offset), ya no se insiste.
+    const porTotal = necesitaRelecturaPorTotal(p);
+    if (p.completo && !porTotal) continue;
+    if (!porTotal && p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 24 * 3_600_000) continue;
     try {
       return await sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
     } catch (err) {
@@ -761,6 +889,16 @@ export const PRIMER_PERIODO_FACTURACION = "2026-05";
 
 /** Cada cuántas horas se relee un mes que sigue abierto en MELI. */
 export const HORAS_RELECTURA_MES_ABIERTO = 12;
+
+/**
+ * ¿Se dio por completo con menos renglones de los que MELI declara, sin
+ * haber probado la lectura por id (`modo` vacío: lo leído antes del
+ * 6-oct-2026)? Entonces toca releerlo por id. Si ya se leyó por id y sigue
+ * corto, o MELI rechazó el id (`offset`), releer no cambiaría nada.
+ */
+export function necesitaRelecturaPorTotal(p: Pick<ProgresoCargos, "completo" | "offset" | "total" | "modo">): boolean {
+  return p.completo && p.total != null && p.total > 0 && p.offset < p.total * 0.95 && p.modo == null;
+}
 
 /** El instante en que cierra el periodo YYYY-MM: el primer día del mes siguiente a las 0:00 de México (UTC−6). */
 export function cierreDelPeriodoMs(periodo: string): number {
