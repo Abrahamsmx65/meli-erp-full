@@ -45,6 +45,18 @@ describe("decidirPedido", () => {
     expect(d.todoBloqueado).toBe(false);
   });
 
+  it("un pedido con TODOS sus renglones ya cancelados no tiene nada que confirmar (6-oct-2026: 8 pedidos de GT148-CREAM fueron a /ship)", () => {
+    const d = decidirPedido([r("1", "GT148-CREAM-24-MX", { estado: "CANCELLED", bloqueado: true })]);
+    expect(d.nadaQueConfirmar).toBe(true);
+    expect(d.cancelar).toEqual([]);
+    expect(d.quedan).toEqual([]);
+    expect(d.todoBloqueado).toBe(false);
+    // y uno sin renglones, igual
+    expect(decidirPedido([]).nadaQueConfirmar).toBe(true);
+    // con algo vivo, no
+    expect(decidirPedido([r("2", "GT150-CAMEL-27-MX")]).nadaQueConfirmar).toBe(false);
+  });
+
   it("un bloqueado sin sku_id se declara: TikTok no lo puede cancelar por SKU", () => {
     const d = decidirPedido([r("1", "RARO", { skuId: null, bloqueado: true }), r("2", "GT150-CAMEL-27-MX")]);
     expect(d.sinSkuId.map((x) => x.lineItemId)).toEqual(["1"]);

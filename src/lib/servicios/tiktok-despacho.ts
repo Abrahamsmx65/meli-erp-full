@@ -519,6 +519,18 @@ export async function hacerCorte(
       // TikTok no acepta la cancelación, el pedido entero se queda fuera
       // del corte: confirmar un par que no existe es el error caro.
       const decision = decidirPedido(renglones);
+      if (decision.nadaQueConfirmar) {
+        // Todos sus renglones ya están cancelados en TikTok (la defensa de
+        // una ronda anterior, o el comprador) y TikTok todavía lo enseña
+        // pendiente: no hay nada que confirmar. Pedirle el envío a TikTok
+        // contesta 21011027 «Arrange shipment failed» y, peor, le puede
+        // armar guía a un pedido sin pares (6-oct-2026, corte #54, 8 pedidos
+        // de GT148-CREAM: 6 quedaron AWAITING_COLLECTION).
+        throw new Error(
+          "Todos sus renglones ya están cancelados en TikTok: no hay nada que confirmar ni que cancelar. " +
+            "Si TikTok lo sigue enseñando pendiente de envío, revísalo en el Seller Center.",
+        );
+      }
       if (decision.sinSkuId.length) {
         throw new Error(
           `Bloqueado sin sku_id de TikTok (${decision.sinSkuId.map((r) => r.sku).join(", ")}): cancélalo en el Seller Center; el pedido se queda fuera.`,

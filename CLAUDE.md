@@ -307,7 +307,15 @@ guárdala numerada.
   no existían: el 14-sep-2026 eran 18 pares en 10 SKUs, y en TODOS la
   diferencia contra la bodega era exactamente su número de devoluciones
   (GT102-GREY-25-MX ofrecía 3 con el estante en cero). NUNCA como ajuste absoluto, que
-  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). **Se cuentan
+  volvería a publicar lo ya vendido (`tiktok/bodega.ts`). **Un SKU CONTADO a
+  mano se concilia desde su conteo** (`conciliarAcumulado`, 6-oct-2026): la
+  base contra la foto de Industher es el saldo del kardex (que el `ajuste`
+  ya pisó) más las salidas pendientes, no la historia de entradas y mermas
+  de Industher; si no, la foto siguiente volvía a restar lo que el conteo
+  ya quitó: el GT148-CREAM-23-MX se contó a cero el 5-oct (21 pares que no
+  existían, dueño: «no los tengo, bórralos») y la conciliación de la
+  mañana escribió «merma 21» y dejó el kardex en −21 (al GT134-BLK-23-MX
+  le pasó igual el 30-sep). Los dos se volvieron a poner en cero por SQL. **Se cuentan
   SOLO las cajas DISPONIBLES del 3PL** (`paresDisponiblesPorSkuDesdeCajas`;
   hasta el 29-sep-2026 se contaban las físicas = disponibles + apartadas):
   Industher marca APARTADA la caja de cada salida que el ERP le manda (y
@@ -857,7 +865,16 @@ guárdala numerada.
   contesta 403. La sonda `/api/tiktok/diagnostico/correo?para=…` manda una
   prueba y contesta lo que dijo Resend. **Si TikTok no acepta la cancelación, el
   pedido ENTERO se queda fuera del corte** y se declara: confirmar un par
-  que no existe es el error caro. **Un bloqueo automático no es para
+  que no existe es el error caro. **Un pedido SIN renglones vivos no se
+  confirma** (`DecisionDePedido.nadaQueConfirmar`; 6-oct-2026): la ronda 1
+  del corte #54 bloqueó y canceló 34 pedidos de GT148-CREAM (kardex en
+  cero) y TikTok aceptó; en la ronda 2, ocho seguían «pendientes de envío»
+  en TikTok con todos sus renglones ya cancelados, `decidirPedido` no tenía
+  nada que cancelar ni que confirmar y el corte le pidió a TikTok el envío
+  del paquete: 21011027 «Arrange shipment failed» en los 8, y 6 quedaron
+  AWAITING_COLLECTION (TikTok les armó guía sin pares). Ahora ese pedido se
+  declara («todos sus renglones ya están cancelados en TikTok») y no se
+  toca. **Un bloqueo automático no es para
   siempre** (`esBloqueoAutomatico`, prefijo `auto:`): cada corte lo vuelve
   a decidir con el stock de hoy y, si llegó mercancía, lo libera
   (`liberados`, `bloqueo_resultado = liberado: ya hay stock`); el 18-sep
