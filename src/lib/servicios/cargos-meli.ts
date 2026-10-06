@@ -942,7 +942,12 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
     // lectura por id también falló (modo offset), ya no se insiste.
     const porTotal = necesitaRelecturaPorTotal(p);
     if (p.completo && !porTotal) continue;
-    if (!porTotal && p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 24 * 3_600_000) continue;
+    // La espera de un día es para el mes que MELI NO lista (sin clave). Un
+    // mes con clave que se quedó en cero fue la cuota (429 en la primera
+    // llamada): agosto 2026 arrancó su relectura a las 22:14Z del 6-oct,
+    // MELI contestó 429 y el bucle lo dejó esperando 24 h mientras seguía
+    // con julio. Con clave se reintenta en el siguiente latido.
+    if (!porTotal && !p.clave && p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 24 * 3_600_000) continue;
     try {
       return await sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
     } catch (err) {

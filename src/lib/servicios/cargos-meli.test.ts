@@ -427,6 +427,25 @@ describe("la lectura por id (from_id / last_id): sin tope de 10 mil", () => {
     expect(necesitaRelecturaPorTotal({ ...agostoCorto, relecturas: 2 })).toBe(false);
   });
 
+  it("una relectura que no arrancó por la cuota (offset 0, con clave) se reintenta en el siguiente latido; sin clave espera un día", async () => {
+    const { admin } = adminFalso();
+    const { cliente } = clienteFalso("ninguno", { total: 1_500 });
+    const hoyMx = new Date(Date.now() - 6 * 3_600_000);
+    const actual = hoyMx.toISOString().slice(0, 7);
+    const anterior = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const dosAtras = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 2, 1)).toISOString().slice(0, 7);
+    const alDia = { completo: true, offset: 100, total: 100, modo: "id" as const, actualizadoEn: new Date().toISOString() };
+    const enCeroConClave = { completo: false, offset: 0, total: null, modo: null, relecturas: 1, clave: `${dosAtras}-01`, actualizadoEn: new Date().toISOString() };
+    const a = almacenFalso(cliente, { [actual]: alDia, [anterior]: alDia, [dosAtras]: enCeroConClave });
+    const r = await continuarCargosCon(admin, "cta", a.almacen, Date.now() + 600_000);
+    expect(r?.periodo).toBe(dosAtras);
+    expect(a.guardados.at(-1)).toMatchObject({ periodo: dosAtras, completo: true, offset: 1_500 });
+
+    const sinClave = { ...enCeroConClave, clave: null };
+    const b = almacenFalso(cliente, { [actual]: alDia, [anterior]: alDia, [dosAtras]: sinClave });
+    expect(await continuarCargosCon(admin, "cta", b.almacen, Date.now() + 600_000)).toBeNull();
+  });
+
   it("agosto 2026 «completo» con 9,900 de 74,059 por offset se relee por id en el fondo; rechazado por id (offset) no se insiste", async () => {
     const { admin } = adminFalso();
     const { cliente } = clienteFalso("ninguno", { total: 1_500 });
