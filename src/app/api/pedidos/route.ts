@@ -7,6 +7,7 @@ import {
   type OverrideLinea,
 } from "@/lib/importar/proforma";
 import { guardarProforma, listarPedidos } from "@/lib/servicios/pedidos";
+import { amarreDeLineas } from "@/lib/servicios/amarre-pedido";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
 
@@ -88,9 +89,16 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (accion === "previsualizar") {
+    // Qué renglones NO existen en MELI como están escritos (color fantasma):
+    // se avisa ANTES de cargar, con los colores que MELI sí tiene.
+    const amarre = await amarreDeLineas(
+      ctx.supabase,
+      ctx.cuenta.id,
+      proforma.lineas.map((l) => ({ modelo: l.modelo, color: l.color, talla: l.unitalla, tallas: l.tallas })),
+    ).catch(() => []);
     return NextResponse.json({
       ok: true,
-      proforma,
+      proforma: { ...proforma, amarre },
       yaExiste: Boolean(yaExiste),
       archivo: archivo.name,
     });

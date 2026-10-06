@@ -30,6 +30,13 @@ describe("sufijo de sitio", () => {
       .toBe(claveComparacion(construirSkuMeli("GT135", "TABACO BROWN", "23")));
   });
 
+  it("quita el WITH que la fábrica mete entre dos colores (GT274, GT297)", () => {
+    expect(claveComparacion("GT274-BLACK WITH WHITE-24")).toBe("GT274-BLK-WHITE-24");
+    expect(claveComparacion("GT297-BLK WITH RED-26")).toBe(claveComparacion("GT297-BLK-RED-26-MX"));
+    // "WITH" solo se quita como palabra suelta, no dentro de otra.
+    expect(claveComparacion("GT001-WITHE-24")).toBe("GT001-WITHE-24");
+  });
+
   it("no se come un sufijo que sí es parte del SKU", () => {
     // Un modelo de dos segmentos no debe perder el segundo.
     expect(claveComparacion("GT104-4-NAVY-26")).toBe("GT104-4-NAVY-26");

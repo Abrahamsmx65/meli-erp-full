@@ -144,6 +144,20 @@ guárdala numerada.
   53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
   53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
   inventa.
+- **Un pedido con COLOR FANTASMA se grita en Cargar pedidos**
+  (`servicios/amarre-pedido.ts`; pedido del dueño el 6-oct-2026: «si el
+  sistema ve que un pedido no está ligado a un SKU, que me alerte»): cada
+  renglón modelo + color se amarra contra el catálogo de MELI con los
+  cinco niveles de `buscarVariante`. Si el MODELO sí está publicado pero
+  con otros colores (`color_fantasma`: "BLK (NEGRO)" contra "BLK", "GREY
+  BLUE" sin publicar) su inventario en camino no descuenta del color real
+  en Planificación China y Productos nuevos lo enseña «sin publicar», así
+  que se avisa en ROJO con los colores que MELI sí tiene: en la ventana de
+  confirmación de la proforma (`Proforma.amarre`, antes de guardar), en la
+  lista de pedidos vivos (`PedidoResumen.sinSku`) y en Renglones (el campo
+  de color sugiere los publicados y se calla al corregirlo). Un modelo que
+  MELI no tiene (`modelo_nuevo`) es producto nuevo de verdad y no se grita.
+  Nunca se corrige solo. Si el catálogo no se puede leer, no se avisa nada.
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock
   actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
   modelo + color comparando el SKU completo sin talla ni sufijo

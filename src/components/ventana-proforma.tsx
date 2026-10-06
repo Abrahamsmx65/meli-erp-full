@@ -26,6 +26,14 @@ export interface AjusteLinea {
   color?: string;
 }
 
+/** Veredicto del servidor sobre si el renglón existe en MELI como está escrito. */
+export interface AmarreLinea {
+  estado: "ligado" | "color_fantasma" | "modelo_nuevo";
+  skuMeli: string | null;
+  /** los colores que MELI sí tiene para ese modelo */
+  coloresMeli: string[];
+}
+
 export interface Proforma {
   pedido: string;
   proveedor: string | null;
@@ -33,6 +41,8 @@ export interface Proforma {
   totales: { cajas: number; pares: number; importe: number | null };
   tallasDetectadas: string[];
   avisos: string[];
+  /** uno por renglón, en el mismo orden que `lineas`; falta si el catálogo no se pudo leer */
+  amarre?: AmarreLinea[];
 }
 
 export type Ajustes = Record<number, AjusteLinea>;
@@ -121,6 +131,12 @@ export function VentanaProforma({
   const totalPares = efectivas.reduce((a, e) => a + e.pares, 0);
   const hayProblema = efectivas.some((e) => e.problema);
 
+  // Color fantasma: el modelo está en MELI pero no con ese color. Se grita
+  // mientras el color siga como vino; en cuanto se corrige a mano, se calla.
+  const esFantasma = (i: number) =>
+    p.amarre?.[i]?.estado === "color_fantasma" && !ajustes[i]?.color?.trim();
+  const fantasmas = p.lineas.map((_, i) => i).filter(esFantasma);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4"
@@ -165,6 +181,32 @@ export function VentanaProforma({
               <li key={i}>{a}</li>
             ))}
           </ul>
+        ) : null}
+
+        {fantasmas.length ? (
+          <div
+            role="alert"
+            className="mt-3 rounded-lg p-3 text-sm"
+            style={{ background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)" }}
+          >
+            <strong>
+              {fantasmas.length} {fantasmas.length === 1 ? "renglón no existe" : "renglones no existen"} en MELI como{" "}
+              {fantasmas.length === 1 ? "está escrito" : "están escritos"}.
+            </strong>{" "}
+            El modelo sí está publicado pero con otro color: si se carga así, ese inventario no descuenta del color
+            real en Planificación China y sale como «sin publicar» en Productos nuevos. Corrige el color aquí (el
+            campo sugiere los que MELI tiene) o confirma si de verdad es un color nuevo.
+            <ul className="mt-1 flex flex-col gap-0.5 text-xs">
+              {fantasmas.map((i) => (
+                <li key={i}>
+                  <strong>
+                    {p.lineas[i].modelo} {p.lineas[i].color}
+                  </strong>{" "}
+                  → MELI tiene: {p.amarre?.[i]?.coloresMeli.join(", ") || "ningún color"}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
 
         <p className="mt-3 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -212,10 +254,33 @@ export function VentanaProforma({
                       <input
                         value={a.color ?? l.color}
                         onChange={(ev) => ajustar(i, { color: ev.target.value })}
+                        list={p.amarre?.[i]?.coloresMeli.length ? `colores-meli-prof-${i}` : undefined}
                         className="w-28 rounded border px-1.5 py-0.5 text-sm"
-                        style={{ borderColor: "var(--borde)", background: "transparent" }}
+                        style={{
+                          borderColor: esFantasma(i) ? "var(--estado-critico)" : "var(--borde)",
+                          color: esFantasma(i) ? "var(--estado-critico)" : undefined,
+                          background: "transparent",
+                        }}
+                        title={
+                          esFantasma(i)
+                            ? `MELI no tiene ${l.modelo} ${l.color}. Tiene: ${p.amarre?.[i]?.coloresMeli.join(", ") || "ningún color"}`
+                            : undefined
+                        }
                         aria-label={`Color del renglón ${i + 1}`}
+                        aria-invalid={esFantasma(i) || undefined}
                       />
+                      {p.amarre?.[i]?.coloresMeli.length ? (
+                        <datalist id={`colores-meli-prof-${i}`}>
+                          {p.amarre[i].coloresMeli.map((c) => (
+                            <option key={c} value={c} />
+                          ))}
+                        </datalist>
+                      ) : null}
+                      {esFantasma(i) ? (
+                        <div className="text-[11px]" style={{ color: "var(--estado-critico)" }}>
+                          sin SKU en MELI
+                        </div>
+                      ) : null}
                       {l.colorCrudo !== l.color ? (
                         <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
                           {l.colorCrudo}

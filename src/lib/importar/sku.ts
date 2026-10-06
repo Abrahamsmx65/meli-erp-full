@@ -113,6 +113,15 @@ const SINONIMOS_COLOR: Record<string, string> = {
 };
 
 /**
+ * Palabras de UNIÓN que la fábrica mete entre dos colores y MELI no: la
+ * proforma del GT274 dice "BLACK WITH WHITE" y la del GT297 "BLK WITH RED"
+ * donde MELI publica "BLK-WHITE" y "BLK-RED" (verificado en la base el
+ * 6-oct-2026: ni un SKU de MELI lleva "WITH"). Se quitan y los dos colores
+ * quedan pegados por el guion, como en la publicación.
+ */
+const UNIONES_COLOR = new Set(["WITH"]);
+
+/**
  * Clave con la que se comparan dos SKUs: forma canónica y sin el sufijo de
  * sitio. Es lo que hace que "GT110-MILITARY GREEN-26-MX" de la publicación y
  * "GT110-MILITARY GREEN-26" armado desde la corrida se reconozcan como el
@@ -121,6 +130,7 @@ const SINONIMOS_COLOR: Record<string, string> = {
 export function claveComparacion(s: string): string {
   const partes = canonizar(s)
     .split("-")
+    .filter((p) => !UNIONES_COLOR.has(p))
     .map((p) => SINONIMOS_COLOR[p] ?? p);
   while (partes.length > 2 && SUFIJOS_SITIO.has(partes[partes.length - 1])) {
     partes.pop();
