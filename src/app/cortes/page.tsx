@@ -104,7 +104,16 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Ficha titulo="Venta bruta" valor={pesos(cns.total.ventaBruta)} nota={`${n(cns.total.unidades)} unidades · ${n(cns.total.ordenes)} órdenes`} />
+        <Ficha
+          titulo="Venta bruta"
+          valor={pesos(cns.total.ventaBruta)}
+          nota={`${n(cns.total.unidades)} unidades · ${n(cns.total.ordenes)} órdenes${
+            cns.total.ventaSinCalcular > 0
+              ? ` · ${pesos(cns.total.ventaSinCalcular)} de ${cns.total.canalesSinCalcular.map((k) => NOMBRE_CANAL[k].split(" ·")[0]).join(", ")} FUERA: sin neto leído`
+              : ""
+          }`}
+          tono={cns.total.ventaSinCalcular > 0 ? "alerta" : "neutro"}
+        />
         <Ficha titulo="Neto después de plataforma" valor={pesos(cns.total.neto)} nota={`${pct(cns.total.coberturaNeto)} de la venta respaldada por la fuente`} />
         <Ficha titulo="Publicidad" valor={pesos(-cns.total.publicidad)} nota="por modelo + general" tono={cns.total.publicidad > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Gastos generales" valor={pesos(-cns.total.gastosGenerales)} nota="Full, FBA, devoluciones netas, otros" tono={cns.total.gastosGenerales > 0 ? "alerta" : "neutro"} />
@@ -135,7 +144,12 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               <tr>
                 <th>Concepto</th>
                 {cns.canales.map((k) => (
-                  <th key={k.canal} className="num">{k.nombre}</th>
+                  <th key={k.canal} className="num">
+                    {k.nombre}
+                    {k.calculable === false ? (
+                      <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "#fde7e7", color: "#8a1f1f" }}>no calculable</span>
+                    ) : null}
+                  </th>
                 ))}
                 <th className="num">Total</th>
               </tr>
@@ -145,6 +159,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 [
                   ["Unidades", (k) => n(k.unidades), n(cns.total.unidades)],
                   ["Venta bruta", (k) => pesos(k.ventaBruta), pesos(cns.total.ventaBruta)],
+                  ["Venta FUERA del total (sin neto leído)", (k) => (k.calculable === false ? pesos(k.ventaBruta) : "—"), cns.total.ventaSinCalcular > 0 ? pesos(cns.total.ventaSinCalcular) : "—"],
                    ["Comisión", (k) => detalleCanal(k, "comision"), detalleTotal("comision")],
                    ["Envío", (k) => detalleCanal(k, "envio"), detalleTotal("envio")],
                    ["Retención ISR", (k) => detalleCanal(k, "isr"), detalleTotal("isr")],
@@ -164,18 +179,21 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                    ["Utilidad antes de gastos empresariales", (k) => pesos(k.utilidadNeta), pesos(cns.total.utilidadAntesGastosEmpresariales)],
                    ["Gastos empresariales", () => "—", pesos(-cns.total.gastosEmpresariales)],
                    ["Utilidad neta final", () => "—", pesos(cns.total.utilidadNeta)],
-                  ["Margen sobre la venta", (k) => pct(k.margen), pct(cns.total.margenSobreVenta)],
+                  ["Margen sobre la venta con neto leído", (k) => pct(k.margen), pct(cns.total.margenSobreVenta)],
                   ["Ganancia por unidad", (k) => (k.gananciaPorUnidad != null ? pesos(k.gananciaPorUnidad) : "—"), cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"],
                   ["Estado", (k) => (k.exacto ? "Exacto" : `${k.avisos.length} avisos`), cns.exacto ? "Exacto" : ""],
                 ] as [string, (k: (typeof cns.canales)[number]) => string, string][]
               ).map(([concepto, f, total]) => {
                 const fuerte = concepto.startsWith("Utilidad") || concepto === "Utilidad bruta";
+                // Un canal no calculable solo enseña lo que sí se sabe: cuánto
+                // vendió y por qué no se calcula. Lo demás va en raya, no en cero.
+                const siempre = concepto === "Unidades" || concepto === "Venta bruta" || concepto.startsWith("Venta FUERA") || concepto === "Fuente del neto" || concepto === "Cobertura de la fuente" || concepto === "Estado";
                 return (
                   <tr key={concepto} style={fuerte ? { background: "var(--surface-2)" } : undefined}>
                     <td className={fuerte ? "font-semibold" : ""}>{concepto}</td>
                     {cns.canales.map((k) => (
-                      <td key={k.canal} className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad antes de gastos empresariales" ? { color: colorGanancia(k.utilidadNeta) } : undefined}>
-                        {f(k)}
+                      <td key={k.canal} className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad antes de gastos empresariales" && k.calculable !== false ? { color: colorGanancia(k.utilidadNeta) } : k.calculable === false ? { color: "var(--ink-muted)" } : undefined}>
+                        {k.calculable === false && !siempre ? "—" : f(k)}
                       </td>
                     ))}
                     <td className={`num cifra ${fuerte ? "font-semibold" : ""}`} style={concepto === "Utilidad neta final" ? { color: colorGanancia(cns.total.utilidadNeta) } : undefined}>

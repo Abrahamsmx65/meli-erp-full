@@ -107,6 +107,16 @@ export interface CanalConsolidado extends Omit<BloqueCanal, "porModelo" | "gasto
   desgloseDisponible: boolean;
   gastosGenerales: number;
   descuentosPlataforma: number;
+  /**
+   * False cuando la fuente del neto no cubre NADA de la venta (0 %): el
+   * canal se enseña como «no calculable» y queda FUERA del total y del
+   * margen. Mayo 2026 de calzado salía como una columna de ceros —venta
+   * $1.97 M, deducciones $1.97 M, neto $0, margen 0 %— cuando lo cierto
+   * era que no había una sola orden cargada (decisión del dueño, 6-oct-2026).
+   */
+  calculable: boolean;
+  /** la parte de la venta bruta que SÍ tiene neto leído (venta × cobertura) */
+  ventaCubierta: number;
   /** gastos generales ÷ unidades vendidas en la plataforma */
   cargoPorUnidad: number;
   utilidadBruta: number;
@@ -127,7 +137,7 @@ export interface Consolidado {
    * pantalla lo sirvió como bueno. Al subir el número, lo que escribió un
    * build que no conoce estas reglas se descarta y se vuelve a calcular.
    */
-  versionContable: 6;
+  versionContable: 7;
   periodo: string;
   desde: string;
   hasta: string;
@@ -138,6 +148,12 @@ export interface Consolidado {
     unidades: number;
     ordenes: number;
     ventaBruta: number;
+    /** venta con neto leído, sumando solo los canales calculables: el denominador del margen */
+    ventaCubierta: number;
+    /** venta de los canales NO calculables: se declara, no se suma */
+    ventaSinCalcular: number;
+    unidadesSinCalcular: number;
+    canalesSinCalcular: Canal[];
     neto: number;
     coberturaNeto: number | null;
     descuentosPlataforma: number;
@@ -187,7 +203,11 @@ export function aplicarGastosEmpresariales(consolidado: Consolidado, gastos: Gas
       utilidadAntesGastosEmpresariales: p(utilidadAntes),
       gastosEmpresariales: p(totalGastos),
       utilidadNeta: p(utilidadNeta),
-      margenSobreVenta: consolidado.total.ventaBruta > 0 ? utilidadNeta / c(consolidado.total.ventaBruta) : null,
+      // Sobre la venta CON neto leído: una venta cuyo neto no se conoce no
+      // puede diluir el margen (cachés viejas sin el campo caen a la bruta).
+      margenSobreVenta: c(consolidado.total.ventaCubierta ?? consolidado.total.ventaBruta) > 0
+        ? utilidadNeta / c(consolidado.total.ventaCubierta ?? consolidado.total.ventaBruta)
+        : null,
       margenSobreNeto: consolidado.total.neto > 0 ? utilidadNeta / c(consolidado.total.neto) : null,
       gananciaPorUnidad: consolidado.total.unidades > 0 ? p(utilidadNeta / consolidado.total.unidades) : null,
     },
@@ -224,6 +244,10 @@ export function bloqueDesdeEstado(canal: Canal, e: EstadoResultados): BloqueCana
         ? "Mercado Pago por orden"
         : "Mercado Pago por orden (la venta sin depósito leído NO está incluida)",
     coberturaNeto: e.coberturaNetoReal,
+    // Sin un solo depósito leído no hay desglose que enseñar: la comisión
+    // por renglón existe, pero envío, retenciones y residual salen de los
+    // pagos, y no hay ninguno. Se pinta «No disponible», no ceros.
+    desgloseDisponible: e.coberturaNetoReal > 0,
     descuentos: [
       ...(e.comision ? [{ concepto: "Comisión de venta de Mercado Libre", monto: e.comision }] : []),
       ...(desglosePlataforma.envio ? [{ concepto: "Envío", monto: desglosePlataforma.envio }] : []),
@@ -303,8 +327,10 @@ export function armarConsolidado(entrada: {
   const modelos = new Map<string, FilaModeloConsolidado>();
   const categorias = new Map<string, FilaCategoriaConsolidado & { conCosto: boolean; sinCosto: boolean }>();
 
+  const canalesSinCalcular: Canal[] = [];
   const total = {
     unidades: 0, ordenes: 0, ventaBruta: 0, neto: 0, ventaConCoberturaNeto: 0,
+    ventaCubierta: 0, ventaSinCalcular: 0, unidadesSinCalcular: 0,
     descuentosPlataforma: 0, comision: 0, envio: 0, isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0,
     devoluciones: 0, devolucionesIncluidasEnNeto: 0, costoRecuperado: 0, costoProducto: 0, unidadesConCosto: 0,
     publicidad: 0, gastosGenerales: 0, utilidadNeta: 0,
@@ -321,6 +347,51 @@ export function armarConsolidado(entrada: {
       ajusteLiquidacion: desgloseBase.ajusteLiquidacion ?? b.ajusteLiquidacion ?? 0,
     };
     const desgloseDisponible = b.desgloseDisponible !== false;
+    // Un canal cuya fuente no cubre NADA de su venta no se pinta ni se
+    // suma: su columna sería una fila de ceros con cara de dato real. Se
+    // conserva en la lista (con su venta declarada) y fuera del total.
+    // Cobertura null = la fuente no es comparable con la venta (Amazon por
+    // fecha de asiento): se confía en ella.
+    const calculable = b.coberturaNeto == null || b.coberturaNeto > 0;
+    const ventaCubiertaCent = b.coberturaNeto == null ? c(b.ventaBruta) : Math.round(c(b.ventaBruta) * b.coberturaNeto);
+    if (!calculable) {
+      canalesSinCalcular.push(b.canal);
+      total.ventaSinCalcular += c(b.ventaBruta);
+      total.unidadesSinCalcular += b.unidades;
+      canales.push({
+        ...b,
+        nombre: NOMBRE_CANAL[b.canal],
+        calculable: false,
+        ventaCubierta: 0,
+        neto: 0,
+        descuentos: [],
+        devoluciones: 0,
+        devolucionesIncluidasEnNeto: 0,
+        costoRecuperado: 0,
+        costoProducto: 0,
+        unidadesConCosto: 0,
+        adsPorModelo: 0,
+        adsGenerales: 0,
+        gastos: [],
+        gastosGenerales: 0,
+        descuentosPlataforma: 0,
+        desglosePlataforma: { comision: 0, envio: 0, isr: 0, iva: 0, otros: 0, ajusteLiquidacion: 0 },
+        desgloseDisponible: false,
+        cargoPorUnidad: 0,
+        utilidadBruta: 0,
+        publicidad: 0,
+        utilidadNeta: 0,
+        margen: null,
+        gananciaPorUnidad: null,
+        porModelo: [],
+        exacto: false,
+      });
+      avisos.push(
+        `${NOMBRE_CANAL[b.canal]}: NO CALCULABLE este mes. La fuente del neto no cubre nada de su venta (${p(c(b.ventaBruta)).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}, ${b.unidades.toLocaleString("es-MX")} unidades): el canal queda FUERA del total y del margen hasta que se carguen sus órdenes y depósitos.`,
+      );
+      for (const a of b.avisos) avisos.push(`${NOMBRE_CANAL[b.canal]}: ${a}`);
+      continue;
+    }
     const cargoPorUnidadCent = b.unidades > 0 ? gastosGenerales / b.unidades : 0;
     const publicidad = c(b.adsPorModelo) + c(b.adsGenerales);
     // La utilidad del canal: neto − devoluciones + costo recuperado − costo − publicidad − Full/otros.
@@ -340,7 +411,12 @@ export function armarConsolidado(entrada: {
       utilidadBruta: p(utilidadBruta),
       publicidad: p(publicidad),
       utilidadNeta: p(utilidadNeta),
-      margen: b.ventaBruta > 0 ? utilidadNeta / c(b.ventaBruta) : null,
+      calculable: true,
+      ventaCubierta: p(ventaCubiertaCent),
+      // El margen va sobre la venta con neto leído: con el 29 % de los
+      // depósitos, dividir entre toda la venta inventaba un margen de 9 %
+      // para un canal que sobre lo que sí se sabe daba mucho más.
+      margen: ventaCubiertaCent > 0 ? utilidadNeta / ventaCubiertaCent : null,
       gananciaPorUnidad: b.unidades > 0 ? p(utilidadNeta / b.unidades) : null,
       porModelo,
     });
@@ -350,6 +426,7 @@ export function armarConsolidado(entrada: {
     total.ordenes += b.ordenes;
     total.ventaBruta += c(b.ventaBruta);
     total.neto += c(b.neto);
+    total.ventaCubierta += ventaCubiertaCent;
     if (b.coberturaNeto != null) total.ventaConCoberturaNeto += c(b.ventaBruta) * b.coberturaNeto;
     total.descuentosPlataforma += descuentosPlataforma;
     total.comision += c(desglosePlataforma.comision);
@@ -427,9 +504,9 @@ export function armarConsolidado(entrada: {
     if (k.sinCosto && k.conCosto) avisos.push(`Categoría ${k.categoria}: hay modelos sin costo; su ganancia solo cuenta los modelos con costo.`);
   }
 
-  const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto);
+  const exacto = entrada.bloques.length > 0 && entrada.bloques.every((b) => b.exacto) && canalesSinCalcular.length === 0;
   return aplicarGastosEmpresariales({
-    versionContable: 6,
+    versionContable: 7,
     periodo: entrada.periodo,
     desde: entrada.desde,
     hasta: entrada.hasta,
@@ -440,6 +517,10 @@ export function armarConsolidado(entrada: {
       unidades: total.unidades,
       ordenes: total.ordenes,
       ventaBruta: p(total.ventaBruta),
+      ventaCubierta: p(total.ventaCubierta),
+      ventaSinCalcular: p(total.ventaSinCalcular),
+      unidadesSinCalcular: total.unidadesSinCalcular,
+      canalesSinCalcular,
       neto: p(total.neto),
       coberturaNeto: total.ventaBruta > 0 ? total.ventaConCoberturaNeto / total.ventaBruta : null,
       descuentosPlataforma: p(total.descuentosPlataforma),
@@ -460,7 +541,7 @@ export function armarConsolidado(entrada: {
       utilidadAntesGastosEmpresariales: p(total.utilidadNeta),
       gastosEmpresariales: 0,
       utilidadNeta: p(total.utilidadNeta),
-      margenSobreVenta: total.ventaBruta > 0 ? total.utilidadNeta / total.ventaBruta : null,
+      margenSobreVenta: total.ventaCubierta > 0 ? total.utilidadNeta / total.ventaCubierta : null,
       margenSobreNeto: total.neto > 0 ? total.utilidadNeta / total.neto : null,
       gananciaPorUnidad: total.unidades > 0 ? p(total.utilidadNeta / total.unidades) : null,
     },

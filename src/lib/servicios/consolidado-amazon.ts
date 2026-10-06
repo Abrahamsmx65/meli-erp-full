@@ -63,6 +63,13 @@ function bloqueAmazonReal(real: FinanzasAmazon, m: MonitorAmazon, config: Map<st
   }
   const adsReales = Math.abs(real.publicidad.monto);
   const adsGenerales = adsAmarrados > 0 ? Math.max(0, adsReales - adsAmarrados) : adsReales;
+  // Regla del dueño: la publicidad se descuenta al modelo que la gastó. Si
+  // no hay NADA repartido por modelo pero sí hubo gasto, la regla no se
+  // cumplió en este mes y hay que decirlo: así se vieron julio y agosto
+  // 2026, con toda la publicidad en «general» sin una palabra.
+  if (adsAmarrados === 0 && adsReales > 0 && !(m.avisosFuentes ?? []).some((a) => a.includes("SKU Economics"))) {
+    avisos.push(`Amazon: SKU Economics no trajo publicidad por modelo en el periodo: los ${redondea(adsReales).toLocaleString("es-MX", { style: "currency", currency: "MXN" })} de Product Ads van completos como gasto general y la ganancia por modelo sale SIN su publicidad.`);
+  }
   if (adsAmarrados > adsReales + 0.005) {
     avisos.push(`Amazon: la publicidad atribuida por modelo (SKU Economics, por fecha de venta: ${redondea(adsAmarrados).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}) pasa de lo facturado en el periodo (${redondea(adsReales).toLocaleString("es-MX", { style: "currency", currency: "MXN" })}, con IVA): Amazon aún no factura todo el gasto.`);
   }

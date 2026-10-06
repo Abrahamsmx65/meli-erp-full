@@ -242,3 +242,61 @@ describe("armarConsolidado", () => {
     expect(compatible.total.descuentosPlataforma).toBe(0);
   });
 });
+
+describe("un canal sin cobertura no se pinta ni suma", () => {
+  const conCobertura = (canal: BloqueCanal["canal"], coberturaNeto: number | null, venta = 1000, neto = 600): BloqueCanal => ({
+    ...bloqueSimple(),
+    canal,
+    ventaBruta: venta,
+    neto,
+    coberturaNeto,
+    costoProducto: 200,
+    adsPorModelo: 0,
+    porModelo: [{ modelo: `M-${canal}`, categoria: "Corcho", unidades: 2, importe: venta, neto, costo: 200, ads: 0 }],
+  });
+
+  it("con 0 % de cobertura el canal sale «no calculable», fuera del total y del margen (mayo 2026 de calzado)", () => {
+    const cns = armarConsolidado({
+      periodo: "2026-05", desde: "2026-05-01", hasta: "2026-05-31",
+      bloques: [conCobertura("meli_calzado", 0, 1969949.51, 0), conCobertura("amazon", null, 1000, 600)],
+    });
+    const calzado = cns.canales.find((k) => k.canal === "meli_calzado")!;
+    expect(calzado.calculable).toBe(false);
+    expect(calzado.ventaBruta).toBe(1969949.51); // lo que sí se sabe se conserva
+    expect(calzado.utilidadNeta).toBe(0);
+    expect(calzado.margen).toBeNull();
+    expect(calzado.porModelo).toEqual([]);
+    // El total es solo Amazon.
+    expect(cns.total.ventaBruta).toBe(1000);
+    expect(cns.total.unidades).toBe(2);
+    expect(cns.total.ventaSinCalcular).toBe(1969949.51);
+    expect(cns.total.canalesSinCalcular).toEqual(["meli_calzado"]);
+    expect(cns.porModelo.map((m) => m.modelo)).toEqual(["M-amazon"]);
+    expect(cns.exacto).toBe(false);
+    expect(cns.avisos.some((a) => a.includes("NO CALCULABLE"))).toBe(true);
+  });
+
+  it("con cobertura parcial el margen va sobre la venta con neto leído, no sobre toda", () => {
+    // 25 % leído: venta 1000, neto 600 de ese 25 %, costo 200 → utilidad 400.
+    const cns = armarConsolidado({
+      periodo: "2026-06", desde: "2026-06-01", hasta: "2026-06-30",
+      bloques: [conCobertura("meli_calzado", 0.25)],
+    });
+    const k = cns.canales[0];
+    expect(k.calculable).toBe(true);
+    expect(k.ventaCubierta).toBe(250);
+    expect(k.margen).toBeCloseTo(400 / 250, 6);
+    expect(cns.total.ventaCubierta).toBe(250);
+    expect(cns.total.margenSobreVenta).toBeCloseTo(400 / 250, 6);
+  });
+
+  it("cobertura null (fuente no comparable, como Amazon por asiento) se confía y cuenta completa", () => {
+    const cns = armarConsolidado({
+      periodo: "2026-07", desde: "2026-07-01", hasta: "2026-07-31",
+      bloques: [conCobertura("amazon", null)],
+    });
+    expect(cns.canales[0].calculable).toBe(true);
+    expect(cns.canales[0].ventaCubierta).toBe(1000);
+    expect(cns.total.ventaSinCalcular).toBe(0);
+  });
+});

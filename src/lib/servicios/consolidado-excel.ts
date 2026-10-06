@@ -61,7 +61,7 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
   fila("UTILIDAD ANTES DE GASTOS EMPRESARIALES", (k) => k.utilidadNeta, cns.total.utilidadAntesGastosEmpresariales).font = { bold: true };
   fila("GASTOS EMPRESARIALES", () => null, -cns.total.gastosEmpresariales);
   fila("UTILIDAD NETA DESPUÉS DE GASTOS EMPRESARIALES", () => null, cns.total.utilidadNeta).font = { bold: true, size: 12 };
-  fila("Margen sobre la venta", (k) => k.margen, cns.total.margenSobreVenta, "0.0%");
+  fila("Margen sobre la venta con neto leído", (k) => k.margen, cns.total.margenSobreVenta, "0.0%");
   fila("Ganancia por unidad", (k) => k.gananciaPorUnidad, cns.total.gananciaPorUnidad);
   fila("Exacto", (k) => (k.exacto ? 1 : 0), cns.exacto ? 1 : 0, "0");
   resumen.addRow({});

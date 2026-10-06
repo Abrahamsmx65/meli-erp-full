@@ -213,8 +213,13 @@ export async function traerRpcTodo<T>(
 ): Promise<{ filas: T[]; error: string | null; errorCodigo?: string }> {
   const filas: T[] = [];
 
-  for (let pagina = 0; ; pagina++) {
-    const desde = pagina * paso;
+  // Cada página vuelve a correr la función ENTERA en Postgres (PostgREST
+  // aplica el rango sobre el resultado), así que las páginas chicas salen
+  // caras: ~6 mil SKUs de economía de Amazon eran 7 corridas del mes. Se
+  // avanza por lo que REALMENTE llegó y solo se para con un lote vacío: si
+  // el servidor recorta la página, el corte anterior («llegaron menos de
+  // los pedidos, ya acabé») se quedaba con una parte y no lo decía.
+  for (let desde = 0; ; ) {
     const { data, error } = await (db as any)
       .rpc(funcion, parametros)
       .range(desde, desde + paso - 1);
@@ -229,12 +234,32 @@ export async function traerRpcTodo<T>(
 
     const lote = (data ?? []) as T[];
     filas.push(...lote);
-    if (lote.length < paso) return { filas, error: null };
+    if (lote.length === 0 || lote.length < paso) return { filas, error: null };
+    desde += lote.length;
 
-    // Tope de seguridad: 200 páginas son 200 mil renglones; si se llega ahí
-    // es que algo se salió de control y es mejor parar que colgar la página.
-    if (pagina >= 199) return { filas, error: null };
+    // Tope de seguridad: 500 mil renglones es muchísimo más que cualquier
+    // agregado real; llegar ahí es que algo se salió de control.
+    if (filas.length >= 500_000) return { filas, error: null };
   }
+}
+
+/**
+ * Como `traerRpcTodo`, pero un error LANZA. Para los lectores que no tienen
+ * cómo declararlo: un `{ filas: [] }` silencioso se leía como «no hay datos»
+ * y la publicidad de Amazon de julio y agosto 2026 quedó en $0 por modelo
+ * sin que nadie lo supiera.
+ */
+export async function traerRpcTodoOLanzar<T>(
+  db: DB,
+  funcion: string,
+  parametros: Record<string, unknown>,
+  paso = 1000,
+): Promise<T[]> {
+  const r = await traerRpcTodo<T>(db, funcion, parametros, paso);
+  if (r.error) {
+    throw Object.assign(new Error(`${funcion}: ${r.error}`), { code: r.errorCodigo });
+  }
+  return r.filas;
 }
 
 // ---------------------------------------------------------------------------

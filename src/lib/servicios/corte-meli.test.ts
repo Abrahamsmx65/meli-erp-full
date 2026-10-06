@@ -853,3 +853,32 @@ describe("el costo sigue a su venta", () => {
     expect(e.netoDepositado).toBe(800);
   });
 });
+
+describe("el residual de cargos solo se calcula sobre la venta con depósito leído", () => {
+  const dia = (fecha: string, neto?: number) => ({
+    sku: "GT135-TABACO-25", fecha, unidades: 10, ordenes: 10, importe: 1000, comision: 100, neto,
+  });
+
+  it("con 0 % de depósitos no inventa una deducción igual a la venta (mayo 2026)", () => {
+    const e = armarEstadoResultados(base({ ventas: [dia("2026-08-03")] }));
+    expect(e.netoDepositado).toBe(0);
+    expect(e.cargosSinDesglosar).toBe(0);
+    expect(e.enviosYOtros).toBe(0);
+  });
+
+  it("con depósitos a medias, el residual concilia solo la venta cubierta", () => {
+    const e = armarEstadoResultados(base({
+      ventas: [dia("2026-08-03", 800), dia("2026-08-04")],
+      ordenes: [{
+        orderId: 1, fecha: "2026-08-03", total: 1000, neto: 800, netoActual: null,
+        netoLeido: true, reembolsado: 0, reembolsoIncluidoNetoBase: 0,
+        reembolsoBaseConfiable: true, estado: "paid", estadoPago: "approved",
+        revisiones: 2, comisionMp: 0, cargosSinDesglosar: 0, cargosLeidos: false,
+        renglones: [{ sku: "GT135-TABACO-25", unidades: 10, importe: 1000 }],
+      }],
+    }));
+    // Cubierto: 1000 − 100 de comisión − 800 depositados = 100. Antes salían
+    // 1,000 porque la venta del día 4 (sin depósito) entraba a la resta.
+    expect(e.cargosSinDesglosar).toBe(100);
+  });
+});

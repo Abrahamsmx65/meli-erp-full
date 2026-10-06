@@ -722,6 +722,8 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
   /** venta (importe) cuyo depósito aún no se ha leído: NO está en el neto */
   let ventaSinDeposito = 0;
   let importeConNetoReal = 0;
+  /** la comisión de ESA venta cubierta: el residual de cargos se calcula sobre ella */
+  let comisionConNetoReal = 0;
   const porDia: RenglonDia[] = [];
   const diasDescuadrados: string[] = [];
   /** Días cuya venta NO entró completa al neto: su costo tampoco entra. */
@@ -756,11 +758,13 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       netoDia = usarNetoDeOrdenes ? o.neto : f.netoFilas;
       real = true;
       importeConNetoReal += f.importe;
+      comisionConNetoReal += f.comision;
     } else {
       // Solo lo real. La venta sin depósito leído se declara aparte.
       netoDia = f.netoFilas;
       ventaSinDeposito += f.importeSinNeto;
       importeConNetoReal += f.importe - f.importeSinNeto;
+      comisionConNetoReal += f.comision - f.comisionSinNeto;
       real = f.importeSinNeto === 0;
     }
     netoDepositado += netoDia;
@@ -865,10 +869,15 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
     m.ajusteLiquidacion += c(r.ajusteLiquidacion);
     desglosePorModelo.set(modelo, m);
   }
-  // El residual concilia exactamente venta − comisión − depósito. Los cargos
+  // El residual concilia exactamente venta − comisión − depósito, pero SOLO
+  // sobre la venta que SÍ tiene depósito leído: la que no lo tiene no está
+  // en el neto, así que tampoco puede aparecer como «cargo». Con la venta
+  // completa, un mes sin depósitos (mayo 2026 de calzado: 0 % leído) sacaba
+  // la venta ENTERA como deducción de plataforma —«MELI se quedó con todo»—
+  // cuando lo cierto era que no había órdenes cargadas. Los cargos
   // explícitos solo lo explican; no se descuentan otra vez de la utilidad.
   // Con desglose por orden, lo que no lo tiene aporta su cargo exacto.
-  const cargosNoComision = ventaBruta - comision - netoDepositado - devEnNeto;
+  const cargosNoComision = importeConNetoReal - comisionConNetoReal - netoDepositado - devEnNeto;
   const cargosConocidos = envio + isr + iva + retencionSinSeparar + otrosCargos + ajusteLiquidacion;
   const cargosSinDesglosar = usarDesglosePorOrden
     ? cargosSinDesglosarGuardados + Math.max(0, sinDesgloseTotal - sinDesgloseNeto)

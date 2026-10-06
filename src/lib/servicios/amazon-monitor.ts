@@ -185,7 +185,7 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, ventasRecientes, config, pagosRpc, ultimaLiquidacion, economiaFilas, coberturaFilas] = await Promise.all([
+  const [ventas, ventasRecientes, config, pagosRpc, ultimaLiquidacion, economiaRpc, coberturaRpc] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -238,26 +238,22 @@ export async function cargarMonitorAmazon(
     // (`amazon_economia_por_sku`): por día son ~154 mil renglones en 30 días
     // y la lectura paginada no alcanzaba a terminar, así que la economía se
     // quedaba vacía sin decirlo. Sumada son ~6 mil en un viaje.
+    // OJO: `traerRpcTodo` NO lanza: devuelve `{ filas, error }`. Antes se
+    // tomaba `.filas` y el `.catch` de abajo nunca corría, así que un
+    // timeout dejaba la economía VACÍA en silencio: julio y agosto 2026
+    // salieron con $0 de publicidad por modelo (toda a «general») teniendo
+    // $301 mil y $417 mil en la base. El error se recoge abajo y se declara.
+    // Páginas de 10 mil: ~6 mil SKUs en un viaje en vez de siete corridas.
     traerRpcTodo<any>(db, "amazon_economia_por_sku", {
       p_account: amazonAccountId,
       p_desde: r.desde,
       p_hasta: r.hasta,
-    })
-      .then((x) => x.filas)
-      .catch((err) => {
-        if (esFuenteOpcionalAusente(err)) return [] as any[];
-        throw err;
-      }),
+    }, 10_000),
     traerRpcTodo<any>(db, "amazon_economia_cobertura", {
       p_account: amazonAccountId,
       p_desde: r.desde,
       p_hasta: r.hasta,
-    })
-      .then((x) => x.filas)
-      .catch((err) => {
-        if (esFuenteOpcionalAusente(err)) return [] as any[];
-        throw err;
-      }),
+    }, 10_000),
   ]);
 
   // Las liquidaciones son una fuente de RESPALDO: desde la Finances API el
@@ -266,10 +262,23 @@ export async function cargarMonitorAmazon(
   // pero tampoco se calla: se declara y nada se estima en su lugar.
   const pagos = pagosRpc.filas;
   const avisosFuentes: string[] = [];
-  if (pagosRpc.error && !/does not exist|42P01|42883|PGRST202|schema cache/i.test(pagosRpc.error)) {
+  const esAusente = (msg: string) => /does not exist|42P01|42883|PGRST202|schema cache/i.test(msg);
+  if (pagosRpc.error && !esAusente(pagosRpc.error)) {
     avisosFuentes.push(
       `Amazon: no se pudieron leer las liquidaciones del periodo (${pagosRpc.error}). Lo que Amazon ya depositó no entra en esta vista y nada se estima en su lugar; el resto del periodo sí es real.`,
     );
+  }
+  // La economía por producto (SKU Economics) reparte la publicidad por
+  // modelo. Si no se pudo leer, toda la publicidad del periodo va a «gasto
+  // general» y la ganancia por modelo sale sin su publicidad: eso se DICE.
+  const economiaFilas: any[] = economiaRpc.error && !esAusente(economiaRpc.error) ? [] : economiaRpc.filas;
+  const coberturaFilas: any[] = coberturaRpc.error && !esAusente(coberturaRpc.error) ? [] : coberturaRpc.filas;
+  if (economiaRpc.error && !esAusente(economiaRpc.error)) {
+    avisosFuentes.push(
+      `Amazon: no se pudo leer la economía por producto (SKU Economics) del periodo (${economiaRpc.error}). La publicidad NO se pudo repartir por modelo y va completa como gasto general; la ganancia por modelo de Amazon no trae su publicidad.`,
+    );
+  } else if (coberturaRpc.error && !esAusente(coberturaRpc.error)) {
+    avisosFuentes.push(`Amazon: no se pudo leer la cobertura de SKU Economics (${coberturaRpc.error}).`);
   }
 
   // El dinero real por fecha de asiento (Finances API): sumado en Postgres,

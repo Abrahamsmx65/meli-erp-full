@@ -550,7 +550,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 6
+    consolidado.versionContable !== 7
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)
@@ -610,6 +610,11 @@ export function normalizarConsolidadoCache(datos: unknown): Consolidado {
           ),
           costoProducto,
           utilidadBruta: numeroSeguro(canal.utilidadBruta, numeroSeguro(canal.neto) - costoProducto),
+          calculable: canal.calculable !== false,
+          ventaCubierta: numeroSeguro(
+            canal.ventaCubierta,
+            canal.coberturaNeto == null ? numeroSeguro(canal.ventaBruta) : numeroSeguro(canal.ventaBruta) * Number(canal.coberturaNeto),
+          ),
         };
       })
     : [];
@@ -631,6 +636,13 @@ export function normalizarConsolidadoCache(datos: unknown): Consolidado {
         canales.reduce((total: number, canal: any) => total + canal.descuentosPlataforma, 0),
       ),
       costoProducto,
+      ventaCubierta: numeroSeguro(
+        totalAnterior.ventaCubierta,
+        canales.filter((k: any) => k.calculable !== false).reduce((total: number, canal: any) => total + canal.ventaCubierta, 0),
+      ),
+      ventaSinCalcular: numeroSeguro(totalAnterior.ventaSinCalcular),
+      unidadesSinCalcular: numeroSeguro(totalAnterior.unidadesSinCalcular),
+      canalesSinCalcular: Array.isArray(totalAnterior.canalesSinCalcular) ? totalAnterior.canalesSinCalcular : [],
     },
   } as Consolidado;
 }
