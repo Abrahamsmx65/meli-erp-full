@@ -1584,9 +1584,19 @@ guárdala numerada.
   `from_id` = el `last_id` de la página anterior, `limit` 1000,
   `sort_by=ID`, sin tope (`leerPorId`, `ProgresoCargos.modo = "id"`,
   `desdeId` para retomar); la de offset con partición queda SOLO de respaldo
-  si MELI rechaza el id (`modo = "offset"`). Un mes «completo» corto contra
-  el total de MELI y sin `modo` se relee por id solo
-  (`necesitaRelecturaPorTotal`). Un mes dado por completo CON EL MES
+  si MELI rechaza el id (`modo = "offset"`). **Una página CORTA no es el
+  final mientras el `total` de MELI diga que faltan renglones** (6-oct-2026:
+  julio y agosto 2026 contestaron 950 renglones en el día 10 con ~48 mil y
+  ~50 mil por delante, y la lectura los dio por «completos» con diez días:
+  13,950 de 61,966 y 24,950 de 74,059); el cursor es el `last_id` o, si no
+  viene, el mayor `detail_id` de la página (`mayorIdDe`, `avanza`), la
+  última página cruda queda en el progreso (`ultimaPagina`: renglones,
+  last_id, total, claves) y un cierre corto se declara en los avisos. Un
+  mes «completo» corto contra el total de MELI se relee por id solo, hasta
+  `MAX_RELECTURAS_CORTAS` (2) veces (`necesitaRelecturaPorTotal`,
+  `relecturas`); si MELI rechazó el id (`offset`) no se insiste. **El
+  `total` de MELI cuenta DESDE `from_id`**: solo vale el de la primera
+  página. Un mes dado por completo CON EL MES
   ABIERTO (septiembre 2026 se leyó el día 7 con 9,132 renglones) se relee
   solo (`leidoAntesDeCerrar`, cada `HORAS_RELECTURA_MES_ABIERTO`, sin tirar
   lo guardado) hasta que la lectura sea posterior al cierre. La revisión
@@ -1659,7 +1669,15 @@ guárdala numerada.
   sin ella (dueño: «Amazon no está jalando su publicidad»); y el plan de FBA
   perdía NUEVO y SIN VENTA en cada corrida. Un RPC nuevo que vaya a correr
   en el fondo lleva SIEMPRE `coalesce(auth.role(), '') <> 'service_role'
-  and not es_mi_cuenta…`. **Y `amazon_economia_hueco` busca por llave**
+  and not es_mi_cuenta…`. **El API de Supabase devuelve a lo más 1,000
+  renglones por respuesta pida lo que pida el rango** (`TOPE_FILAS_SERVIDOR`
+  en `traerRpcTodo`, `datos/repos.ts`): con `paso` 10,000 llegaban 1,000 y
+  «menos de los pedidos» se leía como «ya acabé», así que
+  `amazon_economia_por_sku` entregaba los 1,000 primeros SKU en orden
+  alfabético (casi todos fundas) y la publicidad de Amazon por modelo del
+  corte general era $8,738 de los $417,138 de agosto 2026 (el resto a
+  «general»). Ahora solo se para con un lote vacío o más corto que el paso
+  Y que el tope. **Y `amazon_economia_hueco` busca por llave**
   (migración 0112): agrupaba los 2.47 millones de renglones de
   `amazon_economia` para revisar cuatro días y el paso `cron_economia` murió
   por tiempo en cada latido del 10-sep al 6-oct-2026 (SKU Economics se

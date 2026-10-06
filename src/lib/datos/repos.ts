@@ -205,6 +205,9 @@ export async function porTandas<T>(
  * La función DEBE traer su propio ORDER BY: sin orden, dos páginas pueden
  * repetir un renglón y saltarse otro (igual que en las tablas).
  */
+/** Lo más que el API de Supabase devuelve en una respuesta (`max-rows`), pida lo que pida el rango. */
+export const TOPE_FILAS_SERVIDOR = 1000;
+
 export async function traerRpcTodo<T>(
   db: DB,
   funcion: string,
@@ -234,7 +237,13 @@ export async function traerRpcTodo<T>(
 
     const lote = (data ?? []) as T[];
     filas.push(...lote);
-    if (lote.length === 0 || lote.length < paso) return { filas, error: null };
+    // Se acabó solo si el lote vino vacío o más corto que lo pedido Y que
+    // el tope del servidor: con `paso` 10,000 el API contesta 1,000 de
+    // todos modos, y «llegaron menos de los pedidos, ya acabé» se quedaba
+    // con la primera página. Así salió la publicidad de Amazon por modelo
+    // del corte general hasta el 6-oct-2026: $8,738 de los $417,138 de
+    // agosto (los 1,000 primeros SKU en orden alfabético, casi todos fundas).
+    if (lote.length === 0 || (lote.length < paso && lote.length < TOPE_FILAS_SERVIDOR)) return { filas, error: null };
     desde += lote.length;
 
     // Tope de seguridad: 500 mil renglones es muchísimo más que cualquier

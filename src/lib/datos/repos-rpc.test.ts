@@ -50,6 +50,18 @@ describe("traerRpcTodo", () => {
     expect(llamadas).toHaveLength(1);
   });
 
+  it("con un paso mayor que el tope del servidor sigue pidiendo hasta vaciar (la economía de Amazon: 6,031 SKU con paso 10,000)", async () => {
+    const { db, llamadas } = dbFalsa(6031, 1000);
+    const { filas, error } = await traerRpcTodo<{ n: number }>(db as any, "f", {}, 10_000);
+    expect(error).toBeNull();
+    // Antes se quedaba con la primera página de 1,000 («llegaron menos de
+    // los 10,000 pedidos, ya acabé»): $8,738 de $417,138 de publicidad.
+    expect(filas).toHaveLength(6031);
+    expect(filas[6030].n).toBe(6030);
+    expect(llamadas).toHaveLength(7);
+    expect(llamadas[1]).toEqual({ desde: 1000, hasta: 10_999 });
+  });
+
   it("no se cuelga cuando el total es múltiplo exacto del paso", async () => {
     const { db } = dbFalsa(2000, 1000);
     const { filas } = await traerRpcTodo<{ n: number }>(db as any, "f", {});

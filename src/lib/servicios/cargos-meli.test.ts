@@ -216,7 +216,14 @@ const renglon = (id: string) => ({ charge_info: { detail_id: id, detail_type: "A
  * `porId`: entonces contesta páginas con `last_id` sobre `porId.total`
  * renglones numerados.
  */
-function clienteFalso(acepta: string, porId?: { total: number }) {
+function clienteFalso(
+  acepta: string,
+  porId?: {
+    total: number;
+    /** la página pedida desde `desde` viene CORTA (como julio/agosto 2026 en el día 10) */
+    corta?: { desde: number; renglones: number; sinLastId?: boolean };
+  },
+) {
   const llamadas: { ruta: string; params: Record<string, any> }[] = [];
   const cliente: any = {
     get: async (ruta: string, params: Record<string, any>) => {
@@ -225,9 +232,12 @@ function clienteFalso(acepta: string, porId?: { total: number }) {
       if (params.from_id != null) {
         if (!porId) throw new MeliError("MELI 422: from_id no es un parámetro válido", 422);
         const desde = Number(params.from_id);
-        const ids = Array.from({ length: porId.total }, (_, i) => i + 1).filter((id) => id > desde).slice(0, params.limit);
+        const corta = porId.corta && porId.corta.desde === desde ? porId.corta : null;
+        const ids = Array.from({ length: porId.total }, (_, i) => i + 1).filter((id) => id > desde).slice(0, corta ? corta.renglones : params.limit);
         // MELI cuenta el total DESDE from_id, no el del periodo.
-        return { results: ids.map((id) => renglon(String(id))), last_id: ids.at(-1) ?? desde, total: porId.total - desde };
+        const cuerpo: Record<string, unknown> = { results: ids.map((id) => renglon(String(id))), total: porId.total - desde };
+        if (!corta?.sinLastId) cuerpo.last_id = ids.at(-1) ?? desde;
+        return cuerpo;
       }
       const filtro = PARAMS_DIA.find((p) => params[p] != null);
       if (filtro) {
@@ -360,7 +370,64 @@ describe("la lectura por id (from_id / last_id): sin tope de 10 mil", () => {
     }
   });
 
-  it("agosto 2026 «completo» con 9,900 de 74,059 por offset se relee por id en el fondo; leído por id corto no se insiste", async () => {
+  it("una página corta con renglones por delante NO cierra la lectura (julio y agosto 2026 se quedaron en el día 10)", async () => {
+    const { admin, filas } = adminFalso();
+    // Desde 1000 MELI contesta 950 renglones (1001–1950) con 2,000 por delante.
+    const { cliente, llamadas } = clienteFalso("ninguno", { total: 3_000, corta: { desde: 1000, renglones: 950 } });
+    const { almacen, guardados } = almacenFalso(cliente, { "2026-08": { completo: false, offset: 0, total: null } });
+    const r = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 600_000);
+    expect(r.completo).toBe(true);
+    expect(r.error).toBeNull();
+    expect(filas.size).toBe(3_000);
+    expect(llamadas.filter((l) => l.ruta.endsWith("/details")).map((l) => l.params.from_id)).toEqual([0, 1000, 1950, 2950]);
+    expect(guardados.at(-1)).toMatchObject({ completo: true, offset: 3_000, total: 3_000, ultimaPagina: { renglones: 50, lastId: 3000, total: 50 } });
+    expect(guardados.at(-1).avisos.some((a: string) => a.startsWith("Página corta en 1000"))).toBe(true);
+  });
+
+  it("si la página corta viene sin last_id, el cursor es el mayor id de la página", async () => {
+    const { admin, filas } = adminFalso();
+    const { cliente, llamadas } = clienteFalso("ninguno", { total: 2_500, corta: { desde: 1000, renglones: 950, sinLastId: true } });
+    const { almacen } = almacenFalso(cliente, { "2026-07": { completo: false, offset: 0, total: null } });
+    const r = await sincronizarCargosCon(admin, "cta", "2026-07", almacen, Date.now() + 600_000);
+    expect(r.completo).toBe(true);
+    expect(filas.size).toBe(2_500);
+    expect(llamadas.filter((l) => l.ruta.endsWith("/details")).map((l) => l.params.from_id)).toEqual([0, 1000, 1950]);
+  });
+
+  it("si MELI de plano no da más (página corta y nada por delante), se cierra y se declara lo que faltó", async () => {
+    const { admin, filas } = adminFalso();
+    const porId = { total: 3_000, corta: { desde: 1000, renglones: 950 } };
+    const { cliente } = clienteFalso("ninguno", porId);
+    // Después de la página corta, MELI contesta vacío aunque su total diga 2,000.
+    const base = cliente.get;
+    cliente.get = async (ruta: string, params: Record<string, any>) =>
+      params.from_id != null && Number(params.from_id) > 1000 ? { results: [], total: 2_000 } : base(ruta, params);
+    const { almacen, guardados } = almacenFalso(cliente, { "2026-08": { completo: false, offset: 0, total: null } });
+    const r = await sincronizarCargosCon(admin, "cta", "2026-08", almacen, Date.now() + 600_000);
+    expect(r.completo).toBe(true);
+    expect(filas.size).toBe(1_950);
+    expect(guardados.at(-1).avisos.some((a: string) => a.startsWith("MELI dio por terminada la lectura con 1,950 de 3,000"))).toBe(true);
+  });
+
+  it("un mes «completo» por id pero corto contra el total se relee en el fondo, a lo más dos veces", async () => {
+    const { admin } = adminFalso();
+    const { cliente } = clienteFalso("ninguno", { total: 1_500 });
+    const hoyMx = new Date(Date.now() - 6 * 3_600_000);
+    const actual = hoyMx.toISOString().slice(0, 7);
+    const anterior = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const dosAtras = new Date(Date.UTC(hoyMx.getUTCFullYear(), hoyMx.getUTCMonth() - 2, 1)).toISOString().slice(0, 7);
+    const alDia = { completo: true, offset: 100, total: 100, modo: "id" as const, actualizadoEn: new Date().toISOString() };
+    const agostoCorto = { completo: true, offset: 24_950, total: 74_059, modo: "id" as const, relecturas: 0, actualizadoEn: new Date().toISOString() };
+    const { almacen, guardados } = almacenFalso(cliente, { [actual]: alDia, [anterior]: alDia, [dosAtras]: agostoCorto });
+    const r = await continuarCargosCon(admin, "cta", almacen, Date.now() + 600_000);
+    expect(r?.periodo).toBe(dosAtras);
+    expect(guardados.at(-1)).toMatchObject({ periodo: dosAtras, modo: "id", completo: true, offset: 1_500, relecturas: 1 });
+
+    expect(necesitaRelecturaPorTotal({ ...agostoCorto, relecturas: 1 })).toBe(true);
+    expect(necesitaRelecturaPorTotal({ ...agostoCorto, relecturas: 2 })).toBe(false);
+  });
+
+  it("agosto 2026 «completo» con 9,900 de 74,059 por offset se relee por id en el fondo; rechazado por id (offset) no se insiste", async () => {
     const { admin } = adminFalso();
     const { cliente } = clienteFalso("ninguno", { total: 1_500 });
     const hoyMx = new Date(Date.now() - 6 * 3_600_000);

@@ -299,6 +299,21 @@ export interface ProgresoCargos {
   modo?: "id" | "offset" | null;
   /** el `last_id` de la última página leída por id; desde ahí se retoma */
   desdeId?: string | number | null;
+  /**
+   * Cómo vino la última página por id (renglones, `last_id`, `total` y las
+   * claves del cuerpo): cuando MELI corta la lectura antes de tiempo, la
+   * bitácora dice con qué contestó, sin tener que volver a pedirlo.
+   */
+  ultimaPagina?: UltimaPaginaCargos | null;
+  /** veces que el periodo se releyó por haber quedado corto contra el total de MELI */
+  relecturas?: number;
+}
+
+export interface UltimaPaginaCargos {
+  renglones: number;
+  lastId: string | number | null;
+  total: number | null;
+  claves: string[];
 }
 
 /** Los subtipos de la factura que el corte necesita cuando hay que leer por tipo. */
@@ -379,6 +394,8 @@ export function progresoDeDetalle(periodo: string, detalle: unknown, actualizado
     sondeados: Array.isArray(d.sondeados) ? d.sondeados.filter((s: unknown) => typeof s === "string") : [],
     modo: d.modo === "id" || d.modo === "offset" ? d.modo : null,
     desdeId: typeof d.desdeId === "string" || typeof d.desdeId === "number" ? d.desdeId : null,
+    ultimaPagina: d.ultimaPagina && typeof d.ultimaPagina === "object" ? (d.ultimaPagina as UltimaPaginaCargos) : null,
+    relecturas: Number(d.relecturas) || 0,
   };
 }
 
@@ -396,7 +413,7 @@ export async function almacenMeli(admin: DB, accountId: string): Promise<Almacen
         tarea: "cargos_meli",
         estado: "ok",
         fin: new Date().toISOString(),
-        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, sondeados: p.sondeados ?? [], modo: p.modo ?? null, desdeId: p.desdeId ?? null, ...extra },
+        detalle: { periodo: p.periodo, clave: p.clave, offset: p.offset, total: p.total, completo: p.completo, particion: p.particion ?? null, cursor: p.cursor ?? null, offsetParticion: p.offsetParticion ?? 0, sondeados: p.sondeados ?? [], modo: p.modo ?? null, desdeId: p.desdeId ?? null, ultimaPagina: p.ultimaPagina ?? null, relecturas: p.relecturas ?? 0, ...extra },
       });
     },
     pendientes: async () => {
@@ -573,6 +590,9 @@ export async function sincronizarCargosCon(
   // cero mientras dura la relectura.
   const relectura = progreso.completo;
   if (progreso.completo) {
+    // Releer por haber quedado corto se cuenta: si MELI vuelve a cortar la
+    // lectura en el mismo lugar, insistir cada latido no cambia nada.
+    if (necesitaRelecturaPorTotal(progreso)) progreso.relecturas = (progreso.relecturas ?? 0) + 1;
     progreso.completo = false;
     progreso.offset = 0;
     progreso.total = null;
@@ -582,6 +602,7 @@ export async function sincronizarCargosCon(
     progreso.sondeados = [];
     progreso.modo = null;
     progreso.desdeId = null;
+    progreso.ultimaPagina = null;
   }
 
   try {
@@ -621,7 +642,16 @@ export async function sincronizarCargosCon(
     const porId = await leerPorId(admin, accountId, periodo, almacen, ruta, progreso, finMs, { vistos, avisos, espera });
     paginas += porId.paginas;
     if (porId.estado !== "rechazado") {
-      if (porId.estado === "completo") progreso.completo = true;
+      if (porId.estado === "completo") {
+        progreso.completo = true;
+        if (progreso.total != null && progreso.total > 0 && progreso.offset < progreso.total * 0.95) {
+          const u = progreso.ultimaPagina;
+          avisos.push(
+            `MELI dio por terminada la lectura con ${progreso.offset.toLocaleString("es-MX")} de ${progreso.total.toLocaleString("es-MX")} renglones` +
+              (u ? ` (última página: ${u.renglones} renglones, last_id ${u.lastId ?? "ninguno"}, total ${u.total ?? "ninguno"}).` : "."),
+          );
+        }
+      }
       error = porId.error;
       await almacen.guardarProgreso(progreso, { paginas, error, avisos });
       const t = await totalesGuardados();
@@ -747,6 +777,25 @@ export function ultimoIdDe(crudo: unknown): string | number | null {
   return null;
 }
 
+/** El mayor `detail_id` numérico de la página, o null si ninguno es número. */
+export function mayorIdDe(cargos: Pick<CargoMeli, "detalleId">[]): number | null {
+  let mayor: number | null = null;
+  for (const c of cargos) {
+    if (!/^\d+$/.test(c.detalleId)) continue;
+    const n = Number(c.detalleId);
+    if (Number.isSafeInteger(n) && (mayor == null || n > mayor)) mayor = n;
+  }
+  return mayor;
+}
+
+/** ¿El cursor nuevo va DESPUÉS del anterior? (ids numéricos se comparan como números) */
+export function avanza(anterior: string | number, nuevo: string | number): boolean {
+  const a = String(anterior);
+  const n = String(nuevo);
+  if (/^\d+$/.test(a) && /^\d+$/.test(n)) return BigInt(n) > BigInt(a);
+  return n !== a;
+}
+
 /**
  * Lee el periodo por id: `from_id` = el `last_id` de la página anterior,
  * `limit` 1000, orden por ID ascendente (la paginación que MELI recomienda;
@@ -803,23 +852,43 @@ async function leerPorId(
       return { estado: "sin_plazo", paginas, error: e.message };
     }
     const resultados: unknown[] = Array.isArray(crudo?.results) ? crudo.results : Array.isArray(crudo) ? crudo : [];
-    const ultimo = ultimoIdDe(crudo);
-    if (progreso.modo !== "id" && ultimo == null && resultados.length >= LIMITE_POR_ID) {
+    const lastId = ultimoIdDe(crudo);
+    if (progreso.modo !== "id" && lastId == null && resultados.length >= LIMITE_POR_ID) {
       // Página llena y sin cursor: MELI ignoró `from_id`, no hay cómo seguir.
       return rechazado("la respuesta no trae last_id");
     }
     progreso.modo = "id";
     paginas++;
-    const lote = extraerCargos(crudo, periodo).filter((c) => !ctx.vistos.has(c.detalleId) && ctx.vistos.add(c.detalleId));
+    const cargos = extraerCargos(crudo, periodo);
+    const lote = cargos.filter((c) => !ctx.vistos.has(c.detalleId) && ctx.vistos.add(c.detalleId));
     await guardarCargos(admin, accountId, tabla, periodo, lote);
     progreso.offset += lote.length;
     // MELI cuenta el `total` DESDE `from_id` (74,059 en la primera página,
     // 55,059 con 20 mil leídos): el total del periodo es el de la primera.
     const totalAqui = totalDe(crudo);
     if (totalAqui != null && (String(desdeId) === "0" || progreso.total == null)) progreso.total = totalAqui;
+    progreso.ultimaPagina = {
+      renglones: resultados.length,
+      lastId,
+      total: totalAqui,
+      claves: crudo && typeof crudo === "object" && !Array.isArray(crudo) ? Object.keys(crudo).slice(0, 12) : [],
+    };
 
-    if (!resultados.length || ultimo == null || String(ultimo) === String(desdeId) || resultados.length < LIMITE_POR_ID) {
+    // El cursor es el `last_id` de MELI o, si no lo manda, el mayor id de
+    // la página: los renglones traen su `detail_id`.
+    const ultimo = lastId ?? mayorIdDe(cargos);
+    if (!resultados.length || ultimo == null || !avanza(desdeId, ultimo)) {
       return { estado: "completo", paginas, error: null };
+    }
+    // Una página corta NO es el final mientras MELI diga que faltan
+    // renglones desde aquí: el 6-oct-2026 julio y agosto 2026 contestaron
+    // 950 renglones en el día 10 (con ~48 mil y ~50 mil por delante según
+    // su `total`) y la lectura los dio por completos con solo diez días.
+    if (resultados.length < LIMITE_POR_ID && (totalAqui == null || totalAqui <= resultados.length)) {
+      return { estado: "completo", paginas, error: null };
+    }
+    if (resultados.length < LIMITE_POR_ID) {
+      ctx.avisos.push(`Página corta en ${desdeId} (${resultados.length} renglones con ${totalAqui} por delante): se sigue desde ${ultimo}.`);
     }
     desdeId = ultimo;
     progreso.desdeId = desdeId;
@@ -895,14 +964,27 @@ export const PRIMER_PERIODO_FACTURACION = "2026-05";
 /** Cada cuántas horas se relee un mes que sigue abierto en MELI. */
 export const HORAS_RELECTURA_MES_ABIERTO = 12;
 
+/** Veces que un mes corto se relee por id antes de dejarlo declarado como corto. */
+export const MAX_RELECTURAS_CORTAS = 2;
+
 /**
- * ¿Se dio por completo con menos renglones de los que MELI declara, sin
- * haber probado la lectura por id (`modo` vacío: lo leído antes del
- * 6-oct-2026)? Entonces toca releerlo por id. Si ya se leyó por id y sigue
- * corto, o MELI rechazó el id (`offset`), releer no cambiaría nada.
+ * ¿Se dio por completo con menos renglones de los que MELI declara? Entonces
+ * toca releerlo por id: lo leído por offset antes del 6-oct-2026 (`modo`
+ * vacío) y lo que la lectura por id cortó antes de tiempo (julio y agosto
+ * 2026 se quedaron en el día 10 con 13,950 de 61,966 y 24,950 de 74,059).
+ * Si MELI rechazó el id (`offset`) o ya se releyó `MAX_RELECTURAS_CORTAS`
+ * veces y sigue corto, releer no cambiaría nada: queda declarado en la
+ * revisión general.
  */
-export function necesitaRelecturaPorTotal(p: Pick<ProgresoCargos, "completo" | "offset" | "total" | "modo">): boolean {
-  return p.completo && p.total != null && p.total > 0 && p.offset < p.total * 0.95 && p.modo == null;
+export function necesitaRelecturaPorTotal(p: Pick<ProgresoCargos, "completo" | "offset" | "total" | "modo" | "relecturas">): boolean {
+  return (
+    p.completo &&
+    p.total != null &&
+    p.total > 0 &&
+    p.offset < p.total * 0.95 &&
+    p.modo !== "offset" &&
+    (p.relecturas ?? 0) < MAX_RELECTURAS_CORTAS
+  );
 }
 
 /** El instante en que cierra el periodo YYYY-MM: el primer día del mes siguiente a las 0:00 de México (UTC−6). */
