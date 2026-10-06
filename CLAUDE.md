@@ -1647,6 +1647,23 @@ guárdala numerada.
   28-sep-2026 `FINANZAS_DESDE` es 15-dic-2025 y, si lo guardado no llega al
   fondo, la lista de grupos se vuelve a pedir desde ahí (si Amazon no
   acepta la fecha vieja, sigue con la ventana reciente).
+- **Los RPC de Amazon que corren en el FONDO aceptan al `service_role`**
+  (migración 0111: `amazon_economia_por_sku`, `amazon_economia_cobertura`,
+  `amazon_historia_sku`, `amazon_compras_por_sku`; `amazon_pagos_por_sku` y
+  los `amazon_finanzas_*` ya lo hacían): `es_mi_cuenta_amazon` se decide por
+  `auth.uid()` y el cron del corte general, el latido y la planificación
+  llaman con el cliente admin. Hasta el 6-oct-2026 contestaban «Esa cuenta
+  de Amazon no es tuya», el corte general de TODOS los meses decía «no se
+  pudo leer SKU Economics», la publicidad de Amazon ($443 mil en agosto)
+  iba completa como gasto general y la ganancia por modelo de Amazon salía
+  sin ella (dueño: «Amazon no está jalando su publicidad»); y el plan de FBA
+  perdía NUEVO y SIN VENTA en cada corrida. Un RPC nuevo que vaya a correr
+  en el fondo lleva SIEMPRE `coalesce(auth.role(), '') <> 'service_role'
+  and not es_mi_cuenta…`. **Y `amazon_economia_hueco` busca por llave**
+  (migración 0112): agrupaba los 2.47 millones de renglones de
+  `amazon_economia` para revisar cuatro días y el paso `cron_economia` murió
+  por tiempo en cada latido del 10-sep al 6-oct-2026 (SKU Economics se
+  quedó en el 30-sep).
 - **El FNSKU (etiqueta de FBA) tiene DOS fuentes** (`etiquetas/resolver.ts`,
   `mapaAmazon`): el reporte de inventario FBA (`amazon_inventario`), que solo
   trae lo que Amazon tiene o tuvo hace poco, y `amazon_listings.fnsku`, que
