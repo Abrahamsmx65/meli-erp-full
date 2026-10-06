@@ -163,6 +163,30 @@ describe("sincronizarFinanzas", () => {
   });
 });
 
+describe("dos cargos idénticos en páginas distintas del mismo grupo", () => {
+  it("entran los dos (el segundo con «#2») y el grupo cuadra contra su total", async () => {
+    // 90 (envío) − 619.27 − 619.27 = −1148.54: Amazon cobró dos veces el
+    // mismo transporte y el total del grupo los trae a los dos.
+    const admin = adminFalso([grupo({ grupo_id: "g1", total_original: -1148.54 })]);
+    const transporte = { FeeList: [{ FeeType: "FBAInboundTransportationFee", FeeAmount: m(-619.27) }] };
+    const paginas = [
+      { payload: { FinancialEvents: { ShipmentEventList: [envio("A", 100, -10)], ServiceFeeEventList: [transporte] }, NextToken: "p2" } },
+      { payload: { FinancialEvents: { ServiceFeeEventList: [transporte] } } },
+    ];
+    const cliente: any = {
+      cuenta: { accountId: "cta" },
+      msRestantes: () => 100_000,
+      llamar: vi.fn(async () => paginas.shift() ?? null),
+    };
+    const r = await sincronizarFinanzas(admin, cliente);
+    expect(r).toMatchObject({ paginas: 2, eventos: 3, descuadrados: [] });
+    const claves = [...admin.eventos.keys()].filter((k) => admin.eventos.get(k).lista === "ServiceFeeEventList");
+    expect(claves).toHaveLength(2);
+    expect(claves.some((k) => k.endsWith("#2"))).toBe(true);
+    expect(admin.grupos.get("g1")).toMatchObject({ completo: true, cuadra: true, suma_eventos: -1148.54 });
+  });
+});
+
 describe("periodosDeGrupo", () => {
   it("cubre del mes de inicio al de fin, y hasta hoy si el grupo sigue abierto", () => {
     expect(periodosDeGrupo("2026-06-28T02:32:00Z", "2026-07-10T13:20:59Z")).toEqual(["2026-06", "2026-07"]);

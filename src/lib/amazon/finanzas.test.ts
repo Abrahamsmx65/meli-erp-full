@@ -139,4 +139,18 @@ describe("la clave del evento lleva el grupo de liquidación", () => {
     const a = clasificarEventos({ ServiceFeeEventList: [suscripcion, suscripcion] } as any, "grupo-enero");
     expect(a[1].clave).toBe(`${a[0].clave}#2`);
   });
+
+  it("dos cobros idénticos en PÁGINAS distintas del mismo grupo tampoco colapsan si comparten la memoria de la lectura", () => {
+    // 6-oct-2026: el grupo del 13 al 26 de agosto siguió descuadrado por
+    // 619.27 tras releerse porque sus dos transportes iguales cayeron en
+    // dos páginas y la memoria era por página.
+    const transporte = { FeeList: [{ FeeType: "FBAInboundTransportationFee", FeeAmount: { CurrencyCode: "MXN", CurrencyAmount: -619.27 } }] };
+    const vistas = new Map<string, number>();
+    const p1 = clasificarEventos({ ServiceFeeEventList: [transporte] } as any, "grupo-agosto", vistas);
+    const p2 = clasificarEventos({ ServiceFeeEventList: [transporte] } as any, "grupo-agosto", vistas);
+    expect(p2[0].clave).toBe(`${p1[0].clave}#2`);
+    // Sin memoria compartida (lectura retomada a media página) cae sobre su
+    // propia clave: el gemelo guardado conserva su «#2» y nada se duplica.
+    expect(clasificarEventos({ ServiceFeeEventList: [transporte] } as any, "grupo-agosto")[0].clave).toBe(p1[0].clave);
+  });
 });

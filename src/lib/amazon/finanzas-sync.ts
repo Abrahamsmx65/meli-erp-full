@@ -250,6 +250,9 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
     let token: string | null | undefined = g.token_siguiente;
     let paginasDelGrupo = g.token_siguiente ? g.paginas : 0;
     let terminado = false;
+    // Memoria de claves de ESTA lectura del grupo: dos eventos idénticos en
+    // páginas distintas se numeran (`#2`) igual que en la misma página.
+    const vistas = new Map<string, number>();
 
     while (cliente.msRestantes() > 25_000) {
       let pagina: Awaited<ReturnType<typeof paginaDeEventosDeGrupo>>;
@@ -275,7 +278,7 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
       if (paginasDelGrupo === 0) {
         await admin.from("amazon_finanzas_eventos").delete().eq("account_id", accountId).eq("grupo_id", g.grupo_id).not("clave", "like", "g:%");
       }
-      const eventos = clasificarEventos(pagina.eventos, g.grupo_id);
+      const eventos = clasificarEventos(pagina.eventos, g.grupo_id, vistas);
       if (eventos.length) await guardarEnLotes(admin, "amazon_finanzas_eventos", eventos.map((e) => filaDeEvento(accountId, g, e)));
       paginasDelGrupo++;
       salida.paginas++;

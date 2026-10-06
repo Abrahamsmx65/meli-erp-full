@@ -431,15 +431,21 @@ function montoDeOtro(lista: string, e: Obj): { monto: number | null; base: numbe
 /**
  * Aplana todas las listas de una página de eventos a eventos con monto.
  *
- * Dos eventos IDÉNTICOS en la misma página son dos cargos de verdad (Amazon
+ * Dos eventos IDÉNTICOS en el mismo grupo son dos cargos de verdad (Amazon
  * cobró dos veces la misma tarifa de transporte de −619.27 sin fecha ni
  * descripción, y el total del grupo los trae a los dos): el segundo lleva
- * la clave con `#2`, el tercero `#3`… Así no se colapsan y releer la misma
- * página da las mismas claves.
+ * la clave con `#2`, el tercero `#3`… Así no se colapsan y releer el grupo
+ * da las mismas claves. `vistas` es la memoria de lo ya numerado en ESTA
+ * lectura del grupo y viaja de página en página: el 6-oct-2026 el grupo del
+ * 13 al 26 de agosto siguió descuadrado por 619.27 después de releerse
+ * porque los dos cobros iguales cayeron en páginas distintas y la memoria
+ * era por página. Una lectura que se retoma a media página (token guardado)
+ * arranca con memoria vacía: el gemelo que ya está guardado conserva su
+ * `#2` y el que se vuelve a leer cae sobre su propia clave, nunca se
+ * duplica.
  */
-export function clasificarEventos(ev: EventosFinancierosAmazon, grupoId?: string | null): EventoClasificadoAmazon[] {
+export function clasificarEventos(ev: EventosFinancierosAmazon, grupoId?: string | null, vistas: Map<string, number> = new Map()): EventoClasificadoAmazon[] {
   const salida: EventoClasificadoAmazon[] = [];
-  const vistas = new Map<string, number>();
   const clave = (lista: string, crudo: unknown): string => {
     const base = claveDeEvento(lista, crudo, grupoId);
     const n = (vistas.get(base) ?? 0) + 1;
