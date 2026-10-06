@@ -58,6 +58,7 @@ import {
   numerosPreparados,
   renglonesDeEtiqueta,
   numerarPaquetes,
+  esFalloDeArmado,
   ORDEN_ACTUAL,
   type OrdenPaquetes,
   type PaqueteDespacho,
@@ -522,10 +523,9 @@ export async function hacerCorte(
       if (decision.nadaQueConfirmar) {
         // Todos sus renglones ya están cancelados en TikTok (la defensa de
         // una ronda anterior, o el comprador) y TikTok todavía lo enseña
-        // pendiente: no hay nada que confirmar. Pedirle el envío a TikTok
-        // contesta 21011027 «Arrange shipment failed» y, peor, le puede
-        // armar guía a un pedido sin pares (6-oct-2026, corte #54, 8 pedidos
-        // de GT148-CREAM: 6 quedaron AWAITING_COLLECTION).
+        // pendiente: no hay nada que confirmar ni que cancelar, y pedirle el
+        // envío sería armarle guía a un pedido sin pares. Guarda defensiva
+        // (6-oct-2026).
         throw new Error(
           "Todos sus renglones ya están cancelados en TikTok: no hay nada que confirmar ni que cancelar. " +
             "Si TikTok lo sigue enseñando pendiente de envío, revísalo en el Seller Center.",
@@ -589,6 +589,13 @@ export async function hacerCorte(
       }
       vivosPorPedido.set(p.orderId, decision.quedan);
 
+      // Confirmar los paquetes del pedido. Va en una función porque, cuando
+      // la defensa acaba de cancelar un renglón, TikTok REARMA el paquete
+      // (id nuevo) y el `/ship` inmediato contesta 21011027 «Arrange
+      // shipment failed» (6-oct-2026, corte #54: 8 pedidos grandes de GT148
+      // con un renglón CREAM sin stock); se reintenta UNA vez tras unos
+      // segundos releyendo los paquetes.
+      const confirmarPaquetes = async () => {
       const paquetes = await paquetesDePedido(cliente, p.orderId);
       if (!paquetes.length) throw new Error("TikTok no tiene paquete para este pedido.");
       for (const pk of paquetes) {
@@ -634,6 +641,14 @@ export async function hacerCorte(
           const m = (err as Error).message;
           if (!/already|ya .*enviad|shipped|SHIPPED/i.test(m)) throw err;
         }
+      }
+      };
+      try {
+        await confirmarPaquetes();
+      } catch (err) {
+        if (!esFalloDeArmado(err)) throw err;
+        await new Promise((res) => setTimeout(res, 4000));
+        await confirmarPaquetes();
       }
       confirmados.push(p.orderId);
     } catch (err) {

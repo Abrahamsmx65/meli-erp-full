@@ -65,6 +65,21 @@ export type OrdenPaquetes = "bodega" | "un-modelo" | "un-color";
 /** El orden con el que nacen los cortes nuevos. */
 export const ORDEN_ACTUAL: OrdenPaquetes = "un-color";
 
+/**
+ * TikTok 21011027 «Arrange shipment failed, If multiple retry have failed,
+ * please contact the platform for assistance»: la petición de envío de un
+ * paquete que TikTok acaba de REARMAR. El 6-oct-2026 (corte #54) la defensa
+ * canceló el renglón GT148-CREAM de 8 pedidos grandes (TikTok aceptó la
+ * cancelación parcial), TikTok partió el paquete y le dio un id nuevo, y el
+ * `/ship` inmediato a ese paquete contestó esto en los 8; seis quedaron
+ * AWAITING_COLLECTION de todos modos y dos pendientes. Se reintenta UNA vez
+ * tras unos segundos, releyendo los paquetes del pedido.
+ */
+export function esFalloDeArmado(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err ?? "");
+  return /21011027|Arrange shipment failed/i.test(m);
+}
+
 export interface PaqueteDespacho {
   orderId: string;
   packageId: string;

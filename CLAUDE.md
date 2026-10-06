@@ -865,16 +865,20 @@ guárdala numerada.
   contesta 403. La sonda `/api/tiktok/diagnostico/correo?para=…` manda una
   prueba y contesta lo que dijo Resend. **Si TikTok no acepta la cancelación, el
   pedido ENTERO se queda fuera del corte** y se declara: confirmar un par
-  que no existe es el error caro. **Un pedido SIN renglones vivos no se
-  confirma** (`DecisionDePedido.nadaQueConfirmar`; 6-oct-2026): la ronda 1
-  del corte #54 bloqueó y canceló 34 pedidos de GT148-CREAM (kardex en
-  cero) y TikTok aceptó; en la ronda 2, ocho seguían «pendientes de envío»
-  en TikTok con todos sus renglones ya cancelados, `decidirPedido` no tenía
-  nada que cancelar ni que confirmar y el corte le pidió a TikTok el envío
-  del paquete: 21011027 «Arrange shipment failed» en los 8, y 6 quedaron
-  AWAITING_COLLECTION (TikTok les armó guía sin pares). Ahora ese pedido se
-  declara («todos sus renglones ya están cancelados en TikTok») y no se
-  toca. **Un bloqueo automático no es para
+  que no existe es el error caro. **TikTok MX SÍ aceptó la cancelación
+  PARCIAL el 6-oct-2026** (corte #54: 34 pedidos con GT148-CREAM sin
+  stock; 26 eran de un solo renglón y se cancelaron completos, 8 eran
+  pedidos grandes y TikTok canceló SOLO el renglón CREAM), pero al cancelar
+  un renglón TikTok REARMA el paquete con un id nuevo y el `/ship`
+  inmediato contesta 21011027 «Arrange shipment failed» (`esFalloDeArmado`
+  en `tiktok/despacho.ts`): en los 8 falló, 6 quedaron AWAITING_COLLECTION
+  de todos modos (TikTok les armó la guía) y 2 pendientes; los 8 se
+  quedaron sin corte y el siguiente corte los recoge (los ya enviados solo
+  se agrupan). Ahora ese fallo se reintenta UNA vez a los 4 s releyendo los
+  paquetes. **Un pedido SIN renglones vivos no se confirma**
+  (`DecisionDePedido.nadaQueConfirmar`): guarda defensiva del mismo día
+  para no pedirle a TikTok el envío de un pedido ya cancelado completo que
+  TikTok aún enseñe pendiente. **Un bloqueo automático no es para
   siempre** (`esBloqueoAutomatico`, prefijo `auto:`): cada corte lo vuelve
   a decidir con el stock de hoy y, si llegó mercancía, lo libera
   (`liberados`, `bloqueo_resultado = liberado: ya hay stock`); el 18-sep
