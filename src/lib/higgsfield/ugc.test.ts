@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarConceptoUGC,
   detectarRasgos,
+  MOTIVOS_ESTILO,
   promptUGCConVozIA,
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
@@ -131,6 +132,47 @@ describe("motor de conceptos UGC", () => {
     expect(ids.has("aguantan-trabajo")).toBe(true);
     expect(ids.has("dia-en-la-obra")).toBe(true);
     expect(ids.has("outfit-del-dia")).toBe(false);
+  });
+
+  it("el guion de 30 s SIEMPRE trae al menos un motivo de estilo (no todo es comodidad)", () => {
+    for (const tipo of ["sandalia", "bota", "tenis", "pantufla"] as TipoCalzado[]) {
+      for (const semilla of [0.03, 0.17, 0.31, 0.49, 0.62, 0.78, 0.91]) {
+        const c = armarConceptoUGC({ tipo, genero: "mujer", semilla, largo: true });
+        const deEstilo = MOTIVOS_ESTILO[tipo].some((m) => c.guionSugerido.includes(m));
+        expect(deEstilo, `${tipo} semilla ${semilla}: ${c.guionSugerido}`).toBe(true);
+      }
+    }
+  });
+
+  it("los guiones cortos también hablan de moda una buena parte de las veces", () => {
+    const conEstilo = Array.from({ length: 200 }, (_, i) =>
+      armarConceptoUGC({ tipo: "sandalia", genero: "mujer", semilla: i / 200 }),
+    ).filter((c) => MOTIVOS_ESTILO.sandalia.some((m) => c.guionSugerido.includes(m)));
+    // Ni ausente (la queja del dueño) ni avasallando el confort.
+    expect(conEstilo.length).toBeGreaterThan(40);
+    expect(conEstilo.length).toBeLessThan(160);
+  });
+
+  it("al calzado de seguridad la moda no se le mete, ni en el guion largo", () => {
+    for (const semilla of [0.1, 0.4, 0.7]) {
+      const industrial = armarConceptoUGC({
+        tipo: "bota_industrial",
+        genero: "hombre",
+        semilla,
+        largo: true,
+      });
+      expect(industrial.guionSugerido).not.toMatch(/outfit|look|moda|tendencia/i);
+      const casquillo = armarConceptoUGC({
+        tipo: "zapato",
+        genero: "hombre",
+        semilla,
+        texto: "Zapato con casquillo de seguridad industrial",
+        largo: true,
+      });
+      for (const m of MOTIVOS_ESTILO.zapato) {
+        expect(casquillo.guionSugerido).not.toContain(m);
+      }
+    }
   });
 
   it("el paquete de 100 conceptos entra al motor: mucha variedad real", () => {

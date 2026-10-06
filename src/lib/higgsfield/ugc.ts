@@ -269,6 +269,96 @@ function conRasgos(
   return propios.length ? [...propios, ...propios, ...base] : base;
 }
 
+// ---------------------------------------------------------------------------
+// ESTILO: la otra mitad del porqué comprar. El motor cargaba hacia lo cómodo
+// y lo práctico (pedido del dueño, 6-oct-2026: «solo se enfoca en lo cómodo,
+// no en la moda o en lo bonito»); estas listas hablan de cómo SE VEN — el
+// outfit, los cumplidos, la tendencia — y entran parejas con las de confort:
+// en el guion corto salen más o menos la mitad de las veces y en el de 30 s
+// SIEMPRE hay al menos un motivo de estilo. La bota industrial y el calzado
+// de seguridad quedan fuera: ahí la moda no vende, vende volver entero.
+// ---------------------------------------------------------------------------
+
+const GANCHOS_ESTILO: string[] = [
+  "No estaba lista para la cantidad de cumplidos.",
+  "El outfit no está completo hasta que te ves los pies.",
+  "Me {las} pongo y el mismo look de siempre sube de nivel.",
+  "Les juro que me paran en la calle a preguntarme por {ellas}.",
+  "Hay {palabra} que se usan… y {palabra} que se presumen.",
+  "Compré {unas} {palabra} y de paso me arreglaron todos los outfits.",
+  "El detalle que hace que te pregunten '¿dónde lo compraste?'.",
+  "Hoy el espejo me dio la razón.",
+  "Un buen look empieza de abajo hacia arriba.",
+  "Lo que trae el outfit no importa tanto como lo que lo remata.",
+];
+
+export const MOTIVOS_ESTILO: Record<TipoCalzado, string[]> = {
+  pantufla: [
+    "Están tan bonitas que las dejo a la vista, no escondidas bajo la cama.",
+    "Vienen en colores que sí dan ganas de enseñar, no los de siempre.",
+    "Hasta en pijama te ves puesta, no desarreglada.",
+    "Abres la puerta con ellas y nadie diría que son pantuflas.",
+  ],
+  sandalia: [
+    "Con vestido se ven divinas y con jeans te sacan del apuro.",
+    "Estilizan la pierna un montón, sin necesidad de tacón.",
+    "El diseño se nota: se ven mucho más caras de lo que son.",
+    "Son el modelo que anda en todas las tendencias este año, y con razón.",
+    "El detalle del tejido y la correa las hace ver finas, no de montón.",
+  ],
+  sandalia_agua: [
+    "Los colores están padrísimos y no se ven de plástico corriente.",
+    "Hasta para la alberca una quiere verse bien, y estas cumplen.",
+    "Se ven tan bien que las uso también fuera de la playa.",
+  ],
+  bota: [
+    "Se ven de botín caro: la horma, el acabado, todo.",
+    "Le dan al outfit ese toque arreglado sin esfuerzo.",
+    "Pones básicos de siempre y las botas hacen todo el trabajo del look.",
+    "Es el estilo que anda en tendencia, pero con calidad de verdad.",
+    "Con el pantalón arremangado se ven espectaculares.",
+  ],
+  bota_industrial: [],
+  tenis: [
+    "Se ven limpios y estilosos: levantan hasta el look más básico.",
+    "El diseño está padrísimo: deportivos, pero para salir.",
+    "Combinan con mezclilla, con vestir y hasta con shorts, de verdad.",
+    "Son de los que te preguntan '¿de dónde son?' en la primera salida.",
+  ],
+  tacon: [
+    "La pierna se ve kilométrica con ellos.",
+    "Son elegantes de los que se notan al entrar.",
+    "El acabado es fino: nada de verse de plástico.",
+    "Las fotos del evento lo comprueban: el look lo cerraron ellos.",
+  ],
+  mocasin: [
+    "Se ven finos, de oficina elegante, aunque los uses a diario.",
+    "El acabado se ve caro: nadie adivina lo que costaron.",
+    "Dan ese look arreglado sin que parezca que lo intentaste demasiado.",
+  ],
+  zapato: [
+    "Se ven mucho más caros de lo que costaron, en serio.",
+    "La forma y el acabado los hacen ver finos, de aparador.",
+    "Suben cualquier outfit básico a 'bien vestido'.",
+    "Del trabajo a la cena sin cambiarte: se ven bien en las dos.",
+  ],
+};
+
+const CIERRES_ESTILO: string[] = [
+  "Sí existen {palabra} {bonitas} y {comodas} a la vez.",
+  "El look, resuelto.",
+  "Verse bien no tenía que costar tanto. Y no costó.",
+  "El estilo está en los detalles, y aquí está.",
+  "Pies presumibles todo el año.",
+  "La moda sí puede ser cómoda.",
+  "Outfit terminado.",
+];
+
+/** La moda no aplica al calzado de seguridad: ahí vende la protección. */
+function hablaDeEstilo(tipo: TipoCalzado, rasgos: string[]): boolean {
+  return tipo !== "bota_industrial" && !rasgos.includes("seguridad");
+}
+
 function elegir<T>(arr: T[], semilla: number, sal: number): T {
   // Hash bien mezclado: un multiplicador lineal degenera con listas cortas
   // (el paso cae en múltiplos del largo y nunca toca un elemento).
@@ -297,6 +387,7 @@ function llenar(plantilla: string, tipo: TipoCalzado): string {
     "{practicas}": femenino ? "prácticas" : "prácticos",
     "{resistentes}": "resistentes",
     "{baratas}": femenino ? "baratas" : "baratos",
+    "{bonitas}": femenino ? "bonitas" : "bonitos",
   };
   return plantilla.replace(/\{[a-z]+\}/g, (t) => mapa[t] ?? t);
 }
@@ -1176,21 +1267,49 @@ export function armarConceptoUGC(datos: {
   const perfil = elegir(perfiles.length ? perfiles : concepto.perfiles.mujer, datos.semilla, 31);
   const escena = elegir(concepto.escenas, datos.semilla, 13);
   const narrativaBase = elegir(concepto.narrativas, datos.semilla, 17);
-  const hook = elegir(conRasgos(GANCHOS_RASGO, rasgos, concepto.hooks), datos.semilla, 19);
-  const motivo = elegir(
-    conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]),
+
+  // El estilo entra parejo con el confort: los ganchos, motivos y cierres de
+  // moda se suman al pool (≈ mitad de las tiradas hablan de cómo se ven).
+  const conEstilo = hablaDeEstilo(datos.tipo, rasgos);
+  const motivosEstilo = conEstilo ? MOTIVOS_ESTILO[datos.tipo] : [];
+
+  const hook = elegir(
+    [
+      ...conRasgos(GANCHOS_RASGO, rasgos, concepto.hooks),
+      ...(conEstilo ? GANCHOS_ESTILO : []),
+    ],
     datos.semilla,
-    23,
+    19,
   );
-  const cierre = elegir(conRasgos(CIERRES_RASGO, rasgos, concepto.cierres), datos.semilla, 29);
+  const motivosPool = [
+    ...conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]),
+    ...motivosEstilo,
+  ];
+  const motivo = elegir(motivosPool, datos.semilla, 23);
+  const cierre = elegir(
+    [
+      ...conRasgos(CIERRES_RASGO, rasgos, concepto.cierres),
+      ...(conEstilo ? CIERRES_ESTILO : []),
+    ],
+    datos.semilla,
+    29,
+  );
 
   // Para 30 segundos el guion lleva TRES motivos distintos (sin repetir).
-  const motivosPool = conRasgos(MOTIVOS_RASGO, rasgos, concepto.motivos ?? MOTIVOS[datos.tipo]);
   const motivosLargos: string[] = [motivo];
   for (const sal of [41, 43, 47, 53, 59]) {
     if (motivosLargos.length >= 3) break;
     const extra = elegir(motivosPool, datos.semilla, sal);
     if (!motivosLargos.includes(extra)) motivosLargos.push(extra);
+  }
+  // Al menos UN motivo del guion largo habla de cómo se ven (no todo es
+  // comodidad): si el sorteo no metió ninguno, el último se cambia por uno.
+  if (
+    datos.largo &&
+    motivosEstilo.length &&
+    !motivosLargos.some((m) => motivosEstilo.includes(m))
+  ) {
+    motivosLargos[motivosLargos.length - 1] = elegir(motivosEstilo, datos.semilla, 61);
   }
 
   const promptImagen =
