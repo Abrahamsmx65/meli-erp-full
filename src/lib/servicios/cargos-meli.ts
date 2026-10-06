@@ -670,7 +670,44 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
     if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 6 * 3_600_000) continue;
     return sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
   }
+  // Con el mes anterior y el actual al día, los meses VIEJOS que nunca se
+  // leyeron (mayo, junio y julio de 2026 salían con $0 de gastos de Full):
+  // uno por latido, del más reciente al más viejo, hasta el primer mes con
+  // venta. Un mes que MELI ya no lista no se insiste más que una vez al día.
+  for (const periodo of mesesHaciaAtras(anterior, PRIMER_PERIODO_FACTURACION)) {
+    const p = await almacen.leerProgreso(periodo);
+    if (p.completo) continue;
+    if (p.actualizadoEn && Date.parse(p.actualizadoEn) > Date.now() - 24 * 3_600_000) continue;
+    try {
+      return await sincronizarCargosCon(admin, accountId, periodo, almacen, finMs);
+    } catch (err) {
+      // Que quede huella con fecha: sin ella el siguiente latido lo volvería
+      // a pedir y MELI recibiría la misma pregunta cada 30 segundos.
+      await almacen.guardarProgreso(
+        { periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: new Date().toISOString(), particion: null, cursor: null, offsetParticion: 0 },
+        { error: (err as Error).message.slice(0, 300) },
+      );
+      return { cargos: 0, full: 0, total: null, completo: false, error: `${periodo}: ${(err as Error).message}` };
+    }
+  }
   return null;
+}
+
+/** El primer mes con venta de calzado: antes no hay facturación que pedir. */
+export const PRIMER_PERIODO_FACTURACION = "2026-05";
+
+/** Los meses ANTERIORES a `desde` (exclusivo), del más reciente al más viejo, hasta `hasta` (inclusivo). */
+export function mesesHaciaAtras(desde: string, hasta: string): string[] {
+  const out: string[] = [];
+  let [y, m] = desde.split("-").map(Number);
+  for (let i = 0; i < 60; i++) {
+    m -= 1;
+    if (m === 0) { m = 12; y -= 1; }
+    const periodo = `${y}-${String(m).padStart(2, "0")}`;
+    if (periodo < hasta) break;
+    out.push(periodo);
+  }
+  return out;
 }
 
 /** La cuenta de calzado, montada en el latido. */

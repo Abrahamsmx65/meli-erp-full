@@ -593,7 +593,10 @@ export async function revisarOrdenes(
 }
 
 /** Hasta dónde hacia atrás se recarga el desglose con el pago real (los cortes del dueño). */
-export const FONDO_RECARGA_CARGOS = "2026-06-01";
+// Desde el primer mes con venta de calzado: las órdenes de mayo 2026 se
+// registran hacia atrás (`registrarOrdenesFaltantes`) y cualquiera que
+// quede sin su pago real tiene que entrar aquí también.
+export const FONDO_RECARGA_CARGOS = "2026-05-01";
 export const TAREA_RECARGA_CARGOS = "recarga_cargos_v1";
 
 /**

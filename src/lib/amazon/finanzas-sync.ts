@@ -302,6 +302,23 @@ export async function sincronizarFinanzas(admin: any, cliente: Cliente): Promise
   const relectura = await gruposDeLaCuenta(admin, cliente, { forzarLista: false });
   grupos = relectura.grupos;
   salida.pendientes = grupos.filter((g) => (!g.moneda || g.moneda === "MXN") && g.estado === "Closed" && !g.completo).length;
+  // El número de control de cada liquidación se recalcula desde lo que HAY
+  // guardado (RPC `amazon_finanzas_recuadrar`, migración 0086). Al cerrar un
+  // grupo se congelaban suma/eventos/cuadra, y en 5 de 7 grupos marcados
+  // como descuadrados los eventos guardados ya no coincidían con lo contado
+  // al cierre: el control decía una cosa y la tabla otra (6-oct-2026).
+  try {
+    const { data: recuadrados } = await admin.rpc("amazon_finanzas_recuadrar", { p_account: accountId });
+    for (const r of (recuadrados ?? []) as { grupo_id: string; suma_eventos: unknown; eventos: unknown; cuadra: boolean | null }[]) {
+      const g = grupos.find((x) => x.grupo_id === r.grupo_id);
+      if (!g) continue;
+      g.cuadra = r.cuadra;
+      g.suma_eventos = Number(r.suma_eventos);
+      g.eventos = Number(r.eventos);
+    }
+  } catch {
+    // Sin recuadre, los controles tomados al cierre siguen valiendo.
+  }
   for (const g of grupos) if (g.cuadra === false && !salida.descuadrados.includes(g.grupo_id)) salida.descuadrados.push(g.grupo_id);
   if (salida.estado !== "sin_plazo") salida.estado = salida.pendientes ? "avanzando" : "al_dia";
   salida.periodos = [...periodos].sort();

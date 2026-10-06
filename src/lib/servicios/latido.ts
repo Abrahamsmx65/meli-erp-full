@@ -1,6 +1,6 @@
 import type { DB } from "../datos/repos";
 import { registrarSync, cerrarSync, adquirirCandado, liberarCandado } from "../datos/repos";
-import { procesarPendientes, repararVentasHistoricas } from "./webhooks";
+import { procesarPendientes, registrarOrdenesFaltantes, repararVentasHistoricas } from "./webhooks";
 import { recargarCargosHistoricos, revisarPendientes } from "./devoluciones";
 import { continuarCargosPendientes } from "./cargos-meli";
 import { recalcular } from "./cache";
@@ -127,10 +127,18 @@ export async function latido(
         const rep = await repararVentasHistoricas(admin, accountId, finDrenado - 15_000);
         diasReparados = rep.dias;
         // Con el historial ya completo, el mismo espacio del latido se usa
-        // para recargar el desglose con el pago REAL de Mercado Pago, orden
-        // por orden, de lo reciente hacia atrás (junio en adelante).
+        // primero para REGISTRAR las órdenes que el barrido nunca guardó
+        // (mayo y medio junio de 2026 quedaron sin órdenes y sin neto), y
+        // luego para recargar el desglose con el pago REAL de Mercado Pago,
+        // orden por orden, de lo reciente hacia atrás.
         if (rep.completo && Date.now() < finDrenado - 60_000) {
-          await recargarCargosHistoricos(admin, accountId, finDrenado - 15_000);
+          const reg = await registrarOrdenesFaltantes(admin, accountId, finDrenado - 15_000).catch((err) => {
+            console.error("registrarOrdenesFaltantes:", (err as Error).message);
+            return { dias: 0, saltados: 0, completo: false };
+          });
+          if ((reg.completo || reg.dias === 0) && Date.now() < finDrenado - 60_000) {
+            await recargarCargosHistoricos(admin, accountId, finDrenado - 15_000);
+          }
         }
       } catch (err) {
         console.error("repararVentasHistoricas:", (err as Error).message);

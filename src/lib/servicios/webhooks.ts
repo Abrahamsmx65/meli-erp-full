@@ -317,6 +317,113 @@ interface ResultadoDia {
   filas: number;
   ordenesLeidas: number;
   totalSegunMeli: number | null;
+  /** órdenes del día que se quedaron sin registrar su neto por el tope del barrido */
+  netosPendientes: number;
+}
+
+/**
+ * ¿Al día le faltan órdenes registradas? `ordenesVenta` sale de ventas
+ * diarias (cuenta una orden por SKU que tocó, así que sobrecuenta un poco):
+ * por eso el umbral es holgado. Un día sin venta no necesita nada.
+ */
+export function diaNecesitaRegistro(registradas: number, ordenesVenta: number): boolean {
+  if (ordenesVenta <= 0) return false;
+  return registradas < ordenesVenta * 0.7;
+}
+
+const TAREA_REGISTRO_ORDENES = "registro_ordenes_v1";
+
+/**
+ * Registra hacia atrás las órdenes que el barrido diario nunca guardó en
+ * `ordenes_neto` (el registro por orden nació el 20-jun-2026 y solo miró
+ * hacia adelante: mayo de calzado quedó con venta y CERO órdenes, así que
+ * sin depósitos, sin neto y fuera del corte). Camina de ayer hacia el primer
+ * día con venta; un día con sus órdenes ya registradas se salta en una
+ * consulta; uno que no, se barre tantas veces como haga falta para que el
+ * tope de 150 pagos por barrido no lo deje a medias. Cursor en sync_log.
+ */
+export async function registrarOrdenesFaltantes(
+  db: DB,
+  accountId: string,
+  finMs: number,
+): Promise<{ dias: number; saltados: number; completo: boolean }> {
+  const { data: marca } = await db
+    .from("sync_log")
+    .select("detalle")
+    .eq("account_id", accountId)
+    .eq("tarea", TAREA_REGISTRO_ORDENES)
+    .eq("estado", "ok")
+    .order("inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (marca?.detalle?.completo) return { dias: 0, saltados: 0, completo: true };
+
+  const { data: primera } = await db
+    .from("ventas_diarias")
+    .select("fecha")
+    .eq("account_id", accountId)
+    .order("fecha", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const fondo: string | null = primera?.fecha ?? null;
+  if (!fondo) return { dias: 0, saltados: 0, completo: true };
+
+  const ahoraMx = Date.now() - 6 * 3_600_000;
+  const ayer = new Date(ahoraMx - 86_400_000).toISOString().slice(0, 10);
+  let fecha: string = typeof marca?.detalle?.siguiente === "string" ? marca.detalle.siguiente : ayer;
+  if (fecha > ayer) fecha = ayer;
+
+  const cliente = await clienteDeCuenta(db, accountId);
+  if (!cliente) return { dias: 0, saltados: 0, completo: false };
+  const mapaItemSku = await mapaItemSkuDe(db, accountId);
+
+  let dias = 0;
+  let saltados = 0;
+  const bitacora: Record<string, unknown>[] = [];
+  // Hasta 3 días barridos o 40 saltados por latido: el latido tiene más que hacer.
+  while (fecha >= fondo && dias < 3 && saltados < 40 && Date.now() < finMs) {
+    const [{ data: venta }, { count: registradas }] = await Promise.all([
+      db.from("ventas_diarias").select("ordenes").eq("account_id", accountId).eq("fecha", fecha).limit(2000),
+      db.from("ordenes_neto").select("order_id", { count: "exact", head: true }).eq("account_id", accountId).eq("fecha", fecha),
+    ]);
+    const ordenesVenta = (venta ?? []).reduce((a: number, f: any) => a + (f.ordenes ?? 0), 0);
+    if (!diaNecesitaRegistro(registradas ?? 0, ordenesVenta)) {
+      saltados++;
+      fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+      continue;
+    }
+    // El mismo día las veces que haga falta: cada barrido registra hasta
+    // 150 netos y dice cuántos quedaron.
+    let pendientes = Infinity;
+    let pasadas = 0;
+    let error: string | null = null;
+    while (pendientes > 0 && pasadas < 6 && Date.now() < finMs) {
+      try {
+        const r = await recalcularDiaVentas(db, accountId, cliente, fecha, mapaItemSku);
+        pendientes = r.netosPendientes;
+      } catch (err) {
+        error = (err as Error).message.slice(0, 200);
+        break;
+      }
+      pasadas++;
+    }
+    bitacora.push({ fecha, ordenesVenta, registradasAntes: registradas ?? 0, pasadas, pendientes: Number.isFinite(pendientes) ? pendientes : null, error });
+    dias++;
+    // Un día que no se pudo cerrar se queda como cursor y se reintenta en el
+    // siguiente latido; si tronó, se avanza para no atorarse para siempre.
+    if (pendientes > 0 && !error) break;
+    fecha = new Date(Date.parse(fecha) - 86_400_000).toISOString().slice(0, 10);
+  }
+
+  const completo = fecha < fondo;
+  await db.from("sync_log").insert({
+    account_id: accountId,
+    tarea: TAREA_REGISTRO_ORDENES,
+    estado: "ok",
+    fin: new Date().toISOString(),
+    detalle: { siguiente: fecha, fondo, completo, dias, saltados, bitacora },
+  });
+  return { dias, saltados, completo };
 }
 
 export async function recalcularDiaVentas(
@@ -331,7 +438,7 @@ export async function recalcularDiaVentas(
     .select("meli_user_id")
     .eq("id", accountId)
     .maybeSingle();
-  if (!cuenta) return { filas: 0, ordenesLeidas: 0, totalSegunMeli: null };
+  if (!cuenta) return { filas: 0, ordenesLeidas: 0, totalSegunMeli: null, netosPendientes: 0 };
 
   // La ventana cubre el día COMPLETO en hora de México (-06:00), que es el
   // día del negocio y el del monitor, pero se manda en formato UTC (Z): es
@@ -471,7 +578,7 @@ export async function recalcularDiaVentas(
   }
 
   // --- Neto real por orden (lo que MELI deposita) --------------------------
-  const netoPorClave = await netosDelDia(db, accountId, cliente, ordenes);
+  const { porClave: netoPorClave, pendientes: netosPendientes } = await netosDelDia(db, accountId, cliente, ordenes);
 
   const filas = [...acumulado].map(([clave, v]) => {
     const sku = clave.slice(0, clave.lastIndexOf("|"));
@@ -531,7 +638,7 @@ export async function recalcularDiaVentas(
   // borra cuando MELI declaró el total y el barrido lo cubrió: borrar con
   // una respuesta degradada vació días buenos.
   if (totalSegunMeli === null) {
-    return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
+    return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli, netosPendientes };
   }
   const skusBarridos = new Set(filas.map((f) => f.sku as string));
   const { data: existentes } = await db
@@ -565,7 +672,7 @@ export async function recalcularDiaVentas(
     },
   });
 
-  return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli };
+  return { filas: filas.length, ordenesLeidas: vistas.size, totalSegunMeli, netosPendientes };
 }
 
 /**
@@ -583,9 +690,9 @@ async function netosDelDia(
   accountId: string,
   cliente: MeliClient,
   ordenes: Map<number, OrdenDelBarrido>,
-): Promise<Map<string, number>> {
+): Promise<{ porClave: Map<string, number>; pendientes: number }> {
   const vacio = new Map<string, number>();
-  if (!ordenes.size) return vacio;
+  if (!ordenes.size) return { porClave: vacio, pendientes: 0 };
 
   // Caché existente. Si la tabla no existe (migración 0012 pendiente), el
   // neto simplemente no se calcula todavía.
@@ -610,7 +717,7 @@ async function netosDelDia(
       .select("order_id, neto, neto_actual, neto_en, actualizado_en, cargos_leidos_en, cargos_fuente, reembolso_incluido_neto_base, reembolso_base_confiable, neto_pago, envio_leido_en")
       .eq("account_id", accountId)
       .in("order_id", ids.slice(i, i + 200));
-    if (error) return vacio;
+    if (error) return { porClave: vacio, pendientes: 0 };
     for (const f of data ?? []) {
       cache.set(Number(f.order_id), {
         neto: Number(f.neto),
@@ -751,7 +858,9 @@ async function netosDelDia(
     }
   }
   for (const clave of clavesIncompletas) porClave.delete(clave);
-  return porClave;
+  // Cuántas órdenes del día se quedaron SIN pedir por el tope de 150: el
+  // registro hacia atrás vuelve a pasar por el día hasta que sean cero.
+  return { porClave, pendientes: Math.max(0, porPedir.length - 150) };
 }
 
 /** Cambio de stock en Full de un inventario. */

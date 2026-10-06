@@ -175,3 +175,13 @@ describe("partición de la lectura", () => {
     expect(cursoresDe({ modo: "ninguna" }, "2026-08")).toEqual([""]);
   });
 });
+
+describe("la facturación de los meses viejos se pide sola", () => {
+  it("recorre del mes anterior hacia atrás hasta el primer mes con venta, sin pasarse", async () => {
+    const { mesesHaciaAtras, PRIMER_PERIODO_FACTURACION } = await import("./cargos-meli");
+    expect(mesesHaciaAtras("2026-09", "2026-05")).toEqual(["2026-08", "2026-07", "2026-06", "2026-05"]);
+    expect(mesesHaciaAtras("2026-01", "2025-11")).toEqual(["2025-12", "2025-11"]);
+    expect(mesesHaciaAtras("2026-05", "2026-05")).toEqual([]);
+    expect(PRIMER_PERIODO_FACTURACION).toBe("2026-05");
+  });
+});
