@@ -38,9 +38,10 @@ describe("motor de conceptos UGC", () => {
           // El guion queda en español, armado y sin {tokens} sin reemplazar.
           expect(c.guionSugerido.length).toBeGreaterThan(40);
           expect(c.guionSugerido).not.toMatch(/\{[a-z]+\}/);
-          // La narrativa prohíbe el look de anuncio.
+          // La narrativa prohíbe el look de anuncio y clava a la MISMA persona.
           expect(c.narrativa).toContain("NOT an ad");
           expect(c.narrativa).toContain("smartphone");
+          expect(c.narrativa).toContain("SAME ONE person");
         }
       }
     }
@@ -163,6 +164,22 @@ describe("motor de conceptos UGC", () => {
         expect(c.guionSugerido).not.toContain(m);
       }
     }
+  });
+
+  it("un concepto con cortes de outfit no manda a la vez 'sin cortes' (cambiaba de persona)", () => {
+    const todos = Array.from({ length: 400 }, (_, i) =>
+      armarConceptoUGC({ tipo: "bota", genero: "mujer", semilla: i / 400 }),
+    );
+    const conCortes = todos.filter((c) => c.id === "un-par-tres-outfits");
+    expect(conCortes.length).toBeGreaterThan(0);
+    for (const c of conCortes) {
+      expect(c.narrativa).toContain("jump cuts");
+      expect(c.narrativa).not.toContain("ONE single continuous take");
+      expect(c.narrativa).toContain("ONLY the clothes change");
+    }
+    // Los demás siguen siendo una sola toma continua.
+    const sinCortes = todos.find((c) => c.id !== "un-par-tres-outfits");
+    expect(sinCortes?.narrativa).toContain("ONE single continuous take");
   });
 
   it("los conceptos nuevos de estilismo real entran a la rotación de adultos", () => {

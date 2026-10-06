@@ -40,6 +40,25 @@ const IMPERFECCIONES =
   "energy — NOT an ad, NOT cinematic, no fashion-model posing, no floating product " +
   "shots.";
 
+// Para los conceptos CON cortes (cambios de outfit): mandar a la vez «haz
+// cortes» y «una sola toma sin cortes» hacía que la IA lo resolviera
+// cambiando de persona a media toma (visto el 6-oct-2026).
+const IMPERFECCIONES_CORTES =
+  " Filmed as a FEW clean jump cuts (outfit-change transitions) in the SAME spot " +
+  "with the SAME camera framing: between cuts ONLY the clothes change — the person, " +
+  "the room and the lighting stay identical. Fluid, natural rhythm; natural speech " +
+  "pauses, ordinary lighting, normal home imperfections. Genuine TikTok/Reels " +
+  "energy — NOT an ad, NOT cinematic, no fashion-model posing, no floating product " +
+  "shots.";
+
+// La MISMA persona todo el video, en cada toma: con cambios de outfit (o
+// cualquier corte) la IA tendía a reemplazar a la persona a la mitad.
+const IDENTIDAD =
+  " THE SAME ONE person appears through the ENTIRE video: identical face, " +
+  "hairstyle, skin tone, age and body in every shot, from the first frame to the " +
+  "last. The person is NEVER replaced, recast, morphed or swapped for someone " +
+  "else — when the script calls for an outfit change, only the clothes change.";
+
 /**
  * El estilo fijo de la marca (pedido del usuario): creador "whitexican" —
  * fresa mexicano de clase alta, aspiracional. Se aplica a TODOS los
@@ -59,7 +78,9 @@ export const ESTILO_PERSONA =
 export const VOZ_FLUIDA =
   "The vocal delivery is smooth and flowing: sentences connect naturally in one " +
   "relaxed conversational rhythm with soft natural breaths, never robotic, choppy, " +
-  "over-enunciated or with awkward gaps between phrases. The speaker is a NATIVE " +
+  "over-enunciated or with awkward gaps between phrases. Every word is said exactly " +
+  "ONCE: the voice never stutters, never repeats a syllable or word, never gets " +
+  "stuck mid-word. The speaker is a NATIVE " +
   "Mexican Spanish speaker: never mix in English or Portuguese words or " +
   "pronunciations (say 'sandalias', never 'sandals'; 'ampollas', never 'ampolas'), " +
   "and pronounce every Spanish word completely and correctly";
@@ -398,7 +419,7 @@ export const MOTIVOS_ESTILO: Record<TipoCalzado, string[]> = {
 /** Combinaciones con falda o vestido: solo entran en guiones de mujer. */
 export const MOTIVOS_ESTILO_MUJER: Partial<Record<TipoCalzado, string[]>> = {
   bota: [
-    "Con falda midi y suéter de punto es EL look de la temporada.",
+    "Con falda midi y suéter de punto es el look de la temporada.",
     "Con vestido floreado dan ese contraste western que anda en todos lados.",
     "Pantalón entallado y bota: la pierna se alarga solita.",
   ],
@@ -546,6 +567,8 @@ export interface Concepto {
   publicos: Publico[];
   /** Solo aparece para calzado de niños (presenta la mamá). */
   soloNinos?: boolean;
+  /** El video lleva cortes (cambios de outfit): usa las imperfecciones de cortes. */
+  conCortes?: boolean;
   /** Rasgos del producto con los que este concepto tiene afinidad. */
   rasgos?: string[];
   /** Quién graba (EN, por público, varias variantes). */
@@ -692,6 +715,7 @@ const CONCEPTOS: Concepto[] = [
     // El formato real de moda en TikTok: un mismo par y tres outfits con
     // cortes entre cada uno (3 a 5 looks en 30 s es el estándar del género).
     id: "un-par-tres-outfits",
+    conCortes: true,
     etiqueta: "Un par, tres outfits",
     tipos: ["bota", "tenis", "sandalia", "tacon", "mocasin", "zapato"],
     publicos: ["mujer", "hombre"],
@@ -1491,7 +1515,9 @@ export function armarConceptoUGC(datos: {
 
   const narrativa =
     `Authentic vertical 9:16 UGC video filmed naturally on a smartphone: ${perfil}, ${ESTILO_PERSONA}. ` +
-    `${narrativaBase}.` + IMPERFECCIONES;
+    `${narrativaBase}.` +
+    (concepto.conCortes ? IMPERFECCIONES_CORTES : IMPERFECCIONES) +
+    IDENTIDAD;
 
   const guionSugerido = llenar(
     datos.largo
