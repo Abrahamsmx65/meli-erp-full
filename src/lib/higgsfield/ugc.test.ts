@@ -3,6 +3,7 @@ import {
   armarConceptoUGC,
   detectarRasgos,
   MOTIVOS_ESTILO,
+  MOTIVOS_ESTILO_MUJER,
   promptUGCConVozIA,
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
@@ -136,12 +137,42 @@ describe("motor de conceptos UGC", () => {
 
   it("el guion de 30 s SIEMPRE trae al menos un motivo de estilo (no todo es comodidad)", () => {
     for (const tipo of ["sandalia", "bota", "tenis", "pantufla"] as TipoCalzado[]) {
+      const pool = [...MOTIVOS_ESTILO[tipo], ...(MOTIVOS_ESTILO_MUJER[tipo] ?? [])];
       for (const semilla of [0.03, 0.17, 0.31, 0.49, 0.62, 0.78, 0.91]) {
         const c = armarConceptoUGC({ tipo, genero: "mujer", semilla, largo: true });
-        const deEstilo = MOTIVOS_ESTILO[tipo].some((m) => c.guionSugerido.includes(m));
+        const deEstilo = pool.some((m) => c.guionSugerido.includes(m));
         expect(deEstilo, `${tipo} semilla ${semilla}: ${c.guionSugerido}`).toBe(true);
       }
     }
+  });
+
+  it("las combinaciones con falda o vestido solo salen en guiones de mujer", () => {
+    for (const semilla of Array.from({ length: 60 }, (_, i) => i / 60)) {
+      const c = armarConceptoUGC({ tipo: "bota", genero: "hombre", semilla, largo: true });
+      for (const m of MOTIVOS_ESTILO_MUJER.bota ?? []) {
+        expect(c.guionSugerido).not.toContain(m);
+      }
+    }
+  });
+
+  it("a los guiones de niños no se les mete moda de adulto", () => {
+    for (const semilla of [0.08, 0.33, 0.57, 0.81]) {
+      const c = armarConceptoUGC({ tipo: "tenis", genero: "nino", semilla, largo: true });
+      const pool = [...MOTIVOS_ESTILO.tenis, ...(MOTIVOS_ESTILO_MUJER.tenis ?? [])];
+      for (const m of pool) {
+        expect(c.guionSugerido).not.toContain(m);
+      }
+    }
+  });
+
+  it("los conceptos nuevos de estilismo real entran a la rotación de adultos", () => {
+    const ids = new Set(
+      Array.from({ length: 600 }, (_, i) =>
+        armarConceptoUGC({ tipo: "bota", genero: "mujer", semilla: i / 600 }).id,
+      ),
+    );
+    expect(ids.has("un-par-tres-outfits")).toBe(true);
+    expect(ids.has("con-que-me-las-pongo")).toBe(true);
   });
 
   it("los guiones cortos también hablan de moda una buena parte de las veces", () => {

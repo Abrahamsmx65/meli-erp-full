@@ -272,39 +272,40 @@ function conRasgos(
 // ---------------------------------------------------------------------------
 // ESTILO: la otra mitad del porqué comprar. El motor cargaba hacia lo cómodo
 // y lo práctico (pedido del dueño, 6-oct-2026: «solo se enfoca en lo cómodo,
-// no en la moda o en lo bonito»); estas listas hablan de cómo SE VEN — el
-// outfit, los cumplidos, la tendencia — y entran parejas con las de confort:
-// en el guion corto salen más o menos la mitad de las veces y en el de 30 s
-// SIEMPRE hay al menos un motivo de estilo. La bota industrial y el calzado
-// de seguridad quedan fuera: ahí la moda no vende, vende volver entero.
+// no en la moda o en lo bonito»); estas listas hablan de cómo SE VEN y entran
+// parejas con las de confort: en el guion corto salen más o menos la mitad de
+// las veces y en el de 30 s SIEMPRE hay al menos un motivo de estilo. El
+// material es de ESTILISMO REAL, no de cumplidos («no tan forzados», dueño,
+// 6-oct-2026): combinaciones concretas como las que da la gente de moda —
+// jean recto cayendo sobre el botín, pantalón ancho con suela baja, tonos
+// tierra que van con todo, mezclilla con piel, proporciones—. Lo de falda y
+// vestido vive aparte y solo entra en guiones de mujer; a los guiones de
+// NIÑOS no se les mete moda de adulto, y la bota industrial y el calzado de
+// seguridad quedan fuera: ahí la moda no vende, vende volver entero.
 // ---------------------------------------------------------------------------
 
 const GANCHOS_ESTILO: string[] = [
-  "No estaba lista para la cantidad de cumplidos.",
-  "El outfit no está completo hasta que te ves los pies.",
-  "Me {las} pongo y el mismo look de siempre sube de nivel.",
-  "Les juro que me paran en la calle a preguntarme por {ellas}.",
-  "Hay {palabra} que se usan… y {palabra} que se presumen.",
-  "Compré {unas} {palabra} y de paso me arreglaron todos los outfits.",
-  "El detalle que hace que te pregunten '¿dónde lo compraste?'.",
-  "Hoy el espejo me dio la razón.",
-  "Un buen look empieza de abajo hacia arriba.",
-  "Lo que trae el outfit no importa tanto como lo que lo remata.",
+  "El outfit se arma desde abajo: primero el calzado, luego lo demás.",
+  "Un buen par te resuelve media semana de outfits.",
+  "Compré {unas} {palabra} y de paso se arreglaron mis básicos de siempre.",
+  "Hay {palabra} que se usan… y {palabra} que arman el look.",
+  "No hace falta clóset nuevo: hace falta el par correcto.",
+  "Esto era lo que les faltaba a mis jeans de siempre.",
+  "Mismos básicos de siempre, otro resultado. La diferencia va en los pies.",
+  "El truco de un look arreglado sin esfuerzo casi siempre está en los pies.",
 ];
 
 export const MOTIVOS_ESTILO: Record<TipoCalzado, string[]> = {
   pantufla: [
     "Están tan bonitas que las dejo a la vista, no escondidas bajo la cama.",
     "Vienen en colores que sí dan ganas de enseñar, no los de siempre.",
-    "Hasta en pijama te ves puesta, no desarreglada.",
     "Abres la puerta con ellas y nadie diría que son pantuflas.",
   ],
   sandalia: [
-    "Con vestido se ven divinas y con jeans te sacan del apuro.",
-    "Estilizan la pierna un montón, sin necesidad de tacón.",
-    "El diseño se nota: se ven mucho más caras de lo que son.",
-    "Son el modelo que anda en todas las tendencias este año, y con razón.",
-    "El detalle del tejido y la correa las hace ver finas, no de montón.",
+    "Con jeans y blusa básica el outfit se arregla solo.",
+    "En tonos tierra combinan con todo lo de calor del clóset.",
+    "La correa bien puesta hace que se vean arregladas, no de andar en casa.",
+    "Estilizan sin tacón: la pierna se ve más larga con la pura forma.",
   ],
   sandalia_agua: [
     "Los colores están padrísimos y no se ven de plástico corriente.",
@@ -312,46 +313,63 @@ export const MOTIVOS_ESTILO: Record<TipoCalzado, string[]> = {
     "Se ven tan bien que las uso también fuera de la playa.",
   ],
   bota: [
-    "Se ven de botín caro: la horma, el acabado, todo.",
-    "Le dan al outfit ese toque arreglado sin esfuerzo.",
-    "Pones básicos de siempre y las botas hacen todo el trabajo del look.",
-    "Es el estilo que anda en tendencia, pero con calidad de verdad.",
-    "Con el pantalón arremangado se ven espectaculares.",
+    "Con el jean recto cayendo justo encima del botín, el look se arma solo.",
+    "Si el pantalón es ancho, la bota baja balancea el look; estas lo logran.",
+    "Mezclilla con piel: la combinación que nunca se ve mal.",
+    "En café o camel van con todo el clóset de otoño, de la mezclilla al suéter.",
+    "Es el estilo que se está usando esta temporada, pero de los que no caducan en un mes.",
   ],
   bota_industrial: [],
   tenis: [
-    "Se ven limpios y estilosos: levantan hasta el look más básico.",
-    "El diseño está padrísimo: deportivos, pero para salir.",
-    "Combinan con mezclilla, con vestir y hasta con shorts, de verdad.",
-    "Son de los que te preguntan '¿de dónde son?' en la primera salida.",
+    "Jean recto, playera básica y estos: el uniforme que nunca falla.",
+    "El truco es la proporción: prenda suelta arriba, línea limpia abajo. Estos la dan.",
+    "Con chamarra de mezclilla arman el look urbano de fin de semana.",
+    "En este tono se ponen con todo el clóset sin pensarle.",
   ],
   tacon: [
-    "La pierna se ve kilométrica con ellos.",
-    "Son elegantes de los que se notan al entrar.",
-    "El acabado es fino: nada de verse de plástico.",
-    "Las fotos del evento lo comprueban: el look lo cerraron ellos.",
+    "Con pantalón de vestir ancho se ven de revista: la punta asomando y ya.",
+    "Jeans, blazer y estos: la cena queda resuelta.",
+    "La altura media es la que se está usando: sube el look sin castigar.",
   ],
   mocasin: [
-    "Se ven finos, de oficina elegante, aunque los uses a diario.",
-    "El acabado se ve caro: nadie adivina lo que costaron.",
-    "Dan ese look arreglado sin que parezca que lo intentaste demasiado.",
+    "Con el pantalón doblado al tobillo se ven muy europeos.",
+    "Jeans rectos, camisa blanca y mocasines: arreglado sin corbata.",
+    "En café o camel van igual con mezclilla que con pantalón de vestir.",
   ],
   zapato: [
-    "Se ven mucho más caros de lo que costaron, en serio.",
-    "La forma y el acabado los hacen ver finos, de aparador.",
-    "Suben cualquier outfit básico a 'bien vestido'.",
-    "Del trabajo a la cena sin cambiarte: se ven bien en las dos.",
+    "Con mezclilla se ven casuales y con pantalón de vestir, formales: dos looks en uno.",
+    "En tono neutro no pelean con nada del clóset.",
+    "Mismo outfit de siempre, una capa arreglada arriba, y el zapato hace el resto.",
+  ],
+};
+
+/** Combinaciones con falda o vestido: solo entran en guiones de mujer. */
+export const MOTIVOS_ESTILO_MUJER: Partial<Record<TipoCalzado, string[]>> = {
+  bota: [
+    "Con falda midi y suéter de punto es EL look de la temporada.",
+    "Con vestido floreado dan ese contraste western que anda en todos lados.",
+    "Pantalón entallado y bota: la pierna se alarga solita.",
+  ],
+  tenis: [
+    "Con vestido midi se ven frescos sin esfuerzo: ese contraste siempre funciona.",
+    "Falda plisada, playera oversized y estos: combo ganador.",
+  ],
+  sandalia: [
+    "Con falda larga de lino es el look de calor completo.",
+    "Con vestido midi dan aire de vacaciones aunque sea martes.",
+  ],
+  tacon: [
+    "Con vestido negro no hay forma de equivocarse.",
   ],
 };
 
 const CIERRES_ESTILO: string[] = [
   "Sí existen {palabra} {bonitas} y {comodas} a la vez.",
+  "Un buen par, muchos outfits.",
+  "Comprar bien se ve así.",
   "El look, resuelto.",
-  "Verse bien no tenía que costar tanto. Y no costó.",
-  "El estilo está en los detalles, y aquí está.",
-  "Pies presumibles todo el año.",
+  "Guárdenlo para armar el próximo outfit.",
   "La moda sí puede ser cómoda.",
-  "Outfit terminado.",
 ];
 
 /** La moda no aplica al calzado de seguridad: ahí vende la protección. */
@@ -616,6 +634,93 @@ const CONCEPTOS: Concepto[] = [
       "¿Ustedes con qué {las} combinarían?",
       "10 de 10 el look de hoy.",
       "Y así de fácil se resolvió el outfit.",
+    ],
+  },
+  {
+    // El formato real de moda en TikTok: un mismo par y tres outfits con
+    // cortes entre cada uno (3 a 5 looks en 30 s es el estándar del género).
+    id: "un-par-tres-outfits",
+    etiqueta: "Un par, tres outfits",
+    tipos: ["bota", "tenis", "sandalia", "tacon", "mocasin", "zapato"],
+    publicos: ["mujer", "hombre"],
+    perfiles: {
+      mujer: [
+        "a stylish but relatable Mexican woman in her mid 20s who enjoys putting outfits together, starting in a plain base layer",
+        "a Mexican woman in her early 30s with a practical capsule-wardrobe style, jeans and a neutral top",
+      ],
+      hombre: [
+        "a Mexican man in his late 20s who dresses simple but put-together, plain tee and jeans",
+        "a Mexican man in his early 30s trying outfit combinations before the mirror, relaxed and unpretentious",
+      ],
+    },
+    escenas: [
+      "in front of a full-length bedroom mirror wearing the first outfit with the featured footwear on, two more outfits laid out on the bed behind",
+      "standing in a tidy bedroom corner facing the propped phone, wearing outfit one with the featured footwear, hangers with the next outfits hooked on the closet door",
+    ],
+    narrativas: [
+      "an outfit-transition video with three quick jump cuts: the same person appears in the same mirror spot in three different full outfits, the featured footwear staying on in every look; on each cut they land back in frame with casual TikTok transition energy and on the last look they point down at the footwear",
+      "three outfit changes cut together handheld: outfit one talking to the camera, hard cut to outfit two mid-gesture, hard cut to outfit three ending with the phone tilting down to the featured footwear and back up",
+    ],
+    hooks: [
+      "Un solo par, tres outfits distintos. Va:",
+      "Mismas {palabra}, tres planes diferentes.",
+      "¿No saben con qué usar {estas} {palabra}? Les van tres looks.",
+      "El reto de hoy: {unas} {palabra} y tres outfits.",
+    ],
+    motivos: [
+      "El primero: jeans y playera básica, el de diario que no falla.",
+      "El segundo: todo en tonos neutros, y el look sube solo.",
+      "El tercero: más arreglado, con una capa encima, y aguantan perfecto.",
+      "Con puros básicos salieron tres looks distintos; el trabajo lo hacen {ellas}.",
+      "Mismo par en los tres, y en los tres se ve pensado.",
+    ],
+    cierres: [
+      "¿Cuál se queda: el uno, el dos o el tres?",
+      "Tres outfits, un par. Eso es comprar bien.",
+      "Guárdenlo para el próximo 'no tengo qué ponerme'.",
+    ],
+  },
+  {
+    // Guía de estilismo hablada: la amiga que te dice con qué combinarlas,
+    // con reglas concretas (proporción, tonos, capas), no con porras.
+    id: "con-que-me-las-pongo",
+    etiqueta: "Con qué combinarlas",
+    tipos: ["bota", "tenis", "sandalia", "tacon", "mocasin", "zapato"],
+    publicos: ["mujer", "hombre"],
+    perfiles: {
+      mujer: [
+        "a Mexican woman in her early 30s who gives practical styling advice like a trusted friend, zero influencer posing",
+        "a Mexican woman in her late 20s organizing her closet, casual and direct",
+      ],
+      hombre: [
+        "a Mexican man in his early 30s who keeps his wardrobe simple and explains combinations plainly",
+      ],
+    },
+    escenas: [
+      "standing by an open closet holding the featured footwear, clothes visible on hangers, talking to the propped phone",
+      "sitting on the bedroom floor with a pair of jeans and two tops laid out around the featured footwear, talking to the camera",
+      "holding the featured footwear next to different garments pulled from the closet one at a time",
+    ],
+    narrativas: [
+      "one continuous take by the closet: they hold up the featured footwear, pull out a pair of jeans and hold them next to it while explaining the pairing, then a second garment, finishing with the footwear toward the lens",
+      "one continuous take sitting on the floor: they point at each laid-out garment around the featured footwear while talking, pick the footwear up at the end and nod",
+    ],
+    hooks: [
+      "Si no saben con qué ponerse {estas} {palabra}, va la guía rápida.",
+      "Me preguntaron con qué combino {estas} {palabra}. Fácil:",
+      "Regla de clóset: primero el calzado, luego lo demás. Les explico.",
+      "Antes de comprar {unas} {palabra} piensen con qué van. Estas van con casi todo.",
+    ],
+    motivos: [
+      "Con mezclilla van directo: jean recto, playera, y ya se ve pensado.",
+      "El tono es neutro: combina con todo el clóset sin pensarle.",
+      "Para arreglarlo, mismo outfit y una capa encima: blazer o chamarra, y cambia todo.",
+      "La proporción es el truco: prenda suelta arriba, línea limpia abajo.",
+    ],
+    cierres: [
+      "Con esa guía no hay pierde.",
+      "Ya con eso se visten solos.",
+      "Combinar bien no es comprar más: es comprar lo correcto.",
     ],
   },
   {
@@ -1269,9 +1374,16 @@ export function armarConceptoUGC(datos: {
   const narrativaBase = elegir(concepto.narrativas, datos.semilla, 17);
 
   // El estilo entra parejo con el confort: los ganchos, motivos y cierres de
-  // moda se suman al pool (≈ mitad de las tiradas hablan de cómo se ven).
-  const conEstilo = hablaDeEstilo(datos.tipo, rasgos);
-  const motivosEstilo = conEstilo ? MOTIVOS_ESTILO[datos.tipo] : [];
+  // moda se suman al pool (≈ mitad de las tiradas hablan de cómo se ven). Las
+  // combinaciones con falda/vestido solo en guiones de mujer; a los videos de
+  // calzado de niños no se les mete moda de adulto.
+  const conEstilo = hablaDeEstilo(datos.tipo, rasgos) && !esNinos;
+  const motivosEstilo = conEstilo
+    ? [
+        ...MOTIVOS_ESTILO[datos.tipo],
+        ...(publico === "mujer" ? (MOTIVOS_ESTILO_MUJER[datos.tipo] ?? []) : []),
+      ]
+    : [];
 
   const hook = elegir(
     [
