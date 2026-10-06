@@ -42,10 +42,9 @@ export interface DecisionDePedido {
   sinSkuId: RenglonBloqueable[];
   /**
    * true si el pedido NO tiene ningún renglón vivo (todos ya cancelados en
-   * TikTok): no hay nada que cancelar NI que confirmar. El 6-oct-2026 el
-   * corte #54 le pidió a TikTok el envío de 8 pedidos así (la defensa los
-   * había cancelado minutos antes y TikTok aún los enseñaba pendientes) y
-   * TikTok contestó 21011027 «Arrange shipment failed».
+   * TikTok): no hay nada que cancelar NI que confirmar, y pedirle el envío a
+   * TikTok sería armarle guía a un pedido sin pares. Guarda defensiva
+   * (6-oct-2026).
    */
   nadaQueConfirmar: boolean;
 }

@@ -336,6 +336,19 @@ describe("faltantesDePaquetes", () => {
   });
 });
 
+describe("esFalloDeArmado", () => {
+  it("reconoce el 21011027 de TikTok al pedir el envío de un paquete recién rearmado", async () => {
+    const { esFalloDeArmado } = await import("./despacho");
+    expect(
+      esFalloDeArmado(
+        new Error("TikTok Shop 21011027 en /fulfillment/202309/packages/1213691803226769297/ship: Arrange shipment failed, If multiple retry have failed, please contact the platform for assistance"),
+      ),
+    ).toBe(true);
+    expect(esFalloDeArmado(new Error("TikTok Shop 21001001 en …/handover_time_slots: get pickup config failed"))).toBe(false);
+    expect(esFalloDeArmado(null)).toBe(false);
+  });
+});
+
 describe("cambiosDeRelectura", () => {
   it("dice qué pedidos dejaron de faltar: los que pasaron a enviados o a cancelados", async () => {
     const { cambiosDeRelectura } = await import("./despacho");
