@@ -23,6 +23,14 @@ interface Pedido {
   cajasAsignadas: number;
   contenedores: Contenedor[];
   creadoEn: string;
+  /** colores del pedido que MELI no tiene para ese modelo (color fantasma) */
+  sinSku?: { modelo: string; color: string; coloresMeli: string[] }[];
+}
+
+interface AmarreLinea {
+  estado: "ligado" | "color_fantasma" | "modelo_nuevo";
+  skuMeli: string | null;
+  coloresMeli: string[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -170,6 +178,18 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                     </td>
                     <td className="max-w-64 text-xs" title={p.modelosLista.join(", ")}>
                       {p.modelosLista.length ? p.modelosLista.join(", ") : "—"}
+                      {p.sinSku?.length ? (
+                        <div
+                          className="mt-0.5 text-[11px] font-medium"
+                          style={{ color: "var(--estado-critico)" }}
+                          title={p.sinSku
+                            .map((s) => `${s.modelo} ${s.color}: MELI tiene ${s.coloresMeli.join(", ") || "ningún color"}`)
+                            .join("\n")}
+                        >
+                          ⚠ {p.sinSku.length} {p.sinSku.length === 1 ? "color" : "colores"} sin SKU en MELI:{" "}
+                          {p.sinSku.map((s) => `${s.modelo} ${s.color}`).join(", ")}. Corrígelo en Renglones.
+                        </div>
+                      ) : null}
                     </td>
                     <td className="num cifra">{n(p.cajas)}</td>
                     <td className="num cifra">{n(p.pares)}</td>
@@ -289,6 +309,7 @@ interface LineaPedido {
   cajas: number;
   paresPorCaja: number;
   yaAsignadas: number;
+  amarre?: AmarreLinea | null;
 }
 
 function AsignarContenedor({
@@ -692,6 +713,12 @@ function EditarRenglones({
     (l) => !filtro || `${l.modelo} ${l.color} ${l.talla ?? ""}`.toUpperCase().includes(filtro),
   );
 
+  // Color fantasma: el modelo está en MELI pero no con ese color. Se grita
+  // mientras el color siga como vino; en cuanto se corrige a mano, se calla.
+  const esFantasma = (l: LineaPedido) =>
+    l.amarre?.estado === "color_fantasma" && efectivo(l).color.trim().toUpperCase() === l.color;
+  const fantasmas = (lineas ?? []).filter(esFantasma);
+
   const nuevosValidos = nuevos.filter((r) => r.modelo.trim() && Number(r.cajas) > 0);
 
   async function guardar() {
@@ -794,6 +821,20 @@ function EditarRenglones({
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
 
+        {fantasmas.length ? (
+          <p
+            role="alert"
+            className="mt-3 rounded-lg p-3 text-sm"
+            style={{ background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)" }}
+          >
+            <strong>{fantasmas.length} {fantasmas.length === 1 ? "renglón no existe" : "renglones no existen"} en MELI
+            como {fantasmas.length === 1 ? "está escrito" : "están escritos"}.</strong> El modelo sí está publicado pero
+            con otro color: mientras no se corrija, ese inventario no descuenta del color real en Planificación China
+            y sale como «sin publicar» en Productos nuevos. Escribe el color como lo tiene MELI (el campo sugiere los
+            publicados).
+          </p>
+        ) : null}
+
         <div className="mt-3 max-h-96 overflow-auto">
           <table className="datos">
             <thead>
@@ -829,11 +870,34 @@ function EditarRenglones({
                       <input
                         value={v.color}
                         disabled={marcada}
+                        list={l.amarre?.coloresMeli.length ? `colores-meli-${l.id}` : undefined}
                         onChange={(e) => editar(l.id, { color: e.target.value.toUpperCase() })}
                         className="w-28 rounded border px-1.5 py-0.5 text-sm disabled:opacity-50"
-                        style={{ ...estiloCampo(v.color !== l.color), ...tachado }}
+                        style={{
+                          ...estiloCampo(v.color !== l.color),
+                          ...(esFantasma(l) ? { borderColor: "var(--estado-critico)", color: "var(--estado-critico)" } : {}),
+                          ...tachado,
+                        }}
+                        title={
+                          esFantasma(l)
+                            ? `MELI no tiene ${l.modelo} ${l.color}. Tiene: ${l.amarre?.coloresMeli.join(", ") || "ningún color"}`
+                            : undefined
+                        }
                         aria-label={`Color de ${l.modelo} ${l.color}`}
+                        aria-invalid={esFantasma(l) || undefined}
                       />
+                      {l.amarre?.coloresMeli.length ? (
+                        <datalist id={`colores-meli-${l.id}`}>
+                          {l.amarre.coloresMeli.map((c) => (
+                            <option key={c} value={c} />
+                          ))}
+                        </datalist>
+                      ) : null}
+                      {esFantasma(l) ? (
+                        <div className="text-[11px]" style={{ color: "var(--estado-critico)" }}>
+                          sin SKU en MELI
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       <input

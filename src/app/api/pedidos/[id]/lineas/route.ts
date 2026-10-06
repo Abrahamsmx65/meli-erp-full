@@ -5,6 +5,7 @@ import { recalcularEstadoPedido } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
 import { normalizarTalla } from "@/lib/importar/sku";
+import { amarreDeLineas } from "@/lib/servicios/amarre-pedido";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export async function GET(
 
   const { data: lineas } = await supabase
     .from("pedido_lineas")
-    .select("id, modelo, color, talla, cajas, pares, pares_por_caja")
+    .select("id, modelo, color, talla, tallas, cajas, pares, pares_por_caja")
     .eq("pedido_id", id)
     .order("modelo", { ascending: true });
 
@@ -87,8 +88,16 @@ export async function GET(
     }
   }
 
+  // ¿Cada renglón existe en MELI como está escrito? Un color fantasma se
+  // enseña en rojo con los colores que MELI sí tiene, para corregirlo aquí.
+  const amarre = await amarreDeLineas(
+    supabase,
+    cuenta.id,
+    (lineas ?? []).map((l) => ({ modelo: l.modelo, color: l.color, talla: l.talla, tallas: l.tallas })),
+  ).catch(() => []);
+
   return NextResponse.json({
-    lineas: (lineas ?? []).map((l) => ({
+    lineas: (lineas ?? []).map((l, i) => ({
       id: l.id,
       modelo: l.modelo,
       color: l.color,
@@ -97,6 +106,7 @@ export async function GET(
       pares: l.pares ?? 0,
       paresPorCaja: l.pares_por_caja ?? 0,
       yaAsignadas: asignadas.get(l.id) ?? 0,
+      amarre: amarre[i] ?? null,
     })),
   });
 }

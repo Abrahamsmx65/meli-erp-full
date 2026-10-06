@@ -14,6 +14,7 @@
 import { canonizar } from "../importar/sku";
 import type { Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
+import { amarreDeLineas, coloresFantasma, type AmarreLinea } from "./amarre-pedido";
 
 export type EstadoPedido = "creado" | "con_contenedor" | "en_transito" | "recibido" | "cancelado";
 
@@ -31,6 +32,12 @@ export interface PedidoResumen {
   cajasAsignadas: number;
   contenedores: { numero: string; estado: string; llegadaEst: string | null; cajas: number }[];
   creadoEn: string;
+  /**
+   * Renglones cuyo modelo SÍ está en MELI pero con otro nombre de color
+   * (color fantasma): su inventario no descuenta del color real hasta que
+   * se corrija. Con los colores que MELI sí tiene, para corregir de una.
+   */
+  sinSku: { modelo: string; color: string; coloresMeli: string[] }[];
 }
 
 /**
@@ -178,14 +185,29 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     id: string;
     pedido_id: string;
     modelo: string;
+    color: string | null;
+    talla: string | null;
+    tallas: Record<string, unknown> | null;
     cajas: number | null;
     pares: number | null;
   }>(
     db,
     "pedido_lineas",
-    "id, pedido_id, modelo, cajas, pares",
+    "id, pedido_id, modelo, color, talla, tallas, cajas, pares",
     (q) => q.in("pedido_id", ids),
   );
+
+  // Los colores fantasma se evalúan solo en los pedidos VIVOS: un pedido
+  // recibido ya no mueve nada. Si el catálogo no se pudo leer, no se grita.
+  const vivosIds = new Set(pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado").map((p) => p.id));
+  const lineasVivas = lineas.filter((l) => vivosIds.has(l.pedido_id));
+  const amarres = await amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]);
+  const fantasmaPorPedido = new Map<string, { modelo: string; color: string; coloresMeli: string[] }[]>();
+  for (const pid of vivosIds) {
+    const indices = lineasVivas.map((l, i) => (l.pedido_id === pid ? i : -1)).filter((i) => i >= 0);
+    const lista = coloresFantasma(indices.map((i) => lineasVivas[i]), indices.map((i) => amarres[i]));
+    if (lista.length) fantasmaPorPedido.set(pid, lista);
+  }
 
   // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
   // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
@@ -261,6 +283,7 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
       cajasAsignadas: conts.reduce((a, c) => a + c.cajas, 0),
       contenedores: conts,
       creadoEn: p.creado_en,
+      sinSku: fantasmaPorPedido.get(p.id) ?? [],
     };
   });
 }
