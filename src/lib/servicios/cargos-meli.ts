@@ -17,6 +17,7 @@
 import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
 import { clienteDeCuenta } from "./webhooks";
+import { invalidarCortesDePeriodos } from "./corte-invalidar";
 
 export type ClaseCargo = "full" | "publicidad" | "venta" | "pago" | "bonificacion" | "otro" | "resumen";
 
@@ -449,6 +450,8 @@ async function guardarCargos(admin: DB, accountId: string, tabla: string, period
 }
 
 export interface ResultadoCargos {
+  /** el periodo leído (para invalidar su corte) */
+  periodo?: string;
   /** renglones guardados del periodo (acumulado) */
   cargos: number;
   /** suma de los cargos de clase full guardados */
@@ -584,7 +587,7 @@ export async function sincronizarCargosCon(
   try {
     if (!progreso.clave) progreso.clave = await resolverClavePeriodo(cliente, periodo);
   } catch (err) {
-    return { ...(await totalesGuardados()), total: null, completo: false, error: (err as Error).message };
+    return { periodo, ...(await totalesGuardados()), total: null, completo: false, error: (err as Error).message };
   }
   const clave = progreso.clave;
   const ruta = `/billing/integration/periods/key/${encodeURIComponent(clave)}/group/ML/details`;
@@ -622,7 +625,7 @@ export async function sincronizarCargosCon(
       error = porId.error;
       await almacen.guardarProgreso(progreso, { paginas, error, avisos });
       const t = await totalesGuardados();
-      return { ...t, total: progreso.total, completo: progreso.completo, error };
+      return { periodo, ...t, total: progreso.total, completo: progreso.completo, error };
     }
     progreso.modo = "offset";
     avisos.push(`MELI no aceptó la paginación por id (${porId.error ?? "sin detalle"}): se lee por offset.`);
@@ -810,8 +813,10 @@ async function leerPorId(
     const lote = extraerCargos(crudo, periodo).filter((c) => !ctx.vistos.has(c.detalleId) && ctx.vistos.add(c.detalleId));
     await guardarCargos(admin, accountId, tabla, periodo, lote);
     progreso.offset += lote.length;
+    // MELI cuenta el `total` DESDE `from_id` (74,059 en la primera página,
+    // 55,059 con 20 mil leídos): el total del periodo es el de la primera.
     const totalAqui = totalDe(crudo);
-    if (totalAqui != null) progreso.total = totalAqui;
+    if (totalAqui != null && (String(desdeId) === "0" || progreso.total == null)) progreso.total = totalAqui;
 
     if (!resultados.length || ultimo == null || String(ultimo) === String(desdeId) || resultados.length < LIMITE_POR_ID) {
       return { estado: "completo", paginas, error: null };
@@ -878,7 +883,7 @@ export async function continuarCargosCon(admin: DB, accountId: string, almacen: 
         { periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: new Date().toISOString(), particion: null, cursor: null, offsetParticion: 0 },
         { error: (err as Error).message.slice(0, 300) },
       );
-      return { cargos: 0, full: 0, total: null, completo: false, error: `${periodo}: ${(err as Error).message}` };
+      return { periodo, cargos: 0, full: 0, total: null, completo: false, error: `${periodo}: ${(err as Error).message}` };
     }
   }
   return null;
@@ -929,11 +934,21 @@ export function mesesHaciaAtras(desde: string, hasta: string): string[] {
   return out;
 }
 
-/** La cuenta de calzado, montada en el latido. */
+/**
+ * La cuenta de calzado, montada en el latido. Cargos nuevos son gastos de
+ * Full nuevos: el corte masticado de ese mes (y el corte general) quedan
+ * viejos y se marcan para recalcular; hasta el 6-oct-2026 solo lo hacía el
+ * botón de la pantalla, y septiembre se releyó completo en el fondo sin
+ * que el corte se enterara.
+ */
 export async function continuarCargosPendientes(admin: DB, accountId: string, finMs: number): Promise<ResultadoCargos | null> {
   const almacen = await almacenMeli(admin, accountId);
   if (!almacen) return null;
-  return continuarCargosCon(admin, accountId, almacen, finMs);
+  const r = await continuarCargosCon(admin, accountId, almacen, finMs);
+  if (r?.periodo && r.cargos > 0) {
+    await invalidarCortesDePeriodos(admin, { meliAccountId: accountId }, [r.periodo], "Se leyó facturación del periodo en el fondo.").catch(() => undefined);
+  }
+  return r;
 }
 
 /** Los cargos guardados del periodo. */

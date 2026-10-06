@@ -226,7 +226,8 @@ function clienteFalso(acepta: string, porId?: { total: number }) {
         if (!porId) throw new MeliError("MELI 422: from_id no es un parámetro válido", 422);
         const desde = Number(params.from_id);
         const ids = Array.from({ length: porId.total }, (_, i) => i + 1).filter((id) => id > desde).slice(0, params.limit);
-        return { results: ids.map((id) => renglon(String(id))), last_id: ids.at(-1) ?? desde, total: porId.total };
+        // MELI cuenta el total DESDE from_id, no el del periodo.
+        return { results: ids.map((id) => renglon(String(id))), last_id: ids.at(-1) ?? desde, total: porId.total - desde };
       }
       const filtro = PARAMS_DIA.find((p) => params[p] != null);
       if (filtro) {
