@@ -128,11 +128,13 @@ export function corteQueContinua(
   opciones: {
     /**
      * true = basta que el corte sea de HOY y no tenga nada preparado, aunque
-     * no haya dejado nada «por tiempo». Es el corte POR MODELO (dueño,
+     * no haya dejado nada «por tiempo». Nació para el corte POR MODELO (dueño,
      * 5-oct-2026: el #51 «solo GT114» de un pedido se abrió aparte del #50
-     * «solo GT114» de 713: «se armó por separado»): dos cortes del mismo
-     * modelo el mismo día son el mismo trabajo en la mesa. La lista que se
-     * recibe ya viene filtrada por el MISMO filtro de modelos.
+     * «solo GT114» de 713: «se armó por separado») y desde el 7-oct-2026 vale
+     * para todos: el #58 general (6 pedidos) se abrió aparte del #57 (869) un
+     * minuto después. Dos cortes del mismo filtro el mismo día sin nada
+     * preparado son el mismo trabajo en la mesa. La lista que se recibe ya
+     * viene filtrada por el MISMO filtro de modelos.
      */
     sinExigirTiempo?: boolean;
   } = {},

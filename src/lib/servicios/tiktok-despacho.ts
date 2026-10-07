@@ -714,10 +714,15 @@ export async function hacerCorte(
     0,
   );
 
-  // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
-  // une en vez de abrir otro (ver `corteQueContinua`).
+  // ¿Este corte CONTINÚA uno de hoy con el mismo filtro al que nadie le ha
+  // preparado nada? Entonces se le une en vez de abrir otro (ver
+  // `corteQueContinua`). Desde el 7-oct-2026 también el corte GENERAL: el
+  // #58 (6 pedidos: uno reintentado del #57 y cinco que entraron mientras el
+  // #57 corría) se abrió aparte del #57 (869) un minuto después porque el
+  // #57 no había dejado nada «por tiempo»; dueño: «salieron separados, ¿qué
+  // pasó ahí?». Solo la segunda tanda del corte lunes pide abrir el suyo.
   const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
-    sinExigirTiempo: soloModelos.length > 0 && opciones.unirAlDeHoy !== false,
+    sinExigirTiempo: opciones.unirAlDeHoy !== false,
   });
   let corte: { id: number };
   let numero: number;

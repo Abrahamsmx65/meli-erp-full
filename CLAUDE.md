@@ -650,7 +650,13 @@ guárdala numerada.
   por SQL: «se armó por separado»): si nadie le ha preparado nada, dos
   cortes del mismo modelo el mismo día son el mismo trabajo. La segunda
   tanda del corte lunes (lo de HOY) pasa `unirAlDeHoy: false` y sigue
-  abriendo su propio corte.
+  abriendo su propio corte. **Desde el 7-oct-2026 la regla vale también
+  para el corte GENERAL**: el #58 (6 pedidos: uno reintentado del #57 y
+  cinco que entraron mientras el #57 corría) se abrió un minuto después del
+  #57 (869 pedidos) porque el #57 no había dejado nada «por tiempo»; se
+  unieron a mano por SQL (dueño: «salieron separados, ¿qué pasó ahí?»).
+  Ahora un corte se une al de hoy con el mismo filtro (general con general,
+  GT148 con GT148) mientras nadie le haya preparado nada.
   **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
   `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
   compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
