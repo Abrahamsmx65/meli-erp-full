@@ -60,15 +60,19 @@ const IDENTIDAD =
   "else — when the script calls for an outfit change, only the clothes change.";
 
 /**
- * El estilo fijo de la marca (pedido del usuario): creador "whitexican" —
- * fresa mexicano de clase alta, aspiracional. Se aplica a TODOS los
- * personajes del UGC y del Studio: look pulido, outfit casual premium,
- * locación moderna y luminosa.
+ * El estilo de los personajes. Hasta el 7-oct-2026 era "whitexican"/fresa de
+ * piel clara con locación en casa; el dueño lo revocó ese día («no debe ser
+ * afuerzas en casa ni whitexican ya»): creador mexicano real y cuidado, SIN
+ * fijar tono de piel ni clase social, y la locación VARÍA (casa, calle,
+ * café, parque, exterior urbano), no siempre en casa. Fijar «misma cara +
+ * piel clara + voz clonada» además disparaba la moderación del Studio.
  */
 export const ESTILO_PERSONA =
-  "with an upscale Mexican 'fresa' (whitexican) vibe: light-skinned, polished and " +
-  "well-groomed, quiet-luxury casual outfit, upscale modern Mexican home or setting " +
-  "with beautiful natural light, aspirational lifestyle-creator energy";
+  "with a natural, authentic Mexican content-creator vibe: a real-looking person, " +
+  "polished and well-groomed, wearing an outfit that fits the moment, in a believable " +
+  "everyday Mexican setting with good natural light — a home, a street, a café, a park " +
+  "or an urban exterior (vary the location, it does not have to be indoors), genuine " +
+  "relatable energy";
 
 /**
  * Cómo debe SONAR la voz: de corrido y fluida. El usuario reportó que el
@@ -1567,7 +1571,7 @@ export function promptUGCDesdeFoto(datos: {
   return (
     `The video starts EXACTLY on the provided real product photo — the first frame is ` +
     `identical to it. Then ${entrada}: ${persona}. They look into the camera with ` +
-    `natural engaging expressions and talk in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate lip ` +
+    `natural engaging expressions and talk in natural native Mexican Spanish (relaxed conversational tone, natural fillers — never caricatured) and accurate lip ` +
     `sync, like recommending the product to a friend, saying EXACTLY this script, ` +
     `word for word, in correct Spanish without changing or inventing words: ` +
     `"${limpio}". ${VOZ_FLUIDA}. While ` +
@@ -1594,7 +1598,7 @@ export function promptUGCConVozIA(narrativa: string, guion: string): string {
   const limpio = guion.trim().replace(/"/g, "'");
   return (
     narrativa +
-    ` The person talks directly to the camera in upper-class Mexican Spanish with a relaxed 'fresa' accent (natural fillers like 'o sea', 'súper', 'literal' — never caricatured) and accurate ` +
+    ` The person talks directly to the camera in natural native Mexican Spanish (relaxed conversational tone, natural fillers — never caricatured) and accurate ` +
     `lip sync, like recommending the footwear to a friend, saying EXACTLY this ` +
     `script, word for word, in correct Spanish without changing or inventing ` +
     `words: "${limpio}". ${VOZ_FLUIDA}.` +

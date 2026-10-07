@@ -78,6 +78,18 @@ const VOCES_ESTUDIO = [
       "frases enlazadas con fluidez, tono íntimo como platicando con alguien de " +
       "confianza, sin pausas robóticas.",
   },
+  // Sin voz = sin guion hablado, sin TTS y sin lip sync: la persona MODELA
+  // el calzado y el único audio es música instrumental (dueño, 7-oct-2026:
+  // «una opción de solo audio de música sin palabras»).
+  {
+    id: "musica",
+    etiqueta: "Audio: solo música, sin voz (modelaje)",
+    instruccion:
+      "El ÚNICO audio del video es música instrumental moderna SIN letra ni " +
+      "voces (beat ligero y actual), a volumen parejo. NADIE habla en todo el " +
+      "video: no hay voz ni narración y la persona NUNCA mueve la boca como si " +
+      "hablara.",
+  },
 ] as const;
 
 /**
@@ -141,7 +153,7 @@ const LUGARES_ESTUDIO = [
   {
     id: "calle",
     etiqueta: "Lugar: calle bonita",
-    instruccion: "Locación del video: calle bonita y arbolada tipo Polanco/Roma, banquetas limpias, luz de día.",
+    instruccion: "Locación del video: calle bonita y arbolada con banquetas, luz de día.",
   },
   {
     id: "oficina",
@@ -582,8 +594,11 @@ export function GeneradorVideo({
     /** Título+modelo del producto: de aquí salen sus rasgos (térmico, impermeable…). */
     texto: string;
     duracion?: "15" | "30";
+    /** true = modo modelaje con música: nadie habla y el prompt cambia entero. */
+    sinVoz?: boolean;
   }) {
     const dur = datos.duracion ?? duracionEstudio;
+    const sinVoz = datos.sinVoz ?? estiloVoz === "musica";
     if (datos.formato === "studio") {
       // El Studio arma su propio guion y visuales; aquí van las
       // INSTRUCCIONES: concepto, idioma, energía del personaje y candado.
@@ -603,31 +618,52 @@ export function GeneradorVideo({
             ? "Product Review"
             : "UGC",
       );
+      // El candado del producto y sus rasgos van igual en los dos modos.
+      const candadoProducto =
+        `El producto es el calzado adjunto y debe verse EXACTAMENTE como en ` +
+        `las fotos, sin rediseñarlo ni inventarle detalles. El producto exacto ` +
+        `es: "${datos.texto.slice(0, 90)}" — la escena y la ocasión deben ` +
+        `corresponder a SUS características reales (térmico→frío/invierno, ` +
+        `impermeable→lluvia, casquillo→trabajo, fresco→calor), nunca a ` +
+        `ocasiones genéricas que no le correspondan.`;
+      // Estética sin «whitexican»/piel clara ni casa forzada (dueño,
+      // 7-oct-2026: «no debe ser afuerzas en casa ni whitexican ya»).
+      const estetica =
+        `Estética: cuidada y real — creador arreglado con un outfit que le ` +
+        `quede a la ocasión, buena luz natural; la locación VARÍA (casa, ` +
+        `calle, café, parque o exterior urbano), no siempre en casa.`;
       setPromptVideo(
-        `Video UGC vertical 9:16 de ${dur} segundos, TODO en español de México. ` +
-          `Voz y acento: hablante NATIVO de español mexicano de clase ` +
-          `alta estilo 'whitexican'/fresa — entonación relajada tipo Polanco, ` +
-          `muletillas naturales ('o sea', 'súper', 'literal', 'obvio'), nunca ` +
-          `caricatura. PROHIBIDO mezclar idiomas: ni una palabra en inglés ni en ` +
-          `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
-          `'ampolas'; 'ya', jamás 'já'; 'corcho', jamás 'corclo'; 'nube', jamás ` +
-          `'nuve'; 'suavecita', 'hay' y 'mijito' bien dichas); cada palabra se ` +
-          `pronuncia completa y correcta en español. ` +
-          `Estética: aspiracional de clase alta mexicana — creador de ` +
-          `piel clara, arreglado, outfit casual premium (quiet luxury), locación ` +
-          `moderna y luminosa. Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
-          `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
-          `y movimientos reales y fluidos, en una sola locación con acciones ` +
-          `variadas (lo muestra de cerca, se lo pone, camina). El producto es el ` +
-          `calzado adjunto y debe verse EXACTAMENTE como en las fotos, sin ` +
-          `rediseñarlo ni inventarle detalles. El producto exacto es: ` +
-          `"${datos.texto.slice(0, 90)}" — el guion, la escena y la ocasión deben ` +
-          `corresponder a SUS características reales (térmico→frío/invierno, ` +
-          `impermeable→lluvia, casquillo→trabajo, fresco→calor), nunca a ` +
-          `ocasiones genéricas que no le correspondan. ` +
-          `Audio — la voz dice este guion EXACTO, palabra por palabra y letra ` +
-          `por letra, en español nativo de México, sin traducirlo, cambiarlo ni ` +
-          `inventar palabras: "${datos.guion || c.guionSugerido}".`,
+        sinVoz
+          ? // Modo MODELAJE: nadie habla; el único audio es música.
+            `Video vertical 9:16 de ${dur} segundos, estilo MODELAJE (fashion ` +
+              `reel), SIN voz. La persona MODELA el calzado: camina hacia la ` +
+              `cámara y de regreso, posa natural, gira, se detiene; tomas de ` +
+              `cuerpo completo intercaladas con acercamientos al calzado (de ` +
+              `frente, de lado, el detalle de la suela), transiciones fluidas. ` +
+              `NADIE habla en todo el video: no hay voz ni narración y la ` +
+              `persona NUNCA mueve la boca como si hablara; su actitud es ` +
+              `segura y relajada, mirando a la cámara de vez en cuando. El ` +
+              `ÚNICO audio es música instrumental moderna SIN letra ni voces. ` +
+              `La MISMA persona aparece de principio a fin, con el mismo ` +
+              `peinado y el mismo cuerpo; solo la ropa puede cambiar si el ` +
+              `video enseña outfits. ${estetica} Concepto: ${c.etiqueta}. ` +
+              candadoProducto
+          : `Video UGC vertical 9:16 de ${dur} segundos, TODO en español de México. ` +
+              `Voz y acento: hablante NATIVO de español mexicano, entonación ` +
+              `natural y relajada, muletillas naturales ('o sea', 'súper', 'la ` +
+              `verdad'), nunca caricatura. PROHIBIDO mezclar idiomas: ni una ` +
+              `palabra en inglés ni en ` +
+              `portugués (se dice 'sandalias', jamás 'sandals'; 'ampollas', jamás ` +
+              `'ampolas'; 'ya', jamás 'já'; 'corcho', jamás 'corclo'; 'nube', jamás ` +
+              `'nuve'; 'suavecita', 'hay' y 'mijito' bien dichas); cada palabra se ` +
+              `pronuncia completa y correcta en español. ` +
+              `${estetica} Concepto: ${c.etiqueta}. El creador habla a cámara con ` +
+              `energía natural, divertida y llamativa, expresiones faciales marcadas ` +
+              `y movimientos reales y fluidos, en una sola locación con acciones ` +
+              `variadas (lo muestra de cerca, se lo pone, camina). ${candadoProducto} ` +
+              `Audio — la voz dice este guion EXACTO, palabra por palabra y letra ` +
+              `por letra, en español nativo de México, sin traducirlo, cambiarlo ni ` +
+              `inventar palabras: "${datos.guion || c.guionSugerido}".`,
       );
       return;
     }
@@ -1000,9 +1036,12 @@ export function GeneradorVideo({
         // guion palabra por palabra, con los labios sincronizados. La pista
         // final es la del video — montar el TTS encima desincronizaba todo
         // (Seedance no copia su ritmo; verificado el 7-oct-2026).
-        let audioDelVideo = usarVoz && audioPrueba ? audioPrueba : null;
+        // En modo música (modelaje) nadie habla: ni TTS, ni guion, ni
+        // subtítulos — el vigilante solo pone la marca de agua.
+        const sinVoz = estiloVoz === "musica";
+        let audioDelVideo = !sinVoz && usarVoz && audioPrueba ? audioPrueba : null;
         let notaVoz: string | null = null;
-        if (!audioDelVideo && motorEstudio === "rapido" && guion.trim()) {
+        if (!sinVoz && !audioDelVideo && motorEstudio === "rapido" && guion.trim()) {
           setGenerandoVoz(true);
           try {
             audioDelVideo = await generarAudioDelGuion(guion.trim());
@@ -1024,10 +1063,10 @@ export function GeneradorVideo({
             motor: motorEstudio,
             resolucion: resolucionEstudio,
             duracion: duracionEstudio,
-            subtitulos,
+            subtitulos: sinVoz ? "no" : subtitulos,
             // Con subtítulos del ERP, el guion exacto viaja aparte: el
             // vigilante lo quema sobre el video terminado, sin faltas.
-            guion: guion.trim() || undefined,
+            guion: sinVoz ? undefined : guion.trim() || undefined,
             // La voz exacta del guion viaja de REFERENCIA (clonada con lip sync).
             audioJobId: audioDelVideo?.jobId,
             audioUrl: audioDelVideo?.url,
@@ -1040,7 +1079,8 @@ export function GeneradorVideo({
             prompt: `${promptVideo} ${
               VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
             } ${
-              SUBTITULOS_ESTUDIO.find((s) => s.id === subtitulos)?.instruccion ?? ""
+              SUBTITULOS_ESTUDIO.find((s) => s.id === (sinVoz ? "no" : subtitulos))
+                ?.instruccion ?? ""
             } ${
               lugarEstudio === "otro"
                 ? lugarOtro.trim()
@@ -1367,12 +1407,25 @@ export function GeneradorVideo({
               <select
                 value={estiloVoz}
                 onChange={(e) => {
-                  setEstiloVoz(e.target.value);
+                  const v = e.target.value;
+                  setEstiloVoz(v);
                   try {
-                    localStorage.setItem("hf_voz_estudio", e.target.value);
+                    localStorage.setItem("hf_voz_estudio", v);
                   } catch {
                     // Sin localStorage no pasa nada.
                   }
+                  // Entre hablado y modelaje el prompt cambia ENTERO.
+                  regenerarPrompt({
+                    tipo,
+                    genero,
+                    escenaId,
+                    semilla,
+                    formato,
+                    guion,
+                    hayAudio: Boolean(audio),
+                    texto: pub ? `${pub.titulo} ${pub.modelo}` : "",
+                    sinVoz: v === "musica",
+                  });
                 }}
                 className="px-2 py-1.5 text-sm"
               >
@@ -1382,6 +1435,7 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              {estiloVoz !== "musica" && (
               <select
                 value={subtitulos}
                 onChange={(e) => {
@@ -1400,6 +1454,7 @@ export function GeneradorVideo({
                   </option>
                 ))}
               </select>
+              )}
               <select
                 value={duracionEstudio}
                 onChange={(e) => {
@@ -1612,7 +1667,9 @@ export function GeneradorVideo({
             </div>
           )}
 
-          {(formato === "hablado" || formato === "ugc" || formato === "studio") && (
+          {(formato === "hablado" ||
+            formato === "ugc" ||
+            (formato === "studio" && estiloVoz !== "musica")) && (
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
                 {formato === "studio"
@@ -1634,7 +1691,15 @@ export function GeneradorVideo({
             </label>
           )}
 
-          {formato === "studio" && motorEstudio === "rapido" && (
+          {formato === "studio" && estiloVoz === "musica" && (
+            <p className="mt-2 max-w-2xl text-[11px]" style={{ color: "var(--ink-muted)" }}>
+              Modo modelaje: nadie habla en el video — la persona modela el
+              calzado y el único audio es música instrumental sin letra. No se
+              genera voz ni subtítulos.
+            </p>
+          )}
+
+          {formato === "studio" && motorEstudio === "rapido" && estiloVoz !== "musica" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
                 El ERP genera la voz del guion al darle Generar video (cuesta

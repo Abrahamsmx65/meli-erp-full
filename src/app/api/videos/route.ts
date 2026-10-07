@@ -425,11 +425,15 @@ async function generarEstudio(
         model: duracionVideo === 30 ? "seedance_2_5" : "seedance_2_0",
         prompt:
           instrucciones +
+          // Redacción suave a propósito: «misma cara, misma identidad» +
+          // «lip sync perfecto» junto a una foto de persona y un audio
+          // clonado disparaba la moderación del Studio (rechazo «nsfw»,
+          // 7-oct-2026). La consistencia se pide sin hablar de identidad.
           (conPersonaje
-            ? " Las imágenes adjuntas son las fotos reales del producto y la ÚLTIMA es la persona que sale en el video: misma cara, misma identidad."
+            ? " Las imágenes adjuntas son las fotos reales del producto y la ÚLTIMA es la persona que presenta el video; su apariencia se mantiene consistente de principio a fin."
             : " Las imágenes adjuntas son las fotos reales del producto.") +
           (audioJobId
-            ? " El AUDIO adjunto es la voz final del video: la persona dice EXACTAMENTE esas palabras, con lip sync perfecto a ese audio, sin cambiar ni una palabra."
+            ? " El AUDIO adjunto es la referencia de la voz: la persona dice EXACTAMENTE esas palabras, de forma natural y bien sincronizada con sus labios, sin cambiar ni una palabra."
             : ""),
         aspect_ratio: "9:16",
         duration: duracionVideo,
