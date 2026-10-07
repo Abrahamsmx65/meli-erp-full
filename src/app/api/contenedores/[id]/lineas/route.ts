@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { recalcularEstadoPedido } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
+import { amarreDeLineas } from "@/lib/servicios/amarre-pedido";
 
 export const dynamic = "force-dynamic";
 
@@ -82,9 +83,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     enOtros.set(o.pedido_linea_id, (enOtros.get(o.pedido_linea_id) ?? 0) + (o.cajas ?? 0));
   }
 
+  // Con qué color de MELI amarra cada renglón (para «recordar» el color del
+  // packing list al confirmar un pendiente). Si el catálogo falla, sin color.
+  const amarres = await amarreDeLineas(
+    c.supabase,
+    c.cuenta.id,
+    (lineas ?? []).map((l: any) => ({ modelo: l.modelo, color: l.color, talla: l.talla })),
+  ).catch(() => []);
+
   return NextResponse.json({
     numero: c.contenedor.numero,
-    lineas: (lineas ?? []).map((l: any) => ({
+    lineas: (lineas ?? []).map((l: any, i: number) => ({
+      colorMeli: amarres[i]?.estado === "ligado" ? (amarres[i].colorMeli ?? null) : null,
       pedidoLineaId: l.id,
       pedido: nombrePedido.get(l.pedido_id) ?? "",
       modelo: l.modelo,
