@@ -290,17 +290,31 @@ export async function quemarMarcaYSubir(
     `curl -sSL --max-time 60 -o /tmp/marca.ttf '${FUENTE_MARCA}'`,
     ...archivosDeSubtitulos(subs),
     `ffmpeg -hide_banner -loglevel error -y ${entradas} -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 ${mapeo} -movflags +faststart /tmp/salida.mp4`,
+    // VERIFICAR antes de subir: el 7-oct-2026 el sandbox codificó un archivo
+    // corrupto (todos los NAL inválidos, el 95 % del audio indecodificable),
+    // terminó con exit 0 y lo subió como bueno — «el audio está todo mal».
+    // Se decodifica completo con -xerror: cualquier error de decode corta la
+    // cadena y el archivo roto NUNCA llega al bucket.
+    `ffmpeg -v error -xerror -i /tmp/salida.mp4 -f null - 2>/tmp/verifica.txt || { echo VERIFICA_FALLO; head -c 300 /tmp/verifica.txt; false; }`,
+    `test ! -s /tmp/verifica.txt || { echo VERIFICA_FALLO; head -c 300 /tmp/verifica.txt; false; }`,
     `curl -sS --fail --max-time 120 -X PUT '${firmada.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/salida.mp4 > /dev/null`,
     `curl -sS --fail --max-time 120 -X PUT '${firmadaLimpia.data.signedUrl}' -H 'Content-Type: video/mp4' -H 'x-upsert: true' --data-binary @/tmp/entrada.mp4 > /dev/null`,
     "echo LISTO_MARCA",
   ].join(" && ");
 
   // El sandbox acepta 120 s máximo; para un video de 15 s alcanza de sobra.
-  const res = await llamarHerramienta(sesion, "sandbox_exec", {
-    command: comando,
-    timeout_seconds: 120,
-  });
-  const texto = JSON.stringify(resultadoEstructurado(res) ?? res);
+  // Un encode corrupto (VERIFICA_FALLO) o una falla de red se reintenta UNA
+  // vez: la corrupción del 7-oct fue intermitente (los 6 videos anteriores
+  // salieron limpios) y el comando es idempotente.
+  let texto = "";
+  for (let intento = 1; intento <= 2; intento++) {
+    const res = await llamarHerramienta(sesion, "sandbox_exec", {
+      command: comando,
+      timeout_seconds: 120,
+    });
+    texto = JSON.stringify(resultadoEstructurado(res) ?? res);
+    if (texto.includes("LISTO_MARCA")) break;
+  }
   if (!texto.includes("LISTO_MARCA")) {
     throw new Error(`el sandbox no confirmó: ${texto.slice(0, 300)}`);
   }
