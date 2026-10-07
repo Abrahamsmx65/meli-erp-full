@@ -1606,7 +1606,14 @@ guárdala numerada.
   costo recuperado, ads sin amarre y a mano) se dividen entre las unidades
   vendidas en esa plataforma (`cargoPorUnidad`) y cada modelo y categoría
   carga su parte. El total del canal cuadra con su corte individual. Excel
-  con hoja por canal (`consolidado-excel.ts`).
+  con hoja por canal (`consolidado-excel.ts`). **La tabla y el Excel
+  enseñan los REPARTOS POR UNIDAD** (`repartosPorUnidad`, `porUnidad`,
+  `adsPorModeloTotal`; dueño, 7-oct-2026: «aquí no se divide el total de
+  publicidad y gastos generales entre unidades»): publicidad por modelo ÷
+  unidades, gastos generales ÷ unidades y los dos juntos, por canal y en el
+  total (el total divide entre las unidades de los canales calculables,
+  `unidadesCalculables`). Se calculan al enseñar a partir de lo guardado:
+  no cambian el masticado ni la `versionContable`.
   **Se mastica POR ATRÁS** (`refrescarConsolidadosDeFondo`, cron
   `/api/cron/consolidado` cada 10 min, candado `consolidado`; dueño,
   24-sep-2026: «toma como 5 minutos en lo que cuadran los números desde que

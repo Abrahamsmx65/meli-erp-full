@@ -6,7 +6,7 @@ import { leerConsolidadoGuardado, leerMismosDiasGuardado, listarCortesGenerales,
 import { compararMeses } from "@/lib/servicios/consolidado-comparar";
 import { fechaMx } from "@/lib/servicios/ventas-monitor";
 import { ComparacionMensualVista } from "@/components/comparacion-mensual";
-import { NOMBRE_CANAL, type Canal } from "@/lib/servicios/consolidado";
+import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Canal } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
@@ -23,6 +23,10 @@ function n(x: number): string {
 }
 function pct(x: number | null): string {
   return x == null ? "—" : `${(x * 100).toFixed(1)}%`;
+}
+/** Un reparto por unidad; sin unidades, raya. */
+function unidad(x: number | null | undefined): string {
+  return x == null ? "—" : pesos(x);
 }
 const colorGanancia = (g: number | null) => (g == null ? "var(--ink-muted)" : g < 0 ? "var(--estado-critico)" : "var(--exito-texto)");
 
@@ -57,6 +61,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0), mismosDias) : null;
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   const canales: Canal[] = cns.canales.map((k) => k.canal);
+  const repartos = repartosPorUnidad(cns);
   const detalleCanal = (k: (typeof cns.canales)[number], campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
     k.desgloseDisponible === false ? "No disponible" : pesos(-k.desglosePlataforma[campo]);
   const detalleTotal = (campo: "comision" | "envio" | "isr" | "iva" | "otros" | "ajusteLiquidacion") =>
@@ -173,9 +178,11 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   ["Cobertura de la fuente", (k) => pct(k.coberturaNeto), pct(cns.total.coberturaNeto)],
                   ["Costo de producto", (k) => pesos(-k.costoProducto), pesos(-cns.total.costoProducto)],
                   ["Utilidad bruta", (k) => pesos(k.utilidadBruta), pesos(cns.total.neto - cns.total.costoProducto)],
-                  ["Publicidad por modelo", (k) => pesos(-k.adsPorModelo), ""],
+                  ["Publicidad por modelo", (k) => pesos(-k.adsPorModelo), pesos(-adsPorModeloTotal(cns))],
                   ["Gastos generales", (k) => pesos(-k.gastosGenerales), pesos(-cns.total.gastosGenerales)],
-                  ["Gasto general por unidad", (k) => pesos(k.cargoPorUnidad), ""],
+                  ["Publicidad por unidad", (k) => unidad(repartos.canal[k.canal]?.publicidad), unidad(repartos.total.publicidad)],
+                  ["Gasto general por unidad", (k) => unidad(repartos.canal[k.canal]?.general), unidad(repartos.total.general)],
+                  ["Publicidad + gastos generales por unidad", (k) => unidad(repartos.canal[k.canal]?.ambos), unidad(repartos.total.ambos)],
                    ["Utilidad antes de gastos empresariales", (k) => pesos(k.utilidadNeta), pesos(cns.total.utilidadAntesGastosEmpresariales)],
                    ["Gastos empresariales", () => "—", pesos(-cns.total.gastosEmpresariales)],
                    ["Utilidad neta final", () => "—", pesos(cns.total.utilidadNeta)],

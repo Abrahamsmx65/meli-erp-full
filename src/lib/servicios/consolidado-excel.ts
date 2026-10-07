@@ -4,7 +4,7 @@
  */
 import ExcelJS from "exceljs";
 import { nombreDelPeriodo } from "./corte-meli";
-import { NOMBRE_CANAL, type Consolidado } from "./consolidado";
+import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Consolidado } from "./consolidado";
 
 const MONEDA = '"$"#,##0.00';
 
@@ -55,9 +55,12 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
   fila("Neto depositado", (k) => k.neto, cns.total.neto);
   fila("Costo de producto", (k) => -k.costoProducto, -cns.total.costoProducto);
   fila("Utilidad bruta", (k) => k.utilidadBruta, cns.total.neto - cns.total.costoProducto).font = { bold: true };
-  fila("Publicidad por modelo", (k) => -k.adsPorModelo, -(cns.total.publicidad - cns.canales.reduce((a, k) => a + k.adsGenerales, 0)));
+  const repartos = repartosPorUnidad(cns);
+  fila("Publicidad por modelo", (k) => -k.adsPorModelo, -adsPorModeloTotal(cns));
   fila("Gastos generales de la plataforma", (k) => -k.gastosGenerales, -cns.total.gastosGenerales);
-  fila("  Gasto general por unidad", (k) => k.cargoPorUnidad, null);
+  fila("  Publicidad por unidad", (k) => repartos.canal[k.canal]?.publicidad ?? null, repartos.total.publicidad);
+  fila("  Gasto general por unidad", (k) => repartos.canal[k.canal]?.general ?? null, repartos.total.general);
+  fila("  Publicidad + gastos generales por unidad", (k) => repartos.canal[k.canal]?.ambos ?? null, repartos.total.ambos);
   fila("UTILIDAD ANTES DE GASTOS EMPRESARIALES", (k) => k.utilidadNeta, cns.total.utilidadAntesGastosEmpresariales).font = { bold: true };
   fila("GASTOS EMPRESARIALES", () => null, -cns.total.gastosEmpresariales);
   fila("UTILIDAD NETA DESPUÉS DE GASTOS EMPRESARIALES", () => null, cns.total.utilidadNeta).font = { bold: true, size: 12 };
