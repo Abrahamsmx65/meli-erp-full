@@ -933,7 +933,21 @@ guárdala numerada.
   de todos modos (TikTok les armó la guía) y 2 pendientes; los 8 se
   quedaron sin corte y el siguiente corte los recoge (los ya enviados solo
   se agrupan). Ahora ese fallo se reintenta UNA vez a los 4 s releyendo los
-  paquetes. **Un pedido SIN renglones vivos no se confirma**
+  paquetes. **Y el paquete del renglón cancelado NO viaja**
+  (`paquetesQueViajan` en `tiktok/despacho.ts`, puro con pruebas;
+  `paquetesVivosDelPedido` en el servicio; 7-oct-2026): al cancelar un
+  renglón TikTok deja el pedido con DOS paquetes —el del renglón cancelado,
+  sin guía y que nunca se envía, y el rearmado con lo que sí va— y el ERP
+  confirmaba y numeraba los dos: el corte #57 enseñaba 882 etiquetas de 875
+  pedidos (7 pedidos de GT148 con CREAM cancelado, dos números cada uno,
+  uno «SIN GUÍA» para siempre; los tomos 2, 4 y 5 nunca se daban por
+  completos y el dueño: «no existe un pedido que tiene dos paquetes»). Con
+  más de un paquete se le pregunta a TikTok qué renglones lleva cada uno
+  (`renglonesDelPaquete`) y el que solo lleva cancelados se descarta, al
+  confirmar y al armar etiquetas (y se quita de `tiktok_ordenes.paquetes`);
+  si TikTok no dice qué lleva, viaja; nunca se deja un pedido sin paquete.
+  Los 7 del #57 se limpiaron por SQL (quedó el paquete con guía) y el dueño
+  rearmó las etiquetas. **Un pedido SIN renglones vivos no se confirma**
   (`DecisionDePedido.nadaQueConfirmar`): guarda defensiva del mismo día
   para no pedirle a TikTok el envío de un pedido ya cancelado completo que
   TikTok aún enseñe pendiente. **Un bloqueo automático no es para
