@@ -9,6 +9,7 @@
 import { construirCajas } from "../importar/cajas";
 import { canonizar, construirIndice } from "../importar/sku";
 import { pendientePorLinea } from "../engine/pendiente-china";
+import { armarMapaAlias, colorEfectivo } from "./alias-color";
 import { buscarVariante, indexarCatalogo } from "../etiquetas/resolver";
 import { traerTodo, type DB } from "../datos/repos";
 import { VERSION_MOTOR } from "./cache";
@@ -378,7 +379,7 @@ export async function recalcularInventario(db: DB, accountId: string): Promise<R
 async function cargarInventarioSinCache(db: DB, accountId: string): Promise<ResumenInventario> {
   const eq = (q: any) => q.eq("account_id", accountId);
 
-  const [skus, stock, corridasRaw, existRaw, mapeoRaw, almacenesRaw, pedidosVivos] = await Promise.all([
+  const [skus, stock, corridasRaw, existRaw, mapeoRaw, almacenesRaw, pedidosVivos, aliasRaw] = await Promise.all([
     traerTodo<any>(db, "skus", "sku, titulo, inventory_id, modelo, color, talla", (q) =>
       eq(q).eq("activo", true),
     ),
@@ -400,7 +401,11 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
       "pedido, estado, pedido_lineas(id, modelo, color, tallas, cajas, pares, contenedor_lineas(cajas, contenedores(estado)))",
       (q) => eq(q).not("estado", "in", "(recibido,cancelado)"),
     ),
+    // Colores del pedido ligados a mano con una variante de MELI
+    // (`alias-color.ts`): el «en camino» cae en el SKU real.
+    traerTodo<any>(db, "pedido_color_amarres", "modelo, color, color_meli, color_pedido", eq).catch(() => [] as any[]),
   ]);
+  const aliasColores = armarMapaAlias(aliasRaw ?? []);
 
   const corridas: Corrida[] = corridasRaw.map((c) => ({
     pedido: c.pedido,
@@ -527,7 +532,12 @@ async function cargarInventarioSinCache(db: DB, accountId: string): Promise<Resu
       for (const [talla, valor] of Object.entries(tallas)) {
         const paresTalla = Math.round((Number(valor) || 0) * factor);
         if (!paresTalla) continue;
-        const { construido, encontrado } = buscarVariante(indiceMeli, l.modelo, l.color ?? "", talla);
+        const { construido, encontrado } = buscarVariante(
+          indiceMeli,
+          l.modelo,
+          colorEfectivo(aliasColores, l.modelo, l.color ?? ""),
+          talla,
+        );
         const sku = encontrado?.sku ?? construido;
 
         const acc = bodega.get(sku) ?? { pares: 0, enCamino: 0, pedidos: new Map() };

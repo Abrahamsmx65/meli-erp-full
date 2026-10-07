@@ -23,6 +23,7 @@ import { aUnaLetra, canonizar, claveAplastada, claveComparacion } from "../impor
 import { traerTodo, type DB } from "../datos/repos";
 import { cuentaAmazon } from "./amazon";
 import { conCacheApp, invalidarApp } from "./cache-app";
+import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
 
 /** Clave en app_cache de la lista masticada; las fotos van en `nuevos:fotos`. */
 export const CLAVE_NUEVOS = "nuevos:productos";
@@ -173,6 +174,8 @@ interface LineaCruda {
 export function agruparProductosDePedidos(
   pedidos: PedidoCrudo[],
   lineas: LineaCruda[],
+  /** colores del pedido ligados a mano con MELI: el producto se agrupa bajo el color de MELI */
+  alias?: MapaAlias | null,
 ): Map<string, ProductoNuevo> {
   const porId = new Map(pedidos.map((p) => [p.id, p]));
   const salida = new Map<string, ProductoNuevo>();
@@ -180,11 +183,12 @@ export function agruparProductosDePedidos(
   for (const l of lineas) {
     const p = porId.get(l.pedido_id);
     if (!p) continue;
-    const clave = claveProducto(l.modelo, l.color ?? "");
+    const color = colorEfectivo(alias, l.modelo, l.color ?? "");
+    const clave = claveProducto(l.modelo, color);
     const prod = salida.get(clave) ?? {
       clave,
       modelo: canonizar(l.modelo),
-      color: (l.color ?? "").trim().toUpperCase(),
+      color: color.trim().toUpperCase(),
       pedidos: [],
       cajas: 0,
       pares: 0,
@@ -301,7 +305,8 @@ export async function productosNuevos(db: DB, accountId: string): Promise<Resume
     (q) => q.in("pedido_id", pedidos.map((p) => p.id)),
   );
 
-  const productos = agruparProductosDePedidos(pedidos, lineasRaw);
+  const alias = await cargarAliasColores(db, accountId);
+  const productos = agruparProductosDePedidos(pedidos, lineasRaw, alias);
   if (!productos.size) return { productos: [], amazonConectado: false };
 
   // Dos niveles de amarre SKU → producto: exacto y, si no hay, laxo (color

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 
 interface Contenedor {
   numero: string;
@@ -24,13 +25,16 @@ interface Pedido {
   contenedores: Contenedor[];
   creadoEn: string;
   /** colores del pedido que MELI no tiene para ese modelo (color fantasma) */
-  sinSku?: { modelo: string; color: string; coloresMeli: string[] }[];
+  sinSku?: ColorFantasma[];
+  /** colores que el dueño ya ligó a mano con MELI (o confirmó nuevos) */
+  ligados?: ColorLigado[];
 }
 
 interface AmarreLinea {
-  estado: "ligado" | "color_fantasma" | "modelo_nuevo";
+  estado: "ligado" | "color_fantasma" | "modelo_nuevo" | "color_nuevo";
   skuMeli: string | null;
   coloresMeli: string[];
+  ligadoA?: string | null;
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -62,6 +66,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   const router = useRouter();
   const [asignando, setAsignando] = useState<Pedido | null>(null);
   const [editando, setEditando] = useState<Pedido | null>(null);
+  const [ligando, setLigando] = useState<Pedido | null>(null);
   const [borrando, setBorrando] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [soloEstado, setSoloEstado] = useState("");
@@ -163,7 +168,10 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                 const pendientes = Math.max(0, p.cajas - p.cajasAsignadas);
                 const e = ETIQUETA_ESTADO[p.estado] ?? ETIQUETA_ESTADO.creado;
                 return (
-                  <tr key={p.id}>
+                  <tr
+                    key={p.id}
+                    style={p.sinSku?.length ? { boxShadow: "inset 3px 0 0 var(--estado-critico)" } : undefined}
+                  >
                     <td className="font-medium">
                       {p.pedido}
                       {p.proveedor ? (
@@ -187,7 +195,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                             .join("\n")}
                         >
                           ⚠ {p.sinSku.length} {p.sinSku.length === 1 ? "color" : "colores"} sin SKU en MELI:{" "}
-                          {p.sinSku.map((s) => `${s.modelo} ${s.color}`).join(", ")}. Corrígelo en Renglones.
+                          {p.sinSku.map((s) => `${s.modelo} ${s.color}`).join(", ")}. Elige la variante en «Ligar a MELI».
                         </div>
                       ) : null}
                     </td>
@@ -241,6 +249,30 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         >
                           Renglones
                         </button>
+                        {/* Colores que MELI no tiene como los escribió la fábrica: se
+                            ligan a mano con la variante publicada (en rojo mientras falte). */}
+                        {p.sinSku?.length || p.ligados?.length ? (
+                          <button
+                            onClick={() => setLigando(p)}
+                            className="rounded-lg border px-2 py-1 text-xs font-medium"
+                            style={
+                              p.sinSku?.length
+                                ? {
+                                    borderColor: "var(--estado-critico)",
+                                    color: "var(--estado-critico)",
+                                    background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)",
+                                  }
+                                : { borderColor: "var(--borde)" }
+                            }
+                            title={
+                              p.sinSku?.length
+                                ? `${p.sinSku.length} ${p.sinSku.length === 1 ? "color" : "colores"} sin SKU en MELI`
+                                : "Colores ligados a mano con MELI"
+                            }
+                          >
+                            {p.sinSku?.length ? `Ligar a MELI (${p.sinSku.length})` : "Amarres"}
+                          </button>
+                        ) : null}
                         {/* ZIP con las etiquetas MELI + Amazon de cada modelo/color,
                             el Excel de códigos y las etiquetas de cartón (CTNS LABELS). */}
                         <a
@@ -292,6 +324,16 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
             setEditando(null);
             router.refresh();
           }}
+        />
+      ) : null}
+
+      {ligando ? (
+        <LigarColores
+          titulo={`Pedido ${ligando.pedido}`}
+          fantasmas={ligando.sinSku ?? []}
+          ligados={ligando.ligados ?? []}
+          onCerrar={() => setLigando(null)}
+          onCambio={() => router.refresh()}
         />
       ) : null}
     </>

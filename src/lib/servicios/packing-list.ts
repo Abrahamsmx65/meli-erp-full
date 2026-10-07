@@ -27,6 +27,25 @@ export type EstadoCasado =
   | "sin_espacio";
 
 export { aUnaLetra } from "../importar/sku";
+import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
+
+/**
+ * Amarre A MANO del color (`alias-color.ts`): el packing list y el pedido
+ * caen en el mismo renglón si, traducidos los dos al color de MELI que
+ * eligió el dueño, dicen lo mismo ("BLK (NEGRO)" ligado a BLK contra el
+ * "BLACK" del pedido). Solo si queda UN candidato; con dos no se adivina.
+ */
+export function colorPorAlias<T extends { modelo: string; color: string }>(
+  alias: MapaAlias | null | undefined,
+  modelo: string,
+  color: string,
+  candidatos: T[],
+): T | null {
+  if (!alias?.size) return null;
+  const objetivo = claveColor(colorEfectivo(alias, modelo, color));
+  const iguales = candidatos.filter((c) => claveColor(colorEfectivo(alias, c.modelo, c.color)) === objetivo);
+  return iguales.length === 1 ? iguales[0] : null;
+}
 
 /**
  * El renglón del pedido cuyo color está a una letra del que trae el archivo.
@@ -202,7 +221,10 @@ export async function casarPackingList(
     : { data: null };
   const contenedorId = existente?.id ?? null;
 
-  const { renglones, idPorPedido, asignado } = await cargarRenglones(db, accountId);
+  const [{ renglones, idPorPedido, asignado }, alias] = await Promise.all([
+    cargarRenglones(db, accountId),
+    cargarAliasColores(db, accountId),
+  ]);
 
   const enOtrosDe = (id: string) =>
     (asignado.get(id) ?? [])
@@ -345,6 +367,21 @@ export async function casarPackingList(
           r = cerca;
           avisos.push(
             `${l.modelo} "${l.colorCrudo || l.color}": el pedido ${l.pedido} lo tiene como "${cerca.color}"; se amarró ahí (una letra de diferencia).`,
+          );
+        }
+      }
+      // Amarre a mano del color (lo que el dueño ligó en Cargar pedidos o
+      // Contenedores): los dos lados traducidos a MELI dicen lo mismo.
+      if (!r && !l.sku) {
+        const porAlias =
+          colorPorAlias(alias, l.modelo, l.color, porProducto.get(claveRenglon(l.pedido, l.modelo, "", l.talla)) ?? []) ??
+          (l.talla
+            ? colorPorAlias(alias, l.modelo, l.color, porProducto.get(claveRenglon(l.pedido, l.modelo, "", null)) ?? [])
+            : null);
+        if (porAlias) {
+          r = porAlias;
+          avisos.push(
+            `${l.modelo} "${l.colorCrudo || l.color}": el pedido ${l.pedido} lo tiene como "${porAlias.color}"; se amarró por el amarre a mano del color.`,
           );
         }
       }

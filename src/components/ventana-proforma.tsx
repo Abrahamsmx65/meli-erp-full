@@ -28,10 +28,12 @@ export interface AjusteLinea {
 
 /** Veredicto del servidor sobre si el renglón existe en MELI como está escrito. */
 export interface AmarreLinea {
-  estado: "ligado" | "color_fantasma" | "modelo_nuevo";
+  estado: "ligado" | "color_fantasma" | "modelo_nuevo" | "color_nuevo";
   skuMeli: string | null;
   /** los colores que MELI sí tiene para ese modelo */
   coloresMeli: string[];
+  /** el color de MELI al que el dueño ligó este color a mano, si fue así */
+  ligadoA?: string | null;
 }
 
 export interface Proforma {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
+import { amarreDeLineas, coloresFantasma, coloresLigados } from "@/lib/servicios/amarre-pedido";
 import { TablaContenedores } from "@/components/tabla-contenedores";
 import { SubirPackingList } from "@/components/subir-packing-list";
 import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive";
@@ -51,6 +52,19 @@ export default async function Contenedores() {
       .order("procesado_en", { ascending: false })
       .limit(30),
   ]);
+  // Colores de lo que viene en camino que MELI no tiene como los escribió la
+  // fábrica (pedido del dueño, 7-oct-2026: «lo mismo en los packing lists de
+  // China, lo que hay en camino en contenedores»): se marcan en rojo y se
+  // ligan con la misma ventana que en Cargar pedidos. Solo los no recibidos.
+  const vivos = contenedores.filter((c) => c.estado !== "recibido");
+  const lineasAmarre = vivos.flatMap((c) => c.modelos.map((m) => ({ contenedorId: c.id, modelo: m.modelo, color: m.color })));
+  const amarres = await amarreDeLineas(supabase, cuenta.id, lineasAmarre).catch(() => []);
+  const contenedoresVista = contenedores.map((c) => {
+    const indices = lineasAmarre.map((l, i) => (l.contenedorId === c.id ? i : -1)).filter((i) => i >= 0);
+    const suyas = indices.map((i) => lineasAmarre[i]);
+    const propios = indices.map((i) => amarres[i]);
+    return { ...c, sinSku: coloresFantasma(suyas, propios), ligados: coloresLigados(suyas, propios) };
+  });
   const enCamino = contenedores.filter((c) => c.estado !== "recibido");
   const numeroPorId = new Map(contenedores.map((c) => [c.id, c.numero]));
   const archivosDrive: ArchivoDriveVista[] = (drive.data ?? []).map((a) => ({
@@ -91,7 +105,7 @@ export default async function Contenedores() {
 
       <SubirPackingList />
 
-      <TablaContenedores contenedores={contenedores} />
+      <TablaContenedores contenedores={contenedoresVista} />
     </div>
   );
 }

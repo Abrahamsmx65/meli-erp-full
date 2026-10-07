@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { coloresFantasma, evaluarAmarre } from "./amarre-pedido";
+import { armarMapaAlias } from "./alias-color";
 
 const ix = indexarCatalogo([
   { sku: "MY2307-CHOCOLATTE BROWN-24-MX", modelo: "MY2307", color: "CHOCOLATTE BROWN", talla: "24" },
@@ -21,6 +22,31 @@ describe("evaluarAmarre: ¿el renglón del pedido existe en MELI?", () => {
     const a = evaluarAmarre(ix, { modelo: "MY2307", color: "NAVY", tallas: { "24": 3, "25": 5 } });
     expect(a.estado).toBe("color_fantasma");
     expect(a.coloresMeli).toEqual(["BLUE", "CHOCOLATTE BROWN"]);
+  });
+
+  it("un amarre a mano liga el color del pedido con la variante de MELI que eligió el dueño", () => {
+    const alias = armarMapaAlias([
+      { modelo: "MY2307", color: "NAVY", color_meli: "BLUE", color_pedido: "NAVY" },
+      { modelo: "MY2307", color: "GREY BLUE", color_meli: null, color_pedido: "GREY BLUE" },
+    ]);
+    const ligado = evaluarAmarre(ix, { modelo: "MY2307", color: "NAVY", tallas: { "24": 3 } }, alias);
+    expect(ligado.estado).toBe("ligado");
+    expect(ligado.skuMeli).toBe("MY2307-BLUE-24-MX");
+    expect(ligado.ligadoA).toBe("BLUE");
+
+    // Confirmado como color nuevo: ya no se grita, pero tampoco se liga.
+    const nuevo = evaluarAmarre(ix, { modelo: "MY2307", color: "GREY BLUE", tallas: { "24": 3 } }, alias);
+    expect(nuevo.estado).toBe("color_nuevo");
+    expect(nuevo.skuMeli).toBeNull();
+
+    // Un amarre a un color que MELI ya no tiene vuelve a ser fantasma.
+    const roto = evaluarAmarre(
+      ix,
+      { modelo: "MY2307", color: "NAVY", tallas: { "24": 3 } },
+      armarMapaAlias([{ modelo: "MY2307", color: "NAVY", color_meli: "TEAL", color_pedido: "NAVY" }]),
+    );
+    expect(roto.estado).toBe("color_fantasma");
+    expect(roto.ligadoA).toBe("TEAL");
   });
 
   it("modelo nuevo: no hay nada publicado de ese modelo", () => {
