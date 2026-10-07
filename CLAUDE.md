@@ -999,6 +999,22 @@ guárdala numerada.
   y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **La estación aguanta sin wifi** (`tiktok/cola-preparados.ts` puro con
+  pruebas; `components/preparar-tiktok.tsx`; dueño, 7-oct-2026: «a veces no
+  hay buena señal y cuando escanean no jala bien la info; que tengan un
+  caché en la página y se vaya actualizando como puede con el wifi»): el
+  escaneo nunca necesitó red (`avanzar` decide en el navegador con los
+  paquetes que la página ya trae); lo único que viajaba era el POST de la
+  constancia. Si ese POST falla POR RED (`esErrorDeRed`: «Failed to
+  fetch», «Load failed», NetworkError), la constancia se guarda en
+  `localStorage` (clave `tiktok-preparados-pendientes:{corteId}`), el
+  paquete se da por preparado en ese dispositivo y la cola se reintenta
+  sola cada 15 s, al volver la conexión (`online`) y tras cada guardado
+  que sí entra; al abrir la página se retoma lo que quedó. Un rechazo del
+  SERVIDOR no se encola: se saca y se enseña en rojo. La pantalla dice en
+  ámbar «N paquetes por guardar · sin señal…» y «Sin señal de wifi. Puedes
+  seguir escaneando». La clave de supervisor sí necesita red (la valida el
+  servidor) y lo dice. Cargar la página sigue necesitando señal.
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
   `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
   del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),

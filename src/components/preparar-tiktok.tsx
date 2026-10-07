@@ -5,7 +5,25 @@ import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "luci
 import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import {
+  MS_REINTENTO_COLA,
+  agregarACola,
+  esErrorDeRed,
+  guardarCola,
+  leerCola,
+  quitarDeCola,
+  textoDeCola,
+  type PendienteGuardar,
+} from "@/lib/tiktok/cola-preparados";
 import { hablar, pitar } from "./sonido-tiktok";
+
+function almacenLocal(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * La estación de preparar: un solo campo que recibe lo que dispare el
@@ -41,6 +59,81 @@ export function PrepararTikTok({
   const [pidiendoClave, setPidiendoClave] = useState<PaqueteNumerado | null>(null);
   const [clave, setClave] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // La COLA de constancias que no alcanzaron a llegar al servidor por falta
+  // de señal (`cola-preparados.ts`): el paquete se da por preparado en este
+  // dispositivo y se manda solo cuando vuelve el wifi. `colaRef` es la copia
+  // viva para que el reintento no trabaje con una lista vieja.
+  const [cola, setCola] = useState<PendienteGuardar[]>([]);
+  const colaRef = useRef<PendienteGuardar[]>([]);
+  const enviandoCola = useRef(false);
+  const [enLinea, setEnLinea] = useState(true);
+  const [sinGuardar, setSinGuardar] = useState<string[]>([]);
+  const destino = urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`;
+
+  function fijarCola(siguiente: PendienteGuardar[]) {
+    colaRef.current = siguiente;
+    setCola(siguiente);
+    guardarCola(almacenLocal(), corteId, siguiente);
+  }
+
+  /** Manda UNA constancia. Lanza TypeError (red) o Error (el servidor la rechazó). */
+  async function mandarConstancia(datos: { numero: number; orderId: string; packageId: string; escaneos: string[] }) {
+    const r = await fetch(destino, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
+  }
+
+  /** Reintenta la cola en orden; se detiene en el primer fallo de red y sigue cuando vuelva. */
+  async function vaciarCola() {
+    if (enviandoCola.current || !colaRef.current.length) return;
+    enviandoCola.current = true;
+    try {
+      for (const p of [...colaRef.current]) {
+        try {
+          await mandarConstancia({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, escaneos: p.escaneos });
+          fijarCola(quitarDeCola(colaRef.current, p));
+        } catch (e) {
+          if (esErrorDeRed(e)) break;
+          // El servidor la rechazó: no es cosa de señal, se saca de la cola y se avisa.
+          fijarCola(quitarDeCola(colaRef.current, p));
+          setSinGuardar((prev) => [...prev, `#${p.numero}: ${(e as Error).message}`]);
+        }
+      }
+    } finally {
+      enviandoCola.current = false;
+    }
+  }
+
+  useEffect(() => {
+    // Lo que quedó en este dispositivo de una sesión anterior sigue contando
+    // como preparado y se vuelve a intentar.
+    const guardada = leerCola(almacenLocal(), corteId);
+    if (guardada.length) {
+      colaRef.current = guardada;
+      setCola(guardada);
+      setPreparados((p) => new Set([...p, ...guardada.map((x) => x.numero)]));
+    }
+    setEnLinea(typeof navigator === "undefined" ? true : navigator.onLine);
+    const alVolver = () => {
+      setEnLinea(true);
+      void vaciarCola();
+    };
+    const alCaer = () => setEnLinea(false);
+    window.addEventListener("online", alVolver);
+    window.addEventListener("offline", alCaer);
+    const reloj = window.setInterval(() => void vaciarCola(), MS_REINTENTO_COLA);
+    void vaciarCola();
+    return () => {
+      window.removeEventListener("online", alVolver);
+      window.removeEventListener("offline", alCaer);
+      window.clearInterval(reloj);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corteId]);
 
   useEffect(() => {
     try {
@@ -91,24 +184,33 @@ export function PrepararTikTok({
 
     if (siguiente.paso === "listo" && siguiente.paquete) {
       setGuardando(true);
+      const datos = {
+        numero: siguiente.paquete.numero,
+        orderId: siguiente.paquete.orderId,
+        packageId: siguiente.paquete.packageId,
+        escaneos: siguiente.escaneos,
+      };
       try {
-        const r = await fetch(urlGuardar ?? `/api/tiktok/cortes/${corteId}/preparar`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            numero: siguiente.paquete.numero,
-            orderId: siguiente.paquete.orderId,
-            packageId: siguiente.paquete.packageId,
-            escaneos: siguiente.escaneos,
-          }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
-        setPreparados((p) => new Set([...p, siguiente.paquete!.numero]));
+        await mandarConstancia(datos);
+        setPreparados((p) => new Set([...p, datos.numero]));
         setEstado({ ...estadoInicial(), indicacion: siguiente.indicacion });
+        setEnLinea(true);
+        void vaciarCola();
       } catch (e) {
-        pitar(false);
-        setEstado({ ...siguiente, paso: "listo", error: (e as Error).message });
+        if (esErrorDeRed(e)) {
+          // Sin señal: la constancia se queda en este dispositivo y el
+          // paquete cuenta como preparado; se manda sola al volver el wifi.
+          fijarCola(agregarACola(colaRef.current, { ...datos, en: new Date().toISOString() }));
+          setPreparados((p) => new Set([...p, datos.numero]));
+          setEnLinea(false);
+          setEstado({
+            ...estadoInicial(),
+            indicacion: `#${datos.numero} PREPARADO (sin señal: guardado en este dispositivo, se manda solo al volver el wifi). Escanea la siguiente etiqueta.`,
+          });
+        } else {
+          pitar(false);
+          setEstado({ ...siguiente, paso: "listo", error: (e as Error).message });
+        }
       } finally {
         setGuardando(false);
       }
@@ -140,7 +242,7 @@ export function PrepararTikTok({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ numero: p.numero, orderId: p.orderId, packageId: p.packageId, sinEscanear: true, pin }),
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       pitar(true, 1);
       if (voz) hablar(`${p.numero} confirmado con clave`);
@@ -150,13 +252,17 @@ export function PrepararTikTok({
       setEstado({ ...estadoInicial(), indicacion: `#${p.numero} confirmado con clave, sin escanear. Escanea la siguiente etiqueta.` });
     } catch (e) {
       pitar(false);
-      setEstado({ ...estado, error: (e as Error).message });
+      // La clave la valida el servidor: sin señal no hay cómo, y se dice.
+      const m = esErrorDeRed(e) ? "Sin señal: la clave de supervisor se valida en el servidor. Inténtalo cuando vuelva el wifi (o escanea el paquete)." : (e as Error).message;
+      if (esErrorDeRed(e)) setEnLinea(false);
+      setEstado({ ...estado, error: m });
     } finally {
       setGuardando(false);
     }
   }
 
   const manual = () => aplicar(darPorBueno(estado));
+  const avisoCola = textoDeCola(cola.length, enLinea);
   const hayManuales = estado.paso === "producto" && estado.faltantes.some((f) => !f.codigos.length && f.faltan > 0);
 
   const hechos = paquetes.filter((p) => preparados.has(p.numero)).length;
@@ -185,6 +291,20 @@ export function PrepararTikTok({
             </span>
           </div>
         </div>
+        {avisoCola || !enLinea ? (
+          <p
+            className="mt-2 rounded-lg px-3 py-2 text-xs font-medium"
+            style={{ background: "color-mix(in oklab, var(--estado-alerta) 14%, transparent)", color: "var(--estado-alerta)" }}
+          >
+            {enLinea ? "" : "Sin señal de wifi. Puedes seguir escaneando: lo preparado se guarda en este dispositivo. "}
+            {avisoCola ?? ""}
+          </p>
+        ) : null}
+        {sinGuardar.length ? (
+          <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>
+            El servidor rechazó {sinGuardar.length === 1 ? "una constancia" : `${sinGuardar.length} constancias`}: {sinGuardar.join(" · ")}
+          </p>
+        ) : null}
 
         <div
           className="mt-4 rounded-lg p-4"
