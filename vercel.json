@@ -64,6 +64,10 @@
     {
       "path": "/api/cron/tienda",
       "schedule": "23 * * * *"
+    },
+    {
+      "path": "/api/cron/catalogo-amazon",
+      "schedule": "0 8 * * *"
     }
   ]
 }
