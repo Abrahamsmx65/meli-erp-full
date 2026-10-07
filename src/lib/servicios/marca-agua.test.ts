@@ -3,6 +3,7 @@ import {
   alinearSubtitulos,
   archivosSubtitulos,
   armarSubtitulos,
+  comandosDeEncode,
   escaparDrawtext,
   filtrosSubtitulos,
   parsearSilencios,
@@ -128,5 +129,33 @@ describe("alineación de subtítulos a la voz (silencedetect)", () => {
     const subs = armarSubtitulos("Hola. Adiós.", 10);
     expect(alinearSubtitulos(subs, [])).toEqual(subs);
     expect(alinearSubtitulos(subs, [{ desde: 0, hasta: 0.3 }])).toEqual(subs);
+  });
+});
+
+describe("comandosDeEncode", () => {
+  const filtros = ["drawtext=a", "drawtext=b"];
+
+  it("sin música copia la pista del video tal cual", () => {
+    const pasos = comandosDeEncode(filtros, false);
+    expect(pasos).toHaveLength(1);
+    expect(pasos[0]).toContain("-c:a copy");
+    expect(pasos[0]).toContain('-vf "drawtext=a,drawtext=b"');
+    expect(pasos[0]).not.toContain("musica");
+  });
+
+  it("con música reemplaza la pista: bucle, corte al largo del video y fades", () => {
+    const pasos = comandosDeEncode(filtros, true);
+    const encode = pasos[pasos.length - 1];
+    // La duración real se mide del archivo (los videos salen de 15.07 s).
+    expect(pasos[0]).toContain("ffprobe");
+    expect(encode).toContain("-stream_loop -1 -i /tmp/musica.bin");
+    expect(encode).toContain("-map 0:v -map 1:a");
+    expect(encode).toContain("-shortest");
+    expect(encode).toContain("afade=t=in");
+    expect(encode).toContain("afade=t=out:st=$FO");
+    expect(encode).toContain("-c:a aac");
+    expect(encode).not.toContain("-c:a copy");
+    // Los subtítulos y la marca se siguen quemando igual.
+    expect(encode).toContain('-vf "drawtext=a,drawtext=b"');
   });
 });

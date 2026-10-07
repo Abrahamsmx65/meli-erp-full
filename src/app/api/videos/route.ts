@@ -367,6 +367,16 @@ async function generarEstudio(
     audioJobId && /^https:\/\//.test(String(body?.audioUrl ?? ""))
       ? String(body.audioUrl)
       : null;
+  // Pista de MÚSICA propia (modo modelaje): el vigilante reemplaza con ella
+  // el audio del video terminado. Solo se acepta una pista del propio bucket
+  // (el sandbox la descarga; no se le manda a bajar cualquier URL ajena).
+  const musicaUrl =
+    body?.musicaUrl &&
+    /^https:\/\/[\w.-]+\/storage\/v1\/object\/public\/videos-producto\/.+/.test(
+      String(body.musicaUrl),
+    )
+      ? String(body.musicaUrl).slice(0, 500)
+      : null;
 
   if (!titulo || !fotos.length) {
     return NextResponse.json({ error: "Faltan el título o las fotos." }, { status: 400 });
@@ -519,6 +529,7 @@ async function generarEstudio(
       estado: "enviado",
       guion: guion || null,
       audio_url: audioUrl,
+      musica_url: musicaUrl,
       // Quién salió en el video, para volver a usarlo si gustó.
       personaje: body?.personaje ? String(body.personaje).slice(0, 80) : null,
     })

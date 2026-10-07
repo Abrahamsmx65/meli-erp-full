@@ -93,6 +93,35 @@ const VOCES_ESTUDIO = [
 ] as const;
 
 /**
+ * Géneros para la música que inventa la IA del video cuando NO hay pista
+ * propia elegida (modo modelaje). Con pista propia, la pista manda y esto
+ * no viaja al prompt.
+ */
+const GENEROS_MUSICA_IA = [
+  { id: "ia", etiqueta: "Música: la inventa la IA (beat actual)", instruccion: "" },
+  {
+    id: "ia:urbano",
+    etiqueta: "Música IA: urbana / reggaetón suave",
+    instruccion: "Estilo de la música: beat urbano/reggaetón suave y moderno, instrumental.",
+  },
+  {
+    id: "ia:electronica",
+    etiqueta: "Música IA: electrónica fashion",
+    instruccion: "Estilo de la música: electrónica elegante tipo desfile de moda, instrumental.",
+  },
+  {
+    id: "ia:chill",
+    etiqueta: "Música IA: lo-fi chill",
+    instruccion: "Estilo de la música: lo-fi chill relajado, instrumental.",
+  },
+  {
+    id: "ia:acustica",
+    etiqueta: "Música IA: acústica cálida",
+    instruccion: "Estilo de la música: acústica cálida con guitarra suave, instrumental.",
+  },
+] as const;
+
+/**
  * Subtítulos del Studio. La IA los escribe con faltas ("corclo", "nuve",
  * "Já" en portugués), así que el default es que los queme el ERP: el video
  * se pide SIN texto y el vigilante le pone el guion EXACTO encima —
@@ -465,6 +494,13 @@ export function GeneradorVideo({
   const [lugarOtro, setLugarOtro] = useState("");
   const [ropaEstudio, setRopaEstudio] = useState("auto");
   const [ropaOtro, setRopaOtro] = useState("");
+  // Música del modo modelaje: "ia"/"ia:…" = la inventa la IA del video (con
+  // género), "aleatoria" = una pista propia al azar, o la URL de una pista
+  // subida al bucket (la más confiable: se monta tal cual, con fades).
+  const [pistas, setPistas] = useState<{ nombre: string; url: string }[]>([]);
+  const [pistaMusica, setPistaMusica] = useState<string>("ia");
+  const [subiendoPista, setSubiendoPista] = useState(false);
+  const pistasRef = useRef(false);
   // Crear el personaje de marca desde aquí: con foto propia o generado con IA.
   const [personajeAbierto, setPersonajeAbierto] = useState(false);
   const [nombrePersonaje, setNombrePersonaje] = useState("");
@@ -566,6 +602,80 @@ export function GeneradorVideo({
       }
     })();
   }, [formato, motorEstudio, cuentaConectada, vocesReales.length]);
+
+  // Las pistas propias se cargan al entrar al modo música (una sola vez).
+  useEffect(() => {
+    if (formato !== "studio" || estiloVoz !== "musica" || pistasRef.current) return;
+    pistasRef.current = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/videos/musica");
+        const j = await leerJson(r);
+        if (!r.ok) return;
+        setPistas((j.pistas as { nombre: string; url: string }[]) ?? []);
+        try {
+          const p = localStorage.getItem("hf_pista_musica");
+          if (p) setPistaMusica(p);
+        } catch {
+          // Sin localStorage no pasa nada.
+        }
+      } catch {
+        pistasRef.current = false;
+      }
+    })();
+  }, [formato, estiloVoz]);
+
+  function elegirPista(valor: string) {
+    setPistaMusica(valor);
+    try {
+      localStorage.setItem("hf_pista_musica", valor);
+    } catch {
+      // Sin localStorage no pasa nada.
+    }
+  }
+
+  async function subirPista(f: File) {
+    setSubiendoPista(true);
+    setMensaje(null);
+    try {
+      const datos = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result));
+        fr.onerror = () => rej(new Error("No se pudo leer el archivo."));
+        fr.readAsDataURL(f);
+      });
+      const r = await fetch("/api/videos/musica", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: f.name, datos }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo subir la pista."));
+      const pista = j.pista as { nombre: string; url: string };
+      setPistas((p) => [pista, ...p.filter((x) => x.nombre !== pista.nombre)]);
+      elegirPista(pista.url);
+    } catch (e) {
+      setMensaje((e as Error).message);
+    } finally {
+      setSubiendoPista(false);
+    }
+  }
+
+  async function borrarPista(nombre: string, url: string) {
+    try {
+      const r = await fetch("/api/videos/musica", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre }),
+      });
+      const j = await leerJson(r);
+      if (!r.ok) throw new Error(String(j.error ?? "No se pudo borrar la pista."));
+      setPistas((p) => p.filter((x) => x.nombre !== nombre));
+      if (pistaMusica === url) elegirPista("ia");
+    } catch (e) {
+      setMensaje((e as Error).message);
+    }
+  }
 
   const escena = ESCENAS.find((e) => e.id === escenaId) ?? ESCENAS[0];
   const principal = seleccion[0] ?? "";
@@ -1037,8 +1147,21 @@ export function GeneradorVideo({
         // final es la del video — montar el TTS encima desincronizaba todo
         // (Seedance no copia su ritmo; verificado el 7-oct-2026).
         // En modo música (modelaje) nadie habla: ni TTS, ni guion, ni
-        // subtítulos — el vigilante solo pone la marca de agua.
+        // subtítulos — el vigilante pone la marca de agua y, con pista
+        // propia elegida, monta ESA música sobre el video.
         const sinVoz = estiloVoz === "musica";
+        const pistaUrl = sinVoz
+          ? pistaMusica === "aleatoria" && pistas.length
+            ? pistas[Math.floor(Math.random() * pistas.length)].url
+            : pistas.some((p) => p.url === pistaMusica)
+              ? pistaMusica
+              : undefined
+          : undefined;
+        // Sin pista propia, el género elegido le dice a la IA qué música tocar.
+        const instrMusica =
+          sinVoz && !pistaUrl
+            ? (GENEROS_MUSICA_IA.find((g) => g.id === pistaMusica)?.instruccion ?? "")
+            : "";
         let audioDelVideo = !sinVoz && usarVoz && audioPrueba ? audioPrueba : null;
         let notaVoz: string | null = null;
         if (!sinVoz && !audioDelVideo && motorEstudio === "rapido" && guion.trim()) {
@@ -1070,6 +1193,8 @@ export function GeneradorVideo({
             // La voz exacta del guion viaja de REFERENCIA (clonada con lip sync).
             audioJobId: audioDelVideo?.jobId,
             audioUrl: audioDelVideo?.url,
+            // La pista propia del modo modelaje (el vigilante la monta al final).
+            musicaUrl: pistaUrl,
             // Quién sale en el video, para reconocerlo y repetirlo si gustó.
             personaje: avatares.find((a) => a.id === avatarId)?.nombre || undefined,
             itemId: pub.itemId,
@@ -1078,7 +1203,7 @@ export function GeneradorVideo({
             // Estilo de voz, subtítulos, lugar y ropa elegidos van al prompt.
             prompt: `${promptVideo} ${
               VOCES_ESTUDIO.find((v) => v.id === estiloVoz)?.instruccion ?? ""
-            } ${
+            } ${instrMusica} ${
               SUBTITULOS_ESTUDIO.find((s) => s.id === (sinVoz ? "no" : subtitulos))
                 ?.instruccion ?? ""
             } ${
@@ -1692,11 +1817,73 @@ export function GeneradorVideo({
           )}
 
           {formato === "studio" && estiloVoz === "musica" && (
-            <p className="mt-2 max-w-2xl text-[11px]" style={{ color: "var(--ink-muted)" }}>
-              Modo modelaje: nadie habla en el video — la persona modela el
-              calzado y el único audio es música instrumental sin letra. No se
-              genera voz ni subtítulos.
-            </p>
+            <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
+              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+                Modo modelaje: nadie habla — el único audio es música. Lo más
+                confiable es TU pista (el ERP la monta tal cual sobre el video,
+                con entrada y salida suaves); sin pista, la música la inventa la
+                IA del video con el género elegido.
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  value={pistaMusica}
+                  onChange={(e) => elegirPista(e.target.value)}
+                  className="px-2 py-1.5 text-sm"
+                >
+                  {GENEROS_MUSICA_IA.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.etiqueta}
+                    </option>
+                  ))}
+                  {pistas.length > 0 && (
+                    <option value="aleatoria">Mis pistas: una al azar</option>
+                  )}
+                  {pistas.map((p) => (
+                    <option key={p.url} value={p.url}>
+                      Mi pista: {p.nombre}
+                    </option>
+                  ))}
+                </select>
+                <label
+                  className="cursor-pointer rounded border px-3 py-1.5 text-sm"
+                  style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
+                >
+                  {subiendoPista ? "Subiendo pista…" : "🎵 Subir pista…"}
+                  <input
+                    type="file"
+                    accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac"
+                    className="hidden"
+                    disabled={subiendoPista}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void subirPista(f);
+                    }}
+                  />
+                </label>
+              </div>
+              {pistas.some((p) => p.url === pistaMusica) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <audio controls src={pistaMusica} className="h-9" />
+                  <button
+                    onClick={() => {
+                      const p = pistas.find((x) => x.url === pistaMusica);
+                      if (p) void borrarPista(p.nombre, p.url);
+                    }}
+                    className="text-xs underline"
+                    style={{ color: "var(--ink-muted)" }}
+                  >
+                    Borrar esta pista del ERP
+                  </button>
+                </div>
+              )}
+              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                Sube solo música que tengas derecho a usar (comprada o libre de
+                regalías). La música de tendencia de TikTok no se puede bajar:
+                esa se le pone al video DENTRO de TikTok al publicarlo, donde su
+                licencia sí aplica.
+              </p>
+            </div>
           )}
 
           {formato === "studio" && motorEstudio === "rapido" && estiloVoz !== "musica" && (

@@ -86,6 +86,7 @@ interface Fila {
   creado_en: string;
   guion: string | null;
   modelo: string | null;
+  musica_url: string | null;
 }
 
 async function procesar(origen: string): Promise<void> {
@@ -99,7 +100,7 @@ async function procesar(origen: string): Promise<void> {
     const { data: pendientes } = await admin
       .from("videos_producto")
       .select(
-        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en, guion, modelo",
+        "id, account_id, prompt, formato, etapa, duracion, audio_url, request_id, request_id_imagen, estado, creado_en, guion, modelo, musica_url",
       )
       .in("estado", ["enviado", "en_progreso"])
       .order("creado_en", { ascending: true })
@@ -381,8 +382,8 @@ async function copiarAVideoStorage(
       sesiones.set(accountId, sesion);
     }
     // Con guion guardado, los subtítulos también se queman aquí (texto
-    // perfecto del ERP; a la IA se le pidió el video SIN texto). Y si hay
-    // audio aprobado (Studio), esa pista sustituye a la generada.
+    // perfecto del ERP; a la IA se le pidió el video SIN texto). Con pista
+    // de música propia (modelaje), esa pista reemplaza el audio del video.
     const url2 = await quemarMarcaYSubir(
       admin,
       sesion,
@@ -390,6 +391,7 @@ async function copiarAVideoStorage(
       url,
       fila.guion,
       fila.duracion,
+      fila.musica_url,
     );
     return { url: url2, nota: null };
   } catch (err) {

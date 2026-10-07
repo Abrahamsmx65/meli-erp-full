@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       const { quemarMarcaYSubir } = await import("@/lib/servicios/marca-agua");
       const { data: fila } = await admin
         .from("videos_producto")
-        .select("id, account_id, estado, video_guardado, video_url, guion, duracion, audio_url, formato")
+        .select("id, account_id, estado, video_guardado, video_url, guion, duracion, audio_url, formato, musica_url")
         .eq("id", remarcar)
         .single();
       if (!fila?.video_guardado || fila.estado !== "completado") {
@@ -113,6 +113,7 @@ export async function GET(req: NextRequest) {
         `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
         fila.guion as string | null,
         (fila.duracion as number) || 15,
+        fila.musica_url as string | null,
       );
       return NextResponse.json({ ok: true, url });
     }

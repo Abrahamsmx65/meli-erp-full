@@ -218,6 +218,30 @@ export function filtrosSubtitulos(guion: string, duracion: number): string[] {
 }
 
 /**
+ * Los pasos de encode del sandbox. SIN música la pista se copia tal cual
+ * (`-c:a copy`, la del video es la buena). CON música (modo modelaje con
+ * pista propia, dueño 7-oct-2026: «el audio no me gusta tanto» — la música
+ * que inventa la IA es genérica), la pista del video se REEMPLAZA por la
+ * pista subida: se repite en bucle si es corta (`-stream_loop -1`), se corta
+ * al largo del video (`-shortest`) y entra y sale con fade. La duración real
+ * se mide con ffprobe (los videos salen de 15.07 s, no 15). Reemplazar es
+ * seguro solo porque en modelaje NADIE habla: no hay labios que desincronizar.
+ */
+export function comandosDeEncode(filtros: string[], conMusica: boolean): string[] {
+  if (!conMusica) {
+    return [
+      `ffmpeg -hide_banner -loglevel error -y -i /tmp/entrada.mp4 -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 -c:a copy -movflags +faststart /tmp/salida.mp4`,
+    ];
+  }
+  return [
+    `FD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/entrada.mp4)`,
+    // El fade de salida arranca 1.2 s antes del final (nunca antes de 0).
+    `FO=$(awk "BEGIN{d=$FD-1.2; if(d<0)d=0; printf \\"%.2f\\", d}")`,
+    `ffmpeg -hide_banner -loglevel error -y -i /tmp/entrada.mp4 -stream_loop -1 -i /tmp/musica.bin -vf "${filtros.join(",")}" -map 0:v -map 1:a -af "afade=t=in:st=0:d=0.6,afade=t=out:st=$FO:d=1.2" -c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 192k -shortest -movflags +faststart /tmp/salida.mp4`,
+  ];
+}
+
+/**
  * Quema la marca de agua (y los subtítulos del ERP, si hay guion) sobre un
  * MP4 y lo deja en el bucket, SIN pasar el archivo por Vercel: ffmpeg corre
  * en el sandbox del MCP de Higgsfield, que descarga el video, lo marca y lo
@@ -231,6 +255,8 @@ export async function quemarMarcaYSubir(
   urlVideo: string,
   guion?: string | null,
   duracion?: number | null,
+  /** Pista propia (modo modelaje): reemplaza el audio del video, con fades. */
+  musicaUrl?: string | null,
 ): Promise<string> {
   const firmada = await admin.storage
     .from("videos-producto")
@@ -274,18 +300,21 @@ export async function quemarMarcaYSubir(
       `shadowcolor=black@0.35:shadowx=2:shadowy=2`,
   );
 
-  // La pista de audio SIEMPRE es la del video. La voz del ERP (TTS) viaja a
-  // la generación como REFERENCIA — eso es lo que corrige las palabras:
+  // La pista de audio es la del video — SALVO en modelaje con pista propia
+  // (musicaUrl), donde se reemplaza porque nadie habla. La voz del ERP (TTS)
+  // viaja a la generación como REFERENCIA — eso es lo que corrige las palabras:
   // verificado el 7-oct-2026, el audio nativo con referencia dice el guion
   // bien y va con los labios — pero NUNCA se monta encima: Seedance no copia
   // su ritmo (TTS de 12.6 s sobre video de 15 s: voz hablando con la boca
   // cerrada y 2.4 s mudos al final; dueño: «no tiene sentido»).
+  const conMusica = Boolean(musicaUrl);
   const comando = [
     "set -e",
     `curl -sSL --max-time 120 -o /tmp/entrada.mp4 '${urlVideo}'`,
+    ...(conMusica ? [`curl -sSL --max-time 90 -o /tmp/musica.bin '${musicaUrl}'`] : []),
     `curl -sSL --max-time 60 -o /tmp/marca.ttf '${FUENTE_MARCA}'`,
     ...archivosDeSubtitulos(subs),
-    `ffmpeg -hide_banner -loglevel error -y -i /tmp/entrada.mp4 -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 -c:a copy -movflags +faststart /tmp/salida.mp4`,
+    ...comandosDeEncode(filtros, conMusica),
     // VERIFICAR antes de subir: el 7-oct-2026 el sandbox codificó un archivo
     // corrupto (todos los NAL inválidos, el 95 % del audio indecodificable),
     // terminó con exit 0 y lo subió como bueno — «el audio está todo mal».
