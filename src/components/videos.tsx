@@ -850,6 +850,36 @@ export function GeneradorVideo({
     cambiar({ hayAudio: false });
   }
 
+  /** Genera el audio TTS del guion y espera a que quede (folio + url). */
+  async function generarAudioDelGuion(texto: string): Promise<{ jobId: string; url: string }> {
+    const voz = vocesReales.find((v) => v.id === vozRealId);
+    const r = await fetch("/api/videos/voz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accion: "generar",
+        guion: texto,
+        vozId: voz?.id || undefined,
+        vozTipo: voz?.tipo || undefined,
+      }),
+    });
+    const j = await leerJson(r);
+    if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el audio."));
+    const jobId = String(j.jobId ?? "");
+    for (let i = 0; i < 30; i++) {
+      await new Promise((re) => setTimeout(re, 3000));
+      const rp = await fetch("/api/videos/voz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "estado", jobId }),
+      });
+      const jp = await leerJson(rp);
+      if (!rp.ok) throw new Error(String(jp.error ?? "El audio falló."));
+      if (!jp.pendiente && jp.url) return { jobId, url: String(jp.url) };
+    }
+    throw new Error("El audio tardó demasiado; inténtalo otra vez.");
+  }
+
   /** Genera SOLO el audio del guion para escucharlo antes de gastar video. */
   async function probarVoz() {
     if (!guion.trim()) {
@@ -861,36 +891,9 @@ export function GeneradorVideo({
     setAudioPrueba(null);
     setUsarVoz(false);
     try {
-      const voz = vocesReales.find((v) => v.id === vozRealId);
-      const r = await fetch("/api/videos/voz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accion: "generar",
-          guion: guion.trim(),
-          vozId: voz?.id || undefined,
-          vozTipo: voz?.tipo || undefined,
-        }),
-      });
-      const j = await leerJson(r);
-      if (!r.ok) throw new Error(String(j.error ?? "No se pudo lanzar el audio."));
-      const jobId = String(j.jobId ?? "");
-      for (let i = 0; i < 30; i++) {
-        await new Promise((re) => setTimeout(re, 3000));
-        const rp = await fetch("/api/videos/voz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accion: "estado", jobId }),
-        });
-        const jp = await leerJson(rp);
-        if (!rp.ok) throw new Error(String(jp.error ?? "El audio falló."));
-        if (!jp.pendiente && jp.url) {
-          setAudioPrueba({ jobId, url: String(jp.url) });
-          setGenerandoVoz(false);
-          return;
-        }
-      }
-      throw new Error("El audio tardó demasiado; inténtalo otra vez.");
+      const audio = await generarAudioDelGuion(guion.trim());
+      setAudioPrueba(audio);
+      setGenerandoVoz(false);
     } catch (e) {
       setGenerandoVoz(false);
       setMensaje((e as Error).message);
@@ -991,6 +994,27 @@ export function GeneradorVideo({
             : null;
 
       if (formato === "studio") {
+        // VOZ EXACTA SIEMPRE (dueño, 7-oct-2026): si no se probó la voz, el
+        // ERP la genera solo del guion (cuesta centavos) y esa pista exacta
+        // viaja de referencia y queda como pista final — dejada a la IA, la
+        // voz masticaba palabras («clóte», «Fuérase y astrana mezceña…»).
+        // Solo el motor rápido acepta la referencia de audio.
+        let audioDelVideo = usarVoz && audioPrueba ? audioPrueba : null;
+        let notaVoz: string | null = null;
+        if (!audioDelVideo && motorEstudio === "rapido" && guion.trim()) {
+          setGenerandoVoz(true);
+          try {
+            audioDelVideo = await generarAudioDelGuion(guion.trim());
+            setAudioPrueba(audioDelVideo);
+            setUsarVoz(true);
+          } catch (e) {
+            // Sin voz del ERP el video sale igual, pero se avisa: la IA
+            // pondrá las palabras y puede equivocarse.
+            notaVoz = `El video se encoló SIN la voz del ERP (${(e as Error).message}) — la voz la pondrá la IA y puede decir mal alguna palabra.`;
+          }
+          setGenerandoVoz(false);
+        }
+
         const r = await fetch("/api/videos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1003,9 +1027,9 @@ export function GeneradorVideo({
             // Con subtítulos del ERP, el guion exacto viaja aparte: el
             // vigilante lo quema sobre el video terminado, sin faltas.
             guion: guion.trim() || undefined,
-            // Audio aprobado en la prueba: referencia de voz + pista final.
-            audioJobId: usarVoz && audioPrueba ? audioPrueba.jobId : undefined,
-            audioUrl: usarVoz && audioPrueba ? audioPrueba.url : undefined,
+            // La voz exacta del guion: referencia de voz + pista final.
+            audioJobId: audioDelVideo?.jobId,
+            audioUrl: audioDelVideo?.url,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
@@ -1042,6 +1066,7 @@ export function GeneradorVideo({
         const j = await leerJson(r);
         if (!r.ok) throw new Error(String(j.error ?? "No se pudo encolar el video."));
         setEstado("ok");
+        if (notaVoz) setMensaje(notaVoz);
         router.refresh();
         setTimeout(() => setEstado("listo"), 4000);
         return;
@@ -1609,9 +1634,9 @@ export function GeneradorVideo({
           {formato === "studio" && motorEstudio === "rapido" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                Prueba la voz ANTES de gastar el video (recomendado): se genera
-                solo el audio del guion — cuesta centavos — y si dice todas las
-                palabras bien, esa pista exacta queda en el video
+                La voz del video SIEMPRE es la del ERP leyendo tu guion, palabra
+                por palabra (cuesta centavos): se genera sola al darle Generar
+                video. Aquí puedes escucharla antes y cambiar de voz
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <select
@@ -1847,7 +1872,11 @@ export function GeneradorVideo({
               className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
               style={{ background: "var(--acento)" }}
             >
-              {estado === "enviando" ? "Encolando…" : "Generar video"}
+              {estado === "enviando"
+                ? generandoVoz
+                  ? "Generando la voz del guion (~30 s)…"
+                  : "Encolando…"
+                : "Generar video"}
             </button>
 
             {estado === "ok" && (
