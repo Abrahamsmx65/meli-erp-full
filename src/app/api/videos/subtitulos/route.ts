@@ -77,10 +77,6 @@ export async function POST(req: NextRequest) {
       `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
       guion,
       (fila.duracion as number) || 15,
-      // La copia limpia trae el audio ORIGINAL del video; si este video ya
-      // lleva una voz aprobada (Studio), hay que volver a montarla o la
-      // corrección de subtítulos regresaría al audio viejo.
-      fila.formato === "studio" ? (fila.audio_url as string | null) : null,
     );
   } catch (err) {
     return NextResponse.json(

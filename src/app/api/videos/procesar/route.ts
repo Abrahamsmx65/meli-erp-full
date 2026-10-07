@@ -390,7 +390,6 @@ async function copiarAVideoStorage(
       url,
       fila.guion,
       fila.duracion,
-      fila.formato === "studio" ? fila.audio_url : null,
     );
     return { url: url2, nota: null };
   } catch (err) {

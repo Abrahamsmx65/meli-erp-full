@@ -995,10 +995,11 @@ export function GeneradorVideo({
 
       if (formato === "studio") {
         // VOZ EXACTA SIEMPRE (dueño, 7-oct-2026): si no se probó la voz, el
-        // ERP la genera solo del guion (cuesta centavos) y esa pista exacta
-        // viaja de referencia y queda como pista final — dejada a la IA, la
-        // voz masticaba palabras («clóte», «Fuérase y astrana mezceña…»).
-        // Solo el motor rápido acepta la referencia de audio.
+        // ERP la genera solo del guion (cuesta centavos) y viaja de
+        // REFERENCIA a la generación: Seedance clona esa voz diciendo el
+        // guion palabra por palabra, con los labios sincronizados. La pista
+        // final es la del video — montar el TTS encima desincronizaba todo
+        // (Seedance no copia su ritmo; verificado el 7-oct-2026).
         let audioDelVideo = usarVoz && audioPrueba ? audioPrueba : null;
         let notaVoz: string | null = null;
         if (!audioDelVideo && motorEstudio === "rapido" && guion.trim()) {
@@ -1027,9 +1028,11 @@ export function GeneradorVideo({
             // Con subtítulos del ERP, el guion exacto viaja aparte: el
             // vigilante lo quema sobre el video terminado, sin faltas.
             guion: guion.trim() || undefined,
-            // La voz exacta del guion: referencia de voz + pista final.
+            // La voz exacta del guion viaja de REFERENCIA (clonada con lip sync).
             audioJobId: audioDelVideo?.jobId,
             audioUrl: audioDelVideo?.url,
+            // Quién sale en el video, para reconocerlo y repetirlo si gustó.
+            personaje: avatares.find((a) => a.id === avatarId)?.nombre || undefined,
             itemId: pub.itemId,
             titulo: pub.titulo,
             fotos: seleccion,
@@ -1634,9 +1637,10 @@ export function GeneradorVideo({
           {formato === "studio" && motorEstudio === "rapido" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
-                La voz del video SIEMPRE es la del ERP leyendo tu guion, palabra
-                por palabra (cuesta centavos): se genera sola al darle Generar
-                video. Aquí puedes escucharla antes y cambiar de voz
+                El ERP genera la voz del guion al darle Generar video (cuesta
+                centavos) y viaja de referencia: el video la clona diciendo tu
+                guion palabra por palabra, con los labios sincronizados. Aquí
+                puedes escucharla antes y cambiar de voz
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <select

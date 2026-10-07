@@ -231,7 +231,6 @@ export async function quemarMarcaYSubir(
   urlVideo: string,
   guion?: string | null,
   duracion?: number | null,
-  audioUrl?: string | null,
 ): Promise<string> {
   const firmada = await admin.storage
     .from("videos-producto")
@@ -252,14 +251,13 @@ export async function quemarMarcaYSubir(
 
   // Subtítulos del ERP primero (si hay guion) y la marca al final. El
   // tamaño y los márgenes escalan con la altura del video (720p o 1080p).
-  // Los renglones se ALINEAN A LA VOZ: se escucha el audio (la voz aprobada
-  // si la hay; si no, la pista del video) y cada frase arranca donde de
-  // verdad arranca en el audio. Si el análisis falla, queda el reparto
-  // proporcional de siempre: mejor aproximado que sin subtítulos.
+  // Los renglones se ALINEAN A LA VOZ DEL VIDEO: se escucha su pista y cada
+  // frase arranca donde de verdad arranca. Si el análisis falla, queda el
+  // reparto proporcional de siempre: mejor aproximado que sin subtítulos.
   let subs: Subtitulo[] = guion ? armarSubtitulos(guion, duracion || 15) : [];
   if (subs.length) {
     try {
-      const analisis = await analizarHabla(sesion, audioUrl ?? urlVideo);
+      const analisis = await analizarHabla(sesion, urlVideo);
       const dur = analisis.duracion ?? duracion ?? 15;
       subs = alinearSubtitulos(
         armarSubtitulos(guion as string, dur),
@@ -276,20 +274,18 @@ export async function quemarMarcaYSubir(
       `shadowcolor=black@0.35:shadowx=2:shadowy=2`,
   );
 
-  // Con audio APROBADO (la voz que el usuario ya escuchó y validó), esa
-  // pista sustituye a la del video: las palabras quedan exactamente como
-  // se oyeron en la prueba, y los labios ya vienen sincronizados porque el
-  // mismo audio viajó de referencia a la generación.
-  const conVoz = Boolean(audioUrl);
-  const entradas = conVoz ? "-i /tmp/entrada.mp4 -i /tmp/voz.m4a" : "-i /tmp/entrada.mp4";
-  const mapeo = conVoz ? "-map 0:v:0 -map 1:a:0 -c:a aac -b:a 160k" : "-c:a copy";
+  // La pista de audio SIEMPRE es la del video. La voz del ERP (TTS) viaja a
+  // la generación como REFERENCIA — eso es lo que corrige las palabras:
+  // verificado el 7-oct-2026, el audio nativo con referencia dice el guion
+  // bien y va con los labios — pero NUNCA se monta encima: Seedance no copia
+  // su ritmo (TTS de 12.6 s sobre video de 15 s: voz hablando con la boca
+  // cerrada y 2.4 s mudos al final; dueño: «no tiene sentido»).
   const comando = [
     "set -e",
     `curl -sSL --max-time 120 -o /tmp/entrada.mp4 '${urlVideo}'`,
-    ...(conVoz ? [`curl -sSL --max-time 60 -o /tmp/voz.m4a '${audioUrl}'`] : []),
     `curl -sSL --max-time 60 -o /tmp/marca.ttf '${FUENTE_MARCA}'`,
     ...archivosDeSubtitulos(subs),
-    `ffmpeg -hide_banner -loglevel error -y ${entradas} -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 ${mapeo} -movflags +faststart /tmp/salida.mp4`,
+    `ffmpeg -hide_banner -loglevel error -y -i /tmp/entrada.mp4 -vf "${filtros.join(",")}" -c:v libx264 -preset veryfast -crf 20 -c:a copy -movflags +faststart /tmp/salida.mp4`,
     // VERIFICAR antes de subir: el 7-oct-2026 el sandbox codificó un archivo
     // corrupto (todos los NAL inválidos, el 95 % del audio indecodificable),
     // terminó con exit 0 y lo subió como bueno — «el audio está todo mal».

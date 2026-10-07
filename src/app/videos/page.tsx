@@ -249,6 +249,11 @@ export default async function Videos() {
                                   ? ` · UGC · ${(v.duracion as number) ?? 10} s`
                                   : " · prueba ~5 s"}
                         </div>
+                        {v.personaje ? (
+                          <div className="mt-0.5 text-xs" style={{ color: "var(--acento)" }}>
+                            👤 Personaje: {v.personaje as string}
+                          </div>
+                        ) : null}
                         <div
                           className="mt-0.5 line-clamp-3 text-xs"
                           style={{ color: "var(--ink-muted)" }}

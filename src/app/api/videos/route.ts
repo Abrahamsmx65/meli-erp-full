@@ -515,6 +515,8 @@ async function generarEstudio(
       estado: "enviado",
       guion: guion || null,
       audio_url: audioUrl,
+      // Quién salió en el video, para volver a usarlo si gustó.
+      personaje: body?.personaje ? String(body.personaje).slice(0, 80) : null,
     })
     .select("id")
     .single();

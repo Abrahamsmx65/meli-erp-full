@@ -113,7 +113,6 @@ export async function GET(req: NextRequest) {
         `${fuente}${fuente.includes("?") ? "&" : "?"}v=${Date.now()}`,
         fila.guion as string | null,
         (fila.duracion as number) || 15,
-        fila.formato === "studio" ? (fila.audio_url as string | null) : null,
       );
       return NextResponse.json({ ok: true, url });
     }
