@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
+import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 
 interface Contenedor {
   id: string;
@@ -318,7 +319,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               .map((p) => `${p.modelo} ${p.color} · ${n(p.cajas)} cajas · ${p.motivo}`)
                               .join("\n")}
                           >
-                            {n(c.pendientes.reduce((a, p) => a + p.cajas, 0))} cajas sin amarrar
+                            {n(c.pendientes.reduce((a, p) => a + p.cajas, 0))} cajas por confirmar
                           </button>
                         ) : null}
                       </span>
@@ -479,6 +480,8 @@ interface LineaContenido {
   paresPorCaja: number;
   enEste: number;
   enOtros: number;
+  /** color de la variante de MELI con la que amarra el renglón del pedido (null si no amarra) */
+  colorMeli?: string | null;
 }
 
 /**
@@ -502,7 +505,10 @@ function ContenidoContenedor({
   const [error, setError] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [pendientes, setPendientes] = useState<PendientePacking[]>(contenedor.pendientes ?? []);
-  const [eleccion, setEleccion] = useState<Record<number, string>>({});
+  const [eleccion, setEleccion] = useState<Record<string, string>>({});
+  const [eligiendoOtro, setEligiendoOtro] = useState<Record<string, boolean>>({});
+  const [recordar, setRecordar] = useState<Record<string, boolean>>({});
+  const claveP = (p: PendientePacking) => `${p.pedido ?? ""}|${p.modelo}|${p.color}|${p.talla ?? ""}`;
   const [todoElPedido, setTodoElPedido] = useState(false);
 
   useEffect(() => {
@@ -526,32 +532,50 @@ function ContenidoContenedor({
   }, [contenedor.id]);
 
   /**
-   * Qué renglón del pedido PODRÍA ser el que la fábrica escribió distinto:
-   * del mismo modelo, con cajas libres, y primero el color que más se le
-   * parece (comparte palabras: "M BROWN" con "LT BROWN"). No se aplica
-   * solo: el dueño lo confirma.
+   * Qué renglón del pedido ES el que la fábrica escribió distinto
+   * (`packing-sugerencias.ts`): por ELIMINACIÓN si del pedido ya entraron
+   * los demás colores y solo queda uno, si no por parecido. Se enseña con
+   * su porqué y el dueño CONFIRMA; nunca se aplica solo.
    */
-  function candidatosDe(p: PendientePacking): LineaContenido[] {
-    const palabras = (s: string) => new Set(s.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean));
-    const suyas = palabras(p.color);
-    return (lineas ?? [])
-      .filter((l) => l.modelo.toUpperCase() === p.modelo.toUpperCase())
-      .map((l) => ({ l, libres: Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)) }))
-      .filter((x) => x.libres > 0)
-      .sort((a, b) => {
-        const comunes = (l: LineaContenido) => [...palabras(l.color)].filter((w) => suyas.has(w)).length;
-        return comunes(b.l) - comunes(a.l) || b.libres - a.libres;
-      })
-      .map((x) => x.l);
+  function renglonesParaSugerir(): RenglonParaSugerir[] {
+    return (lineas ?? []).map((l) => {
+      const enEste = cajas[l.pedidoLineaId] ?? l.enEste;
+      return {
+        pedidoLineaId: l.pedidoLineaId,
+        pedido: l.pedido,
+        modelo: l.modelo,
+        color: l.color,
+        talla: l.talla,
+        libres: Math.max(0, l.cajasPedido - l.enOtros - enEste),
+        enEste,
+      };
+    });
   }
 
-  function confirmar(indice: number, p: PendientePacking, pedidoLineaId: string) {
+  async function confirmar(p: PendientePacking, pedidoLineaId: string) {
     const l = (lineas ?? []).find((x) => x.pedidoLineaId === pedidoLineaId);
     if (!l) return;
     const actual = cajas[pedidoLineaId] ?? l.enEste;
     const libres = Math.max(0, l.cajasPedido - l.enOtros - actual);
     setCajas((c) => ({ ...c, [pedidoLineaId]: actual + Math.min(p.cajas, libres) }));
-    setPendientes((ps) => ps.filter((_, i) => i !== indice));
+    setPendientes((ps) => ps.filter((x) => claveP(x) !== claveP(p)));
+    // Recordar el nombre que usa la fábrica en el packing list: la próxima
+    // vez amarra solo (`colorPorAlias`), traducidos los dos a MELI.
+    if ((recordar[claveP(p)] ?? true) && l.colorMeli && p.color) {
+      try {
+        const r = await fetch("/api/pedidos/amarre-color", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelo: p.modelo, color: p.color, colorMeli: l.colorMeli }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          setAvisos((a) => [...a, `No se pudo recordar «${p.color}» = ${l.colorMeli}: ${j.error ?? r.status}`]);
+        }
+      } catch (e) {
+        setAvisos((a) => [...a, `No se pudo recordar «${p.color}» = ${l.colorMeli}: ${(e as Error).message}`]);
+      }
+    }
   }
 
   const filtro = busqueda.trim().toUpperCase();
@@ -630,64 +654,128 @@ function ContenidoContenedor({
             style={{ borderColor: "var(--estado-critico)", background: "color-mix(in oklab, var(--estado-critico) 6%, transparent)" }}
           >
             <h4 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
-              Esto venía en el packing list y no amarró
+              {pendientes.length === 1 ? "1 renglón del packing list" : `${pendientes.length} renglones del packing list`} por
+              confirmar
             </h4>
             <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-              Casi siempre es que la fábrica le puso otro nombre al color. Elige el renglón del
-              pedido que sí es y confirma: las cajas se suman a ese renglón.
+              La fábrica escribió el color distinto al pedido. Por cada uno te digo cuál es casi seguro y
+              por qué; confirma y las cajas se suman a ese renglón. Si marcas «recordar», el próximo
+              embarque con ese nombre amarra solo.
             </p>
             <ul className="mt-2 flex flex-col gap-2">
-              {pendientes.map((p, i) => {
-                const opciones = candidatosDe(p);
-                const elegido = eleccion[i] ?? opciones[0]?.pedidoLineaId ?? "";
+              {pendientes.map((p) => {
+                const k = claveP(p);
+                const sugerencia = lineas === null ? null : sugerirRenglon(p, renglonesParaSugerir());
+                const opciones = sugerencia ? [...(sugerencia.renglon ? [sugerencia.renglon] : []), ...sugerencia.otras] : [];
+                const elegidoId = eleccion[k] ?? sugerencia?.renglon?.pedidoLineaId ?? "";
+                const elegido = opciones.find((o) => o.pedidoLineaId === elegidoId) ?? null;
+                const lineaElegida = (lineas ?? []).find((l) => l.pedidoLineaId === elegidoId) ?? null;
+                const mostrarSelector = Boolean(eligiendoOtro[k]) || !sugerencia?.renglon;
+                const tono =
+                  sugerencia?.confianza === "eliminacion"
+                    ? "var(--exito-texto)"
+                    : sugerencia?.confianza === "parecido"
+                      ? "var(--estado-alerta)"
+                      : "var(--ink-2)";
                 return (
-                  <li key={`${p.modelo}|${p.color}|${i}`} className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-medium">
-                      {p.modelo} {p.color}
-                      {p.talla ? ` talla ${p.talla}` : ""}
-                    </span>
-                    <span className="cifra">{n(p.cajas)} cajas</span>
-                    <span style={{ color: "var(--ink-muted)" }}>{p.motivo}</span>
-                    {lineas === null ? (
-                      <span style={{ color: "var(--ink-muted)" }}>Cargando el pedido…</span>
-                    ) : opciones.length ? (
-                      <>
-                        <span style={{ color: "var(--ink-2)" }}>¿Es</span>
-                        <select
-                          value={elegido}
-                          onChange={(ev) => setEleccion((e) => ({ ...e, [i]: ev.target.value }))}
-                          className="rounded border px-1.5 py-0.5"
-                          style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
-                        >
-                          {opciones.map((l) => (
-                            <option key={l.pedidoLineaId} value={l.pedidoLineaId}>
-                              {l.modelo} {l.color}
-                              {l.talla ? ` ${l.talla}` : ""} · {l.pedido} · quedan{" "}
-                              {n(Math.max(0, l.cajasPedido - l.enOtros - (cajas[l.pedidoLineaId] ?? l.enEste)))}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => confirmar(i, p, elegido)}
-                          className="rounded-lg px-2 py-1 font-medium text-white"
-                          style={{ background: "var(--acento)" }}
-                        >
-                          Sí, es este
-                        </button>
-                      </>
-                    ) : (
-                      <span style={{ color: "var(--ink-muted)" }}>
-                        Ese pedido ya no tiene cajas libres de {p.modelo}.
+                  <li
+                    key={k}
+                    className="rounded-lg border p-2.5 text-xs"
+                    style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span style={{ color: "var(--ink-muted)" }}>Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
+                      <span className="font-semibold">
+                        {p.modelo} {p.color}
+                        {p.talla ? ` talla ${p.talla}` : ""}
                       </span>
+                      <span className="cifra font-medium">{n(p.cajas)} cajas</span>
+                    </div>
+
+                    {lineas === null ? (
+                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                        Cargando el pedido…
+                      </div>
+                    ) : !opciones.length ? (
+                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                        {sugerencia?.porQue ?? p.motivo}
+                      </div>
+                    ) : (
+                      <>
+                        {sugerencia?.renglon && !mostrarSelector ? (
+                          <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span style={{ color: tono }}>→ {sugerencia.confianza === "eliminacion" ? "Es" : "Parece ser"}</span>
+                            <span className="font-semibold">
+                              {sugerencia.renglon.modelo} {sugerencia.renglon.color}
+                              {sugerencia.renglon.talla ? ` talla ${sugerencia.renglon.talla}` : ""}
+                            </span>
+                            <span style={{ color: "var(--ink-2)" }}>
+                              del pedido {sugerencia.renglon.pedido} · {n(sugerencia.renglon.libres)} cajas sin barco
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span style={{ color: "var(--ink-2)" }}>¿Cuál es?</span>
+                            <select
+                              value={elegidoId}
+                              onChange={(ev) => setEleccion((e) => ({ ...e, [k]: ev.target.value }))}
+                              className="rounded border px-1.5 py-0.5"
+                              style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
+                              aria-label={`Renglón del pedido para ${p.modelo} ${p.color}`}
+                            >
+                              {opciones.map((o) => (
+                                <option key={o.pedidoLineaId} value={o.pedidoLineaId}>
+                                  {o.modelo} {o.color}
+                                  {o.talla ? ` T${o.talla}` : ""} · {o.pedido} · {n(o.libres)} sin barco
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {sugerencia?.porQue ? (
+                          <div className="mt-0.5" style={{ color: "var(--ink-muted)" }}>
+                            {sugerencia.porQue}
+                          </div>
+                        ) : null}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => elegido && void confirmar(p, elegido.pedidoLineaId)}
+                            disabled={!elegido}
+                            className="rounded-lg px-2.5 py-1 font-semibold text-white disabled:opacity-50"
+                            style={{ background: "var(--acento)" }}
+                          >
+                            Sí, es este
+                          </button>
+                          {sugerencia?.renglon && sugerencia.otras.length ? (
+                            <button
+                              onClick={() => setEligiendoOtro((e) => ({ ...e, [k]: !e[k] }))}
+                              className="rounded-lg border px-2 py-1"
+                              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                            >
+                              {mostrarSelector ? "Volver a la sugerencia" : `Es otro (${sugerencia.otras.length} más)`}
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => setPendientes((ps) => ps.filter((x) => claveP(x) !== k))}
+                            className="rounded-lg border px-2 py-1"
+                            style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                            title="No es ninguno: quítalo del aviso"
+                          >
+                            Descartar
+                          </button>
+                          {lineaElegida?.colorMeli && p.color ? (
+                            <label className="flex items-center gap-1" style={{ color: "var(--ink-2)" }}>
+                              <input
+                                type="checkbox"
+                                checked={recordar[k] ?? true}
+                                onChange={(ev) => setRecordar((r) => ({ ...r, [k]: ev.target.checked }))}
+                              />
+                              Recordar: «{p.color}» de {p.modelo} = {lineaElegida.colorMeli} en MELI
+                            </label>
+                          ) : null}
+                        </div>
+                      </>
                     )}
-                    <button
-                      onClick={() => setPendientes((ps) => ps.filter((_, j) => j !== i))}
-                      className="rounded-lg border px-2 py-1"
-                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-                      title="No es ninguno: quítalo del aviso"
-                    >
-                      Descartar
-                    </button>
                   </li>
                 );
               })}

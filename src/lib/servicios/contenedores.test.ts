@@ -53,7 +53,7 @@ describe("lo que el packing list no pudo amarrar", () => {
   it("se lee sin confiar en la forma guardada y se tira lo que no sirve", () => {
     expect(
       leerPendientes([
-        { modelo: "gt214", color: "m brown", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón." },
+        { modelo: "gt214", color: "m brown", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón.", pedido: "in10079" },
         { modelo: "GT228", color: "M BROWN", cajas: "50", motivo: "" },
         { modelo: "GT150", color: "TOFFE", cajas: 0 },
         { color: "SIN MODELO", cajas: 10 },
@@ -61,8 +61,9 @@ describe("lo que el packing list no pudo amarrar", () => {
         "basura",
       ]),
     ).toEqual([
-      { modelo: "GT214", color: "M BROWN", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón." },
-      { modelo: "GT228", color: "M BROWN", talla: null, cajas: 50, motivo: "" },
+      { modelo: "GT214", color: "M BROWN", talla: null, cajas: 40, motivo: "El pedido no tiene ese renglón.", pedido: "IN10079" },
+      // Los guardados antes del 7-oct-2026 no traen el pedido: queda null.
+      { modelo: "GT228", color: "M BROWN", talla: null, cajas: 50, motivo: "", pedido: null },
     ]);
     expect(leerPendientes(null)).toEqual([]);
     expect(leerPendientes({})).toEqual([]);

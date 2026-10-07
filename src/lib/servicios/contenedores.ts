@@ -39,6 +39,8 @@ export interface PendientePacking {
   /** cajas que se quedaron fuera */
   cajas: number;
   motivo: string;
+  /** el pedido que decía el packing list (los guardados antes del 7-oct-2026 no lo traen) */
+  pedido?: string | null;
 }
 
 /** Lo guardado en `contenedores.pendientes`, sin confiar en su forma. */
@@ -52,6 +54,7 @@ export function leerPendientes(valor: unknown): PendientePacking[] {
       talla: x.talla ? String(x.talla) : null,
       cajas: Number(x.cajas) || 0,
       motivo: String(x.motivo ?? ""),
+      pedido: x.pedido ? String(x.pedido).toUpperCase() : null,
     }))
     .filter((p) => p.modelo && p.cajas > 0);
 }

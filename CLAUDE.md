@@ -179,6 +179,23 @@ guárdala numerada.
   amarre a un color que MELI ya no tiene vuelve a salir como fantasma. Se
   quita desde la misma ventana («Amarres»). Al guardar se invalidan
   inventario y plan.
+  **Los renglones del packing list que no amarran se sugieren POR
+  ELIMINACIÓN** (`servicios/packing-sugerencias.ts`, puro con pruebas;
+  `sugerirRenglon`; dueño, 7-oct-2026: «hay negro, medium brown y crema; el
+  crema y el negro se amarran y solo sobró el medium brown: me lo sugieres
+  y solo me pones ahí para confirmar»): en Contenido, cada pendiente dice
+  «Packing list · IN10079: GT219 MEDIUM BROWN · 40 cajas → Es GT219 M BROWN
+  del pedido IN10079 · 40 sin barco» con su porqué (del pedido y modelo ya
+  entraron los demás colores y solo queda uno = `eliminacion`, en verde;
+  comparten una palabra del color con sinónimos = `parecido`, en ámbar; si
+  no, `ninguna` y se elige a mano). Para eso el pendiente guarda el PEDIDO
+  del packing list (`PendientePacking.pedido`) y la clase de caja (unitalla
+  contra su talla, corrida contra corrida). «Sí, es este» suma las cajas y,
+  con «Recordar» (marcado por omisión cuando el renglón del pedido amarra
+  con MELI; `LineaContenido.colorMeli` del endpoint de líneas), guarda en
+  `pedido_color_amarres` el nombre del packing list → color de MELI para
+  que el siguiente embarque amarre solo por `colorPorAlias`. Nunca se
+  aplica solo.
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock
   actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
   modelo + color comparando el SKU completo sin talla ni sufijo

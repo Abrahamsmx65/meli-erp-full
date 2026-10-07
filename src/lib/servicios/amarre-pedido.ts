@@ -39,6 +39,8 @@ export interface AmarreLinea {
   coloresMeli: string[];
   /** el color de MELI al que el dueño ligó este color a mano, si fue así */
   ligadoA?: string | null;
+  /** el color de la variante de MELI con la que amarró (para recordar amarres) */
+  colorMeli?: string | null;
 }
 
 export interface LineaParaAmarre {
@@ -81,7 +83,8 @@ export function evaluarAmarre(ix: IndiceCatalogo, linea: LineaParaAmarre, alias?
   for (const t of tallas) {
     const { encontrado } = buscarVariante(ix, modelo, color, t);
     if (encontrado) {
-      return { estado: "ligado", skuMeli: String(encontrado.sku), coloresMeli, ligadoA: a?.colorMeli ?? undefined };
+      const colorMeli = String((encontrado as { color?: unknown }).color ?? a?.colorMeli ?? color).trim().toUpperCase();
+      return { estado: "ligado", skuMeli: String(encontrado.sku), coloresMeli, ligadoA: a?.colorMeli ?? undefined, colorMeli };
     }
   }
   // Un amarre a mano a un color que MELI ya no tiene se declara como

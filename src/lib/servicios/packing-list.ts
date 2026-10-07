@@ -509,6 +509,8 @@ export async function aplicarPackingList(
       talla: l.talla,
       cajas: l.cajas - l.cajasAsignar,
       motivo: l.detalle ?? "No amarró con ningún renglón del pedido.",
+      // Con el pedido, Contenido sugiere POR ELIMINACIÓN el color que falta.
+      pedido: l.pedidoErp ?? l.pedidoArchivo ?? null,
     }));
   await db
     .from("contenedores")
