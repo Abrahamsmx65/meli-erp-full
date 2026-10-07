@@ -13,6 +13,7 @@ import {
 import { varianteMeli } from "@/lib/etiquetas/zpl";
 import { generarPdf2Etiquetas, generarPdfCarton } from "@/lib/etiquetas/pdf";
 import { ordenarTallas, textosDeCarton } from "@/lib/etiquetas/carton";
+import { cargarAliasColores, colorEfectivo } from "@/lib/servicios/alias-color";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -79,11 +80,13 @@ export async function GET(
 
   // El catálogo completo de MELI y los datos de Amazon, indexados con los
   // amarres de siempre: exacto → canónico → aplastado.
-  const [catalogo, amazon] = await Promise.all([
+  const [catalogo, amazon, aliasColores] = await Promise.all([
     traerTodo<any>(supabase, "skus", "sku, inventory_id, titulo, color, talla", (q) =>
       q.eq("account_id", cuenta.id),
     ),
     mapaAmazon(supabase),
+    // Colores ligados a mano con MELI: la etiqueta sale con el SKU real.
+    cargarAliasColores(supabase, cuenta.id),
   ]);
 
   const indice = indexarCatalogo(catalogo ?? []);
@@ -128,7 +131,12 @@ export async function GET(
       for (const talla of ordenarTallas(Object.keys(l.tallas ?? {}))) {
         if (tallasHechas.has(`${color}|${talla}`)) continue;
         tallasHechas.add(`${color}|${talla}`);
-        const { construido, encontrado } = buscarVariante(indice, l.modelo, l.color ?? "", talla);
+        const { construido, encontrado } = buscarVariante(
+          indice,
+          l.modelo,
+          colorEfectivo(aliasColores, l.modelo, l.color ?? ""),
+          talla,
+        );
 
         const sku = encontrado?.sku ?? construido;
         const codigoFull = encontrado?.inventory_id ?? null;

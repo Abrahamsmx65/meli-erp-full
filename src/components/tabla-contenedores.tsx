@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
+import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 
 interface Contenedor {
   id: string;
@@ -19,6 +20,10 @@ interface Contenedor {
   pedidos: { pedido: string; cajas: number }[];
   modelos: { modelo: string; color: string; cajas: number; pares: number }[];
   pendientes?: PendientePacking[];
+  /** colores en camino que MELI no tiene como los escribió la fábrica */
+  sinSku?: ColorFantasma[];
+  /** colores ya ligados a mano con MELI */
+  ligados?: ColorLigado[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -45,6 +50,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   const router = useRouter();
   const [editando, setEditando] = useState<string | null>(null);
   const [contenido, setContenido] = useState<Contenedor | null>(null);
+  const [ligando, setLigando] = useState<Contenedor | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +175,13 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
               };
               const abierto = editando === c.id;
               return (
-                <tr key={c.id} style={abierto ? { background: "var(--surface-2)" } : undefined}>
+                <tr
+                  key={c.id}
+                  style={{
+                    ...(abierto ? { background: "var(--surface-2)" } : {}),
+                    ...(c.sinSku?.length ? { boxShadow: "inset 3px 0 0 var(--estado-critico)" } : {}),
+                  }}
+                >
                   <td className="font-medium">
                     {c.numero}
                     {c.notas && !abierto ? (
@@ -255,6 +267,19 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     ) : (
                       <span style={{ color: "var(--ink-muted)" }}>—</span>
                     )}
+                    {c.sinSku?.length ? (
+                      <button
+                        onClick={() => setLigando(c)}
+                        className="mt-0.5 block max-w-56 truncate text-left text-[11px] font-medium"
+                        style={{ color: "var(--estado-critico)" }}
+                        title={c.sinSku
+                          .map((s) => `${s.modelo} ${s.color}: MELI tiene ${s.coloresMeli.join(", ") || "ningún color"}`)
+                          .join("\n")}
+                      >
+                        ⚠ {c.sinSku.length} {c.sinSku.length === 1 ? "color" : "colores"} sin SKU en MELI:{" "}
+                        {c.sinSku.map((s) => `${s.modelo} ${s.color}`).join(", ")}
+                      </button>
+                    ) : null}
                   </td>
                   <td>
                     {abierto ? (
@@ -348,6 +373,25 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Contenido
                           </button>
+                          {/* Colores en camino que MELI no tiene como los escribió la
+                              fábrica: se ligan a mano con la variante publicada. */}
+                          {c.sinSku?.length || c.ligados?.length ? (
+                            <button
+                              onClick={() => setLigando(c)}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium"
+                              style={
+                                c.sinSku?.length
+                                  ? {
+                                      borderColor: "var(--estado-critico)",
+                                      color: "var(--estado-critico)",
+                                      background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)",
+                                    }
+                                  : { borderColor: "var(--borde)" }
+                              }
+                            >
+                              {c.sinSku?.length ? `Ligar a MELI (${c.sinSku.length})` : "Amarres"}
+                            </button>
+                          ) : null}
                           <a
                             href={`/api/contenedores/${c.id}/packing-list`}
                             className="rounded-lg border px-2 py-1 text-xs font-medium"
@@ -407,6 +451,16 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
             setContenido(null);
             router.refresh();
           }}
+        />
+      ) : null}
+
+      {ligando ? (
+        <LigarColores
+          titulo={`Contenedor ${ligando.numero}`}
+          fantasmas={ligando.sinSku ?? []}
+          ligados={ligando.ligados ?? []}
+          onCerrar={() => setLigando(null)}
+          onCambio={() => router.refresh()}
         />
       ) : null}
     </section>

@@ -14,7 +14,7 @@
 import { canonizar } from "../importar/sku";
 import type { Proforma } from "../importar/proforma";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
-import { amarreDeLineas, coloresFantasma, type AmarreLinea } from "./amarre-pedido";
+import { amarreDeLineas, coloresFantasma, coloresLigados, type AmarreLinea, type ColorLigado } from "./amarre-pedido";
 
 export type EstadoPedido = "creado" | "con_contenedor" | "en_transito" | "recibido" | "cancelado";
 
@@ -38,6 +38,8 @@ export interface PedidoResumen {
    * se corrija. Con los colores que MELI sí tiene, para corregir de una.
    */
   sinSku: { modelo: string; color: string; coloresMeli: string[] }[];
+  /** colores del pedido que el dueño ya ligó a mano con MELI (o confirmó nuevos) */
+  ligados: ColorLigado[];
 }
 
 /**
@@ -203,10 +205,15 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
   const lineasVivas = lineas.filter((l) => vivosIds.has(l.pedido_id));
   const amarres = await amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]);
   const fantasmaPorPedido = new Map<string, { modelo: string; color: string; coloresMeli: string[] }[]>();
+  const ligadosPorPedido = new Map<string, ColorLigado[]>();
   for (const pid of vivosIds) {
     const indices = lineasVivas.map((l, i) => (l.pedido_id === pid ? i : -1)).filter((i) => i >= 0);
-    const lista = coloresFantasma(indices.map((i) => lineasVivas[i]), indices.map((i) => amarres[i]));
+    const suyas = indices.map((i) => lineasVivas[i]);
+    const propios = indices.map((i) => amarres[i]);
+    const lista = coloresFantasma(suyas, propios);
     if (lista.length) fantasmaPorPedido.set(pid, lista);
+    const ligados = coloresLigados(suyas, propios);
+    if (ligados.length) ligadosPorPedido.set(pid, ligados);
   }
 
   // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
@@ -284,6 +291,7 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
       contenedores: conts,
       creadoEn: p.creado_en,
       sinSku: fantasmaPorPedido.get(p.id) ?? [],
+      ligados: ligadosPorPedido.get(p.id) ?? [],
     };
   });
 }

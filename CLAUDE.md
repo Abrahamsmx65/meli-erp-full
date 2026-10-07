@@ -158,6 +158,27 @@ guárdala numerada.
   de color sugiere los publicados y se calla al corregirlo). Un modelo que
   MELI no tiene (`modelo_nuevo`) es producto nuevo de verdad y no se grita.
   Nunca se corrige solo. Si el catálogo no se puede leer, no se avisa nada.
+  **Y el dueño LIGA a mano el color con la variante de MELI**
+  (`servicios/alias-color.ts`, tabla `pedido_color_amarres`, migración
+  0113, `POST /api/pedidos/amarre-color`, ventana `components/ligar-colores.tsx`;
+  pedido del dueño el 7-oct-2026: «que me ponga lo que MELI tiene, lo
+  marque en rojo por afuera y cuando me meta salgan las variantes de ese
+  modelo y yo elija cómo ligarlo; lo mismo en los packing lists de China,
+  lo que hay en camino en contenedores»): el pedido y el contenedor con un
+  color fantasma llevan un botón ROJO «Ligar a MELI» (y la raya roja en el
+  renglón); la ventana enseña las variantes publicadas del modelo y se
+  elige una, o «es un color nuevo» (`color_meli` NULL → estado
+  `color_nuevo`, ya no se grita). El amarre es por MODELO + color aplastado,
+  no por pedido —la misma escritura se repite en los pedidos siguientes— y
+  el renglón del pedido CONSERVA la escritura de la fábrica (así sigue
+  amarrando el packing list). Lo obedecen: la alerta (`evaluarAmarre` con
+  `MapaAlias`), el «en camino» de `inventario_cache` (y con él Planificación
+  China y Bodega), Productos nuevos (`agruparProductosDePedidos`), las
+  etiquetas del pedido y el casado del packing list (`colorPorAlias`: los
+  dos lados traducidos a MELI dicen lo mismo, solo con UN candidato). Un
+  amarre a un color que MELI ya no tiene vuelve a salir como fantasma. Se
+  quita desde la misma ventana («Amarres»). Al guardar se invalidan
+  inventario y plan.
 - **Un producto es NUEVO si nunca tuvo stock en Full ni en FBA** (stock
   actual, fotos, movimientos, ventas): la bodega no cuenta. Se agrupa por
   modelo + color comparando el SKU completo sin talla ni sufijo

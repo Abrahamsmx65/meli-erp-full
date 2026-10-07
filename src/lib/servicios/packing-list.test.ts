@@ -6,7 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { importarPackingList } from "../importar/packing-list";
-import { aUnaLetra, casarPackingList, colorParecido, problemasDelCasado } from "./packing-list";
+import { aUnaLetra, casarPackingList, colorParecido, colorPorAlias, problemasDelCasado } from "./packing-list";
+import { armarMapaAlias } from "./alias-color";
 
 const buf = readFileSync(join(process.cwd(), "fixtures", "packing-list-IN10079.xls"));
 const CUENTA = "cuenta-1";
@@ -245,5 +246,29 @@ describe("el color con dedazo de la fábrica", () => {
 
     expect(c.lineas[0].cajasAsignar).toBe(31);
     expect(problemasDelCasado(c)).toEqual([]);
+  });
+});
+
+describe("el color amarrado a mano (alias) también casa el packing list", () => {
+  const alias = armarMapaAlias([
+    { modelo: "GT114", color: "BLK (NEGRO)", color_meli: "BLK", color_pedido: "BLK (NEGRO)" },
+    { modelo: "GT219", color: "M BROWN", color_meli: "LT BROWN", color_pedido: "M BROWN" },
+  ]);
+  const renglones = [
+    { modelo: "GT114", color: "BLACK" },
+    { modelo: "GT114", color: "DK BROWN" },
+  ];
+
+  it("el packing con anotación liga con el renglón del pedido traducidos los dos a MELI", () => {
+    expect(colorPorAlias(alias, "GT114", "BLK (NEGRO)", renglones)?.color).toBe("BLACK");
+  });
+
+  it("al revés también: la fábrica escribe el color de MELI y el pedido el suyo", () => {
+    expect(colorPorAlias(alias, "GT219", "LT BROWN", [{ modelo: "GT219", color: "M BROWN" }])?.color).toBe("M BROWN");
+  });
+
+  it("sin alias o con dos candidatos iguales no adivina", () => {
+    expect(colorPorAlias(null, "GT114", "BLK (NEGRO)", renglones)).toBeNull();
+    expect(colorPorAlias(alias, "GT114", "BLK (NEGRO)", [...renglones, { modelo: "GT114", color: "BLK" }])).toBeNull();
   });
 });
