@@ -1436,14 +1436,20 @@ guárdala numerada.
   por WhatsApp que `/influencers`, sin existencia). Bitácora
   `tiktok_sync_log` tarea `catalogo-amazon`. **Y cada noche a las 2:00 de
   México se relee COMPLETO** (`/api/cron/catalogo-amazon`, `0 8 * * *`;
-  `refrescarCatalogoAmazon({ todo: true })`, los ASINs más viejos primero,
-  bitácora con `origen: nocturno`; dueño, 6-oct-2026: «que el catálogo de
-  Amazon se lea cada noche a las 2am»): con los 7 días, una foto cargada en
-  Amazon tardaba hasta una semana en salir; ese día GT211, GT212, GT215,
-  GT216, GT220, GT222 y GT225 del IN10079 no estaban en el catálogo porque
-  Amazon no tenía ni una foto (en MELI tienen una, pausadas). Un modelo
-  SIN fotos en Amazon sigue sin salir: la regla «solo que tenga fotos» se
-  queda.
+  `refrescarCatalogoAmazon({ desde })` relee lo leído antes de la hora en
+  que arrancó la pasada, los ASINs más viejos primero, bitácora con
+  `origen: nocturno`; dueño, 6-oct-2026: «que el catálogo de Amazon se lea
+  cada noche a las 2am»): con los 7 días, una foto cargada en Amazon
+  tardaba hasta una semana en salir; ese día GT211, GT212, GT215, GT216,
+  GT220, GT222 y GT225 del IN10079 no estaban en el catálogo porque Amazon
+  no tenía ni una foto (en MELI tienen una, pausadas). **La pasada se
+  encadena sola hasta terminar** (dueño, 7-oct-2026: «debe volver a pedir
+  la lectura si no alcanzó»): la ruta contesta 202, trabaja ~4.5 min en
+  `after()` y, si quedaron ASINs por leer, se llama a sí misma con
+  `?eslabon=n+1&inicio=<ms>` (bearer CRON_SECRET al origen de producción,
+  como etiquetas y publicación; `MAX_ESLABONES_CATALOGO` 12; constancia en
+  `tiktok_sync_log` tarea `catalogo-amazon-disparo`). Un modelo SIN fotos
+  en Amazon sigue sin salir: la regla «solo que tenga fotos» se queda.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean
