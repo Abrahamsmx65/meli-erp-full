@@ -530,3 +530,28 @@ export function avanceDeTomos(tomo: number, total: number, fase: "armando" | "ba
   }
   return total === 1 ? "Armando las etiquetas…" : `Armando etiquetas: tomo ${tomo} de ${total} (${PAQUETES_POR_TOMO} guías cada uno)…`;
 }
+
+/** Un paquete de TikTok con los renglones (line items) que dice llevar; vacío = TikTok no lo dijo. */
+export interface PaqueteConRenglones {
+  id: string;
+  lineIds: string[];
+}
+
+/**
+ * De los paquetes de un pedido, los que VIAJAN: los que llevan algún renglón
+ * vivo, o de los que TikTok no dice qué llevan. Cuando la defensa cancela
+ * un renglón de un pedido grande, TikTok deja el pedido con DOS paquetes:
+ * el del renglón cancelado (nunca se envía ni tiene guía) y el rearmado con
+ * lo que sí va. Hasta el 7-oct-2026 los dos entraban al corte: el #57
+ * enseñaba 882 etiquetas de 875 pedidos (7 pedidos de GT148 con CREAM
+ * cancelado salían con dos números, uno «SIN GUÍA» para siempre, y los
+ * tomos con esos paquetes nunca se daban por completos). Un pedido de un
+ * solo paquete no se toca, y si la regla dejara el pedido sin ningún
+ * paquete se quedan todos: nunca se deja un pedido sin etiqueta.
+ */
+export function paquetesQueViajan<T extends PaqueteConRenglones>(paquetes: T[], renglonesVivos: Iterable<string>): T[] {
+  if (paquetes.length <= 1) return paquetes;
+  const vivos = new Set([...renglonesVivos].map(String));
+  const viajan = paquetes.filter((p) => !p.lineIds.length || p.lineIds.some((id) => vivos.has(String(id))));
+  return viajan.length ? viajan : paquetes;
+}

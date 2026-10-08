@@ -19,13 +19,16 @@
  *    MELI como esa pantalla); la página filtra lo oculto.
  *  · `soloArmar` rearma con lo ya leído sin preguntarle nada a Amazon: lo
  *    usa el back al ocultar un modelo o cambiarle la categoría.
- *  · `todo` relee TODOS los ASINs aunque estén frescos, los más viejos
- *    primero: es la pasada NOCTURNA de las 2:00 de México
+ *  · `desde` relee TODO lo leído ANTES de ese instante aunque esté fresco,
+ *    los más viejos primero: es la pasada NOCTURNA de las 2:00 de México
  *    (`/api/cron/catalogo-amazon`, 08:00Z; pedido del dueño, 6-oct-2026:
  *    «que el catálogo de Amazon se lea cada noche a las 2am»), para que una
  *    foto que se cargue en Amazon durante el día salga al día siguiente y
- *    no hasta la semana. Lo que no alcance en los 5 minutos queda con su
- *    fecha vieja y lo toma la noche siguiente.
+ *    no hasta la semana. `desde` es la hora en que ARRANCÓ la pasada: lo
+ *    que no alcance en los 5 minutos de una función lo toma el siguiente
+ *    eslabón de la misma pasada (la ruta se vuelve a llamar sola con el
+ *    mismo `desde`, dueño: «debe volver a pedir la lectura si no alcanzó»),
+ *    y lo ya leído esta noche (`en` ≥ `desde`) no se repite.
  */
 import { traerTodo } from "../datos/repos";
 import { Cliente as ClienteAmazon, cuentasAmazon } from "../amazon/spapi";
@@ -58,7 +61,7 @@ export async function refrescarCatalogoAmazon(
   admin: any,
   accountId: string,
   presupuestoMs: number,
-  opciones: { soloArmar?: boolean; todo?: boolean } = {},
+  opciones: { soloArmar?: boolean; desde?: number } = {},
 ): Promise<ResultadoCatalogoAmazon> {
   const inicio = Date.now();
   const avisos: string[] = [];
@@ -95,7 +98,7 @@ export async function refrescarCatalogoAmazon(
   const fichas: FichasGuardadas = { asins: { ...(previas ?? {}) } };
 
   const modelos = agruparAmazon(listings ?? []);
-  const limite = opciones.todo ? Number.POSITIVE_INFINITY : Date.now() - DIAS_RELEER * 86_400_000;
+  const limite = opciones.desde ?? Date.now() - DIAS_RELEER * 86_400_000;
   const porLeer = [...new Set(modelos.flatMap((m) => m.colores.flatMap((c) => c.asins)))].filter(
     (a) => !fichas.asins[a] || fichas.asins[a].en < limite,
   );
@@ -153,7 +156,7 @@ export async function refrescarCatalogoAmazon(
     inicio: new Date(inicio).toISOString(),
     fin: new Date().toISOString(),
     estado: avisos.length ? "con avisos" : "ok",
-    detalle: { ...resultado, origen: opciones.todo ? "nocturno" : "hora", asinsPorLeer: porLeer.length },
+    detalle: { ...resultado, origen: opciones.desde ? "nocturno" : "hora", asinsPorLeer: porLeer.length },
   });
   return resultado;
 }

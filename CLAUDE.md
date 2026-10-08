@@ -650,7 +650,13 @@ guárdala numerada.
   por SQL: «se armó por separado»): si nadie le ha preparado nada, dos
   cortes del mismo modelo el mismo día son el mismo trabajo. La segunda
   tanda del corte lunes (lo de HOY) pasa `unirAlDeHoy: false` y sigue
-  abriendo su propio corte.
+  abriendo su propio corte. **Desde el 7-oct-2026 la regla vale también
+  para el corte GENERAL**: el #58 (6 pedidos: uno reintentado del #57 y
+  cinco que entraron mientras el #57 corría) se abrió un minuto después del
+  #57 (869 pedidos) porque el #57 no había dejado nada «por tiempo»; se
+  unieron a mano por SQL (dueño: «salieron separados, ¿qué pasó ahí?»).
+  Ahora un corte se une al de hoy con el mismo filtro (general con general,
+  GT148 con GT148) mientras nadie le haya preparado nada.
   **La función del corte vive 800 s, no 300** (`maxDuration = 800` en
   `/api/tiktok/cortes`, `MS_CORTE` 740 s, `MS_CORTE_LUNES` 760 s; Fluid
   compute del plan Pro; 5-oct-2026, dueño: «¿por qué no le pones más de 5
@@ -927,7 +933,21 @@ guárdala numerada.
   de todos modos (TikTok les armó la guía) y 2 pendientes; los 8 se
   quedaron sin corte y el siguiente corte los recoge (los ya enviados solo
   se agrupan). Ahora ese fallo se reintenta UNA vez a los 4 s releyendo los
-  paquetes. **Un pedido SIN renglones vivos no se confirma**
+  paquetes. **Y el paquete del renglón cancelado NO viaja**
+  (`paquetesQueViajan` en `tiktok/despacho.ts`, puro con pruebas;
+  `paquetesVivosDelPedido` en el servicio; 7-oct-2026): al cancelar un
+  renglón TikTok deja el pedido con DOS paquetes —el del renglón cancelado,
+  sin guía y que nunca se envía, y el rearmado con lo que sí va— y el ERP
+  confirmaba y numeraba los dos: el corte #57 enseñaba 882 etiquetas de 875
+  pedidos (7 pedidos de GT148 con CREAM cancelado, dos números cada uno,
+  uno «SIN GUÍA» para siempre; los tomos 2, 4 y 5 nunca se daban por
+  completos y el dueño: «no existe un pedido que tiene dos paquetes»). Con
+  más de un paquete se le pregunta a TikTok qué renglones lleva cada uno
+  (`renglonesDelPaquete`) y el que solo lleva cancelados se descarta, al
+  confirmar y al armar etiquetas (y se quita de `tiktok_ordenes.paquetes`);
+  si TikTok no dice qué lleva, viaja; nunca se deja un pedido sin paquete.
+  Los 7 del #57 se limpiaron por SQL (quedó el paquete con guía) y el dueño
+  rearmó las etiquetas. **Un pedido SIN renglones vivos no se confirma**
   (`DecisionDePedido.nadaQueConfirmar`): guarda defensiva del mismo día
   para no pedirle a TikTok el envío de un pedido ya cancelado completo que
   TikTok aún enseñe pendiente. **Un bloqueo automático no es para
@@ -999,6 +1019,22 @@ guárdala numerada.
   y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **La estación aguanta sin wifi** (`tiktok/cola-preparados.ts` puro con
+  pruebas; `components/preparar-tiktok.tsx`; dueño, 7-oct-2026: «a veces no
+  hay buena señal y cuando escanean no jala bien la info; que tengan un
+  caché en la página y se vaya actualizando como puede con el wifi»): el
+  escaneo nunca necesitó red (`avanzar` decide en el navegador con los
+  paquetes que la página ya trae); lo único que viajaba era el POST de la
+  constancia. Si ese POST falla POR RED (`esErrorDeRed`: «Failed to
+  fetch», «Load failed», NetworkError), la constancia se guarda en
+  `localStorage` (clave `tiktok-preparados-pendientes:{corteId}`), el
+  paquete se da por preparado en ese dispositivo y la cola se reintenta
+  sola cada 15 s, al volver la conexión (`online`) y tras cada guardado
+  que sí entra; al abrir la página se retoma lo que quedó. Un rechazo del
+  SERVIDOR no se encola: se saca y se enseña en rojo. La pantalla dice en
+  ámbar «N paquetes por guardar · sin señal…» y «Sin señal de wifi. Puedes
+  seguir escaneando». La clave de supervisor sí necesita red (la valida el
+  servidor) y lo dice. Cargar la página sigue necesitando señal.
   **Conteo cíclico** (`tiktok/conteo.ts`, `/tiktok/conteo` y
   `/preparar/{token}/conteo`): el mismo escáner, sumando UN PAR por escaneo
   del FNSKU. Se compara contra el SALDO (lo apartado sigue en la bodega),
@@ -1436,14 +1472,20 @@ guárdala numerada.
   por WhatsApp que `/influencers`, sin existencia). Bitácora
   `tiktok_sync_log` tarea `catalogo-amazon`. **Y cada noche a las 2:00 de
   México se relee COMPLETO** (`/api/cron/catalogo-amazon`, `0 8 * * *`;
-  `refrescarCatalogoAmazon({ todo: true })`, los ASINs más viejos primero,
-  bitácora con `origen: nocturno`; dueño, 6-oct-2026: «que el catálogo de
-  Amazon se lea cada noche a las 2am»): con los 7 días, una foto cargada en
-  Amazon tardaba hasta una semana en salir; ese día GT211, GT212, GT215,
-  GT216, GT220, GT222 y GT225 del IN10079 no estaban en el catálogo porque
-  Amazon no tenía ni una foto (en MELI tienen una, pausadas). Un modelo
-  SIN fotos en Amazon sigue sin salir: la regla «solo que tenga fotos» se
-  queda.
+  `refrescarCatalogoAmazon({ desde })` relee lo leído antes de la hora en
+  que arrancó la pasada, los ASINs más viejos primero, bitácora con
+  `origen: nocturno`; dueño, 6-oct-2026: «que el catálogo de Amazon se lea
+  cada noche a las 2am»): con los 7 días, una foto cargada en Amazon
+  tardaba hasta una semana en salir; ese día GT211, GT212, GT215, GT216,
+  GT220, GT222 y GT225 del IN10079 no estaban en el catálogo porque Amazon
+  no tenía ni una foto (en MELI tienen una, pausadas). **La pasada se
+  encadena sola hasta terminar** (dueño, 7-oct-2026: «debe volver a pedir
+  la lectura si no alcanzó»): la ruta contesta 202, trabaja ~4.5 min en
+  `after()` y, si quedaron ASINs por leer, se llama a sí misma con
+  `?eslabon=n+1&inicio=<ms>` (bearer CRON_SECRET al origen de producción,
+  como etiquetas y publicación; `MAX_ESLABONES_CATALOGO` 12; constancia en
+  `tiktok_sync_log` tarea `catalogo-amazon-disparo`). Un modelo SIN fotos
+  en Amazon sigue sin salir: la regla «solo que tenga fotos» se queda.
   **BACK del catálogo** (`/tiktok/catalogo`, «Catálogo creadores» en el
   menú de TikTok, `components/back-catalogo.tsx`, `POST /api/tiktok/catalogo`;
   dueño, 5-oct-2026: «un back para poder gestionar cuáles quiero que sean

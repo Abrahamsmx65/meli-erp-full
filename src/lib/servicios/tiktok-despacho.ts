@@ -59,6 +59,7 @@ import {
   renglonesDeEtiqueta,
   numerarPaquetes,
   esFalloDeArmado,
+  paquetesQueViajan,
   ORDEN_ACTUAL,
   type OrdenPaquetes,
   type PaqueteDespacho,
@@ -596,8 +597,13 @@ export async function hacerCorte(
       // con un renglón CREAM sin stock); se reintenta UNA vez tras unos
       // segundos releyendo los paquetes.
       const confirmarPaquetes = async () => {
-      const paquetes = await paquetesDePedido(cliente, p.orderId);
-      if (!paquetes.length) throw new Error("TikTok no tiene paquete para este pedido.");
+      const todos = await paquetesDePedido(cliente, p.orderId);
+      if (!todos.length) throw new Error("TikTok no tiene paquete para este pedido.");
+      // Con un renglón recién cancelado TikTok deja también el paquete del
+      // renglón cancelado: ese no se confirma ni lleva etiqueta
+      // (`paquetesQueViajan`; el #57 del 7-oct-2026 salió con 882
+      // etiquetas de 875 pedidos por confirmar y numerar los dos).
+      const paquetes = await paquetesVivosDelPedido(cliente, todos, decision.quedan.map((r) => r.lineItemId));
       for (const pk of paquetes) {
         // Recolección: hay que decirle a TikTok CUÁNDO. Sin horario acepta
         // la petición pero la vuelve drop-off, que es justo lo que pasó en
@@ -714,10 +720,15 @@ export async function hacerCorte(
     0,
   );
 
-  // ¿Este corte CONTINÚA uno de hoy que se quedó sin tiempo? Entonces se le
-  // une en vez de abrir otro (ver `corteQueContinua`).
+  // ¿Este corte CONTINÚA uno de hoy con el mismo filtro al que nadie le ha
+  // preparado nada? Entonces se le une en vez de abrir otro (ver
+  // `corteQueContinua`). Desde el 7-oct-2026 también el corte GENERAL: el
+  // #58 (6 pedidos: uno reintentado del #57 y cinco que entraron mientras el
+  // #57 corría) se abrió aparte del #57 (869) un minuto después porque el
+  // #57 no había dejado nada «por tiempo»; dueño: «salieron separados, ¿qué
+  // pasó ahí?». Solo la segunda tanda del corte lunes pide abrir el suyo.
   const unirA = await corteDeHoyQueContinua(admin, accountId, pendientes.map((p) => p.orderId), soloModelos, {
-    sinExigirTiempo: soloModelos.length > 0 && opciones.unirAlDeHoy !== false,
+    sinExigirTiempo: opciones.unirAlDeHoy !== false,
   });
   let corte: { id: number };
   let numero: number;
@@ -1171,16 +1182,33 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
 
     // Varios paquetes: cada uno lleva sus propios renglones. Si TikTok no
     // dice cuáles, se estampan todos en cada etiqueta antes que adivinar.
+    // El paquete cuyos renglones están TODOS cancelados (el que TikTok deja
+    // cuando la defensa cancela un renglón de un pedido grande) no viaja ni
+    // lleva etiqueta: `paquetesQueViajan`. Lo que se le aprendió al pedido
+    // se guarda para que la siguiente carga no vuelva a preguntar.
+    const conRenglones: { id: string; lineIds: string[] }[] = [];
     for (const id of ids) {
-      let propios = renglones;
+      let lineIds: string[] = [];
       try {
-        const lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
-        if (lineIds.length) {
-          const set = new Set(lineIds);
-          propios = renglones.filter((r) => set.has(String(r.line_item_id)));
-        }
+        lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
       } catch {
         /* se estampan todos */
+      }
+      conRenglones.push({ id, lineIds });
+    }
+    const viajan = paquetesQueViajan(conRenglones, renglones.map((r) => String(r.line_item_id)));
+    if (viajan.length < conRenglones.length) {
+      await admin
+        .from("tiktok_ordenes")
+        .update({ paquetes: viajan.map((v) => ({ id: v.id, estado: null })) })
+        .eq("account_id", accountId)
+        .eq("order_id", o.order_id);
+    }
+    for (const { id, lineIds } of viajan) {
+      let propios = renglones;
+      if (lineIds.length) {
+        const set = new Set(lineIds);
+        propios = renglones.filter((r) => set.has(String(r.line_item_id)));
       }
       paquetes.push({
         orderId: o.order_id,
@@ -1547,6 +1575,29 @@ export async function calentarCortesRecientes(
     }
   }
   return { cortes, completos, guiasBajadas, tomosArmados };
+}
+
+
+/**
+ * Los paquetes de un pedido que de verdad viajan (ver `paquetesQueViajan`):
+ * con más de un paquete se le pregunta a TikTok qué renglones lleva cada
+ * uno y se descarta el que solo lleva renglones cancelados. Si TikTok no
+ * contesta por alguno, ese se queda.
+ */
+async function paquetesVivosDelPedido<T extends { id: string }>(cliente: any, paquetes: T[], renglonesVivos: string[]): Promise<T[]> {
+  if (paquetes.length <= 1) return paquetes;
+  const conRenglones = await Promise.all(
+    paquetes.map(async (pk) => {
+      let lineIds: string[] = [];
+      try {
+        lineIds = await renglonesDelPaquete(cliente, pk.id);
+      } catch {
+        /* sin dato: viaja */
+      }
+      return { id: pk.id, lineIds, paquete: pk };
+    }),
+  );
+  return paquetesQueViajan(conRenglones, renglonesVivos).map((x) => x.paquete);
 }
 
 /**
