@@ -3,6 +3,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
 import { Encabezado, Pagina, Seccion, SinCuenta, Vacio } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -66,156 +67,177 @@ export default async function Pendientes() {
         </Vacio>
       ) : null}
 
-      {/* ---- Cajas sin corrida ------------------------------------------- */}
-      {sinCorrida.length > 0 && (
-      <Seccion
-        titulo="Cajas de corrida sin receta"
-        descripcion={`${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`}
-        sinRelleno
-      >
+      <Pestanas
+        pestanas={[
+          sinCorrida.length > 0 && {
+            id: "corridas",
+            titulo: "Cajas sin receta",
+            cuenta: sinCorrida.length,
+            contenido: (
+              <>
+                <Seccion
+                  titulo="Cajas de corrida sin receta"
+                  descripcion={`${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`}
+                  sinRelleno
+                >
 
-          <div className="max-h-[30rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Caja</th>
-                  <th>Almacén</th>
-                  <th>Pedido</th>
-                  <th className="num">Cajas</th>
-                  <th className="num">Pares/caja</th>
-                  <th>Capturar corrida</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sinCorrida.map((s) => (
-                  <tr key={`${s.almacen}-${s.skuCaja}`}>
-                    <td>
-                      <div className="font-medium">{s.skuCaja}</div>
-                      <div className="text-xs texto-tenue">
-                        {s.modelo} · {s.color}
-                      </div>
-                    </td>
-                    <td className="text-sm">{s.almacen}</td>
-                    <td className="text-sm">{s.pedido}</td>
-                    <td className="num cifra">{s.cajasDisponibles}</td>
-                    <td className="num cifra">{s.paresPorCaja}</td>
-                    <td>
-                      <FormularioCorrida
-                        pedido={s.pedido}
-                        modelo={s.modelo}
-                        color={s.color}
-                        paresPorCaja={s.paresPorCaja}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-      </Seccion>
-      )}
+                    <div className="max-h-[30rem] overflow-auto">
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>Caja</th>
+                            <th>Almacén</th>
+                            <th>Pedido</th>
+                            <th className="num">Cajas</th>
+                            <th className="num">Pares/caja</th>
+                            <th>Capturar corrida</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sinCorrida.map((s) => (
+                            <tr key={`${s.almacen}-${s.skuCaja}`}>
+                              <td>
+                                <div className="font-medium">{s.skuCaja}</div>
+                                <div className="text-xs texto-tenue">
+                                  {s.modelo} · {s.color}
+                                </div>
+                              </td>
+                              <td className="text-sm">{s.almacen}</td>
+                              <td className="text-sm">{s.pedido}</td>
+                              <td className="num cifra">{s.cajasDisponibles}</td>
+                              <td className="num cifra">{s.paresPorCaja}</td>
+                              <td>
+                                <FormularioCorrida
+                                  pedido={s.pedido}
+                                  modelo={s.modelo}
+                                  color={s.color}
+                                  paresPorCaja={s.paresPorCaja}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                </Seccion>
+              </>
+            ),
+          },
+          sinAmarre.length > 0 && {
+            id: "amarre",
+            titulo: "SKUs sin amarre",
+            cuenta: sinAmarre.length,
+            contenido: (
+              <>
+                <Seccion
+                  titulo="SKUs de bodega sin publicación en MELI"
+                  descripcion={`${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo: están escritos distinto en la publicación o no están publicados.`}
+                  sinRelleno
+                >
 
-      {/* ---- SKUs sin amarre --------------------------------------------- */}
-      {sinAmarre.length > 0 && (
-      <Seccion
-        titulo="SKUs de bodega sin publicación en MELI"
-        descripcion={`${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo: están escritos distinto en la publicación o no están publicados.`}
-        sinRelleno
-      >
-
-          <div className="max-h-[30rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>SKU de bodega</th>
-                  <th>Modelo</th>
-                  <th>Color</th>
-                  <th>Talla</th>
-                  <th className="num">Pares</th>
-                  <th>Amarrar a SKU de MELI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sinAmarre.slice(0, 400).map((s) => (
-                  <tr key={s.skuConstruido}>
-                    <td className="font-medium">{s.skuConstruido}</td>
-                    <td className="text-sm">{s.modelo}</td>
-                    <td className="text-sm">{s.color}</td>
-                    <td className="text-sm">{s.talla}</td>
-                    <td className="num cifra">{s.paresAfectados.toLocaleString("es-MX")}</td>
-                    <td>
-                      <FormularioMapeo skuConstruido={s.skuConstruido} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-      </Seccion>
-      )}
-
-      {/* ---- TikTok Shop ------------------------------------------------- */}
-      {hayTikTok ? (
-        <Seccion titulo="TikTok Shop" descripcion="Lo que el almacén de TikTok no puede resolver solo." sinRelleno>
-          {rojosTikTok.length ? (
-            <div className="px-4 pt-3">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
-                {rojosTikTok.length} SKU con saldo negativo
-              </h3>
-              <p className="text-xs texto-2">
-                Se vendieron pares que nunca entraron al kardex. Falta la entrada de Industher o
-                un conteo. Mientras, a TikTok no se le escribe nada de estos SKU.
-              </p>
-              <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                {rojosTikTok.map((r) => (
-                  <li key={r.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
-                    <span className="font-medium">{r.sku}</span>
-                    <span className="cifra ml-2" style={{ color: "var(--critico-texto)" }}>{r.saldo}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {desfasesTikTok.length ? (
-            <div className="px-4 pt-3">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
-                {desfasesTikTok.length} SKU donde el kardex trae más que la bodega
-              </h3>
-              <p className="text-xs texto-2">
-                A TikTok se le publica el número más bajo de los dos, así que no se está vendiendo de
-                más — pero la diferencia sigue abierta y se cierra con un conteo cíclico.
-              </p>
-              <ul className="mt-2 flex flex-col gap-1 text-sm">
-                {desfasesTikTok.slice(0, 40).map((d) => (
-                  <li key={d.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
-                    <span className="font-medium">{d.sku}</span>
-                    <span className="ml-2 texto-2">
-                      kardex <b className="cifra">{d.kardex}</b> · bodega{" "}
-                      <b className="cifra">{d.estante ?? "—"}</b> · desde{" "}
-                      {new Date(d.desde).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {tiktokSinAmarre.length ? (
-            <div className="px-4 py-3">
-              <h3 className="text-sm font-semibold">{tiktokSinAmarre.length} publicaciones activas de TikTok sin SKU del ERP</h3>
-              <p className="text-xs texto-2">
-                Sus ventas no descuentan y su disponible no se publica. Se amarran en Almacén TikTok.
-              </p>
-              <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                {tiktokSinAmarre.slice(0, 60).map((s) => (
-                  <li key={s.sku_id} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
-                    {s.seller_sku ?? s.sku_id}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </Seccion>
-      ) : null}
+                    <div className="max-h-[30rem] overflow-auto">
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>SKU de bodega</th>
+                            <th>Modelo</th>
+                            <th>Color</th>
+                            <th>Talla</th>
+                            <th className="num">Pares</th>
+                            <th>Amarrar a SKU de MELI</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sinAmarre.slice(0, 400).map((s) => (
+                            <tr key={s.skuConstruido}>
+                              <td className="font-medium">{s.skuConstruido}</td>
+                              <td className="text-sm">{s.modelo}</td>
+                              <td className="text-sm">{s.color}</td>
+                              <td className="text-sm">{s.talla}</td>
+                              <td className="num cifra">{s.paresAfectados.toLocaleString("es-MX")}</td>
+                              <td>
+                                <FormularioMapeo skuConstruido={s.skuConstruido} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                </Seccion>
+              </>
+            ),
+          },
+          hayTikTok && {
+            id: "tiktok",
+            titulo: "TikTok",
+            cuenta: rojosTikTok.length + desfasesTikTok.length + tiktokSinAmarre.length,
+            alerta: rojosTikTok.length + desfasesTikTok.length > 0,
+            contenido: (
+              <>
+                <Seccion titulo="TikTok Shop" descripcion="Lo que el almacén de TikTok no puede resolver solo." sinRelleno>
+                  {rojosTikTok.length ? (
+                    <div className="px-4 pt-3">
+                      <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
+                        {rojosTikTok.length} SKU con saldo negativo
+                      </h3>
+                      <p className="text-xs texto-2">
+                        Se vendieron pares que nunca entraron al kardex. Falta la entrada de Industher o
+                        un conteo. Mientras, a TikTok no se le escribe nada de estos SKU.
+                      </p>
+                      <ul className="mt-2 flex flex-wrap gap-2 text-sm">
+                        {rojosTikTok.map((r) => (
+                          <li key={r.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                            <span className="font-medium">{r.sku}</span>
+                            <span className="cifra ml-2" style={{ color: "var(--critico-texto)" }}>{r.saldo}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {desfasesTikTok.length ? (
+                    <div className="px-4 pt-3">
+                      <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
+                        {desfasesTikTok.length} SKU donde el kardex trae más que la bodega
+                      </h3>
+                      <p className="text-xs texto-2">
+                        A TikTok se le publica el número más bajo de los dos, así que no se está vendiendo de
+                        más — pero la diferencia sigue abierta y se cierra con un conteo cíclico.
+                      </p>
+                      <ul className="mt-2 flex flex-col gap-1 text-sm">
+                        {desfasesTikTok.slice(0, 40).map((d) => (
+                          <li key={d.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                            <span className="font-medium">{d.sku}</span>
+                            <span className="ml-2 texto-2">
+                              kardex <b className="cifra">{d.kardex}</b> · bodega{" "}
+                              <b className="cifra">{d.estante ?? "—"}</b> · desde{" "}
+                              {new Date(d.desde).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {tiktokSinAmarre.length ? (
+                    <div className="px-4 py-3">
+                      <h3 className="text-sm font-semibold">{tiktokSinAmarre.length} publicaciones activas de TikTok sin SKU del ERP</h3>
+                      <p className="text-xs texto-2">
+                        Sus ventas no descuentan y su disponible no se publica. Se amarran en Almacén TikTok.
+                      </p>
+                      <ul className="mt-2 flex flex-wrap gap-2 text-sm">
+                        {tiktokSinAmarre.slice(0, 60).map((s) => (
+                          <li key={s.sku_id} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                            {s.seller_sku ?? s.sku_id}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </Seccion>
+              </>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }
