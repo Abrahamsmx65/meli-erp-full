@@ -5,6 +5,7 @@ import { cuentaPorToken } from "@/lib/servicios/acceso-contenido";
 import { obtenerContenidoAmazon } from "@/lib/servicios/contenido-amazon";
 import { ContenidoAmazonPanel } from "@/components/contenido-amazon";
 import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras, Encabezado, Pagina } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -40,32 +41,26 @@ export default async function ContenidoPublico({
     await obtenerContenidoAmazon(admin, cuenta.id, cuenta.pais, { verEliminados });
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Contenido en Amazon</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Los productos que tenemos publicados: sus categorías en la store, sus imágenes y su
-          contenido A+. Lo que palomees aquí se guarda solo.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        titulo="Contenido en Amazon"
+        descripcion="Categorías en la store, imágenes y contenido A+. Lo que palomees aquí se guarda solo."
+      />
 
       {faltaMigracion ? (
-        <div
-          className="tarjeta p-4 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
+        <Aviso tono="alerta">
           Falta terminar de instalar esta sección: se ve la lista, pero todavía no se puede
           palomear nada.
-        </div>
+        </Aviso>
       ) : null}
 
       {advertencias.length ? (
-        <div className="tarjeta p-4 text-sm">
+        <Aviso tono="alerta">
           <strong>Contenido parcial.</strong> {advertencias.join(" ")}
-        </div>
+        </Aviso>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha titulo="Productos" valor={totales.modelos} />
         <Ficha titulo="Nuevos" valor={anotacionesDisponibles ? totales.nuevos : "—"} tono={totales.nuevos > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Activos" valor={totales.activos} tono="bien" />
@@ -79,7 +74,7 @@ export default async function ContenidoPublico({
           valor={anotacionesDisponibles ? totales.conAplus : "—"}
           nota={anotacionesDisponibles ? `faltan ${totales.modelos - totales.conAplus}` : "No disponible"}
         />
-      </div>
+      </Cifras>
 
       {anotacionesDisponibles ? <ContenidoAmazonPanel
         modelos={modelos}
@@ -90,6 +85,6 @@ export default async function ContenidoPublico({
         soloLectura={faltaMigracion || advertencias.length > 0}
         token={token}
       /> : null}
-    </div>
+    </Pagina>
   );
 }
