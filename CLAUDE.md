@@ -1782,6 +1782,26 @@ guárdala numerada.
   sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
+- **GASTOS EMPRESARIALES: fijos cada mes + sueltos** (`/gastos`, «Gastos»
+  en Negocio; `servicios/gastos-fijos.ts` + `gastos-empresariales.ts`,
+  migración 0132; dueño, 9-oct-2026: «mis gastos regularmente son nóminas,
+  fletes, rentas y logística a 3PL; la mayoría son los mismos todos los
+  meses»). Un gasto FIJO se da de alta una vez (`gastos_fijos`: concepto,
+  categoría, monto al mes, `desde`/`hasta` por mes) y cada mes se
+  materializa su renglón en `gastos_empresariales` (día 1, `gasto_fijo_id`,
+  único por fijo + mes; `asegurarGastosFijos` antes de cada lectura,
+  idempotente, nunca más allá del mes en curso). Ese mes se puede CORREGIR
+  (`editado`: la plantilla ya no lo pisa) u OMITIR (`omitido`: no se borra,
+  si no se volvería a crear). Cambiar la plantilla corrige del mes en curso
+  en adelante; los meses pasados se quedan como se cobraron. «Dar de baja»
+  pone `hasta` = mes anterior. Se descuentan del TOTAL del negocio en el
+  Estado de resultados (no por canal ni modelo; ahí solo se ven, se editan
+  en Gastos). **En el mes EN CURSO un fijo cuenta en proporción a los días
+  transcurridos** (`proporcionDelMes`, decisión del dueño): al día 9 de
+  octubre, 9/31; lo mismo en los «mismos días del mes anterior». Un gasto
+  suelto cuenta completo en su fecha. El resumen diario no los lleva.
+  `apply_migration` del MCP se cuelga con sentencias `drop` (piden
+  confirmación que no llega): en una migración nueva no se usan.
 - **La facturación de MELI (`cargos-meli.ts`) se lee POR ID y REANUDABLE**:
   el endpoint de detalles da 5 llamadas por minuto y un mes de calzado trae
   ~74 mil renglones (agosto 2026). La paginación por `offset` topa en 10 mil
