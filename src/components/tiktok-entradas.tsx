@@ -90,7 +90,7 @@ export function EntradasTikTok() {
   return (
     <Seccion
       titulo="Corregir a mano"
-      descripcion={`Una merma, un par que regresó, un conteo. Se le publica a TikTok en el mismo clic.${ayuda ? ` ${ayuda}.` : ""}`}
+      descripcion={`Se publica a TikTok al guardar.${ayuda ? ` ${ayuda}.` : ""}`}
     >
       <Ayuda titulo="¿Cuándo se usa?">
         <p>

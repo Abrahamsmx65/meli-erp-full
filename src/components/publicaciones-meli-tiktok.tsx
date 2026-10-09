@@ -66,7 +66,7 @@ export function PublicacionesMeliTikTok({
           variantes son «modelo + color» («GT117 Café», «GT118 Negro»…) con sus tallas, las fotos de cada variación de MELI,
           la descripción de la publicación y el SKU de MELI tal cual (el kardex y el amarre ya lo conocen).
         </p>
-        <p>Un precio único por producto. La casilla «Dejarlos como borrador» de arriba también aplica aquí.</p>
+        <p>La casilla «Dejarlos como borrador» de arriba también aplica aquí.</p>
       </Ayuda>
       <table className="mt-3 w-full text-sm">
         <thead>

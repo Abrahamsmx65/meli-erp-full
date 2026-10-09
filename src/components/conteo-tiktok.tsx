@@ -240,8 +240,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           </div>
         ) : null}
 
-        <p className="mt-3 text-xs texto-2">Cada escaneo suma un par.</p>
-        <div className="mt-2">
+        <div className="mt-3">
           <Ayuda titulo="¿Contra qué se compara?">
             <p>
               Los pares apartados (pedidos pagados sin despachar) siguen en la bodega: se cuentan y se comparan contra el

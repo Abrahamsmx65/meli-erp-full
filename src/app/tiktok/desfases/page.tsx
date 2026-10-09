@@ -21,7 +21,6 @@ export default async function Desfases() {
         ceja="TikTok Shop"
         titulo="Desfases TikTok"
         descripcion="Por SKU, lo que dicen TikTok, el kardex e Industher, y la razón de cada diferencia."
-        ayuda={<p>Tres números por SKU —lo que dice TikTok, lo que dice el kardex y lo que reporta Industher— y la razón de cada diferencia. Si esta lista está vacía, todo cuadra.</p>}
       />
 
       <Cifras columnas={3}>
