@@ -437,6 +437,11 @@
     overflow-y: auto;
   }
 
+  /* Filas de «Para hoy» en Inicio. */
+  .fila-inicio:hover {
+    background: var(--surface-2);
+  }
+
   /* Estado vacío. */
   .vacio {
     padding: 2.5rem 1.5rem;

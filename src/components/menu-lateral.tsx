@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  House,
   AlertTriangle,
   Barcode,
   Boxes,
@@ -65,6 +66,10 @@ interface Grupo {
 }
 
 const GRUPOS: Grupo[] = [
+  {
+    titulo: null,
+    entradas: [{ href: "/", texto: "Inicio", icono: House, ayuda: "Lo que pasa hoy y lo que toca hacer" }],
+  },
   {
     titulo: "Negocio",
     entradas: [
@@ -158,7 +163,7 @@ const LLAVE_ABIERTOS = "menu-secciones-abiertas";
 /** Sección y pantalla de una ruta, para la barra superior («Amazon › Contenido»). */
 export function ubicacion(ruta: string, rol: Rol = "dueño"): { grupo: string; pagina: string } | null {
   const entradas = GRUPOS.flatMap((g) =>
-    g.entradas.filter((e) => entradaVisible(rol, e.href)).map((e) => ({ ...e, grupo: g.titulo ?? "" })),
+    g.entradas.filter((e) => entradaVisible(rol, e.href)).map((e) => ({ ...e, grupo: g.titulo ?? "GETAC" })),
   );
   const candidatas = entradas.filter((e) => (e.href === "/" ? ruta === "/" : ruta === e.href || ruta.startsWith(`${e.href}/`)));
   const mejor = candidatas.sort((a, b) => b.href.length - a.href.length)[0];
