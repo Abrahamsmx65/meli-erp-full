@@ -105,8 +105,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                   ) : null}
                   {!r.contado ? (
                     <span className="block text-xs" style={{ color: "var(--estado-alerta)" }}>
-                      sin conteo inicial: a TikTok no se le escribe hasta capturar una entrada o un
-                      ajuste
+                      sin conteo inicial: no se publica a TikTok hasta una entrada o un ajuste
                     </span>
                   ) : !r.publicable ? (
                     <>

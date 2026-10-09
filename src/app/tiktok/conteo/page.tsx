@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { catalogoParaConteo } from "@/lib/servicios/tiktok-conteo";
@@ -23,12 +22,7 @@ export default async function Conteo() {
       <Encabezado
         ceja="TikTok Shop"
         titulo="Conteo cíclico · Almacén TikTok"
-        descripcion="Escanea el FNSKU de cada par; la diferencia entra al kardex como ajuste."
-        acciones={
-          <Link href="/tiktok" className="boton boton-fantasma">
-            ← Almacén TikTok
-          </Link>
-        }
+        descripcion="Escanea el FNSKU de cada par y guarda el conteo."
         ayuda={<p>Al guardar, la diferencia entra al kardex como ajuste y el disponible nuevo se publica a TikTok en el mismo clic.</p>}
         ayudaTitulo="¿Qué pasa al guardar?"
       />
