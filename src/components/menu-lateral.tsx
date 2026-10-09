@@ -1,7 +1,7 @@
 "use client";
 
 import Link, { useLinkStatus } from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
@@ -68,78 +68,81 @@ interface Grupo {
 const GRUPOS: Grupo[] = [
   {
     titulo: null,
-    entradas: [
-      { href: "/", texto: "Inicio", icono: House, ayuda: "Lo que pasa hoy y lo que toca hacer" },
-    ],
+    entradas: [{ href: "/", texto: "Inicio", icono: House, ayuda: "Lo que pasa hoy y lo que toca hacer" }],
   },
   {
-    titulo: "Ventas y dinero",
+    titulo: "Negocio",
     entradas: [
       { href: "/cortes", texto: "Corte general", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
-      { href: "/ventas", texto: "Ventas Mercado Libre", icono: Activity, ayuda: "En vivo y por modelo" },
-      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
-      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
-      { href: "/publicidad", texto: "Publicidad Mercado Libre", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/amazon/publicidad", texto: "Publicidad Amazon", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/ventas/conciliar", texto: "Conciliar Mercado Libre", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
-      { href: "/amazon/conciliar", texto: "Conciliar Amazon", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
-    ],
-  },
-  {
-    titulo: "Envíos y despacho",
-    entradas: [
-      { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
-      { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
-      { href: "/tiktok/despacho", texto: "Despacho TikTok", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
-      { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
-      { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
-      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
     ],
   },
   {
     titulo: "Inventario",
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
-      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
-      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
-      { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
-      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
       { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
       { href: "/skus", texto: "SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
-      { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
     ],
   },
   {
-    titulo: "Compras a China",
+    titulo: "Mercado Libre",
     entradas: [
-      { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
-      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
-      { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
-      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
-    ],
-  },
-  {
-    titulo: "Catálogo y publicaciones",
-    entradas: [
+      { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
-      { href: "/amazon/contenido", texto: "Contenido Amazon", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
-      { href: "/tiktok/nuevos", texto: "Publicar en TikTok", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
-      { href: "/tiktok/precios", texto: "Precios TikTok", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
-      { href: "/tiktok/catalogo", texto: "Catálogo creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
+      { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/ventas/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
+      { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
+      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
+      { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
       { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
     ],
   },
   {
-    titulo: "Fundas",
+    titulo: "Amazon",
+    entradas: [
+      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
+      { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/amazon/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
+      { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
+      { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
+    ],
+  },
+  {
+    titulo: "TikTok Shop",
+    entradas: [
+      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
+      { href: "/tiktok/catalogo", texto: "Catálogo creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
+      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
+      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
+      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
+      { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
+      { href: "/tiktok/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
+      { href: "/tiktok/precios", texto: "Precios", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
+    ],
+  },
+  {
+    titulo: "Abastecimiento",
+    entradas: [
+      { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
+      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
+      { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
+      { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
+    ],
+  },
+  {
+    titulo: "YAPANIZCEL · Fundas",
     entradas: [
       { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
       { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
-      { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
-      { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
-      { href: "/yapanizcel/skus", texto: "SKUs fundas", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
+      { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
       { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
+      { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
       { href: "/yapanizcel/etiquetas", texto: "Etiquetas fundas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
+      { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
       { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
   },
@@ -199,6 +202,7 @@ export function MenuLateral({
   cerrar: () => void;
 }) {
   const ruta = usePathname();
+  const router = useRouter();
 
   // Gana la entrada MÁS específica: /amazon/ventas no debe encender /amazon.
   // Cada rol ve solo las entradas que puede abrir; un grupo sin ninguna desaparece.
@@ -304,6 +308,13 @@ export function MenuLateral({
                     <li key={e.href}>
                       <Link
                         href={e.href}
+                        // Sin pre-carga automática: el riel deja ~50 enlaces a la
+                        // vista y el navegador los pedía TODOS al abrir cualquier
+                        // pantalla; el clic real esperaba detrás (9-oct-2026). Se
+                        // pre-carga solo la que el cursor señala.
+                        prefetch={false}
+                        onMouseEnter={() => router.prefetch(e.href)}
+                        onFocus={() => router.prefetch(e.href)}
                         onClick={cerrar}
                         title={e.ayuda}
                         aria-current={act ? "page" : undefined}

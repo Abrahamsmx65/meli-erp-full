@@ -84,7 +84,7 @@
 
   --fuente-sans: var(--font-geist), -apple-system, "Segoe UI", Roboto, sans-serif;
   --fuente-titulo: var(--font-bricolage), var(--font-geist), sans-serif;
-  --fuente-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fuente-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* ---------------------------------------------------------------------------
