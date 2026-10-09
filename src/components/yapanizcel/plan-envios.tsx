@@ -141,10 +141,10 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         </label>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input value={folio} onChange={(e) => setFolio(e.target.value)} placeholder="Folio (opcional)" className="w-36 rounded-lg border px-2 py-1 text-xs" style={estiloInput} />
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {totalSkus} SKUs · <b>{n(totalUnidades)}</b> unidades
           </span>
-          <button onClick={registrar} disabled={ocupado !== null || totalUnidades === 0} className="rounded-lg px-4 py-1.5 text-sm font-semibold disabled:opacity-60" style={{ background: "var(--acento)", color: "#fff" }}>
+          <button onClick={registrar} disabled={ocupado !== null || totalUnidades === 0} className="boton boton-primario boton-chico">
             {ocupado === "registrar" ? "Registrando…" : "Registrar envío"}
           </button>
         </div>
@@ -156,7 +156,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         </p>
       ) : null}
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
@@ -164,7 +164,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">SKU</th>
               <th className="px-3 py-2">Título</th>
               <th className="px-3 py-2 text-right">Vend.</th>
@@ -183,7 +183,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           <tbody>
             {visibles.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={13} className="px-3 py-6 text-center texto-tenue">
                   Nada que mandar con los datos de hoy.
                 </td>
               </tr>
@@ -205,7 +205,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 encabezado,
                 <tr key={l.sku} className="border-t" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-1.5 font-medium">{l.sku}</td>
-                  <td className="max-w-[260px] truncate px-3 py-1.5" style={{ color: "var(--ink-2)" }} title={l.titulo ?? ""}>
+                  <td className="max-w-[260px] truncate px-3 py-1.5 texto-2" title={l.titulo ?? ""}>
                     {l.titulo ?? ""}
                   </td>
                   <td className="num px-3 py-1.5 text-right">{n(l.vendidas)}</td>
@@ -231,7 +231,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                   <td className="px-3 py-1.5 text-right">
                     <input type="number" min={0} step={multiplo} value={v} onChange={(e) => fijar(l.sku, Number(e.target.value))} className="num w-20 rounded-md border px-2 py-0.5 text-right text-sm" style={{ ...estiloInput, fontWeight: v !== l.mandar ? 700 : 500 }} />
                   </td>
-                  <td className="px-3 py-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <td className="px-3 py-1.5 text-xs texto-tenue">
                     {MOTIVO[l.motivo]}
                   </td>
                 </tr>,
@@ -241,21 +241,21 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         </table>
         {pintadas.length < visibles.length ? (
           <div className="border-t p-3 text-center text-sm hairline">
-            <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="underline" style={{ color: "var(--acento)" }}>
+            <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="enlace">
               Mostrar {Math.min(POR_PAGINA, visibles.length - pintadas.length)} más (van {pintadas.length} de {visibles.length})
             </button>
           </div>
         ) : null}
       </div>
-      <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+      <p className="text-xs texto-tenue">
         Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias). * corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
       </p>
 
-      <h2 className="mt-2 font-semibold">Envíos registrados</h2>
+      <h2 className="seccion-titulo mt-2">Envíos registrados</h2>
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">Fecha</th>
               <th className="px-3 py-2">Folio</th>
               <th className="px-3 py-2 text-right">SKUs</th>
@@ -267,7 +267,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           <tbody>
             {envios.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={6} className="px-3 py-4 text-center texto-tenue">
                   Todavía no hay envíos registrados.
                 </td>
               </tr>
@@ -280,10 +280,10 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 <td className="num px-3 py-1.5 text-right">{n(e.unidades)}</td>
                 <td className="px-3 py-1.5">
                   {e.estado}
-                  {e.caducado ? <span style={{ color: "var(--ink-muted)" }}> · caducado</span> : null}
+                  {e.caducado ? <span className="texto-tenue"> · caducado</span> : null}
                 </td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs">
-                  <a href={`/api/yapanizcel/envios/${e.id}/excel`} className="underline" style={{ color: "var(--acento)" }}>
+                  <a href={`/api/yapanizcel/envios/${e.id}/excel`} className="enlace">
                     Excel
                   </a>
                   {e.estado === "preparado" ? (
@@ -297,7 +297,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                     </button>
                   ) : null}
                   {e.estado === "preparado" || e.estado === "enviado" ? (
-                    <button disabled={ocupado !== null} onClick={() => cambiarEstado(e.id, "cancelado")} className="ml-2 underline" style={{ color: "var(--ink-muted)" }}>
+                    <button disabled={ocupado !== null} onClick={() => cambiarEstado(e.id, "cancelado")} className="ml-2 underline texto-tenue">
                       Cancelar
                     </button>
                   ) : null}

@@ -129,13 +129,13 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
           <input type="checkbox" checked={soloConExistencia} onChange={(e) => setSoloConExistencia(e.target.checked)} />
           Solo con existencia
         </label>
-        <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-auto text-xs texto-tenue">
           {filtrados.length} SKUs · {arbol.reduce((a, t) => a + t.disenos.length, 0)} diseños
         </span>
       </div>
 
       {sinCategoria ? (
-        <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="text-xs texto-2">
           Los diseños de «Sin categoría» no tienen tipo capturado: márcalos como Fundas, Tabletas o Micas en
           Productos y costos (Bodega) y aquí se agrupan solos.
         </p>
@@ -144,7 +144,7 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">Tipo / diseño / SKU</th>
               <th className="px-3 py-2 text-right">Vend. 30 d</th>
               <th className="px-3 py-2 text-right">En Full</th>
@@ -160,7 +160,7 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
             ))}
             {!arbol.length ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={7} className="px-3 py-6 text-center texto-tenue">
                   Nada coincide con el filtro.
                 </td>
               </tr>
@@ -192,7 +192,7 @@ function TipoFilas({
       <tr className="border-t" style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}>
         <td className="px-3 py-2 font-semibold">
           {t.tipo}
-          <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+          <span className="ml-2 text-xs font-normal texto-tenue">
             {t.disenos.length} diseños
           </span>
         </td>
@@ -223,11 +223,11 @@ function DisenoFilas({
       <tr className="border-t" style={{ borderColor: "var(--grid)" }}>
         <td className="px-3 py-1.5">
           <button type="button" onClick={onToggle} className="num inline-flex items-center gap-1.5 pl-4 font-medium" title={abierto ? "Cerrar el diseño" : "Ver los SKUs del diseño"}>
-            <span aria-hidden="true" className="text-xs" style={{ color: "var(--ink-muted)" }}>
+            <span aria-hidden="true" className="text-xs texto-tenue">
               {abierto ? "▾" : "▸"}
             </span>
             {d.diseno}
-            <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-xs font-normal texto-tenue">
               {d.skus.length} SKUs
             </span>
           </button>
@@ -240,12 +240,12 @@ function DisenoFilas({
               <td className="px-3 py-1.5 pl-12">
                 <span className="num font-medium">{r.skuMeli}</span>
                 {r.titulo ? (
-                  <span className="ml-2 hidden text-xs md:inline" style={{ color: "var(--ink-muted)" }} title={r.titulo}>
+                  <span className="ml-2 hidden text-xs md:inline texto-tenue" title={r.titulo}>
                     {r.titulo.length > 60 ? `${r.titulo.slice(0, 60)}…` : r.titulo}
                   </span>
                 ) : null}
                 {r.skusBodega.length ? (
-                  <div className="num text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  <div className="num text-[11px] texto-tenue">
                     bodega: {r.skusBodega.join(", ")}
                   </div>
                 ) : null}
