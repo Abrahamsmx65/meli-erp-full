@@ -24,6 +24,7 @@ import { contarSinTiempo, corteQueContinua, ERROR_SIN_TIEMPO, erroresAlUnir, ord
 import { diaMx } from "../tiktok/ventas";
 import { mismoFiltro, normalizarModelos, pedidosDeSoloModelos, pendientesPorModelo, type PendientesPorModelo } from "../tiktok/corte-modelos";
 import { pdfListaDeEmpaque } from "../tiktok/empaque-pdf";
+import { detectarLotes, loteDePaquete, type Lote } from "../tiktok/lotes";
 import { anotarExito, anotarFallo, anotarSalto, avisoDeGuardia, crearGuardia, debePreguntar } from "../tiktok/recoleccion";
 import {
   cancelarRenglones,
@@ -1829,8 +1830,31 @@ export async function pdfEtiquetasDelCorte(admin: any, accountId: string, corteI
     }
   };
 
+  // Un LOTE (muchos paquetes iguales de un par) lleva una hoja separadora
+  // delante de sus guías, para que la pila salga ya partida y coincida con
+  // la pila de cajas (dueño, 8-oct-2026). Si el lote viene del tomo
+  // anterior, la hoja lo dice.
+  const lotes = detectarLotes(corte.paquetes);
+  const separadorDeLote = (lote: Lote, continua: boolean) => {
+    const pagina = doc.addPage(A6);
+    const centrar = (texto: string, y: number, size: number) => {
+      const w = fuente.widthOfTextAtSize(texto, size);
+      pagina.drawText(texto, { x: Math.max(8, (A6[0] - w) / 2), y, size, font: fuente, color: rgb(0, 0, 0) });
+    };
+    pagina.drawRectangle({ x: 10, y: 10, width: A6[0] - 20, height: A6[1] - 20, borderColor: rgb(0, 0, 0), borderWidth: 3 });
+    centrar(continua ? "LOTE (continúa)" : "LOTE", A6[1] - 90, 34);
+    const sku = lote.sku;
+    centrar(sku, A6[1] - 140, sku.length > 22 ? 13 : 17);
+    centrar(`${lote.cantidad} guías · #${lote.desde} a #${lote.hasta}`, A6[1] - 180, 14);
+    centrar(`Corte #${corte.numero}`, A6[1] - 205, 11);
+    const lineas = [`Toma ${lote.cantidad} cajas de este producto`, "y pega las guías que siguen:", "cualquier guía en cualquier caja."];
+    lineas.forEach((t, i) => centrar(t, A6[1] - 250 - i * 16, 10));
+  };
+
   let sinGuia = 0;
   for (const p of paquetesDelPdf) {
+    const lote = loteDePaquete(lotes, p.numero);
+    if (lote && (p.numero === lote.desde || p === paquetesDelPdf[0])) separadorDeLote(lote, p.numero !== lote.desde);
     const g = guias.get(`${p.orderId}|${p.packageId}`) ?? { bytes: null, error: "sin guía" };
     const bytes = g.bytes;
     const error = g.error;
