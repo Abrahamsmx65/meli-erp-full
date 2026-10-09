@@ -1680,6 +1680,25 @@ guárdala numerada.
   por día y `amazon_ventas_horas` por hora, que la lectura del reporte llena
   desde el 9-oct-2026 (`agregarDesdeReporte` → `horas`, `guardarHoras`): lo
   anterior no tiene hora y la gráfica lo dice.
+  **Monitor de HOY en Inicio** (`graficas/monitor-hoy.ts` puro con pruebas,
+  `components/ui/monitor-hoy.tsx`; dueño, 9-oct-2026: «un monitor de ventas
+  hoy comparado con ayer y con el mismo día la semana pasada»): se compara
+  A LA MISMA HORA, no contra el día completo: lo que ayer (o hace 7 días)
+  llevaba = su día completo × la parte que ya había pasado según sus horas
+  (no toda orden trae hora), la hora en curso en proporción a sus minutos, y
+  el corte es la hora en que se leyó la serie (`servirVariosCanalesConFecha`),
+  no la de ahora. Un canal sin hora ese día (Amazon antes del 9-oct) sale de
+  la comparación —también lo suyo de hoy, `hoyContraAyer`— y se nombra.
+  Las series de `ventas-tiempo` viven 5 min.
+- **Una pantalla servida con datos viejos se vuelve a pedir sola**
+  (`marca-refresco.ts`, `components/ui/refresco-al-terminar.tsx`; dueño,
+  9-oct-2026: «cada vez que me meto a una pestaña me sale la información no
+  actualizada y tengo que actualizar»): `servirConCacheApp`, al servir un
+  renglón viejo y mandarlo a refrescar en `after()`, deja una marca POR
+  REQUEST (`cache` de React) y `<Pagina>` monta un componente que hace
+  `router.refresh()` a los 5, 15 y 40 s hasta que el servidor ya no lo
+  manda. Y `staleTimes` se quitó de `next.config.mjs`: con 30 s el
+  navegador reutilizaba la pantalla vieja al volver a una pestaña.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de

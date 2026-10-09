@@ -13,7 +13,9 @@ import { NOMBRE_CANAL } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
-import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
+import { servirVariosCanalesConFecha } from "@/lib/servicios/ventas-tiempo";
+import { MonitorHoy } from "@/components/ui/monitor-hoy";
+import { armarMonitorHoy, minutoMx } from "@/lib/graficas/monitor-hoy";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +48,7 @@ export default async function Inicio() {
   const periodo = periodoActual();
   const hoy = fechaMx(0);
   const desde30 = fechaMx(29);
-  const [mes, plan, tiktok, contenedores, diario] = await Promise.all([
+  const [mes, plan, tiktok, contenedores, serie] = await Promise.all([
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
     supabase
@@ -61,7 +63,7 @@ export default async function Inicio() {
       .eq("account_id", cuenta.id)
       .in("estado", ["en_transito", "borrador"])
       .order("fecha_llegada_est", { ascending: true, nullsFirst: false }),
-    servirVariosCanales(
+    servirVariosCanalesConFecha(
       clienteAdmin(),
       [
         { canal: "meli_calzado", accountId: cuenta.id },
@@ -74,6 +76,12 @@ export default async function Inicio() {
   ]);
 
   t.fin();
+  const diario = serie.series;
+  // El monitor corta a la hora en que se leyó la serie (puede ser de hace
+  // unos minutos): comparar contra ayer a la hora de AHORA castigaría a hoy.
+  const leidoEn = serie.generadoEn ? Date.parse(serie.generadoEn) : Date.now();
+  const minuto = fechaDe(leidoEn) === hoy ? minutoMx(leidoEn) : minutoMx();
+  const monitor = armarMonitorHoy(diario, hoy, minuto);
 
   // Los totales de arriba salen de la MISMA serie que la gráfica.
   const porDia = new Map<string, { importe: number; unidades: number }>();
@@ -177,6 +185,10 @@ export default async function Inicio() {
           tono={mes ? (mes.total.utilidadNeta < 0 ? "critico" : "bien") : "neutro"}
         />
       </Cifras>
+
+      <Seccion titulo="Hoy contra ayer y la semana pasada" descripcion="A la misma hora">
+        <MonitorHoy monitor={monitor} />
+      </Seccion>
 
       <Seccion titulo="Venta por canal, por día y por hora" descripcion="Últimos 30 días">
         <GraficaVentasTiempo datos={diario} desde={desde30} hasta={hoy} />
@@ -324,6 +336,10 @@ function n(x: number): string {
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.round(Math.abs(x)).toLocaleString("es-MX");
+}
+
+function fechaDe(ms: number): string {
+  return new Date(ms - 6 * 3_600_000).toISOString().slice(0, 10);
 }
 
 function horaMx(): number {

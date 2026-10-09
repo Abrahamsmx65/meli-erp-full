@@ -14,7 +14,8 @@ import type { CanalTiempo, VentasTiempo } from "../graficas/ventas-tiempo";
 export type { CanalTiempo, DiaVenta, HoraVenta, VentasTiempo } from "../graficas/ventas-tiempo";
 export { CANALES_TIEMPO } from "../graficas/ventas-tiempo";
 
-const EDAD_MAX_MS = 10 * 60_000;
+// Cinco minutos: el monitor de hoy de Inicio compara contra ayer a la misma hora.
+const EDAD_MAX_MS = 5 * 60_000;
 
 const num = (x: unknown) => Number(x) || 0;
 
@@ -66,18 +67,29 @@ export async function servirVariosCanales(
   cuentas: { canal: CanalTiempo; accountId: string | null | undefined }[],
   rango: { desde: string; hasta: string },
 ): Promise<VentasTiempo[]> {
+  return (await servirVariosCanalesConFecha(db, cuentas, rango)).series;
+}
+
+/** Igual, con la fecha de la serie MÁS VIEJA (el monitor de hoy corta a esa hora). */
+export async function servirVariosCanalesConFecha(
+  db: DB,
+  cuentas: { canal: CanalTiempo; accountId: string | null | undefined }[],
+  rango: { desde: string; hasta: string },
+): Promise<{ series: VentasTiempo[]; generadoEn: string | null }> {
   const res = await Promise.all(
     cuentas.map(async ({ canal, accountId }) => {
       if (!accountId) return null;
       try {
-        return (await servirVentasTiempo(db, canal, accountId, rango)).datos;
+        return await servirVentasTiempo(db, canal, accountId, rango);
       } catch (e) {
         console.error((e as Error).message);
         return null;
       }
     }),
   );
-  return res.filter((x): x is VentasTiempo => x != null);
+  const ok = res.filter((x): x is { datos: VentasTiempo; generadoEn: string | null } => x != null);
+  const fechas = ok.map((x) => x.generadoEn).filter((x): x is string => !!x).sort();
+  return { series: ok.map((x) => x.datos), generadoEn: fechas[0] ?? null };
 }
 
 /**
