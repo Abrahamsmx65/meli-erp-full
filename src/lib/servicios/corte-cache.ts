@@ -80,6 +80,12 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
   exigirVigente?: boolean;
   /** Se llama si, pese a `exigirVigente`, hubo que usar el renglón invalidado. */
   alUsarInvalidado?: (motivo: string) => void;
+  /**
+   * `false` = la visita NO lanza el recálculo de fondo: sirve lo guardado y
+   * listo (el refresco lo hace un cron con el cliente admin). Por omisión,
+   * `true` (lo de siempre).
+   */
+  refrescarEnFondo?: boolean;
 }): Promise<T> {
   const recalc = async (): Promise<T> => {
     const t0 = Date.now();
@@ -104,7 +110,7 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
     }
   }
 
-  if (corteNecesitaRefresco(opts.periodo, valorGuardado.generadoEn, valorGuardado.vigente)) {
+  if (opts.refrescarEnFondo !== false && corteNecesitaRefresco(opts.periodo, valorGuardado.generadoEn, valorGuardado.vigente)) {
     try {
       const { after } = await import("next/server");
       after(async () => {
@@ -125,6 +131,8 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
 export interface OpcionesCorteMasticado {
   exigirVigente?: boolean;
   alUsarInvalidado?: (motivo: string) => void;
+  /** `false`: la visita no dispara el recálculo de fondo (ver `obtenerConCachePorPeriodo`). */
+  refrescarEnFondo?: boolean;
 }
 
 /** El corte de MELI (calzado) del periodo, masticado. */
