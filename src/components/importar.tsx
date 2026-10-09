@@ -50,8 +50,8 @@ export function PanelesImportar() {
 
       <form onSubmit={subir} className="tarjeta flex flex-col gap-5 p-5">
         <Campo
-          titulo="CORRIDAS BASE (Excel, respaldo)"
-          descripcion="La receta de tallas de cada caja. Columnas: PEDIDO, MODELO, COLOR y una columna por talla. Se acumula: las corridas viejas siguen sirviendo. Normalmente no hace falta: las corridas llegan solas del sheet."
+          titulo="Corridas desde Excel (respaldo)"
+          descripcion="Columnas: PEDIDO, MODELO, COLOR y una por talla. Se acumula con las corridas que ya hay."
           archivo={corridas}
           onChange={setCorridas}
         />
@@ -59,9 +59,9 @@ export function PanelesImportar() {
         <button
           type="submit"
           disabled={cargando}
-          className="boton boton-primario self-start"
+          className="boton boton-borde self-start"
         >
-          {cargando ? "Importando…" : "Importar"}
+          {cargando ? "Importando…" : "Importar corridas"}
         </button>
       </form>
 
@@ -146,9 +146,7 @@ function SeccionIndusther() {
       <div>
         <h2 className="seccion-titulo">Inventario Industher (API)</h2>
         <p className="mt-1 text-sm texto-2">
-          Trae las existencias directo del sistema del almacén, sin subir Excel.
-          Reemplaza solo los almacenes que el API reporta. Prueba primero la
-          conexión para ver qué campos llegan.
+          Reemplaza solo los almacenes que el API reporta.
         </p>
       </div>
 
@@ -167,7 +165,7 @@ function SeccionIndusther() {
           disabled={probando || sincronizando}
           className="boton boton-primario"
         >
-          {sincronizando ? "Sincronizando…" : "Sincronizar ahora"}
+          {sincronizando ? "Sincronizando…" : "Sincronizar inventario"}
         </button>
       </div>
 
@@ -265,9 +263,7 @@ function SeccionCorridasSheets() {
       <div>
         <h2 className="seccion-titulo">Corridas desde Google Sheets</h2>
         <p className="mt-1 text-sm texto-2">
-          Lee tu sheet de corridas (mismo formato que el Excel) y las acumula,
-          sin subir archivo. La pestaña correcta se detecta sola por sus
-          columnas.
+          Lee el sheet de corridas y las acumula; la pestaña se detecta sola.
         </p>
       </div>
 

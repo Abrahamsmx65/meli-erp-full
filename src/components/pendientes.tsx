@@ -157,7 +157,7 @@ export function FormularioMapeo({ skuConstruido }: { skuConstruido: string }) {
         <button
           onClick={guardar}
           disabled={estado === "enviando" || !valor.trim()}
-          className="boton boton-primario boton-chico"
+          className="boton boton-borde boton-chico"
         >
           {estado === "enviando" ? "…" : "Amarrar"}
         </button>

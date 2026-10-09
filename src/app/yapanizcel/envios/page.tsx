@@ -53,6 +53,11 @@ export default async function EnviosYz() {
               lo reciente, y lo que hay en Full, esto es lo que hay que mandar para dejar {plan.parametros.diasObjetivo} días de
               cobertura, en decenas cerradas y topado por lo que hay en bodega. Ordenado por categoría y SKU.
             </p>
+            <p>
+              Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias).
+              El asterisco (*) marca la venta corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos
+              diarias suficientes).
+            </p>
             {plan.descontinuados.activo && plan.descontinuados.skus ? (
               <p>{plan.descontinuados.skus} SKUs descontinuados (sin una venta en 180 días) no se ofrecen aquí.</p>
             ) : null}

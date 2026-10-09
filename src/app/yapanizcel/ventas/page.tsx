@@ -80,12 +80,6 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
         <Ficha titulo="Ganancia" valor={pesos(m.periodo.ganancia)} nota={notaGanancia(m.periodo)} tono={m.periodo.unidadesSinCosto ? "alerta" : m.periodo.ganancia >= 0 ? "bien" : "critico"} />
       </Cifras>
 
-      {m.periodo.ventaSinNeto > 0 ? (
-        <Aviso tono="info">
-          {`${pesos(m.periodo.ventaSinNeto)} de venta (${n(m.periodo.unidadesSinNeto)} unidades${m.pendiente.ordenesPendientes > 0 ? `, ${n(m.pendiente.ordenesPendientes)} órdenes` : ""}) todavía no tiene el depósito real de Mercado Pago: no está en el neto ni en la ganancia; nada se estima.`}
-        </Aviso>
-      ) : null}
-
       {m.skusSinCosto ? (
         <Aviso tono="alerta">
           {m.skusSinCosto} SKUs vendieron sin costo cargado: su neto ({pesos(m.periodo.netoSinCosto)}) queda fuera de la ganancia.

@@ -6,7 +6,7 @@ import { Ficha } from "@/components/tiles";
 import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
 import { PedidosChina } from "@/components/yapanizcel/pedidos-china";
 import { n } from "@/components/yapanizcel/comunes";
-import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -49,16 +49,16 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
                   ? ` ${resumen.descontinuados.disenos} diseños retirados completos (ninguna variante vendió en 180 días); los demás siguen con sus variantes vivas.`
                   : " Un diseño que sigue vendiendo con otras variantes sí sale."}
               </p>
-            ) : null}
+            ) : (
+              <p>
+                La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año;
+                hoy llega
+                {resumen.descontinuados.historialDesde ? ` hasta el ${resumen.descontinuados.historialDesde}` : " a nada"}.
+              </p>
+            )}
           </>
         }
       />
-      {!resumen.descontinuados.activo ? (
-        <Aviso tono="info">
-          La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año; hoy llega
-          {resumen.descontinuados.historialDesde ? ` hasta el ${resumen.descontinuados.historialDesde}` : " a nada"}. Sincroniza para completarlo.
-        </Aviso>
-      ) : null}
       <Cifras columnas={3}>
         <Ficha titulo="Diseños" valor={resumen.disenos.length} />
         <Ficha titulo="Con algo que pedir" valor={resumen.disenos.filter((d) => d.sugerido > 0).length} tono="alerta" />

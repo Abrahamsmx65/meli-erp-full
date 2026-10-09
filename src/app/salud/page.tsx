@@ -60,20 +60,24 @@ export default async function Salud() {
         </Aviso>
       ) : null}
 
-      <Lista
-        titulo="Problemas"
-        ayuda="Hay un número EN PANTALLA que está mal o incompleto y no se nota. Esto sí hay que arreglarlo."
-        hallazgos={salud.graves}
-        vacio="Ninguno."
-        critico
-      />
+      {!todoBien ? (
+        <>
+          <Lista
+            titulo="Problemas"
+            ayuda="Hay un número EN PANTALLA que está mal o incompleto y no se nota. Esto sí hay que arreglarlo."
+            hallazgos={salud.graves}
+            vacio="Ninguno."
+            critico
+          />
 
-      <Lista
-        titulo="Datos que todavía no llegan"
-        ayuda="El dato falta y el sistema ya lo dice en sus avisos. No está mal, está incompleto, y se completa solo."
-        hallazgos={salud.faltas}
-        vacio="Ninguno: todo lo que alimenta los cortes está leído."
-      />
+          <Lista
+            titulo="Datos que todavía no llegan"
+            ayuda="El dato falta y el sistema ya lo dice en sus avisos. No está mal, está incompleto, y se completa solo."
+            hallazgos={salud.faltas}
+            vacio="Ninguno: todo lo que alimenta los cortes está leído."
+          />
+        </>
+      ) : null}
 
       {/* ---- Cobertura por mes y canal: la señal que importa ------------ */}
       <Seccion
@@ -172,7 +176,7 @@ function cuadra(m: MesDeCorte) {
 
 function Lista({ titulo, ayuda, hallazgos, vacio, critico }: { titulo: string; ayuda: string; hallazgos: Hallazgo[]; vacio: string; critico?: boolean }) {
   return (
-    <Seccion titulo={`${titulo}${hallazgos.length > 0 ? ` (${hallazgos.length})` : ""}`} descripcion={ayuda} sinRelleno>
+    <Seccion titulo={`${titulo}${hallazgos.length > 0 ? ` (${hallazgos.length})` : ""}`} ayuda={<p>{ayuda}</p>} sinRelleno>
       {hallazgos.length === 0 ? (
         <p className="p-4 text-sm texto-2">{vacio}</p>
       ) : (

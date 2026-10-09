@@ -75,7 +75,7 @@ export default async function Ajustes({
 
         <a
           href="/api/meli/conectar"
-          className="boton boton-primario mt-3"
+          className={`boton mt-3 ${cuenta ? "boton-borde boton-chico" : "boton-primario"}`}
         >
           {cuenta ? "Reconectar con Mercado Libre" : "Conectar con Mercado Libre"}
         </a>
