@@ -175,7 +175,7 @@ export async function servirConCacheApp<T>(
       let admin: DB | null = null;
       let token: string | null = null;
       try {
-        const { clienteAdmin } = await import("../supabase/server");
+        const { clienteAdmin } = await import("../supabase/admin");
         admin = clienteAdmin() as DB;
         const { adquirirCandado } = await import("../datos/repos");
         token = await adquirirCandado(admin, accountId, recurso, 300);
