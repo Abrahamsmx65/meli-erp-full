@@ -179,10 +179,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
             Restablecer parámetros
           </a>
         </div>
-        <p className="mt-3 text-xs texto-2">
-          Por cada par vendido a $500 me quedan {pesosC(ejemplo.neto)}: del precio llega el {Math.round(k * 1000) / 10} % menos lo fijo.
-        </p>
-        <div className="mt-2">
+        <div>
           <Ayuda titulo="¿Cómo se desglosa?">
             <p>
           Por cada par vendido a $500: {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos + {pesosC(ejemplo.afiliado)} de

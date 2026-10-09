@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
-import { Aviso, Ayuda } from "@/components/ui/pagina";
+import { Aviso } from "@/components/ui/pagina";
 import {
   ajustesDeConteo,
   escanearConteo,
@@ -240,14 +240,6 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           </div>
         ) : null}
 
-        <div className="mt-3">
-          <Ayuda titulo="¿Contra qué se compara?">
-            <p>
-              Los pares apartados (pedidos pagados sin despachar) siguen en la bodega: se cuentan y se comparan contra el
-              saldo, no contra lo publicado.
-            </p>
-          </Ayuda>
-        </div>
       </section>
 
       <section className="tarjeta overflow-hidden">

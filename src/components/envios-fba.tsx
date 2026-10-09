@@ -1,6 +1,5 @@
 import type { SugerenciaFba } from "@/lib/servicios/fba";
-import { Ayuda } from "@/components/ui/pagina";
-import { DIAS_CORRIDA_DISPAREJA, OBJETIVO_DIAS_FBA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
+import { DIAS_CORRIDA_DISPAREJA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -50,21 +49,11 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
             ) : null}
           </p>
         </div>
-        <div className="w-full">
-          <Ayuda>
-            <p>
-              La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA} días
-              al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado; lo que ya
-              está en FBA y lo que va en camino cuenta a favor. Las cajas reales a mandar son las
-              de la pestaña «Envíos a preparar».
-            </p>
-          </Ayuda>
-        </div>
       </header>
 
       {visibles.length === 0 ? (
         <p className="texto-2 p-6 text-center text-sm">
-          Nada que mandar: todo el calzado que vende tiene cobertura de sobra.
+          Nada que mandar.
         </p>
       ) : (
         <div className="max-h-[32rem] overflow-auto">

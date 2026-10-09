@@ -67,7 +67,7 @@ export default async function CatalogoCreadores() {
       {productos.length ? (
         <BackCatalogo productos={productos} categorias={categorias} />
       ) : (
-        <Vacio>El catálogo todavía no se arma: corre solo cada hora en la actualización de la tienda.</Vacio>
+        <Vacio>El catálogo todavía no se arma.</Vacio>
       )}
     </Pagina>
   );

@@ -1,5 +1,5 @@
 import type { OrigenVentas } from "@/lib/tiktok/ventas";
-import { Ayuda, Seccion } from "@/components/ui/pagina";
+import { Seccion } from "@/components/ui/pagina";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -31,17 +31,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
   const segmentos = SEGMENTOS.map((s) => ({ ...s, bloque: origen[s.clave] })).filter((s) => s.bloque.cobrado > 0);
   const maxCreador = origen.top[0]?.cobrado ?? 0;
   return (
-    <Seccion titulo="Origen de la venta" descripcion="Creadores contra la tienda sola, en % de lo cobrado." sinRelleno>
-      <div className="px-4 pt-3">
-        <Ayuda titulo="¿De dónde sale?">
-          <p>
-            Quién trajo cada pedido en pie del rango, según el endpoint de afiliados de TikTok: lo que vendió un creador y lo
-            que vendió la tienda sola. Porcentajes sobre lo cobrado.
-          </p>
-          <p>Un pedido que todavía no se revisa contra TikTok (se leen cada hora) se declara aparte, no se cuenta como nuestro.</p>
-        </Ayuda>
-      </div>
-
+    <Seccion titulo="Origen de la venta" sinRelleno>
       {total.cobrado > 0 ? (
         <div className="px-4 pt-4">
           <div className="flex h-6 w-full gap-[2px] overflow-hidden rounded-[4px]" role="img" aria-label={`Creadores ${pct(origen.creadores.porcentaje)}, tienda ${pct(origen.tienda.porcentaje)}, sin revisar ${pct(origen.sinRevisar.porcentaje)}`}>
@@ -106,7 +96,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
             {!origen.top.length ? (
               <tr>
                 <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
-                  {origen.sinRevisar.pedidos > 0 ? "Todavía no se leen los afiliados de estos pedidos; se revisan cada hora." : "Ningún creador vendió en el rango."}
+                  {origen.sinRevisar.pedidos > 0 ? "Todavía no se leen los afiliados de estos pedidos." : "Ningún creador vendió en el rango."}
                 </td>
               </tr>
             ) : null}

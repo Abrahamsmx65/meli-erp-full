@@ -706,8 +706,7 @@ export function ContenidoAmazonPanel({
 
                 {cats.length === 0 ? (
                   <p className="texto-2 p-4 text-sm">
-                    Todavía no hay categorías. Captura las que ocupas en la store y luego asígnaselas a los
-                    modelos.
+                    Todavía no hay categorías.
                   </p>
                 ) : (
                   <div className="max-h-[24rem] overflow-auto">
@@ -809,8 +808,7 @@ export function ContenidoAmazonPanel({
               <section className="tarjeta p-4">
                 <h2 className="seccion-titulo">Acceso sin contraseña</h2>
                 <p className="texto-2 mt-1 text-xs">
-                  Abre solo esta sección, sin usuario ni contraseña. Al generar otro, el anterior deja
-                  de servir.
+                  Al generar otro, el anterior deja de servir.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <input

@@ -46,10 +46,7 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
   }
 
   return (
-    <Seccion
-      titulo="Colores equivalentes en Amazon"
-      descripcion="Cuando TikTok y Amazon llaman distinto al mismo color, por modelo."
-    >
+    <Seccion titulo="Colores equivalentes en Amazon">
       <Ayuda titulo="¿Para qué sirve?">
         <p>Así el corte encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.</p>
       </Ayuda>
