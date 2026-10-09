@@ -2003,11 +2003,36 @@ login, la base y el deploy.
   la marca la anterior. La marca escribe el modelo como MELI
   (`modeloSegunMarca`: XR → ixr, SE 2022 → ise2022, Note 13 Pro 4G →
   Rmn13pro-4g con su red, Poco X8 Pro 5G → PocoX8pro sin red, 12C → Rm12c).
-  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas`) y la
-  pantalla pinta EN ROJO las que no amarran, con el SKU editable en el
-  renglón y re-amarre al corregirlo (`/api/yapanizcel/pedidos/amarrar`):
-  se guardan igual pero NUNCA cuentan como en camino
-  (`cargarPedidosEnCamino` las salta).
+  **Columnas por COLOR** (8-oct-2026, fixtures `yz-pedido-{662,686,648,714}.xls`):
+  la fábrica reparte la cantidad en una columna por color (662: BLK /
+  GREEN / FUCHSIA / CREAM con "Qty" como suma; 686: 黑色 / una SIN nombre /
+  purple 紫色 / Pink / Grey con "Total") o en una sola columna titulada con
+  el único color (714 "Transparent透明", 648 "Transparent", sin Qty). Un
+  encabezado es color si es UNA palabra de color en inglés o SOLO el color
+  en chino (`colorDeEncabezado`, `COLORES_ZH`; "小單箱子用黃色膠布" es una
+  nota de cinta amarilla, no un color). Con varios colores sale una línea
+  por color CON color (`662-A07-BLK`) y la suma solo sirve para avisar; con
+  uno solo el SKU va SIN color (`714-A37`, `648-A07`) y, si MELI sí lo lleva
+  (`714-G05-transparent`), el amarre lo prueba con el color y lo adopta.
+  Una columna de cantidades sin encabezado entre las de color es un color
+  sin nombre (`?`): al amarrar se toma el ÚNICO color del modelo en MELI que
+  el archivo no nombra (686 iPad 11 → navy) y se declara; con dos o más,
+  queda en rojo. Entre varios renglones candidatos a encabezado gana el que
+  más columnas reconoce (el 662 trae la fila china arriba de la inglesa);
+  con varias columnas de costo del mismo rango (648: RMB mica, RMB caja,
+  RMB set) gana la de más a la DERECHA; "Cost of Set" y "UNIT PRICE(RMB)"
+  son costo, "Amount" y "PRICE" (importe) no; la fecha suelta ("16/9/2026"
+  sin "Date :") también se lee.
+  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas` →
+  `amarrarLineasCon`, puro) y la pantalla pinta EN ROJO las que no amarran,
+  con el SKU editable en el renglón y re-amarre al corregirlo
+  (`/api/yapanizcel/pedidos/amarrar`): se guardan igual pero NUNCA cuentan
+  como en camino (`cargarPedidosEnCamino` las salta).
+  **El "+" es parte del nombre** (`canonizar` lo vuelve PLUS): MELI tiene
+  `C-514-Rmn14pro-5G` Y `C-514-Rmn14pro+5G` (Pro y Pro+), y borrarlo las
+  dejaba con la misma clave: el amarre lo veía como empate y el pedido se
+  quedaba sin amarre. Un empate entre puras GEMELAS sí se resuelve a la
+  principal (`amarreConGemelas`); entre productos distintos, nunca.
 - **Etiquetas de Full de las fundas** (`/yapanizcel/etiquetas`,
   `yapanizcel/etiquetas.ts`, `/api/yapanizcel/etiquetas{,/pdf,/zpl}`): la
   MISMA etiqueta y la misma pantalla que la del calzado (`components/etiquetas.tsx`
