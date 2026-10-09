@@ -75,7 +75,7 @@ export default async function VentasTikTok({
       <Encabezado
         ceja="TikTok Shop"
         titulo="Ventas TikTok Shop"
-        descripcion={`Lo vendido, lo que va a pagar TikTok y la ganancia por modelo · ${rango.desde} → ${rango.hasta}`}
+        descripcion="Lo vendido, lo que va a pagar TikTok y la ganancia por modelo."
         frescura={lectura.generadoEn}
         ayuda={
           <>
@@ -253,7 +253,7 @@ export default async function VentasTikTok({
 
       <Seccion
         titulo="Solicitudes de muestras"
-        descripcion="Pedidos de $0 que TikTok crea cuando un creador pide muestra: se despachan y descuentan, pero no son venta."
+        descripcion="Pedidos de $0 para creadores: se despachan y descuentan, pero no son venta."
         sinRelleno
       >
         <div className="tabla-caja">

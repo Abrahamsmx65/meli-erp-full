@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
+import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { servirPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -43,7 +43,6 @@ export default async function Publicidad({
   const sp = await searchParams;
   // Sin rango en la URL, los últimos 30 días (no los 7 del monitor de ventas).
   const rango = normalizarRango(sp.desde ?? fechaMx(29), sp.hasta);
-  const dias = diasDeRango(rango);
 
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
@@ -60,7 +59,7 @@ export default async function Publicidad({
       <Encabezado
         ceja="Mercado Libre"
         titulo="Publicidad"
-        descripcion={`Product Ads por modelo: venta, ganancia y costo de publicidad por unidad (${dias} días · ${rango.desde} → ${rango.hasta}).`}
+        descripcion="Product Ads por modelo: venta, ganancia y costo de publicidad por unidad."
         frescura={servida.generadoEn}
       />
 
@@ -220,16 +219,15 @@ export default async function Publicidad({
 
       {p.sinAmarre.anuncios > 0 ? (
         <p className="text-xs texto-tenue">
-          {p.sinAmarre.anuncios} anuncios con {pesos(p.sinAmarre.gasto)} de gasto no
-          amarraron a ningún modelo del catálogo (publicaciones fuera de la
-          sincronización); ese gasto sí cuenta en el total de arriba.
+          {p.sinAmarre.anuncios} anuncios ({pesos(p.sinAmarre.gasto)}) no amarraron a ningún modelo; su gasto sí
+          cuenta en el total.
         </p>
       ) : null}
 
       {p.recomendaciones.length > 0 ? (
         <Seccion
           titulo="Recomendaciones"
-          descripcion="Qué hacer hoy con cada modelo, cruzando la publicidad con el stock de Full y el margen."
+          descripcion="Qué hacer hoy con cada modelo según su stock de Full y su margen."
           sinRelleno
         >
           <div className="px-4 pt-3">

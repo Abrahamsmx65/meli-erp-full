@@ -258,7 +258,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
           </span>
         ) : null}
         <button onClick={confirmar} disabled={ocupado !== null || !lineas.length || !folio.trim()} className="boton boton-primario ml-auto">
-          {ocupado === "guardar" ? "Guardando…" : "Confirmar y guardar pedido"}
+          {ocupado === "guardar" ? "Guardando…" : "Guardar pedido"}
         </button>
       </div>
       {aviso ? (

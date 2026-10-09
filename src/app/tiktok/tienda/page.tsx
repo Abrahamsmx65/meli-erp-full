@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarPedidosTienda } from "@/lib/servicios/tienda-pedidos";
@@ -36,16 +35,11 @@ export default async function TiendaEnLinea() {
         titulo="Tienda en línea"
         descripcion="Pedidos de la página de GETAC, que vende del mismo almacén que TikTok."
         acciones={
-          <>
-            {urlTienda && (
-              <a href={urlTienda} target="_blank" rel="noreferrer" className="boton boton-borde">
-                Abrir la tienda ↗
-              </a>
-            )}
-            <Link href="/tiktok/despacho" className="boton boton-fantasma">
-              ← Despacho TikTok
-            </Link>
-          </>
+          urlTienda ? (
+            <a href={urlTienda} target="_blank" rel="noreferrer" className="boton boton-borde">
+              Abrir tienda ↗
+            </a>
+          ) : null
         }
         ayuda={
           <p>

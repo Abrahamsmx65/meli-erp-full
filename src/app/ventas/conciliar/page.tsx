@@ -22,9 +22,8 @@ export default async function ConciliarMeliPagina() {
         descripcion="Sube el reporte de Ventas de un mes y se cruza, venta por venta, contra el pago real guardado."
         ayuda={
           <p>
-            Sube el reporte de Ventas de Mercado Libre de un mes y se cruza, venta por venta, contra lo que el ERP guardó
-            del pago real de Mercado Pago: ingresos, cargo por venta e impuestos, envíos, anulaciones y el total que MELI
-            te deja. Nada se estima ni se ajusta: lo que no cuadra se enseña con su monto.
+            Se comparan ingresos, cargo por venta e impuestos, envíos, anulaciones y el total que MELI te deja. Nada se
+            estima ni se ajusta: lo que no cuadra se enseña con su monto.
           </p>
         }
       />

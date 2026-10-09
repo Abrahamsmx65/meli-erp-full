@@ -88,25 +88,20 @@ export function AccionesCorte({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="boton boton-primario" disabled={ocupado != null} onClick={() => correr("corte")}>
-          {ocupado === "corte" ? "Revisando órdenes y cortando…" : corteId ? `Rehacer corte de ${periodo}` : `Hacer corte de ${periodo}`}
+          {ocupado === "corte" ? "Revisando órdenes y cortando…" : corteId ? "Rehacer corte" : "Hacer corte"}
         </button>
-        <button type="button" className="boton boton-secundario" disabled={ocupado != null} onClick={() => correr("revisar")}>
+        <button type="button" className="boton boton-borde" disabled={ocupado != null} onClick={() => correr("revisar")}>
           {ocupado === "revisar" ? "Revisando…" : pendientes > 0 ? `Revisar devoluciones (${pendientes.toLocaleString("es-MX")} pendientes)` : "Revisar devoluciones"}
         </button>
-        <button type="button" className="boton boton-secundario" disabled={ocupado != null} onClick={() => correr("cargos")}>
+        <button type="button" className="boton boton-borde" disabled={ocupado != null} onClick={() => correr("cargos")}>
           {ocupado === "cargos" ? "Leyendo…" : cargosLeidos ? "Releer facturación de MELI" : "Leer facturación de MELI"}
         </button>
-        <a className="boton boton-fantasma" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
-          PDF de vista previa
+        <a className="boton boton-borde" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
+          Ver PDF
         </a>
-        <a className="boton boton-fantasma" href={`${apiBase}/cortes/excel?periodo=${periodo}`}>
-          Excel con todo
+        <a className="boton boton-borde" href={`${apiBase}/cortes/excel?periodo=${periodo}`}>
+          Descargar Excel
         </a>
-        {corteId ? (
-          <a className="boton boton-fantasma" href={`${apiBase}/cortes/${corteId}/pdf`} target="_blank" rel="noreferrer">
-            PDF del corte guardado
-          </a>
-        ) : null}
       </div>
       {aviso ? <Aviso tono="bien">{aviso}</Aviso> : null}
       {error ? <Aviso tono="critico">{error}</Aviso> : null}

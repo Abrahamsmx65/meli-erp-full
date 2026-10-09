@@ -167,10 +167,10 @@ export function BotonSheets({ configurado }: { configurado: boolean }) {
     <div>
       <div className="flex flex-wrap gap-2">
         <button onClick={() => correr("sync")} disabled={ocupado !== null} className="boton boton-primario">
-          {ocupado === "sync" ? "Leyendo…" : "Actualizar bodega desde el sheet"}
+          {ocupado === "sync" ? "Leyendo…" : "Leer el sheet"}
         </button>
         <button onClick={() => correr("ver")} disabled={ocupado !== null} className="boton boton-borde">
-          {ocupado === "ver" ? "Leyendo…" : "Solo ver qué se leería"}
+          {ocupado === "ver" ? "Leyendo…" : "Vista previa"}
         </button>
       </div>
       <Mensajes aviso={aviso} error={error} />
@@ -262,20 +262,18 @@ export function FormularioParametros({
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium">{etiqueta}</span>
       <input type="number" name={nombre} defaultValue={valores[nombre]} min={1} className="w-28 rounded-lg border px-2 py-1" style={estiloInput} />
-      <span className="text-xs texto-tenue">
-        {ayuda}
-      </span>
+      {ayuda ? <span className="text-xs texto-tenue">{ayuda}</span> : null}
     </label>
   );
 
   return (
     <form onSubmit={enviar} className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        {campo("diasVenta", "Días de venta que se miden", "La ventana con la que se calcula la venta diaria (30).")}
-        {campo("diasObjetivo", "Días de cobertura en Full", "Cuántos días de venta se quieren dejar en Full (15: el espacio en Full es poco).")}
-        {campo("multiploEnvio", "Múltiplo de envío", "Las unidades se mandan en múltiplos de esto (10 = decenas cerradas).")}
-        {campo("minimoEnvio", "Mínimo por SKU", "Debajo de esto no se manda nada de ese SKU.")}
-        {campo("diasCaducidadEnvio", "Días que cuenta un envío", "Un envío registrado deja de contar como «en camino» después de estos días.")}
+        {campo("diasVenta", "Días de venta que se miden", "Ventana de la venta diaria (30).")}
+        {campo("diasObjetivo", "Días de cobertura en Full", "Hay poco espacio en Full (15).")}
+        {campo("multiploEnvio", "Múltiplo de envío", "10 = decenas cerradas.")}
+        {campo("minimoEnvio", "Mínimo por SKU", "")}
+        {campo("diasCaducidadEnvio", "Días que cuenta un envío", "Después deja de contar como en camino.")}
       </div>
       <div>
         <button type="submit" disabled={ocupado} className="boton boton-primario">

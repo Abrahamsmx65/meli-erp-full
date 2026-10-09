@@ -46,7 +46,7 @@ export default async function Nuevos() {
       <Encabezado
         ceja="Abastecimiento"
         titulo="Productos nuevos en camino"
-        descripcion={`Lo pedido que nunca ha tenido stock: si ya está publicado en MELI y Amazon y con al menos ${FOTOS_MINIMAS} fotos.`}
+        descripcion="Lo pedido que nunca ha tenido stock: si ya está publicado en MELI y Amazon y con cuántas fotos."
         frescura={servida.generadoEn}
         ayuda={
           <p>

@@ -60,12 +60,6 @@ export default async function Productos({
         }
         ayudaTitulo="¿De dónde se usa?"
       />
-      {conFundasSinCosto ? (
-        <p className="texto-tenue -mt-3 text-xs">
-          Se están mostrando también los {fundasSinCosto} diseños de funda sin costo capturado. En cuanto uno tenga costo, se
-          queda a la vista solo.
-        </p>
-      ) : null}
 
       {faltaMigracion ? (
         <Aviso tono="alerta">

@@ -23,7 +23,7 @@ interface Estado {
  */
 const RUTAS_CON_PLAN = ["/envios", "/pedidos", "/etiquetas", "/pendientes"];
 
-export function EstadoConexion() {
+export function EstadoConexion({ oculto = false }: { oculto?: boolean } = {}) {
   const [e, setE] = useState<Estado | null>(null);
   const router = useRouter();
   const ruta = usePathname();
@@ -85,7 +85,10 @@ export function EstadoConexion() {
     };
   }, [router, publica]);
 
-  if (publica || !e) return null;
+  // Oculto (dueño, 9-oct-2026: «no necesitamos el de cuándo fue la sync ni
+  // los pendientes ahí»): la consulta sigue corriendo porque es la que
+  // enciende el latido mientras la app está abierta, pero no pinta nada.
+  if (publica || !e || oculto) return null;
 
   const hace = (iso: string | null) => {
     if (!iso) return "nunca";
@@ -105,12 +108,12 @@ export function EstadoConexion() {
   return (
     <div
       className="flex items-center gap-2 text-[12px] font-medium"
-      style={{ color: "var(--marca-texto)" }}
+      style={{ color: "var(--ink-2)" }}
       aria-live="polite"
     >
       <span
         className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
-        style={{ background: "var(--marca-suave)" }}
+        style={{ background: "var(--surface-2)", boxShadow: "inset 0 0 0 1px var(--borde)" }}
         title={
           e.planGeneradoEn
             ? `Plan ${e.planVigente ? "al día" : "desactualizado"} · ${hace(e.planGeneradoEn)}`
@@ -121,8 +124,8 @@ export function EstadoConexion() {
           aria-hidden="true"
           className="inline-block h-2 w-2 rounded-full"
           style={{
-            background: vivo ? "#2ecc71" : "#ff9f43",
-            boxShadow: vivo ? "0 0 0 3px rgba(46,204,113,.25)" : "none",
+            background: vivo ? "var(--estado-bien)" : "var(--estado-serio)",
+            boxShadow: vivo ? "0 0 0 3px rgba(0,166,80,.15)" : "none",
           }}
         />
         {!e.conectado
@@ -131,14 +134,14 @@ export function EstadoConexion() {
             ? `MELI en vivo · ${hace(e.ultimaSync)}`
             : `MELI · ${hace(e.ultimaSync)}`}
         {e.ultimaSyncAmazon ? (
-          <span style={{ color: "rgba(255,255,255,.6)" }}>· Amazon {hace(e.ultimaSyncAmazon)}</span>
+          <span className="hidden xl:inline texto-tenue">· Amazon {hace(e.ultimaSyncAmazon)}</span>
         ) : null}
       </span>
 
       {e.planGeneradoEn && !e.planVigente ? (
         <span
           className="hidden rounded-full px-2.5 py-1 lg:inline-flex"
-          style={{ background: "rgba(255,159,67,.22)", color: "#ffd2a8" }}
+          style={{ background: "var(--alerta-suave)", color: "var(--alerta-texto)" }}
         >
           Plan desactualizado
         </span>

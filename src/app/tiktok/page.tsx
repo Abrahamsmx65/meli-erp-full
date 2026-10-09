@@ -134,7 +134,7 @@ export default async function TikTok({
 
       <Seccion
         titulo="Últimos movimientos"
-        descripcion="Cada par que entró o salió, con su motivo: deja auditar un saldo sin creerle a nadie."
+        descripcion="Cada par que entró o salió, con su motivo."
         sinRelleno
       >
         <Tabla vacia={!p.movimientos.length} textoVacio="Sin movimientos todavía.">

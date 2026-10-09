@@ -247,10 +247,6 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           </div>
         ) : null}
       </div>
-      <p className="text-xs texto-tenue">
-        Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias). * corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
-      </p>
-
       <h2 className="seccion-titulo mt-2">Envíos registrados</h2>
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">

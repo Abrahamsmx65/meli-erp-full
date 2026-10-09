@@ -36,7 +36,7 @@ export default async function PaginaEtiquetas() {
         <Encabezado
           ceja="Mercado Libre"
           titulo="Etiquetas"
-          descripcion="Etiquetas de Full, de Amazon (FNSKU) o las dos por par, en PDF o TXT para la térmica."
+          descripcion="Etiquetas de Full, de Amazon (FNSKU) o las dos por par, en PDF o ZPL para la térmica."
           ayudaTitulo="Cómo imprimirlas bien"
           ayuda={
             <>

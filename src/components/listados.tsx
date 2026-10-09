@@ -178,8 +178,8 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
 
           {raras.length === 0 ? (
             <Aviso tono="bien">
-              Sin diferencias raras: fuera de talla, color y códigos, todas las publicaciones
-              del agrupador traen los mismos atributos.
+              Sin diferencias: fuera de talla, color y códigos, todas las publicaciones traen los
+              mismos atributos.
             </Aviso>
           ) : (
             <section className="tarjeta overflow-hidden">
@@ -188,8 +188,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                   Diferencias que parten el selector ({raras.length})
                 </h2>
                 <p className="mt-0.5 text-xs texto-2">
-                  Elige el valor correcto y unifícalo: se escribe en todas las publicaciones
-                  del agrupador, en el nivel donde viva el atributo (publicación o variante).
+                  Elige el valor correcto: se escribe en todas las publicaciones del agrupador.
                 </p>
               </header>
 

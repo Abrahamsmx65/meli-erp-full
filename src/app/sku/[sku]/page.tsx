@@ -86,16 +86,19 @@ export default async function DetalleSku({
       </Seccion>
 
       {/* ---- De dónde sale cada día -------------------------------------- */}
-      <Seccion titulo="De dónde salen estos números">
+      <Seccion
+        titulo="De dónde salen estos números"
+        ayuda={
+          <p>
+            Mercado Libre no guarda «cuánto stock había el 12 de junio». Lo que da es el{" "}
+            <strong>registro de movimientos</strong>: cada entrada, venta, ajuste o devolución con su hora exacta y el
+            nivel que quedó después. El nivel de cada día se reconstruye a partir de eso — el último movimiento del día es
+            el cierre real.
+          </p>
+        }
+      >
         <div className="text-sm">
-        <p className="texto-2">
-          Mercado Libre no guarda «cuánto stock había el 12 de junio». Lo que da es el{" "}
-          <strong>registro de movimientos</strong>: cada entrada, venta, ajuste o
-          devolución con su hora exacta y el nivel que quedó después. El nivel de
-          cada día se reconstruye a partir de eso — el último movimiento del día es
-          el cierre real.
-        </p>
-        <ul className="mt-3 flex flex-col gap-1 texto-2">
+        <ul className="flex flex-col gap-1 texto-2">
           <li>
             <strong className="cifra">{cobertura.diasConMovimiento}</strong> días
             reconstruidos con movimientos de Mercado Libre

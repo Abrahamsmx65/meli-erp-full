@@ -456,7 +456,6 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
     <div className="flex flex-col gap-6">
       <Seccion
         titulo={pendientes ? `${pendientes} pedidos por despachar` : "Nada por despachar"}
-        descripcion="Un corte confirma los envíos en TikTok, descuenta del almacén, republica y guarda sus etiquetas y su lista."
         acciones={
           <>
             <select
@@ -471,7 +470,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={actualizar}
               disabled={actualizando}
-              className="boton boton-borde"
+              className="boton boton-borde boton-chico"
               title="Vuelve a leer en TikTok lo que sigue sin preparar en los cortes recientes: lo que ya se envió o se canceló deja de faltar"
             >
               <RefreshCw size={14} className={actualizando ? "animate-spin" : undefined} />
@@ -480,7 +479,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={simular}
               disabled={simulando || !pendientes}
-              className="boton boton-borde"
+              className="boton boton-borde boton-chico"
               title="Ver qué haría el corte sin confirmar nada"
             >
               <Eye size={14} />
@@ -527,12 +526,11 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                   Solo estos modelos
                   {soloModelos.length ? (
                     <span className="ml-2 font-normal texto-2">
-                      {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos. Los tres botones toman SOLO esos
-                      paquetes; los revueltos y los demás modelos esperan al corte general.
+                      {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos
                     </span>
                   ) : (
                     <span className="ml-2 font-normal texto-2">
-                      marca uno o varios para despacharlos aparte (los revueltos van con el corte general)
+                      marca uno o varios para despacharlos aparte
                     </span>
                   )}
                 </span>
@@ -587,15 +585,13 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
           </label>
         </div>
 
-        <p className="texto-tenue mt-2 text-xs">
-          Corte ayer: hasta ayer a las 23:59 (México), lo de hoy se queda. Corte lunes: viernes a domingo y luego lo del lunes.
-        </p>
-        <div className="mt-2">
-          <Ayuda titulo="¿Qué hace la defensa automática?">
+        <div className="mt-3">
+          <Ayuda titulo="¿Qué hace cada corte?">
             <p>
               Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén, republica y deja el corte
               guardado con sus etiquetas y su lista. Corte ayer toma solo lo de hasta ayer a las 23:59 (hora de México) y deja
-              lo de hoy pendiente, para adelantar un día.
+              lo de hoy pendiente, para adelantar un día. Corte lunes hace dos cortes: viernes a domingo (y lo más viejo) y
+              luego lo del lunes.
             </p>
             <p>
               Defensa automática: si un SKU no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok
@@ -662,13 +658,13 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
             </div>
             <p className="mt-1 text-xs texto-2">
-              Nada de esto se ha confirmado: es solo lo que pasaría. «Se cancela» es la defensa automática.
+              Nada se ha confirmado: es solo lo que pasaría.
             </p>
           </div>
         ) : null}
       </Seccion>
 
-      <Seccion titulo="Cortes" descripcion="Cada corte con sus etiquetas, su lista de empaque y lo que falta por preparar." sinRelleno>
+      <Seccion titulo="Cortes" sinRelleno>
         <div className="px-4 pt-3">
           <Ayuda titulo="¿En qué orden van las hojas?">
             <p>Surtido: pares por SKU en orden alfabético, para jalar de bodega.</p>
@@ -766,7 +762,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               <div className="flex flex-wrap gap-2">
                 <Link
                   href={`/tiktok/despacho/${c.id}/preparar`}
-                  className="boton boton-secundario"
+                  className="boton boton-secundario boton-chico"
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
@@ -776,7 +772,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                     disabled={pidiendoFaltantes === c.id}
                     onClick={() => verFaltantes(c.id)}
                     title="Los pedidos de este corte que todavía no se preparan, con sus productos"
-                    className="boton boton-borde"
+                    className="boton boton-borde boton-chico"
                     style={{ borderColor: "var(--estado-alerta)" }}
                   >
                     <PackageX size={14} />
@@ -814,7 +810,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                       }
                     }}
                     title="Da por preparados todos los paquetes pendientes del corte, con constancia SUPERVISOR"
-                    className="boton boton-borde"
+                    className="boton boton-borde boton-chico"
                   >
                     <ShieldCheck size={14} /> {preparandoTodo === c.id ? "Preparando…" : "Todo con clave"}
                   </button>
@@ -823,14 +819,14 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                   href={`/api/tiktok/cortes/${c.id}/surtido`}
                   target="_blank"
                   rel="noreferrer"
-                  className="boton boton-borde"
+                  className="boton boton-borde boton-chico"
                 >
                   Lista de surtido
                 </a>
                 <button
                   onClick={() => imprimirEtiquetas(c)}
                   disabled={Boolean(armandoEtiquetas[c.id]) && !armandoEtiquetas[c.id].startsWith("No se pudieron")}
-                  className="boton boton-primario"
+                  className="boton boton-secundario boton-chico"
                   title={
                     tomosDeCorte(c.pedidos) > 1
                       ? `El servidor arma ${tomosDeCorte(c.pedidos)} tomos de 200 guías y aquí se juntan en un solo PDF`
@@ -846,7 +842,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                 </button>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/salidas`}
-                  className="boton boton-borde"
+                  className="boton boton-borde boton-chico"
                   title="Las salidas del corte para el 3PL (CSV)"
                 >
                   Salidas 3PL
@@ -855,7 +851,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                   href={`/api/tiktok/cortes/${c.id}/lista`}
                   target="_blank"
                   rel="noreferrer"
-                  className="boton boton-borde"
+                  className="boton boton-borde boton-chico"
                 >
                   <FileText size={14} /> Lista de empaque
                 </a>

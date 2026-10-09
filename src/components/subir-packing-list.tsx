@@ -152,10 +152,8 @@ export function SubirPackingList() {
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Subir un packing list</h2>
       <p className="texto-2 mt-1 text-sm">
-        Sube el packing list de la fábrica tal como te llega. De ahí salen nuestro ID
-        (la referencia del embarque, S259-2026), el número de la naviera (MIEU…), los
-        pedidos y las cajas de cada modelo y color; el ERP los amarra con los pedidos
-        ya cargados y te enseña cómo quedó antes de guardar.
+        Sube el archivo de la fábrica tal como llega: se amarra con los pedidos cargados y
+        ves cómo queda antes de guardar.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

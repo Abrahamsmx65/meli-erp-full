@@ -278,7 +278,7 @@ export function DatosFiscales() {
             className="boton boton-primario"
             title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de su categoría de MELI o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
-            Confirmar y rellenar los {conSugerencia.length} modelos
+            Rellenar {conSugerencia.length} modelos
           </button>
         </header>
 
@@ -394,8 +394,7 @@ export function DatosFiscales() {
                         <button
                           onClick={() => rellenar(m)}
                           disabled={st === "guardando" || !m.sinDatos}
-                          className="rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-50"
-                          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                          className="boton boton-borde boton-chico"
                         >
                           Rellenar {m.sinDatos || m.errores}
                         </button>

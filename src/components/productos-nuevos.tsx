@@ -146,7 +146,7 @@ export function ProductosNuevos({
           disabled={revisando}
           className="boton boton-borde boton-chico disabled:opacity-50"
         >
-          {revisando ? "Revisando fotos…" : "Revisar lo que falta"}
+          {revisando ? "Revisando fotos…" : "Revisar fotos que faltan"}
         </button>
         <button
           onClick={() => revisar(true)}
@@ -154,7 +154,7 @@ export function ProductosNuevos({
           className="boton boton-borde boton-chico disabled:opacity-50"
           title="Vuelve a preguntar a MELI y Amazon por todos, también los que ya tienen fotos"
         >
-          Revisar todo de nuevo
+          Revisar todas las fotos
         </button>
       </header>
 

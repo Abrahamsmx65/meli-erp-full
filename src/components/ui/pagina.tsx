@@ -20,6 +20,7 @@
  */
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { CejaDeRuta } from "./ceja-ruta";
 
 export function Pagina({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`pagina ${className}`}>{children}</div>;
@@ -28,6 +29,7 @@ export function Pagina({ children, className = "" }: { children: ReactNode; clas
 export function Encabezado({
   titulo,
   ceja,
+  cejaFija,
   descripcion,
   acciones,
   frescura,
@@ -36,8 +38,10 @@ export function Encabezado({
   ayudaTitulo = "¿Cómo se calcula?",
 }: {
   titulo: ReactNode;
-  /** La sección del menú a la que pertenece («Mercado Libre», «TikTok Shop»…). */
+  /** Respaldo de la ceja: por omisión sale de la sección del menú. */
   ceja?: string;
+  /** La ceja dada manda sobre la del menú (Inicio pone la fecha). */
+  cejaFija?: boolean;
   /** Una sola línea: qué hay en esta pantalla. */
   descripcion?: ReactNode;
   /** Botones y descargas, a la derecha. */
@@ -53,7 +57,7 @@ export function Encabezado({
     <header className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          {ceja ? <div className="ceja mb-1">{ceja}</div> : null}
+          <CejaDeRuta respaldo={ceja} fija={cejaFija} />
           <h1 className="titulo-pagina">{titulo}</h1>
           {descripcion ? <p className="encabezado-descripcion">{descripcion}</p> : null}
         </div>

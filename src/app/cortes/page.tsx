@@ -10,7 +10,7 @@ import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Canal } from "
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
-import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -69,9 +69,12 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         descripcion="Calzado, fundas, Amazon y TikTok: la ganancia real del mes, por canal, categoría y modelo."
         frescura={cns.generadoEn}
         acciones={
-          <span className={`chip ${cns.exacto ? "aviso-bien" : "aviso-alerta"}`}>
-            {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
-          </span>
+          <>
+            <span className={`chip ${cns.exacto ? "aviso-bien" : "aviso-alerta"}`}>
+              {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
+            </span>
+            <AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />
+          </>
         }
         ayuda={
           <>
@@ -110,7 +113,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         </span>
       </div>
 
-      <AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />
       <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
 
       <Cifras columnas={4}>
@@ -145,11 +147,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <header className="seccion-cabeza">
           <div>
           <h2 className="seccion-titulo">Por canal</h2>
-          <p className="texto-2 mt-0.5 text-[13px]">
-            “Neto” es lo que queda después de cargos de plataforma. La fuente y su cobertura indican si ya está respaldado por datos reales o todavía es parcial.
-          </p>
           </div>
         </header>
+        <div className="px-4 pt-3">
+          <Ayuda>
+            <p>“Neto” es lo que queda después de cargos de plataforma. La fuente y su cobertura indican si ya está respaldado por datos reales o todavía es parcial.</p>
+          </Ayuda>
+        </div>
         <div className="overflow-x-auto">
           <table className="datos">
             <thead>
@@ -262,11 +266,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <header className="seccion-cabeza">
           <div>
           <h2 className="seccion-titulo">Por categoría</h2>
-          <p className="texto-2 mt-0.5 text-[13px]">
-            Sumando los tres canales. Ganancia = neto − costo − publicidad − gastos generales repartidos.
-          </p>
           </div>
         </header>
+        <div className="px-4 pt-3">
+          <Ayuda>
+            <p>Sumando todos los canales. Ganancia = neto − costo − publicidad − gastos generales repartidos.</p>
+          </Ayuda>
+        </div>
         <div className="overflow-x-auto">
           <table className="datos">
             <thead>
@@ -322,9 +328,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <header className="seccion-cabeza">
           <div>
           <h2 className="seccion-titulo">Por modelo</h2>
-          <p className="texto-2 mt-0.5 text-[13px]">
-            Un modelo que se vende en varios canales aparece una vez, con todo sumado. El Excel trae además una hoja por canal.
-          </p>
+          <p className="texto-2 mt-0.5 text-[13px]">Todos los canales sumados; el Excel trae una hoja por canal.</p>
           </div>
         </header>
         <div className="max-h-[36rem] overflow-auto">
@@ -374,8 +378,8 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </section>
 
       {/* ---- Avisos ------------------------------------------------------ */}
-      <Seccion titulo={cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}>
-        {cns.avisos.length ? (
+      {cns.avisos.length ? (
+        <Seccion titulo="Qué falta para confiar en todos los importes">
           <ul className="flex flex-col gap-1 text-sm">
             {cns.avisos.map((a, i) => (
               <li key={i} className="flex gap-2">
@@ -384,10 +388,8 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               </li>
             ))}
           </ul>
-        ) : (
-          <Aviso tono="bien">Los tres canales están completos.</Aviso>
-        )}
-      </Seccion>
+        </Seccion>
+      ) : null}
 
       {/* ---- Guardados ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  House,
   AlertTriangle,
   Barcode,
   Boxes,
@@ -37,12 +38,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
+import { Logo } from "@/components/logo";
 
 /**
- * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
+ * Menú lateral: riel azul marino de altura completa con el logo arriba:
  * secciones DESPLEGABLES (se abren y cierran con un clic; se recuerda cuáles
  * quedaron abiertas), entradas compactas (ícono + nombre; la explicación va
- * en el tooltip) y la activa en azul con fondo azul claro. La entrada que se
+ * en el tooltip) y la activa en blanco con una raya azul a la izquierda. La entrada que se
  * acaba de picar muestra un circulito mientras llega la página.
  *
  * El sistema dejó de ser "un planeador de envíos" para ser varias cosas, y la
@@ -65,78 +67,79 @@ interface Grupo {
 
 const GRUPOS: Grupo[] = [
   {
-    titulo: "Negocio",
+    titulo: null,
+    entradas: [
+      { href: "/", texto: "Inicio", icono: House, ayuda: "Lo que pasa hoy y lo que toca hacer" },
+    ],
+  },
+  {
+    titulo: "Ventas y dinero",
     entradas: [
       { href: "/cortes", texto: "Corte general", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
+      { href: "/ventas", texto: "Ventas Mercado Libre", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
+      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/publicidad", texto: "Publicidad Mercado Libre", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/amazon/publicidad", texto: "Publicidad Amazon", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
+      { href: "/ventas/conciliar", texto: "Conciliar Mercado Libre", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
+      { href: "/amazon/conciliar", texto: "Conciliar Amazon", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
+    ],
+  },
+  {
+    titulo: "Envíos y despacho",
+    entradas: [
+      { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
+      { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
+      { href: "/tiktok/despacho", texto: "Despacho TikTok", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
+      { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
+      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
     ],
   },
   {
     titulo: "Inventario",
     entradas: [
       { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
+      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
+      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
+      { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
+      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
       { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
       { href: "/skus", texto: "SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
+      { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
     ],
   },
   {
-    titulo: "Mercado Libre",
+    titulo: "Compras a China",
     entradas: [
-      { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
+      { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
+      { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
+      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
+    ],
+  },
+  {
+    titulo: "Catálogo y publicaciones",
+    entradas: [
       { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
-      { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/ventas/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
-      { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
-      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
-      { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
+      { href: "/amazon/contenido", texto: "Contenido Amazon", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
+      { href: "/tiktok/nuevos", texto: "Publicar en TikTok", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
+      { href: "/tiktok/precios", texto: "Precios TikTok", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
+      { href: "/tiktok/catalogo", texto: "Catálogo creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
       { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
       { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
     ],
   },
   {
-    titulo: "Amazon",
-    entradas: [
-      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
-      { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/amazon/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
-      { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
-      { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
-    ],
-  },
-  {
-    titulo: "TikTok Shop",
-    entradas: [
-      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
-      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
-      { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
-      { href: "/tiktok/catalogo", texto: "Catálogo creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
-      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
-      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
-      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
-      { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
-      { href: "/tiktok/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
-      { href: "/tiktok/precios", texto: "Precios", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
-    ],
-  },
-  {
-    titulo: "Abastecimiento",
-    entradas: [
-      { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
-      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
-      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
-      { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
-      { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
-    ],
-  },
-  {
-    titulo: "YAPANIZCEL · Fundas",
+    titulo: "Fundas",
     entradas: [
       { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
       { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
-      { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
-      { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
       { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
-      { href: "/yapanizcel/etiquetas", texto: "Etiquetas fundas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
       { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
+      { href: "/yapanizcel/skus", texto: "SKUs fundas", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
+      { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
+      { href: "/yapanizcel/etiquetas", texto: "Etiquetas fundas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
       { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
   },
@@ -153,6 +156,16 @@ const GRUPOS: Grupo[] = [
 ];
 
 const LLAVE_ABIERTOS = "menu-secciones-abiertas";
+
+/** Sección y pantalla de una ruta, para la barra superior («Amazon › Contenido»). */
+export function ubicacion(ruta: string, rol: Rol = "dueño"): { grupo: string; pagina: string } | null {
+  const entradas = GRUPOS.flatMap((g) =>
+    g.entradas.filter((e) => entradaVisible(rol, e.href)).map((e) => ({ ...e, grupo: g.titulo ?? "GETAC" })),
+  );
+  const candidatas = entradas.filter((e) => (e.href === "/" ? ruta === "/" : ruta === e.href || ruta.startsWith(`${e.href}/`)));
+  const mejor = candidatas.sort((a, b) => b.href.length - a.href.length)[0];
+  return mejor ? { grupo: mejor.grupo, pagina: mejor.texto } : null;
+}
 
 /** Qué secciones están abiertas, recordado en el navegador. */
 function leerAbiertos(): Record<string, boolean> | null {
@@ -236,13 +249,13 @@ export function MenuLateral({
         aria-label="Secciones"
         className={`${
           abierto ? "translate-x-0" : "-translate-x-full"
-        } fixed top-14 bottom-0 left-0 z-30 w-64 overflow-y-auto pt-3 pb-6 transition-transform duration-200 lg:sticky lg:z-0 lg:h-[calc(100vh-3.5rem)] lg:w-60 lg:shrink-0 lg:translate-x-0 lg:pt-4`}
-        style={{
-          background: "var(--sidebar)",
-          borderRight: "1px solid var(--sidebar-borde)",
-          color: "var(--sidebar-texto)",
-        }}
+        } no-imprimir fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto pb-6 transition-transform duration-200 lg:sticky lg:top-0 lg:z-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:translate-x-0`}
+        style={{ background: "var(--sidebar)", color: "var(--sidebar-texto)" }}
       >
+        <div className="flex h-14 shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
+          <Logo />
+        </div>
+        <div className="flex-1 pt-3">
         {grupos.map((g) => {
           const titulo = g.titulo ?? "principal";
           const desplegado = estaAbierto(titulo);
@@ -256,8 +269,8 @@ export function MenuLateral({
                   onClick={() => alternar(titulo)}
                   aria-expanded={desplegado}
                   aria-controls={idLista}
-                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold"
-                  style={{ color: contieneActivo && !desplegado ? "var(--acento)" : "var(--ink-muted)" }}
+                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase"
+                  style={{ color: contieneActivo && !desplegado ? "#fff" : "var(--sidebar-tenue)", letterSpacing: "0.06em" }}
                 >
                   <span className="flex items-center gap-1.5">
                     {g.titulo}
@@ -265,7 +278,7 @@ export function MenuLateral({
                       <span
                         aria-hidden="true"
                         className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: "var(--acento)" }}
+                        style={{ background: "var(--sidebar-acento)" }}
                       />
                     ) : null}
                   </span>
@@ -297,9 +310,9 @@ export function MenuLateral({
                         className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
                         style={{
                           background: act ? "var(--sidebar-activo)" : "transparent",
-                          color: act ? "var(--acento)" : "var(--sidebar-texto)",
+                          color: act ? "#fff" : "var(--sidebar-texto)",
                           fontWeight: act ? 600 : 500,
-                          boxShadow: act ? "inset 3px 0 0 var(--acento)" : "none",
+                          boxShadow: act ? "inset 2px 0 0 var(--sidebar-acento)" : "none",
                         }}
                       >
                         <Icono
@@ -307,7 +320,7 @@ export function MenuLateral({
                           strokeWidth={act ? 2.2 : 1.8}
                           aria-hidden="true"
                           className="shrink-0"
-                          style={{ color: act ? "var(--acento)" : "var(--ink-2)" }}
+                          style={{ color: act ? "var(--sidebar-acento)" : "var(--sidebar-tenue)" }}
                         />
                         <span className="min-w-0 flex-1 truncate">{e.texto}</span>
                         {e.href === "/pendientes" && pendientes ? (
@@ -323,13 +336,15 @@ export function MenuLateral({
           );
         })}
 
+        </div>
+
         <div className="mx-3 mt-1 border-t pt-3 md:hidden" style={{ borderColor: "var(--sidebar-borde)" }}>
           <a
             href="/api/salir"
             className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium"
             style={{ color: "var(--sidebar-texto)" }}
           >
-            <LogOut size={16} strokeWidth={1.8} className="shrink-0" style={{ color: "var(--ink-2)" }} />
+            <LogOut size={16} strokeWidth={1.8} className="shrink-0" style={{ color: "var(--sidebar-tenue)" }} />
             Cerrar sesión
           </a>
         </div>
@@ -337,7 +352,7 @@ export function MenuLateral({
 
       {abierto ? (
         <div
-          className="fixed inset-0 top-14 z-20 lg:hidden"
+          className="fixed inset-0 z-30 lg:hidden"
           style={{ background: "rgba(0,0,0,.45)" }}
           onClick={cerrar}
           aria-hidden="true"

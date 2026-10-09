@@ -229,10 +229,10 @@ export function PedidosAlmacenTikTok({
                 </span>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => verGuardado(p.id)} className="boton boton-borde">
+                <button onClick={() => verGuardado(p.id)} className="boton boton-borde boton-chico">
                   <ClipboardList size={14} /> Ver
                 </button>
-                <a href={`/api/tiktok/pedidos-almacen/${p.id}/excel`} className="boton boton-borde">
+                <a href={`/api/tiktok/pedidos-almacen/${p.id}/excel`} className="boton boton-borde boton-chico">
                   <FileSpreadsheet size={14} /> Excel
                 </a>
               </div>
