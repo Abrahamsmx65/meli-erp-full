@@ -8,6 +8,7 @@ import { CargarPedido } from "@/components/cargar-pedido";
 import { CargarPedidosLote } from "@/components/cargar-pedidos-lote";
 import { ListaPedidos } from "@/components/lista-pedidos";
 import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,9 +20,10 @@ function n(x: number): string {
 /**
  * Cargar pedidos: la pestaña de captura, aparte de la planificación.
  *
- * Arriba grita qué pedidos del sheet de pendientes todavía no están en el
- * ERP; en medio se suben las proformas (muchas de un jalón); abajo, todos
- * los pedidos con filtro por modelo, número de pedido o contenedor.
+ * La ficha de arriba grita cuántos pedidos del sheet de pendientes todavía
+ * no están en el ERP; en medio se suben las proformas (muchas de un jalón);
+ * abajo, en pestañas, todos los pedidos con filtro por modelo, número de
+ * pedido o contenedor, y la lista de los que faltan por cargar.
  */
 export default async function CargarPedidos() {
   const supabase = await clienteServidor();
@@ -69,7 +71,7 @@ export default async function CargarPedidos() {
         <Ficha titulo="Pedidos en total" valor={n(pedidos.length)} />
       </Cifras>
 
-      {/* ---- Faltantes según el sheet ------------------------------------- */}
+      {/* ---- El sheet no contestó ----------------------------------------- */}
       {!sheet.ok ? (
         <Aviso tono="alerta">
           No pude leer el sheet de pedidos pendientes: {sheet.error}{" "}
@@ -77,50 +79,6 @@ export default async function CargarPedidos() {
             Abrir el sheet
           </a>
         </Aviso>
-      ) : faltan.length ? (
-        <section
-          className="tarjeta overflow-hidden"
-          style={{ borderColor: "color-mix(in oklab, var(--estado-critico) 40%, transparent)" }}
-        >
-          <header className="seccion-cabeza">
-            <div className="min-w-0">
-              <h2 className="seccion-titulo" style={{ color: "var(--critico-texto)" }}>
-                Te faltan {faltan.length} pedidos por cargar
-              </h2>
-              <p className="texto-2 mt-0.5 text-[13px]">
-                Están en el{" "}
-                <a href={urlSheet} target="_blank" rel="noreferrer" className="enlace">
-                  sheet de pedidos pendientes
-                </a>{" "}
-                y no en el ERP. Los AR no cuentan. Sube su proforma aquí abajo.
-              </p>
-            </div>
-          </header>
-          <div className="max-h-72 overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Pedido</th>
-                  <th>Fábrica</th>
-                  <th>Modelos</th>
-                  <th className="num">Pares</th>
-                  <th>Embarque</th>
-                </tr>
-              </thead>
-              <tbody>
-                {faltan.map((p) => (
-                  <tr key={p.pedido}>
-                    <td className="font-medium">{p.pedido}</td>
-                    <td className="text-xs">{p.fabrica ?? "—"}</td>
-                    <td className="text-xs">{p.modelos ?? "—"}</td>
-                    <td className="num cifra">{p.pares != null ? n(p.pares) : "—"}</td>
-                    <td className="text-xs">{p.embarque ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
       ) : null}
 
       <CargarPedidosLote />
@@ -134,7 +92,70 @@ export default async function CargarPedidos() {
         </div>
       </details>
 
-      <ListaPedidos pedidos={pedidos} />
+      {/* Pestañas: la lista de pedidos y, si el sheet dice que faltan, la
+           lista de faltantes. La carga de proformas se queda arriba, fuera de
+           las pestañas, para que cambiar de pestaña no tire una carga a medias. */}
+      <Pestanas
+        pestanas={[
+          {
+            id: "pedidos",
+            titulo: "Pedidos",
+            cuenta: pedidos.length,
+            contenido: <ListaPedidos pedidos={pedidos} />,
+          },
+          faltan.length > 0 && {
+            id: "faltan",
+            titulo: "Faltan por cargar",
+            cuenta: faltan.length,
+            alerta: true,
+            contenido: (
+              <section
+                className="tarjeta overflow-hidden"
+                style={{ borderColor: "color-mix(in oklab, var(--estado-critico) 40%, transparent)" }}
+              >
+                <header className="seccion-cabeza">
+                  <div className="min-w-0">
+                    <h2 className="seccion-titulo" style={{ color: "var(--critico-texto)" }}>
+                      Te faltan {faltan.length} pedidos por cargar
+                    </h2>
+                    <p className="texto-2 mt-0.5 text-[13px]">
+                      Están en el{" "}
+                      <a href={urlSheet} target="_blank" rel="noreferrer" className="enlace">
+                        sheet de pedidos pendientes
+                      </a>{" "}
+                      y no en el ERP. Los AR no cuentan. Sube su proforma arriba.
+                    </p>
+                  </div>
+                </header>
+                <div className="max-h-72 overflow-auto">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>Pedido</th>
+                        <th>Fábrica</th>
+                        <th>Modelos</th>
+                        <th className="num">Pares</th>
+                        <th>Embarque</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {faltan.map((p) => (
+                        <tr key={p.pedido}>
+                          <td className="font-medium">{p.pedido}</td>
+                          <td className="text-xs">{p.fabrica ?? "—"}</td>
+                          <td className="text-xs">{p.modelos ?? "—"}</td>
+                          <td className="num cifra">{p.pares != null ? n(p.pares) : "—"}</td>
+                          <td className="text-xs">{p.embarque ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }

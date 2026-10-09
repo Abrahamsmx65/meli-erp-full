@@ -8,6 +8,7 @@ import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive
 import { configDrive } from "@/lib/servicios/drive";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,10 @@ export default async function Contenedores() {
     return { ...c, sinSku: coloresFantasma(suyas, propios), ligados: coloresLigados(suyas, propios) };
   });
   const enCamino = contenedores.filter((c) => c.estado !== "recibido");
+  // Reparto de la tabla en pestañas (mismos renglones, mismo orden).
+  const borradores = contenedoresVista.filter((c) => c.estado === "borrador");
+  const recibidos = contenedoresVista.filter((c) => c.estado === "recibido");
+  const transito = contenedoresVista.filter((c) => c.estado !== "borrador" && c.estado !== "recibido");
   const numeroPorId = new Map(contenedores.map((c) => [c.id, c.numero]));
   const archivosDrive: ArchivoDriveVista[] = (drive.data ?? []).map((a) => ({
     nombre: a.nombre,
@@ -99,7 +104,37 @@ export default async function Contenedores() {
 
       <SubirPackingList />
 
-      <TablaContenedores contenedores={contenedoresVista} />
+      {/* Pestañas por estado: la tabla es la misma, solo se reparte. Si no
+           hay ningún contenedor, la tabla enseña su mensaje de vacío. El
+           packing list se sube arriba, fuera de las pestañas, para que
+           cambiar de pestaña no tire una carga a medias. */}
+      {contenedores.length ? (
+        <Pestanas
+          pestanas={[
+            transito.length > 0 && {
+              id: "transito",
+              titulo: "En camino",
+              cuenta: transito.length,
+              contenido: <TablaContenedores contenedores={transito} />,
+            },
+            borradores.length > 0 && {
+              id: "borradores",
+              titulo: "Borradores",
+              cuenta: borradores.length,
+              alerta: true,
+              contenido: <TablaContenedores contenedores={borradores} />,
+            },
+            recibidos.length > 0 && {
+              id: "recibidos",
+              titulo: "Recibidos",
+              cuenta: recibidos.length,
+              contenido: <TablaContenedores contenedores={recibidos} />,
+            },
+          ]}
+        />
+      ) : (
+        <TablaContenedores contenedores={contenedoresVista} />
+      )}
     </Pagina>
   );
 }
