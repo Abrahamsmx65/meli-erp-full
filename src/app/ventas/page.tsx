@@ -183,12 +183,6 @@ export default async function Ventas({
       {m.porCategoria.length ? (
         <Seccion
           titulo="Por categoría"
-          descripcion={
-            <>
-              Ganancia = neto − costo − publicidad del modelo que la gastó.
-              {ads.errorAds ? " Product Ads no contestó: la ganancia va SIN publicidad." : ""}
-            </>
-          }
           sinRelleno
         >
           <div className="px-4 pt-3">
@@ -253,7 +247,7 @@ export default async function Ventas({
 
       <Seccion
         titulo="Por modelo"
-        descripcion={`Todas las tallas y colores de cada modelo, contra el periodo anterior del mismo largo.${ads.errorAds ? " Sin dato de ads ahora: la ganancia va sin publicidad." : ""}`}
+        descripcion="Todas las tallas y colores, contra el periodo anterior."
         sinRelleno
       >
         <div className="px-4 pt-3">

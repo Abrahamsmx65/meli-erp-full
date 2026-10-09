@@ -9,7 +9,7 @@ import {
 import { puenteVentaANeto } from "@/lib/servicios/corte-meli-cascada";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorte, GastosDelMes } from "@/components/cortes-meli";
-import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, Tabla } from "@/components/ui/pagina";
+import { Ayuda, Cifras, Encabezado, Pagina, Seccion, Tabla } from "@/components/ui/pagina";
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -96,7 +96,7 @@ export function CorteVista({
         <p className="texto-tenue text-xs">
           Corte guardado el{" "}
           {new Date(corteDelMes.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}{" "}
-          con utilidad neta {pesos(corteDelMes.utilidadNeta)}. Lo de abajo es el cálculo de HOY; rehacer el corte lo vuelve a congelar.
+          con utilidad neta {pesos(corteDelMes.utilidadNeta)}; abajo, el cálculo de hoy.
         </p>
       ) : null}
 
@@ -110,7 +110,7 @@ export function CorteVista({
       </Cifras>
 
       {/* ---- Cascada ----------------------------------------------------- */}
-      <Seccion titulo="De la venta a la ganancia" descripcion="Cada renglón es dinero real." sinRelleno>
+      <Seccion titulo="De la venta a la ganancia" sinRelleno>
         <div className="px-4 pt-3">
           <Ayuda>
             <p>
@@ -126,7 +126,7 @@ export function CorteVista({
 
       {/* ---- Exactitud --------------------------------------------------- */}
       <Seccion
-        titulo={e.revision.exacto ? "Corte exacto" : "Qué le falta al corte para ser exacto"}
+        titulo={e.avisos.length ? "Qué le falta al corte para ser exacto" : "Revisión de órdenes"}
         descripcion={
           <>
             {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
@@ -145,15 +145,13 @@ export function CorteVista({
             ))}
           </ul>
         ) : (
-          <Aviso tono="bien">
-            Todas las órdenes tienen su depósito real, su revisión y su costo; publicidad y cargos de MELI leídos del API.
-          </Aviso>
+          <p className="texto-2 text-sm">Sin pendientes: depósito, revisión y costo completos.</p>
         )}
       </Seccion>
 
       {/* ---- Gastos ------------------------------------------------------ */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Seccion titulo="Gastos capturados a mano" descripcion="Lo que no llega por API; se resta de la utilidad neta." sinRelleno>
+        <Seccion titulo="Gastos capturados a mano" sinRelleno>
           <div className="px-4 pt-3">
             <Ayuda titulo="¿Qué se captura aquí?">
               <p>
@@ -165,7 +163,7 @@ export function CorteVista({
           <GastosDelMes apiBase={apiBase} gastos={e.gastosManuales} desde={e.desde} hasta={e.hasta} />
         </Seccion>
 
-        <Seccion titulo="Facturado por MELI en el periodo" descripcion="Por tipo de cargo. Solo «Full» y «Otro» se restan." sinRelleno>
+        <Seccion titulo="Facturado por MELI en el periodo" sinRelleno>
           <div className="px-4 pt-3">
             <Ayuda>
               <p>
@@ -207,7 +205,7 @@ export function CorteVista({
       </div>
 
       {/* ---- Por modelo y por categoría ---------------------------------- */}
-      <Seccion titulo="Por modelo" descripcion="Ganancia = neto − costo − publicidad del modelo." sinRelleno>
+      <Seccion titulo="Por modelo" sinRelleno>
         <div className="px-4 pt-3">
           <Ayuda>
             <p>
@@ -304,11 +302,7 @@ export function CorteVista({
       </Seccion>
 
       {/* ---- Cortes guardados -------------------------------------------- */}
-      <Seccion
-        titulo="Cortes guardados"
-        descripcion="Cada corte queda congelado con las cifras del momento; su PDF se puede bajar cuantas veces haga falta."
-        sinRelleno
-      >
+      <Seccion titulo="Cortes guardados" sinRelleno>
         {cortes.length ? (
           <Tabla>
             <table className="datos">

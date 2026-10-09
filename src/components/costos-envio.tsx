@@ -302,33 +302,34 @@ export function CostosEnvio({
             disabled={revisando}
             className="boton boton-primario"
           >
-            {revisando ? "Revisando…" : "Revisar de nuevo"}
+            {revisando ? "Revisando…" : "Revisar medidas"}
           </button>
           <a
             href="/api/costos-envio/excel?formato=meli"
-            className="boton boton-secundario"
+            className="boton boton-borde"
+            title="Item ID · Site · medidas · link de evidencia"
           >
-            Excel para MELI (Item ID · Site · medidas · link)
+            Excel para MELI
           </a>
           <button
             onClick={generarEvidencias}
             disabled={generando || revisando}
             className="boton boton-borde"
           >
-            {generando ? "Dibujando evidencias…" : "Generar imágenes de evidencia"}
+            {generando ? "Dibujando evidencias…" : "Generar evidencias"}
           </button>
           <a
             href="/api/costos-envio/excel"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
+            className="boton boton-borde boton-chico"
+            title="Solo las publicaciones que cobran de más"
           >
-            Excel del caso (solo lo que está mal)
+            Excel del caso
           </a>
           <a
             href="/api/costos-envio/excel?todo=1"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline texto-2"
-           
+            className="boton boton-borde boton-chico"
           >
-            Excel del catálogo completo
+            Excel del catálogo
           </a>
           <input
             value={busqueda}
@@ -355,7 +356,7 @@ export function CostosEnvio({
             <>
               {" "}
               · <span className="cifra">{totales.sinCosto}</span> sin costo todavía: dale a
-              «Revisar de nuevo»
+              «Revisar medidas»
             </>
           )}
           {ventasReales.generadoEn && (
@@ -390,7 +391,7 @@ export function CostosEnvio({
           {busqueda
             ? `No hay ningún modelo que se llame así.`
             : totales.medidas === 0
-              ? "Todavía no hay nada revisado. Dale a «Revisar de nuevo» para leer las medidas de MELI."
+              ? "Todavía no hay nada revisado. Dale a «Revisar medidas» para leer las medidas de MELI."
               : "Ninguna publicación está cobrando de más. "}
         </p>
       )}

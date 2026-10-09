@@ -1,5 +1,5 @@
 import { Ficha } from "@/components/tiles";
-import { Cifras } from "@/components/ui/pagina";
+import { Ayuda, Cifras } from "@/components/ui/pagina";
 import type { Comparada, ComparacionMensual } from "@/lib/servicios/consolidado-comparar";
 
 function n(x: number): string {
@@ -48,16 +48,20 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
           Contra {nombreAnterior}
           {comp.base === "mismos-dias" ? ` · del 1 al ${comp.hastaAnterior}` : ""}
         </h2>
-        <p className="texto-2 mt-0.5 text-[13px]">
-          {comp.base === "mismos-dias"
-            ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
-            : comp.enCurso
-              ? `${nombreActual} va en curso y los mismos días de ${nombreAnterior} todavía se están calculando por atrás (unos minutos): mientras, la comparación justa es el ritmo por día.`
-              : `Mes completo contra mes completo.`}{" "}
-          La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.
-        </p>
       </div>
       </header>
+      <div className="px-4 pt-3">
+        <Ayuda titulo="¿Contra qué se compara?">
+          <p>
+            {comp.base === "mismos-dias"
+              ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
+              : comp.enCurso
+                ? `${nombreActual} va en curso y los mismos días de ${nombreAnterior} todavía se están calculando por atrás (unos minutos): mientras, la comparación justa es el ritmo por día.`
+                : `Mes completo contra mes completo.`}{" "}
+            La ganancia por canal es antes de gastos empresariales; la utilidad neta final ya los descuenta.
+          </p>
+        </Ayuda>
+      </div>
       <div className="p-4">
         <Cifras columnas={4}>
         {comp.ritmo ? (

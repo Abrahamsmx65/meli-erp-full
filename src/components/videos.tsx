@@ -1285,12 +1285,6 @@ export function GeneradorVideo({
   return (
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Nuevo video</h2>
-      <p className="texto-2 mt-0.5 text-[13px]">
-        Clip, prueba y hablado se generan directo de tus fotos reales: el producto
-        sale tal cual, sin que la IA lo redibuje. En UGC una persona lo presenta
-        hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena con
-        tu foto de referencia.
-      </p>
 
       {/* 1. Publicación */}
       <div className="mt-3">
@@ -2096,8 +2090,8 @@ export function GeneradorVideo({
           </label>
           <p className="text-[11px] texto-tenue">
             {formato === "ugc"
-              ? "Puedes editarlo. En inglés funciona mejor; el 🎲 arma otro concepto completo (escena, influencer y guion)."
-              : "Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento sin que tengas que escribir nada."}
+              ? "En inglés funciona mejor; el 🎲 arma otro concepto completo (escena, influencer y guion)."
+              : "En inglés funciona mejor; el 🎲 cambia luz y movimiento."}
           </p>
 
           {/* 4. Generar */}
@@ -2182,14 +2176,12 @@ export function BotonActualizar({ hayEnCurso }: { hayEnCurso: boolean }) {
     }
   }
 
+  // Sin nada en el horno no hay qué revisar: el botón solo sale mientras
+  // algo se genera (y la pantalla ya se refresca sola cada 20 s).
+  if (!hayEnCurso) return null;
   return (
-    <button
-      onClick={actualizar}
-      disabled={girando}
-      className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-      style={{ borderColor: "var(--borde)", color: hayEnCurso ? "var(--acento)" : "var(--ink-2)" }}
-    >
-      {girando ? "Revisando…" : "↻ Actualizar"}
+    <button onClick={actualizar} disabled={girando} className="boton boton-borde boton-chico">
+      {girando ? "Revisando…" : "Revisar estado"}
     </button>
   );
 }

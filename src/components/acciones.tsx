@@ -29,7 +29,11 @@ export async function leerRespuesta(r: Response): Promise<any> {
   }
 }
 
-export function BotonesPlan() {
+/**
+ * `soloArchivar`: en el Plan de envío no se repite «Sincronizar con MELI»
+ * (vive en Sincronizar; cada botón en un solo lugar).
+ */
+export function BotonesPlan({ soloArchivar = false }: { soloArchivar?: boolean } = {}) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -78,25 +82,28 @@ export function BotonesPlan() {
   // recálculo vive en un solo lugar: la tarjeta de frescura de abajo.
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Boton
-        variante="primario"
-        onClick={() => correr("sync")}
-        disabled={ocupado !== null}
-        cargando={ocupado === "sync"}
-        textoCargando="Sincronizando…"
-      >
-        Sincronizar con MELI
-      </Boton>
+      {soloArchivar ? null : (
+        <Boton
+          variante="primario"
+          onClick={() => correr("sync")}
+          disabled={ocupado !== null}
+          cargando={ocupado === "sync"}
+          textoCargando="Sincronizando…"
+        >
+          Sincronizar con MELI
+        </Boton>
+      )}
 
       <Boton
-        variante="fantasma"
+        variante={soloArchivar ? "borde" : "fantasma"}
+        chico={soloArchivar}
         onClick={() => correr("guardar")}
         disabled={ocupado !== null}
         cargando={ocupado === "guardar"}
         textoCargando="Archivando…"
         title="Congela una copia de este plan en el historial, para consultarlo después"
       >
-        Archivar en historial
+        Archivar plan
       </Boton>
 
       {aviso ? (
@@ -180,8 +187,8 @@ export function FrescuraPlan({
           {motivo ? ` · ${motivo}` : ""}
         </span>
       )}
-      <Boton variante="fantasma" chico onClick={recalcular} cargando={recalculando} textoCargando="Recalculando…">
-        Recalcular ahora
+      <Boton variante="borde" chico onClick={recalcular} cargando={recalculando} textoCargando="Recalculando…">
+        Recalcular plan
       </Boton>
     </div>
   );
