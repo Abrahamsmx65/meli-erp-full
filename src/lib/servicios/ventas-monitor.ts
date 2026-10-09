@@ -11,7 +11,7 @@
  * se atribuye a la demanda.
  */
 import { traerTodo, type DB } from "../datos/repos";
-import { conCacheApp } from "./cache-app";
+import { servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 
 /** Compatibilidad: sin marca explícita, solo los netos positivos históricos eran reales. */
@@ -151,19 +151,40 @@ const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
 const VIDA_CACHE_MONITOR_MS = 60_000;
 
 /**
- * Reutiliza el agregado completo por cuenta y rango. La búsqueda, el orden y
- * la página se aplican después sobre este resultado y no forman parte de la
+ * Cuánto vive el monitor guardado antes de refrescarse por atrás. La ficha
+ * de «Hoy» va dentro, así que aunque el rango ya haya cerrado no se congela.
+ */
+export const VIDA_MONITOR_GUARDADO_MS = 10 * 60_000;
+
+export const claveMonitorVentas = (r: RangoFechas): string => `ventas-monitor:${r.desde}:${r.hasta}`;
+
+/**
+ * El monitor masticado para PANTALLAS: sirve el renglón de `app_cache`
+ * aunque esté viejo y lo refresca por atrás (`servirConCacheApp`); solo sin
+ * renglón se calcula en el clic. El latido deja listo el rango por omisión
+ * (`precalcularPantallasVentas`). La búsqueda, el orden y la página de la
+ * tabla se aplican después sobre este resultado y no forman parte de la
  * clave, por lo que navegar la tabla no vuelve a consultar sus fuentes.
  */
-export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+export async function servirMonitor(
+  db: DB,
+  accountId: string,
+  rango?: RangoFechas,
+): Promise<{ datos: Monitor; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
-  return conCacheApp(
-    db,
-    accountId,
-    `ventas-monitor:${r.desde}:${r.hasta}`,
-    VIDA_CACHE_MONITOR_MS,
-    () => calcularMonitor(db, accountId, r),
+  return servirConCacheApp(db, accountId, claveMonitorVentas(r), VIDA_MONITOR_GUARDADO_MS, () =>
+    calcularMonitor(db, accountId, r),
   );
+}
+
+export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
+  return (await servirMonitor(db, accountId, rango)).datos;
+}
+
+/** Calcula el monitor sin pasar por el caché (lo usa el fondo para guardarlo). */
+export function calcularMonitorFresco(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
+  cacheMonitor.clear();
+  return calcularMonitor(db, accountId, rango);
 }
 
 async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
@@ -324,18 +345,13 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     return { porSku: [...porSku.values()], porDia };
   };
 
-  const [agregados, skus, stock, snapshots, config] = await Promise.all([
+  const [agregados, skus, stock, config] = await Promise.all([
     (async () => (await agregadosDesdeRpc()) ?? agregadosDesdeRenglones(await leerVentas()))(),
     traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
       q.eq("account_id", accountId).eq("activo", true),
     ),
     traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) =>
       q.eq("account_id", accountId),
-    ),
-    // SOLO las fotos en cero: es lo único que el monitor usa (días
-    // agotados). Traerlas todas eran ~36 mil filas por clic.
-    traerTodo<any>(db, "stock_snapshots", "sku, fecha, disponible", (q) =>
-      q.eq("account_id", accountId).gte("fecha", inicioPrev).eq("disponible", 0),
     ),
     configPorProducto(db, accountId),
   ]);
@@ -477,10 +493,44 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     else tallasDe.set(clave, [s.sku]);
   }
 
+  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
+  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
+  const movimientos = [...modelos.entries()]
+    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
+    .map(([modelo, m]) => ({
+      producto: modelo,
+      modelo,
+      color: "",
+      antes: m.unidades7Prev,
+      ahora: m.unidades7,
+      delta: m.unidades7 - m.unidades7Prev,
+      razon: "",
+    }));
+  const subenSinRazon = movimientos
+    .filter((m) => m.delta > 0)
+    .sort((a, b) => b.delta - a.delta)
+    .slice(0, 8);
+  const bajanSinRazon = movimientos
+    .filter((m) => m.delta < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 8);
+
+  // Las fotos en cero SOLO de las tallas de los modelos que salen en Suben y
+  // Bajan: es lo único que las usa. Antes se bajaban las ~18 mil fotos en
+  // cero de toda la cuenta (19 páginas) para escribir 16 razones.
+  const skusConRazon = [
+    ...new Set([...subenSinRazon, ...bajanSinRazon].flatMap((m) => tallasDe.get(m.modelo) ?? [])),
+  ];
+  const snapshots = await fotosEnCeroDe(db, accountId, inicioPrev, skusConRazon);
+
   const diasAgotadoSemana = new Map<string, number>();
+  const agotadoAntes = new Set<string>();
   for (const f of snapshots) {
-    if (f.fecha < inicioSemana) continue;
     if ((f.disponible ?? 0) > 0) continue;
+    if (f.fecha < inicioSemana) {
+      agotadoAntes.add(f.sku);
+      continue;
+    }
     diasAgotadoSemana.set(f.sku, (diasAgotadoSemana.get(f.sku) ?? 0) + 1);
   }
 
@@ -504,41 +554,15 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     const teniaQuiebrePrev = tallas.some((sku) => {
       // ¿Estuvo agotado la semana pasada y ahora tiene stock?
       const conStockHoy = (stockDe.get(sku)?.disponible ?? 0) > 0;
-      const agotadoAntes = snapshots.some(
-        (f) => f.sku === sku && f.fecha < inicioSemana && (f.disponible ?? 0) === 0,
-      );
-      return conStockHoy && agotadoAntes;
+      return conStockHoy && agotadoAntes.has(sku);
     });
     if (teniaQuiebrePrev) return "Se repuso stock que estaba agotado.";
     if (enCamino) return "La demanda subió (y ya viene más stock en camino).";
     return "La demanda subió.";
   };
 
-  // Un movimiento por MODELO, con todos sus colores y tallas juntos: ver el
-  // GT114 negro y el GT114 café por separado no le dice nada al dueño.
-  const movimientos = [...modelos.entries()]
-    .filter(([, m]) => m.unidades7 + m.unidades7Prev >= 10) // sin volumen no hay tendencia que leer
-    .map(([modelo, m]) => ({
-      producto: modelo,
-      modelo,
-      color: "",
-      antes: m.unidades7Prev,
-      ahora: m.unidades7,
-      delta: m.unidades7 - m.unidades7Prev,
-      razon: "",
-    }));
-
-  const subiendo = movimientos
-    .filter((m) => m.delta > 0)
-    .sort((a, b) => b.delta - a.delta)
-    .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
-
-  const bajando = movimientos
-    .filter((m) => m.delta < 0)
-    .sort((a, b) => a.delta - b.delta)
-    .slice(0, 8)
-    .map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
+  const subiendo = subenSinRazon.map((m) => ({ ...m, razon: razonDe(m.modelo, true) }));
+  const bajando = bajanSinRazon.map((m) => ({ ...m, razon: razonDe(m.modelo, false) }));
 
   const porModelo: FilaModelo[] = [...modelos.entries()]
     .map(([modelo, m]) => ({
@@ -580,6 +604,31 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
   };
   cacheMonitor.set(claveCache, { en: Date.now(), datos: monitor });
   return monitor;
+}
+
+/** Tallas por tanda en `.in("sku", …)`: la URL no debe crecer sin tope. */
+const SKUS_POR_TANDA = 150;
+
+/** Fotos con `disponible = 0` desde `desde`, solo de esos SKUs, por tandas. */
+async function fotosEnCeroDe(
+  db: DB,
+  accountId: string,
+  desde: string,
+  skus: string[],
+): Promise<{ sku: string; fecha: string; disponible: number | null }[]> {
+  const tandas: string[][] = [];
+  for (let i = 0; i < skus.length; i += SKUS_POR_TANDA) tandas.push(skus.slice(i, i + SKUS_POR_TANDA));
+  const partes = await Promise.all(
+    tandas.map((tanda) =>
+      traerTodo<{ sku: string; fecha: string; disponible: number | null }>(
+        db,
+        "stock_snapshots",
+        "sku, fecha, disponible",
+        (q) => q.eq("account_id", accountId).gte("fecha", desde).eq("disponible", 0).in("sku", tanda),
+      ),
+    ),
+  );
+  return partes.flat();
 }
 
 /**
