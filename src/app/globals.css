@@ -21,18 +21,18 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #f4f6f9;
-  --plane: #eef1f5;
+  --surface-2: #f7f8fa;
+  --plane: #f4f5f7;
 
   /* tinta */
-  --ink-1: #1a1a1a;
-  --ink-2: #666666;
-  --ink-muted: #8c8c8c;
+  --ink-1: #101828;
+  --ink-2: #4a5568;
+  --ink-muted: #8a93a3;
 
   /* líneas */
-  --grid: #edf0f4;
+  --grid: #eef0f3;
   --axis: #c9cfd8;
-  --borde: #e1e5eb;
+  --borde: #e3e6eb;
 
   /* estados */
   --estado-bien: #00a650;
@@ -54,15 +54,18 @@
   --marca-suave-2: rgba(255, 255, 255, 0.2);
   /* resalte de renglones (antes ámbar): azul muy claro */
   --ambar: #2f6df6;
-  --sidebar: #ffffff;
-  --sidebar-borde: #e1e5eb;
-  --sidebar-texto: #333d4d;
-  --sidebar-activo: #e6eefe;
+  /* menú lateral: el riel azul marino de la marca */
+  --sidebar: #0f1b2d;
+  --sidebar-borde: rgba(255, 255, 255, 0.08);
+  --sidebar-texto: rgba(255, 255, 255, 0.74);
+  --sidebar-tenue: rgba(255, 255, 255, 0.42);
+  --sidebar-activo: rgba(255, 255, 255, 0.09);
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
 
-  --sombra-panel: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --sombra-panel: 0 1px 2px rgba(16, 24, 40, 0.04);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
 
-  --radio: 6px;
+  --radio: 8px;
   --radio-grande: 10px;
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
@@ -222,8 +225,8 @@
   /* La tarjeta de MELI: blanca, esquinas de 6 px, sombra corta y sin borde. */
   .tarjeta {
     background: var(--surface-1);
-    border: 1px solid transparent;
-    border-radius: var(--radio);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-grande);
     box-shadow: var(--sombra-panel);
   }
 
@@ -605,17 +608,26 @@
   }
 
   .entrada-menu:hover {
-    background: var(--surface-2);
+    background: var(--sidebar-hover);
+    color: #fff;
   }
 
   .seccion-menu:hover {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .salir:hover {
     background: var(--surface-2);
     color: var(--ink-1);
   }
 
-  .salir:hover {
-    background: var(--marca-suave);
-    color: #fff;
+  /* El riel oscuro necesita su propio anillo de foco y barra fina. */
+  nav[aria-label="Secciones"] a:focus-visible,
+  nav[aria-label="Secciones"] button:focus-visible {
+    outline-color: #8fb1ff;
+  }
+  nav[aria-label="Secciones"] {
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   }
 
   /* Insignia roja de conteo (pendientes). */

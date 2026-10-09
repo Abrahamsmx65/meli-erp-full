@@ -37,12 +37,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
+import { Logo } from "@/components/logo";
 
 /**
- * Menú lateral blanco, como el del panel de vendedor de Mercado Libre:
+ * Menú lateral: riel azul marino de altura completa con el logo arriba:
  * secciones DESPLEGABLES (se abren y cierran con un clic; se recuerda cuáles
  * quedaron abiertas), entradas compactas (ícono + nombre; la explicación va
- * en el tooltip) y la activa en azul con fondo azul claro. La entrada que se
+ * en el tooltip) y la activa en blanco con una raya azul a la izquierda. La entrada que se
  * acaba de picar muestra un circulito mientras llega la página.
  *
  * El sistema dejó de ser "un planeador de envíos" para ser varias cosas, y la
@@ -154,6 +155,16 @@ const GRUPOS: Grupo[] = [
 
 const LLAVE_ABIERTOS = "menu-secciones-abiertas";
 
+/** Sección y pantalla de una ruta, para la barra superior («Amazon › Contenido»). */
+export function ubicacion(ruta: string, rol: Rol = "dueño"): { grupo: string; pagina: string } | null {
+  const entradas = GRUPOS.flatMap((g) =>
+    g.entradas.filter((e) => entradaVisible(rol, e.href)).map((e) => ({ ...e, grupo: g.titulo ?? "" })),
+  );
+  const candidatas = entradas.filter((e) => (e.href === "/" ? ruta === "/" : ruta === e.href || ruta.startsWith(`${e.href}/`)));
+  const mejor = candidatas.sort((a, b) => b.href.length - a.href.length)[0];
+  return mejor ? { grupo: mejor.grupo, pagina: mejor.texto } : null;
+}
+
 /** Qué secciones están abiertas, recordado en el navegador. */
 function leerAbiertos(): Record<string, boolean> | null {
   try {
@@ -236,13 +247,13 @@ export function MenuLateral({
         aria-label="Secciones"
         className={`${
           abierto ? "translate-x-0" : "-translate-x-full"
-        } fixed top-14 bottom-0 left-0 z-30 w-64 overflow-y-auto pt-3 pb-6 transition-transform duration-200 lg:sticky lg:z-0 lg:h-[calc(100vh-3.5rem)] lg:w-60 lg:shrink-0 lg:translate-x-0 lg:pt-4`}
-        style={{
-          background: "var(--sidebar)",
-          borderRight: "1px solid var(--sidebar-borde)",
-          color: "var(--sidebar-texto)",
-        }}
+        } no-imprimir fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto pb-6 transition-transform duration-200 lg:sticky lg:top-0 lg:z-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:translate-x-0`}
+        style={{ background: "var(--sidebar)", color: "var(--sidebar-texto)" }}
       >
+        <div className="flex h-14 shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
+          <Logo />
+        </div>
+        <div className="flex-1 pt-3">
         {grupos.map((g) => {
           const titulo = g.titulo ?? "principal";
           const desplegado = estaAbierto(titulo);
@@ -256,8 +267,8 @@ export function MenuLateral({
                   onClick={() => alternar(titulo)}
                   aria-expanded={desplegado}
                   aria-controls={idLista}
-                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold"
-                  style={{ color: contieneActivo && !desplegado ? "var(--acento)" : "var(--ink-muted)" }}
+                  className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase"
+                  style={{ color: contieneActivo && !desplegado ? "#fff" : "var(--sidebar-tenue)", letterSpacing: "0.06em" }}
                 >
                   <span className="flex items-center gap-1.5">
                     {g.titulo}
@@ -265,7 +276,7 @@ export function MenuLateral({
                       <span
                         aria-hidden="true"
                         className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: "var(--acento)" }}
+                        style={{ background: "#8fb1ff" }}
                       />
                     ) : null}
                   </span>
@@ -297,9 +308,9 @@ export function MenuLateral({
                         className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
                         style={{
                           background: act ? "var(--sidebar-activo)" : "transparent",
-                          color: act ? "var(--acento)" : "var(--sidebar-texto)",
+                          color: act ? "#fff" : "var(--sidebar-texto)",
                           fontWeight: act ? 600 : 500,
-                          boxShadow: act ? "inset 3px 0 0 var(--acento)" : "none",
+                          boxShadow: act ? "inset 2px 0 0 #8fb1ff" : "none",
                         }}
                       >
                         <Icono
@@ -307,7 +318,7 @@ export function MenuLateral({
                           strokeWidth={act ? 2.2 : 1.8}
                           aria-hidden="true"
                           className="shrink-0"
-                          style={{ color: act ? "var(--acento)" : "var(--ink-2)" }}
+                          style={{ color: act ? "#8fb1ff" : "var(--sidebar-tenue)" }}
                         />
                         <span className="min-w-0 flex-1 truncate">{e.texto}</span>
                         {e.href === "/pendientes" && pendientes ? (
@@ -323,13 +334,15 @@ export function MenuLateral({
           );
         })}
 
+        </div>
+
         <div className="mx-3 mt-1 border-t pt-3 md:hidden" style={{ borderColor: "var(--sidebar-borde)" }}>
           <a
             href="/api/salir"
             className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium"
             style={{ color: "var(--sidebar-texto)" }}
           >
-            <LogOut size={16} strokeWidth={1.8} className="shrink-0" style={{ color: "var(--ink-2)" }} />
+            <LogOut size={16} strokeWidth={1.8} className="shrink-0" style={{ color: "var(--sidebar-tenue)" }} />
             Cerrar sesión
           </a>
         </div>
@@ -337,7 +350,7 @@ export function MenuLateral({
 
       {abierto ? (
         <div
-          className="fixed inset-0 top-14 z-20 lg:hidden"
+          className="fixed inset-0 z-30 lg:hidden"
           style={{ background: "rgba(0,0,0,.45)" }}
           onClick={cerrar}
           aria-hidden="true"

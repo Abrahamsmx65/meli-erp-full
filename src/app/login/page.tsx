@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clienteNavegador } from "@/lib/supabase/client";
 import { Aviso } from "@/components/ui/pagina";
+import { Logo } from "@/components/logo";
 
 /** Dominio de los usuarios de operación, que entran con nombre y no con correo. */
 const DOMINIO_USUARIOS = "getac.erp";
@@ -58,53 +59,102 @@ function FormularioLogin() {
   }
 
   return (
-    <div className="mx-auto mt-6 w-full max-w-sm sm:mt-16">
-      <div className="tarjeta p-8">
-        <h1 className="titulo-seccion">Entra a tu cuenta</h1>
-        <p className="mt-1 text-sm texto-2">
-          Inventario, envíos a Full, pedidos a China y ventas, en un solo lugar.
-        </p>
+    <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+      {/* Lado de la marca: solo en pantallas anchas. */}
+      <aside
+        className="relative hidden flex-col justify-between overflow-hidden p-12 lg:flex"
+        style={{ background: "var(--marca)", color: "#fff" }}
+      >
+        <Logo />
+        <div className="relative max-w-md">
+          <p className="ceja" style={{ color: "#8fb1ff" }}>
+            Calzado · Mercado Libre · Amazon · TikTok Shop
+          </p>
+          <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "#fff" }}>
+            Qué mandar, qué pedir y cuánto ganas, en un solo lugar.
+          </h1>
+          <p className="mt-4 text-[15px] leading-relaxed text-pretty" style={{ color: "rgba(255,255,255,.66)" }}>
+            Inventario en bodega y en Full, envíos por cajas cerradas, pedidos a China, despacho de TikTok y
+            el corte del mes con el dinero real de cada orden.
+          </p>
+        </div>
+        <ul className="relative grid grid-cols-3 gap-4 text-[12px]" style={{ color: "rgba(255,255,255,.6)" }}>
+          {[
+            ["Inventario", "Bodega, Full y FBA"],
+            ["Abastecimiento", "Pedidos y contenedores"],
+            ["Dinero", "Cortes al centavo"],
+          ].map(([t, d]) => (
+            <li key={t} className="border-t pt-3" style={{ borderColor: "rgba(255,255,255,.14)" }}>
+              <span className="block font-semibold text-white">{t}</span>
+              {d}
+            </li>
+          ))}
+        </ul>
+        {/* Retícula tenue: el papel milimétrico de una corrida de tallas. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
+            maskImage: "radial-gradient(ellipse at 70% 40%, #000 20%, transparent 75%)",
+          }}
+        />
+      </aside>
 
-        <form onSubmit={enviar} className="mt-6 flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs font-semibold texto-2">
-            Correo o usuario
-            <input
-              type="text"
-              required
-              placeholder="correo@ejemplo.com o usuario"
-              value={correo}
-              onChange={(e) => setCorreo(e.target.value)}
-              autoComplete="email"
-              className="text-sm font-normal"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold texto-2">
-            Contraseña
-            <input
-              type="password"
-              required
-              minLength={5}
-              placeholder="••••••••"
-              value={clave}
-              onChange={(e) => setClave(e.target.value)}
-              autoComplete="current-password"
-              className="text-sm font-normal"
-            />
-          </label>
-          <button type="submit" disabled={cargando} className="boton boton-primario mt-2 w-full">
-            {cargando ? "Un momento…" : "Entrar"}
-          </button>
-        </form>
+      <main className="flex items-center justify-center px-5 py-12" style={{ background: "var(--surface-1)" }}>
+        <div className="w-full max-w-sm">
+          <div className="mb-10 lg:hidden">
+            <div className="inline-flex rounded-xl p-3" style={{ background: "var(--marca)" }}>
+              <Logo />
+            </div>
+          </div>
+          <h2 className="text-[26px] font-semibold tracking-tight">Entra a tu cuenta</h2>
+          <p className="texto-2 mt-1.5 text-sm">Usa tu correo o tu nombre de usuario.</p>
 
-        {mensaje ? (
-          <Aviso tono="critico" className="mt-4">
-            {mensaje}
-          </Aviso>
-        ) : null}
-      </div>
-      <p className="mt-4 text-center text-xs texto-tenue">
-        El acceso es por invitación. Si no puedes entrar, pídele al dueño que dé de alta tu correo.
-      </p>
+          <form onSubmit={enviar} className="mt-8 flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+              Correo o usuario
+              <input
+                type="text"
+                required
+                placeholder="correo@ejemplo.com"
+                value={correo}
+                onChange={(e) => setCorreo(e.target.value)}
+                autoComplete="email"
+                className="h-11 text-sm font-normal"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] font-medium">
+              Contraseña
+              <input
+                type="password"
+                required
+                minLength={5}
+                placeholder="••••••••"
+                value={clave}
+                onChange={(e) => setClave(e.target.value)}
+                autoComplete="current-password"
+                className="h-11 text-sm font-normal"
+              />
+            </label>
+            <button type="submit" disabled={cargando} className="boton boton-primario mt-2 h-11 w-full">
+              {cargando ? "Entrando…" : "Entrar"}
+            </button>
+          </form>
+
+          {mensaje ? (
+            <Aviso tono="critico" className="mt-4">
+              {mensaje}
+            </Aviso>
+          ) : null}
+
+          <p className="texto-tenue mt-10 text-xs">
+            El acceso es por invitación. Si no puedes entrar, pide que den de alta tu correo.
+          </p>
+        </div>
+      </main>
     </div>
   );
 }
@@ -117,9 +167,7 @@ export default function Login() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto mt-16 max-w-sm text-center text-sm texto-2">
-          Cargando…
-        </div>
+        <div className="grid min-h-dvh place-items-center text-sm texto-2">Cargando…</div>
       }
     >
       <FormularioLogin />

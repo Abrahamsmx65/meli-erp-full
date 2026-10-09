@@ -1,20 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut, Menu, Package, Search, X } from "lucide-react";
-import { MenuLateral } from "@/components/menu-lateral";
+import { ChevronRight, LogOut, Menu, Search, X } from "lucide-react";
+import { MenuLateral, ubicacion } from "@/components/menu-lateral";
+import { Logo } from "@/components/logo";
 import { EstadoConexion } from "@/components/estado-conexion";
 import { Avisos } from "@/components/ui/avisos";
 import type { Rol } from "@/lib/acceso/roles";
 
 /**
- * Armazón de la app: barra superior azul marino, menú lateral blanco y el
- * área de trabajo sobre gris frío. Es el esqueleto de un panel de vendedor
- * (Seller Central, el de MELI), que es donde el dueño pasa el resto del día:
- * así la herramienta se siente parte del mismo escritorio y no un sistema
- * aparte.
+ * Armazón de la app (rediseño del 9-oct-2026): riel azul marino de la marca
+ * a la izquierda con el logo y las secciones, barra superior blanca y
+ * delgada con dónde estás, el buscador y la salida, y el área de trabajo
+ * sobre gris muy claro. Ya no hay franja azul arriba: la pantalla es del
+ * trabajo, no del marco.
  *
  * Las pantallas SIN sesión (login, el link de contenido de Amazon y la
  * estación de preparar pedidos) reciben solo la franja de marca: quien entra
@@ -32,6 +32,9 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
   const publica =
     ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
 
+  // El login se dibuja a pantalla completa, sin marco.
+  if (ruta.startsWith("/login")) return <>{children}</>;
+
   if (publica) {
     return (
       <div className="flex min-h-screen flex-col">
@@ -47,54 +50,45 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
     );
   }
 
-  return (
-    <div className="flex min-h-screen flex-col">
-      <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} rol={rol} />
+  return <Marco rol={rol} abierto={abierto} setAbierto={setAbierto}>{children}</Marco>;
+}
 
-      <div className="flex flex-1">
-        <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
-        <div className="min-w-0 flex-1">
-          <main className="mx-auto max-w-[1400px] px-4 py-6 md:px-6">
-            {children}
-          </main>
-        </div>
+/** El marco de trabajo con sesión: riel, barra superior y área de trabajo. */
+export function Marco({
+  children,
+  rol = "dueño",
+  abierto = false,
+  setAbierto = () => {},
+}: {
+  children: React.ReactNode;
+  rol?: Rol;
+  abierto?: boolean;
+  setAbierto?: (v: boolean | ((v: boolean) => boolean)) => void;
+}) {
+  return (
+    <div className="flex min-h-dvh">
+      <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Cabecera abierto={abierto} alternar={() => setAbierto((v) => !v)} rol={rol} />
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
       <Avisos />
     </div>
   );
 }
 
-function Logo() {
-  return (
-    <Link href="/" className="flex items-center gap-2.5" aria-label="GETAC, inicio">
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-lg"
-        style={{ background: "var(--acento)", color: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}
-      >
-        <Package size={18} strokeWidth={2.5} />
-      </span>
-      <span className="leading-none">
-        <span className="block text-[15px] font-extrabold tracking-tight" style={{ color: "var(--marca-texto)" }}>
-          GETAC
-        </span>
-        <span
-          className="mt-0.5 block text-[9px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "rgba(255,255,255,.6)" }}
-        >
-          Control de inventario
-        </span>
-      </span>
-    </Link>
-  );
-}
 
 /**
- * La barra superior. Lleva el logo, el buscador de SKUs (va directo a Bodega
- * con el filtro puesto), el estado de la conexión con MELI y la salida.
+ * La barra superior: blanca y delgada, encima del área de trabajo. Lleva
+ * dónde estás (sección › pantalla), el buscador de SKUs (va directo a Bodega
+ * con el filtro puesto), el estado de la conexión y la salida. En pantallas
+ * chicas también el botón del menú y el logo, porque el riel se esconde.
  */
 function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alternar: () => void; rol?: Rol }) {
   const router = useRouter();
+  const ruta = usePathname();
   const [q, setQ] = useState("");
+  const donde = ubicacion(ruta, rol);
 
   function buscar(e: React.FormEvent) {
     e.preventDefault();
@@ -106,69 +100,60 @@ function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alt
   return (
     <header
       aria-label="Barra superior"
-      className="no-imprimir sticky top-0 z-40 flex h-14 items-center gap-3 px-4 md:gap-5 md:px-5"
-      style={{
-        background: "linear-gradient(90deg, var(--marca), var(--marca-2))",
-        boxShadow: "0 1px 0 rgba(0,0,0,.2), 0 2px 8px rgba(15,27,45,.18)",
-      }}
+      className="no-imprimir sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 md:gap-5 md:px-8"
+      style={{ background: "rgba(255,255,255,.92)", borderColor: "var(--borde)", backdropFilter: "saturate(1.4) blur(6px)" }}
     >
       <button
         onClick={alternar}
         aria-label={abierto ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={abierto}
         className="-ml-1 rounded-md p-1.5 lg:hidden"
-        style={{ color: "var(--marca-texto)" }}
+        style={{ color: "var(--ink-1)" }}
       >
         {abierto ? <X size={20} /> : <Menu size={20} />}
       </button>
 
-      <div className="hidden sm:block">
-        <Logo />
-      </div>
-
-      {/* El buscador va a Bodega: quien solo es de TikTok no lo tiene. */}
-
-      {rol !== "tiktok" ? (
-
-      <form
-        onSubmit={buscar}
-        role="search"
-        className="relative mx-auto flex w-full max-w-xl items-stretch"
-      >
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar SKU, modelo o color en bodega…"
-          aria-label="Buscar en bodega"
-          className="h-9 w-full rounded-r-none border-0 pr-2"
-          style={{ borderRadius: "var(--radio) 0 0 var(--radio)" }}
-        />
-        <button
-          type="submit"
-          aria-label="Buscar"
-          className="flex h-9 w-11 shrink-0 items-center justify-center"
-          style={{
-            background: "var(--acento)",
-            color: "#fff",
-            borderRadius: "0 var(--radio) var(--radio) 0",
-          }}
-        >
-          <Search size={17} strokeWidth={2.2} />
-        </button>
-      </form>
-
+      {donde ? (
+        <nav aria-label="Ubicación" className="hidden min-w-0 items-center gap-1.5 text-[13px] md:flex">
+          <span className="texto-tenue truncate">{donde.grupo}</span>
+          <ChevronRight size={14} className="texto-tenue shrink-0" aria-hidden="true" />
+          <span className="truncate font-medium" style={{ color: "var(--ink-1)" }}>
+            {donde.pagina}
+          </span>
+        </nav>
       ) : null}
 
-      <div className="ml-auto hidden items-center gap-3 md:flex">
+      {/* El buscador va a Bodega: quien solo es de TikTok no lo tiene. */}
+      {rol !== "tiktok" ? (
+        <form onSubmit={buscar} role="search" className="relative ml-auto w-full max-w-sm">
+          <Search
+            size={15}
+            className="texto-tenue pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar SKU, modelo o color…"
+            aria-label="Buscar en bodega"
+            className="h-9 w-full pl-9"
+            style={{ background: "var(--surface-2)" }}
+          />
+        </form>
+      ) : (
+        <div className="ml-auto" />
+      )}
+
+      <div className="hidden items-center gap-2 md:flex">
         <EstadoConexion />
         <a
           href="/api/salir"
-          className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-semibold"
-          style={{ color: "rgba(255,255,255,.85)" }}
+          className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium"
+          style={{ color: "var(--ink-2)" }}
           title="Cerrar sesión"
         >
-          <LogOut size={15} strokeWidth={2.2} />
+          <LogOut size={15} strokeWidth={2} />
           Salir
         </a>
       </div>
