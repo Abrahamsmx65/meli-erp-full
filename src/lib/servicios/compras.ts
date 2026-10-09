@@ -31,6 +31,8 @@
 import { traerTodo, type DB } from "../datos/repos";
 import { indexarCatalogo, claveOrdenada } from "../etiquetas/resolver";
 import { claveAplastada, claveComparacion } from "../importar/sku";
+import { desglosarSku } from "./sync";
+import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
 import type { LineaGuardada } from "./cache";
 import type { TikTokCompraSku } from "./tiktok-compras";
 
@@ -271,6 +273,88 @@ function clave(modelo: string, color: string): string {
 }
 
 /**
+ * Con qué claves se reconoce una corrida (o se busca), para que el modelo +
+ * color del SKU de MELI y el de la receta del pedido se encuentren aunque
+ * estén escritos distinto. Hasta el 9-oct-2026 la búsqueda era por texto
+ * exacto y 98 modelos salían «sin corrida» teniendo receta:
+ *   - separador: la corrida dice «BLK/GREY» y el SKU «BLK-GREY» (GT204,
+ *     YH816, G650, GT110 GREY-BLUE);
+ *   - modelo con guion: la corrida es GT104-2 | GREY y el catálogo parte el
+ *     SKU como GT104 | 2-GREY (todo el GT104);
+ *   - anotación: «BLK (NEGRO)» contra «BLK»;
+ *   - amarre a mano del color (`alias-color.ts`): la receta vive bajo el
+ *     color de la fábrica («NAVY (AZUL MARINO)») y el SKU bajo el de MELI
+ *     («BLUE»).
+ * Todo cae en la clave APLASTADA de modelo + color (sin separadores, con
+ * sinónimos), más la variante sin paréntesis y la traducida por el alias.
+ */
+export function clavesDeCorrida(modelo: string, color: string, alias?: MapaAlias | null): string[] {
+  const m = (modelo || "").trim();
+  const c = (color || "").trim();
+  const sinAnotacion = c.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const claves = [claveAplastada(`${m}-${c}`), claveAplastada(`${m}-${sinAnotacion}`)];
+  if (alias?.size) {
+    const traducido = colorEfectivo(alias, m, c);
+    if (traducido !== c) claves.push(claveAplastada(`${m}-${traducido}`));
+    const traducidoSinAnotacion = colorEfectivo(alias, m, sinAnotacion);
+    if (traducidoSinAnotacion !== sinAnotacion) claves.push(claveAplastada(`${m}-${traducidoSinAnotacion}`));
+  }
+  return [...new Set(claves.filter(Boolean))];
+}
+
+export interface CorridaIndexada {
+  tallas: Record<string, number>;
+  total: number;
+  pedido: string;
+}
+
+/** La corrida más reciente (pedido más alto) de cada modelo + color, por todas sus claves. */
+export function indexarCorridas(
+  corridas: { pedido?: unknown; modelo?: unknown; color?: unknown; tallas?: unknown; total?: unknown }[],
+  alias?: MapaAlias | null,
+): Map<string, CorridaIndexada> {
+  const indice = new Map<string, CorridaIndexada>();
+  for (const c of corridas) {
+    const tallas = (c.tallas ?? {}) as Record<string, number>;
+    const total = Number(c.total) || Object.values(tallas).reduce((a: number, b: unknown) => a + Number(b), 0);
+    if (!total) continue;
+    const pedido = String(c.pedido ?? "");
+    for (const k of clavesDeCorrida(String(c.modelo ?? ""), String(c.color ?? ""), alias)) {
+      const previa = indice.get(k);
+      // Empatan por pedido: el número de pedido más alto es el más nuevo.
+      // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
+      if (!previa || numeroDePedido(pedido) > numeroDePedido(previa.pedido)) {
+        indice.set(k, { tallas, total, pedido });
+      }
+    }
+  }
+  return indice;
+}
+
+export function buscarCorrida(
+  indice: Map<string, CorridaIndexada>,
+  modelo: string,
+  color: string,
+): CorridaIndexada | undefined {
+  for (const k of clavesDeCorrida(modelo, color)) {
+    const c = indice.get(k);
+    if (c) return c;
+  }
+  return undefined;
+}
+
+/**
+ * Un SKU que no está en el catálogo de MELI (Amazon con `-MX`, un color ya
+ * descontinuado) se parte con `desglosarSku`, que sabe de sufijos de sitio.
+ * Antes se partía a mano y «GT100-MINT-23-MX» quedaba como color «MINT-23»
+ * y talla «MX»: un grupo fantasma por talla, sin corrida.
+ */
+export function partesDeSkuSuelto(sku: string): { modelo: string; color: string; talla: string } {
+  const d = desglosarSku(sku);
+  return { modelo: d.modelo ?? sku, color: d.color ?? "", talla: d.talla ?? "" };
+}
+
+/**
  * Reparte los pares de una caja entre tallas en proporción a su faltante,
  * en enteros que suman exacto (mayor residuo se lleva el par sobrante).
  */
@@ -427,30 +511,25 @@ export async function sugerirCompra(
 
   // La página de pedidos ya leyó estas dos tablas para el inventario:
   // volver a pedirlas duplicaba los viajes a la base en cada clic.
-  const [corridasRaw, skusRaw] = precargado
-    ? [precargado.corridas, precargado.skus]
-    : await Promise.all([
-        traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
-          q.eq("account_id", accountId),
-        ),
-        traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
-          q.eq("account_id", accountId).eq("activo", true),
-        ),
-      ]);
+  const [[corridasRaw, skusRaw], aliasColores] = await Promise.all([
+    precargado
+      ? Promise.resolve([precargado.corridas, precargado.skus] as [any[], any[]])
+      : Promise.all([
+          traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", (q) =>
+            q.eq("account_id", accountId),
+          ),
+          traerTodo<any>(db, "skus", "sku, modelo, color, talla", (q) =>
+            q.eq("account_id", accountId).eq("activo", true),
+          ),
+        ]),
+    // Colores del pedido ligados a mano con MELI: la receta se encuentra
+    // también bajo el color de MELI.
+    cargarAliasColores(db, accountId).catch(() => new Map() as MapaAlias),
+  ]);
 
-  // La corrida más reciente de cada modelo+color es la que la fábrica usa hoy.
-  const corridaDe = new Map<string, { tallas: Record<string, number>; total: number; pedido: string }>();
-  for (const c of corridasRaw) {
-    const k = clave(c.modelo ?? "", c.color ?? "");
-    const previa = corridaDe.get(k);
-    const total = c.total ?? Object.values(c.tallas ?? {}).reduce((a: number, b: any) => a + Number(b), 0);
-    if (!total) continue;
-    // Empatan por pedido: el número de pedido más alto es el más nuevo.
-    // Se compara el NÚMERO, no el texto: "IN9999" > "IN10160" como cadena.
-    if (!previa || numeroDePedido(String(c.pedido ?? "")) > numeroDePedido(previa.pedido)) {
-      corridaDe.set(k, { tallas: c.tallas ?? {}, total, pedido: String(c.pedido ?? "") });
-    }
-  }
+  // La corrida más reciente de cada modelo+color es la que la fábrica usa
+  // hoy, reconocible por todas sus escrituras (`clavesDeCorrida`).
+  const corridaDe = indexarCorridas(corridasRaw, aliasColores);
 
   // Cómo se descompone cada SKU. Se prefiere el catálogo directo; si no
   // está (los SKUs de AMAZON traen sufijo -MX y a veces la talla antes del
@@ -468,12 +547,7 @@ export async function sugerirCompra(
       indiceMeli.aplastado.get(claveAplastada(sku)) ??
       indiceMeli.ordenado.get(claveOrdenada(sku));
     if (i?.modelo) return { modelo: i.modelo, color: i.color ?? "", talla: i.talla ?? "" };
-    const t = sku.split("-");
-    return {
-      modelo: t[0] ?? sku,
-      color: t.length >= 3 ? t.slice(1, -1).join("-") : (t[1] ?? ""),
-      talla: t.length >= 3 ? (t[t.length - 1] ?? "") : "",
-    };
+    return partesDeSkuSuelto(sku);
   }
 
   // --- Agrupar por modelo + color -----------------------------------------
@@ -697,7 +771,7 @@ export async function sugerirCompra(
     const objetivo = demanda * horizonte;
     const faltante = Math.max(0, objetivo - inventarioTotal);
 
-    const c = corridaDe.get(clave(g.modelo, g.color));
+    const c = buscarCorrida(corridaDe, g.modelo, g.color);
     // La fábrica solo arma cajas de 12/24/36/48: el total histórico se lleva
     // al tamaño real más cercano (la corrida interna cambia, el total no).
     const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : null;

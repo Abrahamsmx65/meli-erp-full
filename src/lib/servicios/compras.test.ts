@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   armarPedidoColor,
+  buscarCorrida,
   faltantesPorRegimen,
+  indexarCorridas,
   paresPorCajaNormalizado,
+  partesDeSkuSuelto,
   repartirCorrida,
   sugerirCompra,
 } from "./compras";
+import { armarMapaAlias } from "./alias-color";
 
 describe("corrida propuesta", () => {
   it("reparte los pares de la caja en proporción al faltante y suma exacto", () => {
@@ -215,5 +219,45 @@ describe("sugerirCompra con TikTok como tercer canal", () => {
     expect(g.ventaMesTikTok).toBe(0);
     expect(g.enTikTok).toBe(0);
     expect(g.inventarioTotal).toBe(10);
+  });
+});
+
+describe("la corrida se encuentra aunque el color esté escrito distinto (9-oct-2026)", () => {
+  const corridas = [
+    { pedido: "IN10077", modelo: "GT204", color: "BLK/GREY", tallas: { "23": 8, "24": 16, "25": 24 }, total: 48 },
+    { pedido: "IN10053", modelo: "GT104-2", color: "GREY", tallas: { "25": 24, "26": 24 }, total: 48 },
+    { pedido: "IN10032", modelo: "GT104-2", color: "GREY", tallas: { "25": 12, "26": 12 }, total: 24 },
+    { pedido: "IN10140", modelo: "GT074", color: "NAVY (AZUL MARINO)", tallas: { "24": 24, "25": 24 }, total: 48 },
+    { pedido: "IN10140", modelo: "GT074", color: "BLK (NEGRO)", tallas: { "24": 24, "25": 24 }, total: 48 },
+  ];
+
+  it("separador distinto: BLK/GREY en la receta, BLK-GREY en el SKU", () => {
+    const ix = indexarCorridas(corridas);
+    expect(buscarCorrida(ix, "GT204", "BLK-GREY")?.pedido).toBe("IN10077");
+  });
+
+  it("modelo con guion: GT104-2 | GREY contra GT104 | 2-GREY, y gana el pedido más nuevo", () => {
+    const ix = indexarCorridas(corridas);
+    const c = buscarCorrida(ix, "GT104", "2-GREY");
+    expect(c?.pedido).toBe("IN10053");
+    expect(c?.total).toBe(48);
+  });
+
+  it("anotación entre paréntesis: BLK (NEGRO) contra BLK", () => {
+    const ix = indexarCorridas(corridas);
+    expect(buscarCorrida(ix, "GT074", "BLK")?.pedido).toBe("IN10140");
+  });
+
+  it("amarre a mano: la receta bajo NAVY (AZUL MARINO) se encuentra con el BLUE de MELI", () => {
+    const alias = armarMapaAlias([
+      { modelo: "GT074", color: "NAVY (AZUL MARINO)", color_meli: "BLUE", color_pedido: "NAVY (AZUL MARINO)" },
+    ]);
+    expect(buscarCorrida(indexarCorridas(corridas), "GT074", "BLUE")).toBeUndefined();
+    expect(buscarCorrida(indexarCorridas(corridas, alias), "GT074", "BLUE")?.pedido).toBe("IN10140");
+  });
+
+  it("un SKU suelto de Amazon con -MX se parte con la talla al final, no como color MINT-23", () => {
+    expect(partesDeSkuSuelto("GT100-MINT-23-MX")).toEqual({ modelo: "GT100", color: "MINT", talla: "23" });
+    expect(partesDeSkuSuelto("GT204-BLK-GREY-24")).toEqual({ modelo: "GT204", color: "BLK-GREY", talla: "24" });
   });
 });
