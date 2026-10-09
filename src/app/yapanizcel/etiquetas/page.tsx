@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
-import { obtenerPlanYz } from "@/lib/yapanizcel/envios";
+import { obtenerSugeridasYz } from "@/lib/yapanizcel/envios";
 import { Etiquetas } from "@/components/etiquetas";
 import { Encabezado, SinCuenta } from "@/components/yapanizcel/comunes";
 
@@ -18,14 +18,11 @@ export default async function EtiquetasYz() {
 
   // Lo que el plan de envíos a Full dice que hay que mandar, para sacar
   // sus etiquetas de un clic: una por unidad, ya en decenas cerradas. El
-  // plan vive masticado en yz_cache: aquí solo se lee.
+  // plan vive masticado en yz_cache y aquí solo se lee su vista chica
+  // («plan:sugeridas»), no el renglón completo de ~4 MB.
   let sugeridas: { sku: string; cantidad: number }[] = [];
   try {
-    const plan = await obtenerPlanYz(supabase, cuenta.id);
-    sugeridas = plan.lineas
-      .filter((l) => l.mandar > 0)
-      .map((l) => ({ sku: l.sku, cantidad: l.mandar }))
-      .sort((a, b) => b.cantidad - a.cantidad);
+    sugeridas = (await obtenerSugeridasYz(supabase, cuenta.id)).datos;
   } catch {
     sugeridas = [];
   }
