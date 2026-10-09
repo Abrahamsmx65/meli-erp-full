@@ -75,7 +75,7 @@ export function GastosEmpresariales({ gastos, periodo }: { gastos: GastoEmpresar
       <header className="seccion-cabeza">
         <div className="min-w-0">
         <h2 className="seccion-titulo">Gastos empresariales</h2>
-        <p className="texto-2 mt-0.5 text-[13px]">Nómina, bodegas y otros gastos del negocio. Se descuentan una sola vez, solo de la utilidad general.</p>
+        <p className="texto-2 mt-0.5 text-[13px]">Nómina, bodegas y otros gastos del negocio; se restan solo de la utilidad general.</p>
         </div>
       </header>
       <form onSubmit={guardar} className="grid gap-3 border-b p-4 hairline md:grid-cols-5">
@@ -84,7 +84,7 @@ export function GastosEmpresariales({ gastos, periodo }: { gastos: GastoEmpresar
         <label className="text-xs">Categoría<input className={entrada} style={estiloEntrada} required list="categorias-empresariales" maxLength={80} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} /><datalist id="categorias-empresariales">{categorias.map((x) => <option key={x} value={x} />)}</datalist></label>
         <label className="text-xs">Monto<input className={entrada} style={estiloEntrada} type="number" required min="0.01" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></label>
         <div className="flex gap-2 md:col-span-5">
-          <button className="boton boton-primario" disabled={ocupado}>{ocupado ? "Guardando…" : form.id ? "Guardar cambios" : "Añadir gasto"}</button>
+          <button className="boton boton-primario" disabled={ocupado}>{ocupado ? "Guardando…" : form.id ? "Guardar cambios" : "Agregar gasto"}</button>
           {form.id ? <button type="button" className="boton boton-fantasma" onClick={() => setForm({ ...VACIO, fecha: `${periodo}-01` })}>Cancelar</button> : null}
         </div>
         {error ? <p className="text-sm md:col-span-5" style={{ color: "var(--critico-texto)" }}>{error}</p> : null}

@@ -1,5 +1,6 @@
 import type { AuditoriaFinanzas, OrdenAuditada } from "@/lib/servicios/finanzas/tipos";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
+import { Ayuda } from "@/components/ui/pagina";
 
 /** Centavos → "$1,234.56". Lo único que este componente "calcula". */
 function pesos(c: number | null): string {
@@ -104,9 +105,7 @@ export function AuditoriaOrdenes({
         <div className="min-w-0">
           <h2 className="seccion-titulo">Auditoría por orden</h2>
           <p className="texto-2 mt-0.5 text-[13px]">
-            Cada renglón es una venta con lo que Mercado Pago cobró y depositó, para abrirla y
-            cotejarla al centavo. «Pago real» = leída de Mercado Pago con retenciones y envío
-            exactos; «forma vieja» o «sin leer» se recargan en segundo plano.
+            Lo que Mercado Pago cobró y depositó en cada venta, para cotejarla al centavo.
           </p>
         </div>
         <BotonDescarga
@@ -114,9 +113,17 @@ export function AuditoriaOrdenes({
           nombre={`auditoria-ordenes-${rango.desde}_${rango.hasta}.xlsx`}
           chico
         >
-          Excel de todas las órdenes
+          Descargar Excel
         </BotonDescarga>
       </header>
+      <div className="px-4 pt-3">
+        <Ayuda>
+          <p>
+            «Pago real» = leída de Mercado Pago con retenciones y envío exactos; «forma vieja» o «sin leer» se
+            recargan en segundo plano.
+          </p>
+        </Ayuda>
+      </div>
       {auditoria ? (
         <>
           <Tabla

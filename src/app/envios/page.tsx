@@ -156,7 +156,7 @@ export default async function Plan() {
               motivo={estado.motivo}
               msCalculo={estado.msCalculo}
             />
-            <BotonesPlan />
+            <BotonesPlan soloArchivar />
           </>
         }
       />

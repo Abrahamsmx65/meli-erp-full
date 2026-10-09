@@ -77,9 +77,7 @@ export function PendientesIndusther({
         <div className="min-w-0">
           <h2 className="seccion-titulo">Envíos pendientes en la bodega (a MELI Full)</h2>
           <p className="texto-2 mt-0.5 text-[13px]">
-            Estos ya están apartados para salir y el plan LOS ESTÁ CONSIDERANDO como en
-            camino. El que no deba contar, quítalo aquí; al recibirse en Full
-            desaparecen solos.
+            Ya apartados para salir: cuentan como en camino hasta recibirse en Full.
           </p>
         </div>
         <span

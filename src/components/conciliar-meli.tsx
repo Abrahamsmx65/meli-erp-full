@@ -73,7 +73,7 @@ export function ConciliarMeli() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <label className="boton boton-primario cursor-pointer" style={{ opacity: subiendo ? 0.6 : 1 }}>
-          {subiendo ?? "Subir reporte de Ventas (Excel)"}
+          {subiendo ?? "Subir reporte de Ventas"}
           <input
             ref={inputRef}
             type="file"
@@ -98,7 +98,6 @@ export function ConciliarMeli() {
 
 function Informe({ i }: { i: InformeVentasMeli }) {
   const s = i.sumas;
-  const dNeto = Math.round((s.netoReporte - s.netoErp) * 100) / 100;
   const filas: { concepto: string; reporte: number; erp: number }[] = [
     { concepto: "Ingresos por productos (venta bruta)", reporte: s.ingresos, erp: s.total },
     { concepto: "Cargo por venta e impuestos (comisión + ISR + IVA)", reporte: s.cargosReporte, erp: s.cargosErp },
@@ -163,9 +162,6 @@ function Informe({ i }: { i: InformeVentasMeli }) {
             })}
           </tbody>
         </table>
-        <p className="border-t p-3 text-xs hairline texto-2">
-          Diferencia en el neto de las comparables: <strong className="cifra">{pesos(dNeto)}</strong>.
-        </p>
       </section>
 
       {i.porEstadoDistintas.length ? (
@@ -239,9 +235,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
             </table>
           </div>
         </section>
-      ) : (
-        <Aviso tono="bien">Todas las ventas comparables cuadran al centavo con el ERP.</Aviso>
-      )}
+      ) : null}
     </div>
   );
 }

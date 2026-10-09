@@ -55,11 +55,11 @@ export function EnviosSeparados({
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="seccion-titulo">Envíos a preparar</h2>
-        <p className="texto-2 mt-0.5 text-[13px]">
-          {grupos.length === 1
-            ? "Todo sale de una sola dirección, así que es un solo envío."
-            : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}
-        </p>
+        {grupos.length > 1 ? (
+          <p className="texto-2 mt-0.5 text-[13px]">
+            {`${grupos.length} envíos, uno por dirección de recolección: cada uno se da de alta por separado en Mercado Libre.`}
+          </p>
+        ) : null}
       </div>
 
       {sinConfigurar.length ? (
@@ -164,11 +164,11 @@ function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] })
 
           <BotonDescarga
             href={`/api/plan/excel?grupo=${encodeURIComponent(grupo.grupo)}`}
-            variante="primario"
+            variante="borde"
             chico
             title={`Excel solo con las cajas del envío ${grupo.nombre}`}
           >
-            Excel de este envío
+            Descargar Excel
           </BotonDescarga>
         </div>
       </header>
