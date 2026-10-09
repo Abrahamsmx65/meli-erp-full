@@ -1031,6 +1031,30 @@ guárdala numerada.
   y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
+  con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
+  `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
+  `empaque-pdf.ts`; `separadorDeLote` en `pdfEtiquetasDelCorte`; modo lote
+  en `tiktok/preparar.ts` (`paso: "lote"`, `EstadoEscaneo.lote`,
+  `salirDeLote`, `trasGuardar`); pedido del dueño, 8-oct-2026: «cuando hay
+  que mandar muchos productos de 1 unidad del mismo SKU, que sea más fácil
+  y manejable»): como el corte ya va modelo → color → talla, los paquetes
+  de un par del mismo SKU salen SEGUIDOS; desde 10 seguidos forman un LOTE
+  (un cancelado corta la corrida). La lista de empaque los enseña como UN
+  recuadro («LOTE · GT148-BLK-24-MX · 68 paquetes de 1 par · #120–#187 ·
+  toma 68 cajas y las guías #120 a #187, cualquier guía va en cualquier
+  caja») y el surtido de la hoja cuenta sus pares; en el PDF de etiquetas
+  va una HOJA SEPARADORA delante de las guías del lote (y «continúa» si el
+  lote empezó en el tomo anterior) para que la pila salga partida. En la
+  estación, escanear el PRODUCTO de un lote con paquetes por preparar abre
+  el MODO LOTE (dos pitidos): la caja se escanea UNA vez y de ahí cada guía
+  (código del pedido o de hoja) queda preparada en el acto con constancia
+  `LOTE:<sku>` + el código; una guía de otro producto se rechaza, un
+  producto de otro lote cambia de lote, un producto sin lote cierra el modo
+  y sigue normal, y «Salir del lote» lo cierra a mano. Al guardar, el lote
+  sigue abierto (`trasGuardar`); con el lote completo el producto ya no lo
+  abre. Decisiones tomadas por omisión (el dueño dijo «sí, mándalo» sin
+  elegir): lote desde 10 y sin volver a pedir la caja cada N guías.
   **La estación aguanta sin wifi** (`tiktok/cola-preparados.ts` puro con
   pruebas; `components/preparar-tiktok.tsx`; dueño, 7-oct-2026: «a veces no
   hay buena señal y cuando escanean no jala bien la info; que tengan un

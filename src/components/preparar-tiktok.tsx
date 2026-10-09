@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
 import { Aviso } from "@/components/ui/pagina";
 import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
-import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, salirDeLote, trasGuardar, type EstadoEscaneo } from "@/lib/tiktok/preparar";
+import { avanceDeLote, detectarLotes } from "@/lib/tiktok/lotes";
 import {
   MS_REINTENTO_COLA,
   agregarACola,
@@ -194,7 +195,7 @@ export function PrepararTikTok({
       try {
         await mandarConstancia(datos);
         setPreparados((p) => new Set([...p, datos.numero]));
-        setEstado({ ...estadoInicial(), indicacion: siguiente.indicacion });
+        setEstado(trasGuardar(siguiente));
         setEnLinea(true);
         void vaciarCola();
       } catch (e) {
@@ -204,10 +205,12 @@ export function PrepararTikTok({
           fijarCola(agregarACola(colaRef.current, { ...datos, en: new Date().toISOString() }));
           setPreparados((p) => new Set([...p, datos.numero]));
           setEnLinea(false);
-          setEstado({
-            ...estadoInicial(),
-            indicacion: `#${datos.numero} PREPARADO (sin señal: guardado en este dispositivo, se manda solo al volver el wifi). Escanea la siguiente etiqueta.`,
-          });
+          setEstado(
+            trasGuardar(
+              siguiente,
+              `#${datos.numero} PREPARADO (sin señal: guardado en este dispositivo, se manda solo al volver el wifi). ${siguiente.lote ? "Siguiente guía del lote." : "Escanea la siguiente etiqueta."}`,
+            ),
+          );
         } else {
           pitar(false);
           setEstado({ ...siguiente, paso: "listo", error: (e as Error).message });
@@ -220,7 +223,10 @@ export function PrepararTikTok({
     setEstado(siguiente);
   }
 
-  const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados));
+  // Los LOTES del corte (muchos paquetes iguales de un par): al escanear su
+  // producto se abre el modo lote y cada guía escaneada queda preparada.
+  const lotes = useMemo(() => detectarLotes(paquetes), [paquetes]);
+  const escanear = (valor: string) => aplicar(avanzar(estado, valor, numero, paquetes, preparados, lotes));
 
   /**
    * Sin escanear, con la clave del supervisor: para cuando el código no se
@@ -309,12 +315,23 @@ export function PrepararTikTok({
           style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
           <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
-            {estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
+            {estado.paso === "lote" || (estado.paso === "listo" && estado.lote) ? "Lote" : estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: colorPaso }}>
             {estado.error ?? estado.indicacion}
           </p>
-          {estado.paquete && estado.paso !== "inicio" ? (
+          {estado.lote ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <span>
+                Lote <span className="font-medium">{estado.lote.sku}</span> · #{estado.lote.desde}–#{estado.lote.hasta} ·{" "}
+                <span className="cifra">{avanceDeLote(estado.lote, preparados).hechos}</span> de <span className="cifra">{estado.lote.cantidad}</span> listos
+              </span>
+              <button type="button" onClick={() => aplicar(salirDeLote(estado))} className="boton boton-borde">
+                Salir del lote
+              </button>
+            </div>
+          ) : null}
+          {estado.paquete && estado.paso !== "inicio" && estado.paso !== "lote" ? (
             <ul className="mt-2 text-sm">
               {estado.paquete.pares.map((x) => {
                 const f = estado.faltantes.find((y) => y.sku === x.sku);

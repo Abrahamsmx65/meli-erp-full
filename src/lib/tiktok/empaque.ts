@@ -12,6 +12,7 @@
  * costos entran como funciones.
  */
 import { compararSku, partirSku, type ParDespacho } from "./despacho";
+import { loteDePaquete, type Lote } from "./lotes";
 
 export interface TallaSurtido {
   talla: string;
@@ -122,4 +123,33 @@ export function renglonesDeTallas(
   }
   if (actual) renglones.push(actual);
   return renglones;
+}
+
+/**
+ * Lo que va en la hoja: un paquete normal, o un LOTE (muchos paquetes
+ * iguales de un par) como UN solo bloque. `pares` lo lleva el bloque
+ * completo, para que el surtido de la hoja cuente todos sus pares.
+ */
+export type ItemDeHoja<T extends ConPares> =
+  | { tipo: "paquete"; paquete: T; pares: T["pares"] }
+  | { tipo: "lote"; lote: Lote; paquetes: T[]; pares: { sku: string; pares: number }[] };
+
+/**
+ * Los paquetes de un grupo con sus lotes colapsados: los paquetes seguidos
+ * de un mismo lote se vuelven un solo bloque; lo demás queda igual.
+ */
+export function itemsConLotes<T extends ConPares & { numero: number }>(paquetes: T[], lotes: Lote[]): ItemDeHoja<T>[] {
+  const items: ItemDeHoja<T>[] = [];
+  for (const p of paquetes) {
+    const lote = loteDePaquete(lotes, p.numero);
+    const ultimo = items[items.length - 1];
+    if (lote && ultimo && ultimo.tipo === "lote" && ultimo.lote.desde === lote.desde) {
+      ultimo.paquetes.push(p);
+      ultimo.pares = [{ sku: lote.sku, pares: ultimo.paquetes.length }];
+      continue;
+    }
+    if (lote) items.push({ tipo: "lote", lote, paquetes: [p], pares: [{ sku: lote.sku, pares: 1 }] });
+    else items.push({ tipo: "paquete", paquete: p, pares: p.pares });
+  }
+  return items;
 }

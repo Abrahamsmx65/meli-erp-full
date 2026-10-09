@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { numerarPaquetes, codigoDeHoja, parsearCodigoDeHoja, codigoDeEtiqueta } from "./despacho";
-import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, pedidoHablado } from "./preparar";
+import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, pedidoHablado, salirDeLote, trasGuardar } from "./preparar";
 
 const paquetes = numerarPaquetes([
   { orderId: "a", packageId: "pa", destinatario: null, pares: [{ sku: "GT114-BEIGE-23", pares: 1, fnsku: "X001AAA" }] },
@@ -242,5 +242,64 @@ describe("el código de MELI también da por bueno el par", () => {
     e = avanzar(e, "MLM00000000", CORTE, paquetes, nadie);
     expect(e.error).toMatch(/no va en el #1/);
     expect(e.error).toMatch(/X001FNSKU o FIEE49194 o JNQX88982/);
+  });
+});
+
+describe("modo LOTE (muchos paquetes iguales de un par)", () => {
+  const lote = numerarPaquetes(
+    [
+      ...Array.from({ length: 12 }, (_, i) => ({
+        orderId: `58600000000000${String(i).padStart(4, "0")}`,
+        packageId: `pk${i}`,
+        destinatario: null,
+        pares: [{ sku: "GT148-BLK-24-MX", pares: 1, fnsku: "X001LLL" }],
+      })),
+      { orderId: "586999999999999999", packageId: "pz", destinatario: null, pares: [{ sku: "GT148-BLK-25-MX", pares: 1, fnsku: "X001ZZZ" }] },
+    ],
+    "un-color",
+  );
+
+  it("el producto del lote abre el modo lote y cada guía queda preparada sin volver a escanear la caja", () => {
+    let e = avanzar(estadoInicial(), "X001LLL", CORTE, lote, nadie);
+    expect(e.paso).toBe("lote");
+    expect(e.lote?.sku).toBe("GT148-BLK-24-MX");
+    expect(e.pitidos).toBe(2);
+    e = avanzar(e, lote[4].orderId, CORTE, lote, nadie);
+    expect(e.paso).toBe("listo");
+    expect(e.paquete?.numero).toBe(lote[4].numero);
+    expect(e.escaneos).toEqual(["LOTE:GT148-BLK-24-MX", lote[4].orderId]);
+    expect(e.lote?.sku).toBe("GT148-BLK-24-MX");
+    // Después de guardar, el lote sigue abierto y la siguiente guía entra directo.
+    const hechos = new Set([lote[4].numero]);
+    e = trasGuardar(e);
+    expect(e.paso).toBe("lote");
+    e = avanzar(e, lote[5].orderId, CORTE, lote, hechos);
+    expect(e.paso).toBe("listo");
+    expect(e.indicacion).toContain("2 de 12");
+  });
+
+  it("una guía de otro producto se rechaza y una ya preparada también", () => {
+    let e = avanzar(estadoInicial(), "X001LLL", CORTE, lote, nadie);
+    e = avanzar(e, "586999999999999999", CORTE, lote, nadie);
+    expect(e.error).toContain("no es del lote");
+    e = avanzar({ ...e, error: null }, lote[0].orderId, CORTE, lote, new Set([lote[0].numero]));
+    expect(e.error).toContain("ya está preparado");
+  });
+
+  it("otro producto cierra el lote: si no tiene lote sigue el camino normal; salir del lote limpia", () => {
+    let e = avanzar(estadoInicial(), "X001LLL", CORTE, lote, nadie);
+    e = avanzar(e, "X001ZZZ", CORTE, lote, nadie);
+    expect(e.paso).toBe("producto");
+    expect(e.lote).toBeNull();
+    expect(e.paquete?.pares[0].sku).toBe("GT148-BLK-25-MX");
+    const abierto = avanzar(estadoInicial(), "X001LLL", CORTE, lote, nadie);
+    expect(salirDeLote(abierto).lote).toBeNull();
+  });
+
+  it("con el lote completo, el producto ya no abre modo lote", () => {
+    const todos = new Set(lote.slice(0, 12).map((p) => p.numero));
+    const e = avanzar(estadoInicial(), "X001LLL", CORTE, lote, todos);
+    expect(e.paso).toBe("inicio");
+    expect(e.error).toContain("ya están preparados");
   });
 });

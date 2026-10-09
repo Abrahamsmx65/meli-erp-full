@@ -16,7 +16,8 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { agruparPorModelo, type OrdenPaquetes, type PaqueteNumerado } from "./despacho";
-import { partirEnHojas, renglonesDeTallas, type Hoja, type LineaSurtido } from "./empaque";
+import { itemsConLotes, partirEnHojas, renglonesDeTallas, type Hoja, type ItemDeHoja, type LineaSurtido } from "./empaque";
+import { detectarLotes, type Lote } from "./lotes";
 
 export interface CorteParaLista {
   numero: number;
@@ -38,6 +39,8 @@ const ALTO_CABECERA = 18 + 4 + FILA;
 const ALTO_TITULO_MODELO = 20;
 /** Lo que agrega la línea del corte (fecha, paquetes, resumen) en la primera hoja del corte. */
 const ALTO_LINEA_CORTE = 14;
+/** Un LOTE en la tabla: dos renglones dentro de un recuadro. */
+const ALTO_LOTE = FILA * 2 + 6;
 /** El bloque de surtido: título, un renglón por línea, márgenes. */
 const SURTIDO_TITULO = 13;
 const SURTIDO_RENGLON = 14;
@@ -74,11 +77,14 @@ export async function pdfListaDeEmpaque(corte: CorteParaLista): Promise<Uint8Arr
     (iHoja === 0 ? ALTO_TITULO_MODELO : 0) +
     (iGrupo === 0 && iHoja === 0 ? ALTO_LINEA_CORTE : 0) +
     altoSurtido(s);
-  const costoPaquete = (p: PaqueteNumerado) => FILA * Math.max(1, p.pares.length);
+  // Un LOTE (muchos paquetes iguales de un par) va como UN bloque de dos
+  // renglones, no como N renglones (dueño, 8-oct-2026).
+  const costoItem = (it: ItemDeHoja<PaqueteNumerado>) => (it.tipo === "lote" ? ALTO_LOTE : FILA * Math.max(1, it.paquete.pares.length));
   const altoUtil = CARTA[1] - 2 * M;
+  const lotes = detectarLotes(corte.paquetes);
 
   // Primero se planean TODAS las hojas (para saber «hoja X de Y»), luego se dibujan.
-  const plan = grupos.map((g, iGrupo) => ({ grupo: g, hojas: partirEnHojas(g.paquetes, altoUtil, costoPaquete, costoFijoDe(iGrupo)) }));
+  const plan = grupos.map((g, iGrupo) => ({ grupo: g, hojas: partirEnHojas(itemsConLotes(g.paquetes, lotes), altoUtil, costoItem, costoFijoDe(iGrupo)) }));
   const totalHojas = plan.reduce((n, p) => n + p.hojas.length, 0);
   const totalPares = grupos.reduce((a, g) => a + g.pares, 0);
   const fecha = new Date(corte.creadoEn).toLocaleString("es-MX", {
@@ -114,14 +120,15 @@ export async function pdfListaDeEmpaque(corte: CorteParaLista): Promise<Uint8Arr
         y -= ALTO_TITULO_MODELO;
       }
       const paresHoja = hoja.surtido.reduce((a, l) => a + l.pares, 0);
+      const paquetesHoja = hoja.paquetes.reduce((n, it) => n + (it.tipo === "lote" ? it.paquetes.length : 1), 0);
 
       // Bloque de surtido de ESTA hoja.
-      y = dibujarSurtido(pagina, hoja, paresHoja, y, normal, negrita, anchoTallas, medirTallas);
+      y = dibujarSurtido(pagina, hoja, paresHoja, paquetesHoja, y, normal, negrita, anchoTallas, medirTallas);
 
       // La tabla.
       y = encabezado(pagina, y, negrita);
-      hoja.paquetes.forEach((p, iPaquete) => {
-        y = dibujarPaquete(pagina, p, iPaquete, y, normal, negrita);
+      hoja.paquetes.forEach((it, iItem) => {
+        y = it.tipo === "lote" ? dibujarLote(pagina, it.lote, it.paquetes, y, normal, negrita) : dibujarPaquete(pagina, it.paquete, iItem, y, normal, negrita);
       });
     });
   });
@@ -137,8 +144,9 @@ function recorta(t: string, ancho: number, size: number, f: PDFFont): string {
 
 function dibujarSurtido(
   pagina: PDFPage,
-  hoja: Hoja<PaqueteNumerado>,
+  hoja: Hoja<ItemDeHoja<PaqueteNumerado>>,
   paresHoja: number,
+  paquetesHoja: number,
   y: number,
   normal: PDFFont,
   negrita: PDFFont,
@@ -154,7 +162,7 @@ function dibujarSurtido(
   const alto = SURTIDO_TITULO + nRenglones * SURTIDO_RENGLON + 2 * SURTIDO_MARGEN;
   pagina.drawRectangle({ x: M - 2, y: y - alto + 10, width: ANCHO + 4, height: alto, color: fondoSurtido, borderColor: negro, borderWidth: 1 });
   let yy = y - SURTIDO_MARGEN - 4;
-  pagina.drawText(`SURTIR PARA ESTA HOJA  ·  ${paresHoja} ${paresHoja === 1 ? "par" : "pares"}  ·  ${hoja.paquetes.length} ${hoja.paquetes.length === 1 ? "paquete" : "paquetes"}`, { x: M + SURTIDO_MARGEN, y: yy, size: 9, font: negrita, color: gris });
+  pagina.drawText(`SURTIR PARA ESTA HOJA  ·  ${paresHoja} ${paresHoja === 1 ? "par" : "pares"}  ·  ${paquetesHoja} ${paquetesHoja === 1 ? "paquete" : "paquetes"}`, { x: M + SURTIDO_MARGEN, y: yy, size: 9, font: negrita, color: gris });
   yy -= SURTIDO_TITULO;
   for (const r of renglones) {
     pagina.drawText(recorta(r.etiqueta, SURTIDO_ETIQUETA, 10, negrita), { x: M + SURTIDO_MARGEN, y: yy, size: 10, font: negrita });
@@ -246,4 +254,30 @@ function dibujarPaquete(pagina: PDFPage, p: PaqueteNumerado, iPaquete: number, y
     pagina.drawText(`${paresPaquete} pares en la misma caja`, { x: XS[4] + 2, y: y + FILA + 4, size: 7, font: normal, color: gris });
   }
   return y;
+}
+
+/**
+ * Un LOTE: en vez de N renglones iguales, un recuadro que dice qué SKU,
+ * cuántos paquetes y qué números de guía tomar. Como todas las cajas son
+ * la misma, cualquier guía del rango va en cualquier caja.
+ */
+function dibujarLote(pagina: PDFPage, lote: Lote, paquetes: PaqueteNumerado[], y: number, normal: PDFFont, negrita: PDFFont): number {
+  const desde = paquetes[0].numero;
+  const hasta = paquetes[paquetes.length - 1].numero;
+  const n = paquetes.length;
+  const alto = ALTO_LOTE;
+  pagina.drawRectangle({ x: M - 2, y: y - alto + FILA - 3, width: ANCHO + 4, height: alto, color: fondoGris, borderColor: negro, borderWidth: 1.4 });
+  const base1 = y + 4;
+  pagina.drawText(`#${desde}–#${hasta}`, { x: XS[0] + 2, y: base1, size: 10, font: negrita });
+  pagina.drawText(`LOTE  ·  ${lote.sku}  ·  ${n} ${n === 1 ? "paquete" : "paquetes"} de 1 par`, { x: XS[1] + 2, y: base1, size: 11, font: negrita });
+  const cant = String(n);
+  pagina.drawRectangle({ x: XS[3] + 3, y: y + 0.5, width: COL[3] - 6, height: FILA - 2, color: sombraCant, borderColor: negro, borderWidth: 0.8 });
+  pagina.drawText(cant, { x: XS[3] + (COL[3] - negrita.widthOfTextAtSize(cant, 10)) / 2, y: base1, size: 10, font: negrita });
+  pagina.drawRectangle({ x: XS[5] + 3, y: y + 1, width: 11, height: 11, borderColor: negro, borderWidth: 0.8, color: rgb(1, 1, 1) });
+  const base2 = y - FILA + 4;
+  pagina.drawText(
+    recorta(`Toma ${n} cajas de ${lote.sku} y las guías #${desde} a #${hasta}${n !== lote.cantidad ? ` (el lote completo es #${lote.desde}–#${lote.hasta})` : ""}. Cualquier guía va en cualquier caja.`, ANCHO - COL[0] - 8, 8.5, normal),
+    { x: XS[1] + 2, y: base2, size: 8.5, font: normal, color: gris },
+  );
+  return y - alto;
 }
