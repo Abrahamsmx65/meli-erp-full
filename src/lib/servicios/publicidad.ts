@@ -345,7 +345,8 @@ export async function anunciosDesdeBase(
   const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
   if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
 
-  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+  // Por páginas: ~1,200 publicaciones con gasto y el API entrega 1,000.
+  const { data, error: errorRpc } = await rpcPaginado(db, "publicidad_resumen_items", {
     p_account: accountId,
     p_desde: r.desde,
     p_hasta: r.hasta,
