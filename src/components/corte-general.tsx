@@ -43,11 +43,16 @@ export function AccionesCorteGeneral({ periodo, corteId }: { periodo: string; co
     }
   }
 
+  const pdfDelMes = corteId ? `/api/cortes/general/${corteId}/pdf` : `/api/cortes/general/pdf?periodo=${periodo}`;
+
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <a className="boton boton-borde boton-chico" href={corteId ? `/api/cortes/general/${corteId}/pdf` : `/api/cortes/general/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
-          {corteId ? "Informe PDF" : "Vista previa PDF"}
+        <a className="boton boton-borde boton-chico" href={pdfDelMes} target="_blank" rel="noreferrer">
+          {corteId ? "Ver PDF" : "Vista previa PDF"}
+        </a>
+        <a className="boton boton-borde boton-chico" href={`${pdfDelMes}${pdfDelMes.includes("?") ? "&" : "?"}descargar=1`} download>
+          Descargar PDF
         </a>
         <a className="boton boton-borde boton-chico" href={`/api/cortes/general/excel?periodo=${periodo}`}>
           Excel
@@ -60,7 +65,11 @@ export function AccionesCorteGeneral({ periodo, corteId }: { periodo: string; co
         <Aviso tono="bien">
           {aviso.texto}{" "}
           <a href={aviso.pdf} target="_blank" rel="noreferrer" className="enlace">
-            Abrir el informe PDF
+            Ver el PDF
+          </a>
+          {" · "}
+          <a href={`${aviso.pdf}?descargar=1`} download className="enlace">
+            Descargar
           </a>
         </Aviso>
       ) : null}

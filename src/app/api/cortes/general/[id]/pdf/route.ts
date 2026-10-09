@@ -9,8 +9,8 @@ import { respuestaPdf, sesionYCuenta } from "@/app/api/ventas/_comun";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** GET -> el informe en PDF de un corte general guardado (tal como quedó al hacerlo). */
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+/** GET [?descargar=1] -> el informe en PDF de un corte general guardado (tal como quedó al hacerlo); con `descargar` baja como archivo. */
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const s = await sesionYCuenta();
   if (!s.ok) return s.respuesta;
   const { id } = await ctx.params;
@@ -21,5 +21,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   // El mes anterior solo se LEE (masticado por el cron); sin él, el informe sale sin comparación.
   const anterior = await leerConsolidadoGuardado(s.supabase, s.cuenta, periodoAnterior(cns.periodo)).catch(() => null);
   const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0)) : null;
-  return respuestaPdf(await pdfDelConsolidado(cns, { comparacion }), `corte-general-${cns.periodo}.pdf`);
+  const descargar = req.nextUrl.searchParams.get("descargar") === "1";
+  return respuestaPdf(await pdfDelConsolidado(cns, { comparacion }), `estado-de-resultados-${cns.periodo}.pdf`, descargar);
 }

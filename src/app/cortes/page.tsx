@@ -575,7 +575,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                             <td className="num cifra font-semibold" style={{ color: colorGanancia(c.utilidadNeta) }}>{redondo(c.utilidadNeta)}</td>
                             <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
                             <td className="num whitespace-nowrap">
-                              <a href={`/api/cortes/general/${c.id}/pdf`} className="enlace" target="_blank" rel="noreferrer">PDF</a>
+                              <a href={`/api/cortes/general/${c.id}/pdf`} className="enlace" target="_blank" rel="noreferrer">Ver PDF</a>
+                              {" · "}
+                              <a href={`/api/cortes/general/${c.id}/pdf?descargar=1`} className="enlace" download>Descargar PDF</a>
                               {" · "}
                               <a href={`/api/cortes/general/${c.id}/excel`} className="enlace">Excel</a>
                             </td>

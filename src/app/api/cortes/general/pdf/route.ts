@@ -9,11 +9,13 @@ import { respuestaPdf, sesionYCuenta } from "@/app/api/ventas/_comun";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** GET ?periodo=YYYY-MM -> informe en PDF con lo que hay HOY (vista previa, sin guardar corte). */
+/** GET ?periodo=YYYY-MM[&descargar=1] -> informe en PDF con lo que hay HOY (vista previa, sin guardar corte). */
 export async function GET(req: Request) {
   const s = await sesionYCuenta();
   if (!s.ok) return s.respuesta;
-  const periodo = validarPeriodo(new URL(req.url).searchParams.get("periodo")) ?? periodoActual();
+  const url = new URL(req.url);
+  const periodo = validarPeriodo(url.searchParams.get("periodo")) ?? periodoActual();
+  const descargar = url.searchParams.get("descargar") === "1";
   try {
     const [cns, anterior, mismosDias] = await Promise.all([
       obtenerConsolidado(s.supabase, s.cuenta, periodo),
@@ -21,7 +23,7 @@ export async function GET(req: Request) {
       leerMismosDiasGuardado(s.supabase, s.cuenta, periodo).catch(() => null),
     ]);
     const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0), mismosDias) : null;
-    return respuestaPdf(await pdfDelConsolidado(cns, { comparacion, preliminar: true }), `corte-general-${periodo}-vista-previa.pdf`);
+    return respuestaPdf(await pdfDelConsolidado(cns, { comparacion, preliminar: true }), `estado-de-resultados-${periodo}-vista-previa.pdf`, descargar);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
