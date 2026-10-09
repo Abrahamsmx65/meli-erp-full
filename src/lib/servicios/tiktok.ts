@@ -20,6 +20,7 @@ import { configuracionIndusther, sincronizarInventarioIndusther } from "./indust
 import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
+import { leerEstadosDeCuenta } from "./tiktok-estados";
 import { agregarVentasDiarias } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
@@ -1486,6 +1487,14 @@ export async function sincronizarPagosTikTok(
       return null;
     });
     if (afiliados?.error) avisos.push(`Afiliados: ${afiliados.error}`);
+  }
+  // Los estados de cuenta: lo que TikTok cobra o abona FUERA de los pedidos
+  // (ajustes); una lectura corta cada 3 h, antes de las liquidaciones que se
+  // comen el tiempo que les den.
+  try {
+    await leerEstadosDeCuenta(admin, accountId, cliente, avisos);
+  } catch (err) {
+    avisos.push(`Estados de cuenta: ${(err as Error).message}`);
   }
   try {
     liquidados = await liquidarPedidos(admin, accountId, cliente, avisos);

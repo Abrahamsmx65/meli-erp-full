@@ -12,6 +12,7 @@ import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type B
 import { bloqueAmazon } from "./consolidado-amazon";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { bloqueTikTok, cargarVentasTikTok, rangoTikTok } from "./consolidado-tiktok";
+import { leerEstadosGuardados } from "./tiktok-estados";
 import { cargarEstadoResultados, periodoActual, periodoAnterior, rangoDelPeriodo, rangoRecortado } from "./corte-meli";
 import { mapaCostosUnificado } from "./costos-unificados";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
@@ -140,8 +141,12 @@ export async function cargarConsolidado(
       const r = rangoTikTok({ desde, hasta });
       if (!r) return null;
       try {
-        const [ventas, config] = await Promise.all([cargarVentasTikTok(db, cuenta.id, r.desde, r.hasta), mapaCostosUnificado(db, { meliAccountId: cuenta.id })]);
-        return bloqueTikTok(ventas, config, { desde, hasta });
+        const [ventas, config, estados] = await Promise.all([
+          cargarVentasTikTok(db, cuenta.id, r.desde, r.hasta),
+          mapaCostosUnificado(db, { meliAccountId: cuenta.id }),
+          leerEstadosGuardados(db, cuenta.id).catch(() => null),
+        ]);
+        return bloqueTikTok(ventas, config, { desde, hasta }, estados?.estados ?? null);
       } catch (err) {
         fallo("TikTok Shop", err);
         return null;
@@ -550,7 +555,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 7
+    consolidado.versionContable !== 8
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)

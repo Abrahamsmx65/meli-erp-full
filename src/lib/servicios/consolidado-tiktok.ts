@@ -17,6 +17,7 @@ import { traerTodo } from "../datos/repos";
 import { diaMx, resumenPorModelo, type OrdenParaVentas, type RenglonParaVentas } from "../tiktok/ventas";
 import type { BloqueCanal } from "./consolidado";
 import type { ConfigProducto } from "./productos";
+import { ajustesDelPeriodo, type EstadoCuentaTikTok } from "../tiktok/estados-cuenta";
 
 /** TikTok empezó a vender en septiembre de 2026: antes no hay canal. */
 export const TIKTOK_DESDE = "2026-09-01";
@@ -50,7 +51,17 @@ export function rangoTikTok(rango: { desde: string; hasta: string }): { desde: s
   return { desde: rango.desde < TIKTOK_DESDE ? TIKTOK_DESDE : rango.desde, hasta: rango.hasta };
 }
 
-export function bloqueTikTok(v: VentasTikTok, config: Map<string, ConfigProducto>, rango: { desde: string; hasta: string }): BloqueCanal | null {
+/**
+ * `estados`: los estados de cuenta de TikTok ya leídos (null = no se han
+ * podido leer). Sus AJUSTES —lo que TikTok cobra o abona sin pedido— entran
+ * como gasto de la plataforma del mes por la fecha del estado.
+ */
+export function bloqueTikTok(
+  v: VentasTikTok,
+  config: Map<string, ConfigProducto>,
+  rango: { desde: string; hasta: string },
+  estados: EstadoCuentaTikTok[] | null = null,
+): BloqueCanal | null {
   const r = rangoTikTok(rango);
   if (!r) return null;
   const modelos = resumenPorModelo(v.ordenes, v.renglones, r);
@@ -141,6 +152,21 @@ export function bloqueTikTok(v: VentasTikTok, config: Map<string, ConfigProducto
   if (sinCosto.length) avisos.push(`TikTok: sin costo capturado para ${sinCosto.join(", ")}.`);
   if (rango.desde < TIKTOK_DESDE) avisos.push(`TikTok cuenta desde ${TIKTOK_DESDE}: antes no vendía.`);
 
+  // Lo que TikTok cobró o abonó FUERA de los pedidos (ajustes de sus estados
+  // de cuenta): negativo = cargo. Va como gasto de la plataforma.
+  const gastos: BloqueCanal["gastos"] = [];
+  if (estados == null) {
+    avisos.push("TikTok: todavía no se leen sus estados de cuenta; si TikTok cobró ajustes fuera de los pedidos (penalizaciones, logística), no están restados. El cron de pagos los lee cada hora.");
+  } else {
+    const a = ajustesDelPeriodo(estados, r.desde, r.hasta);
+    if (a.ajustes !== 0) {
+      gastos.push({ concepto: a.ajustes < 0 ? "TikTok · ajustes cobrados fuera de pedidos (estados de cuenta)" : "TikTok · ajustes abonados fuera de pedidos (estados de cuenta)", monto: p(-c(a.ajustes)) });
+      avisos.push(`TikTok: sus ${a.estados} estados de cuenta del periodo traen ${pesos(a.ajustes)} de ajustes fuera de los pedidos (${a.conAjuste.length} estados con ajuste); ${a.ajustes < 0 ? "se restan" : "se suman"} como gasto de la plataforma.`);
+    } else if (a.estados > 0) {
+      avisos.push(`TikTok: sus ${a.estados} estados de cuenta del periodo no traen ajustes fuera de los pedidos.`);
+    }
+  }
+
   return {
     canal: "tiktok",
     unidades,
@@ -166,7 +192,7 @@ export function bloqueTikTok(v: VentasTikTok, config: Map<string, ConfigProducto
     unidadesConCosto,
     adsPorModelo: 0,
     adsGenerales: 0,
-    gastos: [],
+    gastos,
     porModelo,
     avisos,
     exacto: sinDato === 0 && porLiquidar === 0 && sinCosto.length === 0,

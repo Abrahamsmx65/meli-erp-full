@@ -44,6 +44,14 @@
   --acento-suave: #f5ede3;
   --exito-texto: #00854a;
 
+  /* gráficas del estado de resultados: a dónde se va cada peso de venta,
+     en los tonos tierra de la marca (arena, café, mostaza, terracota, verde) */
+  --graf-plataforma: #d9c7b2;
+  --graf-producto: #8b6640;
+  --graf-publicidad: #d3a52e;
+  --graf-gastos: #b5523b;
+  --graf-utilidad: #2f9c63;
+
   /* marca: la barra superior, azul marino profundo con un degradado sutil */
   --marca: #2b2119;
   --marca-2: #3a2c21;

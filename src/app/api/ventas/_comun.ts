@@ -20,11 +20,12 @@ export async function sesionYCuenta(): Promise<
   return { ok: true, supabase, cuenta, userId: user.id };
 }
 
-export function respuestaPdf(bytes: Uint8Array, nombre: string): NextResponse {
+/** `descargar` lo baja como archivo (attachment); sin él, el navegador lo abre. */
+export function respuestaPdf(bytes: Uint8Array, nombre: string, descargar = false): NextResponse {
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${nombre}"`,
+      "Content-Disposition": `${descargar ? "attachment" : "inline"}; filename="${nombre}"`,
       "Cache-Control": "no-store",
     },
   });

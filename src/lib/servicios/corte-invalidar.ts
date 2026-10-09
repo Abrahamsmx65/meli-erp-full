@@ -16,7 +16,7 @@ import { invalidarApp } from "./cache-app";
 import { invalidarYz } from "../yapanizcel/cache";
 
 /** Cambiar la versión invalida cortes masticados con reglas contables anteriores. */
-export const claveCorte = (periodo: string): string => `corte:v2:${periodo}`;
+export const claveCorte = (periodo: string): string => `corte:v3:${periodo}`;
 
 /** YYYY-MM de una fecha YYYY-MM-DD (o ISO). */
 export const periodoDeFecha = (fecha: string): string => fecha.slice(0, 7);
