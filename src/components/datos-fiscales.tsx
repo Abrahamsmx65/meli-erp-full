@@ -51,6 +51,15 @@ const UNIDADES = [
   { clave: "EA", texto: "EA — elemento" },
 ];
 
+const ESPERA_MIN_MS = 6_000;
+const ESPERA_MAX_MS = 30_000;
+
+/** 6 s cuando el avance se movió; si no, 1.5× la espera anterior, hasta 30 s. */
+export function siguienteEspera(anterior: number, huboCambio: boolean): number {
+  if (huboCambio) return ESPERA_MIN_MS;
+  return Math.min(ESPERA_MAX_MS, Math.round(anterior * 1.5));
+}
+
 export function DatosFiscales() {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [modelos, setModelos] = useState<ModeloFiscal[]>([]);
@@ -62,6 +71,12 @@ export function DatosFiscales() {
   const [busqueda, setBusqueda] = useState("");
   const reloj = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoEncendido = useRef(false);
+  // Mientras hay trabajo la página pregunta el avance: cada 6 s si algo se
+  // movió y, si no, cada vez más espaciado hasta 30 s. Con la pestaña oculta
+  // no pregunta; al volver, pregunta en el acto.
+  const espera = useRef(ESPERA_MIN_MS);
+  const ultimaFirma = useRef("");
+  const pausado = useRef(false);
 
   const encender = useCallback(async () => {
     const r = await fetch("/api/fiscal/procesar");
@@ -102,7 +117,18 @@ export function DatosFiscales() {
       }
 
       if (reloj.current) clearTimeout(reloj.current);
-      if (hayTrabajo || j.trabajando) reloj.current = setTimeout(cargar, 6000);
+      if (hayTrabajo || j.trabajando) {
+        const firma = `${j.resumen.sinLeer}|${j.resumen.pendientes}|${j.trabajando ? 1 : 0}`;
+        espera.current = siguienteEspera(espera.current, firma !== ultimaFirma.current);
+        ultimaFirma.current = firma;
+        reloj.current = setTimeout(() => {
+          if (document.hidden) {
+            pausado.current = true;
+            return;
+          }
+          cargar();
+        }, espera.current);
+      }
       return j.resumen as Resumen;
     } catch (err) {
       setMensaje((err as Error).message);
@@ -114,8 +140,16 @@ export function DatosFiscales() {
 
   useEffect(() => {
     cargar();
+    const alVolver = () => {
+      if (document.hidden || !pausado.current) return;
+      pausado.current = false;
+      espera.current = ESPERA_MIN_MS;
+      cargar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
     return () => {
       if (reloj.current) clearTimeout(reloj.current);
+      document.removeEventListener("visibilitychange", alVolver);
     };
   }, [cargar]);
 
@@ -125,6 +159,7 @@ export function DatosFiscales() {
     try {
       await encender();
       if (reloj.current) clearTimeout(reloj.current);
+      espera.current = ESPERA_MIN_MS;
       reloj.current = setTimeout(cargar, 4000);
     } catch (err) {
       setMensaje((err as Error).message);
