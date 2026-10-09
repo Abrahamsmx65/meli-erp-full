@@ -137,7 +137,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
   const unidades = lineas.reduce((a, l) => a + l.cantidad, 0);
   const costo = lineas.reduce((a, l) => a + l.cantidad * (l.costoUnitario ?? 0), 0);
   const sinAmarre = lineas.filter((l) => l.skuMeli === null);
-  const estiloRojo = { background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)", color: "var(--critico-texto)" };
+  const estiloRojo = { background: "var(--critico-suave)", color: "var(--critico-texto)" };
 
   return (
     <div className="tarjeta flex flex-col gap-4 p-4">

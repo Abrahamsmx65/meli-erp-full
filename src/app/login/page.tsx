@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clienteNavegador } from "@/lib/supabase/client";
+import { Aviso } from "@/components/ui/pagina";
 
 /** Dominio de los usuarios de operación, que entran con nombre y no con correo. */
 const DOMINIO_USUARIOS = "getac.erp";
@@ -60,12 +61,12 @@ function FormularioLogin() {
     <div className="mx-auto mt-6 w-full max-w-sm sm:mt-16">
       <div className="tarjeta p-8">
         <h1 className="titulo-seccion">Entra a tu cuenta</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-1 text-sm texto-2">
           Inventario, envíos a Full, pedidos a China y ventas, en un solo lugar.
         </p>
 
         <form onSubmit={enviar} className="mt-6 flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col gap-1 text-xs font-semibold texto-2">
             Correo o usuario
             <input
               type="text"
@@ -77,7 +78,7 @@ function FormularioLogin() {
               className="text-sm font-normal"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col gap-1 text-xs font-semibold texto-2">
             Contraseña
             <input
               type="password"
@@ -96,18 +97,12 @@ function FormularioLogin() {
         </form>
 
         {mensaje ? (
-          <p
-            className="mt-4 rounded-md px-3 py-2 text-sm"
-            style={{
-              color: "var(--estado-critico)",
-              background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)",
-            }}
-          >
+          <Aviso tono="critico" className="mt-4">
             {mensaje}
-          </p>
+          </Aviso>
         ) : null}
       </div>
-      <p className="mt-4 text-center text-xs" style={{ color: "var(--ink-muted)" }}>
+      <p className="mt-4 text-center text-xs texto-tenue">
         El acceso es por invitación. Si no puedes entrar, pídele al dueño que dé de alta tu correo.
       </p>
     </div>
@@ -122,7 +117,7 @@ export default function Login() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto mt-16 max-w-sm text-center text-sm" style={{ color: "var(--ink-2)" }}>
+        <div className="mx-auto mt-16 max-w-sm text-center text-sm texto-2">
           Cargando…
         </div>
       }
