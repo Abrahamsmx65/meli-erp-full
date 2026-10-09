@@ -6,6 +6,7 @@ import { servirPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/se
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -131,163 +132,180 @@ export default async function Publicidad({
         />
       </Cifras>
 
-      <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos." sinRelleno>
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Venta y unidades son TODAS las ventas del periodo; “$ ads/unidad” reparte el gasto de publicidad entre
-              ellas. Un anuncio compartido por varios modelos se reparte entre ellos según sus ventas. Ganancia neta =
-              ganancia (neto − costo) − ads.
-            </p>
-          </Ayuda>
-        </div>
-        <Tabla alta>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th className="num">Unidades</th>
-                <th className="num">Venta</th>
-                <th className="num">Ganancia</th>
-                <th className="num">Gasto ads</th>
-                <th className="num">$ ads/unidad</th>
-                <th className="num">% de la venta</th>
-                <th className="num">Venta por ads</th>
-                <th className="num">Ganancia neta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.filas.map((f) => (
-                <tr key={f.modelo}>
-                  <td className="font-medium">
-                    {f.modelo}
-                    {f.anuncios > 0 ? (
-                      <span className="ml-1.5 text-[10px] texto-tenue">
-                        {f.anuncios} {f.anuncios === 1 ? "anuncio" : "anuncios"}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="num cifra font-semibold">{n(f.unidades)}</td>
-                  <td className="num cifra">{pesos(f.importe)}</td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.ganancia != null && f.ganancia < 0
-                          ? "var(--critico-texto)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.ganancia == null ? "—" : pesos(f.ganancia)}
-                  </td>
-                  <td className="num cifra">{f.gastoAds > 0 ? pesos(f.gastoAds) : "—"}</td>
-                  <td className="num cifra font-semibold">
-                    {f.gastoAds > 0 && f.costoPorUnidad != null
-                      ? pesosFinos(f.costoPorUnidad)
-                      : "—"}
-                  </td>
-                  <td className="num cifra texto-2">
-                    {f.gastoAds > 0 && f.tacos != null ? pct(f.tacos) : "—"}
-                  </td>
-                  <td className="num cifra texto-2">
-                    {f.ventaAds > 0 ? pesos(f.ventaAds) : "—"}
-                  </td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.gananciaNeta != null && f.gananciaNeta < 0
-                          ? "var(--critico-texto)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.gananciaNeta == null ? "—" : pesos(f.gananciaNeta)}
-                  </td>
-                </tr>
-              ))}
-              {p.filas.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="p-4 text-sm texto-2">
-                    Sin ventas ni anuncios en el periodo.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
+      <Pestanas
+        pestanas={[
+          {
+            id: "modelos",
+            titulo: "Por modelo",
+            cuenta: p.filas.length,
+            contenido: (
+              <>
+                <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos." sinRelleno>
+                  <div className="px-4 pt-3">
+                    <Ayuda>
+                      <p>
+                        Venta y unidades son TODAS las ventas del periodo; “$ ads/unidad” reparte el gasto de publicidad entre
+                        ellas. Un anuncio compartido por varios modelos se reparte entre ellos según sus ventas. Ganancia neta =
+                        ganancia (neto − costo) − ads.
+                      </p>
+                    </Ayuda>
+                  </div>
+                  <Tabla alta>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Modelo</th>
+                          <th className="num">Unidades</th>
+                          <th className="num">Venta</th>
+                          <th className="num">Ganancia</th>
+                          <th className="num">Gasto ads</th>
+                          <th className="num">$ ads/unidad</th>
+                          <th className="num">% de la venta</th>
+                          <th className="num">Venta por ads</th>
+                          <th className="num">Ganancia neta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {p.filas.map((f) => (
+                          <tr key={f.modelo}>
+                            <td className="font-medium">
+                              {f.modelo}
+                              {f.anuncios > 0 ? (
+                                <span className="ml-1.5 text-[10px] texto-tenue">
+                                  {f.anuncios} {f.anuncios === 1 ? "anuncio" : "anuncios"}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="num cifra font-semibold">{n(f.unidades)}</td>
+                            <td className="num cifra">{pesos(f.importe)}</td>
+                            <td
+                              className="num cifra"
+                              style={{
+                                color:
+                                  f.ganancia != null && f.ganancia < 0
+                                    ? "var(--critico-texto)"
+                                    : "var(--ink-1)",
+                              }}
+                            >
+                              {f.ganancia == null ? "—" : pesos(f.ganancia)}
+                            </td>
+                            <td className="num cifra">{f.gastoAds > 0 ? pesos(f.gastoAds) : "—"}</td>
+                            <td className="num cifra font-semibold">
+                              {f.gastoAds > 0 && f.costoPorUnidad != null
+                                ? pesosFinos(f.costoPorUnidad)
+                                : "—"}
+                            </td>
+                            <td className="num cifra texto-2">
+                              {f.gastoAds > 0 && f.tacos != null ? pct(f.tacos) : "—"}
+                            </td>
+                            <td className="num cifra texto-2">
+                              {f.ventaAds > 0 ? pesos(f.ventaAds) : "—"}
+                            </td>
+                            <td
+                              className="num cifra"
+                              style={{
+                                color:
+                                  f.gananciaNeta != null && f.gananciaNeta < 0
+                                    ? "var(--critico-texto)"
+                                    : "var(--ink-1)",
+                              }}
+                            >
+                              {f.gananciaNeta == null ? "—" : pesos(f.gananciaNeta)}
+                            </td>
+                          </tr>
+                        ))}
+                        {p.filas.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="p-4 text-sm texto-2">
+                              Sin ventas ni anuncios en el periodo.
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
 
-      {p.sinAmarre.anuncios > 0 ? (
-        <p className="text-xs texto-tenue">
-          {p.sinAmarre.anuncios} anuncios ({pesos(p.sinAmarre.gasto)}) no amarraron a ningún modelo; su gasto sí
-          cuenta en el total.
-        </p>
-      ) : null}
-
-      {p.recomendaciones.length > 0 ? (
-        <Seccion
-          titulo="Recomendaciones"
-          descripcion="Qué hacer hoy con cada modelo según su stock de Full y su margen."
-          sinRelleno
-        >
-          <div className="px-4 pt-3">
-            <Ayuda titulo="¿Dónde se cambia?">
-              <p>
-                Los cambios se hacen en la consola de Product Ads de Mercado Libre; su API no acepta modificarlos desde
-                aquí.
-              </p>
-            </Ayuda>
-          </div>
-          <Tabla>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th>Qué hacer</th>
-                <th>Por qué</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Agrupadas por lo que hay que hacer, en el orden en que se
-                  trabaja la lista: primero se corta el gasto, después se
-                  invierte. Dentro de cada grupo, lo que más dinero mueve
-                  primero. */}
-              {GRUPOS_ACCION.map((grupo) => {
-                const delGrupo = p.recomendaciones.filter((r) => grupo.acciones.includes(r.accion));
-                if (!delGrupo.length) return null;
-                return (
-                  <Fragment key={grupo.titulo}>
+                {p.sinAmarre.anuncios > 0 ? (
+                  <p className="text-xs texto-tenue">
+                    {p.sinAmarre.anuncios} anuncios ({pesos(p.sinAmarre.gasto)}) no amarraron a ningún modelo; su gasto sí
+                    cuenta en el total.
+                  </p>
+                ) : null}
+              </>
+            ),
+          },
+          p.recomendaciones.length > 0 && {
+            id: "recomendaciones",
+            titulo: "Recomendaciones",
+            cuenta: p.recomendaciones.length,
+            contenido: (
+              <Seccion
+                titulo="Recomendaciones"
+                descripcion="Qué hacer hoy con cada modelo según su stock de Full y su margen."
+                sinRelleno
+              >
+                <div className="px-4 pt-3">
+                  <Ayuda titulo="¿Dónde se cambia?">
+                    <p>
+                      Los cambios se hacen en la consola de Product Ads de Mercado Libre; su API no acepta modificarlos desde
+                      aquí.
+                    </p>
+                  </Ayuda>
+                </div>
+                <Tabla>
+                <table className="datos">
+                  <thead>
                     <tr>
-                      <th
-                        colSpan={3}
-                        className="text-left text-xs font-semibold uppercase tracking-wide"
-                        style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}
-                      >
-                        {grupo.titulo} · {delGrupo.length}
-                      </th>
+                      <th>Modelo</th>
+                      <th>Qué hacer</th>
+                      <th>Por qué</th>
                     </tr>
-                    {delGrupo.map((r) => (
-                      <tr key={`${r.accion}|${r.modelo}`}>
-                        <td className="font-semibold">{r.modelo}</td>
-                        <td
-                          className="font-semibold"
-                          style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
-                        >
-                          {r.queHacer}
-                        </td>
-                        <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
-                          {r.razon}
-                        </td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-          </Tabla>
-        </Seccion>
-      ) : null}
+                  </thead>
+                  <tbody>
+                    {/* Agrupadas por lo que hay que hacer, en el orden en que se
+                        trabaja la lista: primero se corta el gasto, después se
+                        invierte. Dentro de cada grupo, lo que más dinero mueve
+                        primero. */}
+                    {GRUPOS_ACCION.map((grupo) => {
+                      const delGrupo = p.recomendaciones.filter((r) => grupo.acciones.includes(r.accion));
+                      if (!delGrupo.length) return null;
+                      return (
+                        <Fragment key={grupo.titulo}>
+                          <tr>
+                            <th
+                              colSpan={3}
+                              className="text-left text-xs font-semibold uppercase tracking-wide"
+                              style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}
+                            >
+                              {grupo.titulo} · {delGrupo.length}
+                            </th>
+                          </tr>
+                          {delGrupo.map((r) => (
+                            <tr key={`${r.accion}|${r.modelo}`}>
+                              <td className="font-semibold">{r.modelo}</td>
+                              <td
+                                className="font-semibold"
+                                style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
+                              >
+                                {r.queHacer}
+                              </td>
+                              <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
+                                {r.razon}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                </Tabla>
+              </Seccion>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }

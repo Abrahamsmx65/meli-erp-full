@@ -106,13 +106,37 @@ export default async function Amazon({
         />
       </Cifras>
 
-      <RecargaAmazon estado={recarga} />
+      {/* Sin envíos entrantes sincronizados, el aviso se queda arriba de las pestañas. */}
+      {!enCamino ? <EnviosViejosFba enCamino={enCamino} /> : null}
 
-      <EnviosViejosFba enCamino={enCamino} />
-
-      <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} sinConfigurar={enviosFba.sinConfigurar} />
-
-      <EnviosFba sugerencias={sugerencias} dias={dias} />
+      <CajasFba
+        plan={planFba}
+        desglose={desglose}
+        dias={dias}
+        envios={enviosFba.envios}
+        sinConfigurar={enviosFba.sinConfigurar}
+        pestanasExtra={[
+          {
+            id: "productos",
+            titulo: "Por producto",
+            cuenta: sugerencias.length,
+            contenido: <EnviosFba sugerencias={sugerencias} dias={dias} />,
+          },
+          enCamino != null && enCamino.viejos.length > 0 && {
+            id: "viejos",
+            titulo: "Envíos viejos",
+            cuenta: enCamino.viejos.length,
+            alerta: true,
+            contenido: <EnviosViejosFba enCamino={enCamino} />,
+          },
+          {
+            id: "historico",
+            titulo: "Recargar histórico",
+            cuenta: recarga.pendientes > 0 ? recarga.pendientes : null,
+            contenido: <RecargaAmazon estado={recarga} />,
+          },
+        ]}
+      />
     </Pagina>
   );
 }
