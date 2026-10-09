@@ -1284,8 +1284,8 @@ export function GeneradorVideo({
 
   return (
     <section className="tarjeta p-4">
-      <h2 className="font-semibold">Nuevo video</h2>
-      <p className="mt-0.5 text-sm texto-2">
+      <h2 className="seccion-titulo">Nuevo video</h2>
+      <p className="texto-2 mt-0.5 text-[13px]">
         Clip, prueba y hablado se generan directo de tus fotos reales: el producto
         sale tal cual, sin que la IA lo redibuje. En UGC una persona lo presenta
         hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena con
@@ -1770,8 +1770,7 @@ export function GeneradorVideo({
                     <button
                       onClick={crearPersonajeAhora}
                       disabled={creandoPersonaje !== "no"}
-                      className="rounded px-3 py-1.5 text-sm text-white disabled:opacity-50"
-                      style={{ background: "var(--acento)" }}
+                      className="boton boton-primario"
                     >
                       {creandoPersonaje === "creando"
                         ? "Creando…"
@@ -2017,8 +2016,7 @@ export function GeneradorVideo({
                 ) : (
                   <button
                     onClick={pararGrabacion}
-                    className="rounded px-3 py-1.5 text-sm text-white"
-                    style={{ background: "var(--estado-critico)" }}
+                    className="boton boton-peligro-lleno"
                   >
                     ⏹ Detener (se corta solo a los 15 s)
                   </button>
@@ -2125,8 +2123,7 @@ export function GeneradorVideo({
                 !promptVideo.trim() ||
                 (formato === "ugc" && audio !== null && !promptImagen.trim())
               }
-              className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               {estado === "enviando"
                 ? generandoVoz
@@ -2364,8 +2361,7 @@ export function CambiarVoz({ id }: { id: string }) {
             <button
               onClick={aplicar}
               disabled={estado === "enviando" || !vozSel}
-              className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario boton-chico"
             >
               {estado === "enviando" ? "Lanzando…" : "Aplicar"}
             </button>
@@ -2446,8 +2442,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
         <button
           onClick={aplicar}
           disabled={estado === "enviando" || !texto.trim()}
-          className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario boton-chico"
         >
           {estado === "enviando" ? "Re-quemando…" : "Aplicar"}
         </button>

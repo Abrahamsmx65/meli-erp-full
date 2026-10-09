@@ -6,6 +6,7 @@ import {
   type ClaveTablaVentas,
   type PaginaTablaVentas,
 } from "@/lib/servicios/ventas-tabla";
+import { Aviso } from "@/components/ui/pagina";
 
 /**
  * La tabla "Por modelo" del monitor de ventas, con buscador, filtro por
@@ -98,7 +99,7 @@ export function TablaModelosVentas({
     setOrden((o) => (o.clave === clave ? { clave, desc: !o.desc } : { clave, desc: clave !== "modelo" && clave !== "categoria" }));
   };
 
-  const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--estado-critico)" : "var(--ink-muted)");
+  const colorDelta = (d: number) => (d > 0 ? "var(--exito-texto)" : d < 0 ? "var(--critico-texto)" : "var(--ink-muted)");
 
   return (
     <div>
@@ -179,7 +180,7 @@ export function TablaModelosVentas({
                   <td className="num cifra texto-2">
                     {f.publicidad7 == null ? "—" : pesos(f.publicidad7)}
                   </td>
-                  <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--estado-critico)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
+                  <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--critico-texto)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
                     {f.ganancia7 == null ? "sin costo" : pesos(f.ganancia7)}
                   </td>
                 </tr>
@@ -218,9 +219,9 @@ export function TablaModelosVentas({
         </table>
       </div>
       {error ? (
-        <p className="border-t p-3 text-sm hairline" role="alert" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
+        <div className="border-t p-3 hairline">
+          <Aviso tono="critico">{error}</Aviso>
+        </div>
       ) : null}
       {paginas > 1 ? (
         <nav
@@ -236,8 +237,7 @@ export function TablaModelosVentas({
               type="button"
               disabled={paginaSegura === 1}
               onClick={() => setPagina((p) => Math.max(1, p - 1))}
-              className="rounded-lg border px-3 py-1 disabled:opacity-40"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde boton-chico"
             >
               Anterior
             </button>
@@ -248,8 +248,7 @@ export function TablaModelosVentas({
               type="button"
               disabled={paginaSegura === paginas}
               onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
-              className="rounded-lg border px-3 py-1 disabled:opacity-40"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde boton-chico"
             >
               Siguiente
             </button>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GastoManual } from "@/lib/servicios/corte-meli";
+import { Aviso } from "@/components/ui/pagina";
 
 /**
  * Lo interactivo del corte: hacer el corte, revisar devoluciones, leer la
@@ -107,16 +108,8 @@ export function AccionesCorte({
           </a>
         ) : null}
       </div>
-      {aviso ? (
-        <p className="text-sm" style={{ color: "var(--exito-texto)" }}>
-          {aviso}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
-      ) : null}
+      {aviso ? <Aviso tono="bien">{aviso}</Aviso> : null}
+      {error ? <Aviso tono="critico">{error}</Aviso> : null}
     </div>
   );
 }
@@ -202,7 +195,7 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
                 <td>{NOMBRE_CATEGORIA[g.categoria]}</td>
                 <td className="num cifra">{pesos(g.monto)}</td>
                 <td className="num">
-                  <button type="button" className="text-xs" style={{ color: "var(--estado-critico)" }} disabled={ocupado} onClick={() => borrar(g.id)}>
+                  <button type="button" className="boton boton-peligro boton-chico" disabled={ocupado} onClick={() => borrar(g.id)}>
                     Borrar
                   </button>
                 </td>
@@ -241,9 +234,9 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
         </button>
       </form>
       {error ? (
-        <p className="px-3 pb-3 text-sm" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
+        <div className="px-3 pb-3">
+          <Aviso tono="critico">{error}</Aviso>
+        </div>
       ) : null}
     </div>
   );

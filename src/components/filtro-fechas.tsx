@@ -72,11 +72,7 @@ export function FiltroFechas({
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Hasta"
         />
-        <button
-          type="submit"
-          className="rounded-lg border px-3 py-1 text-xs font-medium"
-          style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
-        >
+        <button type="submit" className="boton boton-borde boton-chico">
           Aplicar
         </button>
       </form>

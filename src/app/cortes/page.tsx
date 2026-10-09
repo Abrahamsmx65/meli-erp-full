@@ -10,7 +10,7 @@ import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Canal } from "
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
-import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -28,7 +28,7 @@ function pct(x: number | null): string {
 function unidad(x: number | null | undefined): string {
   return x == null ? "—" : pesos(x);
 }
-const colorGanancia = (g: number | null) => (g == null ? "var(--ink-muted)" : g < 0 ? "var(--estado-critico)" : "var(--exito-texto)");
+const colorGanancia = (g: number | null) => (g == null ? "var(--ink-muted)" : g < 0 ? "var(--critico-texto)" : "var(--exito-texto)");
 
 /**
  * Corte general del mes: calzado + fundas + Amazon, con la ganancia total,
@@ -159,7 +159,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <th key={k.canal} className="num">
                     {k.nombre}
                     {k.calculable === false ? (
-                      <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "#fde7e7", color: "#8a1f1f" }}>no calculable</span>
+                      <span className="chip aviso-critico ml-1 text-[10px]">no calculable</span>
                     ) : null}
                   </th>
                 ))}
@@ -362,7 +362,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="num cifra">{pesos(m.iva)}</td>
                   <td className="num cifra">{pesos(m.otros)}</td>
                   <td className="num cifra">{pesos(m.neto)}</td>
-                  <td className="num cifra" style={{ color: m.costo == null ? "var(--estado-alerta)" : undefined }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
+                  <td className="num cifra" style={{ color: m.costo == null ? "var(--alerta-texto)" : undefined }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
                   <td className="num cifra">{m.ads ? pesos(m.ads) : "—"}</td>
                   <td className="num cifra">{pesos(m.cargoGeneral)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(m.ganancia) }}>{m.ganancia == null ? "—" : pesos(m.ganancia)}</td>
@@ -374,10 +374,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </section>
 
       {/* ---- Avisos ------------------------------------------------------ */}
-      <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">{cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}</h2>
+      <Seccion titulo={cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}>
         {cns.avisos.length ? (
-          <ul className="mt-2 flex flex-col gap-1 text-sm">
+          <ul className="flex flex-col gap-1 text-sm">
             {cns.avisos.map((a, i) => (
               <li key={i} className="flex gap-2">
                 <span style={{ color: "var(--acento)" }}>•</span>
@@ -386,9 +385,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm" style={{ color: "var(--exito-texto)" }}>Los tres canales están completos.</p>
+          <Aviso tono="bien">Los tres canales están completos.</Aviso>
         )}
-      </section>
+      </Seccion>
 
       {/* ---- Guardados ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
@@ -413,14 +412,14 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               {cortes.map((c) => (
                 <tr key={c.id}>
                   <td className="font-medium">
-                    <Link href={`/cortes?mes=${c.periodo}`} style={{ color: "var(--acento)" }}>{nombreDelPeriodo(c.periodo)}</Link>
+                    <Link href={`/cortes?mes=${c.periodo}`} className="enlace">{nombreDelPeriodo(c.periodo)}</Link>
                   </td>
                   <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                   <td className="num cifra">{pesos(c.ventaBruta)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(c.utilidadNeta) }}>{pesos(c.utilidadNeta)}</td>
                   <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
                   <td className="num">
-                    <a href={`/api/cortes/general/${c.id}/excel`} style={{ color: "var(--acento)" }}>Excel</a>
+                    <a href={`/api/cortes/general/${c.id}/excel`} className="enlace">Excel</a>
                   </td>
                 </tr>
               ))}

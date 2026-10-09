@@ -8,6 +8,7 @@ import type {
   ItemListado,
   ResultadoUnificacion,
 } from "@/lib/servicios/listados";
+import { Aviso } from "@/components/ui/pagina";
 
 /**
  * Buscador de agrupadores + comparador de atributos + unificación.
@@ -139,8 +140,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           <button
             type="submit"
             disabled={cargando || !busqueda.trim()}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
           >
             {cargando ? "Leyendo MELI…" : "Buscar"}
           </button>
@@ -153,16 +153,16 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           </datalist>
         </form>
         {error ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+          <Aviso tono="critico" className="mt-3">
             {error}
-          </p>
+          </Aviso>
         ) : null}
       </section>
 
       {grupo ? (
         <>
           <div className="flex flex-wrap items-center gap-3 text-sm texto-2">
-            <span className="text-base font-semibold" style={{ color: "var(--ink-1)" }}>
+            <span className="seccion-titulo">
               {grupo.agrupador}
             </span>
             <span>
@@ -177,14 +177,14 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           </div>
 
           {raras.length === 0 ? (
-            <section className="tarjeta p-4 text-sm" style={{ color: "var(--exito-texto)" }}>
+            <Aviso tono="bien">
               Sin diferencias raras: fuera de talla, color y códigos, todas las publicaciones
               del agrupador traen los mismos atributos.
-            </section>
+            </Aviso>
           ) : (
             <section className="tarjeta overflow-hidden">
-              <header className="border-b p-4 hairline">
-                <h2 className="text-sm font-semibold">
+              <header className="border-b px-4 py-3.5 hairline">
+                <h2 className="seccion-titulo">
                   Diferencias que parten el selector ({raras.length})
                 </h2>
                 <p className="mt-0.5 text-xs texto-2">
@@ -284,8 +284,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             cargando ||
                             !((otro[k] ?? "").trim() || (eleccion[k] && eleccion[k] !== SIN_DATO))
                           }
-                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-                          style={{ background: "var(--acento)" }}
+                          className="boton boton-primario boton-chico"
                         >
                           {aplicando === k
                             ? "Escribiendo en MELI…"

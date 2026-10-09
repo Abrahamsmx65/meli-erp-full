@@ -55,7 +55,7 @@ export function EnviosSeparados({
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="seccion-titulo">Envíos a preparar</h2>
-        <p className="mt-0.5 text-sm texto-2">
+        <p className="texto-2 mt-0.5 text-[13px]">
           {grupos.length === 1
             ? "Todo sale de una sola dirección, así que es un solo envío."
             : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}

@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { leerReporteVentas, type InformeVentasMeli } from "@/lib/meli/conciliar-ventas";
 import { enviarJsonGzip } from "@/lib/cliente/comprimir";
+import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras } from "@/components/ui/pagina";
 
 const pesos = (x: number | null | undefined) => (x == null ? "—" : x.toLocaleString("es-MX", { style: "currency", currency: "MXN" }));
 const n = (x: number) => x.toLocaleString("es-MX");
@@ -70,7 +72,7 @@ export function ConciliarMeli() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-white" style={{ background: "var(--acento)", opacity: subiendo ? 0.6 : 1 }}>
+        <label className="boton boton-primario cursor-pointer" style={{ opacity: subiendo ? 0.6 : 1 }}>
           {subiendo ?? "Subir reporte de Ventas (Excel)"}
           <input
             ref={inputRef}
@@ -87,12 +89,8 @@ export function ConciliarMeli() {
         <span className="text-xs texto-2">
           Mercado Libre → Ventas → Descargar reporte → el mes → Excel («Ventas MX»).
         </span>
-        {error ? (
-          <span className="text-sm" style={{ color: "var(--estado-critico)" }}>
-            {error}
-          </span>
-        ) : null}
       </div>
+      {error ? <Aviso tono="critico">{error}</Aviso> : null}
       {informe ? <Informe i={informe} /> : null}
     </div>
   );
@@ -111,28 +109,32 @@ function Informe({ i }: { i: InformeVentasMeli }) {
   return (
     <div className="flex flex-col gap-4">
       <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">
+        <h2 className="seccion-titulo">
           Reporte del {i.rango.desde} al {i.rango.hasta} · {n(i.ventasReporte)} ventas ({n(i.reporteCompleto.reventa)} en reventa, {n(i.canceladasReporte)} canceladas) · total del reporte {pesos(i.reporteCompleto.total)}
         </h2>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mt-3">
+        <Cifras columnas={4}>
           <Cifra titulo="Ventas que cuadran" valor={`${n(i.cuadran)} de ${n(i.comparables)}`} nota="Neto y cargos al centavo, de las comparables" tono={i.cuadran === i.comparables ? "bien" : "alerta"} />
           <Cifra titulo="Distintas" valor={n(i.distintas)} nota="Con pago real leído y aun así diferentes" tono={i.distintas ? "critico" : "bien"} />
           <Cifra titulo="Sin pago real aún" valor={n(i.sinPagoReal)} nota="La recarga todavía no las lee; no se compararon" tono={i.sinPagoReal ? "alerta" : "bien"} />
           <Cifra titulo="Solo en un lado" valor={`${n(i.soloReporte)} / ${n(i.soloErp)}`} nota="Solo en el reporte / solo en el ERP" tono={i.soloReporte - i.canceladasReporte > 0 || i.soloErp ? "alerta" : "bien"} />
+        </Cifras>
         </div>
         {i.avisos.length ? (
-          <ul className="mt-3 flex flex-col gap-1 text-sm" style={{ color: "var(--estado-alerta)" }}>
-            {i.avisos.map((a) => (
-              <li key={a}>{a}</li>
-            ))}
-          </ul>
+          <Aviso tono="alerta" className="mt-3">
+            <ul className="flex flex-col gap-1">
+              {i.avisos.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          </Aviso>
         ) : null}
       </section>
 
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Sumas de las ventas comparables ({n(i.comparables)})</h2>
-          <p className="mt-0.5 text-sm texto-2">
+        <header className="border-b px-4 py-3.5 hairline">
+          <h2 className="seccion-titulo">Sumas de las ventas comparables ({n(i.comparables)})</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             Solo las ventas que el ERP ya tiene con el pago real de Mercado Pago. En reventa el reporte no trae cargos ni envío y el ERP tampoco los descuenta.
           </p>
         </header>
@@ -153,7 +155,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
                   <td>{f.concepto}</td>
                   <td className="num cifra">{pesos(f.reporte)}</td>
                   <td className="num cifra">{pesos(f.erp)}</td>
-                  <td className="num cifra" style={{ color: Math.abs(d) > 0.01 ? "var(--estado-critico)" : "var(--exito-texto)" }}>
+                  <td className="num cifra" style={{ color: Math.abs(d) > 0.01 ? "var(--critico-texto)" : "var(--exito-texto)" }}>
                     {pesos(d)}
                   </td>
                 </tr>
@@ -168,8 +170,8 @@ function Informe({ i }: { i: InformeVentasMeli }) {
 
       {i.porEstadoDistintas.length ? (
         <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Las distintas, por estado del reporte</h2>
+          <header className="border-b px-4 py-3.5 hairline">
+            <h2 className="seccion-titulo">Las distintas, por estado del reporte</h2>
           </header>
           <table className="datos">
             <thead>
@@ -194,9 +196,9 @@ function Informe({ i }: { i: InformeVentasMeli }) {
 
       {i.ejemplos.length ? (
         <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Ventas que no cuadran (las {n(i.ejemplos.length)} más grandes)</h2>
-            <p className="mt-0.5 text-sm texto-2">
+          <header className="border-b px-4 py-3.5 hairline">
+            <h2 className="seccion-titulo">Ventas que no cuadran (las {n(i.ejemplos.length)} más grandes)</h2>
+            <p className="texto-2 mt-0.5 text-[13px]">
               Ábrelas en Mercado Libre por su número de venta para ver qué pasó. Diferencia = reporte − ERP.
             </p>
           </header>
@@ -230,7 +232,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
                     <td className="num cifra">{pesos(d.reporte?.anulaciones)} / {pesos(d.erp?.reembolsado)}</td>
                     <td className="num cifra">{pesos(d.reporte?.total)}</td>
                     <td className="num cifra">{pesos(d.erp?.neto)}</td>
-                    <td className="num cifra" style={{ color: "var(--estado-critico)" }}>{pesos(d.diferencia)}</td>
+                    <td className="num cifra" style={{ color: "var(--critico-texto)" }}>{pesos(d.diferencia)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -238,29 +240,10 @@ function Informe({ i }: { i: InformeVentasMeli }) {
           </div>
         </section>
       ) : (
-        <p className="text-sm font-medium" style={{ color: "var(--exito-texto)" }}>
-          Todas las ventas comparables cuadran al centavo con el ERP.
-        </p>
+        <Aviso tono="bien">Todas las ventas comparables cuadran al centavo con el ERP.</Aviso>
       )}
     </div>
   );
 }
 
-function Cifra({ titulo, valor, nota, tono }: { titulo: string; valor: string; nota?: string; tono?: "bien" | "alerta" | "critico" }) {
-  const color = tono === "bien" ? "var(--exito-texto)" : tono === "alerta" ? "var(--estado-alerta)" : tono === "critico" ? "var(--estado-critico)" : "var(--ink-1)";
-  return (
-    <div className="rounded-lg border p-3" style={{ borderColor: "var(--borde)" }}>
-      <div className="text-xs texto-2">
-        {titulo}
-      </div>
-      <div className="cifra text-lg font-semibold" style={{ color }}>
-        {valor}
-      </div>
-      {nota ? (
-        <div className="text-xs texto-2">
-          {nota}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+const Cifra = Ficha;

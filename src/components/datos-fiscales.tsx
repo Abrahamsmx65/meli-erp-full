@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Aviso } from "./ui/pagina";
 
 /**
  * Sección de datos fiscales: SOLO los SKUs que no tienen la información
@@ -249,8 +250,7 @@ export function DatosFiscales() {
             <button
               onClick={leerDeMeli}
               disabled={leyendo}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+              className="boton boton-borde"
             >
               Leer catálogo de MELI
             </button>
@@ -259,12 +259,7 @@ export function DatosFiscales() {
       ) : null}
 
       {mensaje ? (
-        <p
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
-          {mensaje}
-        </p>
+        <Aviso tono="alerta">{mensaje}</Aviso>
       ) : null}
 
       <section className="tarjeta overflow-hidden">
@@ -280,8 +275,7 @@ export function DatosFiscales() {
           <button
             onClick={rellenarTodos}
             disabled={!conSugerencia.length}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
             title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de su categoría de MELI o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
             Confirmar y rellenar los {conSugerencia.length} modelos
