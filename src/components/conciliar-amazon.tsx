@@ -41,7 +41,7 @@ export function ConciliarAmazon() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-white" style={{ background: "var(--acento)", opacity: subiendo ? 0.6 : 1 }}>
+        <label className="boton boton-primario cursor-pointer" style={{ opacity: subiendo ? 0.6 : 1 }}>
           {subiendo ? "Cruzando…" : "Subir reporte de transacciones (CSV)"}
           <input
             ref={inputRef}
@@ -55,7 +55,7 @@ export function ConciliarAmazon() {
             }}
           />
         </label>
-        <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <span className="texto-2 text-xs">
           Seller Central → Pagos → Reportes → Transacciones → un mes → Descargar CSV.
         </span>
         {error ? (
@@ -75,7 +75,7 @@ function Informe({ i }: { i: InformeConciliacion }) {
   return (
     <div className="flex flex-col gap-4">
       <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">
+        <h2 className="seccion-titulo">
           Rango del reporte: {fecha(i.rango.desde)} → {fecha(i.rango.hasta)} · {n(i.renglones)} renglones
         </h2>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -92,7 +92,7 @@ function Informe({ i }: { i: InformeConciliacion }) {
           </ul>
         ) : null}
         {i.transferencias.length ? (
-          <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 mt-2 text-xs">
             Transferencias en el reporte (depósitos de liquidaciones anteriores, no cuentan): {i.transferencias.map((t) => `${t.liquidacion} ${pesos(t.monto)}`).join(" · ")}
           </p>
         ) : null}
@@ -100,8 +100,8 @@ function Informe({ i }: { i: InformeConciliacion }) {
 
       <section className="tarjeta overflow-hidden">
         <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Tipo por tipo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Tipo por tipo</h2>
+          <p className="texto-2 mt-0.5 text-sm">
             Cómo llama Seller Central a cada cosa y qué tiene el ERP con ese nombre.
           </p>
         </header>
@@ -155,7 +155,7 @@ function Informe({ i }: { i: InformeConciliacion }) {
 
       <section className="tarjeta overflow-hidden">
         <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Liquidaciones del rango en el ERP</h2>
+          <h2 className="seccion-titulo">Liquidaciones del rango en el ERP</h2>
         </header>
         <table className="datos">
           <thead>
@@ -188,8 +188,8 @@ function Informe({ i }: { i: InformeConciliacion }) {
       {i.ordenes.ejemplos.length ? (
         <section className="tarjeta overflow-hidden">
           <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Órdenes que no cuadran (las {n(i.ordenes.ejemplos.length)} más grandes)</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <h2 className="seccion-titulo">Órdenes que no cuadran (las {n(i.ordenes.ejemplos.length)} más grandes)</h2>
+            <p className="texto-2 mt-0.5 text-sm">
               Suma de los renglones de la orden en el reporte contra la suma de sus eventos en el ERP, dentro del rango. Ábrela en Seller Central para ver qué pasó.
             </p>
           </header>
@@ -229,14 +229,14 @@ function Cifra({ titulo, valor, nota, tono }: { titulo: string; valor: string; n
   const color = tono === "bien" ? "var(--exito-texto)" : tono === "alerta" ? "var(--estado-alerta)" : tono === "critico" ? "var(--estado-critico)" : "var(--ink-1)";
   return (
     <div className="rounded-lg border p-3" style={{ borderColor: "var(--borde)" }}>
-      <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <div className="texto-2 text-xs">
         {titulo}
       </div>
       <div className="cifra text-lg font-semibold" style={{ color }}>
         {valor}
       </div>
       {nota ? (
-        <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <div className="texto-2 text-xs">
           {nota}
         </div>
       ) : null}

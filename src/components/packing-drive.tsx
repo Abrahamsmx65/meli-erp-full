@@ -65,8 +65,8 @@ export function PackingDrive({
   return (
     <section className="tarjeta p-4">
       <header className="flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-semibold">Packing lists desde Drive</h2>
-        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <h2 className="seccion-titulo">Packing lists desde Drive</h2>
+        <span className="texto-tenue text-xs">
           {configurado
             ? `Se leen solos cada mañana y entran como borrador.${conLlave ? "" : " Carpeta pública, sin llave."}`
             : "Sin configurar: falta la llave de Google Drive en el entorno."}
@@ -75,23 +75,21 @@ export function PackingDrive({
         <button
           onClick={() => traer(false)}
           disabled={ocupado || !configurado}
-          className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          style={{ borderColor: "var(--borde)" }}
+          className="boton boton-borde boton-chico disabled:opacity-50"
         >
           {ocupado ? "Leyendo Drive…" : "Traer de Drive ahora"}
         </button>
         <button
           onClick={() => traer(true)}
           disabled={ocupado || !configurado}
-          className="rounded-lg border px-3 py-1.5 text-xs disabled:opacity-50"
-          style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+          className="boton boton-borde boton-chico disabled:opacity-50"
           title="Vuelve a leer también los archivos que no cambiaron"
         >
           Releer todo
         </button>
       </header>
       {resumen ? (
-        <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-2 text-xs">
           {resumen}
         </p>
       ) : null}
@@ -115,7 +113,7 @@ export function PackingDrive({
             Hay cambios: {borradores.length} contenedor(es) por revisar · {borradores.join(" · ")}
           </span>
         ) : (
-          <span style={{ color: "var(--ink-muted)" }}>Nada nuevo por revisar.</span>
+          <span className="texto-tenue">Nada nuevo por revisar.</span>
         )}
         {incompletos.length ? (
           <span
@@ -132,8 +130,7 @@ export function PackingDrive({
         {archivos.length ? (
           <button
             onClick={() => setVerDetalle((v) => !v)}
-            className="underline"
-            style={{ color: "var(--ink-2)" }}
+            className="texto-2 underline"
           >
             {verDetalle ? "Ocultar detalle" : "Ver detalle"}
           </button>
@@ -157,8 +154,8 @@ export function PackingDrive({
                 {a.estado}
                 {a.contenedor ? ` → ${a.contenedor}` : ""}
               </span>
-              {a.motivo ? <span style={{ color: "var(--ink-2)" }}>{a.motivo}</span> : null}
-              <span className="cifra" style={{ color: "var(--ink-muted)" }}>
+              {a.motivo ? <span className="texto-2">{a.motivo}</span> : null}
+              <span className="texto-tenue cifra">
                 {a.procesadoEn.slice(0, 16).replace("T", " ")}
               </span>
             </li>
