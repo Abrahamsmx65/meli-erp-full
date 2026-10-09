@@ -28,7 +28,7 @@
  * y `billable_weight` (el peso facturable que salió de esas medidas).
  */
 import { MeliClient, enLotes, trozos } from "../meli/client";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { mensajeErrorDatos } from "./errores-datos";
 
@@ -1020,7 +1020,10 @@ async function preguntarEnviosReales(
   accountId: string,
 ): Promise<{ filas: FilaEnvioReal[]; desde: string }> {
   const desde = new Date(Date.now() - DIAS_VENTAS_REALES * 86_400_000).toISOString();
-  const { data, error } = await db.rpc("envio_real_por_sku", { p_account: accountId, p_desde: desde });
+  // Por páginas: ~1,500 SKUs con ventas y el API entrega 1,000 por respuesta;
+  // con una sola llamada los SKUs de la segunda mitad del alfabeto caían al
+  // simulador como «sin ventas».
+  const { data, error } = await rpcPaginado<FilaEnvioReal>(db, "envio_real_por_sku", { p_account: accountId, p_desde: desde });
   if (error) throw new Error(mensajeErrorDatos(error));
   return { filas: (data ?? []) as FilaEnvioReal[], desde };
 }

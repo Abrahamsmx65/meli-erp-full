@@ -152,7 +152,7 @@ export default async function VentasTikTok({
             titulo: "Por modelo",
             cuenta: modelos.length,
             contenido: (
-              <Seccion titulo="Ventas por modelo" descripcion="Abre un modelo para ver sus tallas." sinRelleno>
+              <Seccion titulo="Ventas por modelo" sinRelleno>
                 <div className="tabla-caja">
                   <table className="datos">
                     <thead>
@@ -243,7 +243,7 @@ export default async function VentasTikTok({
             id: "estados",
             titulo: "Pedidos por estado",
             contenido: (
-              <Seccion titulo="Pedidos por estado" descripcion="Los del rango y, de cualquier fecha, los que todavía no salen." sinRelleno>
+              <Seccion titulo="Pedidos por estado" sinRelleno>
                 <div className="tabla-caja">
                   <table className="datos">
                     <tbody>
@@ -271,11 +271,7 @@ export default async function VentasTikTok({
             titulo: "Muestras",
             cuenta: muestras.length,
             contenido: (
-              <Seccion
-                titulo="Solicitudes de muestras"
-                descripcion="Pedidos de $0 para creadores: se despachan y descuentan, pero no son venta."
-                sinRelleno
-              >
+              <Seccion titulo="Solicitudes de muestras" sinRelleno>
                 <div className="tabla-caja">
                   <table className="datos">
                     <thead>

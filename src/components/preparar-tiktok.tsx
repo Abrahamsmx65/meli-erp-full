@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
-import { Aviso, Ayuda } from "@/components/ui/pagina";
+import { Aviso } from "@/components/ui/pagina";
 import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
@@ -398,14 +398,6 @@ export function PrepararTikTok({
             Dar por bueno sin escanear los que no tienen FNSKU (queda registrado como manual)
           </button>
         ) : null}
-        <div className="mt-3">
-          <Ayuda titulo="¿Cómo se prepara?">
-            <p>
-              Escanea la etiqueta: el sistema dice qué va adentro y pita una vez por par. Luego el producto, un escaneo por
-              par. Si algo no cuadra suena grave y no avanza. También puedes empezar por el renglón de la hoja.
-            </p>
-          </Ayuda>
-        </div>
       </section>
 
       {pidiendoClave ? (

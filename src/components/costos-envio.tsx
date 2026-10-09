@@ -346,10 +346,9 @@ export function CostosEnvio({
             <strong className="cifra">{pesos(totales.pagadoDeMas)}</strong> pagados de más en los
             últimos 60 días
           </span>{" "}
-          según lo que MELI cobró de verdad en cada venta (
-          <span className="cifra">{totales.conVentas}</span> con ventas comparables; las otras{" "}
-          <span className="cifra">{totales.malas - totales.conVentas}</span> solo las señala el
-          simulador, {pesos(totales.sobrecosto)} de más por venta) · revisadas{" "}
+          (<span className="cifra">{totales.conVentas}</span> con ventas comparables;{" "}
+          <span className="cifra">{totales.malas - totales.conVentas}</span> por simulador,{" "}
+          {pesos(totales.sobrecosto)} de más por venta) · revisadas{" "}
           <span className="cifra">{totales.medidas}</span> de{" "}
           <span className="cifra">{totales.publicaciones}</span> publicaciones
           {totales.sinCosto > 0 && (
@@ -391,7 +390,7 @@ export function CostosEnvio({
           {busqueda
             ? `No hay ningún modelo que se llame así.`
             : totales.medidas === 0
-              ? "Todavía no hay nada revisado. Dale a «Revisar medidas» para leer las medidas de MELI."
+              ? "Todavía no hay nada revisado."
               : "Ninguna publicación está cobrando de más. "}
         </p>
       )}
@@ -448,12 +447,7 @@ export function CostosEnvio({
             {!abierto && m.malas.length === 0 ? (
               // Un modelo buscado a mano que está bien: decirlo, no enseñar una tabla vacía.
               <p className="p-4 text-sm" style={{ color: "var(--exito-texto)" }}>
-                Ninguna talla del {m.modelo} cobra de más según sus últimas ventas
-                {m.variantes.some((v) => v.conVentas)
-                  ? `: en las ${m.variantes.filter((v) => v.conVentas).length} con ventas comparables, los dos últimos pedidos pagaron lo mismo que sus hermanas.`
-                  : " (sin ventas comparables en 60 días; el simulador tampoco la señala)."}
-                {m.variantes.some((v) => v.pagadoDeMas > 0) &&
-                  " Hubo cobros de más antes que MELI ya corrigió; están en «Pagado de más (60 d)»."}
+                Ninguna talla del {m.modelo} cobra de más.
               </p>
             ) : (
               <Tabla variantes={abierto ? m.variantes : m.malas} malas={malas} />

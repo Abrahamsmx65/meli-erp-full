@@ -118,12 +118,11 @@ export default async function PublicidadAmazon({
 
       {p.economiaHasta && p.economiaHasta < rango.hasta ? (
         <p className="texto-tenue text-xs">
-          La economía por SKU tiene datos hasta el {p.economiaHasta}; los días
-          posteriores del rango aún no traen gasto de publicidad.
+          La economía por SKU tiene datos hasta el {p.economiaHasta}.
         </p>
       ) : null}
 
-      <Seccion titulo="Por modelo" descripcion="Todas las tallas de cada modelo, juntas." sinRelleno>
+      <Seccion titulo="Por modelo" sinRelleno>
         <Tabla alta>
           <table className="datos">
             <thead>

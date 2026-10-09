@@ -15,7 +15,7 @@
  * El paso 5 es el que hace que esto sirva: sin él el kardex sería un cuaderno
  * bonito y las publicaciones seguirían vendiendo pares que ya no existen.
  */
-import { adquirirCandado, liberarCandado, traerTodo, type DB } from "../datos/repos";
+import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
 import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
@@ -964,30 +964,51 @@ async function causasDeSubida(
   if (!pendientes.length) return causa;
   const desdeMin = [...desdeDe.values()].filter(Boolean).sort()[0] as string;
 
-  const [{ data: movs }, { data: cancelados }, { data: soltadosWeb }] = await Promise.all([
-    db
-      .from("tiktok_movimientos")
-      .select("sku, fecha")
-      .eq("account_id", accountId)
-      .in("sku", pendientes)
-      .in("tipo", ["entrada", "devolucion", "ajuste"])
-      .gt("fecha", desdeMin),
-    db
-      .from("tiktok_ordenes")
-      .select("order_id, fecha_actualizacion, tiktok_orden_items!inner(sku_interno)")
-      .eq("account_id", accountId)
-      .in("estado", ["CANCELLED", "CANCEL"])
-      .gt("fecha_actualizacion", desdeMin)
-      .in("tiktok_orden_items.sku_interno", pendientes),
+  // POR TANDAS de SKUs y TODAS las páginas: con una sola consulta el API
+  // entrega 1,000 renglones (en 21 días hay ~1,300 entradas/ajustes) y la
+  // lista de SKUs viaja en la URL. Lo que no llegaba se leía como «sin causa»
+  // y su subida se frenaba: TikTok se quedaba ofreciendo de menos.
+  // Si la lectura falla, NO se tumba la publicación: sin causa probada la
+  // subida se frena (bajar siempre se puede), como antes.
+  let leidas: [{ sku: string; fecha: string }[], any[], any[]];
+  try {
+    leidas = await Promise.all([
+    porTandas(pendientes, 200, (tanda) =>
+      traerTodo<{ sku: string; fecha: string }>(db, "tiktok_movimientos", "id, sku, fecha", (q) =>
+        q
+          .eq("account_id", accountId)
+          .in("sku", tanda)
+          .in("tipo", ["entrada", "devolucion", "ajuste"])
+          .gt("fecha", desdeMin),
+      ),
+    ),
+    porTandas(pendientes, 200, (tanda) =>
+      traerTodo<any>(db, "tiktok_ordenes", "order_id, fecha_actualizacion, tiktok_orden_items!inner(sku_interno)", (q) =>
+        q
+          .eq("account_id", accountId)
+          .in("estado", ["CANCELLED", "CANCEL"])
+          .gt("fecha_actualizacion", desdeMin)
+          .in("tiktok_orden_items.sku_interno", tanda)
+          .order("order_id", { ascending: true }),
+      ),
+    ),
     // La tienda en línea soltó pares (pedido sin pagar que caducó o se canceló).
-    db
-      .from("tienda_pedidos")
-      .select("actualizado_en, tienda_pedido_items!inner(sku_interno)")
-      .eq("account_id", accountId)
-      .in("estado", ["expirado", "cancelado"])
-      .gt("actualizado_en", desdeMin)
-      .in("tienda_pedido_items.sku_interno", pendientes),
-  ]);
+    porTandas(pendientes, 200, (tanda) =>
+      traerTodo<any>(db, "tienda_pedidos", "id, actualizado_en, tienda_pedido_items!inner(sku_interno)", (q) =>
+        q
+          .eq("account_id", accountId)
+          .in("estado", ["expirado", "cancelado"])
+          .gt("actualizado_en", desdeMin)
+          .in("tienda_pedido_items.sku_interno", tanda)
+          .order("id", { ascending: true }),
+      ),
+    ),
+    ]);
+  } catch (err) {
+    console.error("[tiktok] causas de subida sin leer:", (err as Error).message);
+    return causa;
+  }
+  const [movs, cancelados, soltadosWeb] = leidas;
   for (const o of (soltadosWeb ?? []) as any[]) {
     for (const it of o.tienda_pedido_items ?? []) {
       const desde = desdeDe.get(it.sku_interno);
@@ -1356,12 +1377,18 @@ export async function reamarrarPendientes(
 
   // Los que ya están en un corte: sus salidas al 3PL, que en su momento no
   // se pudieron registrar porque no tenían SKU.
-  const { data: enCorte } = await db
-    .from("tiktok_ordenes")
-    .select("order_id, corte_id")
-    .eq("account_id", accountId)
-    .in("order_id", ids)
-    .not("corte_id", "is", null);
+  // Por tandas: un amarre nuevo puede resolver cientos de pedidos y la
+  // lista entera en la URL rebota con «Bad Request» (pasó en el corte).
+  const enCorte = await porTandas(ids, 300, async (tanda) => {
+    const { data, error } = await db
+      .from("tiktok_ordenes")
+      .select("order_id, corte_id")
+      .eq("account_id", accountId)
+      .in("order_id", tanda)
+      .not("corte_id", "is", null);
+    if (error) throw new Error(`tiktok_ordenes: ${error.message}`);
+    return (data ?? []) as { order_id: string; corte_id: number }[];
+  });
   const cortes = new Set<number>();
   for (const o of (enCorte ?? []) as { order_id: string; corte_id: number }[]) {
     const { data: items } = await db

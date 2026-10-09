@@ -18,7 +18,7 @@ export const maxDuration = 60;
 export default async function Salud() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Revisión general" />;
+  if (!cuenta) return <SinCuenta titulo="Diagnóstico" />;
 
   const [yz, amz] = await Promise.all([
     cuentaYz(supabase).catch(() => null),
@@ -36,7 +36,7 @@ export default async function Salud() {
     <Pagina>
       <Encabezado
         ceja="Sistema"
-        titulo="Revisión general"
+        titulo="Diagnóstico"
         descripcion="Lo que el sistema sabe que está mal o incompleto, en un solo lugar."
         ayuda={
           <>
@@ -50,14 +50,14 @@ export default async function Salud() {
       />
 
       <Cifras columnas={3}>
-        <Ficha titulo="Problemas" valor={String(salud.graves.length)} nota="un número en pantalla está mal o incompleto sin avisar" tono={salud.graves.length > 0 ? "critico" : "bien"} />
-        <Ficha titulo="Datos por llegar" valor={String(salud.faltas.length)} nota="el sistema ya lo declara y se completa solo" tono={salud.faltas.length > 0 ? "alerta" : "bien"} />
+        <Ficha titulo="Problemas" valor={String(salud.graves.length)} tono={salud.graves.length > 0 ? "critico" : "bien"} />
+        <Ficha titulo="Datos por llegar" valor={String(salud.faltas.length)} tono={salud.faltas.length > 0 ? "alerta" : "bien"} />
         <Ficha titulo="Meses revisados" valor={String(salud.meses.length)} nota={salud.meses.slice(0, 6).map((m) => m.periodo).join(", ") || "ninguno"} tono="bien" />
       </Cifras>
 
       {todoBien && salud.errores.length === 0 ? (
         <Aviso tono="bien">
-          Nada que reportar: cada canal tiene su neto leído, los cortes cuadran contra la suma de sus canales y las fuentes de cada mes están leídas.
+          Nada que reportar.
         </Aviso>
       ) : null}
 
@@ -90,7 +90,7 @@ export default async function Salud() {
                   titulo="Datos que todavía no llegan"
                   ayuda="El dato falta y el sistema ya lo dice en sus avisos. No está mal, está incompleto, y se completa solo."
                   hallazgos={salud.faltas}
-                  vacio="Ninguno: todo lo que alimenta los cortes está leído."
+                  vacio="Ninguno."
                 />
               </>
             ),
@@ -103,7 +103,6 @@ export default async function Salud() {
                 {/* ---- Cobertura por mes y canal: la señal que importa ------------ */}
                 <Seccion
                   titulo="Cobertura por mes y canal"
-                  descripcion="Qué parte de la venta de cada canal ya tiene su neto leído. 0 % = fuera del total ese mes; «por asiento» = Amazon, Finances API."
                   sinRelleno
                 >
                   <Tabla>
@@ -139,7 +138,7 @@ export default async function Salud() {
             contenido: (
               <>
                 {/* ---- Fuentes por mes ------------------------------------------- */}
-                <Seccion titulo="Fuentes por mes" descripcion="Cuánto hay de cada cosa que alimenta el corte, contado en la base." sinRelleno>
+                <Seccion titulo="Fuentes por mes" sinRelleno>
                   <Tabla>
                     <table className="datos">
                       <thead>
@@ -181,7 +180,7 @@ export default async function Salud() {
             alerta: true,
             contenido: (
               <>
-                <Seccion titulo="Lo que la revisión NO pudo leer" descripcion="Esta pantalla tampoco se calla cuando ella misma falla.">
+                <Seccion titulo="Lo que la revisión NO pudo leer">
                   <ul className="texto-2 flex flex-col gap-1 text-xs">
                     {salud.errores.map((e) => <li key={e}>{e}</li>)}
                   </ul>

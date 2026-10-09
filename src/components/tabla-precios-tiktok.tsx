@@ -29,7 +29,7 @@ export function TablaPreciosTikTok({
   return (
     <Seccion
       titulo="Precio por modelo"
-      descripcion={busqueda.trim() ? `${n(visibles.length)} de ${n(renglones.length)} modelos` : `${n(renglones.length)} modelos, en orden alfabético`}
+      descripcion={busqueda.trim() ? `${n(visibles.length)} de ${n(renglones.length)} modelos` : `${n(renglones.length)} modelos`}
       sinRelleno
     >
       <div className="px-4 pt-3">

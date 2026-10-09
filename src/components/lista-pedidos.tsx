@@ -108,7 +108,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
     return (
       <section className="tarjeta p-6 text-center">
         <p className="texto-2 text-sm">
-          Todavía no hay pedidos. Sube una proforma arriba y aparecerá aquí con sus corridas.
+          Todavía no hay pedidos.
         </p>
       </section>
     );
@@ -458,11 +458,6 @@ function AsignarContenedor({
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Contenedor del pedido {pedido.pedido}</h3>
-        <p className="texto-2 mt-1 text-sm">
-          Cuántas cajas de cada modelo van en este contenedor. Lo que quede sin asignar sigue
-          pendiente de embarcar.
-        </p>
-
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <Campo etiqueta="Nuestro ID del contenedor">
             <input
@@ -836,11 +831,6 @@ function EditarRenglones({
     >
       <div className="tarjeta my-8 w-full max-w-4xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Renglones del pedido {pedido.pedido}</h3>
-        <p className="texto-2 mt-1 text-sm">
-          Corrige modelo, color, talla o cajas. No se puede bajar de lo ya embarcado (eso se
-          corrige en <strong>Contenedores → Contenido</strong>).
-        </p>
-
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
@@ -852,10 +842,7 @@ function EditarRenglones({
         {fantasmas.length ? (
           <Aviso tono="critico" className="mt-3">
             <strong>{fantasmas.length} {fantasmas.length === 1 ? "renglón no existe" : "renglones no existen"} en MELI
-            como {fantasmas.length === 1 ? "está escrito" : "están escritos"}.</strong> El modelo sí está publicado pero
-            con otro color: mientras no se corrija, ese inventario no descuenta del color real en Planificación China
-            y sale como «sin publicar» en Productos nuevos. Escribe el color como lo tiene MELI (el campo sugiere los
-            publicados).
+            como {fantasmas.length === 1 ? "está escrito" : "están escritos"}.</strong> Escribe el color como lo tiene MELI.
           </Aviso>
         ) : null}
 

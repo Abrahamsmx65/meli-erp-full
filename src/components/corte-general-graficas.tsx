@@ -97,7 +97,7 @@ export function RepartoPesoVista({ filas }: { filas: RepartoPeso[] }) {
                   <div
                     key={d.clave}
                     className="flex items-center justify-center text-[11px] font-semibold"
-                    style={{ width: `${frac * 100}%`, background: d.color, color: d.clave === "plataforma" || d.clave === "publicidad" ? "var(--ink-1)" : "#fff" }}
+                    style={{ width: `${frac * 100}%`, background: d.color, color: d.clave === "plataforma" || d.clave === "publicidad" ? "var(--ink-1)" : "var(--marca-texto)" }}
                     title={`${d.nombre}: $${(frac * 100).toFixed(1)} de cada $100`}
                   >
                     {frac >= 0.05 ? Math.round(frac * 100) : ""}

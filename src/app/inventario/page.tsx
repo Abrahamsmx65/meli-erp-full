@@ -39,7 +39,7 @@ export default async function Inventario({
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) return <SinCuenta titulo="Bodega" />;
+  if (!cuenta) return <SinCuenta titulo="Existencias en bodega" />;
 
   const vista = await vistaBodega(supabase, cuenta.id, t);
   t.fin();
@@ -49,7 +49,7 @@ export default async function Inventario({
     <Pagina>
       <Encabezado
         ceja="Inventario"
-        titulo="Bodega"
+        titulo="Existencias en bodega"
         descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
         ayuda={
           <>
@@ -126,13 +126,11 @@ export default async function Inventario({
                 {/* ---- Dónde está parado el dinero -------------------------------- */}
                 <Seccion
                   titulo="Inversión por categoría"
-                  descripcion="Dinero parado en cada tipo de producto, a costo: cajas cerradas más lo que viene en el barco."
                   sinRelleno
                 >
                   {inversion.categorias.length === 0 ? (
                     <p className="texto-2 p-4 text-sm">
-                      Todavía no se puede calcular: ningún modelo con existencia tiene costo
-                      capturado.{" "}
+                      Faltan costos.{" "}
                       <Link href="/productos" className="enlace">
                         Capturar costos en Productos y costos
                       </Link>

@@ -1670,7 +1670,7 @@ guárdala numerada.
   no cambian el masticado ni la `versionContable`.
   **Revisión de septiembre 2026 (9-oct-2026, dueño: «el corte general es
   un desastre… revisa septiembre al 100»)**: (1) la venta del CALZADO sale
-  de las ÓRDENES (`cortes_ventas_desde_ordenes`, migración 0127, un jsonb de
+  de las ÓRDENES (`cortes_ventas_desde_ordenes`, migración 0129, un jsonb de
   un jalón; `ventasDelCorte` cae a `ventas_diarias` solo en días sin
   órdenes): los renglones diarios traían órdenes que /orders/{id} tiene
   canceladas (+279 pares, +$38 mil) y un neto viejo que el barrido no
@@ -1680,7 +1680,7 @@ guárdala numerada.
   total de MELI (fundas septiembre: 1,800 de 23,957, gastos de Full $3 mil
   contra $109 mil de agosto) y un mes leído con la paginación vieja sin
   total se relee una vez (julio de fundas); (4) los RPC de cortes evalúan
-  el permiso UNA vez (migración 0126, abajo). `versionContable` 8 y
+  el permiso UNA vez (migración 0128, abajo). `versionContable` 8 y
   `claveCorte` v3. Decisiones del dueño ese día: el IVA SE QUEDA dentro de
   la utilidad, los modelos sin costo se quedan como están, a TikTok NO se le
   suman muestras, 3PL ni empaque, y el ajuste MiscAdjustment de Amazon
@@ -1932,7 +1932,7 @@ midió y quedó como regla:
   cortados de TikTok: 432 ms → 24 ms)—. Una tabla nueva usa el mismo patrón;
   `auth.uid()` en una política va como `(select auth.uid())`. Las funciones
   `es_mi_cuenta*` se quedan para los RPC.
-- **Los RPC SQL evalúan su permiso UNA vez** (migración 0126): el filtro
+- **Los RPC SQL evalúan su permiso UNA vez** (migración 0128): el filtro
   `and (auth.role() = 'service_role' or es_mi_cuenta…(p_account))` dentro
   del WHERE se corría por renglón (auth.role() parsea el JWT cada vez):
   `yz_cortes_ventas_desde_ordenes_confirmadas` de abril tardaba 5.6 s y el
@@ -1959,11 +1959,32 @@ midió y quedó como regla:
   pantalla hace varios en serie).
 - **Pestañas dentro de la pantalla** (`components/ui/pestanas.tsx`, regla en
   `docs/DISENO.md`; dueño: «para no ver todo su contenido junto de golpe»).
+- **Revisión del 9-oct-2026: nada se queda con los primeros 1,000.** Toda
+  lectura que pueda pasar de 1,000 renglones va por `traerTodo` /
+  `traerRpcTodo` / `rpcPaginado` (o `porTandas` si lleva una lista de ids)
+  y su RPC con ORDER BY estable. Ese día se cortaban: historia de Amazon,
+  `ventas_resumen_sku`, `amazon_resumen_skus`, `publicidad_resumen_items`
+  (0126), `envio_real_por_sku` y las causas de subida de TikTok. Un
+  `.limit(2000)` NO trae 2,000. Y un `count: "exact"` sobre una tabla grande
+  pasa de los 8 s del `statement_timeout`, que también rige al cliente admin
+  (el rol `authenticator` lo trae): los netos de fundas morían en 86 de 144
+  corridas por eso.
+- **Una orden con pago definitivo y sin cargo de envío queda con el envío
+  RESUELTO** (`pagosDefinitivos` en `meli/pagos-api.ts`): antes
+  `envio_leido_en` se quedaba vacío, la orden se volvía a pedir en cada
+  barrido y llenaba los 150 lugares; el registro de órdenes se atoró en el
+  30-mar-2026 y fundas releía las mismas ~1,000 órdenes cada 10 min.
+- Product Ads solo rellena hacia atrás 89 días (`DIAS_API_ADS`): MELI no
+  da más y pedirlo tronaba cada hora. El sync diario vive 800 s. Todo lo
+  que el servidor se manda a sí mismo usa `origenDeLaApp`, y
+  `/api/fiscal/procesar` es pública para su relanzamiento con CRON_SECRET.
 - La barra de estado pregunta cada 60 s, se pausa con la pestaña escondida y
   solo recarga las pantallas que usan el plan; la página ya no se desmonta en
   cada navegación. `clienteAdmin` vive en `supabase/admin.ts` (sin
   next/headers) para que los servicios que llegan a componentes de cliente
   lo puedan importar.
+
+**Marca y diseño** (9-oct-2026): logo `public/getac-logo.png`, nombre «GETAC», paleta crema/arena/café, DM Sans + Fraunces, SIN explicaciones en pantalla, menú con nombres nuevos (Estado de resultados, Existencias, Reabasto a Full, Planeación de compras, Órdenes de compra, Despacho de pedidos…) y sin Conciliar (las rutas siguen). Despacho de TikTok: solo cortes de 2 días (los demás tras «Ver cortes anteriores»), tiempo de preparación por corte (`tiktok_tiempos_cortes`, migración 0126) y sin la casilla «sin defensa» (el servidor la sigue aceptando).
 
 **Diseño de pantallas** (`docs/DISENO.md`, piezas en
 `components/ui/pagina.tsx`; dueño, 9-oct-2026: «que todo se vea más bonito,

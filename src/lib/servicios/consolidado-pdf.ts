@@ -33,33 +33,35 @@ const CARTA: [number, number] = [612, 792];
 const M = 40;
 const ANCHO = CARTA[0] - 2 * M;
 
-const MARINO = rgb(0.043, 0.122, 0.227);
-const ACENTO = rgb(0.184, 0.427, 0.965);
-const TINTA = rgb(0.1, 0.1, 0.1);
-const GRIS = rgb(0.4, 0.4, 0.4);
-const GRIS_CLARO = rgb(0.6, 0.6, 0.6);
-const LINEA = rgb(0.88, 0.9, 0.92);
-const FONDO = rgb(0.957, 0.965, 0.976);
-const VERDE = rgb(0, 0.52, 0.29);
-const ROJO = rgb(0.85, 0.2, 0.28);
-const AMBAR = rgb(0.8, 0.5, 0.05);
+// Paleta de la marca GETAC (globals.css): tinta café, acento café, fondos crema.
+const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
+const MARINO = hex("#2b2119");
+const ACENTO = hex("#8b6640");
+const TINTA = hex("#2a2019");
+const GRIS = hex("#5e5146");
+const GRIS_CLARO = hex("#998a7b");
+const LINEA = hex("#e9e1d6");
+const FONDO = hex("#faf7f2");
+const VERDE = hex("#00854a");
+const ROJO = hex("#c4182b");
+const AMBAR = hex("#8a6100");
 const BLANCO = rgb(1, 1, 1);
 
 /** Los cinco destinos de cada peso de venta, siempre con el mismo color. */
 const DESTINO = {
-  plataforma: { nombre: "Plataforma", color: rgb(0.58, 0.64, 0.72) },
-  costo: { nombre: "Producto", color: rgb(0.33, 0.42, 0.55) },
-  publicidad: { nombre: "Publicidad", color: rgb(0.95, 0.62, 0.2) },
-  gastos: { nombre: "Gastos de plataforma", color: rgb(0.86, 0.4, 0.36) },
-  utilidad: { nombre: "Utilidad", color: rgb(0.13, 0.62, 0.4) },
+  plataforma: { nombre: "Plataforma", color: hex("#d9c7b2") },
+  costo: { nombre: "Producto", color: hex("#8b6640") },
+  publicidad: { nombre: "Publicidad", color: hex("#d3a52e") },
+  gastos: { nombre: "Gastos de plataforma", color: hex("#b5523b") },
+  utilidad: { nombre: "Utilidad", color: hex("#2f9c63") },
 } as const;
 
 /** Un color por canal, el mismo en todas las gráficas. */
 const COLOR_CANAL: Record<string, RGB> = {
-  meli_calzado: rgb(0.98, 0.78, 0.1),
-  meli_fundas: rgb(0.2, 0.55, 0.95),
-  amazon: rgb(0.13, 0.17, 0.25),
-  tiktok: rgb(0.93, 0.2, 0.42),
+  meli_calzado: hex("#a35f1c"),
+  meli_fundas: hex("#2f9c63"),
+  amazon: hex("#3a72b8"),
+  tiktok: hex("#d3a52e"),
 };
 
 function pesos(x: number): string {
@@ -111,7 +113,7 @@ export async function pdfDelConsolidado(
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
   const mes = nombreDelPeriodo(cns.periodo);
-  const titulo = `Corte general · ${mes}`;
+  const titulo = `Estado de resultados · ${mes}`;
   doc.setTitle(titulo);
   doc.setAuthor("GETAC ERP");
 
@@ -273,7 +275,7 @@ export async function pdfDelConsolidado(
   nuevaPagina(false);
   pagina.drawRectangle({ x: 0, y: CARTA[1] - 128, width: CARTA[0], height: 128, color: MARINO });
   pagina.drawRectangle({ x: 0, y: CARTA[1] - 132, width: CARTA[0], height: 4, color: ACENTO });
-  texto("CORTE GENERAL DEL MES · GETAC", M, CARTA[1] - 38, 9, negrita, rgb(0.7, 0.78, 0.95));
+  texto("ESTADO DE RESULTADOS · GETAC", M, CARTA[1] - 38, 9, negrita, hex("#c8aa8c"));
   texto(mes.charAt(0).toUpperCase() + mes.slice(1), M, CARTA[1] - 76, 32, negrita, BLANCO);
   texto(
     `Del ${fechaLarga(cns.desde)} al ${fechaLarga(cns.hasta)} · ${canales.map((k) => CANAL_CORTO[k.canal]).join(" · ")}`,
@@ -281,9 +283,9 @@ export async function pdfDelConsolidado(
     CARTA[1] - 100,
     10,
     normal,
-    rgb(0.85, 0.88, 0.95),
+    hex("#e9dccb"),
   );
-  const colorEstado = estado.estado === "definitivo" ? rgb(0.55, 0.9, 0.7) : estado.estado === "preliminar" ? rgb(0.75, 0.85, 1) : rgb(1, 0.85, 0.5);
+  const colorEstado = estado.estado === "definitivo" ? hex("#9fd8b5") : estado.estado === "preliminar" ? hex("#e9dccb") : hex("#f0dca0");
   textoDer(opts?.preliminar ? "VISTA PREVIA (sin corte guardado)" : estado.etiqueta.toUpperCase(), M + ANCHO, CARTA[1] - 38, 9, negrita, colorEstado);
   textoDer(
     `Datos del ${new Date(cns.generadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
@@ -291,7 +293,7 @@ export async function pdfDelConsolidado(
     CARTA[1] - 100,
     8,
     normal,
-    rgb(0.7, 0.75, 0.85),
+    hex("#c8aa8c"),
   );
   y = CARTA[1] - 132 - 24;
 

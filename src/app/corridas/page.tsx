@@ -12,7 +12,7 @@ export default async function Corridas() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Corridas" />;
+  if (!cuenta) return <SinCuenta titulo="Corridas por caja" />;
 
   const r = await cargarCorridas(supabase, cuenta.id);
   const t = r.totales;
@@ -21,7 +21,7 @@ export default async function Corridas() {
     <Pagina>
       <Encabezado
         ceja="Abastecimiento"
-        titulo="Corridas"
+        titulo="Corridas por caja"
         descripcion="Qué tallas trae cada caja: sin eso el planeador no puede decidir qué mandar a Full."
         ayudaTitulo="De dónde salen estas corridas"
         ayuda={

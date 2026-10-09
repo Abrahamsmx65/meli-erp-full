@@ -23,7 +23,7 @@ export default async function Nuevos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Productos nuevos en camino" />;
+  if (!cuenta) return <SinCuenta titulo="Lanzamientos" />;
 
   // La lista sale masticada (lo guardado aunque esté viejo; se refresca por
   // atrás) y las fotos YA REVISADAS se leen guardadas: preguntarle a MELI y
@@ -45,7 +45,7 @@ export default async function Nuevos() {
     <Pagina>
       <Encabezado
         ceja="Abastecimiento"
-        titulo="Productos nuevos en camino"
+        titulo="Lanzamientos"
         descripcion="Lo pedido que nunca ha tenido stock: si ya está publicado en MELI y Amazon y con cuántas fotos."
         frescura={servida.generadoEn}
         ayuda={

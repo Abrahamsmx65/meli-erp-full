@@ -236,7 +236,7 @@ export function TablasPlan({
         {cajasFiltradas.length === 0 ? (
           <p className="p-6 text-sm texto-2">
             {cajas.length === 0
-              ? "No hace falta mandar nada: todo tiene cobertura suficiente para el horizonte."
+              ? "No hace falta mandar nada."
               : "Ninguna caja coincide con la búsqueda."}
           </p>
         ) : (
@@ -390,13 +390,11 @@ export function TablasPlan({
           </div>
         )}
 
-        <footer className="border-t p-3 text-xs hairline texto-tenue">
-          La marca fina en cada barra es el horizonte objetivo de {horizonteDias} días.
-          «Se manda» puede quedar por debajo de «Sugerido» porque las cajas no se abren: el
-          sistema elige la combinación que menos daño hace.
-          {lineasFiltradas.length > 500 &&
-            ` Se muestran los primeros 500 de ${lineasFiltradas.length}; el Excel los trae todos.`}
-        </footer>
+        {lineasFiltradas.length > 500 ? (
+          <footer className="border-t p-3 text-xs hairline texto-tenue">
+            {`Se muestran los primeros 500 de ${lineasFiltradas.length}; el Excel los trae todos.`}
+          </footer>
+        ) : null}
       </section>
     </div>
   );

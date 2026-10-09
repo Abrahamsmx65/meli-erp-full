@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  recibidoEnProceso,
+  sumarRecibidoEnProceso,
   aplicarEnCamino,
   resumirEnCamino,
   type FilaEnvioEntrante,
@@ -102,5 +104,39 @@ describe("aplicarEnCamino", () => {
     const original = renglon({});
     const [r] = aplicarEnCamino([original], null);
     expect(r).toBe(original);
+  });
+});
+
+describe("recibido en proceso", () => {
+  const fila = (x: Partial<Parameters<typeof recibidoEnProceso>[0][number]>) => ({
+    seller_sku: "GT251-BLK-23-MX",
+    total: 0,
+    disponible: 0,
+    reservado: 0,
+    no_disponible: 0,
+    investigando: 0,
+    en_transferencia: 0,
+    ...x,
+  });
+
+  it("lo recibido que aún no es vendible es el total menos lo que tiene nombre", () => {
+    const m = recibidoEnProceso([
+      fila({ total: 6, disponible: 1 }), // GT251-BLK-23: envío recibido 6/6
+      fila({ seller_sku: "GT251-BROWN-23-MX", total: 6, en_transferencia: 3 }),
+      fila({ seller_sku: "GT135-BLK-25-MX", total: 10, disponible: 7, reservado: 2, no_disponible: 1 }),
+    ]);
+    expect(m.get("GT251-BLK-23-MX")).toBe(5);
+    expect(m.get("GT251-BROWN-23-MX")).toBe(3);
+    expect(m.has("GT135-BLK-25-MX")).toBe(false);
+  });
+
+  it("se suma al en camino del renglón y no toca a los demás", () => {
+    const out = sumarRecibidoEnProceso(
+      [renglon({ sku: "A", disponible: 1, enTransferencia: 0, totalFba: 1 }), renglon({ sku: "B" })],
+      new Map([["A", 5]]),
+    );
+    expect(out[0]).toMatchObject({ enTransferencia: 5, totalFba: 6 });
+    expect(out[1]).toMatchObject({ enTransferencia: 30 });
+    expect(sumarRecibidoEnProceso(out, null)).toBe(out);
   });
 });

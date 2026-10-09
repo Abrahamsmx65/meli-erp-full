@@ -55,7 +55,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     data: { user },
   } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta || !user) return <SinCuenta titulo="Precios para TikTok" />;
+  if (!cuenta || !user) return <SinCuenta titulo="Estrategia de precios" />;
 
   const p = parametrosDesde(sp);
   const diasRaw = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
@@ -153,7 +153,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Precios para TikTok"
+        titulo="Estrategia de precios"
         descripcion={`El precio que deja en TikTok el mismo neto por par que el relámpago de MELI (${rango.desde} → ${rango.hasta}), o el tuyo.`}
         ayuda={<p>El neto de MELI es el depósito real de Mercado Pago del periodo. «Mi precio» manda sobre el calculado.</p>}
       />
@@ -179,10 +179,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
             Restablecer parámetros
           </a>
         </div>
-        <p className="mt-3 text-xs texto-2">
-          Por cada par vendido a $500 me quedan {pesosC(ejemplo.neto)}: del precio llega el {Math.round(k * 1000) / 10} % menos lo fijo.
-        </p>
-        <div className="mt-2">
+        <div>
           <Ayuda titulo="¿Cómo se desglosa?">
             <p>
           Por cada par vendido a $500: {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos + {pesosC(ejemplo.afiliado)} de

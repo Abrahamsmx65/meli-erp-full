@@ -4,7 +4,7 @@
  *
  * Con los MISMOS tonos que la pantalla (pedido del dueño, 9-oct-2026: «que
  * el Excel tenga los tonos de colores nuevos que hicimos en la página»):
- * encabezados en el azul marino de la marca, los bloques del estado de
+ * encabezados en el café oscuro de la marca, los bloques del estado de
  * resultados agrupados en gris claro como en «Por canal», la utilidad en
  * verde o rojo, renglones intercalados y la pestaña «Cada peso» con los
  * colores de la gráfica. Los colores salen de `globals.css`.
@@ -18,14 +18,14 @@ const MONEDA = '"$"#,##0.00;-"$"#,##0.00';
 
 /** Los tokens de `globals.css`, en ARGB para ExcelJS. */
 const COLOR = {
-  marca: "FF14122B",
-  acento: "FF4F46E5",
-  acentoSuave: "FFEEEEFE",
-  superficie2: "FFF7F7FB",
-  borde: "FFE5E4EE",
-  tinta: "FF15142B",
-  tinta2: "FF4D4B66",
-  tenue: "FF8B89A3",
+  marca: "FF2B2119",
+  acento: "FF8B6640",
+  acentoSuave: "FFF5EDE3",
+  superficie2: "FFFAF7F2",
+  borde: "FFE9E1D6",
+  tinta: "FF2A2019",
+  tinta2: "FF5E5146",
+  tenue: "FF998A7B",
   exito: "FF00854A",
   bienSuave: "FFE9F7EF",
   critico: "FFC4182B",
@@ -33,18 +33,18 @@ const COLOR = {
   alerta: "FF8A6100",
   alertaSuave: "FFFDF6E3",
   blanco: "FFFFFFFF",
-  // gráficas: a dónde se va cada peso
-  plataforma: "FFA3ACBD",
-  producto: "FF55698C",
-  publicidad: "FFF29E33",
-  gastos: "FFDC665C",
-  utilidad: "FF219E66",
+  // gráficas: a dónde se va cada peso (tonos tierra de la marca)
+  plataforma: "FFD9C7B2",
+  producto: "FF8B6640",
+  publicidad: "FFD3A52E",
+  gastos: "FFB5523B",
+  utilidad: "FF2F9C63",
 } as const;
 
 const relleno = (argb: string): ExcelJS.Fill => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
 const bordeAbajo: Partial<ExcelJS.Borders> = { bottom: { style: "thin", color: { argb: COLOR.borde } } };
 
-/** El encabezado de una tabla: azul marino con letra blanca, como la cabeza de la página. */
+/** El encabezado de una tabla: café oscuro de la marca con letra blanca. */
 function pintarEncabezado(fila: ExcelJS.Row): void {
   fila.height = 22;
   fila.eachCell((celda) => {
@@ -87,7 +87,7 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
 
   // --- Resumen: una columna por canal y el total ---------------------------
   const resumen = wb.addWorksheet("Resumen", { properties: { tabColor: { argb: COLOR.marca } } });
-  const columnas = [{ header: `Corte general ${nombreDelPeriodo(cns.periodo)}`, key: "concepto", width: 46 }, ...cns.canales.map((k) => ({ header: k.nombre, key: k.canal, width: 20 })), { header: "TOTAL", key: "total", width: 20 }];
+  const columnas = [{ header: `Estado de resultados ${nombreDelPeriodo(cns.periodo)}`, key: "concepto", width: 46 }, ...cns.canales.map((k) => ({ header: k.nombre, key: k.canal, width: 20 })), { header: "TOTAL", key: "total", width: 20 }];
   resumen.columns = columnas;
   pintarEncabezado(resumen.getRow(1));
   resumen.views = [{ state: "frozen", ySplit: 1, xSplit: 1 }];
@@ -109,7 +109,7 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
     r.getCell("total").font = { bold: true };
     return r;
   };
-  /** Un renglón de resultado: fondo azul muy claro y cada cifra en verde o rojo. */
+  /** Un renglón de resultado: fondo arena claro y cada cifra en verde o rojo. */
   const resultado = (r: ExcelJS.Row, grande = false) => {
     for (let i = 1; i <= ancho; i++) {
       const celda = r.getCell(i);
@@ -162,14 +162,42 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
   const filaEstado = resumen.addRow({ concepto: `Estado: ${estado.etiqueta}. ${estado.explicacion}` });
   filaEstado.getCell(1).font = { bold: true, color: { argb: estado.estado === "definitivo" ? COLOR.exito : estado.estado === "preliminar" ? COLOR.acento : COLOR.alerta } };
   fila("Exacto", (k) => (k.exacto ? 1 : 0), cns.exacto ? 1 : 0, "0");
-  resumen.addRow({});
-  const tituloGastos = resumen.addRow({ concepto: "Gastos generales por concepto (se dividen entre las unidades vendidas en cada plataforma)" });
-  tituloGastos.font = { bold: true, color: { argb: COLOR.acento } };
-  for (const k of cns.canales) for (const g of k.gastos) resumen.addRow({ concepto: `${k.nombre} · ${g.concepto}`, [k.canal]: g.monto });
+  resumen.addRow({}).getCell(1).value = "El detalle de los gastos generales está en la hoja «Gastos generales».";
   resumen.addRow({});
   const tituloEmpresa = resumen.addRow({ concepto: "Gastos empresariales (se descuentan una sola vez del total)" });
   tituloEmpresa.font = { bold: true, color: { argb: COLOR.acento } };
   for (const g of cns.gastosEmpresariales ?? []) resumen.addRow({ concepto: `${g.fecha} · ${g.categoria} · ${g.concepto}`, total: -g.monto });
+
+  // --- Gastos generales: su propia hoja, como su pestaña en la página ------
+  const gastos = wb.addWorksheet("Gastos generales", { properties: { tabColor: { argb: COLOR.gastos } } });
+  gastos.columns = [
+    { header: "Canal", key: "canal", width: 24 },
+    { header: "Concepto", key: "concepto", width: 64 },
+    { header: "Monto", key: "monto", width: 18 },
+    { header: "Por unidad", key: "porUnidad", width: 14 },
+  ];
+  pintarEncabezado(gastos.getRow(1));
+  gastos.views = [{ state: "frozen", ySplit: 1 }];
+  gastos.getColumn("monto").numFmt = MONEDA;
+  gastos.getColumn("porUnidad").numFmt = MONEDA;
+  for (const k of cns.canales) {
+    if (!k.gastos.length) continue;
+    for (const g of [...k.gastos].sort((a, b) => b.monto - a.monto)) {
+      const r = gastos.addRow({ canal: CANAL_CORTO[k.canal], concepto: g.concepto, monto: g.monto, porUnidad: k.unidades ? Math.round((g.monto / k.unidades) * 100) / 100 : null });
+      r.eachCell({ includeEmpty: true }, (celda) => (celda.border = bordeAbajo));
+    }
+    const sub = gastos.addRow({ canal: CANAL_CORTO[k.canal], concepto: `Total ${CANAL_CORTO[k.canal]} (${k.unidades.toLocaleString("es-MX")} unidades)`, monto: k.gastosGenerales, porUnidad: repartos.canal[k.canal]?.general ?? null });
+    sub.eachCell({ includeEmpty: true }, (celda) => {
+      celda.fill = relleno(COLOR.superficie2);
+      celda.font = { bold: true };
+      celda.border = bordeAbajo;
+    });
+  }
+  const totalGastos = gastos.addRow({ canal: "Todos", concepto: "Total gastos generales", monto: cns.total.gastosGenerales, porUnidad: repartos.total.general });
+  totalGastos.eachCell({ includeEmpty: true }, (celda) => {
+    celda.fill = relleno(COLOR.acentoSuave);
+    celda.font = { bold: true, color: { argb: COLOR.tinta } };
+  });
 
   // --- Cada peso: de cada $100 de venta, con los colores de la gráfica -----
   const peso = wb.addWorksheet("Cada peso", { properties: { tabColor: { argb: COLOR.utilidad } } });

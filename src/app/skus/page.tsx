@@ -66,7 +66,7 @@ function Tarjeta({ r }: { r: ResumenCanal }) {
           <dd>{fecha(r.actualizadoEn)}</dd>
         </dl>
       ) : (
-        <Aviso tono="alerta">Este canal no está conectado; no hay nada que descargar.</Aviso>
+        <Aviso tono="alerta">Canal no conectado.</Aviso>
       )}
 
       <div className="mt-auto">
@@ -110,7 +110,7 @@ export default async function Skus() {
     <Pagina>
       <Encabezado
         ceja="Inventario"
-        titulo="SKUs"
+        titulo="Catálogo de SKUs"
         descripcion="Todos los SKUs de cada canal, cada uno en su Excel con filtros."
         ayudaTitulo="¿Qué trae cada Excel?"
         ayuda={

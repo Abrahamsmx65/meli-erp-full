@@ -34,7 +34,6 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
   return (
     <Seccion
       titulo="Inventario por SKU"
-      descripcion={`Orden alfabético · venta de los últimos ${diasVenta} días`}
       sinRelleno
       acciones={
           <a
@@ -146,7 +145,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
             {!renglones.length ? (
               <tr>
                 <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
-                  Todavía no hay nada en el almacén de TikTok. Captura la primera entrada arriba.
+                  Todavía no hay nada en el almacén de TikTok.
                 </td>
               </tr>
             ) : !vistos.length ? (

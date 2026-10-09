@@ -53,7 +53,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const hoy = periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Corte general" />;
+  if (!cuenta) return <SinCuenta titulo="Estado de resultados" />;
   // El consolidado vive en consolidado_cache (10 min): correr los cuatro
   // canales completos en cada visita costaba hasta 300 s de función.
   const [cns, cortes, anterior, mismosDias] = await Promise.all([
@@ -84,7 +84,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     <Pagina>
       <Encabezado
         ceja="Negocio"
-        titulo="Corte general"
+        titulo="Estado de resultados"
         descripcion="La ganancia real del mes de calzado, fundas, Amazon y TikTok."
         frescura={cns.generadoEn}
         acciones={<AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />}
@@ -185,7 +185,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 </Seccion>
 
                 <div className="grid gap-4 xl:grid-cols-2">
-                  <Seccion titulo="De la venta a la utilidad" descripcion="Cada barra es dinero real del mes.">
+                  <Seccion titulo="De la venta a la utilidad">
                     <CascadaVista pasos={cascadaDelMes(cns)} />
                   </Seccion>
                   <Seccion titulo="A dónde se fue cada peso" descripcion="De cada $100 que pagaron los clientes, por canal.">
@@ -197,7 +197,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
                 ) : (
                   <p className="text-xs texto-tenue">
-                    Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))}: ese mes todavía no se ha calculado; el fondo lo arma en unos minutos.
+                    Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))} (aún no calculado).
                   </p>
                 )}
 
@@ -314,20 +314,61 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   </Tabla>
                 </Seccion>
 
-                <Seccion titulo="Gastos de plataforma" descripcion="Lo que se restó aparte del neto, por canal.">
-                  <ul className="flex flex-col gap-1 text-sm texto-2">
-                    {cns.canales.flatMap((k) =>
-                      k.gastos.map((g) => (
-                        <li key={`${k.canal}-${g.concepto}`} className="flex justify-between gap-4">
-                          <span>
-                            <span className="font-medium" style={{ color: "var(--ink-1)" }}>{CANAL_CORTO[k.canal]}</span> · {g.concepto}
-                          </span>
-                          <span className="cifra shrink-0">{pesos(g.monto)}</span>
-                        </li>
-                      )),
-                    )}
-                    {cns.canales.every((k) => k.gastos.length === 0) ? <li>Sin gastos de plataforma registrados.</li> : null}
-                  </ul>
+              </>
+            ),
+          },
+          {
+            id: "gastos",
+            titulo: "Gastos generales",
+            cuenta: cns.canales.reduce((a, k) => a + k.gastos.length, 0) || null,
+            contenido: (
+              <>
+                <Seccion titulo="Gastos generales por canal" sinRelleno>
+                  {cns.canales.every((k) => k.gastos.length === 0) ? (
+                    <p className="p-4 text-sm texto-2">Sin gastos generales registrados.</p>
+                  ) : (
+                    <Tabla>
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>Concepto</th>
+                            <th className="num">Monto</th>
+                            <th className="num">Por unidad</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {calculables
+                            .filter((k) => k.gastos.length > 0)
+                            .flatMap((k) => [
+                              <tr key={`g-${k.canal}`}>
+                                <td colSpan={3} className="text-[11px] font-semibold uppercase tracking-wide texto-tenue" style={{ background: "var(--surface-2)" }}>
+                                  {CANAL_CORTO[k.canal]} · {n(k.unidades)} unidades
+                                </td>
+                              </tr>,
+                              ...[...k.gastos]
+                                .sort((x, y) => y.monto - x.monto)
+                                .map((g) => (
+                                  <tr key={`${k.canal}-${g.concepto}`}>
+                                    <td>{g.concepto.replace(/^(Amazon|TikTok) · /, "")}</td>
+                                    <td className="num cifra">{pesos(g.monto)}</td>
+                                    <td className="num cifra texto-2">{unidad(k.unidades ? g.monto / k.unidades : null)}</td>
+                                  </tr>
+                                )),
+                              <tr key={`t-${k.canal}`}>
+                                <td className="font-semibold">Total {CANAL_CORTO[k.canal]}</td>
+                                <td className="num cifra font-semibold">{pesos(k.gastosGenerales)}</td>
+                                <td className="num cifra font-semibold">{unidad(repartos.canal[k.canal]?.general)}</td>
+                              </tr>,
+                            ])}
+                          <tr style={{ background: "var(--acento-suave)" }}>
+                            <td className="font-semibold">Total gastos generales</td>
+                            <td className="num cifra font-semibold">{pesos(t.gastosGenerales)}</td>
+                            <td className="num cifra font-semibold">{unidad(repartos.total.general)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </Tabla>
+                  )}
                 </Seccion>
               </>
             ),
@@ -339,7 +380,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             contenido: (
               <Seccion
                 titulo="Por categoría"
-                descripcion="Todos los canales sumados, de la que más deja a la que menos."
                 sinRelleno
                 ayuda={<p>Ganancia = neto − costo − publicidad − su parte de los gastos de plataforma. El desglose de comisión, envío y retenciones está en el Excel.</p>}
               >
@@ -397,7 +437,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             contenido: (
               <Seccion
                 titulo="Por modelo"
-                descripcion={`De la ganancia más alta a la más baja${perdieron ? ` · ${perdieron} modelos perdieron dinero` : ""}. El Excel trae una hoja por canal.`}
+                descripcion={perdieron ? `${perdieron} modelos perdieron dinero` : undefined}
                 sinRelleno
               >
                 <div className="max-h-[40rem] overflow-auto">
@@ -448,7 +488,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             alerta: estado.acciones > 0,
             contenido: (
               <>
-                <Seccion titulo="Pide acción" descripcion="Puede mover la utilidad: conviene arreglarlo antes de dar el mes por cerrado.">
+                <Seccion titulo="Pide acción">
                   {avisos.sinCosto.length + avisos.acciones.length === 0 ? (
                     <p className="text-sm texto-2">Nada pendiente de tu lado.</p>
                   ) : (
@@ -475,7 +515,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   )}
                 </Seccion>
                 {avisos.pendientes.length ? (
-                  <Seccion titulo="Llega solo" descripcion="No hay que hacer nada: se completa con los días.">
+                  <Seccion titulo="Llega solo">
                     <ul className="flex flex-col gap-2 text-sm">
                       {avisos.pendientes.map((a, i) => (
                         <li key={`p-${i}`} className="flex gap-2">
@@ -489,7 +529,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   </Seccion>
                 ) : null}
                 {avisos.notas.length ? (
-                  <Seccion titulo="Notas" descripcion="Cómo se tratan algunos conceptos; no son problemas.">
+                  <Seccion titulo="Notas">
                     <ul className="flex flex-col gap-2 text-sm texto-2">
                       {avisos.notas.map((a, i) => (
                         <li key={`n-${i}`} className="flex gap-2">
@@ -510,7 +550,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             titulo: "Cortes guardados",
             cuenta: cortes.length,
             contenido: (
-              <Seccion titulo="Cortes guardados" descripcion="Cada corte queda congelado tal como se hizo, con su informe en PDF y su Excel." sinRelleno>
+              <Seccion titulo="Cortes guardados" sinRelleno>
                 {cortes.length ? (
                   <Tabla>
                     <table className="datos">

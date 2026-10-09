@@ -12,8 +12,9 @@ import type { DiaHistorial } from "@/lib/servicios/historial";
  * ver de un golpe cuánto tiempo el producto no tuvo nada que vender.
  */
 
-const AZUL = "#2a78d6";
-const AZUL_OSCURO = "#3987e5";
+// Café de la marca (9-oct-2026): una sola serie va en el color de acción.
+const AZUL = "#8b6640";
+const AZUL_OSCURO = "#b08458";
 const CRITICO = "#d03b3b";
 
 interface Props {

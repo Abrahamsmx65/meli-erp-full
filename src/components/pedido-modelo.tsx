@@ -110,9 +110,6 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-4 hairline">
         <h2 className="seccion-titulo">Pedido por modelo</h2>
-        <p className="texto-2 mt-0.5 text-sm">
-          Cada modelo con todos sus colores, listo para negociar con la fábrica.
-        </p>
         <div className="mt-2">
           <Ayuda titulo="¿Cómo se arma la corrida?">
             <p>

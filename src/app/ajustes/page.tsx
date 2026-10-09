@@ -41,7 +41,7 @@ export default async function Ajustes({
 
   return (
     <Pagina className="max-w-3xl">
-      <Encabezado ceja="Sistema" titulo="Ajustes" descripcion="Conexión con Mercado Libre, parámetros de reposición y almacenes." />
+      <Encabezado ceja="Sistema" titulo="Configuración" descripcion="Conexión con Mercado Libre, parámetros de reposición y almacenes." />
 
       {sp.ok ? <Aviso tono="bien">{sp.ok}</Aviso> : null}
       {sp.error ? <Aviso tono="critico">{sp.error}</Aviso> : null}
@@ -67,10 +67,7 @@ export default async function Ajustes({
             )}
           </div>
         ) : (
-          <p className="texto-2 text-sm">
-            Sin cuenta conectada. Autoriza la app para traer tu catálogo, tu stock en Full y tus
-            ventas.
-          </p>
+          <p className="texto-2 text-sm">Sin cuenta conectada.</p>
         )}
 
         <a
@@ -84,17 +81,15 @@ export default async function Ajustes({
       {/* ---- Parámetros ---------------------------------------------------- */}
       <Seccion titulo="Parámetros de reposición">
         <p className="texto-2 text-sm">
-          Con {p.enviosPorSemana} envíos por semana mandas cada{" "}
-          <strong>{periodoRevision(p).toFixed(1)} días</strong>. Sumando el lead time de{" "}
-          {p.leadTimeDias} días, el stock de seguridad tiene que aguantar una ventana de{" "}
-          <strong>{ventanaRiesgo(p).toFixed(1)} días</strong>.
+          Envío cada <strong>{periodoRevision(p).toFixed(1)} días</strong> · ventana de riesgo{" "}
+          <strong>{ventanaRiesgo(p).toFixed(1)} días</strong>
         </p>
 
         {cuenta ? (
           <FormularioParametros inicial={p} />
         ) : (
           <p className="mt-3 text-sm texto-tenue">
-            Conecta una cuenta para configurar los parámetros.
+            Sin cuenta conectada.
           </p>
         )}
       </Seccion>
@@ -117,7 +112,7 @@ export default async function Ajustes({
           </ul>
         ) : (
           <p className="texto-2 text-sm">
-            Los almacenes aparecen aquí cuando importas tu reporte de existencias.{" "}
+            Sin almacenes todavía.{" "}
             <Link href="/importar" className="enlace">
               Importar ahora
             </Link>

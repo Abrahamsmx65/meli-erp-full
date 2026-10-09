@@ -18,7 +18,6 @@ import {
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
 } from "@/lib/higgsfield/ugc";
-import { Ayuda } from "@/components/ui/pagina";
 
 type Formato = "studio" | "clip" | "hablado" | "ugc" | "dop";
 
@@ -1286,15 +1285,6 @@ export function GeneradorVideo({
   return (
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Nuevo video</h2>
-      <div className="mt-2">
-        <Ayuda titulo="¿Qué formato elijo?">
-          <p>
-            Clip, prueba y hablado se generan directo de tus fotos reales: el producto sale tal cual, sin que la IA lo
-            redibuje. En UGC una persona lo presenta hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena
-            con tu foto de referencia.
-          </p>
-        </Ayuda>
-      </div>
 
       {/* 1. Publicación */}
       <div className="mt-3">
@@ -1379,8 +1369,7 @@ export function GeneradorVideo({
                 })}
               </div>
               <p className="mt-1 text-[11px] texto-tenue">
-                Marca varias: la 1 es la principal del video; en la prueba rápida
-                todas se mandan de referencia a la IA.
+                La 1 es la principal del video.
               </p>
             </>
           )}
@@ -1642,8 +1631,7 @@ export function GeneradorVideo({
               )}
               {avatarId && (
                 <span className="text-[11px] texto-tenue">
-                  Personaje para {TIPOS_ETIQUETA[tipo]}: misma cara en todos los
-                  videos de este tipo.
+                  Personaje para {TIPOS_ETIQUETA[tipo]}
                 </span>
               )}
             </div>
@@ -1703,12 +1691,7 @@ export function GeneradorVideo({
               </button>
               {personajeAbierto && (
                 <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-[11px] texto-tenue">
-                    Tu influencer fijo: se crea una vez en tu cuenta de Higgsfield
-                    y sale con la misma cara en todos los videos. Con una foto
-                    real (tuya o de quien quieras que sea la imagen) o generado
-                    con IA desde una descripción.
-                  </p>
+
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       value={nombrePersonaje}
@@ -1784,11 +1767,7 @@ export function GeneradorVideo({
                             ? "Crear con esta foto"
                             : "✨ Generarlo con IA"}
                     </button>
-                    <span className="text-[11px] texto-tenue">
-                      {fotoPersonaje
-                        ? "La cara de la foto será la del personaje."
-                        : "Sin foto, la IA inventa a la persona con el estilo de la marca."}
-                    </span>
+
                   </div>
                 </div>
               )}
@@ -1881,10 +1860,7 @@ export function GeneradorVideo({
                 </div>
               )}
               <p className="mt-2 text-[11px] texto-tenue">
-                Sube solo música que tengas derecho a usar (comprada o libre de
-                regalías). La música de tendencia de TikTok no se puede bajar:
-                esa se le pone al video DENTRO de TikTok al publicarlo, donde su
-                licencia sí aplica.
+                Sube solo música que tengas derecho a usar.
               </p>
             </div>
           )}
@@ -1937,20 +1913,14 @@ export function GeneradorVideo({
                   </label>
                 </div>
               )}
-              {usarVoz && (
-                <p className="mt-1 text-[11px] texto-tenue">
-                  El video se sincroniza a este audio y el archivo final lleva
-                  esta pista tal cual: palabras garantizadas.
-                </p>
-              )}
+
             </div>
           )}
 
           {formato === "ugc" && !audio && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
               <div className="text-[11px] font-semibold texto-tenue">
-                Primer cuadro del video — sube una FOTO CASERA del producto
-                (recomendado): así arranca la escena y el producto sale idéntico
+                Primer cuadro del video: foto casera del producto
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <label
@@ -1987,18 +1957,9 @@ export function GeneradorVideo({
                       Quitar
                     </button>
                   </>
-                ) : (
-                  <span className="text-xs texto-tenue">
-                    Sin foto propia se usa la de MELI, pero la portada casi nunca
-                    arranca bien una escena real.
-                  </span>
-                )}
+                ) : null}
               </div>
-              <p className="mt-2 text-[11px] texto-tenue">
-                Tip: tómala VERTICAL con el celular, con el producto en un lugar con
-                vida — el piso de la sala, una mesa, la entrada — y luz normal. La
-                persona del video entra a cuadro y lo levanta desde ahí.
-              </p>
+
             </div>
           )}
 
@@ -2059,20 +2020,14 @@ export function GeneradorVideo({
                   </>
                 )}
               </div>
-              <p className="mt-2 text-[11px] texto-tenue">
-                Con voz de IA el video ARRANCA de tu foto real (el producto sale
-                idéntico) y la persona entra a cuadro a levantarlo. Con tu audio se
-                genera primero a la persona (4 candidatas para elegir) y Speak la
-                anima con lip sync. Las dos dan 10-15 s.
-              </p>
+
             </div>
           )}
 
           {formato === "ugc" && audio && (
             <label className="mt-3 flex max-w-2xl flex-col gap-1">
               <span className="text-[11px] font-semibold texto-tenue">
-                Imagen de la persona (con tu audio se genera a la persona: salen 4
-                candidatas y eliges en cuál el producto quedó fiel)
+                Imagen de la persona
               </span>
               <textarea
                 value={promptImagen}
@@ -2098,11 +2053,7 @@ export function GeneradorVideo({
               className="w-full px-2 py-1.5 text-xs"
             />
           </label>
-          <p className="text-[11px] texto-tenue">
-            {formato === "ugc"
-              ? "Puedes editarlo. En inglés funciona mejor; el 🎲 arma otro concepto completo (escena, influencer y guion)."
-              : "Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento sin que tengas que escribir nada."}
-          </p>
+
 
           {/* 4. Generar */}
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -2257,10 +2208,7 @@ export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] 
           {error}
         </p>
       )}
-      <p className="mt-1 text-[11px] texto-tenue">
-        ¿Ninguna convence? Borra el intento y tira 🎲 otro concepto: la imagen es
-        lo barato, el video es lo caro.
-      </p>
+
     </div>
   );
 }
@@ -2339,7 +2287,7 @@ export function CambiarVoz({ id }: { id: string }) {
   return (
     <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
       <span className="text-[11px] font-semibold texto-tenue">
-        Otra voz, mismo video (visuales y tiempos intactos; sale como intento nuevo)
+        Otra voz, mismo video
       </span>
       {estado === "cargando" ? (
         <span className="text-xs texto-tenue">
@@ -2432,8 +2380,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
   return (
     <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
       <span className="text-[11px] font-semibold texto-tenue">
-        Edita el texto y se re-quema sobre el mismo video — gratis, sin
-        regenerar (la voz no cambia)
+        Editar el texto del video
       </span>
       <textarea
         value={texto}
@@ -2462,9 +2409,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
           {error}
         </span>
       )}
-      <span className="text-[10px] texto-tenue">
-        Si el video se ve igual después, recarga la página sin caché.
-      </span>
+
     </div>
   );
 }

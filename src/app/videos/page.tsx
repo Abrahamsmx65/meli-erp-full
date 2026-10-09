@@ -105,7 +105,7 @@ export default async function Videos() {
           (videos ?? []).length === 0
             ? "Todavía no hay ninguna."
             : enCurso > 0
-              ? `${enCurso} en el horno. Un clip tarda entre 2 y 8 minutos (primero la foto, luego la animación).`
+              ? `${enCurso} en el horno.`
               : undefined
         }
         acciones={<BotonActualizar hayEnCurso={enCurso > 0} />}

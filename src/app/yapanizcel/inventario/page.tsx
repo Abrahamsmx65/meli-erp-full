@@ -15,7 +15,7 @@ export const maxDuration = 120;
 export default async function InventarioYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Bodega fundas" />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Existencias de fundas" />;
 
   // La pantalla vive masticada en yz_cache; solo la ficha del sheet se lee
   // fresca (es un renglón y cambia con cada lectura del sheet).
@@ -32,7 +32,7 @@ export default async function InventarioYz() {
     <Pagina>
       <Encabezado
         ceja="Fundas"
-        titulo="Bodega fundas"
+        titulo="Existencias de fundas"
         descripcion="El sheet de inventario amarrado a cada SKU de Mercado Libre, con lo que hay en Full y en camino."
         frescura={pantalla.generadoEn}
         ayuda={

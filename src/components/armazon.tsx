@@ -40,10 +40,10 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
       <div className="flex min-h-screen flex-col">
         <header
           aria-label="Barra superior"
-          className="no-imprimir flex h-12 items-center px-5"
-          style={{ background: "linear-gradient(90deg, var(--marca), var(--marca-2))" }}
+          className="no-imprimir flex h-14 items-center px-5"
+          style={{ background: "var(--sidebar)", borderBottom: "1px solid var(--sidebar-borde)" }}
         >
-          <Logo />
+          <Logo alto={30} />
         </header>
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-5 py-6">{children}</main>
       </div>

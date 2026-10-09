@@ -58,7 +58,6 @@ export function PublicacionesMeliTikTok({
   return (
     <Seccion
       titulo="Publicaciones de MELI con varios modelos"
-      descripcion="Se publican en TikTok como UN producto con variantes «modelo + color» y un precio único."
     >
       <Ayuda titulo="¿Cómo se arman?">
         <p>

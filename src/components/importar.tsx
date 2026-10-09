@@ -51,7 +51,7 @@ export function PanelesImportar() {
       <form onSubmit={subir} className="tarjeta flex flex-col gap-5 p-5">
         <Campo
           titulo="Corridas desde Excel (respaldo)"
-          descripcion="Columnas: PEDIDO, MODELO, COLOR y una por talla. Se acumula con las corridas que ya hay."
+          descripcion="Columnas: PEDIDO, MODELO, COLOR y una por talla."
           archivo={corridas}
           onChange={setCorridas}
         />
@@ -85,7 +85,7 @@ export function PanelesImportar() {
           {resultado.avisos?.length ? (
             <details className="text-sm">
               <summary className="cursor-pointer" style={{ color: "var(--alerta-texto)" }}>
-                {resultado.avisos.length} avisos que vale la pena revisar
+                {resultado.avisos.length} avisos
               </summary>
               <ul className="mt-2 flex flex-col gap-1 pl-4 texto-2">
                 {resultado.avisos.map((a: string, i: number) => (
@@ -145,9 +145,6 @@ function SeccionIndusther() {
     <div className="tarjeta flex flex-col gap-4 p-5">
       <div>
         <h2 className="seccion-titulo">Inventario Industher (API)</h2>
-        <p className="mt-1 text-sm texto-2">
-          Reemplaza solo los almacenes que el API reporta.
-        </p>
       </div>
 
       <div className="flex gap-3">
@@ -190,7 +187,7 @@ function SeccionIndusther() {
           {prueba.muestra?.length ? (
             <details>
               <summary className="cursor-pointer texto-2">
-                Muestra de los primeros renglones (ya normalizados)
+                Muestra de los primeros renglones
               </summary>
               <pre
                 className="mt-2 overflow-x-auto rounded-lg p-3 text-xs"
@@ -262,9 +259,6 @@ function SeccionCorridasSheets() {
     <div className="tarjeta flex flex-col gap-4 p-5">
       <div>
         <h2 className="seccion-titulo">Corridas desde Google Sheets</h2>
-        <p className="mt-1 text-sm texto-2">
-          Lee el sheet de corridas y las acumula; la pestaña se detecta sola.
-        </p>
       </div>
 
       <div className="flex gap-3">
