@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Aviso } from "@/components/ui/pagina";
 import type { ProductoCatalogo } from "@/lib/tienda/catalogo-amazon";
 
 const n = (x: number) => Math.round(x).toLocaleString("es-MX");
@@ -62,11 +63,11 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
   return (
     <section className="tarjeta overflow-hidden">
       <div className="flex flex-wrap items-end gap-3 px-4 pt-4">
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           <span>Buscar</span>
           <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="gt135, corcho, negro…" className="mt-1 w-56 rounded-lg border px-2 py-1.5 text-sm" />
         </label>
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           <span>Categoría</span>
           <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="mt-1 rounded-lg border px-2 py-1.5 text-sm">
             <option value="">Todas</option>
@@ -85,50 +86,50 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
           ))}
         </div>
       </div>
-      <p className="mt-2 px-4 text-xs" style={{ color: "var(--ink-muted)" }}>
+      <p className="mt-2 px-4 text-xs texto-tenue">
         {n(visibles.length)} modelos · {n(totales.bodega)} pares en bodega · {n(totales.mar)} en camino de China (mar y pedidos) ·{" "}
         {n(totales.tiktok)} en la bodega de TikTok · {n(totales.bodega + totales.mar + totales.tiktok)} en total
       </p>
       {error ? (
-        <p className="mx-4 mt-2 rounded-lg px-3 py-2 text-sm" style={{ color: "var(--estado-alerta)" }}>
+        <Aviso tono="alerta" className="mx-4 mt-2">
           No se guardó {error}
-        </p>
+        </Aviso>
       ) : null}
       <datalist id="categorias-catalogo">
         {opciones.map((c) => (
           <option key={c} value={c} />
         ))}
       </datalist>
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="tabla-caja mt-3">
+        <table className="datos">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
-              <th className="px-4 py-2 font-semibold">Visible</th>
-              <th className="px-4 py-2 font-semibold">Modelo</th>
-              <th className="px-4 py-2 font-semibold">Categoría</th>
-              <th className="px-4 py-2 text-right font-semibold" title="De Precios para TikTok: relámpago normal (el que sale en la página); abajo live y campaña">
+            <tr>
+              <th>Visible</th>
+              <th>Modelo</th>
+              <th>Categoría</th>
+              <th className="num" title="De Precios para TikTok: relámpago normal (el que sale en la página); abajo live y campaña">
                 Precio TikTok
               </th>
-              <th className="px-4 py-2 text-right font-semibold">Bodega</th>
-              <th className="px-4 py-2 text-right font-semibold" title="En el mar y pedidos de China que la bodega aún no ve">
+              <th className="num">Bodega</th>
+              <th className="num" title="En el mar y pedidos de China que la bodega aún no ve">
                 China
               </th>
-              <th className="px-4 py-2 text-right font-semibold">TikTok</th>
-              <th className="px-4 py-2 text-right font-semibold">Total</th>
+              <th className="num">TikTok</th>
+              <th className="num">Total</th>
             </tr>
           </thead>
           <tbody>
             {visibles.map((p) => (
-              <tr key={p.modelo} className="hairline align-middle" style={p.oculto ? { opacity: 0.55 } : undefined}>
-                <td className="px-4 py-2">
+              <tr key={p.modelo} className="align-middle" style={p.oculto ? { opacity: 0.55 } : undefined}>
+                <td>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={!p.oculto} disabled={guardando === p.modelo} onChange={(e) => guardar(p.modelo, { oculto: !e.target.checked })} />
-                    <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <span className="text-xs texto-tenue">
                       {p.oculto ? "Oculto" : "Se ve"}
                     </span>
                   </label>
                 </td>
-                <td className="px-4 py-2">
+                <td>
                   <div className="flex items-center gap-3">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     {p.colores[0]?.fotos[0] ? <img src={p.colores[0].fotos[0]} alt="" loading="lazy" className="h-12 w-12 rounded border bg-white object-contain" /> : null}
@@ -136,21 +137,21 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                       <div className="font-medium">
                         {p.modelo}
                         {!p.activo ? (
-                          <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                          <span className="ml-2 text-xs font-normal texto-tenue">
                             inactivo en Amazon
                           </span>
                         ) : null}
                       </div>
-                      <div className="max-w-md truncate text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                      <div className="max-w-md truncate text-xs texto-2" title={p.titulo}>
                         {p.titulo}
                       </div>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         {p.colores.map((c) => c.color).join(", ")}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-2">
+                <td>
                   <input
                     key={`${p.modelo}-${p.categoria}`}
                     list="categorias-catalogo"
@@ -166,24 +167,24 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                     className="w-48 rounded-lg border px-2 py-1 text-sm"
                   />
                 </td>
-                <td className="num px-4 py-2 text-right">
+                <td className="num cifra">
                   {p.precios ? (
                     <>
                       <span className="font-semibold">${n(p.precios.normal)}</span>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         live ${n(p.precios.live)} · campaña ${n(p.precios.campana)}
                       </div>
                     </>
                   ) : (
-                    <span className="text-xs" style={{ color: "var(--ink-muted)" }} title="Sin relámpago de MELI en 30 días ni «Mi precio» en Precios para TikTok">
+                    <span className="text-xs texto-tenue" title="Sin relámpago de MELI en 30 días ni «Mi precio» en Precios para TikTok">
                       sin precio
                     </span>
                   )}
                 </td>
-                <td className="num px-4 py-2 text-right">{n(p.bodega ?? 0)}</td>
-                <td className="num px-4 py-2 text-right">{n(p.mar ?? 0)}</td>
-                <td className="num px-4 py-2 text-right">{n(p.tiktok ?? 0)}</td>
-                <td className="num px-4 py-2 text-right font-semibold">{n(p.total ?? (p.bodega ?? 0) + (p.mar ?? 0) + (p.tiktok ?? 0))}</td>
+                <td className="num cifra">{n(p.bodega ?? 0)}</td>
+                <td className="num cifra">{n(p.mar ?? 0)}</td>
+                <td className="num cifra">{n(p.tiktok ?? 0)}</td>
+                <td className="num cifra font-semibold">{n(p.total ?? (p.bodega ?? 0) + (p.mar ?? 0) + (p.tiktok ?? 0))}</td>
               </tr>
             ))}
           </tbody>

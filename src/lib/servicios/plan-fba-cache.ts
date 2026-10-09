@@ -239,12 +239,12 @@ interface GuardadoFba {
 }
 
 /**
- * Devuelve el plan de FBA: el guardado si es del mismo motor. Para el
- * periodo por omisión se sirve AUNQUE esté invalidado —el latido lo deja
- * fresco en un par de minutos y hacer esperar el clic no aporta nada—; en
- * un periodo alterno (que nadie refresca por atrás) un renglón invalidado
- * sí se recalcula aquí, porque servirlo viejo sería dejarlo viejo para
- * siempre.
+ * Devuelve el plan de FBA: el guardado si es del mismo motor, AUNQUE esté
+ * invalidado. El periodo por omisión lo deja fresco el latido en un par de
+ * minutos; un periodo alterno (que el latido no toca) se sirve viejo y se
+ * recalcula por atrás con `after()` —antes se recalculaba en el clic y la
+ * pantalla esperaba el optimizador completo—. Solo sin renglón del mismo
+ * motor se calcula aquí.
  */
 export async function obtenerPlanFba(
   db: DB,
@@ -267,11 +267,60 @@ export async function obtenerPlanFba(
     guardado != null &&
     guardado.versionMotor === VERSION_MOTOR &&
     (guardado.cuentaMeliId ?? null) === (cuentaMeliId ?? null);
-  if (mismoMotor && ((data?.vigente ?? true) || dias === PERIODO_OMISION)) {
+  if (mismoMotor) {
+    if (!(data?.vigente ?? true) && dias !== PERIODO_OMISION) {
+      await refrescarPorAtras(db, cuentaAmazonId, cuentaMeliId, dias);
+    }
     return revivirTipos(guardado.datos) as DatosPlanFba;
   }
 
   return recalcularPlanFba(db, cuentaAmazonId, cuentaMeliId, dias);
+}
+
+/**
+ * Recalcula un periodo alterno después de contestar. Con candado por
+ * periodo: diez visitas a la vez lanzan UN cálculo. Fuera de un request
+ * (pruebas, scripts) no hay fondo y lo guardado sirve igual.
+ */
+async function refrescarPorAtras(
+  db: DB,
+  cuentaAmazonId: string,
+  cuentaMeliId: string | null,
+  dias: number,
+): Promise<void> {
+  try {
+    const { after } = await import("next/server");
+    after(async () => {
+      const recurso = `plan-fba:${dias}`;
+      let admin: DB | null = null;
+      let token: string | null = null;
+      try {
+        const { clienteAdmin } = await import("../supabase/admin");
+        admin = clienteAdmin() as DB;
+        const { adquirirCandado } = await import("../datos/repos");
+        token = await adquirirCandado(admin, cuentaAmazonId, recurso, 300);
+      } catch {
+        token = "sin-candado";
+      }
+      if (!token) return; // otro request ya lo está recalculando
+      try {
+        await recalcularPlanFba(db, cuentaAmazonId, cuentaMeliId, dias);
+      } catch (err) {
+        console.error(`plan FBA ${dias} días: refresco de fondo:`, (err as Error).message);
+      } finally {
+        if (token !== "sin-candado" && admin) {
+          try {
+            const { liberarCandado } = await import("../datos/repos");
+            await liberarCandado(admin, cuentaAmazonId, recurso, token);
+          } catch {
+            // vence solo por TTL
+          }
+        }
+      }
+    });
+  } catch {
+    // Sin contexto de request: lo guardado sirve igual.
+  }
 }
 
 export async function recalcularPlanFba(

@@ -108,8 +108,8 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
   return (
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-4 hairline">
-        <h2 className="text-base font-semibold">Pedido por modelo</h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <h2 className="seccion-titulo">Pedido por modelo</h2>
+        <p className="texto-2 mt-0.5 text-sm">
           Cada modelo con todos sus colores, listo para negociar con la fábrica. La
           corrida propuesta se calcula con lo que falta de cada talla — venta menos
           stock completo — no con la corrida vieja. Una talla se separa como
@@ -170,7 +170,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 style={{ cursor: "pointer" }}
               >
                 <td className="font-semibold">
-                  <span aria-hidden="true" style={{ color: "var(--ink-muted)" }}>
+                  <span aria-hidden="true" className="texto-tenue">
                     {abierto === m.modelo ? "▾ " : "▸ "}
                   </span>
                   {m.modelo}
@@ -180,7 +180,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                 <td className="num cifra">{n(m.meli)}</td>
                 <td className="num cifra">{n(m.amazon)}</td>
                 <td className="num cifra">{n(m.tiktok)}</td>
-                <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                <td className="texto-2 num cifra">
                   {m.china ? n(m.china) : "—"}
                 </td>
                 <td className="num cifra">{n(m.vReal)}</td>
@@ -222,8 +222,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                   <a
                     href={`/api/pedidos/excel?modelo=${encodeURIComponent(m.modelo)}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="rounded-lg px-3 py-1 text-xs font-medium text-white"
-                    style={{ background: "var(--acento)" }}
+                    className="boton boton-primario boton-chico"
                   >
                     Excel del pedido
                   </a>
@@ -256,7 +255,7 @@ function DetalleColor({ r }: { r: Renglon }) {
             <span className="cifra text-sm">
               {n(r.cajasSugeridas)} cajas · {n(r.paresSugeridos)} pares
             </span>
-            <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+            <span className="texto-2 text-xs">
               bodega {n(r.enBodega)} · MELI {n(r.enFull + r.enTransferencia)} · Amazon{" "}
               {n(r.enFba)} · TikTok {n(r.enTikTok ?? 0)} · de China {n(r.enCamino)} · vendió{" "}
               {n(r.ventaMesReal ?? r.ventaMes)} MELI + {n(r.ventaMesRealAmazon ?? r.ventaMesAmazon)} AMZ
@@ -289,7 +288,7 @@ function DetalleColor({ r }: { r: Renglon }) {
                 </thead>
                 <tbody>
                   <tr>
-                    <td style={{ color: "var(--ink-2)" }}>pares por caja</td>
+                    <td className="texto-2">pares por caja</td>
                     {tallas
                       .filter((t) => (r.corridaPropuesta?.[t] ?? 0) > 0)
                       .map((t) => (
@@ -304,7 +303,7 @@ function DetalleColor({ r }: { r: Renglon }) {
             </div>
           ) : null}
 
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 text-sm">
             {r.motivo}
           </p>
         </div>

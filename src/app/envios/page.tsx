@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { obtenerPlanLigero } from "@/lib/servicios/cache";
 import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosPendientesIndusther, expandirFilaMeli } from "@/lib/servicios/industher-pendientes";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
@@ -18,6 +18,7 @@ import {
   type FilaCajaPlan,
   type FilaSkuPlan,
 } from "@/components/tablas-plan";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -31,15 +32,7 @@ export default async function Plan() {
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) {
-    return (
-      <Bienvenida
-        titulo="Conecta tu cuenta de Mercado Libre"
-        texto="Todavía no hay una cuenta conectada. Ve a Ajustes para autorizar la app y traer tu catálogo, tu stock en Full y tus ventas."
-        cta={{ href: "/ajustes", texto: "Ir a Ajustes" }}
-      />
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Plan de envío" />;
 
   // Los pendientes de la bodega vienen del API de Industher EN VIVO (hasta
   // 20 s si su servidor anda lento): la promesa arranca ya, pero NO se
@@ -51,7 +44,7 @@ export default async function Plan() {
   // Los envíos registrados ya no se pintan aquí (decisión del dueño): solo
   // alimentan el plan como "en camino".
   const [estado, almacenesRaw] = await Promise.all([
-    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    t.medir("plan", obtenerPlanLigero(supabase, cuenta.id)),
     traerTodo<{ almacen: string; grupo_envio: string | null }>(
       supabase,
       "almacenes_activos",
@@ -150,23 +143,22 @@ export default async function Plan() {
   }));
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="titulo-pagina">Plan de envío</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Próximo envío {r.proximoEnvio} · cobertura objetivo {p.horizonteDias} días ·
-            lead time {p.leadTimeDias} días · {p.enviosPorSemana} envíos por semana
-          </p>
-        </div>
-        <BotonesPlan />
-      </div>
-
-      <FrescuraPlan
-        generadoEn={plan.generadoEn}
-        vigente={estado.vigente}
-        motivo={estado.motivo}
-        msCalculo={estado.msCalculo}
+    <Pagina>
+      <Encabezado
+        ceja="Mercado Libre"
+        titulo="Plan de envío"
+        descripcion={`Próximo envío ${r.proximoEnvio} · cobertura objetivo ${p.horizonteDias} días · lead time ${p.leadTimeDias} días · ${p.enviosPorSemana} envíos por semana`}
+        acciones={
+          <>
+            <FrescuraPlan
+              generadoEn={plan.generadoEn}
+              vigente={estado.vigente}
+              motivo={estado.motivo}
+              msCalculo={estado.msCalculo}
+            />
+            <BotonesPlan />
+          </>
+        }
       />
 
       {/* ---- Envíos que la bodega ya apartó para MELI ---------------------
@@ -177,7 +169,7 @@ export default async function Plan() {
       </Suspense>
 
       {/* ---- Cifras de cabecera ------------------------------------------ */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Cifras columnas={6}>
         <Ficha
           titulo="SKUs críticos"
           valor={r.skusCriticos}
@@ -211,17 +203,11 @@ export default async function Plan() {
           nota={`Pares no vendidos por agotamiento en ${p.diasHistoria} días`}
           tono={r.ventaPerdidaEstimada > 0 ? "alerta" : "neutro"}
         />
-      </div>
+      </Cifras>
 
       {/* ---- Avisos ------------------------------------------------------- */}
       {(pendientes.sinCorrida.length > 0 || pendientes.sinAmarre.length > 0) && (
-        <div
-          className="tarjeta flex flex-wrap items-center gap-x-4 gap-y-2 p-4 text-sm"
-          style={{ borderColor: "var(--estado-alerta)" }}
-        >
-          <span aria-hidden="true" style={{ color: "var(--estado-alerta)" }}>
-            ■
-          </span>
+        <Aviso tono="alerta">
           <span>
             {pendientes.sinCorrida.length > 0 && (
               <>
@@ -236,16 +222,17 @@ export default async function Plan() {
             )}
             . Ese inventario no se está considerando en el plan.
           </span>
-          <Link href="/pendientes" className="underline" style={{ color: "var(--acento)" }}>
+          {" "}
+          <Link href="/pendientes" className="enlace">
             Resolver
           </Link>
-        </div>
+        </Aviso>
       )}
 
       {plan.avisos.map((a, i) => (
-        <div key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <Aviso key={i} tono="info">
           {a}
-        </div>
+        </Aviso>
       ))}
 
       <EnviosSeparados grupos={grupos} cajas={filasCaja} sinConfigurar={sinConfigurar} />
@@ -257,7 +244,7 @@ export default async function Plan() {
       {envios.length ? (
         <Suspense
           fallback={
-            <section className="tarjeta p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <section className="tarjeta p-4 text-sm texto-2">
               Verificando el envío contra lo que la bodega ya apartó…
             </section>
           }
@@ -278,7 +265,7 @@ export default async function Plan() {
         totalAnalizados={r.skusAnalizados}
         cajasDisponiblesBodega={catalogo.cajasDisponibles}
       />
-    </div>
+    </Pagina>
   );
 }
 
@@ -294,9 +281,11 @@ function Bienvenida({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-      <h1 className="titulo-seccion">{titulo}</h1>
-      <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+    <Pagina>
+      <Encabezado ceja="Mercado Libre" titulo="Plan de envío" />
+      <div className="tarjeta mx-auto w-full max-w-md p-8 text-center">
+      <h2 className="titulo-seccion">{titulo}</h2>
+      <p className="mt-2 text-sm texto-2">
         {texto}
       </p>
       {cta ? (
@@ -305,14 +294,15 @@ function Bienvenida({
         </Link>
       ) : null}
       {children ? <div className="mt-4 flex justify-center">{children}</div> : null}
-    </div>
+      </div>
+    </Pagina>
   );
 }
 
 /** Mientras contesta el API de Industher: la página ya está usable. */
 function EsperandoBodega() {
   return (
-    <section className="tarjeta animate-pulse p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+    <section className="tarjeta animate-pulse p-4 text-sm texto-2">
       Consultando a la bodega los envíos que ya apartó…
     </section>
   );
@@ -377,14 +367,13 @@ async function SeccionVerificacion({
   );
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Verificación del envío</h2>
-      <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+    <Seccion titulo="Verificación del envío">
+      <ul className="flex flex-col gap-1.5 text-sm">
         {verificacion.map((v, i) => (
           <li key={i} className="flex items-start gap-2">
             <span
               aria-hidden="true"
-              style={{ color: v.ok ? "var(--exito-texto)" : "var(--estado-alerta)" }}
+              style={{ color: v.ok ? "var(--exito-texto)" : "var(--alerta-texto)" }}
             >
               {v.ok ? "✓" : "⚠"}
             </span>
@@ -392,6 +381,6 @@ async function SeccionVerificacion({
           </li>
         ))}
       </ul>
-    </section>
+    </Seccion>
   );
 }

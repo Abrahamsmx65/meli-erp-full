@@ -87,10 +87,10 @@ export function TablaCorridas({
             className="border-b p-3 hairline"
             style={{ background: "color-mix(in oklab, var(--estado-alerta) 8%, transparent)" }}
           >
-            <h2 className="text-sm font-semibold">
+            <h2 className="seccion-titulo">
               Cajas que no sé qué traen adentro
             </h2>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 mt-0.5 text-xs">
               Hay {n(huecos.reduce((a, h) => a + h.cajas, 0))} cajas en bodega de{" "}
               {huecos.length} modelos sin corrida cargada. El planeador no las puede
               mandar a Full porque no sabe qué tallas hay dentro. Captura la corrida y
@@ -119,14 +119,13 @@ export function TablaCorridas({
                     <td>{h.color || "—"}</td>
                     <td className="num cifra">{n(h.cajas)}</td>
                     <td className="num cifra">{h.paresPorCaja || "?"}</td>
-                    <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                    <td className="texto-2 text-xs">
                       {h.almacenes.join(", ")}
                     </td>
                     <td>
                       <button
                         onClick={() => setCapturando({ hueco: h })}
-                        className="rounded-lg px-2 py-1 text-xs font-medium text-white"
-                        style={{ background: "var(--acento)" }}
+                        className="boton boton-primario boton-chico"
                       >
                         Capturar
                       </button>
@@ -141,7 +140,7 @@ export function TablaCorridas({
 
       <section className="tarjeta overflow-hidden">
         <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
-          <h2 className="text-sm font-semibold">Corridas cargadas</h2>
+          <h2 className="seccion-titulo">Corridas cargadas</h2>
 
           <input
             type="search"
@@ -152,7 +151,7 @@ export function TablaCorridas({
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           />
 
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="texto-2 flex items-center gap-1.5 text-sm">
             <input
               type="checkbox"
               checked={soloConCajas}
@@ -161,7 +160,7 @@ export function TablaCorridas({
             Solo las que tienen cajas hoy
           </label>
 
-          <div className="ml-auto text-sm" style={{ color: "var(--ink-2)" }}>
+          <div className="texto-2 ml-auto text-sm">
             {visibles.length < filtradas.length
               ? `${visibles.length} de ${filtradas.length}`
               : `${filtradas.length} corridas`}
@@ -197,7 +196,7 @@ export function TablaCorridas({
                       {c.tallas[t] ? (
                         c.tallas[t]
                       ) : (
-                        <span style={{ color: "var(--ink-muted)" }}>·</span>
+                        <span className="texto-tenue">·</span>
                       )}
                     </td>
                   ))}
@@ -225,8 +224,7 @@ export function TablaCorridas({
                   <td>
                     <button
                       onClick={() => editar(c)}
-                      className="rounded-lg border px-2 py-1 text-xs font-medium"
-                      style={{ borderColor: "var(--borde)" }}
+                      className="boton boton-borde boton-chico"
                     >
                       Editar
                     </button>
@@ -238,7 +236,7 @@ export function TablaCorridas({
         </div>
 
         {!visibles.length ? (
-          <p className="p-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 p-6 text-center text-sm">
             Ninguna corrida coincide con la búsqueda.
           </p>
         ) : null}
@@ -324,15 +322,15 @@ function CapturarCorrida({
       aria-label="Capturar corrida"
     >
       <div className="tarjeta w-full max-w-2xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">
+        <h3 className="titulo-seccion">
           {editando ? "Editar corrida de" : "Corrida de"} {hueco.modelo} {hueco.color}
         </h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-1 text-sm">
           Pedido {hueco.pedido || "sin pedido"} · {n(hueco.cajas)} cajas en{" "}
           {hueco.almacenes.join(", ")}
           {hueco.paresPorCaja ? ` · el reporte dice ${hueco.paresPorCaja} pares por caja` : ""}
         </p>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-2 text-sm">
           {editando
             ? "Ajusta los pares por talla y guarda. El plan se recalcula solo con la corrida nueva."
             : "Abre una caja de este modelo y anota cuántos pares hay de cada talla. Es lo único que se captura a mano; los pedidos nuevos traen su corrida en la proforma."}
@@ -341,7 +339,7 @@ function CapturarCorrida({
         <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
           {tallas.map((t) => (
             <label key={t} className="text-sm">
-              <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
+              <span className="texto-2 block text-xs">
                 Talla {t}
               </span>
               <input
@@ -378,16 +376,14 @@ function CapturarCorrida({
           <button
             onClick={onCerrar}
             disabled={guardando}
-            className="rounded-lg border px-3 py-2 text-sm font-medium"
-            style={{ borderColor: "var(--borde)" }}
+            className="boton boton-borde"
           >
             Cancelar
           </button>
           <button
             onClick={guardar}
             disabled={guardando || total <= 0}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario disabled:opacity-50"
           >
             {guardando ? "Guardando…" : "Guardar corrida"}
           </button>

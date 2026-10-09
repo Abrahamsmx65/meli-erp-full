@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { Aviso } from "@/components/ui/pagina";
 import type { ProductosNuevosTikTok, PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { ProductoAmazonParaTikTok } from "@/lib/tiktok/publicar";
 import { PublicacionesMeliTikTok } from "./publicaciones-meli-tiktok";
@@ -90,8 +91,14 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     return () => clearInterval(t);
   }, [hayPendientes, esDueno]);
 
-  // Mientras haya algo en cola, se vuelve a leer cada 5 s.
+  // Mientras haya algo en cola, se vuelve a leer SOLO la cola cada 5 s
+  // (`?soloCola=1`; antes viajaba la lista completa de productos cada vez),
+  // y no se pregunta con la pestaña escondida. Cuando la cola se vacía, la
+  // lista se relee una vez recalculada para que lo publicado salga tachado.
+  const trabajabaAntes = useRef(trabajando);
   useEffect(() => {
+    if (trabajabaAntes.current && !trabajando) recargar(true).catch(() => {});
+    trabajabaAntes.current = trabajando;
     if (!trabajando) {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
@@ -99,12 +106,19 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     }
     if (sondeo.current) return;
     sondeo.current = setInterval(() => {
-      recargar().catch(() => {});
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetch("/api/tiktok/publicar-productos?soloCola=1", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j && Array.isArray(j.cola)) setDatos((d) => ({ ...d, cola: j.cola }));
+        })
+        .catch(() => {});
     }, 5000);
     return () => {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trabajando]);
 
   const visibles = useMemo(() => {
@@ -255,78 +269,78 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   return (
     <div className="flex flex-col gap-6">
       {datos.avisos.map((a) => (
-        <div key={a} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "#f59e0b", color: "#92400e", background: "#fffbeb" }}>
-          <AlertTriangle size={16} /> {a}
-        </div>
+        <Aviso key={a} tono="alerta">
+          {a}
+        </Aviso>
       ))}
 
       <section className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Buscar
             <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="GT134, sandalia, BLK…" className="w-56 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} /> Solo con tallas activas en Amazon
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={verPublicados} onChange={(e) => setVerPublicados(e.target.checked)} /> Ver también lo que TikTok ya vende
           </label>
-          <button onClick={refrescarLista} disabled={refrescando} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde">
             <RefreshCw size={14} className={refrescando ? "animate-spin" : ""} /> Releer Amazon
           </button>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {resumen.productos} modelos en Amazon · {resumen.porPublicar} con colores por publicar · {resumen.enTikTok} ya en TikTok · lista de {cuando(datos.generadoEn)}
           </span>
         </div>
 
         {esDueno ? (
           <div className="mt-4 flex flex-wrap items-end gap-3 border-t pt-4" style={{ borderColor: "var(--grid)" }}>
-            <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label className="flex flex-col text-xs texto-2">
               Mismo precio para los marcados ({datos.moneda})
               <div className="flex gap-1">
                 <input type="number" min={1} step={1} value={precioTodos} onChange={(e) => setPrecioTodos(e.target.value)} className="w-28 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
-                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="boton boton-borde">
                   Aplicar
                 </button>
               </div>
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }} title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
+            <label className="flex items-center gap-1.5 text-sm texto-2" title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
               <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="flex items-center gap-1.5 text-sm texto-2">
               <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
             </label>
             <label
               className="flex items-center gap-1.5 text-sm"
-              style={{ color: volverAPublicar ? "#92400e" : "var(--ink-2)" }}
+              style={{ color: volverAPublicar ? "var(--alerta-texto)" : "var(--ink-2)" }}
               title="Para un producto que quedó mal: se publica OTRA VEZ con TODOS sus colores como producto nuevo. El viejo hay que borrarlo en el Seller Center; en la siguiente lectura del catálogo deja de contar."
             >
               <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
             </label>
-            <button onClick={publicar} disabled={enviando || !listos.length} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: "var(--acento)" }}>
+            <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario">
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})
             </button>
             {sinPrecio > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
                 {sinPrecio} marcado{sinPrecio === 1 ? "" : "s"} sin precio: no se publica{sinPrecio === 1 ? "" : "n"} hasta capturarlo.
               </span>
             ) : null}
             {sinColores > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
                 {sinColores} marcado{sinColores === 1 ? "" : "s"} solo con colores apagados en Amazon: marca «Incluir colores sin tallas activas» para publicarlos.
               </span>
             ) : null}
           </div>
         ) : null}
-        {error ? <p className="mt-3 text-sm" style={{ color: "#b91c1c" }}>{error}</p> : null}
-        {aviso ? <p className="mt-3 text-sm" style={{ color: "#15803d" }}>{aviso}</p> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
       </section>
 
       <section className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+            <tr className="text-left text-xs texto-2">
               {esDueno ? (
                 <th className="px-3 py-2">
                   <input type="checkbox" checked={visibles.length > 0 && visibles.every((p) => !p.coloresPorPublicar.length || marcados.has(p.modelo))} onChange={(e) => marcarTodos(e.target.checked)} />
@@ -361,7 +375,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             ))}
             {!visibles.length ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={7} className="px-3 py-6 text-center text-sm texto-2">
                   Nada que enseñar con estos filtros.
                 </td>
               </tr>
@@ -382,8 +396,8 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
       {datos.cola.length ? (
         <section className="tarjeta p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="titulo-seccion">Cola de publicación</h2>
-            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--ink-2)" }}>
+            <h2 className="seccion-titulo">Cola de publicación</h2>
+            <div className="flex items-center gap-2 text-xs texto-2">
               {trabajando ? (
                 <>
                   <Loader2 size={14} className="animate-spin" /> Publicando por atrás…
@@ -392,7 +406,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 "Sin trabajo pendiente."
               )}
               {esDueno && datos.cola.some((c) => c.estado === "pendiente") ? (
-                <button onClick={() => accion("continuar")} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={() => accion("continuar")} className="boton boton-borde boton-chico">
                   Empujar la cola
                 </button>
               ) : null}
@@ -400,7 +414,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
           </div>
           <table className="mt-3 w-full text-sm">
             <thead>
-              <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+              <tr className="text-left text-xs texto-2">
                 <th className="px-2 py-1">Modelo</th>
                 <th className="px-2 py-1">Colores</th>
                 <th className="px-2 py-1 text-right">Precio</th>
@@ -418,7 +432,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                     <td className="px-2 py-1.5 font-medium">
                       {c.modelo}
                       {c.fuente === "meli" ? (
-                        <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs font-normal texto-tenue">
                           publicación de MELI · {c.titulo}
                         </div>
                       ) : null}
@@ -432,20 +446,20 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                         {c.borrador ? " (borrador)" : ""}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "#b91c1c" : "var(--ink-2)" }}>
+                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "var(--critico-texto)" : "var(--ink-2)" }}>
                       {c.estado === "error" ? c.error : c.productId ? `Producto ${c.productId}` : c.intentos > 1 ? `Intento ${c.intentos}` : ""}
                       {c.avisos.length ? ` · TikTok avisa: ${c.avisos.join("; ")}` : ""}
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: "var(--ink-2)" }}>{cuando(c.publicadoEn ?? c.creadoEn)}</td>
+                    <td className="px-2 py-1.5 text-xs texto-2">{cuando(c.publicadoEn ?? c.creadoEn)}</td>
                     {esDueno ? (
                       <td className="px-2 py-1.5 text-right">
                         {c.estado === "error" ? (
-                          <button onClick={() => accion("reintentar", c.id)} className="mr-2 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("reintentar", c.id)} className="boton boton-borde boton-chico mr-2 gap-1">
                             <RefreshCw size={12} /> Reintentar
                           </button>
                         ) : null}
                         {c.estado === "error" || c.estado === "pendiente" ? (
-                          <button onClick={() => accion("quitar", c.id)} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("quitar", c.id)} className="boton boton-borde boton-chico gap-1">
                             <Trash2 size={12} /> Quitar
                           </button>
                         ) : null}
@@ -495,13 +509,13 @@ function FilaProducto({
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
   const estado = !p.coloresPorPublicar.length
-    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "#92400e" : "#15803d" }
+    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "var(--alerta-texto)" : "var(--exito-texto)" }
     : bloqueado
       ? { texto: enCola?.estado === "publicando" ? "Publicando…" : "En cola", color: "var(--acento)" }
       : enCola?.estado === "error"
-        ? { texto: "Falló; ver cola", color: "#b91c1c" }
+        ? { texto: "Falló; ver cola", color: "var(--critico-texto)" }
         : p.coloresEnTikTok.length
-          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "#92400e" }
+          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "var(--alerta-texto)" }
           : { texto: "Sin publicar", color: "var(--ink-2)" };
 
   return (
@@ -536,7 +550,7 @@ function FilaProducto({
                   title="Título con el que se publica en TikTok (hasta 255 caracteres)"
                 />
               ) : (
-                <p className="line-clamp-2 text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                <p className="line-clamp-2 text-xs texto-2" title={p.titulo}>
                   {p.titulo}
                 </p>
               )}
@@ -569,7 +583,7 @@ function FilaProducto({
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {p.skus}
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {" "}
             ({p.activas} act.)
           </span>
@@ -606,8 +620,8 @@ function FilaProducto({
                       <img src={c.imagenUrl} alt="" className="h-10 w-10 rounded object-cover" />
                     ) : null}
                     <span className="font-medium">{c.nombre || c.color}</span>
-                    <span style={{ color: "var(--ink-2)" }}>{c.color}</span>
-                    {c.enTikTok.length ? <span style={{ color: "#15803d" }}>ya en TikTok</span> : null}
+                    <span className="texto-2">{c.color}</span>
+                    {c.enTikTok.length ? <span style={{ color: "var(--exito-texto)" }}>ya en TikTok</span> : null}
                   </div>
                   <table className="mt-1">
                     <tbody>

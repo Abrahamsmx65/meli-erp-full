@@ -1,10 +1,11 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { obtenerMonitorAmazon } from "@/lib/servicios/amazon-monitor";
+import { servirMonitorAmazon } from "@/lib/servicios/amazon-monitor";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -32,37 +33,30 @@ export default async function VentasAmazon({
 
   const supabase = await clienteServidor();
   const cuenta = await cuentaAmazon(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Amazon no está conectado</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          No hay ninguna cuenta de Amazon asociada a este usuario.
-        </p>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Ventas Amazon" servicio="amazon" />;
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const m = await obtenerMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  // Masticado en `app_cache`: se sirve aunque esté viejo y se refresca por
+  // atrás; el latido de Amazon deja listo el rango de 7 días.
+  const servido = await servirMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const m = servido.datos;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
   const economiaCompleta =
     m.economia?.cobertura.completa === true && m.economia.coberturaCosto >= 0.999;
   const real = m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0) ? m.real : null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Ventas Amazon</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Ventas de {cuenta.nombre ?? "tu cuenta"} en Amazon {cuenta.pais}, sobre el
-          periodo elegido y comparadas contra el periodo anterior del mismo largo.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Amazon"
+        titulo="Ventas Amazon"
+        descripcion={`Ventas de ${cuenta.nombre ?? "tu cuenta"} en Amazon ${cuenta.pais} en el periodo, contra el periodo anterior del mismo largo.`}
+        frescura={servido.generadoEn}
+      />
 
       <FiltroFechas base="/amazon/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha
           titulo="Hoy"
           valor={n(m.hoy.unidades)}
@@ -115,30 +109,34 @@ export default async function VentasAmazon({
               : "neutro"
           }
         />
-      </div>
+      </Cifras>
 
       {/* ---- El dinero REAL: eventos de la Finances API por fecha de asiento ---- */}
       {real ? (
-        <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">A dónde se fue el dinero (real, por fecha de asiento)</h2>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-            Cada peso sale de un evento de la Finances API de Amazon con su nombre: precio,
-            impuesto, comisión, FBA, IVA retenido, promociones, reembolsos y la factura de
-            publicidad con IVA. Nada se estima.
-            {real.cobertura.hasta ? ` Liquidaciones cerradas hasta ${real.cobertura.hasta.slice(0, 10)}.` : ""}
-          </p>
-          {real.avisos.length ? (
-            <ul className="mt-2 flex flex-col gap-1 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
-              {real.avisos.map((a) => (
-                <li key={a}>{a}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-2 text-sm font-medium" style={{ color: "var(--exito-texto)" }}>
-              Periodo cerrado: todas sus liquidaciones cuadran con lo que Amazon depositó.
+        <Seccion
+          titulo="A dónde se fue el dinero (real, por fecha de asiento)"
+          descripcion={real.cobertura.hasta ? `Liquidaciones cerradas hasta ${real.cobertura.hasta.slice(0, 10)}.` : undefined}
+        >
+          <div className="flex flex-col gap-3">
+          <Ayuda titulo="¿De dónde sale?">
+            <p>
+              Cada peso sale de un evento de la Finances API de Amazon con su nombre: precio,
+              impuesto, comisión, FBA, IVA retenido, promociones, reembolsos y la factura de
+              publicidad con IVA. Nada se estima.
             </p>
+          </Ayuda>
+          {real.avisos.length ? (
+            <Aviso tono="alerta">
+              <ul className="flex flex-col gap-1">
+                {real.avisos.map((a) => (
+                  <li key={a}>{a}</li>
+                ))}
+              </ul>
+            </Aviso>
+          ) : (
+            <Aviso tono="bien">Periodo cerrado: todas sus liquidaciones cuadran con lo que Amazon depositó.</Aviso>
           )}
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+          <Cifras columnas={4}>
             <Ficha titulo="Venta bruta" valor={pesos(real.ventas.bruto)} nota={`${n(real.ventas.unidades)} unidades · ${n(real.ventas.eventos)} envíos`} />
             <Ficha titulo="Comisión" valor={pesos(real.ventas.comision)} nota="Referral fee" tono={real.ventas.comision < 0 ? "alerta" : "neutro"} />
             <Ficha titulo="FBA" valor={pesos(real.ventas.fba)} nota="Tarifa de logística" tono={real.ventas.fba < 0 ? "alerta" : "neutro"} />
@@ -157,14 +155,14 @@ export default async function VentasAmazon({
               tono={real.publicidad.monto < 0 ? "alerta" : "neutro"}
             />
             <Ficha titulo="Neto depositado" valor={pesos(real.netoDepositado)} nota={`Productos ${pesos(real.netoProductos)} · otros ${pesos(real.otrosTotal)}`} />
-          </div>
+          </Cifras>
           {real.otros.length ? (
-            <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 text-xs">
               Otros cargos del periodo:{" "}
               {real.otros.map((o) => `${o.lista.replace(/EventList$/, "")} ${pesos(o.monto)}${o.sinClasificar ? ` (${o.sinClasificar} sin clasificar)` : ""}`).join(" · ")}
             </p>
           ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+          <Cifras columnas={3}>
             <Ficha titulo="Costo de producto" valor={real.costoProducto > 0 ? pesos(-real.costoProducto) : "—"} nota={`${Math.round(real.coberturaCosto * 100)}% de las unidades con costo capturado`} />
             <Ficha
               titulo="Ganancia"
@@ -178,27 +176,26 @@ export default async function VentasAmazon({
               nota={`${n(real.cobertura.abiertos)} en curso · ${n(real.cobertura.incompletos)} a medio leer · ${n(real.cobertura.descuadrados)} sin cuadrar`}
               tono={real.cobertura.descuadrados ? "critico" : real.cobertura.abiertos || real.cobertura.incompletos ? "alerta" : "bien"}
             />
+          </Cifras>
           </div>
-        </section>
+        </Seccion>
       ) : null}
 
       {/* ---- Economía POR PRODUCTO (SKU Economics vía Data Kiosk) ---------- */}
       {m.economia ? (
-        <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">A dónde se fue el dinero (por producto)</h2>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-            La misma fuente que el "SKU Economics" de Seller Central: ventas, tarifas y
-            publicidad por producto y por día
-            {m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.
-          </p>
+        <Seccion
+          titulo="A dónde se fue el dinero (por producto)"
+          descripcion={`La misma fuente que el "SKU Economics" de Seller Central: ventas, tarifas y publicidad por producto y por día${m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.`}
+        >
+          <div className="flex flex-col gap-3">
           {!economiaCompleta ? (
-            <p className="mt-2 text-sm font-medium" style={{ color: "var(--estado-alerta)" }}>
+            <Aviso tono="alerta">
               Datos parciales: {Math.round(m.economia.cobertura.importe * 100)}% del importe,{" "}
               {Math.round(m.economia.cobertura.unidades * 100)}% de las unidades y{" "}
               {m.economia.cobertura.diasCubiertos} de {m.economia.cobertura.diasVenta} días con venta.
-            </p>
+            </Aviso>
           ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
+          <Cifras columnas={6}>
             <Ficha
               titulo="Ventas"
               valor={pesos(m.economia.ventas)}
@@ -238,18 +235,15 @@ export default async function VentasAmazon({
                     : "bien"
               }
             />
+          </Cifras>
           </div>
-        </section>
+        </Seccion>
       ) : null}
 
       {/* ---- El desglose del dinero real del periodo ---------------------- */}
       {!m.economia && m.netoReal == null && m.pagosHasta ? (
-        <section
-          className="tarjeta p-4 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 8%, var(--surface-1))" }}
-        >
-          <h2 className="text-sm font-semibold">El dinero real de este periodo aún no llega</h2>
-          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
+        <Aviso tono="alerta" titulo="El dinero real de este periodo aún no llega">
+          <p>
             Amazon liquida cada ~2 semanas y sus pagos llegan hasta el{" "}
             <strong className="cifra">{m.pagosHasta}</strong>. El rango que estás viendo es más
             reciente, así que todavía no hay depósitos que desglosar.
@@ -258,23 +252,27 @@ export default async function VentasAmazon({
             href={`/amazon/ventas?desde=${new Date(Date.parse(m.pagosHasta) - 13 * 86_400_000)
               .toISOString()
               .slice(0, 10)}&hasta=${m.pagosHasta}`}
-            className="mt-2 inline-block rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario boton-chico mt-2"
           >
             Ver las últimas 2 semanas liquidadas
           </a>
-        </section>
+        </Aviso>
       ) : null}
 
       {!m.economia && m.netoReal != null ? (
-        <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">A dónde se fue el dinero (liquidado en el periodo)</h2>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-            Sale del reporte de pagos de Amazon: es lo que de verdad se depositó, con
-            comisiones, envíos e impuestos ya descontados por producto, y los gastos de
-            cuenta aparte.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
+        <Seccion
+          titulo="A dónde se fue el dinero (liquidado en el periodo)"
+          descripcion="Sale del reporte de pagos de Amazon: lo que de verdad se depositó."
+        >
+          <div className="flex flex-col gap-3">
+          <Ayuda titulo="¿De dónde sale?">
+            <p>
+              Sale del reporte de pagos de Amazon: es lo que de verdad se depositó, con
+              comisiones, envíos e impuestos ya descontados por producto, y los gastos de
+              cuenta aparte.
+            </p>
+          </Ayuda>
+          <Cifras columnas={5}>
             <Ficha
               titulo="Neto por productos"
               valor={pesos(m.netoReal)}
@@ -305,22 +303,25 @@ export default async function VentasAmazon({
                 m.gananciaFinal == null ? "neutro" : m.gananciaFinal < 0 ? "critico" : "bien"
               }
             />
+          </Cifras>
           </div>
-        </section>
+        </Seccion>
       ) : null}
 
       {m.porCategoria.length ? (
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Por categoría</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Las categorías y costos se capturan en Productos y costos (son los
-              mismos productos que en MELI). La ganancia es UNA sola cuenta, la del
-              corte general: neto del SKU Economics (ventas − tarifas − publicidad,
-              por fecha de venta) − costo, sumada modelo por modelo. Las unidades de
-              modelos sin costo capturado quedan FUERA y se declaran.
-            </p>
-          </header>
+        <Seccion titulo="Por categoría" descripcion="Categorías y costos de Productos y costos (los mismos productos que en MELI)." sinRelleno>
+          <div className="px-4 pt-3">
+            <Ayuda>
+              <p>
+                Las categorías y costos se capturan en Productos y costos (son los
+                mismos productos que en MELI). La ganancia es UNA sola cuenta, la del
+                corte general: neto del SKU Economics (ventas − tarifas − publicidad,
+                por fecha de venta) − costo, sumada modelo por modelo. Las unidades de
+                modelos sin costo capturado quedan FUERA y se declaran.
+              </p>
+            </Ayuda>
+          </div>
+          <Tabla>
           <table className="datos">
             <thead>
               <tr>
@@ -357,27 +358,30 @@ export default async function VentasAmazon({
               ))}
             </tbody>
           </table>
+          </Tabla>
           {m.porCategoria.some((c) => c.unidadesSinGanancia > 0) ? (
-            <p className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 border-t p-3 text-xs hairline">
               * En esa categoría hay unidades de modelos sin costo capturado: su venta no entra a la ganancia. Captura el costo en Productos y costos.
             </p>
           ) : null}
-        </section>
+        </Seccion>
       ) : null}
 
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todas las tallas y colores de cada modelo, juntos, en el periodo elegido. La
-            publicidad viene del reporte de economía por SKU (confiable desde el 9 de
-            agosto de 2026; antes está incompleto). Un modelo con publicidad en “—” o $0
-            no tiene gasto atribuido a sus SKUs en ese reporte. La ganancia es la misma
-            cuenta que arriba (neto económico − costo); con ~ es venta − costo porque a
-            ese modelo aún no le llega economía ni liquidación.
-          </p>
-        </header>
-        <div className="max-h-[36rem] overflow-auto">
+      <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos, en el periodo elegido." sinRelleno>
+        <div className="px-4 pt-3">
+          <Ayuda>
+            <p>
+              La publicidad viene del reporte de economía por SKU (confiable desde el 9 de
+              agosto de 2026; antes está incompleto). Un modelo con publicidad en “—” o $0
+              no tiene gasto atribuido a sus SKUs en ese reporte.
+            </p>
+            <p>
+              La ganancia es la misma cuenta que arriba (neto económico − costo); con ~ es
+              venta − costo porque a ese modelo aún no le llega economía ni liquidación.
+            </p>
+          </Ayuda>
+        </div>
+        <Tabla alta>
           <table className="datos">
             <thead>
               <tr>
@@ -404,7 +408,7 @@ export default async function VentasAmazon({
                     <td className="font-medium">{f.modelo}</td>
                     <td className="num cifra">{n(f.unidadesHoy)}</td>
                     <td className="num cifra font-semibold">{n(f.unidades)}</td>
-                    <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+                    <td className="num cifra texto-tenue">
                       {n(f.unidadesPrev)}
                     </td>
                     <td
@@ -467,8 +471,8 @@ export default async function VentasAmazon({
               })}
             </tbody>
           </table>
-        </div>
-      </section>
-    </div>
+        </Tabla>
+      </Seccion>
+    </Pagina>
   );
 }

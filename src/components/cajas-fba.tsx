@@ -79,7 +79,7 @@ export function CajasFba({
       ))}
 
       {plan.sinEstreno.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 tarjeta p-3 text-sm">
           <strong>Productos SIN VENTA en Amazon</strong> (nunca han vendido un par, hay
           cajas en bodega y tienen publicación): se les manda una posición mínima
           para probarlos, como en Full.{" "}
@@ -95,7 +95,7 @@ export function CajasFba({
       ) : null}
 
       {plan.productosNuevos.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 tarjeta p-3 text-sm">
           <strong>Productos NUEVOS en Amazon</strong> (se estrenaron hace poco): cualquier
           faltante fuerza su caja y va firme, nunca opcional.{" "}
           {plan.productosNuevos
@@ -105,7 +105,7 @@ export function CajasFba({
       ) : null}
 
       {desglose.totalDeMas > 0 ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 tarjeta p-3 text-sm">
           Al cerrar cajas completas van{" "}
           <strong className="cifra">{n(desglose.totalDeMas)}</strong> pares por encima de
           lo sugerido — <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de
@@ -121,8 +121,8 @@ export function CajasFba({
            pares y su Excel. El plan completo queda como un solo botón. */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Envíos a preparar</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Envíos a preparar</h2>
+          <p className="texto-2 mt-0.5 text-sm">
             {plan.cajas.length === 0
               ? "El mismo motor que los envíos a Full, sobre las mismas cajas físicas."
               : envios.length > 1
@@ -135,8 +135,7 @@ export function CajasFba({
           {plan.cajas.length > 0 && envios.length > 1 ? (
             <a
               href={`/api/amazon/envio-excel?dias=${dias}`}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+              className="boton boton-borde"
               title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su sección"
             >
               Excel del plan completo
@@ -144,8 +143,7 @@ export function CajasFba({
           ) : null}
           <a
             href={`/api/amazon/excel-simple?dias=${dias}`}
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            className="boton boton-borde"
             title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
           >
             Excel simple
@@ -155,7 +153,7 @@ export function CajasFba({
 
       {plan.cajas.length === 0 ? (
         <section className="tarjeta p-6 text-center">
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 text-sm">
             {plan.paresSugeridos === 0
               ? "Nada que mandar: el calzado que vende tiene cobertura suficiente en FBA."
               : "Hay faltantes, pero ninguna caja disponible en bodega los trae."}
@@ -193,11 +191,11 @@ export function CajasFba({
       {plan.sinCajaEnBodega.length > 0 ? (
         <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
           <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
+            <h2 className="seccion-titulo">
               Faltantes SIN caja en bodega ({plan.sinCajaEnBodega.length} SKUs ·{" "}
               {n(sinCaja)} pares)
             </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 mt-0.5 text-sm">
               Estos SKUs necesitan pares y NO vienen en ninguna caja disponible: o la
               bodega de verdad no tiene, o algo no está ligando. Si un SKU de esta
               lista SÍ tiene caja física en bodega, es un problema de amarre: avísame
@@ -229,11 +227,11 @@ export function CajasFba({
       {plan.faltanteConCaja.length > 0 ? (
         <section className="tarjeta overflow-hidden">
           <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
+            <h2 className="seccion-titulo">
               Faltantes chicos con caja disponible ({plan.faltanteConCaja.length} SKUs ·{" "}
               {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
             </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 mt-0.5 text-sm">
               Estos SKUs SÍ tienen caja en bodega y el plan ya manda lo que se
               justifica; el pico que queda no vale otra caja completa y se cubre en el
               siguiente envío. No es un problema de amarre.
@@ -265,10 +263,10 @@ export function CajasFba({
       {plan.sinAmarre.length > 0 ? (
         <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
           <header className="border-b p-4 hairline">
-            <h2 className="font-semibold">
+            <h2 className="seccion-titulo">
               SKUs de Amazon que NO amarran con MELI ({plan.sinAmarre.length})
             </h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 mt-0.5 text-sm">
               Su venta y su faltante no entran al plan de cajas porque el SKU no se
               encontró en el catálogo de MELI con ninguno de los cuatro amarres.
             </p>
@@ -328,8 +326,8 @@ function SeccionEnvio({
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-center gap-4 border-b p-4 hairline">
         <div>
-          <h3 className="font-semibold">Envío {envio.nombre}</h3>
-          <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <h3 className="seccion-titulo">Envío {envio.nombre}</h3>
+          <p className="texto-2 text-xs">
             Recolección en {envio.almacenes.join(" y ")}
           </p>
         </div>
@@ -345,8 +343,7 @@ function SeccionEnvio({
 
         <a
           href={excel}
-          className="ml-auto rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario ml-auto"
           title={`Excel solo con las cajas del envío ${envio.nombre}`}
         >
           Excel de este envío
@@ -439,7 +436,7 @@ function Dato({
 }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+      <div className="texto-tenue text-[11px] uppercase tracking-wide">
         {titulo}
       </div>
       <div
@@ -477,7 +474,7 @@ function FilaCaja({
         >
           {c.skuCaja}
         </div>
-        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <div className="texto-tenue text-xs">
           {c.modelo} · {c.color}
         </div>
         {sinEstreno ? (
@@ -501,13 +498,13 @@ function FilaCaja({
         style={opcionales > 0 ? { color: "var(--estado-critico)" } : undefined}
       >
         {c.cantidad}
-        <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+        <span className="texto-tenue text-xs font-normal">
           {" "}
           / {c.cajasDisponibles}
         </span>
       </td>
       <td className="num cifra">{n(c.paresTotales)}</td>
-      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="texto-2 text-xs">
         {c.aporta.map((a) => `${a.talla}:${a.paresTotales}`).join("  ")}
       </td>
     </tr>

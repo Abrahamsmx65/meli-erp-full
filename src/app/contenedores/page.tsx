@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
@@ -8,6 +7,7 @@ import { SubirPackingList } from "@/components/subir-packing-list";
 import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive";
 import { configDrive } from "@/lib/servicios/drive";
 import { Ficha } from "@/components/tiles";
+import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -24,24 +24,7 @@ export default async function Contenedores() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          Los contenedores cuelgan de los pedidos a China, y esos viven en tu
-          cuenta.
-        </p>
-        <Link
-          href="/ajustes"
-          className="mt-3 inline-block underline"
-          style={{ color: "var(--acento)" }}
-        >
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Contenedores" />;
 
   const [contenedores, drive] = await Promise.all([
     listarContenedores(supabase, cuenta.id),
@@ -76,17 +59,20 @@ export default async function Contenedores() {
   }));
 
   return (
-    <div className="flex flex-col gap-4">
-      <header>
-        <h1 className="titulo-pagina">Contenedores</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Cada contenedor con nuestro propio ID. Sube el packing list de la fábrica y
-          el contenedor se arma solo. Confirmar la llegada no suma inventario: las
-          existencias llegan solas del API de Industher.
-        </p>
-      </header>
+    <Pagina>
+      <Encabezado
+        ceja="Abastecimiento"
+        titulo="Contenedores"
+        descripcion="Cada contenedor con nuestro propio ID; sube el packing list de la fábrica y se arma solo."
+        ayuda={
+          <p>
+            Confirmar la llegada no suma inventario: las existencias llegan solas del API de
+            Industher.
+          </p>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="En camino" valor={n(enCamino.length)} />
         <Ficha
           titulo="Cajas en camino"
@@ -94,7 +80,7 @@ export default async function Contenedores() {
         />
         <Ficha titulo="Recibidos" valor={n(contenedores.length - enCamino.length)} />
         <Ficha titulo="Total" valor={n(contenedores.length)} />
-      </div>
+      </Cifras>
 
       <PackingDrive
         archivos={archivosDrive}
@@ -106,6 +92,6 @@ export default async function Contenedores() {
       <SubirPackingList />
 
       <TablaContenedores contenedores={contenedoresVista} />
-    </div>
+    </Pagina>
   );
 }

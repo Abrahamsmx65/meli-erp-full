@@ -1,5 +1,6 @@
 "use client";
 
+import { Aviso } from "@/components/ui/pagina";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -46,8 +47,8 @@ export function AccionesCorteGeneral({ periodo, corteId }: { periodo: string; co
           </a>
         ) : null}
       </div>
-      {aviso ? <p className="text-sm" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
-      {error ? <p className="text-sm" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+      {aviso ? <Aviso tono="bien">{aviso}</Aviso> : null}
+      {error ? <Aviso tono="critico">{error}</Aviso> : null}
     </div>
   );
 }

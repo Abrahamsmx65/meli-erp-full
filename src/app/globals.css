@@ -63,6 +63,20 @@
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
 
   --radio: 6px;
+  --radio-grande: 10px;
+
+  /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
+     los armaba a mano con color-mix (25 copias del recuadro ámbar). */
+  --info-suave: #eef4ff;
+  --info-borde: #c9dafd;
+  --bien-suave: #e9f7ef;
+  --bien-borde: #b9e4cb;
+  --alerta-suave: #fdf6e3;
+  --alerta-borde: #f0dca0;
+  --alerta-texto: #8a6100;
+  --critico-suave: #fdeef0;
+  --critico-borde: #f6c4ca;
+  --critico-texto: #c4182b;
 
   --fuente-sans: var(--font-inter, "Inter"), "Proxima Nova", -apple-system, "Segoe UI", Roboto, sans-serif;
   --fuente-mono: "Inter", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -233,6 +247,201 @@
     letter-spacing: -0.01em;
   }
 
+  /* Texto secundario y tenue: reemplazan los ~500 style={{color:"var(--ink-2)"}}. */
+  .texto-2 {
+    color: var(--ink-2);
+  }
+  .texto-tenue {
+    color: var(--ink-muted);
+  }
+
+  /* Una pantalla: bloques apilados con el mismo aire en TODO el ERP. */
+  .pagina {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* Encabezado de pantalla: sección en caja alta chica (la del menú), título,
+     una línea, y a la derecha acciones y frescura. */
+  .ceja {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--acento);
+  }
+
+  .encabezado-descripcion {
+    margin-top: 0.25rem;
+    max-width: 52rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
+
+  /* «¿Cómo se calcula?»: la explicación larga existe, pero plegada. */
+  details.ayuda > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--acento);
+  }
+  details.ayuda > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.ayuda > summary::before {
+    content: "?";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    background: var(--acento-suave);
+  }
+  details.ayuda[open] > summary {
+    margin-bottom: 0.5rem;
+  }
+  details.ayuda .ayuda-cuerpo {
+    max-width: 52rem;
+    border-left: 2px solid var(--acento-suave);
+    padding: 0.125rem 0 0.125rem 0.875rem;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  details.ayuda .ayuda-cuerpo > * + * {
+    margin-top: 0.5rem;
+  }
+
+  /* Sección: título único en todo el ERP. */
+  .seccion-titulo {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--ink-1);
+  }
+  .seccion-cabeza {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--grid);
+  }
+
+  /* Avisos: cuatro tonos y nada más. */
+  .aviso {
+    display: flex;
+    gap: 0.625rem;
+    border: 1px solid;
+    border-radius: var(--radio);
+    padding: 0.75rem 0.875rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+  .aviso-info {
+    background: var(--info-suave);
+    border-color: var(--info-borde);
+    color: #1d3f86;
+  }
+  .aviso-bien {
+    background: var(--bien-suave);
+    border-color: var(--bien-borde);
+    color: var(--exito-texto);
+  }
+  .aviso-alerta {
+    background: var(--alerta-suave);
+    border-color: var(--alerta-borde);
+    color: var(--alerta-texto);
+  }
+  .aviso-critico {
+    background: var(--critico-suave);
+    border-color: var(--critico-borde);
+    color: var(--critico-texto);
+  }
+  .aviso strong {
+    font-weight: 600;
+  }
+
+  /* Frescura: píldora discreta junto a las acciones. */
+  .frescura {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink-2);
+    background: var(--surface-1);
+    box-shadow: inset 0 0 0 1px var(--borde);
+    white-space: nowrap;
+  }
+  .frescura::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--estado-bien);
+  }
+  .frescura[data-refrescando="true"]::before {
+    background: var(--acento);
+    animation: latir 1.2s ease-in-out infinite;
+  }
+  @keyframes latir {
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  /* Rejilla de cifras: 2 en teléfono, 4 en escritorio (o las que se pidan). */
+  .cifras {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 768px) {
+    .cifras {
+      grid-template-columns: repeat(var(--cifras-col, 4), minmax(0, 1fr));
+    }
+  }
+
+  /* Enlace de texto azul (el «underline + color acento» repetido). */
+  .enlace {
+    color: var(--acento);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+  .enlace:hover {
+    color: var(--acento-hover);
+  }
+
+  /* Contenedor de tabla con desplazamiento propio. */
+  .tabla-caja {
+    overflow-x: auto;
+  }
+  .tabla-caja.alta {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  /* Estado vacío. */
+  .vacio {
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--ink-2);
+  }
+
   /* Botones. Los componentes viejos arman los suyos con utilidades e inline
      styles; estas clases son para los nuevos y para los del armazón. */
   .boton {
@@ -377,7 +586,9 @@
     background: #f5f8fd;
   }
 
-  .num {
+  .num,
+  table.datos th.num,
+  table.datos td.num {
     text-align: right;
   }
 

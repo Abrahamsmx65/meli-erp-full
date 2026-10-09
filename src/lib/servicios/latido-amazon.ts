@@ -12,6 +12,8 @@ import { sincronizarEconomia } from "../amazon/economia";
 import { sincronizarFnskus } from "../amazon/fnskus";
 import { sincronizarPadres } from "./padres-amazon";
 import { invalidarPlanFba, precalcularPlanFba } from "./plan-fba-cache";
+import { guardarCacheApp } from "./cache-app";
+import { fechaMx, normalizarRango } from "./ventas-monitor";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -132,7 +134,41 @@ export async function latidoAmazon(admin: DB, meliAccountId?: string): Promise<v
         console.error("precalcularPlanFba:", (err as Error).message);
       }
     }
+
+    // Ventas Amazon (7 días) y Publicidad Amazon (30 días) leen un renglón
+    // masticado: se dejan listos aquí cada 10 minutos para que la primera
+    // visita no calcule en el clic (2–27 s). Cada uno con su propio tiempo.
+    if (Date.now() < limite - 10_000) {
+      await paso(admin, cuenta.accountId, "cron_pantallas", 10 * 60_000, () =>
+        precalcularPantallasAmazon(admin, cuenta.accountId, meliAccountId ?? null, limite - 5_000),
+      );
+    }
   }
+}
+
+/** Calcula y guarda los rangos por omisión de Ventas y Publicidad de Amazon. */
+async function precalcularPantallasAmazon(
+  admin: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  limite: number,
+): Promise<object> {
+  const { cargarMonitorAmazon, claveMonitorAmazon } = await import("./amazon-monitor");
+  const { cargarPublicidadAmazon, clavePublicidadAmazon } = await import("./publicidad-amazon");
+  const siete = normalizarRango();
+  const treinta = normalizarRango(fechaMx(29));
+  const hechas: string[] = [];
+  const t0 = Date.now();
+  const monitor = await cargarMonitorAmazon(admin, amazonAccountId, meliAccountId, siete);
+  await guardarCacheApp(admin, amazonAccountId, claveMonitorAmazon(meliAccountId, siete), monitor, Date.now() - t0);
+  hechas.push("monitor-7");
+  if (Date.now() < limite) {
+    const t1 = Date.now();
+    const ads = await cargarPublicidadAmazon(admin, amazonAccountId, meliAccountId, treinta);
+    await guardarCacheApp(admin, amazonAccountId, clavePublicidadAmazon(meliAccountId, treinta), ads, Date.now() - t1);
+    hechas.push("publicidad-30");
+  }
+  return { hechas };
 }
 
 /** Corre una tarea si no ha corrido en los últimos `cadaMs`. */

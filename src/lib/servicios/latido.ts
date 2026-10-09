@@ -297,6 +297,38 @@ export async function latido(
       }
     }
 
+    // La sugerencia de compra a China (Planificación China) se deja lista
+    // DESPUÉS del plan y del inventario, que son sus insumos: la pantalla
+    // solo lee su renglón y nunca calcula en el clic.
+    if (Date.now() < limite - 20_000) {
+      try {
+        const { refrescarCompraChinaSiHaceFalta } = await import("./compras-china");
+        await refrescarCompraChinaSiHaceFalta(admin, accountId);
+      } catch (err) {
+        console.error("refrescarCompraChina:", (err as Error).message);
+      }
+    }
+
+    // Ventas y Publicidad leen el monitor y el panel de ads masticados en
+    // `app_cache`: aquí se deja listo el rango por omisión de cada pantalla
+    // (7 y 30 días) cuando tiene más de 10 minutos. Antes nadie los
+    // precalculaba y /ventas tardaba 15–35 s en el clic.
+    if (Date.now() < limite - 40_000) {
+      try {
+        const { data: cta } = await admin
+          .from("meli_accounts")
+          .select("id, site_id")
+          .eq("id", accountId)
+          .maybeSingle();
+        if (cta) {
+          const { precalcularPantallasVentas } = await import("./ventas-vista");
+          await precalcularPantallasVentas(admin, { id: cta.id, site_id: cta.site_id ?? "MLM" }, limite - 25_000);
+        }
+      } catch (err) {
+        console.error("precalcularPantallasVentas:", (err as Error).message);
+      }
+    }
+
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.

@@ -1,0 +1,77 @@
+# Guía de diseño de pantallas (9-oct-2026)
+
+Todas las pantallas del ERP se arman igual. Piezas en
+`src/components/ui/pagina.tsx`; clases en `src/app/globals.css`. Pantalla
+modelo: `src/app/cortes/page.tsx`.
+
+## Estructura (siempre este orden)
+
+```tsx
+import { Pagina, Encabezado, Cifras, Seccion, Aviso, SinCuenta, Tabla, Ayuda } from "@/components/ui/pagina";
+import { Ficha } from "@/components/tiles";
+
+if (!cuenta) return <SinCuenta titulo="Ventas" />;            // servicio="amazon" | "tiktok" | "yapanizcel"
+
+<Pagina>
+  <Encabezado
+    ceja="Mercado Libre"            // el título del grupo del menú
+    titulo="Ventas"
+    descripcion="Una sola línea: qué hay aquí."
+    frescura={generadoEn}            // si la pantalla lee datos masticados
+    acciones={<>…botones / descargas…</>}
+    ayuda={<><p>…regla larga…</p><p>…</p></>}   // plegada en «¿Cómo se calcula?»
+  />
+  {/* filtros / periodo (si hay) */}
+  <Cifras columnas={4}>…<Ficha …/>…</Cifras>
+  {/* avisos que de verdad piden acción */}
+  <Seccion titulo="Por modelo" descripcion="235 modelos" acciones={…} sinRelleno>
+    <Tabla><table className="datos">…</table></Tabla>
+  </Seccion>
+</Pagina>
+```
+
+Cejas (= grupos del menú): «Negocio», «Inventario», «Mercado Libre»,
+«Amazon», «TikTok Shop», «Abastecimiento», «Fundas», «Sistema».
+
+## Reglas de contenido
+
+1. **Descripción: UNA línea**, qué hay en la pantalla. Todo lo que explique
+   una regla del negocio, una fuente o una excepción va en `ayuda` (plegado),
+   NUNCA se borra: se mueve. Lo mismo dentro de una sección: `<Ayuda>`.
+2. **Un aviso solo si pide acción o advierte algo raro.** Si repite lo que ya
+   dice una ficha o el encabezado, se quita. Avisos con `<Aviso tono=…>`:
+   `info`, `bien`, `alerta`, `critico`. Nada de recuadros armados a mano con
+   `color-mix`.
+3. **Cada botón vive en UN lugar.** Si dos pantallas tienen el mismo botón,
+   se queda en la pantalla dueña de esa acción (Sincronizar → Sincronizar;
+   recargar el sheet de fundas → Bodega fundas). Las acciones de la pantalla
+   van en `acciones` del encabezado o de su sección.
+4. **Sin cuenta conectada:** `<SinCuenta titulo="…" servicio="…" />`.
+5. **Frescura:** si la pantalla lee un renglón masticado, `frescura` en el
+   encabezado. Se retiran los «Datos de hace X min» sueltos.
+6. **Cifras:** siempre dentro de `<Cifras columnas={3|4|5|6}>`, nunca un
+   `grid-cols-…` propio. 4 por omisión; más de 6 fichas → dos filas o
+   quitar las que se repiten.
+7. **Tablas:** `table.datos` dentro de `<Tabla>` (o `.tabla-caja`). Columnas
+   numéricas con `className="num cifra"` (encabezado `th className="num"`).
+8. Textos: español, frases cortas, sin repetir lo que dice el título.
+
+## Reglas de estilo
+
+- Nada de `style={{ color: "var(--ink-2)" }}` → `className="texto-2"`;
+  `var(--ink-muted)` → `texto-tenue`. Enlaces azules subrayados → `enlace`.
+- Botones: `<Boton>` / `<EnlaceBoton>` de `@/components/ui/boton`, o las
+  clases `boton boton-primario|boton-borde|boton-fantasma|boton-peligro
+  [boton-chico]`. No armar el azul a mano con `style={{background:…}}`.
+- Títulos de sección: `seccion-titulo` (o `<Seccion titulo>`), no
+  `text-base font-semibold`, `text-lg`, etc.
+- Espaciado: la página es `<Pagina>` (gap de 1.5 rem). Dentro de una tarjeta,
+  `p-4`.
+- Colores de estado en texto: `var(--exito-texto)`, `var(--alerta-texto)`,
+  `var(--critico-texto)`. Fondos: `--bien-suave`, `--alerta-suave`,
+  `--critico-suave`, `--info-suave`.
+
+## Lo que NO se toca
+
+Ninguna regla del negocio, ningún número, ninguna consulta, ninguna ruta de
+API. El rediseño cambia cómo se ve y dónde está cada cosa, nada más.

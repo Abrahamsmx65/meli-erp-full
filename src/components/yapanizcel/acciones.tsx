@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { estiloInput } from "./comunes";
+import { Aviso } from "@/components/ui/pagina";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function leer(r: Response): Promise<any> {
@@ -21,22 +22,18 @@ function Mensajes({ aviso, error }: { aviso: string | null; error: string | null
   return (
     <>
       {aviso ? (
-        <p className="mt-3 text-sm" style={{ color: "var(--exito-texto)" }}>
+        <Aviso tono="bien" className="mt-3">
           {aviso}
-        </p>
+        </Aviso>
       ) : null}
       {error ? (
-        <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+        <Aviso tono="critico" className="mt-3">
           {error}
-        </p>
+        </Aviso>
       ) : null}
     </>
   );
 }
-
-const btn = "rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60";
-const btnPrimario = { background: "var(--acento)", color: "#fff" } as const;
-const btnSecundario = { border: "1px solid var(--borde)", color: "var(--ink-1)" } as const;
 
 export function BotonSincronizar() {
   const router = useRouter();
@@ -84,7 +81,9 @@ export function BotonSincronizar() {
             ? "Catálogo listo; ahora el stock en Full y las ventas…"
             : `Ventas cubiertas del ${estado.desde ?? "…"} al ${estado.hasta ?? "…"}; sigo hacia atrás…`,
         );
-        router.refresh();
+        // Sin router.refresh() por vuelta: cada uno volvía a armar la
+        // página completa en el servidor (hasta 20 veces). Se refresca UNA
+        // vez al terminar (o al fallar, con lo que alcanzó a guardarse).
       }
       setProgreso(null);
       setAviso(
@@ -96,6 +95,7 @@ export function BotonSincronizar() {
     } catch (e) {
       setProgreso(null);
       setError((e as Error).message + " Vuelve a darle: retoma donde se quedó.");
+      router.refresh();
     } finally {
       setOcupado(false);
     }
@@ -103,11 +103,11 @@ export function BotonSincronizar() {
 
   return (
     <div>
-      <button onClick={correr} disabled={ocupado} className={btn} style={btnPrimario}>
+      <button onClick={correr} disabled={ocupado} className="boton boton-primario">
         {ocupado ? "Sincronizando…" : "Sincronizar con Mercado Libre"}
       </button>
       {progreso ? (
-        <p className="mt-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 text-sm texto-2">
           {progreso}
         </p>
       ) : null}
@@ -156,26 +156,26 @@ export function BotonSheets({ configurado }: { configurado: boolean }) {
 
   if (!configurado) {
     return (
-      <p className="text-sm" style={{ color: "var(--estado-serio)" }}>
+      <Aviso tono="alerta">
         Falta <code>YAPANIZCEL_SHEET_URL</code> en las variables de entorno: la URL del sheet de inventario,
         compartido como «cualquiera con el enlace puede ver».
-      </p>
+      </Aviso>
     );
   }
 
   return (
     <div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => correr("sync")} disabled={ocupado !== null} className={btn} style={btnPrimario}>
+        <button onClick={() => correr("sync")} disabled={ocupado !== null} className="boton boton-primario">
           {ocupado === "sync" ? "Leyendo…" : "Actualizar bodega desde el sheet"}
         </button>
-        <button onClick={() => correr("ver")} disabled={ocupado !== null} className={btn} style={btnSecundario}>
+        <button onClick={() => correr("ver")} disabled={ocupado !== null} className="boton boton-borde">
           {ocupado === "ver" ? "Leyendo…" : "Solo ver qué se leería"}
         </button>
       </div>
       <Mensajes aviso={aviso} error={error} />
       {detalle?.length ? (
-        <ul className="mt-2 list-disc pl-5 text-xs" style={{ color: "var(--ink-2)" }}>
+        <ul className="mt-2 list-disc pl-5 text-xs texto-2">
           {detalle.map((d, i) => (
             <li key={i}>{d}</li>
           ))}
@@ -216,7 +216,7 @@ export function SubirCostos() {
     <form onSubmit={enviar}>
       <div className="flex flex-wrap items-center gap-2">
         <input type="file" name="archivo" accept=".xlsx,.xls,.csv" required className="text-sm" />
-        <button type="submit" disabled={ocupado} className={btn} style={btnPrimario}>
+        <button type="submit" disabled={ocupado} className="boton boton-primario">
           {ocupado ? "Leyendo…" : "Subir costos"}
         </button>
       </div>
@@ -262,7 +262,7 @@ export function FormularioParametros({
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium">{etiqueta}</span>
       <input type="number" name={nombre} defaultValue={valores[nombre]} min={1} className="w-28 rounded-lg border px-2 py-1" style={estiloInput} />
-      <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+      <span className="text-xs texto-tenue">
         {ayuda}
       </span>
     </label>
@@ -278,7 +278,7 @@ export function FormularioParametros({
         {campo("diasCaducidadEnvio", "Días que cuenta un envío", "Un envío registrado deja de contar como «en camino» después de estos días.")}
       </div>
       <div>
-        <button type="submit" disabled={ocupado} className={btn} style={btnPrimario}>
+        <button type="submit" disabled={ocupado} className="boton boton-primario">
           {ocupado ? "Guardando…" : "Guardar parámetros"}
         </button>
         <Mensajes aviso={aviso} error={error} />

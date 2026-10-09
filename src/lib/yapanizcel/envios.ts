@@ -7,7 +7,7 @@
  * dice el sheet.
  */
 import type { DB } from "../datos/repos";
-import { conCacheYz, invalidarYz, recalcularCacheYz } from "./cache";
+import { guardarCacheYzLote, invalidarYz, leerCacheYzGuardado } from "./cache";
 import { leerParametros } from "./cuenta";
 import { hoyMx, restarDias, todo } from "./db";
 import { cargarInventarioAmarrado, type InventarioAmarrado } from "./inventario";
@@ -135,12 +135,107 @@ function fusionarSnapshots(snapshots: { sku: string; fecha: string; disponible: 
 
 /** El plan masticado desde `yz_cache`, aunque esté viejo; solo sin renglón calcula. */
 export async function obtenerPlanYz(db: DB, accountId: string): Promise<PlanConDetalle> {
-  return conCacheYz(db, accountId, "plan", () => calcularPlanDeCuenta(db, accountId));
+  const guardado = await leerCacheYzGuardado<PlanConDetalle>(db, accountId, "plan");
+  if (guardado.estado === "encontrado") return guardado.valor.datos;
+  if (guardado.estado === "fallo") throw guardado.error;
+  return recalcularPlanYz(db, accountId);
 }
 
-/** Recalcula y guarda el plan (lo llama el cron de netos). */
+/**
+ * Recalcula y guarda el plan (lo llama el cron de netos) JUNTO con sus
+ * vistas chicas: el renglón completo pesa ~4 MB (todas las líneas, el
+ * inventario amarrado, títulos) y Envíos y Etiquetas solo necesitan una
+ * parte. Caen con él: `invalidarYz(["plan"])` tumba también «plan:*».
+ */
 export async function recalcularPlanYz(db: DB, accountId: string): Promise<PlanConDetalle> {
-  return recalcularCacheYz(db, accountId, "plan", () => calcularPlanDeCuenta(db, accountId));
+  const t0 = Date.now();
+  const plan = await calcularPlanDeCuenta(db, accountId);
+  await guardarCacheYzLote(
+    db,
+    accountId,
+    [
+      { clave: "plan", datos: plan },
+      { clave: CLAVE_PLAN_PANTALLA, datos: vistaPantallaDePlan(plan) },
+      { clave: CLAVE_PLAN_SUGERIDAS, datos: sugeridasDePlan(plan) },
+    ],
+    Date.now() - t0,
+  );
+  return plan;
+}
+
+export const CLAVE_PLAN_PANTALLA = "plan:pantalla";
+export const CLAVE_PLAN_SUGERIDAS = "plan:sugeridas";
+
+export type LineaPlanPantalla = LineaPlan & { titulo: string | null };
+
+/** Lo que la pantalla de Envíos a Full necesita del plan, y nada más. */
+export interface PlanPantalla {
+  /** Solo las líneas con algo que decir (venta, stock, bodega o faltante), con su título. */
+  lineas: LineaPlanPantalla[];
+  unidades: number;
+  skus: number;
+  faltanteSinCubrir: number;
+  desde: string;
+  hasta: string;
+  /** SKUs con faltante y nada en bodega (de TODAS las líneas). */
+  sinInventario: number;
+  sinAmarrar: { renglones: number; unidades: number };
+  descontinuados: { activo: boolean; skus: number };
+  parametros: Pick<PlanConDetalle["parametros"], "diasVenta" | "diasObjetivo" | "multiploEnvio" | "diasCaducidadEnvio">;
+}
+
+/** La vista chica de la pantalla, sacada del plan completo (pura). */
+export function vistaPantallaDePlan(plan: PlanConDetalle): PlanPantalla {
+  // Un SKU con todo en cero (sin venta, sin stock, sin bodega, sin faltante)
+  // no se puede mandar ni dice nada: fuera del viaje al navegador.
+  const lineas = plan.lineas
+    .filter((l) => l.vendidas + l.enFull + l.enTransferencia + l.enCamino + l.enBodega + l.falta > 0)
+    .map((l) => ({ ...l, titulo: plan.titulos.get(l.sku) ?? null }));
+  return {
+    lineas,
+    unidades: plan.unidades,
+    skus: plan.skus,
+    faltanteSinCubrir: plan.faltanteSinCubrir,
+    desde: plan.desde,
+    hasta: plan.hasta,
+    sinInventario: plan.lineas.filter((l) => l.motivo === "sin_inventario").length,
+    sinAmarrar: { renglones: plan.inventario.sinAmarrar.renglones, unidades: plan.inventario.sinAmarrar.unidades },
+    descontinuados: { activo: plan.descontinuados.activo, skus: plan.descontinuados.skus.size },
+    parametros: {
+      diasVenta: plan.parametros.diasVenta,
+      diasObjetivo: plan.parametros.diasObjetivo,
+      multiploEnvio: plan.parametros.multiploEnvio,
+      diasCaducidadEnvio: plan.parametros.diasCaducidadEnvio,
+    },
+  };
+}
+
+/** Lo que Etiquetas ofrece traer de un clic: cada SKU a mandar con su cantidad (pura). */
+export function sugeridasDePlan(plan: Pick<PlanConDetalle, "lineas">): { sku: string; cantidad: number }[] {
+  return plan.lineas
+    .filter((l) => l.mandar > 0)
+    .map((l) => ({ sku: l.sku, cantidad: l.mandar }))
+    .sort((a, b) => b.cantidad - a.cantidad);
+}
+
+/**
+ * Lee una vista chica del plan; si todavía no existe (antes del primer
+ * recálculo con este código) la saca del renglón grande.
+ */
+async function vistaDelPlan<T>(db: DB, accountId: string, clave: string, derivar: (plan: PlanConDetalle) => T): Promise<{ datos: T; generadoEn: string | null }> {
+  const g = await leerCacheYzGuardado<T>(db, accountId, clave);
+  if (g.estado === "encontrado") return { datos: g.valor.datos, generadoEn: g.valor.generadoEn };
+  const grande = await leerCacheYzGuardado<PlanConDetalle>(db, accountId, "plan");
+  if (grande.estado === "encontrado") return { datos: derivar(grande.valor.datos), generadoEn: grande.valor.generadoEn };
+  return { datos: derivar(await obtenerPlanYz(db, accountId)), generadoEn: null };
+}
+
+export function obtenerPlanPantallaYz(db: DB, accountId: string) {
+  return vistaDelPlan(db, accountId, CLAVE_PLAN_PANTALLA, vistaPantallaDePlan);
+}
+
+export function obtenerSugeridasYz(db: DB, accountId: string) {
+  return vistaDelPlan(db, accountId, CLAVE_PLAN_SUGERIDAS, sugeridasDePlan);
 }
 
 /** Registra un envío con las líneas que el usuario confirmó. */

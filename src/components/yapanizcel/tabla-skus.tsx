@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { RenglonBodega } from "@/lib/yapanizcel/inventario";
 import type { NivelAmarre } from "@/lib/yapanizcel/sku";
@@ -29,13 +29,46 @@ type Filtro = "pendientes" | "sugeridos" | "amarrados" | "ignorados" | "todos";
  * quedó. Confirmar una sugerencia escribe un amarre manual: a partir de ahí
  * ese SKU deja de depender de cómo lo escriban en el sheet.
  */
-export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[]; skusMeli: string[] }) {
+export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
   const router = useRouter();
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
   const [busqueda, setBusqueda] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState<Record<string, string>>({});
+  // Sugerencias del SKU de MELI mientras se escribe: se piden al servidor
+  // (20 a la vez) en vez de mandar el catálogo completo en un <datalist>.
+  const [opciones, setOpciones] = useState<string[]>([]);
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pedido = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      if (temporizador.current) clearTimeout(temporizador.current);
+      pedido.current?.abort();
+    },
+    [],
+  );
+
+  function buscarSkusMeli(q: string) {
+    if (temporizador.current) clearTimeout(temporizador.current);
+    if (q.trim().length < 2) {
+      setOpciones([]);
+      return;
+    }
+    temporizador.current = setTimeout(async () => {
+      pedido.current?.abort();
+      const control = new AbortController();
+      pedido.current = control;
+      try {
+        const r = await fetch(`/api/yapanizcel/skus/buscar?q=${encodeURIComponent(q.trim())}`, { signal: control.signal });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && Array.isArray(j.skus)) setOpciones(j.skus);
+      } catch {
+        // Cancelada por la siguiente tecla o sin red: se queda lo anterior.
+      }
+    }, 200);
+  }
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toUpperCase();
@@ -118,13 +151,13 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
       </div>
 
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
 
       <datalist id="yz-skus-meli">
-        {skusMeli.map((s) => (
+        {opciones.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
@@ -132,7 +165,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">SKU en bodega</th>
               <th className="px-3 py-2">Pestaña</th>
               <th className="px-3 py-2 text-right">Unidades</th>
@@ -144,7 +177,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
           <tbody>
             {filtrados.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={6} className="px-3 py-6 text-center texto-tenue">
                   Nada aquí.
                 </td>
               </tr>
@@ -155,7 +188,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
               return (
                 <tr key={r.skuBodega} className="border-t align-top" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-2 font-medium">{r.skuBodega}</td>
-                  <td className="px-3 py-2" style={{ color: "var(--ink-2)" }}>
+                  <td className="px-3 py-2 texto-2">
                     {r.hoja ?? ""}
                   </td>
                   <td className="num px-3 py-2 text-right">{r.cantidad.toLocaleString("es-MX")}</td>
@@ -191,7 +224,11 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                           <input
                             list="yz-skus-meli"
                             value={valorManual}
-                            onChange={(e) => setManual((m) => ({ ...m, [r.skuBodega]: e.target.value }))}
+                            onChange={(e) => {
+                              const valor = e.target.value;
+                              setManual((m) => ({ ...m, [r.skuBodega]: valor }));
+                              buscarSkusMeli(valor);
+                            }}
                             placeholder="Escribir SKU de MELI…"
                             className="num w-48 rounded-md border px-2 py-0.5 text-xs"
                             style={estiloInput}
@@ -199,15 +236,14 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                           <button
                             disabled={ocupado !== null || !valorManual.trim()}
                             onClick={() => mandar({ skuBodega: r.skuBodega, skuMeli: valorManual.trim() }, r.skuBodega)}
-                            className="rounded-md px-2 py-0.5 text-xs font-semibold disabled:opacity-50"
-                            style={{ background: "var(--acento)", color: "#fff" }}
+                            className="boton boton-primario boton-chico"
                           >
                             Amarrar
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <span style={{ color: "var(--ink-muted)" }}>—</span>
+                      <span className="texto-tenue">—</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -215,8 +251,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, skuMeli: "" }, r.skuBodega)}
-                        className="text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="text-xs underline texto-tenue"
                       >
                         Quitar amarre
                       </button>
@@ -225,8 +260,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, ignorar: true }, r.skuBodega)}
-                        className="ml-2 text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="ml-2 text-xs underline texto-tenue"
                       >
                         Ignorar
                       </button>
@@ -235,8 +269,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, ignorar: false }, r.skuBodega)}
-                        className="text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="text-xs underline texto-tenue"
                       >
                         Volver a considerar
                       </button>

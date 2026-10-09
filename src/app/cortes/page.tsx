@@ -10,7 +10,7 @@ import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Canal } from "
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
-import { Frescura } from "@/components/yapanizcel/comunes";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -28,7 +28,7 @@ function pct(x: number | null): string {
 function unidad(x: number | null | undefined): string {
   return x == null ? "—" : pesos(x);
 }
-const colorGanancia = (g: number | null) => (g == null ? "var(--ink-muted)" : g < 0 ? "var(--estado-critico)" : "var(--exito-texto)");
+const colorGanancia = (g: number | null) => (g == null ? "var(--ink-muted)" : g < 0 ? "var(--critico-texto)" : "var(--exito-texto)");
 
 /**
  * Corte general del mes: calzado + fundas + Amazon, con la ganancia total,
@@ -41,13 +41,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const hoy = periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Corte general" />;
   // El consolidado vive en consolidado_cache (10 min): correr los tres
   // canales completos en cada visita costaba hasta 300 s de función.
   const [cns, cortes, anterior, mismosDias] = await Promise.all([
@@ -68,19 +62,33 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     cns.total.desgloseDisponible === false ? "No disponible" : pesos(-cns.total[campo]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Corte general</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Estado operativo al día de hoy: puede cambiar cuando Mercado Pago o Amazon terminen de asentar cargos. La publicidad se descuenta al modelo que la gastó; los
-          gastos generales de cada plataforma (Full, FBA, colecta, devoluciones netas, otros cargos) se dividen entre las
-          unidades vendidas en esa plataforma, así cada modelo y categoría carga su parte y la ganancia es la real.
-        </p>
-        <Frescura generadoEn={cns.generadoEn} />
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Negocio"
+        titulo="Corte general"
+        descripcion="Calzado, fundas, Amazon y TikTok: la ganancia real del mes, por canal, categoría y modelo."
+        frescura={cns.generadoEn}
+        acciones={
+          <span className={`chip ${cns.exacto ? "aviso-bien" : "aviso-alerta"}`}>
+            {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
+          </span>
+        }
+        ayuda={
+          <>
+            <p>
+              Es el estado al día de hoy: puede cambiar mientras Mercado Pago o Amazon terminan de asentar cargos.
+            </p>
+            <p>
+              La publicidad se descuenta al modelo que la gastó. Los gastos generales de cada plataforma (Full, FBA,
+              colecta, devoluciones netas, otros cargos) se dividen entre las unidades vendidas en esa plataforma, así cada
+              modelo y categoría carga su parte.
+            </p>
+          </>
+        }
+      />
 
-      <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        {/* Todos los meses a la vista (dueño, 25-sep-2026: «elegir, no pasar de mes en mes»). */}
+      {/* Todos los meses a la vista (dueño, 25-sep-2026: «elegir, no pasar de mes en mes»). */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <nav aria-label="Mes del corte" className="flex flex-wrap gap-1.5">
           {periodosDesde(PRIMER_PERIODO_CORTES, hoy).map((p) => {
             const activo = p === periodo;
@@ -90,25 +98,22 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 href={`/cortes?mes=${p}`}
                 aria-current={activo ? "page" : undefined}
                 className="rounded-full border px-3 py-1 text-xs font-medium capitalize"
-                style={activo ? { background: "var(--acento)", borderColor: "var(--acento)", color: "#fff" } : { borderColor: "var(--borde)" }}
+                style={activo ? { background: "var(--acento)", borderColor: "var(--acento)", color: "#fff" } : { borderColor: "var(--borde)", background: "var(--surface-1)" }}
               >
                 {nombreDelPeriodo(p)}
               </Link>
             );
           })}
         </nav>
-        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="texto-tenue text-xs">
           {cns.desde} → {cns.hasta}
-        </span>
-        <span className="ml-auto rounded-full px-3 py-1 text-xs font-semibold" style={cns.exacto ? { background: "var(--acento-suave)", color: "var(--exito-texto)" } : { background: "#fff4d6", color: "#8a5a00" }}>
-          {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
         </span>
       </div>
 
       <AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />
       <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Cifras columnas={4}>
         <Ficha
           titulo="Venta bruta"
           valor={pesos(cns.total.ventaBruta)}
@@ -125,23 +130,25 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <Ficha titulo="Utilidad antes de gastos empresariales" valor={pesos(cns.total.utilidadAntesGastosEmpresariales)} nota="suma de los tres canales" tono={cns.total.utilidadAntesGastosEmpresariales < 0 ? "critico" : "bien"} />
         <Ficha titulo="Gastos empresariales" valor={pesos(-cns.total.gastosEmpresariales)} nota="se descuentan una sola vez" tono={cns.total.gastosEmpresariales > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Utilidad neta final" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
-      </div>
+      </Cifras>
 
       {comparacion ? (
         <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
       ) : (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <p className="text-xs texto-tenue">
           Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))}: ese mes todavía no se ha calculado. Ábrelo una vez y la comparación aparece aquí.
         </p>
       )}
 
       {/* ---- Por canal ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por canal</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por canal</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             “Neto” es lo que queda después de cargos de plataforma. La fuente y su cobertura indican si ya está respaldado por datos reales o todavía es parcial.
           </p>
+          </div>
         </header>
         <div className="overflow-x-auto">
           <table className="datos">
@@ -152,7 +159,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <th key={k.canal} className="num">
                     {k.nombre}
                     {k.calculable === false ? (
-                      <span className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "#fde7e7", color: "#8a1f1f" }}>no calculable</span>
+                      <span className="chip aviso-critico ml-1 text-[10px]">no calculable</span>
                     ) : null}
                   </th>
                 ))}
@@ -215,10 +222,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <div className="grid gap-4 border-t p-4 hairline lg:grid-cols-2">
           <div>
             <h3 className="text-sm font-semibold">Deducciones incluidas en el neto</h3>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+            <p className="mt-0.5 text-xs texto-tenue">
               Son informativas: ya están descontadas y no se vuelven a restar.
             </p>
-            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
               {cns.canales.flatMap((k) =>
                 k.descuentos.map((d) => (
                   <li key={`${k.canal}-${d.concepto}`} className="flex justify-between gap-4">
@@ -232,10 +239,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
           </div>
           <div>
             <h3 className="text-sm font-semibold">Gastos descontados aparte</h3>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+            <p className="mt-0.5 text-xs texto-tenue">
               Publicidad no amarrada, Full, FBA, devoluciones netas y gastos capturados.
             </p>
-            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
               {cns.canales.flatMap((k) =>
                 k.gastos.map((g) => (
                   <li key={`${k.canal}-${g.concepto}`} className="flex justify-between gap-4">
@@ -252,11 +259,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Por categoría ------------------------------------------------ */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por categoría</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por categoría</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             Sumando los tres canales. Ganancia = neto − costo − publicidad − gastos generales repartidos.
           </p>
+          </div>
         </header>
         <div className="overflow-x-auto">
           <table className="datos">
@@ -297,7 +306,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="num cifra">{pesos(k.cargoGeneral)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(k.ganancia) }}>{k.ganancia == null ? "—" : pesos(k.ganancia)}</td>
                   {canales.map((c) => (
-                    <td key={c} className="num cifra text-xs" style={{ color: "var(--ink-2)" }}>
+                    <td key={c} className="num cifra text-xs texto-2">
                       {k.porCanal[c] ? `${n(k.porCanal[c]!.unidades)} u · ${k.porCanal[c]!.ganancia == null ? "—" : pesos(k.porCanal[c]!.ganancia!)}` : "—"}
                     </td>
                   ))}
@@ -310,11 +319,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Por modelo --------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por modelo</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             Un modelo que se vende en varios canales aparece una vez, con todo sumado. El Excel trae además una hoja por canal.
           </p>
+          </div>
         </header>
         <div className="max-h-[36rem] overflow-auto">
           <table className="datos">
@@ -341,8 +352,8 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               {cns.porModelo.map((m) => (
                 <tr key={m.modelo}>
                   <td className="font-medium">{m.modelo}</td>
-                  <td style={{ color: "var(--ink-2)" }}>{m.categoria}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>{m.canales.map((c) => NOMBRE_CANAL[c].split(" ·")[0]).join(", ")}</td>
+                  <td className="texto-2">{m.categoria}</td>
+                  <td className="text-xs texto-tenue">{m.canales.map((c) => NOMBRE_CANAL[c].split(" ·")[0]).join(", ")}</td>
                   <td className="num cifra">{n(m.unidades)}</td>
                   <td className="num cifra">{pesos(m.importe)}</td>
                   <td className="num cifra">{pesos(m.comision)}</td>
@@ -351,7 +362,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="num cifra">{pesos(m.iva)}</td>
                   <td className="num cifra">{pesos(m.otros)}</td>
                   <td className="num cifra">{pesos(m.neto)}</td>
-                  <td className="num cifra" style={{ color: m.costo == null ? "var(--estado-alerta)" : undefined }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
+                  <td className="num cifra" style={{ color: m.costo == null ? "var(--alerta-texto)" : undefined }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
                   <td className="num cifra">{m.ads ? pesos(m.ads) : "—"}</td>
                   <td className="num cifra">{pesos(m.cargoGeneral)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(m.ganancia) }}>{m.ganancia == null ? "—" : pesos(m.ganancia)}</td>
@@ -363,10 +374,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       </section>
 
       {/* ---- Avisos ------------------------------------------------------ */}
-      <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">{cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}</h2>
+      <Seccion titulo={cns.exacto ? "Fuentes financieras completas" : "Qué falta para confiar en todos los importes"}>
         {cns.avisos.length ? (
-          <ul className="mt-2 flex flex-col gap-1 text-sm">
+          <ul className="flex flex-col gap-1 text-sm">
             {cns.avisos.map((a, i) => (
               <li key={i} className="flex gap-2">
                 <span style={{ color: "var(--acento)" }}>•</span>
@@ -375,14 +385,16 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm" style={{ color: "var(--exito-texto)" }}>Los tres canales están completos.</p>
+          <Aviso tono="bien">Los tres canales están completos.</Aviso>
         )}
-      </section>
+      </Seccion>
 
       {/* ---- Guardados ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Cortes generales guardados</h2>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Cortes generales guardados</h2>
+          </div>
         </header>
         {cortes.length ? (
           <table className="datos">
@@ -400,23 +412,23 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               {cortes.map((c) => (
                 <tr key={c.id}>
                   <td className="font-medium">
-                    <Link href={`/cortes?mes=${c.periodo}`} style={{ color: "var(--acento)" }}>{nombreDelPeriodo(c.periodo)}</Link>
+                    <Link href={`/cortes?mes=${c.periodo}`} className="enlace">{nombreDelPeriodo(c.periodo)}</Link>
                   </td>
                   <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                   <td className="num cifra">{pesos(c.ventaBruta)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(c.utilidadNeta) }}>{pesos(c.utilidadNeta)}</td>
                   <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
                   <td className="num">
-                    <a href={`/api/cortes/general/${c.id}/excel`} style={{ color: "var(--acento)" }}>Excel</a>
+                    <a href={`/api/cortes/general/${c.id}/excel`} className="enlace">Excel</a>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>Todavía no hay cortes generales guardados.</p>
+          <p className="p-4 text-sm texto-2">Todavía no hay cortes generales guardados.</p>
         )}
       </section>
-    </div>
+    </Pagina>
   );
 }

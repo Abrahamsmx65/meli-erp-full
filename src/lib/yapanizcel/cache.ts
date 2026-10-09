@@ -23,7 +23,7 @@ import {
 } from "../servicios/errores-datos";
 
 /** Las claves fijas que el cron refresca; las de publicidad son dinámicas ("ads:2026-09"). */
-export const CLAVES_YZ = ["compras", "plan", "inventario", "amarre", "disenos", "pedidos"] as const;
+export const CLAVES_YZ = ["compras", "plan", "inventario", "amarre", "disenos", "pedidos", "listados:disenos"] as const;
 
 /**
  * A partir de esta edad un renglón se considera para refrescar en el fondo

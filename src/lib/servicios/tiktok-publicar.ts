@@ -67,7 +67,7 @@ import { clienteDeCuenta as clienteMeliDeCuenta } from "./webhooks";
 import { pareceSkuDeCalzado } from "../tiktok/amarre";
 import { guiaDeTallas, textoGuiaTallas } from "../tiktok/guia-tallas";
 import { dibujarGuiaTallas } from "../tiktok/guia-tallas-imagen";
-import { guardarCacheApp, invalidarApp, leerCacheApp } from "./cache-app";
+import { guardarCacheApp, invalidarApp, leerCacheApp, servirConCacheApp } from "./cache-app";
 import { amarradorDeCuenta, clienteDeCuenta } from "./tiktok";
 
 export const CLAVE_CACHE_NUEVOS = "tiktok:nuevos";
@@ -156,6 +156,29 @@ export async function leerCola(
   }));
 }
 
+interface ListaNuevos {
+  productos: ProductoAmazonParaTikTok[];
+  publicacionesMeli: PublicacionMeliParaTikTok[];
+  generadoEn: string;
+}
+
+/** El trabajo pesado de la lista: agrupar Amazon y las publicaciones de MELI. */
+async function masticarListaNuevos(admin: any, accountId: string): Promise<ListaNuevos> {
+  const [productos, publicacionesMeli] = await Promise.all([
+    agruparDesdeLaBase(admin, accountId),
+    agruparMeliDesdeLaBase(admin, accountId),
+  ]);
+  return { productos, publicacionesMeli, generadoEn: new Date().toISOString() };
+}
+
+/**
+ * Solo la cola de publicación (lo que cambia mientras se publica): la
+ * pantalla la pregunta cada pocos segundos sin volver a bajar la lista.
+ */
+export async function colaDePublicacion(admin: any, accountId: string): Promise<PublicacionEnCola[]> {
+  return leerCola(admin, accountId);
+}
+
 /**
  * Los productos de Amazon agrupados (masticados). La cola se lee siempre
  * fresca: es lo que cambia mientras se publica.
@@ -163,15 +186,31 @@ export async function leerCola(
 export async function listarProductosNuevos(
   admin: any,
   accountId: string,
-  opciones: { forzar?: boolean } = {},
+  opciones: {
+    forzar?: boolean;
+    /**
+     * Para la PANTALLA (y su GET): sirve el renglón guardado aunque esté
+     * viejo o invalidado y lo refresca por atrás (`servirConCacheApp`);
+     * solo sin renglón se calcula en el clic. Los caminos de la cola
+     * (encolar, publicar) no lo pasan y siguen leyendo la lista fresca.
+     */
+    servirGuardado?: boolean;
+  } = {},
 ): Promise<ProductosNuevosTikTok> {
   const avisos: string[] = [];
-  let lista: {
-    productos: ProductoAmazonParaTikTok[];
-    publicacionesMeli: PublicacionMeliParaTikTok[];
-    generadoEn: string;
-  } | null = null;
-  if (!opciones.forzar) {
+  let lista: ListaNuevos | null = null;
+  if (opciones.servirGuardado && !opciones.forzar) {
+    const s = await servirConCacheApp<Partial<ListaNuevos>>(
+      admin,
+      accountId,
+      CLAVE_CACHE_NUEVOS,
+      EDAD_CACHE_NUEVOS_MS,
+      () => masticarListaNuevos(admin, accountId),
+    );
+    // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI: se rehace.
+    if (Array.isArray(s.datos.publicacionesMeli) && Array.isArray(s.datos.productos))
+      lista = s.datos as ListaNuevos;
+  } else if (!opciones.forzar) {
     const g = await leerCacheApp<{
       productos: ProductoAmazonParaTikTok[];
       publicacionesMeli?: PublicacionMeliParaTikTok[];
@@ -183,15 +222,7 @@ export async function listarProductosNuevos(
   }
   if (!lista) {
     const t0 = Date.now();
-    const [productos, publicacionesMeli] = await Promise.all([
-      agruparDesdeLaBase(admin, accountId),
-      agruparMeliDesdeLaBase(admin, accountId),
-    ]);
-    lista = {
-      productos,
-      publicacionesMeli,
-      generadoEn: new Date().toISOString(),
-    };
+    lista = await masticarListaNuevos(admin, accountId);
     await guardarCacheApp(
       admin,
       accountId,

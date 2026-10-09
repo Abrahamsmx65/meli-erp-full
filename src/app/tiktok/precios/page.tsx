@@ -12,7 +12,9 @@ import {
   type ParametrosPrecioTikTok,
 } from "@/lib/tiktok/precios";
 import { Ficha } from "@/components/tiles";
+import { Ayuda, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { TablaPreciosTikTok } from "@/components/tabla-precios-tiktok";
+import { DIAS_PRECIO_REAL, fuentesDePrecios } from "@/lib/servicios/tiktok-precios";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +26,6 @@ function pesosC(x: number): string {
 }
 
 const DIAS_POR_OMISION = 30;
-/** Días de pedidos de TikTok para el precio real pagado (ofertas y relámpagos incluidos). */
-const DIAS_PRECIO_REAL = 14;
 
 const CAMPOS: { clave: keyof ParametrosPrecioTikTok; nombre: string; unidad: string; paso: string }[] = [
   { clave: "comisionPct", nombre: "Comisión de TikTok", unidad: "% del precio", paso: "0.1" },
@@ -55,13 +55,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     data: { user },
   } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta || !user) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta || !user) return <SinCuenta titulo="Precios para TikTok" />;
 
   const p = parametrosDesde(sp);
   const diasRaw = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
@@ -73,29 +67,16 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
   // los últimos días (relámpagos y ofertas incluidos), no el de lista del
   // catálogo (dueño, 1-oct-2026: «toma el real que está en oferta, no el
   // precio base»); el de lista solo cuando el modelo no vendió.
-  const desdePedidos = new Date(Date.now() - DIAS_PRECIO_REAL * 86_400_000).toISOString();
-  const [monitor, costosRaw, skusTikTok, pedidosRpc, relampagoRpc, misPreciosRaw] = await Promise.all([
+  // Los pedidos de TikTok (14 días) y el relámpago de MELI salen masticados
+  // (`fuentesDePrecios`, 10 min, refresco por atrás): eran dos RPC por visita.
+  const [monitor, costosRaw, skusTikTok, fuentes, misPreciosRaw] = await Promise.all([
     cargarMonitor(admin, cuenta.id, rango),
     traerTodo<any>(admin, "productos_config", "modelo, costo_mxn", (q) => q.eq("account_id", cuenta.id).not("costo_mxn", "is", null)),
     traerTodo<any>(admin, "tiktok_skus", "sku_interno, seller_sku, precio, activo", (q) => q.eq("account_id", cuenta.id).eq("activo", true).not("precio", "is", null)),
-    admin.rpc("tiktok_ventas_pedidos", { p_account: cuenta.id, p_desde: desdePedidos, p_hasta: new Date(Date.now() + 86_400_000).toISOString() }),
-    // El RELÁMPAGO de MELI por modelo: el escalón de precio más bajo con
-    // volumen y su neto por par (dueño, 1-oct-2026: «el neto de cuando se
-    // vende el relámpago»; el GT148 relámpago $128.99 deja $128.99).
-    admin.rpc("meli_neto_relampago_por_modelo", { p_account: cuenta.id, p_desde: rango.desde }),
+    fuentesDePrecios(admin, cuenta.id, dias, rango.desde),
     traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", cuenta.id)),
   ]);
-  if (relampagoRpc.error) throw new Error(`meli_neto_relampago_por_modelo: ${relampagoRpc.error.message}`);
-  const relampago = new Map<string, { precio: number | null; pares: number; neto: number | null; paresTotal: number; netoTotal: number | null }>();
-  for (const f of (relampagoRpc.data ?? []) as any[]) {
-    relampago.set(String(f.modelo).toUpperCase(), {
-      precio: f.precio_relampago != null ? Number(f.precio_relampago) : null,
-      pares: Number(f.pares_relampago ?? 0) || 0,
-      neto: f.neto_relampago != null ? Number(f.neto_relampago) : null,
-      paresTotal: Number(f.pares_total ?? 0) || 0,
-      netoTotal: f.neto_total != null ? Number(f.neto_total) : null,
-    });
-  }
+  const relampago = new Map(fuentes.relampago);
   const misPrecios = new Map<string, number>();
   // Modelos que el dueño pidió calcular como si MELI retuviera el 10.5 % (2-oct-2026).
   const quitarRetencion = new Set<string>();
@@ -122,25 +103,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     acc.n += 1;
     precioLista.set(modelo, acc);
   }
-  const precioPagado = new Map<string, { suma: number; pares: number }>();
-  if (!pedidosRpc.error) {
-    const fuera = new Set<string>();
-    for (const o of (pedidosRpc.data?.ordenes ?? []) as any[]) {
-      const estado = String(o.estado ?? "").toUpperCase();
-      if (estado.startsWith("CANCEL") || estado === "UNPAID" || o.esMuestra) fuera.add(String(o.orderId));
-    }
-    for (const r of (pedidosRpc.data?.renglones ?? []) as any[]) {
-      if (fuera.has(String(r.orderId)) || String(r.estado ?? "").toUpperCase().startsWith("CANCEL")) continue;
-      const modelo = modeloDeSku(r.skuInterno ?? r.sellerSku ?? "");
-      const precio = Number(r.precio);
-      const pares = Number(r.cantidad ?? 0) || 0;
-      if (!modelo || !Number.isFinite(precio) || precio <= 0 || pares <= 0) continue;
-      const acc = precioPagado.get(modelo) ?? { suma: 0, pares: 0 };
-      acc.suma += precio * pares;
-      acc.pares += pares;
-      precioPagado.set(modelo, acc);
-    }
-  }
+  const precioPagado = new Map(fuentes.pagado);
 
   const entradas = new Map<string, EntradaModelo>();
   const nueva = (modelo: string, categoria: string | null = null): EntradaModelo => {
@@ -187,39 +150,41 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
   const ejemplo = netoTikTok(500, p);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="titulo-pagina">Precios para TikTok</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            El precio que deja en TikTok el mismo neto por par que deja el RELÁMPAGO de MELI ({rango.desde} → {rango.hasta}, depósito real
-            de Mercado Pago), o el precio que tú pongas.
-          </p>
-        </div>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Precios para TikTok"
+        descripcion={`El precio que deja en TikTok el mismo neto por par que el relámpago de MELI (${rango.desde} → ${rango.hasta}), o el tuyo.`}
+        ayuda={<p>El neto de MELI es el depósito real de Mercado Pago del periodo. «Mi precio» manda sobre el calculado.</p>}
+      />
 
       <form method="get" className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
           {CAMPOS.map((c) => (
-            <label key={c.clave} className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label key={c.clave} className="flex flex-col text-xs texto-2">
               <span>
-                {c.nombre} <span style={{ color: "var(--ink-muted)" }}>({c.unidad})</span>
+                {c.nombre} <span className="texto-tenue">({c.unidad})</span>
               </span>
               <input name={c.clave} type="number" step={c.paso} min="0" defaultValue={p[c.clave]} className="mt-1 w-32 rounded-lg border px-2 py-1.5 text-sm" />
             </label>
           ))}
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             <span>Días de MELI</span>
             <input name="dias" type="number" step="1" min="7" max="180" defaultValue={dias} className="mt-1 w-24 rounded-lg border px-2 py-1.5 text-sm" />
           </label>
-          <button type="submit" className="boton-primario">
+          <button type="submit" className="boton boton-primario">
             Recalcular
           </button>
-          <a href="/tiktok/precios" className="text-xs underline" style={{ color: "var(--ink-2)" }}>
+          <a href="/tiktok/precios" className="boton boton-fantasma">
             Volver a los de omisión
           </a>
         </div>
-        <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 text-xs texto-2">
+          Por cada par vendido a $500 me quedan {pesosC(ejemplo.neto)}: del precio llega el {Math.round(k * 1000) / 10} % menos lo fijo.
+        </p>
+        <div className="mt-2">
+          <Ayuda titulo="¿Cómo se desglosa?">
+            <p>
           Por cada par vendido a $500: {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos + {pesosC(ejemplo.afiliado)} de
           afiliados + {pesosC(ejemplo.envio)} de envío + {pesosC(ejemplo.ivaRetenido + ejemplo.isrRetenido)} de IVA e ISR retenidos +{" "}
           {pesosC(ejemplo.empaque)} de empaque: me quedan {pesosC(ejemplo.neto)}. Del precio llega el {Math.round(k * 1000) / 10} % menos lo
@@ -227,10 +192,12 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
           afiliados {PARAMETROS_POR_OMISION.afiliadoPct} % fijo aunque la comisión real sea otra, envío {PARAMETROS_POR_OMISION.envioPct} %, IVA{" "}
           {PARAMETROS_POR_OMISION.ivaRetenidoPct} % e ISR {PARAMETROS_POR_OMISION.isrRetenidoPct} % sobre la base sin IVA y ${PARAMETROS_POR_OMISION.empaquePorPar} de
           empaque por par.
-        </p>
+            </p>
+          </Ayuda>
+        </div>
       </form>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="Modelos con objetivo" valor={n(conObjetivo.length)} nota={`${n(conMiPrecio)} con tu precio · el resto por el relámpago de MELI en ${dias} días`} />
         <Ficha titulo="Publicados en TikTok" valor={n(enTikTok.length)} nota="con precio activo en TikTok" />
         <Ficha
@@ -240,9 +207,9 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
           tono={porDebajo ? "alerta" : "bien"}
         />
         <Ficha titulo="Escalón" valor={`${p.escalonPct}%`} nota="live abajo del normal · campaña arriba del normal" />
-      </div>
+      </Cifras>
 
       <TablaPreciosTikTok renglones={renglones} escalonPct={p.escalonPct} diasPrecioReal={DIAS_PRECIO_REAL} retencionPct={p.ivaRetenidoPct + p.isrRetenidoPct} />
-    </div>
+    </Pagina>
   );
 }

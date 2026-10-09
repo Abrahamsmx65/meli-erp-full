@@ -15,7 +15,7 @@ function n(x: number): string {
 export function EnviosViejosFba({ enCamino }: { enCamino: EnCaminoFba | null }) {
   if (!enCamino) {
     return (
-      <p className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+      <p className="texto-2 tarjeta p-3 text-sm">
         El detalle de envíos entrantes a FBA aún no se sincroniza (la primera
         lectura tarda hasta una hora). Mientras tanto, el &quot;en camino&quot;
         sale del reporte de Amazon, que también cuenta envíos atorados.
@@ -27,11 +27,11 @@ export function EnviosViejosFba({ enCamino }: { enCamino: EnCaminoFba | null }) 
   return (
     <section className="tarjeta overflow-hidden" style={{ borderColor: "var(--estado-alerta)" }}>
       <header className="border-b p-4 hairline">
-        <h2 className="font-semibold">
+        <h2 className="seccion-titulo">
           Envíos a FBA ignorados por viejos ({enCamino.viejos.length} envíos ·{" "}
           {n(enCamino.paresViejos)} pares en el aire)
         </h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-0.5 text-sm">
           Llevan más de {DIAS_VIGENCIA_ENVIO_FBA} días sin ningún movimiento, así que
           el plan YA NO los cuenta como &quot;en camino&quot;: las tallas que decían
           traer vuelven a pedir caja. Conviene cerrarlos o reclamarlos en Seller

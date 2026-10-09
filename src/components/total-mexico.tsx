@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
-import type { FamiliaMexico } from "@/lib/servicios/inventario";
+import { Fragment, useDeferredValue, useMemo, useState } from "react";
+import { terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { familiasMexico, type FamiliaMexico, type RenglonFamilia } from "@/lib/servicios/familias-mexico";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -48,24 +48,39 @@ function comparar(orden: Orden) {
  * viene de China porque todavía no se puede mandar. El desglose sigue ahí,
  * abriendo el renglón.
  */
-export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
+export function TotalMexico({
+  renglones,
+  cajasPorModelo,
+}: {
+  renglones: RenglonFamilia[];
+  cajasPorModelo: Record<string, number>;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const [orden, setOrden] = useState<Orden>("pares-desc");
   const [abierta, setAbierta] = useState<string | null>(null);
 
-  const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
-
-  const filtradas = useMemo(
+  // Las familias se arman aquí, una vez por carga, con los mismos renglones
+  // de la tabla de abajo (la misma función que antes corría en el servidor).
+  const familias = useMemo(() => familiasMexico(renglones, cajasPorModelo), [renglones, cajasPorModelo]);
+  // El texto de búsqueda de cada familia (modelo + cada talla), ya en
+  // mayúsculas, se arma una vez; el filtro corre con el valor diferido.
+  const textos = useMemo(
     () =>
-      familias
-        .filter(
-          (f) =>
-            coincide(f.modelo, terminos) ||
-            f.detalle.some((d) => coincide(`${d.sku} ${f.modelo} ${d.color} ${d.talla}`, terminos)),
-        )
-        .sort(comparar(orden)),
-    [familias, terminos, orden],
+      familias.map((f) => ({
+        modelo: f.modelo.toUpperCase(),
+        detalle: f.detalle.map((d) => `${d.sku} ${f.modelo} ${d.color} ${d.talla}`.toUpperCase()),
+      })),
+    [familias],
   );
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const terminos = useMemo(() => terminosDeBusqueda(busquedaDiferida), [busquedaDiferida]);
+
+  const filtradas = useMemo(() => {
+    const todos = (t: string) => terminos.every((p) => t.includes(p));
+    return familias
+      .filter((_, i) => todos(textos[i].modelo) || textos[i].detalle.some(todos))
+      .sort(comparar(orden));
+  }, [familias, textos, terminos, orden]);
 
   const totales = useMemo(
     () => ({
@@ -79,8 +94,8 @@ export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-col gap-3 border-b p-4 hairline">
         <div>
-          <h2 className="text-sm font-semibold">Total en México por familia</h2>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Total en México por familia</h2>
+          <p className="mt-0.5 text-xs texto-2">
             Cada modelo con todos sus colores y tallas juntos, todas las bodegas sumadas.
             No incluye lo que viene de China. Abre un renglón para ver el desglose.
           </p>
@@ -94,6 +109,7 @@ export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
             placeholder="Buscar familia, color, talla o SKU…"
             className="min-w-[18rem] flex-1"
             aria-label="Buscar familia en el total de México"
+            title="Filtra solo esta tabla de familias"
           />
           <select
             value={orden}
@@ -110,7 +126,7 @@ export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
           </select>
         </div>
 
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           <strong className="cifra">{n(filtradas.length)}</strong> familias ·{" "}
           <strong className="cifra">{n(totales.cajas)}</strong> cajas ·{" "}
           <strong className="cifra">{n(totales.pares)}</strong> pares en México
@@ -153,10 +169,10 @@ export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
                   {abierto
                     ? f.detalle.map((d) => (
                         <tr key={d.sku}>
-                          <td className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td className="pl-8 text-xs texto-2">
                             {d.sku}
                           </td>
-                          <td className="text-xs" colSpan={2} style={{ color: "var(--ink-2)" }}>
+                          <td className="texto-2 text-xs" colSpan={2}>
                             {d.color} · talla {d.talla}
                           </td>
                           <td />
@@ -171,7 +187,7 @@ export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
         </table>
       </div>
 
-      <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+      <footer className="border-t p-3 text-xs hairline texto-tenue">
         Las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero
         todas del mismo modelo, así que por familia el número es exacto. Por eso el
         desglose de adentro solo muestra pares.

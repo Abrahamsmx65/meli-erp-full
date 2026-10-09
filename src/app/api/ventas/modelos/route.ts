@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sesionYCuenta } from "../_comun";
-import { cargarMonitor, aplicarPublicidadAlMonitor, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad, type FilaPublicidad } from "@/lib/servicios/publicidad";
+import { normalizarRango } from "@/lib/servicios/ventas-monitor";
+import { filasModeloServidas } from "@/lib/servicios/ventas-vista";
 import {
   compactarFilasModelo,
   paginarFilasTabla,
@@ -30,18 +30,9 @@ export async function GET(req: Request) {
   const pagina = Number(parametros.get("pagina") ?? 1);
 
   try {
-    const [monitor, publicidad] = await Promise.all([
-      cargarMonitor(sesion.supabase, sesion.cuenta.id, rango),
-      cargarPublicidad(sesion.supabase, sesion.cuenta, rango).catch((err) => ({
-        filas: [] as FilaPublicidad[],
-        totales: { gastoAds: 0 },
-        errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
-      })),
-    ]);
-    const adsPorModelo = publicidad.errorAds
-      ? null
-      : new Map(publicidad.filas.map((f) => [f.modelo, f.gastoAds]));
-    const filas = aplicarPublicidadAlMonitor(monitor, adsPorModelo).porModelo;
+    // Lee los MISMOS renglones guardados que /ventas (monitor y publicidad
+    // en `app_cache`): buscar, ordenar o cambiar de página ya no recalcula.
+    const filas = await filasModeloServidas(sesion.supabase, sesion.cuenta, rango);
 
     return NextResponse.json(
       paginarFilasTabla(compactarFilasModelo(filas), {

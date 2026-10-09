@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Aviso } from "@/components/ui/pagina";
 
 /** Un color del pedido que MELI no tiene como está escrito, con lo que MELI sí tiene. */
 export interface ColorFantasma {
@@ -94,8 +95,8 @@ export function LigarColores({
       aria-label={`Ligar colores con MELI: ${titulo}`}
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">Ligar colores con MELI · {titulo}</h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <h3 className="titulo-seccion">Ligar colores con MELI · {titulo}</h3>
+        <p className="texto-2 mt-1 text-sm">
           Estos colores no existen en MELI como los escribió la fábrica. Elige con qué variante
           publicada va cada uno (o confirma que es un color nuevo). El pedido conserva la escritura
           de la fábrica para que el packing list siga amarrando; el amarre aplica a todos los
@@ -103,9 +104,9 @@ export function LigarColores({
         </p>
 
         {error ? (
-          <p className="mt-3 rounded-lg p-2 text-sm" style={{ background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)" }}>
+          <Aviso tono="critico" className="mt-3">
             {error}
-          </p>
+          </Aviso>
         ) : null}
 
         {fantasmas.length ? (
@@ -121,7 +122,7 @@ export function LigarColores({
                       <span className="font-medium" style={{ color: hecho ? "var(--exito-texto)" : "var(--estado-critico)" }}>
                         {f.color}
                       </span>
-                      <span className="ml-2 text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue ml-2 text-xs">
                         {hecho ?? "en el pedido · sin SKU en MELI"}
                       </span>
                     </div>
@@ -169,13 +170,12 @@ export function LigarColores({
                           type="button"
                           onClick={() => ligar(f)}
                           disabled={!eleccion[k] || ocupado === k}
-                          className="rounded-lg px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-                          style={{ background: "var(--acento)" }}
+                          className="boton boton-primario boton-chico disabled:opacity-50"
                         >
                           {ocupado === k ? "Guardando…" : eleccion[k] === NUEVO ? "Confirmar como nuevo" : "Ligar"}
                         </button>
                         {!f.coloresMeli.length ? (
-                          <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                          <span className="texto-tenue text-xs">
                             MELI no tiene ningún color de este modelo.
                           </span>
                         ) : null}
@@ -187,7 +187,7 @@ export function LigarColores({
             })}
           </ul>
         ) : (
-          <p className="mt-3 text-sm" style={{ color: "var(--ink-muted)" }}>
+          <p className="texto-tenue mt-3 text-sm">
             Todos los colores de este {titulo.toLowerCase().startsWith("contenedor") ? "contenedor" : "pedido"} existen en MELI.
           </p>
         )}
@@ -201,12 +201,12 @@ export function LigarColores({
                 return (
                   <li key={k} className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{l.modelo}</span> {l.color}
-                    <span style={{ color: "var(--ink-muted)" }}>→</span>
+                    <span className="texto-tenue">→</span>
                     <span style={{ color: l.colorMeli ? "var(--exito-texto)" : "var(--ink-2)" }}>
                       {l.colorMeli ?? "color nuevo (no está en MELI)"}
                     </span>
                     {hechos[k] ? (
-                      <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue text-xs">
                         {hechos[k]}
                       </span>
                     ) : (
@@ -214,8 +214,7 @@ export function LigarColores({
                         type="button"
                         onClick={() => quitar(l)}
                         disabled={ocupado === k}
-                        className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
-                        style={{ borderColor: "var(--borde)" }}
+                        className="boton boton-borde boton-chico disabled:opacity-50"
                       >
                         {ocupado === k ? "Quitando…" : "Quitar"}
                       </button>
@@ -228,7 +227,7 @@ export function LigarColores({
         ) : null}
 
         <div className="mt-4 flex justify-end">
-          <button type="button" onClick={onCerrar} className="rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--borde)" }}>
+          <button type="button" onClick={onCerrar} className="boton boton-borde">
             Cerrar
           </button>
         </div>

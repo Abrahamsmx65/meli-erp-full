@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { estiloInput } from "./comunes";
+import { coincideEnSku, coincideRenglon, normalizarBusqueda } from "@/lib/yapanizcel/inventario-busqueda";
 
 export interface RenglonInv {
   skuMeli: string;
@@ -69,15 +70,14 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
   const [soloConExistencia, setSoloConExistencia] = useState(true);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
 
-  const buscando = busqueda.trim().length > 0;
+  const q = normalizarBusqueda(busqueda);
 
   const filtrados = useMemo(() => {
-    const q = busqueda.trim().toUpperCase();
     return renglones.filter((r) => {
       if (soloConExistencia && r.enFull + r.enTransferencia + r.enCamino + r.enBodega + r.enCaminoChina === 0) return false;
-      return !q || `${r.skuMeli} ${r.titulo ?? ""} ${r.diseno} ${r.tipo ?? ""} ${r.skusBodega.join(" ")}`.toUpperCase().includes(q);
+      return coincideRenglon(r, q);
     });
-  }, [renglones, busqueda, soloConExistencia]);
+  }, [renglones, q, soloConExistencia]);
 
   const arbol = useMemo(() => {
     const tipos = new Map<string, { totales: Totales; disenos: Map<string, { totales: Totales; skus: RenglonInv[] }> }>();
@@ -104,9 +104,12 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
             diseno,
             totales: d.totales,
             skus: d.skus.sort((x, y) => alfabetico(x.skuMeli, y.skuMeli)),
+            // Al buscar se abre solo si algún SKU coincide por lo suyo; si
+            // solo coincidió el nombre del diseño o del tipo, se queda cerrado.
+            coincide: Boolean(q) && d.skus.some((r) => coincideEnSku(r, q)),
           })),
       }));
-  }, [filtrados]);
+  }, [filtrados, q]);
 
   const total = filtrados.reduce(sumar, CERO);
   const sinCategoria = arbol.find((t) => t.tipo === "Sin categoría");
@@ -126,13 +129,13 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
           <input type="checkbox" checked={soloConExistencia} onChange={(e) => setSoloConExistencia(e.target.checked)} />
           Solo con existencia
         </label>
-        <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-auto text-xs texto-tenue">
           {filtrados.length} SKUs · {arbol.reduce((a, t) => a + t.disenos.length, 0)} diseños
         </span>
       </div>
 
       {sinCategoria ? (
-        <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="text-xs texto-2">
           Los diseños de «Sin categoría» no tienen tipo capturado: márcalos como Fundas, Tabletas o Micas en
           Productos y costos (Bodega) y aquí se agrupan solos.
         </p>
@@ -141,7 +144,7 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">Tipo / diseño / SKU</th>
               <th className="px-3 py-2 text-right">Vend. 30 d</th>
               <th className="px-3 py-2 text-right">En Full</th>
@@ -153,11 +156,11 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
           </thead>
           <tbody>
             {arbol.map((t) => (
-              <TipoFilas key={t.tipo} tipo={t} abiertos={abiertos} alternar={alternar} forzarAbierto={buscando} />
+              <TipoFilas key={t.tipo} tipo={t} abiertos={abiertos} alternar={alternar} />
             ))}
             {!arbol.length ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={7} className="px-3 py-6 text-center texto-tenue">
                   Nada coincide con el filtro.
                 </td>
               </tr>
@@ -179,19 +182,17 @@ function TipoFilas({
   tipo: t,
   abiertos,
   alternar,
-  forzarAbierto,
 }: {
-  tipo: { tipo: string; totales: Totales; disenos: { diseno: string; totales: Totales; skus: RenglonInv[] }[] };
+  tipo: { tipo: string; totales: Totales; disenos: { diseno: string; totales: Totales; skus: RenglonInv[]; coincide: boolean }[] };
   abiertos: Set<string>;
   alternar: (clave: string) => void;
-  forzarAbierto: boolean;
 }) {
   return (
     <>
       <tr className="border-t" style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}>
         <td className="px-3 py-2 font-semibold">
           {t.tipo}
-          <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+          <span className="ml-2 text-xs font-normal texto-tenue">
             {t.disenos.length} diseños
           </span>
         </td>
@@ -199,7 +200,7 @@ function TipoFilas({
       </tr>
       {t.disenos.map((d) => {
         const clave = `${t.tipo}|${d.diseno}`;
-        const abierto = forzarAbierto || abiertos.has(clave);
+        const abierto = d.coincide || abiertos.has(clave);
         return (
           <DisenoFilas key={clave} diseno={d} abierto={abierto} onToggle={() => alternar(clave)} />
         );
@@ -222,11 +223,11 @@ function DisenoFilas({
       <tr className="border-t" style={{ borderColor: "var(--grid)" }}>
         <td className="px-3 py-1.5">
           <button type="button" onClick={onToggle} className="num inline-flex items-center gap-1.5 pl-4 font-medium" title={abierto ? "Cerrar el diseño" : "Ver los SKUs del diseño"}>
-            <span aria-hidden="true" className="text-xs" style={{ color: "var(--ink-muted)" }}>
+            <span aria-hidden="true" className="text-xs texto-tenue">
               {abierto ? "▾" : "▸"}
             </span>
             {d.diseno}
-            <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-xs font-normal texto-tenue">
               {d.skus.length} SKUs
             </span>
           </button>
@@ -239,12 +240,12 @@ function DisenoFilas({
               <td className="px-3 py-1.5 pl-12">
                 <span className="num font-medium">{r.skuMeli}</span>
                 {r.titulo ? (
-                  <span className="ml-2 hidden text-xs md:inline" style={{ color: "var(--ink-muted)" }} title={r.titulo}>
+                  <span className="ml-2 hidden text-xs md:inline texto-tenue" title={r.titulo}>
                     {r.titulo.length > 60 ? `${r.titulo.slice(0, 60)}…` : r.titulo}
                   </span>
                 ) : null}
                 {r.skusBodega.length ? (
-                  <div className="num text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  <div className="num text-[11px] texto-tenue">
                     bodega: {r.skusBodega.join(", ")}
                   </div>
                 ) : null}

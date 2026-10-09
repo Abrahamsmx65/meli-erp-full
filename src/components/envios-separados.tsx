@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { partirPorOpcionales } from "@/lib/reporte/opcionales";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
 import type { FilaCajaPlan } from "@/components/tablas-plan";
+import { Aviso } from "@/components/ui/pagina";
 
 interface Grupo {
   grupo: string;
@@ -43,7 +44,7 @@ export function EnviosSeparados({
   if (!grupos.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           El plan de hoy no manda cajas, así que no hay envíos que preparar.
         </p>
       </section>
@@ -53,8 +54,8 @@ export function EnviosSeparados({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 className="text-lg font-semibold">Envíos a preparar</h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <h2 className="seccion-titulo">Envíos a preparar</h2>
+        <p className="texto-2 mt-0.5 text-[13px]">
           {grupos.length === 1
             ? "Todo sale de una sola dirección, así que es un solo envío."
             : `Son ${grupos.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Mercado Libre.`}
@@ -62,16 +63,11 @@ export function EnviosSeparados({
       </div>
 
       {sinConfigurar.length ? (
-        <p
-          className="rounded-lg p-3 text-sm"
-          style={{
-            background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
-          }}
-        >
+        <Aviso tono="alerta">
           {sinConfigurar.join(", ")} no está configurado como almacén, así que va en su
           propio envío por precaución. Si comparte dirección con otro, dilo en Ajustes y
           se juntan.
-        </p>
+        </Aviso>
       ) : null}
 
       {grupos.map((g) => (
@@ -124,8 +120,8 @@ function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] })
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-center gap-4 border-b p-4 hairline">
         <div>
-          <h3 className="font-semibold">{grupo.nombre}</h3>
-          <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <h3 className="seccion-titulo">{grupo.nombre}</h3>
+          <p className="text-xs texto-2">
             Recolección en {grupo.almacenes.join(" y ")}
           </p>
         </div>
@@ -203,9 +199,7 @@ function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] })
               ))}
               {opcionales.length > 0 ? (
                 <tr
-                  style={{
-                    background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
-                  }}
+                  style={{ background: "var(--alerta-suave)" }}
                 >
                   <td colSpan={8} className="font-semibold text-sm">
                     Opcionales — {n(totales.cajasOpc)} cajas · {n(totales.paresOpc)} pares.
@@ -265,7 +259,7 @@ function FilaCajaEnvio({
   const abierto = abierta === clave;
   // Ámbar para lo OPCIONAL: es una decisión, no una emergencia. El rojo
   // crítico queda reservado para agotamiento, como en el resto de la app.
-  const colorOpcional = opcional ? { color: "var(--estado-alerta)" } : undefined;
+  const colorOpcional = opcional ? { color: "var(--alerta-texto)" } : undefined;
   return (
     <Fragment>
       <tr
@@ -274,7 +268,7 @@ function FilaCajaEnvio({
         style={{
           cursor: "pointer",
           ...(opcional
-            ? { background: "color-mix(in oklab, var(--estado-alerta) 5%, transparent)" }
+            ? { background: "var(--alerta-suave)" }
             : null),
         }}
       >
@@ -285,12 +279,12 @@ function FilaCajaEnvio({
         </td>
         <td>{c.color || "—"}</td>
         <td>
-          {c.esCorrida ? <span style={{ color: "var(--ink-2)" }}>corrida</span> : c.talla}
+          {c.esCorrida ? <span className="texto-2">corrida</span> : c.talla}
         </td>
         <td className="num cifra font-semibold" style={colorOpcional}>
           {n(c.cantidad)}
         </td>
-        <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+        <td className="num cifra texto-tenue">
           {n(c.cajasDisponibles)}
         </td>
         <td className="num cifra">{n(c.paresTotales)}</td>
@@ -306,7 +300,7 @@ function FilaCajaEnvio({
               <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs">
                 {c.aporta.map((a) => (
                   <span key={a.sku}>
-                    <span style={{ color: "var(--ink-2)" }}>{a.sku}</span>{" "}
+                    <span className="texto-2">{a.sku}</span>{" "}
                     <strong className="cifra">{n(a.paresTotales)}</strong>
                   </span>
                 ))}
@@ -332,12 +326,12 @@ function Dato({
 }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+      <div className="text-[11px] uppercase tracking-wide texto-tenue">
         {titulo}
       </div>
       <div
         className={`cifra font-semibold ${grande ? "text-2xl" : "text-lg"}`}
-        style={alerta ? { color: "var(--estado-alerta)" } : undefined}
+        style={alerta ? { color: "var(--alerta-texto)" } : undefined}
       >
         {valor}
       </div>

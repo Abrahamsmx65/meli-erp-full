@@ -15,6 +15,7 @@
  */
 import { MeliError, type MeliClient } from "../meli/client";
 import { traerTodo, type DB } from "../datos/repos";
+import { servirConCacheApp } from "./cache-app";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
@@ -1067,8 +1068,44 @@ export async function cargarPublicidad(
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
+  // (Esta es la caché EN MEMORIA, que también leen los cortes; las pantallas
+  // guardan el resultado completo, con sus avisos, en `servirPublicidad`.)
   if (!errorAds && advertencias.length === 0) {
     cachePublicidad.set(claveCache, { en: Date.now(), datos });
   }
   return datos;
+}
+
+/** Cuánto vive el panel guardado de un rango que incluye hoy. */
+export const VIDA_PUBLICIDAD_ABIERTA_MS = 10 * 60_000;
+/** Un rango que ya cerró casi no cambia: se refresca cada 6 horas. */
+export const VIDA_PUBLICIDAD_CERRADA_MS = 6 * 3_600_000;
+
+export const clavePublicidadMeli = (r: RangoFechas): string => `publicidad-meli:${r.desde}:${r.hasta}`;
+
+/**
+ * El panel de publicidad masticado para PANTALLAS (/ventas, /publicidad y la
+ * tabla de modelos): sirve el renglón de `app_cache` aunque esté viejo y lo
+ * refresca por atrás. El error de ads y las advertencias se guardan junto
+ * con el resultado y se enseñan igual. Los cortes NO usan esto: piden
+ * `cargarPublicidad` directo porque congelan lo que leen.
+ */
+export async function servirPublicidad(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango?: RangoFechas,
+): Promise<{ datos: Publicidad; generadoEn: string | null; refrescando: boolean }> {
+  const r = rango ?? normalizarRango();
+  const vida = r.hasta < fechaMx(0) ? VIDA_PUBLICIDAD_CERRADA_MS : VIDA_PUBLICIDAD_ABIERTA_MS;
+  return servirConCacheApp(db, cuenta.id, clavePublicidadMeli(r), vida, () => cargarPublicidad(db, cuenta, r));
+}
+
+/** Calcula el panel sin caché en memoria (lo usa el fondo para guardarlo). */
+export function calcularPublicidadFresca(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango: RangoFechas,
+): Promise<Publicidad> {
+  cachePublicidad.clear();
+  return cargarPublicidad(db, cuenta, rango);
 }

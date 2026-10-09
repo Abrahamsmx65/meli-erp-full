@@ -30,7 +30,6 @@ function dias(x: number | null): string {
 }
 
 const CLAVE_LOCAL = "yz-pedidos-disenos";
-const btn = "rounded-lg px-3 py-1.5 text-sm font-semibold";
 
 /**
  * Pedidos a China, todo en el navegador sobre el resumen ya calculado.
@@ -175,15 +174,15 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
           Ver solo los elegidos ({elegidos.length})
         </label>
         {seleccion.size ? (
-          <button onClick={() => setSeleccion(new Set())} className="text-xs underline" style={{ color: "var(--ink-muted)" }}>
+          <button onClick={() => setSeleccion(new Set())} className="text-xs underline texto-tenue">
             Quitar selección
           </button>
         ) : null}
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          <span className="text-xs texto-tenue">
             {visibles.length} diseños · pedir {n(totales.pedir)}
           </span>
-          <a href={urlExcel} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+          <a href={urlExcel} className="boton boton-primario">
             {elegidos.length ? `Excel de los ${elegidos.length} elegidos` : "Excel de todos"}
           </a>
         </div>
@@ -202,7 +201,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-2 py-2"></th>
               <th className="px-3 py-2">Diseño</th>
               <th className="px-3 py-2 text-right">Variantes</th>
@@ -217,7 +216,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
           <tbody>
             {visibles.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={9} className="px-3 py-6 text-center texto-tenue">
                   {disenos.length === 0 ? "Sin catálogo todavía: sincroniza en Ajustes de fundas." : "Ningún diseño coincide."}
                 </td>
               </tr>
@@ -228,12 +227,12 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                   <input type="checkbox" checked={seleccion.has(d.diseno)} onChange={() => alternar(d.diseno)} aria-label={`Elegir ${d.diseno}`} />
                 </td>
                 <td className="num px-3 py-1.5 font-semibold">
-                  <button onClick={() => abrir(d.diseno)} className="underline" style={{ color: "var(--acento)" }}>
+                  <button onClick={() => abrir(d.diseno)} className="enlace">
                     {d.diseno}
                   </button>
                 </td>
                 <td className="num px-3 py-1.5 text-right">{d.variantes}</td>
-                <td className="num px-3 py-1.5 text-right" style={{ color: "var(--ink-muted)" }}>{d.descontinuadas || ""}</td>
+                <td className="num px-3 py-1.5 text-right texto-tenue">{d.descontinuadas || ""}</td>
                 <td className="num px-3 py-1.5 text-right">{n(d.vendidas30)}</td>
                 <td className="num px-3 py-1.5 text-right">{n(d.posicionTotal)}</td>
                 <td className="num px-3 py-1.5 text-right" style={{ color: Number.isFinite(d.cobertura) && d.cobertura < 45 ? "var(--estado-critico)" : undefined }}>
@@ -241,7 +240,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                 </td>
                 <td className="num px-3 py-1.5 text-right font-semibold">{d.sugerido ? n(d.sugerido) : "—"}</td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs">
-                  <button onClick={() => abrir(d.diseno)} className="underline" style={{ color: "var(--acento)" }}>
+                  <button onClick={() => abrir(d.diseno)} className="enlace">
                     {cargando === d.diseno ? "Abriendo…" : "Abrir"}
                   </button>
                   <a href={`/api/yapanizcel/pedidos/excel?diseno=${encodeURIComponent(d.diseno)}`} className="ml-3 underline">
@@ -269,27 +268,27 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
       </div>
 
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
 
       <div ref={detalleRef}>
         {abierto && !detalle && cargando === abierto ? (
-          <p className="text-sm" style={{ color: "var(--ink-muted)" }}>
+          <p className="text-sm texto-tenue">
             Abriendo el diseño {abierto}…
           </p>
         ) : null}
         {detalle ? (
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">
+              <h2 className="seccion-titulo">
                 Diseño {detalle.diseno}{" "}
-                <button onClick={() => setAbierto(null)} className="ml-2 text-sm font-normal underline" style={{ color: "var(--ink-muted)" }}>
+                <button onClick={() => setAbierto(null)} className="ml-2 text-sm font-normal underline texto-tenue">
                   cerrar
                 </button>
               </h2>
-              <a href={`/api/yapanizcel/pedidos/excel?diseno=${encodeURIComponent(detalle.diseno)}`} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+              <a href={`/api/yapanizcel/pedidos/excel?diseno=${encodeURIComponent(detalle.diseno)}`} className="boton boton-primario">
                 Excel del diseño {detalle.diseno}
               </a>
             </div>
@@ -302,7 +301,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
             <div className="tarjeta overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+                  <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Modelo</th>
                     <th className="px-3 py-2">Color</th>
@@ -323,7 +322,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                       <td className="num px-3 py-1.5 font-medium" title={v.titulo ?? ""}>
                         {v.skuMeli}
                         {v.gemelas?.length ? (
-                          <span className="block text-[11px] font-normal" style={{ color: "var(--ink-muted)" }} title="Publicación gemela: sus números van sumados aquí">
+                          <span className="block text-[11px] font-normal texto-tenue" title="Publicación gemela: sus números van sumados aquí">
                             incluye {v.gemelas.join(", ")}
                           </span>
                         ) : null}
@@ -347,7 +346,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
               </table>
             </div>
             {detalle.descontinuadas.length ? (
-              <details className="text-sm" style={{ color: "var(--ink-2)" }}>
+              <details className="text-sm texto-2">
                 <summary>{detalle.descontinuadas.length} SKUs descontinuados (sin venta en 180 días), fuera del pedido</summary>
                 <p className="num mt-1 text-xs">{detalle.descontinuadas.join(", ")}</p>
               </details>

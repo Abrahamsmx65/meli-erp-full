@@ -16,6 +16,9 @@ import {
   partirSku,
   renglonesDeEtiqueta,
   textoDeEtiqueta,
+  conRenglonesGuardados,
+  contarAvanceDeCortes,
+  renglonesGuardados,
 } from "./despacho";
 
 describe("partirSku", () => {
@@ -402,5 +405,51 @@ describe("avanceDeTomos", () => {
     expect(avanceDeTomos(5, 5, "uniendo")).toBe("Uniendo los 5 tomos en un solo PDF…");
     expect(avanceDeTomos(3, 8, "bajando")).toBe("Bajando las etiquetas ya armadas: 3 de 8 tomos (200 guías cada uno)…");
     expect(avanceDeTomos(1, 1, "bajando")).toBe("Bajando las etiquetas ya armadas…");
+  });
+});
+
+describe("contarAvanceDeCortes", () => {
+  it("cuenta preparados, cancelados y enviados sin constancia, sin contar dos veces", () => {
+    const avance = contarAvanceDeCortes(
+      [
+        { corte_id: 1, order_id: "a" },
+        { corte_id: 1, order_id: "b" },
+        { corte_id: 2, order_id: "c" },
+      ],
+      [
+        { corte_id: 1, order_id: "b", estado: "DELIVERED" }, // ya tiene constancia
+        { corte_id: 1, order_id: "d", estado: "IN_TRANSIT" },
+        { corte_id: 1, order_id: "e", estado: "CANCELLED" },
+        { corte_id: 3, order_id: "f", estado: "CANCEL" },
+      ],
+    );
+    expect(avance.get(1)).toEqual({ preparados: 2, cancelados: 1, enviados: 1 });
+    expect(avance.get(2)).toEqual({ preparados: 1, cancelados: 0, enviados: 0 });
+    expect(avance.get(3)).toEqual({ preparados: 0, cancelados: 1, enviados: 0 });
+  });
+});
+
+describe("renglones guardados de los paquetes", () => {
+  it("solo toma las respuestas con renglones", () => {
+    expect(
+      renglonesGuardados([
+        { id: "p1", estado: null, lineIds: ["a", 2] },
+        { id: "p2", estado: "TO_FULFILL" },
+        { id: "p3", lineIds: [] },
+        null,
+      ]),
+    ).toEqual([{ id: "p1", lineIds: ["a", "2"] }]);
+  });
+
+  it("pega los renglones sin perder lo que ya traía el paquete", () => {
+    expect(
+      conRenglonesGuardados(
+        [{ id: "p1", estado: "TO_FULFILL" }, { id: "p2", estado: null }],
+        [
+          { id: "p1", lineIds: ["a"] },
+          { id: "p2", lineIds: [] },
+        ],
+      ),
+    ).toEqual([{ id: "p1", estado: "TO_FULFILL", lineIds: ["a"] }, { id: "p2", estado: null }]);
   });
 });

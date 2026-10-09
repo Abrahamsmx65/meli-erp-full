@@ -10,8 +10,9 @@
 import type { DB } from "../datos/repos";
 import { mapaCostosUnificado, soloCostos } from "../servicios/costos-unificados";
 import { costoDeSku } from "./costos";
-import { hoyMx, restarDias, rpcTodo, todo } from "./db";
+import { hoyMx, restarDias, rpcTodo } from "./db";
 import { desglosar } from "./sku";
+import { guardarCacheYz, leerCacheYzGuardado } from "./cache";
 
 export interface Rango {
   desde: string;
@@ -154,13 +155,18 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
     return { pendientes: Number(f?.ordenes_pendientes ?? 0) };
   };
 
-  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, skus, mapaUnificado, obsPeriodo] = await Promise.all([
-    resumen(rango.desde, rango.hasta),
+  // Los títulos SOLO de los SKUs que vendieron en el periodo: antes se bajaba
+  // el catálogo completo (~15 mil variantes) para ponerle título a la tabla.
+  const pPeriodo = resumen(rango.desde, rango.hasta);
+  const pTitulos = pPeriodo.then((filas) => titulosDeSkus(db, accountId, filas.map((f) => f.sku)));
+
+  const [rPeriodo, rAnterior, rHoy, rAyer, porDiaFilas, titulos, mapaUnificado, obsPeriodo] = await Promise.all([
+    pPeriodo,
     resumen(anterior.desde, anterior.hasta),
     resumen(hoy, hoy),
     resumen(ayer, ayer),
     rpcTodo<{ fecha: string; unidades: number; importe: number; neto: number; importe_sin_neto: number; comision_sin_neto: number }>(db, "yz_ventas_por_dia", { p_account: accountId, p_desde: rango.desde, p_hasta: rango.hasta }, ["fecha"]),
-    todo<{ sku: string; titulo: string | null }>(db, "yz_skus", "sku, titulo", (q) => q.eq("account_id", accountId)),
+    pTitulos,
     // Los costos viven en Productos y costos (calzado y fundas juntos);
     // yz_costos queda de respaldo.
     mapaCostosUnificado(db, { yzAccountId: accountId }),
@@ -168,7 +174,6 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   ]);
 
   const costos = soloCostos(mapaUnificado);
-  const titulos = new Map(skus.map((s) => [s.sku, s.titulo]));
   const cacheCosto = new Map<string, number | null>();
   const costoDe = (sku: string) => {
     let c = cacheCosto.get(sku);
@@ -231,4 +236,101 @@ export async function cargarMonitor(db: DB, accountId: string, rango: Rango): Pr
   }));
   m.skusSinCosto = sinCosto.size;
   return m;
+}
+
+/** Cuántos SKUs por consulta `.in()`: la lista viaja en la URL. */
+const TANDA_TITULOS = 300;
+
+/** El título de cada SKU pedido, leído por tandas (solo los que hacen falta). */
+async function titulosDeSkus(db: DB, accountId: string, skus: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  const unicos = [...new Set(skus)];
+  for (const tanda of partirEnTandas(unicos, TANDA_TITULOS)) {
+    const { data, error } = await db.from("yz_skus").select("sku, titulo").eq("account_id", accountId).in("sku", tanda);
+    if (error) throw new Error(`yz_skus: ${error.message}`);
+    for (const f of (data ?? []) as { sku: string; titulo: string | null }[]) out.set(f.sku, f.titulo);
+  }
+  return out;
+}
+
+/** Parte una lista en tandas de `tamano` (pura). */
+export function partirEnTandas<T>(lista: T[], tamano: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < lista.length; i += tamano) out.push(lista.slice(i, i + tamano));
+  return out;
+}
+
+// ─── Masticado en yz_cache ──────────────────────────────────────────────
+
+/**
+ * El monitor se guarda por rango en `yz_cache` («ventas:v1:desde:hasta»).
+ * Todo renglón trae las fichas de HOY y AYER, así que cualquier rango se
+ * refresca a los 10 minutos (en el fondo; la pantalla sirve lo guardado).
+ */
+export const TTL_VENTAS_MS = 10 * 60_000;
+/** Los rangos que nadie volvió a ver se borran después de esto. */
+export const VIDA_VENTAS_MS = 3 * 86_400_000;
+
+export function claveVentas(rango: Rango): string {
+  return `ventas:v1:${rango.desde}:${rango.hasta}`;
+}
+
+/** ¿El renglón guardado necesita refresco de fondo? (pura) */
+export function ventasNecesitaRefresco(generadoEn: string, vigente: boolean, ahora = Date.now()): boolean {
+  if (!vigente) return true;
+  const generado = Date.parse(generadoEn);
+  if (!Number.isFinite(generado)) return true;
+  return ahora - generado > TTL_VENTAS_MS;
+}
+
+/** Calcula y guarda el monitor del rango (lo que hace el cron y el fondo). */
+export async function recalcularMonitorYz(db: DB, accountId: string, rango: Rango): Promise<Monitor> {
+  const t0 = Date.now();
+  const m = await cargarMonitor(db, accountId, rango);
+  await guardarCacheYz(db, accountId, claveVentas(rango), m, Date.now() - t0);
+  return m;
+}
+
+/**
+ * Lo que lee la pantalla: el monitor guardado aunque esté viejo (con su
+ * fecha, para `Frescura`); si le toca, se refresca en el fondo con `after()`
+ * y el cliente `dbFondo` (admin: con el del usuario el cálculo choca con el
+ * límite de 8 s por consulta). Solo sin renglón se calcula en el clic.
+ */
+export async function obtenerMonitorYz(
+  db: DB,
+  accountId: string,
+  rango: Rango,
+  opts: { dbFondo?: DB } = {},
+): Promise<{ monitor: Monitor; generadoEn: string | null }> {
+  const guardado = await leerCacheYzGuardado<Monitor>(db, accountId, claveVentas(rango));
+  if (guardado.estado !== "encontrado") {
+    // Sin renglón (o sin poder leerlo): se calcula aquí y se guarda.
+    const monitor = await recalcularMonitorYz(db, accountId, rango);
+    return { monitor, generadoEn: null };
+  }
+  const { datos, generadoEn, vigente } = guardado.valor;
+  if (ventasNecesitaRefresco(generadoEn, vigente)) {
+    const dbFondo = opts.dbFondo ?? db;
+    try {
+      const { after } = await import("next/server");
+      after(async () => {
+        try {
+          await recalcularMonitorYz(dbFondo, accountId, rango);
+        } catch (err) {
+          console.error(`ventas fundas ${rango.desde}…${rango.hasta}: refresco de fondo:`, (err as Error).message);
+        }
+      });
+    } catch {
+      // Fuera de un request: el guardado sirve igual.
+    }
+  }
+  return { monitor: datos, generadoEn };
+}
+
+/** Borra los rangos de ventas que nadie ha vuelto a pedir (los guarda cada filtro de fechas). */
+export async function limpiarVentasViejasYz(db: DB, accountId: string): Promise<void> {
+  const limite = new Date(Date.now() - VIDA_VENTAS_MS).toISOString();
+  const { error } = await db.from("yz_cache").delete().eq("account_id", accountId).like("clave", "ventas:%").lt("generado_en", limite);
+  if (error) console.error("yz_cache (ventas viejas):", error.message);
 }

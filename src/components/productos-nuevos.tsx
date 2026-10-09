@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 
 interface Producto {
   clave: string;
@@ -33,19 +33,23 @@ function n(x: number): string {
 
 /**
  * La tabla de productos nuevos con el semáforo de fotos. La lista viene del
- * servidor; las fotos se preguntan a MELI y Amazon al abrir la página y se
- * pueden volver a revisar con un botón.
+ * servidor con las fotos YA REVISADAS (guardadas en `nuevos:fotos`); a MELI y
+ * Amazon solo se les pregunta con los botones de revisar.
  */
 export function ProductosNuevos({
   productos,
   fotosMinimas,
   amazonConectado,
+  fotosIniciales,
 }: {
   productos: Producto[];
   fotosMinimas: number;
   amazonConectado: boolean;
+  fotosIniciales: Fotos[];
 }) {
-  const [fotos, setFotos] = useState<Map<string, Fotos> | null>(null);
+  const [fotos, setFotos] = useState<Map<string, Fotos> | null>(() =>
+    fotosIniciales.length ? new Map(fotosIniciales.map((f) => [f.clave, f])) : null,
+  );
   const [revisando, setRevisando] = useState(false);
   const [errores, setErrores] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -77,14 +81,10 @@ export function ProductosNuevos({
     }
   }
 
-  useEffect(() => {
-    if (productos.length) revisar();
-    // Solo al abrir: el botón vuelve a preguntar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const busquedaDiferida = useDeferredValue(busqueda);
 
   const filas = useMemo(() => {
-    const filtro = busqueda.trim().toUpperCase();
+    const filtro = busquedaDiferida.trim().toUpperCase();
     return productos
       .map((p) => {
         const f = fotos?.get(p.clave);
@@ -103,12 +103,12 @@ export function ProductosNuevos({
           .toUpperCase()
           .includes(filtro);
       });
-  }, [productos, fotos, busqueda, soloConFalta, fotosMinimas, amazonConectado]);
+  }, [productos, fotos, busquedaDiferida, soloConFalta, fotosMinimas, amazonConectado]);
 
   if (!productos.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 text-sm">
           No hay productos nuevos: todo lo que viene en los pedidos ya ha tenido stock
           en Full o en FBA alguna vez.
         </p>
@@ -119,9 +119,9 @@ export function ProductosNuevos({
   return (
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
-        <h2 className="text-sm font-semibold">
+        <h2 className="seccion-titulo">
           Productos nuevos
-          <span className="ml-2 cifra font-normal" style={{ color: "var(--ink-muted)" }}>
+          <span className="texto-tenue ml-2 cifra font-normal">
             {filas.length === productos.length ? productos.length : `${filas.length} de ${productos.length}`}
           </span>
         </h2>
@@ -132,28 +132,26 @@ export function ProductosNuevos({
           className="min-w-56 flex-1 rounded-lg border px-3 py-1.5 text-sm md:max-w-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="texto-2 flex items-center gap-1.5 text-xs">
           <input type="checkbox" checked={soloConFalta} onChange={(e) => setSoloConFalta(e.target.checked)} />
           Solo con algo que falta
         </label>
         {resumenRevision ? (
-          <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          <span className="texto-tenue text-xs">
             {resumenRevision}
           </span>
         ) : null}
         <button
           onClick={() => revisar(false)}
           disabled={revisando}
-          className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          style={{ borderColor: "var(--borde)" }}
+          className="boton boton-borde boton-chico disabled:opacity-50"
         >
           {revisando ? "Revisando fotos…" : "Revisar lo que falta"}
         </button>
         <button
           onClick={() => revisar(true)}
           disabled={revisando}
-          className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          style={{ borderColor: "var(--borde)" }}
+          className="boton boton-borde boton-chico disabled:opacity-50"
           title="Vuelve a preguntar a MELI y Amazon por todos, también los que ya tienen fotos"
         >
           Revisar todo de nuevo
@@ -194,7 +192,7 @@ export function ProductosNuevos({
                   {p.pedidos.map((q) => (
                     <div key={q.pedido}>
                       <span className="font-medium">{q.pedido}</span>{" "}
-                      <span style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue">
                         {n(q.cajas)} cajas · {ETIQUETA_PEDIDO[q.estado] ?? q.estado}
                       </span>
                     </div>
@@ -206,7 +204,7 @@ export function ProductosNuevos({
                   {p.enBodega > 0 ? (
                     <span style={{ color: "var(--exito-texto)" }}>Ya en bodega ({n(p.enBodega)} cajas)</span>
                   ) : (
-                    <span style={{ color: "var(--ink-2)" }}>En camino</span>
+                    <span className="texto-2">En camino</span>
                   )}
                 </td>
                 <td>
@@ -230,7 +228,7 @@ export function ProductosNuevos({
                       nota={null}
                     />
                   ) : (
-                    <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <span className="texto-tenue text-xs">
                       Amazon no conectado
                     </span>
                   )}
@@ -240,7 +238,7 @@ export function ProductosNuevos({
           </tbody>
         </table>
         {!filas.length ? (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 p-4 text-sm">
             Ningún producto coincide con el filtro.
           </p>
         ) : null}
@@ -292,14 +290,13 @@ function Semaforo({
           href={link}
           target="_blank"
           rel="noreferrer"
-          className="ml-1.5 text-[11px] underline"
-          style={{ color: "var(--acento)" }}
+          className="enlace ml-1.5 text-[11px]"
         >
           ver
         </a>
       ) : null}
       {nota ? (
-        <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        <div className="texto-tenue text-[11px]">
           {nota}
         </div>
       ) : null}
