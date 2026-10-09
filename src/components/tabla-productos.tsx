@@ -117,7 +117,7 @@ export function TablaProductos({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
+        <label className="flex items-center gap-2 text-sm texto-2">
           <input
             type="checkbox"
             checked={soloSinCosto}
@@ -148,12 +148,11 @@ export function TablaProductos({
               return (
                 <tr key={k}>
                   <td className="font-medium">{p.modelo}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <td className="text-xs texto-tenue">
                     {p.negocio === "fundas" ? "Fundas" : "Calzado"}
                   </td>
                   <td
-                    className="max-w-72 truncate text-xs"
-                    style={{ color: "var(--ink-2)" }}
+                    className="max-w-72 truncate text-xs texto-2"
                     title={p.titulo ?? ""}
                   >
                     {p.titulo ?? "—"}
@@ -190,11 +189,11 @@ export function TablaProductos({
                   </td>
                   <td className="text-sm">
                     {st === "guardando" ? (
-                      <span style={{ color: "var(--ink-muted)" }}>…</span>
+                      <span className="texto-tenue">…</span>
                     ) : st === "ok" ? (
                       <span style={{ color: "var(--exito-texto)" }}>✓</span>
                     ) : st === "error" ? (
-                      <span style={{ color: "var(--estado-critico)" }}>✗</span>
+                      <span style={{ color: "var(--critico-texto)" }}>✗</span>
                     ) : null}
                   </td>
                 </tr>
@@ -203,7 +202,7 @@ export function TablaProductos({
           </tbody>
         </table>
         {filtradas.length > visibles.length ? (
-          <div className="flex items-center gap-3 border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+          <div className="flex items-center gap-3 border-t p-3 text-xs hairline texto-tenue">
             Se muestran {visibles.length} de {filtradas.length}; busca un modelo para encontrarlo más rápido.
             <button
               type="button"

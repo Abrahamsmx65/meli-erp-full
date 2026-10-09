@@ -94,8 +94,8 @@ export function TotalMexico({
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-col gap-3 border-b p-4 hairline">
         <div>
-          <h2 className="text-sm font-semibold">Total en México por familia</h2>
-          <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Total en México por familia</h2>
+          <p className="mt-0.5 text-xs texto-2">
             Cada modelo con todos sus colores y tallas juntos, todas las bodegas sumadas.
             No incluye lo que viene de China. Abre un renglón para ver el desglose.
           </p>
@@ -109,6 +109,7 @@ export function TotalMexico({
             placeholder="Buscar familia, color, talla o SKU…"
             className="min-w-[18rem] flex-1"
             aria-label="Buscar familia en el total de México"
+            title="Filtra solo esta tabla de familias"
           />
           <select
             value={orden}
@@ -125,7 +126,7 @@ export function TotalMexico({
           </select>
         </div>
 
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           <strong className="cifra">{n(filtradas.length)}</strong> familias ·{" "}
           <strong className="cifra">{n(totales.cajas)}</strong> cajas ·{" "}
           <strong className="cifra">{n(totales.pares)}</strong> pares en México
@@ -168,10 +169,10 @@ export function TotalMexico({
                   {abierto
                     ? f.detalle.map((d) => (
                         <tr key={d.sku}>
-                          <td className="pl-8 text-xs" style={{ color: "var(--ink-2)" }}>
+                          <td className="pl-8 text-xs texto-2">
                             {d.sku}
                           </td>
-                          <td className="text-xs" colSpan={2} style={{ color: "var(--ink-2)" }}>
+                          <td className="texto-2 text-xs" colSpan={2}>
                             {d.color} · talla {d.talla}
                           </td>
                           <td />
@@ -186,7 +187,7 @@ export function TotalMexico({
         </table>
       </div>
 
-      <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+      <footer className="border-t p-3 text-xs hairline texto-tenue">
         Las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero
         todas del mismo modelo, así que por familia el número es exacto. Por eso el
         desglose de adentro solo muestra pares.
