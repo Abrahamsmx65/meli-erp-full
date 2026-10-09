@@ -21,6 +21,7 @@ import type { Cuenta, DB } from "../datos/repos";
 import { cargarConsolidado, leerConsolidadoGuardado } from "./consolidado-cargar";
 import type { Consolidado } from "./consolidado";
 import { enviarCorreo, type ResultadoCorreo } from "./correo";
+import { LETRA_TITULO, TONO, URL_ERP, plantillaCorreo } from "./correo-marca";
 
 export const TAREA_RESUMEN_DIARIO = "correo-resumen-diario";
 
@@ -187,24 +188,64 @@ export function fechaLarga(dia: string): string {
   return `${DIAS[d.getUTCDay()]} ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`;
 }
 
+/** El color de cada plataforma en las gráficas de la página. */
+const COLOR_CANAL: Record<string, string> = {
+  meli_calzado: "#a35f1c",
+  meli_fundas: "#2f9c63",
+  amazon: "#3a72b8",
+  tiktok: "#d3a52e",
+};
+
+function colorGanancia(g: number | null): string {
+  return g == null ? TONO.tenue : g < 0 ? TONO.mal : TONO.bien;
+}
+
 function tabla(filas: FilaResumen[], total: ResumenDiario["total"], tituloGanancia: string): string {
-  const td = "padding:6px 10px;border-bottom:1px solid #e5e5e5;";
-  const num = `${td}text-align:right;white-space:nowrap;`;
-  const color = (g: number | null) => (g == null ? "#888" : g < 0 ? "#b42318" : "#067647");
+  const celda = `padding:10px 12px;border-bottom:1px solid ${TONO.borde};font-size:14px;`;
+  const num = `${celda}text-align:right;white-space:nowrap;`;
+  const encabezado = `padding:8px 12px;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:${TONO.tenue};font-weight:700;border-bottom:1px solid ${TONO.borde};background:${TONO.suave};`;
   const renglones = filas
     .map(
       (f) =>
-        `<tr><td style="${td}">${esc(f.nombre)}${f.notas.length ? `<div style="font-size:11px;color:#888">${f.notas.map(esc).join(" · ")}</div>` : ""}</td>` +
+        `<tr><td style="${celda}">` +
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${COLOR_CANAL[f.canal] ?? TONO.acento};margin-right:8px;vertical-align:middle;"></span>` +
+        `<span style="vertical-align:middle;">${esc(f.nombre)}</span>` +
+        (f.notas.length ? `<div class="g-nota" style="font-size:11px;color:${TONO.tenue};margin:4px 0 0 16px;">${f.notas.map(esc).join(" · ")}</div>` : "") +
+        `</td>` +
         `<td style="${num}">${n(f.unidades)}</td><td style="${num}">${pesos(f.facturacion)}</td>` +
-        `<td style="${num}color:${color(f.ganancia)}">${f.ganancia == null ? "—" : pesos(f.ganancia)}</td></tr>`,
+        `<td style="${num}font-weight:700;color:${colorGanancia(f.ganancia)}">${f.ganancia == null ? "—" : pesos(f.ganancia)}</td></tr>`,
     )
     .join("");
+  const pie = `padding:10px 12px;font-size:14px;font-weight:700;background:${TONO.acentoSuave};`;
   return (
-    `<table style="border-collapse:collapse;width:100%;font-size:14px">` +
-    `<tr style="background:#f5f5f5"><th style="${td}text-align:left">Plataforma</th><th style="${num}">Unidades</th><th style="${num}">Facturación</th><th style="${num}">${tituloGanancia}</th></tr>` +
+    `<table class="g-t" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px solid ${TONO.borde};border-radius:8px;">` +
+    `<tr><th align="left" style="${encabezado}">Plataforma</th><th align="right" style="${encabezado}">Unidades</th><th align="right" style="${encabezado}">Facturación</th><th align="right" style="${encabezado}">${esc(tituloGanancia)}</th></tr>` +
     renglones +
-    `<tr style="font-weight:bold;background:#f5f5f5"><td style="${td}">Total</td><td style="${num}">${n(total.unidades)}</td><td style="${num}">${pesos(total.facturacion)}</td><td style="${num}color:${color(total.ganancia)}">${pesos(total.ganancia)}</td></tr>` +
+    `<tr><td style="${pie}">Total</td><td style="${pie}text-align:right;">${n(total.unidades)}</td><td style="${pie}text-align:right;">${pesos(total.facturacion)}</td><td style="${pie}text-align:right;color:${colorGanancia(total.ganancia)}">${pesos(total.ganancia)}</td></tr>` +
     `</table>`
+  );
+}
+
+/** Las tres cifras grandes de arriba, como las `<Cifras>` de la página. */
+function cifras(total: ResumenDiario["total"]): string {
+  const caja = (etiqueta: string, valor: string, color: string = TONO.tinta) =>
+    `<td class="g-cifra" width="33%" valign="top" style="padding:14px 16px;background:${TONO.suave};border:1px solid ${TONO.borde};border-radius:8px;">` +
+    `<div style="font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:${TONO.tenue};font-weight:700;">${etiqueta}</div>` +
+    `<div style="font-family:${LETRA_TITULO};font-size:22px;font-weight:600;color:${color};margin-top:4px;white-space:nowrap;">${valor}</div></td>`;
+  const hueco = `<td class="g-hueco" width="10" style="font-size:0;line-height:0;">&nbsp;</td>`;
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 20px;"><tr>` +
+    caja("Unidades", n(total.unidades)) + hueco +
+    caja("Facturación", pesos(total.facturacion)) + hueco +
+    caja("Ganancia", pesos(total.ganancia), colorGanancia(total.ganancia)) +
+    `</tr></table>`
+  );
+}
+
+function subtitulo(texto: string, nota: string): string {
+  return (
+    `<h2 style="margin:28px 0 4px;font-family:${LETRA_TITULO};font-size:19px;font-weight:600;color:${TONO.tinta};">${esc(texto)}</h2>` +
+    `<p style="margin:0 0 12px;font-size:13px;color:${TONO.tinta2};">${esc(nota)}</p>`
   );
 }
 
@@ -213,25 +254,35 @@ export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: st
     ? `Ventas de ayer y de la semana: ${n(r.semana.total.unidades)} unidades · ${pesos(r.semana.total.facturacion)} · ganancia ${pesos(r.semana.total.ganancia)} en la semana`
     : `Ventas de ayer (${fechaLarga(r.dia)}): ${n(r.total.unidades)} unidades · ${pesos(r.total.facturacion)} · ganancia ${pesos(r.total.ganancia)}`;
   const partes: string[] = [];
-  partes.push(`<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;color:#111">`);
-  partes.push(`<h2 style="margin:0 0 4px">Ventas de ayer · ${esc(fechaLarga(r.dia))}</h2>`);
-  partes.push(`<p style="margin:0 0 12px;color:#555;font-size:13px">Ganancia del día = neto real − costo de los pares − publicidad. Los gastos que las plataformas cobran por mes (almacenamiento de Full y FBA, facturación, colecta) no se reparten en un día: van en el corte del mes.</p>`);
+  partes.push(cifras(r.total));
   partes.push(tabla(r.filas, r.total, "Ganancia"));
+  partes.push(
+    `<p style="margin:10px 0 0;font-size:12px;color:${TONO.tenue};">Ganancia del día = neto real − costo de los pares − publicidad. Los gastos que las plataformas cobran por mes (almacenamiento de Full y FBA, facturación, colecta) van en el corte del mes.</p>`,
+  );
   if (r.semana) {
-    partes.push(`<h3 style="margin:20px 0 4px">Semana pasada · del ${esc(fechaLarga(r.semana.desde))} al ${esc(fechaLarga(r.semana.hasta))}</h3>`);
-    partes.push(`<p style="margin:0 0 8px;color:#555;font-size:13px">Misma cuenta que el día: neto real − costo − publicidad, sin los gastos del mes.</p>`);
+    partes.push(subtitulo(`Semana pasada · del ${fechaLarga(r.semana.desde)} al ${fechaLarga(r.semana.hasta)}`, "Misma cuenta que el día: neto real − costo − publicidad, sin los gastos del mes."));
     partes.push(tabla(r.semana.filas, r.semana.total, "Ganancia"));
   }
   if (r.mes) {
     const [a, m] = r.mes.periodo.split("-").map(Number);
-    partes.push(`<h3 style="margin:20px 0 4px">${MESES[m - 1].charAt(0).toUpperCase()}${MESES[m - 1].slice(1)} ${a} hasta hoy</h3>`);
-    partes.push(`<p style="margin:0 0 8px;color:#555;font-size:13px">Del corte general: ganancia después de los gastos de cada plataforma, antes de gastos empresariales.</p>`);
+    partes.push(subtitulo(`${MESES[m - 1].charAt(0).toUpperCase()}${MESES[m - 1].slice(1)} ${a} hasta hoy`, "Del Estado de resultados: ganancia después de los gastos de cada plataforma, antes de gastos empresariales."));
     partes.push(tabla(r.mes.filas, r.mes.total, "Ganancia"));
   }
   if (r.avisos.length) {
-    partes.push(`<ul style="color:#b54708;font-size:12px">${r.avisos.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`);
+    partes.push(
+      `<div style="margin:20px 0 0;padding:12px 14px;background:${TONO.alertaSuave};border:1px solid #f1dfb5;border-radius:8px;font-size:12px;color:${TONO.alerta};">` +
+        r.avisos.map((x) => `<div style="margin:2px 0;">• ${esc(x)}</div>`).join("") +
+        `</div>`,
+    );
   }
-  partes.push(`<p style="color:#888;font-size:11px;margin-top:16px">ERP GETAC · https://meli-erp-full.vercel.app/cortes</p></div>`);
+  const html = plantillaCorreo({
+    preencabezado: `${n(r.total.unidades)} unidades · ${pesos(r.total.facturacion)} · ganancia ${pesos(r.total.ganancia)}`,
+    ceja: "Resumen de ventas",
+    titulo: `Ventas de ayer`,
+    subtitulo: fechaLarga(r.dia).charAt(0).toUpperCase() + fechaLarga(r.dia).slice(1),
+    cuerpo: partes.join(""),
+    boton: { texto: "Abrir Estado de resultados", url: `${URL_ERP}/cortes` },
+  });
 
   const lineas = [`Ventas de ayer · ${fechaLarga(r.dia)}`, ""];
   for (const f of r.filas) lineas.push(`${f.nombre}: ${n(f.unidades)} u · ${pesos(f.facturacion)} · ganancia ${f.ganancia == null ? "—" : pesos(f.ganancia)}${f.notas.length ? ` (${f.notas.join("; ")})` : ""}`);
@@ -242,7 +293,7 @@ export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: st
     lineas.push(`Total: ${n(r.semana.total.unidades)} u · ${pesos(r.semana.total.facturacion)} · ganancia ${pesos(r.semana.total.ganancia)}`);
   }
   if (r.avisos.length) lineas.push("", ...r.avisos);
-  return { asunto, html: partes.join(""), texto: lineas.join("\n") };
+  return { asunto, html, texto: lineas.join("\n") };
 }
 
 // ---------------------------------------------------------------------------
