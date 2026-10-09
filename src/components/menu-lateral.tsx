@@ -36,6 +36,7 @@ import {
   Warehouse,
   ClipboardList,
   type LucideIcon,
+  Undo2,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 import { Logo } from "@/components/logo";
@@ -112,6 +113,7 @@ const GRUPOS: Grupo[] = [
       { href: "/tiktok/ventas", texto: "Ventas", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
       { href: "/tiktok/despacho", texto: "Despacho de pedidos", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
       { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
+      { href: "/tiktok/devoluciones", texto: "Devoluciones", icono: Undo2, ayuda: "Recibir lo que regresa el cliente: reembolso y si vuelve al stock" },
       { href: "/tiktok/catalogo", texto: "Catálogo para creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
       { href: "/tiktok/pedidos", texto: "Reabasto de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
       { href: "/tiktok", texto: "Inventario TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },

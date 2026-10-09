@@ -908,26 +908,31 @@ async function plantillaPara(
   modelo: string,
   cache: Map<string, PlantillaTikTok>,
 ): Promise<PlantillaTikTok> {
-  const { data: candidatos } = await admin
-    .from("tiktok_skus")
-    .select("product_id, sku_interno, seller_sku, actualizado_en")
-    .eq("account_id", accountId)
-    .eq("activo", true)
-    .eq("estado", "ACTIVATE")
-    .not("product_id", "is", null)
-    .order("actualizado_en", { ascending: false })
-    .limit(2000);
-  const lista: any[] = candidatos ?? [];
-  const delModelo = lista.find((s) =>
-    String(s.sku_interno ?? s.seller_sku ?? "")
-      .toUpperCase()
-      .startsWith(`${modelo}-`),
-  );
-  const deCalzado =
-    delModelo ??
-    lista.find((s) =>
+  // Primero el MISMO modelo, preguntado directo: antes se bajaban los
+  // «2,000» más recientes (el API entrega 1,000) y se buscaba ahí; con más
+  // de 1,000 variantes activas el modelo podía quedar fuera y la plantilla
+  // salía de otro calzado (bota contra sandalia).
+  const base = () =>
+    admin
+      .from("tiktok_skus")
+      .select("product_id, sku_interno, seller_sku, actualizado_en")
+      .eq("account_id", accountId)
+      .eq("activo", true)
+      .eq("estado", "ACTIVATE")
+      .not("product_id", "is", null)
+      .order("actualizado_en", { ascending: false });
+  const prefijo = `${modelo.replace(/[%_,()]/g, "")}-%`;
+  const { data: delModeloRaw } = await base()
+    .or(`sku_interno.ilike.${prefijo},seller_sku.ilike.${prefijo}`)
+    .limit(1);
+  const delModelo = ((delModeloRaw ?? []) as any[])[0];
+  let deCalzado = delModelo;
+  if (!deCalzado) {
+    const { data: candidatos } = await base().limit(1000);
+    deCalzado = ((candidatos ?? []) as any[]).find((s) =>
       pareceSkuDeCalzado(String(s.sku_interno ?? s.seller_sku ?? "")),
     );
+  }
   if (!deCalzado)
     throw new Error(
       "La tienda no tiene ningún producto de calzado activo que sirva de plantilla (categoría, atributos y marca).",

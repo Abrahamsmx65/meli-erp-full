@@ -1315,3 +1315,54 @@ export async function transaccionesDeEstado(c: Cliente, estadoId: string): Promi
     params: { page_size: 100, sort_field: "order_create_time", sort_order: "DESC" },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Devoluciones (`/return_refund/202309/returns`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Las devoluciones de la tienda creadas en una ventana, crudas (snake_case,
+ * `return_orders[]` de `/returns/search`), página por página hasta `paginas`.
+ * `completo` dice si se llegó al final de la lista o se cortó por páginas o
+ * por tiempo. La ruta y la forma salen del SDK de TikTok en npm, como las
+ * demás de `return_refund`.
+ */
+export async function buscarDevoluciones(
+  c: Cliente,
+  opciones: { desdeMs: number; hastaMs?: number; estados?: string[]; paginas?: number },
+): Promise<{ devoluciones: any[]; completo: boolean; paginas: number }> {
+  const tope = opciones.paginas ?? 40;
+  const devoluciones: any[] = [];
+  let token: string | undefined;
+  let paginas = 0;
+  for (; paginas < tope; paginas++) {
+    const cuerpo: Record<string, unknown> = {
+      create_time_ge: Math.floor(opciones.desdeMs / 1000),
+      create_time_lt: Math.floor((opciones.hastaMs ?? Date.now()) / 1000),
+      locale: "es-MX",
+    };
+    if (opciones.estados?.length) cuerpo.return_status = opciones.estados;
+    const d = await c.llamar<any>("POST", "/return_refund/202309/returns/search", {
+      params: { page_size: 50, page_token: token, sort_field: "create_time", sort_order: "DESC" },
+      cuerpo,
+    });
+    if (!d) return { devoluciones, completo: false, paginas };
+    for (const x of d?.return_orders ?? []) devoluciones.push(x);
+    token = d?.next_page_token || undefined;
+    if (!token) return { devoluciones, completo: true, paginas: paginas + 1 };
+  }
+  return { devoluciones, completo: false, paginas };
+}
+
+/**
+ * Le dice a TikTok que el paquete devuelto ya llegó
+ * (`decision: APPROVE_RECEIVED_PACKAGE`): con eso TikTok le reembolsa al
+ * cliente. Contesta el crudo para guardarlo como constancia.
+ */
+export async function confirmarPaqueteDevuelto(c: Cliente, returnId: string): Promise<any> {
+  const d = await c.llamar<any>("POST", `/return_refund/202309/returns/${encodeURIComponent(returnId)}/approve`, {
+    cuerpo: { decision: "APPROVE_RECEIVED_PACKAGE" },
+  });
+  if (d === null) throw new Error("TikTok no contestó la confirmación (sin tiempo).");
+  return d ?? {};
+}

@@ -1369,7 +1369,7 @@ export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: stri
 
 /**
  * La venta del calzado por (SKU, día) armada desde las ÓRDENES vivas
- * (`cortes_ventas_desde_ordenes`, migración 0129): ventas_diarias se
+ * (`cortes_ventas_desde_ordenes`, migración 0131): ventas_diarias se
  * reescribe en cada barrido sin su neto y la búsqueda de MELI le mete
  * órdenes que /orders/{id} tiene canceladas (septiembre 2026: 279 pares y
  * $38 mil de venta de más). null si el RPC falla.

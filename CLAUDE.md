@@ -1114,6 +1114,42 @@ guárdala numerada.
   abierto; los últimos 30 días en la ventana previa del mismo RPC). Lee
   con el cliente admin (junta bodega, costos y Amazon) y el rol de TikTok
   también lo baja.
+  **DEVOLUCIONES** (`tiktok/devoluciones.ts` motor puro con pruebas,
+  `servicios/tiktok-devoluciones.ts`, `/tiktok/devoluciones`,
+  `POST /api/tiktok/devoluciones`, tabla `tiktok_devoluciones`, migración
+  0129; pedido del dueño, 9-oct-2026: «cuando recibo una devolución la
+  pueda buscar fácil, confirmar de recibido para que reembolsen al cliente
+  y poner si se suma de nuevo al stock o se tira a la basura»): TikTok
+  lleva las devoluciones en SU API (`/return_refund/202309/returns/search`;
+  ruta y forma del SDK de npm), aparte de los pedidos: el renglón del
+  pedido NO cambia a RETURNED (en un mes de ventas no hubo uno), así que
+  hasta ese día el ERP no sabía de ninguna. El cron de TikTok (cada 15 min,
+  `sincronizarDevoluciones`, bitácora tarea `devoluciones`) baja las
+  creadas en los últimos 60 días (la primera vez desde el 1-sep-2026,
+  `DEVOLUCIONES_DESDE`) y las guarda masticadas: pedido, SKU del ERP por
+  renglón (amarrado por `order_line_item_id` contra `tiktok_orden_items`),
+  guía de regreso y paquetería, motivo, reembolso, estado y qué le toca al
+  vendedor con su plazo. La pantalla busca por la guía escaneada, el pedido
+  o el SKU (`coincideBusqueda`, sin guiones ni espacios, mínimo 4
+  caracteres) y agrupa (`grupoDeDevolucion`): POR RECIBIR (el cliente ya
+  la mandó, `BUYER_SHIPPED_ITEM` o acción `SELLER_RESPOND_RECEIVE_PACKAGE`),
+  en espera del cliente, pendientes de TikTok, recibidas y cerradas (un
+  `REFUND` sin paquete nunca es una devolución recibida). **Confirmar
+  recibido** (`confirmarDevolucionRecibida`) le manda a TikTok
+  `APPROVE_RECEIVED_PACKAGE` —con eso TikTok reembolsa— y SOLO si TikTok
+  acepta mueve el kardex (`movimientosDeDecision`): por par, «vuelve al
+  stock» = DEVOLUCIÓN del SKU, «se tira» = devolución + MERMA del mismo par
+  (constancia sin subir el saldo); la referencia es el PEDIDO, igual que la
+  devolución automática del sync, así el índice único nunca cuenta dos
+  veces. Los paquetes llegan a Industher (decisión del dueño: «directo,
+  disponible para enviar»), así que su foto cuenta el par y el kardex
+  cuadra; lo que vuelve se publica en el acto pasando por `sincronizarTikTok`
+  con `soloPedidos` (regla de oro). Un par sin SKU del ERP no se confirma
+  hasta amarrarlo. Pendientes grita las «por recibir» y las que vencen en
+  48 h. Fuera de esta versión: rechazar el paquete ante TikTok, aprobar la
+  solicitud inicial y reembolsos parciales. La migración se aplicó POR
+  PARTES con `execute_sql` (el `apply_migration` del MCP se colgaba con
+  más de una sentencia DDL ese día).
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
@@ -1670,7 +1706,7 @@ guárdala numerada.
   no cambian el masticado ni la `versionContable`.
   **Revisión de septiembre 2026 (9-oct-2026, dueño: «el corte general es
   un desastre… revisa septiembre al 100»)**: (1) la venta del CALZADO sale
-  de las ÓRDENES (`cortes_ventas_desde_ordenes`, migración 0129, un jsonb de
+  de las ÓRDENES (`cortes_ventas_desde_ordenes`, migración 0131, un jsonb de
   un jalón; `ventasDelCorte` cae a `ventas_diarias` solo en días sin
   órdenes): los renglones diarios traían órdenes que /orders/{id} tiene
   canceladas (+279 pares, +$38 mil) y un neto viejo que el barrido no
@@ -1680,7 +1716,7 @@ guárdala numerada.
   total de MELI (fundas septiembre: 1,800 de 23,957, gastos de Full $3 mil
   contra $109 mil de agosto) y un mes leído con la paginación vieja sin
   total se relee una vez (julio de fundas); (4) los RPC de cortes evalúan
-  el permiso UNA vez (migración 0128, abajo). `versionContable` 8 y
+  el permiso UNA vez (migración 0130, abajo). `versionContable` 8 y
   `claveCorte` v3. Decisiones del dueño ese día: el IVA SE QUEDA dentro de
   la utilidad, los modelos sin costo se quedan como están, a TikTok NO se le
   suman muestras, 3PL ni empaque, y el ajuste MiscAdjustment de Amazon
@@ -1932,7 +1968,7 @@ midió y quedó como regla:
   cortados de TikTok: 432 ms → 24 ms)—. Una tabla nueva usa el mismo patrón;
   `auth.uid()` en una política va como `(select auth.uid())`. Las funciones
   `es_mi_cuenta*` se quedan para los RPC.
-- **Los RPC SQL evalúan su permiso UNA vez** (migración 0128): el filtro
+- **Los RPC SQL evalúan su permiso UNA vez** (migración 0130): el filtro
   `and (auth.role() = 'service_role' or es_mi_cuenta…(p_account))` dentro
   del WHERE se corría por renglón (auth.role() parsea el JWT cada vez):
   `yz_cortes_ventas_desde_ordenes_confirmadas` de abril tardaba 5.6 s y el
@@ -1974,6 +2010,15 @@ midió y quedó como regla:
   `envio_leido_en` se quedaba vacío, la orden se volvía a pedir en cada
   barrido y llenaba los 150 lugares; el registro de órdenes se atoró en el
   30-mar-2026 y fundas releía las mismas ~1,000 órdenes cada 10 min.
+- Topes que quedaban (mismo día): la plantilla para publicar en TikTok se
+  busca por MODELO en la base (no entre los «2,000» más recientes); los
+  renglones de un día de `ventas_diarias` en `webhooks.ts` van por
+  `filasDelDia`; la revisión de «publicaciones del catálogo» de Listados
+  (calzado y fundas) va por tandas; la limpieza de SKUs pendientes de fundas
+  lee todas las páginas. Índices parciales para lo que se buscaba barriendo
+  la tabla: órdenes de fundas sin depósito (0127, 7.1 s → 9 ms) y órdenes
+  canceladas (0128). Ventas y Publicidad de Amazon se mastican en su propio
+  cron (`/api/cron/amazon-pantallas`, cada 10 min), no al final del latido.
 - Product Ads solo rellena hacia atrás 89 días (`DIAS_API_ADS`): MELI no
   da más y pedirlo tronaba cada hora. El sync diario vive 800 s. Todo lo
   que el servidor se manda a sí mismo usa `origenDeLaApp`, y
@@ -2217,6 +2262,7 @@ login, la base y el deploy.
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
+| TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
