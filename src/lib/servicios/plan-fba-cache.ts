@@ -15,7 +15,7 @@
  * al leer, sin tocar la forma que las pantallas ya consumen.
  */
 import type { DB } from "../datos/repos";
-import { traerTodo } from "../datos/repos";
+import { traerRpcTodo, traerTodo } from "../datos/repos";
 import { VERSION_MOTOR } from "./cache";
 import { cargarAmazon, PERIODO_OMISION, SIN_LIMITE, type TotalesAmazon } from "./amazon";
 import { mapaCorridas, sugerirEnvioFba, type SugerenciaFba } from "./fba";
@@ -95,10 +95,13 @@ async function historiaFba(
   db: DB,
   cuentaAmazonId: string,
 ): Promise<{ historia: Map<string, HistoriaSkuFba> | null; error: string | null }> {
-  const { data, error } = await db.rpc("amazon_historia_sku", { p_account: cuentaAmazonId });
-  if (error) return { historia: null, error: error.message };
+  // POR PÁGINAS: son ~4,500 SKUs y el API entrega 1,000 por respuesta; con
+  // una sola llamada GT144, GT154 y todo lo de después en el alfabeto salían
+  // «sin venta» y se les pedía la posición mínima de 2 cajas.
+  const { filas, error } = await traerRpcTodo<any>(db, "amazon_historia_sku", { p_account: cuentaAmazonId });
+  if (error) return { historia: null, error };
   const historia = new Map<string, HistoriaSkuFba>();
-  for (const r of (data ?? []) as {
+  for (const r of filas as {
     seller_sku: string;
     unidades: number | string;
     primera_venta: string | null;
