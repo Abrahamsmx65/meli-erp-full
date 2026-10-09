@@ -89,7 +89,7 @@ export function EntradasTikTok() {
   return (
     <section className="tarjeta p-4">
       <h2 className="text-sm font-semibold">Corregir a mano</h2>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+      <p className="mt-0.5 text-xs texto-2">
         Las entradas llegan solas de Industher y las salidas las ponen los pedidos. Esto es para
         lo demás: una merma, un par que regresó, un conteo. Se le publica a TikTok en el mismo
         clic.
@@ -148,16 +148,14 @@ export function EntradasTikTok() {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setRenglones((p) => [...p, { ...VACIO }])}
-          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm"
-          style={{ borderColor: "var(--grid)" }}
+          className="boton boton-borde boton-chico gap-1.5"
         >
           <Plus size={14} /> Otro renglón
         </button>
         <button
           onClick={guardar}
           disabled={guardando}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario"
         >
           {guardando ? "Guardando y publicando…" : "Guardar y publicar"}
         </button>

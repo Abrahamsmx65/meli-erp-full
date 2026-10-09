@@ -112,15 +112,15 @@ export function PedidosAlmacenTikTok({
     <div className="flex flex-col gap-6">
       <section className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Ventas desde
             <input type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }} />
           </label>
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Hasta
             <input type="date" value={hasta} min={desde} max={hoy} onChange={(e) => setHasta(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }} />
           </label>
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Cómo pedir
             <select value={modo} onChange={(e) => setModo(e.target.value as "vendido" | "cobertura")} className="rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}>
               <option value="vendido">Reponer lo vendido</option>
@@ -128,19 +128,19 @@ export function PedidosAlmacenTikTok({
             </select>
           </label>
           {modo === "cobertura" ? (
-            <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label className="flex flex-col text-xs texto-2">
               Días de cobertura
               <input type="number" min={1} max={90} value={diasObjetivo} onChange={(e) => setDiasObjetivo(Number(e.target.value) || 15)} className="w-24 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }} />
             </label>
           ) : null}
-          <button onClick={ver} disabled={cargando} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+          <button onClick={ver} disabled={cargando} className="boton boton-borde gap-1.5">
             <Eye size={14} /> {cargando ? "Armando…" : "Ver qué pedir"}
           </button>
-          <button onClick={guardar} disabled={guardando} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: "var(--acento)" }}>
+          <button onClick={guardar} disabled={guardando} className="boton boton-primario gap-1.5">
             <Save size={14} /> {guardando ? "Guardando…" : "Guardar pedido"}
           </button>
         </div>
-        <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-2 text-xs texto-2">
           «Reponer lo vendido» pide par por par lo que salió en el periodo. «Cobertura» pide lo que falte
           para que el disponible en TikTok alcance N días de venta. Lo que ninguna bodega tiene no se pide
           ni sale en el Excel; solo se cuenta. Las bodegas guardan cajas cerradas: la hoja pide pares por
@@ -155,7 +155,7 @@ export function PedidosAlmacenTikTok({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">
               {guardado ? `Pedido #${vista.numero}` : "Vista previa (sin guardar)"}
-              <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
+              <span className="ml-2 text-xs font-normal texto-2">
                 ventas del {vista.desde} al {vista.hasta} · {vista.dias} días ·{" "}
                 {vista.modo === "cobertura" ? `cobertura a ${vista.diasObjetivo} días` : "reponer lo vendido"}
               </span>
@@ -184,7 +184,7 @@ export function PedidosAlmacenTikTok({
           <div className="tarjeta overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+                <tr className="text-left text-xs texto-2">
                   <th className="px-4 py-2">Modelo</th>
                   <th className="px-2 py-2 text-right">SKU</th>
                   <th className="px-2 py-2 text-right">Vendidos</th>
@@ -199,7 +199,7 @@ export function PedidosAlmacenTikTok({
                 ))}
                 {!vista.porModelo.length ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+                    <td colSpan={6} className="px-4 py-6 text-center text-sm texto-2">
                       Sin ventas en ese periodo: no hay nada que pedir.
                     </td>
                   </tr>
@@ -217,13 +217,13 @@ export function PedidosAlmacenTikTok({
             <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hairline">
               <div className="text-sm">
                 <span className="font-semibold">Pedido #{p.numero}</span>
-                <span className="ml-2 text-xs" style={{ color: "var(--ink-2)" }}>
+                <span className="ml-2 text-xs texto-2">
                   {cuando(p.creadoEn)} · ventas del {p.desde} al {p.hasta} · {n(p.pares)} pares en {p.skus} SKU ·{" "}
                   {p.modo === "cobertura" ? `cobertura a ${p.diasObjetivo} días` : "reponer lo vendido"}
                 </span>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => verGuardado(p.id)} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={() => verGuardado(p.id)} className="boton boton-borde gap-1.5">
                   <ClipboardList size={14} /> Ver
                 </button>
                 <a href={`/api/tiktok/pedidos-almacen/${p.id}/excel`} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
@@ -233,7 +233,7 @@ export function PedidosAlmacenTikTok({
             </li>
           ))}
           {!pedidos.length ? (
-            <li className="px-4 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+            <li className="px-4 py-6 text-center text-sm texto-2">
               Todavía no hay pedidos guardados.
             </li>
           ) : null}
@@ -252,14 +252,14 @@ function ModeloFila({ m, renglones, abierto, alternar }: { m: any; renglones: an
         <td className="px-2 py-2 text-right cifra">{n(m.vendidos)}</td>
         <td className="px-2 py-2 text-right cifra font-semibold">{n(m.pedir)}</td>
         <td className="px-2 py-2 text-right cifra" style={{ color: m.faltante ? "var(--estado-alerta)" : "var(--ink-2)" }}>{n(m.faltante)}</td>
-        <td className="px-2 py-2 text-right text-xs" style={{ color: "var(--ink-2)" }}>{abierto ? "cerrar" : "ver tallas"}</td>
+        <td className="px-2 py-2 text-right text-xs texto-2">{abierto ? "cerrar" : "ver tallas"}</td>
       </tr>
       {abierto ? (
         <tr>
           <td colSpan={6} className="px-4 pb-3">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left" style={{ color: "var(--ink-2)" }}>
+                <tr className="text-left texto-2">
                   <th className="py-1">SKU</th>
                   <th className="py-1 text-right">Vendidos</th>
                   <th className="py-1 text-right">Disponible TikTok</th>
@@ -276,7 +276,7 @@ function ModeloFila({ m, renglones, abierto, alternar }: { m: any; renglones: an
                     <td className="py-1 text-right cifra">{r.disponible}</td>
                     <td className="py-1 text-right cifra">{r.diasCobertura == null ? "—" : Math.round(r.diasCobertura)}</td>
                     <td className="py-1 text-right cifra font-semibold">{r.pedir}</td>
-                    <td className="py-1 pl-3" style={{ color: "var(--ink-2)" }}>
+                    <td className="py-1 pl-3 texto-2">
                       {r.surtir.filter((s: any) => s.pares > 0).map((s: any) => `${s.almacen} ${s.pares}`).join(" · ")}
                       {r.faltante ? <span style={{ color: "var(--estado-alerta)" }}>{r.surtir.some((s: any) => s.pares > 0) ? " · " : ""}sin bodega {r.faltante}</span> : null}
                     </td>

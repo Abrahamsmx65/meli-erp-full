@@ -33,7 +33,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
     <section className="tarjeta overflow-hidden">
       <div className="px-4 pt-4">
         <h2 className="text-sm font-semibold">Origen de la venta</h2>
-        <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="text-xs texto-2">
           Quién trajo cada pedido en pie del rango, según el endpoint de afiliados de TikTok: lo que vendió un creador y lo que
           vendió la tienda sola. Porcentajes sobre lo cobrado. Un pedido que todavía no se revisa contra TikTok (se leen cada
           hora) se declara aparte, no se cuenta como nuestro.
@@ -57,7 +57,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
                     <div className="font-medium">
                       {s.nombre} · <span className="num">{pct(b.porcentaje)}</span>
                     </div>
-                    <div className="num text-xs" style={{ color: "var(--ink-2)" }}>
+                    <div className="num text-xs texto-2">
                       {pesos(b.cobrado)} · {n(b.pedidos)} pedidos · {n(b.unidades)} pares
                     </div>
                   </div>
@@ -67,7 +67,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
           </div>
         </div>
       ) : (
-        <p className="px-4 pt-4 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="px-4 pt-4 text-sm texto-2">
           Sin ventas en el rango.
         </p>
       )}
@@ -75,7 +75,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
               <th className="px-4 py-2 font-semibold">#</th>
               <th className="px-4 py-2 font-semibold">Creador</th>
               <th className="px-4 py-2 text-right font-semibold">Pedidos</th>
@@ -88,7 +88,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
           <tbody>
             {origen.top.map((c, i) => (
               <tr key={c.creador} className="hairline">
-                <td className="num px-4 py-2" style={{ color: "var(--ink-muted)" }}>{i + 1}</td>
+                <td className="num px-4 py-2 texto-tenue">{i + 1}</td>
                 <td className="px-4 py-2 font-medium">@{c.creador}</td>
                 <td className="num px-4 py-2 text-right">{n(c.pedidos)}</td>
                 <td className="num px-4 py-2 text-right">{n(c.unidades)}</td>
@@ -103,7 +103,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
             ))}
             {!origen.top.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
                   {origen.sinRevisar.pedidos > 0 ? "Todavía no se leen los afiliados de estos pedidos; se revisan cada hora." : "Ningún creador vendió en el rango."}
                 </td>
               </tr>
@@ -111,7 +111,7 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
           </tbody>
         </table>
         {origen.creadoresDistintos > origen.top.length ? (
-          <p className="px-4 pb-4 pt-2 text-xs" style={{ color: "var(--ink-2)" }}>
+          <p className="px-4 pb-4 pt-2 text-xs texto-2">
             Top {origen.top.length} de {n(origen.creadoresDistintos)} creadores que vendieron en el rango.
           </p>
         ) : (

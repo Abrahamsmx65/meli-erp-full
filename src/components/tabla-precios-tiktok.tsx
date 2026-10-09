@@ -31,7 +31,7 @@ export function TablaPreciosTikTok({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">Precio por modelo</h2>
-            <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+            <p className="text-xs texto-2">
               «Relámpago MELI» es el precio más bajo al que el modelo vendió con volumen en el periodo (al menos el 10 % de sus pares) y
               «Neto relámpago/par» lo que Mercado Pago depositó por par a ESE precio: el objetivo. En reventa MELI ya no retiene el{" "}
               {retencionPct} % (IVA + ISR sobre la base sin IVA) y muchos precios de MELI se pusieron contando con eso: la casilla «quitar{" "}
@@ -42,7 +42,7 @@ export function TablaPreciosTikTok({
               {escalonPct} % abajo (deja menos, a propósito) y {NOMBRES_NIVEL.campana} {escalonPct} % arriba.
             </p>
           </div>
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             <span>Buscar modelo o categoría</span>
             <input
               type="search"
@@ -54,14 +54,14 @@ export function TablaPreciosTikTok({
             />
           </label>
         </div>
-        <p className="mt-2 text-xs" style={{ color: "var(--ink-muted)" }}>
+        <p className="mt-2 text-xs texto-tenue">
           {busqueda.trim() ? `${n(visibles.length)} de ${n(renglones.length)} modelos` : `${n(renglones.length)} modelos, en orden alfabético`}
         </p>
       </div>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
               <th className="px-4 py-2 font-semibold">Modelo</th>
               <th className="px-4 py-2 text-right font-semibold">Pares MELI</th>
               <th className="px-4 py-2 text-right font-semibold">Relámpago MELI</th>
@@ -82,7 +82,7 @@ export function TablaPreciosTikTok({
                   <td className="px-4 py-2">
                     <div className="font-medium">{r.modelo}</div>
                     {r.categoria ? (
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         {r.categoria}
                       </div>
                     ) : null}
@@ -94,7 +94,7 @@ export function TablaPreciosTikTok({
                     {r.precioRelampagoMeli != null ? (
                       <>
                         {pesosC(r.precioRelampagoMeli)}
-                        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs texto-tenue">
                           {n(r.paresRelampago)} pares
                         </div>
                       </>
@@ -105,7 +105,7 @@ export function TablaPreciosTikTok({
                   <td className="num px-4 py-2 text-right font-medium" style={{ color: r.origenNivel === "mi-precio" ? "var(--ink-2)" : undefined }}>
                     {r.netoPorPar != null ? pesosC(r.netoPorPar) : "—"}
                     {r.quitarRetencion && r.netoRelampagoReal != null ? (
-                      <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }} title={`neto real ${pesosC(r.netoRelampagoReal)}`}>
+                      <div className="text-xs font-normal texto-tenue" title={`neto real ${pesosC(r.netoRelampagoReal)}`}>
                         −{pesosC(r.retencionQuitada)} de retención
                       </div>
                     ) : null}
@@ -116,7 +116,7 @@ export function TablaPreciosTikTok({
                   <td className="px-4 py-2 text-right">
                     <MiPrecioTikTok modelo={r.modelo} inicial={r.miPrecio} />
                   </td>
-                  <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                  <td className="num px-4 py-2 text-right texto-2">
                     {r.costo != null ? pesos(r.costo) : "sin costo"}
                   </td>
                   <td
@@ -131,7 +131,7 @@ export function TablaPreciosTikTok({
                     {r.precioTikTok != null ? (
                       <>
                         {pesos(r.precioTikTok)}
-                        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs texto-tenue">
                           deja {pesosC(r.netoTikTokActual ?? 0)}
                           {r.origenPrecio === "lista" ? " · lista" : ""}
                         </div>
@@ -145,7 +145,7 @@ export function TablaPreciosTikTok({
                       {nivel ? (
                         <>
                           <span className={i === 1 ? "font-semibold" : "font-medium"}>{pesos(nivel.precio)}</span>
-                          <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                          <div className="text-xs texto-tenue">
                             deja {pesosC(nivel.neto)}
                             {r.costo != null ? ` · gano ${pesos(nivel.neto - r.costo)}` : ""}
                           </div>
@@ -160,7 +160,7 @@ export function TablaPreciosTikTok({
             })}
             {!visibles.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={10} style={{ color: "var(--ink-2)" }}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={10}>
                   {renglones.length ? `Ningún modelo coincide con «${busqueda.trim()}».` : "Sin ventas en MELI ni productos en TikTok."}
                 </td>
               </tr>

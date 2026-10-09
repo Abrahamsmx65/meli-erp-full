@@ -35,7 +35,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
         <h2 className="text-sm font-semibold">Inventario por SKU</h2>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             Orden alfabético · venta de los últimos {diasVenta} días
           </span>
           <a
@@ -63,7 +63,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           <input type="checkbox" checked={soloSinLinea} onChange={(e) => setSoloSinLinea(e.target.checked)} />
           Solo con stock sin publicación activa ({n(sinLinea)})
         </label>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "var(--ink-2)" }}>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs texto-2">
           <span>
             <b className="num" style={{ color: "var(--ink)" }}>{n(totales.skus)}</b> SKU
             {filtrando ? ` de ${n(renglones.length)}` : ""}
@@ -86,7 +86,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
               <th className="px-4 py-2 font-semibold">SKU</th>
               <th className="px-4 py-2 text-right font-semibold">En almacén</th>
               <th className="px-4 py-2 text-right font-semibold">Apartado</th>
@@ -102,7 +102,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                 <td className="px-4 py-2">
                   <span className="font-medium">{r.sku}</span>
                   {r.titulo ? (
-                    <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
+                    <span className="block text-xs texto-2">
                       {r.titulo}
                     </span>
                   ) : null}
@@ -129,7 +129,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                 <td className="num px-4 py-2 text-right" style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}>
                   {n(r.saldo)}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num px-4 py-2 text-right texto-2">
                   {r.apartado ? n(r.apartado) : "—"}
                 </td>
                 <td className="num px-4 py-2 text-right font-semibold">{n(r.disponible)}</td>
@@ -139,23 +139,23 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                 >
                   {r.publicado == null ? "—" : n(r.publicado)}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num px-4 py-2 text-right texto-2">
                   {r.ventas30 ? n(r.ventas30) : "—"}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: "var(--ink-2)" }}>
+                <td className="num px-4 py-2 text-right texto-2">
                   {r.diasCobertura == null ? "—" : `${Math.round(r.diasCobertura)} d`}
                 </td>
               </tr>
             ))}
             {!renglones.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
                   Todavía no hay nada en el almacén de TikTok. Captura la primera entrada arriba.
                 </td>
               </tr>
             ) : !vistos.length ? (
               <tr>
-                <td className="px-4 py-6 text-center text-sm" colSpan={7} style={{ color: "var(--ink-2)" }}>
+                <td className="px-4 py-6 text-center text-sm texto-2" colSpan={7}>
                   Ningún SKU coincide con «{busqueda.trim()}».
                 </td>
               </tr>

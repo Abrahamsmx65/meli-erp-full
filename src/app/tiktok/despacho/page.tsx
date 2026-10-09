@@ -4,6 +4,7 @@ import { avanceDeCortes, pendientesDeCorte, pendientesPorModeloDeCuenta } from "
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
+import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function Despacho() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Despacho TikTok Shop" />;
 
   // Los pendientes se leen UNA vez (el selector por modelo los reusa) y el
   // avance sale SOLO de los cortes que se enseñan: antes se bajaba el
@@ -83,25 +78,27 @@ export default async function Despacho() {
   }));
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Despacho TikTok Shop</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          La rutina de la mañana: un corte confirma todo lo pendiente y deja listas las etiquetas y
-          la lista de empaque, primero lo de un solo modelo (y dentro, primero lo de un solo color) y al final lo revuelto.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Despacho TikTok Shop"
+        descripcion="Un corte confirma lo pendiente y deja listas las etiquetas y la lista de empaque."
+        ayuda={
+          <p>
+            La rutina de la mañana: el corte ordena primero lo de un solo modelo (y dentro, primero lo de un solo color) y al
+            final lo revuelto.
+          </p>
+        }
+        ayudaTitulo="¿Cómo se ordena el corte?"
+      />
       {sinAvance ? (
-        <div
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
-          No se pudo leer el avance de preparación (los «X / Y preparados» salen con —). Los cortes
-          y el despacho siguen funcionando; recarga la página para reintentar.
-        </div>
+        <Aviso tono="alerta">
+          No se pudo leer el avance de preparación (los «X / Y preparados» salen con —). Los cortes y el despacho siguen
+          funcionando; recarga la página para reintentar.
+        </Aviso>
       ) : null}
       <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} />
       <EnlacePreparar tokenInicial={token} origen={origen} />
-    </div>
+    </Pagina>
   );
 }

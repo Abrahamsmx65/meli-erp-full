@@ -8,6 +8,7 @@ import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
 import { etiquetaDeModelos, type PendientesPorModelo } from "@/lib/tiktok/corte-modelos";
+import { Aviso, Ayuda, Seccion } from "@/components/ui/pagina";
 
 /** Cuántos tomos de etiquetas se bajan a la vez al imprimir (cada uno ~21 MB). */
 const TOMOS_A_LA_VEZ = 3;
@@ -453,27 +454,15 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="tarjeta p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">
-              {pendientes ? `${pendientes} pedidos por despachar` : "Nada por despachar"}
-            </h2>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-              Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén,
-              republica y deja el corte guardado con sus etiquetas y su lista. Corte ayer toma solo lo de hasta ayer a
-              las 23:59 (hora de México) y deja lo de hoy pendiente, para adelantar un día. Defensa automática: si un SKU
-              no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok solo ese renglón
-              (los pedidos más nuevos primero) y se confirma lo demás; si TikTok no acepta la cancelación, el
-              pedido entero se queda fuera y se avisa.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <Seccion
+        titulo={pendientes ? `${pendientes} pedidos por despachar` : "Nada por despachar"}
+        descripcion="Un corte confirma los envíos en TikTok, descuenta del almacén, republica y guarda sus etiquetas y su lista."
+        acciones={
+          <>
             <select
               value={handover}
               onChange={(e) => setHandover(e.target.value as "PICKUP" | "DROP_OFF")}
               className="rounded-lg border px-2 py-1.5 text-sm"
-              style={{ borderColor: "var(--grid)" }}
               aria-label="Cómo se entregan los paquetes"
             >
               <option value="PICKUP">Pasa el repartidor</option>
@@ -482,8 +471,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={actualizar}
               disabled={actualizando}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
               title="Vuelve a leer en TikTok lo que sigue sin preparar en los cortes recientes: lo que ya se envió o se canceló deja de faltar"
             >
               <RefreshCw size={14} className={actualizando ? "animate-spin" : undefined} />
@@ -492,18 +480,23 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={simular}
               disabled={simulando || !pendientes}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
               title="Ver qué haría el corte sin confirmar nada"
             >
               <Eye size={14} />
               {simulando ? "Simulando…" : "Simular"}
             </button>
+          </>
+        }
+      >
+        {/* Barra del corte: los tres botones, el filtro por modelo y «sin defensa» juntos. */}
+        <div className="rounded-lg border" style={{ borderColor: "var(--grid)" }}>
+          <div className="flex flex-wrap items-center gap-2 p-3">
+            <span className="texto-2 mr-1 text-xs font-semibold">Corte</span>
             <button
               onClick={() => hacerCorte("ayer")}
               disabled={ocupado || !pendientes}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
               title="Un corte con todo lo pendiente hasta ayer a las 23:59 (hora de México) y lo más viejo; lo de hoy se queda pendiente para ir adelantando un día. Si se acaba el tiempo, se relanza solo hasta terminar"
             >
               <CalendarClock size={14} />
@@ -512,8 +505,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={() => hacerCorte("lunes")}
               disabled={ocupado || !pendientes}
-              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
               title="Dos cortes: primero TODO lo pendiente hasta el domingo a las 23:59 (viernes, sábado, domingo y lo más viejo) y luego solo lo del lunes"
             >
               <CalendarClock size={14} />
@@ -522,77 +514,106 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <button
               onClick={() => hacerCorte()}
               disabled={ocupado || !pendientes}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               <Scissors size={14} />
               {ocupado ? "Confirmando en TikTok…" : soloModelos.length ? `Hacer corte ${etiquetaDeModelos(soloModelos)} (${pendientesFiltrados})` : `Hacer corte (${pendientes})`}
             </button>
           </div>
-        </div>
-        {porModelo.modelos.length ? (
-          <div className="mt-3 rounded-lg border p-3" style={{ borderColor: "var(--grid)" }}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-semibold">
-                Corte por modelo
-                {soloModelos.length ? (
-                  <span className="ml-2 font-normal" style={{ color: "var(--ink-2)" }}>
-                    {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos. Los tres botones de arriba toman SOLO esos
-                    paquetes; los revueltos y los demás modelos esperan al corte general.
-                  </span>
-                ) : (
-                  <span className="ml-2 font-normal" style={{ color: "var(--ink-2)" }}>
-                    marca uno o varios modelos para despacharlos aparte (solo paquetes de un solo modelo; los revueltos van con el
-                    corte general)
-                  </span>
-                )}
-              </span>
-              {soloModelos.length ? (
-                <button onClick={() => setSoloModelos([])} disabled={ocupado} className="text-xs underline" style={{ color: "var(--ink-2)" }}>
-                  quitar filtro
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {porModelo.modelos.map((m) => {
-                const marcado = soloModelos.includes(m.modelo);
-                return (
-                  <button
-                    key={m.modelo}
-                    type="button"
-                    disabled={ocupado}
-                    onClick={() =>
-                      setSoloModelos((s) => (s.includes(m.modelo) ? s.filter((x) => x !== m.modelo) : [...s, m.modelo]))
-                    }
-                    className="rounded-full border px-3 py-1 text-xs disabled:opacity-60"
-                    style={{
-                      borderColor: marcado ? "var(--acento)" : "var(--grid)",
-                      background: marcado ? "var(--acento-suave)" : "transparent",
-                      color: marcado ? "var(--exito-texto)" : "var(--ink)",
-                      fontWeight: marcado ? 600 : 400,
-                    }}
-                    title={`${m.pedidos} pedidos de solo ${m.modelo} (${m.pares} pares)`}
-                  >
-                    {m.modelo} · {m.pedidos}
-                  </button>
-                );
-              })}
-              {porModelo.revueltos.pedidos ? (
-                <span className="rounded-full border px-3 py-1 text-xs" style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }} title="Paquetes con más de un modelo: siempre van con el corte general">
-                  revueltos · {porModelo.revueltos.pedidos}
+          {porModelo.modelos.length ? (
+            <div className="hairline border-t p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold">
+                  Solo estos modelos
+                  {soloModelos.length ? (
+                    <span className="ml-2 font-normal texto-2">
+                      {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos. Los tres botones toman SOLO esos
+                      paquetes; los revueltos y los demás modelos esperan al corte general.
+                    </span>
+                  ) : (
+                    <span className="ml-2 font-normal texto-2">
+                      marca uno o varios para despacharlos aparte (los revueltos van con el corte general)
+                    </span>
+                  )}
                 </span>
-              ) : null}
+                {soloModelos.length ? (
+                  <button onClick={() => setSoloModelos([])} disabled={ocupado} className="boton boton-fantasma boton-chico">
+                    Quitar filtro
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {porModelo.modelos.map((m) => {
+                  const marcado = soloModelos.includes(m.modelo);
+                  return (
+                    <button
+                      key={m.modelo}
+                      type="button"
+                      disabled={ocupado}
+                      onClick={() =>
+                        setSoloModelos((s) => (s.includes(m.modelo) ? s.filter((x) => x !== m.modelo) : [...s, m.modelo]))
+                      }
+                      className="rounded-full border px-3 py-1 text-xs disabled:opacity-60"
+                      style={{
+                        borderColor: marcado ? "var(--acento)" : "var(--grid)",
+                        background: marcado ? "var(--acento-suave)" : "transparent",
+                        color: marcado ? "var(--acento)" : "var(--ink-1)",
+                        fontWeight: marcado ? 600 : 400,
+                      }}
+                      aria-pressed={marcado}
+                      title={`${m.pedidos} pedidos de solo ${m.modelo} (${m.pares} pares)`}
+                    >
+                      {m.modelo} · {m.pedidos}
+                    </button>
+                  );
+                })}
+                {porModelo.revueltos.pedidos ? (
+                  <span className="texto-2 rounded-full border px-3 py-1 text-xs" style={{ borderColor: "var(--grid)" }} title="Paquetes con más de un modelo: siempre van con el corte general">
+                    revueltos · {porModelo.revueltos.pedidos}
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : null}
-        <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: sinDefensa ? "var(--estado-critico)" : "var(--ink-2)" }}>
-          <input type="checkbox" checked={sinDefensa} onChange={(e) => setSinDefensa(e.target.checked)} disabled={ocupado} />
-          Sin defensa: confirmar todo aunque no haya stock físico (libera los bloqueos por stock; el kardex puede quedar en
-          negativo y la alarma lo va a gritar). Se apaga solo después del corte.
-        </label>
-        {ronda ? <p className="mt-2 text-xs font-semibold" style={{ color: "var(--ink-2)" }}>{ronda}</p> : null}
-        {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
-        {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+          ) : null}
+          <label
+            className="hairline flex items-center gap-2 border-t p-3 text-xs"
+            style={{ color: sinDefensa ? "var(--estado-critico)" : "var(--ink-2)" }}
+          >
+            <input type="checkbox" checked={sinDefensa} onChange={(e) => setSinDefensa(e.target.checked)} disabled={ocupado} />
+            <span>
+              <span className="font-semibold">Sin defensa:</span> confirmar todo aunque no haya stock físico (el kardex puede
+              quedar en negativo). Se apaga solo después del corte.
+            </span>
+          </label>
+        </div>
+
+        <p className="texto-tenue mt-2 text-xs">
+          Corte ayer: hasta ayer a las 23:59 (México), lo de hoy se queda. Corte lunes: viernes a domingo y luego lo del lunes.
+        </p>
+        <div className="mt-2">
+          <Ayuda titulo="¿Qué hace la defensa automática?">
+            <p>
+              Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén, republica y deja el corte
+              guardado con sus etiquetas y su lista. Corte ayer toma solo lo de hasta ayer a las 23:59 (hora de México) y deja
+              lo de hoy pendiente, para adelantar un día.
+            </p>
+            <p>
+              Defensa automática: si un SKU no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok
+              solo ese renglón (los pedidos más nuevos primero) y se confirma lo demás; si TikTok no acepta la cancelación, el
+              pedido entero se queda fuera y se avisa.
+            </p>
+            <p>
+              Sin defensa libera los bloqueos por stock: el kardex puede quedar en negativo y la alarma lo va a gritar.
+            </p>
+            <p>
+              Corte por modelo: solo paquetes de un solo modelo; los revueltos van con el corte general.
+            </p>
+          </Ayuda>
+        </div>
+
+        {ronda ? <p className="mt-3 text-xs font-semibold texto-2">{ronda}</p> : null}
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
 
         {simulacion ? (
           <div className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--grid)" }}>
@@ -600,12 +621,12 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               <span className="font-semibold">
                 Simulación{etiquetaDeModelos(simulacion.modelos) ? ` (${etiquetaDeModelos(simulacion.modelos)})` : ""}: {simulacion.pedidos.length} pedidos · {simulacion.totalPares} pares
               </span>
-              <button onClick={() => setSimulacion(null)} className="text-xs underline" style={{ color: "var(--ink-2)" }}>
-                cerrar
+              <button onClick={() => setSimulacion(null)} className="boton boton-fantasma boton-chico">
+                Cerrar
               </button>
             </div>
             {simulacion.tandas && simulacion.tandas.urgentes ? (
-              <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+              <p className="mt-1 text-xs texto-2">
                 Corte ayer: {simulacion.tandas.urgentes} pedidos hasta el {simulacion.tandas.corte} a las 23:59 (hora de
                 México; ayer y lo más viejo){simulacion.tandas.resto ? `, y los ${simulacion.tandas.resto} de hoy se quedan pendientes` : ""}.
                 {simulacion.tandas.resto
@@ -616,51 +637,54 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <ul className="mt-2 flex flex-col gap-1">
               {simulacion.pedidos.map((p: any) => (
                 <li key={p.orderId} className="flex flex-wrap items-center gap-2">
-                  <span className="cifra text-xs" style={{ color: "var(--ink-2)" }}>{p.orderId}</span>
+                  <span className="cifra text-xs texto-2">{p.orderId}</span>
                   <span>{p.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}</span>
                   {p.bloqueados?.length ? (
-                    <span className="rounded-full px-2 text-[11px] font-semibold" style={{ background: "color-mix(in oklab, var(--estado-critico) 14%, transparent)", color: "var(--estado-critico)" }}>
+                    <span className="chip" style={{ background: "var(--critico-suave)", color: "var(--critico-texto)" }}>
                       se cancela: {p.bloqueados.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
                     </span>
                   ) : null}
                   <span
-                    className="rounded-full px-2 text-[11px] font-semibold"
+                    className="chip"
                     style={{
-                      background: p.recoleccion === true ? "var(--acento-suave)" : p.recoleccion === false ? "color-mix(in oklab, var(--estado-alerta) 18%, transparent)" : "var(--grid)",
-                      color: p.recoleccion === true ? "var(--exito-texto)" : "var(--ink-2)",
+                      background: p.recoleccion === true ? "var(--bien-suave)" : p.recoleccion === false ? "var(--alerta-suave)" : "var(--grid)",
+                      color: p.recoleccion === true ? "var(--exito-texto)" : p.recoleccion === false ? "var(--alerta-texto)" : "var(--ink-2)",
                     }}
                   >
                     {p.recoleccion === true ? "recolección disponible" : p.recoleccion === false ? "solo drop-off" : "sin dato"}
                   </span>
-                  {p.aviso ? <span className="text-xs" style={{ color: "var(--ink-2)" }}>{p.aviso}</span> : null}
+                  {p.aviso ? <span className="text-xs texto-2">{p.aviso}</span> : null}
                 </li>
               ))}
             </ul>
-            <div className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+            <div className="mt-3 text-xs texto-2">
               Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
               {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
             </div>
-            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-              Nada de esto se ha confirmado. Es solo lo que pasaría. «Se cancela» es la defensa automática: ese SKU
-              no tiene stock físico para todos los pedidos que lo piden, así que se cancela en TikTok solo ese
-              renglón (los pedidos más nuevos primero) y se confirma lo demás.
+            <p className="mt-1 text-xs texto-2">
+              Nada de esto se ha confirmado: es solo lo que pasaría. «Se cancela» es la defensa automática.
             </p>
           </div>
         ) : null}
-      </section>
+      </Seccion>
 
-      <section className="tarjeta overflow-hidden">
-        <h2 className="px-4 pt-4 text-sm font-semibold">Cortes</h2>
-        <p className="px-4 text-xs" style={{ color: "var(--ink-2)" }}>
-          Surtido: pares por SKU en orden alfabético, para jalar de bodega. En los cortes nuevos,
-          etiquetas y lista de empaque van PRIMERO con los paquetes de un solo modelo (una pieza o
-          varias del mismo modelo) y al final los revueltos; dentro de cada modelo, primero los de un
-          solo color y al final los que mezclan colores, y dentro de cada bloque en orden de
-          modelo → color → talla, con el mismo número. Un corte ya hecho conserva el orden y los
-          números con los que se imprimió. En la etiqueta va el CÓDIGO DEL PEDIDO en barras: escanearlo
-          en la estación enseña qué empacar, y luego se escanea el FNSKU de cada caja. Si un corte
-          quedó a medias, «Faltantes» dice qué pedidos y qué productos quedaron sin preparar.
-        </p>
+      <Seccion titulo="Cortes" descripcion="Cada corte con sus etiquetas, su lista de empaque y lo que falta por preparar." sinRelleno>
+        <div className="px-4 pt-3">
+          <Ayuda titulo="¿En qué orden van las hojas?">
+            <p>Surtido: pares por SKU en orden alfabético, para jalar de bodega.</p>
+            <p>
+              En los cortes nuevos, etiquetas y lista de empaque van PRIMERO con los paquetes de un solo modelo (una pieza o
+              varias del mismo modelo) y al final los revueltos; dentro de cada modelo, primero los de un solo color y al
+              final los que mezclan colores, y dentro de cada bloque en orden de modelo → color → talla, con el mismo número.
+              Un corte ya hecho conserva el orden y los números con los que se imprimió.
+            </p>
+            <p>
+              En la etiqueta va el CÓDIGO DEL PEDIDO en barras: escanearlo en la estación enseña qué empacar, y luego se
+              escanea el FNSKU de cada caja. Si un corte quedó a medias, «Faltantes» dice qué pedidos y qué productos
+              quedaron sin preparar.
+            </p>
+          </Ayuda>
+        </div>
         <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
           {cortes.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hairline">
@@ -668,18 +692,18 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                 <div className="text-sm font-semibold">
                   Corte #{c.numero}
                   {etiquetaDeModelos(c.modelos) ? (
-                    <span className="ml-2 rounded-full px-2 text-[11px] font-semibold" style={{ background: "var(--acento-suave)", color: "var(--exito-texto)" }}>
+                    <span className="chip ml-2" style={{ background: "var(--acento-suave)", color: "var(--acento)" }}>
                       {etiquetaDeModelos(c.modelos)}
                     </span>
                   ) : null}
-                  <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
+                  <span className="ml-2 text-xs font-normal texto-2">
                     {cuando(c.creadoEn)} · {c.pedidos} pedidos · {c.pares} pares ·{" "}
                     {c.handover === "DROP_OFF" ? "a la paquetería" : "pasa el repartidor"}
                   </span>
                   <span
-                    className="ml-2 rounded-full px-2 text-[11px] font-semibold"
+                    className="chip ml-2"
                     style={{
-                      background: listosDe(c) != null && (listosDe(c) as number) >= vivosDe(c) && vivosDe(c) > 0 ? "var(--acento-suave)" : "var(--grid)",
+                      background: listosDe(c) != null && (listosDe(c) as number) >= vivosDe(c) && vivosDe(c) > 0 ? "var(--bien-suave)" : "var(--grid)",
                       color: listosDe(c) != null && (listosDe(c) as number) >= vivosDe(c) && vivosDe(c) > 0 ? "var(--exito-texto)" : "var(--ink-2)",
                     }}
                   >
@@ -704,8 +728,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                         type="button"
                         onClick={() => rearmarEtiquetas(c)}
                         title="Tira los tomos guardados y los vuelve a armar por atrás (si alguna hoja salió SIN GUÍA)"
-                        className="ml-2 rounded border px-1.5 py-0.5 text-xs"
-                        style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                        className="boton boton-borde boton-chico ml-2"
                       >
                         Rearmar etiquetas
                       </button>
@@ -729,10 +752,10 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                             : g.ejemplo}
                         {g.pedidos.length > 1 ? (
                           <details className="inline">
-                            <summary className="ml-1 inline cursor-pointer underline" style={{ color: "var(--ink-2)" }}>
+                            <summary className="enlace ml-1 inline cursor-pointer">
                               ver cuáles
                             </summary>
-                            <span className="cifra ml-1" style={{ color: "var(--ink-2)" }}>{g.pedidos.join(", ")}</span>
+                            <span className="cifra ml-1 texto-2">{g.pedidos.join(", ")}</span>
                           </details>
                         ) : null}
                       </li>
@@ -743,8 +766,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               <div className="flex flex-wrap gap-2">
                 <Link
                   href={`/tiktok/despacho/${c.id}/preparar`}
-                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
-                  style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                  className="boton boton-secundario"
                 >
                   <ScanLine size={14} /> Preparar pedidos
                 </Link>
@@ -754,8 +776,8 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                     disabled={pidiendoFaltantes === c.id}
                     onClick={() => verFaltantes(c.id)}
                     title="Los pedidos de este corte que todavía no se preparan, con sus productos"
-                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
-                    style={{ borderColor: "var(--estado-alerta)", color: "var(--ink-1)" }}
+                    className="boton boton-borde"
+                    style={{ borderColor: "var(--estado-alerta)" }}
                   >
                     <PackageX size={14} />
                     {pidiendoFaltantes === c.id
@@ -792,8 +814,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                       }
                     }}
                     title="Da por preparados todos los paquetes pendientes del corte, con constancia SUPERVISOR"
-                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
-                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                    className="boton boton-borde"
                   >
                     <ShieldCheck size={14} /> {preparandoTodo === c.id ? "Preparando…" : "Todo con clave"}
                   </button>
@@ -802,16 +823,14 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                   href={`/api/tiktok/cortes/${c.id}/surtido`}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border px-3 py-1.5 text-sm"
-                  style={{ borderColor: "var(--grid)" }}
+                  className="boton boton-borde"
                 >
                   Lista de surtido
                 </a>
                 <button
                   onClick={() => imprimirEtiquetas(c)}
                   disabled={Boolean(armandoEtiquetas[c.id]) && !armandoEtiquetas[c.id].startsWith("No se pudieron")}
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                  style={{ background: "var(--acento)" }}
+                  className="boton boton-primario"
                   title={
                     tomosDeCorte(c.pedidos) > 1
                       ? `El servidor arma ${tomosDeCorte(c.pedidos)} tomos de 200 guías y aquí se juntan en un solo PDF`
@@ -827,8 +846,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                 </button>
                 <a
                   href={`/api/tiktok/cortes/${c.id}/salidas`}
-                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
-                  style={{ borderColor: "var(--grid)" }}
+                  className="boton boton-borde"
                   title="Las salidas del corte para el 3PL (CSV)"
                 >
                   Salidas 3PL
@@ -837,8 +855,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                   href={`/api/tiktok/cortes/${c.id}/lista`}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm"
-                  style={{ borderColor: "var(--grid)" }}
+                  className="boton boton-borde"
                 >
                   <FileText size={14} /> Lista de empaque
                 </a>
@@ -860,14 +877,13 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                       href={`/api/tiktok/cortes/${c.id}/faltantes?formato=pdf`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1.5 text-xs underline"
-                      style={{ color: "var(--ink-2)" }}
+                      className="enlace flex items-center gap-1.5 text-xs"
                     >
                       <Printer size={12} /> Imprimir la hoja
                     </a>
                   </div>
                   {faltantes[c.id].pares.length ? (
-                    <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+                    <p className="mt-1 text-xs texto-2">
                       Por surtir:{" "}
                       {faltantes[c.id].pares.map((x: any) => `${x.sku} ×${x.pares}`).join(" · ")}
                     </p>
@@ -876,21 +892,21 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                     {faltantes[c.id].faltantes.map((f: any) => (
                       <li key={`${f.orderId}-${f.packageId}`} className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-semibold">#{f.numero}</span>
-                        <span className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+                        <span className="cifra text-xs texto-2">
                           {f.orderId}
                         </span>
                         <span>
                           {f.pares.map((x: any) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")}
                         </span>
                         {f.revuelto ? (
-                          <span className="rounded-full px-2 text-[11px] font-semibold" style={{ background: "var(--grid)", color: "var(--ink-2)" }}>
+                          <span className="chip texto-2" style={{ background: "var(--grid)" }}>
                             revuelto
                           </span>
                         ) : null}
                       </li>
                     ))}
                     {!faltantes[c.id].faltantes.length ? (
-                      <li className="text-xs" style={{ color: "var(--ink-2)" }}>
+                      <li className="text-xs texto-2">
                         Nada pendiente: el corte se preparó completo.
                       </li>
                     ) : null}
@@ -906,12 +922,12 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             </li>
           ))}
           {!cortes.length ? (
-            <li className="px-4 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+            <li className="px-4 py-6 text-center text-sm texto-2">
               Todavía no hay cortes.
             </li>
           ) : null}
         </ul>
-      </section>
+      </Seccion>
     </div>
   );
 }

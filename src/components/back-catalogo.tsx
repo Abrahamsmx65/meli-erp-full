@@ -62,11 +62,11 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
   return (
     <section className="tarjeta overflow-hidden">
       <div className="flex flex-wrap items-end gap-3 px-4 pt-4">
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           <span>Buscar</span>
           <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="gt135, corcho, negro…" className="mt-1 w-56 rounded-lg border px-2 py-1.5 text-sm" />
         </label>
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           <span>Categoría</span>
           <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="mt-1 rounded-lg border px-2 py-1.5 text-sm">
             <option value="">Todas</option>
@@ -85,7 +85,7 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
           ))}
         </div>
       </div>
-      <p className="mt-2 px-4 text-xs" style={{ color: "var(--ink-muted)" }}>
+      <p className="mt-2 px-4 text-xs texto-tenue">
         {n(visibles.length)} modelos · {n(totales.bodega)} pares en bodega · {n(totales.mar)} en camino de China (mar y pedidos) ·{" "}
         {n(totales.tiktok)} en la bodega de TikTok · {n(totales.bodega + totales.mar + totales.tiktok)} en total
       </p>
@@ -102,7 +102,7 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
               <th className="px-4 py-2 font-semibold">Visible</th>
               <th className="px-4 py-2 font-semibold">Modelo</th>
               <th className="px-4 py-2 font-semibold">Categoría</th>
@@ -123,7 +123,7 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                 <td className="px-4 py-2">
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={!p.oculto} disabled={guardando === p.modelo} onChange={(e) => guardar(p.modelo, { oculto: !e.target.checked })} />
-                    <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <span className="text-xs texto-tenue">
                       {p.oculto ? "Oculto" : "Se ve"}
                     </span>
                   </label>
@@ -136,15 +136,15 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                       <div className="font-medium">
                         {p.modelo}
                         {!p.activo ? (
-                          <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                          <span className="ml-2 text-xs font-normal texto-tenue">
                             inactivo en Amazon
                           </span>
                         ) : null}
                       </div>
-                      <div className="max-w-md truncate text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                      <div className="max-w-md truncate text-xs texto-2" title={p.titulo}>
                         {p.titulo}
                       </div>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         {p.colores.map((c) => c.color).join(", ")}
                       </div>
                     </div>
@@ -170,12 +170,12 @@ export function BackCatalogo({ productos, categorias }: { productos: ProductoCat
                   {p.precios ? (
                     <>
                       <span className="font-semibold">${n(p.precios.normal)}</span>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         live ${n(p.precios.live)} · campaña ${n(p.precios.campana)}
                       </div>
                     </>
                   ) : (
-                    <span className="text-xs" style={{ color: "var(--ink-muted)" }} title="Sin relámpago de MELI en 30 días ni «Mi precio» en Precios para TikTok">
+                    <span className="text-xs texto-tenue" title="Sin relámpago de MELI en 30 días ni «Mi precio» en Precios para TikTok">
                       sin precio
                     </span>
                   )}

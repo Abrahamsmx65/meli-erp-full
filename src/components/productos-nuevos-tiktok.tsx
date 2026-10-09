@@ -275,39 +275,39 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
 
       <section className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             Buscar
             <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="GT134, sandalia, BLK…" className="w-56 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={soloActivos} onChange={(e) => setSoloActivos(e.target.checked)} /> Solo con tallas activas en Amazon
           </label>
-          <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={verPublicados} onChange={(e) => setVerPublicados(e.target.checked)} /> Ver también lo que TikTok ya vende
           </label>
-          <button onClick={refrescarLista} disabled={refrescando} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde gap-1.5">
             <RefreshCw size={14} className={refrescando ? "animate-spin" : ""} /> Releer Amazon
           </button>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {resumen.productos} modelos en Amazon · {resumen.porPublicar} con colores por publicar · {resumen.enTikTok} ya en TikTok · lista de {cuando(datos.generadoEn)}
           </span>
         </div>
 
         {esDueno ? (
           <div className="mt-4 flex flex-wrap items-end gap-3 border-t pt-4" style={{ borderColor: "var(--grid)" }}>
-            <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label className="flex flex-col text-xs texto-2">
               Mismo precio para los marcados ({datos.moneda})
               <div className="flex gap-1">
                 <input type="number" min={1} step={1} value={precioTodos} onChange={(e) => setPrecioTodos(e.target.value)} className="w-28 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
-                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-60" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="boton boton-borde">
                   Aplicar
                 </button>
               </div>
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }} title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
+            <label className="flex items-center gap-1.5 text-sm texto-2" title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
               <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
             </label>
-            <label className="flex items-center gap-1.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="flex items-center gap-1.5 text-sm texto-2">
               <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
             </label>
             <label
@@ -317,7 +317,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             >
               <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
             </label>
-            <button onClick={publicar} disabled={enviando || !listos.length} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60" style={{ background: "var(--acento)" }}>
+            <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario gap-1.5">
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})
             </button>
             {sinPrecio > 0 ? (
@@ -339,7 +339,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
       <section className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+            <tr className="text-left text-xs texto-2">
               {esDueno ? (
                 <th className="px-3 py-2">
                   <input type="checkbox" checked={visibles.length > 0 && visibles.every((p) => !p.coloresPorPublicar.length || marcados.has(p.modelo))} onChange={(e) => marcarTodos(e.target.checked)} />
@@ -374,7 +374,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             ))}
             {!visibles.length ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={7} className="px-3 py-6 text-center text-sm texto-2">
                   Nada que enseñar con estos filtros.
                 </td>
               </tr>
@@ -396,7 +396,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
         <section className="tarjeta p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="titulo-seccion">Cola de publicación</h2>
-            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--ink-2)" }}>
+            <div className="flex items-center gap-2 text-xs texto-2">
               {trabajando ? (
                 <>
                   <Loader2 size={14} className="animate-spin" /> Publicando por atrás…
@@ -405,7 +405,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 "Sin trabajo pendiente."
               )}
               {esDueno && datos.cola.some((c) => c.estado === "pendiente") ? (
-                <button onClick={() => accion("continuar")} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                <button onClick={() => accion("continuar")} className="boton boton-borde boton-chico">
                   Empujar la cola
                 </button>
               ) : null}
@@ -413,7 +413,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
           </div>
           <table className="mt-3 w-full text-sm">
             <thead>
-              <tr className="text-left text-xs" style={{ color: "var(--ink-2)" }}>
+              <tr className="text-left text-xs texto-2">
                 <th className="px-2 py-1">Modelo</th>
                 <th className="px-2 py-1">Colores</th>
                 <th className="px-2 py-1 text-right">Precio</th>
@@ -431,7 +431,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                     <td className="px-2 py-1.5 font-medium">
                       {c.modelo}
                       {c.fuente === "meli" ? (
-                        <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs font-normal texto-tenue">
                           publicación de MELI · {c.titulo}
                         </div>
                       ) : null}
@@ -449,16 +449,16 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                       {c.estado === "error" ? c.error : c.productId ? `Producto ${c.productId}` : c.intentos > 1 ? `Intento ${c.intentos}` : ""}
                       {c.avisos.length ? ` · TikTok avisa: ${c.avisos.join("; ")}` : ""}
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: "var(--ink-2)" }}>{cuando(c.publicadoEn ?? c.creadoEn)}</td>
+                    <td className="px-2 py-1.5 text-xs texto-2">{cuando(c.publicadoEn ?? c.creadoEn)}</td>
                     {esDueno ? (
                       <td className="px-2 py-1.5 text-right">
                         {c.estado === "error" ? (
-                          <button onClick={() => accion("reintentar", c.id)} className="mr-2 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("reintentar", c.id)} className="boton boton-borde boton-chico mr-2 gap-1">
                             <RefreshCw size={12} /> Reintentar
                           </button>
                         ) : null}
                         {c.estado === "error" || c.estado === "pendiente" ? (
-                          <button onClick={() => accion("quitar", c.id)} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs" style={{ borderColor: "var(--grid)" }}>
+                          <button onClick={() => accion("quitar", c.id)} className="boton boton-borde boton-chico gap-1">
                             <Trash2 size={12} /> Quitar
                           </button>
                         ) : null}
@@ -549,7 +549,7 @@ function FilaProducto({
                   title="Título con el que se publica en TikTok (hasta 255 caracteres)"
                 />
               ) : (
-                <p className="line-clamp-2 text-xs" style={{ color: "var(--ink-2)" }} title={p.titulo}>
+                <p className="line-clamp-2 text-xs texto-2" title={p.titulo}>
                   {p.titulo}
                 </p>
               )}
@@ -582,7 +582,7 @@ function FilaProducto({
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {p.skus}
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {" "}
             ({p.activas} act.)
           </span>
@@ -619,7 +619,7 @@ function FilaProducto({
                       <img src={c.imagenUrl} alt="" className="h-10 w-10 rounded object-cover" />
                     ) : null}
                     <span className="font-medium">{c.nombre || c.color}</span>
-                    <span style={{ color: "var(--ink-2)" }}>{c.color}</span>
+                    <span className="texto-2">{c.color}</span>
                     {c.enTikTok.length ? <span style={{ color: "#15803d" }}>ya en TikTok</span> : null}
                   </div>
                   <table className="mt-1">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
+import { Ayuda, Seccion } from "@/components/ui/pagina";
 
 /** El link sin contraseña para los empleados, con el botón para renovarlo si se filtra. */
 export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string | null; origen: string }) {
@@ -37,24 +38,25 @@ export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string 
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Link para los empleados</h2>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-        Abre la estación de preparar sin contraseña. Solo alcanza los cortes y la preparación:
-        nada de ventas, inventario ni cortes nuevos. Si se filtra, genera otro y el anterior muere.
-      </p>
+    <Seccion
+      titulo="Link para los empleados"
+      descripcion="Abre la estación de preparar sin contraseña. Si se filtra, genera otro y el anterior muere."
+    >
+      <Ayuda titulo="¿Qué alcanza el link?">
+        <p>Solo alcanza los cortes y la preparación: nada de ventas, inventario ni cortes nuevos.</p>
+      </Ayuda>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg border px-2.5 py-1.5 text-xs" style={{ borderColor: "var(--grid)" }}>
           {url ?? "Sin link todavía"}
         </code>
-        <button onClick={copiar} disabled={!url} className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
+        <button onClick={copiar} disabled={!url} className="boton boton-borde boton-chico">
           <Copy size={14} /> Copiar
         </button>
-        <button onClick={rotar} disabled={ocupado} className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
+        <button onClick={rotar} disabled={ocupado} className="boton boton-borde boton-chico">
           <RefreshCw size={14} /> Generar nuevo
         </button>
       </div>
-      {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>{aviso}</p> : null}
-    </section>
+      {aviso ? <p className="mt-2 text-xs texto-2">{aviso}</p> : null}
+    </Seccion>
   );
 }
