@@ -119,9 +119,6 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
           <button type="submit" disabled={cargando} className="boton boton-primario">
             {cargando ? "Leyendo de MELI…" : "Ver publicaciones"}
           </button>
-          <span className="text-xs texto-tenue">
-            Se leen en vivo: tarda unos segundos.
-          </span>
         </form>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {disenos.slice(0, 120).map((d) => (
@@ -180,7 +177,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
               </button>
             </div>
             <p className="text-xs texto-tenue">
-              El valor se pone tal cual en todas las variantes de cada publicación seleccionada. Si MELI rechaza el cambio (por ejemplo, un eje del selector con ventas), lo dice aquí abajo con su mensaje.
+              Se aplica en todas las variantes de cada publicación seleccionada; si MELI lo rechaza, aquí sale su mensaje.
             </p>
           </section>
 

@@ -79,12 +79,9 @@ export function AccionesTikTok({ porPublicar }: { porPublicar: number }) {
           onClick={() => correr("publicar")}
           disabled={ocupado !== null}
           className="boton boton-borde"
+          title={porPublicar ? `${porPublicar} SKU por publicar` : undefined}
         >
-          {ocupado === "publicar"
-            ? "Publicando…"
-            : porPublicar
-              ? `Publicar disponibilidad (${porPublicar})`
-              : "Publicar disponibilidad"}
+          {ocupado === "publicar" ? "Publicando…" : "Publicar disponibilidad"}
         </button>
       </div>
 

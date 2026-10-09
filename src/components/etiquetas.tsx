@@ -460,7 +460,7 @@ export function Etiquetas({
 
           <div>
             <label className="text-sm texto-2">
-              O pega una lista: un SKU por renglón, y al lado cuántas etiquetas
+              O pega una lista: SKU y cantidad por renglón
             </label>
             <textarea
               value={pegado}
@@ -475,7 +475,7 @@ export function Etiquetas({
               disabled={cargando || !pegado.trim()}
               className="mt-2 boton boton-primario"
             >
-              Agregar la lista
+              Agregar lista
             </button>
           </div>
         </div>
@@ -486,14 +486,14 @@ export function Etiquetas({
               onClick={() => resolver(sugeridas)}
               disabled={cargando}
               className="boton boton-borde"
+              title={
+                sugeridasTexto?.ayuda ??
+                "Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada SKU que va en las cajas."
+              }
             >
               {sugeridasTexto?.boton ??
-                `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
+                `Traer las ${sugeridas.length} SKUs del envío planeado`}
             </button>
-            <p className="mt-1 text-xs texto-2">
-              {sugeridasTexto?.ayuda ??
-                "Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada SKU que va en las cajas."}
-            </p>
           </div>
         ) : null}
 
@@ -546,23 +546,23 @@ export function Etiquetas({
 
             <button
               onClick={() => setLista([])}
-              className="boton boton-fantasma"
+              className="boton boton-fantasma boton-chico"
             >
-              Vaciar
+              Vaciar lista
             </button>
             <button
               onClick={() => descargar("pdf")}
               disabled={!impresas.length || descargando !== null}
               className="boton boton-primario"
             >
-              {descargando === "pdf" ? "Generando…" : "PDF"}
+              {descargando === "pdf" ? "Generando…" : "Descargar PDF"}
             </button>
             <button
               onClick={() => descargar("zpl")}
               disabled={!impresas.length || descargando !== null}
-              className="boton boton-secundario"
+              className="boton boton-borde"
             >
-              {descargando === "zpl" ? "Generando…" : "TXT (ZPL)"}
+              {descargando === "zpl" ? "Generando…" : "Descargar ZPL"}
             </button>
             <button
               onClick={() => window.print()}

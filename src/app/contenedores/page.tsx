@@ -65,10 +65,18 @@ export default async function Contenedores() {
         titulo="Contenedores"
         descripcion="Cada contenedor con nuestro propio ID; sube el packing list de la fábrica y se arma solo."
         ayuda={
-          <p>
-            Confirmar la llegada no suma inventario: las existencias llegan solas del API de
-            Industher.
-          </p>
+          <>
+            <p>
+              Confirmar la llegada no suma inventario: las existencias llegan solas del API de
+              Industher.
+            </p>
+            <p>
+              Del packing list salen nuestro ID (la referencia del embarque, S259-2026), el número
+              de la naviera (MIEU…), los pedidos y las cajas de cada modelo y color. Se amarra por
+              pedido + modelo + color + talla contra los pedidos ya cargados; lo que no amarra se
+              enseña y no se guarda.
+            </p>
+          </>
         }
       />
 

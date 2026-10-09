@@ -344,18 +344,15 @@ export function ContenidoAmazonPanel({
   return (
     <div className="flex flex-col gap-6">
       {aviso ? (
-        <div className="texto-2 tarjeta p-3 text-sm">
-          {aviso}
-        </div>
+        <Aviso>{aviso}</Aviso>
       ) : null}
 
       {!publico && link ? (
         <section className="tarjeta p-4">
           <h2 className="seccion-titulo">Acceso sin contraseña</h2>
           <p className="texto-2 mt-1 text-xs">
-            Este link abre SOLO esta sección, sin pedir usuario ni contraseña. Quien lo tenga
-            puede palomear, anotar, quitar modelos y bajar imágenes; no ve nada más del sistema.
-            Si se te sale de las manos, genera otro y el anterior deja de servir.
+            Abre solo esta sección, sin usuario ni contraseña. Al generar otro, el anterior deja
+            de servir.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <input
@@ -370,17 +367,17 @@ export function ContenidoAmazonPanel({
               onClick={() => {
                 void navigator.clipboard.writeText(link).then(() => setCopiado(true));
               }}
-              className="boton boton-primario"
+              className="boton boton-borde boton-chico"
             >
-              {copiado ? "Copiado ✓" : "Copiar"}
+              {copiado ? "Copiado ✓" : "Copiar link"}
             </button>
             <button
               type="button"
               onClick={() => void regenerarLink()}
               disabled={rotando}
-              className="boton boton-borde disabled:opacity-50"
+              className="boton boton-borde boton-chico disabled:opacity-50"
             >
-              {rotando ? "Generando…" : "Generar otro"}
+              {rotando ? "Generando…" : "Generar otro link"}
             </button>
           </div>
         </section>
@@ -416,9 +413,9 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void agregarCategoria()}
               disabled={soloLectura || !nuevaCategoria.trim()}
-              className="boton boton-primario disabled:opacity-60"
+              className="boton boton-borde boton-chico disabled:opacity-60"
             >
-              Agregar
+              Agregar categoría
             </button>
           </div>
         </header>
@@ -544,7 +541,7 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void actualizarCatalogo()}
               disabled={refrescando}
-              className="boton boton-borde disabled:opacity-50"
+              className="boton boton-borde boton-chico disabled:opacity-50"
             >
               {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
             </button>
@@ -582,17 +579,17 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void asignarMasivo(categoriaMasiva || null)}
               disabled={soloLectura || asignando || (!categoriaMasiva && true)}
-              className="boton boton-primario disabled:opacity-60"
+              className="boton boton-primario boton-chico disabled:opacity-60"
             >
-              {asignando ? "Asignando…" : "Ponerles esa categoría"}
+              {asignando ? "Asignando…" : "Asignar categoría"}
             </button>
             <button
               type="button"
               onClick={() => void asignarMasivo(null)}
               disabled={soloLectura || asignando}
-              className="boton boton-borde disabled:opacity-50"
+              className="boton boton-borde boton-chico disabled:opacity-50"
             >
-              Quitarles la categoría
+              Quitar categoría
             </button>
             <button
               type="button"

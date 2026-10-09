@@ -47,8 +47,8 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
 
   return (
     <Seccion
-      titulo="Colores equivalentes en Amazon (para el FNSKU)"
-      descripcion="Cuando TikTok llama al color distinto que Amazon, aquí se dice cuál es cuál por modelo."
+      titulo="Colores equivalentes en Amazon"
+      descripcion="Cuando TikTok y Amazon llaman distinto al mismo color, por modelo."
     >
       <Ayuda titulo="¿Para qué sirve?">
         <p>Así el corte encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.</p>
@@ -72,8 +72,8 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
           Color en Amazon
           <input value={colorAmazon} onChange={(e) => setColorAmazon(e.target.value)} placeholder="BROWN" className="mt-1 block w-32 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }} />
         </label>
-        <button type="submit" disabled={ocupado} className="boton boton-primario">
-          Guardar
+        <button type="submit" disabled={ocupado} className="boton boton-borde">
+          Guardar equivalencia
         </button>
       </form>
       {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}

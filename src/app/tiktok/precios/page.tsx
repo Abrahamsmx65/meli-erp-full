@@ -176,7 +176,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
             Recalcular
           </button>
           <a href="/tiktok/precios" className="boton boton-fantasma">
-            Volver a los de omisión
+            Restablecer parámetros
           </a>
         </div>
         <p className="mt-3 text-xs texto-2">

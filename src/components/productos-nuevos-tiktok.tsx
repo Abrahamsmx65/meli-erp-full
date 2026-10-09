@@ -286,7 +286,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
           <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={verPublicados} onChange={(e) => setVerPublicados(e.target.checked)} /> Ver también lo que TikTok ya vende
           </label>
-          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde">
+          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde boton-chico">
             <RefreshCw size={14} className={refrescando ? "animate-spin" : ""} /> Releer Amazon
           </button>
           <span className="text-xs texto-2">
@@ -300,23 +300,23 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
               Mismo precio para los marcados ({datos.moneda})
               <div className="flex gap-1">
                 <input type="number" min={1} step={1} value={precioTodos} onChange={(e) => setPrecioTodos(e.target.value)} className="w-28 rounded-lg border px-2 py-1.5 text-sm" style={estiloCampo} />
-                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="boton boton-borde">
+                <button onClick={aplicarPrecioATodos} disabled={!marcados.size || !(Number(precioTodos) > 0)} className="boton boton-borde boton-chico">
                   Aplicar
                 </button>
               </div>
             </label>
             <label className="flex items-center gap-1.5 text-sm texto-2" title="Un modelo sin ninguna talla activa en Amazon publica todos sus colores de todos modos">
-              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir también los colores apagados de modelos con otros colores activos
+              <input type="checkbox" checked={incluirApagados} onChange={(e) => setIncluirApagados(e.target.checked)} /> Incluir colores sin tallas activas
             </label>
             <label className="flex items-center gap-1.5 text-sm texto-2">
-              <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok (revisar antes de vender)
+              <input type="checkbox" checked={borrador} onChange={(e) => setBorrador(e.target.checked)} /> Dejarlos como borrador en TikTok
             </label>
             <label
               className="flex items-center gap-1.5 text-sm"
               style={{ color: volverAPublicar ? "var(--alerta-texto)" : "var(--ink-2)" }}
               title="Para un producto que quedó mal: se publica OTRA VEZ con TODOS sus colores como producto nuevo. El viejo hay que borrarlo en el Seller Center; en la siguiente lectura del catálogo deja de contar."
             >
-              <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
+              <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga
             </label>
             <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario">
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})

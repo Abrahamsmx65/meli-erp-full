@@ -18,6 +18,7 @@ import {
   promptUGCDesdeFoto,
   promptUGCParaSpeak,
 } from "@/lib/higgsfield/ugc";
+import { Ayuda } from "@/components/ui/pagina";
 
 type Formato = "studio" | "clip" | "hablado" | "ugc" | "dop";
 
@@ -1285,12 +1286,15 @@ export function GeneradorVideo({
   return (
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Nuevo video</h2>
-      <p className="texto-2 mt-0.5 text-[13px]">
-        Clip, prueba y hablado se generan directo de tus fotos reales: el producto
-        sale tal cual, sin que la IA lo redibuje. En UGC una persona lo presenta
-        hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena con
-        tu foto de referencia.
-      </p>
+      <div className="mt-2">
+        <Ayuda titulo="¿Qué formato elijo?">
+          <p>
+            Clip, prueba y hablado se generan directo de tus fotos reales: el producto sale tal cual, sin que la IA lo
+            redibuje. En UGC una persona lo presenta hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena
+            con tu foto de referencia.
+          </p>
+        </Ayuda>
+      </div>
 
       {/* 1. Publicación */}
       <div className="mt-3">
@@ -2186,10 +2190,9 @@ export function BotonActualizar({ hayEnCurso }: { hayEnCurso: boolean }) {
     <button
       onClick={actualizar}
       disabled={girando}
-      className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-      style={{ borderColor: "var(--borde)", color: hayEnCurso ? "var(--acento)" : "var(--ink-2)" }}
+      className="boton boton-borde boton-chico"
     >
-      {girando ? "Revisando…" : "↻ Actualizar"}
+      {girando ? "Revisando…" : "Revisar estado"}
     </button>
   );
 }

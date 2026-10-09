@@ -64,11 +64,11 @@ export default async function Videos() {
             // La sesión de Higgsfield puede expirar aunque la conexión exista;
             // sin este botón no habría forma de renovarla desde la pantalla.
             <a href="/api/higgsfield/conectar" className="boton boton-borde boton-chico">
-              Reconectar Higgsfield (si algo falla) →
+              Reconectar Higgsfield
             </a>
           ) : (
             <a href="/api/higgsfield/conectar" className="boton boton-primario">
-              Conectar Higgsfield →
+              Conectar Higgsfield
             </a>
           )
         }
@@ -79,22 +79,14 @@ export default async function Videos() {
               reales) o en modo UGC, con una persona que lo presenta hablando en español — con tu voz grabada dura 10-15
               segundos con lip sync. El video terminado se guarda aquí para siempre; en Higgsfield solo vive unos días.
             </p>
-            {cuentaConectada ? (
-              <p>
-                Cuenta de Higgsfield (Marketing Studio): ✓ Conectada. El ERP puede usar el Marketing Studio de tu cuenta:
-                productos anclados a tus fotos reales y video UGC de la calidad de la app.
-              </p>
-            ) : null}
+            <p>
+              Con la cuenta de Higgsfield (Marketing Studio) conectada, el ERP usa el Marketing Studio de tu suscripción:
+              producto idéntico a tus fotos reales y video UGC de la calidad de la app. Un solo login; la conexión se
+              mantiene sola. Si algo falla, reconéctala.
+            </p>
           </>
         }
       />
-
-      {!cuentaConectada ? (
-        <Aviso tono="info" titulo="Cuenta de Higgsfield (Marketing Studio) sin conectar">
-          Conéctala para usar el Marketing Studio de tu suscripción desde aquí: producto idéntico y la calidad de la app.
-          Un solo login; la conexión se mantiene sola.
-        </Aviso>
-      ) : null}
 
       {!hayLlave ? (
         <Aviso tono="alerta" titulo="Falta conectar Higgsfield">
@@ -114,7 +106,7 @@ export default async function Videos() {
             ? "Todavía no hay ninguna."
             : enCurso > 0
               ? `${enCurso} en el horno. Un clip tarda entre 2 y 8 minutos (primero la foto, luego la animación).`
-              : "Todo lo encolado ya terminó."
+              : undefined
         }
         acciones={<BotonActualizar hayEnCurso={enCurso > 0} />}
         sinRelleno

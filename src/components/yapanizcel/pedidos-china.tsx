@@ -288,7 +288,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                   cerrar
                 </button>
               </h2>
-              <a href={`/api/yapanizcel/pedidos/excel?diseno=${encodeURIComponent(detalle.diseno)}`} className="boton boton-primario">
+              <a href={`/api/yapanizcel/pedidos/excel?diseno=${encodeURIComponent(detalle.diseno)}`} className="boton boton-borde boton-chico">
                 Excel del diseño {detalle.diseno}
               </a>
             </div>

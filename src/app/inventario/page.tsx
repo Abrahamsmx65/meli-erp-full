@@ -51,10 +51,16 @@ export default async function Inventario({
         titulo="Bodega"
         descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
         ayuda={
-          <p>
-            Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
-            que estés viendo.
-          </p>
+          <>
+            <p>
+              Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
+              que estés viendo.
+            </p>
+            <p>
+              En el total por familia las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero todas
+              del mismo modelo, así que por familia el número es exacto. Por eso el desglose de adentro solo muestra pares.
+            </p>
+          </>
         }
       />
 

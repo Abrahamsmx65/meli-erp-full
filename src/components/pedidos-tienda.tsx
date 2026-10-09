@@ -108,11 +108,13 @@ export function PedidosTienda({
       <div className="tarjeta flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
         <div>
           <b className="num">{productosActivos}</b> productos a la venta · catálogo leído de TikTok {fecha(catalogoLeidoEn)}
-          <div className="text-xs texto-2">
-            El precio se copia cada 15 min; fotos, colores y tallas se releen cada 12 h o con este botón.
-          </div>
         </div>
-        <button className="boton boton-secundario" onClick={actualizarCatalogo} disabled={ocupado !== null}>
+        <button
+          className="boton boton-borde boton-chico"
+          onClick={actualizarCatalogo}
+          disabled={ocupado !== null}
+          title="El precio se copia cada 15 min; fotos, colores y tallas se releen cada 12 h o con este botón"
+        >
           <RefreshCw size={14} className={ocupado === "catalogo" ? "girando" : ""} /> Actualizar catálogo
         </button>
       </div>
@@ -228,7 +230,7 @@ export function PedidosTienda({
                       onChange={(e) => setGuias({ ...guias, [p.id]: { ...g, paqueteria: e.target.value } })}
                     />
                     <button
-                      className="boton boton-primario"
+                      className="boton boton-primario boton-chico"
                       disabled={ocupado !== null || !g.guia.trim()}
                       onClick={() => accion(p.id, { accion: "enviar", ...g })}
                     >
@@ -237,13 +239,13 @@ export function PedidosTienda({
                   </>
                 )}
                 {p.estado === "enviado" && (
-                  <button className="boton boton-secundario" disabled={ocupado !== null} onClick={() => accion(p.id, { accion: "entregado" })}>
+                  <button className="boton boton-borde boton-chico" disabled={ocupado !== null} onClick={() => accion(p.id, { accion: "entregado" })}>
                     Marcar entregado
                   </button>
                 )}
                 {["pendiente_pago", "pagado", "sin_stock"].includes(p.estado) && (
                   <button
-                    className="boton boton-peligro"
+                    className="boton boton-peligro boton-chico"
                     disabled={ocupado !== null}
                     onClick={() => {
                       const pagado = p.estado !== "pendiente_pago";

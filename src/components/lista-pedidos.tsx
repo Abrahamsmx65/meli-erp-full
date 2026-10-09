@@ -108,8 +108,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
     return (
       <section className="tarjeta p-6 text-center">
         <p className="texto-2 text-sm">
-          Todavía no hay pedidos cargados. Sube una proforma en Cargar pedidos y
-          aparecerá aquí con sus corridas ya dadas de alta.
+          Todavía no hay pedidos. Sube una proforma arriba y aparecerá aquí con sus corridas.
         </p>
       </section>
     );
@@ -282,8 +281,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         <button
                           onClick={() => eliminar(p)}
                           disabled={borrando === p.id}
-                          className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                          style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
+                          className="boton boton-peligro boton-chico disabled:opacity-50"
                         >
                           {borrando === p.id ? "Borrando…" : "Borrar"}
                         </button>
@@ -461,9 +459,8 @@ function AsignarContenedor({
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Contenedor del pedido {pedido.pedido}</h3>
         <p className="texto-2 mt-1 text-sm">
-          Pon el número de contenedor y cuántas cajas de cada modelo se van en él. Si el
-          pedido se parte, repite esto con el segundo contenedor: lo que quede sin
-          asignar sigue contando como pendiente de embarcar.
+          Cuántas cajas de cada modelo van en este contenedor. Lo que quede sin asignar sigue
+          pendiente de embarcar.
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -840,11 +837,8 @@ function EditarRenglones({
       <div className="tarjeta my-8 w-full max-w-4xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Renglones del pedido {pedido.pedido}</h3>
         <p className="texto-2 mt-1 text-sm">
-          Corrige el modelo, el color o la talla si la proforma se leyó mal, baja las
-          cajas si una parte ya no se fabricó, o quita el renglón. Los pares se recalculan
-          solos. No se puede bajar de lo ya embarcado en contenedores; eso se corrige
-          primero en <strong>Contenedores → Contenido</strong>. Si cambias el modelo o el
-          color de un renglón de corrida, su corrida se renombra con él.
+          Corrige modelo, color, talla o cajas. No se puede bajar de lo ya embarcado (eso se
+          corrige en <strong>Contenedores → Contenido</strong>).
         </p>
 
         <input

@@ -87,10 +87,7 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1">
           <h2 className="seccion-titulo">Recargar histórico</h2>
-          <p className="texto-2 mt-1 text-xs">
-            La sincronización automática mantiene al día los últimos 3 días. Usa
-            esto para traer más historia o para corregir un periodo.
-          </p>
+          <p className="texto-2 mt-1 text-xs">Trae más historia de ventas o corrige un periodo.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -119,9 +116,9 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
           <button
             onClick={recargar}
             disabled={enCola || enviando}
-            className="boton boton-primario"
+            className="boton boton-borde"
           >
-            {enviando ? "Encolando…" : "Recargar"}
+            {enviando ? "Encolando…" : "Recargar ventas"}
           </button>
         </div>
       </div>

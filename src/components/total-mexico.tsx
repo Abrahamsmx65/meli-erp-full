@@ -96,8 +96,7 @@ export function TotalMexico({
         <div>
           <h2 className="seccion-titulo">Total en México por familia</h2>
           <p className="mt-0.5 text-xs texto-2">
-            Cada modelo con todos sus colores y tallas juntos, todas las bodegas sumadas.
-            No incluye lo que viene de China. Abre un renglón para ver el desglose.
+            Cada modelo con sus colores y tallas, todas las bodegas sumadas, sin lo que viene de China.
           </p>
         </div>
 
@@ -186,12 +185,6 @@ export function TotalMexico({
           </tbody>
         </table>
       </div>
-
-      <footer className="border-t p-3 text-xs hairline texto-tenue">
-        Las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero
-        todas del mismo modelo, así que por familia el número es exacto. Por eso el
-        desglose de adentro solo muestra pares.
-      </footer>
     </section>
   );
 }

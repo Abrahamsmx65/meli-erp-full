@@ -50,12 +50,7 @@ function fecha(iso: string | null): string {
 function Tarjeta({ r }: { r: ResumenCanal }) {
   return (
     <section className="tarjeta flex flex-col gap-4 p-5">
-      <div>
-        <h2 className="seccion-titulo">{r.nombre}</h2>
-        <p className="mt-1 text-sm texto-2">
-          {NOTAS[r.canal]}
-        </p>
-      </div>
+      <h2 className="seccion-titulo">{r.nombre}</h2>
 
       {r.conectado ? (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
@@ -73,17 +68,6 @@ function Tarjeta({ r }: { r: ResumenCanal }) {
       ) : (
         <Aviso tono="alerta">Este canal no está conectado; no hay nada que descargar.</Aviso>
       )}
-
-      <div className="flex flex-wrap gap-1">
-        {COLUMNAS[r.canal].map((c) => (
-          <span
-            key={c}
-            className="rounded-md border px-1.5 py-0.5 text-[11px] hairline texto-2"
-          >
-            {c}
-          </span>
-        ))}
-      </div>
 
       <div className="mt-auto">
         {r.conectado && r.skus > 0 ? (
@@ -128,11 +112,15 @@ export default async function Skus() {
         ceja="Inventario"
         titulo="SKUs"
         descripcion="Todos los SKUs de cada canal, cada uno en su Excel con filtros."
+        ayudaTitulo="¿Qué trae cada Excel?"
         ayuda={
-          <p>
-            Cada Excel trae el SKU con su código de Full o su ASIN, título, talla o variante y FNSKU. Las columnas de cada
-            canal se ven en su tarjeta.
-          </p>
+          <>
+            {resumen.map((r) => (
+              <p key={r.canal}>
+                <strong>{r.nombre}.</strong> {NOTAS[r.canal]} Columnas: {COLUMNAS[r.canal].join(", ")}.
+              </p>
+            ))}
+          </>
         }
       />
 

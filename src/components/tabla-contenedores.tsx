@@ -134,8 +134,8 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     return (
       <section className="tarjeta p-6 text-center">
         <p className="texto-2 text-sm">
-          Todavía no hay contenedores. Se dan de alta desde Planificación China, con
-          el botón <strong>Contenedor</strong> de cada pedido.
+          Todavía no hay contenedores. Sube un packing list arriba o asígnalo desde el botón{" "}
+          <strong>Contenedor</strong> de cada pedido en Cargar pedidos.
         </p>
       </section>
     );
@@ -650,9 +650,8 @@ function ContenidoContenedor({
               confirmar
             </h4>
             <p className="texto-2 mt-0.5 text-xs">
-              La fábrica escribió el color distinto al pedido. Por cada uno te digo cuál es casi seguro y
-              por qué; confirma y las cajas se suman a ese renglón. Si marcas «recordar», el próximo
-              embarque con ese nombre amarra solo.
+              La fábrica escribió el color distinto al pedido. Confirma la sugerencia y las cajas se suman
+              a ese renglón; con «recordar», el próximo embarque amarra solo.
             </p>
             <ul className="mt-2 flex flex-col gap-2">
               {pendientes.map((p) => {
