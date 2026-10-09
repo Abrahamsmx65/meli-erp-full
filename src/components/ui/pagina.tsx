@@ -126,9 +126,12 @@ export function Seccion({
   suelta,
   sinRelleno,
   id,
+  ayuda,
 }: {
   titulo?: ReactNode;
   descripcion?: ReactNode;
+  /** Explicación de la sección, plegada bajo la cabeza. */
+  ayuda?: ReactNode;
   acciones?: ReactNode;
   children: ReactNode;
   /** Sin tarjeta: para agrupar fichas o tablas que ya traen su tarjeta. */
@@ -147,11 +150,17 @@ export function Seccion({
         {acciones ? <div className="flex flex-wrap items-center gap-2">{acciones}</div> : null}
       </div>
     ) : null;
+  const plegada = ayuda ? (
+    <div className={suelta ? "mb-3" : "px-4 pt-3"}>
+      <Ayuda>{ayuda}</Ayuda>
+    </div>
+  ) : null;
 
   if (suelta) {
     return (
       <section id={id}>
         {cabeza}
+        {plegada}
         {children}
       </section>
     );
@@ -159,6 +168,7 @@ export function Seccion({
   return (
     <section id={id} className="tarjeta overflow-hidden">
       {cabeza}
+      {plegada}
       <div className={sinRelleno ? "" : "p-4"}>{children}</div>
     </section>
   );
@@ -221,7 +231,16 @@ const CONEXIONES = {
 } as const;
 
 /** «Conecta primero»: el mismo bloque en todas las pantallas. */
-export function SinCuenta({ servicio = "meli", titulo }: { servicio?: keyof typeof CONEXIONES; titulo?: string }) {
+export function SinCuenta({
+  servicio = "meli",
+  titulo,
+  children,
+}: {
+  servicio?: keyof typeof CONEXIONES;
+  titulo?: string;
+  /** Instrucción extra, si la conexión tiene un paso propio. */
+  children?: ReactNode;
+}) {
   const c = CONEXIONES[servicio];
   return (
     <Pagina>
@@ -229,6 +248,7 @@ export function SinCuenta({ servicio = "meli", titulo }: { servicio?: keyof type
       <div className="tarjeta mx-auto w-full max-w-md p-8 text-center">
         <h2 className="titulo-seccion">{c.titulo}</h2>
         <p className="texto-2 mt-2 text-sm">{c.texto}</p>
+        {children ? <div className="texto-2 mt-2 text-left text-[13px]">{children}</div> : null}
         <Link href={c.href} className="boton boton-primario mt-4">
           {c.boton}
         </Link>
