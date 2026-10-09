@@ -25,7 +25,7 @@ function Celda({ c, formato }: { c: Comparada; formato: (x: number) => string })
   return (
     <>
       <td className="num cifra">{formato(c.actual)}</td>
-      <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{formato(c.anterior)}</td>
+      <td className="num cifra texto-tenue">{formato(c.anterior)}</td>
       <td className="num cifra font-semibold" style={{ color: colorCambio(c) }}>{cambioTexto(c)}</td>
     </>
   );
@@ -46,7 +46,7 @@ export function ComparacionMensualVista({ comp, nombreActual, nombreAnterior }: 
           Contra {nombreAnterior}
           {comp.base === "mismos-dias" ? ` · del 1 al ${comp.hastaAnterior}` : ""}
         </h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-0.5 text-sm texto-2">
           {comp.base === "mismos-dias"
             ? `${nombreActual} va en curso: se compara contra los mismos días de ${nombreAnterior} (del 1 al ${comp.hastaAnterior}), no contra el mes completo. Hoy va a medias.`
             : comp.enCurso

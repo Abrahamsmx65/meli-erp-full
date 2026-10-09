@@ -84,7 +84,7 @@ export function ConciliarMeli() {
             }}
           />
         </label>
-        <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <span className="text-xs texto-2">
           Mercado Libre → Ventas → Descargar reporte → el mes → Excel («Ventas MX»).
         </span>
         {error ? (
@@ -132,7 +132,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
       <section className="tarjeta overflow-hidden">
         <header className="border-b p-4 hairline">
           <h2 className="text-base font-semibold">Sumas de las ventas comparables ({n(i.comparables)})</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-0.5 text-sm texto-2">
             Solo las ventas que el ERP ya tiene con el pago real de Mercado Pago. En reventa el reporte no trae cargos ni envío y el ERP tampoco los descuenta.
           </p>
         </header>
@@ -161,7 +161,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
             })}
           </tbody>
         </table>
-        <p className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-2)" }}>
+        <p className="border-t p-3 text-xs hairline texto-2">
           Diferencia en el neto de las comparables: <strong className="cifra">{pesos(dNeto)}</strong>.
         </p>
       </section>
@@ -196,7 +196,7 @@ function Informe({ i }: { i: InformeVentasMeli }) {
         <section className="tarjeta overflow-hidden">
           <header className="border-b p-4 hairline">
             <h2 className="text-base font-semibold">Ventas que no cuadran (las {n(i.ejemplos.length)} más grandes)</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="mt-0.5 text-sm texto-2">
               Ábrelas en Mercado Libre por su número de venta para ver qué pasó. Diferencia = reporte − ERP.
             </p>
           </header>
@@ -250,14 +250,14 @@ function Cifra({ titulo, valor, nota, tono }: { titulo: string; valor: string; n
   const color = tono === "bien" ? "var(--exito-texto)" : tono === "alerta" ? "var(--estado-alerta)" : tono === "critico" ? "var(--estado-critico)" : "var(--ink-1)";
   return (
     <div className="rounded-lg border p-3" style={{ borderColor: "var(--borde)" }}>
-      <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <div className="text-xs texto-2">
         {titulo}
       </div>
       <div className="cifra text-lg font-semibold" style={{ color }}>
         {valor}
       </div>
       {nota ? (
-        <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <div className="text-xs texto-2">
           {nota}
         </div>
       ) : null}

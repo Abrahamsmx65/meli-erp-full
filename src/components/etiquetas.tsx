@@ -413,7 +413,7 @@ export function Etiquetas({
 
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="text-sm texto-2">
               Buscar por SKU o título
             </label>
             <input
@@ -440,14 +440,14 @@ export function Etiquetas({
                       className="w-full px-2 py-1.5 text-left text-sm hover:opacity-80"
                     >
                       <span className="font-medium">{r.sku}</span>
-                      <span style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue">
                         {r.codigoFull
                           ? ` · ${r.codigoFull}`
                           : r.fnsku
                             ? ` · Amazon · FNSKU ${r.fnsku}`
                             : " · sin código Full"}
                       </span>
-                      <div className="truncate text-xs" style={{ color: "var(--ink-2)" }}>
+                      <div className="truncate text-xs texto-2">
                         {r.titulo}
                       </div>
                     </button>
@@ -458,7 +458,7 @@ export function Etiquetas({
           </div>
 
           <div>
-            <label className="text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="text-sm texto-2">
               O pega una lista: un SKU por renglón, y al lado cuántas etiquetas
             </label>
             <textarea
@@ -491,7 +491,7 @@ export function Etiquetas({
               {sugeridasTexto?.boton ??
                 `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
             </button>
-            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <p className="mt-1 text-xs texto-2">
               {sugeridasTexto?.ayuda ??
                 "Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada SKU que va en las cajas."}
             </p>
@@ -515,7 +515,7 @@ export function Etiquetas({
 
             {soloMeli ? null : (
               <label className="ml-auto flex items-center gap-2 text-sm">
-                <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
+                <span className="texto-2">Etiqueta</span>
                 <select
                   value={tipo}
                   onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
@@ -530,7 +530,7 @@ export function Etiquetas({
             )}
 
             <label className={`flex items-center gap-2 text-sm ${soloMeli ? "ml-auto" : ""}`}>
-              <span style={{ color: "var(--ink-2)" }}>Tamaño</span>
+              <span className="texto-2">Tamaño</span>
               <select
                 value={tamano}
                 onChange={(e) => setTamano(e.target.value as Tamano)}
@@ -601,12 +601,12 @@ export function Etiquetas({
                   </td>
                   {soloMeli ? null : (
                     <td className="cifra">
-                      {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
+                      {e.fnsku ?? <span className="texto-tenue">—</span>}
                     </td>
                   )}
                   <td
-                    className="max-w-72 truncate text-xs"
-                    style={{ color: "var(--ink-2)" }}
+                    className="max-w-72 truncate text-xs texto-2"
+                   
                     title={e.titulo ?? ""}
                   >
                     {e.titulo ?? "—"}

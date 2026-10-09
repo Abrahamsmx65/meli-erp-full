@@ -28,7 +28,7 @@ function Fila({ o }: { o: OrdenAuditada }) {
       <td className="cifra">{o.fecha}</td>
       <td>{o.tipoVenta === "reventa" ? "Reventa" : "Directa"}</td>
       <td className="num cifra">{pesos(o.total)}</td>
-      <td className="num cifra" style={{ color: "var(--ink-2)" }}>{o.tipoVenta === "reventa" ? pesos(o.totalComprador) : ""}</td>
+      <td className="num cifra texto-2">{o.tipoVenta === "reventa" ? pesos(o.totalComprador) : ""}</td>
       <td className="num cifra">{pesos(-o.comision)}</td>
       <td className="num cifra">{pesos(-o.envio)}</td>
       <td className="num cifra">{pesos(-retenciones)}</td>
@@ -49,7 +49,7 @@ function Tabla({ titulo, nota, ordenes }: { titulo: string; nota: string; ordene
   return (
     <div>
       <h3 className="px-4 pt-3 text-sm font-semibold">{titulo}</h3>
-      <p className="px-4 pb-2 text-xs" style={{ color: "var(--ink-2)" }}>
+      <p className="px-4 pb-2 text-xs texto-2">
         {nota}
       </p>
       <div style={{ overflowX: "auto" }}>
@@ -74,7 +74,7 @@ function Tabla({ titulo, nota, ordenes }: { titulo: string; nota: string; ordene
               ordenes.map((o) => <Fila key={o.orderId} o={o} />)
             ) : (
               <tr>
-                <td colSpan={11} className="text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={11} className="text-sm texto-2">
                   Sin órdenes en el rango.
                 </td>
               </tr>
@@ -103,7 +103,7 @@ export function AuditoriaOrdenes({
       <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 hairline">
         <div>
           <h2 className="text-base font-semibold">Auditoría por orden</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-0.5 text-sm texto-2">
             Cada renglón es una venta con lo que Mercado Pago cobró y depositó, para abrirla y
             cotejarla al centavo. «Pago real» = leída de Mercado Pago con retenciones y envío
             exactos; «forma vieja» o «sin leer» se recargan en segundo plano.
@@ -131,7 +131,7 @@ export function AuditoriaOrdenes({
           />
         </>
       ) : (
-        <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="p-4 text-sm texto-2">
           La muestra se arma en el siguiente refresco del periodo; el Excel ya está disponible.
         </p>
       )}

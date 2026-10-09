@@ -132,7 +132,7 @@ export function TablaModelosVentas({
             </option>
           ))}
         </select>
-        <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-auto text-xs texto-tenue">
           {busqueda !== busquedaDiferida || cargando ? "Actualizando… · " : ""}
           {datos.totalFiltrado} de {datos.totalCatalogo} modelos · ordenado por {COLUMNAS.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()}{" "}
           {orden.desc ? "↓" : "↑"}
@@ -168,7 +168,7 @@ export function TablaModelosVentas({
                   <td className="num cifra">{f.colores}</td>
                   <td className="num cifra">{n(f.unidadesHoy)}</td>
                   <td className="num cifra font-semibold">{n(f.unidades7)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+                  <td className="num cifra texto-tenue">
                     {n(f.unidades7Prev)}
                   </td>
                   <td className="num cifra" style={{ color: colorDelta(delta) }}>
@@ -176,7 +176,7 @@ export function TablaModelosVentas({
                   </td>
                   <td className="num cifra">{pesos(f.importe7)}</td>
                   <td className="num cifra">{pesos(f.neto7)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  <td className="num cifra texto-2">
                     {f.publicidad7 == null ? "—" : pesos(f.publicidad7)}
                   </td>
                   <td className="num cifra" style={{ color: f.ganancia7 != null && f.ganancia7 < 0 ? "var(--estado-critico)" : f.ganancia7 == null ? "var(--ink-muted)" : "var(--ink-1)" }}>
@@ -187,7 +187,7 @@ export function TablaModelosVentas({
             })}
             {datos.totalFiltrado === 0 ? (
               <tr>
-                <td colSpan={COLUMNAS.length} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={COLUMNAS.length} className="p-4 text-sm texto-2">
                   Ningún modelo coincide con el filtro.
                 </td>
               </tr>
@@ -201,7 +201,7 @@ export function TablaModelosVentas({
                   Total de lo filtrado
                 </td>
                 <td className="num cifra font-semibold">{n(totales.unidades7)}</td>
-                <td className="num cifra" style={{ color: "var(--ink-muted)" }}>
+                <td className="num cifra texto-tenue">
                   {n(totales.unidades7Prev)}
                 </td>
                 <td className="num cifra" style={{ color: colorDelta(totales.unidades7 - totales.unidades7Prev) }}>
@@ -227,7 +227,7 @@ export function TablaModelosVentas({
           aria-label="Páginas de modelos"
           className="flex items-center justify-between gap-3 border-t p-3 hairline text-sm"
         >
-          <span style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2">
             Mostrando {(paginaSegura - 1) * datos.filasPorPagina + 1}–
             {Math.min(paginaSegura * datos.filasPorPagina, datos.totalFiltrado)} de {datos.totalFiltrado}
           </span>

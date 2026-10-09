@@ -38,7 +38,7 @@ const fechaCorta = (iso: string) => {
 
 /** Los dos últimos cobros reales: "$59.60 (24/9, pedido $230.25, hermanas $59.60)". */
 function UltimosCobros({ real }: { real: VarianteRevisada["envioReal"] }) {
-  if (!real || !real.ultimos.length) return <span style={{ color: "var(--ink-muted)" }}>sin ventas</span>;
+  if (!real || !real.ultimos.length) return <span className="texto-tenue">sin ventas</span>;
   return (
     <div className="flex flex-col gap-0.5">
       {real.ultimos.map((u, i) => {
@@ -47,7 +47,7 @@ function UltimosCobros({ real }: { real: VarianteRevisada["envioReal"] }) {
         return (
           <div key={i} className="cifra text-xs" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
             <strong>{pesos(u.envio)}</strong>
-            <span style={{ color: "var(--ink-muted)" }}>
+            <span className="texto-tenue">
               {" "}
               {fechaCorta(u.fecha)} · pedido {pesos(u.total)} ·{" "}
               {u.normal == null
@@ -65,34 +65,34 @@ function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
   return (
     <tr>
       <td className="text-sm font-medium">{v.sku}</td>
-      <td className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-xs texto-2">
         {v.inventoryId ?? "—"}
       </td>
-      <td className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-xs texto-2">
         {v.itemId ?? "—"}
       </td>
       <td className="cifra text-sm" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
         {caja(v.medida)}
-        <span className="ml-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-1 text-[11px] texto-tenue">
           {v.medida ? `${Math.round(v.medida.peso)} g` : ""}
         </span>
       </td>
-      <td className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-sm texto-2">
         {caja(v.medidaReal)}
-        <span className="ml-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-1 text-[11px] texto-tenue">
           {v.medidaReal ? `${Math.round(v.medidaReal.peso)} g` : ""}
         </span>
       </td>
-      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="text-xs texto-2">
         {v.envioGratis ? "yo" : "el comprador"}
       </td>
       <td className="num cifra text-sm" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
         {pesos(v.costo)}
       </td>
-      <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="num cifra text-sm texto-2">
         {pesos(v.costoNormal)}
       </td>
-      <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="num cifra text-sm texto-2">
         {v.sobrecosto > 0 ? `+${pesos(v.sobrecosto)}` : "—"}
       </td>
       <td>
@@ -101,7 +101,7 @@ function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
       <td className="num cifra text-sm font-semibold" style={{ color: v.pagadoDeMas > 0 ? "var(--estado-critico)" : undefined }}>
         {v.conVentas ? (v.pagadoDeMas > 0 ? `+${pesos(v.pagadoDeMas)}` : "$0") : "—"}
         {v.envioReal && (
-          <div className="text-[11px] font-normal" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-[11px] font-normal texto-tenue">
             {v.envioReal.ordenes} ventas · {v.envioReal.comparables} comparables
           </div>
         )}
@@ -326,8 +326,8 @@ export function CostosEnvio({
           </a>
           <a
             href="/api/costos-envio/excel?todo=1"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
-            style={{ color: "var(--ink-2)" }}
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline texto-2"
+           
           >
             Excel del catálogo completo
           </a>
@@ -339,7 +339,7 @@ export function CostosEnvio({
           />
         </div>
 
-        <p className="mt-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 text-sm texto-2">
           <strong className="cifra">{totales.malas}</strong> publicaciones cobran de más, en{" "}
           <strong className="cifra">{conProblema.length}</strong> modelos ·{" "}
           <span style={{ color: "var(--estado-critico)" }}>
@@ -378,7 +378,7 @@ export function CostosEnvio({
         )}
 
         {aviso && (
-          <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-2 text-sm texto-2">
             {aviso}
           </p>
         )}
@@ -390,7 +390,7 @@ export function CostosEnvio({
       </section>
 
       {!filtrados.length && (
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           {busqueda
             ? `No hay ningún modelo que se llame así.`
             : totales.medidas === 0
@@ -407,7 +407,7 @@ export function CostosEnvio({
           <section key={m.modelo} className="tarjeta overflow-hidden">
             <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
               <h2 className="text-base font-semibold">{m.modelo}</h2>
-              <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+              <span className="text-sm texto-2">
                 caja real <span className="cifra">{caja(m.medidaReal)}</span> cm según{" "}
                 <span className="cifra">{m.hermanas}</span> publicaciones · envío normal{" "}
                 <span className="cifra">{pesos(m.costoNormal)}</span>

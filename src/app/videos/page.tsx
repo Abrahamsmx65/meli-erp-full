@@ -10,26 +10,25 @@ import {
   EditarSubtitulos,
   ElegirImagen,
 } from "@/components/videos";
+import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
   creado: { texto: "Creado", color: "var(--ink-muted)" },
-  enviado: { texto: "En el horno", color: "var(--estado-alerta)" },
-  en_progreso: { texto: "Generando…", color: "var(--estado-alerta)" },
+  enviado: { texto: "En el horno", color: "var(--alerta-texto)" },
+  en_progreso: { texto: "Generando…", color: "var(--alerta-texto)" },
   eligiendo: { texto: "Elige la imagen", color: "var(--acento)" },
   completado: { texto: "✓ Listo", color: "var(--exito-texto)" },
-  fallido: { texto: "Falló", color: "var(--estado-critico)" },
-  rechazado: { texto: "Rechazado", color: "var(--estado-critico)" },
+  fallido: { texto: "Falló", color: "var(--critico-texto)" },
+  rechazado: { texto: "Rechazado", color: "var(--critico-texto)" },
 };
 
 export default async function Videos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
-  }
+  if (!cuenta) return <SinCuenta titulo="Videos de producto" />;
 
   const hayLlave = Boolean(credencialesHiggsfield());
 
@@ -55,81 +54,74 @@ export default async function Videos() {
   ).length;
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="titulo-pagina">Videos de producto</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Clips verticales 9:16 listos para los Clips de Mercado Libre: del
-          producto tal cual (directo de tus fotos reales) o en modo UGC, con una
-          persona que lo presenta hablando en español — con tu voz grabada dura
-          10-15 segundos con lip sync. El video terminado se guarda aquí para
-          siempre; en Higgsfield solo vive unos días.
-        </p>
-      </div>
-
-      <section className="tarjeta p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">Cuenta de Higgsfield (Marketing Studio)</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              {cuentaConectada
-                ? "✓ Conectada. El ERP puede usar el Marketing Studio de tu cuenta: productos anclados a tus fotos reales y video UGC de la calidad de la app."
-                : "Conéctala para usar el Marketing Studio de tu suscripción desde aquí: producto idéntico y la calidad de la app. Un solo login; la conexión se mantiene sola."}
-            </p>
-          </div>
-          {cuentaConectada ? (
+    <Pagina>
+      <Encabezado
+        ceja="Mercado Libre"
+        titulo="Videos de producto"
+        descripcion="Clips verticales 9:16 para los Clips de Mercado Libre, del producto tal cual o en modo UGC."
+        acciones={
+          cuentaConectada ? (
             // La sesión de Higgsfield puede expirar aunque la conexión exista;
             // sin este botón no habría forma de renovarla desde la pantalla.
-            <a
-              href="/api/higgsfield/conectar"
-              className="rounded border px-4 py-1.5 text-sm"
-              style={{ borderColor: "var(--borde)", color: "var(--acento)" }}
-            >
-              Reconectar (si algo falla) →
+            <a href="/api/higgsfield/conectar" className="boton boton-borde boton-chico">
+              Reconectar Higgsfield (si algo falla) →
             </a>
           ) : (
-            <a
-              href="/api/higgsfield/conectar"
-              className="rounded px-4 py-1.5 text-sm text-white"
-              style={{ background: "var(--acento)" }}
-            >
+            <a href="/api/higgsfield/conectar" className="boton boton-primario">
               Conectar Higgsfield →
             </a>
-          )}
-        </div>
-      </section>
+          )
+        }
+        ayuda={
+          <>
+            <p>
+              Clips verticales 9:16 listos para los Clips de Mercado Libre: del producto tal cual (directo de tus fotos
+              reales) o en modo UGC, con una persona que lo presenta hablando en español — con tu voz grabada dura 10-15
+              segundos con lip sync. El video terminado se guarda aquí para siempre; en Higgsfield solo vive unos días.
+            </p>
+            {cuentaConectada ? (
+              <p>
+                Cuenta de Higgsfield (Marketing Studio): ✓ Conectada. El ERP puede usar el Marketing Studio de tu cuenta:
+                productos anclados a tus fotos reales y video UGC de la calidad de la app.
+              </p>
+            ) : null}
+          </>
+        }
+      />
+
+      {!cuentaConectada ? (
+        <Aviso tono="info" titulo="Cuenta de Higgsfield (Marketing Studio) sin conectar">
+          Conéctala para usar el Marketing Studio de tu suscripción desde aquí: producto idéntico y la calidad de la app.
+          Un solo login; la conexión se mantiene sola.
+        </Aviso>
+      ) : null}
 
       {!hayLlave ? (
-        <section className="tarjeta p-4">
-          <h2 className="font-semibold">Falta conectar Higgsfield</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-            Crea una llave de API en cloud.higgsfield.ai y agrega la variable de
-            entorno <code>HIGGSFIELD_CREDENTIALS=&quot;ID:SECRETO&quot;</code> en
-            Vercel (y en <code>.env.local</code> para desarrollo). Sin eso no se
-            puede generar nada.
-          </p>
-        </section>
+        <Aviso tono="alerta" titulo="Falta conectar Higgsfield">
+          Crea una llave de API en cloud.higgsfield.ai y agrega la variable de
+          entorno <code>HIGGSFIELD_CREDENTIALS=&quot;ID:SECRETO&quot;</code> en
+          Vercel (y en <code>.env.local</code> para desarrollo). Sin eso no se
+          puede generar nada.
+        </Aviso>
       ) : (
         <GeneradorVideo publicaciones={publicaciones} cuentaConectada={cuentaConectada} />
       )}
 
-      <section className="tarjeta overflow-hidden">
-        <header className="flex items-center justify-between border-b p-4 hairline">
-          <div>
-            <h2 className="font-semibold">Generaciones</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              {(videos ?? []).length === 0
-                ? "Todavía no hay ninguna."
-                : enCurso > 0
-                  ? `${enCurso} en el horno. Un clip tarda entre 2 y 8 minutos (primero la foto, luego la animación).`
-                  : "Todo lo encolado ya terminó."}
-            </p>
-          </div>
-          <BotonActualizar hayEnCurso={enCurso > 0} />
-        </header>
+      <Seccion
+        titulo="Generaciones"
+        descripcion={
+          (videos ?? []).length === 0
+            ? "Todavía no hay ninguna."
+            : enCurso > 0
+              ? `${enCurso} en el horno. Un clip tarda entre 2 y 8 minutos (primero la foto, luego la animación).`
+              : "Todo lo encolado ya terminó."
+        }
+        acciones={<BotonActualizar hayEnCurso={enCurso > 0} />}
+        sinRelleno
+      >
 
         {(videos ?? []).length > 0 && (
-          <div className="max-h-[44rem] overflow-auto">
+          <div className="tabla-caja alta">
             <table className="datos">
               <thead>
                 <tr>
@@ -195,10 +187,10 @@ export default async function Videos() {
                       </td>
                       <td className="align-top">
                         <div className="text-sm font-medium">{(v.titulo as string) || "—"}</div>
-                        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs texto-tenue">
                           {(v.item_id as string) ?? ""}
                         </div>
-                        <div className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <div className="mt-1 text-xs texto-tenue">
                           {new Date(v.creado_en as string).toLocaleString("es-MX")}
                         </div>
                       </td>
@@ -221,8 +213,8 @@ export default async function Videos() {
                           </div>
                         ) : null}
                         <div
-                          className="mt-0.5 line-clamp-3 text-xs"
-                          style={{ color: "var(--ink-muted)" }}
+                          className="mt-0.5 line-clamp-3 text-xs texto-tenue"
+                         
                           title={v.prompt as string}
                         >
                           {v.prompt as string}
@@ -233,12 +225,12 @@ export default async function Videos() {
                           {est.texto}
                         </span>
                         {detalleEtapa ? (
-                          <div className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+                          <div className="mt-1 text-xs texto-tenue">
                             {detalleEtapa}
                           </div>
                         ) : null}
                         {v.error ? (
-                          <div className="mt-1 max-w-[14rem] text-xs" style={{ color: "var(--estado-critico)" }}>
+                          <div className="mt-1 max-w-[14rem] text-xs" style={{ color: "var(--critico-texto)" }}>
                             {v.error as string}
                           </div>
                         ) : null}
@@ -249,8 +241,7 @@ export default async function Videos() {
                             <a
                               href={v.video_guardado as string}
                               download
-                              className="text-xs underline"
-                              style={{ color: "var(--acento)" }}
+                              className="text-xs enlace"
                             >
                               Descargar MP4
                             </a>
@@ -274,7 +265,7 @@ export default async function Videos() {
             </table>
           </div>
         )}
-      </section>
-    </div>
+      </Seccion>
+    </Pagina>
   );
 }

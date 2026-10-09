@@ -161,7 +161,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
 
       {grupo ? (
         <>
-          <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: "var(--ink-2)" }}>
+          <div className="flex flex-wrap items-center gap-3 text-sm texto-2">
             <span className="text-base font-semibold" style={{ color: "var(--ink-1)" }}>
               {grupo.agrupador}
             </span>
@@ -187,7 +187,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                 <h2 className="text-sm font-semibold">
                   Diferencias que parten el selector ({raras.length})
                 </h2>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+                <p className="mt-0.5 text-xs texto-2">
                   Elige el valor correcto y unifícalo: se escribe en todas las publicaciones
                   del agrupador, en el nivel donde viva el atributo (publicación o variante).
                 </p>
@@ -221,7 +221,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             material
                           </span>
                         ) : null}
-                        <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <span className="cifra text-xs texto-tenue">
                           {d.atributoId}
                         </span>
                       </div>
@@ -246,12 +246,12 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             <span className={v.valor === SIN_DATO ? "italic" : ""}>
                               {v.valor}
                             </span>
-                            <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                            <span className="cifra text-xs texto-tenue">
                               ×{v.veces}
                             </span>
                             <span
-                              className="min-w-0 flex-1 truncate text-xs"
-                              style={{ color: "var(--ink-muted)" }}
+                              className="min-w-0 flex-1 truncate text-xs texto-tenue"
+                             
                             >
                               {v.donde.join(", ")}
                             </span>
@@ -264,7 +264,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                             checked={!!(otro[k] ?? "").trim()}
                             onChange={() => setEleccion((p) => ({ ...p, [k]: "" }))}
                           />
-                          <span style={{ color: "var(--ink-2)" }}>Otro valor:</span>
+                          <span className="texto-2">Otro valor:</span>
                           <input
                             type="text"
                             value={otro[k] ?? ""}
@@ -303,7 +303,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                                   ✓ actualizado ({r.niveles.join(" y ")})
                                 </span>
                               ) : r.estado === "sin_cambio" ? (
-                                <span style={{ color: "var(--ink-muted)" }}>ya estaba bien</span>
+                                <span className="texto-tenue">ya estaba bien</span>
                               ) : (
                                 <span style={{ color: "var(--estado-critico)" }}>
                                   ✗ {r.detalle ?? "error"}
@@ -407,7 +407,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
           </span>
         ) : null}
         <ChipEstado estado={item.estado} />
-        <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="cifra text-xs texto-tenue">
           {item.itemId}
         </span>
         {item.precio != null ? (
@@ -429,7 +429,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
                 style={{ borderColor: "var(--borde)", ...(difiere ? resalte : {}) }}
                 title={difiere ? "Distinto al valor mayoritario del agrupador" : undefined}
               >
-                <span style={{ color: "var(--ink-2)" }}>{d.nombre}:</span>{" "}
+                <span className="texto-2">{d.nombre}:</span>{" "}
                 <span className={propio === SIN_DATO ? "italic" : "font-medium"}>{propio}</span>
               </span>
             );
@@ -457,7 +457,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
                 <tr key={v.variationId}>
                   <td className="cifra font-medium">{v.talla ?? "—"}</td>
                   <td className="cifra text-xs">{v.sku ?? "—"}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                  <td className="text-xs texto-2">
                     {v.combinacion || "—"}
                   </td>
                   <td className="num cifra">{v.stock ?? "—"}</td>
@@ -483,7 +483,7 @@ function TarjetaItem({ item, diferencias }: { item: ItemListado; diferencias: Di
           </table>
         </div>
       ) : (
-        <p className="p-4 text-sm" style={{ color: "var(--ink-muted)" }}>
+        <p className="p-4 text-sm texto-tenue">
           Publicación sin variantes.
         </p>
       )}

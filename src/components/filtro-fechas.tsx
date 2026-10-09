@@ -33,7 +33,7 @@ export function FiltroFechas({
 
   return (
     <div className="tarjeta flex flex-wrap items-center gap-x-4 gap-y-2 p-3 text-sm">
-      <span style={{ color: "var(--ink-2)" }}>Periodo</span>
+      <span className="texto-2">Periodo</span>
       {atajos.map((a) => {
         const activo = a.desde === desde && a.hasta === hasta;
         return (
@@ -62,7 +62,7 @@ export function FiltroFechas({
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
           aria-label="Desde"
         />
-        <span style={{ color: "var(--ink-muted)" }}>→</span>
+        <span className="texto-tenue">→</span>
         <input
           type="date"
           name="hasta"

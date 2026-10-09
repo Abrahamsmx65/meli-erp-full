@@ -100,12 +100,12 @@ export function BotonesPlan() {
       </Boton>
 
       {aviso ? (
-        <span className="text-sm" style={{ color: "var(--exito-texto)" }}>
+        <span className="text-sm" style={{ color: "var(--exito-texto)" }} role="status">
           {aviso}
         </span>
       ) : null}
       {error ? (
-        <span className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <span className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </span>
       ) : null}
@@ -163,32 +163,26 @@ export function FrescuraPlan({
     }
   }
 
+  // Va en las acciones del encabezado: píldora de frescura (o chip ámbar con
+  // el motivo si está desactualizado) y, junto, EL botón de recalcular.
+  const detalle = msCalculo ? ` · tardó ${(msCalculo / 1000).toFixed(1)} s` : "";
   return (
-    <div
-      className="tarjeta flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm"
-      style={{
-        borderColor: vigente ? "var(--borde)" : "var(--estado-alerta)",
-        color: "var(--ink-2)",
-      }}
-    >
-      <span aria-hidden="true" style={{ color: vigente ? "var(--exito-texto)" : "var(--estado-alerta)" }}>
-        {vigente ? "●" : "■"}
-      </span>
-      <span>
-        {vigente ? "Plan calculado" : "Plan desactualizado"} {hace}
-        {msCalculo ? ` · tardó ${(msCalculo / 1000).toFixed(1)} s` : ""}
-      </span>
-      {!vigente && motivo ? (
-        <span style={{ color: "var(--estado-alerta)" }}>· {motivo}</span>
-      ) : null}
-      <button
-        onClick={recalcular}
-        disabled={recalculando}
-        className="underline disabled:opacity-60"
-        style={{ color: "var(--acento)" }}
-      >
-        {recalculando ? "Recalculando…" : "Recalcular ahora"}
-      </button>
+    <div className="flex flex-wrap items-center gap-2">
+      {vigente ? (
+        <span className="frescura" title="El plan se guarda calculado y se refresca en el fondo">
+          Plan calculado {hace}
+          {detalle}
+        </span>
+      ) : (
+        <span className="chip aviso-alerta" style={{ whiteSpace: "normal" }}>
+          ▲ Plan desactualizado {hace}
+          {detalle}
+          {motivo ? ` · ${motivo}` : ""}
+        </span>
+      )}
+      <Boton variante="fantasma" chico onClick={recalcular} cargando={recalculando} textoCargando="Recalculando…">
+        Recalcular ahora
+      </Boton>
     </div>
   );
 }

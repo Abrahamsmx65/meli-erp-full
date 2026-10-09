@@ -135,7 +135,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
       {comparacion ? (
         <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
       ) : (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <p className="text-xs texto-tenue">
           Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))}: ese mes todavía no se ha calculado. Ábrelo una vez y la comparación aparece aquí.
         </p>
       )}
@@ -222,10 +222,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <div className="grid gap-4 border-t p-4 hairline lg:grid-cols-2">
           <div>
             <h3 className="text-sm font-semibold">Deducciones incluidas en el neto</h3>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+            <p className="mt-0.5 text-xs texto-tenue">
               Son informativas: ya están descontadas y no se vuelven a restar.
             </p>
-            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
               {cns.canales.flatMap((k) =>
                 k.descuentos.map((d) => (
                   <li key={`${k.canal}-${d.concepto}`} className="flex justify-between gap-4">
@@ -239,10 +239,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
           </div>
           <div>
             <h3 className="text-sm font-semibold">Gastos descontados aparte</h3>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+            <p className="mt-0.5 text-xs texto-tenue">
               Publicidad no amarrada, Full, FBA, devoluciones netas y gastos capturados.
             </p>
-            <ul className="mt-2 flex flex-col gap-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
               {cns.canales.flatMap((k) =>
                 k.gastos.map((g) => (
                   <li key={`${k.canal}-${g.concepto}`} className="flex justify-between gap-4">
@@ -306,7 +306,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <td className="num cifra">{pesos(k.cargoGeneral)}</td>
                   <td className="num cifra font-semibold" style={{ color: colorGanancia(k.ganancia) }}>{k.ganancia == null ? "—" : pesos(k.ganancia)}</td>
                   {canales.map((c) => (
-                    <td key={c} className="num cifra text-xs" style={{ color: "var(--ink-2)" }}>
+                    <td key={c} className="num cifra text-xs texto-2">
                       {k.porCanal[c] ? `${n(k.porCanal[c]!.unidades)} u · ${k.porCanal[c]!.ganancia == null ? "—" : pesos(k.porCanal[c]!.ganancia!)}` : "—"}
                     </td>
                   ))}
@@ -352,8 +352,8 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
               {cns.porModelo.map((m) => (
                 <tr key={m.modelo}>
                   <td className="font-medium">{m.modelo}</td>
-                  <td style={{ color: "var(--ink-2)" }}>{m.categoria}</td>
-                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>{m.canales.map((c) => NOMBRE_CANAL[c].split(" ·")[0]).join(", ")}</td>
+                  <td className="texto-2">{m.categoria}</td>
+                  <td className="text-xs texto-tenue">{m.canales.map((c) => NOMBRE_CANAL[c].split(" ·")[0]).join(", ")}</td>
                   <td className="num cifra">{n(m.unidades)}</td>
                   <td className="num cifra">{pesos(m.importe)}</td>
                   <td className="num cifra">{pesos(m.comision)}</td>
@@ -427,7 +427,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             </tbody>
           </table>
         ) : (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>Todavía no hay cortes generales guardados.</p>
+          <p className="p-4 text-sm texto-2">Todavía no hay cortes generales guardados.</p>
         )}
       </section>
     </Pagina>
