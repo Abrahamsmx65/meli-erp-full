@@ -41,10 +41,10 @@ import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 import { Logo } from "@/components/logo";
 
 /**
- * Menú lateral: riel azul marino de altura completa con el logo arriba:
+ * Menú lateral: riel crema de altura completa con el logo de GETAC arriba:
  * secciones DESPLEGABLES (se abren y cierran con un clic; se recuerda cuáles
  * quedaron abiertas), entradas compactas (ícono + nombre; la explicación va
- * en el tooltip) y la activa en blanco con una raya azul a la izquierda. La entrada que se
+ * en el tooltip) y la activa resaltada en arena con una raya café a la izquierda. La entrada que se
  * acaba de picar muestra un circulito mientras llega la página.
  *
  * El sistema dejó de ser "un planeador de envíos" para ser varias cosas, y la
@@ -73,87 +73,85 @@ const GRUPOS: Grupo[] = [
   {
     titulo: "Negocio",
     entradas: [
-      { href: "/cortes", texto: "Corte general", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
+      { href: "/cortes", texto: "Estado de resultados", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
     ],
   },
   {
     titulo: "Inventario",
     entradas: [
-      { href: "/inventario", texto: "Bodega", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
-      { href: "/productos", texto: "Productos y costos", icono: Tags, ayuda: "Categoría y costo por color" },
-      { href: "/skus", texto: "SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
+      { href: "/inventario", texto: "Existencias", icono: Warehouse, ayuda: "Cajas y existencias por SKU" },
+      { href: "/productos", texto: "Catálogo y costos", icono: Tags, ayuda: "Categoría y costo por color" },
+      { href: "/skus", texto: "Catálogo de SKUs", icono: Barcode, ayuda: "Catálogos de MELI, fundas y Amazon en Excel" },
     ],
   },
   {
     titulo: "Mercado Libre",
     entradas: [
       { href: "/ventas", texto: "Ventas", icono: Activity, ayuda: "En vivo y por modelo" },
-      { href: "/listados", texto: "Listados", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
+      { href: "/listados", texto: "Publicaciones", icono: LayoutList, ayuda: "Variantes y atributos por agrupador" },
       { href: "/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/ventas/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de Ventas de MELI contra el ERP, venta por venta" },
-      { href: "/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué cajas mandar" },
-      { href: "/costos-envio", texto: "Costos de envío", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
+      { href: "/envios", texto: "Reabasto a Full", icono: Truck, ayuda: "Qué cajas mandar" },
+      { href: "/costos-envio", texto: "Auditoría de envíos", icono: Scale, ayuda: "Publicaciones mal medidas que cobran de más" },
       { href: "/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas" },
-      { href: "/videos", texto: "Videos", icono: Clapperboard, ayuda: "Videos de producto con IA" },
+      { href: "/videos", texto: "Videos de producto", icono: Clapperboard, ayuda: "Videos de producto con IA" },
       { href: "/fiscal", texto: "Datos fiscales", icono: ReceiptText, ayuda: "SAT e IVA de publicaciones sin datos" },
     ],
   },
   {
     titulo: "Amazon",
     entradas: [
-      { href: "/amazon/ventas", texto: "Ventas Amazon", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
+      { href: "/amazon/ventas", texto: "Ventas", icono: ShoppingCart, ayuda: "En vivo y por modelo" },
       { href: "/amazon/publicidad", texto: "Publicidad", icono: Megaphone, ayuda: "Costo de ads por unidad vendida" },
-      { href: "/amazon/conciliar", texto: "Conciliar", icono: PieChart, ayuda: "El reporte de transacciones de Seller Central contra el ERP, al centavo" },
-      { href: "/amazon/contenido", texto: "Contenido", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
-      { href: "/amazon", texto: "Envíos a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
+      { href: "/amazon/contenido", texto: "Contenido de marca", icono: Images, ayuda: "Categorías, imágenes y A+ por modelo" },
+      { href: "/amazon", texto: "Reabasto a FBA", icono: PackageCheck, ayuda: "Stock FBA y qué cajas mandar" },
     ],
   },
   {
     titulo: "TikTok Shop",
     entradas: [
-      { href: "/tiktok/ventas", texto: "Ventas TikTok", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
-      { href: "/tiktok/despacho", texto: "Despacho", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
+      { href: "/tiktok/ventas", texto: "Ventas", icono: ShoppingCart, ayuda: "Pedidos y qué hay que empacar" },
+      { href: "/tiktok/despacho", texto: "Despacho de pedidos", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
       { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
-      { href: "/tiktok/catalogo", texto: "Catálogo creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
-      { href: "/tiktok/pedidos", texto: "Pedidos de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
-      { href: "/tiktok", texto: "Almacén TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
-      { href: "/tiktok/desfases", texto: "Desfases", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
+      { href: "/tiktok/catalogo", texto: "Catálogo para creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
+      { href: "/tiktok/pedidos", texto: "Reabasto de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
+      { href: "/tiktok", texto: "Inventario TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
+      { href: "/tiktok/desfases", texto: "Cuadre de inventario", icono: Scale, ayuda: "TikTok vs kardex vs Industher" },
       { href: "/tiktok/conteo", texto: "Conteo cíclico", icono: Barcode, ayuda: "Contar con escáner y ajustar el kardex" },
-      { href: "/tiktok/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
-      { href: "/tiktok/precios", texto: "Precios", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
+      { href: "/tiktok/nuevos", texto: "Publicar productos", icono: Sparkles, ayuda: "Publicar en TikTok lo que ya está en Amazon" },
+      { href: "/tiktok/precios", texto: "Estrategia de precios", icono: Tags, ayuda: "El precio en TikTok que deja lo mismo que MELI, en tres niveles" },
     ],
   },
   {
     titulo: "Abastecimiento",
     entradas: [
-      { href: "/pedidos", texto: "Planificación China", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
-      { href: "/pedidos/cargar", texto: "Cargar pedidos", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
-      { href: "/pedidos/nuevos", texto: "Productos nuevos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
+      { href: "/pedidos", texto: "Planeación de compras", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/cargar", texto: "Órdenes de compra", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
+      { href: "/pedidos/nuevos", texto: "Lanzamientos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
-      { href: "/corridas", texto: "Corridas", icono: Boxes, ayuda: "Tallas por caja" },
+      { href: "/corridas", texto: "Corridas por caja", icono: Boxes, ayuda: "Tallas por caja" },
     ],
   },
   {
     titulo: "YAPANIZCEL · Fundas",
     entradas: [
-      { href: "/yapanizcel/ventas", texto: "Ventas fundas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
-      { href: "/yapanizcel/inventario", texto: "Bodega fundas", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
-      { href: "/yapanizcel/skus", texto: "SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
-      { href: "/yapanizcel/listados", texto: "Listados fundas", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
-      { href: "/yapanizcel/envios", texto: "Envíos a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
-      { href: "/yapanizcel/etiquetas", texto: "Etiquetas fundas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
-      { href: "/yapanizcel/pedidos", texto: "Pedidos a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
-      { href: "/yapanizcel/ajustes", texto: "Ajustes fundas", icono: Settings, ayuda: "Conexión, costos y parámetros" },
+      { href: "/yapanizcel/ventas", texto: "Ventas", icono: Smartphone, ayuda: "Ventas, costos y ganancia" },
+      { href: "/yapanizcel/inventario", texto: "Existencias", icono: Warehouse, ayuda: "Existencias del sheet, amarradas a MELI" },
+      { href: "/yapanizcel/skus", texto: "Amarre de SKUs", icono: Tags, ayuda: "Amarrar bodega con Mercado Libre" },
+      { href: "/yapanizcel/listados", texto: "Publicaciones", icono: LayoutList, ayuda: "Atributos de las publicaciones, por diseño" },
+      { href: "/yapanizcel/envios", texto: "Reabasto a Full", icono: Truck, ayuda: "Qué mandar, en decenas cerradas" },
+      { href: "/yapanizcel/etiquetas", texto: "Etiquetas", icono: Barcode, ayuda: "Imprimir etiquetas de Full de las fundas" },
+      { href: "/yapanizcel/pedidos", texto: "Compras a China", icono: Ship, ayuda: "Por diseño, y lo que viene en camino" },
+      { href: "/yapanizcel/ajustes", texto: "Configuración", icono: Settings, ayuda: "Conexión, costos y parámetros" },
     ],
   },
   {
     titulo: "Sistema",
     entradas: [
-      { href: "/salud", texto: "Revisión general", icono: Stethoscope, ayuda: "Qué está mal o incompleto, en un solo lugar" },
+      { href: "/salud", texto: "Diagnóstico", icono: Stethoscope, ayuda: "Qué está mal o incompleto, en un solo lugar" },
       { href: "/pendientes", texto: "Pendientes", icono: AlertTriangle, ayuda: "Lo que falta resolver" },
-      { href: "/importar", texto: "Importar", icono: Upload, ayuda: "Bodega desde Industher y corridas del sheet" },
-      { href: "/sincronizar", texto: "Sincronizar", icono: RefreshCw, ayuda: "Traer datos de Mercado Libre" },
-      { href: "/ajustes", texto: "Ajustes", icono: Settings, ayuda: "Parámetros y conexión" },
+      { href: "/importar", texto: "Importar datos", icono: Upload, ayuda: "Bodega desde Industher y corridas del sheet" },
+      { href: "/sincronizar", texto: "Sincronización", icono: RefreshCw, ayuda: "Traer datos de Mercado Libre" },
+      { href: "/ajustes", texto: "Configuración", icono: Settings, ayuda: "Parámetros y conexión" },
     ],
   },
 ];
@@ -254,10 +252,10 @@ export function MenuLateral({
         className={`${
           abierto ? "translate-x-0" : "-translate-x-full"
         } no-imprimir fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto pb-6 transition-transform duration-200 lg:sticky lg:top-0 lg:z-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:translate-x-0`}
-        style={{ background: "var(--sidebar)", color: "var(--sidebar-texto)" }}
+        style={{ background: "var(--sidebar)", color: "var(--sidebar-texto)", borderRight: "1px solid var(--sidebar-borde)" }}
       >
-        <div className="flex h-14 shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
-          <Logo />
+        <div className="flex h-[72px] shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
+          <Logo alto={42} />
         </div>
         <div className="flex-1 pt-3">
         {grupos.map((g) => {
@@ -274,7 +272,7 @@ export function MenuLateral({
                   aria-expanded={desplegado}
                   aria-controls={idLista}
                   className="seccion-menu flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase"
-                  style={{ color: contieneActivo && !desplegado ? "#fff" : "var(--sidebar-tenue)", letterSpacing: "0.06em" }}
+                  style={{ color: contieneActivo && !desplegado ? "var(--ink-1)" : "var(--sidebar-tenue)", letterSpacing: "0.06em" }}
                 >
                   <span className="flex items-center gap-1.5">
                     {g.titulo}
@@ -321,7 +319,7 @@ export function MenuLateral({
                         className="entrada-menu flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors"
                         style={{
                           background: act ? "var(--sidebar-activo)" : "transparent",
-                          color: act ? "#fff" : "var(--sidebar-texto)",
+                          color: act ? "var(--ink-1)" : "var(--sidebar-texto)",
                           fontWeight: act ? 600 : 500,
                           boxShadow: act ? "inset 2px 0 0 var(--sidebar-acento)" : "none",
                         }}

@@ -397,6 +397,34 @@ export async function avanceDeCortes(db: DB, accountId: string, corteIds: number
 }
 
 /**
+ * La primera y la última constancia de preparado de cada corte (RPC
+ * `tiktok_tiempos_cortes`, migración 0126): Despacho enseña la diferencia
+ * como el tiempo que tomó preparar el corte (dueño, 9-oct-2026). Si la
+ * lectura falla, mapa vacío: el tiempo simplemente no se enseña.
+ */
+export async function tiemposDeCortes(
+  db: DB,
+  accountId: string,
+  corteIds: number[],
+): Promise<Map<number, { primera: string; ultima: string }>> {
+  const ids = [...new Set(corteIds.filter((id) => Number.isFinite(id)))];
+  const tiempos = new Map<number, { primera: string; ultima: string }>();
+  if (!ids.length) return tiempos;
+  try {
+    const { data, error } = await db.rpc("tiktok_tiempos_cortes", { p_account: accountId, p_cortes: ids });
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as any[]) {
+      if (!r.primera_prep || !r.ultima_prep) continue;
+      tiempos.set(Number(r.corte_id), { primera: String(r.primera_prep), ultima: String(r.ultima_prep) });
+    }
+  } catch (err) {
+    console.error("tiktok_tiempos_cortes:", (err as Error).message);
+    return new Map();
+  }
+  return tiempos;
+}
+
+/**
  * Confirma en TikTok todos los envíos pendientes y los deja en un corte.
  * Un pedido que TikTok rechace se anota y se queda fuera del corte (entra
  * al siguiente cuando se arregle); los demás siguen.

@@ -44,9 +44,7 @@ export function EnviosSeparados({
   if (!grupos.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm texto-2">
-          El plan de hoy no manda cajas, así que no hay envíos que preparar.
-        </p>
+        <p className="text-sm texto-2">Hoy no hay envíos que preparar.</p>
       </section>
     );
   }
@@ -57,16 +55,15 @@ export function EnviosSeparados({
         <h2 className="seccion-titulo">Envíos a preparar</h2>
         {grupos.length > 1 ? (
           <p className="texto-2 mt-0.5 text-[13px]">
-            {`${grupos.length} envíos, uno por dirección de recolección: cada uno se da de alta por separado en Mercado Libre.`}
+            {`${grupos.length} envíos`}
           </p>
         ) : null}
       </div>
 
       {sinConfigurar.length ? (
         <Aviso tono="alerta">
-          {sinConfigurar.join(", ")} no está configurado como almacén, así que va en su
-          propio envío por precaución. Si comparte dirección con otro, dilo en Ajustes y
-          se juntan.
+          {sinConfigurar.join(", ")} no está configurado como almacén: va en su propio envío.
+          Configúralo en Ajustes.
         </Aviso>
       ) : null}
 
@@ -202,9 +199,7 @@ function TarjetaEnvio({ grupo, cajas }: { grupo: Grupo; cajas: FilaCajaPlan[] })
                   style={{ background: "var(--alerta-suave)" }}
                 >
                   <td colSpan={8} className="font-semibold text-sm">
-                    Opcionales — {n(totales.cajasOpc)} cajas · {n(totales.paresOpc)} pares.
-                    Entraron por el rescate de una talla que falta; el resto de la caja
-                    sobra. Tú decides si van en el envío.
+                    Opcionales — {n(totales.cajasOpc)} cajas · {n(totales.paresOpc)} pares
                   </td>
                 </tr>
               ) : null}

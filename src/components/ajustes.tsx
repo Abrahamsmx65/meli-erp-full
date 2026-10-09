@@ -43,6 +43,7 @@ const CAMPOS: {
     clave: "nivelServicio",
     etiqueta: "Nivel de servicio",
     ayuda: "0.95 = aceptas quedarte sin stock 5% del tiempo. Más alto = más colchón.",
+    corta: "0.95 = 95 %.",
     paso: 0.01,
     min: 0.5,
   },
@@ -70,6 +71,7 @@ const CAMPOS: {
     clave: "maxCajasPorEnvio",
     etiqueta: "Tope de cajas por envío",
     ayuda: "0 = sin tope. Úsalo si tu transporte tiene un límite fijo.",
+    corta: "0 = sin tope.",
     min: 0,
   },
   {
@@ -126,7 +128,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       setEstado("ok");
-      setMensaje("Parámetros guardados. El plan se recalcula con estos valores.");
+      setMensaje("Parámetros guardados.");
       router.refresh();
     } catch (err) {
       setEstado("error");
@@ -148,7 +150,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
               onChange={(e) => setV({ ...v, [c.clave]: Number(e.target.value) })}
               className="cifra"
             />
-            <span className="text-xs texto-tenue">{c.corta ?? c.ayuda}</span>
+            {c.corta ? <span className="text-xs texto-tenue">{c.corta}</span> : null}
           </label>
         ))}
       </div>

@@ -13,7 +13,7 @@ export const maxDuration = 120;
 export default async function SkusYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="SKUs de fundas" />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Amarre de SKUs" />;
 
   // El amarre vive masticado en yz_cache ("amarre"): lo invalidan el sheet,
   // la sincronización del catálogo y cada amarre confirmado a mano.
@@ -32,7 +32,7 @@ export default async function SkusYz() {
     <Pagina>
       <Encabezado
         ceja="Fundas"
-        titulo="SKUs de fundas"
+        titulo="Amarre de SKUs"
         descripcion="Amarre de los SKUs del sheet de bodega con las publicaciones de Mercado Libre."
         ayuda={
           <p>

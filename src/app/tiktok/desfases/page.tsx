@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function Desfases() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Desfases TikTok" />;
+  if (!cuenta) return <SinCuenta titulo="Cuadre de inventario" />;
 
   const d = await cargarDesfases(supabase, cuenta.id);
   const n = (x: number | null) => (x == null ? "—" : x.toLocaleString("es-MX"));
@@ -19,7 +19,7 @@ export default async function Desfases() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Desfases TikTok"
+        titulo="Cuadre de inventario"
         descripcion="Por SKU, lo que dicen TikTok, el kardex e Industher, y la razón de cada diferencia."
       />
 

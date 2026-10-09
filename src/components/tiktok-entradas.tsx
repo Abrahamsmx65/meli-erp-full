@@ -42,7 +42,7 @@ export function EntradasTikTok() {
     setRenglones((prev) => prev.map((r, j) => (j === i ? { ...r, [campo]: valor } : r)));
   }
 
-  const ayuda = TIPOS.find((t) => t.valor === renglones[0]?.tipo)?.ayuda ?? "";
+
 
   async function guardar() {
     const movimientos = renglones
@@ -88,10 +88,7 @@ export function EntradasTikTok() {
   }
 
   return (
-    <Seccion
-      titulo="Corregir a mano"
-      descripcion={`Se publica a TikTok al guardar.${ayuda ? ` ${ayuda}.` : ""}`}
-    >
+    <Seccion titulo="Corregir a mano">
       <Ayuda titulo="¿Cuándo se usa?">
         <p>
           Las entradas llegan solas de Industher y las salidas las ponen los pedidos. Esto es para lo demás: una merma, un

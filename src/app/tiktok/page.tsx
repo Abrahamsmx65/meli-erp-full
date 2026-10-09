@@ -52,7 +52,7 @@ export default async function TikTok({
   const cuenta = await cuentaActiva(supabase);
   // TikTok cuelga de la cuenta de MELI del ERP: sin ella no hay catálogo con
   // qué amarrar sus publicaciones.
-  if (!cuenta) return <SinCuenta titulo="Almacén TikTok Shop" />;
+  if (!cuenta) return <SinCuenta titulo="Inventario TikTok" />;
 
   // Las dos lecturas son independientes: van a la par.
   const [p, aliasRaw] = await Promise.all([
@@ -65,7 +65,7 @@ export default async function TikTok({
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Almacén TikTok Shop"
+        titulo="Inventario TikTok"
         descripcion={`Kardex de la bodega TikTok y lo que se le publica a la tienda. Última sincronización: ${cuando(p.ultimaSync)}.`}
         acciones={p.conectado ? <AccionesTikTok porPublicar={p.totales.porPublicar} /> : null}
         ayuda={
@@ -87,12 +87,7 @@ export default async function TikTok({
 
       {!p.conectado ? (
         <Seccion titulo="TikTok Shop no está conectado">
-          <p className="texto-2 text-sm">
-            El kardex ya funciona sin conexión: puedes capturar entradas y llevar el saldo. Lo que falta al conectar es lo
-            importante — que el disponible se le escriba a TikTok solo, y que los envíos confirmados descuenten sin
-            capturarlos.
-          </p>
-          <Aviso tono="alerta" className="mt-3">
+          <Aviso tono="alerta">
             La conexión se inicia SOLO desde este botón. Si autorizas desde el panel de TikTok (partner.tiktokshop.com),
             TikTok te regresa sin forma de amarrarlo a tu sesión y no queda conectado.
           </Aviso>
@@ -139,11 +134,7 @@ export default async function TikTok({
             id: "movimientos",
             titulo: "Movimientos",
             contenido: (
-              <Seccion
-                titulo="Últimos movimientos"
-                descripcion="Cada par que entró o salió, con su motivo."
-                sinRelleno
-              >
+              <Seccion titulo="Últimos movimientos" sinRelleno>
                 <Tabla vacia={!p.movimientos.length} textoVacio="Sin movimientos todavía.">
                   <table className="datos">
                     <thead>

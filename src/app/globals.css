@@ -1,17 +1,15 @@
-/* Las fuentes (Geist y Bricolage Grotesque) llegan autohospedadas por
+/* Las fuentes (DM Sans y Fraunces) llegan autohospedadas por
    next/font desde layout.tsx. El @import remoto de Google Fonts que vivía aquí
    bloqueaba el primer render de TODA la app. */
 @import "tailwindcss";
 
 /* ==========================================================================
-   Tokens de diseño — lenguaje de marketplace.
+   Tokens de diseño — paleta de la marca GETAC (9-oct-2026).
 
-   La app se ve como un panel de vendedor (Seller Central / MELI): barra
-   superior azul marino profundo, fondo gris frío, tarjetas blancas con
-   sombra corta, azul para acciones y enlaces, verde / naranja / rojo para
-   estados. Todo lo que antes
-   era crema y verde-pizarra ahora es blanco y gris; los NOMBRES de los tokens
-   se conservan para que las ~1000 referencias del código sigan valiendo.
+   Sale del logo: arena (#c8aa8c) y café (#8b6640 para acciones, con
+   contraste AA sobre blanco), tinta café oscuro y fondos crema. El menú es
+   crema con el logo a color. Los NOMBRES de los tokens se conservan para
+   que las ~1000 referencias del código sigan valiendo.
 
    Los colores de estado NUNCA cargan el significado solos: siempre van con
    ícono y etiqueta (ver `components/estado.tsx`).
@@ -21,18 +19,18 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #f7f7fb;
-  --plane: #f4f4f8;
+  --surface-2: #faf7f2;
+  --plane: #f6f2ec;
 
   /* tinta */
-  --ink-1: #15142b;
-  --ink-2: #4d4b66;
-  --ink-muted: #8b89a3;
+  --ink-1: #2a2019;
+  --ink-2: #5e5146;
+  --ink-muted: #998a7b;
 
   /* líneas */
-  --grid: #efeff5;
-  --axis: #cfcede;
-  --borde: #e5e4ee;
+  --grid: #f2ece4;
+  --axis: #dacfc2;
+  --borde: #e9e1d6;
 
   /* estados */
   --estado-bien: #00a650;
@@ -41,27 +39,27 @@
   --estado-critico: #f23d4f;
 
   /* acción */
-  --acento: #4f46e5;
-  --acento-hover: #4338ca;
-  --acento-suave: #eeeefe;
+  --acento: #8b6640;
+  --acento-hover: #72522f;
+  --acento-suave: #f5ede3;
   --exito-texto: #00854a;
 
   /* marca: la barra superior, azul marino profundo con un degradado sutil */
-  --marca: #14122b;
-  --marca-2: #1d1a3f;
+  --marca: #2b2119;
+  --marca-2: #3a2c21;
   --marca-texto: #ffffff;
   --marca-suave: rgba(255, 255, 255, 0.12);
   --marca-suave-2: rgba(255, 255, 255, 0.2);
   /* resalte de renglones (antes ámbar): azul muy claro */
-  --ambar: #4f46e5;
+  --ambar: #8b6640;
   /* menú lateral: el riel azul marino de la marca */
-  --sidebar: #14122b;
-  --sidebar-acento: #a5b4fc;
-  --sidebar-borde: rgba(255, 255, 255, 0.08);
-  --sidebar-texto: rgba(255, 255, 255, 0.74);
-  --sidebar-tenue: rgba(255, 255, 255, 0.42);
-  --sidebar-activo: rgba(255, 255, 255, 0.09);
-  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar: #fbf8f3;
+  --sidebar-acento: #a77d52;
+  --sidebar-borde: #ece4d9;
+  --sidebar-texto: #4d4035;
+  --sidebar-tenue: #9c8b7a;
+  --sidebar-activo: #f1e6d8;
+  --sidebar-hover: #f5eee5;
 
   --sombra-panel: 0 1px 2px rgba(16, 24, 40, 0.04);
   --sombra-flotante: 0 6px 16px rgba(0, 0, 0, 0.1);
@@ -71,8 +69,8 @@
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
      los armaba a mano con color-mix (25 copias del recuadro ámbar). */
-  --info-suave: #f0f0ff;
-  --info-borde: #cdcffc;
+  --info-suave: #f7f1e9;
+  --info-borde: #e5d5c1;
   --bien-suave: #e9f7ef;
   --bien-borde: #b9e4cb;
   --alerta-suave: #fdf6e3;
@@ -82,8 +80,8 @@
   --critico-borde: #f6c4ca;
   --critico-texto: #c4182b;
 
-  --fuente-sans: var(--font-geist), -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fuente-titulo: var(--font-bricolage), var(--font-geist), sans-serif;
+  --fuente-sans: var(--font-texto), -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-titulo: var(--font-titulo), Georgia, serif;
   --fuente-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -103,8 +101,8 @@
   }
 
   ::selection {
-    background: #dcdcfe;
-    color: #14122b;
+    background: #eedfcc;
+    color: #2a2019;
   }
 
   h1,
@@ -242,7 +240,7 @@
     font-size: 1.75rem;
     line-height: 1.15;
     font-weight: 600;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.01em;
     color: var(--ink-1);
   }
 
@@ -684,11 +682,11 @@
 
   .entrada-menu:hover {
     background: var(--sidebar-hover);
-    color: #fff;
+    color: var(--ink-1);
   }
 
   .seccion-menu:hover {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--ink-1);
   }
 
   .salir:hover {
@@ -696,13 +694,13 @@
     color: var(--ink-1);
   }
 
-  /* El riel oscuro necesita su propio anillo de foco y barra fina. */
+  /* El riel del menú lleva su propio anillo de foco y barra fina. */
   nav[aria-label="Secciones"] a:focus-visible,
   nav[aria-label="Secciones"] button:focus-visible {
     outline-color: var(--sidebar-acento);
   }
   nav[aria-label="Secciones"] {
-    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    scrollbar-color: #e0d5c7 transparent;
   }
 
   /* Insignia roja de conteo (pendientes). */

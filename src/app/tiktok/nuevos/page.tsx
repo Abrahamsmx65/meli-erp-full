@@ -17,7 +17,7 @@ export default async function ProductosNuevosTikTokPage() {
     data: { user },
   } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Productos nuevos · TikTok" />;
+  if (!cuenta) return <SinCuenta titulo="Publicar productos" />;
 
   // Lo guardado aunque esté viejo; se refresca por atrás (solo sin renglón se calcula aquí).
   const datos = await listarProductosNuevos(clienteAdmin(), cuenta.id, { servirGuardado: true });
@@ -26,7 +26,7 @@ export default async function ProductosNuevosTikTokPage() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Productos nuevos · TikTok"
+        titulo="Publicar productos"
         descripcion="El calzado de Amazon por modelo, con sus colores y tallas, para publicarlo en TikTok Shop."
         ayuda={
           <>

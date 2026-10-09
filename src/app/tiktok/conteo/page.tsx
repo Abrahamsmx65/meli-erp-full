@@ -21,7 +21,7 @@ export default async function Conteo() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Conteo cíclico · Almacén TikTok"
+        titulo="Conteo cíclico"
         descripcion="Escanea el FNSKU de cada par y guarda el conteo."
         ayuda={<p>Al guardar, la diferencia entra al kardex como ajuste y el disponible nuevo se publica a TikTok en el mismo clic.</p>}
         ayudaTitulo="¿Qué pasa al guardar?"

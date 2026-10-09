@@ -88,7 +88,6 @@ export default async function DetalleSku({
                 {/* ---- La gráfica -------------------------------------------------- */}
                 <Seccion
                   titulo={`Últimos ${c.diasCalendario} días`}
-                  descripcion="Arriba, el inventario en Full cada día; abajo, los pares vendidos. Las franjas rojas son días sin nada que vender."
                 >
                   <GraficaHistorial dias={h.dias} nivelObjetivo={l.nivelObjetivo} />
                 </Seccion>
@@ -109,25 +108,22 @@ export default async function DetalleSku({
                   <ul className="flex flex-col gap-1 texto-2">
                     <li>
                       <strong className="cifra">{cobertura.diasConMovimiento}</strong> días
-                      reconstruidos con movimientos de Mercado Libre
+                      con movimientos de Mercado Libre
                     </li>
                     <li>
                       <strong className="cifra">{cobertura.diasConFoto}</strong> días medidos
-                      con la foto diaria que toma el sistema al sincronizar
+                      con la foto diaria
                     </li>
                     {cobertura.diasDeducidos > 0 ? (
                       <li style={{ color: "var(--alerta-texto)" }}>
                         <strong className="cifra">{cobertura.diasDeducidos}</strong> días
-                        deducidos: no hubo ni movimiento ni foto, así que se arrastra el nivel
-                        del día anterior
+                        deducidos (sin movimiento ni foto)
                       </li>
                     ) : null}
                   </ul>
                   {!cobertura.hayMovimientos ? (
                     <p className="mt-3" style={{ color: "var(--alerta-texto)" }}>
-                      Este SKU no tiene ningún movimiento en Full en el periodo. Su historial es
-                      una deducción a partir del patrón de ventas, no una medición: tómalo como
-                      orientación, no como dato duro.
+                      Sin movimientos en Full en el periodo: historial deducido.
                     </p>
                   ) : null}
                   </div>
@@ -149,9 +145,7 @@ export default async function DetalleSku({
                       titulo="Qué días tuvo stock de verdad"
                       cuenta={`${c.diasConStock} de ${c.diasCalendario} días`}
                     >
-                      Los días agotados no cuentan, y los días que abrieron con poco y se
-                      acabaron a media jornada cuentan solo la fracción que duraron. Aquí{" "}
-                      <strong>{c.diasSinStock} días</strong> no tuvieron nada que vender.
+                      <strong>{c.diasSinStock} días</strong> sin stock.
                     </Paso>
 
                     <Paso
@@ -159,12 +153,8 @@ export default async function DetalleSku({
                       titulo="Venta real por día"
                       cuenta={`${c.unidadesVendidas} ÷ ${c.diasConStock} = ${c.tasaCorregida}/día`}
                     >
-                      Dividir entre los {c.diasCalendario} días de calendario daría{" "}
-                      <strong>{c.tasaCruda}/día</strong>, que es lo que aparenta. Pero se
-                      vendieron {c.unidadesVendidas} pares en solo {c.diasConStock} días
-                      vendibles, así que el ritmo real es{" "}
-                      <strong>{c.tasaCorregida}/día</strong>
-                      {c.factorCorreccion > 1.05 ? ` — ${c.factorCorreccion}× más` : ""}.
+                      Sin corregir: <strong>{c.tasaCruda}/día</strong>
+                      {c.factorCorreccion > 1.05 ? ` (×${c.factorCorreccion})` : ""}.
                     </Paso>
 
                     <Paso
@@ -172,11 +162,9 @@ export default async function DetalleSku({
                       titulo="Ajuste por tendencia y recencia"
                       cuenta={`${c.demandaDiaria}/día`}
                     >
-                      Los últimos 30 días pesan la mitad; los 30 anteriores, 30%; los más
-                      viejos, 20%.
                       {c.factorTendencia !== 1
-                        ? ` Además va ${c.factorTendencia > 1 ? "al alza" : "a la baja"}, factor ×${c.factorTendencia}.`
-                        : " Sin tendencia marcada."}{" "}
+                        ? `${c.factorTendencia > 1 ? "Al alza" : "A la baja"}, factor ×${c.factorTendencia}.`
+                        : "Sin tendencia marcada."}{" "}
                       Confianza del dato: <strong>{c.confianza}</strong>.
                     </Paso>
 
@@ -185,11 +173,8 @@ export default async function DetalleSku({
                       titulo="Colchón para la variabilidad"
                       cuenta={`${n(l.stockSeguridad)} pares`}
                     >
-                      No todos los días se vende igual: la desviación es {c.sigmaDiaria}{" "}
-                      pares/día. El colchón cubre {(p.nivelServicio * 100).toFixed(0)}% de los
-                      casos durante la ventana de riesgo de {c.ventanaRiesgo} días — los{" "}
-                      {p.leadTimeDias} que tarda en llegar el envío más los {c.periodoRevision}{" "}
-                      hasta el siguiente.
+                      Desviación {c.sigmaDiaria} pares/día · servicio {(p.nivelServicio * 100).toFixed(0)}% ·
+                      ventana de {c.ventanaRiesgo} días ({p.leadTimeDias} + {c.periodoRevision}).
                     </Paso>
 
                     <Paso
@@ -208,7 +193,7 @@ export default async function DetalleSku({
                     >
                       {n(l.disponible)} disponibles
                       {l.enTransferencia > 0
-                        ? ` y ${n(l.enTransferencia)} en transferencia, que ya son tuyos y van en camino`
+                        ? ` y ${n(l.enTransferencia)} en transferencia`
                         : ""}
                       . Alcanzan para{" "}
                       <strong>
@@ -219,8 +204,6 @@ export default async function DetalleSku({
 
                     <Paso num={7} titulo="Lo que hay que mandar" cuenta={`${n(l.sugerido)} pares`}>
                       {n(l.nivelObjetivo)} − {n(l.posicion)} = <strong>{n(l.sugerido)}</strong>.
-                      Eso es en pares; lo que de verdad viaja depende de cómo cuadren las cajas,
-                      porque no se abren.
                     </Paso>
                   </div>
 
@@ -239,7 +222,6 @@ export default async function DetalleSku({
               <>
                 <Seccion
                   titulo="El día a día"
-                  descripcion="El dato crudo de cada día, del más reciente al más viejo."
                   sinRelleno
                 >
                   <div className="max-h-[32rem] overflow-auto">

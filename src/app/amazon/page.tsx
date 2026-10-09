@@ -36,7 +36,7 @@ export default async function Amazon({
 
   if (!cuenta)
     return (
-      <SinCuenta titulo="Envíos a FBA" servicio="amazon">
+      <SinCuenta titulo="Reabasto a FBA" servicio="amazon">
         El conector vive en la carpeta <code>CODIGO</code> y se configura con <code>python3 scripts/configurar.py</code>.
       </SinCuenta>
     );
@@ -60,7 +60,7 @@ export default async function Amazon({
     <Pagina>
       <Encabezado
         ceja="Amazon"
-        titulo="Envíos a FBA"
+        titulo="Reabasto a FBA"
         descripcion={`Existencias en FBA de ${cuenta.nombre ?? "tu cuenta"} y qué cajas completas mandar.`}
         ayuda={
           <>

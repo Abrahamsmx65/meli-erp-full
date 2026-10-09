@@ -11,7 +11,7 @@ export default async function PaginaCostosEnvio() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Costos de envío" />;
+  if (!cuenta) return <SinCuenta titulo="Auditoría de envíos" />;
 
   const [{ modelos, ventasReales }, evidencias] = await Promise.all([
     leerRevisionConEstado(supabase, cuenta.id),
@@ -22,7 +22,7 @@ export default async function PaginaCostosEnvio() {
     <Pagina>
       <Encabezado
         ceja="Mercado Libre"
-        titulo="Costos de envío"
+        titulo="Auditoría de envíos"
         descripcion="Las tallas que MELI midió mal y cobran de más en cada venta, con lo necesario para abrir el caso."
         ayuda={
           <>

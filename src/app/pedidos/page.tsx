@@ -20,7 +20,7 @@ export default async function Pedidos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Pedidos a China" />;
+  if (!cuenta) return <SinCuenta titulo="Planeación de compras" />;
 
   // La sugerencia se lee MASTICADA (un renglón de app_cache): el plan, el
   // inventario y las sumas de Amazon y TikTok solo se bajan cuando hay que
@@ -53,7 +53,7 @@ export default async function Pedidos() {
     <Pagina>
       <Encabezado
         ceja="Abastecimiento"
-        titulo="Pedidos a China"
+        titulo="Planeación de compras"
         descripcion="Qué conviene pedir, con la venta de Mercado Libre, Amazon y TikTok y todo el inventario que existe."
         frescura={guardada.generadoEn}
         ayudaTitulo="Cómo salió cada número"
@@ -115,8 +115,7 @@ export default async function Pedidos() {
 
       {amazonEstado.advertencias.length ? (
         <Aviso tono="alerta">
-          <strong>Amazon no está completo.</strong> La recomendación se calculó con los demás
-          datos disponibles y puede cambiar cuando se recupere la lectura.
+          <strong>Amazon no está completo.</strong>
           <ul className="mt-1 list-disc pl-5">
             {amazonEstado.advertencias.map((mensaje) => (
               <li key={mensaje}>{mensaje}</li>
@@ -127,8 +126,7 @@ export default async function Pedidos() {
 
       {tiktokEstado.advertencias.length ? (
         <Aviso tono="alerta">
-          <strong>TikTok no está completo.</strong> La recomendación se calculó sin su venta ni
-          su bodega y saldría corta en lo que también se vende ahí.
+          <strong>TikTok no está completo.</strong>
           <ul className="mt-1 list-disc pl-5">
             {tiktokEstado.advertencias.map((mensaje) => (
               <li key={mensaje}>{mensaje}</li>
@@ -139,20 +137,18 @@ export default async function Pedidos() {
 
       {planEstado && !planEstado.vigente ? (
         <Aviso tono="alerta">
-          La demanda que se usa aquí viene del último cálculo y ya cambió algo:{" "}
-          {planEstado.motivo ?? "hay datos nuevos"}. Recalcula en{" "}
+          Demanda desactualizada: {planEstado.motivo ?? "hay datos nuevos"}. Recalcula en{" "}
           <Link href="/envios" className="enlace">
             Envíos a Full
-          </Link>{" "}
-          para afinar los números.
+          </Link>
+          .
         </Aviso>
       ) : null}
 
       {compra.totales.sinCorrida > 0 ? (
         <Aviso tono="alerta">
-          {compra.totales.sinCorrida} modelos necesitan producto pero no tienen corrida
-          cargada, así que no puedo convertir los pares en cajas. Se resuelven cargando la
-          proforma del pedido que los trajo.
+          {compra.totales.sinCorrida} modelos necesitan producto pero no tienen corrida cargada:
+          carga su proforma.
         </Aviso>
       ) : null}
 

@@ -129,11 +129,6 @@ export function CajasFba({
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div>
                     <h2 className="seccion-titulo">Envíos a preparar</h2>
-                    {plan.cajas.length > 0 && envios.length > 1 ? (
-                      <p className="texto-2 mt-0.5 text-sm">
-                        {envios.length} envíos: uno por dirección de recolección, cada uno se da de alta por separado.
-                      </p>
-                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     {plan.cajas.length > 0 && envios.length > 1 ? (
@@ -208,10 +203,6 @@ export function CajasFba({
                         Faltantes SIN caja en bodega ({plan.sinCajaEnBodega.length} SKUs ·{" "}
                         {n(sinCaja)} pares)
                       </h2>
-                      <p className="texto-2 mt-0.5 text-sm">
-                        Ninguna caja disponible los trae. Si alguno sí tiene caja física en bodega, es
-                        un problema de amarre.
-                      </p>
                     </header>
                     <div className="max-h-[24rem] overflow-auto">
                       <table className="datos">
@@ -241,9 +232,6 @@ export function CajasFba({
                         Faltantes chicos con caja disponible ({plan.faltanteConCaja.length} SKUs ·{" "}
                         {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
                       </h2>
-                      <p className="texto-2 mt-0.5 text-sm">
-                        El pico que queda no vale otra caja completa; se cubre en el siguiente envío.
-                      </p>
                     </header>
                     <div className="max-h-[20rem] overflow-auto">
                       <table className="datos">
@@ -397,7 +385,6 @@ function SeccionEnvio({
               >
                 <td colSpan={6} className="text-sm font-semibold">
                   Opcionales de {envio.nombre}: {n(cajasOpc)} cajas · {n(paresOpc)} pares.
-                  Rescatan una talla que falta; el resto de la caja sobra. Tú decides si van.
                 </td>
               </tr>
             ) : null}

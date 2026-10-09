@@ -91,7 +91,6 @@ export function TablaInventario({
       <header className="flex flex-col gap-3 border-b p-4 hairline">
         <div>
           <h2 className="seccion-titulo">Por SKU</h2>
-          <p className="texto-2 mt-0.5 text-xs">Cada SKU con su bodega, lo que viene en camino y sus pedidos.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input

@@ -1,27 +1,14 @@
 import Link from "next/link";
-import { Package } from "lucide-react";
 
-/** La marca: va sobre el azul marino (riel del menú y pantallas sin sesión). */
-export function Logo() {
+/**
+ * La marca GETAC: el logo de la casa (arena con «SINCE 1981»), sin fondo,
+ * en `public/getac-logo.png`. Va sobre el crema del menú y del login.
+ */
+export function Logo({ alto = 34 }: { alto?: number }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5" aria-label="GETAC, inicio">
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-lg"
-        style={{ background: "var(--acento)", color: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,.25)" }}
-      >
-        <Package size={18} strokeWidth={2.5} />
-      </span>
-      <span className="leading-none">
-        <span className="block text-[15px] font-extrabold tracking-tight" style={{ color: "var(--marca-texto)" }}>
-          GETAC
-        </span>
-        <span
-          className="mt-0.5 block text-[9px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "rgba(255,255,255,.6)" }}
-        >
-          Control de inventario
-        </span>
-      </span>
+    <Link href="/" className="flex items-center" aria-label="GETAC, inicio">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/getac-logo.png" alt="GETAC" width={Math.round(alto * 1.83)} height={alto} style={{ height: alto, width: "auto" }} />
     </Link>
   );
 }

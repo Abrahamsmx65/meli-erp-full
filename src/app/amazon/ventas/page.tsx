@@ -115,9 +115,7 @@ export default async function VentasAmazon({
       {!m.economia && m.netoReal == null && m.pagosHasta ? (
         <Aviso tono="alerta" titulo="El dinero real de este periodo aún no llega">
           <p>
-            Amazon liquida cada ~2 semanas y sus pagos llegan hasta el{" "}
-            <strong className="cifra">{m.pagosHasta}</strong>. El rango que estás viendo es más
-            reciente, así que todavía no hay depósitos que desglosar.
+            Los pagos de Amazon llegan hasta el <strong className="cifra">{m.pagosHasta}</strong>.
           </p>
           <a
             href={`/amazon/ventas?desde=${new Date(Date.parse(m.pagosHasta) - 13 * 86_400_000)
@@ -209,7 +207,7 @@ export default async function VentasAmazon({
                 {m.economia ? (
                   <Seccion
                     titulo="A dónde se fue el dinero (por producto)"
-                    descripcion={`La misma fuente que el "SKU Economics" de Seller Central: ventas, tarifas y publicidad por producto y por día${m.economia.hasta ? ` · datos hasta ${m.economia.hasta}` : ""}.`}
+                    descripcion={m.economia.hasta ? `Datos hasta ${m.economia.hasta}.` : undefined}
                   >
                     <div className="flex flex-col gap-3">
                     {!economiaCompleta ? (
@@ -320,17 +318,6 @@ export default async function VentasAmazon({
             cuenta: m.porCategoria.length,
             contenido: (
               <Seccion titulo="Por categoría" sinRelleno>
-                <div className="px-4 pt-3">
-                  <Ayuda>
-                    <p>
-                      Las categorías y costos se capturan en Productos y costos (son los
-                      mismos productos que en MELI). La ganancia es UNA sola cuenta, la del
-                      corte general: neto del SKU Economics (ventas − tarifas − publicidad,
-                      por fecha de venta) − costo, sumada modelo por modelo. Las unidades de
-                      modelos sin costo capturado quedan FUERA y se declaran.
-                    </p>
-                  </Ayuda>
-                </div>
                 <Tabla>
                 <table className="datos">
                   <thead>
@@ -382,20 +369,7 @@ export default async function VentasAmazon({
             titulo: "Por modelo",
             cuenta: m.porModelo.length,
             contenido: (
-              <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos." sinRelleno>
-                <div className="px-4 pt-3">
-                  <Ayuda>
-                    <p>
-                      La publicidad viene del reporte de economía por SKU (confiable desde el 9 de
-                      agosto de 2026; antes está incompleto). Un modelo con publicidad en “—” o $0
-                      no tiene gasto atribuido a sus SKUs en ese reporte.
-                    </p>
-                    <p>
-                      La ganancia es la misma cuenta que arriba (neto económico − costo); con ~ es
-                      venta − costo porque a ese modelo aún no le llega economía ni liquidación.
-                    </p>
-                  </Ayuda>
-                </div>
+              <Seccion titulo="Por modelo" sinRelleno>
                 <Tabla alta>
                   <table className="datos">
                     <thead>

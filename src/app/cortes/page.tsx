@@ -42,7 +42,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const hoy = periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Corte general" />;
+  if (!cuenta) return <SinCuenta titulo="Estado de resultados" />;
   // El consolidado vive en consolidado_cache (10 min): correr los tres
   // canales completos en cada visita costaba hasta 300 s de función.
   const [cns, cortes, anterior, mismosDias] = await Promise.all([
@@ -66,7 +66,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     <Pagina>
       <Encabezado
         ceja="Negocio"
-        titulo="Corte general"
+        titulo="Estado de resultados"
         descripcion="Calzado, fundas, Amazon y TikTok: la ganancia real del mes, por canal, categoría y modelo."
         frescura={cns.generadoEn}
         acciones={
@@ -146,7 +146,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
                 ) : (
                   <p className="text-xs texto-tenue">
-                    Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))}: ese mes todavía no se ha calculado. Ábrelo una vez y la comparación aparece aquí.
+                    Sin comparación contra {nombreDelPeriodo(periodoAnterior(periodo))} (aún no calculado).
                   </p>
                 )}
 
@@ -282,9 +282,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <div className="grid gap-4 border-t p-4 hairline lg:grid-cols-2">
                     <div>
                       <h3 className="text-sm font-semibold">Deducciones incluidas en el neto</h3>
-                      <p className="mt-0.5 text-xs texto-tenue">
-                        Son informativas: ya están descontadas y no se vuelven a restar.
-                      </p>
                       <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
                         {cns.canales.flatMap((k) =>
                           k.descuentos.map((d) => (
@@ -299,9 +296,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                     </div>
                     <div>
                       <h3 className="text-sm font-semibold">Gastos descontados aparte</h3>
-                      <p className="mt-0.5 text-xs texto-tenue">
-                        Publicidad no amarrada, Full, FBA, devoluciones netas y gastos capturados.
-                      </p>
                       <ul className="mt-2 flex flex-col gap-1 text-xs texto-2">
                         {cns.canales.flatMap((k) =>
                           k.gastos.map((g) => (
@@ -400,7 +394,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   <header className="seccion-cabeza">
                     <div>
                     <h2 className="seccion-titulo">Por modelo</h2>
-                    <p className="texto-2 mt-0.5 text-[13px]">Todos los canales sumados; el Excel trae una hoja por canal.</p>
                     </div>
                   </header>
                   <div className="max-h-[36rem] overflow-auto">
