@@ -6,9 +6,11 @@ import { hoyMx } from "@/lib/yapanizcel/db";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { n, pesos } from "@/components/yapanizcel/comunes";
-import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { TablaVentasYz } from "@/components/yapanizcel/tabla-ventas";
 import { Pestanas } from "@/components/ui/pestanas";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -34,7 +36,10 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
 
   // Masticado por rango en yz_cache: se sirve lo guardado y, si ya tiene
   // más de 10 min, se refresca por atrás con el cliente admin.
-  const { monitor: m, generadoEn } = await obtenerMonitorYz(supabase, cuenta.id, rango, { dbFondo: clienteAdmin() });
+  const [{ monitor: m, generadoEn }, tiempo] = await Promise.all([
+    obtenerMonitorYz(supabase, cuenta.id, rango, { dbFondo: clienteAdmin() }),
+    servirVariosCanales(clienteAdmin(), [{ canal: "meli_fundas", accountId: cuenta.id }], rango),
+  ]);
   const variacion = m.anterior.unidades > 0 ? (m.periodo.unidades - m.anterior.unidades) / m.anterior.unidades : null;
 
   return (
@@ -87,6 +92,10 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
           Captura el costo en <Link href="/productos" className="enlace">Productos y costos</Link>.
         </Aviso>
       ) : null}
+
+      <Seccion titulo="Venta por día y por hora" descripcion={`${rango.desde} → ${rango.hasta}`}>
+        <GraficaVentasTiempo datos={tiempo} desde={rango.desde} hasta={rango.hasta} />
+      </Seccion>
 
       <Pestanas
         pestanas={[

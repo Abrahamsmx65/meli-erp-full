@@ -1,4 +1,4 @@
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango, type Movimiento } from "@/lib/servicios/ventas-monitor";
 import { vistaVentas } from "@/lib/servicios/ventas-vista";
@@ -11,7 +11,8 @@ import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
 import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
 import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import Link from "next/link";
-import { BarrasPorDia, type PuntoDia } from "@/components/ui/graficas";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
@@ -49,27 +50,12 @@ export default async function Ventas({
   // Todo llega masticado del servicio: el monitor con la publicidad ya
   // descontada, la cascada real del dinero y los cuadres entre niveles.
   // Esta página no hace ninguna cuenta.
-  const [vista, diario] = await Promise.all([
+  const [vista, tiempo] = await Promise.all([
     vistaVentas(supabase, cuenta, rango, t),
-    // La gráfica por día: RPC ya agregado en Postgres (milisegundos).
-    supabase.rpc("ventas_totales_dia", { p_account: cuenta.id, p_desde: rango.desde, p_hasta: rango.hasta }),
+    // La gráfica por día y por hora: masticada por rango (`ventas_por_hora`).
+    servirVariosCanales(clienteAdmin(), [{ canal: "meli_calzado", accountId: cuenta.id }], rango),
   ]);
   t.fin();
-  const porFecha = new Map(
-    ((diario.data ?? []) as { fecha: string; unidades: number; ordenes: number; importe: number }[]).map((d) => [
-      String(d.fecha).slice(0, 10),
-      d,
-    ]),
-  );
-  const serie: PuntoDia[] = [];
-  for (let f = rango.desde; f <= rango.hasta; f = siguienteDia(f)) {
-    const d = porFecha.get(f);
-    serie.push({
-      fecha: f,
-      valor: Number(d?.importe ?? 0),
-      detalle: d ? `${n(Number(d.unidades))} pares · ${n(Number(d.ordenes))} órdenes` : "Sin ventas",
-    });
-  }
   const { monitor: m, gastoAds, gananciaConAds, finanzas, cuadres } = vista;
   const ads = { errorAds: vista.errorAds, advertencias: vista.advertenciasAds };
   const descuadres = cuadres.filter((c) => c.diferencia !== 0);
@@ -143,11 +129,9 @@ export default async function Ventas({
             titulo: "Resumen",
             contenido: (
             <>
-              {serie.length > 1 ? (
-                <Seccion titulo="Venta por día" descripcion={etiquetaRango}>
-                  <BarrasPorDia puntos={serie} etiqueta="Venta" />
-                </Seccion>
-              ) : null}
+              <Seccion titulo="Venta por día y por hora" descripcion={etiquetaRango}>
+                <GraficaVentasTiempo datos={tiempo} desde={rango.desde} hasta={rango.hasta} />
+              </Seccion>
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
@@ -389,10 +373,4 @@ function Movimientos({
       )}
     </Seccion>
   );
-}
-
-function siguienteDia(f: string): string {
-  const d = new Date(`${f}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
 }

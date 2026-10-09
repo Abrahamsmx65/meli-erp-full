@@ -141,24 +141,26 @@ export function BarrasPorDia({
 }
 
 /** Columna con la punta redondeada (r) y la base cuadrada. */
-function columna(x: number, y: number, w: number, h: number, r: number): string {
+export function columna(x: number, y: number, w: number, h: number, r: number): string {
   if (h <= 0) return "";
   return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
 }
 
 /** Máximo redondo y tres marcas limpias (0, mitad, tope). */
-function escala(valores: number[]): { max: number; ticks: number[] } {
+export function escala(valores: number[]): { max: number; ticks: number[] } {
   const bruto = Math.max(0, ...valores);
   if (bruto <= 0) return { max: 1, ticks: [0] };
   const pot = 10 ** Math.floor(Math.log10(bruto));
-  const paso = [1, 2, 2.5, 5, 10].map((m) => m * pot).find((s) => s * 4 >= bruto) ?? pot * 10;
+  // Pasos redondos de la década de abajo y de la del máximo: con 1.2 M el
+  // tope queda en 1.5 M (pasos de 500 k), no en 2 M.
+  const paso = [1, 2, 2.5, 5, 10, 20, 25, 50, 100].map((m) => (m * pot) / 10).find((s) => s * 4 >= bruto) ?? pot * 10;
   const max = Math.ceil(bruto / paso) * paso;
   const ticks: number[] = [];
   for (let t = 0; t <= max + 1e-9; t += paso) ticks.push(t);
   return { max, ticks };
 }
 
-function compacto(x: number): string {
+export function compacto(x: number): string {
   if (x >= 1_000_000) return `${(x / 1_000_000).toLocaleString("es-MX", { maximumFractionDigits: 1 })} M`;
   if (x >= 1_000) return `${(x / 1_000).toLocaleString("es-MX", { maximumFractionDigits: 0 })} k`;
   return x.toLocaleString("es-MX");
@@ -167,12 +169,12 @@ function compacto(x: number): string {
 const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-function diaCorto(f: string): string {
+export function diaCorto(f: string): string {
   const d = new Date(`${f}T12:00:00Z`);
   return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]}`;
 }
 
-function diaLargo(f: string): string {
+export function diaLargo(f: string): string {
   const d = new Date(`${f}T12:00:00Z`);
   return `${DIAS[d.getUTCDay()]} ${d.getUTCDate()} ${MESES[d.getUTCMonth()]}`;
 }

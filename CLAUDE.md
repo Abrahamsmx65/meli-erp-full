@@ -1663,6 +1663,23 @@ guárdala numerada.
   reventa); hoy dicen lo mismo al centavo. El PLAN de Full sigue con los
   renglones diarios (`ventas_resumen_sku_diarias`): solo pregunta si un SKU
   vendió alguna vez.
+  **Gráfica de venta POR DÍA y POR HORA** (migración 0134, RPC
+  `ventas_por_hora(canal, cuenta, desde, hasta)` → jsonb {dias, horas};
+  `servicios/ventas-tiempo.ts` masticado en `app_cache`
+  `ventas-tiempo:v1:{canal}:{desde}:{hasta}`, el latido deja listos 7 y 30
+  días de calzado y TikTok; motor puro `graficas/ventas-tiempo.ts`;
+  `components/ui/grafica-ventas-tiempo.tsx`; dueño, 9-oct-2026: «una gráfica
+  por horas y por días en todos los canales y en el general»): en Ventas
+  MELI, Ventas de fundas, Ventas Amazon, Ventas TikTok, Inicio (los cuatro
+  canales, 30 días; sus cifras de hoy y 7 días salen de la MISMA serie) y la
+  pestaña Resumen del Estado de resultados. Botones Por día / Por hora y
+  Facturación / Unidades; por hora se suma cada hora de México en todo el
+  rango y el globo da el promedio por día. Mismas reglas que cada pantalla:
+  calzado y fundas = `ventas_vivas` con la hora de `orden_cruda.date_created`;
+  TikTok = pedidos en pie, precio × cantidad; Amazon = `amazon_ventas_diarias`
+  por día y `amazon_ventas_horas` por hora, que la lectura del reporte llena
+  desde el 9-oct-2026 (`agregarDesdeReporte` → `horas`, `guardarHoras`): lo
+  anterior no tiene hora y la gráfica lo dice.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
