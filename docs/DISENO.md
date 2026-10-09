@@ -1,5 +1,20 @@
 # Guía de diseño de pantallas (9-oct-2026)
 
+## Armazón
+
+Riel azul marino de altura completa a la izquierda (`--sidebar`, el azul de
+la marca) con el logo arriba (`components/logo.tsx`) y las secciones
+plegables; barra superior blanca y delgada con «Sección › Pantalla»
+(`ubicacion()` de `menu-lateral.tsx`), el buscador de bodega, el estado de
+la conexión y la salida; área de trabajo sobre gris muy claro. El login va a
+pantalla completa (marca a la izquierda, formulario a la derecha). Las
+pantallas sin sesión (/preparar, /contenido) llevan solo la franja de marca.
+Tarjetas: fondo blanco, borde de 1 px (`--borde`), radio de 10 px, sombra casi
+nula. Referencias de estilo en `.claude/skills/` (mercury-ui, ramp-ui,
+stripe-ui, linear-ui, vercel-ui) y criterios en `design-critique` y
+`ux-copy`.
+
+
 Todas las pantallas del ERP se arman igual. Piezas en
 `src/components/ui/pagina.tsx`; clases en `src/app/globals.css`. Pantalla
 modelo: `src/app/cortes/page.tsx`.
@@ -70,6 +85,16 @@ Cejas (= grupos del menú): «Negocio», «Inventario», «Mercado Libre»,
 - Colores de estado en texto: `var(--exito-texto)`, `var(--alerta-texto)`,
   `var(--critico-texto)`. Fondos: `--bien-suave`, `--alerta-suave`,
   `--critico-suave`, `--info-suave`.
+
+## Botones y avisos
+
+- **Un solo botón azul por pantalla o sección**: la acción principal. Las
+  demás, `boton-borde boton-chico`.
+- Etiquetas con verbo + objeto («Descargar Excel», «Registrar envío»).
+- Nada de botones que solo llevan a otra pantalla del menú (salvo dentro de
+  un aviso que pide arreglar algo allá).
+- Un aviso solo existe si depende de los datos y pide acción o señala un
+  problema real. Lo que explica cómo funciona algo va plegado en `ayuda`.
 
 ## Lo que NO se toca
 
