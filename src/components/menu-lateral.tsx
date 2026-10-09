@@ -37,6 +37,7 @@ import {
   ClipboardList,
   type LucideIcon,
   Undo2,
+  Wallet,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 import { Logo } from "@/components/logo";
@@ -75,6 +76,7 @@ const GRUPOS: Grupo[] = [
     titulo: "Negocio",
     entradas: [
       { href: "/cortes", texto: "Estado de resultados", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
+      { href: "/gastos", texto: "Gastos", icono: Wallet, ayuda: "Nómina, fletes, renta y 3PL: fijos cada mes y sueltos" },
     ],
   },
   {

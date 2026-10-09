@@ -166,7 +166,11 @@ export async function excelDelConsolidado(cns: Consolidado): Promise<Buffer> {
   resumen.addRow({});
   const tituloEmpresa = resumen.addRow({ concepto: "Gastos empresariales (se descuentan una sola vez del total)" });
   tituloEmpresa.font = { bold: true, color: { argb: COLOR.acento } };
-  for (const g of cns.gastosEmpresariales ?? []) resumen.addRow({ concepto: `${g.fecha} · ${g.categoria} · ${g.concepto}`, total: -g.monto });
+  for (const g of cns.gastosEmpresariales ?? []) {
+    // Un gasto fijo del mes en curso cuenta en proporción a los días: se dice.
+    const parte = g.proporcion != null && g.proporcion < 1 ? ` (${Math.round(g.proporcion * 100)} % del mes)` : "";
+    resumen.addRow({ concepto: `${g.fecha} · ${g.categoria} · ${g.concepto}${parte}`, total: -g.monto });
+  }
 
   // --- Gastos generales: su propia hoja, como su pestaña en la página ------
   const gastos = wb.addWorksheet("Gastos generales", { properties: { tabColor: { argb: COLOR.gastos } } });

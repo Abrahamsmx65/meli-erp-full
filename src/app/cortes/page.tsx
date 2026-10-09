@@ -11,7 +11,6 @@ import { CANAL_CORTO, avisosParaMostrar, cascadaDelMes, estadoDelCorte, loQuePas
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { CascadaVista, RepartoPesoVista } from "@/components/corte-general-graficas";
-import { GastosEmpresariales } from "@/components/gastos-empresariales";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
 
@@ -201,7 +200,32 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                   </p>
                 )}
 
-                <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
+                <Seccion
+                  titulo="Gastos empresariales"
+                  descripcion={t.gastosEmpresariales ? `${pesos(t.gastosEmpresariales)} descontados del total` : undefined}
+                  acciones={<Link className="boton boton-fantasma boton-chico" href={`/gastos?mes=${periodo}`}>Editar en Gastos</Link>}
+                  sinRelleno
+                >
+                  {(cns.gastosEmpresariales ?? []).length ? (
+                    <Tabla>
+                      <table className="datos">
+                        <thead><tr><th>Categoría</th><th>Concepto</th><th className="num">Del mes</th><th className="num">Contado</th></tr></thead>
+                        <tbody>
+                          {(cns.gastosEmpresariales ?? []).map((g) => (
+                            <tr key={g.id}>
+                              <td>{g.categoria}</td>
+                              <td>{g.concepto}</td>
+                              <td className="num cifra">{pesos(g.montoMes ?? g.monto)}</td>
+                              <td className="num cifra">{pesos(g.monto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Tabla>
+                  ) : (
+                    <p className="p-4 text-sm texto-2">Sin gastos empresariales en este mes.</p>
+                  )}
+                </Seccion>
               </>
             ),
           },
