@@ -1,7 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { obtenerPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
+import { servirPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -56,7 +57,8 @@ export default async function PublicidadAmazon({
   }
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const p = await obtenerPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const servida = await servirPublicidadAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const p = servida.datos;
   const t = p.totales;
 
   return (
@@ -76,6 +78,7 @@ export default async function PublicidadAmazon({
         hasta={rango.hasta}
         hoy={fechaMx(0)}
       />
+      <Frescura generadoEn={servida.generadoEn} />
 
       {p.aviso ? (
         <div

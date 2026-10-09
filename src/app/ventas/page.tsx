@@ -9,6 +9,7 @@ import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
 import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +76,7 @@ export default async function Ventas({
       </div>
 
       <FiltroFechas base="/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+      <Frescura generadoEn={vista.generadoEn} />
 
       {ads.errorAds || ads.advertencias.length ? (
         <div

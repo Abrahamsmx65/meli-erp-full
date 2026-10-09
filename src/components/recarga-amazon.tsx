@@ -13,19 +13,48 @@ const OPCIONES = [30, 90, 180, 365];
  * cada 5 minutos. Un año son 13 ventanas, así que tarda alrededor de una hora
  * en completarse — pero no hay nada que vigilar, avanza solo aunque cierres.
  */
-export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
+export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga }) {
   const router = useRouter();
   const [dias, setDias] = useState(90);
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [estado, setEstado] = useState(estadoInicial);
+
+  // Lo que manda el servidor (tras encolar o al recargar) gana.
+  useEffect(() => setEstado(estadoInicial), [estadoInicial]);
 
   const enCola = estado.pendientes > 0;
 
-  // Mientras hay cola, la pantalla se refresca sola para que se vea el avance.
+  // Mientras hay cola se pregunta SOLO el avance (un renglón por ventana),
+  // no la pantalla completa: recargarla cada 45 s volvía a leer el plan de
+  // FBA entero. Pausa con la pestaña oculta; al terminar la cola, la
+  // pantalla se refresca UNA vez para enseñar lo que entró.
   useEffect(() => {
     if (!enCola) return;
-    const t = setInterval(() => router.refresh(), 45_000);
-    return () => clearInterval(t);
+    let vivo = true;
+    const preguntar = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch("/api/amazon/recargar", { cache: "no-store" });
+        if (!r.ok || !vivo) return;
+        const nuevo = (await r.json()) as EstadoRecarga;
+        if (!vivo) return;
+        setEstado(nuevo);
+        if (nuevo.pendientes === 0) router.refresh();
+      } catch {
+        // sin red: se vuelve a intentar en la siguiente vuelta
+      }
+    };
+    const t = setInterval(preguntar, 45_000);
+    const alVolver = () => {
+      if (!document.hidden) void preguntar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", alVolver);
+    };
   }, [enCola, router]);
 
   const recargar = async () => {

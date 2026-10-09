@@ -1,7 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
-import { obtenerMonitorAmazon } from "@/lib/servicios/amazon-monitor";
+import { servirMonitorAmazon } from "@/lib/servicios/amazon-monitor";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
@@ -44,7 +45,10 @@ export default async function VentasAmazon({
   }
 
   const cuentaMeli = await cuentaActiva(supabase);
-  const m = await obtenerMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  // Masticado en `app_cache`: se sirve aunque esté viejo y se refresca por
+  // atrás; el latido de Amazon deja listo el rango de 7 días.
+  const servido = await servirMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const m = servido.datos;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
   const economiaCompleta =
     m.economia?.cobertura.completa === true && m.economia.coberturaCosto >= 0.999;
@@ -61,6 +65,7 @@ export default async function VentasAmazon({
       </div>
 
       <FiltroFechas base="/amazon/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+      <Frescura generadoEn={servido.generadoEn} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Ficha

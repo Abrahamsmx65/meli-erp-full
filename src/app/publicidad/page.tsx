@@ -2,7 +2,8 @@ import { Fragment } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
+import { servirPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 
@@ -58,7 +59,10 @@ export default async function Publicidad({
     );
   }
 
-  const p = await cargarPublicidad(supabase, cuenta, rango);
+  // Masticado en `app_cache` (el latido deja listo el rango de 30 días); si
+  // está viejo se sirve igual y se refresca por atrás.
+  const servida = await servirPublicidad(supabase, cuenta, rango);
+  const p = servida.datos;
   const t = p.totales;
 
   return (
@@ -73,6 +77,7 @@ export default async function Publicidad({
       </div>
 
       <FiltroFechas base="/publicidad" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+      <Frescura generadoEn={servida.generadoEn} />
 
       {p.errorAds ? (
         <div
