@@ -27,7 +27,9 @@ export default async function CortesYz({ searchParams }: { searchParams: Promise
   ]);
   return (
     <CorteVista
+      ceja="Fundas"
       titulo="Cortes de fundas"
+      descripcion="El estado de resultados del mes de fundas, sobre el depósito real de Mercado Pago."
       intro="Lo que se ganó de verdad en el mes con las fundas: el depósito real de Mercado Pago (ya sin comisión, envío ni retenciones), menos devoluciones, menos el costo por diseño, menos Product Ads y gastos de Full. Las órdenes canceladas quedan fuera. Mientras una orden no tiene depósito real, su venta queda fuera del neto y de la utilidad y el corte lo declara."
       ruta="/yapanizcel/cortes"
       apiBase="/api/yapanizcel"
