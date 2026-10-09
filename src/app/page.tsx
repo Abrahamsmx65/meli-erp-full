@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Container, Package, ShoppingBag, Truck, TriangleAlert } from "lucide-react";
+import { cronometro } from "@/lib/servicios/cronometro";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { fechaMx } from "@/lib/servicios/ventas-monitor";
@@ -29,17 +30,20 @@ export const dynamic = "force-dynamic";
  * claves; y dos conteos baratos (TikTok sin corte, contenedores).
  */
 export default async function Inicio() {
+  const t = cronometro("/");
   const supabase = await clienteServidor();
-  const cuenta = await cuentaActiva(supabase);
+  // Las tres cuentas a la vez: no dependen una de otra.
+  const [cuenta, amz, yz] = await Promise.all([
+    cuentaActiva(supabase),
+    cuentaAmazon(supabase).catch(() => null),
+    cuentaFundas(supabase).catch(() => null),
+  ]);
+  t.marca("cuentas");
   if (!cuenta) return <SinCuenta titulo="Inicio" />;
 
   const periodo = periodoActual();
   const hoy = fechaMx(0);
   const desde30 = fechaMx(29);
-  const [amz, yz] = await Promise.all([
-    cuentaAmazon(supabase).catch(() => null),
-    cuentaFundas(supabase).catch(() => null),
-  ]);
   const [mes, plan, tiktok, contenedores, diario] = await Promise.all([
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
@@ -63,6 +67,8 @@ export default async function Inicio() {
       p_hasta: hoy,
     }),
   ]);
+
+  t.fin();
 
   // La serie apilada de 30 días, un valor por canal y día (los días sin venta van en cero).
   const filas = (diario.data ?? []) as { fecha: string; canal: string; unidades: number; importe: number }[];
