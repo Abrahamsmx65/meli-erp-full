@@ -34,7 +34,12 @@ export default async function Amazon({
     cuentaActiva(supabase),
   ]);
 
-  if (!cuenta) return <SinCuenta titulo="Envíos a FBA" servicio="amazon" />;
+  if (!cuenta)
+    return (
+      <SinCuenta titulo="Envíos a FBA" servicio="amazon">
+        El conector vive en la carpeta <code>CODIGO</code> y se configura con <code>python3 scripts/configurar.py</code>.
+      </SinCuenta>
+    );
 
 
   // El bloque pesado (agregaciones, catálogo de bodega y optimizador de
