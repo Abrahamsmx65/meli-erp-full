@@ -232,10 +232,6 @@ export function CargarPedidosLote() {
   return (
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Cargar pedidos nuevos</h2>
-      <p className="texto-2 mt-1 text-sm">
-        Elige una o varias proformas de la fábrica. Los repetidos, los ya cargados y los
-        archivos con error no se cargan; con <strong>Revisar</strong> corriges cada uno antes.
-      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <input

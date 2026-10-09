@@ -69,19 +69,12 @@ export default async function Publicidad({
       {p.errorAds ? (
         <Aviso tono="alerta" titulo="Sin datos de Product Ads">
           <p>{p.errorAds}</p>
-          <p className="mt-1 text-xs">
-            Las ventas y la ganancia de abajo sí están completas; solo falta el gasto de publicidad.
-          </p>
         </Aviso>
       ) : null}
 
       {p.errorRecomendaciones ? (
         <Aviso tono="alerta" titulo="Recomendaciones temporalmente no disponibles">
           <p>{p.errorRecomendaciones}</p>
-          <p className="mt-1 text-xs">
-            Las ventas y métricas de publicidad sí están completas; no se muestran recomendaciones hasta recuperar el
-            stock para evitar sugerencias falsas.
-          </p>
         </Aviso>
       ) : null}
 
@@ -140,7 +133,7 @@ export default async function Publicidad({
             cuenta: p.filas.length,
             contenido: (
               <>
-                <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos." sinRelleno>
+                <Seccion titulo="Por modelo" sinRelleno>
                   <div className="px-4 pt-3">
                     <Ayuda>
                       <p>
@@ -242,7 +235,6 @@ export default async function Publicidad({
             contenido: (
               <Seccion
                 titulo="Recomendaciones"
-                descripcion="Qué hacer hoy con cada modelo según su stock de Full y su margen."
                 sinRelleno
               >
                 <div className="px-4 pt-3">

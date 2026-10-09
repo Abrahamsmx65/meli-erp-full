@@ -91,7 +91,7 @@ export function TablaCorridas({
               Cajas que no sé qué traen adentro
             </h2>
             <p className="texto-2 mt-0.5 text-xs">
-              {huecos.length} modelos sin corrida: no se pueden mandar a Full hasta capturarla.
+              {huecos.length} modelos sin corrida.
             </p>
           </header>
 
@@ -326,11 +326,6 @@ function CapturarCorrida({
           Pedido {hueco.pedido || "sin pedido"} · {n(hueco.cajas)} cajas en{" "}
           {hueco.almacenes.join(", ")}
           {hueco.paresPorCaja ? ` · el reporte dice ${hueco.paresPorCaja} pares por caja` : ""}
-        </p>
-        <p className="texto-2 mt-2 text-sm">
-          {editando
-            ? "Ajusta los pares por talla y guarda. El plan se recalcula solo con la corrida nueva."
-            : "Abre una caja de este modelo y anota cuántos pares hay de cada talla."}
         </p>
 
         <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">

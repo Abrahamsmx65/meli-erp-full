@@ -166,7 +166,6 @@ export default async function Ventas({
               {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
               <Seccion
                 titulo="A dónde se fue el dinero del periodo"
-                descripcion="De la venta bruta a lo que recibes, según Mercado Pago orden por orden."
                 sinRelleno
               >
                 <div className="px-4 pt-3">
@@ -304,7 +303,6 @@ export default async function Ventas({
 
               <Seccion
                 titulo="Por modelo"
-                descripcion="Todas las tallas y colores, contra el periodo anterior."
                 sinRelleno
               >
                 <div className="px-4 pt-3">

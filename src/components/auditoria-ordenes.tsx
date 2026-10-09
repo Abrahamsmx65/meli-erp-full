@@ -49,10 +49,8 @@ function Fila({ o }: { o: OrdenAuditada }) {
 function Tabla({ titulo, nota, ordenes }: { titulo: string; nota: string; ordenes: OrdenAuditada[] }) {
   return (
     <div>
-      <h3 className="seccion-titulo px-4 pt-3">{titulo}</h3>
-      <p className="px-4 pb-2 text-xs texto-2">
-        {nota}
-      </p>
+      <h3 className="seccion-titulo px-4 pt-3 pb-2">{titulo}</h3>
+      {nota ? <p className="px-4 pb-2 text-xs texto-2">{nota}</p> : null}
       <div className="tabla-caja">
         <table className="datos">
           <thead>
@@ -104,9 +102,6 @@ export function AuditoriaOrdenes({
       <header className="seccion-cabeza">
         <div className="min-w-0">
           <h2 className="seccion-titulo">Auditoría por orden</h2>
-          <p className="texto-2 mt-0.5 text-[13px]">
-            Lo que Mercado Pago cobró y depositó en cada venta, para cotejarla al centavo.
-          </p>
         </div>
         <BotonDescarga
           href={`/api/ventas/auditoria?desde=${rango.desde}&hasta=${rango.hasta}`}
@@ -128,19 +123,17 @@ export function AuditoriaOrdenes({
         <>
           <Tabla
             titulo="Las 20 órdenes más grandes del periodo"
-            nota="Donde un error de cargos pesa más."
+            nota=""
             ordenes={auditoria.mayores}
           />
           <Tabla
             titulo="Las 20 leídas más recientemente"
-            nota="Lo último que el trabajo de fondo escribió; aquí se ve avanzar la recarga."
+            nota=""
             ordenes={auditoria.recientes}
           />
         </>
       ) : (
-        <p className="p-4 text-sm texto-2">
-          La muestra se arma en el siguiente refresco del periodo; el Excel ya está disponible.
-        </p>
+        <p className="p-4 text-sm texto-2">Sin muestra todavía.</p>
       )}
     </section>
   );

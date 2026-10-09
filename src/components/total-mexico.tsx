@@ -95,9 +95,6 @@ export function TotalMexico({
       <header className="flex flex-col gap-3 border-b p-4 hairline">
         <div>
           <h2 className="seccion-titulo">Total en México por familia</h2>
-          <p className="mt-0.5 text-xs texto-2">
-            Cada modelo con sus colores y tallas, todas las bodegas sumadas, sin lo que viene de China.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

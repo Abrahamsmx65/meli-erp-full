@@ -178,7 +178,7 @@ export default async function Inicio() {
         />
       </Cifras>
 
-      <Seccion titulo="Venta diaria por canal" descripcion="Últimos 30 días · venta registrada antes de cargos">
+      <Seccion titulo="Venta diaria por canal" descripcion="Últimos 30 días">
         <BarrasApiladasPorDia puntos={serie} series={conDatos.length ? conDatos : SERIES} etiqueta="Venta" />
       </Seccion>
 
@@ -250,7 +250,7 @@ export default async function Inicio() {
               ))}
             </ul>
           ) : (
-            <p className="texto-2 text-sm">El corte del mes se está calculando; aparece aquí en unos minutos.</p>
+            <p className="texto-2 text-sm">Calculando el corte del mes…</p>
           )}
         </Seccion>
       </div>

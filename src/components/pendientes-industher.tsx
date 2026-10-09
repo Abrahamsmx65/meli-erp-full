@@ -76,9 +76,6 @@ export function PendientesIndusther({
       <header className="seccion-cabeza">
         <div className="min-w-0">
           <h2 className="seccion-titulo">Envíos pendientes en la bodega (a MELI Full)</h2>
-          <p className="texto-2 mt-0.5 text-[13px]">
-            Ya apartados para salir: cuentan como en camino hasta recibirse en Full.
-          </p>
         </div>
         <span
           className="chip cifra"

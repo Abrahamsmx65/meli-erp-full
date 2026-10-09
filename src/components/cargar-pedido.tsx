@@ -86,11 +86,7 @@ export function CargarPedido() {
 
   return (
     <div>
-      <p className="texto-2 text-sm">
-        Sube la proforma tal como llega: el pedido, sus colores y las corridas salen del archivo.
-      </p>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <input
           ref={input}
           type="file"

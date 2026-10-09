@@ -126,13 +126,11 @@ export default async function Inventario({
                 {/* ---- Dónde está parado el dinero -------------------------------- */}
                 <Seccion
                   titulo="Inversión por categoría"
-                  descripcion="Dinero parado en cada tipo de producto, a costo: cajas cerradas más lo que viene en el barco."
                   sinRelleno
                 >
                   {inversion.categorias.length === 0 ? (
                     <p className="texto-2 p-4 text-sm">
-                      Todavía no se puede calcular: ningún modelo con existencia tiene costo
-                      capturado.{" "}
+                      Faltan costos.{" "}
                       <Link href="/productos" className="enlace">
                         Capturar costos en Productos y costos
                       </Link>

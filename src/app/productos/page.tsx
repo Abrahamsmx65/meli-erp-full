@@ -59,12 +59,25 @@ export default async function Productos({
           </>
         }
         ayudaTitulo="¿De dónde se usa?"
+        acciones={
+          <span className="text-sm texto-2">
+            <strong className="cifra">{conCosto}</strong> de <span className="cifra">{productos.length}</span> con costo
+            {fundasSinCosto > 0 ? (
+              <>
+                {" · "}
+                <Link href={conFundasSinCosto ? "/productos" : "/productos?sinCosto=1"} className="enlace">
+                  {conFundasSinCosto ? "Ocultar las fundas sin costo" : `Ver ${fundasSinCosto} fundas sin costo`}
+                </Link>
+              </>
+            ) : null}
+          </span>
+        }
       />
 
       {faltaMigracion ? (
         <Aviso tono="alerta">
-          Falta aplicar la migración <strong>0011</strong> en Supabase (tabla <code>productos_config</code>). Hasta entonces,
-          lo que captures aquí no se puede guardar.
+          Falta aplicar la migración <strong>0011</strong> en Supabase (tabla <code>productos_config</code>): no se puede
+          guardar.
         </Aviso>
       ) : null}
 

@@ -285,8 +285,8 @@ export function DatosFiscales() {
         {visibles.length === 0 ? (
           <p className="p-6 text-sm texto-2">
             {resumen && resumen.sinLeer > 0
-              ? "Todavía no se lee todo el catálogo: usa «Leer catálogo de MELI» y espera a que termine."
-              : "No hay SKUs sin datos fiscales. Todo el catálogo leído tiene su información cargada."}
+              ? "Falta leer el catálogo de MELI."
+              : "No hay SKUs sin datos fiscales."}
           </p>
         ) : (
           <div className="max-h-[40rem] overflow-auto">

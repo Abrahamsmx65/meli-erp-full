@@ -109,8 +109,7 @@ export function ProductosNuevos({
     return (
       <section className="tarjeta p-6 text-center">
         <p className="texto-2 text-sm">
-          No hay productos nuevos: todo lo que viene en los pedidos ya ha tenido stock
-          en Full o en FBA alguna vez.
+          No hay productos nuevos.
         </p>
       </section>
     );
