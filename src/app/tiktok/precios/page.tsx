@@ -12,6 +12,7 @@ import {
   type ParametrosPrecioTikTok,
 } from "@/lib/tiktok/precios";
 import { Ficha } from "@/components/tiles";
+import { Ayuda, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { TablaPreciosTikTok } from "@/components/tabla-precios-tiktok";
 import { DIAS_PRECIO_REAL, fuentesDePrecios } from "@/lib/servicios/tiktok-precios";
 
@@ -54,13 +55,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     data: { user },
   } = await supabase.auth.getUser();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta || !user) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta || !user) return <SinCuenta titulo="Precios para TikTok" />;
 
   const p = parametrosDesde(sp);
   const diasRaw = Number(Array.isArray(sp.dias) ? sp.dias[0] : sp.dias);
@@ -155,39 +150,41 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
   const ejemplo = netoTikTok(500, p);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="titulo-pagina">Precios para TikTok</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            El precio que deja en TikTok el mismo neto por par que deja el RELÁMPAGO de MELI ({rango.desde} → {rango.hasta}, depósito real
-            de Mercado Pago), o el precio que tú pongas.
-          </p>
-        </div>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Precios para TikTok"
+        descripcion={`El precio que deja en TikTok el mismo neto por par que el relámpago de MELI (${rango.desde} → ${rango.hasta}), o el tuyo.`}
+        ayuda={<p>El neto de MELI es el depósito real de Mercado Pago del periodo. «Mi precio» manda sobre el calculado.</p>}
+      />
 
       <form method="get" className="tarjeta p-4">
         <div className="flex flex-wrap items-end gap-3">
           {CAMPOS.map((c) => (
-            <label key={c.clave} className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+            <label key={c.clave} className="flex flex-col text-xs texto-2">
               <span>
-                {c.nombre} <span style={{ color: "var(--ink-muted)" }}>({c.unidad})</span>
+                {c.nombre} <span className="texto-tenue">({c.unidad})</span>
               </span>
               <input name={c.clave} type="number" step={c.paso} min="0" defaultValue={p[c.clave]} className="mt-1 w-32 rounded-lg border px-2 py-1.5 text-sm" />
             </label>
           ))}
-          <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+          <label className="flex flex-col text-xs texto-2">
             <span>Días de MELI</span>
             <input name="dias" type="number" step="1" min="7" max="180" defaultValue={dias} className="mt-1 w-24 rounded-lg border px-2 py-1.5 text-sm" />
           </label>
-          <button type="submit" className="boton-primario">
+          <button type="submit" className="boton boton-primario">
             Recalcular
           </button>
-          <a href="/tiktok/precios" className="text-xs underline" style={{ color: "var(--ink-2)" }}>
+          <a href="/tiktok/precios" className="boton boton-fantasma">
             Volver a los de omisión
           </a>
         </div>
-        <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 text-xs texto-2">
+          Por cada par vendido a $500 me quedan {pesosC(ejemplo.neto)}: del precio llega el {Math.round(k * 1000) / 10} % menos lo fijo.
+        </p>
+        <div className="mt-2">
+          <Ayuda titulo="¿Cómo se desglosa?">
+            <p>
           Por cada par vendido a $500: {pesosC(ejemplo.comision)} de comisión + {pesosC(ejemplo.cargo)} fijos + {pesosC(ejemplo.afiliado)} de
           afiliados + {pesosC(ejemplo.envio)} de envío + {pesosC(ejemplo.ivaRetenido + ejemplo.isrRetenido)} de IVA e ISR retenidos +{" "}
           {pesosC(ejemplo.empaque)} de empaque: me quedan {pesosC(ejemplo.neto)}. Del precio llega el {Math.round(k * 1000) / 10} % menos lo
@@ -195,10 +192,12 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
           afiliados {PARAMETROS_POR_OMISION.afiliadoPct} % fijo aunque la comisión real sea otra, envío {PARAMETROS_POR_OMISION.envioPct} %, IVA{" "}
           {PARAMETROS_POR_OMISION.ivaRetenidoPct} % e ISR {PARAMETROS_POR_OMISION.isrRetenidoPct} % sobre la base sin IVA y ${PARAMETROS_POR_OMISION.empaquePorPar} de
           empaque por par.
-        </p>
+            </p>
+          </Ayuda>
+        </div>
       </form>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="Modelos con objetivo" valor={n(conObjetivo.length)} nota={`${n(conMiPrecio)} con tu precio · el resto por el relámpago de MELI en ${dias} días`} />
         <Ficha titulo="Publicados en TikTok" valor={n(enTikTok.length)} nota="con precio activo en TikTok" />
         <Ficha
@@ -208,9 +207,9 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
           tono={porDebajo ? "alerta" : "bien"}
         />
         <Ficha titulo="Escalón" valor={`${p.escalonPct}%`} nota="live abajo del normal · campaña arriba del normal" />
-      </div>
+      </Cifras>
 
       <TablaPreciosTikTok renglones={renglones} escalonPct={p.escalonPct} diasPrecioReal={DIAS_PRECIO_REAL} retencionPct={p.ivaRetenidoPct + p.isrRetenidoPct} />
-    </div>
+    </Pagina>
   );
 }

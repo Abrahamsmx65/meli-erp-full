@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { Aviso, Ayuda } from "@/components/ui/pagina";
 import {
   ajustesDeConteo,
   escanearConteo,
@@ -123,20 +124,20 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
     <div className="grid gap-6 lg:grid-cols-[2fr_3fr]">
       <section className="tarjeta p-5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Escanear</h2>
+          <h2 className="seccion-titulo">Escanear</h2>
           <button
             type="button"
             onClick={alternarVoz}
             aria-pressed={voz}
-            className="flex items-center gap-1 rounded-lg border px-2 py-1 text-xs"
-            style={{ borderColor: "var(--grid)", color: voz ? "var(--acento)" : "var(--ink-2)" }}
+            className="boton boton-borde boton-chico"
+            style={{ color: voz ? "var(--acento)" : "var(--ink-2)" }}
           >
             {voz ? <Volume2 size={14} /> : <VolumeX size={14} />}
             {voz ? "Voz" : "Sin voz"}
           </button>
         </div>
 
-        <label className="mt-4 block text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="mt-4 block text-xs texto-2">
           Modelo que se cuenta completo (opcional)
           <select
             value={modelo}
@@ -158,15 +159,15 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
 
         <div
           className="mt-4 rounded-lg p-4"
-          style={{ background: estado.error ? "color-mix(in oklab, var(--estado-critico) 12%, transparent)" : "var(--acento-suave)" }}
+          style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em]" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
             Último
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: estado.error ? "var(--estado-critico)" : "var(--acento)" }}>
             {estado.error ?? (estado.ultimo ? `${estado.ultimo} · van ${estado.contados[estado.ultimo]}` : "Escanea el FNSKU de cada par.")}
           </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-1 text-xs texto-2">
             {contados} SKU · {pares} pares contados
           </p>
         </div>
@@ -178,7 +179,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
             if (!guardando) escanear(codigo);
           }}
         >
-          <ScanLine size={18} style={{ color: "var(--ink-2)" }} />
+          <ScanLine size={18} className="texto-2" />
           <input
             ref={input}
             value={codigo}
@@ -189,7 +190,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
             className="flex-1 rounded-lg border px-3 py-2 text-lg"
             style={{ borderColor: "var(--grid)" }}
           />
-          <button type="submit" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--grid)" }}>
+          <button type="submit" className="boton boton-borde">
             Enter
           </button>
           <button
@@ -200,8 +201,8 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
             }}
             aria-pressed={teclado}
             title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
-            className="rounded-lg border px-2 py-2 text-sm"
-            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+            className="boton boton-borde px-2"
+            style={{ color: teclado ? "var(--acento)" : "var(--ink-2)" }}
           >
             <Keyboard size={16} />
           </button>
@@ -213,15 +214,14 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
             setResultado(null);
             setConfirmaCeros(false);
           }}
-          className="mt-3 rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: "var(--grid)" }}
+          className="boton boton-borde mt-3"
         >
           Empezar de cero
         </button>
 
         {sinFnsku.length ? (
-          <div className="mt-4 text-xs" style={{ color: "var(--ink-2)" }}>
-            <div className="font-semibold" style={{ color: "var(--estado-alerta)" }}>
+          <div className="mt-4 text-xs texto-2">
+            <div className="font-semibold" style={{ color: "var(--alerta-texto)" }}>
               Sin FNSKU (se capturan a mano en la tabla): {sinFnsku.length}
             </div>
             <div className="mt-1 flex flex-wrap gap-1">
@@ -230,8 +230,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
                   key={p.sku}
                   type="button"
                   onClick={() => setEstado((e) => fijarConteo(e, p.sku, (e.contados[p.sku] ?? 0) + 1))}
-                  className="rounded border px-1.5 py-0.5"
-                  style={{ borderColor: "var(--grid)" }}
+                  className="boton boton-borde boton-chico"
                   title="Suma un par a mano"
                 >
                   {p.sku}
@@ -241,17 +240,22 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
           </div>
         ) : null}
 
-        <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
-          Cada escaneo suma un par. Los pares apartados (pedidos pagados sin despachar) siguen en
-          la bodega: se cuentan y se comparan contra el saldo, no contra lo publicado.
-        </p>
+        <p className="mt-3 text-xs texto-2">Cada escaneo suma un par.</p>
+        <div className="mt-2">
+          <Ayuda titulo="¿Contra qué se compara?">
+            <p>
+              Los pares apartados (pedidos pagados sin despachar) siguen en la bodega: se cuentan y se comparan contra el
+              saldo, no contra lo publicado.
+            </p>
+          </Ayuda>
+        </div>
       </section>
 
       <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b p-4 hairline">
+        <header className="seccion-cabeza">
           <div>
-            <h2 className="text-sm font-semibold">Contado vs kardex</h2>
-            <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+            <h2 className="seccion-titulo">Contado vs kardex</h2>
+            <p className="texto-2 mt-0.5 text-[13px]">
               {ajustes.length === 0 ? "Todo cuadra." : `${ajustes.length} SKU con diferencia.`}
             </p>
           </div>
@@ -259,15 +263,14 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
             type="button"
             onClick={guardar}
             disabled={guardando || !ajustes.length || (ceros.length > 0 && !confirmaCeros)}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
           >
             {guardando ? "Guardando…" : "Guardar conteo y publicar a TikTok"}
           </button>
         </header>
 
         {ceros.length ? (
-          <label className="flex items-start gap-2 px-4 py-3 text-sm" style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}>
+          <label className="flex items-start gap-2 px-4 py-3 text-sm" style={{ background: "var(--alerta-suave)", color: "var(--alerta-texto)" }}>
             <input type="checkbox" checked={confirmaCeros} onChange={(e) => setConfirmaCeros(e.target.checked)} className="mt-1" />
             <span>
               {ceros.length} SKU de {modelo} con saldo NO aparecieron al escanear y quedarán en 0
@@ -277,12 +280,12 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
         ) : null}
 
         {resultado ? (
-          <p className="px-4 py-3 text-sm" style={{ color: resultado.startsWith("Conteo guardado") ? "var(--estado-bien)" : "var(--estado-critico)" }}>
-            {resultado}
-          </p>
+          <div className="px-4 py-3">
+            <Aviso tono={resultado.startsWith("Conteo guardado") ? "bien" : "critico"}>{resultado}</Aviso>
+          </div>
         ) : null}
 
-        <div className="max-h-[36rem] overflow-auto">
+        <div className="tabla-caja max-h-[36rem] overflow-auto">
           <table className="datos">
             <thead>
               <tr>
@@ -298,7 +301,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
                 <tr key={r.sku} style={r.supuestoCero ? { color: "var(--estado-alerta)" } : undefined}>
                   <td>
                     <div className="font-medium">{r.sku}</div>
-                    <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <div className="text-xs texto-tenue">
                       {r.fnsku ?? "sin FNSKU"}
                       {r.supuestoCero ? " · no apareció" : ""}
                     </div>
@@ -325,7 +328,7 @@ export function ConteoTikTok({ productos, urlGuardar }: { productos: ProductoCon
               ))}
               {!renglones.length ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+                  <td colSpan={5} className="py-8 text-center text-sm texto-2">
                     Todavía no hay nada contado.
                   </td>
                 </tr>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Aviso, Ayuda, Seccion } from "@/components/ui/pagina";
 
 export interface AliasAmazonFila {
   modelo: string;
@@ -45,12 +46,13 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Colores equivalentes en Amazon (para el FNSKU)</h2>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-        Cuando TikTok llama al color distinto que Amazon, aquí se dice cuál es cuál por modelo. Así el corte
-        encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.
-      </p>
+    <Seccion
+      titulo="Colores equivalentes en Amazon (para el FNSKU)"
+      descripcion="Cuando TikTok llama al color distinto que Amazon, aquí se dice cuál es cuál por modelo."
+    >
+      <Ayuda titulo="¿Para qué sirve?">
+        <p>Así el corte encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.</p>
+      </Ayuda>
       <form
         className="mt-3 flex flex-wrap items-end gap-2"
         onSubmit={(e) => {
@@ -58,23 +60,23 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
           if (!ocupado) void llamar("POST", { modelo, colorTikTok, colorAmazon });
         }}
       >
-        <label className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="text-xs texto-2">
           Modelo
           <input value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="MY2304" className="mt-1 block w-28 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }} />
         </label>
-        <label className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="text-xs texto-2">
           Color en TikTok
           <input value={colorTikTok} onChange={(e) => setColorTikTok(e.target.value)} placeholder="CAMEL" className="mt-1 block w-32 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }} />
         </label>
-        <label className="text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="text-xs texto-2">
           Color en Amazon
           <input value={colorAmazon} onChange={(e) => setColorAmazon(e.target.value)} placeholder="BROWN" className="mt-1 block w-32 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }} />
         </label>
-        <button type="submit" disabled={ocupado} className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50" style={{ background: "var(--acento)" }}>
+        <button type="submit" disabled={ocupado} className="boton boton-primario">
           Guardar
         </button>
       </form>
-      {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+      {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
       {alias.length ? (
         <ul className="mt-3 flex flex-wrap gap-2 text-sm">
           {alias.map((a) => (
@@ -85,8 +87,7 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
                 type="button"
                 onClick={() => void llamar("DELETE", { modelo: a.modelo, colorTikTok: a.colorTikTok })}
                 disabled={ocupado}
-                className="text-xs underline"
-                style={{ color: "var(--ink-2)" }}
+                className="enlace text-xs"
               >
                 quitar
               </button>
@@ -94,6 +95,6 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
           ))}
         </ul>
       ) : null}
-    </section>
+    </Seccion>
   );
 }
