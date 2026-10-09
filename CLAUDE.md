@@ -1885,6 +1885,12 @@ midió y quedó como regla:
 - `rpcTodo` de fundas para con un lote más corto que lo pedido Y que el tope
   de 1,000 de PostgREST (como `traerRpcTodo`): antes repetía el RPC completo
   una vez por cada mil renglones y el corte de fundas moría por tiempo.
+- **Las funciones viven en `iad1`, junto a la base** (`regions` en
+  `vercel.json`; 9-oct-2026): corrían en `sfo1` y la base está en
+  us-east-1, así que cada consulta cruzaba el país (~50 ms por viaje y una
+  pantalla hace varios en serie).
+- **Pestañas dentro de la pantalla** (`components/ui/pestanas.tsx`, regla en
+  `docs/DISENO.md`; dueño: «para no ver todo su contenido junto de golpe»).
 - La barra de estado pregunta cada 60 s, se pausa con la pestaña escondida y
   solo recarga las pantallas que usan el plan; la página ya no se desmonta en
   cada navegación. `clienteAdmin` vive en `supabase/admin.ts` (sin
