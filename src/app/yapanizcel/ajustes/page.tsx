@@ -1,7 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { credencialesApp, cuentaActiva, leerParametros } from "@/lib/yapanizcel/cuenta";
 import { todo } from "@/lib/yapanizcel/db";
-import Link from "next/link";
 import { BotonSincronizar, FormularioParametros, SubirCostos } from "@/components/yapanizcel/acciones";
 import { Aviso, Encabezado, Pagina, Seccion } from "@/components/ui/pagina";
 
@@ -27,6 +26,13 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
         ceja="Fundas"
         titulo="Ajustes fundas"
         descripcion="Conexión con la cuenta de Mercado Libre de fundas, costos y parámetros del planeador."
+        ayudaTitulo="¿Cómo funciona?"
+        ayuda={
+          <p>
+            El sheet de inventario (una pestaña por diseño) se lee a diario en el cron y reemplaza la bodega completa. Para
+            leerlo en el momento, usa el botón de Bodega fundas.
+          </p>
+        }
       />
 
       {sp.ok ? <Aviso tono="bien">{sp.ok}</Aviso> : null}
@@ -57,9 +63,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
           </div>
         ) : (
           <div>
-            <p className="texto-2 text-sm">
-              Todavía no está conectada. Te lleva a Mercado Libre a autorizar; inicia sesión ahí con la cuenta de YAPANIZCEL.
-            </p>
+            <p className="texto-2 text-sm">Sin conectar. Inicia sesión en Mercado Libre con la cuenta de YAPANIZCEL.</p>
             <a href="/api/yapanizcel/meli/conectar" className="boton boton-primario mt-3">
               Conectar con Mercado Libre
             </a>
@@ -69,20 +73,9 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
 
       {cuenta ? (
         <>
-          <Seccion titulo="Inventario de bodega (Google Sheets)">
-            <p className="texto-2 text-sm">
-              Una pestaña por diseño; se lee a diario en el cron y reemplaza la bodega completa. Para leerlo en este momento,
-              usa el botón de{" "}
-              <Link href="/yapanizcel/inventario" className="enlace">
-                Bodega fundas
-              </Link>
-              .
-            </p>
-          </Seccion>
-
           <Seccion titulo="Costos">
             <p className="texto-2 mb-3 text-sm">
-              Un Excel con dos columnas: <b>MODELO</b> (el número de diseño, p. ej. 499) y <b>COSTO</b> en MXN. Se acumula: lo que ya estaba se actualiza, lo nuevo se agrega.
+              Excel con dos columnas: <b>MODELO</b> (diseño, p. ej. 499) y <b>COSTO</b> en MXN. Actualiza lo que ya estaba y agrega lo nuevo.
             </p>
             <SubirCostos />
             {costos.length ? (

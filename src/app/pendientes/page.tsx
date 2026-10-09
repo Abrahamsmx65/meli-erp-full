@@ -2,7 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
-import { Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Encabezado, Pagina, Seccion, SinCuenta, Vacio } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,9 @@ export default async function Pendientes() {
     sku: string; kardex: number; estante: number | null; desde: string; motivo: string;
   }[];
 
+  const hayTikTok = rojosTikTok.length > 0 || tiktokSinAmarre.length > 0 || desfasesTikTok.length > 0;
+  const nadaPendiente = sinCorrida.length === 0 && sinAmarre.length === 0 && !hayTikTok;
+
   const paresBloqueados = sinCorrida.reduce(
     (a, s) => a + s.cajasDisponibles * s.paresPorCaja,
     0,
@@ -56,18 +59,21 @@ export default async function Pendientes() {
         descripcion="Inventario que existe pero que el sistema todavía no puede planear. Nada se descarta en silencio."
       />
 
+      {nadaPendiente ? (
+        <Vacio>
+          Nada pendiente: todas las cajas de corrida tienen su receta, todo lo de bodega está amarrado a Mercado Libre y
+          el almacén de TikTok cuadra.
+        </Vacio>
+      ) : null}
+
       {/* ---- Cajas sin corrida ------------------------------------------- */}
+      {sinCorrida.length > 0 && (
       <Seccion
         titulo="Cajas de corrida sin receta"
-        descripcion={
-          sinCorrida.length === 0
-            ? "Ninguna: todas las cajas de corrida tienen su desglose de tallas."
-            : `${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`
-        }
+        descripcion={`${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`}
         sinRelleno
       >
 
-        {sinCorrida.length > 0 && (
           <div className="max-h-[30rem] overflow-auto">
             <table className="datos">
               <thead>
@@ -106,21 +112,17 @@ export default async function Pendientes() {
               </tbody>
             </table>
           </div>
-        )}
       </Seccion>
+      )}
 
       {/* ---- SKUs sin amarre --------------------------------------------- */}
+      {sinAmarre.length > 0 && (
       <Seccion
         titulo="SKUs de bodega sin publicación en MELI"
-        descripcion={
-          sinAmarre.length === 0
-            ? "Ninguno: todo lo que hay en bodega tiene su SKU en Mercado Libre."
-            : `${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo. Puede ser que estén escritos distinto en la publicación, o que ese producto no esté publicado.`
-        }
+        descripcion={`${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo: están escritos distinto en la publicación o no están publicados.`}
         sinRelleno
       >
 
-        {sinAmarre.length > 0 && (
           <div className="max-h-[30rem] overflow-auto">
             <table className="datos">
               <thead>
@@ -149,11 +151,11 @@ export default async function Pendientes() {
               </tbody>
             </table>
           </div>
-        )}
       </Seccion>
+      )}
 
       {/* ---- TikTok Shop ------------------------------------------------- */}
-      {rojosTikTok.length || tiktokSinAmarre.length || desfasesTikTok.length ? (
+      {hayTikTok ? (
         <Seccion titulo="TikTok Shop" descripcion="Lo que el almacén de TikTok no puede resolver solo." sinRelleno>
           {rojosTikTok.length ? (
             <div className="px-4 pt-3">

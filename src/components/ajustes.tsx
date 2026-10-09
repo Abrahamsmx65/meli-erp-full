@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Parametros } from "@/lib/engine/types";
+import { Ayuda } from "@/components/ui/pagina";
 
 const CAMPOS: {
   clave: keyof Parametros;
   etiqueta: string;
   ayuda: string;
+  /** Texto corto bajo el campo; con él, `ayuda` va plegada abajo. */
+  corta?: string;
   paso?: number;
   min?: number;
 }[] = [
@@ -74,6 +77,7 @@ const CAMPOS: {
     etiqueta: "Producto nuevo (días)",
     ayuda:
       "Un producto estrenado en Full hace menos de estos días es NUEVO: cualquier faltante fuerza su caja, sin tolerancia de rescate. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
   {
@@ -88,6 +92,7 @@ const CAMPOS: {
     etiqueta: "Cobertura para no forzar caja (días)",
     ayuda:
       "Si la caja va a forzar otras tallas, la talla que la pide solo la fuerza con menos de estos días de stock en Full. 0 = siempre se fuerza.",
+    corta: "0 = siempre se fuerza.",
     min: 0,
   },
   {
@@ -95,6 +100,7 @@ const CAMPOS: {
     etiqueta: "Cajas mínimas sin venta",
     ayuda:
       "Un producto que nunca ha vendido en Full y tiene cajas en bodega se sostiene con al menos estas cajas por modelo + color entre Full y en camino. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
 ];
@@ -142,12 +148,17 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
               onChange={(e) => setV({ ...v, [c.clave]: Number(e.target.value) })}
               className="cifra"
             />
-            <span className="text-xs texto-tenue">
-              {c.ayuda}
-            </span>
+            <span className="text-xs texto-tenue">{c.corta ?? c.ayuda}</span>
           </label>
         ))}
       </div>
+      <Ayuda titulo="¿Qué hacen las reglas de producto?">
+        {CAMPOS.filter((c) => c.corta).map((c) => (
+          <p key={String(c.clave)}>
+            <strong>{c.etiqueta}.</strong> {c.ayuda}
+          </p>
+        ))}
+      </Ayuda>
 
       <div className="flex items-center gap-3">
         <button
