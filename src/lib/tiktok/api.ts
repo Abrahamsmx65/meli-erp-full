@@ -1270,3 +1270,48 @@ export async function pedidosDeAfiliados(
   if (!d) return null;
   return { crudo: d, siguiente: d?.next_page_token || undefined };
 }
+
+// ---------------------------------------------------------------------------
+// Estados de cuenta: lo que TikTok cobra o abona fuera de los pedidos
+// ---------------------------------------------------------------------------
+
+/**
+ * Una página de los estados de cuenta de la tienda con fecha en
+ * [desde, hasta) (segundos epoch). `GET /finance/202309/statements`, ruta y
+ * forma del SDK público de TikTok en npm: `sort_field` obligatorio
+ * (`statement_time`), `page_size` hasta 100, `page_token`; contesta
+ * `statements[]` con `id`, `statement_time`, `settlement_amount`,
+ * `revenue_amount`, `fee_amount`, `shipping_cost_amount`,
+ * `adjustment_amount` y `payment_status` (ver `tiktok/estados-cuenta.ts`).
+ * null si se acabó el tiempo de la función.
+ */
+export async function estadosDeCuenta(
+  c: Cliente,
+  opciones: { desde: number; hasta: number; pageToken?: string },
+): Promise<{ crudo: any; siguiente?: string } | null> {
+  const d = await c.llamar<any>("GET", "/finance/202309/statements", {
+    params: {
+      statement_time_ge: opciones.desde,
+      statement_time_lt: opciones.hasta,
+      page_size: 100,
+      page_token: opciones.pageToken,
+      sort_field: "statement_time",
+      sort_order: "ASC",
+    },
+  });
+  if (d == null) return null;
+  return { crudo: d, siguiente: d?.next_page_token || undefined };
+}
+
+/**
+ * La primera página de transacciones de UN estado de cuenta
+ * (`GET /finance/202501/statements/{id}/statement_transactions`). Solo se
+ * pide para dejar el crudo en la bitácora y saber qué TIPOS de ajuste trae
+ * (la forma no está documentada en el SDK); el dinero sale del total del
+ * estado.
+ */
+export async function transaccionesDeEstado(c: Cliente, estadoId: string): Promise<any> {
+  return c.llamar<any>("GET", `/finance/202501/statements/${encodeURIComponent(estadoId)}/statement_transactions`, {
+    params: { page_size: 100, sort_field: "order_create_time", sort_order: "DESC" },
+  });
+}

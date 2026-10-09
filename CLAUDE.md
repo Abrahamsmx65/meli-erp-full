@@ -1681,10 +1681,25 @@ guárdala numerada.
   contra $109 mil de agosto) y un mes leído con la paginación vieja sin
   total se relee una vez (julio de fundas); (4) los RPC de cortes evalúan
   el permiso UNA vez (migración 0126, abajo). `versionContable` 8 y
-  `claveCorte` v3. Lo que la revisión dejó como DECISIÓN del dueño, sin
-  tocar: el ajuste MiscAdjustment de Amazon (~−$107 mil al mes, hoy gasto
-  general), las muestras de TikTok sin costo, TikTok sin gastos propios
-  (3PL, empaque, publicidad) y el IVA dentro de la utilidad. Los «cargos
+  `claveCorte` v3. Decisiones del dueño ese día: el IVA SE QUEDA dentro de
+  la utilidad, los modelos sin costo se quedan como están, a TikTok NO se le
+  suman muestras, 3PL ni empaque, y el ajuste MiscAdjustment de Amazon
+  (~−$107 mil al mes, sin descripción en la Finances API) sigue como gasto
+  general hasta saber qué es. **Los AJUSTES de los estados de cuenta de
+  TikTok sí entran** («checa si no hay más cargos»; `tiktok/estados-cuenta.ts`
+  puro con pruebas, `servicios/tiktok-estados.ts`, `estadosDeCuenta` en
+  `tiktok/api.ts`): lo que TikTok cobra o abona SIN pedido vive en
+  `GET /finance/202309/statements` (`adjustment_amount` por estado; ruta y
+  forma del SDK público de npm), no en las transacciones por pedido que lee
+  `liquidacion.ts`. El cron de pagos los lee cada 3 h a `app_cache`
+  `tiktok:estados-cuenta` y deja en la bitácora (tarea `estados-cuenta`) el
+  crudo de las transacciones de los primeros estados con ajuste para saber
+  qué tipos cobra; `bloqueTikTok` suma los ajustes del mes por la FECHA DEL
+  ESTADO (México) como gasto de la plataforma, y sin estados leídos lo
+  declara. **El Excel del corte general lleva los tonos de la página**
+  (`consolidado-excel.ts`: encabezados azul marino, bloques en gris, la
+  utilidad en verde/rojo, pestañas «Cada peso» con los colores de la gráfica
+  y «Qué falta» por tipo). Los «cargos
   detallados superan…» de los carritos NO son dinero perdido: esas órdenes
   ya traen el cargo diferido en `neto_actual`.
   **La pantalla y el PDF se leen, no solo se suman**

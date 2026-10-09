@@ -163,6 +163,8 @@ const NOTAS: RegExp[] = [
   /anuló cargos/i,
   /incluye .* de IVA facturado/i,
   /cargos detallados superan/i,
+  /de ajustes fuera de los pedidos/i,
+  /no traen ajustes fuera de los pedidos/i,
   /no se pudieron atribuir a sus propios productos/i,
 ];
 /** Lo que se resuelve solo con el paso de los días. */
@@ -171,6 +173,7 @@ const PENDIENTES: RegExp[] = [
   /POR LIQUIDAR/i,
   /aún no tienen leída la revisión/i,
   /se revisan solas/i,
+  /todavía no se leen sus estados de cuenta/i,
 ];
 
 export function clasificarAviso(texto: string): TipoAviso {
