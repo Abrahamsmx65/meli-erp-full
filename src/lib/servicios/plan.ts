@@ -178,7 +178,10 @@ export function reasignarPorBodega(
  * Historia de venta más allá de la ventana del plan, para las reglas de
  * producto NUEVO y SIN ESTRENO: qué SKUs vendieron alguna vez y cuáles ya
  * vendían antes de la ventana. Un renglón por SKU desde el RPC
- * (`ventas_resumen_sku` con rango abierto), nunca la tabla cruda.
+ * (`ventas_resumen_sku_diarias` con rango abierto), nunca la tabla cruda.
+ * Lee los renglones diarios y no las órdenes vivas (`ventas_resumen_sku`,
+ * migración 0133): aquí solo importa si el SKU vendió, y con toda la
+ * historia las órdenes cuestan ~2 s por página en el latido.
  */
 export async function ventasHistoricas(
   db: DB,
@@ -187,7 +190,7 @@ export async function ventasHistoricas(
   hoy: ISODate,
 ): Promise<{ historica: Set<string>; previa: Set<string>; error: string | null }> {
   // Por páginas: hay más SKUs con venta que los 1,000 que entrega el API.
-  const { filas, error } = await traerRpcTodo<any>(db, "ventas_resumen_sku", {
+  const { filas, error } = await traerRpcTodo<any>(db, "ventas_resumen_sku_diarias", {
     p_account: accountId,
     p_desde: "2020-01-01",
     p_hasta: hoy,

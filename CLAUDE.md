@@ -1647,6 +1647,22 @@ guárdala numerada.
   la comisión y el envío reconstruidos de las reventas salían como un
   descuadre de cientos de miles. `pendientes_vencidas` separa las órdenes a
   las que ya toca revisión de las que aún no llegan al plazo.
+  **Todas las pantallas de VENTAS cuentan como el corte y el correo**
+  (migración 0133, `ventas_vivas` / `yz_ventas_vivas`; dueño, 9-oct-2026:
+  «en el correo me llega diferente info de venta de ayer que lo que veo en
+  el panel», eligió la venta al PRECIO PÚBLICO y «que en todas las
+  secciones la info sea consistente»): `ventas_resumen_sku`,
+  `ventas_totales_dia`, `yz_ventas_resumen` y `yz_ventas_por_dia` (Ventas
+  MELI, Ventas de fundas, Publicidad, finanzas, Excel por modelo de TikTok)
+  salen de las ÓRDENES VIVAS (sin canceladas) y, en un día sin órdenes
+  registradas, de los renglones diarios, igual que `ventasDelCorte`; la
+  reventa reconstruida (`total_comprador − total`) sube la venta Y la
+  comisión repartida por importe entre los renglones de la orden: el neto
+  no cambia. El 8-oct el panel decía 1,761 pares / $222 mil y el correo
+  1,745 / $361 mil (16 pares cancelados y 1,584 de 1,620 órdenes en
+  reventa); hoy dicen lo mismo al centavo. El PLAN de Full sigue con los
+  renglones diarios (`ventas_resumen_sku_diarias`): solo pregunta si un SKU
+  vendió alguna vez.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
