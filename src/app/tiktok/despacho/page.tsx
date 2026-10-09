@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function Despacho() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Despacho TikTok Shop" />;
+  if (!cuenta) return <SinCuenta titulo="Despacho de pedidos" />;
 
   // Los pendientes se leen UNA vez (el selector por modelo los reusa) y el
   // avance sale SOLO de los cortes que se enseñan: antes se bajaba el
@@ -81,7 +81,7 @@ export default async function Despacho() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Despacho TikTok Shop"
+        titulo="Despacho de pedidos"
         descripcion="Un corte confirma lo pendiente y deja listas las etiquetas y la lista de empaque."
         ayuda={
           <p>

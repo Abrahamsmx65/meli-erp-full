@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function PedidosAlmacen() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Pedidos de almacén · TikTok" />;
+  if (!cuenta) return <SinCuenta titulo="Reabasto de almacén" />;
 
   const [pedidos, sugerido] = await Promise.all([
     listarPedidosAlmacen(supabase, cuenta.id),
@@ -25,7 +25,7 @@ export default async function PedidosAlmacen() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Pedidos de almacén · TikTok"
+        titulo="Reabasto de almacén"
         descripcion="Qué reponerle a la bodega de TikTok, por modelo, color y talla, y de qué bodega sale."
         ayuda={
           <p>

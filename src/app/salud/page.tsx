@@ -18,7 +18,7 @@ export const maxDuration = 60;
 export default async function Salud() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Revisión general" />;
+  if (!cuenta) return <SinCuenta titulo="Diagnóstico" />;
 
   const [yz, amz] = await Promise.all([
     cuentaYz(supabase).catch(() => null),
@@ -36,7 +36,7 @@ export default async function Salud() {
     <Pagina>
       <Encabezado
         ceja="Sistema"
-        titulo="Revisión general"
+        titulo="Diagnóstico"
         descripcion="Lo que el sistema sabe que está mal o incompleto, en un solo lugar."
         ayuda={
           <>

@@ -63,29 +63,29 @@ function FormularioLogin() {
       {/* Lado de la marca: solo en pantallas anchas. */}
       <aside
         className="relative hidden flex-col justify-between overflow-hidden p-12 lg:flex"
-        style={{ background: "var(--marca)", color: "#fff" }}
+        style={{ background: "#f3ebdf", color: "var(--ink-1)" }}
       >
-        <Logo />
+        <Logo alto={64} />
         <div className="relative max-w-md">
-          <p className="ceja" style={{ color: "var(--sidebar-acento)" }}>
+          <p className="ceja" style={{ color: "var(--acento)" }}>
             Calzado · Mercado Libre · Amazon · TikTok Shop
           </p>
-          <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "#fff" }}>
+          <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "var(--ink-1)" }}>
             Qué mandar, qué pedir y cuánto ganas, en un solo lugar.
           </h1>
-          <p className="mt-4 text-[15px] leading-relaxed text-pretty" style={{ color: "rgba(255,255,255,.66)" }}>
+          <p className="mt-4 text-[15px] leading-relaxed text-pretty" style={{ color: "var(--ink-2)" }}>
             Inventario en bodega y en Full, envíos por cajas cerradas, pedidos a China, despacho de TikTok y
             el corte del mes con el dinero real de cada orden.
           </p>
         </div>
-        <ul className="relative grid grid-cols-3 gap-4 text-[12px]" style={{ color: "rgba(255,255,255,.6)" }}>
+        <ul className="relative grid grid-cols-3 gap-4 text-[12px]" style={{ color: "var(--ink-2)" }}>
           {[
             ["Inventario", "Bodega, Full y FBA"],
             ["Abastecimiento", "Pedidos y contenedores"],
             ["Dinero", "Cortes al centavo"],
           ].map(([t, d]) => (
-            <li key={t} className="border-t pt-3" style={{ borderColor: "rgba(255,255,255,.14)" }}>
-              <span className="block font-semibold text-white">{t}</span>
+            <li key={t} className="border-t pt-3" style={{ borderColor: "#e0d2bf" }}>
+              <span className="block font-semibold" style={{ color: "var(--ink-1)" }}>{t}</span>
               {d}
             </li>
           ))}
@@ -96,7 +96,7 @@ function FormularioLogin() {
           className="pointer-events-none absolute inset-0"
           style={{
             backgroundImage:
-              "linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px)",
+              "linear-gradient(rgba(139,102,64,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(139,102,64,.06) 1px, transparent 1px)",
             backgroundSize: "32px 32px",
             maskImage: "radial-gradient(ellipse at 70% 40%, #000 20%, transparent 75%)",
           }}
@@ -106,8 +106,8 @@ function FormularioLogin() {
       <main className="flex items-center justify-center px-5 py-12" style={{ background: "var(--surface-1)" }}>
         <div className="w-full max-w-sm">
           <div className="mb-10 lg:hidden">
-            <div className="inline-flex rounded-xl p-3" style={{ background: "var(--marca)" }}>
-              <Logo />
+            <div className="inline-flex">
+              <Logo alto={52} />
             </div>
           </div>
           <h2 className="text-[26px] font-semibold tracking-tight">Entra a tu cuenta</h2>

@@ -10,7 +10,7 @@ export default async function PaginaListados() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Listados" />;
+  if (!cuenta) return <SinCuenta titulo="Publicaciones" />;
 
   const agrupadores = await cargarAgrupadores(supabase, cuenta.id);
 
@@ -18,7 +18,7 @@ export default async function PaginaListados() {
     <Pagina>
       <Encabezado
         ceja="Mercado Libre"
-        titulo="Listados"
+        titulo="Publicaciones"
         descripcion="Las publicaciones de un modelo con sus variantes, leídas en vivo, para unificar atributos."
         ayuda={
           <p>

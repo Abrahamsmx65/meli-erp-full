@@ -17,7 +17,7 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "GETAC · Control de inventario",
+  title: "GETAC",
   description:
     "Inventario, envíos a Mercado Envíos Full, pedidos a China y corridas, en un solo lugar.",
 };

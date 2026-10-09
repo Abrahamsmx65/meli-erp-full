@@ -52,7 +52,7 @@ export default async function TikTok({
   const cuenta = await cuentaActiva(supabase);
   // TikTok cuelga de la cuenta de MELI del ERP: sin ella no hay catálogo con
   // qué amarrar sus publicaciones.
-  if (!cuenta) return <SinCuenta titulo="Almacén TikTok Shop" />;
+  if (!cuenta) return <SinCuenta titulo="Inventario TikTok" />;
 
   // Las dos lecturas son independientes: van a la par.
   const [p, aliasRaw] = await Promise.all([
@@ -65,7 +65,7 @@ export default async function TikTok({
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Almacén TikTok Shop"
+        titulo="Inventario TikTok"
         descripcion={`Kardex de la bodega TikTok y lo que se le publica a la tienda. Última sincronización: ${cuando(p.ultimaSync)}.`}
         acciones={p.conectado ? <AccionesTikTok porPublicar={p.totales.porPublicar} /> : null}
         ayuda={

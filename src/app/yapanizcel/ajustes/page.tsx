@@ -24,7 +24,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
     <Pagina className="max-w-3xl">
       <Encabezado
         ceja="Fundas"
-        titulo="Ajustes fundas"
+        titulo="Configuración de fundas"
         descripcion="Conexión con la cuenta de Mercado Libre de fundas, costos y parámetros del planeador."
         ayudaTitulo="¿Cómo funciona?"
         ayuda={

@@ -33,7 +33,7 @@ export default async function Plan() {
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) return <SinCuenta titulo="Plan de envío" />;
+  if (!cuenta) return <SinCuenta titulo="Reabasto a Full" />;
 
   // Los pendientes de la bodega vienen del API de Industher EN VIVO (hasta
   // 20 s si su servidor anda lento): la promesa arranca ya, pero NO se
@@ -147,7 +147,7 @@ export default async function Plan() {
     <Pagina>
       <Encabezado
         ceja="Mercado Libre"
-        titulo="Plan de envío"
+        titulo="Reabasto a Full"
         descripcion={`Próximo envío ${r.proximoEnvio} · cobertura objetivo ${p.horizonteDias} días · lead time ${p.leadTimeDias} días · ${p.enviosPorSemana} envíos por semana`}
         acciones={
           <>
@@ -306,7 +306,7 @@ function Bienvenida({
 }) {
   return (
     <Pagina>
-      <Encabezado ceja="Mercado Libre" titulo="Plan de envío" />
+      <Encabezado ceja="Mercado Libre" titulo="Reabasto a Full" />
       <div className="tarjeta mx-auto w-full max-w-md p-8 text-center">
       <h2 className="titulo-seccion">{titulo}</h2>
       <p className="mt-2 text-sm texto-2">

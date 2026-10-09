@@ -29,7 +29,7 @@ export default async function CargarPedidos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Cargar pedidos" />;
+  if (!cuenta) return <SinCuenta titulo="Órdenes de compra" />;
 
   // El sheet puede no contestar: la página sirve igual, avisando. Y no se
   // descarga de Google en el clic: vive masticado en app_cache y, pasados
@@ -51,7 +51,7 @@ export default async function CargarPedidos() {
     <Pagina>
       <Encabezado
         ceja="Abastecimiento"
-        titulo="Cargar pedidos"
+        titulo="Órdenes de compra"
         descripcion="Sube las proformas de la fábrica y aquí quedan los pedidos con sus corridas."
       />
 

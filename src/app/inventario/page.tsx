@@ -39,7 +39,7 @@ export default async function Inventario({
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) return <SinCuenta titulo="Bodega" />;
+  if (!cuenta) return <SinCuenta titulo="Existencias en bodega" />;
 
   const vista = await vistaBodega(supabase, cuenta.id, t);
   t.fin();
@@ -49,7 +49,7 @@ export default async function Inventario({
     <Pagina>
       <Encabezado
         ceja="Inventario"
-        titulo="Bodega"
+        titulo="Existencias en bodega"
         descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
         ayuda={
           <>

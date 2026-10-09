@@ -10,7 +10,7 @@ export const maxDuration = 120;
 export default async function ListadosPagina() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Listados fundas" />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Publicaciones de fundas" />;
   // Masticada en yz_cache («listados:disenos»); la refresca el cron de netos.
   const disenos = await obtenerDisenosListados(supabase, cuenta.id);
 
@@ -18,7 +18,7 @@ export default async function ListadosPagina() {
     <Pagina>
       <Encabezado
         ceja="Fundas"
-        titulo="Listados fundas"
+        titulo="Publicaciones de fundas"
         descripcion="Las publicaciones de un diseño con sus variantes y atributos, leídas en vivo de Mercado Libre."
         ayuda={
           <p>

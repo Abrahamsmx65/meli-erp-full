@@ -15,7 +15,7 @@ export const maxDuration = 120;
 export default async function EnviosYz() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Envíos a Full de fundas" />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Reabasto a Full de fundas" />;
 
   // El plan vive masticado en yz_cache y aquí se lee su vista CHICA
   // («plan:pantalla»: solo las líneas con algo que decir, con título; el
@@ -38,7 +38,7 @@ export default async function EnviosYz() {
     <Pagina>
       <Encabezado
         ceja="Fundas"
-        titulo="Envíos a Full de fundas"
+        titulo="Reabasto a Full de fundas"
         descripcion={`Qué mandar a Full para ${plan.parametros.diasObjetivo} días de cobertura, en decenas cerradas.`}
         frescura={generadoEn}
         acciones={

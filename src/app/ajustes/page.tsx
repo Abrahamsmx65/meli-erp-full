@@ -41,7 +41,7 @@ export default async function Ajustes({
 
   return (
     <Pagina className="max-w-3xl">
-      <Encabezado ceja="Sistema" titulo="Ajustes" descripcion="Conexión con Mercado Libre, parámetros de reposición y almacenes." />
+      <Encabezado ceja="Sistema" titulo="Configuración" descripcion="Conexión con Mercado Libre, parámetros de reposición y almacenes." />
 
       {sp.ok ? <Aviso tono="bien">{sp.ok}</Aviso> : null}
       {sp.error ? <Aviso tono="critico">{sp.error}</Aviso> : null}

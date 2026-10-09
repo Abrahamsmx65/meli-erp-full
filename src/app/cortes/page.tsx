@@ -42,7 +42,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const hoy = periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Corte general" />;
+  if (!cuenta) return <SinCuenta titulo="Estado de resultados" />;
   // El consolidado vive en consolidado_cache (10 min): correr los tres
   // canales completos en cada visita costaba hasta 300 s de función.
   const [cns, cortes, anterior, mismosDias] = await Promise.all([
@@ -66,7 +66,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     <Pagina>
       <Encabezado
         ceja="Negocio"
-        titulo="Corte general"
+        titulo="Estado de resultados"
         descripcion="Calzado, fundas, Amazon y TikTok: la ganancia real del mes, por canal, categoría y modelo."
         frescura={cns.generadoEn}
         acciones={

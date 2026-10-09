@@ -110,7 +110,7 @@ export default async function Skus() {
     <Pagina>
       <Encabezado
         ceja="Inventario"
-        titulo="SKUs"
+        titulo="Catálogo de SKUs"
         descripcion="Todos los SKUs de cada canal, cada uno en su Excel con filtros."
         ayudaTitulo="¿Qué trae cada Excel?"
         ayuda={

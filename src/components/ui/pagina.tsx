@@ -14,8 +14,8 @@
  *     <Seccion titulo="Por modelo" acciones={…}>…tabla…</Seccion>
  *   </Pagina>
  *
- * Reglas: UNA línea de descripción; lo que explique una regla del negocio va
- * en `ayuda` (plegado en «¿Cómo se calcula?», no se borra). Son componentes
+ * Reglas (9-oct-2026): sin explicaciones en pantalla. `descripcion` del
+ * encabezado y `ayuda` ya no se pintan; quedan en el código como nota. Son componentes
  * de servidor: `<details>` se abre sin JavaScript.
  */
 import Link from "next/link";
@@ -42,7 +42,10 @@ export function Encabezado({
   ceja?: string;
   /** La ceja dada manda sobre la del menú (Inicio pone la fecha). */
   cejaFija?: boolean;
-  /** Una sola línea: qué hay en esta pantalla. */
+  /**
+   * Ya NO se pinta (dueño, 9-oct-2026: «quitar todas las explicaciones»):
+   * el título y la ubicación bastan. Se queda en el código como nota.
+   */
   descripcion?: ReactNode;
   /** Botones y descargas, a la derecha. */
   acciones?: ReactNode;
@@ -59,7 +62,6 @@ export function Encabezado({
         <div className="min-w-0">
           <CejaDeRuta respaldo={ceja} fija={cejaFija} />
           <h1 className="titulo-pagina">{titulo}</h1>
-          {descripcion ? <p className="encabezado-descripcion">{descripcion}</p> : null}
         </div>
         {acciones || frescura ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -68,19 +70,17 @@ export function Encabezado({
           </div>
         ) : null}
       </div>
-      {ayuda ? <Ayuda titulo={ayudaTitulo}>{ayuda}</Ayuda> : null}
     </header>
   );
 }
 
-/** Explicación plegada. Se usa en el encabezado o dentro de una sección. */
-export function Ayuda({ titulo = "¿Cómo se calcula?", children }: { titulo?: string; children: ReactNode }) {
-  return (
-    <details className="ayuda">
-      <summary>{titulo}</summary>
-      <div className="ayuda-cuerpo">{children}</div>
-    </details>
-  );
+/**
+ * Explicación de una regla. Ya NO se pinta (dueño, 9-oct-2026: «quitar todas
+ * las explicaciones»): el texto se queda en el código como documentación de
+ * la regla, al lado de donde se usa.
+ */
+export function Ayuda(_: { titulo?: string; children: ReactNode }) {
+  return null;
 }
 
 /** «Hace X min» en una sola regla para toda la app. */
@@ -154,11 +154,8 @@ export function Seccion({
         {acciones ? <div className="flex flex-wrap items-center gap-2">{acciones}</div> : null}
       </div>
     ) : null;
-  const plegada = ayuda ? (
-    <div className={suelta ? "mb-3" : "px-4 pt-3"}>
-      <Ayuda>{ayuda}</Ayuda>
-    </div>
-  ) : null;
+  // `ayuda` ya no se pinta (ver `Ayuda`).
+  const plegada = null;
 
   if (suelta) {
     return (

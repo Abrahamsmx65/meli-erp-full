@@ -26,7 +26,7 @@ export default async function Contenido({
   const supabase = await clienteServidor();
   const cuenta = await cuentaAmazon(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Contenido en Amazon" servicio="amazon" />;
+  if (!cuenta) return <SinCuenta titulo="Contenido de marca" servicio="amazon" />;
 
   const [contenido, token] = await Promise.all([
     obtenerContenidoAmazon(supabase, cuenta.id, cuenta.pais ?? null, { verEliminados }),
@@ -48,7 +48,7 @@ export default async function Contenido({
     <Pagina>
       <Encabezado
         ceja="Amazon"
-        titulo="Contenido en Amazon"
+        titulo="Contenido de marca"
         descripcion="Categorías en la store, imágenes y contenido A+ de cada producto publicado."
         ayuda={
           <p>

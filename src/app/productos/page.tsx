@@ -18,7 +18,7 @@ export default async function Productos({
   const conFundasSinCosto = (await searchParams)?.sinCosto === "1";
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Productos y costos" />;
+  if (!cuenta) return <SinCuenta titulo="Catálogo y costos" />;
 
   const { productos, categorias, faltaMigracion, fundasSinCosto } = await cargarProductos(
     supabase,
@@ -31,7 +31,7 @@ export default async function Productos({
     <Pagina>
       <Encabezado
         ceja="Inventario"
-        titulo="Productos y costos"
+        titulo="Catálogo y costos"
         descripcion={
           <>
             Categoría y costo final por pieza de cada modelo de calzado y diseño de funda ·{" "}

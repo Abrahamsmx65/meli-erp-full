@@ -20,7 +20,7 @@ export default async function Pedidos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) return <SinCuenta titulo="Pedidos a China" />;
+  if (!cuenta) return <SinCuenta titulo="Planeación de compras" />;
 
   // La sugerencia se lee MASTICADA (un renglón de app_cache): el plan, el
   // inventario y las sumas de Amazon y TikTok solo se bajan cuando hay que
@@ -53,7 +53,7 @@ export default async function Pedidos() {
     <Pagina>
       <Encabezado
         ceja="Abastecimiento"
-        titulo="Pedidos a China"
+        titulo="Planeación de compras"
         descripcion="Qué conviene pedir, con la venta de Mercado Libre, Amazon y TikTok y todo el inventario que existe."
         frescura={guardada.generadoEn}
         ayudaTitulo="Cómo salió cada número"

@@ -304,10 +304,10 @@ export default async function Inicio() {
   );
 }
 
-/** Orden de colores fijo y validado (índigo, naranja, aqua, rosa); no se cicla. */
+/** Orden de colores fijo y validado (ámbar de la marca, azul, aqua, rosa); no se cicla. */
 const SERIES: SerieApilada[] = [
-  { clave: "calzado", nombre: "Calzado · MELI", color: "#4f46e5" },
-  { clave: "amazon", nombre: "Amazon", color: "#eb6834" },
+  { clave: "calzado", nombre: "Calzado · MELI", color: "#c98500" },
+  { clave: "amazon", nombre: "Amazon", color: "#2a78d6" },
   { clave: "fundas", nombre: "Fundas · MELI", color: "#1baf7a" },
   { clave: "tiktok", nombre: "TikTok", color: "#e87ba4" },
 ];

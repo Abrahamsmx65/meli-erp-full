@@ -16,7 +16,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Pedidos a China de fundas" />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Compras a China de fundas" />;
 
   // El servidor solo pinta el resumen (unos KB, ya masticado en yz_cache) y
   // la lista de pedidos. Abrir un diseño, filtrar y elegir pasa en el
@@ -33,7 +33,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
     <Pagina>
       <Encabezado
         ceja="Fundas"
-        titulo="Pedidos a China de fundas"
+        titulo="Compras a China de fundas"
         descripcion={`Un renglón por diseño: cuánto pedir para ${DIAS_OBJETIVO_PEDIDO} días y lo que ya viene en camino.`}
         frescura={resumen.generadoEn}
         ayuda={
