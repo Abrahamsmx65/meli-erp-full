@@ -1,15 +1,17 @@
 import Link from "next/link";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Container, Package, ShoppingBag, Truck, TriangleAlert } from "lucide-react";
+import { ArrowRight, Container, Package, ShoppingBag, Truck, TriangleAlert } from "lucide-react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { servirMonitor, fechaMx } from "@/lib/servicios/ventas-monitor";
+import { fechaMx } from "@/lib/servicios/ventas-monitor";
+import { cuentaAmazon } from "@/lib/servicios/amazon";
+import { cuentaActiva as cuentaFundas } from "@/lib/yapanizcel/cuenta";
 import { leerConsolidadoGuardado } from "@/lib/servicios/consolidado-cargar";
 import { nombreDelPeriodo, periodoActual } from "@/lib/servicios/corte-meli";
 import { leerPlanParcial } from "@/lib/servicios/cache";
 import { NOMBRE_CANAL } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
-import { BarrasPorDia, type PuntoDia } from "@/components/ui/graficas";
+import { BarrasApiladasPorDia, type PuntoApilado, type SerieApilada } from "@/components/ui/graficas";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +19,14 @@ export const dynamic = "force-dynamic";
  * Inicio (pedido del dueño, 9-oct-2026: «sí quiero una página de inicio»):
  * lo que pasa HOY en el negocio y lo que toca hacer, en una sola vista.
  *
- * Regla de arquitectura: aquí no se calcula NADA. Todo sale de renglones ya
- * masticados —el monitor de ventas (`app_cache`, lo deja listo el latido),
- * el corte general del mes (`consolidado_cache`), el resumen y los
- * pendientes del plan (`plan_cache`, solo esas claves)— más tres conteos
- * baratos (pedidos de TikTok sin corte y contenedores). Si un renglón aún no
- * existe, su bloque simplemente no sale.
+ * Es de TODO el negocio, no solo de MELI (dueño, 9-oct-2026: «no te enfoques
+ * solo en MELI sino en todo junto»): calzado en MELI, fundas, Amazon y
+ * TikTok, juntos y por canal.
+ *
+ * Regla de arquitectura: aquí no se calcula NADA. La venta por día y canal
+ * sale del RPC `ventas_por_dia_canales` (sumas en Postgres, ~35 ms); el mes
+ * del corte general guardado (`consolidado_cache`); el plan solo por sus
+ * claves; y dos conteos baratos (TikTok sin corte, contenedores).
  */
 export default async function Inicio() {
   const supabase = await clienteServidor();
@@ -32,8 +36,11 @@ export default async function Inicio() {
   const periodo = periodoActual();
   const hoy = fechaMx(0);
   const desde30 = fechaMx(29);
-  const [monitor, mes, plan, tiktok, contenedores, diario] = await Promise.all([
-    servirMonitor(supabase, cuenta.id).catch(() => null),
+  const [amz, yz] = await Promise.all([
+    cuentaAmazon(supabase).catch(() => null),
+    cuentaFundas(supabase).catch(() => null),
+  ]);
+  const [mes, plan, tiktok, contenedores, diario] = await Promise.all([
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
     supabase
@@ -48,28 +55,39 @@ export default async function Inicio() {
       .eq("account_id", cuenta.id)
       .in("estado", ["en_transito", "borrador"])
       .order("fecha_llegada_est", { ascending: true, nullsFirst: false }),
-    // Venta por día de MELI: RPC ya agregado en Postgres (~3 ms).
-    supabase.rpc("ventas_totales_dia", { p_account: cuenta.id, p_desde: desde30, p_hasta: hoy }),
+    supabase.rpc("ventas_por_dia_canales", {
+      p_meli: cuenta.id,
+      p_amazon: amz?.id ?? null,
+      p_yz: yz?.id ?? null,
+      p_desde: desde30,
+      p_hasta: hoy,
+    }),
   ]);
-  const porFecha = new Map(
-    ((diario.data ?? []) as { fecha: string; unidades: number; ordenes: number; importe: number }[]).map((d) => [
-      String(d.fecha).slice(0, 10),
-      d,
-    ]),
-  );
-  const serie: PuntoDia[] = [];
+
+  // La serie apilada de 30 días, un valor por canal y día (los días sin venta van en cero).
+  const filas = (diario.data ?? []) as { fecha: string; canal: string; unidades: number; importe: number }[];
+  const porDia = new Map<string, Record<string, number>>();
+  const unidadesPorDia = new Map<string, number>();
+  for (const f of filas) {
+    const dia = String(f.fecha).slice(0, 10);
+    const v = porDia.get(dia) ?? {};
+    v[f.canal] = (v[f.canal] ?? 0) + Number(f.importe ?? 0);
+    porDia.set(dia, v);
+    unidadesPorDia.set(dia, (unidadesPorDia.get(dia) ?? 0) + Number(f.unidades ?? 0));
+  }
+  const serie: PuntoApilado[] = [];
   for (let i = 29; i >= 0; i--) {
     const f = fechaMx(i);
-    const d = porFecha.get(f);
-    serie.push({
-      fecha: f,
-      valor: Number(d?.importe ?? 0),
-      detalle: d ? `${n(Number(d.unidades))} pares · ${n(Number(d.ordenes))} órdenes` : "Sin ventas",
-    });
+    serie.push({ fecha: f, valores: porDia.get(f) ?? {} });
   }
-  const total30 = serie.reduce((a, x) => a + x.valor, 0);
+  const sumaDia = (f: string) => Object.values(porDia.get(f) ?? {}).reduce((a, x) => a + x, 0);
+  const ventaHoy = sumaDia(hoy);
+  const ventaAyer = sumaDia(fechaMx(1));
+  const ultimos7 = Array.from({ length: 7 }, (_, i) => fechaMx(i));
+  const venta7 = ultimos7.reduce((a, f) => a + sumaDia(f), 0);
+  const unidades7 = ultimos7.reduce((a, f) => a + (unidadesPorDia.get(f) ?? 0), 0);
+  const conDatos = SERIES.filter((s) => filas.some((f) => f.canal === s.clave));
 
-  const m = monitor?.datos ?? null;
   const resumen = plan?.resumen as { totalCajas?: number; skusCriticos?: number; skusUrgentes?: number } | undefined;
   const pend = plan?.pendientes as { sinCorrida?: unknown[]; sinAmarre?: unknown[] } | undefined;
   const pedidosTikTok = tiktok.count ?? 0;
@@ -123,20 +141,19 @@ export default async function Inicio() {
         cejaFija
         titulo={saludo()}
         descripcion="Lo que se vendió, lo que se gana y lo que toca hacer hoy."
-        frescura={monitor?.generadoEn ?? mes?.generadoEn ?? null}
-        refrescando={monitor?.refrescando}
+        frescura={mes?.generadoEn ?? null}
       />
 
       <Cifras columnas={4}>
         <Ficha
-          titulo="Vendido hoy · Mercado Libre"
-          valor={m ? pesos(m.hoy.importe) : "—"}
-          nota={m ? `${n(m.hoy.unidades)} pares · ayer ${pesos(m.ayer.importe)}` : "Sin datos de hoy todavía"}
+          titulo="Vendido hoy · todos los canales"
+          valor={filas.length ? pesos(ventaHoy) : "—"}
+          nota={`${n(unidadesPorDia.get(hoy) ?? 0)} unidades · ayer ${pesos(ventaAyer)}`}
         />
         <Ficha
-          titulo="Últimos 7 días · Mercado Libre"
-          valor={m ? pesos(m.semana.importe) : "—"}
-          nota={m ? `${n(m.semana.unidades)} pares · ${n(m.semana.ordenes)} órdenes` : undefined}
+          titulo="Últimos 7 días · todos los canales"
+          valor={filas.length ? pesos(venta7) : "—"}
+          nota={`${n(unidades7)} unidades`}
         />
         <Ficha
           titulo={`Venta de ${nombreDelPeriodo(periodo)}`}
@@ -155,16 +172,8 @@ export default async function Inicio() {
         />
       </Cifras>
 
-      <Seccion
-        titulo="Venta diaria · Mercado Libre"
-        descripcion={`Últimos 30 días · ${pesos(total30)} en total`}
-        acciones={
-          <Link href="/ventas" className="enlace text-[13px]">
-            Ver ventas
-          </Link>
-        }
-      >
-        <BarrasPorDia puntos={serie} etiqueta="Venta de Mercado Libre" />
+      <Seccion titulo="Venta diaria por canal" descripcion="Últimos 30 días · venta registrada antes de cargos">
+        <BarrasApiladasPorDia puntos={serie} series={conDatos.length ? conDatos : SERIES} etiqueta="Venta" />
       </Seccion>
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
@@ -240,15 +249,62 @@ export default async function Inicio() {
         </Seccion>
       </div>
 
-      {m && (m.subiendo.length || m.bajando.length) ? (
-        <div className="grid gap-6 md:grid-cols-2">
-          <Movimientos titulo="Suben esta semana" lista={m.subiendo} sube />
-          <Movimientos titulo="Bajan esta semana" lista={m.bajando} />
-        </div>
+      {mes?.porModelo?.length ? (
+        <Seccion
+          titulo={`Modelos que más venden en ${nombreDelPeriodo(periodo)}`}
+          descripcion="Todos los canales juntos"
+          acciones={
+            <Link href="/cortes" className="enlace text-[13px]">
+              Ver el corte
+            </Link>
+          }
+          sinRelleno
+        >
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th>Canales</th>
+                <th className="num">Unidades</th>
+                <th className="num">Venta</th>
+                <th className="num">Ganancia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...mes.porModelo]
+                .sort((x, y) => y.importe - x.importe)
+                .slice(0, 8)
+                .map((x) => (
+                  <tr key={x.modelo}>
+                    <td className="font-medium">{x.modelo}</td>
+                    <td className="texto-2 text-xs">{x.canales.map((k) => NOMBRE_CANAL[k].split(" ·")[0]).join(", ")}</td>
+                    <td className="num cifra">{n(x.unidades)}</td>
+                    <td className="num cifra">{pesos(x.importe)}</td>
+                    <td
+                      className="num cifra"
+                      style={{
+                        color: x.ganancia == null ? "var(--ink-muted)" : x.ganancia < 0 ? "var(--critico-texto)" : "var(--exito-texto)",
+                      }}
+                    >
+                      {x.ganancia == null ? "—" : pesos(x.ganancia)}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </Seccion>
       ) : null}
     </Pagina>
   );
 }
+
+/** Orden de colores fijo y validado (índigo, naranja, aqua, rosa); no se cicla. */
+const SERIES: SerieApilada[] = [
+  { clave: "calzado", nombre: "Calzado · MELI", color: "#4f46e5" },
+  { clave: "amazon", nombre: "Amazon", color: "#eb6834" },
+  { clave: "fundas", nombre: "Fundas · MELI", color: "#1baf7a" },
+  { clave: "tiktok", nombre: "TikTok", color: "#e87ba4" },
+];
 
 interface Tarea {
   href: string;
@@ -257,60 +313,6 @@ interface Tarea {
   valor: number | null;
   detalle: string;
   urgente: boolean;
-}
-
-function Movimientos({
-  titulo,
-  lista,
-  sube,
-}: {
-  titulo: string;
-  lista: { producto: string; antes: number; ahora: number; delta: number }[];
-  sube?: boolean;
-}) {
-  const Flecha = sube ? ArrowUpRight : ArrowDownRight;
-  const color = sube ? "var(--exito-texto)" : "var(--critico-texto)";
-  return (
-    <Seccion
-      titulo={titulo}
-      acciones={
-        <Link href="/ventas" className="enlace text-[13px]">
-          Ver ventas
-        </Link>
-      }
-      sinRelleno
-    >
-      {lista.length ? (
-        <table className="datos">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th className="num">Antes</th>
-              <th className="num">Ahora</th>
-              <th className="num">Cambio</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lista.slice(0, 5).map((x) => (
-              <tr key={x.producto}>
-                <td className="font-medium">{x.producto}</td>
-                <td className="num cifra texto-2">{n(x.antes)}</td>
-                <td className="num cifra">{n(x.ahora)}</td>
-                <td className="num cifra" style={{ color }}>
-                  <span className="inline-flex items-center gap-0.5">
-                    <Flecha size={14} aria-hidden="true" />
-                    {n(Math.abs(x.delta))}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="vacio">Sin cambios fuertes esta semana.</p>
-      )}
-    </Seccion>
-  );
 }
 
 function n(x: number): string {
