@@ -14,6 +14,7 @@ import { recalcularListaPedidos } from "@/lib/yapanizcel/pedidos";
 import { recalcularDisenosFundas } from "@/lib/servicios/productos";
 import { claveVentas, limpiarVentasViejasYz, normalizarRango, recalcularMonitorYz, ventasNecesitaRefresco } from "@/lib/yapanizcel/ventas";
 import { leerCacheYzGuardado } from "@/lib/yapanizcel/cache";
+import { recalcularDisenosListados } from "@/lib/yapanizcel/listados";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -84,6 +85,7 @@ export async function GET(req: NextRequest) {
           else if (clave === "amarre") await recalcularInventarioAmarrado(admin, c.id);
           else if (clave === "disenos") await recalcularDisenosFundas(admin, c.id);
           else if (clave === "pedidos") await recalcularListaPedidos(admin, c.id);
+          else if (clave === "listados:disenos") await recalcularDisenosListados(admin, c.id);
           precalculadas.push(clave);
         }
         // Ventas con el rango por omisión (últimos 30 días): es lo que se
