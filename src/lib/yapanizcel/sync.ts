@@ -701,7 +701,7 @@ export async function sincronizar(
     await admin.from("yz_sync_log").insert({ account_id: accountId, ok: true, detalle: resumen });
     // Catálogo, stock o ventas cambiaron: los resultados masticados quedaron
     // viejos. El cron de netos los deja precalculados en su siguiente corrida.
-    await invalidarYz(admin, accountId, "Se sincronizó con Mercado Libre.", ["compras", "plan", "inventario", "amarre", "disenos"]);
+    await invalidarYz(admin, accountId, "Se sincronizó con Mercado Libre.", ["compras", "plan", "inventario", "amarre", "disenos", "listados:disenos"]);
     await admin
       .from("yz_cuentas")
       .update({ nickname: usuario.nickname, actualizado_en: new Date().toISOString() })

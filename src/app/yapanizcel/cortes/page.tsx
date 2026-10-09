@@ -17,8 +17,14 @@ export default async function CortesYz({ searchParams }: { searchParams: Promise
   if (!cuenta) return <SinCuenta />;
 
   // El corte del periodo vive masticado (yz_cache «corte:YYYY-MM»): cambiar
-  // de mes es leer un renglón; el refresco corre por atrás.
-  const [e, cortes] = await Promise.all([obtenerEstadoResultadosYz(supabase, cuenta, periodo), listarCortes(supabase, cuenta.id, "yz_cortes")]);
+  // de mes es leer un renglón. La visita NO lanza el recálculo de fondo: con
+  // el cliente del usuario (RLS, 8 s por consulta) el trabajo de 15–74 s se
+  // cancelaba a medias. Lo refrescan los crons con el cliente admin (netos y
+  // consolidado); solo sin renglón se calcula aquí.
+  const [e, cortes] = await Promise.all([
+    obtenerEstadoResultadosYz(supabase, cuenta, periodo, { refrescarEnFondo: false }),
+    listarCortes(supabase, cuenta.id, "yz_cortes"),
+  ]);
   return (
     <CorteVista
       titulo="Cortes y ganancia · YAPANIZCEL"

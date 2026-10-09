@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { RenglonBodega } from "@/lib/yapanizcel/inventario";
 import type { NivelAmarre } from "@/lib/yapanizcel/sku";
@@ -29,13 +29,46 @@ type Filtro = "pendientes" | "sugeridos" | "amarrados" | "ignorados" | "todos";
  * quedó. Confirmar una sugerencia escribe un amarre manual: a partir de ahí
  * ese SKU deja de depender de cómo lo escriban en el sheet.
  */
-export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[]; skusMeli: string[] }) {
+export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
   const router = useRouter();
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
   const [busqueda, setBusqueda] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState<Record<string, string>>({});
+  // Sugerencias del SKU de MELI mientras se escribe: se piden al servidor
+  // (20 a la vez) en vez de mandar el catálogo completo en un <datalist>.
+  const [opciones, setOpciones] = useState<string[]>([]);
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pedido = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      if (temporizador.current) clearTimeout(temporizador.current);
+      pedido.current?.abort();
+    },
+    [],
+  );
+
+  function buscarSkusMeli(q: string) {
+    if (temporizador.current) clearTimeout(temporizador.current);
+    if (q.trim().length < 2) {
+      setOpciones([]);
+      return;
+    }
+    temporizador.current = setTimeout(async () => {
+      pedido.current?.abort();
+      const control = new AbortController();
+      pedido.current = control;
+      try {
+        const r = await fetch(`/api/yapanizcel/skus/buscar?q=${encodeURIComponent(q.trim())}`, { signal: control.signal });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && Array.isArray(j.skus)) setOpciones(j.skus);
+      } catch {
+        // Cancelada por la siguiente tecla o sin red: se queda lo anterior.
+      }
+    }, 200);
+  }
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toUpperCase();
@@ -124,7 +157,7 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
       ) : null}
 
       <datalist id="yz-skus-meli">
-        {skusMeli.map((s) => (
+        {opciones.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
@@ -191,7 +224,11 @@ export function TablaSkus({ renglones, skusMeli }: { renglones: RenglonBodega[];
                           <input
                             list="yz-skus-meli"
                             value={valorManual}
-                            onChange={(e) => setManual((m) => ({ ...m, [r.skuBodega]: e.target.value }))}
+                            onChange={(e) => {
+                              const valor = e.target.value;
+                              setManual((m) => ({ ...m, [r.skuBodega]: valor }));
+                              buscarSkusMeli(valor);
+                            }}
                             placeholder="Escribir SKU de MELI…"
                             className="num w-48 rounded-md border px-2 py-0.5 text-xs"
                             style={estiloInput}

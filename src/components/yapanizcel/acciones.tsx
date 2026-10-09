@@ -84,7 +84,9 @@ export function BotonSincronizar() {
             ? "Catálogo listo; ahora el stock en Full y las ventas…"
             : `Ventas cubiertas del ${estado.desde ?? "…"} al ${estado.hasta ?? "…"}; sigo hacia atrás…`,
         );
-        router.refresh();
+        // Sin router.refresh() por vuelta: cada uno volvía a armar la
+        // página completa en el servidor (hasta 20 veces). Se refresca UNA
+        // vez al terminar (o al fallar, con lo que alcanzó a guardarse).
       }
       setProgreso(null);
       setAviso(
@@ -96,6 +98,7 @@ export function BotonSincronizar() {
     } catch (e) {
       setProgreso(null);
       setError((e as Error).message + " Vuelve a darle: retoma donde se quedó.");
+      router.refresh();
     } finally {
       setOcupado(false);
     }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { estiloInput } from "./comunes";
+import { coincideEnSku, coincideRenglon, normalizarBusqueda } from "@/lib/yapanizcel/inventario-busqueda";
 
 export interface RenglonInv {
   skuMeli: string;
@@ -69,15 +70,14 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
   const [soloConExistencia, setSoloConExistencia] = useState(true);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
 
-  const buscando = busqueda.trim().length > 0;
+  const q = normalizarBusqueda(busqueda);
 
   const filtrados = useMemo(() => {
-    const q = busqueda.trim().toUpperCase();
     return renglones.filter((r) => {
       if (soloConExistencia && r.enFull + r.enTransferencia + r.enCamino + r.enBodega + r.enCaminoChina === 0) return false;
-      return !q || `${r.skuMeli} ${r.titulo ?? ""} ${r.diseno} ${r.tipo ?? ""} ${r.skusBodega.join(" ")}`.toUpperCase().includes(q);
+      return coincideRenglon(r, q);
     });
-  }, [renglones, busqueda, soloConExistencia]);
+  }, [renglones, q, soloConExistencia]);
 
   const arbol = useMemo(() => {
     const tipos = new Map<string, { totales: Totales; disenos: Map<string, { totales: Totales; skus: RenglonInv[] }> }>();
@@ -104,9 +104,12 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
             diseno,
             totales: d.totales,
             skus: d.skus.sort((x, y) => alfabetico(x.skuMeli, y.skuMeli)),
+            // Al buscar se abre solo si algún SKU coincide por lo suyo; si
+            // solo coincidió el nombre del diseño o del tipo, se queda cerrado.
+            coincide: Boolean(q) && d.skus.some((r) => coincideEnSku(r, q)),
           })),
       }));
-  }, [filtrados]);
+  }, [filtrados, q]);
 
   const total = filtrados.reduce(sumar, CERO);
   const sinCategoria = arbol.find((t) => t.tipo === "Sin categoría");
@@ -153,7 +156,7 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
           </thead>
           <tbody>
             {arbol.map((t) => (
-              <TipoFilas key={t.tipo} tipo={t} abiertos={abiertos} alternar={alternar} forzarAbierto={buscando} />
+              <TipoFilas key={t.tipo} tipo={t} abiertos={abiertos} alternar={alternar} />
             ))}
             {!arbol.length ? (
               <tr>
@@ -179,12 +182,10 @@ function TipoFilas({
   tipo: t,
   abiertos,
   alternar,
-  forzarAbierto,
 }: {
-  tipo: { tipo: string; totales: Totales; disenos: { diseno: string; totales: Totales; skus: RenglonInv[] }[] };
+  tipo: { tipo: string; totales: Totales; disenos: { diseno: string; totales: Totales; skus: RenglonInv[]; coincide: boolean }[] };
   abiertos: Set<string>;
   alternar: (clave: string) => void;
-  forzarAbierto: boolean;
 }) {
   return (
     <>
@@ -199,7 +200,7 @@ function TipoFilas({
       </tr>
       {t.disenos.map((d) => {
         const clave = `${t.tipo}|${d.diseno}`;
-        const abierto = forzarAbierto || abiertos.has(clave);
+        const abierto = d.coincide || abiertos.has(clave);
         return (
           <DisenoFilas key={clave} diseno={d} abierto={abierto} onToggle={() => alternar(clave)} />
         );

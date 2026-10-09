@@ -29,11 +29,18 @@ export type LineaPantalla = LineaPlan & {
  * para ajustarlo. Al registrar, esas unidades cuentan como "en camino" hasta
  * que caducan o se marcan recibidas.
  */
+/**
+ * Con «Solo lo que se manda» apagado salen miles de SKUs: se pintan de 300
+ * en 300 («Mostrar más»). Los totales de arriba cuentan todo.
+ */
+const POR_PAGINA = 300;
+
 export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla[]; multiplo: number; envios: EnvioRegistrado[] }) {
   const router = useRouter();
   const [cantidades, setCantidades] = useState<Record<string, number>>(() => Object.fromEntries(lineas.map((l) => [l.sku, l.mandar])));
   const [soloConEnvio, setSoloConEnvio] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [tope, setTope] = useState(POR_PAGINA);
   const [folio, setFolio] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -54,6 +61,10 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         return ca.localeCompare(cb, "es") || a.sku.localeCompare(b.sku, "es", { numeric: true });
       });
   }, [lineas, soloConEnvio, busqueda, cantidades]);
+
+  // Con el filtro de «solo lo que se manda» la lista es corta y se pinta
+  // completa; sin él, por páginas.
+  const pintadas = soloConEnvio ? visibles : visibles.slice(0, tope);
 
   const totalUnidades = lineas.reduce((a, l) => a + (cantidades[l.sku] ?? 0), 0);
   const totalSkus = lineas.filter((l) => (cantidades[l.sku] ?? 0) > 0).length;
@@ -114,7 +125,16 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
   return (
     <div className="flex flex-col gap-4">
       <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar SKU…" className="w-56 rounded-lg border px-2 py-1 text-xs" style={estiloInput} />
+        <input
+          value={busqueda}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setTope(POR_PAGINA);
+          }}
+          placeholder="Buscar SKU…"
+          className="w-56 rounded-lg border px-2 py-1 text-xs"
+          style={estiloInput}
+        />
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={soloConEnvio} onChange={(e) => setSoloConEnvio(e.target.checked)} />
           Solo lo que se manda
@@ -168,11 +188,11 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 </td>
               </tr>
             ) : null}
-            {visibles.map((l, i) => {
+            {pintadas.map((l, i) => {
               const v = cantidades[l.sku] ?? 0;
               const critico = Number.isFinite(l.cobertura) && l.cobertura < 7;
               const cat = l.categoria ?? "Sin categoría";
-              const catPrevia = i > 0 ? (visibles[i - 1].categoria ?? "Sin categoría") : null;
+              const catPrevia = i > 0 ? (pintadas[i - 1].categoria ?? "Sin categoría") : null;
               const encabezado =
                 cat !== catPrevia ? (
                   <tr key={`cat-${cat}`} style={{ background: "var(--surface-2)" }}>
@@ -219,6 +239,13 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
             })}
           </tbody>
         </table>
+        {pintadas.length < visibles.length ? (
+          <div className="border-t p-3 text-center text-sm hairline">
+            <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="underline" style={{ color: "var(--acento)" }}>
+              Mostrar {Math.min(POR_PAGINA, visibles.length - pintadas.length)} más (van {pintadas.length} de {visibles.length})
+            </button>
+          </div>
+        ) : null}
       </div>
       <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
         Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias). * corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
