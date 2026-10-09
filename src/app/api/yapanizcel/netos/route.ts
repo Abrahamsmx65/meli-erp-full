@@ -12,6 +12,8 @@ import { recalcularPlanYz } from "@/lib/yapanizcel/envios";
 import { recalcularInventarioAmarrado, recalcularInventarioPantalla } from "@/lib/yapanizcel/inventario-pantalla";
 import { recalcularListaPedidos } from "@/lib/yapanizcel/pedidos";
 import { recalcularDisenosFundas } from "@/lib/servicios/productos";
+import { claveVentas, limpiarVentasViejasYz, normalizarRango, recalcularMonitorYz, ventasNecesitaRefresco } from "@/lib/yapanizcel/ventas";
+import { leerCacheYzGuardado } from "@/lib/yapanizcel/cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -83,6 +85,19 @@ export async function GET(req: NextRequest) {
           else if (clave === "disenos") await recalcularDisenosFundas(admin, c.id);
           else if (clave === "pedidos") await recalcularListaPedidos(admin, c.id);
           precalculadas.push(clave);
+        }
+        // Ventas con el rango por omisión (últimos 30 días): es lo que se
+        // abre siempre, y así el primer clic lee un renglón.
+        if (Date.now() - t0 < 235_000) {
+          const rango = normalizarRango();
+          const g = await leerCacheYzGuardado(admin, c.id, claveVentas(rango));
+          // Un minuto de adelanto: con el cron cada 10 min, uno de 9 min 50 s
+          // no llegaba a «viejo» y se refrescaba cada 20.
+          if (g.estado !== "encontrado" || ventasNecesitaRefresco(g.valor.generadoEn, g.valor.vigente, Date.now() + 60_000)) {
+            await recalcularMonitorYz(admin, c.id, rango);
+            precalculadas.push(claveVentas(rango));
+          }
+          await limpiarVentasViejasYz(admin, c.id);
         }
         if (precalculadas.length) r.precalculadas = precalculadas;
       } catch (err) {

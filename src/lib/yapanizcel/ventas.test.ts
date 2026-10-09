@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sumarResumen, type Totales } from "./ventas";
+import { claveVentas, partirEnTandas, sumarResumen, TTL_VENTAS_MS, ventasNecesitaRefresco, type Totales } from "./ventas";
 
 const vacio = (): Totales => ({
   unidades: 0, ordenes: 0, importe: 0, comision: 0, neto: 0, costo: 0, ganancia: 0,
@@ -29,5 +29,26 @@ describe("sumarResumen (nada se estima)", () => {
     expect(t.netoSinCosto).toBe(51);
     expect(t.ganancia).toBe(0);
     expect(t.unidadesSinCosto).toBe(1);
+  });
+});
+
+describe("monitor masticado", () => {
+  it("la clave lleva el rango", () => {
+    expect(claveVentas({ desde: "2026-09-10", hasta: "2026-10-09" })).toBe("ventas:v1:2026-09-10:2026-10-09");
+  });
+
+  it("se refresca si está invalidado, si ya pasó el TTL o si la fecha no se entiende", () => {
+    const ahora = Date.parse("2026-10-09T12:00:00Z");
+    const hace = (ms: number) => new Date(ahora - ms).toISOString();
+    expect(ventasNecesitaRefresco(hace(60_000), true, ahora)).toBe(false);
+    expect(ventasNecesitaRefresco(hace(60_000), false, ahora)).toBe(true);
+    expect(ventasNecesitaRefresco(hace(TTL_VENTAS_MS + 1), true, ahora)).toBe(true);
+    expect(ventasNecesitaRefresco("no-es-fecha", true, ahora)).toBe(true);
+  });
+
+  it("parte en tandas sin perder ni repetir", () => {
+    const t = partirEnTandas([1, 2, 3, 4, 5, 6, 7], 3);
+    expect(t).toEqual([[1, 2, 3], [4, 5, 6], [7]]);
+    expect(partirEnTandas([], 3)).toEqual([]);
   });
 });

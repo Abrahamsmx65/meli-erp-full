@@ -12,6 +12,9 @@ import { n, pesos } from "./comunes";
 
 type Clave = "clave" | "titulo" | "unidades" | "ordenes" | "precioPromedio" | "importe" | "comision" | "neto" | "costo" | "ganancia" | "margen";
 
+/** Renglones que se pintan de un jalón; el resto con «Mostrar más» (los totales cuentan todo lo filtrado). */
+const POR_PAGINA = 300;
+
 function pct(x: number | null): string {
   return x == null ? "—" : `${Math.round(x * 100)}%`;
 }
@@ -20,6 +23,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
   const [busqueda, setBusqueda] = useState("");
   const [soloSinCosto, setSoloSinCosto] = useState(false);
   const [orden, setOrden] = useState<{ clave: Clave; desc: boolean }>({ clave: "unidades", desc: true });
+  const [tope, setTope] = useState(POR_PAGINA);
 
   const columnas: { clave: Clave; titulo: string; num: boolean }[] = [
     { clave: "clave", titulo: conTitulo ? "SKU" : "Diseño", num: false },
@@ -89,7 +93,10 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
           <input
             type="search"
             value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
+            onChange={(e) => {
+              setBusqueda(e.target.value);
+              setTope(POR_PAGINA);
+            }}
             placeholder={conTitulo ? "SKU, diseño o título…" : "Diseño (499, 380…)"}
             className="min-w-[16rem] rounded-lg border px-2 py-1 text-sm"
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -100,6 +107,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
             Solo sin costo ({sinCosto})
           </label>
           <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+            {visibles.length > tope ? `${tope} pintados · ` : ""}
             {visibles.length} de {filas.length} · ordenado por {columnas.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()} {orden.desc ? "↓" : "↑"}
           </span>
         </div>
@@ -131,7 +139,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
                   </td>
                 </tr>
               ) : null}
-              {visibles.map((f) => (
+              {visibles.slice(0, tope).map((f) => (
                 <tr key={f.clave} className="border-t" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-1.5 font-medium">{f.clave}</td>
                   {conTitulo ? (
@@ -181,6 +189,13 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
               </tfoot>
             ) : null}
           </table>
+          {visibles.length > tope ? (
+            <div className="border-t p-3 text-center text-sm hairline">
+              <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="underline" style={{ color: "var(--acento)" }}>
+                Mostrar {Math.min(POR_PAGINA, visibles.length - tope)} más ({visibles.length - tope} sin pintar; el total ya los cuenta)
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
