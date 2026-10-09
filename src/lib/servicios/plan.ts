@@ -10,7 +10,7 @@ import type { ISODate, Parametros, Plan } from "../engine/types";
 import { construirCajas, type CajaConstruida, type FilaSinCorrida, type SkuSinAmarre } from "../importar/cajas";
 import { construirIndice } from "../importar/sku";
 import { indexarCatalogo } from "../etiquetas/resolver";
-import { cargarInsumos, type DB } from "../datos/repos";
+import { cargarInsumos, traerRpcTodo, type DB } from "../datos/repos";
 import { enviosActivos, sumarEnCamino } from "./envios-registrados";
 import {
   enCaminoDesdePendientes,
@@ -186,7 +186,8 @@ export async function ventasHistoricas(
   desde: ISODate,
   hoy: ISODate,
 ): Promise<{ historica: Set<string>; previa: Set<string>; error: string | null }> {
-  const { data, error } = await db.rpc("ventas_resumen_sku", {
+  // Por páginas: hay más SKUs con venta que los 1,000 que entrega el API.
+  const { filas, error } = await traerRpcTodo<any>(db, "ventas_resumen_sku", {
     p_account: accountId,
     p_desde: "2020-01-01",
     p_hasta: hoy,
@@ -194,10 +195,10 @@ export async function ventasHistoricas(
     p_prev_hasta: sumarDias(desde, -1),
     p_hoy: hoy,
   });
-  if (error) return { historica: new Set(), previa: new Set(), error: error.message };
+  if (error) return { historica: new Set(), previa: new Set(), error };
   const historica = new Set<string>();
   const previa = new Set<string>();
-  for (const r of (data ?? []) as { sku: string; unidades: number; unidades_prev: number }[]) {
+  for (const r of filas as { sku: string; unidades: number; unidades_prev: number }[]) {
     if (Number(r.unidades) > 0) historica.add(r.sku);
     if (Number(r.unidades_prev) > 0) previa.add(r.sku);
   }

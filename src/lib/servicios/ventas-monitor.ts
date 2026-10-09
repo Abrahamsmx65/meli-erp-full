@@ -10,7 +10,7 @@
  * "vender menos" es no tener qué vender — y solo si el stock no explica nada
  * se atribuye a la demanda.
  */
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 
@@ -254,7 +254,8 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
   const agregadosDesdeRpc = async (): Promise<Agregados | null> => {
     const hastaTotales = hoy > finRango ? hoy : finRango;
     const [porSkuR, porDiaR] = await Promise.all([
-      db.rpc("ventas_resumen_sku", {
+      // Por páginas: hay más de 1,000 SKUs con venta.
+      rpcPaginado(db, "ventas_resumen_sku", {
         p_account: accountId,
         p_desde: inicioSemana,
         p_hasta: finRango,

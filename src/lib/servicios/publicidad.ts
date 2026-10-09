@@ -14,7 +14,7 @@
  * duplica. Lo que no amarra se reporta aparte, nunca se tira en silencio.
  */
 import { MeliError, type MeliClient } from "../meli/client";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { servirConCacheApp } from "./cache-app";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
@@ -885,7 +885,8 @@ export async function cargarPublicidad(
     /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
     ventaSinDeposito: number;
   }> => {
-    const { data, error } = await db.rpc("ventas_resumen_sku", {
+    // Por páginas: hay más de 1,000 SKUs con venta.
+    const { data, error } = await rpcPaginado(db, "ventas_resumen_sku", {
       p_account: cuenta.id,
       p_desde: r.desde,
       p_hasta: r.hasta,

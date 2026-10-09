@@ -99,6 +99,14 @@ guárdala numerada.
   se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
   pantalla enseña cada envío por bodega en su propia sección (Caseshop +
   Industher, EnvioPack) con el Excel de ese envío.
+  **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
+  «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
+  trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo
+  que en el alfabeto venía después del GT13x salía SIN VENTA y se le pedía
+  la posición mínima de 2 cajas (GT144 tenía 1,265 pares vendidos). Lo
+  mismo le pasaba a `ventas_resumen_sku` (1,667 SKUs de calzado con venta:
+  plan de Full, Ventas MELI, Publicidad, Excel por modelo de TikTok); ahora
+  lleva ORDER BY (migración 0125) y se lee con `rpcPaginado`.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos
