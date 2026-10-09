@@ -32,8 +32,8 @@ export default async function Corridas() {
             </p>
             <p>
               Cuando cargas un pedido en{" "}
-              <Link href="/pedidos" className="enlace">
-                Pedidos a China
+              <Link href="/pedidos/cargar" className="enlace">
+                Cargar pedidos
               </Link>
               , la proforma de la fábrica ya trae el reparto de tallas por caja. El sistema lo
               lee y da de alta la corrida solo, marcada como{" "}

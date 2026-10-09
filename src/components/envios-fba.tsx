@@ -1,4 +1,5 @@
 import type { SugerenciaFba } from "@/lib/servicios/fba";
+import { Ayuda } from "@/components/ui/pagina";
 import { DIAS_CORRIDA_DISPAREJA, OBJETIVO_DIAS_FBA, URGENTE_DIAS_FBA } from "@/lib/servicios/fba";
 
 function n(x: number): string {
@@ -28,12 +29,6 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
         <div>
           <h2 className="seccion-titulo">Cobertura y faltantes por producto</h2>
           <p className="texto-2 mt-0.5 text-sm">
-            La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA}{" "}
-            días al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado;
-            lo que ya está en FBA y lo que va en camino cuenta a favor. Las cajas
-            reales a mandar son las de arriba.
-          </p>
-          <p className="texto-2 mt-2 text-sm">
             <strong className="cifra">{n(sugerencias.length)}</strong> productos ·{" "}
             <span className="cifra">{n(totalCajas)}</span> cajas ·{" "}
             <span className="cifra">{n(totalPares)}</span> pares
@@ -55,7 +50,16 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
             ) : null}
           </p>
         </div>
-
+        <div className="w-full">
+          <Ayuda>
+            <p>
+              La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA} días
+              al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado; lo que ya
+              está en FBA y lo que va en camino cuenta a favor. Las cajas reales a mandar son las
+              de los envíos de arriba.
+            </p>
+          </Ayuda>
+        </div>
       </header>
 
       {visibles.length === 0 ? (

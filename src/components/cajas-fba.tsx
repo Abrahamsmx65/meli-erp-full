@@ -4,6 +4,7 @@ import type { EnvioSeparado } from "@/lib/servicios/envios";
 import type { DesgloseOpcionales } from "@/lib/reporte/opcionales";
 import { partirPorOpcionales, textoDeMas } from "@/lib/reporte/opcionales";
 import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras } from "@/components/ui/pagina";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -36,7 +37,7 @@ export function CajasFba({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha
           titulo="Cajas a mandar"
           valor={desglose.cajasObligatorias}
@@ -47,7 +48,7 @@ export function CajasFba({
           valor={desglose.cajasOpcionales}
           nota={
             desglose.cajasOpcionales > 0
-              ? `${n(desglose.paresOpcionales)} pares extra si las subes: rescates y la media caja de la regla de la mitad`
+              ? `${n(desglose.paresOpcionales)} pares extra si las subes`
               : "El plan no necesitó rescates"
           }
           tono={desglose.cajasOpcionales > 0 ? "alerta" : "neutro"}
@@ -63,26 +64,23 @@ export function CajasFba({
           nota="Pares que faltan y ninguna caja disponible trae"
           tono={sinCaja > 0 ? "alerta" : "bien"}
         />
-      </div>
+      </Cifras>
 
       {sinConfigurar.length ? (
-        <p className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
-          Almacenes del plan sin configurar en <code>almacenes_activos</code> (cada uno
-          sale en su propio envío): {sinConfigurar.join(", ")}.
-        </p>
+        <Aviso tono="alerta">
+          Almacenes sin configurar en <code>almacenes_activos</code> (cada uno sale en su
+          propio envío): {sinConfigurar.join(", ")}.
+        </Aviso>
       ) : null}
 
       {plan.avisos.map((a, i) => (
-        <p key={i} className="tarjeta p-3 text-sm" style={{ color: "var(--estado-serio)" }}>
+        <Aviso key={i} tono="alerta">
           {a}
-        </p>
+        </Aviso>
       ))}
 
       {plan.sinEstreno.length ? (
-        <p className="texto-2 tarjeta p-3 text-sm">
-          <strong>Productos SIN VENTA en Amazon</strong> (nunca han vendido un par, hay
-          cajas en bodega y tienen publicación): se les manda una posición mínima
-          para probarlos, como en Full.{" "}
+        <Aviso titulo="Productos sin venta: posición mínima para probarlos">
           {plan.sinEstreno
             .map(
               (e) =>
@@ -91,21 +89,19 @@ export function CajasFba({
                 }`,
             )
             .join(" · ")}
-        </p>
+        </Aviso>
       ) : null}
 
       {plan.productosNuevos.length ? (
-        <p className="texto-2 tarjeta p-3 text-sm">
-          <strong>Productos NUEVOS en Amazon</strong> (se estrenaron hace poco): cualquier
-          faltante fuerza su caja y va firme, nunca opcional.{" "}
+        <Aviso titulo="Productos nuevos: cualquier faltante fuerza caja firme">
           {plan.productosNuevos
             .map((e) => `${nombreProducto(e.producto)} (hace ${e.edad} días)`)
             .join(" · ")}
-        </p>
+        </Aviso>
       ) : null}
 
       {desglose.totalDeMas > 0 ? (
-        <p className="texto-2 tarjeta p-3 text-sm">
+        <p className="texto-2 text-sm">
           Al cerrar cajas completas van{" "}
           <strong className="cifra">{n(desglose.totalDeMas)}</strong> pares por encima de
           lo sugerido — <span className="cifra">{n(desglose.deMasEnOpcionales)}</span> de
@@ -122,20 +118,17 @@ export function CajasFba({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="seccion-titulo">Envíos a preparar</h2>
-          <p className="texto-2 mt-0.5 text-sm">
-            {plan.cajas.length === 0
-              ? "El mismo motor que los envíos a Full, sobre las mismas cajas físicas."
-              : envios.length > 1
-                ? `Son ${envios.length} envíos porque las cajas salen de direcciones distintas. Cada uno se da de alta por separado en Amazon.`
-                : "Todo sale de una sola dirección, así que es un solo envío."}{" "}
-            Lo que registres en un envío se aparta y desaparece para los dos canales.
-          </p>
+          {plan.cajas.length > 0 && envios.length > 1 ? (
+            <p className="texto-2 mt-0.5 text-sm">
+              {envios.length} envíos: uno por dirección de recolección, cada uno se da de alta por separado.
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {plan.cajas.length > 0 && envios.length > 1 ? (
             <a
               href={`/api/amazon/envio-excel?dias=${dias}`}
-              className="boton boton-borde"
+              className="boton boton-borde boton-chico"
               title="Todas las cajas del plan, de todas las bodegas; el Excel de cada envío está en su sección"
             >
               Excel del plan completo
@@ -143,7 +136,7 @@ export function CajasFba({
           ) : null}
           <a
             href={`/api/amazon/excel-simple?dias=${dias}`}
-            className="boton boton-borde"
+            className="boton boton-borde boton-chico"
             title="Un renglón por SKU: ventas, stock FBA, en camino y faltante a cubrir"
           >
             Excel simple
@@ -196,11 +189,8 @@ export function CajasFba({
               {n(sinCaja)} pares)
             </h2>
             <p className="texto-2 mt-0.5 text-sm">
-              Estos SKUs necesitan pares y NO vienen en ninguna caja disponible: o la
-              bodega de verdad no tiene, o algo no está ligando. Si un SKU de esta
-              lista SÍ tiene caja física en bodega, es un problema de amarre: avísame
-              cuál. (Los faltantes chicos de SKUs que sí van en el plan ya no salen
-              aquí — están en su propia tabla abajo.)
+              Ninguna caja disponible los trae. Si alguno sí tiene caja física en bodega, es
+              un problema de amarre.
             </p>
           </header>
           <div className="max-h-[24rem] overflow-auto">
@@ -232,9 +222,7 @@ export function CajasFba({
               {n(plan.faltanteConCaja.reduce((a, f) => a + f.pares, 0))} pares)
             </h2>
             <p className="texto-2 mt-0.5 text-sm">
-              Estos SKUs SÍ tienen caja en bodega y el plan ya manda lo que se
-              justifica; el pico que queda no vale otra caja completa y se cubre en el
-              siguiente envío. No es un problema de amarre.
+              El pico que queda no vale otra caja completa; se cubre en el siguiente envío.
             </p>
           </header>
           <div className="max-h-[20rem] overflow-auto">
@@ -267,8 +255,7 @@ export function CajasFba({
               SKUs de Amazon que NO amarran con MELI ({plan.sinAmarre.length})
             </h2>
             <p className="texto-2 mt-0.5 text-sm">
-              Su venta y su faltante no entran al plan de cajas porque el SKU no se
-              encontró en el catálogo de MELI con ninguno de los cuatro amarres.
+              Su venta y su faltante no entran al plan hasta que amarren.
             </p>
           </header>
           <div className="max-h-[20rem] overflow-auto">
@@ -346,7 +333,7 @@ function SeccionEnvio({
           className="boton boton-primario ml-auto"
           title={`Excel solo con las cajas del envío ${envio.nombre}`}
         >
-          Excel de este envío
+          Descargar Excel
         </a>
       </header>
 
@@ -378,9 +365,8 @@ function SeccionEnvio({
                 }}
               >
                 <td colSpan={6} className="text-sm font-semibold">
-                  OPCIONALES de {envio.nombre} — {n(cajasOpc)} cajas · {n(paresOpc)} pares.
-                  Entraron por el rescate de una talla que falta; el resto de la caja
-                  sobra. Tú decides si van.
+                  Opcionales de {envio.nombre}: {n(cajasOpc)} cajas · {n(paresOpc)} pares.
+                  Rescatan una talla que falta; el resto de la caja sobra. Tú decides si van.
                 </td>
               </tr>
             ) : null}

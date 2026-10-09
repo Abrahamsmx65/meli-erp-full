@@ -50,7 +50,7 @@ export default async function VentasAmazon({
       <Encabezado
         ceja="Amazon"
         titulo="Ventas Amazon"
-        descripcion={`Ventas de ${cuenta.nombre ?? "tu cuenta"} en Amazon ${cuenta.pais} en el periodo, contra el periodo anterior del mismo largo.`}
+        descripcion={`Ventas de ${cuenta.nombre ?? "tu cuenta"} en Amazon ${cuenta.pais} contra el periodo anterior del mismo largo.`}
         frescura={servido.generadoEn}
       />
 
@@ -133,9 +133,7 @@ export default async function VentasAmazon({
                 ))}
               </ul>
             </Aviso>
-          ) : (
-            <Aviso tono="bien">Periodo cerrado: todas sus liquidaciones cuadran con lo que Amazon depositó.</Aviso>
-          )}
+          ) : null}
           <Cifras columnas={4}>
             <Ficha titulo="Venta bruta" valor={pesos(real.ventas.bruto)} nota={`${n(real.ventas.unidades)} unidades · ${n(real.ventas.eventos)} envíos`} />
             <Ficha titulo="Comisión" valor={pesos(real.ventas.comision)} nota="Referral fee" tono={real.ventas.comision < 0 ? "alerta" : "neutro"} />
@@ -252,7 +250,7 @@ export default async function VentasAmazon({
             href={`/amazon/ventas?desde=${new Date(Date.parse(m.pagosHasta) - 13 * 86_400_000)
               .toISOString()
               .slice(0, 10)}&hasta=${m.pagosHasta}`}
-            className="boton boton-primario boton-chico mt-2"
+            className="boton boton-borde boton-chico mt-2"
           >
             Ver las últimas 2 semanas liquidadas
           </a>
@@ -262,7 +260,6 @@ export default async function VentasAmazon({
       {!m.economia && m.netoReal != null ? (
         <Seccion
           titulo="A dónde se fue el dinero (liquidado en el periodo)"
-          descripcion="Sale del reporte de pagos de Amazon: lo que de verdad se depositó."
         >
           <div className="flex flex-col gap-3">
           <Ayuda titulo="¿De dónde sale?">
@@ -309,7 +306,7 @@ export default async function VentasAmazon({
       ) : null}
 
       {m.porCategoria.length ? (
-        <Seccion titulo="Por categoría" descripcion="Categorías y costos de Productos y costos (los mismos productos que en MELI)." sinRelleno>
+        <Seccion titulo="Por categoría" sinRelleno>
           <div className="px-4 pt-3">
             <Ayuda>
               <p>
@@ -367,7 +364,7 @@ export default async function VentasAmazon({
         </Seccion>
       ) : null}
 
-      <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos, en el periodo elegido." sinRelleno>
+      <Seccion titulo="Por modelo" descripcion="Todas las tallas y colores de cada modelo, juntos." sinRelleno>
         <div className="px-4 pt-3">
           <Ayuda>
             <p>

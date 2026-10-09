@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { Ayuda } from "@/components/ui/pagina";
 
 interface Renglon {
   modelo: string;
@@ -110,11 +111,17 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
       <header className="border-b p-4 hairline">
         <h2 className="seccion-titulo">Pedido por modelo</h2>
         <p className="texto-2 mt-0.5 text-sm">
-          Cada modelo con todos sus colores, listo para negociar con la fábrica. La
-          corrida propuesta se calcula con lo que falta de cada talla — venta menos
-          stock completo — no con la corrida vieja. Una talla se separa como
-          unitalla cuando ella sola justifica 5+ cajas.
+          Cada modelo con todos sus colores, listo para negociar con la fábrica.
         </p>
+        <div className="mt-2">
+          <Ayuda titulo="¿Cómo se arma la corrida?">
+            <p>
+              La corrida propuesta se calcula con lo que falta de cada talla —venta menos stock
+              completo—, no con la corrida vieja. Una talla se separa como unitalla cuando ella
+              sola justifica 5+ cajas.
+            </p>
+          </Ayuda>
+        </div>
       </header>
 
       <div className="max-h-[36rem] overflow-auto">
@@ -222,7 +229,7 @@ export function PedidoPorModelo({ renglones }: { renglones: Renglon[] }) {
                   <a
                     href={`/api/pedidos/excel?modelo=${encodeURIComponent(m.modelo)}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="boton boton-primario boton-chico"
+                    className="boton boton-borde boton-chico"
                   >
                     Excel del pedido
                   </a>

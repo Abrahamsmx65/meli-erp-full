@@ -56,11 +56,6 @@ export default async function Pedidos() {
         titulo="Pedidos a China"
         descripcion="Qué conviene pedir, con la venta de Mercado Libre, Amazon y TikTok y todo el inventario que existe."
         frescura={guardada.generadoEn}
-        acciones={
-          <Link href="/pedidos/cargar" className="boton boton-borde">
-            Cargar pedidos
-          </Link>
-        }
         ayudaTitulo="Cómo salió cada número"
         ayuda={
           <>
