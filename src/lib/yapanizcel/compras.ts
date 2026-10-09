@@ -61,7 +61,21 @@ export interface DisenoCompra {
 export interface ResumenDisenos {
   /** cuándo se calculó (la pantalla lo declara: "datos de hace X min") */
   generadoEn?: string;
-  disenos: { diseno: string; variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number; cobertura: number }[];
+  disenos: {
+    diseno: string;
+    variantes: number;
+    descontinuadas: number;
+    vendidas30: number;
+    /** Lo que hay en MELI (Full + transferencia + envíos en camino), sumado. */
+    enMeli?: number;
+    /** En la bodega (sheet), sumado por diseño. */
+    enBodega?: number;
+    /** Pedido a China y sin recibir, sumado por diseño. */
+    enCaminoChina?: number;
+    posicionTotal: number;
+    sugerido: number;
+    cobertura: number;
+  }[];
   descontinuados: {
     /** SKUs sin venta en 180 días (de diseños que siguen y de los retirados). */
     skus: number;
@@ -293,7 +307,7 @@ export async function obtenerDetalleCompras(db: DB, accountId: string, diseno: s
 
 /** El resumen por diseño, derivado del cálculo guardado (puro). */
 export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
-  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; posicionTotal: number; sugerido: number }>();
+  const porDiseno = new Map<string, { variantes: number; descontinuadas: number; vendidas30: number; enMeli: number; enBodega: number; enCaminoChina: number; posicionTotal: number; sugerido: number }>();
   let descontinuadas = 0;
 
   for (const v of c.variantes) {
@@ -301,7 +315,7 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
     const d = v.diseno;
     // El calzado de esta cuenta no se pide desde aquí.
     if (!d || esCalzado(d)) continue;
-    const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, posicionTotal: 0, sugerido: 0 };
+    const acc = porDiseno.get(d) ?? { variantes: 0, descontinuadas: 0, vendidas30: 0, enMeli: 0, enBodega: 0, enCaminoChina: 0, posicionTotal: 0, sugerido: 0 };
     // Un SKU descontinuado no se pide, pero su familia sigue saliendo.
     if (v.descontinuada) {
       acc.descontinuadas++;
@@ -310,6 +324,9 @@ export function resumenDesdeCompras(c: ComprasCalculadas): ResumenDisenos {
     }
     acc.variantes++;
     acc.vendidas30 += v.vendidas30;
+    acc.enMeli += v.enFull + v.enTransferencia + v.enCaminoFull;
+    acc.enBodega += v.enBodega;
+    acc.enCaminoChina += v.enCaminoChina;
     acc.posicionTotal += v.posicionTotal;
     acc.sugerido += v.sugerido;
     porDiseno.set(d, acc);

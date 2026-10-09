@@ -11,6 +11,10 @@ export interface FilaDiseno {
   variantes: number;
   descontinuadas: number;
   vendidas30: number;
+  /** Full + transferencia + envíos en camino (los renglones guardados antes del 9-oct-2026 no lo traen). */
+  enMeli?: number;
+  enBodega?: number;
+  enCaminoChina?: number;
   posicionTotal: number;
   sugerido: number;
   cobertura: number;
@@ -148,9 +152,18 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
   const urlExcel = elegidos.length ? `/api/yapanizcel/pedidos/excel?disenos=${encodeURIComponent(elegidos.join(","))}` : "/api/yapanizcel/pedidos/excel";
 
   const totales = visibles.reduce(
-    (a, d) => ({ vendidas: a.vendidas + d.vendidas30, posicion: a.posicion + d.posicionTotal, pedir: a.pedir + d.sugerido }),
-    { vendidas: 0, posicion: 0, pedir: 0 },
+    (a, d) => ({
+      vendidas: a.vendidas + d.vendidas30,
+      meli: a.meli + (d.enMeli ?? 0),
+      bodega: a.bodega + (d.enBodega ?? 0),
+      china: a.china + (d.enCaminoChina ?? 0),
+      posicion: a.posicion + d.posicionTotal,
+      pedir: a.pedir + d.sugerido,
+    }),
+    { vendidas: 0, meli: 0, bodega: 0, china: 0, posicion: 0, pedir: 0 },
   );
+  // Los renglones guardados antes de esta columna no traen el desglose: se enseña "—".
+  const conDesglose = visibles.some((d) => d.enBodega != null);
 
   const detalle = abierto ? detalles[abierto] : null;
 
@@ -207,6 +220,9 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
               <th className="px-3 py-2 text-right">Variantes</th>
               <th className="px-3 py-2 text-right">Descont.</th>
               <th className="px-3 py-2 text-right">Vend. 30 d</th>
+              <th className="px-3 py-2 text-right" title="Full + transferencia + envíos en camino">En MELI</th>
+              <th className="px-3 py-2 text-right">Bodega</th>
+              <th className="px-3 py-2 text-right" title="Pedido a China y sin recibir">Desde China</th>
               <th className="px-3 py-2 text-right">Existencia total</th>
               <th className="px-3 py-2 text-right">Cobertura</th>
               <th className="px-3 py-2 text-right">Pedir ({diasObjetivo} d)</th>
@@ -216,7 +232,7 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
           <tbody>
             {visibles.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center texto-tenue">
+                <td colSpan={12} className="px-3 py-6 text-center texto-tenue">
                   {disenos.length === 0 ? "Sin catálogo todavía: sincroniza en Ajustes de fundas." : "Ningún diseño coincide."}
                 </td>
               </tr>
@@ -234,7 +250,10 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                 <td className="num px-3 py-1.5 text-right">{d.variantes}</td>
                 <td className="num px-3 py-1.5 text-right texto-tenue">{d.descontinuadas || ""}</td>
                 <td className="num px-3 py-1.5 text-right">{n(d.vendidas30)}</td>
-                <td className="num px-3 py-1.5 text-right">{n(d.posicionTotal)}</td>
+                <td className="num px-3 py-1.5 text-right">{d.enMeli != null ? n(d.enMeli) : "—"}</td>
+                <td className="num px-3 py-1.5 text-right">{d.enBodega != null ? n(d.enBodega) : "—"}</td>
+                <td className="num px-3 py-1.5 text-right">{d.enCaminoChina != null ? n(d.enCaminoChina) : "—"}</td>
+                <td className="num px-3 py-1.5 text-right font-semibold">{n(d.posicionTotal)}</td>
                 <td className="num px-3 py-1.5 text-right" style={{ color: Number.isFinite(d.cobertura) && d.cobertura < 45 ? "var(--estado-critico)" : undefined }}>
                   {dias(d.cobertura)}
                 </td>
@@ -257,6 +276,9 @@ export function PedidosChina({ disenos, diasObjetivo, abrirInicial, disenosInici
                   Total de lo visible
                 </td>
                 <td className="num px-3 py-2 text-right">{n(totales.vendidas)}</td>
+                <td className="num px-3 py-2 text-right">{conDesglose ? n(totales.meli) : "—"}</td>
+                <td className="num px-3 py-2 text-right">{conDesglose ? n(totales.bodega) : "—"}</td>
+                <td className="num px-3 py-2 text-right">{conDesglose ? n(totales.china) : "—"}</td>
                 <td className="num px-3 py-2 text-right">{n(totales.posicion)}</td>
                 <td></td>
                 <td className="num px-3 py-2 text-right">{n(totales.pedir)}</td>
