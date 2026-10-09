@@ -4,6 +4,8 @@ import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
 import { Encabezado, Pagina, Seccion, SinCuenta, Vacio } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import Link from "next/link";
+import { grupoDeDevolucion } from "@/lib/tiktok/devoluciones";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,7 @@ export default async function Pendientes() {
   // Esta pantalla solo usa los pendientes del plan: se leen esas claves del
   // caché sin bajar el JSON completo (pesa varios megas); si no hay plan
   // guardado todavía, se cae a obtenerPlan como siempre.
-  const [parcial, { data: rojosRaw }, { data: ttSinAmarreRaw }, { data: desfasesRaw }] = await Promise.all([
+  const [parcial, { data: rojosRaw }, { data: ttSinAmarreRaw }, { data: desfasesRaw }, { data: devolucionesRaw }] = await Promise.all([
     leerPlanParcial(supabase, cuenta.id, ["pendientes"]),
     // TikTok: un saldo negativo es que se vendió algo que nunca entró al
     // kardex. No se puede frenar a TikTok, pero sí gritar aquí.
@@ -34,6 +36,14 @@ export default async function Pendientes() {
       .select("sku, kardex, estante, desde, motivo")
       .eq("account_id", cuenta.id)
       .order("desde", { ascending: true }),
+    // Devoluciones que el cliente ya mandó y falta confirmar: TikTok da un
+    // plazo y, vencido, decide él.
+    supabase
+      .from("tiktok_devoluciones")
+      .select("return_id, order_id, estado, tipo, siguiente_accion, plazo, guia, paqueteria, renglones")
+      .eq("account_id", cuenta.id)
+      .is("confirmada_en", null)
+      .in("estado", ["BUYER_SHIPPED_ITEM", "AWAITING_BUYER_SHIP"]),
   ]);
   const pendientes = (parcial?.pendientes ??
     (await obtenerPlan(supabase, cuenta.id)).plan.pendientes) as PlanGuardado["pendientes"];
@@ -44,7 +54,14 @@ export default async function Pendientes() {
     sku: string; kardex: number; estante: number | null; desde: string; motivo: string;
   }[];
 
-  const hayTikTok = rojosTikTok.length > 0 || tiktokSinAmarre.length > 0 || desfasesTikTok.length > 0;
+  const devolucionesPorRecibir = ((devolucionesRaw ?? []) as any[])
+    .filter((d) => grupoDeDevolucion({ estado: d.estado, tipo: d.tipo, siguienteAccion: d.siguiente_accion }) === "por_recibir")
+    .sort((a, b) => (a.plazo ?? "9").localeCompare(b.plazo ?? "9")) as {
+    return_id: string; order_id: string; plazo: string | null; guia: string | null; paqueteria: string | null;
+    renglones: { sku: string | null; sellerSku: string | null }[];
+  }[];
+  const devolucionesVencen = devolucionesPorRecibir.filter((d) => d.plazo && Date.parse(d.plazo) - Date.now() < 48 * 3_600_000).length;
+  const hayTikTok = rojosTikTok.length > 0 || tiktokSinAmarre.length > 0 || desfasesTikTok.length > 0 || devolucionesPorRecibir.length > 0;
   const nadaPendiente = sinCorrida.length === 0 && sinAmarre.length === 0 && !hayTikTok;
 
   const paresBloqueados = sinCorrida.reduce(
@@ -169,11 +186,37 @@ export default async function Pendientes() {
           hayTikTok && {
             id: "tiktok",
             titulo: "TikTok",
-            cuenta: rojosTikTok.length + desfasesTikTok.length + tiktokSinAmarre.length,
-            alerta: rojosTikTok.length + desfasesTikTok.length > 0,
+            cuenta: rojosTikTok.length + desfasesTikTok.length + tiktokSinAmarre.length + devolucionesPorRecibir.length,
+            alerta: rojosTikTok.length + desfasesTikTok.length + devolucionesVencen > 0,
             contenido: (
               <>
                 <Seccion titulo="TikTok Shop" sinRelleno>
+                  {devolucionesPorRecibir.length ? (
+                    <div className="px-4 pt-3">
+                      <h3 className="text-sm font-semibold" style={{ color: devolucionesVencen ? "var(--critico-texto)" : undefined }}>
+                        {devolucionesPorRecibir.length} {devolucionesPorRecibir.length === 1 ? "devolución" : "devoluciones"} por recibir
+                        {devolucionesVencen ? ` · ${devolucionesVencen} con el plazo de TikTok a menos de 48 h` : ""}
+                      </h3>
+                      <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+                        El cliente ya mandó el paquete. Al llegar, se confirma en{" "}
+                        <Link href="/tiktok/devoluciones" className="underline">Devoluciones</Link> para que TikTok reembolse.
+                      </p>
+                      <ul className="mt-2 flex flex-wrap gap-2 text-sm">
+                        {devolucionesPorRecibir.slice(0, 40).map((d) => (
+                          <li key={d.return_id} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
+                            <span className="font-mono">{d.order_id}</span>
+                            <span className="ml-2">{(d.renglones ?? []).map((r) => r.sku ?? r.sellerSku ?? "?").join(", ")}</span>
+                            {d.guia ? <span className="ml-2 font-mono" style={{ color: "var(--ink-2)" }}>{d.guia}</span> : null}
+                            {d.plazo ? (
+                              <span className="ml-2" style={{ color: "var(--ink-2)" }}>
+                                plazo {new Date(d.plazo).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {rojosTikTok.length ? (
                     <div className="px-4 pt-3">
                       <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
