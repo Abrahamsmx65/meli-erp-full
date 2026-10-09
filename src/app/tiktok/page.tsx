@@ -6,6 +6,7 @@ import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
 import { InventarioTikTok } from "@/components/inventario-tiktok";
 import { Ficha } from "@/components/tiles";
+import { Pestanas } from "@/components/ui/pestanas";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -126,58 +127,78 @@ export default async function TikTok({
         </Aviso>
       ) : null}
 
-      <AliasAmazonTikTok alias={alias} />
-
-      <EntradasTikTok />
-
-      <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />
-
-      <Seccion
-        titulo="Últimos movimientos"
-        descripcion="Cada par que entró o salió, con su motivo."
-        sinRelleno
-      >
-        <Tabla vacia={!p.movimientos.length} textoVacio="Sin movimientos todavía.">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Cuándo</th>
-                <th>SKU</th>
-                <th>Movimiento</th>
-                <th className="num">Pares</th>
-                <th>Motivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.movimientos.map((m) => (
-                <tr key={m.id}>
-                  <td className="texto-2">{cuando(m.fecha)}</td>
-                  <td className="font-medium">{m.sku}</td>
-                  <td>{NOMBRE_TIPO[m.tipo] ?? m.tipo}</td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        m.tipo === "salida" || m.tipo === "merma"
-                          ? "var(--estado-critico)"
-                          : m.tipo === "ajuste"
-                            ? "var(--ink-1)"
-                            : "var(--exito-texto)",
-                    }}
-                  >
-                    {m.tipo === "ajuste" ? "=" : m.tipo === "salida" || m.tipo === "merma" ? "−" : "+"}
-                    {n(m.cantidad)}
-                  </td>
-                  <td className="texto-2">
-                    {m.motivo ?? "—"}
-                    {m.referencia ? ` · pedido ${m.referencia}` : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
+      <Pestanas
+        pestanas={[
+          {
+            id: "inventario",
+            titulo: "Inventario",
+            cuenta: p.renglones.length,
+            contenido: <InventarioTikTok renglones={p.renglones} diasVenta={DIAS_VENTA} />,
+          },
+          {
+            id: "movimientos",
+            titulo: "Movimientos",
+            contenido: (
+              <Seccion
+                titulo="Últimos movimientos"
+                descripcion="Cada par que entró o salió, con su motivo."
+                sinRelleno
+              >
+                <Tabla vacia={!p.movimientos.length} textoVacio="Sin movimientos todavía.">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>Cuándo</th>
+                        <th>SKU</th>
+                        <th>Movimiento</th>
+                        <th className="num">Pares</th>
+                        <th>Motivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.movimientos.map((m) => (
+                        <tr key={m.id}>
+                          <td className="texto-2">{cuando(m.fecha)}</td>
+                          <td className="font-medium">{m.sku}</td>
+                          <td>{NOMBRE_TIPO[m.tipo] ?? m.tipo}</td>
+                          <td
+                            className="num cifra"
+                            style={{
+                              color:
+                                m.tipo === "salida" || m.tipo === "merma"
+                                  ? "var(--estado-critico)"
+                                  : m.tipo === "ajuste"
+                                    ? "var(--ink-1)"
+                                    : "var(--exito-texto)",
+                            }}
+                          >
+                            {m.tipo === "ajuste" ? "=" : m.tipo === "salida" || m.tipo === "merma" ? "−" : "+"}
+                            {n(m.cantidad)}
+                          </td>
+                          <td className="texto-2">
+                            {m.motivo ?? "—"}
+                            {m.referencia ? ` · pedido ${m.referencia}` : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Tabla>
+              </Seccion>
+            ),
+          },
+          {
+            id: "corregir",
+            titulo: "Corregir y colores",
+            contenido: (
+              <>
+                <EntradasTikTok />
+                <AliasAmazonTikTok alias={alias} />
+              </>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }

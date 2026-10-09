@@ -7,6 +7,7 @@ import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { OrigenVentasTikTok } from "@/components/origen-ventas-tiktok";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -144,152 +145,175 @@ export default async function VentasTikTok({
         />
       </Cifras>
 
-      <OrigenVentasTikTok origen={origen} />
-
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <Seccion titulo="Ventas por modelo" descripcion="Abre un modelo para ver sus tallas." sinRelleno>
-          <div className="tabla-caja">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Modelo</th>
-                  <th className="num">Pares</th>
-                  <th className="num">Pedidos</th>
-                  <th className="num">Cobrado</th>
-                  <th className="num">Me paga TikTok</th>
-                  <th className="num">Afiliados</th>
-                  <th className="num">Sin dato</th>
-                  <th className="num">Costo</th>
-                  <th className="num">Ganancia</th>
-                  <th className="num">Por par</th>
-                </tr>
-              </thead>
-              <tbody>
-                {conCosto.map((m) => (
-                  <tr key={m.modelo} className="align-top">
-                    <td>
-                      <details>
-                        <summary className="cursor-pointer font-medium">{m.modelo}</summary>
-                        <ul className="mt-1 text-xs texto-2">
-                          {m.tallas.map((t) => (
-                            <li key={t.sku} className="flex justify-between gap-3">
-                              <span>{t.sku}</span>
-                              <span className="num">
-                                {n(t.unidades)} · {pesos(t.cobrado)}
-                                {t.aRecibir ? ` · paga ${pesos(t.aRecibir)}` : ""}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    </td>
-                    <td className="num cifra">{n(m.unidades)}</td>
-                    <td className="num cifra" title={`${m.pedidosLiquidados} liquidados`}>{n(m.pedidos)}</td>
-                    <td className="num cifra">{pesos(m.cobrado)}</td>
-                    <td className="num cifra font-medium" title={`${pesos(m.aRecibirLiquidado)} liquidado · ${pesos(m.aRecibirPorLiquidar)} por liquidar`}>
-                      {m.aRecibir ? pesos(m.aRecibir) : "—"}
-                    </td>
-                    <td className="num cifra texto-2">{m.afiliado ? pesos(m.afiliado) : "—"}</td>
-                    <td
-                      className="num cifra"
-                      style={{ color: m.pedidosSinDato ? "var(--estado-alerta)" : "var(--ink-2)" }}
-                      title={m.pedidosSinDato ? `${m.pedidosSinDato} pedido${m.pedidosSinDato === 1 ? "" : "s"} · ${pesos(m.cobradoSinDato)} cobrados sin dato de TikTok` : undefined}
-                    >
-                      {m.pedidosSinDato ? `${n(m.pedidosSinDato)} ped.` : "—"}
-                    </td>
-                    <td className="num cifra texto-2" title={m.costoUnitario != null ? `${pesos(m.costoUnitario)} por par × ${n(m.unidadesConDato)} pares con dato` : "sin costo capturado"}>
-                      {m.costo != null && m.unidadesConDato > 0 ? pesos(m.costo) : m.costoUnitario == null ? "sin costo" : "—"}
-                    </td>
-                    <td className="num cifra font-semibold" style={{ color: m.ganancia == null ? "var(--ink-2)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}>
-                      {m.ganancia != null ? pesos(m.ganancia) : "—"}
-                    </td>
-                    <td
-                      className="num cifra font-semibold"
-                      style={{ color: m.gananciaPorPar == null ? "var(--ink-2)" : m.gananciaPorPar < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}
-                      title={
-                        m.pagaPorPar != null
-                          ? `TikTok paga ${pesos(m.pagaPorPar)} por par${m.costoUnitario != null ? ` − costo ${pesos(m.costoUnitario)} = ${pesos(m.gananciaPorPar ?? 0)}` : " (sin costo capturado)"} · ${n(m.unidadesConDato)} pares con dato`
-                          : "sin dato de TikTok"
-                      }
-                    >
-                      {m.gananciaPorPar != null ? pesos(m.gananciaPorPar) : m.pagaPorPar != null && m.costoUnitario == null ? "sin costo" : "—"}
-                    </td>
-                  </tr>
-                ))}
-                {!modelos.length ? (
-                  <tr>
-                    <td className="px-4 py-6 text-center text-sm texto-2" colSpan={10}>
-                      Sin ventas en el rango.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Seccion>
-
-        <Seccion titulo="Pedidos por estado" descripcion="Los del rango y, de cualquier fecha, los que todavía no salen." sinRelleno>
-          <div className="tabla-caja">
-            <table className="datos">
-              <tbody>
-                {porEstado.map(([estado, cuantos]) => (
-                    <tr key={estado}>
-                      <td>{NOMBRE_ESTADO[estado] ?? estado}</td>
-                      <td className="num cifra">{n(cuantos)}</td>
-                    </tr>
-                  ))}
-                {!porEstado.length ? (
-                  <tr>
-                    <td className="px-4 py-6 text-center text-sm texto-2">
-                      Sin pedidos sincronizados.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Seccion>
-      </div>
-
-      <Seccion
-        titulo="Solicitudes de muestras"
-        descripcion="Pedidos de $0 para creadores: se despachan y descuentan, pero no son venta."
-        sinRelleno
-      >
-        <div className="tabla-caja">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Pedido</th>
-                <th>SKU</th>
-                <th>Para</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {muestras.map((m) => (
-                <tr key={m.orderId}>
-                  <td className="whitespace-nowrap">
-                    {m.creadoEn ? new Date(m.creadoEn).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : ""}
-                  </td>
-                  <td className="font-medium">{m.orderId}</td>
-                  <td>{m.skus.join(", ")}</td>
-                  <td className="texto-2">{m.destinatario ?? ""}</td>
-                  <td>{NOMBRE_ESTADO[m.estado ?? ""] ?? m.estado}</td>
-                </tr>
-              ))}
-              {!muestras.length ? (
-                <tr>
-                  <td className="px-4 py-6 text-center text-sm texto-2" colSpan={5}>
-                    Sin solicitudes de muestra en el rango.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </Seccion>
+      <Pestanas
+        pestanas={[
+          {
+            id: "modelos",
+            titulo: "Por modelo",
+            cuenta: modelos.length,
+            contenido: (
+              <Seccion titulo="Ventas por modelo" descripcion="Abre un modelo para ver sus tallas." sinRelleno>
+                <div className="tabla-caja">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>Modelo</th>
+                        <th className="num">Pares</th>
+                        <th className="num">Pedidos</th>
+                        <th className="num">Cobrado</th>
+                        <th className="num">Me paga TikTok</th>
+                        <th className="num">Afiliados</th>
+                        <th className="num">Sin dato</th>
+                        <th className="num">Costo</th>
+                        <th className="num">Ganancia</th>
+                        <th className="num">Por par</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conCosto.map((m) => (
+                        <tr key={m.modelo} className="align-top">
+                          <td>
+                            <details>
+                              <summary className="cursor-pointer font-medium">{m.modelo}</summary>
+                              <ul className="mt-1 text-xs texto-2">
+                                {m.tallas.map((t) => (
+                                  <li key={t.sku} className="flex justify-between gap-3">
+                                    <span>{t.sku}</span>
+                                    <span className="num">
+                                      {n(t.unidades)} · {pesos(t.cobrado)}
+                                      {t.aRecibir ? ` · paga ${pesos(t.aRecibir)}` : ""}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          </td>
+                          <td className="num cifra">{n(m.unidades)}</td>
+                          <td className="num cifra" title={`${m.pedidosLiquidados} liquidados`}>{n(m.pedidos)}</td>
+                          <td className="num cifra">{pesos(m.cobrado)}</td>
+                          <td className="num cifra font-medium" title={`${pesos(m.aRecibirLiquidado)} liquidado · ${pesos(m.aRecibirPorLiquidar)} por liquidar`}>
+                            {m.aRecibir ? pesos(m.aRecibir) : "—"}
+                          </td>
+                          <td className="num cifra texto-2">{m.afiliado ? pesos(m.afiliado) : "—"}</td>
+                          <td
+                            className="num cifra"
+                            style={{ color: m.pedidosSinDato ? "var(--estado-alerta)" : "var(--ink-2)" }}
+                            title={m.pedidosSinDato ? `${m.pedidosSinDato} pedido${m.pedidosSinDato === 1 ? "" : "s"} · ${pesos(m.cobradoSinDato)} cobrados sin dato de TikTok` : undefined}
+                          >
+                            {m.pedidosSinDato ? `${n(m.pedidosSinDato)} ped.` : "—"}
+                          </td>
+                          <td className="num cifra texto-2" title={m.costoUnitario != null ? `${pesos(m.costoUnitario)} por par × ${n(m.unidadesConDato)} pares con dato` : "sin costo capturado"}>
+                            {m.costo != null && m.unidadesConDato > 0 ? pesos(m.costo) : m.costoUnitario == null ? "sin costo" : "—"}
+                          </td>
+                          <td className="num cifra font-semibold" style={{ color: m.ganancia == null ? "var(--ink-2)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}>
+                            {m.ganancia != null ? pesos(m.ganancia) : "—"}
+                          </td>
+                          <td
+                            className="num cifra font-semibold"
+                            style={{ color: m.gananciaPorPar == null ? "var(--ink-2)" : m.gananciaPorPar < 0 ? "var(--estado-critico)" : "var(--estado-bien)" }}
+                            title={
+                              m.pagaPorPar != null
+                                ? `TikTok paga ${pesos(m.pagaPorPar)} por par${m.costoUnitario != null ? ` − costo ${pesos(m.costoUnitario)} = ${pesos(m.gananciaPorPar ?? 0)}` : " (sin costo capturado)"} · ${n(m.unidadesConDato)} pares con dato`
+                                : "sin dato de TikTok"
+                            }
+                          >
+                            {m.gananciaPorPar != null ? pesos(m.gananciaPorPar) : m.pagaPorPar != null && m.costoUnitario == null ? "sin costo" : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                      {!modelos.length ? (
+                        <tr>
+                          <td className="px-4 py-6 text-center text-sm texto-2" colSpan={10}>
+                            Sin ventas en el rango.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </Seccion>
+            ),
+          },
+          {
+            id: "creadores",
+            titulo: "Creadores",
+            contenido: <OrigenVentasTikTok origen={origen} />,
+          },
+          {
+            id: "estados",
+            titulo: "Pedidos por estado",
+            contenido: (
+              <Seccion titulo="Pedidos por estado" descripcion="Los del rango y, de cualquier fecha, los que todavía no salen." sinRelleno>
+                <div className="tabla-caja">
+                  <table className="datos">
+                    <tbody>
+                      {porEstado.map(([estado, cuantos]) => (
+                          <tr key={estado}>
+                            <td>{NOMBRE_ESTADO[estado] ?? estado}</td>
+                            <td className="num cifra">{n(cuantos)}</td>
+                          </tr>
+                        ))}
+                      {!porEstado.length ? (
+                        <tr>
+                          <td className="px-4 py-6 text-center text-sm texto-2">
+                            Sin pedidos sincronizados.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </Seccion>
+            ),
+          },
+          {
+            id: "muestras",
+            titulo: "Muestras",
+            cuenta: muestras.length,
+            contenido: (
+              <Seccion
+                titulo="Solicitudes de muestras"
+                descripcion="Pedidos de $0 para creadores: se despachan y descuentan, pero no son venta."
+                sinRelleno
+              >
+                <div className="tabla-caja">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Pedido</th>
+                        <th>SKU</th>
+                        <th>Para</th>
+                        <th>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {muestras.map((m) => (
+                        <tr key={m.orderId}>
+                          <td className="whitespace-nowrap">
+                            {m.creadoEn ? new Date(m.creadoEn).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : ""}
+                          </td>
+                          <td className="font-medium">{m.orderId}</td>
+                          <td>{m.skus.join(", ")}</td>
+                          <td className="texto-2">{m.destinatario ?? ""}</td>
+                          <td>{NOMBRE_ESTADO[m.estado ?? ""] ?? m.estado}</td>
+                        </tr>
+                      ))}
+                      {!muestras.length ? (
+                        <tr>
+                          <td className="px-4 py-6 text-center text-sm texto-2" colSpan={5}>
+                            Sin solicitudes de muestra en el rango.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </Seccion>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }
