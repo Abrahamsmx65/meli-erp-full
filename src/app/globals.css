@@ -1,4 +1,4 @@
-/* Las fuentes (Geist y Bricolage Grotesque) llegan autohospedadas por
+/* Las fuentes (DM Sans y Fraunces) llegan autohospedadas por
    next/font desde layout.tsx. El @import remoto de Google Fonts que vivía aquí
    bloqueaba el primer render de TODA la app. */
 @import "tailwindcss";
@@ -80,8 +80,8 @@
   --critico-borde: #f6c4ca;
   --critico-texto: #c4182b;
 
-  --fuente-sans: var(--font-geist), -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fuente-titulo: var(--font-bricolage), var(--font-geist), sans-serif;
+  --fuente-sans: var(--font-texto), -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-titulo: var(--font-titulo), Georgia, serif;
   --fuente-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -240,7 +240,7 @@
     font-size: 1.75rem;
     line-height: 1.15;
     font-weight: 600;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.01em;
     color: var(--ink-1);
   }
 

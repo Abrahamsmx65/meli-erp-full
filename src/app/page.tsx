@@ -304,12 +304,15 @@ export default async function Inicio() {
   );
 }
 
-/** Orden de colores fijo y validado (ámbar de la marca, azul, aqua, rosa); no se cicla. */
+/**
+ * Orden de colores fijo y validado con el validador de dataviz (tonos tierra
+ * de la marca: caramelo, mezclilla, verde y mostaza); no se cicla.
+ */
 const SERIES: SerieApilada[] = [
-  { clave: "calzado", nombre: "Calzado · MELI", color: "#c98500" },
-  { clave: "amazon", nombre: "Amazon", color: "#2a78d6" },
-  { clave: "fundas", nombre: "Fundas · MELI", color: "#1baf7a" },
-  { clave: "tiktok", nombre: "TikTok", color: "#e87ba4" },
+  { clave: "calzado", nombre: "Calzado · MELI", color: "#a35f1c" },
+  { clave: "amazon", nombre: "Amazon", color: "#3a72b8" },
+  { clave: "fundas", nombre: "Fundas · MELI", color: "#2f9c63" },
+  { clave: "tiktok", nombre: "TikTok", color: "#d3a52e" },
 ];
 
 interface Tarea {

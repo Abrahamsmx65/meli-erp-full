@@ -70,7 +70,7 @@ function FormularioLogin() {
           <p className="ceja" style={{ color: "var(--acento)" }}>
             Calzado · Mercado Libre · Amazon · TikTok Shop
           </p>
-          <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "var(--ink-1)" }}>
+          <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "var(--ink-1)", fontFamily: "var(--fuente-titulo)" }}>
             Qué mandar, qué pedir y cuánto ganas, en un solo lugar.
           </h1>
         </div>
