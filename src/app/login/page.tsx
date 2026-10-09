@@ -73,10 +73,6 @@ function FormularioLogin() {
           <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "var(--ink-1)" }}>
             Qué mandar, qué pedir y cuánto ganas, en un solo lugar.
           </h1>
-          <p className="mt-4 text-[15px] leading-relaxed text-pretty" style={{ color: "var(--ink-2)" }}>
-            Inventario en bodega y en Full, envíos por cajas cerradas, pedidos a China, despacho de TikTok y
-            el corte del mes con el dinero real de cada orden.
-          </p>
         </div>
         <ul className="relative grid grid-cols-3 gap-4 text-[12px]" style={{ color: "var(--ink-2)" }}>
           {[

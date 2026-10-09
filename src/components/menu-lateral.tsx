@@ -254,8 +254,8 @@ export function MenuLateral({
         } no-imprimir fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto pb-6 transition-transform duration-200 lg:sticky lg:top-0 lg:z-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:translate-x-0`}
         style={{ background: "var(--sidebar)", color: "var(--sidebar-texto)", borderRight: "1px solid var(--sidebar-borde)" }}
       >
-        <div className="flex h-16 shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
-          <Logo />
+        <div className="flex h-[72px] shrink-0 items-center px-5" style={{ borderBottom: "1px solid var(--sidebar-borde)" }}>
+          <Logo alto={42} />
         </div>
         <div className="flex-1 pt-3">
         {grupos.map((g) => {
