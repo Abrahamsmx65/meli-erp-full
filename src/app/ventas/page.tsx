@@ -11,6 +11,7 @@ import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
 import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
 import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import Link from "next/link";
+import { BarrasPorDia, type PuntoDia } from "@/components/ui/graficas";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,27 @@ export default async function Ventas({
   // Todo llega masticado del servicio: el monitor con la publicidad ya
   // descontada, la cascada real del dinero y los cuadres entre niveles.
   // Esta página no hace ninguna cuenta.
-  const vista = await vistaVentas(supabase, cuenta, rango, t);
+  const [vista, diario] = await Promise.all([
+    vistaVentas(supabase, cuenta, rango, t),
+    // La gráfica por día: RPC ya agregado en Postgres (milisegundos).
+    supabase.rpc("ventas_totales_dia", { p_account: cuenta.id, p_desde: rango.desde, p_hasta: rango.hasta }),
+  ]);
   t.fin();
+  const porFecha = new Map(
+    ((diario.data ?? []) as { fecha: string; unidades: number; ordenes: number; importe: number }[]).map((d) => [
+      String(d.fecha).slice(0, 10),
+      d,
+    ]),
+  );
+  const serie: PuntoDia[] = [];
+  for (let f = rango.desde; f <= rango.hasta; f = siguienteDia(f)) {
+    const d = porFecha.get(f);
+    serie.push({
+      fecha: f,
+      valor: Number(d?.importe ?? 0),
+      detalle: d ? `${n(Number(d.unidades))} pares · ${n(Number(d.ordenes))} órdenes` : "Sin ventas",
+    });
+  }
   const { monitor: m, gastoAds, gananciaConAds, finanzas, cuadres } = vista;
   const ads = { errorAds: vista.errorAds, advertencias: vista.advertenciasAds };
   const descuadres = cuadres.filter((c) => c.diferencia !== 0);
@@ -114,6 +134,12 @@ export default async function Ventas({
           tono={m.coberturaCosto > 0 && (gananciaConAds ?? m.ganancia7) < 0 ? "critico" : "neutro"}
         />
       </Cifras>
+
+      {serie.length > 1 ? (
+        <Seccion titulo="Venta por día" descripcion={etiquetaRango}>
+          <BarrasPorDia puntos={serie} etiqueta="Venta" />
+        </Seccion>
+      ) : null}
 
       {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
       <Seccion
@@ -326,4 +352,10 @@ function Movimientos({
       )}
     </Seccion>
   );
+}
+
+function siguienteDia(f: string): string {
+  const d = new Date(`${f}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }

@@ -67,7 +67,7 @@ function FormularioLogin() {
       >
         <Logo />
         <div className="relative max-w-md">
-          <p className="ceja" style={{ color: "#8fb1ff" }}>
+          <p className="ceja" style={{ color: "var(--sidebar-acento)" }}>
             Calzado · Mercado Libre · Amazon · TikTok Shop
           </p>
           <h1 className="mt-4 text-[34px] leading-[1.15] font-semibold tracking-tight text-balance" style={{ color: "#fff" }}>

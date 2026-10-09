@@ -1,5 +1,5 @@
-/* La fuente (Inter) llega autohospedada por next/font desde layout.tsx —
-   variable --font-inter. El @import remoto de Google Fonts que vivía aquí
+/* Las fuentes (Geist y Bricolage Grotesque) llegan autohospedadas por
+   next/font desde layout.tsx. El @import remoto de Google Fonts que vivía aquí
    bloqueaba el primer render de TODA la app. */
 @import "tailwindcss";
 
@@ -21,18 +21,18 @@
 
   /* superficies */
   --surface-1: #ffffff;
-  --surface-2: #f7f8fa;
-  --plane: #f4f5f7;
+  --surface-2: #f7f7fb;
+  --plane: #f4f4f8;
 
   /* tinta */
-  --ink-1: #101828;
-  --ink-2: #4a5568;
-  --ink-muted: #8a93a3;
+  --ink-1: #15142b;
+  --ink-2: #4d4b66;
+  --ink-muted: #8b89a3;
 
   /* líneas */
-  --grid: #eef0f3;
-  --axis: #c9cfd8;
-  --borde: #e3e6eb;
+  --grid: #efeff5;
+  --axis: #cfcede;
+  --borde: #e5e4ee;
 
   /* estados */
   --estado-bien: #00a650;
@@ -41,21 +41,22 @@
   --estado-critico: #f23d4f;
 
   /* acción */
-  --acento: #2f6df6;
-  --acento-hover: #2457c9;
-  --acento-suave: #e6eefe;
+  --acento: #4f46e5;
+  --acento-hover: #4338ca;
+  --acento-suave: #eeeefe;
   --exito-texto: #00854a;
 
   /* marca: la barra superior, azul marino profundo con un degradado sutil */
-  --marca: #0f1b2d;
-  --marca-2: #16264a;
+  --marca: #14122b;
+  --marca-2: #1d1a3f;
   --marca-texto: #ffffff;
   --marca-suave: rgba(255, 255, 255, 0.12);
   --marca-suave-2: rgba(255, 255, 255, 0.2);
   /* resalte de renglones (antes ámbar): azul muy claro */
-  --ambar: #2f6df6;
+  --ambar: #4f46e5;
   /* menú lateral: el riel azul marino de la marca */
-  --sidebar: #0f1b2d;
+  --sidebar: #14122b;
+  --sidebar-acento: #a5b4fc;
   --sidebar-borde: rgba(255, 255, 255, 0.08);
   --sidebar-texto: rgba(255, 255, 255, 0.74);
   --sidebar-tenue: rgba(255, 255, 255, 0.42);
@@ -70,8 +71,8 @@
 
   /* tintes de estado: fondos suaves para avisos y fichas. Antes cada pantalla
      los armaba a mano con color-mix (25 copias del recuadro ámbar). */
-  --info-suave: #eef4ff;
-  --info-borde: #c9dafd;
+  --info-suave: #f0f0ff;
+  --info-borde: #cdcffc;
   --bien-suave: #e9f7ef;
   --bien-borde: #b9e4cb;
   --alerta-suave: #fdf6e3;
@@ -81,8 +82,9 @@
   --critico-borde: #f6c4ca;
   --critico-texto: #c4182b;
 
-  --fuente-sans: var(--font-inter, "Inter"), "Proxima Nova", -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fuente-mono: "Inter", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fuente-sans: var(--font-geist), -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fuente-titulo: var(--font-bricolage), var(--font-geist), sans-serif;
+  --fuente-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* ---------------------------------------------------------------------------
@@ -95,14 +97,14 @@
     background: var(--plane);
     color: var(--ink-1);
     font-family: var(--fuente-sans);
-    font-feature-settings: "cv11", "ss01";
+    font-feature-settings: "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
   ::selection {
-    background: #cfe0ff;
-    color: #0f1b2d;
+    background: #dcdcfe;
+    color: #14122b;
   }
 
   h1,
@@ -218,7 +220,7 @@
   .cifra {
     font-family: var(--fuente-sans);
     font-variant-numeric: tabular-nums lining-nums;
-    font-feature-settings: "tnum", "cv11";
+    font-feature-settings: "tnum";
     letter-spacing: -0.01em;
   }
 
@@ -236,10 +238,11 @@
 
   /* Título de página: una sola voz en todo el ERP. */
   .titulo-pagina {
-    font-size: 1.5rem;
-    line-height: 1.2;
+    font-family: var(--fuente-titulo);
+    font-size: 1.75rem;
+    line-height: 1.15;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
     color: var(--ink-1);
   }
 
@@ -353,7 +356,7 @@
   .aviso-info {
     background: var(--info-suave);
     border-color: var(--info-borde);
-    color: #1d3f86;
+    color: #3730a3;
   }
   .aviso-bien {
     background: var(--bien-suave);
@@ -629,7 +632,7 @@
   /* El riel oscuro necesita su propio anillo de foco y barra fina. */
   nav[aria-label="Secciones"] a:focus-visible,
   nav[aria-label="Secciones"] button:focus-visible {
-    outline-color: #8fb1ff;
+    outline-color: var(--sidebar-acento);
   }
   nav[aria-label="Secciones"] {
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;

@@ -9,6 +9,7 @@ import { leerPlanParcial } from "@/lib/servicios/cache";
 import { NOMBRE_CANAL } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { BarrasPorDia, type PuntoDia } from "@/components/ui/graficas";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,9 @@ export default async function Inicio() {
   if (!cuenta) return <SinCuenta titulo="Inicio" />;
 
   const periodo = periodoActual();
-  const [monitor, mes, plan, tiktok, contenedores] = await Promise.all([
+  const hoy = fechaMx(0);
+  const desde30 = fechaMx(29);
+  const [monitor, mes, plan, tiktok, contenedores, diario] = await Promise.all([
     servirMonitor(supabase, cuenta.id).catch(() => null),
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
@@ -45,7 +48,26 @@ export default async function Inicio() {
       .eq("account_id", cuenta.id)
       .in("estado", ["en_transito", "borrador"])
       .order("fecha_llegada_est", { ascending: true, nullsFirst: false }),
+    // Venta por día de MELI: RPC ya agregado en Postgres (~3 ms).
+    supabase.rpc("ventas_totales_dia", { p_account: cuenta.id, p_desde: desde30, p_hasta: hoy }),
   ]);
+  const porFecha = new Map(
+    ((diario.data ?? []) as { fecha: string; unidades: number; ordenes: number; importe: number }[]).map((d) => [
+      String(d.fecha).slice(0, 10),
+      d,
+    ]),
+  );
+  const serie: PuntoDia[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const f = fechaMx(i);
+    const d = porFecha.get(f);
+    serie.push({
+      fecha: f,
+      valor: Number(d?.importe ?? 0),
+      detalle: d ? `${n(Number(d.unidades))} pares · ${n(Number(d.ordenes))} órdenes` : "Sin ventas",
+    });
+  }
+  const total30 = serie.reduce((a, x) => a + x.valor, 0);
 
   const m = monitor?.datos ?? null;
   const resumen = plan?.resumen as { totalCajas?: number; skusCriticos?: number; skusUrgentes?: number } | undefined;
@@ -98,6 +120,7 @@ export default async function Inicio() {
     <Pagina>
       <Encabezado
         ceja={fechaLarga()}
+        cejaFija
         titulo={saludo()}
         descripcion="Lo que se vendió, lo que se gana y lo que toca hacer hoy."
         frescura={monitor?.generadoEn ?? mes?.generadoEn ?? null}
@@ -131,6 +154,18 @@ export default async function Inicio() {
           tono={mes ? (mes.total.utilidadNeta < 0 ? "critico" : "bien") : "neutro"}
         />
       </Cifras>
+
+      <Seccion
+        titulo="Venta diaria · Mercado Libre"
+        descripcion={`Últimos 30 días · ${pesos(total30)} en total`}
+        acciones={
+          <Link href="/ventas" className="enlace text-[13px]">
+            Ver ventas
+          </Link>
+        }
+      >
+        <BarrasPorDia puntos={serie} etiqueta="Venta de Mercado Libre" />
+      </Seccion>
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
         <Seccion titulo="Para hoy" sinRelleno>

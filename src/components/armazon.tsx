@@ -1,8 +1,8 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChevronRight, LogOut, Menu, Search, X } from "lucide-react";
+import { ChevronRight, LogOut, Menu, X } from "lucide-react";
 import { MenuLateral, ubicacion } from "@/components/menu-lateral";
 import { Logo } from "@/components/logo";
 import { EstadoConexion } from "@/components/estado-conexion";
@@ -79,23 +79,14 @@ export function Marco({
 
 
 /**
- * La barra superior: blanca y delgada, encima del área de trabajo. Lleva
- * dónde estás (sección › pantalla), el buscador de SKUs (va directo a Bodega
- * con el filtro puesto), el estado de la conexión y la salida. En pantallas
- * chicas también el botón del menú y el logo, porque el riel se esconde.
+ * La barra superior: blanca y delgada, encima del área de trabajo. Solo
+ * dónde estás (sección › pantalla) y la salida; el buscador, la hora de la
+ * sincronización y los pendientes se quitaron por decisión del dueño
+ * (9-oct-2026). En pantallas chicas también el botón del menú.
  */
 function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alternar: () => void; rol?: Rol }) {
-  const router = useRouter();
   const ruta = usePathname();
-  const [q, setQ] = useState("");
   const donde = ubicacion(ruta, rol);
-
-  function buscar(e: React.FormEvent) {
-    e.preventDefault();
-    const t = q.trim();
-    if (!t) return;
-    router.push(`/inventario?q=${encodeURIComponent(t)}`);
-  }
 
   return (
     <header
@@ -123,30 +114,9 @@ function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alt
         </nav>
       ) : null}
 
-      {/* El buscador va a Bodega: quien solo es de TikTok no lo tiene. */}
-      {rol !== "tiktok" ? (
-        <form onSubmit={buscar} role="search" className="relative ml-auto w-full max-w-sm">
-          <Search
-            size={15}
-            className="texto-tenue pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar SKU, modelo o color…"
-            aria-label="Buscar en bodega"
-            className="h-9 w-full pl-9"
-            style={{ background: "var(--surface-2)" }}
-          />
-        </form>
-      ) : (
-        <div className="ml-auto" />
-      )}
-
-      <div className="hidden items-center gap-2 md:flex">
-        <EstadoConexion />
+      <div className="ml-auto flex items-center gap-2">
+        {/* Invisible: mantiene vivo el latido mientras la app está abierta. */}
+        <EstadoConexion oculto />
         <a
           href="/api/salir"
           className="salir flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium"
@@ -154,7 +124,7 @@ function Cabecera({ abierto, alternar, rol = "dueño" }: { abierto: boolean; alt
           title="Cerrar sesión"
         >
           <LogOut size={15} strokeWidth={2} />
-          Salir
+          <span className="hidden sm:inline">Salir</span>
         </a>
       </div>
     </header>

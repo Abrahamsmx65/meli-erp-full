@@ -23,7 +23,7 @@ interface Estado {
  */
 const RUTAS_CON_PLAN = ["/envios", "/pedidos", "/etiquetas", "/pendientes"];
 
-export function EstadoConexion() {
+export function EstadoConexion({ oculto = false }: { oculto?: boolean } = {}) {
   const [e, setE] = useState<Estado | null>(null);
   const router = useRouter();
   const ruta = usePathname();
@@ -85,7 +85,10 @@ export function EstadoConexion() {
     };
   }, [router, publica]);
 
-  if (publica || !e) return null;
+  // Oculto (dueño, 9-oct-2026: «no necesitamos el de cuándo fue la sync ni
+  // los pendientes ahí»): la consulta sigue corriendo porque es la que
+  // enciende el latido mientras la app está abierta, pero no pinta nada.
+  if (publica || !e || oculto) return null;
 
   const hace = (iso: string | null) => {
     if (!iso) return "nunca";

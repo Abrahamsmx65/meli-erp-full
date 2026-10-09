@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -6,6 +7,8 @@ import { defineConfig } from "vitest/config";
  * sus dependencias (nodemailer, qrcode) y sus pruebas tronaban el build.
  */
 export default defineConfig({
+  // El mismo atajo que tsconfig: «@/…» es src/.
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     exclude: ["**/node_modules/**", "boletos/**", "tienda/**", ".next/**", ".claude/**"],
     // La máquina de build de Vercel es más lenta que una laptop: el PDF y el
