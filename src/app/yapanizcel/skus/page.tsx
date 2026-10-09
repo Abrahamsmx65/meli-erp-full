@@ -1,7 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
 import { obtenerInventarioAmarrado } from "@/lib/yapanizcel/inventario-pantalla";
-import { todo } from "@/lib/yapanizcel/db";
 import { Ficha } from "@/components/tiles";
 import { TablaSkus } from "@/components/yapanizcel/tabla-skus";
 import { Encabezado, SinCuenta, n } from "@/components/yapanizcel/comunes";
@@ -16,10 +15,14 @@ export default async function SkusYz() {
 
   // El amarre vive masticado en yz_cache ("amarre"): lo invalidan el sheet,
   // la sincronización del catálogo y cada amarre confirmado a mano.
-  const [inv, skus] = await Promise.all([
+  // Del catálogo solo hace falta saber si existe: el SKU de MELI del amarre
+  // manual se busca mientras se escribe (/api/yapanizcel/skus/buscar), ya
+  // no viajan los ~15 mil SKUs en la página.
+  const [inv, { data: unSku }] = await Promise.all([
     obtenerInventarioAmarrado(supabase, cuenta.id),
-    todo<{ sku: string }>(supabase, "yz_skus", "sku", (q) => q.eq("account_id", cuenta.id).order("sku")),
+    supabase.from("yz_skus").select("sku").eq("account_id", cuenta.id).limit(1),
   ]);
+  const hayCatalogo = (unSku ?? []).length > 0;
 
   const automaticos = inv.niveles.exacto + inv.niveles.canonico + inv.niveles.aplastado + inv.niveles.prefijo_nc + inv.niveles.color;
 
@@ -42,13 +45,13 @@ export default async function SkusYz() {
           Todavía no hay inventario de bodega. Léelo desde el sheet en Bodega fundas.
         </p>
       ) : null}
-      {skus.length === 0 ? (
+      {!hayCatalogo ? (
         <p className="text-sm" style={{ color: "var(--estado-serio)" }}>
           Todavía no hay catálogo de Mercado Libre: sincroniza primero en Ajustes de fundas.
         </p>
       ) : null}
 
-      <TablaSkus renglones={inv.renglones} skusMeli={skus.map((s) => s.sku)} />
+      <TablaSkus renglones={inv.renglones} />
     </div>
   );
 }

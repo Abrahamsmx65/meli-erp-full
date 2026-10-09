@@ -370,3 +370,14 @@ export function desglosar(sku: string): Desglose {
 export function esCalzado(diseno: string): boolean {
   return /^(GT?\d|MY\d)/.test(canonizar(diseno));
 }
+
+/**
+ * El patrón `ilike` para buscar un SKU de MELI por pedazo (type-ahead de la
+ * pantalla de SKUs): los comodines del usuario se escapan. Con menos de 2
+ * letras no se busca (null). Pura.
+ */
+export function patronBusquedaSku(q: string): string | null {
+  const limpio = q.trim();
+  if (limpio.length < 2) return null;
+  return `%${limpio.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
