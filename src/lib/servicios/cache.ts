@@ -294,5 +294,7 @@ export async function invalidar(
     .from("app_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId)
-    .eq("clave", "compras-china");
+    // Por prefijo: la clave vigente es "compras-china:v2" y con .eq sobre la
+    // vieja nunca se invalidaba (solo vencía por tiempo).
+    .like("clave", "compras-china%");
 }

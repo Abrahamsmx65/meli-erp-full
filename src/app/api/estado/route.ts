@@ -9,7 +9,7 @@ export const maxDuration = 300;
 /**
  * Estado de la conexión, y de paso el motor de la sincronización en vivo.
  *
- * La barra de arriba consulta esto cada 30 segundos. Aprovechando el viaje,
+ * La barra de arriba consulta esto cada minuto (y no con la pestaña escondida). Aprovechando el viaje,
  * aquí se procesan los avisos que MELI dejó en la bandeja y se recalcula el
  * plan cuando quedó obsoleto: mientras alguien tenga la app abierta, todo se
  * actualiza solo, sin picar nada.

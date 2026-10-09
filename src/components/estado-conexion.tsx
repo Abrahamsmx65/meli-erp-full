@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 interface Estado {
@@ -21,6 +21,8 @@ interface Estado {
  * sistema se actualiza sin avisar, uno nunca sabe si lo que está viendo es de
  * hace un minuto o de hace tres días. Esta barra es ese aviso.
  */
+const RUTAS_CON_PLAN = ["/envios", "/pedidos", "/etiquetas", "/pendientes"];
+
 export function EstadoConexion() {
   const [e, setE] = useState<Estado | null>(null);
   const router = useRouter();
@@ -32,11 +34,19 @@ export function EstadoConexion() {
   const publica =
     ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
 
+  // Solo las pantallas que enseñan el plan se recargan cuando sale uno nuevo;
+  // las demás (ventas, TikTok, cortes) no lo usan y recargarlas era rehacer
+  // todo su trabajo de servidor sin razón.
+  const rutaActual = useRef(ruta);
+  rutaActual.current = ruta;
+
   useEffect(() => {
     if (publica) return;
     let vivo = true;
 
     async function consultar() {
+      // Pestaña escondida: nadie está mirando la barra. Se pregunta al volver.
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const r = await fetch("/api/estado", { cache: "no-store" });
         if (!r.ok) return;
@@ -47,7 +57,12 @@ export function EstadoConexion() {
           // con cada aviso de MELI —o sea cada 30 segundos en horario de
           // ventas— y las páginas pesadas se recargaban enteras sin parar:
           // esa era la mayor causa de que la app se sintiera lenta.
-          if (previo && j.planGeneradoEn && previo.planGeneradoEn !== j.planGeneradoEn) {
+          if (
+            previo &&
+            j.planGeneradoEn &&
+            previo.planGeneradoEn !== j.planGeneradoEn &&
+            RUTAS_CON_PLAN.some((r) => rutaActual.current.startsWith(r))
+          ) {
             router.refresh();
           }
           return j;
@@ -58,10 +73,15 @@ export function EstadoConexion() {
     }
 
     consultar();
-    const t = setInterval(consultar, 30_000);
+    const t = setInterval(consultar, 60_000);
+    const alVolver = () => {
+      if (!document.hidden) consultar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
     return () => {
       vivo = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", alVolver);
     };
   }, [router, publica]);
 

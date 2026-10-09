@@ -54,7 +54,7 @@ export function Armazon({ children, rol = "dueño" }: { children: React.ReactNod
       <div className="flex flex-1">
         <MenuLateral abierto={abierto} cerrar={() => setAbierto(false)} rol={rol} />
         <div className="min-w-0 flex-1">
-          <main className="aparece mx-auto max-w-[1400px] px-4 py-6 md:px-6" key={ruta}>
+          <main className="mx-auto max-w-[1400px] px-4 py-6 md:px-6">
             {children}
           </main>
         </div>
