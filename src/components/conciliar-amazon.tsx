@@ -42,7 +42,7 @@ export function ConciliarAmazon() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <label className="boton boton-primario cursor-pointer" style={{ opacity: subiendo ? 0.6 : 1 }}>
-          {subiendo ? "Cruzando…" : "Subir reporte de transacciones (CSV)"}
+          {subiendo ? "Cruzando…" : "Subir reporte CSV"}
           <input
             ref={inputRef}
             type="file"
@@ -190,7 +190,7 @@ function Informe({ i }: { i: InformeConciliacion }) {
           <header className="border-b p-4 hairline">
             <h2 className="seccion-titulo">Órdenes que no cuadran (las {n(i.ordenes.ejemplos.length)} más grandes)</h2>
             <p className="texto-2 mt-0.5 text-sm">
-              Suma de los renglones de la orden en el reporte contra la suma de sus eventos en el ERP, dentro del rango. Ábrela en Seller Central para ver qué pasó.
+              Reporte contra eventos del ERP, orden por orden. Ábrela en Seller Central para ver qué pasó.
             </p>
           </header>
           <div className="max-h-[32rem] overflow-auto">
@@ -216,11 +216,7 @@ function Informe({ i }: { i: InformeConciliacion }) {
             </table>
           </div>
         </section>
-      ) : (
-        <p className="text-sm font-medium" style={{ color: "var(--exito-texto)" }}>
-          Todas las órdenes del reporte cuadran al centavo con el ERP.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }

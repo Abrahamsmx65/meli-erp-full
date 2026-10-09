@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarPedidos } from "@/lib/servicios/pedidos";
@@ -52,11 +51,6 @@ export default async function CargarPedidos() {
         ceja="Abastecimiento"
         titulo="Cargar pedidos"
         descripcion="Sube las proformas de la fábrica y aquí quedan los pedidos con sus corridas."
-        acciones={
-          <Link href="/pedidos" className="boton boton-borde">
-            Planificación China
-          </Link>
-        }
       />
 
       <Cifras columnas={4}>
@@ -79,7 +73,7 @@ export default async function CargarPedidos() {
       {!sheet.ok ? (
         <Aviso tono="alerta">
           No pude leer el sheet de pedidos pendientes: {sheet.error}{" "}
-          <a href={urlSheet} target="_blank" rel="noreferrer" className="underline">
+          <a href={urlSheet} target="_blank" rel="noreferrer" className="enlace">
             Abrir el sheet
           </a>
         </Aviso>
@@ -127,21 +121,13 @@ export default async function CargarPedidos() {
             </table>
           </div>
         </section>
-      ) : (
-        <Aviso tono="bien">
-          Todos los pedidos del{" "}
-          <a href={urlSheet} target="_blank" rel="noreferrer" className="underline">
-            sheet de pendientes
-          </a>{" "}
-          ya están cargados.
-        </Aviso>
-      )}
+      ) : null}
 
       <CargarPedidosLote />
 
       <details className="tarjeta p-4">
         <summary className="seccion-titulo cursor-pointer">
-          Cargar una sola proforma corrigiendo renglones (modelo, color, cajas completas)
+          Cargar una proforma corrigiendo renglones
         </summary>
         <div className="mt-3">
           <CargarPedido />

@@ -233,11 +233,8 @@ export function CargarPedidosLote() {
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Cargar pedidos nuevos</h2>
       <p className="texto-2 mt-1 text-sm">
-        Elige una o muchas Proformas Invoice de la fábrica. Se leen todas primero y
-        se enseña qué trae cada una; un pedido repetido, uno que ya está cargado o
-        un archivo con error <strong>no se carga</strong> y los demás sí. Con{" "}
-        <strong>Revisar</strong> abres cada uno para corregir modelo, color o marcar
-        cajas completas antes de cargar, igual que con un pedido solo.
+        Elige una o varias proformas de la fábrica. Los repetidos, los ya cargados y los
+        archivos con error no se cargan; con <strong>Revisar</strong> corriges cada uno antes.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

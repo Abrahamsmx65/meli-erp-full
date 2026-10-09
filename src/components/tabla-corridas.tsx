@@ -91,10 +91,7 @@ export function TablaCorridas({
               Cajas que no sé qué traen adentro
             </h2>
             <p className="texto-2 mt-0.5 text-xs">
-              Hay {n(huecos.reduce((a, h) => a + h.cajas, 0))} cajas en bodega de{" "}
-              {huecos.length} modelos sin corrida cargada. El planeador no las puede
-              mandar a Full porque no sabe qué tallas hay dentro. Captura la corrida y
-              entran al siguiente cálculo.
+              {huecos.length} modelos sin corrida: no se pueden mandar a Full hasta capturarla.
             </p>
           </header>
 
@@ -125,9 +122,9 @@ export function TablaCorridas({
                     <td>
                       <button
                         onClick={() => setCapturando({ hueco: h })}
-                        className="boton boton-primario boton-chico"
+                        className="boton boton-borde boton-chico"
                       >
-                        Capturar
+                        Capturar corrida
                       </button>
                     </td>
                   </tr>
@@ -333,7 +330,7 @@ function CapturarCorrida({
         <p className="texto-2 mt-2 text-sm">
           {editando
             ? "Ajusta los pares por talla y guarda. El plan se recalcula solo con la corrida nueva."
-            : "Abre una caja de este modelo y anota cuántos pares hay de cada talla. Es lo único que se captura a mano; los pedidos nuevos traen su corrida en la proforma."}
+            : "Abre una caja de este modelo y anota cuántos pares hay de cada talla."}
         </p>
 
         <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">

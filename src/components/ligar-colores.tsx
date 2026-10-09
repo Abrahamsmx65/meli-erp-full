@@ -97,10 +97,8 @@ export function LigarColores({
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Ligar colores con MELI · {titulo}</h3>
         <p className="texto-2 mt-1 text-sm">
-          Estos colores no existen en MELI como los escribió la fábrica. Elige con qué variante
-          publicada va cada uno (o confirma que es un color nuevo). El pedido conserva la escritura
-          de la fábrica para que el packing list siga amarrando; el amarre aplica a todos los
-          pedidos y contenedores con ese modelo y color, y a lo que viene en camino.
+          Elige con qué variante publicada va cada color (o confirma que es nuevo). El amarre vale
+          para todos los pedidos y contenedores con ese modelo y color.
         </p>
 
         {error ? (

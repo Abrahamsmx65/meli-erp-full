@@ -62,7 +62,19 @@ export default async function Amazon({
         ceja="Amazon"
         titulo="Envíos a FBA"
         descripcion={`Existencias en FBA de ${cuenta.nombre ?? "tu cuenta"} y qué cajas completas mandar.`}
-        ayuda={<p>Las ventas de Amazon viven en su propio panel, en Ventas Amazon.</p>}
+        ayuda={
+          <>
+            <p>
+              Mismo motor que los envíos a Full, sobre las mismas cajas físicas. Las cajas salen
+              en un envío por dirección de recolección (Caseshop + Industher juntas, EnvioPack
+              aparte). Lo que registres en un envío se aparta y desaparece para los dos canales.
+            </p>
+            <p>
+              La sincronización automática mantiene al día los últimos 3 días de ventas;
+              «Recargar histórico» trae más historia o corrige un periodo (avanza sola).
+            </p>
+          </>
+        }
       />
 
       <Cifras columnas={4}>

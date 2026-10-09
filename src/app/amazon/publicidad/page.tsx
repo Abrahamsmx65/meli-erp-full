@@ -5,7 +5,7 @@ import { servirPublicidadAmazon } from "@/lib/servicios/publicidad-amazon";
 import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
-import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +57,7 @@ export default async function PublicidadAmazon({
       <Encabezado
         ceja="Amazon"
         titulo="Publicidad Amazon"
-        descripcion={`Ads por modelo en Amazon ${cuenta.pais}: gasto total, por unidad y % de la venta (${dias} días · ${rango.desde} → ${rango.hasta}).`}
+        descripcion={`Gasto de ads por modelo en Amazon ${cuenta.pais}: total, por unidad y % de la venta.`}
         frescura={servida.generadoEn}
         ayuda={
           <>
@@ -67,7 +67,9 @@ export default async function PublicidadAmazon({
             </p>
             <p>
               El gasto sale del reporte de economía por SKU (Data Kiosk), que llega con unos
-              días de retraso.
+              días de retraso. Venta y unidades son TODAS las ventas del periodo; el gasto por
+              unidad y el % se calculan sobre esas mismas unidades y venta, para que siempre
+              cuadren con lo que ves.
             </p>
           </>
         }
@@ -122,16 +124,6 @@ export default async function PublicidadAmazon({
       ) : null}
 
       <Seccion titulo="Por modelo" descripcion="Todas las tallas de cada modelo, juntas." sinRelleno>
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Venta y unidades son TODAS las ventas del periodo; el gasto viene del reporte de
-              economía por SKU, y el gasto por unidad y el % se calculan sobre esas mismas
-              unidades y venta, para que siempre cuadren con lo que ves. La ganancia vive en
-              Ventas Amazon.
-            </p>
-          </Ayuda>
-        </div>
         <Tabla alta>
           <table className="datos">
             <thead>

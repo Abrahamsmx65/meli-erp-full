@@ -85,12 +85,9 @@ export function CargarPedido() {
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="seccion-titulo">Cargar un pedido nuevo</h2>
-      <p className="texto-2 mt-1 text-sm">
-        Sube la Proforma Invoice de la fábrica tal como te llega. De ahí salen el
-        pedido, sus modelos y colores, y <strong>las corridas</strong> — el reparto de
-        tallas por caja ya viene en el archivo, así que no hay que capturarlo.
+    <div>
+      <p className="texto-2 text-sm">
+        Sube la proforma tal como llega: el pedido, sus colores y las corridas salen del archivo.
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -134,6 +131,6 @@ export function CargarPedido() {
           onCancelar={cancelar}
         />
       ) : null}
-    </section>
+    </div>
   );
 }

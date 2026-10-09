@@ -19,7 +19,6 @@ export interface ArchivoDriveVista {
 export function PackingDrive({
   archivos,
   configurado,
-  conLlave = false,
   borradores = [],
 }: {
   archivos: ArchivoDriveVista[];
@@ -68,7 +67,7 @@ export function PackingDrive({
         <h2 className="seccion-titulo">Packing lists desde Drive</h2>
         <span className="texto-tenue text-xs">
           {configurado
-            ? `Se leen solos cada mañana y entran como borrador.${conLlave ? "" : " Carpeta pública, sin llave."}`
+            ? "Se leen solos cada mañana y entran como borrador."
             : "Sin configurar: falta la llave de Google Drive en el entorno."}
         </span>
         <span className="flex-1" />
@@ -77,7 +76,7 @@ export function PackingDrive({
           disabled={ocupado || !configurado}
           className="boton boton-borde boton-chico disabled:opacity-50"
         >
-          {ocupado ? "Leyendo Drive…" : "Traer de Drive ahora"}
+          {ocupado ? "Leyendo Drive…" : "Traer de Drive"}
         </button>
         <button
           onClick={() => traer(true)}
@@ -112,9 +111,7 @@ export function PackingDrive({
           >
             Hay cambios: {borradores.length} contenedor(es) por revisar · {borradores.join(" · ")}
           </span>
-        ) : (
-          <span className="texto-tenue">Nada nuevo por revisar.</span>
-        )}
+        ) : null}
         {incompletos.length ? (
           <span
             className="rounded-full px-2 py-0.5 font-medium"
