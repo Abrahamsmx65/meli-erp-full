@@ -443,7 +443,8 @@ export async function enviarFiscalPendiente(
     .eq("account_id", accountId)
     .eq("estado", "pendiente")
     .order("sku")
-    .limit(2000);
+    // 1,000 = lo más que el API entrega; lo demás lo toma la siguiente vuelta.
+    .limit(1000);
   if (error) throw new Error(`datos_fiscales: ${error.message}`);
 
   const resultado: ResultadoEnvio = {

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva } from "@/lib/datos/repos";
+import { cuentaActiva, porTandas, traerTodo } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { unificarAtributo } from "@/lib/servicios/listados";
 
@@ -37,12 +37,12 @@ export async function POST(req: NextRequest) {
 
   // Solo publicaciones del propio catálogo: el id llega del navegador y no
   // hay que aceptar cualquier MLM que alguien teclee.
-  const { data: propias } = await supabase
-    .from("skus")
-    .select("item_id")
-    .eq("account_id", cuenta.id)
-    .in("item_id", itemIds);
-  const conocidas = new Set((propias ?? []).map((f) => f.item_id as string));
+  // Por tandas y todas las páginas: cada publicación trae un renglón por
+  // variante y con 1,000 renglones las del final salían «fuera del catálogo».
+  const propias = await porTandas(itemIds, 100, (tanda) =>
+    traerTodo<{ item_id: string }>(supabase, "skus", "item_id, sku", (q) => q.eq("account_id", cuenta.id).in("item_id", tanda)),
+  );
+  const conocidas = new Set(propias.map((f) => f.item_id));
   const ajenas = itemIds.filter((id) => !conocidas.has(id));
   if (ajenas.length) {
     return NextResponse.json(
