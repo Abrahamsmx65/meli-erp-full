@@ -586,7 +586,9 @@
     background: #f5f8fd;
   }
 
-  .num {
+  .num,
+  table.datos th.num,
+  table.datos td.num {
     text-align: right;
   }
 
