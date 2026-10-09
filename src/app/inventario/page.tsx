@@ -6,6 +6,8 @@ import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
 import { TotalMexico } from "@/components/total-mexico";
+import { Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -37,33 +39,33 @@ export default async function Inventario({
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Existencias en bodega" />;
 
   const vista = await vistaBodega(supabase, cuenta.id, t);
   t.fin();
   const { fichas, inversion } = vista;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Bodega</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que está en cajas cerradas en tu bodega y lo que viene en camino de China.
-          Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la
-          tabla, con los mismos filtros que estés viendo.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Inventario"
+        titulo="Existencias en bodega"
+        descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
+        ayuda={
+          <>
+            <p>
+              Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
+              que estés viendo.
+            </p>
+            <p>
+              En el total por familia las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero todas
+              del mismo modelo, así que por familia el número es exacto. Por eso el desglose de adentro solo muestra pares.
+            </p>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Cifras columnas={6}>
         <Ficha titulo="SKUs" valor={n(fichas.skus)} nota="Con producto en bodega o en camino" />
         <Ficha titulo="Cajas cerradas" valor={n(fichas.cajas)} nota="En las bodegas de México" />
         <Ficha titulo="Pares en bodega" valor={n(fichas.paresEnBodega)} nota="Dentro de esas cajas" />
@@ -89,110 +91,130 @@ export default async function Inventario({
           valor={fichas.valorEnCamino > 0 ? pesos(fichas.valorEnCamino) : "—"}
           nota="Lo que viene de China, a costo"
         />
-      </div>
+      </Cifras>
 
-      {/* ---- Dónde está parado el dinero -------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Inversión por categoría</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cuánto dinero tienes parado en cada tipo de producto, a costo: lo que está
-            en cajas cerradas más lo que viene en el barco.
-          </p>
-        </header>
-
-        {inversion.categorias.length === 0 ? (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todavía no se puede calcular: ningún modelo con existencia tiene costo
-            capturado.{" "}
-            <Link href="/productos" className="underline" style={{ color: "var(--acento)" }}>
-              Capturar costos en Productos y costos
-            </Link>
-          </p>
-        ) : (
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Categoría</th>
-                <th className="num">Modelos</th>
-                <th className="num">Pares en bodega</th>
-                <th className="num">Pares en camino</th>
-                <th className="num">Valor en bodega</th>
-                <th className="num">Valor en camino</th>
-                <th className="num">Inversión</th>
-                <th className="num">Del total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inversion.categorias.map((c) => (
-                <tr key={c.categoria}>
-                  <td className="font-medium">{c.categoria}</td>
-                  <td className="num cifra">{n(c.modelos)}</td>
-                  <td className="num cifra">{c.pares.enBodega ? n(c.pares.enBodega) : "—"}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {c.pares.enCamino ? n(c.pares.enCamino) : "—"}
-                  </td>
-                  <td className="num cifra">{pesos(c.valor.enBodega)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {pesos(c.valor.enCamino)}
-                  </td>
-                  <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {porcentaje(c.parte)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            {/* El total va abajo, para poder compararlo con las fichas de arriba. */}
-            <tfoot>
-              <tr style={{ background: "var(--surface-2)" }}>
-                <td className="font-semibold">Total</td>
-                <td></td>
-                <td></td>
-                <td></td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enBodega)}</td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.enCamino)}</td>
-                <td className="num cifra font-semibold">{pesos(inversion.total.total)}</td>
-                <td className="num cifra">100%</td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-
-        {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (
-          <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
-            {inversion.sinCosto.pares > 0 ? (
-              <>
-                <strong>{n(inversion.sinCosto.pares)} pares</strong> de{" "}
-                {inversion.sinCosto.modelos.length} modelos NO entran en estos totales
-                porque no tienen costo capturado
-                {inversion.sinCosto.modelos.length <= 8
-                  ? ` (${inversion.sinCosto.modelos.join(", ")})`
-                  : ` (${inversion.sinCosto.modelos.slice(0, 8).join(", ")} y ${inversion.sinCosto.modelos.length - 8} más)`}
-                .{" "}
-                <Link href="/productos" className="underline" style={{ color: "var(--acento)" }}>
-                  Capturarlos
-                </Link>
-                {inversion.sinCategoria > 0 ? " · " : ""}
-              </>
-            ) : null}
-            {inversion.sinCategoria > 0
-              ? `${inversion.sinCategoria} modelos tienen costo pero no categoría: van juntos en «Sin categoría».`
-              : null}
-          </footer>
-        ) : null}
-      </section>
-
-      <TotalMexico familias={vista.familias} />
-
-      {/* key: si llega otra búsqueda desde la barra superior, la tabla se
-          rearma con ella (antes el buscador global no hacía nada estando aquí). */}
-      <TablaInventario
+      {/* Pestañas: la tabla por SKU primero (ahí aterriza el buscador de la
+           barra superior; la llave la rearma con cada búsqueda y vuelve a la
+           primera pestaña), luego el total por familia y la inversión. */}
+      <Pestanas
         key={busquedaInicial || "raiz"}
-        busquedaInicial={busquedaInicial}
-        renglones={vista.renglones}
-        almacenes={vista.almacenes}
+        pestanas={[
+          {
+            id: "sku",
+            titulo: "Por SKU",
+            cuenta: vista.renglones.length,
+            contenido: (
+              <TablaInventario
+                key={busquedaInicial || "raiz"}
+                busquedaInicial={busquedaInicial}
+                renglones={vista.renglones}
+                almacenes={vista.almacenes}
+              />
+            ),
+          },
+          {
+            id: "familia",
+            titulo: "Por familia",
+            contenido: <TotalMexico renglones={vista.renglones} cajasPorModelo={vista.cajasPorModelo} />,
+          },
+          {
+            id: "inversion",
+            titulo: "Inversión",
+            cuenta: inversion.categorias.length || null,
+            contenido: (
+              <>
+                {/* ---- Dónde está parado el dinero -------------------------------- */}
+                <Seccion
+                  titulo="Inversión por categoría"
+                  sinRelleno
+                >
+                  {inversion.categorias.length === 0 ? (
+                    <p className="texto-2 p-4 text-sm">
+                      Faltan costos.{" "}
+                      <Link href="/productos" className="enlace">
+                        Capturar costos en Productos y costos
+                      </Link>
+                    </p>
+                  ) : (
+                    <Tabla>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Categoría</th>
+                          <th className="num">Modelos</th>
+                          <th className="num">Pares en bodega</th>
+                          <th className="num">Pares en camino</th>
+                          <th className="num">Valor en bodega</th>
+                          <th className="num">Valor en camino</th>
+                          <th className="num">Inversión</th>
+                          <th className="num">Del total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inversion.categorias.map((c) => (
+                          <tr key={c.categoria}>
+                            <td className="font-medium">{c.categoria}</td>
+                            <td className="num cifra">{n(c.modelos)}</td>
+                            <td className="num cifra">{c.pares.enBodega ? n(c.pares.enBodega) : "—"}</td>
+                            <td className="num cifra texto-2">
+                              {c.pares.enCamino ? n(c.pares.enCamino) : "—"}
+                            </td>
+                            <td className="num cifra">{pesos(c.valor.enBodega)}</td>
+                            <td className="num cifra texto-2">
+                              {pesos(c.valor.enCamino)}
+                            </td>
+                            <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
+                            <td className="num cifra texto-2">
+                              {porcentaje(c.parte)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {/* El total va abajo, para poder compararlo con las fichas de arriba. */}
+                      <tfoot>
+                        <tr style={{ background: "var(--surface-2)" }}>
+                          <td className="font-semibold">Total</td>
+                          <td></td>
+                          <td></td>
+                          <td></td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.enBodega)}</td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.enCamino)}</td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.total)}</td>
+                          <td className="num cifra">100%</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                    </Tabla>
+                  )}
+
+                  {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (
+                    <footer className="border-t p-3 text-xs hairline texto-tenue">
+                      {inversion.sinCosto.pares > 0 ? (
+                        <>
+                          <strong>{n(inversion.sinCosto.pares)} pares</strong> de{" "}
+                          {inversion.sinCosto.modelos.length} modelos NO entran en estos totales
+                          porque no tienen costo capturado
+                          {inversion.sinCosto.modelos.length <= 8
+                            ? ` (${inversion.sinCosto.modelos.join(", ")})`
+                            : ` (${inversion.sinCosto.modelos.slice(0, 8).join(", ")} y ${inversion.sinCosto.modelos.length - 8} más)`}
+                          .{" "}
+                          <Link href="/productos" className="enlace">
+                            Capturarlos
+                          </Link>
+                          {inversion.sinCategoria > 0 ? " · " : ""}
+                        </>
+                      ) : null}
+                      {inversion.sinCategoria > 0
+                        ? `${inversion.sinCategoria} modelos tienen costo pero no categoría: van juntos en «Sin categoría».`
+                        : null}
+                    </footer>
+                  ) : null}
+                </Seccion>
+              </>
+            ),
+          },
+        ]}
       />
-    </div>
+    </Pagina>
   );
 }

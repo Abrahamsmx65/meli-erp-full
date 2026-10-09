@@ -11,7 +11,7 @@
  */
 
 import ExcelJS from "exceljs";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { sumarDias } from "../engine/fechas";
 import {
   armarResumenModelos,
@@ -44,7 +44,8 @@ export async function cargarResumenModelos(db: DB, accountId: string): Promise<R
     traerTodo<any>(db, "existencias", "almacen, modelo, cajas_disponibles, pares_por_caja", eq),
     traerTodo<any>(db, "productos_config", "modelo, categoria", eq),
     traerTodo<any>(db, "tienda_productos", "modelo, product_id, imagenes, activo", eq),
-    db.rpc("ventas_resumen_sku", {
+    // Por páginas: hay más de 1,000 SKUs con venta.
+    rpcPaginado(db, "ventas_resumen_sku", {
       p_account: accountId,
       p_desde: "2020-01-01",
       p_hasta: hoy,

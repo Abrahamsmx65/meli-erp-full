@@ -57,8 +57,7 @@ export function FormularioCorrida({
     return (
       <button
         onClick={() => setAbierto(true)}
-        className="text-xs underline"
-        style={{ color: "var(--acento)" }}
+        className="text-xs enlace"
       >
         Capturar
       </button>
@@ -70,7 +69,7 @@ export function FormularioCorrida({
       <div className="flex flex-wrap gap-1">
         {TALLAS.map((t) => (
           <label key={t} className="flex flex-col items-center">
-            <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-[10px] texto-tenue">
               {t}
             </span>
             <input
@@ -92,18 +91,17 @@ export function FormularioCorrida({
         <button
           onClick={guardar}
           disabled={estado === "enviando" || suma <= 0}
-          className="rounded px-2 py-0.5 text-white disabled:opacity-50"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario boton-chico"
         >
           {estado === "enviando" ? "…" : "Guardar"}
         </button>
-        <button onClick={() => setAbierto(false)} style={{ color: "var(--ink-muted)" }}>
+        <button onClick={() => setAbierto(false)} className="texto-tenue">
           Cancelar
         </button>
       </div>
 
       {mensaje ? (
-        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+        <span className="text-xs" style={{ color: "var(--critico-texto)" }}>
           {mensaje}
         </span>
       ) : null}
@@ -159,14 +157,13 @@ export function FormularioMapeo({ skuConstruido }: { skuConstruido: string }) {
         <button
           onClick={guardar}
           disabled={estado === "enviando" || !valor.trim()}
-          className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-borde boton-chico"
         >
           {estado === "enviando" ? "…" : "Amarrar"}
         </button>
       </div>
       {mensaje ? (
-        <span className="text-xs" style={{ color: "var(--estado-critico)" }}>
+        <span className="text-xs" style={{ color: "var(--critico-texto)" }}>
           {mensaje}
         </span>
       ) : null}

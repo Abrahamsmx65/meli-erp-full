@@ -72,9 +72,10 @@ export function GastosEmpresariales({ gastos, periodo }: { gastos: GastoEmpresar
 
   return (
     <section className="tarjeta overflow-hidden">
-      <header className="border-b p-4 hairline">
-        <h2 className="text-base font-semibold">Gastos empresariales</h2>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>Nómina, bodegas y otros gastos del negocio. Se descuentan una sola vez, solo de la utilidad general.</p>
+      <header className="seccion-cabeza">
+        <div className="min-w-0">
+        <h2 className="seccion-titulo">Gastos empresariales</h2>
+        </div>
       </header>
       <form onSubmit={guardar} className="grid gap-3 border-b p-4 hairline md:grid-cols-5">
         <label className="text-xs">Fecha<input className={entrada} style={estiloEntrada} type="date" required min={desde} max={hasta} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></label>
@@ -82,16 +83,16 @@ export function GastosEmpresariales({ gastos, periodo }: { gastos: GastoEmpresar
         <label className="text-xs">Categoría<input className={entrada} style={estiloEntrada} required list="categorias-empresariales" maxLength={80} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} /><datalist id="categorias-empresariales">{categorias.map((x) => <option key={x} value={x} />)}</datalist></label>
         <label className="text-xs">Monto<input className={entrada} style={estiloEntrada} type="number" required min="0.01" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></label>
         <div className="flex gap-2 md:col-span-5">
-          <button className="boton boton-primario" disabled={ocupado}>{ocupado ? "Guardando…" : form.id ? "Guardar cambios" : "Añadir gasto"}</button>
+          <button className="boton boton-primario" disabled={ocupado}>{ocupado ? "Guardando…" : form.id ? "Guardar cambios" : "Agregar gasto"}</button>
           {form.id ? <button type="button" className="boton boton-fantasma" onClick={() => setForm({ ...VACIO, fecha: `${periodo}-01` })}>Cancelar</button> : null}
         </div>
-        {error ? <p className="text-sm md:col-span-5" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+        {error ? <p className="text-sm md:col-span-5" style={{ color: "var(--critico-texto)" }}>{error}</p> : null}
       </form>
       {gastos.length ? (
-        <div className="overflow-x-auto"><table className="datos"><thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th className="num">Monto</th><th></th></tr></thead><tbody>
-          {gastos.map((g) => <tr key={g.id}><td className="cifra">{g.fecha}</td><td>{g.categoria}</td><td>{g.concepto}</td><td className="num cifra">${g.monto.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td><td className="num whitespace-nowrap"><button type="button" className="mr-3" style={{ color: "var(--acento)" }} onClick={() => setForm({ ...g, monto: String(g.monto) })}>Editar</button><button type="button" style={{ color: "var(--estado-critico)" }} disabled={ocupado} onClick={() => borrar(g.id)}>Eliminar</button></td></tr>)}
+        <div className="tabla-caja"><table className="datos"><thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th className="num">Monto</th><th></th></tr></thead><tbody>
+          {gastos.map((g) => <tr key={g.id}><td className="cifra">{g.fecha}</td><td>{g.categoria}</td><td>{g.concepto}</td><td className="num cifra">${g.monto.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</td><td className="num whitespace-nowrap"><button type="button" className="boton boton-fantasma boton-chico mr-1" onClick={() => setForm({ ...g, monto: String(g.monto) })}>Editar</button><button type="button" className="boton boton-peligro boton-chico" disabled={ocupado} onClick={() => borrar(g.id)}>Eliminar</button></td></tr>)}
         </tbody></table></div>
-      ) : <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>No hay gastos empresariales en este mes.</p>}
+      ) : <p className="p-4 text-sm texto-2">No hay gastos empresariales en este mes.</p>}
     </section>
   );
 }

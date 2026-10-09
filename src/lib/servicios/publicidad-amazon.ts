@@ -14,7 +14,7 @@
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { desglosarSku } from "./sync";
-import { conCacheApp } from "./cache-app";
+import { servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { normalizarRango, type RangoFechas } from "./ventas-monitor";
 
@@ -203,17 +203,35 @@ export function armarPublicidadAmazon(opts: {
 const cacheAmz = new Map<string, { en: number; datos: PublicidadAmazon }>();
 const VIDA_CACHE_MS = 10 * 60_000;
 
-/** La publicidad masticada desde `app_cache` (10 min): cambia con el cron. */
+export const clavePublicidadAmazon = (meliAccountId: string | null, r: RangoFechas): string =>
+  `publicidad:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`;
+
+export const VIDA_PUBLICIDAD_AMAZON_MS = 10 * 60_000;
+
+/**
+ * La publicidad masticada desde `app_cache` (10 min): cambia con el cron.
+ * Se sirve aunque esté vieja y se refresca por atrás; el latido de Amazon
+ * deja listo el rango de 30 días de la pantalla.
+ */
+export async function servirPublicidadAmazon(
+  db: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  rango?: RangoFechas,
+): Promise<{ datos: PublicidadAmazon; generadoEn: string | null; refrescando: boolean }> {
+  const r = rango ?? normalizarRango();
+  return servirConCacheApp(db, amazonAccountId, clavePublicidadAmazon(meliAccountId, r), VIDA_PUBLICIDAD_AMAZON_MS, () =>
+    cargarPublicidadAmazon(db, amazonAccountId, meliAccountId, r),
+  );
+}
+
 export async function obtenerPublicidadAmazon(
   db: DB,
   amazonAccountId: string,
   meliAccountId: string | null,
   rango?: RangoFechas,
 ): Promise<PublicidadAmazon> {
-  const r = rango ?? normalizarRango();
-  return conCacheApp(db, amazonAccountId, `publicidad:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, 10 * 60_000, () =>
-    cargarPublicidadAmazon(db, amazonAccountId, meliAccountId, r),
-  );
+  return (await servirPublicidadAmazon(db, amazonAccountId, meliAccountId, rango)).datos;
 }
 
 export async function cargarPublicidadAmazon(

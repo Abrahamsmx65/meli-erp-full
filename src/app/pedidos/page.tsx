@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
-import { conCacheApp } from "@/lib/servicios/cache-app";
+import { estadoPlan } from "@/lib/servicios/cache";
 import { cronometro } from "@/lib/servicios/cronometro";
-import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
-import { sugerirCompra } from "@/lib/servicios/compras";
+import { servirCompraChina } from "@/lib/servicios/compras-china";
 import { Ficha } from "@/components/tiles";
+import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
-import { amazonParaCompras } from "@/lib/servicios/fba";
-import { tiktokParaCompras } from "@/lib/servicios/tiktok-compras";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,90 +20,21 @@ export default async function Pedidos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          Para saber qué pedirle a China hace falta ver primero cuánto se vende y
-          cuánto hay en Full.
-        </p>
-        <Link
-          href="/ajustes"
-          className="mt-3 inline-block underline"
-          style={{ color: "var(--acento)" }}
-        >
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Planeación de compras" />;
 
-  // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
-  // hay en todos lados (inventario) y qué ya está pedido (pedidos).
+  // La sugerencia se lee MASTICADA (un renglón de app_cache): el plan, el
+  // inventario y las sumas de Amazon y TikTok solo se bajan cuando hay que
+  // calcularla, y eso pasa por atrás (latido o refresco tras servir lo
+  // guardado). Aquí solo se leen además los pedidos (fichas) y si el plan
+  // sigue vigente (dos columnas, sin su JSON).
   const t = cronometro("/pedidos");
-  const [planEstado, inventario, pedidos, amazonEstado, tiktokEstado] = await Promise.all([
-    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
-    t.medir("inventario", cargarInventario(supabase, cuenta.id)),
+  const [guardada, pedidos, planEstado] = await Promise.all([
+    t.medir("compra", servirCompraChina(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
-    // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
-    t.medir(
-      "amazon",
-      amazonParaCompras(supabase)
-        .catch((err) => ({
-          datos: new Map(),
-          advertencias: [`No se pudieron leer ventas e inventario de Amazon: ${(err as Error).message}`],
-          disponible: false,
-        })),
-    ),
-    // TikTok: venta observada tal cual y lo libre en su bodega. Tercer canal.
-    t.medir("tiktok", tiktokParaCompras(supabase, cuenta.id)),
+    t.medir("plan", estadoPlan(supabase, cuenta.id)),
   ]);
-
-  const inventarioPorSku = new Map(
-    inventario.renglones.map((r) => [
-      r.sku,
-      {
-        enFull: r.enFull,
-        enTransferencia: r.enTransferencia,
-        enBodega: r.enBodega,
-        enCamino: r.enCamino,
-      },
-    ]),
-  );
-
-  // La sugerencia es 100% determinista sobre insumos que YA están cacheados
-  // (plan, inventario, sumas de Amazon): se guarda masticada en app_cache y
-  // la invalida lo mismo que invalida al plan; la media hora de vida cubre
-  // los insumos que cambian sin aviso (las sumas de Amazon del cron).
-  const compra = await t.medir(
-    "compra",
-    amazonEstado.advertencias.length || !amazonEstado.disponible || !tiktokEstado.disponible
-      ? sugerirCompra(
-          supabase,
-          cuenta.id,
-          planEstado.plan.lineas,
-          inventarioPorSku,
-          undefined,
-          inventario.crudos,
-          amazonEstado.datos,
-          tiktokEstado.datos,
-        )
-      : // La clave cambia con la receta: lo guardado sin TikTok no sirve.
-        conCacheApp(supabase, cuenta.id, "compras-china:v2", 30 * 60_000, () =>
-          sugerirCompra(
-            supabase,
-            cuenta.id,
-            planEstado.plan.lineas,
-            inventarioPorSku,
-            undefined,
-            inventario.crudos,
-            amazonEstado.datos,
-            tiktokEstado.datos,
-          ),
-        ),
-  );
   t.fin();
+  const { compra, amazon: amazonEstado, tiktok: tiktokEstado } = guardada.datos;
 
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -122,21 +50,47 @@ export default async function Pedidos() {
     .reduce((a, x) => a + Math.max(0, x.cajas - x.cajasAsignadas), 0);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Pedidos a China</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Qué conviene pedir, mirando al mismo tiempo lo que se vende en Mercado
-          Libre, Amazon y TikTok, lo que hay en Full, FBA y la bodega de TikTok,
-          lo que hay en bodega y lo que ya viene en el barco. Los pedidos se cargan y se ven en{" "}
-          <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
-            Cargar pedidos
-          </Link>
-          .
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Abastecimiento"
+        titulo="Planeación de compras"
+        descripcion="Qué conviene pedir, con la venta de Mercado Libre, Amazon y TikTok y todo el inventario que existe."
+        frescura={guardada.generadoEn}
+        ayudaTitulo="Cómo salió cada número"
+        ayuda={
+          <>
+            <p>
+              Se mira al mismo tiempo lo que se vende en Mercado Libre, Amazon y TikTok, lo que
+              hay en Full, FBA y la bodega de TikTok, lo que hay en bodega y lo que ya viene en el
+              barco. Los pedidos cargados, con su contenedor y sus filtros, viven en Cargar pedidos.
+            </p>
+            <p>
+              De cada modelo y color se suma la <strong>demanda diaria corregida</strong> de
+              todas sus tallas — la misma que usan los envíos a Full, ya arreglada por los
+              días que estuvo agotado — y se compara contra{" "}
+              <strong>todo el inventario que existe</strong>: Full, lo que va en camino a
+              Full, las cajas cerradas en bodega y lo que viene en el barco.
+            </p>
+            <p>
+              El objetivo son{" "}
+              <strong>
+                {p.diasProduccion} días de fábrica + {p.diasTransito} de barco y aduana +{" "}
+                {p.diasCobertura} de piso = {p.diasProduccion + p.diasTransito + p.diasCobertura}{" "}
+                días de venta
+              </strong>
+              . Lo que falta para llegar ahí se divide entre los pares por caja de su corrida
+              y se redondea hacia arriba, porque las cajas no se abren.
+            </p>
+            <p>
+              Un modelo marcado <strong>Pedir ya</strong> se queda sin producto antes de que
+              alcance a llegar un pedido nuevo. Ábrelo para ver la cuenta completa y, cuando la
+              haya, la comparación entre la corrida de la fábrica y cómo se vende de verdad.
+            </p>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha
           titulo="Hay que pedir"
           valor={amazonEstado.disponible ? n(compra.totales.cajas) : "—"}
@@ -157,109 +111,48 @@ export default async function Pedidos() {
           nota="Cajas de pedidos sin contenedor"
           tono={cajasSinBarco > 0 ? "alerta" : "neutro"}
         />
-      </div>
+      </Cifras>
 
       {amazonEstado.advertencias.length ? (
-        <div
-          role="alert"
-          className="rounded-lg border p-3 text-sm"
-          style={{
-            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
-            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
-          }}
-        >
-          <strong>Amazon no está completo.</strong> La recomendación se calculó con los demás
-          datos disponibles y puede cambiar cuando se recupere la lectura.
+        <Aviso tono="alerta">
+          <strong>Amazon no está completo.</strong>
           <ul className="mt-1 list-disc pl-5">
             {amazonEstado.advertencias.map((mensaje) => (
               <li key={mensaje}>{mensaje}</li>
             ))}
           </ul>
-        </div>
+        </Aviso>
       ) : null}
 
       {tiktokEstado.advertencias.length ? (
-        <div
-          role="alert"
-          className="rounded-lg border p-3 text-sm"
-          style={{
-            borderColor: "color-mix(in oklab, var(--estado-alerta) 45%, transparent)",
-            background: "color-mix(in oklab, var(--estado-alerta) 10%, transparent)",
-          }}
-        >
-          <strong>TikTok no está completo.</strong> La recomendación se calculó sin su venta ni
-          su bodega y saldría corta en lo que también se vende ahí.
+        <Aviso tono="alerta">
+          <strong>TikTok no está completo.</strong>
           <ul className="mt-1 list-disc pl-5">
             {tiktokEstado.advertencias.map((mensaje) => (
               <li key={mensaje}>{mensaje}</li>
             ))}
           </ul>
-        </div>
+        </Aviso>
       ) : null}
 
-      {!planEstado.vigente ? (
-        <p
-          className="rounded-lg p-3 text-sm"
-          style={{
-            background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)",
-          }}
-        >
-          La demanda que se usa aquí viene del último cálculo y ya cambió algo:{" "}
-          {planEstado.motivo ?? "hay datos nuevos"}. Recalcula en{" "}
-          <Link href="/envios" className="underline">
+      {planEstado && !planEstado.vigente ? (
+        <Aviso tono="alerta">
+          Demanda desactualizada: {planEstado.motivo ?? "hay datos nuevos"}. Recalcula en{" "}
+          <Link href="/envios" className="enlace">
             Envíos a Full
-          </Link>{" "}
-          para afinar los números.
-        </p>
+          </Link>
+          .
+        </Aviso>
       ) : null}
 
-      {/* ---- Cómo se calculó ------------------------------------------------ */}
-      <details className="tarjeta p-4">
-        <summary className="cursor-pointer text-sm font-semibold">
-          Cómo salió cada número
-        </summary>
-        <div className="mt-3 flex flex-col gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          <p>
-            De cada modelo y color se suma la <strong>demanda diaria corregida</strong> de
-            todas sus tallas — la misma que usan los envíos a Full, ya arreglada por los
-            días que estuvo agotado — y se compara contra{" "}
-            <strong>todo el inventario que existe</strong>: Full, lo que va en camino a
-            Full, las cajas cerradas en bodega y lo que viene en el barco.
-          </p>
-          <p>
-            El objetivo son{" "}
-            <strong>
-              {p.diasProduccion} días de fábrica + {p.diasTransito} de barco y aduana +{" "}
-              {p.diasCobertura} de piso = {p.diasProduccion + p.diasTransito + p.diasCobertura}{" "}
-              días de venta
-            </strong>
-            . Lo que falta para llegar ahí se divide entre los pares por caja de su corrida
-            y se redondea hacia arriba, porque las cajas no se abren.
-          </p>
-          <p>
-            Un modelo marcado <strong>Pedir ya</strong> se queda sin producto antes de que
-            alcance a llegar un pedido nuevo. Ábrelo para ver la cuenta completa y, cuando la
-            haya, la comparación entre la corrida de la fábrica y cómo se vende de verdad.
-          </p>
-          {compra.totales.sinCorrida > 0 ? (
-            <p style={{ color: "var(--estado-alerta)" }}>
-              {compra.totales.sinCorrida} modelos necesitan producto pero no tienen corrida
-              cargada, así que no puedo convertir los pares en cajas. Se resuelven cargando la
-              proforma del pedido que los trajo.
-            </p>
-          ) : null}
-        </div>
-      </details>
+      {compra.totales.sinCorrida > 0 ? (
+        <Aviso tono="alerta">
+          {compra.totales.sinCorrida} modelos necesitan producto pero no tienen corrida cargada:
+          carga su proforma.
+        </Aviso>
+      ) : null}
 
       {amazonEstado.disponible ? <PedidoPorModelo renglones={compra.renglones} /> : null}
-
-      <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-        Los pedidos cargados, con su contenedor y sus filtros, viven ahora en{" "}
-        <Link href="/pedidos/cargar" className="underline" style={{ color: "var(--acento)" }}>
-          Cargar pedidos
-        </Link>
-        .
-      </p>
-    </div>
+    </Pagina>
   );
 }

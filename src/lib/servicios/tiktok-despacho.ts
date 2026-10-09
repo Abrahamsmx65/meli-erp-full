@@ -60,6 +60,10 @@ import {
   numerarPaquetes,
   esFalloDeArmado,
   paquetesQueViajan,
+  conRenglonesGuardados,
+  renglonesGuardados,
+  contarAvanceDeCortes,
+  type AvanceCorte,
   ORDEN_ACTUAL,
   type OrdenPaquetes,
   type PaqueteDespacho,
@@ -342,9 +346,82 @@ export async function pendientesDeCorteFiltrados(
 }
 
 /** Cuántos pendientes son de un solo modelo, por modelo (el selector de «corte por modelo»). */
-export async function pendientesPorModeloDeCuenta(db: DB, accountId: string): Promise<PendientesPorModelo> {
-  const pendientes = await pendientesDeCorte(db, accountId);
+export async function pendientesPorModeloDeCuenta(
+  db: DB,
+  accountId: string,
+  /** los pendientes ya leídos (la pantalla los tiene): no se leen dos veces */
+  yaLeidos?: PendienteConFecha[],
+): Promise<PendientesPorModelo> {
+  const pendientes = yaLeidos ?? (await pendientesDeCorte(db, accountId));
   return pendientesPorModelo(await renglonesLigerosDe(db, accountId, pendientes));
+}
+
+/** Los estados de un pedido cortado que ya no falta aunque nadie lo haya escaneado. */
+const ESTADOS_RESUELTOS = ["CANCELLED", "CANCEL", "IN_TRANSIT", "DELIVERED", "COMPLETED"];
+
+/**
+ * El avance (preparados, cancelados, enviados sin escanear) de los cortes
+ * que la pantalla enseña, y SOLO de esos: antes Despacho bajaba las ~16 mil
+ * preparaciones y los ~16 mil pedidos cortados de toda la historia para
+ * contar 30 cortes. Primero el RPC agrupado (`tiktok_avance_cortes`,
+ * migración 0120); si no contesta (aún no aplicado, permisos), las mismas
+ * lecturas de antes acotadas a esos cortes. Lanza si las dos fallan.
+ */
+export async function avanceDeCortes(db: DB, accountId: string, corteIds: number[]): Promise<Map<number, AvanceCorte>> {
+  const ids = [...new Set(corteIds.filter((id) => Number.isFinite(id)))];
+  if (!ids.length) return new Map();
+  try {
+    const { data, error } = await db.rpc("tiktok_avance_cortes", { p_account: accountId, p_cortes: ids });
+    if (error) throw new Error(error.message);
+    const avance = new Map<number, AvanceCorte>();
+    for (const r of (data ?? []) as any[]) {
+      avance.set(Number(r.corte_id), {
+        preparados: Number(r.preparados ?? 0),
+        cancelados: Number(r.cancelados ?? 0),
+        enviados: Number(r.enviados ?? 0),
+      });
+    }
+    return avance;
+  } catch (err) {
+    console.error("tiktok_avance_cortes (se cuenta renglón por renglón):", (err as Error).message);
+  }
+  const [prep, ordenes] = await Promise.all([
+    traerTodo<{ corte_id: number; order_id: string }>(db, "tiktok_preparaciones", "corte_id, order_id", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids),
+    ),
+    traerTodo<{ corte_id: number; order_id: string; estado: string }>(db, "tiktok_ordenes", "corte_id, order_id, estado", (q) =>
+      q.eq("account_id", accountId).in("corte_id", ids).in("estado", ESTADOS_RESUELTOS),
+    ),
+  ]);
+  return contarAvanceDeCortes(prep, ordenes);
+}
+
+/**
+ * La primera y la última constancia de preparado de cada corte (RPC
+ * `tiktok_tiempos_cortes`, migración 0126): Despacho enseña la diferencia
+ * como el tiempo que tomó preparar el corte (dueño, 9-oct-2026). Si la
+ * lectura falla, mapa vacío: el tiempo simplemente no se enseña.
+ */
+export async function tiemposDeCortes(
+  db: DB,
+  accountId: string,
+  corteIds: number[],
+): Promise<Map<number, { primera: string; ultima: string }>> {
+  const ids = [...new Set(corteIds.filter((id) => Number.isFinite(id)))];
+  const tiempos = new Map<number, { primera: string; ultima: string }>();
+  if (!ids.length) return tiempos;
+  try {
+    const { data, error } = await db.rpc("tiktok_tiempos_cortes", { p_account: accountId, p_cortes: ids });
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as any[]) {
+      if (!r.primera_prep || !r.ultima_prep) continue;
+      tiempos.set(Number(r.corte_id), { primera: String(r.primera_prep), ultima: String(r.ultima_prep) });
+    }
+  } catch (err) {
+    console.error("tiktok_tiempos_cortes:", (err as Error).message);
+    return new Map();
+  }
+  return tiempos;
 }
 
 /**
@@ -1096,14 +1173,37 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
   if (!corte) throw new Error("Ese corte no existe.");
   const orden: OrdenPaquetes = corte.orden_paquetes === "un-color" ? "un-color" : corte.orden_paquetes === "un-modelo" ? "un-modelo" : "bodega";
 
-  const [ordenes, items] = await Promise.all([
-    traerTodo<any>(admin, "tiktok_ordenes", "order_id, paquetes, detalle, paqueteria, estado", (q) =>
-      q.eq("account_id", accountId).eq("corte_id", corteId),
-    ),
-    traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
-      q.eq("account_id", accountId),
-    ),
+  // Del pedido solo se ocupa el destinatario (no el `detalle` entero), y los
+  // renglones se leen SOLO de los pedidos del corte, por tandas: antes se
+  // bajaban los ~27 mil renglones de la cuenta para quedarse con los de un
+  // corte en cada carga de la estación y de cada tomo de etiquetas. Los
+  // códigos (FNSKU y Full) no dependen de los pedidos: se leen a la par.
+  //
+  // El FNSKU es el código de barras que ya trae la caja del zapato (las
+  // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
+  // El FNSKU es el que se imprime, pero la caja puede traer pegada la
+  // etiqueta de Full de cualquiera de las dos cuentas de MELI: sus códigos
+  // también valen para dar el par por bueno.
+  const codigosP = Promise.all([
+    mapaAmazon(admin),
+    aliasAmazonDeCuenta(admin, accountId),
+    codigosMeliDeCuenta(admin, accountId),
   ]);
+  codigosP.catch(() => {}); // si los pedidos fallan primero, no queda un rechazo suelto
+  const ordenes = await traerTodo<any>(
+    admin,
+    "tiktok_ordenes",
+    "order_id, paquetes, destinatario:detalle->destinatario, paqueteria, estado",
+    (q) => q.eq("account_id", accountId).eq("corte_id", corteId),
+  );
+  const items = await porTandas(
+    [...new Set((ordenes ?? []).map((o: any) => String(o.order_id)))],
+    TANDA_IDS,
+    (tanda) =>
+      traerTodo<any>(admin, "tiktok_orden_items", "order_id, line_item_id, sku_interno, seller_sku, cantidad, estado, bloqueo_resultado", (q) =>
+        q.eq("account_id", accountId).in("order_id", tanda),
+      ),
+  );
   const ordenIds = new Set((ordenes ?? []).map((o: any) => o.order_id));
   const itemsPorOrden = new Map<string, any[]>();
   for (const i of items ?? []) {
@@ -1116,16 +1216,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     itemsPorOrden.set(i.order_id, l);
   }
 
-  // El FNSKU es el código de barras que ya trae la caja del zapato (las
-  // etiquetas de Amazon se imprimen para todo). Es lo que se escanea.
-  // El FNSKU es el que se imprime, pero la caja puede traer pegada la
-  // etiqueta de Full de cualquiera de las dos cuentas de MELI: sus códigos
-  // también valen para dar el par por bueno.
-  const [amazon, alias, meli] = await Promise.all([
-    mapaAmazon(admin),
-    aliasAmazonDeCuenta(admin, accountId),
-    codigosMeliDeCuenta(admin, accountId),
-  ]);
+  const [amazon, alias, meli] = await codigosP;
   const fnskuDe = (sku: string) => resolverFnsku(amazon, alias, sku);
 
   const cliente = await clienteDeCuenta(admin, accountId, 120_000);
@@ -1137,6 +1228,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       const desdeTikTok = await paquetesDePedido(cliente, o.order_id);
       ids = desdeTikTok.map((p) => p.id);
       if (ids.length) {
+        o.paquetes = desdeTikTok; // lo que queda guardado (abajo se le pegan los renglones)
         await admin
           .from("tiktok_ordenes")
           .update({ paquetes: desdeTikTok })
@@ -1171,7 +1263,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       paquetes.push({
         orderId: o.order_id,
         packageId: ids[0] ?? "",
-        destinatario: o.detalle?.destinatario ?? null,
+        destinatario: o.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(renglones),
         cancelado,
@@ -1186,21 +1278,41 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
     // cuando la defensa cancela un renglón de un pedido grande) no viaja ni
     // lleva etiqueta: `paquetesQueViajan`. Lo que se le aprendió al pedido
     // se guarda para que la siguiente carga no vuelva a preguntar.
-    const conRenglones: { id: string; lineIds: string[] }[] = [];
-    for (const id of ids) {
-      let lineIds: string[] = [];
-      try {
-        lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
-      } catch {
-        /* se estampan todos */
-      }
-      conRenglones.push({ id, lineIds });
-    }
+    // Lo que TikTok ya contestó de cada paquete viaja guardado en
+    // `tiktok_ordenes.paquetes` (`lineIds`, `renglonesGuardados`): una
+    // recarga de la estación o de un tomo ya no le vuelve a preguntar. Un
+    // paquete sin respuesta (o vacía) se sigue preguntando; la
+    // sincronización reescribe `paquetes` con lo de TikTok y entonces se
+    // vuelve a preguntar, como antes.
+    const guardados = new Map<string, string[]>(
+      renglonesGuardados((o.paquetes ?? []) as any[]).map((g) => [g.id, g.lineIds]),
+    );
+    let aprendio = false;
+    const conRenglones: { id: string; lineIds: string[] }[] = await Promise.all(
+      ids.map(async (id) => {
+        const yaSabido = guardados.get(id);
+        if (yaSabido?.length) return { id, lineIds: yaSabido };
+        let lineIds: string[] = [];
+        try {
+          lineIds = cliente ? await renglonesDelPaquete(cliente, id) : [];
+        } catch {
+          /* se estampan todos */
+        }
+        if (lineIds.length) aprendio = true;
+        return { id, lineIds };
+      }),
+    );
     const viajan = paquetesQueViajan(conRenglones, renglones.map((r) => String(r.line_item_id)));
     if (viajan.length < conRenglones.length) {
       await admin
         .from("tiktok_ordenes")
-        .update({ paquetes: viajan.map((v) => ({ id: v.id, estado: null })) })
+        .update({ paquetes: viajan.map((v) => ({ id: v.id, estado: null, lineIds: v.lineIds })) })
+        .eq("account_id", accountId)
+        .eq("order_id", o.order_id);
+    } else if (aprendio && ((o.paquetes ?? []) as any[]).length === ids.length) {
+      await admin
+        .from("tiktok_ordenes")
+        .update({ paquetes: conRenglonesGuardados((o.paquetes ?? []) as any[], conRenglones) })
         .eq("account_id", accountId)
         .eq("order_id", o.order_id);
     }
@@ -1213,7 +1325,7 @@ export async function cargarCorte(admin: any, accountId: string, corteId: number
       paquetes.push({
         orderId: o.order_id,
         packageId: id,
-        destinatario: o.detalle?.destinatario ?? null,
+        destinatario: o.destinatario ?? null,
         paqueteria: o.paqueteria ?? null,
         pares: aPar(propios.length ? propios : renglones),
         cancelado,

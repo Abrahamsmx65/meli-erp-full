@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
@@ -8,6 +7,8 @@ import { SubirPackingList } from "@/components/subir-packing-list";
 import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive";
 import { configDrive } from "@/lib/servicios/drive";
 import { Ficha } from "@/components/tiles";
+import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -24,24 +25,7 @@ export default async function Contenedores() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          Los contenedores cuelgan de los pedidos a China, y esos viven en tu
-          cuenta.
-        </p>
-        <Link
-          href="/ajustes"
-          className="mt-3 inline-block underline"
-          style={{ color: "var(--acento)" }}
-        >
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Contenedores" />;
 
   const [contenedores, drive] = await Promise.all([
     listarContenedores(supabase, cuenta.id),
@@ -66,6 +50,10 @@ export default async function Contenedores() {
     return { ...c, sinSku: coloresFantasma(suyas, propios), ligados: coloresLigados(suyas, propios) };
   });
   const enCamino = contenedores.filter((c) => c.estado !== "recibido");
+  // Reparto de la tabla en pestañas (mismos renglones, mismo orden).
+  const borradores = contenedoresVista.filter((c) => c.estado === "borrador");
+  const recibidos = contenedoresVista.filter((c) => c.estado === "recibido");
+  const transito = contenedoresVista.filter((c) => c.estado !== "borrador" && c.estado !== "recibido");
   const numeroPorId = new Map(contenedores.map((c) => [c.id, c.numero]));
   const archivosDrive: ArchivoDriveVista[] = (drive.data ?? []).map((a) => ({
     nombre: a.nombre,
@@ -76,17 +64,28 @@ export default async function Contenedores() {
   }));
 
   return (
-    <div className="flex flex-col gap-4">
-      <header>
-        <h1 className="titulo-pagina">Contenedores</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Cada contenedor con nuestro propio ID. Sube el packing list de la fábrica y
-          el contenedor se arma solo. Confirmar la llegada no suma inventario: las
-          existencias llegan solas del API de Industher.
-        </p>
-      </header>
+    <Pagina>
+      <Encabezado
+        ceja="Abastecimiento"
+        titulo="Contenedores"
+        descripcion="Cada contenedor con nuestro propio ID; sube el packing list de la fábrica y se arma solo."
+        ayuda={
+          <>
+            <p>
+              Confirmar la llegada no suma inventario: las existencias llegan solas del API de
+              Industher.
+            </p>
+            <p>
+              Del packing list salen nuestro ID (la referencia del embarque, S259-2026), el número
+              de la naviera (MIEU…), los pedidos y las cajas de cada modelo y color. Se amarra por
+              pedido + modelo + color + talla contra los pedidos ya cargados; lo que no amarra se
+              enseña y no se guarda.
+            </p>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="En camino" valor={n(enCamino.length)} />
         <Ficha
           titulo="Cajas en camino"
@@ -94,7 +93,7 @@ export default async function Contenedores() {
         />
         <Ficha titulo="Recibidos" valor={n(contenedores.length - enCamino.length)} />
         <Ficha titulo="Total" valor={n(contenedores.length)} />
-      </div>
+      </Cifras>
 
       <PackingDrive
         archivos={archivosDrive}
@@ -105,7 +104,37 @@ export default async function Contenedores() {
 
       <SubirPackingList />
 
-      <TablaContenedores contenedores={contenedoresVista} />
-    </div>
+      {/* Pestañas por estado: la tabla es la misma, solo se reparte. Si no
+           hay ningún contenedor, la tabla enseña su mensaje de vacío. El
+           packing list se sube arriba, fuera de las pestañas, para que
+           cambiar de pestaña no tire una carga a medias. */}
+      {contenedores.length ? (
+        <Pestanas
+          pestanas={[
+            transito.length > 0 && {
+              id: "transito",
+              titulo: "En camino",
+              cuenta: transito.length,
+              contenido: <TablaContenedores contenedores={transito} />,
+            },
+            borradores.length > 0 && {
+              id: "borradores",
+              titulo: "Borradores",
+              cuenta: borradores.length,
+              alerta: true,
+              contenido: <TablaContenedores contenedores={borradores} />,
+            },
+            recibidos.length > 0 && {
+              id: "recibidos",
+              titulo: "Recibidos",
+              cuenta: recibidos.length,
+              contenido: <TablaContenedores contenedores={recibidos} />,
+            },
+          ]}
+        />
+      ) : (
+        <TablaContenedores contenedores={contenedoresVista} />
+      )}
+    </Pagina>
   );
 }

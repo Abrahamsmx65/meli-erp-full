@@ -555,3 +555,77 @@ export function paquetesQueViajan<T extends PaqueteConRenglones>(paquetes: T[], 
   const viajan = paquetes.filter((p) => !p.lineIds.length || p.lineIds.some((id) => vivos.has(String(id))));
   return viajan.length ? viajan : paquetes;
 }
+
+/** El avance de un corte en la lista de Despacho y de la estación. */
+export interface AvanceCorte {
+  /** renglones con constancia de preparado */
+  preparados: number;
+  /** pedidos cancelados DESPUÉS de entrar al corte (conservan su número) */
+  cancelados: number;
+  /** pedidos que TikTok ya tiene en camino o entregados SIN constancia: salieron sin escanearse */
+  enviados: number;
+}
+
+const ESTADOS_CANCELADO_AVANCE = new Set(["CANCELLED", "CANCEL"]);
+
+/**
+ * Cuenta el avance por corte desde las constancias de preparado y los
+ * pedidos cortados que ya no faltan (cancelados, en camino, entregados).
+ * Es la misma cuenta que hace el RPC `tiktok_avance_cortes` (migración
+ * 0120); esta queda de respaldo si el RPC no contesta. Con solo la guía
+ * creada (AWAITING_COLLECTION) un pedido no cuenta: los pedidos que se le
+ * pasen deben venir ya filtrados a los estados que resuelven.
+ */
+export function contarAvanceDeCortes(
+  preparaciones: readonly { corte_id: number; order_id: string }[],
+  ordenes: readonly { corte_id: number; order_id: string; estado: string }[],
+): Map<number, AvanceCorte> {
+  const avance = new Map<number, AvanceCorte>();
+  const de = (corte: number) => {
+    let a = avance.get(corte);
+    if (!a) avance.set(corte, (a = { preparados: 0, cancelados: 0, enviados: 0 }));
+    return a;
+  };
+  for (const r of preparaciones) de(r.corte_id).preparados++;
+  const conConstancia = new Set(preparaciones.map((r) => `${r.corte_id}|${r.order_id}`));
+  for (const r of ordenes) {
+    if (ESTADOS_CANCELADO_AVANCE.has(r.estado)) de(r.corte_id).cancelados++;
+    // Ya salió sin escanearse: resuelto, pero no se cuenta dos veces.
+    else if (!conConstancia.has(`${r.corte_id}|${r.order_id}`)) de(r.corte_id).enviados++;
+  }
+  return avance;
+}
+
+/**
+ * Lo que TikTok ya contestó de cada paquete (sus renglones), tal como quedó
+ * guardado en `tiktok_ordenes.paquetes` (`lineIds`). Solo cuenta una
+ * respuesta con renglones: un paquete sin dato se le vuelve a preguntar.
+ */
+export function renglonesGuardados(paquetes: readonly unknown[]): PaqueteConRenglones[] {
+  const salida: PaqueteConRenglones[] = [];
+  for (const p of paquetes ?? []) {
+    if (!p || typeof p !== "object") continue;
+    const { id, lineIds } = p as { id?: unknown; lineIds?: unknown };
+    if (id == null || !Array.isArray(lineIds) || !lineIds.length) continue;
+    salida.push({ id: String(id), lineIds: lineIds.map(String) });
+  }
+  return salida;
+}
+
+/**
+ * Los paquetes guardados del pedido con los renglones que TikTok contestó
+ * pegados a cada uno (`lineIds`), sin tocar lo demás que ya traían (estado).
+ * Un paquete sin respuesta se queda como estaba.
+ */
+export function conRenglonesGuardados(
+  paquetes: readonly unknown[],
+  respuestas: readonly PaqueteConRenglones[],
+): Record<string, unknown>[] {
+  const porId = new Map(respuestas.filter((r) => r.lineIds.length).map((r) => [String(r.id), r.lineIds]));
+  return (paquetes ?? [])
+    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+    .map((p) => {
+      const lineIds = porId.get(String(p.id));
+      return lineIds ? { ...p, lineIds } : { ...p };
+    });
+}

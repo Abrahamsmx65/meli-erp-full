@@ -1,12 +1,31 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaAmazon } from "@/lib/servicios/amazon";
+import { cuentaAmazon, estadoRecarga } from "@/lib/servicios/amazon";
 import { partirEnVentanas } from "@/lib/amazon/recarga";
 
 export const dynamic = "force-dynamic";
 
 /** Tope de un año: más atrás Amazon ya no conserva los reportes de órdenes. */
 const DIAS_MAX = 365;
+
+/**
+ * GET → el avance de la recarga encolada (un renglón por ventana). La
+ * pantalla lo pregunta mientras hay cola en vez de recargarse completa.
+ */
+export async function GET() {
+  const supabase = await clienteServidor();
+  const { data: sesion } = await supabase.auth.getUser();
+  if (!sesion?.user) {
+    return NextResponse.json({ error: "Inicia sesión." }, { status: 401 });
+  }
+  const cuenta = await cuentaAmazon(supabase);
+  if (!cuenta) {
+    return NextResponse.json({ error: "No hay cuenta de Amazon." }, { status: 404 });
+  }
+  return NextResponse.json(await estadoRecarga(supabase, cuenta.id), {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
 
 /**
  * Encola una recarga histórica de ventas.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { marcarTipos, obtenerPlanFba, revivirTipos } from "./plan-fba-cache";
+import { VERSION_MOTOR } from "./cache";
 
 /**
  * El plan de FBA guardado en `plan_fba_cache` trae Maps adentro (el en
@@ -63,5 +64,23 @@ describe("lectura de plan_fba_cache", () => {
     await expect(obtenerPlanFba(db, "amazon", null, 30)).rejects.toThrow(
       "permission denied for plan_fba_cache",
     );
+  });
+
+  it("un periodo alterno invalidado se sirve viejo; no se recalcula en el clic", async () => {
+    const cadena: any = {};
+    for (const metodo of ["select", "eq", "update", "upsert"]) cadena[metodo] = vi.fn(() => cadena);
+    cadena.maybeSingle = vi.fn(async () => ({
+      data: {
+        vigente: false,
+        datos: { versionMotor: VERSION_MOTOR, cuentaMeliId: "meli", datos: { marca: "viejo" } },
+      },
+      error: null,
+    }));
+    const db = { from: vi.fn(() => cadena), rpc: vi.fn() } as any;
+    const plan = (await obtenerPlanFba(db, "amazon", "meli", 45)) as any;
+    expect(plan).toEqual({ marca: "viejo" });
+    // Solo se leyó el renglón: ni RPCs ni escrituras dentro del request.
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(cadena.upsert).not.toHaveBeenCalled();
   });
 });

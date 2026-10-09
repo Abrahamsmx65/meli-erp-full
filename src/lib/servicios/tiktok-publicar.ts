@@ -67,7 +67,7 @@ import { clienteDeCuenta as clienteMeliDeCuenta } from "./webhooks";
 import { pareceSkuDeCalzado } from "../tiktok/amarre";
 import { guiaDeTallas, textoGuiaTallas } from "../tiktok/guia-tallas";
 import { dibujarGuiaTallas } from "../tiktok/guia-tallas-imagen";
-import { guardarCacheApp, invalidarApp, leerCacheApp } from "./cache-app";
+import { guardarCacheApp, invalidarApp, leerCacheApp, servirConCacheApp } from "./cache-app";
 import { amarradorDeCuenta, clienteDeCuenta } from "./tiktok";
 
 export const CLAVE_CACHE_NUEVOS = "tiktok:nuevos";
@@ -156,6 +156,29 @@ export async function leerCola(
   }));
 }
 
+interface ListaNuevos {
+  productos: ProductoAmazonParaTikTok[];
+  publicacionesMeli: PublicacionMeliParaTikTok[];
+  generadoEn: string;
+}
+
+/** El trabajo pesado de la lista: agrupar Amazon y las publicaciones de MELI. */
+async function masticarListaNuevos(admin: any, accountId: string): Promise<ListaNuevos> {
+  const [productos, publicacionesMeli] = await Promise.all([
+    agruparDesdeLaBase(admin, accountId),
+    agruparMeliDesdeLaBase(admin, accountId),
+  ]);
+  return { productos, publicacionesMeli, generadoEn: new Date().toISOString() };
+}
+
+/**
+ * Solo la cola de publicación (lo que cambia mientras se publica): la
+ * pantalla la pregunta cada pocos segundos sin volver a bajar la lista.
+ */
+export async function colaDePublicacion(admin: any, accountId: string): Promise<PublicacionEnCola[]> {
+  return leerCola(admin, accountId);
+}
+
 /**
  * Los productos de Amazon agrupados (masticados). La cola se lee siempre
  * fresca: es lo que cambia mientras se publica.
@@ -163,15 +186,31 @@ export async function leerCola(
 export async function listarProductosNuevos(
   admin: any,
   accountId: string,
-  opciones: { forzar?: boolean } = {},
+  opciones: {
+    forzar?: boolean;
+    /**
+     * Para la PANTALLA (y su GET): sirve el renglón guardado aunque esté
+     * viejo o invalidado y lo refresca por atrás (`servirConCacheApp`);
+     * solo sin renglón se calcula en el clic. Los caminos de la cola
+     * (encolar, publicar) no lo pasan y siguen leyendo la lista fresca.
+     */
+    servirGuardado?: boolean;
+  } = {},
 ): Promise<ProductosNuevosTikTok> {
   const avisos: string[] = [];
-  let lista: {
-    productos: ProductoAmazonParaTikTok[];
-    publicacionesMeli: PublicacionMeliParaTikTok[];
-    generadoEn: string;
-  } | null = null;
-  if (!opciones.forzar) {
+  let lista: ListaNuevos | null = null;
+  if (opciones.servirGuardado && !opciones.forzar) {
+    const s = await servirConCacheApp<Partial<ListaNuevos>>(
+      admin,
+      accountId,
+      CLAVE_CACHE_NUEVOS,
+      EDAD_CACHE_NUEVOS_MS,
+      () => masticarListaNuevos(admin, accountId),
+    );
+    // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI: se rehace.
+    if (Array.isArray(s.datos.publicacionesMeli) && Array.isArray(s.datos.productos))
+      lista = s.datos as ListaNuevos;
+  } else if (!opciones.forzar) {
     const g = await leerCacheApp<{
       productos: ProductoAmazonParaTikTok[];
       publicacionesMeli?: PublicacionMeliParaTikTok[];
@@ -183,15 +222,7 @@ export async function listarProductosNuevos(
   }
   if (!lista) {
     const t0 = Date.now();
-    const [productos, publicacionesMeli] = await Promise.all([
-      agruparDesdeLaBase(admin, accountId),
-      agruparMeliDesdeLaBase(admin, accountId),
-    ]);
-    lista = {
-      productos,
-      publicacionesMeli,
-      generadoEn: new Date().toISOString(),
-    };
+    lista = await masticarListaNuevos(admin, accountId);
     await guardarCacheApp(
       admin,
       accountId,
@@ -877,26 +908,31 @@ async function plantillaPara(
   modelo: string,
   cache: Map<string, PlantillaTikTok>,
 ): Promise<PlantillaTikTok> {
-  const { data: candidatos } = await admin
-    .from("tiktok_skus")
-    .select("product_id, sku_interno, seller_sku, actualizado_en")
-    .eq("account_id", accountId)
-    .eq("activo", true)
-    .eq("estado", "ACTIVATE")
-    .not("product_id", "is", null)
-    .order("actualizado_en", { ascending: false })
-    .limit(2000);
-  const lista: any[] = candidatos ?? [];
-  const delModelo = lista.find((s) =>
-    String(s.sku_interno ?? s.seller_sku ?? "")
-      .toUpperCase()
-      .startsWith(`${modelo}-`),
-  );
-  const deCalzado =
-    delModelo ??
-    lista.find((s) =>
+  // Primero el MISMO modelo, preguntado directo: antes se bajaban los
+  // «2,000» más recientes (el API entrega 1,000) y se buscaba ahí; con más
+  // de 1,000 variantes activas el modelo podía quedar fuera y la plantilla
+  // salía de otro calzado (bota contra sandalia).
+  const base = () =>
+    admin
+      .from("tiktok_skus")
+      .select("product_id, sku_interno, seller_sku, actualizado_en")
+      .eq("account_id", accountId)
+      .eq("activo", true)
+      .eq("estado", "ACTIVATE")
+      .not("product_id", "is", null)
+      .order("actualizado_en", { ascending: false });
+  const prefijo = `${modelo.replace(/[%_,()]/g, "")}-%`;
+  const { data: delModeloRaw } = await base()
+    .or(`sku_interno.ilike.${prefijo},seller_sku.ilike.${prefijo}`)
+    .limit(1);
+  const delModelo = ((delModeloRaw ?? []) as any[])[0];
+  let deCalzado = delModelo;
+  if (!deCalzado) {
+    const { data: candidatos } = await base().limit(1000);
+    deCalzado = ((candidatos ?? []) as any[]).find((s) =>
       pareceSkuDeCalzado(String(s.sku_interno ?? s.seller_sku ?? "")),
     );
+  }
   if (!deCalzado)
     throw new Error(
       "La tienda no tiene ningún producto de calzado activo que sirva de plantilla (categoría, atributos y marca).",

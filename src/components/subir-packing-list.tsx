@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Aviso } from "@/components/ui/pagina";
 
 interface LineaCasada {
   filas: number[];
@@ -149,13 +150,7 @@ export function SubirPackingList() {
 
   return (
     <section className="tarjeta p-4">
-      <h2 className="font-semibold">Subir un packing list</h2>
-      <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-        Sube el packing list de la fábrica tal como te llega. De ahí salen nuestro ID
-        (la referencia del embarque, S259-2026), el número de la naviera (MIEU…), los
-        pedidos y las cajas de cada modelo y color; el ERP los amarra con los pedidos
-        ya cargados y te enseña cómo quedó antes de guardar.
-      </p>
+      <h2 className="seccion-titulo">Subir un packing list</h2>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <input
@@ -170,7 +165,7 @@ export function SubirPackingList() {
           className="text-sm"
         />
         {cargando && !casado ? (
-          <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2 text-sm">
             Leyendo el archivo…
           </span>
         ) : null}
@@ -196,8 +191,8 @@ export function SubirPackingList() {
           aria-label="Confirmar el packing list"
         >
           <div className="tarjeta my-8 w-full max-w-5xl p-5" style={{ background: "var(--surface-1)" }}>
-            <h3 className="text-lg font-semibold">Esto es lo que va a entrar al contenedor</h3>
-            <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+            <h3 className="titulo-seccion">Esto es lo que va a entrar al contenedor</h3>
+            <p className="texto-2 mt-1 text-sm">
               Archivo {archivo?.name}
               {packing.referencia ? ` · embarque ${packing.referencia}` : ""}
               {packing.sello ? ` · sello ${packing.sello}` : ""} · pedidos{" "}
@@ -268,13 +263,9 @@ export function SubirPackingList() {
             </div>
 
             {casado.contenedorExistente ? (
-              <p
-                className="mt-3 rounded-lg p-3 text-sm"
-                style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-              >
-                El contenedor <strong>{casado.numero}</strong> ya existe: se le agregan estos
-                renglones y los que ya traía del mismo pedido se dejan como dice el archivo.
-              </p>
+              <Aviso tono="alerta" className="mt-3">
+                El contenedor <strong>{casado.numero}</strong> ya existe: se actualiza.
+              </Aviso>
             ) : null}
 
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -289,14 +280,13 @@ export function SubirPackingList() {
             </div>
 
             {casado.avisos.length ? (
-              <ul
-                className="mt-3 flex flex-col gap-1 rounded-lg p-3 text-sm"
-                style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-              >
-                {casado.avisos.map((a, i) => (
-                  <li key={i}>{a}</li>
-                ))}
-              </ul>
+              <Aviso tono="alerta" className="mt-3">
+                <ul className="flex flex-col gap-1">
+                  {casado.avisos.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </Aviso>
             ) : null}
 
             <div className="mt-3 max-h-96 overflow-auto">
@@ -320,9 +310,9 @@ export function SubirPackingList() {
                     return (
                       <tr key={i}>
                         <td className="text-xs">
-                          {l.pedidoErp ?? l.pedidoArchivo ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
+                          {l.pedidoErp ?? l.pedidoArchivo ?? <span className="texto-tenue">—</span>}
                           {l.pedidoArchivo && l.pedidoErp && l.pedidoArchivo !== l.pedidoErp ? (
-                            <div className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                            <div className="texto-tenue text-[11px]">
                               {l.pedidoArchivo}
                             </div>
                           ) : null}
@@ -330,7 +320,7 @@ export function SubirPackingList() {
                         <td className="font-medium">{l.modelo}</td>
                         <td>{l.color || "—"}</td>
                         <td className="cifra">
-                          {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                          {l.talla || <span className="texto-tenue">corrida</span>}
                         </td>
                         <td className="num cifra">{n(l.cajas)}</td>
                         <td className="num cifra">{l.pedidoLineaId ? n(l.cajasPedido) : "—"}</td>
@@ -353,7 +343,7 @@ export function SubirPackingList() {
                             {e.texto}
                           </span>
                           {l.detalle ? (
-                            <div className="mt-0.5 max-w-64 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                            <div className="texto-tenue mt-0.5 max-w-64 text-[11px]">
                               {l.detalle}
                             </div>
                           ) : null}
@@ -366,7 +356,7 @@ export function SubirPackingList() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+              <span className="texto-2 text-sm">
                 Se van <strong className="cifra">{n(casado.totales.cajasAsignar)}</strong> cajas en
                 el contenedor {form.numero || "…"}.
               </span>
@@ -374,25 +364,19 @@ export function SubirPackingList() {
                 <button
                   onClick={cancelar}
                   disabled={cargando}
-                  className="rounded-lg border px-3 py-2 text-sm font-medium"
-                  style={{ borderColor: "var(--borde)" }}
+                  className="boton boton-borde"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={confirmar}
                   disabled={!puedeConfirmar}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  style={{ background: "var(--acento)" }}
+                  className="boton boton-primario disabled:opacity-50"
                 >
                   {cargando ? "Guardando…" : "Guardar contenedor"}
                 </button>
               </div>
             </div>
-            <p className="mt-3 text-xs" style={{ color: "var(--ink-muted)" }}>
-              Los renglones con problema no se guardan. Si el pedido no está cargado, súbelo
-              primero en <strong>Cargar pedidos</strong> y vuelve a subir este archivo.
-            </p>
           </div>
         </div>
       ) : null}
@@ -403,7 +387,7 @@ export function SubirPackingList() {
 function Campo({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
   return (
     <label className="text-sm">
-      <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
+      <span className="texto-2 block text-xs">
         {etiqueta}
       </span>
       <div className="mt-1">{children}</div>
@@ -414,7 +398,7 @@ function Campo({ etiqueta, children }: { etiqueta: string; children: React.React
 function Dato({ titulo, valor, color }: { titulo: string; valor: string; color?: string }) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+      <div className="texto-tenue text-xs uppercase tracking-wide">
         {titulo}
       </div>
       <div className="cifra mt-0.5 font-semibold" style={color ? { color } : undefined}>

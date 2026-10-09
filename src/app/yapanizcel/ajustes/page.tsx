@@ -1,9 +1,8 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { credencialesApp, cuentaActiva, leerParametros } from "@/lib/yapanizcel/cuenta";
-import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 import { todo } from "@/lib/yapanizcel/db";
-import { BotonSheets, BotonSincronizar, FormularioParametros, SubirCostos } from "@/components/yapanizcel/acciones";
-import { Encabezado } from "@/components/yapanizcel/comunes";
+import { BotonSincronizar, FormularioParametros, SubirCostos } from "@/components/yapanizcel/acciones";
+import { Aviso, Encabezado, Pagina, Seccion } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,75 +21,66 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
   ]);
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <Encabezado titulo="Ajustes · YAPANIZCEL" texto="Conexión con la cuenta de Mercado Libre de fundas, el sheet de bodega, los costos y los parámetros del planeador." />
+    <Pagina className="max-w-3xl">
+      <Encabezado
+        ceja="Fundas"
+        titulo="Configuración de fundas"
+        descripcion="Conexión con la cuenta de Mercado Libre de fundas, costos y parámetros del planeador."
+        ayudaTitulo="¿Cómo funciona?"
+        ayuda={
+          <p>
+            El sheet de inventario (una pestaña por diseño) se lee a diario en el cron y reemplaza la bodega completa. Para
+            leerlo en el momento, usa el botón de Bodega fundas.
+          </p>
+        }
+      />
 
-      {sp.ok ? (
-        <div className="tarjeta p-4 text-sm" style={{ color: "var(--exito-texto)" }}>
-          {sp.ok}
-        </div>
-      ) : null}
-      {sp.error ? (
-        <div className="tarjeta p-4 text-sm" style={{ color: "var(--estado-critico)" }}>
-          {sp.error}
-        </div>
-      ) : null}
+      {sp.ok ? <Aviso tono="bien">{sp.ok}</Aviso> : null}
+      {sp.error ? <Aviso tono="critico">{sp.error}</Aviso> : null}
 
-      <section className="tarjeta p-5">
-        <h2 className="font-semibold">Cuenta de Mercado Libre (fundas)</h2>
+      <Seccion titulo="Cuenta de Mercado Libre (fundas)">
         {!app ? (
-          <p className="mt-2 text-sm" style={{ color: "var(--estado-serio)" }}>
+          <Aviso tono="alerta">
             Faltan <code>MELI_YZ_CLIENT_ID</code> y <code>MELI_YZ_CLIENT_SECRET</code> en las variables de entorno. Son las credenciales de la
             aplicación de Mercado Libre de YAPANIZCEL (distinta a la del calzado). Registra como Redirect URI:{" "}
             <code>{process.env.NEXT_PUBLIC_APP_URL ?? "https://TU-APP"}/api/yapanizcel/meli/callback</code>
-          </p>
+          </Aviso>
         ) : cuenta ? (
-          <div className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          <div className="texto-2 text-sm">
             Conectada como <b style={{ color: "var(--ink-1)" }}>{cuenta.nickname ?? cuenta.meli_user_id}</b> · sitio {cuenta.site_id}.
             {ultimoSync?.data ? (
               <span> Última sincronización: {new Date(ultimoSync.data.corrido_en).toLocaleString("es-MX")} ({ultimoSync.data.ok ? "ok" : "con error"}).</span>
             ) : (
               <span> Todavía no se ha sincronizado.</span>
             )}
-            {pendientes?.count ? <span> {pendientes.count} publicaciones pendientes de SKU (se resuelven solas).</span> : null}
+            {pendientes?.count ? <span> {pendientes.count} publicaciones pendientes de SKU.</span> : null}
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <BotonSincronizar />
-              <a href="/api/yapanizcel/meli/conectar" className="text-xs underline" style={{ color: "var(--ink-muted)" }}>
+              <a href="/api/yapanizcel/meli/conectar" className="boton boton-fantasma boton-chico">
                 Volver a conectar
               </a>
             </div>
           </div>
         ) : (
-          <div className="mt-2">
-            <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-              Todavía no está conectada. Te lleva a Mercado Libre a autorizar; inicia sesión ahí con la cuenta de YAPANIZCEL.
-            </p>
-            <a href="/api/yapanizcel/meli/conectar" className="mt-3 inline-block rounded-lg px-4 py-2 text-sm font-semibold" style={{ background: "var(--acento)", color: "#fff" }}>
+          <div>
+            <p className="texto-2 text-sm">Sin conectar.</p>
+            <a href="/api/yapanizcel/meli/conectar" className="boton boton-primario mt-3">
               Conectar con Mercado Libre
             </a>
           </div>
         )}
-      </section>
+      </Seccion>
 
       {cuenta ? (
         <>
-          <section className="tarjeta p-5">
-            <h2 className="font-semibold">Inventario de bodega (Google Sheets)</h2>
-            <p className="mt-1 mb-3 text-sm" style={{ color: "var(--ink-2)" }}>
-              Una pestaña por diseño. Se lee a diario en el cron y cuando lo pides aquí; reemplaza la bodega completa.
-            </p>
-            <BotonSheets configurado={Boolean(configuracionSheets())} />
-          </section>
-
-          <section className="tarjeta p-5">
-            <h2 className="font-semibold">Costos</h2>
-            <p className="mt-1 mb-3 text-sm" style={{ color: "var(--ink-2)" }}>
-              Un Excel con dos columnas: <b>MODELO</b> (el número de diseño, p. ej. 499) y <b>COSTO</b> en MXN. Se acumula: lo que ya estaba se actualiza, lo nuevo se agrega.
+          <Seccion titulo="Costos">
+            <p className="texto-2 mb-3 text-sm">
+              Excel con columnas <b>MODELO</b> y <b>COSTO</b> (MXN).
             </p>
             <SubirCostos />
             {costos.length ? (
               <details className="mt-3 text-sm">
-                <summary style={{ color: "var(--ink-2)" }}>{costos.length} modelos con costo</summary>
+                <summary className="texto-2">{costos.length} modelos con costo</summary>
                 <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
                   {costos.map((c) => (
                     <div key={c.modelo} className="num flex justify-between">
@@ -101,20 +91,17 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
                 </div>
               </details>
             ) : (
-              <p className="mt-2 text-xs" style={{ color: "var(--estado-serio)" }}>
+              <p className="mt-2 text-xs" style={{ color: "var(--alerta-texto)" }}>
                 Sin costos cargados: la ganancia no se puede calcular.
               </p>
             )}
-          </section>
+          </Seccion>
 
-          <section className="tarjeta p-5">
-            <h2 className="font-semibold">Parámetros del planeador</h2>
-            <div className="mt-3">
-              <FormularioParametros valores={parametros!} />
-            </div>
-          </section>
+          <Seccion titulo="Parámetros del planeador">
+            <FormularioParametros valores={parametros!} />
+          </Seccion>
         </>
       ) : null}
-    </div>
+    </Pagina>
   );
 }

@@ -75,7 +75,7 @@ export function PedidosTikTok({ pedidos }: { pedidos: PedidoPorEnviar[] }) {
   return (
     <section className="tarjeta p-4">
       <h2 className="text-sm font-semibold">Qué hay que empacar</h2>
-      <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
+      <p className="mt-0.5 text-xs texto-2">
         Pagados y sin salir: sus pares ya están apartados. Imprime la guía, empaca, y al confirmar
         el envío aquí se descuenta del almacén y se republica en TikTok en el mismo clic.
       </p>
@@ -96,19 +96,19 @@ export function PedidosTikTok({ pedidos }: { pedidos: PedidoPorEnviar[] }) {
                         Muestra
                       </span>
                     ) : null}
-                    <span className="ml-2 text-xs font-normal" style={{ color: "var(--ink-2)" }}>
+                    <span className="ml-2 text-xs font-normal texto-2">
                       {cuando(p.creadoEn)}
                       {propio ? " · paquetería propia" : " · guía de TikTok"}
                     </span>
                   </div>
                   {p.destinatario ? (
-                    <div className="text-xs" style={{ color: "var(--ink-2)" }}>{p.destinatario}</div>
+                    <div className="text-xs texto-2">{p.destinatario}</div>
                   ) : null}
                   <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
                     {p.renglones.map((r) => (
                       <li key={r.sku}>
                         <span className="font-medium">{r.sku}</span>
-                        <span style={{ color: "var(--ink-2)" }}> × {r.pares}</span>
+                        <span className="texto-2"> × {r.pares}</span>
                       </li>
                     ))}
                   </ul>
@@ -137,8 +137,7 @@ export function PedidosTikTok({ pedidos }: { pedidos: PedidoPorEnviar[] }) {
                   <button
                     onClick={() => confirmar(p)}
                     disabled={ocupado !== null}
-                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                    style={{ background: "var(--acento)" }}
+                    className="boton boton-primario gap-1.5"
                   >
                     <PackageCheck size={14} />
                     {ocupado === p.orderId ? "Confirmando…" : "Confirmar envío"}

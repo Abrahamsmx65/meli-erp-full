@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
+import { Aviso, Vacio } from "@/components/ui/pagina";
 import { NOMBRE_ESTADO, type EstadoTienda, type PedidoTienda } from "@/lib/tienda/estados";
 
 const ORDEN: EstadoTienda[] = ["pagado", "sin_stock", "pendiente_pago", "enviado", "entregado", "cancelado", "expirado"];
@@ -107,19 +108,19 @@ export function PedidosTienda({
       <div className="tarjeta flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
         <div>
           <b className="num">{productosActivos}</b> productos a la venta · catálogo leído de TikTok {fecha(catalogoLeidoEn)}
-          <div className="text-xs" style={{ color: "var(--ink-2)" }}>
-            El precio se copia cada 15 min; fotos, colores y tallas se releen cada 12 h o con este botón.
-          </div>
         </div>
-        <button className="boton boton-secundario" onClick={actualizarCatalogo} disabled={ocupado !== null}>
+        <button
+          className="boton boton-borde boton-chico"
+          onClick={actualizarCatalogo}
+          disabled={ocupado !== null}
+          title="El precio se copia cada 15 min; fotos, colores y tallas se releen cada 12 h o con este botón"
+        >
           <RefreshCw size={14} className={ocupado === "catalogo" ? "girando" : ""} /> Actualizar catálogo
         </button>
       </div>
 
       {mensaje && (
-        <div className="tarjeta p-3 text-sm" style={{ color: mensaje.error ? "var(--estado-critico)" : "var(--exito-texto)" }}>
-          {mensaje.texto}
-        </div>
+        <Aviso tono={mensaje.error ? "critico" : "bien"}>{mensaje.texto}</Aviso>
       )}
 
       <div className="flex flex-wrap gap-2">
@@ -140,7 +141,7 @@ export function PedidosTienda({
 
       {filtro === "pagado" && porSurtir.length > 0 && (
         <div className="tarjeta p-4">
-          <h2 className="titulo-seccion">Surtir para los pedidos pagados</h2>
+          <h2 className="seccion-titulo">Surtir para los pedidos pagados</h2>
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {porSurtir.map(([sku, n]) => (
               <span key={sku}>
@@ -151,7 +152,7 @@ export function PedidosTienda({
         </div>
       )}
 
-      {!visibles.length && <p className="text-sm" style={{ color: "var(--ink-2)" }}>No hay pedidos en este estado.</p>}
+      {!visibles.length && <div className="tarjeta"><Vacio>No hay pedidos en este estado.</Vacio></div>}
 
       <div className="flex flex-col gap-3">
         {visibles.map((p) => {
@@ -166,7 +167,7 @@ export function PedidosTienda({
                       {NOMBRE_ESTADO[p.estado] ?? p.estado}
                     </span>
                   </div>
-                  <div className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+                  <div className="mt-1 text-xs texto-2">
                     Creado {fecha(p.creadoEn)}
                     {p.pagadoEn ? ` · pagado ${fecha(p.pagadoEn)}` : ""}
                     {p.enviadoEn ? ` · enviado ${fecha(p.enviadoEn)}` : ""}
@@ -175,7 +176,7 @@ export function PedidosTienda({
                 </div>
                 <div className="text-right">
                   <div className="num font-semibold">{pesos(p.total)}</div>
-                  <div className="text-xs" style={{ color: "var(--ink-2)" }}>
+                  <div className="text-xs texto-2">
                     {pesos(p.subtotal)} + envío {pesos(p.envio)}
                   </div>
                 </div>
@@ -184,7 +185,7 @@ export function PedidosTienda({
               <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
                 <div>
                   <div className="font-medium">{p.nombre}</div>
-                  <div style={{ color: "var(--ink-2)" }}>
+                  <div className="texto-2">
                     {p.email}
                     {p.telefono ? ` · ${p.telefono}` : ""}
                   </div>
@@ -194,14 +195,14 @@ export function PedidosTienda({
                       Guía <span className="num">{p.guia}</span> {p.paqueteria ? `(${p.paqueteria})` : ""}
                     </div>
                   )}
-                  {p.nota && <div className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>Nota: {p.nota}</div>}
+                  {p.nota && <div className="mt-1 text-xs texto-2">Nota: {p.nota}</div>}
                 </div>
                 <ul className="flex flex-col gap-1">
                   {p.items.map((it, i) => (
                     <li key={i} className="flex items-center justify-between gap-2">
                       <span>
                         <span className="num">{it.skuInterno}</span>
-                        <span style={{ color: "var(--ink-2)" }}> · {[it.color, it.talla].filter(Boolean).join(" / ")}</span>
+                        <span className="texto-2"> · {[it.color, it.talla].filter(Boolean).join(" / ")}</span>
                       </span>
                       <span className="num">
                         ×{it.cantidad} · {pesos(it.precio)}
@@ -229,7 +230,7 @@ export function PedidosTienda({
                       onChange={(e) => setGuias({ ...guias, [p.id]: { ...g, paqueteria: e.target.value } })}
                     />
                     <button
-                      className="boton boton-primario"
+                      className="boton boton-primario boton-chico"
                       disabled={ocupado !== null || !g.guia.trim()}
                       onClick={() => accion(p.id, { accion: "enviar", ...g })}
                     >
@@ -238,13 +239,13 @@ export function PedidosTienda({
                   </>
                 )}
                 {p.estado === "enviado" && (
-                  <button className="boton boton-secundario" disabled={ocupado !== null} onClick={() => accion(p.id, { accion: "entregado" })}>
+                  <button className="boton boton-borde boton-chico" disabled={ocupado !== null} onClick={() => accion(p.id, { accion: "entregado" })}>
                     Marcar entregado
                   </button>
                 )}
                 {["pendiente_pago", "pagado", "sin_stock"].includes(p.estado) && (
                   <button
-                    className="boton boton-peligro"
+                    className="boton boton-peligro boton-chico"
                     disabled={ocupado !== null}
                     onClick={() => {
                       const pagado = p.estado !== "pendiente_pago";

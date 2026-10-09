@@ -1,7 +1,9 @@
-import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { FOTOS_MINIMAS, cargarProductosNuevos } from "@/lib/servicios/productos-nuevos";
+import { CLAVE_FOTOS_NUEVOS, FOTOS_MINIMAS, servirProductosNuevos } from "@/lib/servicios/productos-nuevos";
+import { fotosGuardadasVigentes, type FotosGuardada } from "@/lib/servicios/productos-nuevos-fotos";
+import { leerCacheAppGuardado } from "@/lib/servicios/cache-app";
+import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { Ficha } from "@/components/tiles";
 import { ProductosNuevos } from "@/components/productos-nuevos";
 
@@ -21,35 +23,42 @@ export default async function Nuevos() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Lanzamientos" />;
 
-  const { productos, amazonConectado } = await cargarProductosNuevos(supabase, cuenta.id);
+  // La lista sale masticada (lo guardado aunque esté viejo; se refresca por
+  // atrás) y las fotos YA REVISADAS se leen guardadas: preguntarle a MELI y
+  // Amazon en cada visita queda solo para los botones de revisar.
+  const [servida, fotosGuardadas] = await Promise.all([
+    servirProductosNuevos(supabase, cuenta.id),
+    leerCacheAppGuardado<{ productos: Record<string, FotosGuardada> }>(supabase, cuenta.id, CLAVE_FOTOS_NUEVOS),
+  ]);
+  const { productos, amazonConectado } = servida.datos;
+  const fotosIniciales = fotosGuardadasVigentes(
+    productos,
+    fotosGuardadas.estado === "encontrado" ? fotosGuardadas.valor.datos?.productos : null,
+  );
   const sinMeli = productos.filter((p) => !p.meli.publicaciones.length).length;
   const sinAmazon = amazonConectado ? productos.filter((p) => !p.amazon.skus.length).length : 0;
   const enBodega = productos.filter((p) => p.enBodega > 0).length;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Productos nuevos en camino</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Todo lo que viene en los pedidos y que <strong>nunca ha tenido stock</strong> en
-          Full ni en FBA. De cada uno se revisa si ya está publicado en Mercado Libre y en
-          Amazon y cuántas fotos tiene: con una sola no alcanza, hacen falta al menos{" "}
-          {FOTOS_MINIMAS}.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Abastecimiento"
+        titulo="Lanzamientos"
+        descripcion="Lo pedido que nunca ha tenido stock: si ya está publicado en MELI y Amazon y con cuántas fotos."
+        frescura={servida.generadoEn}
+        ayuda={
+          <p>
+            Todo lo que viene en los pedidos y que <strong>nunca ha tenido stock</strong> en
+            Full ni en FBA. De cada uno se revisa si ya está publicado en Mercado Libre y en
+            Amazon y cuántas fotos tiene: con una sola no alcanza, hacen falta al menos{" "}
+            {FOTOS_MINIMAS}.
+          </p>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha titulo="Productos nuevos" valor={n(productos.length)} nota="Modelo + color" />
         <Ficha
           titulo="Sin publicar en MELI"
@@ -63,9 +72,14 @@ export default async function Nuevos() {
           tono={sinAmazon > 0 ? "alerta" : "neutro"}
         />
         <Ficha titulo="Ya en bodega" valor={n(enBodega)} nota="Llegaron y siguen sin stock en Full" />
-      </div>
+      </Cifras>
 
-      <ProductosNuevos productos={productos} fotosMinimas={FOTOS_MINIMAS} amazonConectado={amazonConectado} />
-    </div>
+      <ProductosNuevos
+        productos={productos}
+        fotosMinimas={FOTOS_MINIMAS}
+        amazonConectado={amazonConectado}
+        fotosIniciales={fotosIniciales}
+      />
+    </Pagina>
   );
 }

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Parametros } from "@/lib/engine/types";
+import { Ayuda } from "@/components/ui/pagina";
 
 const CAMPOS: {
   clave: keyof Parametros;
   etiqueta: string;
   ayuda: string;
+  /** Texto corto bajo el campo; con él, `ayuda` va plegada abajo. */
+  corta?: string;
   paso?: number;
   min?: number;
 }[] = [
@@ -40,6 +43,7 @@ const CAMPOS: {
     clave: "nivelServicio",
     etiqueta: "Nivel de servicio",
     ayuda: "0.95 = aceptas quedarte sin stock 5% del tiempo. Más alto = más colchón.",
+    corta: "0.95 = 95 %.",
     paso: 0.01,
     min: 0.5,
   },
@@ -67,6 +71,7 @@ const CAMPOS: {
     clave: "maxCajasPorEnvio",
     etiqueta: "Tope de cajas por envío",
     ayuda: "0 = sin tope. Úsalo si tu transporte tiene un límite fijo.",
+    corta: "0 = sin tope.",
     min: 0,
   },
   {
@@ -74,6 +79,7 @@ const CAMPOS: {
     etiqueta: "Producto nuevo (días)",
     ayuda:
       "Un producto estrenado en Full hace menos de estos días es NUEVO: cualquier faltante fuerza su caja, sin tolerancia de rescate. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
   {
@@ -88,6 +94,7 @@ const CAMPOS: {
     etiqueta: "Cobertura para no forzar caja (días)",
     ayuda:
       "Si la caja va a forzar otras tallas, la talla que la pide solo la fuerza con menos de estos días de stock en Full. 0 = siempre se fuerza.",
+    corta: "0 = siempre se fuerza.",
     min: 0,
   },
   {
@@ -95,6 +102,7 @@ const CAMPOS: {
     etiqueta: "Cajas mínimas sin venta",
     ayuda:
       "Un producto que nunca ha vendido en Full y tiene cajas en bodega se sostiene con al menos estas cajas por modelo + color entre Full y en camino. 0 = apagado.",
+    corta: "0 = apagado.",
     min: 0,
   },
 ];
@@ -120,7 +128,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       setEstado("ok");
-      setMensaje("Parámetros guardados. El plan se recalcula con estos valores.");
+      setMensaje("Parámetros guardados.");
       router.refresh();
     } catch (err) {
       setEstado("error");
@@ -142,19 +150,23 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
               onChange={(e) => setV({ ...v, [c.clave]: Number(e.target.value) })}
               className="cifra"
             />
-            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
-              {c.ayuda}
-            </span>
+            {c.corta ? <span className="text-xs texto-tenue">{c.corta}</span> : null}
           </label>
         ))}
       </div>
+      <Ayuda titulo="¿Qué hacen las reglas de producto?">
+        {CAMPOS.filter((c) => c.corta).map((c) => (
+          <p key={String(c.clave)}>
+            <strong>{c.etiqueta}.</strong> {c.ayuda}
+          </p>
+        ))}
+      </Ayuda>
 
       <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={estado === "enviando"}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario"
         >
           {estado === "enviando" ? "Guardando…" : "Guardar parámetros"}
         </button>

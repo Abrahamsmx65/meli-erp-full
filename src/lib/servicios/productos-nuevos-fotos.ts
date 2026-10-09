@@ -42,3 +42,23 @@ export function tocaRevisar(
   if (publicadoAmz && (guardado.amazon.fotos == null || guardado.amazon.fotos < FOTOS_MINIMAS)) return true;
   return false;
 }
+
+/**
+ * Lo ya revisado y GUARDADO (`nuevos:fotos`) que la pantalla puede enseñar al
+ * abrir sin preguntarle a MELI ni a Amazon: solo de los productos de la lista
+ * y solo si lo publicado no cambió desde la revisión (misma huella). Lo
+ * demás sale «sin revisar» y se pregunta con el botón.
+ */
+export function fotosGuardadasVigentes(
+  lista: Pick<ProductoNuevo, "clave" | "meli" | "amazon">[],
+  guardadas: Record<string, FotosGuardada> | null | undefined,
+): FotosProducto[] {
+  if (!guardadas) return [];
+  const salida: FotosProducto[] = [];
+  for (const p of lista) {
+    const g = guardadas[p.clave];
+    if (!g || g.huella !== huellaPublicaciones(p)) continue;
+    salida.push({ clave: p.clave, meli: g.meli, amazon: g.amazon, revisadoEn: g.revisadoEn ?? null });
+  }
+  return salida;
+}

@@ -9,11 +9,23 @@
  */
 import {
   aplicarPublicidadAlMonitor,
-  cargarMonitor,
+  calcularMonitorFresco,
+  claveMonitorVentas,
+  fechaMx,
+  normalizarRango,
+  servirMonitor,
+  VIDA_MONITOR_GUARDADO_MS,
   type Monitor,
   type RangoFechas,
 } from "./ventas-monitor";
-import { cargarPublicidad, type FilaPublicidad } from "./publicidad";
+import {
+  calcularPublicidadFresca,
+  clavePublicidadMeli,
+  servirPublicidad,
+  VIDA_PUBLICIDAD_ABIERTA_MS,
+  type FilaPublicidad,
+} from "./publicidad";
+import { guardarCacheApp } from "./cache-app";
 import { leerFinanzasMeli } from "./finanzas/leer";
 import { aCentavos } from "./finanzas/motor";
 import type { FinanzasPeriodo } from "./finanzas/tipos";
@@ -45,6 +57,8 @@ export interface VistaVentas {
    * para que la pantalla los grite si no cuadran, no para esconderlos.
    */
   cuadres: Cuadre[];
+  /** de cuándo es lo guardado (el más viejo de monitor y publicidad) */
+  generadoEn: string | null;
 }
 
 function cuadre(que: string, arriba: number, abajo: number): Cuadre {
@@ -62,19 +76,29 @@ export async function vistaVentas(
   // La publicidad del mismo periodo, para que la ganancia ya la tenga
   // descontada: recibo − costo − publicidad. Si Product Ads no contesta, se
   // declara y la ganancia se muestra sin ads, nunca con un cero disfrazado.
-  const [sinAds, ads, finanzas] = await Promise.all([
-    medir("monitor", cargarMonitor(db, cuenta.id, rango)),
+  const [sinAdsServido, adsServidos, finanzas] = await Promise.all([
+    medir("monitor", servirMonitor(db, cuenta.id, rango)),
     medir(
       "publicidad",
-      cargarPublicidad(db, cuenta, rango).catch((err) => ({
-        filas: [] as FilaPublicidad[],
-        totales: { gastoAds: 0 },
-        errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
-        advertencias: [] as string[],
+      servirPublicidad(db, cuenta, rango).catch((err) => ({
+        datos: {
+          filas: [] as FilaPublicidad[],
+          totales: { gastoAds: 0 },
+          errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
+          advertencias: [] as string[],
+        },
+        generadoEn: null as string | null,
+        refrescando: false,
       })),
     ),
     medir("finanzas", leerFinanzasMeli(db, cuenta.id, rango)),
   ]);
+  const sinAds = sinAdsServido.datos;
+  const ads = adsServidos.datos;
+  const generadoEn =
+    [sinAdsServido.generadoEn, adsServidos.generadoEn]
+      .filter((x): x is string => !!x)
+      .sort()[0] ?? null;
 
   const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
   const adsPorModelo = ads.errorAds ? null : new Map(ads.filas.map((f) => [f.modelo, f.gastoAds]));
@@ -109,5 +133,78 @@ export async function vistaVentas(
     gananciaConAds,
     finanzas,
     cuadres,
+    generadoEn,
   };
+}
+
+/**
+ * Lo que /ventas y la tabla de modelos piden, con la publicidad ya aplicada:
+ * para quien solo quiere las filas por modelo (la ruta de la tabla) sin la
+ * cascada del dinero. Lee los mismos renglones guardados que la página.
+ */
+export async function filasModeloServidas(db: DB, cuenta: Cuenta, rango: RangoFechas) {
+  const [monitor, publicidad] = await Promise.all([
+    servirMonitor(db, cuenta.id, rango),
+    servirPublicidad(db, cuenta, rango).catch((err) => ({
+      datos: {
+        filas: [] as FilaPublicidad[],
+        errorAds: `No se pudo leer Product Ads: ${(err as Error).message}`,
+      },
+    })),
+  ]);
+  const ads = publicidad.datos;
+  const adsPorModelo = ads.errorAds ? null : new Map(ads.filas.map((f) => [f.modelo, f.gastoAds]));
+  return aplicarPublicidadAlMonitor(monitor.datos, adsPorModelo).porModelo;
+}
+
+/**
+ * Deja masticados los rangos por omisión de /ventas (7 días) y /publicidad
+ * (30 días) para que la primera visita lea un renglón. Lo llama el latido;
+ * cada pieza solo se recalcula si su renglón tiene más de 10 minutos o está
+ * invalidado, así que correrlo seguido cuesta dos lecturas.
+ */
+export async function precalcularPantallasVentas(
+  admin: DB,
+  cuenta: { id: string; site_id: string },
+  limite: number,
+): Promise<{ recalculadas: string[] }> {
+  const siete = normalizarRango();
+  const treinta = normalizarRango(fechaMx(29));
+  const tareas: { clave: string; vida: number; calcular: () => Promise<unknown> }[] = [
+    {
+      clave: claveMonitorVentas(siete),
+      vida: VIDA_MONITOR_GUARDADO_MS,
+      calcular: () => calcularMonitorFresco(admin, cuenta.id, siete),
+    },
+    {
+      clave: clavePublicidadMeli(siete),
+      vida: VIDA_PUBLICIDAD_ABIERTA_MS,
+      calcular: () => calcularPublicidadFresca(admin, cuenta, siete),
+    },
+    {
+      clave: clavePublicidadMeli(treinta),
+      vida: VIDA_PUBLICIDAD_ABIERTA_MS,
+      calcular: () => calcularPublicidadFresca(admin, cuenta, treinta),
+    },
+  ];
+  const { data } = await admin
+    .from("app_cache")
+    .select("clave, generado_en, vigente")
+    .eq("account_id", cuenta.id)
+    .in("clave", tareas.map((t) => t.clave));
+  const guardadas = new Map(((data ?? []) as any[]).map((f) => [String(f.clave), f]));
+
+  const recalculadas: string[] = [];
+  for (const t of tareas) {
+    if (Date.now() > limite) break;
+    const g = guardadas.get(t.clave);
+    const fresca =
+      g && g.vigente !== false && Date.now() - Date.parse(g.generado_en) < t.vida - 30_000;
+    if (fresca) continue;
+    const t0 = Date.now();
+    const datos = await t.calcular();
+    await guardarCacheApp(admin, cuenta.id, t.clave, datos, Date.now() - t0);
+    recalculadas.push(t.clave);
+  }
+  return { recalculadas };
 }

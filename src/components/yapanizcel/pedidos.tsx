@@ -11,7 +11,6 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
-const btn = "rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60";
 
 /**
  * Cargar un pedido: se sube el Excel, se muestra TODO lo que entraría y hasta
@@ -138,7 +137,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
   const unidades = lineas.reduce((a, l) => a + l.cantidad, 0);
   const costo = lineas.reduce((a, l) => a + l.cantidad * (l.costoUnitario ?? 0), 0);
   const sinAmarre = lineas.filter((l) => l.skuMeli === null);
-  const estiloRojo = { background: "color-mix(in oklab, var(--estado-critico) 12%, transparent)", color: "var(--estado-critico)" };
+  const estiloRojo = { background: "var(--critico-suave)", color: "var(--critico-texto)" };
 
   return (
     <div className="tarjeta flex flex-col gap-4 p-4">
@@ -173,7 +172,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
       </div>
 
       {avisos.length ? (
-        <ul className="list-disc pl-5 text-xs" style={{ color: "var(--estado-serio)" }}>
+        <ul className="list-disc pl-5 text-xs" style={{ color: "var(--alerta-texto)" }}>
           {avisos.slice(0, 20).map((a, i) => (
             <li key={i}>{a}</li>
           ))}
@@ -183,7 +182,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-2 py-1">SKU de bodega</th>
               <th className="px-2 py-1">SKU en MELI</th>
               <th className="px-2 py-1">Diseño</th>
@@ -207,11 +206,11 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
                     }}
                     title={l.skuMeli === null ? "No amarra con ningún SKU de MELI: corrígelo aquí" : undefined}
                     className="num w-48 rounded-md border px-2 py-0.5 text-xs"
-                    style={{ ...estiloInput, ...(l.skuMeli === null ? { borderColor: "var(--estado-critico)", color: "var(--estado-critico)" } : {}) }}
+                    style={{ ...estiloInput, ...(l.skuMeli === null ? { borderColor: "var(--estado-critico)", color: "var(--critico-texto)" } : {}) }}
                   />
                 </td>
                 <td className="num px-2 py-1 text-xs">
-                  {l.skuMeli === undefined ? <span style={{ color: "var(--ink-muted)" }}>…</span> : l.skuMeli === null ? <b>sin amarre</b> : l.skuMeli}
+                  {l.skuMeli === undefined ? <span className="texto-tenue">…</span> : l.skuMeli === null ? <b>sin amarre</b> : l.skuMeli}
                 </td>
                 <td className="px-2 py-1">{l.diseno}</td>
                 <td className="px-2 py-1">{l.modelo}</td>
@@ -223,7 +222,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
                   <input type="number" min={0} step="0.01" value={l.costoUnitario ?? ""} onChange={(e) => setLineas((ls) => ls.map((x, k) => (k === i ? { ...x, costoUnitario: e.target.value === "" ? null : Number(e.target.value) } : x)))} className="num w-20 rounded-md border px-2 py-0.5 text-right text-xs" style={estiloInput} />
                 </td>
                 <td className="px-2 py-1 text-right">
-                  <button onClick={() => setLineas((ls) => ls.filter((_, k) => k !== i))} className="text-xs underline" style={{ color: "var(--ink-muted)" }}>
+                  <button onClick={() => setLineas((ls) => ls.filter((_, k) => k !== i))} className="text-xs underline texto-tenue">
                     Quitar
                   </button>
                 </td>
@@ -240,7 +239,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
                 <input type="number" min={0} step="0.01" value={nuevo.costo} onChange={(e) => setNuevo((v) => ({ ...v, costo: e.target.value }))} placeholder="Costo" className="num w-20 rounded-md border px-2 py-0.5 text-right text-xs" style={estiloInput} />
               </td>
               <td className="px-2 py-1 text-right">
-                <button onClick={agregarLinea} className="text-xs font-semibold underline" style={{ color: "var(--acento)" }}>
+                <button onClick={agregarLinea} className="text-xs font-semibold enlace">
                   Agregar
                 </button>
               </td>
@@ -250,16 +249,16 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <span className="text-sm texto-2">
           {lineas.length} líneas · <b>{n(unidades)}</b> unidades{costo > 0 ? ` · costo ${costo.toLocaleString("es-MX", { maximumFractionDigits: 2 })}` : ""}
         </span>
         {sinAmarre.length ? (
-          <span className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+          <span className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
             {sinAmarre.length} en rojo sin amarre ({n(sinAmarre.reduce((a, l) => a + l.cantidad, 0))} unidades no contarán como en camino)
           </span>
         ) : null}
-        <button onClick={confirmar} disabled={ocupado !== null || !lineas.length || !folio.trim()} className={`${btn} ml-auto`} style={{ background: "var(--acento)", color: "#fff" }}>
-          {ocupado === "guardar" ? "Guardando…" : "Confirmar y guardar pedido"}
+        <button onClick={confirmar} disabled={ocupado !== null || !lineas.length || !folio.trim()} className="boton boton-primario ml-auto">
+          {ocupado === "guardar" ? "Guardando…" : "Guardar pedido"}
         </button>
       </div>
       {aviso ? (
@@ -268,7 +267,7 @@ export function CargarPedido({ sugerencia }: { sugerencia?: { diseno: string; li
         </p>
       ) : null}
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
@@ -316,13 +315,13 @@ export function ListaPedidos({ pedidos }: { pedidos: PedidoResumen[] }) {
   return (
     <div className="tarjeta overflow-x-auto">
       {error ? (
-        <p className="p-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="p-3 text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+          <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
             <th className="px-3 py-2">Folio</th>
             <th className="px-3 py-2">Proveedor</th>
             <th className="px-3 py-2">Pedido</th>
@@ -337,7 +336,7 @@ export function ListaPedidos({ pedidos }: { pedidos: PedidoResumen[] }) {
         <tbody>
           {pedidos.length === 0 ? (
             <tr>
-              <td colSpan={9} className="px-3 py-4 text-center" style={{ color: "var(--ink-muted)" }}>
+              <td colSpan={9} className="px-3 py-4 text-center texto-tenue">
                 Todavía no hay pedidos cargados.
               </td>
             </tr>
@@ -348,7 +347,7 @@ export function ListaPedidos({ pedidos }: { pedidos: PedidoResumen[] }) {
               <td className="px-3 py-1.5">{p.proveedor ?? "—"}</td>
               <td className="num px-3 py-1.5">{p.fecha_pedido ?? p.creado_en.slice(0, 10)}</td>
               <td className="num px-3 py-1.5">{p.fecha_estimada ?? "—"}</td>
-              <td className="px-3 py-1.5 text-xs" style={{ color: "var(--ink-2)" }}>
+              <td className="px-3 py-1.5 text-xs texto-2">
                 {p.disenos.join(", ")}
               </td>
               <td className="num px-3 py-1.5 text-right">{p.lineas}</td>
@@ -366,11 +365,11 @@ export function ListaPedidos({ pedidos }: { pedidos: PedidoResumen[] }) {
                   </button>
                 ) : null}
                 {p.estado !== "recibido" && p.estado !== "cancelado" ? (
-                  <button disabled={ocupado !== null} onClick={() => cambiar(p.id, "cancelado")} className="ml-2 underline" style={{ color: "var(--ink-muted)" }}>
+                  <button disabled={ocupado !== null} onClick={() => cambiar(p.id, "cancelado")} className="ml-2 underline texto-tenue">
                     Cancelar
                   </button>
                 ) : null}
-                <button disabled={ocupado !== null} onClick={() => borrar(p.id, p.folio)} className="ml-2 underline" style={{ color: "var(--estado-critico)" }}>
+                <button disabled={ocupado !== null} onClick={() => borrar(p.id, p.folio)} className="ml-2 underline" style={{ color: "var(--critico-texto)" }}>
                   Borrar
                 </button>
               </td>

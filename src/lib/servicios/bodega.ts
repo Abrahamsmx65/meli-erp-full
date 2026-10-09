@@ -12,9 +12,9 @@
  * editan a mano en Productos y costos, y una copia guardada quedaría vieja al
  * primer cambio sin que nadie se entere.
  */
-import { cargarInventario, familiasMexico, inversionPorCategoria } from "./inventario";
+import { cargarInventario, inversionPorCategoria } from "./inventario";
 import { configPorProducto } from "./productos";
-import type { FamiliaMexico, InversionEnBodega } from "./inventario";
+import type { InversionEnBodega } from "./inventario";
 import type { DB } from "../datos/repos";
 import type { Cronometro } from "./cronometro";
 
@@ -41,7 +41,12 @@ export interface VistaBodega {
     paresSinCosto: number;
   };
   inversion: InversionEnBodega;
-  familias: FamiliaMexico[];
+  /**
+   * Cajas por modelo (contadas una vez) para el total por familia, que el
+   * navegador arma con `familiasMexico` desde `renglones`: antes viajaba
+   * aquí ya armado, con una SEGUNDA copia de cada SKU en su detalle.
+   */
+  cajasPorModelo: Record<string, number>;
   renglones: RenglonBodega[];
   almacenes: string[];
 }
@@ -74,7 +79,7 @@ export async function vistaBodega(
       paresSinCosto: inversion.sinCosto.pares,
     },
     inversion,
-    familias: familiasMexico(inv.renglones, inv.cajasPorModelo),
+    cajasPorModelo: inv.cajasPorModelo,
     renglones: inv.renglones.map((r) => ({
       sku: r.sku,
       modelo: r.modelo,

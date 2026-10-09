@@ -130,6 +130,80 @@ export async function conCacheApp<T>(
   return datos;
 }
 
+/**
+ * Para PANTALLAS: sirve el renglón guardado aunque esté viejo o invalidado y
+ * lo refresca por atrás con `after()` (regla de arquitectura: calcular en el
+ * clic solo cuando NO existe ningún renglón). `conCacheApp` calculaba en el
+ * clic cada vez que vencía el TTL: Planificación China tardaba 10–60 s la
+ * primera vez de cada media hora.
+ *
+ * El refresco lleva candado por clave (`cache:<clave>`): diez visitas a la
+ * vez lanzan UN recálculo, no diez. Fuera de un request (pruebas, scripts)
+ * no hay fondo y lo guardado sirve igual.
+ */
+export async function servirConCacheApp<T>(
+  db: DB,
+  accountId: string,
+  clave: string,
+  edadMaxMs: number,
+  calcular: () => Promise<T>,
+): Promise<{ datos: T; generadoEn: string | null; refrescando: boolean }> {
+  const guardado = await leerCacheAppGuardado<T>(db, accountId, clave);
+  if (guardado.estado === "fallo") throw guardado.error;
+
+  const recalc = async (): Promise<T> => {
+    const t0 = Date.now();
+    const datos = await calcular();
+    await guardarCacheApp(db, accountId, clave, datos, Date.now() - t0);
+    return datos;
+  };
+
+  if (guardado.estado === "ausente") {
+    const datos = await recalc();
+    return { datos, generadoEn: new Date().toISOString(), refrescando: false };
+  }
+
+  const { datos, generadoEn, vigente } = guardado.valor;
+  const viejo = !vigente || Date.now() - Date.parse(generadoEn) > edadMaxMs;
+  if (!viejo) return { datos, generadoEn, refrescando: false };
+
+  try {
+    const { after } = await import("next/server");
+    after(async () => {
+      const recurso = `cache:${clave}`.slice(0, 120);
+      // El candado vive en una tabla sin políticas: se toma con service_role.
+      let admin: DB | null = null;
+      let token: string | null = null;
+      try {
+        const { clienteAdmin } = await import("../supabase/admin");
+        admin = clienteAdmin() as DB;
+        const { adquirirCandado } = await import("../datos/repos");
+        token = await adquirirCandado(admin, accountId, recurso, 300);
+      } catch {
+        token = "sin-candado";
+      }
+      if (!token) return; // otro request ya lo está recalculando
+      try {
+        await recalc();
+      } catch (err) {
+        console.error(`cache ${clave}: refresco de fondo:`, (err as Error).message);
+      } finally {
+        if (token !== "sin-candado" && admin) {
+          try {
+            const { liberarCandado } = await import("../datos/repos");
+            await liberarCandado(admin, accountId, recurso, token);
+          } catch {
+            // vence solo por TTL
+          }
+        }
+      }
+    });
+  } catch {
+    // Sin contexto de request: lo guardado sirve igual.
+  }
+  return { datos, generadoEn, refrescando: true };
+}
+
 /** Marca claves exactas o todo un prefijo ("contenido:") como obsoleto. */
 export async function invalidarApp(
   db: DB,

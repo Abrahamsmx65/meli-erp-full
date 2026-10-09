@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { agruparGemelas, llevaPrefijoNC, sumarPorPrincipal } from "./gemelas";
+import { agruparGemelas, amarreConGemelas, llevaPrefijoNC, sumarPorPrincipal } from "./gemelas";
+import { amarrar, construirIndice } from "./sku";
 
 describe("gemelas", () => {
   it("la N- es la principal aunque las dos estén activas o pausadas", () => {
@@ -49,5 +50,36 @@ describe("gemelas", () => {
     expect(llevaPrefijoNC("462N-A57")).toBe(true);
     expect(llevaPrefijoNC("462-A57")).toBe(false);
     expect(llevaPrefijoNC("CH-650-i16promax")).toBe(false);
+  });
+});
+
+describe("amarre con gemelas (caso real del 514, 8-oct-2026)", () => {
+  const catalogo = [
+    { sku: "C-514-Rmn14pro-4G", estado: "active" },
+    { sku: "C-514-Rmn14pro-5G", estado: "paused" },
+    { sku: "C-514-Rmn14pro+-5G", estado: "paused" },
+    { sku: "C-514-Rmn14pro+5G", estado: "paused" },
+    { sku: "462-A57", estado: "active" },
+    { sku: "N-462-A57", estado: "active" },
+  ];
+  const indice = construirIndice(catalogo.map((c) => c.sku));
+  const g = agruparGemelas(catalogo);
+
+  it("el Pro y el Pro+ son celulares distintos: el pedido 514-RMN14PRO-5G amarra con el Pro", () => {
+    const a = amarreConGemelas(amarrar("514-RMN14PRO-5G", indice), g);
+    expect(a.skuMeli).toBe("C-514-Rmn14pro-5G");
+  });
+
+  it("el Pro+ escrito con o sin guion es la misma publicación gemela", () => {
+    expect(g.principalDe.get("C-514-Rmn14pro+5G")).toBe(g.principalDe.get("C-514-Rmn14pro+-5G"));
+    const a = amarreConGemelas(amarrar("514-RMN14PROPLUS-5G", indice), g);
+    expect(a.skuMeli).toBe(g.principalDe.get("C-514-Rmn14pro+5G"));
+  });
+
+  it("un empate entre puras gemelas se resuelve a la principal; entre productos distintos no", () => {
+    const empate = amarreConGemelas(amarrar("462 A57", indice), g);
+    expect(empate.skuMeli).toBe("N-462-A57");
+    const distinto = amarreConGemelas(amarrar("C 514 Rmn14pro", indice), g);
+    expect(distinto.skuMeli).toBeNull();
   });
 });

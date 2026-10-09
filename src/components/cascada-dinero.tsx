@@ -52,7 +52,7 @@ export function CascadaDinero({ finanzas }: { finanzas: FinanzasPeriodo }) {
       </table>
 
       {/* Qué tan completo está el dato. Se declara SIEMPRE. */}
-      <footer className="flex flex-wrap gap-x-4 gap-y-1 border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+      <footer className="flex flex-wrap gap-x-4 gap-y-1 border-t p-3 text-xs hairline texto-tenue">
         <span>
           Órdenes del periodo: <strong className="cifra">{cobertura.ordenes.toLocaleString("es-MX")}</strong>
         </span>

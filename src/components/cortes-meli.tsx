@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GastoManual } from "@/lib/servicios/corte-meli";
+import { Aviso } from "@/components/ui/pagina";
 
 /**
  * Lo interactivo del corte: hacer el corte, revisar devoluciones, leer la
@@ -87,36 +88,23 @@ export function AccionesCorte({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="boton boton-primario" disabled={ocupado != null} onClick={() => correr("corte")}>
-          {ocupado === "corte" ? "Revisando órdenes y cortando…" : corteId ? `Rehacer corte de ${periodo}` : `Hacer corte de ${periodo}`}
+          {ocupado === "corte" ? "Revisando órdenes y cortando…" : corteId ? "Rehacer corte" : "Hacer corte"}
         </button>
-        <button type="button" className="boton boton-secundario" disabled={ocupado != null} onClick={() => correr("revisar")}>
+        <button type="button" className="boton boton-borde" disabled={ocupado != null} onClick={() => correr("revisar")}>
           {ocupado === "revisar" ? "Revisando…" : pendientes > 0 ? `Revisar devoluciones (${pendientes.toLocaleString("es-MX")} pendientes)` : "Revisar devoluciones"}
         </button>
-        <button type="button" className="boton boton-secundario" disabled={ocupado != null} onClick={() => correr("cargos")}>
+        <button type="button" className="boton boton-borde" disabled={ocupado != null} onClick={() => correr("cargos")}>
           {ocupado === "cargos" ? "Leyendo…" : cargosLeidos ? "Releer facturación de MELI" : "Leer facturación de MELI"}
         </button>
-        <a className="boton boton-fantasma" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
-          PDF de vista previa
+        <a className="boton boton-borde" href={`${apiBase}/cortes/pdf?periodo=${periodo}`} target="_blank" rel="noreferrer">
+          Ver PDF
         </a>
-        <a className="boton boton-fantasma" href={`${apiBase}/cortes/excel?periodo=${periodo}`}>
-          Excel con todo
+        <a className="boton boton-borde" href={`${apiBase}/cortes/excel?periodo=${periodo}`}>
+          Descargar Excel
         </a>
-        {corteId ? (
-          <a className="boton boton-fantasma" href={`${apiBase}/cortes/${corteId}/pdf`} target="_blank" rel="noreferrer">
-            PDF del corte guardado
-          </a>
-        ) : null}
       </div>
-      {aviso ? (
-        <p className="text-sm" style={{ color: "var(--exito-texto)" }}>
-          {aviso}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
-      ) : null}
+      {aviso ? <Aviso tono="bien">{aviso}</Aviso> : null}
+      {error ? <Aviso tono="critico">{error}</Aviso> : null}
     </div>
   );
 }
@@ -202,7 +190,7 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
                 <td>{NOMBRE_CATEGORIA[g.categoria]}</td>
                 <td className="num cifra">{pesos(g.monto)}</td>
                 <td className="num">
-                  <button type="button" className="text-xs" style={{ color: "var(--estado-critico)" }} disabled={ocupado} onClick={() => borrar(g.id)}>
+                  <button type="button" className="boton boton-peligro boton-chico" disabled={ocupado} onClick={() => borrar(g.id)}>
                     Borrar
                   </button>
                 </td>
@@ -211,20 +199,20 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
           </tbody>
         </table>
       ) : (
-        <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="p-4 text-sm texto-2">
           Sin gastos capturados a mano en este mes.
         </p>
       )}
       <form onSubmit={agregar} className="flex flex-wrap items-end gap-2 border-t p-3 hairline">
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           Fecha
           <input type="date" className={entrada} style={estiloEntrada} value={fecha} min={desde} max={hasta} onChange={(e) => setFecha(e.target.value)} required />
         </label>
-        <label className="flex min-w-[16rem] flex-1 flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex min-w-[16rem] flex-1 flex-col text-xs texto-2">
           Concepto
           <input className={entrada} style={estiloEntrada} value={concepto} placeholder="Almacenamiento Full, retiro de stock, diseñador…" onChange={(e) => setConcepto(e.target.value)} required />
         </label>
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           Tipo
           <select className={entrada} style={estiloEntrada} value={categoria} onChange={(e) => setCategoria(e.target.value as GastoManual["categoria"])}>
             <option value="full">Gasto de Full</option>
@@ -232,7 +220,7 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
             <option value="otro">Otro gasto</option>
           </select>
         </label>
-        <label className="flex flex-col text-xs" style={{ color: "var(--ink-2)" }}>
+        <label className="flex flex-col text-xs texto-2">
           Monto (MXN)
           <input type="number" step="0.01" className={entrada} style={estiloEntrada} value={monto} onChange={(e) => setMonto(e.target.value)} required />
         </label>
@@ -241,9 +229,9 @@ export function GastosDelMes({ apiBase, gastos, desde, hasta }: { apiBase: strin
         </button>
       </form>
       {error ? (
-        <p className="px-3 pb-3 text-sm" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
+        <div className="px-3 pb-3">
+          <Aviso tono="critico">{error}</Aviso>
+        </div>
       ) : null}
     </div>
   );

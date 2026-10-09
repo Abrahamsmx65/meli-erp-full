@@ -5,7 +5,9 @@ import { listarPedidos } from "@/lib/yapanizcel/pedidos";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
 import { PedidosChina } from "@/components/yapanizcel/pedidos-china";
-import { Encabezado, Frescura, SinCuenta, n } from "@/components/yapanizcel/comunes";
+import { n } from "@/components/yapanizcel/comunes";
+import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,7 +16,7 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Compras a China de fundas" />;
 
   // El servidor solo pinta el resumen (unos KB, ya masticado en yz_cache) y
   // la lista de pedidos. Abrir un diseño, filtrar y elegir pasa en el
@@ -28,42 +30,70 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
   const abrirInicial = sp.diseno?.trim().toUpperCase() || undefined;
 
   return (
-    <div className="flex flex-col gap-6">
+    <Pagina>
       <Encabezado
-        titulo="Pedidos a China · YAPANIZCEL"
-        texto={`Un renglón por diseño. Elige los diseños que quieras ver (o escríbelos), ábrelos aquí mismo y baja el Excel solo de esos. Cada variante junta todo el inventario que existe (Full, en camino, bodega y pedidos sin recibir) contra su venta de 30 días, y cuánto pedir para ${DIAS_OBJETIVO_PEDIDO} días.`}
+        ceja="Fundas"
+        titulo="Compras a China de fundas"
+        descripcion={`Un renglón por diseño: cuánto pedir para ${DIAS_OBJETIVO_PEDIDO} días y lo que ya viene en camino.`}
+        frescura={resumen.generadoEn}
+        ayuda={
+          <>
+            <p>
+              Elige los diseños que quieras ver (o escríbelos), ábrelos aquí mismo y baja el Excel solo de esos. Cada
+              variante junta todo el inventario que existe (Full, en camino, bodega y pedidos sin recibir) contra su venta de
+              30 días, y cuánto pedir para {DIAS_OBJETIVO_PEDIDO} días.
+            </p>
+            {resumen.descontinuados.activo ? (
+              <p>
+                {resumen.descontinuados.skus} SKUs descontinuados (sin una venta en 180 días) no se muestran ni se piden.
+                {resumen.descontinuados.disenos
+                  ? ` ${resumen.descontinuados.disenos} diseños retirados completos (ninguna variante vendió en 180 días); los demás siguen con sus variantes vivas.`
+                  : " Un diseño que sigue vendiendo con otras variantes sí sale."}
+              </p>
+            ) : (
+              <p>
+                La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año;
+                hoy llega
+                {resumen.descontinuados.historialDesde ? ` hasta el ${resumen.descontinuados.historialDesde}` : " a nada"}.
+              </p>
+            )}
+          </>
+        }
       />
-      <Frescura generadoEn={resumen.generadoEn} />
-      {!resumen.descontinuados.activo ? (
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          La regla de descontinuados (sin venta en 180 días) se activa cuando el historial de ventas cubra medio año; hoy llega
-          {resumen.descontinuados.historialDesde ? ` hasta el ${resumen.descontinuados.historialDesde}` : " a nada"}. Sincroniza para completarlo.
-        </p>
-      ) : (
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          {resumen.descontinuados.skus} SKUs descontinuados (sin una venta en 180 días) no se muestran ni se piden.
-          {resumen.descontinuados.disenos
-            ? ` ${resumen.descontinuados.disenos} diseños retirados completos (ninguna variante vendió en 180 días); los demás siguen con sus variantes vivas.`
-            : " Un diseño que sigue vendiendo con otras variantes sí sale."}
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <Cifras columnas={3}>
         <Ficha titulo="Diseños" valor={resumen.disenos.length} />
         <Ficha titulo="Con algo que pedir" valor={resumen.disenos.filter((d) => d.sugerido > 0).length} tono="alerta" />
         <Ficha titulo={`Unidades a pedir (${DIAS_OBJETIVO_PEDIDO} d)`} valor={n(totalPedir)} />
-      </div>
+      </Cifras>
 
-      <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
+      <Pestanas
+        pestanas={[
+          {
+            id: "pedir",
+            titulo: "Qué pedir",
+            cuenta: resumen.disenos.length,
+            contenido: (
+              <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
+            ),
+          },
+          {
+            id: "cargados",
+            titulo: "Pedidos cargados",
+            cuenta: pedidos.length,
+            contenido: (
+              <Seccion titulo="Pedidos cargados" suelta>
+                <ListaPedidos pedidos={pedidos} />
+              </Seccion>
+            ),
+          },
+        ]}
+      />
 
-      <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Cargar un pedido ya hecho o en camino</h2>
+      {/* Fuera de las pestañas a propósito: un pedido a medio leer o a medio
+          amarrar no se pierde al cambiar de pestaña. */}
+      <Seccion titulo="Cargar un pedido ya hecho o en camino" suelta>
         <CargarPedido />
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Pedidos cargados</h2>
-        <ListaPedidos pedidos={pedidos} />
-      </section>
-    </div>
+      </Seccion>
+    </Pagina>
   );
 }

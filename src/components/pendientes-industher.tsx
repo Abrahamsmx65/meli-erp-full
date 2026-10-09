@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Boton } from "@/components/ui/boton";
 import { avisar } from "@/components/ui/avisos";
+import { Aviso } from "@/components/ui/pagina";
 
 /** Solo lo que la tabla pinta: el detalle por renglón se queda en el servidor. */
 export interface PendienteBodega {
@@ -39,12 +40,7 @@ export function PendientesIndusther({
 
   if (error) {
     return (
-      <section
-        className="rounded-lg p-3 text-sm"
-        style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-      >
-        No pude leer los envíos pendientes de la bodega: {error}
-      </section>
+      <Aviso tono="alerta">No pude leer los envíos pendientes de la bodega: {error}</Aviso>
     );
   }
   if (!envios.length) return null;
@@ -77,23 +73,19 @@ export function PendientesIndusther({
 
   return (
     <section className="tarjeta overflow-hidden">
-      <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
-        <div>
-          <h2 className="text-sm font-semibold">Envíos pendientes en la bodega (a MELI Full)</h2>
-          <p className="text-xs" style={{ color: "var(--ink-2)" }}>
-            Estos ya están apartados para salir y el plan LOS ESTÁ CONSIDERANDO como en
-            camino. El que no deba contar, quítalo aquí; al recibirse en Full
-            desaparecen solos.
-          </p>
+      <header className="seccion-cabeza">
+        <div className="min-w-0">
+          <h2 className="seccion-titulo">Envíos pendientes en la bodega (a MELI Full)</h2>
         </div>
         <span
-          className="cifra ml-auto rounded-full px-2.5 py-1 text-xs font-semibold"
+          className="chip cifra"
           style={{ background: "var(--acento-suave)", color: "var(--acento)" }}
         >
           {n(activos.reduce((a, e) => a + e.pares, 0))} pares considerados
         </span>
       </header>
 
+      <div className="tabla-caja">
       <table className="datos">
         <thead>
           <tr>
@@ -137,6 +129,7 @@ export function PendientesIndusther({
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { cargarCorte, preparadosDelCorte } from "@/lib/servicios/tiktok-despacho
 import { numerosPreparados } from "@/lib/tiktok/despacho";
 import { clienteAdmin } from "@/lib/supabase/server";
 import { PrepararTikTok } from "@/components/preparar-tiktok";
+import { Aviso, Encabezado, Pagina } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,11 @@ export default async function EstacionPublica({ params }: { params: Promise<{ to
   const cuenta = await cuentaPorTokenPreparar(token);
   const corteId = Number(corte);
   if (!cuenta || !Number.isFinite(corteId)) {
-    return <div className="tarjeta mx-auto max-w-lg p-8 text-center">Este link ya no sirve.</div>;
+    return (
+      <Pagina>
+        <Aviso tono="critico" titulo="Este link ya no sirve">Pide el link nuevo a quien administra el despacho.</Aviso>
+      </Pagina>
+    );
   }
 
   const admin = clienteAdmin();
@@ -23,18 +28,17 @@ export default async function EstacionPublica({ params }: { params: Promise<{ to
   ]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="titulo-pagina">Preparar pedidos · Corte #{datos.numero}</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Escanea la etiqueta, luego el producto (un escaneo por par).
-          </p>
-        </div>
-        <Link href={`/preparar/${token}`} className="text-sm underline" style={{ color: "var(--ink-2)" }}>
-          ← Otros cortes
-        </Link>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo={`Preparar pedidos · Corte #${datos.numero}`}
+        descripcion="Escanea la etiqueta, luego el producto (un escaneo por par)."
+        acciones={
+          <Link href={`/preparar/${token}`} className="boton boton-fantasma">
+            ← Otros cortes
+          </Link>
+        }
+      />
       <PrepararTikTok
         corteId={datos.id}
         numero={datos.numero}
@@ -42,6 +46,6 @@ export default async function EstacionPublica({ params }: { params: Promise<{ to
         preparadosIniciales={numerosPreparados(datos.paquetes, preparados)}
         urlGuardar={`/api/preparar-publico/${token}/cortes/${datos.id}/preparar`}
       />
-    </div>
+    </Pagina>
   );
 }

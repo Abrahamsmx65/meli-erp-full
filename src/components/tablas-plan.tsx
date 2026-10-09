@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { EstadoSku } from "@/lib/engine/types";
 import { Estado, colorEstado, etiquetaEstado } from "./estado";
 import { BarraCobertura } from "./tiles";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { terminosDeBusqueda } from "@/lib/reporte/filtro";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
 
 export interface FilaSkuPlan {
@@ -48,6 +48,11 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
+/** `coincide` de reporte/filtro con el texto ya en mayúsculas. */
+function coincideMayus(textoMayus: string, terminos: string[]): boolean {
+  return terminos.every((p) => textoMayus.includes(p));
+}
+
 const ESTADOS: EstadoSku[] = ["critico", "urgente", "ok", "sobrestock", "sin_demanda"];
 
 export function TablasPlan({
@@ -67,28 +72,37 @@ export function TablasPlan({
   const [estados, setEstados] = useState<Set<EstadoSku>>(new Set());
   const [soloConEnvio, setSoloConEnvio] = useState(false);
 
-  const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
+  // La búsqueda filtra ~2,600 renglones: el texto de cada uno se arma UNA vez
+  // (ya en mayúsculas) y el filtro corre con el valor diferido, así teclear
+  // no espera a que la tabla se repinte.
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const terminos = useMemo(() => terminosDeBusqueda(busquedaDiferida), [busquedaDiferida]);
+  const textoLineas = useMemo(
+    () => lineas.map((l) => `${l.sku} ${l.modelo} ${l.color} ${l.talla}`.toUpperCase()),
+    [lineas],
+  );
+  const textoCajas = useMemo(
+    () =>
+      cajas.map((c) =>
+        `${c.skuCaja} ${c.modelo} ${c.color} ${c.almacen} ${c.aporta.map((a) => a.sku).join(" ")}`.toUpperCase(),
+      ),
+    [cajas],
+  );
 
   const lineasFiltradas = useMemo(
     () =>
-      lineas.filter((l) => {
-        if (!coincide(`${l.sku} ${l.modelo} ${l.color} ${l.talla}`, terminos)) return false;
+      lineas.filter((l, i) => {
+        if (!coincideMayus(textoLineas[i], terminos)) return false;
         if (estados.size && !estados.has(l.estado)) return false;
         if (soloConEnvio && l.enviado <= 0) return false;
         return true;
       }),
-    [lineas, terminos, estados, soloConEnvio],
+    [lineas, textoLineas, terminos, estados, soloConEnvio],
   );
 
   const cajasFiltradas = useMemo(
-    () =>
-      cajas.filter((c) =>
-        coincide(
-          `${c.skuCaja} ${c.modelo} ${c.color} ${c.almacen} ${c.aporta.map((a) => a.sku).join(" ")}`,
-          terminos,
-        ),
-      ),
-    [cajas, terminos],
+    () => cajas.filter((_, i) => coincideMayus(textoCajas[i], terminos)),
+    [cajas, textoCajas, terminos],
   );
 
   // Totales del filtro: al buscar un modelo, esto responde "¿cuánto de ESTE
@@ -191,8 +205,7 @@ export function TablasPlan({
                 setEstados(new Set());
                 setSoloConEnvio(false);
               }}
-              className="ml-1 text-xs underline"
-              style={{ color: "var(--ink-2)" }}
+              className="ml-1 text-xs underline texto-2"
             >
               Limpiar
             </button>
@@ -200,7 +213,7 @@ export function TablasPlan({
         </div>
 
         {hayFiltro ? (
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="text-sm texto-2">
             <strong className="cifra">{lineasFiltradas.length}</strong> SKUs ·{" "}
             <strong className="cifra">{totales.cajas}</strong> cajas ·{" "}
             <strong className="cifra">{n(totales.pares)}</strong> pares en el envío ·{" "}
@@ -212,18 +225,18 @@ export function TablasPlan({
 
       {/* ---- Cajas -------------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-baseline justify-between gap-2 border-b p-4 hairline">
-          <h2 className="font-semibold">Cajas a mandar</h2>
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <h2 className="seccion-titulo">Cajas a mandar</h2>
+          <p className="text-sm texto-2">
             {totales.cajas} cajas · {n(totales.pares)} pares
             {!hayFiltro && ` · de ${n(cajasDisponiblesBodega)} cajas disponibles en bodega`}
           </p>
         </header>
 
         {cajasFiltradas.length === 0 ? (
-          <p className="p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="p-6 text-sm texto-2">
             {cajas.length === 0
-              ? "No hace falta mandar nada: todo tiene cobertura suficiente para el horizonte."
+              ? "No hace falta mandar nada."
               : "Ninguna caja coincide con la búsqueda."}
           </p>
         ) : (
@@ -245,15 +258,15 @@ export function TablasPlan({
                     <td>
                       <div
                         className="font-medium"
-                        style={c.cantidadOpcional > 0 ? { color: "var(--estado-alerta)" } : undefined}
+                        style={c.cantidadOpcional > 0 ? { color: "var(--alerta-texto)" } : undefined}
                       >
                         {c.skuCaja}
                       </div>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         {c.modelo} · {c.color}
                       </div>
                       {c.cantidadOpcional > 0 ? (
-                        <div className="text-[11px]" style={{ color: "var(--estado-alerta)" }}>
+                        <div className="text-[11px]" style={{ color: "var(--alerta-texto)" }}>
                           {c.cantidadOpcional === c.cantidad
                             ? "Opcional"
                             : `${c.cantidadOpcional} de ${c.cantidad} opcionales`}
@@ -265,16 +278,16 @@ export function TablasPlan({
                     <td className="text-sm">{c.esCorrida ? "Corrida" : `Talla ${c.talla}`}</td>
                     <td
                       className="num cifra font-semibold"
-                      style={c.cantidadOpcional > 0 ? { color: "var(--estado-alerta)" } : undefined}
+                      style={c.cantidadOpcional > 0 ? { color: "var(--alerta-texto)" } : undefined}
                     >
                       {c.cantidad}
-                      <span className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                      <span className="text-xs font-normal texto-tenue">
                         {" "}
                         / {c.cajasDisponibles}
                       </span>
                     </td>
                     <td className="num cifra">{n(c.paresTotales)}</td>
-                    <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                    <td className="text-xs texto-2">
                       {c.aporta.map((a) => `${a.talla}:${a.paresTotales}`).join("  ")}
                     </td>
                   </tr>
@@ -282,7 +295,7 @@ export function TablasPlan({
               </tbody>
             </table>
             {cajasFiltradas.length > 500 ? (
-              <p className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+              <p className="border-t p-3 text-xs hairline texto-tenue">
                 Se muestran las primeras 500 de {cajasFiltradas.length} cajas; el Excel las trae todas.
               </p>
             ) : null}
@@ -292,15 +305,15 @@ export function TablasPlan({
 
       {/* ---- SKUs --------------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-baseline justify-between gap-2 border-b p-4 hairline">
-          <h2 className="font-semibold">Detalle por SKU</h2>
-          <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <h2 className="seccion-titulo">Detalle por SKU</h2>
+          <p className="text-sm texto-2">
             {lineasFiltradas.length} de {totalAnalizados} analizados
           </p>
         </header>
 
         {lineasFiltradas.length === 0 ? (
-          <p className="p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="p-6 text-sm texto-2">
             Ningún SKU coincide con la búsqueda.
           </p>
         ) : (
@@ -324,13 +337,12 @@ export function TablasPlan({
                     <td>
                       <a
                         href={`/sku/${encodeURIComponent(l.sku)}`}
-                        className="font-medium underline decoration-dotted underline-offset-2"
-                        style={{ color: "var(--acento)" }}
+                        className="font-medium decoration-dotted underline-offset-2 enlace"
                       >
                         {l.sku}
                       </a>
                       {l.factorCorreccion > 1.15 ? (
-                        <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                        <div className="text-xs texto-tenue">
                           demanda ×{l.factorCorreccion.toFixed(2)} por {l.diasSinStock} días agotado
                         </div>
                       ) : null}
@@ -340,7 +352,7 @@ export function TablasPlan({
                     </td>
                     <td className="num cifra">{l.demandaDiaria.toFixed(1)}</td>
                     <td className="num cifra">{n(l.disponible)}</td>
-                    <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                    <td className="num cifra texto-2">
                       {l.enTransferencia ? n(l.enTransferencia) : "—"}
                     </td>
                     <td style={{ minWidth: 160 }}>
@@ -352,8 +364,8 @@ export function TablasPlan({
                           maximo={Math.max(horizonteDias * 2, 60)}
                         />
                         <span
-                          className="cifra w-14 shrink-0 text-right text-xs"
-                          style={{ color: "var(--ink-2)" }}
+                          className="cifra w-14 shrink-0 text-right text-xs texto-2"
+                         
                         >
                           {l.coberturaDias == null ? "—" : `${l.coberturaDias.toFixed(0)} d`}
                         </span>
@@ -378,13 +390,11 @@ export function TablasPlan({
           </div>
         )}
 
-        <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
-          La marca fina en cada barra es el horizonte objetivo de {horizonteDias} días.
-          «Se manda» puede quedar por debajo de «Sugerido» porque las cajas no se abren: el
-          sistema elige la combinación que menos daño hace.
-          {lineasFiltradas.length > 500 &&
-            ` Se muestran los primeros 500 de ${lineasFiltradas.length}; el Excel los trae todos.`}
-        </footer>
+        {lineasFiltradas.length > 500 ? (
+          <footer className="border-t p-3 text-xs hairline texto-tenue">
+            {`Se muestran los primeros 500 de ${lineasFiltradas.length}; el Excel los trae todos.`}
+          </footer>
+        ) : null}
       </section>
     </div>
   );

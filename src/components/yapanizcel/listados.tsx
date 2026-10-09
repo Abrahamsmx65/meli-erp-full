@@ -8,7 +8,7 @@ import { estiloInput } from "./comunes";
 const ESTADOS: Record<string, { texto: string; color: string }> = {
   active: { texto: "activa", color: "var(--estado-bien)" },
   paused: { texto: "pausada", color: "var(--estado-alerta)" },
-  closed: { texto: "cerrada", color: "var(--estado-serio)" },
+  closed: { texto: "cerrada", color: "var(--alerta-texto)" },
   under_review: { texto: "en revisión", color: "var(--estado-alerta)" },
 };
 
@@ -21,7 +21,6 @@ function ChipEstado({ estado }: { estado: string | null }) {
   );
 }
 
-const btn = "rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-60";
 
 /**
  * Listados por diseño: todas las publicaciones de un diseño, en vivo, con
@@ -117,12 +116,9 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
               <option key={d.diseno} value={d.diseno}>{`${d.diseno} · ${d.publicaciones} publicaciones`}</option>
             ))}
           </datalist>
-          <button type="submit" disabled={cargando} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+          <button type="submit" disabled={cargando} className="boton boton-primario">
             {cargando ? "Leyendo de MELI…" : "Ver publicaciones"}
           </button>
-          <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
-            Se leen en vivo: tarda unos segundos.
-          </span>
         </form>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {disenos.slice(0, 120).map((d) => (
@@ -134,7 +130,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
       </section>
 
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
@@ -156,7 +152,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
       {grupo ? (
         <>
           <section className="tarjeta flex flex-col gap-3 p-4">
-            <h2 className="font-semibold">
+            <h2 className="seccion-titulo">
               Cambiar un atributo en las publicaciones seleccionadas ({seleccion.size} de {grupo.items.length})
             </h2>
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -170,7 +166,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                 ))}
               </select>
               <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor nuevo" className="w-56 rounded-lg border px-2 py-1.5" style={estiloInput} />
-              <button onClick={unificar} disabled={aplicando || !atributo || !valor.trim() || !seleccion.size} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+              <button onClick={unificar} disabled={aplicando || !atributo || !valor.trim() || !seleccion.size} className="boton boton-primario">
                 {aplicando ? "Escribiendo…" : "Aplicar en MELI"}
               </button>
               <button onClick={() => setSeleccion(new Set(grupo.items.map((i) => i.itemId)))} className="text-xs underline">
@@ -180,9 +176,6 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                 Ninguna
               </button>
             </div>
-            <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-              El valor se pone tal cual en todas las variantes de cada publicación seleccionada. Si MELI rechaza el cambio (por ejemplo, un eje del selector con ventas), lo dice aquí abajo con su mensaje.
-            </p>
           </section>
 
           {grupo.items.map((it) => (
@@ -192,11 +185,11 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <ChipEstado estado={it.estado} />
-                    <span className="num text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <span className="num text-xs texto-tenue">
                       {it.itemId}
                     </span>
                     {it.permalink ? (
-                      <a href={it.permalink} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: "var(--acento)" }}>
+                      <a href={it.permalink} target="_blank" rel="noreferrer" className="text-xs enlace">
                         ver en MELI
                       </a>
                     ) : null}
@@ -210,7 +203,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                       }}
                     >
                       <input value={edicion.valor} onChange={(e) => setEdicion({ ...edicion, valor: e.target.value })} maxLength={60} className="w-full rounded-lg border px-2 py-1 text-sm" style={estiloInput} />
-                      <button type="submit" disabled={aplicando} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+                      <button type="submit" disabled={aplicando} className="boton boton-primario">
                         Guardar
                       </button>
                       <button type="button" onClick={() => setEdicion(null)} className="text-xs underline">
@@ -220,7 +213,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                   ) : (
                     <h3 className="mt-1 font-semibold">
                       {it.titulo}{" "}
-                      <button onClick={() => setEdicion({ itemId: it.itemId, titulo: true, valor: it.titulo })} className="ml-1 text-xs font-normal underline" style={{ color: "var(--ink-muted)" }}>
+                      <button onClick={() => setEdicion({ itemId: it.itemId, titulo: true, valor: it.titulo })} className="ml-1 text-xs font-normal underline texto-tenue">
                         editar título
                       </button>
                     </h3>
@@ -234,7 +227,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                         style={{ borderColor: "var(--borde)" }}
                         title="Cambiar en toda la publicación"
                       >
-                        <span style={{ color: "var(--ink-muted)" }}>{a.nombre}:</span> {a.valor}
+                        <span className="texto-tenue">{a.nombre}:</span> {a.valor}
                       </button>
                     ))}
                   </div>
@@ -248,7 +241,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                     >
                       <span className="num text-xs">{edicion.atributoId}</span>
                       <input value={edicion.valor} onChange={(e) => setEdicion({ ...edicion, valor: e.target.value })} className="w-56 rounded-lg border px-2 py-1" style={estiloInput} autoFocus />
-                      <button type="submit" disabled={aplicando} className={btn} style={{ background: "var(--acento)", color: "#fff" }}>
+                      <button type="submit" disabled={aplicando} className="boton boton-primario">
                         Guardar en MELI
                       </button>
                       <button type="button" onClick={() => setEdicion(null)} className="text-xs underline">
@@ -261,7 +254,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                     <div className="mt-3 overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+                          <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
                             <th className="px-2 py-1">SKU</th>
                             <th className="px-2 py-1">Selector</th>
                             <th className="px-2 py-1 text-right">Stock</th>
@@ -271,14 +264,14 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                         <tbody>
                           {it.variantes.map((v) => (
                             <tr key={v.variationId} className="border-t align-top" style={{ borderColor: "var(--grid)" }}>
-                              <td className="num px-2 py-1">{v.sku ?? <span style={{ color: "var(--ink-muted)" }}>sin SKU</span>}</td>
+                              <td className="num px-2 py-1">{v.sku ?? <span className="texto-tenue">sin SKU</span>}</td>
                               <td className="px-2 py-1">{v.combinacion}</td>
                               <td className="num px-2 py-1 text-right">{v.stock ?? "—"}</td>
                               <td className="px-2 py-1">
                                 <div className="flex flex-wrap gap-1">
                                   {v.atributos.map((a) => (
                                     <button key={a.id} onClick={() => setEdicion({ itemId: it.itemId, variationId: v.variationId, atributoId: a.id, valor: a.valor })} className="rounded-md border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--borde)" }}>
-                                      <span style={{ color: "var(--ink-muted)" }}>{a.nombre}:</span> {a.valor}
+                                      <span className="texto-tenue">{a.nombre}:</span> {a.valor}
                                     </button>
                                   ))}
                                 </div>
@@ -292,7 +285,7 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                                   >
                                     <span className="num text-xs">{edicion.atributoId}</span>
                                     <input value={edicion.valor} onChange={(e) => setEdicion({ ...edicion, valor: e.target.value })} className="w-48 rounded-lg border px-2 py-0.5 text-xs" style={estiloInput} autoFocus />
-                                    <button type="submit" disabled={aplicando} className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: "var(--acento)", color: "#fff" }}>
+                                    <button type="submit" disabled={aplicando} className="boton boton-primario boton-chico">
                                       Guardar
                                     </button>
                                     <button type="button" onClick={() => setEdicion(null)} className="text-xs underline">

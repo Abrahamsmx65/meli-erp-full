@@ -258,6 +258,21 @@ export async function traerRpcTodo<T>(
  * y la publicidad de Amazon de julio y agosto 2026 quedó en $0 por modelo
  * sin que nadie lo supiera.
  */
+/**
+ * `traerRpcTodo` con la forma de respuesta de `db.rpc` (`{ data, error }`,
+ * error con `message` y `code`), para cambiar una llamada que se quedaba
+ * con la primera página de 1,000 renglones sin tocar cómo lee el error.
+ */
+export async function rpcPaginado<T = any>(
+  db: DB,
+  funcion: string,
+  parametros: Record<string, unknown>,
+): Promise<{ data: T[] | null; error: { message: string; code?: string } | null }> {
+  const r = await traerRpcTodo<T>(db, funcion, parametros);
+  if (r.error) return { data: null, error: { message: r.error, code: r.errorCodigo } };
+  return { data: r.filas, error: null };
+}
+
 export async function traerRpcTodoOLanzar<T>(
   db: DB,
   funcion: string,

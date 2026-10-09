@@ -203,7 +203,36 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
   // recibido ya no mueve nada. Si el catálogo no se pudo leer, no se grita.
   const vivosIds = new Set(pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado").map((p) => p.id));
   const lineasVivas = lineas.filter((l) => vivosIds.has(l.pedido_id));
-  const amarres = await amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]);
+
+  // El amarre con el catálogo de MELI y los contenedores de estas líneas no
+  // dependen uno del otro: van en paralelo (antes eran saltos en fila).
+  // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
+  // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
+  // pedidos, no desde TODOS los contenedores históricos de la cuenta.
+  const contenedoresDeLineas = (async () => {
+    const contLineas = await porTandas(lineas.map((l) => l.id), 200, (tanda) =>
+      traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
+        db,
+        "contenedor_lineas",
+        "contenedor_id, pedido_linea_id, cajas",
+        (q) => q.in("pedido_linea_id", tanda),
+      ),
+    );
+    const contenedorIds = [...new Set(contLineas.map((l) => l.contenedor_id))];
+    const contenedores = await porTandas(contenedorIds, 200, (tanda) =>
+      traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
+        db,
+        "contenedores",
+        "id, numero, estado, fecha_llegada_est",
+        (q) => q.eq("account_id", accountId).in("id", tanda),
+      ),
+    );
+    return { contLineas, contenedores };
+  })();
+  const [amarres, { contLineas, contenedores }] = await Promise.all([
+    amarreDeLineas(db, accountId, lineasVivas).catch(() => [] as AmarreLinea[]),
+    contenedoresDeLineas,
+  ]);
   const fantasmaPorPedido = new Map<string, { modelo: string; color: string; coloresMeli: string[] }[]>();
   const ligadosPorPedido = new Map<string, ColorLigado[]>();
   for (const pid of vivosIds) {
@@ -215,28 +244,6 @@ export async function listarPedidos(db: DB, accountId: string): Promise<PedidoRe
     const ligados = coloresLigados(suyas, propios);
     if (ligados.length) ligadosPorPedido.set(pid, ligados);
   }
-
-  // contenedor_lineas se lee DIRECTO, no embebido: db-max-rows también
-  // recorta recursos embebidos sin avisar. Se parte desde las líneas de estos
-  // pedidos, no desde TODOS los contenedores históricos de la cuenta.
-  const contLineas = await porTandas(lineas.map((l) => l.id), 200, (tanda) =>
-    traerTodo<{ contenedor_id: string; pedido_linea_id: string; cajas: number | null }>(
-      db,
-      "contenedor_lineas",
-      "contenedor_id, pedido_linea_id, cajas",
-      (q) => q.in("pedido_linea_id", tanda),
-    ),
-  );
-
-  const contenedorIds = [...new Set(contLineas.map((l) => l.contenedor_id))];
-  const contenedores = await porTandas(contenedorIds, 200, (tanda) =>
-    traerTodo<{ id: string; numero: string; estado: string; fecha_llegada_est: string | null }>(
-      db,
-      "contenedores",
-      "id, numero, estado, fecha_llegada_est",
-      (q) => q.eq("account_id", accountId).in("id", tanda),
-    ),
-  );
 
   const lineasPorPedido = new Map<string, { cajas: number; pares: number; modelos: Set<string> }>();
   const pedidoDeLinea = new Map<string, string>();

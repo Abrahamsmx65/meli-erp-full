@@ -8,6 +8,7 @@ import {
 } from "@/lib/datos/repos";
 import { MeliClient } from "@/lib/meli/client";
 import { enviarFiscalPendiente, leerFiscalFaltante } from "@/lib/servicios/fiscal";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
   const noAutorizado = await verificar(req);
   if (noAutorizado) return noAutorizado;
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => procesar(origen));
   return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
 }
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   const noAutorizado = await verificar(req);
   if (noAutorizado) return noAutorizado;
 
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => procesar(origen));
 
   const { count } = await clienteAdmin()

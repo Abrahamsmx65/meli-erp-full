@@ -8,6 +8,8 @@ import type {
   ModeloContenido,
   TotalesContenido,
 } from "@/lib/servicios/contenido-amazon";
+import { Aviso } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 type Estado = "guardando" | "ok" | "error";
 
@@ -343,502 +345,502 @@ export function ContenidoAmazonPanel({
   return (
     <div className="flex flex-col gap-6">
       {aviso ? (
-        <div className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          {aviso}
-        </div>
-      ) : null}
-
-      {!publico && link ? (
-        <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">Acceso sin contraseña</h2>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-            Este link abre SOLO esta sección, sin pedir usuario ni contraseña. Quien lo tenga
-            puede palomear, anotar, quitar modelos y bajar imágenes; no ve nada más del sistema.
-            Si se te sale de las manos, genera otro y el anterior deja de servir.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <input
-              readOnly
-              value={link}
-              onFocus={(e) => e.currentTarget.select()}
-              className="min-w-[18rem] flex-1 rounded-lg border px-2 py-1.5 font-mono text-xs"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(link).then(() => setCopiado(true));
-              }}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-              style={{ background: "var(--acento)" }}
-            >
-              {copiado ? "Copiado ✓" : "Copiar"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void regenerarLink()}
-              disabled={rotando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-            >
-              {rotando ? "Generando…" : "Generar otro"}
-            </button>
-          </div>
-        </section>
+        <Aviso>{aviso}</Aviso>
       ) : null}
 
       {sinRefrescar ? (
-        <div
-          className="tarjeta p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
+        <Aviso tono="alerta">
           Esta lista sale del histórico de ventas. Dale a <strong>Actualizar desde Amazon</strong>{" "}
           para traer el catálogo completo, con las publicaciones que todavía no venden.
-        </div>
+        </Aviso>
       ) : null}
 
-      {/* -------------------------- Categorías de la store ------------------ */}
-      <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
-          <h2 className="text-sm font-semibold">Categorías de la store</h2>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-            {cats.length} capturadas
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <input
-              value={nuevaCategoria}
-              onChange={(e) => setNuevaCategoria(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void agregarCategoria();
-              }}
-              placeholder="Nueva categoría…"
-              disabled={soloLectura}
-              className="rounded-lg border px-2 py-1.5 text-sm"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-            />
-            <button
-              type="button"
-              onClick={() => void agregarCategoria()}
-              disabled={soloLectura || !nuevaCategoria.trim()}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: "var(--acento)" }}
-            >
-              Agregar
-            </button>
-          </div>
-        </header>
-
-        {cats.length === 0 ? (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todavía no hay categorías. Captura las que ocupas en la store y luego asígnaselas a los
-            modelos.
-          </p>
-        ) : (
-          <div className="max-h-[24rem] overflow-auto">
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Categoría</th>
-                  <th>Creada</th>
-                  <th>Imágenes</th>
-                  <th>Página en la store</th>
-                  <th className="num">Modelos</th>
-                  <th>Notas</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {cats.map((c) => (
-                  <tr key={c.nombre}>
-                    <td className="font-medium">{c.nombre}</td>
-                    <td>
-                      <Palomeo
-                        valor={c.creada}
-                        deshabilitado={soloLectura}
-                        onCambio={(v) => {
-                          setCats((l) =>
-                            l.map((x) => (x.nombre === c.nombre ? { ...x, creada: v } : x)),
-                          );
-                          void guardarCategoria(c.nombre, { creada: v });
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <Palomeo
-                        valor={c.imagenes}
-                        deshabilitado={soloLectura}
-                        onCambio={(v) => {
-                          setCats((l) =>
-                            l.map((x) => (x.nombre === c.nombre ? { ...x, imagenes: v } : x)),
-                          );
-                          void guardarCategoria(c.nombre, { imagenes: v });
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <Palomeo
-                        valor={c.paginaStore}
-                        deshabilitado={soloLectura}
-                        onCambio={(v) => {
-                          setCats((l) =>
-                            l.map((x) => (x.nombre === c.nombre ? { ...x, paginaStore: v } : x)),
-                          );
-                          void guardarCategoria(c.nombre, { paginaStore: v });
-                        }}
-                      />
-                    </td>
-                    <td className="num cifra">{usoCategoria.get(c.nombre) ?? 0}</td>
-                    <td>
-                      <input
-                        defaultValue={c.notas}
-                        disabled={soloLectura}
-                        onBlur={(e) => {
-                          if (e.target.value !== c.notas) {
-                            void guardarCategoria(c.nombre, { notas: e.target.value });
-                          }
-                        }}
-                        placeholder="—"
-                        className="w-full min-w-[10rem] rounded border px-2 py-1 text-sm"
-                        style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-                      />
-                    </td>
-                    <td className="whitespace-nowrap">
-                      <Marca estado={estado[`cat:${c.nombre}`]} />{" "}
-                      <button
-                        type="button"
-                        onClick={() => void borrarCategoria(c.nombre)}
-                        disabled={soloLectura}
-                        className="text-xs underline disabled:opacity-50"
-                        style={{ color: "var(--ink-2)" }}
-                      >
-                        Quitar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* ----------------------------- Modelos ------------------------------ */}
-      <section className="tarjeta overflow-hidden">
-        <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
-          <input
-            type="search"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar modelo, título o categoría…"
-            className="min-w-[14rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
-            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-          />
-          <select
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value as typeof filtro)}
-            className="rounded-lg border px-2 py-1.5 text-sm"
-            style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-          >
-            <option value="todos">Todos</option>
-            <option value="nuevos">Nuevos</option>
-            <option value="activos">Solo activos</option>
-            <option value="sinAplus">Sin contenido A+</option>
-            <option value="sinCategoria">Sin categoría</option>
-          </select>
-          {publico ? null : (
-            <button
-              type="button"
-              onClick={() => void actualizarCatalogo()}
-              disabled={refrescando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-            >
-              {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
-            </button>
-          )}
-          <Link
-            href={verEliminados ? base : `${base}?eliminados=1`}
-            className="text-sm underline"
-            style={{ color: "var(--ink-2)" }}
-          >
-            {verEliminados ? "Volver a la lista" : `Ver eliminados (${eliminados})`}
-          </Link>
-        </header>
-
-        {seleccion.size > 0 ? (
-          <div
-            className="flex flex-wrap items-center gap-3 border-b px-4 py-3 hairline"
-            style={{ background: "color-mix(in oklab, var(--acento) 8%, transparent)" }}
-          >
-            <span className="text-sm font-medium">
-              {seleccion.size} seleccionado{seleccion.size === 1 ? "" : "s"}
-            </span>
-            <select
-              value={categoriaMasiva}
-              onChange={(e) => setCategoriaMasiva(e.target.value)}
-              className="rounded border px-2 py-1 text-sm"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-            >
-              <option value="">— elegir categoría —</option>
-              {cats.map((c) => (
-                <option key={c.nombre} value={c.nombre}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => void asignarMasivo(categoriaMasiva || null)}
-              disabled={soloLectura || asignando || (!categoriaMasiva && true)}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: "var(--acento)" }}
-            >
-              {asignando ? "Asignando…" : "Ponerles esa categoría"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void asignarMasivo(null)}
-              disabled={soloLectura || asignando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-            >
-              Quitarles la categoría
-            </button>
-            <button
-              type="button"
-              onClick={() => setSeleccion(new Set())}
-              className="ml-auto text-xs underline"
-              style={{ color: "var(--ink-2)" }}
-            >
-              Limpiar selección
-            </button>
-          </div>
-        ) : null}
-
-        <div className="max-h-[46rem] overflow-auto">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>
+      <Pestanas
+        pestanas={[
+          {
+            id: "modelos",
+            titulo: "Modelos",
+            cuenta: visibles.length,
+            contenido: (
+              <section className="tarjeta overflow-hidden">
+                <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
                   <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer"
-                    checked={visibles.length > 0 && visibles.every((m) => seleccion.has(m.modelo))}
-                    onChange={(e) =>
-                      setSeleccion(e.target.checked ? new Set(visibles.map((m) => m.modelo)) : new Set())
-                    }
-                    title="Seleccionar todos los visibles"
+                    type="search"
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                    placeholder="Buscar modelo, título o categoría…"
+                    className="min-w-[14rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
+                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                   />
-                </th>
-                <th className="num">Prio</th>
-                <th>Modelos</th>
-                <th>Publicación</th>
-                <th>Categoría</th>
-                <th>Imágenes</th>
-                <th>A+</th>
-                <th>Notas</th>
-                <th>Amazon</th>
-                <th>Fotos</th>
-                <th>ASINs</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.map((m) => (
-                <tr key={m.modelo} style={m.eliminado ? { opacity: 0.55 } : undefined}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer"
-                      checked={seleccion.has(m.modelo)}
-                      onChange={(e) =>
-                        setSeleccion((sel) => {
-                          const nuevo = new Set(sel);
-                          if (e.target.checked) nuevo.add(m.modelo);
-                          else nuevo.delete(m.modelo);
-                          return nuevo;
-                        })
-                      }
-                    />
-                  </td>
-                  <td className="num whitespace-nowrap">
+                  <select
+                    value={filtro}
+                    onChange={(e) => setFiltro(e.target.value as typeof filtro)}
+                    className="rounded-lg border px-2 py-1.5 text-sm"
+                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="nuevos">Nuevos</option>
+                    <option value="activos">Solo activos</option>
+                    <option value="sinAplus">Sin contenido A+</option>
+                    <option value="sinCategoria">Sin categoría</option>
+                  </select>
+                  {publico ? null : (
                     <button
                       type="button"
-                      onClick={() => void guardar(m, { prioridad: Math.max(0, m.prioridad - 1) })}
-                      disabled={soloLectura || m.prioridad <= 0}
-                      className="px-1 disabled:opacity-30"
-                      title="Bajar prioridad"
+                      onClick={() => void actualizarCatalogo()}
+                      disabled={refrescando}
+                      className="boton boton-borde boton-chico disabled:opacity-50"
                     >
-                      ▼
+                      {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
                     </button>
-                    <span className="cifra px-1">{m.prioridad}</span>
-                    <button
-                      type="button"
-                      onClick={() => void guardar(m, { prioridad: Math.min(5, m.prioridad + 1) })}
-                      disabled={soloLectura || m.prioridad >= 5}
-                      className="px-1 disabled:opacity-30"
-                      title="Subir prioridad"
-                    >
-                      ▲
-                    </button>
-                  </td>
-                  <td className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {m.imagenUrl ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={m.imagenUrl}
-                          alt=""
-                          loading="lazy"
-                          className="h-10 w-10 shrink-0 rounded object-cover"
-                          style={{ border: "1px solid var(--borde)" }}
-                        />
-                      ) : null}
-                      <span className="max-w-[10rem]">
-                        {m.codigos.join(" · ")} <Marca estado={estado[m.modelo]} />
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                        style={{
-                          background: m.activo
-                            ? "color-mix(in oklab, var(--estado-bien) 18%, transparent)"
-                            : "color-mix(in oklab, var(--estado-alerta) 18%, transparent)",
-                        }}
-                      >
-                        {m.activo ? "Activo" : "Inactivo"}
-                      </span>
-                      <span className="text-xs" style={{ color: "var(--ink-2)" }}>
-                        {m.activos}/{m.skus} SKUs
-                      </span>
-                      {m.nuevo ? (
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                          style={{
-                            background: "color-mix(in oklab, var(--acento) 18%, transparent)",
-                            color: "var(--acento)",
-                          }}
-                        >
-                          Nuevo
-                        </span>
-                      ) : null}
-                    </div>
-                    {m.titulo ? (
-                      <div
-                        className="mt-0.5 max-w-[26rem] truncate text-xs"
-                        style={{ color: "var(--ink-muted)" }}
-                        title={m.titulo}
-                      >
-                        {m.titulo}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>
+                  )}
+                  <Link
+                    href={verEliminados ? base : `${base}?eliminados=1`}
+                    className="texto-2 text-sm underline"
+                  >
+                    {verEliminados ? "Volver a la lista" : `Ver eliminados (${eliminados})`}
+                  </Link>
+                </header>
+
+                {seleccion.size > 0 ? (
+                  <div
+                    className="flex flex-wrap items-center gap-3 border-b px-4 py-3 hairline"
+                    style={{ background: "color-mix(in oklab, var(--acento) 8%, transparent)" }}
+                  >
+                    <span className="text-sm font-medium">
+                      {seleccion.size} seleccionado{seleccion.size === 1 ? "" : "s"}
+                    </span>
                     <select
-                      value={m.categoria ?? ""}
-                      disabled={soloLectura}
-                      onChange={(e) => void guardar(m, { categoria: e.target.value || null })}
+                      value={categoriaMasiva}
+                      onChange={(e) => setCategoriaMasiva(e.target.value)}
                       className="rounded border px-2 py-1 text-sm"
                       style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                     >
-                      <option value="">—</option>
+                      <option value="">— elegir categoría —</option>
                       {cats.map((c) => (
                         <option key={c.nombre} value={c.nombre}>
                           {c.nombre}
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td>
-                    <Palomeo
-                      valor={m.imagenes}
-                      deshabilitado={soloLectura}
-                      onCambio={(v) => void guardar(m, { imagenes: v })}
-                    />
-                  </td>
-                  <td>
-                    <Palomeo
-                      valor={m.aplus}
-                      deshabilitado={soloLectura}
-                      onCambio={(v) => void guardar(m, { aplus: v })}
-                    />
-                  </td>
-                  <td>
+                    <button
+                      type="button"
+                      onClick={() => void asignarMasivo(categoriaMasiva || null)}
+                      disabled={soloLectura || asignando || (!categoriaMasiva && true)}
+                      className="boton boton-primario boton-chico disabled:opacity-60"
+                    >
+                      {asignando ? "Asignando…" : "Asignar categoría"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void asignarMasivo(null)}
+                      disabled={soloLectura || asignando}
+                      className="boton boton-borde boton-chico disabled:opacity-50"
+                    >
+                      Quitar categoría
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSeleccion(new Set())}
+                      className="texto-2 ml-auto text-xs underline"
+                    >
+                      Limpiar selección
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="max-h-[46rem] overflow-auto">
+                  <table className="datos">
+                    <thead>
+                      <tr>
+                        <th>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer"
+                            checked={visibles.length > 0 && visibles.every((m) => seleccion.has(m.modelo))}
+                            onChange={(e) =>
+                              setSeleccion(e.target.checked ? new Set(visibles.map((m) => m.modelo)) : new Set())
+                            }
+                            title="Seleccionar todos los visibles"
+                          />
+                        </th>
+                        <th className="num">Prio</th>
+                        <th>Modelos</th>
+                        <th>Publicación</th>
+                        <th>Categoría</th>
+                        <th>Imágenes</th>
+                        <th>A+</th>
+                        <th>Notas</th>
+                        <th>Amazon</th>
+                        <th>Fotos</th>
+                        <th>ASINs</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibles.map((m) => (
+                        <tr key={m.modelo} style={m.eliminado ? { opacity: 0.55 } : undefined}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer"
+                              checked={seleccion.has(m.modelo)}
+                              onChange={(e) =>
+                                setSeleccion((sel) => {
+                                  const nuevo = new Set(sel);
+                                  if (e.target.checked) nuevo.add(m.modelo);
+                                  else nuevo.delete(m.modelo);
+                                  return nuevo;
+                                })
+                              }
+                            />
+                          </td>
+                          <td className="num whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => void guardar(m, { prioridad: Math.max(0, m.prioridad - 1) })}
+                              disabled={soloLectura || m.prioridad <= 0}
+                              className="px-1 disabled:opacity-30"
+                              title="Bajar prioridad"
+                            >
+                              ▼
+                            </button>
+                            <span className="cifra px-1">{m.prioridad}</span>
+                            <button
+                              type="button"
+                              onClick={() => void guardar(m, { prioridad: Math.min(5, m.prioridad + 1) })}
+                              disabled={soloLectura || m.prioridad >= 5}
+                              className="px-1 disabled:opacity-30"
+                              title="Subir prioridad"
+                            >
+                              ▲
+                            </button>
+                          </td>
+                          <td className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {m.imagenUrl ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={m.imagenUrl}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-10 w-10 shrink-0 rounded object-cover"
+                                  style={{ border: "1px solid var(--borde)" }}
+                                />
+                              ) : null}
+                              <span className="max-w-[10rem]">
+                                {m.codigos.join(" · ")} <Marca estado={estado[m.modelo]} />
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                                style={{
+                                  background: m.activo
+                                    ? "color-mix(in oklab, var(--estado-bien) 18%, transparent)"
+                                    : "color-mix(in oklab, var(--estado-alerta) 18%, transparent)",
+                                }}
+                              >
+                                {m.activo ? "Activo" : "Inactivo"}
+                              </span>
+                              <span className="texto-2 text-xs">
+                                {m.activos}/{m.skus} SKUs
+                              </span>
+                              {m.nuevo ? (
+                                <span
+                                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                                  style={{
+                                    background: "color-mix(in oklab, var(--acento) 18%, transparent)",
+                                    color: "var(--acento)",
+                                  }}
+                                >
+                                  Nuevo
+                                </span>
+                              ) : null}
+                            </div>
+                            {m.titulo ? (
+                              <div
+                                className="texto-tenue mt-0.5 max-w-[26rem] truncate text-xs"
+                                title={m.titulo}
+                              >
+                                {m.titulo}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td>
+                            <select
+                              value={m.categoria ?? ""}
+                              disabled={soloLectura}
+                              onChange={(e) => void guardar(m, { categoria: e.target.value || null })}
+                              className="rounded border px-2 py-1 text-sm"
+                              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                            >
+                              <option value="">—</option>
+                              {cats.map((c) => (
+                                <option key={c.nombre} value={c.nombre}>
+                                  {c.nombre}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <Palomeo
+                              valor={m.imagenes}
+                              deshabilitado={soloLectura}
+                              onCambio={(v) => void guardar(m, { imagenes: v })}
+                            />
+                          </td>
+                          <td>
+                            <Palomeo
+                              valor={m.aplus}
+                              deshabilitado={soloLectura}
+                              onCambio={(v) => void guardar(m, { aplus: v })}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              defaultValue={m.notas}
+                              disabled={soloLectura}
+                              onBlur={(e) => {
+                                if (e.target.value !== m.notas) void guardar(m, { notas: e.target.value });
+                              }}
+                              placeholder="—"
+                              className="w-full min-w-[9rem] rounded border px-2 py-1 text-sm"
+                              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                            />
+                          </td>
+                          <td>
+                            {m.url ? (
+                              <a
+                                href={m.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="enlace text-sm"
+                              >
+                                Ver ↗
+                              </a>
+                            ) : (
+                              <span className="texto-tenue text-xs">
+                                sin ASIN
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => void descargar(m.modelo)}
+                              disabled={zip !== null}
+                              className="boton boton-borde boton-chico disabled:opacity-50"
+                            >
+                              {zip === m.modelo ? "armando…" : "⬇ Bajar fotos"}
+                            </button>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => void descargarAsins(m.modelo)}
+                              disabled={excel !== null}
+                              title="Todos los ASINs de la publicación, para pegarlos al contenido A+"
+                              className="boton boton-borde boton-chico disabled:opacity-50"
+                            >
+                              {excel === m.modelo ? "armando…" : "⬇ Excel ASINs"}
+                            </button>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => void guardar(m, { eliminado: !m.eliminado })}
+                              disabled={soloLectura}
+                              className="texto-2 text-xs underline disabled:opacity-50"
+                            >
+                              {m.eliminado ? "Restaurar" : "Quitar"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <footer className="texto-2 border-t p-3 text-xs hairline">
+                  {visibles.length} de {filas.filter((m) => verEliminados || !m.eliminado).length} modelos
+                </footer>
+              </section>
+            ),
+          },
+          {
+            id: "categorias",
+            titulo: "Categorías",
+            cuenta: cats.length,
+            contenido: (
+              <section className="tarjeta overflow-hidden">
+                <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
+                  <h2 className="seccion-titulo">Categorías de la store</h2>
+                  <span className="texto-2 text-xs">
+                    {cats.length} capturadas
+                  </span>
+                  <div className="ml-auto flex items-center gap-2">
                     <input
-                      defaultValue={m.notas}
-                      disabled={soloLectura}
-                      onBlur={(e) => {
-                        if (e.target.value !== m.notas) void guardar(m, { notas: e.target.value });
+                      value={nuevaCategoria}
+                      onChange={(e) => setNuevaCategoria(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void agregarCategoria();
                       }}
-                      placeholder="—"
-                      className="w-full min-w-[9rem] rounded border px-2 py-1 text-sm"
+                      placeholder="Nueva categoría…"
+                      disabled={soloLectura}
+                      className="rounded-lg border px-2 py-1.5 text-sm"
                       style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
                     />
-                  </td>
-                  <td>
-                    {m.url ? (
-                      <a
-                        href={m.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm underline"
-                        style={{ color: "var(--acento)" }}
-                      >
-                        Ver ↗
-                      </a>
-                    ) : (
-                      <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
-                        sin ASIN
-                      </span>
-                    )}
-                  </td>
-                  <td>
                     <button
                       type="button"
-                      onClick={() => void descargar(m.modelo)}
-                      disabled={zip !== null}
-                      className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                      onClick={() => void agregarCategoria()}
+                      disabled={soloLectura || !nuevaCategoria.trim()}
+                      className="boton boton-borde boton-chico disabled:opacity-60"
                     >
-                      {zip === m.modelo ? "armando…" : "⬇ Bajar fotos"}
+                      Agregar categoría
                     </button>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() => void descargarAsins(m.modelo)}
-                      disabled={excel !== null}
-                      title="Todos los ASINs de la publicación, para pegarlos al contenido A+"
-                      className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
-                    >
-                      {excel === m.modelo ? "armando…" : "⬇ Excel ASINs"}
-                    </button>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() => void guardar(m, { eliminado: !m.eliminado })}
-                      disabled={soloLectura}
-                      className="text-xs underline disabled:opacity-50"
-                      style={{ color: "var(--ink-2)" }}
-                    >
-                      {m.eliminado ? "Restaurar" : "Quitar"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </header>
 
-        <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-2)" }}>
-          {visibles.length} de {filas.filter((m) => verEliminados || !m.eliminado).length} modelos
-        </footer>
-      </section>
+                {cats.length === 0 ? (
+                  <p className="texto-2 p-4 text-sm">
+                    Todavía no hay categorías.
+                  </p>
+                ) : (
+                  <div className="max-h-[24rem] overflow-auto">
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Categoría</th>
+                          <th>Creada</th>
+                          <th>Imágenes</th>
+                          <th>Página en la store</th>
+                          <th className="num">Modelos</th>
+                          <th>Notas</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cats.map((c) => (
+                          <tr key={c.nombre}>
+                            <td className="font-medium">{c.nombre}</td>
+                            <td>
+                              <Palomeo
+                                valor={c.creada}
+                                deshabilitado={soloLectura}
+                                onCambio={(v) => {
+                                  setCats((l) =>
+                                    l.map((x) => (x.nombre === c.nombre ? { ...x, creada: v } : x)),
+                                  );
+                                  void guardarCategoria(c.nombre, { creada: v });
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <Palomeo
+                                valor={c.imagenes}
+                                deshabilitado={soloLectura}
+                                onCambio={(v) => {
+                                  setCats((l) =>
+                                    l.map((x) => (x.nombre === c.nombre ? { ...x, imagenes: v } : x)),
+                                  );
+                                  void guardarCategoria(c.nombre, { imagenes: v });
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <Palomeo
+                                valor={c.paginaStore}
+                                deshabilitado={soloLectura}
+                                onCambio={(v) => {
+                                  setCats((l) =>
+                                    l.map((x) => (x.nombre === c.nombre ? { ...x, paginaStore: v } : x)),
+                                  );
+                                  void guardarCategoria(c.nombre, { paginaStore: v });
+                                }}
+                              />
+                            </td>
+                            <td className="num cifra">{usoCategoria.get(c.nombre) ?? 0}</td>
+                            <td>
+                              <input
+                                defaultValue={c.notas}
+                                disabled={soloLectura}
+                                onBlur={(e) => {
+                                  if (e.target.value !== c.notas) {
+                                    // Al cambiar de pestaña el campo se vuelve a montar: la nota
+                                    // nueva se queda en la lista o reaparecería la vieja.
+                                    const notas = e.target.value;
+                                    setCats((l) => l.map((x) => (x.nombre === c.nombre ? { ...x, notas } : x)));
+                                    void guardarCategoria(c.nombre, { notas });
+                                  }
+                                }}
+                                placeholder="—"
+                                className="w-full min-w-[10rem] rounded border px-2 py-1 text-sm"
+                                style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                              />
+                            </td>
+                            <td className="whitespace-nowrap">
+                              <Marca estado={estado[`cat:${c.nombre}`]} />{" "}
+                              <button
+                                type="button"
+                                onClick={() => void borrarCategoria(c.nombre)}
+                                disabled={soloLectura}
+                                className="texto-2 text-xs underline disabled:opacity-50"
+                              >
+                                Quitar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            ),
+          },
+          !publico && link ? {
+            id: "acceso",
+            titulo: "Acceso sin contraseña",
+            contenido: (
+              <section className="tarjeta p-4">
+                <h2 className="seccion-titulo">Acceso sin contraseña</h2>
+                <p className="texto-2 mt-1 text-xs">
+                  Al generar otro, el anterior deja de servir.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <input
+                    readOnly
+                    value={link}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-w-[18rem] flex-1 rounded-lg border px-2 py-1.5 font-mono text-xs"
+                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(link).then(() => setCopiado(true));
+                    }}
+                    className="boton boton-borde boton-chico"
+                  >
+                    {copiado ? "Copiado ✓" : "Copiar link"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void regenerarLink()}
+                    disabled={rotando}
+                    className="boton boton-borde boton-chico disabled:opacity-50"
+                  >
+                    {rotando ? "Generando…" : "Generar otro link"}
+                  </button>
+                </div>
+              </section>
+            ),
+          } : null,
+        ]}
+      />
     </div>
   );
 }

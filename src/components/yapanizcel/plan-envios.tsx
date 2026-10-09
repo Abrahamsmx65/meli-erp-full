@@ -29,11 +29,18 @@ export type LineaPantalla = LineaPlan & {
  * para ajustarlo. Al registrar, esas unidades cuentan como "en camino" hasta
  * que caducan o se marcan recibidas.
  */
+/**
+ * Con «Solo lo que se manda» apagado salen miles de SKUs: se pintan de 300
+ * en 300 («Mostrar más»). Los totales de arriba cuentan todo.
+ */
+const POR_PAGINA = 300;
+
 export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla[]; multiplo: number; envios: EnvioRegistrado[] }) {
   const router = useRouter();
   const [cantidades, setCantidades] = useState<Record<string, number>>(() => Object.fromEntries(lineas.map((l) => [l.sku, l.mandar])));
   const [soloConEnvio, setSoloConEnvio] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [tope, setTope] = useState(POR_PAGINA);
   const [folio, setFolio] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -54,6 +61,10 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         return ca.localeCompare(cb, "es") || a.sku.localeCompare(b.sku, "es", { numeric: true });
       });
   }, [lineas, soloConEnvio, busqueda, cantidades]);
+
+  // Con el filtro de «solo lo que se manda» la lista es corta y se pinta
+  // completa; sin él, por páginas.
+  const pintadas = soloConEnvio ? visibles : visibles.slice(0, tope);
 
   const totalUnidades = lineas.reduce((a, l) => a + (cantidades[l.sku] ?? 0), 0);
   const totalSkus = lineas.filter((l) => (cantidades[l.sku] ?? 0) > 0).length;
@@ -114,17 +125,26 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
   return (
     <div className="flex flex-col gap-4">
       <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar SKU…" className="w-56 rounded-lg border px-2 py-1 text-xs" style={estiloInput} />
+        <input
+          value={busqueda}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setTope(POR_PAGINA);
+          }}
+          placeholder="Buscar SKU…"
+          className="w-56 rounded-lg border px-2 py-1 text-xs"
+          style={estiloInput}
+        />
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={soloConEnvio} onChange={(e) => setSoloConEnvio(e.target.checked)} />
           Solo lo que se manda
         </label>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input value={folio} onChange={(e) => setFolio(e.target.value)} placeholder="Folio (opcional)" className="w-36 rounded-lg border px-2 py-1 text-xs" style={estiloInput} />
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <span className="text-xs texto-2">
             {totalSkus} SKUs · <b>{n(totalUnidades)}</b> unidades
           </span>
-          <button onClick={registrar} disabled={ocupado !== null || totalUnidades === 0} className="rounded-lg px-4 py-1.5 text-sm font-semibold disabled:opacity-60" style={{ background: "var(--acento)", color: "#fff" }}>
+          <button onClick={registrar} disabled={ocupado !== null || totalUnidades === 0} className="boton boton-primario boton-chico">
             {ocupado === "registrar" ? "Registrando…" : "Registrar envío"}
           </button>
         </div>
@@ -136,7 +156,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
         </p>
       ) : null}
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
@@ -144,7 +164,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">SKU</th>
               <th className="px-3 py-2">Título</th>
               <th className="px-3 py-2 text-right">Vend.</th>
@@ -163,16 +183,16 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           <tbody>
             {visibles.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={13} className="px-3 py-6 text-center texto-tenue">
                   Nada que mandar con los datos de hoy.
                 </td>
               </tr>
             ) : null}
-            {visibles.map((l, i) => {
+            {pintadas.map((l, i) => {
               const v = cantidades[l.sku] ?? 0;
               const critico = Number.isFinite(l.cobertura) && l.cobertura < 7;
               const cat = l.categoria ?? "Sin categoría";
-              const catPrevia = i > 0 ? (visibles[i - 1].categoria ?? "Sin categoría") : null;
+              const catPrevia = i > 0 ? (pintadas[i - 1].categoria ?? "Sin categoría") : null;
               const encabezado =
                 cat !== catPrevia ? (
                   <tr key={`cat-${cat}`} style={{ background: "var(--surface-2)" }}>
@@ -185,7 +205,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 encabezado,
                 <tr key={l.sku} className="border-t" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-1.5 font-medium">{l.sku}</td>
-                  <td className="max-w-[260px] truncate px-3 py-1.5" style={{ color: "var(--ink-2)" }} title={l.titulo ?? ""}>
+                  <td className="max-w-[260px] truncate px-3 py-1.5 texto-2" title={l.titulo ?? ""}>
                     {l.titulo ?? ""}
                   </td>
                   <td className="num px-3 py-1.5 text-right">{n(l.vendidas)}</td>
@@ -211,7 +231,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                   <td className="px-3 py-1.5 text-right">
                     <input type="number" min={0} step={multiplo} value={v} onChange={(e) => fijar(l.sku, Number(e.target.value))} className="num w-20 rounded-md border px-2 py-0.5 text-right text-sm" style={{ ...estiloInput, fontWeight: v !== l.mandar ? 700 : 500 }} />
                   </td>
-                  <td className="px-3 py-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <td className="px-3 py-1.5 text-xs texto-tenue">
                     {MOTIVO[l.motivo]}
                   </td>
                 </tr>,
@@ -219,16 +239,19 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
             })}
           </tbody>
         </table>
+        {pintadas.length < visibles.length ? (
+          <div className="border-t p-3 text-center text-sm hairline">
+            <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="enlace">
+              Mostrar {Math.min(POR_PAGINA, visibles.length - pintadas.length)} más (van {pintadas.length} de {visibles.length})
+            </button>
+          </div>
+        ) : null}
       </div>
-      <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-        Venta/día = 50% la última semana + 30% la anterior + 20% el resto de la ventana, hasta ayer (hoy va a medias). * corregida por los días que el SKU estuvo agotado (se activa cuando hay fotos diarias suficientes).
-      </p>
-
-      <h2 className="mt-2 font-semibold">Envíos registrados</h2>
+      <h2 className="seccion-titulo mt-2">Envíos registrados</h2>
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">Fecha</th>
               <th className="px-3 py-2">Folio</th>
               <th className="px-3 py-2 text-right">SKUs</th>
@@ -240,7 +263,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
           <tbody>
             {envios.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={6} className="px-3 py-4 text-center texto-tenue">
                   Todavía no hay envíos registrados.
                 </td>
               </tr>
@@ -253,10 +276,10 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                 <td className="num px-3 py-1.5 text-right">{n(e.unidades)}</td>
                 <td className="px-3 py-1.5">
                   {e.estado}
-                  {e.caducado ? <span style={{ color: "var(--ink-muted)" }}> · caducado</span> : null}
+                  {e.caducado ? <span className="texto-tenue"> · caducado</span> : null}
                 </td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs">
-                  <a href={`/api/yapanizcel/envios/${e.id}/excel`} className="underline" style={{ color: "var(--acento)" }}>
+                  <a href={`/api/yapanizcel/envios/${e.id}/excel`} className="enlace">
                     Excel
                   </a>
                   {e.estado === "preparado" ? (
@@ -270,7 +293,7 @@ export function PlanEnvios({ lineas, multiplo, envios }: { lineas: LineaPantalla
                     </button>
                   ) : null}
                   {e.estado === "preparado" || e.estado === "enviado" ? (
-                    <button disabled={ocupado !== null} onClick={() => cambiarEstado(e.id, "cancelado")} className="ml-2 underline" style={{ color: "var(--ink-muted)" }}>
+                    <button disabled={ocupado !== null} onClick={() => cambiarEstado(e.id, "cancelado")} className="ml-2 underline texto-tenue">
                       Cancelar
                     </button>
                   ) : null}

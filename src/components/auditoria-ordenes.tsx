@@ -1,5 +1,6 @@
 import type { AuditoriaFinanzas, OrdenAuditada } from "@/lib/servicios/finanzas/tipos";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
+import { Ayuda } from "@/components/ui/pagina";
 
 /** Centavos → "$1,234.56". Lo único que este componente "calcula". */
 function pesos(c: number | null): string {
@@ -19,7 +20,7 @@ function Fila({ o }: { o: OrdenAuditada }) {
           href={`https://www.mercadolibre.com.mx/ventas/${o.orderId}/detalle`}
           target="_blank"
           rel="noreferrer"
-          style={{ color: "var(--acento)" }}
+          className="enlace"
           title="Abrir la venta en Mercado Libre"
         >
           {o.orderId}
@@ -28,15 +29,15 @@ function Fila({ o }: { o: OrdenAuditada }) {
       <td className="cifra">{o.fecha}</td>
       <td>{o.tipoVenta === "reventa" ? "Reventa" : "Directa"}</td>
       <td className="num cifra">{pesos(o.total)}</td>
-      <td className="num cifra" style={{ color: "var(--ink-2)" }}>{o.tipoVenta === "reventa" ? pesos(o.totalComprador) : ""}</td>
+      <td className="num cifra texto-2">{o.tipoVenta === "reventa" ? pesos(o.totalComprador) : ""}</td>
       <td className="num cifra">{pesos(-o.comision)}</td>
       <td className="num cifra">{pesos(-o.envio)}</td>
       <td className="num cifra">{pesos(-retenciones)}</td>
-      <td className="num cifra" style={{ color: o.otros + o.sinDesglosar !== 0 ? "var(--estado-alerta)" : "var(--ink-2)" }}>
+      <td className="num cifra" style={{ color: o.otros + o.sinDesglosar !== 0 ? "var(--alerta-texto)" : "var(--ink-2)" }}>
         {pesos(-(o.otros + o.sinDesglosar))}
       </td>
       <td className="num cifra font-semibold">{pesos(o.neto)}</td>
-      <td className="text-xs" style={{ color: o.fuente === "v1/payments" ? "var(--ink-2)" : "var(--estado-alerta)" }}>
+      <td className="text-xs" style={{ color: o.fuente === "v1/payments" ? "var(--ink-2)" : "var(--alerta-texto)" }}>
         {fuente}
         {o.completa === false ? " · comisión a medias" : ""}
         {o.reembolsado > 0 ? ` · reembolso ${pesos(o.reembolsado)}` : ""}
@@ -48,11 +49,9 @@ function Fila({ o }: { o: OrdenAuditada }) {
 function Tabla({ titulo, nota, ordenes }: { titulo: string; nota: string; ordenes: OrdenAuditada[] }) {
   return (
     <div>
-      <h3 className="px-4 pt-3 text-sm font-semibold">{titulo}</h3>
-      <p className="px-4 pb-2 text-xs" style={{ color: "var(--ink-2)" }}>
-        {nota}
-      </p>
-      <div style={{ overflowX: "auto" }}>
+      <h3 className="seccion-titulo px-4 pt-3 pb-2">{titulo}</h3>
+      {nota ? <p className="px-4 pb-2 text-xs texto-2">{nota}</p> : null}
+      <div className="tabla-caja">
         <table className="datos">
           <thead>
             <tr>
@@ -74,7 +73,7 @@ function Tabla({ titulo, nota, ordenes }: { titulo: string; nota: string; ordene
               ordenes.map((o) => <Fila key={o.orderId} o={o} />)
             ) : (
               <tr>
-                <td colSpan={11} className="text-sm" style={{ color: "var(--ink-2)" }}>
+                <td colSpan={11} className="text-sm texto-2">
                   Sin órdenes en el rango.
                 </td>
               </tr>
@@ -100,40 +99,41 @@ export function AuditoriaOrdenes({
 }) {
   return (
     <section className="tarjeta overflow-hidden">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 hairline">
-        <div>
-          <h2 className="text-base font-semibold">Auditoría por orden</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cada renglón es una venta con lo que Mercado Pago cobró y depositó, para abrirla y
-            cotejarla al centavo. «Pago real» = leída de Mercado Pago con retenciones y envío
-            exactos; «forma vieja» o «sin leer» se recargan en segundo plano.
-          </p>
+      <header className="seccion-cabeza">
+        <div className="min-w-0">
+          <h2 className="seccion-titulo">Auditoría por orden</h2>
         </div>
         <BotonDescarga
           href={`/api/ventas/auditoria?desde=${rango.desde}&hasta=${rango.hasta}`}
           nombre={`auditoria-ordenes-${rango.desde}_${rango.hasta}.xlsx`}
           chico
         >
-          Excel de todas las órdenes
+          Descargar Excel
         </BotonDescarga>
       </header>
+      <div className="px-4 pt-3">
+        <Ayuda>
+          <p>
+            «Pago real» = leída de Mercado Pago con retenciones y envío exactos; «forma vieja» o «sin leer» se
+            recargan en segundo plano.
+          </p>
+        </Ayuda>
+      </div>
       {auditoria ? (
         <>
           <Tabla
             titulo="Las 20 órdenes más grandes del periodo"
-            nota="Donde un error de cargos pesa más."
+            nota=""
             ordenes={auditoria.mayores}
           />
           <Tabla
             titulo="Las 20 leídas más recientemente"
-            nota="Lo último que el trabajo de fondo escribió; aquí se ve avanzar la recarga."
+            nota=""
             ordenes={auditoria.recientes}
           />
         </>
       ) : (
-        <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
-          La muestra se arma en el siguiente refresco del periodo; el Excel ya está disponible.
-        </p>
+        <p className="p-4 text-sm texto-2">Sin muestra todavía.</p>
       )}
     </section>
   );

@@ -231,14 +231,7 @@ export function CargarPedidosLote() {
 
   return (
     <section className="tarjeta p-4">
-      <h2 className="font-semibold">Cargar pedidos nuevos</h2>
-      <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-        Elige una o muchas Proformas Invoice de la fábrica. Se leen todas primero y
-        se enseña qué trae cada una; un pedido repetido, uno que ya está cargado o
-        un archivo con error <strong>no se carga</strong> y los demás sí. Con{" "}
-        <strong>Revisar</strong> abres cada uno para corregir modelo, color o marcar
-        cajas completas antes de cargar, igual que con un pedido solo.
-      </p>
+      <h2 className="seccion-titulo">Cargar pedidos nuevos</h2>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <input
@@ -258,8 +251,7 @@ export function CargarPedidosLote() {
             <button
               onClick={cargar}
               disabled={ocupado || listos.length === 0}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-50"
             >
               {ocupado
                 ? "Trabajando…"
@@ -268,8 +260,7 @@ export function CargarPedidosLote() {
             <button
               onClick={limpiar}
               disabled={ocupado}
-              className="rounded-lg border px-3 py-2 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               {terminado ? "Limpiar" : "Cancelar"}
             </button>
@@ -312,8 +303,7 @@ export function CargarPedidosLote() {
                       {r.proforma?.pedido ?? "—"}
                       {r.proforma?.proveedor ? (
                         <div
-                          className="max-w-56 truncate text-[11px]"
-                          style={{ color: "var(--ink-muted)" }}
+                          className="texto-tenue max-w-56 truncate text-[11px]"
                           title={r.proforma.proveedor}
                         >
                           {r.proforma.proveedor}
@@ -348,7 +338,7 @@ export function CargarPedidosLote() {
                         </span>
                       ) : null}
                       {r.mensaje ? (
-                        <div className="mt-0.5 max-w-80 text-[11px]" style={{ color: "var(--ink-2)" }}>
+                        <div className="texto-2 mt-0.5 max-w-80 text-[11px]">
                           {r.mensaje}
                         </div>
                       ) : null}
@@ -371,8 +361,7 @@ export function CargarPedidosLote() {
                             setRevisando(i);
                           }}
                           disabled={ocupado}
-                          className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                          style={{ borderColor: "var(--borde)" }}
+                          className="boton boton-borde boton-chico disabled:opacity-50"
                         >
                           Revisar
                         </button>

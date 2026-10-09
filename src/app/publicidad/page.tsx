@@ -1,10 +1,12 @@
 import { Fragment } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { diasDeRango, fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
-import { cargarPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
+import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
+import { servirPublicidad, GRUPOS_ACCION, type RecomendacionAds } from "@/lib/servicios/publicidad";
 import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
+import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -42,72 +44,41 @@ export default async function Publicidad({
   const sp = await searchParams;
   // Sin rango en la URL, los últimos 30 días (no los 7 del monitor de ventas).
   const rango = normalizarRango(sp.desde ?? fechaMx(29), sp.hasta);
-  const dias = diasDeRango(rango);
 
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          La publicidad sale de tu cuenta de Mercado Libre; primero hay que conectarla
-          en Ajustes.
-        </p>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Publicidad" />;
 
-  const p = await cargarPublicidad(supabase, cuenta, rango);
+  // Masticado en `app_cache` (el latido deja listo el rango de 30 días); si
+  // está viejo se sirve igual y se refresca por atrás.
+  const servida = await servirPublicidad(supabase, cuenta, rango);
+  const p = servida.datos;
   const t = p.totales;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Publicidad</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Product Ads por modelo: qué se vendió, qué se ganó y cuánto costó la
-          publicidad por unidad vendida en el periodo ({dias} días · {rango.desde} →{" "}
-          {rango.hasta}).
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Mercado Libre"
+        titulo="Publicidad"
+        descripcion="Product Ads por modelo: venta, ganancia y costo de publicidad por unidad."
+        frescura={servida.generadoEn}
+      />
 
       <FiltroFechas base="/publicidad" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
 
       {p.errorAds ? (
-        <div
-          className="tarjeta border p-4 text-sm"
-          style={{ borderColor: "var(--estado-alerta)" }}
-        >
-          <div className="font-semibold">Sin datos de Product Ads</div>
-          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
-            {p.errorAds}
-          </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
-            Las ventas y la ganancia de abajo sí están completas; solo falta el gasto
-            de publicidad.
-          </p>
-        </div>
+        <Aviso tono="alerta" titulo="Sin datos de Product Ads">
+          <p>{p.errorAds}</p>
+        </Aviso>
       ) : null}
 
       {p.errorRecomendaciones ? (
-        <div
-          role="alert"
-          className="tarjeta border p-4 text-sm"
-          style={{ borderColor: "var(--estado-alerta)" }}
-        >
-          <div className="font-semibold">Recomendaciones temporalmente no disponibles</div>
-          <p className="mt-1" style={{ color: "var(--ink-2)" }}>
-            {p.errorRecomendaciones}
-          </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
-            Las ventas y métricas de publicidad sí están completas; no se muestran
-            recomendaciones hasta recuperar el stock para evitar sugerencias falsas.
-          </p>
-        </div>
+        <Aviso tono="alerta" titulo="Recomendaciones temporalmente no disponibles">
+          <p>{p.errorRecomendaciones}</p>
+        </Aviso>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha
           titulo="Gasto en publicidad"
           valor={p.errorAds ? "—" : pesos(t.gastoAds)}
@@ -152,170 +123,190 @@ export default async function Publicidad({
               : "neutro"
           }
         />
-      </div>
+      </Cifras>
 
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todas las tallas y colores de cada modelo, juntos. Venta y unidades son
-            TODAS las ventas del periodo; “$ ads/unidad” reparte el gasto de
-            publicidad entre ellas. Un anuncio compartido por varios modelos se
-            reparte entre ellos según sus ventas. Ganancia neta = ganancia (neto −
-            costo) − ads.
-          </p>
-        </header>
-        <div className="max-h-[40rem] overflow-auto">
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th className="num">Unidades</th>
-                <th className="num">Venta</th>
-                <th className="num">Ganancia</th>
-                <th className="num">Gasto ads</th>
-                <th className="num">$ ads/unidad</th>
-                <th className="num">% de la venta</th>
-                <th className="num">Venta por ads</th>
-                <th className="num">Ganancia neta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.filas.map((f) => (
-                <tr key={f.modelo}>
-                  <td className="font-medium">
-                    {f.modelo}
-                    {f.anuncios > 0 ? (
-                      <span className="ml-1.5 text-[10px]" style={{ color: "var(--ink-muted)" }}>
-                        {f.anuncios} {f.anuncios === 1 ? "anuncio" : "anuncios"}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="num cifra font-semibold">{n(f.unidades)}</td>
-                  <td className="num cifra">{pesos(f.importe)}</td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.ganancia != null && f.ganancia < 0
-                          ? "var(--estado-critico)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.ganancia == null ? "—" : pesos(f.ganancia)}
-                  </td>
-                  <td className="num cifra">{f.gastoAds > 0 ? pesos(f.gastoAds) : "—"}</td>
-                  <td className="num cifra font-semibold">
-                    {f.gastoAds > 0 && f.costoPorUnidad != null
-                      ? pesosFinos(f.costoPorUnidad)
-                      : "—"}
-                  </td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {f.gastoAds > 0 && f.tacos != null ? pct(f.tacos) : "—"}
-                  </td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
-                    {f.ventaAds > 0 ? pesos(f.ventaAds) : "—"}
-                  </td>
-                  <td
-                    className="num cifra"
-                    style={{
-                      color:
-                        f.gananciaNeta != null && f.gananciaNeta < 0
-                          ? "var(--estado-critico)"
-                          : "var(--ink-1)",
-                    }}
-                  >
-                    {f.gananciaNeta == null ? "—" : pesos(f.gananciaNeta)}
-                  </td>
-                </tr>
-              ))}
-              {p.filas.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
-                    Sin ventas ni anuncios en el periodo.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <Pestanas
+        pestanas={[
+          {
+            id: "modelos",
+            titulo: "Por modelo",
+            cuenta: p.filas.length,
+            contenido: (
+              <>
+                <Seccion titulo="Por modelo" sinRelleno>
+                  <div className="px-4 pt-3">
+                    <Ayuda>
+                      <p>
+                        Venta y unidades son TODAS las ventas del periodo; “$ ads/unidad” reparte el gasto de publicidad entre
+                        ellas. Un anuncio compartido por varios modelos se reparte entre ellos según sus ventas. Ganancia neta =
+                        ganancia (neto − costo) − ads.
+                      </p>
+                    </Ayuda>
+                  </div>
+                  <Tabla alta>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Modelo</th>
+                          <th className="num">Unidades</th>
+                          <th className="num">Venta</th>
+                          <th className="num">Ganancia</th>
+                          <th className="num">Gasto ads</th>
+                          <th className="num">$ ads/unidad</th>
+                          <th className="num">% de la venta</th>
+                          <th className="num">Venta por ads</th>
+                          <th className="num">Ganancia neta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {p.filas.map((f) => (
+                          <tr key={f.modelo}>
+                            <td className="font-medium">
+                              {f.modelo}
+                              {f.anuncios > 0 ? (
+                                <span className="ml-1.5 text-[10px] texto-tenue">
+                                  {f.anuncios} {f.anuncios === 1 ? "anuncio" : "anuncios"}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="num cifra font-semibold">{n(f.unidades)}</td>
+                            <td className="num cifra">{pesos(f.importe)}</td>
+                            <td
+                              className="num cifra"
+                              style={{
+                                color:
+                                  f.ganancia != null && f.ganancia < 0
+                                    ? "var(--critico-texto)"
+                                    : "var(--ink-1)",
+                              }}
+                            >
+                              {f.ganancia == null ? "—" : pesos(f.ganancia)}
+                            </td>
+                            <td className="num cifra">{f.gastoAds > 0 ? pesos(f.gastoAds) : "—"}</td>
+                            <td className="num cifra font-semibold">
+                              {f.gastoAds > 0 && f.costoPorUnidad != null
+                                ? pesosFinos(f.costoPorUnidad)
+                                : "—"}
+                            </td>
+                            <td className="num cifra texto-2">
+                              {f.gastoAds > 0 && f.tacos != null ? pct(f.tacos) : "—"}
+                            </td>
+                            <td className="num cifra texto-2">
+                              {f.ventaAds > 0 ? pesos(f.ventaAds) : "—"}
+                            </td>
+                            <td
+                              className="num cifra"
+                              style={{
+                                color:
+                                  f.gananciaNeta != null && f.gananciaNeta < 0
+                                    ? "var(--critico-texto)"
+                                    : "var(--ink-1)",
+                              }}
+                            >
+                              {f.gananciaNeta == null ? "—" : pesos(f.gananciaNeta)}
+                            </td>
+                          </tr>
+                        ))}
+                        {p.filas.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="p-4 text-sm texto-2">
+                              Sin ventas ni anuncios en el periodo.
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
 
-      {p.sinAmarre.anuncios > 0 ? (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
-          {p.sinAmarre.anuncios} anuncios con {pesos(p.sinAmarre.gasto)} de gasto no
-          amarraron a ningún modelo del catálogo (publicaciones fuera de la
-          sincronización); ese gasto sí cuenta en el total de arriba.
-        </p>
-      ) : null}
-
-      {p.recomendaciones.length > 0 ? (
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Recomendaciones</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Qué hacer hoy con cada modelo, cruzando la publicidad con el stock de
-              Full y el margen. Los cambios se hacen en la consola de Product Ads de
-              Mercado Libre; su API no acepta modificarlos desde aquí.
-            </p>
-          </header>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th>Qué hacer</th>
-                <th>Por qué</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Agrupadas por lo que hay que hacer, en el orden en que se
-                  trabaja la lista: primero se corta el gasto, después se
-                  invierte. Dentro de cada grupo, lo que más dinero mueve
-                  primero. */}
-              {GRUPOS_ACCION.map((grupo) => {
-                const delGrupo = p.recomendaciones.filter((r) => grupo.acciones.includes(r.accion));
-                if (!delGrupo.length) return null;
-                return (
-                  <Fragment key={grupo.titulo}>
+                {p.sinAmarre.anuncios > 0 ? (
+                  <p className="text-xs texto-tenue">
+                    {p.sinAmarre.anuncios} anuncios ({pesos(p.sinAmarre.gasto)}) no amarraron a ningún modelo; su gasto sí
+                    cuenta en el total.
+                  </p>
+                ) : null}
+              </>
+            ),
+          },
+          p.recomendaciones.length > 0 && {
+            id: "recomendaciones",
+            titulo: "Recomendaciones",
+            cuenta: p.recomendaciones.length,
+            contenido: (
+              <Seccion
+                titulo="Recomendaciones"
+                sinRelleno
+              >
+                <div className="px-4 pt-3">
+                  <Ayuda titulo="¿Dónde se cambia?">
+                    <p>
+                      Los cambios se hacen en la consola de Product Ads de Mercado Libre; su API no acepta modificarlos desde
+                      aquí.
+                    </p>
+                  </Ayuda>
+                </div>
+                <Tabla>
+                <table className="datos">
+                  <thead>
                     <tr>
-                      <th
-                        colSpan={3}
-                        className="text-left text-xs font-semibold uppercase tracking-wide"
-                        style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}
-                      >
-                        {grupo.titulo} · {delGrupo.length}
-                      </th>
+                      <th>Modelo</th>
+                      <th>Qué hacer</th>
+                      <th>Por qué</th>
                     </tr>
-                    {delGrupo.map((r) => (
-                      <tr key={`${r.accion}|${r.modelo}`}>
-                        <td className="font-semibold">{r.modelo}</td>
-                        <td
-                          className="font-semibold"
-                          style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
-                        >
-                          {r.queHacer}
-                        </td>
-                        <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
-                          {r.razon}
-                        </td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
-    </div>
+                  </thead>
+                  <tbody>
+                    {/* Agrupadas por lo que hay que hacer, en el orden en que se
+                        trabaja la lista: primero se corta el gasto, después se
+                        invierte. Dentro de cada grupo, lo que más dinero mueve
+                        primero. */}
+                    {GRUPOS_ACCION.map((grupo) => {
+                      const delGrupo = p.recomendaciones.filter((r) => grupo.acciones.includes(r.accion));
+                      if (!delGrupo.length) return null;
+                      return (
+                        <Fragment key={grupo.titulo}>
+                          <tr>
+                            <th
+                              colSpan={3}
+                              className="text-left text-xs font-semibold uppercase tracking-wide"
+                              style={{ background: "var(--surface-2)", color: "var(--ink-2)" }}
+                            >
+                              {grupo.titulo} · {delGrupo.length}
+                            </th>
+                          </tr>
+                          {delGrupo.map((r) => (
+                            <tr key={`${r.accion}|${r.modelo}`}>
+                              <td className="font-semibold">{r.modelo}</td>
+                              <td
+                                className="font-semibold"
+                                style={{ color: COLOR_ACCION[r.accion], whiteSpace: "normal" }}
+                              >
+                                {r.queHacer}
+                              </td>
+                              <td style={{ color: "var(--ink-2)", whiteSpace: "normal" }}>
+                                {r.razon}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                </Tabla>
+              </Seccion>
+            ),
+          },
+        ]}
+      />
+    </Pagina>
   );
 }
 
 const COLOR_ACCION: Record<RecomendacionAds["accion"], string> = {
-  pausar: "var(--estado-critico)",
+  pausar: "var(--critico-texto)",
   encender: "var(--exito-texto)",
-  apagar: "var(--estado-critico)",
-  bajar: "var(--estado-alerta)",
+  apagar: "var(--critico-texto)",
+  bajar: "var(--alerta-texto)",
   subir: "var(--exito-texto)",
   activar: "var(--acento)",
 };

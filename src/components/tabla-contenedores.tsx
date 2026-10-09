@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
+import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 
@@ -133,9 +133,8 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   if (!contenedores.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-          Todavía no hay contenedores. Se dan de alta desde Planificación China, con
-          el botón <strong>Contenedor</strong> de cada pedido.
+        <p className="texto-2 text-sm">
+          Todavía no hay contenedores.
         </p>
       </section>
     );
@@ -144,7 +143,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   return (
     <section className="tarjeta overflow-hidden">
       <header className="border-b p-3 hairline">
-        <h2 className="text-sm font-semibold">Contenedores</h2>
+        <h2 className="seccion-titulo">Contenedores</h2>
       </header>
 
       {error ? (
@@ -187,8 +186,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     {c.numero}
                     {c.notas && !abierto ? (
                       <div
-                        className="max-w-48 truncate text-[11px]"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="texto-tenue max-w-48 truncate text-[11px]"
                         title={c.notas}
                       >
                         {c.notas}
@@ -219,7 +217,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                       <>
                         {c.naviera || "—"}
                         {c.numeroNaviera ? (
-                          <div className="cifra text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                          <div className="texto-tenue cifra text-[11px]">
                             {c.numeroNaviera}
                           </div>
                         ) : null}
@@ -266,7 +264,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         {resumenModelos(c.modelos)}
                       </span>
                     ) : (
-                      <span style={{ color: "var(--ink-muted)" }}>—</span>
+                      <span className="texto-tenue">—</span>
                     )}
                     {c.sinSku?.length ? (
                       <button
@@ -344,16 +342,14 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               )
                             }
                             disabled={ocupado === c.id}
-                            className="rounded-lg px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-                            style={{ background: "var(--acento)" }}
+                            className="boton boton-primario boton-chico disabled:opacity-50"
                           >
                             {ocupado === c.id ? "Guardando…" : "Guardar"}
                           </button>
                           <button
                             onClick={() => setEditando(null)}
                             disabled={ocupado === c.id}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Cancelar
                           </button>
@@ -362,15 +358,13 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                         <>
                           <button
                             onClick={() => abrirEdicion(c)}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Editar
                           </button>
                           <button
                             onClick={() => setContenido(c)}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Contenido
                           </button>
@@ -395,16 +389,14 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           ) : null}
                           <a
                             href={`/api/contenedores/${c.id}/packing-list`}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium"
-                            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                            className="boton boton-borde boton-chico"
                           >
                             Packing list
                           </a>
                           <button
                             onClick={() => compartirDocumentos(c)}
                             disabled={ocupado === c.id}
-                            className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                            style={{ borderColor: "var(--borde)" }}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
                             title="Abre un correo con los enlaces a los documentos de este embarque en Drive"
                           >
                             {ocupado === c.id ? "…" : "Compartir docs"}
@@ -413,8 +405,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                             <button
                               onClick={() => mandar({ estado: "en_transito" }, c.id)}
                               disabled={ocupado === c.id}
-                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
-                              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                              className="boton boton-borde boton-chico disabled:opacity-50"
                               title="Lo revisaste y está bien: pasa a en tránsito"
                             >
                               {ocupado === c.id ? "…" : "Confirmar"}
@@ -642,12 +633,7 @@ function ContenidoContenedor({
       aria-label={`Contenido del contenedor ${contenedor.numero}`}
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">Contenido de {contenedor.numero}</h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que viaja en este contenedor. Corrige las cajas si algo se capturó mal; pon{" "}
-          <strong>0</strong> para quitar un renglón.
-        </p>
-
+        <h3 className="titulo-seccion">Contenido de {contenedor.numero}</h3>
         {pendientes.length ? (
           <section
             className="mt-3 rounded-lg border p-3"
@@ -657,11 +643,6 @@ function ContenidoContenedor({
               {pendientes.length === 1 ? "1 renglón del packing list" : `${pendientes.length} renglones del packing list`} por
               confirmar
             </h4>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-              La fábrica escribió el color distinto al pedido. Por cada uno te digo cuál es casi seguro y
-              por qué; confirma y las cajas se suman a ese renglón. Si marcas «recordar», el próximo
-              embarque con ese nombre amarra solo.
-            </p>
             <ul className="mt-2 flex flex-col gap-2">
               {pendientes.map((p) => {
                 const k = claveP(p);
@@ -684,7 +665,7 @@ function ContenidoContenedor({
                     style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
                   >
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span style={{ color: "var(--ink-muted)" }}>Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
+                      <span className="texto-tenue">Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
                       <span className="font-semibold">
                         {p.modelo} {p.color}
                         {p.talla ? ` talla ${p.talla}` : ""}
@@ -693,11 +674,11 @@ function ContenidoContenedor({
                     </div>
 
                     {lineas === null ? (
-                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                      <div className="texto-tenue mt-1">
                         Cargando el pedido…
                       </div>
                     ) : !opciones.length ? (
-                      <div className="mt-1" style={{ color: "var(--ink-muted)" }}>
+                      <div className="texto-tenue mt-1">
                         {sugerencia?.porQue ?? p.motivo}
                       </div>
                     ) : (
@@ -709,13 +690,13 @@ function ContenidoContenedor({
                               {sugerencia.renglon.modelo} {sugerencia.renglon.color}
                               {sugerencia.renglon.talla ? ` talla ${sugerencia.renglon.talla}` : ""}
                             </span>
-                            <span style={{ color: "var(--ink-2)" }}>
+                            <span className="texto-2">
                               del pedido {sugerencia.renglon.pedido} · {n(sugerencia.renglon.libres)} cajas sin barco
                             </span>
                           </div>
                         ) : (
                           <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <span style={{ color: "var(--ink-2)" }}>¿Cuál es?</span>
+                            <span className="texto-2">¿Cuál es?</span>
                             <select
                               value={elegidoId}
                               onChange={(ev) => setEleccion((e) => ({ ...e, [k]: ev.target.value }))}
@@ -733,7 +714,7 @@ function ContenidoContenedor({
                           </div>
                         )}
                         {sugerencia?.porQue ? (
-                          <div className="mt-0.5" style={{ color: "var(--ink-muted)" }}>
+                          <div className="texto-tenue mt-0.5">
                             {sugerencia.porQue}
                           </div>
                         ) : null}
@@ -741,30 +722,27 @@ function ContenidoContenedor({
                           <button
                             onClick={() => elegido && void confirmar(p, elegido.pedidoLineaId)}
                             disabled={!elegido}
-                            className="rounded-lg px-2.5 py-1 font-semibold text-white disabled:opacity-50"
-                            style={{ background: "var(--acento)" }}
+                            className="boton boton-primario boton-chico disabled:opacity-50"
                           >
                             Sí, es este
                           </button>
                           {sugerencia?.renglon && sugerencia.otras.length ? (
                             <button
                               onClick={() => setEligiendoOtro((e) => ({ ...e, [k]: !e[k] }))}
-                              className="rounded-lg border px-2 py-1"
-                              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                              className="boton boton-borde boton-chico"
                             >
                               {mostrarSelector ? "Volver a la sugerencia" : `Es otro (${sugerencia.otras.length} más)`}
                             </button>
                           ) : null}
                           <button
                             onClick={() => setPendientes((ps) => ps.filter((x) => claveP(x) !== k))}
-                            className="rounded-lg border px-2 py-1"
-                            style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                            className="boton boton-borde boton-chico"
                             title="No es ninguno: quítalo del aviso"
                           >
                             Descartar
                           </button>
                           {lineaElegida?.colorMeli && p.color ? (
-                            <label className="flex items-center gap-1" style={{ color: "var(--ink-2)" }}>
+                            <label className="texto-2 flex items-center gap-1">
                               <input
                                 type="checkbox"
                                 checked={recordar[k] ?? true}
@@ -794,8 +772,7 @@ function ContenidoContenedor({
           {fueraDelContenedor ? (
             <button
               onClick={() => setTodoElPedido((v) => !v)}
-              className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              className="boton boton-borde boton-chico"
               title="Los renglones de los mismos pedidos que este contenedor no trae"
             >
               {todoElPedido
@@ -828,7 +805,7 @@ function ContenidoContenedor({
                     <td className="font-medium">{l.modelo}</td>
                     <td>{l.color}</td>
                     <td className="cifra">
-                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                      {l.talla || <span className="texto-tenue">corrida</span>}
                     </td>
                     <td className="num cifra">{l.cajasPedido}</td>
                     <td className="num cifra">{l.enOtros || "—"}</td>
@@ -860,7 +837,7 @@ function ContenidoContenedor({
             </tbody>
           </table>
           {lineas === null ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Cargando contenido…
             </p>
           ) : null}
@@ -878,7 +855,7 @@ function ContenidoContenedor({
         ))}
 
         <div className="mt-4 flex items-center gap-3">
-          <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2 text-sm">
             Quedan <strong className="cifra">{n(totalCajas)}</strong> cajas en este
             contenedor.
           </span>
@@ -886,16 +863,14 @@ function ContenidoContenedor({
             <button
               onClick={onCerrar}
               disabled={guardando}
-              className="rounded-lg border px-3 py-2 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={guardando || lineas === null}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-50"
             >
               {guardando ? "Guardando…" : "Guardar cambios"}
             </button>

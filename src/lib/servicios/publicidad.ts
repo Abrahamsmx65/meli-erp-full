@@ -14,7 +14,8 @@
  * duplica. Lo que no amarra se reporta aparte, nunca se tira en silencio.
  */
 import { MeliError, type MeliClient } from "../meli/client";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
+import { servirConCacheApp } from "./cache-app";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
 import { clienteDeCuenta } from "./webhooks";
@@ -344,7 +345,8 @@ export async function anunciosDesdeBase(
   const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
   if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
 
-  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+  // Por páginas: ~1,200 publicaciones con gasto y el API entrega 1,000.
+  const { data, error: errorRpc } = await rpcPaginado(db, "publicidad_resumen_items", {
     p_account: accountId,
     p_desde: r.desde,
     p_hasta: r.hasta,
@@ -884,7 +886,8 @@ export async function cargarPublicidad(
     /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
     ventaSinDeposito: number;
   }> => {
-    const { data, error } = await db.rpc("ventas_resumen_sku", {
+    // Por páginas: hay más de 1,000 SKUs con venta.
+    const { data, error } = await rpcPaginado(db, "ventas_resumen_sku", {
       p_account: cuenta.id,
       p_desde: r.desde,
       p_hasta: r.hasta,
@@ -1067,8 +1070,44 @@ export async function cargarPublicidad(
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.
+  // (Esta es la caché EN MEMORIA, que también leen los cortes; las pantallas
+  // guardan el resultado completo, con sus avisos, en `servirPublicidad`.)
   if (!errorAds && advertencias.length === 0) {
     cachePublicidad.set(claveCache, { en: Date.now(), datos });
   }
   return datos;
+}
+
+/** Cuánto vive el panel guardado de un rango que incluye hoy. */
+export const VIDA_PUBLICIDAD_ABIERTA_MS = 10 * 60_000;
+/** Un rango que ya cerró casi no cambia: se refresca cada 6 horas. */
+export const VIDA_PUBLICIDAD_CERRADA_MS = 6 * 3_600_000;
+
+export const clavePublicidadMeli = (r: RangoFechas): string => `publicidad-meli:${r.desde}:${r.hasta}`;
+
+/**
+ * El panel de publicidad masticado para PANTALLAS (/ventas, /publicidad y la
+ * tabla de modelos): sirve el renglón de `app_cache` aunque esté viejo y lo
+ * refresca por atrás. El error de ads y las advertencias se guardan junto
+ * con el resultado y se enseñan igual. Los cortes NO usan esto: piden
+ * `cargarPublicidad` directo porque congelan lo que leen.
+ */
+export async function servirPublicidad(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango?: RangoFechas,
+): Promise<{ datos: Publicidad; generadoEn: string | null; refrescando: boolean }> {
+  const r = rango ?? normalizarRango();
+  const vida = r.hasta < fechaMx(0) ? VIDA_PUBLICIDAD_CERRADA_MS : VIDA_PUBLICIDAD_ABIERTA_MS;
+  return servirConCacheApp(db, cuenta.id, clavePublicidadMeli(r), vida, () => cargarPublicidad(db, cuenta, r));
+}
+
+/** Calcula el panel sin caché en memoria (lo usa el fondo para guardarlo). */
+export function calcularPublicidadFresca(
+  db: DB,
+  cuenta: { id: string; site_id: string },
+  rango: RangoFechas,
+): Promise<Publicidad> {
+  cachePublicidad.clear();
+  return cargarPublicidad(db, cuenta, rango);
 }

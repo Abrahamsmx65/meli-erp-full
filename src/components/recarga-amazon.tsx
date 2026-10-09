@@ -13,19 +13,48 @@ const OPCIONES = [30, 90, 180, 365];
  * cada 5 minutos. Un año son 13 ventanas, así que tarda alrededor de una hora
  * en completarse — pero no hay nada que vigilar, avanza solo aunque cierres.
  */
-export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
+export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga }) {
   const router = useRouter();
   const [dias, setDias] = useState(90);
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [estado, setEstado] = useState(estadoInicial);
+
+  // Lo que manda el servidor (tras encolar o al recargar) gana.
+  useEffect(() => setEstado(estadoInicial), [estadoInicial]);
 
   const enCola = estado.pendientes > 0;
 
-  // Mientras hay cola, la pantalla se refresca sola para que se vea el avance.
+  // Mientras hay cola se pregunta SOLO el avance (un renglón por ventana),
+  // no la pantalla completa: recargarla cada 45 s volvía a leer el plan de
+  // FBA entero. Pausa con la pestaña oculta; al terminar la cola, la
+  // pantalla se refresca UNA vez para enseñar lo que entró.
   useEffect(() => {
     if (!enCola) return;
-    const t = setInterval(() => router.refresh(), 45_000);
-    return () => clearInterval(t);
+    let vivo = true;
+    const preguntar = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch("/api/amazon/recargar", { cache: "no-store" });
+        if (!r.ok || !vivo) return;
+        const nuevo = (await r.json()) as EstadoRecarga;
+        if (!vivo) return;
+        setEstado(nuevo);
+        if (nuevo.pendientes === 0) router.refresh();
+      } catch {
+        // sin red: se vuelve a intentar en la siguiente vuelta
+      }
+    };
+    const t = setInterval(preguntar, 45_000);
+    const alVolver = () => {
+      if (!document.hidden) void preguntar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", alVolver);
+    };
   }, [enCola, router]);
 
   const recargar = async () => {
@@ -57,11 +86,7 @@ export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
     <section className="tarjeta p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1">
-          <h2 className="text-sm font-semibold">Recargar histórico</h2>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
-            La sincronización automática mantiene al día los últimos 3 días. Usa
-            esto para traer más historia o para corregir un periodo.
-          </p>
+          <h2 className="seccion-titulo">Recargar histórico</h2>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -90,10 +115,9 @@ export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
           <button
             onClick={recargar}
             disabled={enCola || enviando}
-            className="rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
-            style={{ background: "var(--acento)", color: "var(--surface-1)" }}
+            className="boton boton-borde"
           >
-            {enviando ? "Encolando…" : "Recargar"}
+            {enviando ? "Encolando…" : "Recargar ventas"}
           </button>
         </div>
       </div>
@@ -101,7 +125,7 @@ export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
       {enCola ? (
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs">
-            <span style={{ color: "var(--ink-2)" }}>
+            <span className="texto-2">
               Procesando desde {estado.enCurso} · faltan{" "}
               <strong className="cifra">{estado.pendientes}</strong> de {estado.total}
             </span>
@@ -120,7 +144,7 @@ export function RecargaAmazon({ estado }: { estado: EstadoRecarga }) {
       ) : null}
 
       {aviso ? (
-        <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-3 text-xs">
           {aviso}
         </p>
       ) : null}

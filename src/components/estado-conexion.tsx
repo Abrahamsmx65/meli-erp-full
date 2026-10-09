@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 interface Estado {
@@ -21,7 +21,9 @@ interface Estado {
  * sistema se actualiza sin avisar, uno nunca sabe si lo que está viendo es de
  * hace un minuto o de hace tres días. Esta barra es ese aviso.
  */
-export function EstadoConexion() {
+const RUTAS_CON_PLAN = ["/envios", "/pedidos", "/etiquetas", "/pendientes"];
+
+export function EstadoConexion({ oculto = false }: { oculto?: boolean } = {}) {
   const [e, setE] = useState<Estado | null>(null);
   const router = useRouter();
   const ruta = usePathname();
@@ -32,11 +34,19 @@ export function EstadoConexion() {
   const publica =
     ruta.startsWith("/contenido/") || ruta.startsWith("/preparar/") || ruta.startsWith("/login");
 
+  // Solo las pantallas que enseñan el plan se recargan cuando sale uno nuevo;
+  // las demás (ventas, TikTok, cortes) no lo usan y recargarlas era rehacer
+  // todo su trabajo de servidor sin razón.
+  const rutaActual = useRef(ruta);
+  rutaActual.current = ruta;
+
   useEffect(() => {
     if (publica) return;
     let vivo = true;
 
     async function consultar() {
+      // Pestaña escondida: nadie está mirando la barra. Se pregunta al volver.
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const r = await fetch("/api/estado", { cache: "no-store" });
         if (!r.ok) return;
@@ -47,7 +57,12 @@ export function EstadoConexion() {
           // con cada aviso de MELI —o sea cada 30 segundos en horario de
           // ventas— y las páginas pesadas se recargaban enteras sin parar:
           // esa era la mayor causa de que la app se sintiera lenta.
-          if (previo && j.planGeneradoEn && previo.planGeneradoEn !== j.planGeneradoEn) {
+          if (
+            previo &&
+            j.planGeneradoEn &&
+            previo.planGeneradoEn !== j.planGeneradoEn &&
+            RUTAS_CON_PLAN.some((r) => rutaActual.current.startsWith(r))
+          ) {
             router.refresh();
           }
           return j;
@@ -58,14 +73,22 @@ export function EstadoConexion() {
     }
 
     consultar();
-    const t = setInterval(consultar, 30_000);
+    const t = setInterval(consultar, 60_000);
+    const alVolver = () => {
+      if (!document.hidden) consultar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
     return () => {
       vivo = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", alVolver);
     };
   }, [router, publica]);
 
-  if (publica || !e) return null;
+  // Oculto (dueño, 9-oct-2026: «no necesitamos el de cuándo fue la sync ni
+  // los pendientes ahí»): la consulta sigue corriendo porque es la que
+  // enciende el latido mientras la app está abierta, pero no pinta nada.
+  if (publica || !e || oculto) return null;
 
   const hace = (iso: string | null) => {
     if (!iso) return "nunca";
@@ -85,12 +108,12 @@ export function EstadoConexion() {
   return (
     <div
       className="flex items-center gap-2 text-[12px] font-medium"
-      style={{ color: "var(--marca-texto)" }}
+      style={{ color: "var(--ink-2)" }}
       aria-live="polite"
     >
       <span
         className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1"
-        style={{ background: "var(--marca-suave)" }}
+        style={{ background: "var(--surface-2)", boxShadow: "inset 0 0 0 1px var(--borde)" }}
         title={
           e.planGeneradoEn
             ? `Plan ${e.planVigente ? "al día" : "desactualizado"} · ${hace(e.planGeneradoEn)}`
@@ -101,8 +124,8 @@ export function EstadoConexion() {
           aria-hidden="true"
           className="inline-block h-2 w-2 rounded-full"
           style={{
-            background: vivo ? "#2ecc71" : "#ff9f43",
-            boxShadow: vivo ? "0 0 0 3px rgba(46,204,113,.25)" : "none",
+            background: vivo ? "var(--estado-bien)" : "var(--estado-serio)",
+            boxShadow: vivo ? "0 0 0 3px rgba(0,166,80,.15)" : "none",
           }}
         />
         {!e.conectado
@@ -111,14 +134,14 @@ export function EstadoConexion() {
             ? `MELI en vivo · ${hace(e.ultimaSync)}`
             : `MELI · ${hace(e.ultimaSync)}`}
         {e.ultimaSyncAmazon ? (
-          <span style={{ color: "rgba(255,255,255,.6)" }}>· Amazon {hace(e.ultimaSyncAmazon)}</span>
+          <span className="hidden xl:inline texto-tenue">· Amazon {hace(e.ultimaSyncAmazon)}</span>
         ) : null}
       </span>
 
       {e.planGeneradoEn && !e.planVigente ? (
         <span
           className="hidden rounded-full px-2.5 py-1 lg:inline-flex"
-          style={{ background: "rgba(255,159,67,.22)", color: "#ffd2a8" }}
+          style={{ background: "var(--alerta-suave)", color: "var(--alerta-texto)" }}
         >
           Plan desactualizado
         </span>

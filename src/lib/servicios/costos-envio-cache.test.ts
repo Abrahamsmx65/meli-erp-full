@@ -36,7 +36,11 @@ function dbFalso(opts: {
   const upserts: Record<string, unknown>[] = [];
   const rpc = vi.fn(opts.rpc);
   const db = {
-    rpc,
+    // El RPC se lee por páginas (`.range`): la primera trae todo, las demás vacías.
+    rpc: (...args: unknown[]) => ({
+      range: (desde: number) =>
+        desde === 0 ? (rpc as any)(...args) : Promise.resolve({ data: [], error: null }),
+    }),
     from: (tabla: string) => {
       if (tabla !== "app_cache") throw new Error(`tabla inesperada ${tabla}`);
       return {

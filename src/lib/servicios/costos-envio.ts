@@ -28,7 +28,7 @@
  * y `billable_weight` (el peso facturable que salió de esas medidas).
  */
 import { MeliClient, enLotes, trozos } from "../meli/client";
-import { traerTodo, type DB } from "../datos/repos";
+import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { mensajeErrorDatos } from "./errores-datos";
 
@@ -1020,7 +1020,10 @@ async function preguntarEnviosReales(
   accountId: string,
 ): Promise<{ filas: FilaEnvioReal[]; desde: string }> {
   const desde = new Date(Date.now() - DIAS_VENTAS_REALES * 86_400_000).toISOString();
-  const { data, error } = await db.rpc("envio_real_por_sku", { p_account: accountId, p_desde: desde });
+  // Por páginas: ~1,500 SKUs con ventas y el API entrega 1,000 por respuesta;
+  // con una sola llamada los SKUs de la segunda mitad del alfabeto caían al
+  // simulador como «sin ventas».
+  const { data, error } = await rpcPaginado<FilaEnvioReal>(db, "envio_real_por_sku", { p_account: accountId, p_desde: desde });
   if (error) throw new Error(mensajeErrorDatos(error));
   return { filas: (data ?? []) as FilaEnvioReal[], desde };
 }
@@ -1069,6 +1072,25 @@ export async function leerEnviosRealesConEstado(
     };
   }
 
+  // Viejo: se sirve lo guardado y el RPC se pregunta DESPUÉS de contestar
+  // (regla de arquitectura). Si ya pasaron dos vueltas sin poder releerlo,
+  // se declara: nunca en silencio. Sin contexto de request (pruebas,
+  // scripts) se pregunta aquí, como antes.
+  if (previo && (await releerEnviosRealesPorAtras(db, accountId))) {
+    const edad = Date.now() - Date.parse(previo.generadoEn);
+    return {
+      reales: armarEnviosReales(previo.datos.filas),
+      estado: {
+        generadoEn: previo.generadoEn,
+        skus: previo.datos.filas.length,
+        aviso:
+          edad > 2 * EDAD_ENVIO_REAL_MS
+            ? `Las ventas reales son de hace ${Math.round(edad / 3_600_000)} h: no se han podido releer; se vuelven a pedir en el fondo.`
+            : null,
+      },
+    };
+  }
+
   try {
     const t0 = Date.now();
     const r = await preguntarEnviosReales(db, accountId);
@@ -1105,6 +1127,48 @@ export async function leerEnviosRealesConEstado(
         aviso: `No se pudieron leer las ventas reales (${motivo}): la revisión sale solo del simulador.`,
       },
     };
+  }
+}
+
+/**
+ * Programa la relectura del RPC para después de contestar, con candado
+ * (diez visitas = una lectura). Devuelve false si no hay request en curso.
+ */
+async function releerEnviosRealesPorAtras(db: DB, accountId: string): Promise<boolean> {
+  try {
+    const { after } = await import("next/server");
+    after(async () => {
+      const recurso = `cache:${CLAVE_ENVIO_REAL}`;
+      let admin: DB | null = null;
+      let token: string | null = null;
+      try {
+        const { clienteAdmin } = await import("../supabase/admin");
+        admin = clienteAdmin() as DB;
+        const { adquirirCandado } = await import("../datos/repos");
+        token = await adquirirCandado(admin, accountId, recurso, 300);
+      } catch {
+        token = "sin-candado";
+      }
+      if (!token) return;
+      try {
+        // El RPC acepta al service_role (lo usa el latido): no depende de la sesión.
+        await refrescarEnviosReales(admin ?? db, accountId);
+      } catch (err) {
+        console.error("envio-real: relectura de fondo:", (err as Error).message);
+      } finally {
+        if (token !== "sin-candado" && admin) {
+          try {
+            const { liberarCandado } = await import("../datos/repos");
+            await liberarCandado(admin, accountId, recurso, token);
+          } catch {
+            // vence solo por TTL
+          }
+        }
+      }
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 

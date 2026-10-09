@@ -252,8 +252,9 @@ describe("listarContenedores con más de 1,000 líneas amarradas", () => {
       contenedor_lineas,
       pedido_lineas: lineas,
       pedidos: [
-        { id: "pa", pedido: "IN10001" },
-        { id: "pb", pedido: "IN10002" },
+        // Los nombres de los pedidos se leen por cuenta, a la par de los contenedores.
+        { id: "pa", account_id: "cuenta", pedido: "IN10001" },
+        { id: "pb", account_id: "cuenta", pedido: "IN10002" },
       ],
     });
 

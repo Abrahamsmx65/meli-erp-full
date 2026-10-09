@@ -15,11 +15,17 @@
  * al leer, sin tocar la forma que las pantallas ya consumen.
  */
 import type { DB } from "../datos/repos";
-import { traerTodo } from "../datos/repos";
+import { traerRpcTodo, traerTodo } from "../datos/repos";
 import { VERSION_MOTOR } from "./cache";
 import { cargarAmazon, PERIODO_OMISION, SIN_LIMITE, type TotalesAmazon } from "./amazon";
 import { mapaCorridas, sugerirEnvioFba, type SugerenciaFba } from "./fba";
-import { aplicarEnCamino, enCaminoFba, type EnCaminoFba } from "./fba-en-camino";
+import {
+  aplicarEnCamino,
+  enCaminoFba,
+  recibidoEnProcesoFba,
+  sumarRecibidoEnProceso,
+  type EnCaminoFba,
+} from "./fba-en-camino";
 import { planFbaConCajas, type HistoriaSkuFba, type PlanFbaCajas } from "./fba-plan";
 import { catalogoBodega } from "./inventario";
 import { separarEnvios, type PlanDeEnvios } from "./envios";
@@ -95,10 +101,13 @@ async function historiaFba(
   db: DB,
   cuentaAmazonId: string,
 ): Promise<{ historia: Map<string, HistoriaSkuFba> | null; error: string | null }> {
-  const { data, error } = await db.rpc("amazon_historia_sku", { p_account: cuentaAmazonId });
-  if (error) return { historia: null, error: error.message };
+  // POR PÁGINAS: son ~4,500 SKUs y el API entrega 1,000 por respuesta; con
+  // una sola llamada GT144, GT154 y todo lo de después en el alfabeto salían
+  // «sin venta» y se les pedía la posición mínima de 2 cajas.
+  const { filas, error } = await traerRpcTodo<any>(db, "amazon_historia_sku", { p_account: cuentaAmazonId });
+  if (error) return { historia: null, error };
   const historia = new Map<string, HistoriaSkuFba>();
-  for (const r of (data ?? []) as {
+  for (const r of filas as {
     seller_sku: string;
     unidades: number | string;
     primera_venta: string | null;
@@ -153,6 +162,7 @@ export async function calcularPlanFba(
     enCamino,
     historia,
     listados,
+    enProceso,
   ] = await Promise.all([
       // SIN límite: con el top-500, el 64% del calzado con venta quedaba
       // invisible para el plan (esta página no pinta renglones crudos).
@@ -179,12 +189,16 @@ export async function calcularPlanFba(
       enCaminoFba(db, cuentaAmazonId),
       historiaFba(db, cuentaAmazonId),
       skusListadosFba(db, cuentaAmazonId),
+      recibidoEnProcesoFba(db, cuentaAmazonId),
     ]);
 
   // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
   // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
   // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
-  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
+  // Y lo que Amazon ya recibió pero aún no da por vendible (el envío ya lo
+  // cuenta recibido y el reporte no lo trae como disponible) también es
+  // posición: sin esto se volvían a pedir cajas de lo recién mandado.
+  const renglones = sumarRecibidoEnProceso(aplicarEnCamino(renglonesCrudos, enCamino), enProceso);
 
   const indiceMeli = indexarCatalogo(skusMeli);
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);
@@ -239,12 +253,12 @@ interface GuardadoFba {
 }
 
 /**
- * Devuelve el plan de FBA: el guardado si es del mismo motor. Para el
- * periodo por omisión se sirve AUNQUE esté invalidado —el latido lo deja
- * fresco en un par de minutos y hacer esperar el clic no aporta nada—; en
- * un periodo alterno (que nadie refresca por atrás) un renglón invalidado
- * sí se recalcula aquí, porque servirlo viejo sería dejarlo viejo para
- * siempre.
+ * Devuelve el plan de FBA: el guardado si es del mismo motor, AUNQUE esté
+ * invalidado. El periodo por omisión lo deja fresco el latido en un par de
+ * minutos; un periodo alterno (que el latido no toca) se sirve viejo y se
+ * recalcula por atrás con `after()` —antes se recalculaba en el clic y la
+ * pantalla esperaba el optimizador completo—. Solo sin renglón del mismo
+ * motor se calcula aquí.
  */
 export async function obtenerPlanFba(
   db: DB,
@@ -267,11 +281,60 @@ export async function obtenerPlanFba(
     guardado != null &&
     guardado.versionMotor === VERSION_MOTOR &&
     (guardado.cuentaMeliId ?? null) === (cuentaMeliId ?? null);
-  if (mismoMotor && ((data?.vigente ?? true) || dias === PERIODO_OMISION)) {
+  if (mismoMotor) {
+    if (!(data?.vigente ?? true) && dias !== PERIODO_OMISION) {
+      await refrescarPorAtras(db, cuentaAmazonId, cuentaMeliId, dias);
+    }
     return revivirTipos(guardado.datos) as DatosPlanFba;
   }
 
   return recalcularPlanFba(db, cuentaAmazonId, cuentaMeliId, dias);
+}
+
+/**
+ * Recalcula un periodo alterno después de contestar. Con candado por
+ * periodo: diez visitas a la vez lanzan UN cálculo. Fuera de un request
+ * (pruebas, scripts) no hay fondo y lo guardado sirve igual.
+ */
+async function refrescarPorAtras(
+  db: DB,
+  cuentaAmazonId: string,
+  cuentaMeliId: string | null,
+  dias: number,
+): Promise<void> {
+  try {
+    const { after } = await import("next/server");
+    after(async () => {
+      const recurso = `plan-fba:${dias}`;
+      let admin: DB | null = null;
+      let token: string | null = null;
+      try {
+        const { clienteAdmin } = await import("../supabase/admin");
+        admin = clienteAdmin() as DB;
+        const { adquirirCandado } = await import("../datos/repos");
+        token = await adquirirCandado(admin, cuentaAmazonId, recurso, 300);
+      } catch {
+        token = "sin-candado";
+      }
+      if (!token) return; // otro request ya lo está recalculando
+      try {
+        await recalcularPlanFba(db, cuentaAmazonId, cuentaMeliId, dias);
+      } catch (err) {
+        console.error(`plan FBA ${dias} días: refresco de fondo:`, (err as Error).message);
+      } finally {
+        if (token !== "sin-candado" && admin) {
+          try {
+            const { liberarCandado } = await import("../datos/repos");
+            await liberarCandado(admin, cuentaAmazonId, recurso, token);
+          } catch {
+            // vence solo por TTL
+          }
+        }
+      }
+    });
+  } catch {
+    // Sin contexto de request: lo guardado sirve igual.
+  }
 }
 
 export async function recalcularPlanFba(

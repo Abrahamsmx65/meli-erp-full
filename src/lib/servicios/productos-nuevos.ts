@@ -22,7 +22,7 @@
 import { aUnaLetra, canonizar, claveAplastada, claveComparacion } from "../importar/sku";
 import { traerTodo, type DB } from "../datos/repos";
 import { cuentaAmazon } from "./amazon";
-import { conCacheApp, invalidarApp } from "./cache-app";
+import { conCacheApp, invalidarApp, servirConCacheApp } from "./cache-app";
 import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
 
 /** Clave en app_cache de la lista masticada; las fotos van en `nuevos:fotos`. */
@@ -38,6 +38,16 @@ const EDAD_NUEVOS_MS = 30 * 60_000;
  */
 export function cargarProductosNuevos(db: DB, accountId: string): Promise<ResumenProductosNuevos> {
   return conCacheApp(db, accountId, CLAVE_NUEVOS, EDAD_NUEVOS_MS, () => productosNuevos(db, accountId));
+}
+
+/**
+ * Para la PANTALLA: lo guardado aunque esté viejo o invalidado, y el
+ * recálculo por atrás (`servirConCacheApp`). Solo sin renglón se calcula en
+ * el clic. Los servicios de fondo (revisión de fotos, correos) siguen con
+ * `cargarProductosNuevos`, que exige la lista al día.
+ */
+export function servirProductosNuevos(db: DB, accountId: string) {
+  return servirConCacheApp(db, accountId, CLAVE_NUEVOS, EDAD_NUEVOS_MS, () => productosNuevos(db, accountId));
 }
 
 export function invalidarNuevos(db: DB, accountId: string, motivo: string): Promise<void> {

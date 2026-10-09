@@ -195,6 +195,95 @@ export async function leerPlanParcial(
   return data as Record<string, any>;
 }
 
+/**
+ * Solo si el plan guardado sigue vigente y por qué no, sin bajar su JSON.
+ * Para las pantallas que únicamente avisan «la demanda ya cambió».
+ */
+export async function estadoPlan(
+  db: DB,
+  accountId: string,
+): Promise<{ vigente: boolean; motivo: string | null } | null> {
+  const { data, error } = await db
+    .from("plan_cache")
+    .select("vigente, motivo, versionMotor:datos->>versionMotor")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const fila = data as { vigente: boolean | null; motivo: string | null; versionMotor: string | null };
+  if (fila.versionMotor !== VERSION_MOTOR) {
+    return { vigente: false, motivo: "El motor de cálculo se actualizó." };
+  }
+  return { vigente: fila.vigente ?? true, motivo: fila.motivo ?? null };
+}
+
+/**
+ * Plan LIGERO en memoria del proceso, por cuenta y por `generado_en`: el plan
+ * guardado no cambia mientras no se recalcule (cada recálculo estrena
+ * `generado_en`), así que una instancia caliente no tiene por qué volver a
+ * bajar sus ~2 MB en cada visita a Envíos.
+ */
+const memoriaPlanLigero = new Map<string, { generadoEn: string; plan: PlanGuardado }>();
+
+/**
+ * Para Envíos a Full: el plan sin la `explicacion` de cada línea (~30 % del
+ * JSON, que solo usa el Excel). Primero mira la versión (dos columnas); si la
+ * misma ya está en memoria no baja nada. Si no, la pide recortada en la base
+ * (RPC `plan_cache_ligero`, migración 0123) y, si la función aún no existe,
+ * baja el plan completo como antes. Los números son los mismos del plan
+ * guardado: solo cambia cuánto viaja.
+ */
+export async function obtenerPlanLigero(db: DB, accountId: string): Promise<PlanConEstado> {
+  const { data: cabeza } = await db
+    .from("plan_cache")
+    .select("generado_en, vigente, motivo, ms_calculo, versionMotor:datos->>versionMotor")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!cabeza) return obtenerPlan(db, accountId);
+  const fila = cabeza as {
+    generado_en: string;
+    vigente: boolean | null;
+    motivo: string | null;
+    ms_calculo: number | null;
+    versionMotor: string | null;
+  };
+
+  const motorViejo = fila.versionMotor !== VERSION_MOTOR;
+  if (motorViejo && (fila.vigente ?? true)) {
+    // Igual que obtenerPlan: se persiste para que el latido lo recalcule.
+    await db
+      .from("plan_cache")
+      .update({ vigente: false, motivo: "El motor de cálculo se actualizó." })
+      .eq("account_id", accountId);
+  }
+  const estado = {
+    vigente: motorViejo ? false : fila.vigente ?? true,
+    motivo: motorViejo ? "El motor de cálculo se actualizó." : fila.motivo ?? null,
+    msCalculo: fila.ms_calculo ?? null,
+    recienCalculado: false,
+  };
+
+  const enMemoria = memoriaPlanLigero.get(accountId);
+  if (enMemoria && enMemoria.generadoEn === fila.generado_en) {
+    return { plan: enMemoria.plan, ...estado };
+  }
+
+  let plan: PlanGuardado | null = null;
+  const { data: ligero, error } = await db.rpc("plan_cache_ligero", { p_account_id: accountId });
+  if (!error && ligero) {
+    plan = ligero as PlanGuardado;
+  } else {
+    const { data } = await db
+      .from("plan_cache")
+      .select("datos")
+      .eq("account_id", accountId)
+      .maybeSingle();
+    plan = (data?.datos as PlanGuardado | undefined) ?? null;
+  }
+  if (!plan) return obtenerPlan(db, accountId);
+  memoriaPlanLigero.set(accountId, { generadoEn: fila.generado_en, plan });
+  return { plan, ...estado };
+}
+
 export async function obtenerPlan(
   db: DB,
   accountId: string,
@@ -294,5 +383,7 @@ export async function invalidar(
     .from("app_cache")
     .update({ vigente: false, motivo })
     .eq("account_id", accountId)
-    .eq("clave", "compras-china");
+    // Por prefijo: la clave vigente es "compras-china:v2" y con .eq sobre la
+    // vieja nunca se invalidaba (solo vencía por tiempo).
+    .like("clave", "compras-china%");
 }

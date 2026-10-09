@@ -1,5 +1,8 @@
 {
   "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ]; then exit 1; else exit 0; fi",
+  "regions": [
+    "iad1"
+  ],
   "crons": [
     {
       "path": "/api/cron/sync",
@@ -51,6 +54,10 @@
     },
     {
       "path": "/api/cron/consolidado",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/amazon-pantallas",
       "schedule": "*/10 * * * *"
     },
     {

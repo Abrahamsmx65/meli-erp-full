@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, Keyboard, ScanLine, Volume2, VolumeX } from "lucide-react";
+import { Aviso } from "@/components/ui/pagina";
 import { codigosDeProducto } from "@/lib/tiktok/codigos";
 import type { PaqueteNumerado } from "@/lib/tiktok/despacho";
 import { avanzar, darPorBueno, estadoInicial, fraseDeCompletado, fraseParaVoz, type EstadoEscaneo } from "@/lib/tiktok/preparar";
@@ -273,44 +274,41 @@ export function PrepararTikTok({
     <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
       <section className="tarjeta p-5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Corte #{numero}</h2>
+          <h2 className="seccion-titulo">Corte #{numero}</h2>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={alternarVoz}
               aria-pressed={voz}
               title={voz ? "Silenciar la voz" : "Encender la voz"}
-              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-xs"
-              style={{ borderColor: "var(--grid)", color: voz ? "var(--acento)" : "var(--ink-2)" }}
+              className="boton boton-borde boton-chico"
+              style={{ color: voz ? "var(--acento)" : "var(--ink-2)" }}
             >
               {voz ? <Volume2 size={14} /> : <VolumeX size={14} />}
               {voz ? "Voz" : "Sin voz"}
             </button>
-            <span className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
+            <span className="cifra text-sm texto-2">
               {hechos} / {paquetes.length} preparados
             </span>
           </div>
         </div>
         {avisoCola || !enLinea ? (
-          <p
-            className="mt-2 rounded-lg px-3 py-2 text-xs font-medium"
-            style={{ background: "color-mix(in oklab, var(--estado-alerta) 14%, transparent)", color: "var(--estado-alerta)" }}
-          >
+          <Aviso tono="alerta" className="mt-2">
             {enLinea ? "" : "Sin señal de wifi. Puedes seguir escaneando: lo preparado se guarda en este dispositivo. "}
             {avisoCola ?? ""}
-          </p>
+          </Aviso>
         ) : null}
         {sinGuardar.length ? (
-          <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>
+          <Aviso tono="critico" className="mt-2">
             El servidor rechazó {sinGuardar.length === 1 ? "una constancia" : `${sinGuardar.length} constancias`}: {sinGuardar.join(" · ")}
-          </p>
+          </Aviso>
         ) : null}
 
         <div
           className="mt-4 rounded-lg p-4"
-          style={{ background: estado.error ? "color-mix(in oklab, var(--estado-critico) 12%, transparent)" : "var(--acento-suave)" }}
+          style={{ background: estado.error ? "var(--critico-suave)" : "var(--acento-suave)" }}
         >
-          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em]" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] texto-tenue">
             {estado.paso === "inicio" ? "Etiqueta" : estado.paso === "etiqueta" ? "Etiqueta" : estado.paso === "producto" ? "Producto" : "Listo"}
           </div>
           <p className="mt-1 text-base font-semibold" style={{ color: colorPaso }}>
@@ -325,11 +323,11 @@ export function PrepararTikTok({
                   <li key={x.sku}>
                     <span className="font-medium">{x.sku}</span> × {x.pares}
                     {codigos.length ? (
-                      <span style={{ color: "var(--ink-2)" }}> · {codigos.join(" o ")}</span>
+                      <span className="texto-2"> · {codigos.join(" o ")}</span>
                     ) : (
                       <span style={{ color: "var(--estado-alerta)" }}> · sin código: "Dar por bueno"</span>
                     )}
-                    {f && estado.paso === "producto" ? <span style={{ color: "var(--ink-2)" }}> · faltan {f.faltan}</span> : null}
+                    {f && estado.paso === "producto" ? <span className="texto-2"> · faltan {f.faltan}</span> : null}
                   </li>
                 );
               })}
@@ -344,7 +342,7 @@ export function PrepararTikTok({
             if (!guardando) void escanear(codigo);
           }}
         >
-          <ScanLine size={18} style={{ color: "var(--ink-2)" }} />
+          <ScanLine size={18} className="texto-2" />
           <input
             ref={input}
             value={codigo}
@@ -355,7 +353,7 @@ export function PrepararTikTok({
             className="flex-1 rounded-lg border px-3 py-2 text-lg"
             style={{ borderColor: "var(--grid)" }}
           />
-          <button type="submit" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--grid)" }}>
+          <button type="submit" className="boton boton-borde">
             Enter
           </button>
           <button
@@ -366,16 +364,15 @@ export function PrepararTikTok({
             }}
             aria-pressed={teclado}
             title={teclado ? "Ocultar el teclado en pantalla" : "Teclear a mano"}
-            className="rounded-lg border px-2 py-2 text-sm"
-            style={{ borderColor: "var(--grid)", color: teclado ? "var(--acento)" : "var(--ink-2)" }}
+            className="boton boton-borde px-2"
+            style={{ color: teclado ? "var(--acento)" : "var(--ink-2)" }}
           >
             <Keyboard size={16} />
           </button>
           <button
             type="button"
             onClick={() => setEstado(estadoInicial())}
-            className="rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: "var(--grid)" }}
+            className="boton boton-borde"
           >
             Reiniciar
           </button>
@@ -385,8 +382,7 @@ export function PrepararTikTok({
             type="button"
             onClick={() => confirmarConClave(estado.paquete as PaqueteNumerado)}
             disabled={guardando}
-            className="mt-3 mr-2 rounded-lg border px-3 py-2 text-sm"
-            style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+            className="boton boton-borde mt-3 mr-2"
           >
             Confirmar #{estado.paquete.numero} sin escanear (clave)
           </button>
@@ -396,17 +392,12 @@ export function PrepararTikTok({
             type="button"
             onClick={manual}
             disabled={guardando}
-            className="mt-3 rounded-lg border px-3 py-2 text-sm font-medium"
-            style={{ borderColor: "var(--estado-alerta)", color: "var(--estado-alerta)" }}
+            className="boton boton-borde mt-3 whitespace-normal text-left"
+            style={{ borderColor: "var(--estado-alerta)", color: "var(--alerta-texto)" }}
           >
             Dar por bueno sin escanear los que no tienen FNSKU (queda registrado como manual)
           </button>
         ) : null}
-        <p className="mt-2 text-xs" style={{ color: "var(--ink-2)" }}>
-          Escanea la etiqueta: el sistema dice qué va adentro y pita una vez por par. Luego el
-          producto, un escaneo por par. Si algo no cuadra suena grave y no avanza. También puedes
-          empezar por el renglón de la hoja.
-        </p>
       </section>
 
       {pidiendoClave ? (
@@ -421,7 +412,7 @@ export function PrepararTikTok({
           <p className="text-sm font-semibold">
             Confirmar #{pidiendoClave.numero} sin escanear
           </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-1 text-xs texto-2">
             {pidiendoClave.pares.map((x) => (x.pares > 1 ? `${x.sku} ×${x.pares}` : x.sku)).join(", ")} · pedido {pidiendoClave.orderId}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -440,8 +431,7 @@ export function PrepararTikTok({
             <button
               type="submit"
               disabled={guardando || !clave}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               Confirmar
             </button>
@@ -452,8 +442,7 @@ export function PrepararTikTok({
                 setClave("");
                 input.current?.focus();
               }}
-              className="rounded-lg border px-3 py-2 text-sm"
-              style={{ borderColor: "var(--grid)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
@@ -462,7 +451,7 @@ export function PrepararTikTok({
       ) : null}
 
       <section className="tarjeta overflow-hidden">
-        <h2 className="px-4 pt-4 text-sm font-semibold">Renglones</h2>
+        <h2 className="seccion-titulo px-4 pt-4">Renglones</h2>
         <ul className="mt-2 max-h-[70vh] overflow-y-auto">
           {paquetes.map((p) => {
             const hecho = preparados.has(p.numero);
@@ -484,8 +473,7 @@ export function PrepararTikTok({
                     onClick={() => confirmarConClave(p)}
                     disabled={guardando}
                     title="Dar por preparado sin escanear, con la clave de supervisor"
-                    className="rounded border px-1.5 py-0.5 text-xs"
-                    style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+                    className="boton boton-borde boton-chico"
                   >
                     Clave
                   </button>

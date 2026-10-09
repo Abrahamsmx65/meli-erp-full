@@ -3,6 +3,7 @@ import { clienteAdmin } from "@/lib/supabase/server";
 import { conSesion, errorJson } from "@/lib/yapanizcel/api";
 import { sincronizar } from "@/lib/yapanizcel/sync";
 import { correrPendientes as resolverPendientesLuego } from "@/lib/yapanizcel/pendientes";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const continuar = Boolean(body?.continuar);
   const conStock = Boolean(body?.conStock);
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
 
   try {
     const resumen = await sincronizar(clienteAdmin(), ctx.cuenta.id, { presupuestoMs: 180_000, continuar, conStock });

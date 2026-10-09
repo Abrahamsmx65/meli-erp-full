@@ -1,9 +1,10 @@
 import { clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { pendientesDeCorte, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { avanceDeCortes, pendientesDeCorte, tiemposDeCortes, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
+import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -11,42 +12,45 @@ export const dynamic = "force-dynamic";
 export default async function Despacho() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Despacho de pedidos" />;
 
-  const [pendientes, cortesResultado, prepRaw, token, canceladosRaw, porModelo] = await Promise.all([
-    pendientesDeCorte(supabase, cuenta.id),
+  // Los pendientes se leen UNA vez (el selector por modelo los reusa) y el
+  // avance sale SOLO de los cortes que se enseñan: antes se bajaba el
+  // historial completo de preparaciones y de pedidos cortados.
+  // Promise.resolve: el builder de Supabase vuelve a consultar cada vez que
+  // se le pide `then`; así la consulta sale una sola vez para los dos usos.
+  const cortesP = Promise.resolve(
     supabase
       .from("tiktok_cortes")
       .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos")
       .eq("account_id", cuenta.id)
       .order("numero", { ascending: false })
       .limit(30),
-    // Paginado: crece un renglón por pedido preparado y nunca se borra; sin
-    // esto, al pasar de 1,000 el avance "X de Y preparados" mentiría. Si la
-    // lectura falla, el avance se DECLARA no disponible (null) en vez de
-    // pintar ceros como si fueran dato: los cortes y el despacho siguen.
-    traerTodo<{ corte_id: number; order_id: string }>(supabase, "tiktok_preparaciones", "corte_id, order_id", (q) =>
-      q.eq("account_id", cuenta.id),
-    ).catch((err: Error): null => {
-      console.error("tiktok_preparaciones:", err.message);
-      return null;
-    }),
+  );
+  const pendientesP = pendientesDeCorte(supabase, cuenta.id);
+  const [pendientes, cortesResultado, token, porModelo, avance, tiempos] = await Promise.all([
+    pendientesP,
+    cortesP,
     tokenPreparar(cuenta.id),
-    // Pedidos que ya no faltan aunque nadie los haya escaneado: los
-    // cancelados DESPUÉS de entrar a un corte (conservan su número en la
-    // hoja) y los que TikTok ya tiene en camino o entregados (se fueron con
-    // el repartidor). Con solo la guía creada (AWAITING_COLLECTION) no.
-    traerTodo<{ corte_id: number; order_id: string; estado: string }>(supabase, "tiktok_ordenes", "corte_id, order_id, estado", (q) =>
-      q.eq("account_id", cuenta.id).not("corte_id", "is", null).in("estado", ["CANCELLED", "CANCEL", "IN_TRANSIT", "DELIVERED", "COMPLETED"]),
-    ).catch((): { corte_id: number; order_id: string; estado: string }[] => []),
     // Corte por modelo: cuántos pendientes son de un solo modelo, por modelo.
-    pendientesPorModeloDeCuenta(supabase, cuenta.id).catch(() => ({ modelos: [], revueltos: { pedidos: 0, pares: 0 }, sinSku: 0 })),
+    pendientesP
+      .then((p) => pendientesPorModeloDeCuenta(supabase, cuenta.id, p))
+      .catch(() => ({ modelos: [], revueltos: { pedidos: 0, pares: 0 }, sinSku: 0 })),
+    // Preparados, cancelados DESPUÉS de entrar al corte (conservan su número
+    // en la hoja) y los que TikTok ya tiene en camino o entregados (se fueron
+    // con el repartidor; con solo la guía creada, AWAITING_COLLECTION, no).
+    // Si la lectura falla, el avance se DECLARA no disponible (null) en vez
+    // de pintar ceros como si fueran dato: los cortes y el despacho siguen.
+    cortesP
+      .then((r) => avanceDeCortes(supabase, cuenta.id, (r.data ?? []).map((c: any) => Number(c.id))))
+      .catch((err: Error): null => {
+        console.error("avance de los cortes de TikTok:", err.message);
+        return null;
+      }),
+    // Cuánto tardó la preparación de cada corte (primera y última constancia).
+    cortesP
+      .then((r) => tiemposDeCortes(supabase, cuenta.id, (r.data ?? []).map((c: any) => Number(c.id))))
+      .catch(() => new Map<number, { primera: string; ultima: string }>()),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -61,22 +65,7 @@ export default async function Despacho() {
   const origen = (
     dominioVercel ? `https://${dominioVercel}` : (process.env.NEXT_PUBLIC_APP_URL ?? "https://meli-erp-full.vercel.app")
   ).replace(/\/+$/, "");
-  const sinAvance = prepRaw === null;
-  const preparadosPorCorte = new Map<number, number>();
-  for (const r of prepRaw ?? []) {
-    preparadosPorCorte.set(r.corte_id, (preparadosPorCorte.get(r.corte_id) ?? 0) + 1);
-  }
-  const conConstancia = new Set((prepRaw ?? []).map((r) => `${r.corte_id}|${r.order_id}`));
-  const canceladosPorCorte = new Map<number, number>();
-  const enviadosPorCorte = new Map<number, number>();
-  for (const r of canceladosRaw ?? []) {
-    if (r.estado === "CANCELLED" || r.estado === "CANCEL") {
-      canceladosPorCorte.set(r.corte_id, (canceladosPorCorte.get(r.corte_id) ?? 0) + 1);
-    } else if (!conConstancia.has(`${r.corte_id}|${r.order_id}`)) {
-      // Ya salió sin escanearse: resuelto, pero no se cuenta dos veces.
-      enviadosPorCorte.set(r.corte_id, (enviadosPorCorte.get(r.corte_id) ?? 0) + 1);
-    }
-  }
+  const sinAvance = avance === null;
 
   const cortes: CorteResumen[] = (cortesRaw ?? []).map((c: any) => ({
     id: c.id,
@@ -87,31 +76,26 @@ export default async function Despacho() {
     handover: c.handover,
     errores: c.errores ?? [],
     modelos: c.modelos ?? null,
-    preparados: sinAvance ? null : (preparadosPorCorte.get(c.id) ?? 0),
-    cancelados: canceladosPorCorte.get(c.id) ?? 0,
-    enviados: enviadosPorCorte.get(c.id) ?? 0,
+    preparados: avance === null ? null : (avance.get(Number(c.id))?.preparados ?? 0),
+    cancelados: avance?.get(Number(c.id))?.cancelados ?? 0,
+    enviados: avance?.get(Number(c.id))?.enviados ?? 0,
+    primeraPrep: tiempos.get(Number(c.id))?.primera ?? null,
+    ultimaPrep: tiempos.get(Number(c.id))?.ultima ?? null,
   }));
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Despacho TikTok Shop</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          La rutina de la mañana: un corte confirma todo lo pendiente y deja listas las etiquetas y
-          la lista de empaque, primero lo de un solo modelo (y dentro, primero lo de un solo color) y al final lo revuelto.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Despacho de pedidos"
+      />
       {sinAvance ? (
-        <div
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
-          No se pudo leer el avance de preparación (los «X / Y preparados» salen con —). Los cortes
-          y el despacho siguen funcionando; recarga la página para reintentar.
-        </div>
+        <Aviso tono="alerta">
+          No se pudo leer el avance de preparación. Recarga la página para reintentar.
+        </Aviso>
       ) : null}
       <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} />
       <EnlacePreparar tokenInicial={token} origen={origen} />
-    </div>
+    </Pagina>
   );
 }

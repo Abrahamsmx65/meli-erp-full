@@ -5,7 +5,7 @@
  * hasta vaciar. Las tablas de este ERP son chicas (cientos de SKUs), pero
  * ventas diarias × 90 días sí pasa del corte.
  */
-import type { DB } from "../datos/repos";
+import { TOPE_FILAS_SERVIDOR, type DB } from "../datos/repos";
 
 export async function todo<T = Record<string, any>>(
   db: DB,
@@ -52,10 +52,10 @@ export function restarDias(dia: string, n: number): string {
  * salen CARAS: la venta de fundas de mayo son 34 mil renglones y de mil en
  * mil eran 35 corridas del mes completo. Por eso el tamaño se puede subir.
  *
- * Se avanza por lo que REALMENTE llegó y solo se para con lote vacío: si el
- * servidor recorta la página (PostgREST puede traer menos de lo pedido), el
- * corte anterior —«llegaron menos de los que pedí, ya acabé»— se quedaba con
- * una parte y no lo decía. Perder renglones en silencio es peor que tardar.
+ * Se avanza por lo que REALMENTE llegó: si el servidor recorta la página
+ * (PostgREST nunca da más de 1,000), un lote de exactamente 1,000 no es el
+ * final aunque se hayan pedido 10 mil. Solo un lote más corto que lo pedido
+ * Y que ese tope lo es (igual que traerRpcTodo del calzado).
  */
 export async function rpcTodo<T>(
   db: DB,
@@ -72,7 +72,12 @@ export async function rpcTodo<T>(
     if (error) throw new Error(`${fn}: ${error.message}`);
     const lote = (data ?? []) as T[];
     out.push(...lote);
-    if (lote.length === 0) break;
+    // Llegó menos que lo pedido Y menos que el tope del servidor (PostgREST
+    // nunca da más de 1,000 por respuesta): ya no hay más. Antes solo se
+    // paraba con un lote vacío y, con el tope de 1,000, cada mes de fundas
+    // corría la función completa una vez de más por cada mil renglones
+    // (~35 corridas en mayo): por eso el corte de fundas moría por tiempo.
+    if (lote.length === 0 || (lote.length < pagina && lote.length < TOPE_FILAS_SERVIDOR)) break;
     desde += lote.length;
     // Tope de seguridad: 500 mil renglones es muchísimo más que cualquier
     // mes real; llegar ahí es que algo se salió de control.

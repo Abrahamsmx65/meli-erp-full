@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Aviso } from "./ui/pagina";
 
 /**
  * Sección de datos fiscales: SOLO los SKUs que no tienen la información
@@ -51,6 +52,15 @@ const UNIDADES = [
   { clave: "EA", texto: "EA — elemento" },
 ];
 
+const ESPERA_MIN_MS = 6_000;
+const ESPERA_MAX_MS = 30_000;
+
+/** 6 s cuando el avance se movió; si no, 1.5× la espera anterior, hasta 30 s. */
+export function siguienteEspera(anterior: number, huboCambio: boolean): number {
+  if (huboCambio) return ESPERA_MIN_MS;
+  return Math.min(ESPERA_MAX_MS, Math.round(anterior * 1.5));
+}
+
 export function DatosFiscales() {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [modelos, setModelos] = useState<ModeloFiscal[]>([]);
@@ -62,6 +72,12 @@ export function DatosFiscales() {
   const [busqueda, setBusqueda] = useState("");
   const reloj = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoEncendido = useRef(false);
+  // Mientras hay trabajo la página pregunta el avance: cada 6 s si algo se
+  // movió y, si no, cada vez más espaciado hasta 30 s. Con la pestaña oculta
+  // no pregunta; al volver, pregunta en el acto.
+  const espera = useRef(ESPERA_MIN_MS);
+  const ultimaFirma = useRef("");
+  const pausado = useRef(false);
 
   const encender = useCallback(async () => {
     const r = await fetch("/api/fiscal/procesar");
@@ -102,7 +118,18 @@ export function DatosFiscales() {
       }
 
       if (reloj.current) clearTimeout(reloj.current);
-      if (hayTrabajo || j.trabajando) reloj.current = setTimeout(cargar, 6000);
+      if (hayTrabajo || j.trabajando) {
+        const firma = `${j.resumen.sinLeer}|${j.resumen.pendientes}|${j.trabajando ? 1 : 0}`;
+        espera.current = siguienteEspera(espera.current, firma !== ultimaFirma.current);
+        ultimaFirma.current = firma;
+        reloj.current = setTimeout(() => {
+          if (document.hidden) {
+            pausado.current = true;
+            return;
+          }
+          cargar();
+        }, espera.current);
+      }
       return j.resumen as Resumen;
     } catch (err) {
       setMensaje((err as Error).message);
@@ -114,8 +141,16 @@ export function DatosFiscales() {
 
   useEffect(() => {
     cargar();
+    const alVolver = () => {
+      if (document.hidden || !pausado.current) return;
+      pausado.current = false;
+      espera.current = ESPERA_MIN_MS;
+      cargar();
+    };
+    document.addEventListener("visibilitychange", alVolver);
     return () => {
       if (reloj.current) clearTimeout(reloj.current);
+      document.removeEventListener("visibilitychange", alVolver);
     };
   }, [cargar]);
 
@@ -125,6 +160,7 @@ export function DatosFiscales() {
     try {
       await encender();
       if (reloj.current) clearTimeout(reloj.current);
+      espera.current = ESPERA_MIN_MS;
       reloj.current = setTimeout(cargar, 4000);
     } catch (err) {
       setMensaje((err as Error).message);
@@ -189,7 +225,7 @@ export function DatosFiscales() {
 
   if (cargando) {
     return (
-      <section className="tarjeta p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+      <section className="tarjeta p-6 text-sm texto-2">
         Cargando datos fiscales…
       </section>
     );
@@ -207,15 +243,14 @@ export function DatosFiscales() {
           <Dato etiqueta="Errores" valor={resumen.errores} alerta={resumen.errores > 0} />
           <span className="ml-auto flex items-center gap-2">
             {leyendo ? (
-              <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+              <span className="text-xs texto-tenue">
                 trabajando en segundo plano…
               </span>
             ) : null}
             <button
               onClick={leerDeMeli}
               disabled={leyendo}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+              className="boton boton-borde"
             >
               Leer catálogo de MELI
             </button>
@@ -224,12 +259,7 @@ export function DatosFiscales() {
       ) : null}
 
       {mensaje ? (
-        <p
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
-          {mensaje}
-        </p>
+        <Aviso tono="alerta">{mensaje}</Aviso>
       ) : null}
 
       <section className="tarjeta overflow-hidden">
@@ -245,19 +275,18 @@ export function DatosFiscales() {
           <button
             onClick={rellenarTodos}
             disabled={!conSugerencia.length}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
             title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de su categoría de MELI o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
-            Confirmar y rellenar los {conSugerencia.length} modelos
+            Rellenar {conSugerencia.length} modelos
           </button>
         </header>
 
         {visibles.length === 0 ? (
-          <p className="p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="p-6 text-sm texto-2">
             {resumen && resumen.sinLeer > 0
-              ? "Todavía no se lee todo el catálogo: usa «Leer catálogo de MELI» y espera a que termine."
-              : "No hay SKUs sin datos fiscales. Todo el catálogo leído tiene su información cargada."}
+              ? "Falta leer el catálogo de MELI."
+              : "No hay SKUs sin datos fiscales."}
           </p>
         ) : (
           <div className="max-h-[40rem] overflow-auto">
@@ -284,18 +313,18 @@ export function DatosFiscales() {
                     <tr key={m.modelo}>
                       <td className="font-medium">{m.modelo}</td>
                       <td
-                        className="max-w-64 truncate text-xs"
-                        style={{ color: "var(--ink-2)" }}
+                        className="max-w-64 truncate text-xs texto-2"
+                       
                         title={m.titulo ?? ""}
                       >
                         {m.titulo ?? "—"}
                       </td>
-                      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                      <td className="text-xs texto-2">
                         {m.categoria ?? "—"}
                       </td>
                       <td className="num cifra">
                         {m.sinDatos}
-                        <span style={{ color: "var(--ink-muted)" }}> / {m.totalSkus}</span>
+                        <span className="texto-tenue"> / {m.totalSkus}</span>
                       </td>
                       <td>
                         <input
@@ -317,7 +346,7 @@ export function DatosFiscales() {
                           }
                         />
                         {m.sugerenciaDe && m.sugerenciaDe !== "modelo" ? (
-                          <div className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+                          <div className="text-[10px] texto-tenue">
                             {m.sugerenciaDe === "categoria"
                               ? "de su categoría"
                               : "del catálogo: revísala"}
@@ -365,17 +394,16 @@ export function DatosFiscales() {
                         <button
                           onClick={() => rellenar(m)}
                           disabled={st === "guardando" || !m.sinDatos}
-                          className="rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-50"
-                          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                          className="boton boton-borde boton-chico"
                         >
                           Rellenar {m.sinDatos || m.errores}
                         </button>
                       </td>
                       <td className="text-xs">
                         {st === "guardando" ? (
-                          <span style={{ color: "var(--ink-muted)" }}>…</span>
+                          <span className="texto-tenue">…</span>
                         ) : m.pendientes ? (
-                          <span style={{ color: "var(--ink-2)" }}>
+                          <span className="texto-2">
                             {m.pendientes} en cola
                           </span>
                         ) : m.errores ? (
@@ -420,7 +448,7 @@ function Dato({
       >
         {valor}
       </strong>
-      <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <span className="text-xs texto-2">
         {etiqueta}
       </span>
     </span>

@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarCorte, preparadosDelCorte } from "@/lib/servicios/tiktok-despacho";
 import { numerosPreparados } from "@/lib/tiktok/despacho";
 import { PrepararTikTok } from "@/components/preparar-tiktok";
+import { Aviso, Encabezado, Pagina } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,12 @@ export default async function Preparar({ params }: { params: Promise<{ id: strin
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta || !Number.isFinite(corteId)) {
-    return <div className="tarjeta mx-auto max-w-lg p-8 text-center">Corte inválido.</div>;
+    return (
+      <Pagina>
+        <Encabezado ceja="TikTok Shop" titulo="Preparar pedidos" />
+        <Aviso tono="critico">Corte inválido.</Aviso>
+      </Pagina>
+    );
   }
 
   // Los paquetes se leen con service_role porque, si a un pedido le faltan
@@ -26,20 +32,24 @@ export default async function Preparar({ params }: { params: Promise<{ id: strin
   ]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="titulo-pagina">Preparar pedidos · Corte #{corte.numero}</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Escanea la etiqueta, luego el producto (un escaneo por par). Nada se da por
-            preparado si no cuadra todo; lo que no tiene FNSKU se cierra a mano y queda registrado.
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo={`Preparar pedidos · Corte #${corte.numero}`}
+        descripcion="Escanea la etiqueta, luego el producto (un escaneo por par)."
+        acciones={
+          <Link href="/tiktok/despacho" className="boton boton-fantasma">
+            ← Volver al despacho
+          </Link>
+        }
+        ayuda={
+          <p>
+            Nada se da por preparado si no cuadra todo; lo que no tiene FNSKU se cierra a mano y queda registrado.
           </p>
-        </div>
-        <Link href="/tiktok/despacho" className="text-sm underline" style={{ color: "var(--ink-2)" }}>
-          ← Volver al despacho
-        </Link>
-      </div>
+        }
+        ayudaTitulo="¿Cuándo queda preparado?"
+      />
       <PrepararTikTok corteId={corte.id} numero={corte.numero} paquetes={corte.paquetes} preparadosIniciales={numerosPreparados(corte.paquetes, preparados)} />
-    </div>
+    </Pagina>
   );
 }

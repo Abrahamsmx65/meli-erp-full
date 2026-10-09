@@ -99,6 +99,18 @@ guárdala numerada.
   se apagan en esa corrida y el plan lo avisa (`PlanFbaCajas.avisos`). La
   pantalla enseña cada envío por bodega en su propia sección (Caseshop +
   Industher, EnvioPack) con el Excel de ese envío.
+  **La historia se lee POR PÁGINAS** (`traerRpcTodo`; 9-oct-2026, dueño:
+  «me pones sin venta en Amazon GT144 o GT154 y no son nuevos»): el RPC
+  trae ~4,500 SKUs y el API entrega 1,000 por respuesta, así que todo lo
+  que en el alfabeto venía después del GT13x salía SIN VENTA y se le pedía
+  la posición mínima de 2 cajas (GT144 tenía 1,265 pares vendidos). Lo
+  mismo le pasaba a `ventas_resumen_sku` (1,667 SKUs de calzado con venta:
+  plan de Full, Ventas MELI, Publicidad, Excel por modelo de TikTok); ahora
+  lleva ORDER BY (migración 0125) y se lee con `rpcPaginado`.
+  **Y el resumen de Amazon también** (`cargarAmazon` → `amazon_resumen_skus`,
+  ~10,500 SKUs ordenados por venta): el plan solo veía los 1,000 que más
+  venden, y lo recién mandado a FBA (GT251…GT277, sin venta todavía) salía
+  con 0 pares en FBA y se le volvían a pedir sus 2 cajas.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos
@@ -1859,6 +1871,83 @@ Los RPCs y lecturas paginadas llevan ORDER BY estable (sin él, PostgREST
 duplica o pierde renglones entre páginas). Antes de agregar una pantalla o
 consulta nueva, sigue este patrón.
 
+**Revisión de velocidad del 9-oct-2026** (`docs/PLAN-VELOCIDAD-Y-DISENO.md`;
+dueño: «otros sistemas abren al momento, el nuestro tarda mucho»). Lo que se
+midió y quedó como regla:
+- **RLS se evalúa UNA vez por consulta** (migración 0116): las políticas son
+  `account_id in (select mis_cuentas_meli())` (y `_amazon`, `_yz`,
+  `_tiktok`), NUNCA `es_mi_cuenta(account_id)` por renglón —esa función es
+  SECURITY DEFINER, Postgres la corría en cada renglón y una consulta de
+  pantalla tardaba 226 ms promedio contra 10 ms del fondo (los pedidos
+  cortados de TikTok: 432 ms → 24 ms)—. Una tabla nueva usa el mismo patrón;
+  `auth.uid()` en una política va como `(select auth.uid())`. Las funciones
+  `es_mi_cuenta*` se quedan para los RPC.
+- **Las pantallas leen con `servirConCacheApp`** (`cache-app.ts`): sirve el
+  renglón aunque esté viejo y refresca en `after()` con candado por clave;
+  `conCacheApp` (calcula en el clic al vencer) queda para el fondo. Ventas
+  MELI tardaba 15–35 s, Planificación China 10–60 s la primera vez de cada
+  media hora. Los rangos por omisión de Ventas/Publicidad (MELI y Amazon) y la
+  sugerencia de compra a China se precalculan en el latido.
+- **Leer solo lo que se enseña**: Despacho cuenta el avance de los cortes en
+  la lista con el RPC `tiktok_avance_cortes` (0120), no bajando las 16 mil
+  preparaciones; `cargarCorte` lee solo los renglones del corte; /envios usa
+  `obtenerPlanLigero` (RPC `plan_cache_ligero`, 0123, sin la explicación de
+  cada línea, más copia en memoria por `generado_en`); el plan de fundas se
+  guarda también en `plan:pantalla` y `plan:sugeridas`.
+- `rpcTodo` de fundas para con un lote más corto que lo pedido Y que el tope
+  de 1,000 de PostgREST (como `traerRpcTodo`): antes repetía el RPC completo
+  una vez por cada mil renglones y el corte de fundas moría por tiempo.
+- **Las funciones viven en `iad1`, junto a la base** (`regions` en
+  `vercel.json`; 9-oct-2026): corrían en `sfo1` y la base está en
+  us-east-1, así que cada consulta cruzaba el país (~50 ms por viaje y una
+  pantalla hace varios en serie).
+- **Pestañas dentro de la pantalla** (`components/ui/pestanas.tsx`, regla en
+  `docs/DISENO.md`; dueño: «para no ver todo su contenido junto de golpe»).
+- **Revisión del 9-oct-2026: nada se queda con los primeros 1,000.** Toda
+  lectura que pueda pasar de 1,000 renglones va por `traerTodo` /
+  `traerRpcTodo` / `rpcPaginado` (o `porTandas` si lleva una lista de ids)
+  y su RPC con ORDER BY estable. Ese día se cortaban: historia de Amazon,
+  `ventas_resumen_sku`, `amazon_resumen_skus`, `publicidad_resumen_items`
+  (0126), `envio_real_por_sku` y las causas de subida de TikTok. Un
+  `.limit(2000)` NO trae 2,000. Y un `count: "exact"` sobre una tabla grande
+  pasa de los 8 s del `statement_timeout`, que también rige al cliente admin
+  (el rol `authenticator` lo trae): los netos de fundas morían en 86 de 144
+  corridas por eso.
+- **Una orden con pago definitivo y sin cargo de envío queda con el envío
+  RESUELTO** (`pagosDefinitivos` en `meli/pagos-api.ts`): antes
+  `envio_leido_en` se quedaba vacío, la orden se volvía a pedir en cada
+  barrido y llenaba los 150 lugares; el registro de órdenes se atoró en el
+  30-mar-2026 y fundas releía las mismas ~1,000 órdenes cada 10 min.
+- Topes que quedaban (mismo día): la plantilla para publicar en TikTok se
+  busca por MODELO en la base (no entre los «2,000» más recientes); los
+  renglones de un día de `ventas_diarias` en `webhooks.ts` van por
+  `filasDelDia`; la revisión de «publicaciones del catálogo» de Listados
+  (calzado y fundas) va por tandas; la limpieza de SKUs pendientes de fundas
+  lee todas las páginas. Índices parciales para lo que se buscaba barriendo
+  la tabla: órdenes de fundas sin depósito (0127, 7.1 s → 9 ms) y órdenes
+  canceladas (0128). Ventas y Publicidad de Amazon se mastican en su propio
+  cron (`/api/cron/amazon-pantallas`, cada 10 min), no al final del latido.
+- Product Ads solo rellena hacia atrás 89 días (`DIAS_API_ADS`): MELI no
+  da más y pedirlo tronaba cada hora. El sync diario vive 800 s. Todo lo
+  que el servidor se manda a sí mismo usa `origenDeLaApp`, y
+  `/api/fiscal/procesar` es pública para su relanzamiento con CRON_SECRET.
+- La barra de estado pregunta cada 60 s, se pausa con la pestaña escondida y
+  solo recarga las pantallas que usan el plan; la página ya no se desmonta en
+  cada navegación. `clienteAdmin` vive en `supabase/admin.ts` (sin
+  next/headers) para que los servicios que llegan a componentes de cliente
+  lo puedan importar.
+
+**Marca y diseño** (9-oct-2026): logo `public/getac-logo.png`, nombre «GETAC», paleta crema/arena/café, DM Sans + Fraunces, SIN explicaciones en pantalla, menú con nombres nuevos (Estado de resultados, Existencias, Reabasto a Full, Planeación de compras, Órdenes de compra, Despacho de pedidos…) y sin Conciliar (las rutas siguen). Despacho de TikTok: solo cortes de 2 días (los demás tras «Ver cortes anteriores»), tiempo de preparación por corte (`tiktok_tiempos_cortes`, migración 0126) y sin la casilla «sin defensa» (el servidor la sigue aceptando).
+
+**Diseño de pantallas** (`docs/DISENO.md`, piezas en
+`components/ui/pagina.tsx`; dueño, 9-oct-2026: «que todo se vea más bonito,
+más profesional […] que todo sea de la misma manera»): toda pantalla es
+`<Pagina>` → `<Encabezado ceja titulo descripcion frescura acciones ayuda>`
+→ `<Cifras>` → `<Seccion>`; UNA línea de descripción y la regla larga
+plegada en «¿Cómo se calcula?» (se mueve, no se borra); avisos con `<Aviso>`
+de cuatro tonos; `<SinCuenta>` para «conecta primero»; nada de colores a mano
+(`texto-2`, `texto-tenue`, `enlace`, `boton-*`).
+
 **Los avisos de MELI de la app de YAPANIZCEL** entran (si se configuran) por
 `/api/yapanizcel/webhook`, que contesta 200 sin trabajo: la sincronización
 de fundas es por sondeo. La URL de notificaciones del devcenter NUNCA debe
@@ -1962,11 +2051,36 @@ login, la base y el deploy.
   la marca la anterior. La marca escribe el modelo como MELI
   (`modeloSegunMarca`: XR → ixr, SE 2022 → ise2022, Note 13 Pro 4G →
   Rmn13pro-4g con su red, Poco X8 Pro 5G → PocoX8pro sin red, 12C → Rm12c).
-  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas`) y la
-  pantalla pinta EN ROJO las que no amarran, con el SKU editable en el
-  renglón y re-amarre al corregirlo (`/api/yapanizcel/pedidos/amarrar`):
-  se guardan igual pero NUNCA cuentan como en camino
-  (`cargarPedidosEnCamino` las salta).
+  **Columnas por COLOR** (8-oct-2026, fixtures `yz-pedido-{662,686,648,714}.xls`):
+  la fábrica reparte la cantidad en una columna por color (662: BLK /
+  GREEN / FUCHSIA / CREAM con "Qty" como suma; 686: 黑色 / una SIN nombre /
+  purple 紫色 / Pink / Grey con "Total") o en una sola columna titulada con
+  el único color (714 "Transparent透明", 648 "Transparent", sin Qty). Un
+  encabezado es color si es UNA palabra de color en inglés o SOLO el color
+  en chino (`colorDeEncabezado`, `COLORES_ZH`; "小單箱子用黃色膠布" es una
+  nota de cinta amarilla, no un color). Con varios colores sale una línea
+  por color CON color (`662-A07-BLK`) y la suma solo sirve para avisar; con
+  uno solo el SKU va SIN color (`714-A37`, `648-A07`) y, si MELI sí lo lleva
+  (`714-G05-transparent`), el amarre lo prueba con el color y lo adopta.
+  Una columna de cantidades sin encabezado entre las de color es un color
+  sin nombre (`?`): al amarrar se toma el ÚNICO color del modelo en MELI que
+  el archivo no nombra (686 iPad 11 → navy) y se declara; con dos o más,
+  queda en rojo. Entre varios renglones candidatos a encabezado gana el que
+  más columnas reconoce (el 662 trae la fila china arriba de la inglesa);
+  con varias columnas de costo del mismo rango (648: RMB mica, RMB caja,
+  RMB set) gana la de más a la DERECHA; "Cost of Set" y "UNIT PRICE(RMB)"
+  son costo, "Amount" y "PRICE" (importe) no; la fecha suelta ("16/9/2026"
+  sin "Date :") también se lee.
+  Al leer, cada línea se amarra contra `yz_skus` (`amarrarLineas` →
+  `amarrarLineasCon`, puro) y la pantalla pinta EN ROJO las que no amarran,
+  con el SKU editable en el renglón y re-amarre al corregirlo
+  (`/api/yapanizcel/pedidos/amarrar`): se guardan igual pero NUNCA cuentan
+  como en camino (`cargarPedidosEnCamino` las salta).
+  **El "+" es parte del nombre** (`canonizar` lo vuelve PLUS): MELI tiene
+  `C-514-Rmn14pro-5G` Y `C-514-Rmn14pro+5G` (Pro y Pro+), y borrarlo las
+  dejaba con la misma clave: el amarre lo veía como empate y el pedido se
+  quedaba sin amarre. Un empate entre puras GEMELAS sí se resuelve a la
+  principal (`amarreConGemelas`); entre productos distintos, nunca.
 - **Etiquetas de Full de las fundas** (`/yapanizcel/etiquetas`,
   `yapanizcel/etiquetas.ts`, `/api/yapanizcel/etiquetas{,/pdf,/zpl}`): la
   MISMA etiqueta y la misma pantalla que la del calzado (`components/etiquetas.tsx`

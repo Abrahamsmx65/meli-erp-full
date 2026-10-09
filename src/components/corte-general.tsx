@@ -1,5 +1,6 @@
 "use client";
 
+import { Aviso } from "@/components/ui/pagina";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -7,7 +8,7 @@ function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Botones del corte general: congelarlo y bajar el Excel. */
+/** Botones del corte general: congelarlo y bajar el Excel (el del corte guardado está en su renglón). */
 export function AccionesCorteGeneral({ periodo, corteId }: { periodo: string; corteId: number | null }) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
@@ -35,19 +36,14 @@ export function AccionesCorteGeneral({ periodo, corteId }: { periodo: string; co
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className="boton boton-primario" disabled={ocupado} onClick={hacerCorte}>
-          {ocupado ? "Cortando…" : corteId ? `Rehacer corte general de ${periodo}` : `Hacer corte general de ${periodo}`}
+          {ocupado ? "Cortando…" : corteId ? "Rehacer corte" : "Hacer corte"}
         </button>
-        <a className="boton boton-fantasma" href={`/api/cortes/general/excel?periodo=${periodo}`}>
-          Excel con todo
+        <a className="boton boton-borde" href={`/api/cortes/general/excel?periodo=${periodo}`}>
+          Descargar Excel
         </a>
-        {corteId ? (
-          <a className="boton boton-fantasma" href={`/api/cortes/general/${corteId}/excel`}>
-            Excel del corte guardado
-          </a>
-        ) : null}
       </div>
-      {aviso ? <p className="text-sm" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
-      {error ? <p className="text-sm" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+      {aviso ? <Aviso tono="bien">{aviso}</Aviso> : null}
+      {error ? <Aviso tono="critico">{error}</Aviso> : null}
     </div>
   );
 }

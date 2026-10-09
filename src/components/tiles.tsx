@@ -43,7 +43,7 @@ export function Ficha({
     tono === "critico"
       ? "var(--estado-critico)"
       : tono === "alerta"
-        ? "var(--estado-alerta)"
+        ? "var(--alerta-texto)"
         : tono === "bien"
           ? "var(--exito-texto)"
           : "var(--ink-1)";
@@ -61,7 +61,7 @@ export function Ficha({
         <span
           aria-hidden="true"
           className="absolute inset-x-0 top-0 h-[3px]"
-          style={{ background: color }}
+          style={{ background: tono === "alerta" ? "var(--estado-alerta)" : color }}
         />
       ) : null}
       <div className="text-[12px] font-medium" style={{ color: "var(--ink-2)" }}>

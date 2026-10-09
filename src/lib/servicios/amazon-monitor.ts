@@ -9,7 +9,7 @@
  */
 import { traerRpcTodo, traerTodo, type DB } from "../datos/repos";
 import { modeloUnificado } from "./costos-unificados";
-import { conCacheApp } from "./cache-app";
+import { conCacheApp, servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 import { diasDeRango, fechaMx, normalizarRango, type RangoFechas, type ResumenDia } from "./ventas-monitor";
 import { leerFinanzasAmazon, type FinanzasAmazon } from "./finanzas-amazon";
@@ -159,8 +159,31 @@ export async function obtenerMonitorAmazon(
   rango?: RangoFechas,
 ): Promise<MonitorAmazon> {
   const r = rango ?? normalizarRango();
-  const cerrado = r.hasta < fechaMx(0);
-  return conCacheApp(db, amazonAccountId, `monitor:v4:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`, cerrado ? 6 * 3_600_000 : 5 * 60_000, () =>
+  return conCacheApp(db, amazonAccountId, claveMonitorAmazon(meliAccountId, r), vidaMonitorAmazon(r), () =>
+    cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
+  );
+}
+
+export const claveMonitorAmazon = (meliAccountId: string | null, r: RangoFechas): string =>
+  `monitor:v4:${meliAccountId ?? ""}:${r.desde}:${r.hasta}`;
+
+/** Vida del monitor guardado: 6 h si el rango ya cerró, 5 min si incluye hoy. */
+export const vidaMonitorAmazon = (r: RangoFechas): number => (r.hasta < fechaMx(0) ? 6 * 3_600_000 : 5 * 60_000);
+
+/**
+ * Para la PANTALLA (/amazon/ventas): el mismo renglón que `obtenerMonitorAmazon`,
+ * pero servido aunque esté viejo o invalidado y refrescado por atrás. El
+ * corte general sigue con `obtenerMonitorAmazon`, que recalcula lo invalidado
+ * porque congela lo que lee. El latido de Amazon deja listo el rango de 7 días.
+ */
+export async function servirMonitorAmazon(
+  db: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  rango?: RangoFechas,
+): Promise<{ datos: MonitorAmazon; generadoEn: string | null; refrescando: boolean }> {
+  const r = rango ?? normalizarRango();
+  return servirConCacheApp(db, amazonAccountId, claveMonitorAmazon(meliAccountId, r), vidaMonitorAmazon(r), () =>
     cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
   );
 }
@@ -185,7 +208,21 @@ export async function cargarMonitorAmazon(
   const prevDesde = new Date(Date.parse(r.desde) - dias * 86_400_000).toISOString().slice(0, 10);
   const prevHasta = new Date(Date.parse(r.desde) - 86_400_000).toISOString().slice(0, 10);
 
-  const [ventas, ventasRecientes, config, pagosRpc, ultimaLiquidacion, economiaRpc, coberturaRpc] = await Promise.all([
+  // El costo y la categoría se piden una vez y los usan las ventas y el
+  // dinero real (Finances API), que ya no espera a que acabe lo demás.
+  const configP: ReturnType<typeof configPorProducto> = meliAccountId
+    ? configPorProducto(db, meliAccountId)
+    : Promise.resolve(new Map());
+  // El dinero real por fecha de asiento (Finances API): sumado en Postgres,
+  // solo se agrupa por modelo aquí. Si la tabla aún no existe, null.
+  const realP = configP.then((cfg) =>
+    leerFinanzasAmazon(db, amazonAccountId, { desde: r.desde, hasta: r.hasta }, cfg).catch((err) => {
+      if (esFuenteOpcionalAusente(err)) return null;
+      throw err;
+    }),
+  );
+
+  const [ventas, ventasRecientes, config, pagosRpc, ultimaLiquidacion, economiaRpc, coberturaRpc, real] = await Promise.all([
     traerTodo<any>(
       db,
       "amazon_ventas_diarias",
@@ -207,7 +244,7 @@ export async function cargarMonitorAmazon(
     // El costo y la categoría son los mismos productos físicos: viven con la
     // cuenta de MELI en Productos y costos, calzado y fundas juntos (los SKUs
     // de funda que se venden en Amazon, 437-RmPad-2-navy, amarran por diseño).
-    meliAccountId ? configPorProducto(db, meliAccountId) : Promise.resolve(new Map()),
+    configP,
     // El NETO real del reporte de pagos de Amazon (comisiones, envíos e
     // impuestos ya descontados), SUMADO EN POSTGRES por SKU (RPC
     // `amazon_pagos_por_sku`, migración 0083). Bajar la tabla cruda eran
@@ -254,6 +291,7 @@ export async function cargarMonitorAmazon(
       p_desde: r.desde,
       p_hasta: r.hasta,
     }, 10_000),
+    realP,
   ]);
 
   // Las liquidaciones son una fuente de RESPALDO: desde la Finances API el
@@ -280,13 +318,6 @@ export async function cargarMonitorAmazon(
   } else if (coberturaRpc.error && !esAusente(coberturaRpc.error)) {
     avisosFuentes.push(`Amazon: no se pudo leer la cobertura de SKU Economics (${coberturaRpc.error}).`);
   }
-
-  // El dinero real por fecha de asiento (Finances API): sumado en Postgres,
-  // solo se agrupa por modelo aquí. Si la tabla aún no existe, null.
-  const real = await leerFinanzasAmazon(db, amazonAccountId, { desde: r.desde, hasta: r.hasta }, config).catch((err) => {
-    if (esFuenteOpcionalAusente(err)) return null;
-    throw err;
-  });
 
   const resumen = (desde: string, hasta: string): ResumenDia => {
     let unidades = 0;

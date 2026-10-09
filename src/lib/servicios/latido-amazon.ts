@@ -12,6 +12,8 @@ import { sincronizarEconomia } from "../amazon/economia";
 import { sincronizarFnskus } from "../amazon/fnskus";
 import { sincronizarPadres } from "./padres-amazon";
 import { invalidarPlanFba, precalcularPlanFba } from "./plan-fba-cache";
+import { guardarCacheApp } from "./cache-app";
+import { fechaMx, normalizarRango } from "./ventas-monitor";
 
 /**
  * Amazon montado en el latido de MELI.
@@ -132,7 +134,57 @@ export async function latidoAmazon(admin: DB, meliAccountId?: string): Promise<v
         console.error("precalcularPlanFba:", (err as Error).message);
       }
     }
+
+    // Ventas Amazon (7 días) y Publicidad Amazon (30 días) ya NO se
+    // precalculan aquí: con lo que sobraba de los 45 s casi nunca alcanzaba
+    // (9 veces en dos días en vez de cada 10 min). Tienen su propio cron,
+    // /api/cron/amazon-pantallas (`refrescarPantallasAmazon`).
   }
+}
+
+/**
+ * El cron propio de las pantallas de Amazon: Ventas (7 días) y Publicidad
+ * (30 días) leen un renglón masticado y aquí se dejan listos cada 10
+ * minutos, con todo el rato de la función. Mismo nombre de tarea que antes
+ * en `amazon_sync_log` (`cron_pantallas`) para no pisarse.
+ */
+export async function refrescarPantallasAmazon(admin: DB, meliAccountId: string | null, limite: number): Promise<object[]> {
+  const cuentas = await cuentasAmazon(admin);
+  const hechas: object[] = [];
+  for (const cuenta of cuentas) {
+    if (Date.now() > limite - 10_000) break;
+    await paso(admin, cuenta.accountId, "cron_pantallas", 9 * 60_000, async () => {
+      const r = await precalcularPantallasAmazon(admin, cuenta.accountId, meliAccountId, limite);
+      hechas.push(r);
+      return r;
+    });
+  }
+  return hechas;
+}
+
+/** Calcula y guarda los rangos por omisión de Ventas y Publicidad de Amazon. */
+async function precalcularPantallasAmazon(
+  admin: DB,
+  amazonAccountId: string,
+  meliAccountId: string | null,
+  limite: number,
+): Promise<object> {
+  const { cargarMonitorAmazon, claveMonitorAmazon } = await import("./amazon-monitor");
+  const { cargarPublicidadAmazon, clavePublicidadAmazon } = await import("./publicidad-amazon");
+  const siete = normalizarRango();
+  const treinta = normalizarRango(fechaMx(29));
+  const hechas: string[] = [];
+  const t0 = Date.now();
+  const monitor = await cargarMonitorAmazon(admin, amazonAccountId, meliAccountId, siete);
+  await guardarCacheApp(admin, amazonAccountId, claveMonitorAmazon(meliAccountId, siete), monitor, Date.now() - t0);
+  hechas.push("monitor-7");
+  if (Date.now() < limite) {
+    const t1 = Date.now();
+    const ads = await cargarPublicidadAmazon(admin, amazonAccountId, meliAccountId, treinta);
+    await guardarCacheApp(admin, amazonAccountId, clavePublicidadAmazon(meliAccountId, treinta), ads, Date.now() - t1);
+    hechas.push("publicidad-30");
+  }
+  return { hechas };
 }
 
 /** Corre una tarea si no ha corrido en los últimos `cadaMs`. */

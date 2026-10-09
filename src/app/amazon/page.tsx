@@ -7,6 +7,7 @@ import { EnviosFba } from "@/components/envios-fba";
 import { EnviosViejosFba } from "@/components/envios-viejos-fba";
 import { RecargaAmazon } from "@/components/recarga-amazon";
 import { Ficha } from "@/components/tiles";
+import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -33,18 +34,13 @@ export default async function Amazon({
     cuentaActiva(supabase),
   ]);
 
-  if (!cuenta) {
+  if (!cuenta)
     return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Amazon no está conectado</h1>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
-          No hay ninguna cuenta de Amazon asociada a este usuario. El conector
-          vive en la carpeta <code>CODIGO</code> y se configura con{" "}
-          <code>python3 scripts/configurar.py</code>.
-        </p>
-      </div>
+      <SinCuenta titulo="Reabasto a FBA" servicio="amazon">
+        El conector vive en la carpeta <code>CODIGO</code> y se configura con <code>python3 scripts/configurar.py</code>.
+      </SinCuenta>
     );
-  }
+
 
   // El bloque pesado (agregaciones, catálogo de bodega y optimizador de
   // cajas) vive precalculado en `plan_fba_cache`, como el plan de Full: la
@@ -61,16 +57,27 @@ export default async function Amazon({
     : totales.enTransito;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Envíos a FBA</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Existencias en FBA de {cuenta.nombre ?? "tu cuenta"} y qué cajas completas
-          mandar. Las ventas de Amazon viven en su propio panel, en Ventas Amazon.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Amazon"
+        titulo="Reabasto a FBA"
+        descripcion={`Existencias en FBA de ${cuenta.nombre ?? "tu cuenta"} y qué cajas completas mandar.`}
+        ayuda={
+          <>
+            <p>
+              Mismo motor que los envíos a Full, sobre las mismas cajas físicas. Las cajas salen
+              en un envío por dirección de recolección (Caseshop + Industher juntas, EnvioPack
+              aparte). Lo que registres en un envío se aparta y desaparece para los dos canales.
+            </p>
+            <p>
+              La sincronización automática mantiene al día los últimos 3 días de ventas;
+              «Recargar histórico» trae más historia o corrige un periodo (avanza sola).
+            </p>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha
           titulo="En FBA"
           valor={n(totales.disponible)}
@@ -97,15 +104,39 @@ export default async function Amazon({
           valor={n(totales.unidades)}
           nota={`Últimos ${dias} días (ritmo para la cobertura)`}
         />
-      </div>
+      </Cifras>
 
-      <RecargaAmazon estado={recarga} />
+      {/* Sin envíos entrantes sincronizados, el aviso se queda arriba de las pestañas. */}
+      {!enCamino ? <EnviosViejosFba enCamino={enCamino} /> : null}
 
-      <EnviosViejosFba enCamino={enCamino} />
-
-      <CajasFba plan={planFba} desglose={desglose} dias={dias} envios={enviosFba.envios} sinConfigurar={enviosFba.sinConfigurar} />
-
-      <EnviosFba sugerencias={sugerencias} dias={dias} />
-    </div>
+      <CajasFba
+        plan={planFba}
+        desglose={desglose}
+        dias={dias}
+        envios={enviosFba.envios}
+        sinConfigurar={enviosFba.sinConfigurar}
+        pestanasExtra={[
+          {
+            id: "productos",
+            titulo: "Por producto",
+            cuenta: sugerencias.length,
+            contenido: <EnviosFba sugerencias={sugerencias} dias={dias} />,
+          },
+          enCamino != null && enCamino.viejos.length > 0 && {
+            id: "viejos",
+            titulo: "Envíos viejos",
+            cuenta: enCamino.viejos.length,
+            alerta: true,
+            contenido: <EnviosViejosFba enCamino={enCamino} />,
+          },
+          {
+            id: "historico",
+            titulo: "Recargar histórico",
+            cuenta: recarga.pendientes > 0 ? recarga.pendientes : null,
+            contenido: <RecargaAmazon estado={recarga} />,
+          },
+        ]}
+      />
+    </Pagina>
   );
 }
