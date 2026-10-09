@@ -6,6 +6,7 @@ import { historialDeSku } from "@/lib/servicios/historial";
 import { GraficaHistorial } from "@/components/grafica-historial";
 import { Estado } from "@/components/estado";
 import { Ficha } from "@/components/tiles";
+import { Cifras, Encabezado, Pagina, Seccion } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -32,24 +33,25 @@ export default async function DetalleSku({
   const objetivoPorHorizonte = Math.round(c.demandaDiaria * p.horizonteDias);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <Link href="/envios" className="text-sm underline" style={{ color: "var(--acento)" }}>
+    <Pagina>
+      <div className="flex flex-col gap-2">
+        <Link href="/envios" className="enlace text-sm">
           ← Volver a Envíos a Full
         </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="titulo-pagina">{h.sku}</h1>
-          <Estado estado={l.estado} />
-        </div>
-        {h.titulo ? (
-          <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-            {h.titulo}
-          </p>
-        ) : null}
+        <Encabezado
+          ceja="Inventario"
+          titulo={
+            <span className="flex flex-wrap items-center gap-3">
+              {h.sku}
+              <Estado estado={l.estado} />
+            </span>
+          }
+          descripcion={h.titulo || undefined}
+        />
       </div>
 
       {/* ---- Los cuatro números que importan ----------------------------- */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <Cifras columnas={4}>
         <Ficha
           titulo="Días agotado"
           valor={c.diasSinStock}
@@ -73,29 +75,27 @@ export default async function DetalleSku({
           nota={`Para llegar a ${p.horizonteDias} días de cobertura`}
           tono={l.sugerido > 0 ? "alerta" : "bien"}
         />
-      </div>
+      </Cifras>
 
       {/* ---- La gráfica -------------------------------------------------- */}
-      <section className="tarjeta p-4">
-        <h2 className="mb-1 font-semibold">Últimos {c.diasCalendario} días</h2>
-        <p className="mb-3 text-sm" style={{ color: "var(--ink-2)" }}>
-          Arriba, cuánto inventario había en Full cada día. Abajo, cuántos pares se
-          vendieron. Las franjas rojas son los días en que no había nada que vender.
-        </p>
+      <Seccion
+        titulo={`Últimos ${c.diasCalendario} días`}
+        descripcion="Arriba, el inventario en Full cada día; abajo, los pares vendidos. Las franjas rojas son días sin nada que vender."
+      >
         <GraficaHistorial dias={h.dias} nivelObjetivo={l.nivelObjetivo} />
-      </section>
+      </Seccion>
 
       {/* ---- De dónde sale cada día -------------------------------------- */}
-      <section className="tarjeta p-4 text-sm">
-        <h2 className="mb-2 font-semibold">De dónde salen estos números</h2>
-        <p style={{ color: "var(--ink-2)" }}>
+      <Seccion titulo="De dónde salen estos números">
+        <div className="text-sm">
+        <p className="texto-2">
           Mercado Libre no guarda «cuánto stock había el 12 de junio». Lo que da es el{" "}
           <strong>registro de movimientos</strong>: cada entrada, venta, ajuste o
           devolución con su hora exacta y el nivel que quedó después. El nivel de
           cada día se reconstruye a partir de eso — el último movimiento del día es
           el cierre real.
         </p>
-        <ul className="mt-3 flex flex-col gap-1" style={{ color: "var(--ink-2)" }}>
+        <ul className="mt-3 flex flex-col gap-1 texto-2">
           <li>
             <strong className="cifra">{cobertura.diasConMovimiento}</strong> días
             reconstruidos con movimientos de Mercado Libre
@@ -105,7 +105,7 @@ export default async function DetalleSku({
             con la foto diaria que toma el sistema al sincronizar
           </li>
           {cobertura.diasDeducidos > 0 ? (
-            <li style={{ color: "var(--estado-alerta)" }}>
+            <li style={{ color: "var(--alerta-texto)" }}>
               <strong className="cifra">{cobertura.diasDeducidos}</strong> días
               deducidos: no hubo ni movimiento ni foto, así que se arrastra el nivel
               del día anterior
@@ -113,19 +113,17 @@ export default async function DetalleSku({
           ) : null}
         </ul>
         {!cobertura.hayMovimientos ? (
-          <p className="mt-3" style={{ color: "var(--estado-alerta)" }}>
+          <p className="mt-3" style={{ color: "var(--alerta-texto)" }}>
             Este SKU no tiene ningún movimiento en Full en el periodo. Su historial es
             una deducción a partir del patrón de ventas, no una medición: tómalo como
             orientación, no como dato duro.
           </p>
         ) : null}
-      </section>
+        </div>
+      </Seccion>
 
       {/* ---- La cuenta, paso a paso -------------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="font-semibold">Cómo se llega a {n(l.sugerido)} pares</h2>
-        </header>
+      <Seccion titulo={`Cómo se llega a ${n(l.sugerido)} pares`} sinRelleno>
 
         <div className="flex flex-col divide-y" style={{ borderColor: "var(--grid)" }}>
           <Paso
@@ -208,10 +206,10 @@ export default async function DetalleSku({
           </Paso>
         </div>
 
-        <footer className="border-t p-4 text-sm hairline" style={{ color: "var(--ink-2)" }}>
+        <footer className="border-t p-4 text-sm hairline texto-2">
           {l.explicacion}
         </footer>
-      </section>
+      </Seccion>
 
       {/* ---- Tabla, para quien quiera el dato crudo ---------------------- */}
       <details className="tarjeta p-4">
@@ -243,7 +241,7 @@ export default async function DetalleSku({
                   >
                     {d.fraccion === 1 ? "1.00" : d.fraccion.toFixed(2)}
                   </td>
-                  <td className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <td className="text-xs texto-tenue">
                     {d.origen === "operaciones" ? "Movimiento MELI"
                       : d.origen === "snapshot" ? "Foto del día"
                       : d.origen === "inferido" ? "Inferido de ventas"
@@ -255,7 +253,7 @@ export default async function DetalleSku({
           </table>
         </div>
       </details>
-    </div>
+    </Pagina>
   );
 }
 
@@ -283,7 +281,7 @@ function Paso({
           <h3 className="font-medium">{titulo}</h3>
           <span className="cifra text-sm font-semibold">{cuenta}</span>
         </div>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-1 text-sm texto-2">
           {children}
         </p>
       </div>

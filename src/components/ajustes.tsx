@@ -142,7 +142,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
               onChange={(e) => setV({ ...v, [c.clave]: Number(e.target.value) })}
               className="cifra"
             />
-            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-xs texto-tenue">
               {c.ayuda}
             </span>
           </label>
@@ -153,8 +153,7 @@ export function FormularioParametros({ inicial }: { inicial: Parametros }) {
         <button
           type="submit"
           disabled={estado === "enviando"}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario"
         >
           {estado === "enviando" ? "Guardando…" : "Guardar parámetros"}
         </button>

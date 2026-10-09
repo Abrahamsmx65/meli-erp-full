@@ -151,7 +151,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
       </div>
 
       {error ? (
-        <p className="text-sm" style={{ color: "var(--estado-critico)" }}>
+        <p className="text-sm" style={{ color: "var(--critico-texto)" }}>
           {error}
         </p>
       ) : null}
@@ -165,7 +165,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
       <div className="tarjeta overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
               <th className="px-3 py-2">SKU en bodega</th>
               <th className="px-3 py-2">Pestaña</th>
               <th className="px-3 py-2 text-right">Unidades</th>
@@ -177,7 +177,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
           <tbody>
             {filtrados.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                <td colSpan={6} className="px-3 py-6 text-center texto-tenue">
                   Nada aquí.
                 </td>
               </tr>
@@ -188,7 +188,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
               return (
                 <tr key={r.skuBodega} className="border-t align-top" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-2 font-medium">{r.skuBodega}</td>
-                  <td className="px-3 py-2" style={{ color: "var(--ink-2)" }}>
+                  <td className="px-3 py-2 texto-2">
                     {r.hoja ?? ""}
                   </td>
                   <td className="num px-3 py-2 text-right">{r.cantidad.toLocaleString("es-MX")}</td>
@@ -236,15 +236,14 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
                           <button
                             disabled={ocupado !== null || !valorManual.trim()}
                             onClick={() => mandar({ skuBodega: r.skuBodega, skuMeli: valorManual.trim() }, r.skuBodega)}
-                            className="rounded-md px-2 py-0.5 text-xs font-semibold disabled:opacity-50"
-                            style={{ background: "var(--acento)", color: "#fff" }}
+                            className="boton boton-primario boton-chico"
                           >
                             Amarrar
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <span style={{ color: "var(--ink-muted)" }}>—</span>
+                      <span className="texto-tenue">—</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -252,8 +251,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, skuMeli: "" }, r.skuBodega)}
-                        className="text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="text-xs underline texto-tenue"
                       >
                         Quitar amarre
                       </button>
@@ -262,8 +260,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, ignorar: true }, r.skuBodega)}
-                        className="ml-2 text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="ml-2 text-xs underline texto-tenue"
                       >
                         Ignorar
                       </button>
@@ -272,8 +269,7 @@ export function TablaSkus({ renglones }: { renglones: RenglonBodega[] }) {
                       <button
                         disabled={ocupado !== null}
                         onClick={() => mandar({ skuBodega: r.skuBodega, ignorar: false }, r.skuBodega)}
-                        className="text-xs underline"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="text-xs underline texto-tenue"
                       >
                         Volver a considerar
                       </button>

@@ -3,7 +3,7 @@ import { cuentaActiva } from "@/lib/yapanizcel/cuenta";
 import { listarCortes, periodoActual, validarPeriodo } from "@/lib/servicios/corte-meli";
 import { obtenerEstadoResultadosYz } from "@/lib/servicios/corte-cache";
 import { CorteVista } from "@/components/corte-vista";
-import { SinCuenta } from "@/components/yapanizcel/comunes";
+import { SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,7 +14,7 @@ export default async function CortesYz({ searchParams }: { searchParams: Promise
   const periodo = validarPeriodo(sp.mes) ?? periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta />;
+  if (!cuenta) return <SinCuenta servicio="yapanizcel" titulo="Cortes de fundas" />;
 
   // El corte del periodo vive masticado (yz_cache «corte:YYYY-MM»): cambiar
   // de mes es leer un renglón. La visita NO lanza el recálculo de fondo: con
@@ -27,7 +27,7 @@ export default async function CortesYz({ searchParams }: { searchParams: Promise
   ]);
   return (
     <CorteVista
-      titulo="Cortes y ganancia · YAPANIZCEL"
+      titulo="Cortes de fundas"
       intro="Lo que se ganó de verdad en el mes con las fundas: el depósito real de Mercado Pago (ya sin comisión, envío ni retenciones), menos devoluciones, menos el costo por diseño, menos Product Ads y gastos de Full. Las órdenes canceladas quedan fuera. Mientras una orden no tiene depósito real, su venta queda fuera del neto y de la utilidad y el corte lo declara."
       ruta="/yapanizcel/cortes"
       apiBase="/api/yapanizcel"

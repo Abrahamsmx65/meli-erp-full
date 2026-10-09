@@ -2,6 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { leerPlanParcial, obtenerPlan, type PlanGuardado } from "@/lib/servicios/cache";
 import { FormularioCorrida, FormularioMapeo } from "@/components/pendientes";
+import { Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +10,7 @@ export default async function Pendientes() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
 
-  if (!cuenta) {
-    return <p className="text-sm">Conecta tu cuenta de Mercado Libre en Ajustes.</p>;
-  }
+  if (!cuenta) return <SinCuenta titulo="Pendientes" />;
 
   // Esta pantalla solo usa los pendientes del plan: se leen esas claves del
   // caché sin bajar el JSON completo (pesa varios megas); si no hay plan
@@ -50,25 +49,23 @@ export default async function Pendientes() {
   );
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="titulo-pagina">Pendientes por resolver</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-          Inventario que existe en bodega pero que el sistema todavía no puede planear.
-          Nada de esto se descarta en silencio.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Sistema"
+        titulo="Pendientes por resolver"
+        descripcion="Inventario que existe pero que el sistema todavía no puede planear. Nada se descarta en silencio."
+      />
 
       {/* ---- Cajas sin corrida ------------------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="font-semibold">Cajas de corrida sin receta</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            {sinCorrida.length === 0
-              ? "Ninguna: todas las cajas de corrida tienen su desglose de tallas."
-              : `${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`}
-          </p>
-        </header>
+      <Seccion
+        titulo="Cajas de corrida sin receta"
+        descripcion={
+          sinCorrida.length === 0
+            ? "Ninguna: todas las cajas de corrida tienen su desglose de tallas."
+            : `${sinCorrida.length} combinaciones. Sin saber qué tallas trae la caja, no se puede decidir si conviene mandarla. Son ${paresBloqueados.toLocaleString("es-MX")} pares fuera del plan.`
+        }
+        sinRelleno
+      >
 
         {sinCorrida.length > 0 && (
           <div className="max-h-[30rem] overflow-auto">
@@ -88,7 +85,7 @@ export default async function Pendientes() {
                   <tr key={`${s.almacen}-${s.skuCaja}`}>
                     <td>
                       <div className="font-medium">{s.skuCaja}</div>
-                      <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <div className="text-xs texto-tenue">
                         {s.modelo} · {s.color}
                       </div>
                     </td>
@@ -110,18 +107,18 @@ export default async function Pendientes() {
             </table>
           </div>
         )}
-      </section>
+      </Seccion>
 
       {/* ---- SKUs sin amarre --------------------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="font-semibold">SKUs de bodega sin publicación en MELI</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            {sinAmarre.length === 0
-              ? "Ninguno: todo lo que hay en bodega tiene su SKU en Mercado Libre."
-              : `${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo. Puede ser que estén escritos distinto en la publicación, o que ese producto no esté publicado.`}
-          </p>
-        </header>
+      <Seccion
+        titulo="SKUs de bodega sin publicación en MELI"
+        descripcion={
+          sinAmarre.length === 0
+            ? "Ninguno: todo lo que hay en bodega tiene su SKU en Mercado Libre."
+            : `${sinAmarre.length} SKUs armados como MODELO-COLOR-TALLA que no existen tal cual en tu catálogo. Puede ser que estén escritos distinto en la publicación, o que ese producto no esté publicado.`
+        }
+        sinRelleno
+      >
 
         {sinAmarre.length > 0 && (
           <div className="max-h-[30rem] overflow-auto">
@@ -153,23 +150,17 @@ export default async function Pendientes() {
             </table>
           </div>
         )}
-      </section>
+      </Seccion>
 
       {/* ---- TikTok Shop ------------------------------------------------- */}
       {rojosTikTok.length || tiktokSinAmarre.length || desfasesTikTok.length ? (
-        <section className="tarjeta overflow-hidden">
-          <div className="px-4 pt-4">
-            <h2 className="font-semibold">TikTok Shop</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
-              Lo que el almacén de TikTok no puede resolver solo.
-            </p>
-          </div>
+        <Seccion titulo="TikTok Shop" descripcion="Lo que el almacén de TikTok no puede resolver solo." sinRelleno>
           {rojosTikTok.length ? (
             <div className="px-4 pt-3">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+              <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
                 {rojosTikTok.length} SKU con saldo negativo
               </h3>
-              <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+              <p className="text-xs texto-2">
                 Se vendieron pares que nunca entraron al kardex. Falta la entrada de Industher o
                 un conteo. Mientras, a TikTok no se le escribe nada de estos SKU.
               </p>
@@ -177,7 +168,7 @@ export default async function Pendientes() {
                 {rojosTikTok.map((r) => (
                   <li key={r.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
                     <span className="font-medium">{r.sku}</span>
-                    <span className="cifra ml-2" style={{ color: "var(--estado-critico)" }}>{r.saldo}</span>
+                    <span className="cifra ml-2" style={{ color: "var(--critico-texto)" }}>{r.saldo}</span>
                   </li>
                 ))}
               </ul>
@@ -185,10 +176,10 @@ export default async function Pendientes() {
           ) : null}
           {desfasesTikTok.length ? (
             <div className="px-4 pt-3">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--estado-critico)" }}>
+              <h3 className="text-sm font-semibold" style={{ color: "var(--critico-texto)" }}>
                 {desfasesTikTok.length} SKU donde el kardex trae más que la bodega
               </h3>
-              <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+              <p className="text-xs texto-2">
                 A TikTok se le publica el número más bajo de los dos, así que no se está vendiendo de
                 más — pero la diferencia sigue abierta y se cierra con un conteo cíclico.
               </p>
@@ -196,7 +187,7 @@ export default async function Pendientes() {
                 {desfasesTikTok.slice(0, 40).map((d) => (
                   <li key={d.sku} className="rounded-lg border px-2 py-1" style={{ borderColor: "var(--grid)" }}>
                     <span className="font-medium">{d.sku}</span>
-                    <span className="ml-2" style={{ color: "var(--ink-2)" }}>
+                    <span className="ml-2 texto-2">
                       kardex <b className="cifra">{d.kardex}</b> · bodega{" "}
                       <b className="cifra">{d.estante ?? "—"}</b> · desde{" "}
                       {new Date(d.desde).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
@@ -209,7 +200,7 @@ export default async function Pendientes() {
           {tiktokSinAmarre.length ? (
             <div className="px-4 py-3">
               <h3 className="text-sm font-semibold">{tiktokSinAmarre.length} publicaciones activas de TikTok sin SKU del ERP</h3>
-              <p className="text-xs" style={{ color: "var(--ink-2)" }}>
+              <p className="text-xs texto-2">
                 Sus ventas no descuentan y su disponible no se publica. Se amarran en Almacén TikTok.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2 text-sm">
@@ -221,8 +212,8 @@ export default async function Pendientes() {
               </ul>
             </div>
           ) : null}
-        </section>
+        </Seccion>
       ) : null}
-    </div>
+    </Pagina>
   );
 }

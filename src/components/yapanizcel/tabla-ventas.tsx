@@ -87,7 +87,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="font-semibold">{titulo}</h2>
+      <h2 className="seccion-titulo">{titulo}</h2>
       <div className="tarjeta overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b p-3 text-sm hairline">
           <input
@@ -102,11 +102,11 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
             style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
             aria-label="Buscar"
           />
-          <label className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          <label className="flex items-center gap-2 text-sm texto-2">
             <input type="checkbox" checked={soloSinCosto} onChange={(e) => setSoloSinCosto(e.target.checked)} />
             Solo sin costo ({sinCosto})
           </label>
-          <span className="ml-auto text-xs" style={{ color: "var(--ink-muted)" }}>
+          <span className="ml-auto text-xs texto-tenue">
             {visibles.length > tope ? `${tope} pintados · ` : ""}
             {visibles.length} de {filas.length} · ordenado por {columnas.find((c) => c.clave === orden.clave)?.titulo.toLowerCase()} {orden.desc ? "↓" : "↑"}
           </span>
@@ -114,7 +114,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
         <div className="max-h-[36rem] overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+              <tr className="text-left text-[11px] uppercase tracking-wider texto-tenue">
                 {columnas.map((c) => (
                   <th key={c.clave} className={`px-3 py-2 ${c.num ? "text-right" : ""}`}>
                     <button
@@ -134,7 +134,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
             <tbody>
               {visibles.length === 0 ? (
                 <tr>
-                  <td colSpan={columnas.length} className="px-3 py-6 text-center" style={{ color: "var(--ink-muted)" }}>
+                  <td colSpan={columnas.length} className="px-3 py-6 text-center texto-tenue">
                     {filas.length ? "Nada coincide con el filtro." : "Sin ventas en el periodo."}
                   </td>
                 </tr>
@@ -143,7 +143,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
                 <tr key={f.clave} className="border-t" style={{ borderColor: "var(--grid)" }}>
                   <td className="num px-3 py-1.5 font-medium">{f.clave}</td>
                   {conTitulo ? (
-                    <td className="max-w-[280px] truncate px-3 py-1.5" style={{ color: "var(--ink-2)" }} title={f.titulo ?? ""}>
+                    <td className="max-w-[280px] truncate px-3 py-1.5 texto-2" title={f.titulo ?? ""}>
                       {f.titulo ?? ""}
                     </td>
                   ) : null}
@@ -191,7 +191,7 @@ export function TablaVentasYz({ titulo, filas, conTitulo }: { titulo: string; fi
           </table>
           {visibles.length > tope ? (
             <div className="border-t p-3 text-center text-sm hairline">
-              <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="underline" style={{ color: "var(--acento)" }}>
+              <button type="button" onClick={() => setTope((t) => t + POR_PAGINA)} className="enlace">
                 Mostrar {Math.min(POR_PAGINA, visibles.length - tope)} más ({visibles.length - tope} sin pintar; el total ya los cuenta)
               </button>
             </div>

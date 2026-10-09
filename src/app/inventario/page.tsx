@@ -6,6 +6,7 @@ import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
 import { TotalMexico } from "@/components/total-mexico";
+import { Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -37,33 +38,27 @@ export default async function Inventario({
   const cuenta = await cuentaActiva(supabase);
   t.marca("cuenta");
 
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-        <Link href="/ajustes" className="mt-3 inline-block underline" style={{ color: "var(--acento)" }}>
-          Ir a Ajustes
-        </Link>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Bodega" />;
 
   const vista = await vistaBodega(supabase, cuenta.id, t);
   t.fin();
   const { fichas, inversion } = vista;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Bodega</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que está en cajas cerradas en tu bodega y lo que viene en camino de China.
-          Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la
-          tabla, con los mismos filtros que estés viendo.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Inventario"
+        titulo="Bodega"
+        descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
+        ayuda={
+          <p>
+            Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
+            que estés viendo.
+          </p>
+        }
+      />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Cifras columnas={6}>
         <Ficha titulo="SKUs" valor={n(fichas.skus)} nota="Con producto en bodega o en camino" />
         <Ficha titulo="Cajas cerradas" valor={n(fichas.cajas)} nota="En las bodegas de México" />
         <Ficha titulo="Pares en bodega" valor={n(fichas.paresEnBodega)} nota="Dentro de esas cajas" />
@@ -89,27 +84,24 @@ export default async function Inventario({
           valor={fichas.valorEnCamino > 0 ? pesos(fichas.valorEnCamino) : "—"}
           nota="Lo que viene de China, a costo"
         />
-      </div>
+      </Cifras>
 
       {/* ---- Dónde está parado el dinero -------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Inversión por categoría</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cuánto dinero tienes parado en cada tipo de producto, a costo: lo que está
-            en cajas cerradas más lo que viene en el barco.
-          </p>
-        </header>
-
+      <Seccion
+        titulo="Inversión por categoría"
+        descripcion="Dinero parado en cada tipo de producto, a costo: cajas cerradas más lo que viene en el barco."
+        sinRelleno
+      >
         {inversion.categorias.length === 0 ? (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 p-4 text-sm">
             Todavía no se puede calcular: ningún modelo con existencia tiene costo
             capturado.{" "}
-            <Link href="/productos" className="underline" style={{ color: "var(--acento)" }}>
+            <Link href="/productos" className="enlace">
               Capturar costos en Productos y costos
             </Link>
           </p>
         ) : (
+          <Tabla>
           <table className="datos">
             <thead>
               <tr>
@@ -129,15 +121,15 @@ export default async function Inventario({
                   <td className="font-medium">{c.categoria}</td>
                   <td className="num cifra">{n(c.modelos)}</td>
                   <td className="num cifra">{c.pares.enBodega ? n(c.pares.enBodega) : "—"}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  <td className="num cifra texto-2">
                     {c.pares.enCamino ? n(c.pares.enCamino) : "—"}
                   </td>
                   <td className="num cifra">{pesos(c.valor.enBodega)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  <td className="num cifra texto-2">
                     {pesos(c.valor.enCamino)}
                   </td>
                   <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-2)" }}>
+                  <td className="num cifra texto-2">
                     {porcentaje(c.parte)}
                   </td>
                 </tr>
@@ -157,10 +149,11 @@ export default async function Inventario({
               </tr>
             </tfoot>
           </table>
+          </Tabla>
         )}
 
         {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (
-          <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-muted)" }}>
+          <footer className="border-t p-3 text-xs hairline texto-tenue">
             {inversion.sinCosto.pares > 0 ? (
               <>
                 <strong>{n(inversion.sinCosto.pares)} pares</strong> de{" "}
@@ -170,7 +163,7 @@ export default async function Inventario({
                   ? ` (${inversion.sinCosto.modelos.join(", ")})`
                   : ` (${inversion.sinCosto.modelos.slice(0, 8).join(", ")} y ${inversion.sinCosto.modelos.length - 8} más)`}
                 .{" "}
-                <Link href="/productos" className="underline" style={{ color: "var(--acento)" }}>
+                <Link href="/productos" className="enlace">
                   Capturarlos
                 </Link>
                 {inversion.sinCategoria > 0 ? " · " : ""}
@@ -181,7 +174,7 @@ export default async function Inventario({
               : null}
           </footer>
         ) : null}
-      </section>
+      </Seccion>
 
       <TotalMexico renglones={vista.renglones} cajasPorModelo={vista.cajasPorModelo} />
 
@@ -193,6 +186,6 @@ export default async function Inventario({
         renglones={vista.renglones}
         almacenes={vista.almacenes}
       />
-    </div>
+    </Pagina>
   );
 }
