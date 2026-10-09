@@ -107,6 +107,10 @@ guárdala numerada.
   mismo le pasaba a `ventas_resumen_sku` (1,667 SKUs de calzado con venta:
   plan de Full, Ventas MELI, Publicidad, Excel por modelo de TikTok); ahora
   lleva ORDER BY (migración 0125) y se lee con `rpcPaginado`.
+  **Y el resumen de Amazon también** (`cargarAmazon` → `amazon_resumen_skus`,
+  ~10,500 SKUs ordenados por venta): el plan solo veía los 1,000 que más
+  venden, y lo recién mandado a FBA (GT251…GT277, sin venta todavía) salía
+  con 0 pares en FBA y se le volvían a pedir sus 2 cajas.
 - **Todos los productos son de Full.** Si un SKU no tiene stock en Full es
   porque se acabó, no porque sea otra logística. No filtres por logística.
 - **El stock histórico se toma de los movimientos de MELI**, no de las fotos
