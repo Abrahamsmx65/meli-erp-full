@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { catalogoParaConteo } from "@/lib/servicios/tiktok-conteo";
 import { ConteoTikTok } from "@/components/conteo-tiktok";
@@ -12,7 +12,10 @@ export default async function Conteo() {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <p className="text-sm">Conecta tu cuenta en Ajustes.</p>;
 
-  const productos = await catalogoParaConteo(supabase, cuenta.id);
+  // El FNSKU sale de las tablas de Amazon, que bajo RLS solo abre el dueño:
+  // el rol de TikTok las leía vacías y contaba sin FNSKU. Se leen con el
+  // cliente admin (solo lectura), como en `cargarCorte`.
+  const productos = await catalogoParaConteo(supabase, cuenta.id, clienteAdmin());
 
   return (
     <div className="flex flex-col gap-6">

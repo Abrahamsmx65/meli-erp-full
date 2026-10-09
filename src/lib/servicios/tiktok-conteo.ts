@@ -22,14 +22,23 @@ import { registrarMovimientos, sincronizarTikTok } from "./tiktok";
  * (kardex) más lo que está publicado y amarrado al ERP, con su FNSKU de
  * Amazon para que el escáner lo reconozca.
  */
-export async function catalogoParaConteo(db: DB, accountId: string): Promise<ProductoConteo[]> {
+export async function catalogoParaConteo(
+  db: DB,
+  accountId: string,
+  /**
+   * Con qué cliente se lee el mapa de Amazon (FNSKU). Las tablas de Amazon
+   * solo las abre el dueño bajo RLS; para el rol de TikTok la pantalla pasa
+   * el cliente admin (solo lectura). Por omisión, el mismo `db`.
+   */
+  dbAmazon: DB = db,
+): Promise<ProductoConteo[]> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [inventario, publicados, amazon, alias] = await Promise.all([
     traerTodo<{ sku: string; saldo: number; apartado: number }>(db, "tiktok_inventario", "sku, saldo, apartado", eq),
     traerTodo<{ sku_interno: string | null; titulo: string | null }>(db, "tiktok_skus", "sku_interno, titulo", (q) =>
       eq(q).eq("activo", true).not("sku_interno", "is", null),
     ),
-    mapaAmazon(db),
+    mapaAmazon(dbAmazon),
     aliasAmazonDeCuenta(db, accountId),
   ]);
 

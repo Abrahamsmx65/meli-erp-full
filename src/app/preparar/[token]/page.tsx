@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cuentaPorTokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { clienteAdmin } from "@/lib/supabase/server";
-import { traerTodo } from "@/lib/datos/repos";
+import { avanceDeCortes } from "@/lib/servicios/tiktok-despacho";
 
 export const dynamic = "force-dynamic";
 
@@ -17,22 +17,19 @@ export default async function CortesPublicos({ params }: { params: Promise<{ tok
   let cortes: any[] = [];
   const hechos = new Map<number, number>();
   try {
-    // Paginado: tiktok_preparaciones crece un renglón por pedido preparado y
-    // nunca se borra; al pasar de 1,000, el avance "X/Y" saldría corto.
-    const [rCortes, prep] = await Promise.all([
-      admin
-        .from("tiktok_cortes")
-        .select("id, numero, creado_en, pedidos, pares")
-        .eq("account_id", cuenta.id)
-        .order("numero", { ascending: false })
-        .limit(15),
-      traerTodo<{ corte_id: number }>(admin, "tiktok_preparaciones", "corte_id", (q) =>
-        q.eq("account_id", cuenta.id),
-      ),
-    ]);
+    // El avance "X/Y" sale SOLO de los cortes listados (RPC agrupado o, si
+    // no contesta, sus preparaciones paginadas): antes se bajaban todas las
+    // preparaciones de la historia para contar 15 cortes.
+    const rCortes = await admin
+      .from("tiktok_cortes")
+      .select("id, numero, creado_en, pedidos, pares")
+      .eq("account_id", cuenta.id)
+      .order("numero", { ascending: false })
+      .limit(15);
     if (rCortes.error) throw new Error(rCortes.error.message);
     cortes = rCortes.data ?? [];
-    for (const r of prep) hechos.set(r.corte_id, (hechos.get(r.corte_id) ?? 0) + 1);
+    const avance = await avanceDeCortes(admin, cuenta.id, cortes.map((c: any) => Number(c.id)));
+    for (const [id, a] of avance) hechos.set(id, a.preparados);
   } catch (err) {
     // Pantalla de bodega, sin sesión: mejor decir qué pasó y dar el botón de
     // reintentar que una pantalla de error genérica. Nunca pintar la lista

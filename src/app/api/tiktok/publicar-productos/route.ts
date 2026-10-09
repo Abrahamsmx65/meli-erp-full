@@ -3,6 +3,7 @@ import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { dispararYAnotar, MAX_ESLABONES_PUBLICACION } from "@/lib/servicios/disparar-publicacion";
 import {
+  colaDePublicacion,
   encolarPublicaciones,
   encolarPublicacionesMeli,
   hayPendientes,
@@ -35,7 +36,15 @@ export async function GET(req: NextRequest) {
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
   try {
-    const datos = await listarProductosNuevos(clienteAdmin(), cuenta.id, { forzar: req.nextUrl.searchParams.get("refrescar") === "1" });
+    // `?soloCola=1`: lo que la pantalla pregunta cada pocos segundos
+    // mientras se publica; la lista de productos no viaja.
+    if (req.nextUrl.searchParams.get("soloCola") === "1") {
+      return NextResponse.json({ cola: await colaDePublicacion(clienteAdmin(), cuenta.id) });
+    }
+    const datos = await listarProductosNuevos(clienteAdmin(), cuenta.id, {
+      forzar: req.nextUrl.searchParams.get("refrescar") === "1",
+      servirGuardado: true,
+    });
     return NextResponse.json(datos);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
