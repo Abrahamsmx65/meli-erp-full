@@ -1903,6 +1903,25 @@ midió y quedó como regla:
   pantalla hace varios en serie).
 - **Pestañas dentro de la pantalla** (`components/ui/pestanas.tsx`, regla en
   `docs/DISENO.md`; dueño: «para no ver todo su contenido junto de golpe»).
+- **Revisión del 9-oct-2026: nada se queda con los primeros 1,000.** Toda
+  lectura que pueda pasar de 1,000 renglones va por `traerTodo` /
+  `traerRpcTodo` / `rpcPaginado` (o `porTandas` si lleva una lista de ids)
+  y su RPC con ORDER BY estable. Ese día se cortaban: historia de Amazon,
+  `ventas_resumen_sku`, `amazon_resumen_skus`, `publicidad_resumen_items`
+  (0126), `envio_real_por_sku` y las causas de subida de TikTok. Un
+  `.limit(2000)` NO trae 2,000. Y un `count: "exact"` sobre una tabla grande
+  pasa de los 8 s del `statement_timeout`, que también rige al cliente admin
+  (el rol `authenticator` lo trae): los netos de fundas morían en 86 de 144
+  corridas por eso.
+- **Una orden con pago definitivo y sin cargo de envío queda con el envío
+  RESUELTO** (`pagosDefinitivos` en `meli/pagos-api.ts`): antes
+  `envio_leido_en` se quedaba vacío, la orden se volvía a pedir en cada
+  barrido y llenaba los 150 lugares; el registro de órdenes se atoró en el
+  30-mar-2026 y fundas releía las mismas ~1,000 órdenes cada 10 min.
+- Product Ads solo rellena hacia atrás 89 días (`DIAS_API_ADS`): MELI no
+  da más y pedirlo tronaba cada hora. El sync diario vive 800 s. Todo lo
+  que el servidor se manda a sí mismo usa `origenDeLaApp`, y
+  `/api/fiscal/procesar` es pública para su relanzamiento con CRON_SECRET.
 - La barra de estado pregunta cada 60 s, se pausa con la pestaña escondida y
   solo recarga las pantallas que usan el plan; la página ya no se desmonta en
   cada navegación. `clienteAdmin` vive en `supabase/admin.ts` (sin

@@ -1376,12 +1376,18 @@ export async function reamarrarPendientes(
 
   // Los que ya están en un corte: sus salidas al 3PL, que en su momento no
   // se pudieron registrar porque no tenían SKU.
-  const { data: enCorte } = await db
-    .from("tiktok_ordenes")
-    .select("order_id, corte_id")
-    .eq("account_id", accountId)
-    .in("order_id", ids)
-    .not("corte_id", "is", null);
+  // Por tandas: un amarre nuevo puede resolver cientos de pedidos y la
+  // lista entera en la URL rebota con «Bad Request» (pasó en el corte).
+  const enCorte = await porTandas(ids, 300, async (tanda) => {
+    const { data, error } = await db
+      .from("tiktok_ordenes")
+      .select("order_id, corte_id")
+      .eq("account_id", accountId)
+      .in("order_id", tanda)
+      .not("corte_id", "is", null);
+    if (error) throw new Error(`tiktok_ordenes: ${error.message}`);
+    return (data ?? []) as { order_id: string; corte_id: number }[];
+  });
   const cortes = new Set<number>();
   for (const o of (enCorte ?? []) as { order_id: string; corte_id: number }[]) {
     const { data: items } = await db
