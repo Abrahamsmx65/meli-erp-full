@@ -8,6 +8,7 @@ import { FiltroFechas } from "@/components/filtro-fechas";
 import { n, pesos } from "@/components/yapanizcel/comunes";
 import { Aviso, Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { TablaVentasYz } from "@/components/yapanizcel/tabla-ventas";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -87,8 +88,30 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
         </Aviso>
       ) : null}
 
-      <TablaVentasYz titulo="Por diseño" filas={m.porDiseno} />
-      <TablaVentasYz titulo="Por SKU" filas={m.porSku} conTitulo />
+      <Pestanas
+        pestanas={[
+          {
+            id: "diseno",
+            titulo: "Por diseño",
+            cuenta: m.porDiseno.length,
+            contenido: (
+              <>
+                <TablaVentasYz titulo="Por diseño" filas={m.porDiseno} />
+              </>
+            ),
+          },
+          {
+            id: "sku",
+            titulo: "Por SKU",
+            cuenta: m.porSku.length,
+            contenido: (
+              <>
+                <TablaVentasYz titulo="Por SKU" filas={m.porSku} conTitulo />
+              </>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }

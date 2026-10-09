@@ -378,6 +378,73 @@
   }
 
   /* Frescura: píldora discreta junto a las acciones. */
+  /* Pestañas dentro de una pantalla (components/ui/pestanas.tsx). */
+  .pestanas {
+    display: flex;
+    gap: 0.25rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--borde);
+    scrollbar-width: none;
+  }
+  .pestanas::-webkit-scrollbar {
+    display: none;
+  }
+  .pestana {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    white-space: nowrap;
+    padding: 0.55rem 0.8rem 0.65rem;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-2);
+    border-radius: 6px 6px 0 0;
+    transition: color 120ms ease, background-color 120ms ease;
+  }
+  .pestana:hover {
+    color: var(--ink-1);
+    background: color-mix(in srgb, var(--acento) 5%, transparent);
+  }
+  .pestana[aria-selected="true"] {
+    color: var(--acento);
+    font-weight: 600;
+  }
+  .pestana[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--acento);
+  }
+  .pestana:focus-visible {
+    outline: 2px solid var(--acento);
+    outline-offset: -2px;
+  }
+  .pestana-cuenta {
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: var(--plane);
+    color: var(--ink-2);
+    border: 1px solid var(--borde);
+  }
+  .pestana[aria-selected="true"] .pestana-cuenta {
+    background: color-mix(in srgb, var(--acento) 10%, transparent);
+    border-color: color-mix(in srgb, var(--acento) 25%, transparent);
+    color: var(--acento);
+  }
+  .pestana-cuenta[data-alerta="true"] {
+    background: var(--alerta-suave);
+    border-color: var(--alerta-borde);
+    color: var(--alerta-texto);
+  }
+
   .frescura {
     display: inline-flex;
     align-items: center;

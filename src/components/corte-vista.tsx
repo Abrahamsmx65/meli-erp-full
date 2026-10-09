@@ -10,6 +10,7 @@ import { puenteVentaANeto } from "@/lib/servicios/corte-meli-cascada";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorte, GastosDelMes } from "@/components/cortes-meli";
 import { Ayuda, Cifras, Encabezado, Pagina, Seccion, Tabla } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -109,245 +110,290 @@ export function CorteVista({
         <Ficha titulo="Margen" valor={pct(e.margenSobreVenta)} nota={`sobre el neto: ${pct(e.margenSobreNeto)}`} />
       </Cifras>
 
-      {/* ---- Cascada ----------------------------------------------------- */}
-      <Seccion titulo="De la venta a la ganancia" sinRelleno>
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Cada renglón es dinero real. La comisión es el sale fee de cada orden; «envíos y otros» es lo demás que MELI
-              descuenta antes de depositar (envío de Full, retenciones de ISR/IVA) y sale por diferencia contra el depósito.
-            </p>
-          </Ayuda>
-        </div>
-        <Tabla>
-          <Cascada e={e} />
-        </Tabla>
-      </Seccion>
+      <Pestanas
+        pestanas={[
+          {
+            id: "resumen",
+            titulo: "Resumen",
+            cuenta: e.avisos.length || null,
+            alerta: e.avisos.length > 0,
+            contenido: (
+              <>
+                {/* ---- Cascada ----------------------------------------------------- */}
+                <Seccion titulo="De la venta a la ganancia" sinRelleno>
+                  <div className="px-4 pt-3">
+                    <Ayuda>
+                      <p>
+                        Cada renglón es dinero real. La comisión es el sale fee de cada orden; «envíos y otros» es lo demás que MELI
+                        descuenta antes de depositar (envío de Full, retenciones de ISR/IVA) y sale por diferencia contra el depósito.
+                      </p>
+                    </Ayuda>
+                  </div>
+                  <Tabla>
+                    <Cascada e={e} />
+                  </Tabla>
+                </Seccion>
 
-      {/* ---- Exactitud --------------------------------------------------- */}
-      <Seccion
-        titulo={e.avisos.length ? "Qué le falta al corte para ser exacto" : "Revisión de órdenes"}
-        descripcion={
-          <>
-            {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
-            {n(e.cancelaciones.ordenes)} canceladas por {pesos(e.cancelaciones.importe)} fuera del corte · {n(e.devoluciones.ordenes)} devueltas por{" "}
-            {pesos(e.devoluciones.monto)}.
-          </>
-        }
-      >
-        {e.avisos.length ? (
-          <ul className="flex flex-col gap-1 text-sm">
-            {e.avisos.map((a) => (
-              <li key={a} className="flex gap-2">
-                <span style={{ color: "var(--acento)" }}>•</span>
-                <span>{a}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="texto-2 text-sm">Sin pendientes: depósito, revisión y costo completos.</p>
-        )}
-      </Seccion>
+                {/* ---- Exactitud --------------------------------------------------- */}
+                <Seccion
+                  titulo={e.avisos.length ? "Qué le falta al corte para ser exacto" : "Revisión de órdenes"}
+                  descripcion={
+                    <>
+                      {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
+                      {n(e.cancelaciones.ordenes)} canceladas por {pesos(e.cancelaciones.importe)} fuera del corte · {n(e.devoluciones.ordenes)} devueltas por{" "}
+                      {pesos(e.devoluciones.monto)}.
+                    </>
+                  }
+                >
+                  {e.avisos.length ? (
+                    <ul className="flex flex-col gap-1 text-sm">
+                      {e.avisos.map((a) => (
+                        <li key={a} className="flex gap-2">
+                          <span style={{ color: "var(--acento)" }}>•</span>
+                          <span>{a}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="texto-2 text-sm">Sin pendientes: depósito, revisión y costo completos.</p>
+                  )}
+                </Seccion>
+              </>
+            ),
+          },
+          {
+            id: "gastos",
+            titulo: "Gastos",
+            contenido: (
+              <>
+                {/* ---- Gastos ------------------------------------------------------ */}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Seccion titulo="Gastos capturados a mano" sinRelleno>
+                    <div className="px-4 pt-3">
+                      <Ayuda titulo="¿Qué se captura aquí?">
+                        <p>
+                          Lo que no llega por API: almacenamiento de Full si la facturación no se pudo leer, publicidad fuera de
+                          Product Ads, cualquier otro gasto del mes. Se restan de la utilidad neta.
+                        </p>
+                      </Ayuda>
+                    </div>
+                    <GastosDelMes apiBase={apiBase} gastos={e.gastosManuales} desde={e.desde} hasta={e.hasta} />
+                  </Seccion>
 
-      {/* ---- Gastos ------------------------------------------------------ */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Seccion titulo="Gastos capturados a mano" sinRelleno>
-          <div className="px-4 pt-3">
-            <Ayuda titulo="¿Qué se captura aquí?">
-              <p>
-                Lo que no llega por API: almacenamiento de Full si la facturación no se pudo leer, publicidad fuera de
-                Product Ads, cualquier otro gasto del mes. Se restan de la utilidad neta.
-              </p>
-            </Ayuda>
-          </div>
-          <GastosDelMes apiBase={apiBase} gastos={e.gastosManuales} desde={e.desde} hasta={e.hasta} />
-        </Seccion>
-
-        <Seccion titulo="Facturado por MELI en el periodo" sinRelleno>
-          <div className="px-4 pt-3">
-            <Ayuda>
-              <p>
-                Por tipo de cargo. Solo «Full» y «Otro» se restan: comisión y envío ya van dentro del neto, Product Ads ya
-                cuenta desde el API de publicidad, y los pagos son abonos.
-              </p>
-            </Ayuda>
-          </div>
-          {e.cargosPorTipo.length ? (
-            <Tabla>
-              <table className="datos">
-                <thead>
-                  <tr>
-                    <th>Tipo</th>
-                    <th>Clase</th>
-                    <th className="num">Renglones</th>
-                    <th className="num">Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {e.cargosPorTipo.map((k) => (
-                    <tr key={k.tipo}>
-                      <td className="font-medium">{k.tipo}</td>
-                      <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
-                      <td className="num cifra">{n(k.renglones)}</td>
-                      <td className="num cifra">{pesos(k.monto)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Tabla>
-          ) : (
-            <p className="texto-2 p-4 text-sm">
-              Todavía no se lee la facturación de este periodo. Dale a «Leer facturación de MELI»; si MELI no la entrega,
-              captura el almacenamiento de Full a mano.
-            </p>
-          )}
-        </Seccion>
-      </div>
-
-      {/* ---- Por modelo y por categoría ---------------------------------- */}
-      <Seccion titulo="Por modelo" sinRelleno>
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y
-              los gastos de Full no se reparten por modelo.
-            </p>
-          </Ayuda>
-        </div>
-        <Tabla alta>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Modelo</th>
-                <th>Categoría</th>
-                <th className="num">Pares</th>
-                <th className="num">Venta</th>
-                <th className="num">Comisión</th>
-                <th className="num">Envío</th>
-                <th className="num">ISR</th>
-                <th className="num">IVA</th>
-                <th className="num">Otros</th>
-                <th className="num">Neto</th>
-                <th className="num">Costo</th>
-                <th className="num">Publicidad</th>
-                <th className="num">Ganancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {e.porModelo.map((m) => (
-                <tr key={m.modelo}>
-                  <td className="font-medium">{m.modelo}</td>
-                  <td className="texto-2">{m.categoria ?? "—"}</td>
-                  <td className="num cifra">{n(m.unidades)}</td>
-                  <td className="num cifra">{pesos(m.importe)}</td>
-                  <td className="num cifra texto-tenue">{pesos(m.comision)}</td>
-                  <td className="num cifra texto-tenue">{pesos(m.envio ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(m.isr ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(m.iva ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(m.otrosCargos ?? 0)}</td>
-                  <td className="num cifra">{pesos(m.neto)}</td>
-                  <td className="num cifra" style={{ color: m.costo == null ? "var(--alerta-texto)" : "var(--ink-1)" }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
-                  <td className="num cifra">{m.publicidad ? pesos(m.publicidad) : "—"}</td>
-                  <td className="num cifra font-semibold" style={{ color: colorGanancia(m.ganancia) }}>
-                    {m.ganancia == null ? "—" : pesos(m.ganancia)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
-
-      <Seccion titulo="Por categoría" sinRelleno>
-        <Tabla>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Categoría</th>
-                <th className="num">Pares</th>
-                <th className="num">Venta</th>
-                <th className="num">Comisión</th>
-                <th className="num">Envío</th>
-                <th className="num">ISR</th>
-                <th className="num">IVA</th>
-                <th className="num">Otros</th>
-                <th className="num">Neto</th>
-                <th className="num">Costo</th>
-                <th className="num">Publicidad</th>
-                <th className="num">Ganancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {e.porCategoria.map((k) => (
-                <tr key={k.categoria}>
-                  <td className="font-medium">{k.categoria}</td>
-                  <td className="num cifra">{n(k.unidades)}</td>
-                  <td className="num cifra">{pesos(k.importe)}</td>
-                  <td className="num cifra texto-tenue">{pesos(k.comision ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(k.envio ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(k.isr ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(k.iva ?? 0)}</td>
-                  <td className="num cifra texto-tenue">{pesos(k.otrosCargos ?? 0)}</td>
-                  <td className="num cifra">{pesos(k.neto)}</td>
-                  <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
-                  <td className="num cifra">{k.publicidad ? pesos(k.publicidad) : "—"}</td>
-                  <td className="num cifra font-semibold" style={{ color: colorGanancia(k.ganancia) }}>
-                    {k.ganancia == null ? "—" : pesos(k.ganancia)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
-
-      {/* ---- Cortes guardados -------------------------------------------- */}
-      <Seccion titulo="Cortes guardados" sinRelleno>
-        {cortes.length ? (
-          <Tabla>
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Mes</th>
-                  <th>Hecho el</th>
-                  <th className="num">Venta bruta</th>
-                  <th className="num">Neto</th>
-                  <th className="num">Utilidad neta</th>
-                  <th>Estado</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {cortes.map((c) => (
-                  <tr key={c.id}>
-                    <td className="font-medium">
-                      <Link href={`${ruta}?mes=${c.periodo}`} className="enlace">
-                        {nombreDelPeriodo(c.periodo)}
-                      </Link>
-                    </td>
-                    <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
-                    <td className="num cifra">{pesos(c.ventaBruta)}</td>
-                    <td className="num cifra">{pesos(c.netoDepositado)}</td>
-                    <td className="num cifra font-semibold" style={{ color: c.utilidadNeta < 0 ? "var(--critico-texto)" : "var(--exito-texto)" }}>{pesos(c.utilidadNeta)}</td>
-                    <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
-                    <td className="num">
-                      <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" className="enlace">
-                        PDF
-                      </a>
-                      {" · "}
-                      <a href={`${apiBase}/cortes/${c.id}/excel`} className="enlace">
-                        Excel
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Tabla>
-        ) : (
-          <p className="texto-2 p-4 text-sm">Todavía no hay cortes guardados. Haz el primero con el botón de arriba.</p>
-        )}
-      </Seccion>
+                  <Seccion titulo="Facturado por MELI en el periodo" sinRelleno>
+                    <div className="px-4 pt-3">
+                      <Ayuda>
+                        <p>
+                          Por tipo de cargo. Solo «Full» y «Otro» se restan: comisión y envío ya van dentro del neto, Product Ads ya
+                          cuenta desde el API de publicidad, y los pagos son abonos.
+                        </p>
+                      </Ayuda>
+                    </div>
+                    {e.cargosPorTipo.length ? (
+                      <Tabla>
+                        <table className="datos">
+                          <thead>
+                            <tr>
+                              <th>Tipo</th>
+                              <th>Clase</th>
+                              <th className="num">Renglones</th>
+                              <th className="num">Monto</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {e.cargosPorTipo.map((k) => (
+                              <tr key={k.tipo}>
+                                <td className="font-medium">{k.tipo}</td>
+                                <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
+                                <td className="num cifra">{n(k.renglones)}</td>
+                                <td className="num cifra">{pesos(k.monto)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </Tabla>
+                    ) : (
+                      <p className="texto-2 p-4 text-sm">
+                        Todavía no se lee la facturación de este periodo. Dale a «Leer facturación de MELI»; si MELI no la entrega,
+                        captura el almacenamiento de Full a mano.
+                      </p>
+                    )}
+                  </Seccion>
+                </div>
+              </>
+            ),
+          },
+          {
+            id: "modelo",
+            titulo: "Por modelo",
+            cuenta: e.porModelo.length,
+            contenido: (
+              <>
+                {/* ---- Por modelo y por categoría ---------------------------------- */}
+                <Seccion titulo="Por modelo" sinRelleno>
+                  <div className="px-4 pt-3">
+                    <Ayuda>
+                      <p>
+                        Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y
+                        los gastos de Full no se reparten por modelo.
+                      </p>
+                    </Ayuda>
+                  </div>
+                  <Tabla alta>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Modelo</th>
+                          <th>Categoría</th>
+                          <th className="num">Pares</th>
+                          <th className="num">Venta</th>
+                          <th className="num">Comisión</th>
+                          <th className="num">Envío</th>
+                          <th className="num">ISR</th>
+                          <th className="num">IVA</th>
+                          <th className="num">Otros</th>
+                          <th className="num">Neto</th>
+                          <th className="num">Costo</th>
+                          <th className="num">Publicidad</th>
+                          <th className="num">Ganancia</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {e.porModelo.map((m) => (
+                          <tr key={m.modelo}>
+                            <td className="font-medium">{m.modelo}</td>
+                            <td className="texto-2">{m.categoria ?? "—"}</td>
+                            <td className="num cifra">{n(m.unidades)}</td>
+                            <td className="num cifra">{pesos(m.importe)}</td>
+                            <td className="num cifra texto-tenue">{pesos(m.comision)}</td>
+                            <td className="num cifra texto-tenue">{pesos(m.envio ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(m.isr ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(m.iva ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(m.otrosCargos ?? 0)}</td>
+                            <td className="num cifra">{pesos(m.neto)}</td>
+                            <td className="num cifra" style={{ color: m.costo == null ? "var(--alerta-texto)" : "var(--ink-1)" }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
+                            <td className="num cifra">{m.publicidad ? pesos(m.publicidad) : "—"}</td>
+                            <td className="num cifra font-semibold" style={{ color: colorGanancia(m.ganancia) }}>
+                              {m.ganancia == null ? "—" : pesos(m.ganancia)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
+              </>
+            ),
+          },
+          {
+            id: "categoria",
+            titulo: "Por categoría",
+            cuenta: e.porCategoria.length,
+            contenido: (
+              <>
+                <Seccion titulo="Por categoría" sinRelleno>
+                  <Tabla>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Categoría</th>
+                          <th className="num">Pares</th>
+                          <th className="num">Venta</th>
+                          <th className="num">Comisión</th>
+                          <th className="num">Envío</th>
+                          <th className="num">ISR</th>
+                          <th className="num">IVA</th>
+                          <th className="num">Otros</th>
+                          <th className="num">Neto</th>
+                          <th className="num">Costo</th>
+                          <th className="num">Publicidad</th>
+                          <th className="num">Ganancia</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {e.porCategoria.map((k) => (
+                          <tr key={k.categoria}>
+                            <td className="font-medium">{k.categoria}</td>
+                            <td className="num cifra">{n(k.unidades)}</td>
+                            <td className="num cifra">{pesos(k.importe)}</td>
+                            <td className="num cifra texto-tenue">{pesos(k.comision ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(k.envio ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(k.isr ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(k.iva ?? 0)}</td>
+                            <td className="num cifra texto-tenue">{pesos(k.otrosCargos ?? 0)}</td>
+                            <td className="num cifra">{pesos(k.neto)}</td>
+                            <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
+                            <td className="num cifra">{k.publicidad ? pesos(k.publicidad) : "—"}</td>
+                            <td className="num cifra font-semibold" style={{ color: colorGanancia(k.ganancia) }}>
+                              {k.ganancia == null ? "—" : pesos(k.ganancia)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
+              </>
+            ),
+          },
+          {
+            id: "guardados",
+            titulo: "Guardados",
+            cuenta: cortes.length,
+            contenido: (
+              <>
+                {/* ---- Cortes guardados -------------------------------------------- */}
+                <Seccion titulo="Cortes guardados" sinRelleno>
+                  {cortes.length ? (
+                    <Tabla>
+                      <table className="datos">
+                        <thead>
+                          <tr>
+                            <th>Mes</th>
+                            <th>Hecho el</th>
+                            <th className="num">Venta bruta</th>
+                            <th className="num">Neto</th>
+                            <th className="num">Utilidad neta</th>
+                            <th>Estado</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cortes.map((c) => (
+                            <tr key={c.id}>
+                              <td className="font-medium">
+                                <Link href={`${ruta}?mes=${c.periodo}`} className="enlace">
+                                  {nombreDelPeriodo(c.periodo)}
+                                </Link>
+                              </td>
+                              <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                              <td className="num cifra">{pesos(c.ventaBruta)}</td>
+                              <td className="num cifra">{pesos(c.netoDepositado)}</td>
+                              <td className="num cifra font-semibold" style={{ color: c.utilidadNeta < 0 ? "var(--critico-texto)" : "var(--exito-texto)" }}>{pesos(c.utilidadNeta)}</td>
+                              <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
+                              <td className="num">
+                                <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" className="enlace">
+                                  PDF
+                                </a>
+                                {" · "}
+                                <a href={`${apiBase}/cortes/${c.id}/excel`} className="enlace">
+                                  Excel
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Tabla>
+                  ) : (
+                    <p className="texto-2 p-4 text-sm">Todavía no hay cortes guardados. Haz el primero con el botón de arriba.</p>
+                  )}
+                </Seccion>
+              </>
+            ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }

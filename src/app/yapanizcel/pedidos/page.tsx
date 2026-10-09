@@ -7,6 +7,7 @@ import { CargarPedido, ListaPedidos } from "@/components/yapanizcel/pedidos";
 import { PedidosChina } from "@/components/yapanizcel/pedidos-china";
 import { n } from "@/components/yapanizcel/comunes";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -65,14 +66,33 @@ export default async function PedidosYz({ searchParams }: { searchParams: Promis
         <Ficha titulo={`Unidades a pedir (${DIAS_OBJETIVO_PEDIDO} d)`} valor={n(totalPedir)} />
       </Cifras>
 
-      <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
+      <Pestanas
+        pestanas={[
+          {
+            id: "pedir",
+            titulo: "Qué pedir",
+            cuenta: resumen.disenos.length,
+            contenido: (
+              <PedidosChina disenos={resumen.disenos} diasObjetivo={DIAS_OBJETIVO_PEDIDO} abrirInicial={abrirInicial} disenosIniciales={disenosIniciales} />
+            ),
+          },
+          {
+            id: "cargados",
+            titulo: "Pedidos cargados",
+            cuenta: pedidos.length,
+            contenido: (
+              <Seccion titulo="Pedidos cargados" suelta>
+                <ListaPedidos pedidos={pedidos} />
+              </Seccion>
+            ),
+          },
+        ]}
+      />
 
+      {/* Fuera de las pestañas a propósito: un pedido a medio leer o a medio
+          amarrar no se pierde al cambiar de pestaña. */}
       <Seccion titulo="Cargar un pedido ya hecho o en camino" suelta>
         <CargarPedido />
-      </Seccion>
-
-      <Seccion titulo="Pedidos cargados" suelta>
-        <ListaPedidos pedidos={pedidos} />
       </Seccion>
     </Pagina>
   );

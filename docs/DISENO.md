@@ -48,6 +48,16 @@ if (!cuenta) return <SinCuenta titulo="Ventas" />;            // servicio="amazo
 Cejas (= grupos del menú): «Negocio», «Inventario», «Mercado Libre»,
 «Amazon», «TikTok Shop», «Abastecimiento», «Fundas», «Sistema».
 
+## Pestañas
+
+Cuando una pantalla junta varios bloques grandes, van en pestañas
+(`<Pestanas>` de `@/components/ui/pestanas`): encabezado, filtros, avisos
+urgentes y `<Cifras>` ARRIBA; los bloques abajo, de 2 a 5 pestañas, la
+primera la más usada. Solo se pinta la activa y cambiar es instantáneo (sin
+viaje al servidor); la pestaña viaja en `?pestana=`. Un bloque con trabajo
+en curso (carga de archivo, ciclo que encadena, formulario largo) NO va en
+una pestaña: se desmontaría al cambiar.
+
 ## Reglas de contenido
 
 1. **Descripción: UNA línea**, qué hay en la pantalla. Todo lo que explique

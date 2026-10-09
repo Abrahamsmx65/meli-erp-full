@@ -4,6 +4,7 @@ import { cuentaActiva as cuentaYz } from "@/lib/yapanizcel/cuenta";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 import { Ficha } from "@/components/tiles";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 import { NOMBRE_CANAL, periodoActualMx, revisarSalud, type Hallazgo, type MesDeCorte } from "@/lib/servicios/salud";
 
 export const dynamic = "force-dynamic";
@@ -60,97 +61,136 @@ export default async function Salud() {
         </Aviso>
       ) : null}
 
-      {!todoBien ? (
-        <>
-          <Lista
-            titulo="Problemas"
-            ayuda="Hay un número EN PANTALLA que está mal o incompleto y no se nota. Esto sí hay que arreglarlo."
-            hallazgos={salud.graves}
-            vacio="Ninguno."
-            critico
-          />
-
-          <Lista
-            titulo="Datos que todavía no llegan"
-            ayuda="El dato falta y el sistema ya lo dice en sus avisos. No está mal, está incompleto, y se completa solo."
-            hallazgos={salud.faltas}
-            vacio="Ninguno: todo lo que alimenta los cortes está leído."
-          />
-        </>
-      ) : null}
-
-      {/* ---- Cobertura por mes y canal: la señal que importa ------------ */}
-      <Seccion
-        titulo="Cobertura por mes y canal"
-        descripcion="Qué parte de la venta de cada canal ya tiene su neto leído. 0 % = fuera del total ese mes; «por asiento» = Amazon, Finances API."
-        sinRelleno
-      >
-        <Tabla>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Mes</th>
-                {canales.map((c) => <th key={c} className="num">{NOMBRE_CANAL[c] ?? c}</th>)}
-                <th className="num">Cuadra</th>
-              </tr>
-            </thead>
-            <tbody>
-              {salud.meses.map((m) => (
-                <tr key={m.periodo}>
-                  <td className="font-medium">{m.periodo}{m.periodo === hoy ? " (en curso)" : ""}</td>
-                  {canales.map((c) => {
-                    const k = m.canales.find((x) => x.canal === c);
-                    return <td key={c} className="num cifra">{celdaCobertura(k, m.periodo < hoy)}</td>;
-                  })}
-                  <td className="num">{cuadra(m)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
-
-      {/* ---- Fuentes por mes ------------------------------------------- */}
-      <Seccion titulo="Fuentes por mes" descripcion="Cuánto hay de cada cosa que alimenta el corte, contado en la base." sinRelleno>
-        <Tabla>
-          <table className="datos">
-            <thead>
-              <tr>
-                <th>Mes</th>
-                <th className="num">Órdenes calzado registradas</th>
-                <th className="num">Con depósito</th>
-                <th className="num">Facturación MELI (renglones)</th>
-                <th className="num">Publicidad MELI (días)</th>
-                <th className="num">Fundas con depósito</th>
-                <th className="num">Eventos Finances Amazon</th>
-                <th className="num">Liquidaciones sin cuadrar</th>
-              </tr>
-            </thead>
-            <tbody>
-              {salud.fuentes.map((f) => (
-                <tr key={f.mes}>
-                  <td className="font-medium">{f.mes}</td>
-                  <td className="num cifra">{f.ventaCalzado > 0 ? `${n(f.ordenesRegistradas)} de ~${n(f.ordenesCalzado)}` : "—"}</td>
-                  <td className="num cifra">{f.ventaCalzado > 0 ? n(f.ordenesConDeposito) : "—"}</td>
-                  <td className="num cifra">{f.ventaCalzado > 0 ? n(f.cargos) : "—"}</td>
-                  <td className="num cifra">{f.ventaCalzado > 0 ? n(f.diasPublicidad) : "—"}</td>
-                  <td className="num cifra">{f.ventaFundas > 0 ? `${n(f.fundasConDeposito)} de ~${n(f.ordenesFundas)}` : "—"}</td>
-                  <td className="num cifra">{f.ventaAmazon > 0 ? n(f.eventosAmazon) : "—"}</td>
-                  <td className="num cifra">{f.gruposAmazonDescuadrados > 0 ? `${f.gruposAmazonDescuadrados} (${pesos(f.descuadreAmazon)})` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Tabla>
-      </Seccion>
-
-      {salud.errores.length > 0 && (
-        <Seccion titulo="Lo que la revisión NO pudo leer" descripcion="Esta pantalla tampoco se calla cuando ella misma falla.">
-          <ul className="texto-2 flex flex-col gap-1 text-xs">
-            {salud.errores.map((e) => <li key={e}>{e}</li>)}
-          </ul>
-        </Seccion>
-      )}
+      <Pestanas
+        pestanas={[
+          !todoBien && {
+            id: "problemas",
+            titulo: "Problemas",
+            cuenta: salud.graves.length,
+            alerta: salud.graves.length > 0,
+            contenido: (
+              <>
+                <Lista
+                  titulo="Problemas"
+                  ayuda="Hay un número EN PANTALLA que está mal o incompleto y no se nota. Esto sí hay que arreglarlo."
+                  hallazgos={salud.graves}
+                  vacio="Ninguno."
+                  critico
+                />
+              </>
+            ),
+          },
+          !todoBien && {
+            id: "por-llegar",
+            titulo: "Por llegar",
+            cuenta: salud.faltas.length,
+            contenido: (
+              <>
+                <Lista
+                  titulo="Datos que todavía no llegan"
+                  ayuda="El dato falta y el sistema ya lo dice en sus avisos. No está mal, está incompleto, y se completa solo."
+                  hallazgos={salud.faltas}
+                  vacio="Ninguno: todo lo que alimenta los cortes está leído."
+                />
+              </>
+            ),
+          },
+          {
+            id: "cobertura",
+            titulo: "Cobertura",
+            contenido: (
+              <>
+                {/* ---- Cobertura por mes y canal: la señal que importa ------------ */}
+                <Seccion
+                  titulo="Cobertura por mes y canal"
+                  descripcion="Qué parte de la venta de cada canal ya tiene su neto leído. 0 % = fuera del total ese mes; «por asiento» = Amazon, Finances API."
+                  sinRelleno
+                >
+                  <Tabla>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Mes</th>
+                          {canales.map((c) => <th key={c} className="num">{NOMBRE_CANAL[c] ?? c}</th>)}
+                          <th className="num">Cuadra</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salud.meses.map((m) => (
+                          <tr key={m.periodo}>
+                            <td className="font-medium">{m.periodo}{m.periodo === hoy ? " (en curso)" : ""}</td>
+                            {canales.map((c) => {
+                              const k = m.canales.find((x) => x.canal === c);
+                              return <td key={c} className="num cifra">{celdaCobertura(k, m.periodo < hoy)}</td>;
+                            })}
+                            <td className="num">{cuadra(m)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
+              </>
+            ),
+          },
+          {
+            id: "fuentes",
+            titulo: "Fuentes",
+            contenido: (
+              <>
+                {/* ---- Fuentes por mes ------------------------------------------- */}
+                <Seccion titulo="Fuentes por mes" descripcion="Cuánto hay de cada cosa que alimenta el corte, contado en la base." sinRelleno>
+                  <Tabla>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Mes</th>
+                          <th className="num">Órdenes calzado registradas</th>
+                          <th className="num">Con depósito</th>
+                          <th className="num">Facturación MELI (renglones)</th>
+                          <th className="num">Publicidad MELI (días)</th>
+                          <th className="num">Fundas con depósito</th>
+                          <th className="num">Eventos Finances Amazon</th>
+                          <th className="num">Liquidaciones sin cuadrar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salud.fuentes.map((f) => (
+                          <tr key={f.mes}>
+                            <td className="font-medium">{f.mes}</td>
+                            <td className="num cifra">{f.ventaCalzado > 0 ? `${n(f.ordenesRegistradas)} de ~${n(f.ordenesCalzado)}` : "—"}</td>
+                            <td className="num cifra">{f.ventaCalzado > 0 ? n(f.ordenesConDeposito) : "—"}</td>
+                            <td className="num cifra">{f.ventaCalzado > 0 ? n(f.cargos) : "—"}</td>
+                            <td className="num cifra">{f.ventaCalzado > 0 ? n(f.diasPublicidad) : "—"}</td>
+                            <td className="num cifra">{f.ventaFundas > 0 ? `${n(f.fundasConDeposito)} de ~${n(f.ordenesFundas)}` : "—"}</td>
+                            <td className="num cifra">{f.ventaAmazon > 0 ? n(f.eventosAmazon) : "—"}</td>
+                            <td className="num cifra">{f.gruposAmazonDescuadrados > 0 ? `${f.gruposAmazonDescuadrados} (${pesos(f.descuadreAmazon)})` : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Tabla>
+                </Seccion>
+              </>
+            ),
+          },
+          salud.errores.length > 0 && {
+            id: "errores",
+            titulo: "No se pudo leer",
+            cuenta: salud.errores.length,
+            alerta: true,
+            contenido: (
+              <>
+                <Seccion titulo="Lo que la revisión NO pudo leer" descripcion="Esta pantalla tampoco se calla cuando ella misma falla.">
+                  <ul className="texto-2 flex flex-col gap-1 text-xs">
+                    {salud.errores.map((e) => <li key={e}>{e}</li>)}
+                  </ul>
+                </Seccion>
+              </>
+            ),
+          },
+        ]}
+      />
 
     </Pagina>
   );

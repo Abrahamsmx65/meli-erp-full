@@ -12,6 +12,7 @@ import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-
 import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import Link from "next/link";
 import { BarrasPorDia, type PuntoDia } from "@/components/ui/graficas";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -135,174 +136,212 @@ export default async function Ventas({
         />
       </Cifras>
 
-      {serie.length > 1 ? (
-        <Seccion titulo="Venta por día" descripcion={etiquetaRango}>
-          <BarrasPorDia puntos={serie} etiqueta="Venta" />
-        </Seccion>
-      ) : null}
+      <Pestanas
+        pestanas={[
+          {
+            id: "resumen",
+            titulo: "Resumen",
+            contenido: (
+            <>
+              {serie.length > 1 ? (
+                <Seccion titulo="Venta por día" descripcion={etiquetaRango}>
+                  <BarrasPorDia puntos={serie} etiqueta="Venta" />
+                </Seccion>
+              ) : null}
 
-      {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
-      <Seccion
-        titulo="A dónde se fue el dinero del periodo"
-        descripcion="De la venta bruta a lo que recibes, según Mercado Pago orden por orden."
-        sinRelleno
-      >
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Lo que Mercado Pago dice de cada orden: la venta bruta menos cada cargo, hasta lo que recibes. Lo que
-              Mercado Pago no desglosa o cuyo pago aún no se ha leído aparece como «sin identificar», nunca repartido ni
-              escondido. Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
-              <Link href="/cortes" className="enlace">
-                Corte general
-              </Link>
-              .
-            </p>
-          </Ayuda>
-        </div>
-        <CascadaDinero finanzas={finanzas} />
-        <div className="border-t p-4 hairline">
-          <Cifras columnas={4}>
-            <Ficha
-              titulo="Costo de producto"
-              valor={m.desglose.costoProducto > 0 ? pesos(-m.desglose.costoProducto) : "—"}
-              nota={`${Math.round(m.coberturaCosto * 100)}% de la venta con costo capturado`}
-            />
-            <Ficha
-              titulo="Ganancia bruta"
-              valor={m.coberturaCosto > 0 ? pesos(m.desglose.gananciaReal) : "—"}
-              nota="Neto − costo de producto"
-              tono={m.coberturaCosto > 0 && m.desglose.gananciaReal < 0 ? "critico" : "neutro"}
-            />
-            <Ficha
-              titulo="Publicidad"
-              valor={gastoAds != null ? pesos(-gastoAds) : "—"}
-              nota={ads.errorAds ?? "Product Ads del periodo"}
-              tono={(gastoAds ?? 0) > 0 ? "alerta" : "neutro"}
-            />
-            <Ficha
-              titulo="Ganancia después de ads"
-              valor={m.coberturaCosto > 0 && gananciaConAds != null ? pesos(gananciaConAds) : "—"}
-              nota={gastoAds != null ? "Neto − costo − publicidad" : "Sin dato de publicidad"}
-              tono={
-                m.coberturaCosto > 0 && gananciaConAds != null
-                  ? gananciaConAds < 0
-                    ? "critico"
-                    : "bien"
-                  : "neutro"
-              }
-            />
-          </Cifras>
-        </div>
-        {descuadres.length ? (
-          <div className="border-t p-3 hairline">
-            <Aviso tono="critico">
-              <strong>No cuadra:</strong>{" "}
-              {descuadres
-                .map((c) => `${c.que}: ${pesos(c.arriba)} arriba vs ${pesos(c.abajo)} abajo (${pesos(c.diferencia / 100)})`)
-                .join(" · ")}
-            </Aviso>
-          </div>
-        ) : null}
-      </Seccion>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
+                <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
+              </div>
+            </>
+          ),
+          },
+          {
+            id: "dinero",
+            titulo: "Dinero",
+            cuenta: descuadres.length || null,
+            alerta: descuadres.length > 0,
+            contenido: (
+            <>
+              {/* ---- A dónde se fue el dinero del periodo ------------------------- */}
+              <Seccion
+                titulo="A dónde se fue el dinero del periodo"
+                descripcion="De la venta bruta a lo que recibes, según Mercado Pago orden por orden."
+                sinRelleno
+              >
+                <div className="px-4 pt-3">
+                  <Ayuda>
+                    <p>
+                      Lo que Mercado Pago dice de cada orden: la venta bruta menos cada cargo, hasta lo que recibes. Lo que
+                      Mercado Pago no desglosa o cuyo pago aún no se ha leído aparece como «sin identificar», nunca repartido ni
+                      escondido. Devoluciones, cancelaciones tardías y gastos de Full entran en el{" "}
+                      <Link href="/cortes" className="enlace">
+                        Corte general
+                      </Link>
+                      .
+                    </p>
+                  </Ayuda>
+                </div>
+                <CascadaDinero finanzas={finanzas} />
+                <div className="border-t p-4 hairline">
+                  <Cifras columnas={4}>
+                    <Ficha
+                      titulo="Costo de producto"
+                      valor={m.desglose.costoProducto > 0 ? pesos(-m.desglose.costoProducto) : "—"}
+                      nota={`${Math.round(m.coberturaCosto * 100)}% de la venta con costo capturado`}
+                    />
+                    <Ficha
+                      titulo="Ganancia bruta"
+                      valor={m.coberturaCosto > 0 ? pesos(m.desglose.gananciaReal) : "—"}
+                      nota="Neto − costo de producto"
+                      tono={m.coberturaCosto > 0 && m.desglose.gananciaReal < 0 ? "critico" : "neutro"}
+                    />
+                    <Ficha
+                      titulo="Publicidad"
+                      valor={gastoAds != null ? pesos(-gastoAds) : "—"}
+                      nota={ads.errorAds ?? "Product Ads del periodo"}
+                      tono={(gastoAds ?? 0) > 0 ? "alerta" : "neutro"}
+                    />
+                    <Ficha
+                      titulo="Ganancia después de ads"
+                      valor={m.coberturaCosto > 0 && gananciaConAds != null ? pesos(gananciaConAds) : "—"}
+                      nota={gastoAds != null ? "Neto − costo − publicidad" : "Sin dato de publicidad"}
+                      tono={
+                        m.coberturaCosto > 0 && gananciaConAds != null
+                          ? gananciaConAds < 0
+                            ? "critico"
+                            : "bien"
+                          : "neutro"
+                      }
+                    />
+                  </Cifras>
+                </div>
+                {descuadres.length ? (
+                  <div className="border-t p-3 hairline">
+                    <Aviso tono="critico">
+                      <strong>No cuadra:</strong>{" "}
+                      {descuadres
+                        .map((c) => `${c.que}: ${pesos(c.arriba)} arriba vs ${pesos(c.abajo)} abajo (${pesos(c.diferencia / 100)})`)
+                        .join(" · ")}
+                    </Aviso>
+                  </div>
+                ) : null}
+              </Seccion>
 
-      {m.porCategoria.length ? (
-        <Seccion
-          titulo="Por categoría"
-          sinRelleno
-        >
-          <div className="px-4 pt-3">
-            <Ayuda>
-              <p>
-                Las categorías se capturan en Productos y costos. Neto = lo que MELI deposita (ya sin su comisión);
-                ganancia = neto − costo − publicidad del modelo que la gastó.
-              </p>
-            </Ayuda>
-          </div>
-          <Tabla>
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Categoría</th>
-                  <th className="num">Unidades</th>
-                  <th className="num">Venta</th>
-                  <th className="num">Neto</th>
-                  <th className="num">Publicidad</th>
-                  <th className="num">Ganancia</th>
-                </tr>
-              </thead>
-              <tbody>
-                {m.porCategoria.map((c) => (
-                  <tr key={c.categoria}>
-                    <td className="font-medium">{c.categoria}</td>
-                    <td className="num cifra">{n(c.unidades7)}</td>
-                    <td className="num cifra">{pesos(c.importe7)}</td>
-                    <td className="num cifra">{pesos(c.neto7)}</td>
-                    <td className="num cifra texto-2">{c.publicidad7 == null ? "—" : pesos(c.publicidad7)}</td>
-                    <td
-                      className="num cifra"
-                      style={{
-                        color: c.ganancia7 != null && c.ganancia7 < 0 ? "var(--critico-texto)" : "var(--ink-1)",
-                      }}
-                    >
-                      {c.ganancia7 == null ? "—" : pesos(c.ganancia7)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              {/* El total va abajo para cotejarlo con las fichas de arriba: si
-                  no cuadra, el aviso de la sección del dinero lo dice. */}
-              <tfoot>
-                <tr style={{ background: "var(--surface-2)" }}>
-                  <td className="font-semibold">Total</td>
-                  <td className="num cifra font-semibold">{n(m.porCategoria.reduce((a, c) => a + c.unidades7, 0))}</td>
-                  <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.importe7, 0))}</td>
-                  <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.neto7, 0))}</td>
-                  <td className="num cifra font-semibold texto-2">
-                    {gastoAds == null ? "—" : pesos(m.porCategoria.reduce((a, c) => a + (c.publicidad7 ?? 0), 0))}
-                  </td>
-                  <td className="num cifra font-semibold">
-                    {m.coberturaCosto > 0 ? pesos(m.porCategoria.reduce((a, c) => a + (c.ganancia7 ?? 0), 0)) : "—"}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </Tabla>
-        </Seccion>
-      ) : null}
+            </>
+          ),
+          },
+          {
+            id: "modelos",
+            titulo: "Por modelo",
+            cuenta: m.porModelo.length,
+            contenido: (
+            <>
+              {m.porCategoria.length ? (
+                <Seccion
+                  titulo="Por categoría"
+                  sinRelleno
+                >
+                  <div className="px-4 pt-3">
+                    <Ayuda>
+                      <p>
+                        Las categorías se capturan en Productos y costos. Neto = lo que MELI deposita (ya sin su comisión);
+                        ganancia = neto − costo − publicidad del modelo que la gastó.
+                      </p>
+                    </Ayuda>
+                  </div>
+                  <Tabla>
+                    <table className="datos">
+                      <thead>
+                        <tr>
+                          <th>Categoría</th>
+                          <th className="num">Unidades</th>
+                          <th className="num">Venta</th>
+                          <th className="num">Neto</th>
+                          <th className="num">Publicidad</th>
+                          <th className="num">Ganancia</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {m.porCategoria.map((c) => (
+                          <tr key={c.categoria}>
+                            <td className="font-medium">{c.categoria}</td>
+                            <td className="num cifra">{n(c.unidades7)}</td>
+                            <td className="num cifra">{pesos(c.importe7)}</td>
+                            <td className="num cifra">{pesos(c.neto7)}</td>
+                            <td className="num cifra texto-2">{c.publicidad7 == null ? "—" : pesos(c.publicidad7)}</td>
+                            <td
+                              className="num cifra"
+                              style={{
+                                color: c.ganancia7 != null && c.ganancia7 < 0 ? "var(--critico-texto)" : "var(--ink-1)",
+                              }}
+                            >
+                              {c.ganancia7 == null ? "—" : pesos(c.ganancia7)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {/* El total va abajo para cotejarlo con las fichas de arriba: si
+                          no cuadra, el aviso de la sección del dinero lo dice. */}
+                      <tfoot>
+                        <tr style={{ background: "var(--surface-2)" }}>
+                          <td className="font-semibold">Total</td>
+                          <td className="num cifra font-semibold">{n(m.porCategoria.reduce((a, c) => a + c.unidades7, 0))}</td>
+                          <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.importe7, 0))}</td>
+                          <td className="num cifra font-semibold">{pesos(m.porCategoria.reduce((a, c) => a + c.neto7, 0))}</td>
+                          <td className="num cifra font-semibold texto-2">
+                            {gastoAds == null ? "—" : pesos(m.porCategoria.reduce((a, c) => a + (c.publicidad7 ?? 0), 0))}
+                          </td>
+                          <td className="num cifra font-semibold">
+                            {m.coberturaCosto > 0 ? pesos(m.porCategoria.reduce((a, c) => a + (c.ganancia7 ?? 0), 0)) : "—"}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </Tabla>
+                </Seccion>
+              ) : null}
 
-      <Seccion
-        titulo="Por modelo"
-        descripcion="Todas las tallas y colores, contra el periodo anterior."
-        sinRelleno
-      >
-        <div className="px-4 pt-3">
-          <Ayuda>
-            <p>
-              Ganancia = neto − costo − publicidad del modelo. Busca por modelo o SKU, filtra por categoría y da clic en
-              una columna para ordenar.
-            </p>
-          </Ayuda>
-        </div>
-        <TablaModelosVentas
-          desde={rango.desde}
-          hasta={rango.hasta}
-          inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
-            busqueda: "",
-            categoria: "",
-            orden: { clave: "unidades7", desc: true },
-            pagina: 1,
-          })}
-        />
-      </Seccion>
+              <Seccion
+                titulo="Por modelo"
+                descripcion="Todas las tallas y colores, contra el periodo anterior."
+                sinRelleno
+              >
+                <div className="px-4 pt-3">
+                  <Ayuda>
+                    <p>
+                      Ganancia = neto − costo − publicidad del modelo. Busca por modelo o SKU, filtra por categoría y da clic en
+                      una columna para ordenar.
+                    </p>
+                  </Ayuda>
+                </div>
+                <TablaModelosVentas
+                  desde={rango.desde}
+                  hasta={rango.hasta}
+                  inicial={paginarFilasTabla(compactarFilasModelo(m.porModelo), {
+                    busqueda: "",
+                    categoria: "",
+                    orden: { clave: "unidades7", desc: true },
+                    pagina: 1,
+                  })}
+                />
+              </Seccion>
 
-      <AuditoriaOrdenes auditoria={finanzas.auditoria} rango={rango} />
+            </>
+          ),
+          },
+          {
+            id: "ordenes",
+            titulo: "Órdenes",
+            contenido: (
+            <>
+              <AuditoriaOrdenes auditoria={finanzas.auditoria} rango={rango} />
 
-      {/* ---- Lo que se mueve, al final: primero los números, luego el chisme */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Movimientos titulo="Suben en el periodo" lista={m.subiendo} positivo />
-        <Movimientos titulo="Bajan en el periodo" lista={m.bajando} />
-      </div>
+            </>
+          ),
+          },
+        ]}
+      />
     </Pagina>
   );
 }
