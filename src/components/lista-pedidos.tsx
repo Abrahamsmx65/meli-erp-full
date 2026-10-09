@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
+import { Aviso } from "@/components/ui/pagina";
 
 interface Contenedor {
   numero: string;
@@ -106,7 +107,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
   if (!pedidos.length) {
     return (
       <section className="tarjeta p-6 text-center">
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 text-sm">
           Todavía no hay pedidos cargados. Sube una proforma en Cargar pedidos y
           aparecerá aquí con sus corridas ya dadas de alta.
         </p>
@@ -118,9 +119,9 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
     <>
       <section className="tarjeta overflow-hidden">
         <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
-          <h2 className="text-sm font-semibold">
+          <h2 className="seccion-titulo">
             Pedidos cargados
-            <span className="ml-2 cifra font-normal" style={{ color: "var(--ink-muted)" }}>
+            <span className="texto-tenue ml-2 cifra font-normal">
               {visibles.length === pedidos.length ? pedidos.length : `${visibles.length} de ${pedidos.length}`}
             </span>
           </h2>
@@ -176,8 +177,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                       {p.pedido}
                       {p.proveedor ? (
                         <div
-                          className="max-w-56 truncate text-[11px]"
-                          style={{ color: "var(--ink-muted)" }}
+                          className="texto-tenue max-w-56 truncate text-[11px]"
                           title={p.proveedor}
                         >
                           {p.proveedor}
@@ -212,14 +212,14 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                         p.contenedores.map((c) => (
                           <div key={c.numero}>
                             <span className="font-medium">{c.numero}</span>{" "}
-                            <span style={{ color: "var(--ink-2)" }}>
+                            <span className="texto-2">
                               {n(c.cajas)} cajas
                               {c.llegadaEst ? ` · llega ${fecha(c.llegadaEst)}` : ""}
                             </span>
                           </div>
                         ))
                       ) : (
-                        <span style={{ color: "var(--ink-muted)" }}>—</span>
+                        <span className="texto-tenue">—</span>
                       )}
                     </td>
                     <td>
@@ -237,15 +237,13 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => setAsignando(p)}
-                          className="rounded-lg border px-2 py-1 text-xs font-medium"
-                          style={{ borderColor: "var(--borde)" }}
+                          className="boton boton-borde boton-chico"
                         >
                           Contenedor
                         </button>
                         <button
                           onClick={() => setEditando(p)}
-                          className="rounded-lg border px-2 py-1 text-xs font-medium"
-                          style={{ borderColor: "var(--borde)" }}
+                          className="boton boton-borde boton-chico"
                         >
                           Renglones
                         </button>
@@ -277,8 +275,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
                             el Excel de códigos y las etiquetas de cartón (CTNS LABELS). */}
                         <a
                           href={`/api/pedidos/${p.id}/etiquetas`}
-                          className="rounded-lg border px-2 py-1 text-xs font-medium"
-                          style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+                          className="boton boton-borde boton-chico"
                         >
                           Etiquetas
                         </a>
@@ -298,7 +295,7 @@ export function ListaPedidos({ pedidos }: { pedidos: Pedido[] }) {
             </tbody>
           </table>
           {!visibles.length ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Ningún pedido coincide con la búsqueda.
             </p>
           ) : null}
@@ -462,8 +459,8 @@ function AsignarContenedor({
       aria-label={`Asignar contenedor al pedido ${pedido.pedido}`}
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">Contenedor del pedido {pedido.pedido}</h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <h3 className="titulo-seccion">Contenedor del pedido {pedido.pedido}</h3>
+        <p className="texto-2 mt-1 text-sm">
           Pon el número de contenedor y cuántas cajas de cada modelo se van en él. Si el
           pedido se parte, repite esto con el segundo contenedor: lo que quede sin
           asignar sigue contando como pendiente de embarcar.
@@ -538,16 +535,14 @@ function AsignarContenedor({
           />
           <button
             onClick={() => marcarVisibles(true)}
-            className="rounded-lg border px-2.5 py-1.5 text-xs font-medium"
-            style={{ borderColor: "var(--borde)" }}
+            className="boton boton-borde boton-chico"
             title="Los renglones visibles quedan con todo su pendiente"
           >
             Todo lo pendiente{filtro ? " (filtrados)" : ""}
           </button>
           <button
             onClick={() => marcarVisibles(false)}
-            className="rounded-lg border px-2.5 py-1.5 text-xs font-medium"
-            style={{ borderColor: "var(--borde)" }}
+            className="boton boton-borde boton-chico"
           >
             Nada
           </button>
@@ -574,7 +569,7 @@ function AsignarContenedor({
                     <td className="font-medium">{l.modelo}</td>
                     <td>{l.color}</td>
                     <td className="cifra">
-                      {l.talla || <span style={{ color: "var(--ink-muted)" }}>corrida</span>}
+                      {l.talla || <span className="texto-tenue">corrida</span>}
                     </td>
                     <td className="num cifra">{n(l.cajas)}</td>
                     <td className="num cifra">{l.yaAsignadas ? n(l.yaAsignadas) : "—"}</td>
@@ -582,8 +577,7 @@ function AsignarContenedor({
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setCantidades((c) => ({ ...c, [l.id]: valor > 0 ? 0 : tope }))}
-                          className="rounded border px-1.5 py-0.5 text-[11px]"
-                          style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                          className="boton boton-borde boton-chico text-[11px]"
                           title={valor > 0 ? "Quitar de este contenedor" : `Poner el pendiente (${tope})`}
                         >
                           {valor > 0 ? "0" : "todo"}
@@ -613,12 +607,12 @@ function AsignarContenedor({
             </tbody>
           </table>
           {lineas === null ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Cargando renglones…
             </p>
           ) : null}
           {lineas !== null && !visibles.length ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Ningún renglón coincide con la búsqueda.
             </p>
           ) : null}
@@ -631,23 +625,21 @@ function AsignarContenedor({
         ) : null}
 
         <div className="mt-4 flex items-center gap-3">
-          <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+          <span className="texto-2 text-sm">
             Se van <strong className="cifra">{n(total)}</strong> cajas en este contenedor.
           </span>
           <div className="ml-auto flex gap-2">
             <button
               onClick={onCerrar}
               disabled={guardando}
-              className="rounded-lg border px-3 py-2 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={guardando || !numero.trim()}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-50"
             >
               {guardando ? "Guardando…" : "Guardar contenedor"}
             </button>
@@ -661,7 +653,7 @@ function AsignarContenedor({
 function Campo({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
   return (
     <label className="text-sm">
-      <span className="block text-xs" style={{ color: "var(--ink-2)" }}>
+      <span className="texto-2 block text-xs">
         {etiqueta}
       </span>
       <div className="mt-1">{children}</div>
@@ -846,8 +838,8 @@ function EditarRenglones({
       aria-label={`Renglones del pedido ${pedido.pedido}`}
     >
       <div className="tarjeta my-8 w-full max-w-4xl p-5" style={{ background: "var(--surface-1)" }}>
-        <h3 className="text-lg font-semibold">Renglones del pedido {pedido.pedido}</h3>
-        <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
+        <h3 className="titulo-seccion">Renglones del pedido {pedido.pedido}</h3>
+        <p className="texto-2 mt-1 text-sm">
           Corrige el modelo, el color o la talla si la proforma se leyó mal, baja las
           cajas si una parte ya no se fabricó, o quita el renglón. Los pares se recalculan
           solos. No se puede bajar de lo ya embarcado en contenedores; eso se corrige
@@ -864,17 +856,13 @@ function EditarRenglones({
         />
 
         {fantasmas.length ? (
-          <p
-            role="alert"
-            className="mt-3 rounded-lg p-3 text-sm"
-            style={{ background: "color-mix(in oklab, var(--estado-critico) 10%, transparent)" }}
-          >
+          <Aviso tono="critico" className="mt-3">
             <strong>{fantasmas.length} {fantasmas.length === 1 ? "renglón no existe" : "renglones no existen"} en MELI
             como {fantasmas.length === 1 ? "está escrito" : "están escritos"}.</strong> El modelo sí está publicado pero
             con otro color: mientras no se corrija, ese inventario no descuenta del color real en Planificación China
             y sale como «sin publicar» en Productos nuevos. Escribe el color como lo tiene MELI (el campo sugiere los
             publicados).
-          </p>
+          </Aviso>
         ) : null}
 
         <div className="mt-3 max-h-96 overflow-auto">
@@ -1085,8 +1073,7 @@ function EditarRenglones({
                   <td>
                     <button
                       onClick={() => setNuevos((ns) => ns.filter((_, k) => k !== i))}
-                      className="rounded-lg border px-2 py-1 text-xs font-medium"
-                      style={{ borderColor: "var(--borde)" }}
+                      className="boton boton-borde boton-chico"
                     >
                       Descartar
                     </button>
@@ -1096,7 +1083,7 @@ function EditarRenglones({
             </tbody>
           </table>
           {lineas === null ? (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Cargando renglones…
             </p>
           ) : null}
@@ -1105,8 +1092,7 @@ function EditarRenglones({
         <button
           onClick={() => setNuevos((ns) => [...ns, { modelo: "", color: "", talla: "", cajas: "", paresPorCaja: "" }])}
           disabled={guardando || lineas === null}
-          className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+          className="boton boton-borde boton-chico mt-3 disabled:opacity-50"
         >
           + Agregar renglón
         </button>
@@ -1132,16 +1118,14 @@ function EditarRenglones({
             <button
               onClick={onCerrar}
               disabled={guardando}
-              className="rounded-lg border px-3 py-2 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={guardando || !hayCambios}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-50"
             >
               {guardando ? "Guardando…" : "Guardar cambios"}
             </button>

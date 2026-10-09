@@ -8,6 +8,7 @@ import type {
   ModeloContenido,
   TotalesContenido,
 } from "@/lib/servicios/contenido-amazon";
+import { Aviso } from "@/components/ui/pagina";
 
 type Estado = "guardando" | "ok" | "error";
 
@@ -343,15 +344,15 @@ export function ContenidoAmazonPanel({
   return (
     <div className="flex flex-col gap-6">
       {aviso ? (
-        <div className="tarjeta p-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <div className="texto-2 tarjeta p-3 text-sm">
           {aviso}
         </div>
       ) : null}
 
       {!publico && link ? (
         <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold">Acceso sin contraseña</h2>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Acceso sin contraseña</h2>
+          <p className="texto-2 mt-1 text-xs">
             Este link abre SOLO esta sección, sin pedir usuario ni contraseña. Quien lo tenga
             puede palomear, anotar, quitar modelos y bajar imágenes; no ve nada más del sistema.
             Si se te sale de las manos, genera otro y el anterior deja de servir.
@@ -369,8 +370,7 @@ export function ContenidoAmazonPanel({
               onClick={() => {
                 void navigator.clipboard.writeText(link).then(() => setCopiado(true));
               }}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               {copiado ? "Copiado ✓" : "Copiar"}
             </button>
@@ -378,8 +378,7 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void regenerarLink()}
               disabled={rotando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              className="boton boton-borde disabled:opacity-50"
             >
               {rotando ? "Generando…" : "Generar otro"}
             </button>
@@ -388,20 +387,17 @@ export function ContenidoAmazonPanel({
       ) : null}
 
       {sinRefrescar ? (
-        <div
-          className="tarjeta p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
+        <Aviso tono="alerta">
           Esta lista sale del histórico de ventas. Dale a <strong>Actualizar desde Amazon</strong>{" "}
           para traer el catálogo completo, con las publicaciones que todavía no venden.
-        </div>
+        </Aviso>
       ) : null}
 
       {/* -------------------------- Categorías de la store ------------------ */}
       <section className="tarjeta overflow-hidden">
         <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
-          <h2 className="text-sm font-semibold">Categorías de la store</h2>
-          <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Categorías de la store</h2>
+          <span className="texto-2 text-xs">
             {cats.length} capturadas
           </span>
           <div className="ml-auto flex items-center gap-2">
@@ -420,8 +416,7 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void agregarCategoria()}
               disabled={soloLectura || !nuevaCategoria.trim()}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-60"
             >
               Agregar
             </button>
@@ -429,7 +424,7 @@ export function ContenidoAmazonPanel({
         </header>
 
         {cats.length === 0 ? (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 p-4 text-sm">
             Todavía no hay categorías. Captura las que ocupas en la store y luego asígnaselas a los
             modelos.
           </p>
@@ -508,8 +503,7 @@ export function ContenidoAmazonPanel({
                         type="button"
                         onClick={() => void borrarCategoria(c.nombre)}
                         disabled={soloLectura}
-                        className="text-xs underline disabled:opacity-50"
-                        style={{ color: "var(--ink-2)" }}
+                        className="texto-2 text-xs underline disabled:opacity-50"
                       >
                         Quitar
                       </button>
@@ -550,16 +544,14 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void actualizarCatalogo()}
               disabled={refrescando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              className="boton boton-borde disabled:opacity-50"
             >
               {refrescando ? "Preguntando…" : "Actualizar desde Amazon"}
             </button>
           )}
           <Link
             href={verEliminados ? base : `${base}?eliminados=1`}
-            className="text-sm underline"
-            style={{ color: "var(--ink-2)" }}
+            className="texto-2 text-sm underline"
           >
             {verEliminados ? "Volver a la lista" : `Ver eliminados (${eliminados})`}
           </Link>
@@ -590,8 +582,7 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void asignarMasivo(categoriaMasiva || null)}
               disabled={soloLectura || asignando || (!categoriaMasiva && true)}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario disabled:opacity-60"
             >
               {asignando ? "Asignando…" : "Ponerles esa categoría"}
             </button>
@@ -599,16 +590,14 @@ export function ContenidoAmazonPanel({
               type="button"
               onClick={() => void asignarMasivo(null)}
               disabled={soloLectura || asignando}
-              className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+              className="boton boton-borde disabled:opacity-50"
             >
               Quitarles la categoría
             </button>
             <button
               type="button"
               onClick={() => setSeleccion(new Set())}
-              className="ml-auto text-xs underline"
-              style={{ color: "var(--ink-2)" }}
+              className="texto-2 ml-auto text-xs underline"
             >
               Limpiar selección
             </button>
@@ -711,7 +700,7 @@ export function ContenidoAmazonPanel({
                       >
                         {m.activo ? "Activo" : "Inactivo"}
                       </span>
-                      <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+                      <span className="texto-2 text-xs">
                         {m.activos}/{m.skus} SKUs
                       </span>
                       {m.nuevo ? (
@@ -728,8 +717,7 @@ export function ContenidoAmazonPanel({
                     </div>
                     {m.titulo ? (
                       <div
-                        className="mt-0.5 max-w-[26rem] truncate text-xs"
-                        style={{ color: "var(--ink-muted)" }}
+                        className="texto-tenue mt-0.5 max-w-[26rem] truncate text-xs"
                         title={m.titulo}
                       >
                         {m.titulo}
@@ -784,13 +772,12 @@ export function ContenidoAmazonPanel({
                         href={m.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm underline"
-                        style={{ color: "var(--acento)" }}
+                        className="enlace text-sm"
                       >
                         Ver ↗
                       </a>
                     ) : (
-                      <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue text-xs">
                         sin ASIN
                       </span>
                     )}
@@ -800,8 +787,7 @@ export function ContenidoAmazonPanel({
                       type="button"
                       onClick={() => void descargar(m.modelo)}
                       disabled={zip !== null}
-                      className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                      className="boton boton-borde boton-chico disabled:opacity-50"
                     >
                       {zip === m.modelo ? "armando…" : "⬇ Bajar fotos"}
                     </button>
@@ -812,8 +798,7 @@ export function ContenidoAmazonPanel({
                       onClick={() => void descargarAsins(m.modelo)}
                       disabled={excel !== null}
                       title="Todos los ASINs de la publicación, para pegarlos al contenido A+"
-                      className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      style={{ borderColor: "var(--borde)", color: "var(--ink-2)" }}
+                      className="boton boton-borde boton-chico disabled:opacity-50"
                     >
                       {excel === m.modelo ? "armando…" : "⬇ Excel ASINs"}
                     </button>
@@ -823,8 +808,7 @@ export function ContenidoAmazonPanel({
                       type="button"
                       onClick={() => void guardar(m, { eliminado: !m.eliminado })}
                       disabled={soloLectura}
-                      className="text-xs underline disabled:opacity-50"
-                      style={{ color: "var(--ink-2)" }}
+                      className="texto-2 text-xs underline disabled:opacity-50"
                     >
                       {m.eliminado ? "Restaurar" : "Quitar"}
                     </button>
@@ -835,7 +819,7 @@ export function ContenidoAmazonPanel({
           </table>
         </div>
 
-        <footer className="border-t p-3 text-xs hairline" style={{ color: "var(--ink-2)" }}>
+        <footer className="texto-2 border-t p-3 text-xs hairline">
           {visibles.length} de {filas.filter((m) => verEliminados || !m.eliminado).length} modelos
         </footer>
       </section>

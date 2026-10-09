@@ -86,8 +86,8 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
     <section className="tarjeta p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1">
-          <h2 className="text-sm font-semibold">Recargar histórico</h2>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Recargar histórico</h2>
+          <p className="texto-2 mt-1 text-xs">
             La sincronización automática mantiene al día los últimos 3 días. Usa
             esto para traer más historia o para corregir un periodo.
           </p>
@@ -119,8 +119,7 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
           <button
             onClick={recargar}
             disabled={enCola || enviando}
-            className="rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
-            style={{ background: "var(--acento)", color: "var(--surface-1)" }}
+            className="boton boton-primario"
           >
             {enviando ? "Encolando…" : "Recargar"}
           </button>
@@ -130,7 +129,7 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
       {enCola ? (
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs">
-            <span style={{ color: "var(--ink-2)" }}>
+            <span className="texto-2">
               Procesando desde {estado.enCurso} · faltan{" "}
               <strong className="cifra">{estado.pendientes}</strong> de {estado.total}
             </span>
@@ -149,7 +148,7 @@ export function RecargaAmazon({ estado: estadoInicial }: { estado: EstadoRecarga
       ) : null}
 
       {aviso ? (
-        <p className="mt-3 text-xs" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 mt-3 text-xs">
           {aviso}
         </p>
       ) : null}

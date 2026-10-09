@@ -26,14 +26,14 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
     <section className="tarjeta overflow-hidden">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b p-4 hairline">
         <div>
-          <h2 className="text-base font-semibold">Cobertura y faltantes por producto</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+          <h2 className="seccion-titulo">Cobertura y faltantes por producto</h2>
+          <p className="texto-2 mt-0.5 text-sm">
             La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA}{" "}
             días al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado;
             lo que ya está en FBA y lo que va en camino cuenta a favor. Las cajas
             reales a mandar son las de arriba.
           </p>
-          <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="texto-2 mt-2 text-sm">
             <strong className="cifra">{n(sugerencias.length)}</strong> productos ·{" "}
             <span className="cifra">{n(totalCajas)}</span> cajas ·{" "}
             <span className="cifra">{n(totalPares)}</span> pares
@@ -59,7 +59,7 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
       </header>
 
       {visibles.length === 0 ? (
-        <p className="p-6 text-center text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="texto-2 p-6 text-center text-sm">
           Nada que mandar: todo el calzado que vende tiene cobertura de sobra.
         </p>
       ) : (
@@ -88,7 +88,7 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
                       </div>
                     ) : null}
                     {s.ajusteCorrida ? (
-                      <div className="text-[11px]" style={{ color: "var(--ink-2)" }}>
+                      <div className="texto-2 text-[11px]">
                         {s.ajusteCorrida === "mitad_corrida"
                           ? "tallas agotadas con el resto al día: viaja la mitad de las cajas"
                           : `corrida dispareja: solo ${DIAS_CORRIDA_DISPAREJA} días de las tallas agotadas`}
