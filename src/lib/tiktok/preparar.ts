@@ -26,8 +26,9 @@
  */
 import { codigosDeProducto } from "./codigos";
 import { codigoDeHoja, parsearCodigoDeHoja, parsearCodigoDeOrden, partirSku, type PaqueteNumerado } from "./despacho";
+import { avanceDeLote, detectarLotes, loteDeCodigo, loteDePaquete, type Lote } from "./lotes";
 
-export type Paso = "inicio" | "etiqueta" | "producto" | "listo";
+export type Paso = "inicio" | "etiqueta" | "producto" | "listo" | "lote";
 
 export interface Faltante {
   /** FNSKU del producto (el que se imprime); null = Amazon no lo tiene */
@@ -48,6 +49,13 @@ export interface EstadoEscaneo {
   error: string | null;
   /** cuántos pitidos toca dar por este escaneo (1 normal; N = pares del paquete al identificarlo) */
   pitidos: number;
+  /**
+   * MODO LOTE (8-oct-2026): abierto al escanear el producto de un lote
+   * (muchos paquetes iguales de un par). Mientras esté abierto, cada guía
+   * escaneada por su código de pedido queda preparada sin volver a escanear
+   * la caja: todas las cajas del lote son la misma.
+   */
+  lote: Lote | null;
 }
 
 export function estadoInicial(): EstadoEscaneo {
@@ -59,7 +67,42 @@ export function estadoInicial(): EstadoEscaneo {
     indicacion: "Escanea el pedido en la hoja (o el FNSKU de la etiqueta).",
     error: null,
     pitidos: 0,
+    lote: null,
   };
+}
+
+function indicacionDeLote(lote: Lote, yaPreparados: Set<number>): string {
+  const a = avanceDeLote(lote, yaPreparados);
+  return `LOTE ${lote.sku}: ${a.hechos} de ${a.total} listos (#${lote.desde}–#${lote.hasta}). Escanea el código del pedido de cada guía conforme la pegues.`;
+}
+
+/** Abrir el lote: la caja ya se escaneó una vez; de aquí en adelante solo guías. */
+function abrirLote(lote: Lote, codigo: string, yaPreparados: Set<number>): EstadoEscaneo {
+  return {
+    paso: "lote",
+    paquete: null,
+    faltantes: [],
+    escaneos: [codigo],
+    indicacion: indicacionDeLote(lote, yaPreparados),
+    error: null,
+    pitidos: 2,
+    lote,
+  };
+}
+
+/** Cerrar el modo lote a propósito (botón de la estación). */
+export function salirDeLote(estado: EstadoEscaneo): EstadoEscaneo {
+  if (!estado.lote) return estado;
+  return { ...estadoInicial(), indicacion: "Saliste del lote. Escanea el pedido en la hoja (o el FNSKU de la etiqueta)." };
+}
+
+/**
+ * El estado con el que sigue la estación después de GUARDAR un paquete
+ * preparado: limpio, pero si había un lote abierto se queda abierto.
+ */
+export function trasGuardar(siguiente: EstadoEscaneo, indicacion = siguiente.indicacion): EstadoEscaneo {
+  if (siguiente.lote) return { ...estadoInicial(), paso: "lote", lote: siguiente.lote, indicacion };
+  return { ...estadoInicial(), indicacion };
 }
 
 function limpiar(codigo: string): string {
@@ -108,6 +151,7 @@ function aProducto(p: PaqueteNumerado, escaneos: string[]): EstadoEscaneo {
       ".",
     error: null,
     pitidos: Math.max(1, total),
+    lote: null,
   };
 }
 
@@ -139,9 +183,48 @@ export function avanzar(
   corte: number,
   paquetes: PaqueteNumerado[],
   yaPreparados: Set<number>,
+  lotes?: Lote[],
 ): EstadoEscaneo {
   const codigo = limpiar(codigoCrudo);
   if (!codigo) return estado;
+  const todosLotes = lotes ?? detectarLotes(paquetes);
+
+  // MODO LOTE: con el lote abierto, cada guía (código del pedido o de hoja)
+  // de un paquete del lote queda preparada en el acto; la caja ya se
+  // escaneó al abrirlo y todas son iguales. Otro producto cierra el lote
+  // (y abre el suyo si también es lote); una guía de fuera se rechaza.
+  if (estado.lote && (estado.paso === "lote" || estado.paso === "listo")) {
+    const lote = estado.lote;
+    const ordenL = parsearCodigoDeOrden(codigo);
+    const hojaL = parsearCodigoDeHoja(codigo);
+    if (ordenL || hojaL) {
+      const candidatos = ordenL ? paquetes.filter((x) => x.orderId === ordenL) : paquetes.filter((x) => hojaL && x.numero === hojaL.numero);
+      if (!candidatos.length) return conError(estado, ordenL ? `El pedido ${ordenL} no está en este corte.` : `No hay renglón #${hojaL?.numero} en este corte.`);
+      const p = candidatos.find((x) => !yaPreparados.has(x.numero)) ?? null;
+      if (!p) return conError(estado, `Ese paquete ya está preparado.`);
+      if (loteDePaquete(todosLotes, p.numero)?.desde !== lote.desde) {
+        return conError(estado, `El #${p.numero} (${describir(p)}) no es del lote ${lote.sku}. Sal del lote para prepararlo.`);
+      }
+      const a = avanceDeLote(lote, yaPreparados);
+      return {
+        paso: "listo",
+        paquete: p,
+        faltantes: [],
+        escaneos: [`LOTE:${lote.sku}`, codigo],
+        indicacion: `#${p.numero} PREPARADO · lote ${lote.sku}: ${a.hechos + 1} de ${a.total}. Siguiente guía.`,
+        error: null,
+        pitidos: 1,
+        lote,
+      };
+    }
+    if (lote.codigos.includes(codigo)) {
+      return { ...estado, paso: "lote", paquete: null, faltantes: [], error: null, pitidos: 1, indicacion: indicacionDeLote(lote, yaPreparados) };
+    }
+    const otro = loteDeCodigo(todosLotes, codigo, yaPreparados);
+    if (otro) return abrirLote(otro, codigo, yaPreparados);
+    // Un producto que no es de ningún lote: se cierra el lote y sigue el camino normal.
+    return avanzar({ ...estado, lote: null, paso: "inicio", paquete: null }, codigoCrudo, corte, paquetes, yaPreparados, todosLotes);
+  }
 
   // El NÚMERO DE PEDIDO (el código de barras del renglón de la hoja) elige
   // ese paquete exacto y pasa directo a pedir sus productos. Es el camino
@@ -170,6 +253,9 @@ export function avanzar(
   // Sin paquete elegido: el código es una etiqueta (FNSKU). El paquete es
   // el SIGUIENTE sin preparar que lleve ese producto, en el orden de la pila.
   if (estado.paso === "inicio" || estado.paso === "listo" || !estado.paquete) {
+    // Si ese producto tiene un LOTE con paquetes por preparar, se abre el lote.
+    const lote = loteDeCodigo(todosLotes, codigo, yaPreparados);
+    if (lote) return abrirLote(lote, codigo, yaPreparados);
     const p = paquetes.find((x) => !yaPreparados.has(x.numero) && llevaCodigo(x, codigo));
     if (!p) {
       const alguno = paquetes.some((x) => llevaCodigo(x, codigo));
