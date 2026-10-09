@@ -245,7 +245,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
         .catch(() => undefined);
     }
     // Se vuelve a correr cuando cambia la lista de cortes (router.refresh
-    // tras cada ronda); lo ya revisado no se vuelve a preguntar.
+    // al terminar el corte); lo ya revisado no se vuelve a preguntar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsCortes]);
 
@@ -418,7 +418,10 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
         if (!r || !r.ok) throw new Error(j?.error ?? "No se pudo hacer el corte.");
         const cortesRonda: any[] = j.modo === "lunes" || j.modo === "ayer" ? (j.cortes ?? []) : [j];
         resumenes.push(...cortesRonda.map((c: any) => resumenDeCorte(c)));
-        router.refresh();
+        // La lista de cortes se refresca UNA vez, al terminar la cadena (o al
+        // fallar): refrescar en cada ronda volvía a armar la pantalla entera
+        // mientras el servidor seguía cortando. Lo de cada ronda se dice
+        // arriba en el aviso.
         // Los tomos de etiquetas se arman por atrás desde ya (el servidor
         // guarda cada uno); al darle a «Etiquetas PDF» solo se juntan.
         for (const c of cortesRonda) if (c.corteId != null && !hayQueSeguir([c])) calentarEtiquetas(c.corteId);
@@ -437,7 +440,11 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
-      if (resumenes.length) setAviso(resumenes.join(" · "));
+      if (resumenes.length) {
+        setAviso(resumenes.join(" · "));
+        // Alguna ronda sí guardó su corte: que aparezca en la lista.
+        router.refresh();
+      }
     } finally {
       setRonda(null);
       setOcupado(false);

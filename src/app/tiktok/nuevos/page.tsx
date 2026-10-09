@@ -24,7 +24,8 @@ export default async function ProductosNuevosTikTokPage() {
     );
   }
 
-  const datos = await listarProductosNuevos(clienteAdmin(), cuenta.id);
+  // Lo guardado aunque esté viejo; se refresca por atrás (solo sin renglón se calcula aquí).
+  const datos = await listarProductosNuevos(clienteAdmin(), cuenta.id, { servirGuardado: true });
 
   return (
     <div className="flex flex-col gap-6">

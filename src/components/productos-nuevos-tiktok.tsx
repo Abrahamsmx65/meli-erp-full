@@ -90,8 +90,14 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     return () => clearInterval(t);
   }, [hayPendientes, esDueno]);
 
-  // Mientras haya algo en cola, se vuelve a leer cada 5 s.
+  // Mientras haya algo en cola, se vuelve a leer SOLO la cola cada 5 s
+  // (`?soloCola=1`; antes viajaba la lista completa de productos cada vez),
+  // y no se pregunta con la pestaña escondida. Cuando la cola se vacía, la
+  // lista se relee una vez recalculada para que lo publicado salga tachado.
+  const trabajabaAntes = useRef(trabajando);
   useEffect(() => {
+    if (trabajabaAntes.current && !trabajando) recargar(true).catch(() => {});
+    trabajabaAntes.current = trabajando;
     if (!trabajando) {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
@@ -99,12 +105,19 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
     }
     if (sondeo.current) return;
     sondeo.current = setInterval(() => {
-      recargar().catch(() => {});
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetch("/api/tiktok/publicar-productos?soloCola=1", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j && Array.isArray(j.cola)) setDatos((d) => ({ ...d, cola: j.cola }));
+        })
+        .catch(() => {});
     }, 5000);
     return () => {
       if (sondeo.current) clearInterval(sondeo.current);
       sondeo.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trabajando]);
 
   const visibles = useMemo(() => {

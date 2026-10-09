@@ -2165,6 +2165,8 @@ export function BotonActualizar({ hayEnCurso }: { hayEnCurso: boolean }) {
   useEffect(() => {
     if (!hayEnCurso) return;
     const reloj = setInterval(() => {
+      // Con la pestaña escondida no se sondea (el vigilante del servidor sigue).
+      if (document.hidden) return;
       void fetch("/api/videos/procesar", { method: "POST" }).catch(() => undefined);
       router.refresh();
     }, 20_000);

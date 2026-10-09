@@ -13,6 +13,7 @@ import {
 } from "@/lib/tiktok/precios";
 import { Ficha } from "@/components/tiles";
 import { TablaPreciosTikTok } from "@/components/tabla-precios-tiktok";
+import { DIAS_PRECIO_REAL, fuentesDePrecios } from "@/lib/servicios/tiktok-precios";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,6 @@ function pesosC(x: number): string {
 }
 
 const DIAS_POR_OMISION = 30;
-/** Días de pedidos de TikTok para el precio real pagado (ofertas y relámpagos incluidos). */
-const DIAS_PRECIO_REAL = 14;
 
 const CAMPOS: { clave: keyof ParametrosPrecioTikTok; nombre: string; unidad: string; paso: string }[] = [
   { clave: "comisionPct", nombre: "Comisión de TikTok", unidad: "% del precio", paso: "0.1" },
@@ -73,29 +72,16 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
   // los últimos días (relámpagos y ofertas incluidos), no el de lista del
   // catálogo (dueño, 1-oct-2026: «toma el real que está en oferta, no el
   // precio base»); el de lista solo cuando el modelo no vendió.
-  const desdePedidos = new Date(Date.now() - DIAS_PRECIO_REAL * 86_400_000).toISOString();
-  const [monitor, costosRaw, skusTikTok, pedidosRpc, relampagoRpc, misPreciosRaw] = await Promise.all([
+  // Los pedidos de TikTok (14 días) y el relámpago de MELI salen masticados
+  // (`fuentesDePrecios`, 10 min, refresco por atrás): eran dos RPC por visita.
+  const [monitor, costosRaw, skusTikTok, fuentes, misPreciosRaw] = await Promise.all([
     cargarMonitor(admin, cuenta.id, rango),
     traerTodo<any>(admin, "productos_config", "modelo, costo_mxn", (q) => q.eq("account_id", cuenta.id).not("costo_mxn", "is", null)),
     traerTodo<any>(admin, "tiktok_skus", "sku_interno, seller_sku, precio, activo", (q) => q.eq("account_id", cuenta.id).eq("activo", true).not("precio", "is", null)),
-    admin.rpc("tiktok_ventas_pedidos", { p_account: cuenta.id, p_desde: desdePedidos, p_hasta: new Date(Date.now() + 86_400_000).toISOString() }),
-    // El RELÁMPAGO de MELI por modelo: el escalón de precio más bajo con
-    // volumen y su neto por par (dueño, 1-oct-2026: «el neto de cuando se
-    // vende el relámpago»; el GT148 relámpago $128.99 deja $128.99).
-    admin.rpc("meli_neto_relampago_por_modelo", { p_account: cuenta.id, p_desde: rango.desde }),
+    fuentesDePrecios(admin, cuenta.id, dias, rango.desde),
     traerTodo<any>(admin, "tiktok_precios_objetivo", "modelo, precio, quitar_retencion", (q) => q.eq("account_id", cuenta.id)),
   ]);
-  if (relampagoRpc.error) throw new Error(`meli_neto_relampago_por_modelo: ${relampagoRpc.error.message}`);
-  const relampago = new Map<string, { precio: number | null; pares: number; neto: number | null; paresTotal: number; netoTotal: number | null }>();
-  for (const f of (relampagoRpc.data ?? []) as any[]) {
-    relampago.set(String(f.modelo).toUpperCase(), {
-      precio: f.precio_relampago != null ? Number(f.precio_relampago) : null,
-      pares: Number(f.pares_relampago ?? 0) || 0,
-      neto: f.neto_relampago != null ? Number(f.neto_relampago) : null,
-      paresTotal: Number(f.pares_total ?? 0) || 0,
-      netoTotal: f.neto_total != null ? Number(f.neto_total) : null,
-    });
-  }
+  const relampago = new Map(fuentes.relampago);
   const misPrecios = new Map<string, number>();
   // Modelos que el dueño pidió calcular como si MELI retuviera el 10.5 % (2-oct-2026).
   const quitarRetencion = new Set<string>();
@@ -122,25 +108,7 @@ export default async function PreciosTikTok({ searchParams }: { searchParams: Pr
     acc.n += 1;
     precioLista.set(modelo, acc);
   }
-  const precioPagado = new Map<string, { suma: number; pares: number }>();
-  if (!pedidosRpc.error) {
-    const fuera = new Set<string>();
-    for (const o of (pedidosRpc.data?.ordenes ?? []) as any[]) {
-      const estado = String(o.estado ?? "").toUpperCase();
-      if (estado.startsWith("CANCEL") || estado === "UNPAID" || o.esMuestra) fuera.add(String(o.orderId));
-    }
-    for (const r of (pedidosRpc.data?.renglones ?? []) as any[]) {
-      if (fuera.has(String(r.orderId)) || String(r.estado ?? "").toUpperCase().startsWith("CANCEL")) continue;
-      const modelo = modeloDeSku(r.skuInterno ?? r.sellerSku ?? "");
-      const precio = Number(r.precio);
-      const pares = Number(r.cantidad ?? 0) || 0;
-      if (!modelo || !Number.isFinite(precio) || precio <= 0 || pares <= 0) continue;
-      const acc = precioPagado.get(modelo) ?? { suma: 0, pares: 0 };
-      acc.suma += precio * pares;
-      acc.pares += pares;
-      precioPagado.set(modelo, acc);
-    }
-  }
+  const precioPagado = new Map(fuentes.pagado);
 
   const entradas = new Map<string, EntradaModelo>();
   const nueva = (modelo: string, categoria: string | null = null): EntradaModelo => {

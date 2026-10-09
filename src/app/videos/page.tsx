@@ -1,5 +1,6 @@
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
-import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
+import { cuentaActiva } from "@/lib/datos/repos";
+import { publicacionesParaVideos } from "@/lib/servicios/videos-publicaciones";
 import { credencialesHiggsfield } from "@/lib/higgsfield/client";
 import {
   GeneradorVideo,
@@ -8,7 +9,6 @@ import {
   CambiarVoz,
   EditarSubtitulos,
   ElegirImagen,
-  type Publicacion,
 } from "@/components/videos";
 
 export const dynamic = "force-dynamic";
@@ -33,56 +33,22 @@ export default async function Videos() {
 
   const hayLlave = Boolean(credencialesHiggsfield());
 
-  // ¿La CUENTA de Higgsfield (Marketing Studio) ya está conectada por OAuth?
+  // Las tres lecturas son independientes y van a la par. Las publicaciones
+  // (una por item, ~10 mil SKUs) salen masticadas de `app_cache`
+  // (`publicacionesParaVideos`, 30 min, refresco por atrás).
   const admin = clienteAdmin();
-  const { data: conexionMcp } = await admin
-    .from("higgsfield_mcp")
-    .select("account_id")
-    .eq("account_id", cuenta.id)
-    .maybeSingle();
+  const [{ data: conexionMcp }, publicaciones, { data: videos }] = await Promise.all([
+    // ¿La CUENTA de Higgsfield (Marketing Studio) ya está conectada por OAuth?
+    admin.from("higgsfield_mcp").select("account_id").eq("account_id", cuenta.id).maybeSingle(),
+    publicacionesParaVideos(admin, cuenta.id),
+    supabase
+      .from("videos_producto")
+      .select("*")
+      .eq("account_id", cuenta.id)
+      .order("creado_en", { ascending: false })
+      .limit(200),
+  ]);
   const cuentaConectada = Boolean(conexionMcp);
-
-  // Una entrada por publicación; los SKUs de sus tallas se juntan para que
-  // la búsqueda también encuentre por SKU, no solo por título o MLM.
-  // Paginado con traerTodo: Supabase corta en 1000 filas por petición y un
-  // .limit(5000) suelto dejaba fuera a la mayoría de los ~10 mil SKUs.
-  const filasSkus = await traerTodo<{
-    sku: string | null;
-    item_id: string;
-    titulo: string | null;
-    modelo: string | null;
-    color: string | null;
-  }>(supabase, "skus", "sku, item_id, titulo, modelo, color", (q) =>
-    q.eq("account_id", cuenta.id).eq("activo", true).not("item_id", "is", null),
-  );
-
-  const porItem = new Map<string, Publicacion>();
-  for (const f of filasSkus) {
-    const id = f.item_id as string;
-    let pub = porItem.get(id);
-    if (!pub) {
-      pub = {
-        itemId: id,
-        titulo: (f.titulo as string) || id,
-        modelo: (f.modelo as string) ?? "",
-        color: (f.color as string) ?? "",
-        skus: [],
-      };
-      porItem.set(id, pub);
-    }
-    if (f.sku) pub.skus.push(f.sku as string);
-  }
-  // traerTodo pagina por id, así que el orden alfabético se pone aquí.
-  const publicaciones = [...porItem.values()].sort((a, b) =>
-    a.titulo.localeCompare(b.titulo, "es"),
-  );
-
-  const { data: videos } = await supabase
-    .from("videos_producto")
-    .select("*")
-    .eq("account_id", cuenta.id)
-    .order("creado_en", { ascending: false })
-    .limit(200);
 
   const enCurso = (videos ?? []).filter((v) =>
     ["enviado", "en_progreso"].includes(v.estado as string),
