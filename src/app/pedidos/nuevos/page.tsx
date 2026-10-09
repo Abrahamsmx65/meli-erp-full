@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { FOTOS_MINIMAS, cargarProductosNuevos } from "@/lib/servicios/productos-nuevos";
+import { CLAVE_FOTOS_NUEVOS, FOTOS_MINIMAS, servirProductosNuevos } from "@/lib/servicios/productos-nuevos";
+import { fotosGuardadasVigentes, type FotosGuardada } from "@/lib/servicios/productos-nuevos-fotos";
+import { leerCacheAppGuardado } from "@/lib/servicios/cache-app";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import { Ficha } from "@/components/tiles";
 import { ProductosNuevos } from "@/components/productos-nuevos";
 
@@ -32,7 +35,18 @@ export default async function Nuevos() {
     );
   }
 
-  const { productos, amazonConectado } = await cargarProductosNuevos(supabase, cuenta.id);
+  // La lista sale masticada (lo guardado aunque esté viejo; se refresca por
+  // atrás) y las fotos YA REVISADAS se leen guardadas: preguntarle a MELI y
+  // Amazon en cada visita queda solo para los botones de revisar.
+  const [servida, fotosGuardadas] = await Promise.all([
+    servirProductosNuevos(supabase, cuenta.id),
+    leerCacheAppGuardado<{ productos: Record<string, FotosGuardada> }>(supabase, cuenta.id, CLAVE_FOTOS_NUEVOS),
+  ]);
+  const { productos, amazonConectado } = servida.datos;
+  const fotosIniciales = fotosGuardadasVigentes(
+    productos,
+    fotosGuardadas.estado === "encontrado" ? fotosGuardadas.valor.datos?.productos : null,
+  );
   const sinMeli = productos.filter((p) => !p.meli.publicaciones.length).length;
   const sinAmazon = amazonConectado ? productos.filter((p) => !p.amazon.skus.length).length : 0;
   const enBodega = productos.filter((p) => p.enBodega > 0).length;
@@ -65,7 +79,14 @@ export default async function Nuevos() {
         <Ficha titulo="Ya en bodega" valor={n(enBodega)} nota="Llegaron y siguen sin stock en Full" />
       </div>
 
-      <ProductosNuevos productos={productos} fotosMinimas={FOTOS_MINIMAS} amazonConectado={amazonConectado} />
+      <Frescura generadoEn={servida.generadoEn} />
+
+      <ProductosNuevos
+        productos={productos}
+        fotosMinimas={FOTOS_MINIMAS}
+        amazonConectado={amazonConectado}
+        fotosIniciales={fotosIniciales}
+      />
     </div>
   );
 }

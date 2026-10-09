@@ -3,7 +3,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarPedidos } from "@/lib/servicios/pedidos";
 import { configuracionSheetPedidos, faltantesDelSheet, type FaltantesSheet } from "@/lib/servicios/pedidos-sheet";
-import { conCacheApp } from "@/lib/servicios/cache-app";
+import { servirConCacheApp } from "@/lib/servicios/cache-app";
 import { Ficha } from "@/components/tiles";
 import { CargarPedido } from "@/components/cargar-pedido";
 import { CargarPedidosLote } from "@/components/cargar-pedidos-lote";
@@ -42,12 +42,13 @@ export default async function CargarPedidos() {
   }
 
   // El sheet puede no contestar: la página sirve igual, avisando. Y no se
-  // descarga de Google en cada visita: vive masticado 10 minutos en
-  // app_cache (la pestaña de pendientes cambia unas veces al día).
+  // descarga de Google en el clic: vive masticado en app_cache y, pasados
+  // 10 minutos, se sirve lo guardado y se relee por atrás (la pestaña de
+  // pendientes cambia unas veces al día). Solo sin renglón se lee en vivo.
   const [pedidos, sheet] = await Promise.all([
     listarPedidos(supabase, cuenta.id),
-    conCacheApp(supabase, cuenta.id, "pedidos-sheet", 10 * 60_000, () => faltantesDelSheet(supabase, cuenta.id)).then(
-      (r): { ok: true; datos: FaltantesSheet } => ({ ok: true, datos: r }),
+    servirConCacheApp(supabase, cuenta.id, "pedidos-sheet", 10 * 60_000, () => faltantesDelSheet(supabase, cuenta.id)).then(
+      (r): { ok: true; datos: FaltantesSheet } => ({ ok: true, datos: r.datos }),
       (e: Error): { ok: false; error: string } => ({ ok: false, error: e.message }),
     ),
   ]);

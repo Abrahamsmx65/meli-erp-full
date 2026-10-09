@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { huellaPublicaciones, tocaRevisar, type FotosGuardada } from "./productos-nuevos-fotos";
+import { fotosGuardadasVigentes, huellaPublicaciones, tocaRevisar, type FotosGuardada } from "./productos-nuevos-fotos";
 
 const producto = {
   meli: { publicaciones: [{ sku: "GT190-BLK-25", itemId: "MLM1", variationId: "9" }] },
@@ -31,5 +31,27 @@ describe("qué productos nuevos se vuelven a revisar", () => {
   it("cambió lo publicado (color nuevo, ASIN nuevo) → se pregunta", () => {
     const conAsinNuevo = { ...producto, amazon: { skus: producto.amazon.skus, asins: ["B0A", "B0B"] } };
     expect(tocaRevisar(conAsinNuevo, guardada({}), true, false)).toBe(true);
+  });
+});
+
+describe("fotos guardadas que la pantalla enseña al abrir", () => {
+  const conClave = { clave: "GT190|BLK", ...producto };
+  it("enseña lo guardado de los productos de la lista, sin la huella", () => {
+    const r = fotosGuardadasVigentes([conClave], { "GT190|BLK": guardada({}), "GT999|RED": guardada({ clave: "GT999|RED" }) });
+    expect(r).toEqual([
+      {
+        clave: "GT190|BLK",
+        meli: { fotos: 6, itemId: "MLM1", estado: "active" },
+        amazon: { fotos: 7, asin: "B0A" },
+        revisadoEn: "2026-09-09T00:00:00Z",
+      },
+    ]);
+  });
+  it("lo publicado cambió desde la revisión → no se enseña (sale sin revisar)", () => {
+    const conAsinNuevo = { ...conClave, amazon: { skus: producto.amazon.skus, asins: ["B0A", "B0B"] } };
+    expect(fotosGuardadasVigentes([conAsinNuevo], { "GT190|BLK": guardada({}) })).toEqual([]);
+  });
+  it("sin nada guardado, vacío", () => {
+    expect(fotosGuardadasVigentes([conClave], null)).toEqual([]);
   });
 });

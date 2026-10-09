@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores";
+import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 

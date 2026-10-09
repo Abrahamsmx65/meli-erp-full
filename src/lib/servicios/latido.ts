@@ -297,6 +297,18 @@ export async function latido(
       }
     }
 
+    // La sugerencia de compra a China (Planificación China) se deja lista
+    // DESPUÉS del plan y del inventario, que son sus insumos: la pantalla
+    // solo lee su renglón y nunca calcula en el clic.
+    if (Date.now() < limite - 20_000) {
+      try {
+        const { refrescarCompraChinaSiHaceFalta } = await import("./compras-china");
+        await refrescarCompraChinaSiHaceFalta(admin, accountId);
+      } catch (err) {
+        console.error("refrescarCompraChina:", (err as Error).message);
+      }
+    }
+
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });
 
     // Estas corridas son latidos, no historia: no vale la pena acumularlas.

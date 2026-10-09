@@ -439,96 +439,117 @@ export async function revisarSalud(
     (c) => (c !== "meli_fundas" || opts.yzAccountId) && (c !== "amazon" || opts.amazonAccountId),
   );
 
-  try {
-    // `salud_cortes_v2`: la primera versión devolvía los canales como texto;
-    // esta trae venta, cobertura y si son calculables (migración 0086).
-    const { data, error } = await (db as any).rpc("salud_cortes_v2", { p_account: cuenta.id });
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as any[]) {
-      const m: MesDeCorte = {
-        periodo: f.periodo,
-        generadoEn: f.generado_en ?? null,
-        vigente: f.vigente !== false,
-        motivo: f.motivo ?? null,
-        canales: ((f.canales ?? []) as any[]).map((k) => ({
-          canal: String(k.canal),
-          venta: Number(k.venta) || 0,
-          cobertura: k.cobertura == null ? null : Number(k.cobertura),
-          calculable: k.calculable !== false,
-        })),
-        ventaTotal: f.venta_total == null ? null : Number(f.venta_total),
-        ventaCanales: f.venta_canales == null ? null : Number(f.venta_canales),
-        exacto: f.exacto === true,
-        avisos: Number(f.avisos) || 0,
-        avisosTimeout: Number(f.avisos_timeout) || 0,
-      };
-      meses.push(m);
-      agregar(hallazgosDelMes(m, canalesEsperados, hoy));
-    }
-  } catch (err) {
-    errores.push(`No se pudieron revisar los cortes: ${(err as Error).message}`);
-  }
+  // Los cortes, las fuentes (y tras ellas la facturación, que las necesita)
+  // y el kardex de TikTok no dependen entre sí: van en paralelo. Cada bloque
+  // junta sus hallazgos y errores aparte y se agregan en el MISMO orden de
+  // siempre, para que la lista no cambie según quién conteste primero.
+  type Bloque = { h: Hallazgo[]; e: string[] };
+  const bloque = async (f: (h: Hallazgo[], e: string[]) => Promise<void>): Promise<Bloque> => {
+    const h: Hallazgo[] = [];
+    const e: string[] = [];
+    await f(h, e);
+    return { h, e };
+  };
+  const resultados = await Promise.all([
+    bloque(async (h, e) => {
+      try {
+        // `salud_cortes_v2`: la primera versión devolvía los canales como texto;
+        // esta trae venta, cobertura y si son calculables (migración 0086).
+        const { data, error } = await (db as any).rpc("salud_cortes_v2", { p_account: cuenta.id });
+        if (error) throw new Error(error.message);
+        for (const f of (data ?? []) as any[]) {
+          const m: MesDeCorte = {
+            periodo: f.periodo,
+            generadoEn: f.generado_en ?? null,
+            vigente: f.vigente !== false,
+            motivo: f.motivo ?? null,
+            canales: ((f.canales ?? []) as any[]).map((k) => ({
+              canal: String(k.canal),
+              venta: Number(k.venta) || 0,
+              cobertura: k.cobertura == null ? null : Number(k.cobertura),
+              calculable: k.calculable !== false,
+            })),
+            ventaTotal: f.venta_total == null ? null : Number(f.venta_total),
+            ventaCanales: f.venta_canales == null ? null : Number(f.venta_canales),
+            exacto: f.exacto === true,
+            avisos: Number(f.avisos) || 0,
+            avisosTimeout: Number(f.avisos_timeout) || 0,
+          };
+          meses.push(m);
+          h.push(...hallazgosDelMes(m, canalesEsperados, hoy));
+        }
+      } catch (err) {
+        e.push(`No se pudieron revisar los cortes: ${(err as Error).message}`);
+      }
+    }),
+    bloque(async (h, e) => {
+      try {
+        const { data, error } = await (db as any).rpc("salud_fuentes", {
+          p_account: cuenta.id,
+          p_yz: opts.yzAccountId ?? null,
+          p_amazon: opts.amazonAccountId ?? null,
+        });
+        if (error) throw new Error(error.message);
+        for (const f of (data ?? []) as any[]) {
+          fuentes.push({
+            mes: String(f.mes),
+            ventaCalzado: Number(f.venta_calzado) || 0,
+            ordenesCalzado: Number(f.ordenes_calzado) || 0,
+            ordenesRegistradas: Number(f.ordenes_registradas) || 0,
+            ordenesConDeposito: Number(f.ordenes_con_deposito) || 0,
+            cargos: Number(f.cargos) || 0,
+            diasPublicidad: Number(f.dias_publicidad) || 0,
+            ventaFundas: Number(f.venta_fundas) || 0,
+            ordenesFundas: Number(f.ordenes_fundas) || 0,
+            fundasConDeposito: Number(f.fundas_con_deposito) || 0,
+            ventaAmazon: Number(f.venta_amazon) || 0,
+            eventosAmazon: Number(f.eventos_amazon) || 0,
+            gruposAmazonDescuadrados: Number(f.grupos_amazon_descuadrados) || 0,
+            descuadreAmazon: Number(f.descuadre_amazon) || 0,
+          });
+        }
+        h.push(...hallazgosDeFuentes(fuentes, hoyFecha));
+      } catch (err) {
+        e.push(`No se pudieron revisar las fuentes: ${(err as Error).message}`);
+      }
 
-  try {
-    const { data, error } = await (db as any).rpc("salud_fuentes", {
-      p_account: cuenta.id,
-      p_yz: opts.yzAccountId ?? null,
-      p_amazon: opts.amazonAccountId ?? null,
-    });
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as any[]) {
-      fuentes.push({
-        mes: String(f.mes),
-        ventaCalzado: Number(f.venta_calzado) || 0,
-        ordenesCalzado: Number(f.ordenes_calzado) || 0,
-        ordenesRegistradas: Number(f.ordenes_registradas) || 0,
-        ordenesConDeposito: Number(f.ordenes_con_deposito) || 0,
-        cargos: Number(f.cargos) || 0,
-        diasPublicidad: Number(f.dias_publicidad) || 0,
-        ventaFundas: Number(f.venta_fundas) || 0,
-        ordenesFundas: Number(f.ordenes_fundas) || 0,
-        fundasConDeposito: Number(f.fundas_con_deposito) || 0,
-        ventaAmazon: Number(f.venta_amazon) || 0,
-        eventosAmazon: Number(f.eventos_amazon) || 0,
-        gruposAmazonDescuadrados: Number(f.grupos_amazon_descuadrados) || 0,
-        descuadreAmazon: Number(f.descuadre_amazon) || 0,
-      });
-    }
-    agregar(hallazgosDeFuentes(fuentes, hoyFecha));
-  } catch (err) {
-    errores.push(`No se pudieron revisar las fuentes: ${(err as Error).message}`);
-  }
-
-  // La facturación de MELI contra lo que MELI declara (un renglón de
-  // bitácora por mes con venta de calzado).
-  try {
-    const meses = fuentes.filter((f) => f.ventaCalzado > 0).map((f) => f.mes);
-    const avances = await avancesDeFacturacion(db, cuenta.id, meses);
-    agregar(hallazgosDeFacturacion(avances, fuentes, hoyFecha));
-  } catch (err) {
-    errores.push(`No se pudo revisar la facturación de MELI: ${(err as Error).message}`);
-  }
-
-  // TikTok: un saldo negativo es que se vendió algo que no existe.
-  try {
-    const { data } = await db
-      .from("tiktok_inventario")
-      .select("sku, saldo")
-      .eq("account_id", cuenta.id)
-      .lt("saldo", 0)
-      .limit(50);
-    const rojos = (data ?? []) as { sku: string; saldo: number }[];
-    if (rojos.length) {
-      graves.push({
-        area: "TikTok",
-        periodo: null,
-        severidad: "grave",
-        que: `${rojos.length} SKU con saldo NEGATIVO: se vendió algo que nunca entró al kardex.`,
-        detalle: rojos.slice(0, 5).map((r) => `${r.sku} (${r.saldo})`).join(", "),
-      });
-    }
-  } catch (err) {
-    errores.push(`Inventario de TikTok: ${(err as Error).message}`);
+      // La facturación de MELI contra lo que MELI declara (un renglón de
+      // bitácora por mes con venta de calzado).
+      try {
+        const meses = fuentes.filter((f) => f.ventaCalzado > 0).map((f) => f.mes);
+        const avances = await avancesDeFacturacion(db, cuenta.id, meses);
+        h.push(...hallazgosDeFacturacion(avances, fuentes, hoyFecha));
+      } catch (err) {
+        e.push(`No se pudo revisar la facturación de MELI: ${(err as Error).message}`);
+      }
+    }),
+    bloque(async (h, e) => {
+      // TikTok: un saldo negativo es que se vendió algo que no existe.
+      try {
+        const { data } = await db
+          .from("tiktok_inventario")
+          .select("sku, saldo")
+          .eq("account_id", cuenta.id)
+          .lt("saldo", 0)
+          .limit(50);
+        const rojos = (data ?? []) as { sku: string; saldo: number }[];
+        if (rojos.length) {
+          h.push({
+            area: "TikTok",
+            periodo: null,
+            severidad: "grave",
+            que: `${rojos.length} SKU con saldo NEGATIVO: se vendió algo que nunca entró al kardex.`,
+            detalle: rojos.slice(0, 5).map((r) => `${r.sku} (${r.saldo})`).join(", "),
+          });
+        }
+      } catch (err) {
+        e.push(`Inventario de TikTok: ${(err as Error).message}`);
+      }
+    }),
+  ]);
+  for (const r of resultados) {
+    agregar(r.h);
+    errores.push(...r.e);
   }
 
   return { revisadoEn: new Date().toISOString(), graves, faltas, meses, fuentes, errores };

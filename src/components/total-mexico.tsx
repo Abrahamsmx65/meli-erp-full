@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
-import type { FamiliaMexico } from "@/lib/servicios/inventario";
+import { Fragment, useDeferredValue, useMemo, useState } from "react";
+import { terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { familiasMexico, type FamiliaMexico, type RenglonFamilia } from "@/lib/servicios/familias-mexico";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -48,24 +48,39 @@ function comparar(orden: Orden) {
  * viene de China porque todavía no se puede mandar. El desglose sigue ahí,
  * abriendo el renglón.
  */
-export function TotalMexico({ familias }: { familias: FamiliaMexico[] }) {
+export function TotalMexico({
+  renglones,
+  cajasPorModelo,
+}: {
+  renglones: RenglonFamilia[];
+  cajasPorModelo: Record<string, number>;
+}) {
   const [busqueda, setBusqueda] = useState("");
   const [orden, setOrden] = useState<Orden>("pares-desc");
   const [abierta, setAbierta] = useState<string | null>(null);
 
-  const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
-
-  const filtradas = useMemo(
+  // Las familias se arman aquí, una vez por carga, con los mismos renglones
+  // de la tabla de abajo (la misma función que antes corría en el servidor).
+  const familias = useMemo(() => familiasMexico(renglones, cajasPorModelo), [renglones, cajasPorModelo]);
+  // El texto de búsqueda de cada familia (modelo + cada talla), ya en
+  // mayúsculas, se arma una vez; el filtro corre con el valor diferido.
+  const textos = useMemo(
     () =>
-      familias
-        .filter(
-          (f) =>
-            coincide(f.modelo, terminos) ||
-            f.detalle.some((d) => coincide(`${d.sku} ${f.modelo} ${d.color} ${d.talla}`, terminos)),
-        )
-        .sort(comparar(orden)),
-    [familias, terminos, orden],
+      familias.map((f) => ({
+        modelo: f.modelo.toUpperCase(),
+        detalle: f.detalle.map((d) => `${d.sku} ${f.modelo} ${d.color} ${d.talla}`.toUpperCase()),
+      })),
+    [familias],
   );
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const terminos = useMemo(() => terminosDeBusqueda(busquedaDiferida), [busquedaDiferida]);
+
+  const filtradas = useMemo(() => {
+    const todos = (t: string) => terminos.every((p) => t.includes(p));
+    return familias
+      .filter((_, i) => todos(textos[i].modelo) || textos[i].detalle.some(todos))
+      .sort(comparar(orden));
+  }, [familias, textos, terminos, orden]);
 
   const totales = useMemo(
     () => ({

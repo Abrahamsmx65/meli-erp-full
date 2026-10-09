@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { EstadoSku } from "@/lib/engine/types";
 import { Estado, colorEstado, etiquetaEstado } from "./estado";
 import { BarraCobertura } from "./tiles";
-import { coincide, terminosDeBusqueda } from "@/lib/reporte/filtro";
+import { terminosDeBusqueda } from "@/lib/reporte/filtro";
 import { BotonDescarga } from "@/components/ui/boton-descarga";
 
 export interface FilaSkuPlan {
@@ -48,6 +48,11 @@ function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
 }
 
+/** `coincide` de reporte/filtro con el texto ya en mayúsculas. */
+function coincideMayus(textoMayus: string, terminos: string[]): boolean {
+  return terminos.every((p) => textoMayus.includes(p));
+}
+
 const ESTADOS: EstadoSku[] = ["critico", "urgente", "ok", "sobrestock", "sin_demanda"];
 
 export function TablasPlan({
@@ -67,28 +72,37 @@ export function TablasPlan({
   const [estados, setEstados] = useState<Set<EstadoSku>>(new Set());
   const [soloConEnvio, setSoloConEnvio] = useState(false);
 
-  const terminos = useMemo(() => terminosDeBusqueda(busqueda), [busqueda]);
+  // La búsqueda filtra ~2,600 renglones: el texto de cada uno se arma UNA vez
+  // (ya en mayúsculas) y el filtro corre con el valor diferido, así teclear
+  // no espera a que la tabla se repinte.
+  const busquedaDiferida = useDeferredValue(busqueda);
+  const terminos = useMemo(() => terminosDeBusqueda(busquedaDiferida), [busquedaDiferida]);
+  const textoLineas = useMemo(
+    () => lineas.map((l) => `${l.sku} ${l.modelo} ${l.color} ${l.talla}`.toUpperCase()),
+    [lineas],
+  );
+  const textoCajas = useMemo(
+    () =>
+      cajas.map((c) =>
+        `${c.skuCaja} ${c.modelo} ${c.color} ${c.almacen} ${c.aporta.map((a) => a.sku).join(" ")}`.toUpperCase(),
+      ),
+    [cajas],
+  );
 
   const lineasFiltradas = useMemo(
     () =>
-      lineas.filter((l) => {
-        if (!coincide(`${l.sku} ${l.modelo} ${l.color} ${l.talla}`, terminos)) return false;
+      lineas.filter((l, i) => {
+        if (!coincideMayus(textoLineas[i], terminos)) return false;
         if (estados.size && !estados.has(l.estado)) return false;
         if (soloConEnvio && l.enviado <= 0) return false;
         return true;
       }),
-    [lineas, terminos, estados, soloConEnvio],
+    [lineas, textoLineas, terminos, estados, soloConEnvio],
   );
 
   const cajasFiltradas = useMemo(
-    () =>
-      cajas.filter((c) =>
-        coincide(
-          `${c.skuCaja} ${c.modelo} ${c.color} ${c.almacen} ${c.aporta.map((a) => a.sku).join(" ")}`,
-          terminos,
-        ),
-      ),
-    [cajas, terminos],
+    () => cajas.filter((_, i) => coincideMayus(textoCajas[i], terminos)),
+    [cajas, textoCajas, terminos],
   );
 
   // Totales del filtro: al buscar un modelo, esto responde "¿cuánto de ESTE
