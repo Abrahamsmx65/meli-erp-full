@@ -19,6 +19,7 @@ import {
   type FilaSkuPlan,
 } from "@/components/tablas-plan";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
 
@@ -235,35 +236,58 @@ export default async function Plan() {
         </Aviso>
       ))}
 
-      <EnviosSeparados grupos={grupos} cajas={filasCaja} sinConfigurar={sinConfigurar} />
+      {/* Pestañas: los envíos a preparar (lo que se usa a diario) y el
+           detalle del plan aparte, para no ver todo junto de golpe. Los
+           pendientes de la bodega se quedan arriba: sus botones guardan
+           estado y no deben perderse al cambiar de pestaña. */}
+      <Pestanas
+        pestanas={[
+          {
+            id: "envios",
+            titulo: "Envíos a preparar",
+            cuenta: grupos.length || null,
+            contenido: (
+              <>
+                <EnviosSeparados grupos={grupos} cajas={filasCaja} sinConfigurar={sinConfigurar} />
 
-      {/* ---- Doble verificación del envío ---------------------------------
-           También espera al API de Industher (el solape con lo apartado):
-           llega por streaming después del resto. Las corridas para repartir
-           por talla se leen ADENTRO: no bloquean el primer pixel. */}
-      {envios.length ? (
-        <Suspense
-          fallback={
-            <section className="tarjeta p-4 text-sm texto-2">
-              Verificando el envío contra lo que la bodega ya apartó…
-            </section>
-          }
-        >
-          <SeccionVerificacion
-            promesa={pendientesPromesa}
-            envios={envios}
-            lineasPlan={plan.lineas}
-            accountId={cuenta.id}
-          />
-        </Suspense>
-      ) : null}
-
-      <TablasPlan
-        lineas={filasSku}
-        cajas={filasCaja}
-        horizonteDias={p.horizonteDias}
-        totalAnalizados={r.skusAnalizados}
-        cajasDisponiblesBodega={catalogo.cajasDisponibles}
+                {/* ---- Doble verificación del envío ---------------------------------
+                     También espera al API de Industher (el solape con lo apartado):
+                     llega por streaming después del resto. Las corridas para repartir
+                     por talla se leen ADENTRO: no bloquean el primer pixel. */}
+                {envios.length ? (
+                  <Suspense
+                    fallback={
+                      <section className="tarjeta p-4 text-sm texto-2">
+                        Verificando el envío contra lo que la bodega ya apartó…
+                      </section>
+                    }
+                  >
+                    <SeccionVerificacion
+                      promesa={pendientesPromesa}
+                      envios={envios}
+                      lineasPlan={plan.lineas}
+                      accountId={cuenta.id}
+                    />
+                  </Suspense>
+                ) : null}
+              </>
+            ),
+          },
+          {
+            id: "detalle",
+            titulo: "Cajas y SKUs",
+            cuenta: filasSku.length,
+            contenido: (
+              <TablasPlan
+                lineas={filasSku}
+                cajas={filasCaja}
+                horizonteDias={p.horizonteDias}
+                totalAnalizados={r.skusAnalizados}
+                cajasDisponiblesBodega={catalogo.cajasDisponibles}
+              />
+            ),
+          },
+        ]}
       />
     </Pagina>
   );
