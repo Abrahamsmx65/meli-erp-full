@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
-import { conCacheApp } from "@/lib/servicios/cache-app";
+import { estadoPlan } from "@/lib/servicios/cache";
 import { cronometro } from "@/lib/servicios/cronometro";
-import { cargarInventario } from "@/lib/servicios/inventario";
 import { listarPedidos } from "@/lib/servicios/pedidos";
-import { sugerirCompra } from "@/lib/servicios/compras";
+import { servirCompraChina } from "@/lib/servicios/compras-china";
 import { Ficha } from "@/components/tiles";
+import { Frescura } from "@/components/yapanizcel/comunes";
 import { PedidoPorModelo } from "@/components/pedido-modelo";
-import { amazonParaCompras } from "@/lib/servicios/fba";
-import { tiktokParaCompras } from "@/lib/servicios/tiktok-compras";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -42,71 +39,19 @@ export default async function Pedidos() {
     );
   }
 
-  // Las tres piezas del problema en paralelo: cuánto se vende (plan), cuánto
-  // hay en todos lados (inventario) y qué ya está pedido (pedidos).
+  // La sugerencia se lee MASTICADA (un renglón de app_cache): el plan, el
+  // inventario y las sumas de Amazon y TikTok solo se bajan cuando hay que
+  // calcularla, y eso pasa por atrás (latido o refresco tras servir lo
+  // guardado). Aquí solo se leen además los pedidos (fichas) y si el plan
+  // sigue vigente (dos columnas, sin su JSON).
   const t = cronometro("/pedidos");
-  const [planEstado, inventario, pedidos, amazonEstado, tiktokEstado] = await Promise.all([
-    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
-    t.medir("inventario", cargarInventario(supabase, cuenta.id)),
+  const [guardada, pedidos, planEstado] = await Promise.all([
+    t.medir("compra", servirCompraChina(supabase, cuenta.id)),
     t.medir("pedidos", listarPedidos(supabase, cuenta.id)),
-    // Las sumas de Amazon también masticadas (cambian con el cron, no por clic).
-    t.medir(
-      "amazon",
-      amazonParaCompras(supabase)
-        .catch((err) => ({
-          datos: new Map(),
-          advertencias: [`No se pudieron leer ventas e inventario de Amazon: ${(err as Error).message}`],
-          disponible: false,
-        })),
-    ),
-    // TikTok: venta observada tal cual y lo libre en su bodega. Tercer canal.
-    t.medir("tiktok", tiktokParaCompras(supabase, cuenta.id)),
+    t.medir("plan", estadoPlan(supabase, cuenta.id)),
   ]);
-
-  const inventarioPorSku = new Map(
-    inventario.renglones.map((r) => [
-      r.sku,
-      {
-        enFull: r.enFull,
-        enTransferencia: r.enTransferencia,
-        enBodega: r.enBodega,
-        enCamino: r.enCamino,
-      },
-    ]),
-  );
-
-  // La sugerencia es 100% determinista sobre insumos que YA están cacheados
-  // (plan, inventario, sumas de Amazon): se guarda masticada en app_cache y
-  // la invalida lo mismo que invalida al plan; la media hora de vida cubre
-  // los insumos que cambian sin aviso (las sumas de Amazon del cron).
-  const compra = await t.medir(
-    "compra",
-    amazonEstado.advertencias.length || !amazonEstado.disponible || !tiktokEstado.disponible
-      ? sugerirCompra(
-          supabase,
-          cuenta.id,
-          planEstado.plan.lineas,
-          inventarioPorSku,
-          undefined,
-          inventario.crudos,
-          amazonEstado.datos,
-          tiktokEstado.datos,
-        )
-      : // La clave cambia con la receta: lo guardado sin TikTok no sirve.
-        conCacheApp(supabase, cuenta.id, "compras-china:v2", 30 * 60_000, () =>
-          sugerirCompra(
-            supabase,
-            cuenta.id,
-            planEstado.plan.lineas,
-            inventarioPorSku,
-            undefined,
-            inventario.crudos,
-            amazonEstado.datos,
-            tiktokEstado.datos,
-          ),
-        ),
-  );
   t.fin();
+  const { compra, amazon: amazonEstado, tiktok: tiktokEstado } = guardada.datos;
 
   const p = compra.parametros;
   const ciclo = p.diasProduccion + p.diasTransito;
@@ -197,7 +142,9 @@ export default async function Pedidos() {
         </div>
       ) : null}
 
-      {!planEstado.vigente ? (
+      <Frescura generadoEn={guardada.generadoEn} />
+
+      {planEstado && !planEstado.vigente ? (
         <p
           className="rounded-lg p-3 text-sm"
           style={{

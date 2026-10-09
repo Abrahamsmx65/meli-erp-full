@@ -297,6 +297,18 @@ export async function latido(
       }
     }
 
+    // La sugerencia de compra a China (Planificación China) se deja lista
+    // DESPUÉS del plan y del inventario, que son sus insumos: la pantalla
+    // solo lee su renglón y nunca calcula en el clic.
+    if (Date.now() < limite - 20_000) {
+      try {
+        const { refrescarCompraChinaSiHaceFalta } = await import("./compras-china");
+        await refrescarCompraChinaSiHaceFalta(admin, accountId);
+      } catch (err) {
+        console.error("refrescarCompraChina:", (err as Error).message);
+      }
+    }
+
     // Ventas y Publicidad leen el monitor y el panel de ads masticados en
     // `app_cache`: aquí se deja listo el rango por omisión de cada pantalla
     // (7 y 30 días) cuando tiene más de 10 minutos. Antes nadie los

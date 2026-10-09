@@ -183,7 +183,7 @@ export default async function Inventario({
         ) : null}
       </section>
 
-      <TotalMexico familias={vista.familias} />
+      <TotalMexico renglones={vista.renglones} cajasPorModelo={vista.cajasPorModelo} />
 
       {/* key: si llega otra búsqueda desde la barra superior, la tabla se
           rearma con ella (antes el buscador global no hacía nada estando aquí). */}

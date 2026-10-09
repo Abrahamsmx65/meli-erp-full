@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 
 interface Producto {
   clave: string;
@@ -33,19 +33,23 @@ function n(x: number): string {
 
 /**
  * La tabla de productos nuevos con el semáforo de fotos. La lista viene del
- * servidor; las fotos se preguntan a MELI y Amazon al abrir la página y se
- * pueden volver a revisar con un botón.
+ * servidor con las fotos YA REVISADAS (guardadas en `nuevos:fotos`); a MELI y
+ * Amazon solo se les pregunta con los botones de revisar.
  */
 export function ProductosNuevos({
   productos,
   fotosMinimas,
   amazonConectado,
+  fotosIniciales,
 }: {
   productos: Producto[];
   fotosMinimas: number;
   amazonConectado: boolean;
+  fotosIniciales: Fotos[];
 }) {
-  const [fotos, setFotos] = useState<Map<string, Fotos> | null>(null);
+  const [fotos, setFotos] = useState<Map<string, Fotos> | null>(() =>
+    fotosIniciales.length ? new Map(fotosIniciales.map((f) => [f.clave, f])) : null,
+  );
   const [revisando, setRevisando] = useState(false);
   const [errores, setErrores] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -77,14 +81,10 @@ export function ProductosNuevos({
     }
   }
 
-  useEffect(() => {
-    if (productos.length) revisar();
-    // Solo al abrir: el botón vuelve a preguntar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const busquedaDiferida = useDeferredValue(busqueda);
 
   const filas = useMemo(() => {
-    const filtro = busqueda.trim().toUpperCase();
+    const filtro = busquedaDiferida.trim().toUpperCase();
     return productos
       .map((p) => {
         const f = fotos?.get(p.clave);
@@ -103,7 +103,7 @@ export function ProductosNuevos({
           .toUpperCase()
           .includes(filtro);
       });
-  }, [productos, fotos, busqueda, soloConFalta, fotosMinimas, amazonConectado]);
+  }, [productos, fotos, busquedaDiferida, soloConFalta, fotosMinimas, amazonConectado]);
 
   if (!productos.length) {
     return (

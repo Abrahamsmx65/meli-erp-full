@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { obtenerPlan } from "@/lib/servicios/cache";
+import { obtenerPlanLigero } from "@/lib/servicios/cache";
 import { separarEnvios, verificarEnvios } from "@/lib/servicios/envios";
 import { enviosPendientesIndusther, expandirFilaMeli } from "@/lib/servicios/industher-pendientes";
 import { indexarCatalogo } from "@/lib/etiquetas/resolver";
@@ -51,7 +51,7 @@ export default async function Plan() {
   // Los envíos registrados ya no se pintan aquí (decisión del dueño): solo
   // alimentan el plan como "en camino".
   const [estado, almacenesRaw] = await Promise.all([
-    t.medir("plan", obtenerPlan(supabase, cuenta.id)),
+    t.medir("plan", obtenerPlanLigero(supabase, cuenta.id)),
     traerTodo<{ almacen: string; grupo_envio: string | null }>(
       supabase,
       "almacenes_activos",
