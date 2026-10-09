@@ -10,7 +10,7 @@ import { NOMBRE_CANAL, adsPorModeloTotal, repartosPorUnidad, type Canal } from "
 import { Ficha } from "@/components/tiles";
 import { AccionesCorteGeneral } from "@/components/corte-general";
 import { GastosEmpresariales } from "@/components/gastos-empresariales";
-import { Frescura } from "@/components/yapanizcel/comunes";
+import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -41,13 +41,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
   const hoy = periodoActual();
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Corte general" />;
   // El consolidado vive en consolidado_cache (10 min): correr los tres
   // canales completos en cada visita costaba hasta 300 s de función.
   const [cns, cortes, anterior, mismosDias] = await Promise.all([
@@ -68,19 +62,33 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     cns.total.desgloseDisponible === false ? "No disponible" : pesos(-cns.total[campo]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Corte general</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Estado operativo al día de hoy: puede cambiar cuando Mercado Pago o Amazon terminen de asentar cargos. La publicidad se descuenta al modelo que la gastó; los
-          gastos generales de cada plataforma (Full, FBA, colecta, devoluciones netas, otros cargos) se dividen entre las
-          unidades vendidas en esa plataforma, así cada modelo y categoría carga su parte y la ganancia es la real.
-        </p>
-        <Frescura generadoEn={cns.generadoEn} />
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="Negocio"
+        titulo="Corte general"
+        descripcion="Calzado, fundas, Amazon y TikTok: la ganancia real del mes, por canal, categoría y modelo."
+        frescura={cns.generadoEn}
+        acciones={
+          <span className={`chip ${cns.exacto ? "aviso-bien" : "aviso-alerta"}`}>
+            {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
+          </span>
+        }
+        ayuda={
+          <>
+            <p>
+              Es el estado al día de hoy: puede cambiar mientras Mercado Pago o Amazon terminan de asentar cargos.
+            </p>
+            <p>
+              La publicidad se descuenta al modelo que la gastó. Los gastos generales de cada plataforma (Full, FBA,
+              colecta, devoluciones netas, otros cargos) se dividen entre las unidades vendidas en esa plataforma, así cada
+              modelo y categoría carga su parte.
+            </p>
+          </>
+        }
+      />
 
-      <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        {/* Todos los meses a la vista (dueño, 25-sep-2026: «elegir, no pasar de mes en mes»). */}
+      {/* Todos los meses a la vista (dueño, 25-sep-2026: «elegir, no pasar de mes en mes»). */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <nav aria-label="Mes del corte" className="flex flex-wrap gap-1.5">
           {periodosDesde(PRIMER_PERIODO_CORTES, hoy).map((p) => {
             const activo = p === periodo;
@@ -90,25 +98,22 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                 href={`/cortes?mes=${p}`}
                 aria-current={activo ? "page" : undefined}
                 className="rounded-full border px-3 py-1 text-xs font-medium capitalize"
-                style={activo ? { background: "var(--acento)", borderColor: "var(--acento)", color: "#fff" } : { borderColor: "var(--borde)" }}
+                style={activo ? { background: "var(--acento)", borderColor: "var(--acento)", color: "#fff" } : { borderColor: "var(--borde)", background: "var(--surface-1)" }}
               >
                 {nombreDelPeriodo(p)}
               </Link>
             );
           })}
         </nav>
-        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="texto-tenue text-xs">
           {cns.desde} → {cns.hasta}
-        </span>
-        <span className="ml-auto rounded-full px-3 py-1 text-xs font-semibold" style={cns.exacto ? { background: "var(--acento-suave)", color: "var(--exito-texto)" } : { background: "#fff4d6", color: "#8a5a00" }}>
-          {cns.exacto ? "Fuentes completas" : `Datos parciales · ${cns.avisos.length} avisos`}
         </span>
       </div>
 
       <AccionesCorteGeneral periodo={periodo} corteId={corteDelMes?.id ?? null} />
       <GastosEmpresariales gastos={cns.gastosEmpresariales ?? []} periodo={periodo} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <Cifras columnas={4}>
         <Ficha
           titulo="Venta bruta"
           valor={pesos(cns.total.ventaBruta)}
@@ -125,7 +130,7 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
         <Ficha titulo="Utilidad antes de gastos empresariales" valor={pesos(cns.total.utilidadAntesGastosEmpresariales)} nota="suma de los tres canales" tono={cns.total.utilidadAntesGastosEmpresariales < 0 ? "critico" : "bien"} />
         <Ficha titulo="Gastos empresariales" valor={pesos(-cns.total.gastosEmpresariales)} nota="se descuentan una sola vez" tono={cns.total.gastosEmpresariales > 0 ? "alerta" : "neutro"} />
         <Ficha titulo="Utilidad neta final" valor={pesos(cns.total.utilidadNeta)} nota={`${pct(cns.total.margenSobreVenta)} de la venta · ${cns.total.gananciaPorUnidad != null ? pesos(cns.total.gananciaPorUnidad) : "—"} por unidad`} tono={cns.total.utilidadNeta < 0 ? "critico" : "bien"} />
-      </div>
+      </Cifras>
 
       {comparacion ? (
         <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />
@@ -137,11 +142,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Por canal ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por canal</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por canal</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             “Neto” es lo que queda después de cargos de plataforma. La fuente y su cobertura indican si ya está respaldado por datos reales o todavía es parcial.
           </p>
+          </div>
         </header>
         <div className="overflow-x-auto">
           <table className="datos">
@@ -252,11 +259,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Por categoría ------------------------------------------------ */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por categoría</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por categoría</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             Sumando los tres canales. Ganancia = neto − costo − publicidad − gastos generales repartidos.
           </p>
+          </div>
         </header>
         <div className="overflow-x-auto">
           <table className="datos">
@@ -310,11 +319,13 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Por modelo --------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Por modelo</h2>
+          <p className="texto-2 mt-0.5 text-[13px]">
             Un modelo que se vende en varios canales aparece una vez, con todo sumado. El Excel trae además una hoja por canal.
           </p>
+          </div>
         </header>
         <div className="max-h-[36rem] overflow-auto">
           <table className="datos">
@@ -381,8 +392,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
 
       {/* ---- Guardados ---------------------------------------------------- */}
       <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Cortes generales guardados</h2>
+        <header className="seccion-cabeza">
+          <div>
+          <h2 className="seccion-titulo">Cortes generales guardados</h2>
+          </div>
         </header>
         {cortes.length ? (
           <table className="datos">
@@ -417,6 +430,6 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
           <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>Todavía no hay cortes generales guardados.</p>
         )}
       </section>
-    </div>
+    </Pagina>
   );
 }
