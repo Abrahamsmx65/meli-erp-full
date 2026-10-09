@@ -1918,6 +1918,15 @@ midió y quedó como regla:
   `envio_leido_en` se quedaba vacío, la orden se volvía a pedir en cada
   barrido y llenaba los 150 lugares; el registro de órdenes se atoró en el
   30-mar-2026 y fundas releía las mismas ~1,000 órdenes cada 10 min.
+- Topes que quedaban (mismo día): la plantilla para publicar en TikTok se
+  busca por MODELO en la base (no entre los «2,000» más recientes); los
+  renglones de un día de `ventas_diarias` en `webhooks.ts` van por
+  `filasDelDia`; la revisión de «publicaciones del catálogo» de Listados
+  (calzado y fundas) va por tandas; la limpieza de SKUs pendientes de fundas
+  lee todas las páginas. Índices parciales para lo que se buscaba barriendo
+  la tabla: órdenes de fundas sin depósito (0127, 7.1 s → 9 ms) y órdenes
+  canceladas (0128). Ventas y Publicidad de Amazon se mastican en su propio
+  cron (`/api/cron/amazon-pantallas`, cada 10 min), no al final del latido.
 - Product Ads solo rellena hacia atrás 89 días (`DIAS_API_ADS`): MELI no
   da más y pedirlo tronaba cada hora. El sync diario vive 800 s. Todo lo
   que el servidor se manda a sí mismo usa `origenDeLaApp`, y

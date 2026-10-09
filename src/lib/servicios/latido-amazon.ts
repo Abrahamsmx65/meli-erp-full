@@ -135,15 +135,31 @@ export async function latidoAmazon(admin: DB, meliAccountId?: string): Promise<v
       }
     }
 
-    // Ventas Amazon (7 días) y Publicidad Amazon (30 días) leen un renglón
-    // masticado: se dejan listos aquí cada 10 minutos para que la primera
-    // visita no calcule en el clic (2–27 s). Cada uno con su propio tiempo.
-    if (Date.now() < limite - 10_000) {
-      await paso(admin, cuenta.accountId, "cron_pantallas", 10 * 60_000, () =>
-        precalcularPantallasAmazon(admin, cuenta.accountId, meliAccountId ?? null, limite - 5_000),
-      );
-    }
+    // Ventas Amazon (7 días) y Publicidad Amazon (30 días) ya NO se
+    // precalculan aquí: con lo que sobraba de los 45 s casi nunca alcanzaba
+    // (9 veces en dos días en vez de cada 10 min). Tienen su propio cron,
+    // /api/cron/amazon-pantallas (`refrescarPantallasAmazon`).
   }
+}
+
+/**
+ * El cron propio de las pantallas de Amazon: Ventas (7 días) y Publicidad
+ * (30 días) leen un renglón masticado y aquí se dejan listos cada 10
+ * minutos, con todo el rato de la función. Mismo nombre de tarea que antes
+ * en `amazon_sync_log` (`cron_pantallas`) para no pisarse.
+ */
+export async function refrescarPantallasAmazon(admin: DB, meliAccountId: string | null, limite: number): Promise<object[]> {
+  const cuentas = await cuentasAmazon(admin);
+  const hechas: object[] = [];
+  for (const cuenta of cuentas) {
+    if (Date.now() > limite - 10_000) break;
+    await paso(admin, cuenta.accountId, "cron_pantallas", 9 * 60_000, async () => {
+      const r = await precalcularPantallasAmazon(admin, cuenta.accountId, meliAccountId, limite);
+      hechas.push(r);
+      return r;
+    });
+  }
+  return hechas;
 }
 
 /** Calcula y guarda los rangos por omisión de Ventas y Publicidad de Amazon. */

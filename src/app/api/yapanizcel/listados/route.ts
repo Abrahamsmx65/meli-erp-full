@@ -4,6 +4,7 @@ import { conSesion, errorJson } from "@/lib/yapanizcel/api";
 import { clienteDeCuenta } from "@/lib/yapanizcel/cuenta";
 import { cambiarAtributoVariante, cambiarTitulo, leerDiseno } from "@/lib/yapanizcel/listados";
 import { unificarAtributo } from "@/lib/servicios/listados";
+import { porTandas, traerTodo } from "@/lib/datos/repos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -26,8 +27,13 @@ export async function GET(req: NextRequest) {
 
 /** Solo publicaciones del propio catálogo: el id llega del navegador. */
 async function propias(ctx: { db: any; cuenta: { id: string } }, itemIds: string[]): Promise<string[]> {
-  const { data } = await ctx.db.from("yz_skus").select("item_id").eq("account_id", ctx.cuenta.id).in("item_id", itemIds);
-  const conocidas = new Set((data ?? []).map((f: { item_id: string }) => f.item_id));
+  // Por tandas y todas las páginas: una publicación de fundas trae decenas de
+  // variantes (un renglón por cada una) y con 1,000 renglones las
+  // publicaciones del final salían «fuera del catálogo».
+  const data = await porTandas(itemIds, 100, (tanda) =>
+    traerTodo<{ item_id: string }>(ctx.db, "yz_skus", "item_id, sku", (q) => q.eq("account_id", ctx.cuenta.id).in("item_id", tanda)),
+  );
+  const conocidas = new Set(data.map((f) => f.item_id));
   return itemIds.filter((id) => !conocidas.has(id));
 }
 
