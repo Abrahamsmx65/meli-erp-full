@@ -46,6 +46,13 @@
   --acento-suave: #eeeefe;
   --exito-texto: #00854a;
 
+  /* gráficas del corte: a dónde se va cada peso de venta */
+  --graf-plataforma: #a3acbd;
+  --graf-producto: #55698c;
+  --graf-publicidad: #f29e33;
+  --graf-gastos: #dc665c;
+  --graf-utilidad: #219e66;
+
   /* marca: la barra superior, azul marino profundo con un degradado sutil */
   --marca: #14122b;
   --marca-2: #1d1a3f;

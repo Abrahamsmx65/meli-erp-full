@@ -755,6 +755,9 @@ export function armarEstadoResultados(e: EntradaCorte): EstadoResultados {
       }
       // Si faltan órdenes guardadas, el total diario completo es más seguro
       // que sustituirlo por un subtotal aunque ese subtotal tenga neto leído.
+      // (Desde el 9-oct-2026 el calzado arma su venta desde las órdenes del
+      // día —ventasDelCorte—, así que esto solo actúa en un día sin órdenes
+      // registradas, donde los renglones son lo único que hay.)
       netoDia = usarNetoDeOrdenes ? o.neto : f.netoFilas;
       real = true;
       importeConNetoReal += f.importe;
@@ -1285,7 +1288,7 @@ export async function ordenesDelRango(db: DB, accountId: string, desde: string, 
 /** Las órdenes del rango ya sumadas por día, por el RPC de la base (una sola verificación de permiso). */
 export async function ordenesPorDiaDesdeRpc(db: DB, fn: string, accountId: string, desde: string, hasta: string): Promise<DiaOrdenesAgregado[]> {
   const { data, error } = await db.rpc(fn, { p_account: accountId, p_desde: desde, p_hasta: hasta });
-  if (error) throw new Error(`${fn}: ${error}`);
+  if (error) throw new Error(`${fn}: ${error.message}`);
   return ((data ?? []) as any[]).map((d) => ({
     fecha: String(d.fecha),
     ordenes: Number(d.ordenes) || 0,
@@ -1365,14 +1368,48 @@ export async function ratioObservadoDesdeRpc(db: DB, fn: string, accountId: stri
 }
 
 /**
+ * La venta del calzado por (SKU, día) armada desde las ÓRDENES vivas
+ * (`cortes_ventas_desde_ordenes`, migración 0127): ventas_diarias se
+ * reescribe en cada barrido sin su neto y la búsqueda de MELI le mete
+ * órdenes que /orders/{id} tiene canceladas (septiembre 2026: 279 pares y
+ * $38 mil de venta de más). null si el RPC falla.
+ */
+async function ventasDesdeOrdenesRpc(db: DB, accountId: string, desde: string, hasta: string): Promise<VentaDelCorte[] | null> {
+  const { data, error } = await db.rpc("cortes_ventas_desde_ordenes", { p_account: accountId, p_desde: desde, p_hasta: hasta });
+  if (error) throw new Error(`cortes_ventas_desde_ordenes: ${error.message}`);
+  return ((data ?? []) as any[]).map((v) => ({
+    sku: String(v.sku),
+    fecha: String(v.fecha),
+    unidades: Number(v.unidades) || 0,
+    ordenes: Number(v.ordenes) || 0,
+    importe: Number(v.importe) || 0,
+    comision: Number(v.comision) || 0,
+    neto: Number(v.neto) || 0,
+    netoConfirmado: v.neto_confirmado === true,
+  }));
+}
+
+/**
+ * Día por día: si el día tiene órdenes registradas, su venta sale de ellas;
+ * si no (meses viejos que la reparación aún no registra), de ventas_diarias.
+ * Pura.
+ */
+export function ventasDelCorte(diarias: VentaDelCorte[], deOrdenes: VentaDelCorte[] | null): VentaDelCorte[] {
+  if (!deOrdenes || deOrdenes.length === 0) return diarias;
+  const diasConOrdenes = new Set(deOrdenes.map((v) => v.fecha));
+  return [...deOrdenes, ...diarias.filter((v) => !diasConOrdenes.has(v.fecha))];
+}
+
+/**
  * `hasta` corta el mes en ese día (los MISMOS días del mes anterior para
  * compararlo con uno en curso): la venta, las órdenes, la publicidad, los
  * gastos y la facturación de MELI llegan solo hasta ahí.
  */
 export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: string, opts: { desde?: string; hasta?: string } = {}): Promise<EstadoResultados> {
   const { desde, hasta } = rangoRecortado(periodo, opts);
-  const [ventas, skus, config, gastos, cargos, ordenesPorDia, desglosePorSku, publicidad, progreso] = await Promise.all([
+  const [ventasDiarias, ventasOrdenes, skus, config, gastos, cargos, ordenesPorDia, desglosePorSku, publicidad, progreso] = await Promise.all([
     leerVentas(db, cuenta.id, desde, hasta),
+    ventasDesdeOrdenesRpc(db, cuenta.id, desde, hasta).catch((err) => (err as Error).message),
     traerTodo<{ sku: string; modelo: string | null }>(db, "skus", "sku, modelo", (q) => q.eq("account_id", cuenta.id)),
     configPorProducto(db, cuenta.id),
     gastosDelRango(db, cuenta.id, desde, hasta),
@@ -1387,6 +1424,12 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     })),
     progresoCargos(db, cuenta.id, periodo).catch(() => ({ periodo, clave: null, offset: 0, total: null, completo: false, actualizadoEn: null })),
   ]);
+
+  const ventas = ventasDelCorte(ventasDiarias, typeof ventasOrdenes === "string" ? null : ventasOrdenes);
+  const avisosExtra =
+    typeof ventasOrdenes === "string"
+      ? [`No se pudo leer la venta desde las órdenes (${ventasOrdenes}): salió de los renglones diarios, que pueden traer órdenes canceladas y netos viejos.`]
+      : [];
 
   const modeloDeSku = new Map<string, string>();
   for (const s of skus) if (s.modelo) modeloDeSku.set(s.sku, s.modelo);
@@ -1410,6 +1453,7 @@ export async function cargarEstadoResultados(db: DB, cuenta: Cuenta, periodo: st
     cargos,
     cargosLeidos: progreso.completo,
     cargosAvance: { offset: progreso.offset, total: progreso.total },
+    avisosExtra,
   });
 }
 

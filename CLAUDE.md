@@ -1668,6 +1668,41 @@ guárdala numerada.
   total (el total divide entre las unidades de los canales calculables,
   `unidadesCalculables`). Se calculan al enseñar a partir de lo guardado:
   no cambian el masticado ni la `versionContable`.
+  **Revisión de septiembre 2026 (9-oct-2026, dueño: «el corte general es
+  un desastre… revisa septiembre al 100»)**: (1) la venta del CALZADO sale
+  de las ÓRDENES (`cortes_ventas_desde_ordenes`, migración 0127, un jsonb de
+  un jalón; `ventasDelCorte` cae a `ventas_diarias` solo en días sin
+  órdenes): los renglones diarios traían órdenes que /orders/{id} tiene
+  canceladas (+279 pares, +$38 mil) y un neto viejo que el barrido no
+  reescribe (+$67.6 mil en los días «que no cuadran»); (2) la publicidad de
+  MELI se lee por páginas (1,101 anuncios, se perdían $3,930); (3) la
+  facturación del MES ANTERIOR también se relee si quedó corta contra el
+  total de MELI (fundas septiembre: 1,800 de 23,957, gastos de Full $3 mil
+  contra $109 mil de agosto) y un mes leído con la paginación vieja sin
+  total se relee una vez (julio de fundas); (4) los RPC de cortes evalúan
+  el permiso UNA vez (migración 0126, abajo). `versionContable` 8 y
+  `claveCorte` v3. Lo que la revisión dejó como DECISIÓN del dueño, sin
+  tocar: el ajuste MiscAdjustment de Amazon (~−$107 mil al mes, hoy gasto
+  general), las muestras de TikTok sin costo, TikTok sin gastos propios
+  (3PL, empaque, publicidad) y el IVA dentro de la utilidad. Los «cargos
+  detallados superan…» de los carritos NO son dinero perdido: esas órdenes
+  ya traen el cargo diferido en `neto_actual`.
+  **La pantalla y el PDF se leen, no solo se suman**
+  (`consolidado-informe.ts` motor puro con pruebas: `cascadaDelMes` cierra
+  al centavo de la venta a la utilidad con los reembolsos ya descontados en
+  su propio renglón, `repartoDelPeso` = de cada $100 por canal,
+  `avisosParaMostrar` separa lo que pide ACCIÓN, lo que LLEGA SOLO —revisión
+  a 40 días, lo por liquidar de TikTok— y las NOTAS que solo explican, y
+  junta el neto sin costo por canal con su monto; `estadoDelCorte` =
+  definitivo / preliminar / N cosas por revisar; `loQuePaso` = el mes con
+  palabras). Antes salía «Datos parciales · 25 avisos» siempre, aunque 15
+  fueran explicaciones permanentes. **«Hacer corte» abre su INFORME PDF**
+  (`consolidado-pdf.ts`, pdf-lib; `/api/cortes/general/{id}/pdf` y vista
+  previa `/api/cortes/general/pdf?periodo=`): portada con la utilidad y lo
+  que pasó, cascada y cada peso, utilidad por canal, contra el mes
+  anterior, detalle por canal, categorías, los modelos que más dejaron y
+  los que perdieron, qué falta y cómo se calcula. Se rehace siempre del
+  corte congelado (`cortes_generales.resumen`).
   **Se mastica POR ATRÁS** (`refrescarConsolidadosDeFondo`, cron
   `/api/cron/consolidado` cada 10 min, candado `consolidado`; dueño,
   24-sep-2026: «toma como 5 minutos en lo que cuadran los números desde que
@@ -1882,6 +1917,12 @@ midió y quedó como regla:
   cortados de TikTok: 432 ms → 24 ms)—. Una tabla nueva usa el mismo patrón;
   `auth.uid()` en una política va como `(select auth.uid())`. Las funciones
   `es_mi_cuenta*` se quedan para los RPC.
+- **Los RPC SQL evalúan su permiso UNA vez** (migración 0126): el filtro
+  `and (auth.role() = 'service_role' or es_mi_cuenta…(p_account))` dentro
+  del WHERE se corría por renglón (auth.role() parsea el JWT cada vez):
+  `yz_cortes_ventas_desde_ordenes_confirmadas` de abril tardaba 5.6 s y el
+  cron del corte general se cancelaba a los 8 s en marzo–julio de fundas. Va
+  envuelto en `(select …)` (InitPlan); un RPC nuevo, igual.
 - **Las pantallas leen con `servirConCacheApp`** (`cache-app.ts`): sirve el
   renglón aunque esté viejo y refresca en `after()` con candado por clave;
   `conCacheApp` (calcula en el clic al vencer) queda para el fondo. Ventas

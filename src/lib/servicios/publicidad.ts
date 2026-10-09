@@ -345,7 +345,9 @@ export async function anunciosDesdeBase(
   const edadMs = Date.now() - Date.parse(est.actualizado_en ?? 0);
   if (r.hasta >= fechaMx(0) && !(edadMs < 2 * 3_600_000)) return null;
 
-  const { data, error: errorRpc } = await db.rpc("publicidad_resumen_items", {
+  // Por páginas: el API entrega a lo más mil renglones y septiembre 2026
+  // tuvo 1,101 anuncios; los de después del mil ($3,930.73) se perdían.
+  const { data, error: errorRpc } = await rpcPaginado(db, "publicidad_resumen_items", {
     p_account: accountId,
     p_desde: r.desde,
     p_hasta: r.hasta,
