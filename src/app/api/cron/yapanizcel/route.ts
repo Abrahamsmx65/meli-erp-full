@@ -5,6 +5,7 @@ import { sincronizar } from "@/lib/yapanizcel/sync";
 import { sincronizarInventarioDesdeSheets } from "@/lib/yapanizcel/inventario";
 import { configuracionSheets } from "@/lib/yapanizcel/sheets";
 import { correrPendientes as resolverPendientesLuego } from "@/lib/yapanizcel/pendientes";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
 
   // Los SKUs que quedaron pendientes se resuelven después de contestar, en
   // este mismo proceso; el cron de cada hora sigue como red de seguridad.
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => resolverPendientesLuego(origen));
 
   return NextResponse.json({ ok: true, resultados });

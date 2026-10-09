@@ -19,7 +19,13 @@ import { traerRpcTodo, traerTodo } from "../datos/repos";
 import { VERSION_MOTOR } from "./cache";
 import { cargarAmazon, PERIODO_OMISION, SIN_LIMITE, type TotalesAmazon } from "./amazon";
 import { mapaCorridas, sugerirEnvioFba, type SugerenciaFba } from "./fba";
-import { aplicarEnCamino, enCaminoFba, type EnCaminoFba } from "./fba-en-camino";
+import {
+  aplicarEnCamino,
+  enCaminoFba,
+  recibidoEnProcesoFba,
+  sumarRecibidoEnProceso,
+  type EnCaminoFba,
+} from "./fba-en-camino";
 import { planFbaConCajas, type HistoriaSkuFba, type PlanFbaCajas } from "./fba-plan";
 import { catalogoBodega } from "./inventario";
 import { separarEnvios, type PlanDeEnvios } from "./envios";
@@ -156,6 +162,7 @@ export async function calcularPlanFba(
     enCamino,
     historia,
     listados,
+    enProceso,
   ] = await Promise.all([
       // SIN límite: con el top-500, el 64% del calzado con venta quedaba
       // invisible para el plan (esta página no pinta renglones crudos).
@@ -182,12 +189,16 @@ export async function calcularPlanFba(
       enCaminoFba(db, cuentaAmazonId),
       historiaFba(db, cuentaAmazonId),
       skusListadosFba(db, cuentaAmazonId),
+      recibidoEnProcesoFba(db, cuentaAmazonId),
     ]);
 
   // El "en camino" del reporte se cambia por el REAL: solo lo pendiente de
   // envíos con movimiento reciente. Lo atorado hace semanas deja de tapar
   // faltantes (GT114-LT BROWN-26: 30 pares fantasma escondían 70 cajas).
-  const renglones = aplicarEnCamino(renglonesCrudos, enCamino);
+  // Y lo que Amazon ya recibió pero aún no da por vendible (el envío ya lo
+  // cuenta recibido y el reporte no lo trae como disponible) también es
+  // posición: sin esto se volvían a pedir cajas de lo recién mandado.
+  const renglones = sumarRecibidoEnProceso(aplicarEnCamino(renglonesCrudos, enCamino), enProceso);
 
   const indiceMeli = indexarCatalogo(skusMeli);
   const sugerencias = sugerirEnvioFba(renglones, dias, mapaCorridas(corridasRaw), undefined, indiceMeli);

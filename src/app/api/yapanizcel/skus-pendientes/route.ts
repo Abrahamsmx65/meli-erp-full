@@ -2,6 +2,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { esCron } from "@/lib/yapanizcel/api";
 import { correrPendientes } from "@/lib/yapanizcel/pendientes";
+import { origenDeLaApp } from "@/lib/servicios/origen-app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -23,14 +24,14 @@ async function autorizado(req: NextRequest): Promise<boolean> {
 
 export async function POST(req: NextRequest) {
   if (!(await autorizado(req))) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => correrPendientes(origen));
   return NextResponse.json({ ok: true, encolado: true }, { status: 202 });
 }
 
 export async function GET(req: NextRequest) {
   if (!(await autorizado(req))) return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-  const origen = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  const origen = origenDeLaApp(req);
   after(() => correrPendientes(origen));
   const admin = clienteAdmin();
   const { count } = await admin.from("yz_skus_pendientes").select("*", { count: "exact", head: true });

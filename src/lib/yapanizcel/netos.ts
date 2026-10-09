@@ -194,7 +194,9 @@ export async function completarNetosPendientes(
   accountId: string,
   cliente: MeliClient,
   finMs: number,
-  tope = 2_000,
+  // 1,000 = lo más que el API entrega por respuesta; con 2,000 «llegaron
+  // menos de los pedidos» parecía que ya no había más sin depósito.
+  tope = 1_000,
 ): Promise<ResumenNetos> {
   // Pendiente = sin neto, sin desglose, o con desglose de la forma vieja
   // (cargos_fuente en null: nunca se leyó el pago real). Las nuevas primero.
@@ -204,9 +206,12 @@ export async function completarNetosPendientes(
   // iba junto por fecha y el lote se gastaba releyendo órdenes ya conocidas.
   const columnas =
     "order_id, fecha, payment_ids, payment_id, total, neto, neto_pago, neto_en, renglones, reembolso_incluido_neto_base, reembolso_base_confiable, static_tags, pack_id, shipping_id, pagado, envio_comprador, envio_vendedor";
+  // Conteo ESTIMADO: el exacto sobre ~430 mil renglones pasaba de los 8 s
+  // del statement_timeout y la corrida entera se perdía (86 de 144 el
+  // 8-oct-2026). El número solo se enseña; no decide nada.
   const sinNeto = await admin
     .from("yz_ordenes_neto")
-    .select(columnas, { count: "exact" })
+    .select(columnas, { count: "estimated" })
     .eq("account_id", accountId)
     .is("neto_en", null)
     .gt("total", 0)
@@ -218,16 +223,20 @@ export async function completarNetosPendientes(
   if (pendientes.length < tope) {
     const resto = await admin
       .from("yz_ordenes_neto")
-      .select(columnas, { count: "exact" })
+      .select(columnas, { count: "estimated" })
       .eq("account_id", accountId)
       .not("neto_en", "is", null)
       .or("cargos_leidos_en.is.null,cargos_fuente.is.null,envio_leido_en.is.null")
       .gt("total", 0)
       .order("fecha", { ascending: false })
       .limit(tope - pendientes.length);
-    if (resto.error) throw new Error(`yz_ordenes_neto: ${resto.error.message}`);
-    pendientes.push(...(resto.data ?? []));
-    count += resto.count ?? 0;
+    // Si la segunda lectura falla, se trabaja con las que sí llegaron (las
+    // sin depósito, las importantes) en vez de tirar la corrida.
+    if (resto.error) console.error(`[yz netos] resto sin leer: ${resto.error.message}`);
+    else {
+      pendientes.push(...(resto.data ?? []));
+      count += resto.count ?? 0;
+    }
   }
   const r: ResumenNetos = { leidos: 0, fallidos: 0, diasAsentados: [], pendientes: count ?? pendientes.length };
   const dias = new Set<string>();

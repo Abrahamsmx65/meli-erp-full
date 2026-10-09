@@ -72,6 +72,10 @@ export async function middleware(request: NextRequest) {
     // bearer o la sesión): sin esto el eslabón rebotaba al login.
     /^\/api\/tiktok\/cortes\/\d+\/calentar$/.test(ruta) ||
     ruta === "/api/tiktok/publicar-productos" ||
+    // El proceso de datos fiscales se relanza solo con el bearer de
+    // CRON_SECRET (la ruta valida el bearer o la sesión); sin esta línea el
+    // relanzamiento rebotaba al login y lo pendiente esperaba a un clic.
+    ruta === "/api/fiscal/procesar" ||
     // La tienda en línea (otro despliegue) avisa que apartó o soltó pares;
     // la ruta valida el bearer TIENDA_SECRET.
     ruta === "/api/tiktok/tienda/aviso" ||
