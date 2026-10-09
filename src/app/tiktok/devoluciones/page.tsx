@@ -2,6 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarDevoluciones } from "@/lib/servicios/tiktok-devoluciones";
 import { DevolucionesTikTok } from "@/components/devoluciones-tiktok";
+import { Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -13,25 +14,23 @@ export const dynamic = "force-dynamic";
 export default async function Devoluciones() {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) {
-    return (
-      <div className="tarjeta mx-auto max-w-lg p-8 text-center">
-        <h1 className="titulo-seccion">Conecta Mercado Libre primero</h1>
-      </div>
-    );
-  }
+  if (!cuenta) return <SinCuenta titulo="Devoluciones" />;
   const devoluciones = await listarDevoluciones(supabase, cuenta.id);
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">Devoluciones · TikTok</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          Lo que los clientes regresan. Escanea la guía del paquete o teclea el pedido, confirma que llegó
-          —con eso TikTok le reembolsa al cliente— y di por cada par si vuelve al stock o se tira. El par que
-          vuelve entra al kardex y se le ofrece a TikTok otra vez; Industher lo cuenta en su foto.
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja="TikTok Shop"
+        titulo="Devoluciones"
+        descripcion="Lo que los clientes regresan: encontrar el paquete, confirmar que llegó y decidir si el par vuelve al stock."
+        ayuda={
+          <p>
+            Escanea la guía del paquete o teclea el pedido. Al confirmar que llegó, TikTok le reembolsa al cliente en ese
+            momento. Por cada par se decide si vuelve al stock (entra al kardex y se le ofrece a TikTok otra vez; Industher
+            lo cuenta en su foto) o si se tira (queda como merma). El cron de TikTok lee las devoluciones cada 15 minutos.
+          </p>
+        }
+      />
       <DevolucionesTikTok devoluciones={devoluciones} ahora={Date.now()} />
-    </div>
+    </Pagina>
   );
 }

@@ -1114,6 +1114,42 @@ guárdala numerada.
   abierto; los últimos 30 días en la ventana previa del mismo RPC). Lee
   con el cliente admin (junta bodega, costos y Amazon) y el rol de TikTok
   también lo baja.
+  **DEVOLUCIONES** (`tiktok/devoluciones.ts` motor puro con pruebas,
+  `servicios/tiktok-devoluciones.ts`, `/tiktok/devoluciones`,
+  `POST /api/tiktok/devoluciones`, tabla `tiktok_devoluciones`, migración
+  0129; pedido del dueño, 9-oct-2026: «cuando recibo una devolución la
+  pueda buscar fácil, confirmar de recibido para que reembolsen al cliente
+  y poner si se suma de nuevo al stock o se tira a la basura»): TikTok
+  lleva las devoluciones en SU API (`/return_refund/202309/returns/search`;
+  ruta y forma del SDK de npm), aparte de los pedidos: el renglón del
+  pedido NO cambia a RETURNED (en un mes de ventas no hubo uno), así que
+  hasta ese día el ERP no sabía de ninguna. El cron de TikTok (cada 15 min,
+  `sincronizarDevoluciones`, bitácora tarea `devoluciones`) baja las
+  creadas en los últimos 60 días (la primera vez desde el 1-sep-2026,
+  `DEVOLUCIONES_DESDE`) y las guarda masticadas: pedido, SKU del ERP por
+  renglón (amarrado por `order_line_item_id` contra `tiktok_orden_items`),
+  guía de regreso y paquetería, motivo, reembolso, estado y qué le toca al
+  vendedor con su plazo. La pantalla busca por la guía escaneada, el pedido
+  o el SKU (`coincideBusqueda`, sin guiones ni espacios, mínimo 4
+  caracteres) y agrupa (`grupoDeDevolucion`): POR RECIBIR (el cliente ya
+  la mandó, `BUYER_SHIPPED_ITEM` o acción `SELLER_RESPOND_RECEIVE_PACKAGE`),
+  en espera del cliente, pendientes de TikTok, recibidas y cerradas (un
+  `REFUND` sin paquete nunca es una devolución recibida). **Confirmar
+  recibido** (`confirmarDevolucionRecibida`) le manda a TikTok
+  `APPROVE_RECEIVED_PACKAGE` —con eso TikTok reembolsa— y SOLO si TikTok
+  acepta mueve el kardex (`movimientosDeDecision`): por par, «vuelve al
+  stock» = DEVOLUCIÓN del SKU, «se tira» = devolución + MERMA del mismo par
+  (constancia sin subir el saldo); la referencia es el PEDIDO, igual que la
+  devolución automática del sync, así el índice único nunca cuenta dos
+  veces. Los paquetes llegan a Industher (decisión del dueño: «directo,
+  disponible para enviar»), así que su foto cuenta el par y el kardex
+  cuadra; lo que vuelve se publica en el acto pasando por `sincronizarTikTok`
+  con `soloPedidos` (regla de oro). Un par sin SKU del ERP no se confirma
+  hasta amarrarlo. Pendientes grita las «por recibir» y las que vencen en
+  48 h. Fuera de esta versión: rechazar el paquete ante TikTok, aprobar la
+  solicitud inicial y reembolsos parciales. La migración se aplicó POR
+  PARTES con `execute_sql` (el `apply_migration` del MCP se colgaba con
+  más de una sentencia DDL ese día).
   **Muestras gratis** (`tiktok_ordenes.es_muestra`: `is_sample_order` o
   total $0): se despachan y descuentan como cualquier pedido, pero NO son
   venta (`ventas.ts` las deja fuera) y /tiktok/ventas las lista aparte.
@@ -2170,6 +2206,7 @@ login, la base y el deploy.
 | Acceso sin contraseña a contenido | `src/lib/servicios/acceso-contenido.ts` + `src/app/contenido/[token]` + `/api/contenido-publico/[token]` |
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
+| TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |
