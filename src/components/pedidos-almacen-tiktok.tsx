@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList, Eye, FileSpreadsheet, Save } from "lucide-react";
-import { Aviso, Ayuda, Cifras, Seccion } from "@/components/ui/pagina";
+import { Aviso, Cifras, Seccion } from "@/components/ui/pagina";
 import { Ficha } from "./tiles";
 import type { ResumenPedidoGuardado } from "@/lib/servicios/tiktok-pedidos-almacen";
 
@@ -141,18 +141,7 @@ export function PedidosAlmacenTikTok({
             <Save size={14} /> {guardando ? "Guardando…" : "Guardar pedido"}
           </button>
         </div>
-        <div className="mt-3">
-          <Ayuda titulo="¿Cómo se decide cuánto pedir?">
-            <p>
-              «Reponer lo vendido» pide par por par lo que salió en el periodo. «Cobertura» pide lo que falte para que el
-              disponible en TikTok alcance N días de venta.
-            </p>
-            <p>
-              Lo que ninguna bodega tiene no se pide ni sale en el Excel; solo se cuenta. Las bodegas guardan cajas cerradas:
-              la hoja pide pares por talla y la bodega elige con qué cajas los cubre.
-            </p>
-          </Ayuda>
-        </div>
+
         {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
         {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
       </section>
@@ -207,7 +196,7 @@ export function PedidosAlmacenTikTok({
                 {!vista.porModelo.length ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-6 text-center text-sm texto-2">
-                      Sin ventas en ese periodo: no hay nada que pedir.
+                      Sin ventas en ese periodo.
                     </td>
                   </tr>
                 ) : null}

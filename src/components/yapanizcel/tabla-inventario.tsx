@@ -136,8 +136,7 @@ export function TablaInventarioYz({ renglones }: { renglones: RenglonInv[] }) {
 
       {sinCategoria ? (
         <p className="text-xs texto-2">
-          Los diseños de «Sin categoría» no tienen tipo capturado: márcalos como Fundas, Tabletas o Micas en
-          Productos y costos (Bodega) y aquí se agrupan solos.
+          Los diseños de «Sin categoría» no tienen tipo capturado en Productos y costos.
         </p>
       ) : null}
 

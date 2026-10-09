@@ -53,7 +53,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
             ) : (
               <span> Todavía no se ha sincronizado.</span>
             )}
-            {pendientes?.count ? <span> {pendientes.count} publicaciones pendientes de SKU (se resuelven solas).</span> : null}
+            {pendientes?.count ? <span> {pendientes.count} publicaciones pendientes de SKU.</span> : null}
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <BotonSincronizar />
               <a href="/api/yapanizcel/meli/conectar" className="boton boton-fantasma boton-chico">
@@ -63,7 +63,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
           </div>
         ) : (
           <div>
-            <p className="texto-2 text-sm">Sin conectar. Inicia sesión en Mercado Libre con la cuenta de YAPANIZCEL.</p>
+            <p className="texto-2 text-sm">Sin conectar.</p>
             <a href="/api/yapanizcel/meli/conectar" className="boton boton-primario mt-3">
               Conectar con Mercado Libre
             </a>
@@ -75,7 +75,7 @@ export default async function AjustesYz({ searchParams }: { searchParams: Promis
         <>
           <Seccion titulo="Costos">
             <p className="texto-2 mb-3 text-sm">
-              Excel con dos columnas: <b>MODELO</b> (diseño, p. ej. 499) y <b>COSTO</b> en MXN. Actualiza lo que ya estaba y agrega lo nuevo.
+              Excel con columnas <b>MODELO</b> y <b>COSTO</b> (MXN).
             </p>
             <SubirCostos />
             {costos.length ? (

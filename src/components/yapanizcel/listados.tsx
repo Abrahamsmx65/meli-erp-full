@@ -176,9 +176,6 @@ export function ListadosYz({ disenos }: { disenos: { diseno: string; publicacion
                 Ninguna
               </button>
             </div>
-            <p className="text-xs texto-tenue">
-              Se aplica en todas las variantes de cada publicación seleccionada; si MELI lo rechaza, aquí sale su mensaje.
-            </p>
           </section>
 
           {grupo.items.map((it) => (

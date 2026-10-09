@@ -17,8 +17,7 @@ export function EnviosViejosFba({ enCamino }: { enCamino: EnCaminoFba | null }) 
   if (!enCamino) {
     return (
       <Aviso>
-        Los envíos entrantes a FBA aún no se sincronizan (tarda hasta una hora). Mientras,
-        el &quot;en camino&quot; sale del reporte de Amazon, que también cuenta envíos atorados.
+        Los envíos entrantes a FBA aún no se sincronizan.
       </Aviso>
     );
   }
