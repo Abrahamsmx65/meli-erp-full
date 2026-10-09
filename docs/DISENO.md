@@ -1,19 +1,18 @@
 # Guía de diseño de pantallas (9-oct-2026)
 
-## Armazón
+## Armazón y marca (9-oct-2026)
 
-Riel azul marino de altura completa a la izquierda (`--sidebar`, el azul de
-la marca) con el logo arriba (`components/logo.tsx`) y las secciones
-plegables; barra superior blanca y delgada con «Sección › Pantalla»
-(`ubicacion()` de `menu-lateral.tsx`), el buscador de bodega, el estado de
-la conexión y la salida; área de trabajo sobre gris muy claro. El login va a
-pantalla completa (marca a la izquierda, formulario a la derecha). Las
-pantallas sin sesión (/preparar, /contenido) llevan solo la franja de marca.
-Tarjetas: fondo blanco, borde de 1 px (`--borde`), radio de 10 px, sombra casi
-nula. Referencias de estilo en `.claude/skills/` (mercury-ui, ramp-ui,
-stripe-ui, linear-ui, vercel-ui) y criterios en `design-critique` y
-`ux-copy`.
+Marca GETAC: logo en `public/getac-logo.png` (sin fondo, `components/logo.tsx`)
+y la app se llama solo «GETAC». Paleta del logo: crema (`--plane`,
+`--sidebar`), arena y café (`--acento` #8b6640, AA sobre blanco), tinta café
+oscuro. Letra: DM Sans para texto y cifras; Fraunces solo en títulos.
+Gráficas con la paleta tierra validada (caramelo #a35f1c, mezclilla #3a72b8,
+verde #2f9c63, mostaza #d3a52e); una sola serie va en `--acento`.
+Menú crema con el logo arriba; login a pantalla completa con panel crema.
 
+**Sin explicaciones en pantalla** (dueño, 9-oct-2026): `descripcion` del
+encabezado y `ayuda`/`<Ayuda>` ya no se pintan; dentro de las pantallas solo
+quedan títulos, etiquetas, datos, errores y avisos que piden acción.
 
 Todas las pantallas del ERP se arman igual. Piezas en
 `src/components/ui/pagina.tsx`; clases en `src/app/globals.css`. Pantalla
@@ -60,9 +59,8 @@ una pestaña: se desmontaría al cambiar.
 
 ## Reglas de contenido
 
-1. **Descripción: UNA línea**, qué hay en la pantalla. Todo lo que explique
-   una regla del negocio, una fuente o una excepción va en `ayuda` (plegado),
-   NUNCA se borra: se mueve. Lo mismo dentro de una sección: `<Ayuda>`.
+1. **Sin explicaciones**: la `descripcion` y la `ayuda` quedan en el código
+   como nota, pero no se pintan. No se agregan párrafos que expliquen.
 2. **Un aviso solo si pide acción o advierte algo raro.** Si repite lo que ya
    dice una ficha o el encabezado, se quita. Avisos con `<Aviso tono=…>`:
    `info`, `bien`, `alerta`, `critico`. Nada de recuadros armados a mano con

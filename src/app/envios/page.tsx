@@ -151,6 +151,7 @@ export default async function Plan() {
         descripcion={`Próximo envío ${r.proximoEnvio} · cobertura objetivo ${p.horizonteDias} días · lead time ${p.leadTimeDias} días · ${p.enviosPorSemana} envíos por semana`}
         acciones={
           <>
+            <span className="texto-2 text-[13px]">Próximo envío {r.proximoEnvio}</span>
             <FrescuraPlan
               generadoEn={plan.generadoEn}
               vigente={estado.vigente}

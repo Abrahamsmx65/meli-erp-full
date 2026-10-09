@@ -1909,6 +1909,8 @@ midió y quedó como regla:
   next/headers) para que los servicios que llegan a componentes de cliente
   lo puedan importar.
 
+**Marca y diseño** (9-oct-2026): logo `public/getac-logo.png`, nombre «GETAC», paleta crema/arena/café, DM Sans + Fraunces, SIN explicaciones en pantalla, menú con nombres nuevos (Estado de resultados, Existencias, Reabasto a Full, Planeación de compras, Órdenes de compra, Despacho de pedidos…) y sin Conciliar (las rutas siguen). Despacho de TikTok: solo cortes de 2 días (los demás tras «Ver cortes anteriores»), tiempo de preparación por corte (`tiktok_tiempos_cortes`, migración 0126) y sin la casilla «sin defensa» (el servidor la sigue aceptando).
+
 **Diseño de pantallas** (`docs/DISENO.md`, piezas en
 `components/ui/pagina.tsx`; dueño, 9-oct-2026: «que todo se vea más bonito,
 más profesional […] que todo sea de la misma manera»): toda pantalla es
