@@ -9,6 +9,7 @@ import {
 import { puenteVentaANeto } from "@/lib/servicios/corte-meli-cascada";
 import { Ficha } from "@/components/tiles";
 import { AccionesCorte, GastosDelMes } from "@/components/cortes-meli";
+import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, Tabla } from "@/components/ui/pagina";
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -24,10 +25,17 @@ function pct(x: number | null): string {
  * La pantalla del corte mensual, la misma para calzado (/ventas/cortes) y
  * fundas (/yapanizcel/cortes): cambian la ruta, el API y los textos; el
  * estado de resultados es el mismo motor.
+ *
+ * `intro` es la explicación larga: si llega `descripcion` (una línea), la
+ * intro se pliega en «¿Cómo se calcula?»; sin `descripcion`, la intro se
+ * enseña como descripción (compatibilidad con las pantallas que aún no la
+ * pasan).
  */
 export function CorteVista({
   titulo,
   intro,
+  descripcion,
+  ceja,
   ruta,
   apiBase,
   periodo,
@@ -37,6 +45,10 @@ export function CorteVista({
 }: {
   titulo: string;
   intro: string;
+  /** Una sola línea para el encabezado; con ella `intro` va plegada. */
+  descripcion?: string;
+  /** Grupo del menú («Mercado Libre», «Fundas»). */
+  ceja?: string;
   /** ruta de la página, p. ej. "/ventas/cortes" */
   ruta: string;
   /** base del API, p. ej. "/api/ventas" */
@@ -49,43 +61,39 @@ export function CorteVista({
 }) {
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="titulo-pagina">{titulo}</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-          {intro}
-        </p>
-      </div>
+    <Pagina>
+      <Encabezado
+        ceja={ceja}
+        titulo={titulo}
+        descripcion={descripcion ?? intro}
+        frescura={e.generadoEn}
+        acciones={
+          <span className={`chip ${e.revision.exacto ? "aviso-bien" : "aviso-alerta"}`}>
+            {e.revision.exacto ? "Exacto" : `${e.avisos.length} pendientes para ser exacto`}
+          </span>
+        }
+        ayuda={descripcion ? <p>{intro}</p> : undefined}
+      />
 
       {/* ---- Mes --------------------------------------------------------- */}
-      <div className="tarjeta flex flex-wrap items-center gap-3 p-3 text-sm">
-        <Link href={`${ruta}?mes=${periodoAnterior(periodo)}`} className="rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--borde)" }}>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <Link href={`${ruta}?mes=${periodoAnterior(periodo)}`} className="boton boton-borde boton-chico">
           ← {nombreDelPeriodo(periodoAnterior(periodo))}
         </Link>
-        <span className="text-base font-semibold">{nombreDelPeriodo(periodo)}</span>
+        <span className="seccion-titulo capitalize">{nombreDelPeriodo(periodo)}</span>
         {periodo < hoy ? (
-          <Link href={`${ruta}?mes=${periodoSiguiente(periodo)}`} className="rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--borde)" }}>
+          <Link href={`${ruta}?mes=${periodoSiguiente(periodo)}`} className="boton boton-borde boton-chico">
             {nombreDelPeriodo(periodoSiguiente(periodo))} →
           </Link>
         ) : null}
-        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="texto-tenue text-xs">
           {e.desde} → {e.hasta} · {e.dias} días{periodo === hoy ? " · mes en curso" : ""}
-        </span>
-        <span
-          className="ml-auto rounded-full px-3 py-1 text-xs font-semibold"
-          style={
-            e.revision.exacto
-              ? { background: "var(--acento-suave)", color: "var(--exito-texto)" }
-              : { background: "#fff4d6", color: "#8a5a00" }
-          }
-        >
-          {e.revision.exacto ? "Exacto" : `${e.avisos.length} pendientes para ser exacto`}
         </span>
       </div>
 
       <AccionesCorte apiBase={apiBase} periodo={periodo} pendientes={e.revision.pendientes} cargosLeidos={e.cargosLeidos} corteId={corteDelMes?.id ?? null} />
       {corteDelMes ? (
-        <p className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <p className="texto-tenue text-xs">
           Corte guardado el{" "}
           {new Date(corteDelMes.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}{" "}
           con utilidad neta {pesos(corteDelMes.utilidadNeta)}. Lo de abajo es el cálculo de HOY; rehacer el corte lo vuelve a congelar.
@@ -93,36 +101,42 @@ export function CorteVista({
       ) : null}
 
       {/* ---- Cifras ------------------------------------------------------ */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <Cifras columnas={5}>
         <Ficha titulo="Venta bruta" valor={pesos(e.ventaBruta)} nota={`${n(e.unidades)} pares · ${n(e.ordenes)} órdenes`} />
         <Ficha titulo="Neto depositado" valor={pesos(e.netoDepositado)} nota={`${pct(e.ventaBruta > 0 ? e.netoDepositado / e.ventaBruta : null)} de la venta · ${Math.round(e.coberturaNetoReal * 100)}% real`} />
         <Ficha titulo="Utilidad bruta" valor={pesos(e.utilidadBruta)} nota="Neto − devoluciones − costo" tono={e.utilidadBruta < 0 ? "critico" : "neutro"} />
         <Ficha titulo="Utilidad neta" valor={pesos(e.utilidadNeta)} nota={e.gananciaPorPar != null ? `${pesos(e.gananciaPorPar)} por par` : ""} tono={e.utilidadNeta < 0 ? "critico" : "bien"} />
         <Ficha titulo="Margen" valor={pct(e.margenSobreVenta)} nota={`sobre el neto: ${pct(e.margenSobreNeto)}`} />
-      </div>
+      </Cifras>
 
       {/* ---- Cascada ----------------------------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">De la venta a la ganancia</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cada renglón es dinero real. La comisión es el sale fee de cada orden; «envíos y otros» es lo demás que MELI
-            descuenta antes de depositar (envío de Full, retenciones de ISR/IVA) y sale por diferencia contra el depósito.
-          </p>
-        </header>
-        <Cascada e={e} />
-      </section>
+      <Seccion titulo="De la venta a la ganancia" descripcion="Cada renglón es dinero real." sinRelleno>
+        <div className="px-4 pt-3">
+          <Ayuda>
+            <p>
+              Cada renglón es dinero real. La comisión es el sale fee de cada orden; «envíos y otros» es lo demás que MELI
+              descuenta antes de depositar (envío de Full, retenciones de ISR/IVA) y sale por diferencia contra el depósito.
+            </p>
+          </Ayuda>
+        </div>
+        <Tabla>
+          <Cascada e={e} />
+        </Tabla>
+      </Seccion>
 
       {/* ---- Exactitud --------------------------------------------------- */}
-      <section className="tarjeta p-4">
-        <h2 className="text-sm font-semibold">{e.revision.exacto ? "Corte exacto" : "Qué le falta al corte para ser exacto"}</h2>
-        <p className="mt-0.5 text-xs" style={{ color: "var(--ink-2)" }}>
-          {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
-          {n(e.cancelaciones.ordenes)} canceladas por {pesos(e.cancelaciones.importe)} fuera del corte · {n(e.devoluciones.ordenes)} devueltas por{" "}
-          {pesos(e.devoluciones.monto)}.
-        </p>
+      <Seccion
+        titulo={e.revision.exacto ? "Corte exacto" : "Qué le falta al corte para ser exacto"}
+        descripcion={
+          <>
+            {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
+            {n(e.cancelaciones.ordenes)} canceladas por {pesos(e.cancelaciones.importe)} fuera del corte · {n(e.devoluciones.ordenes)} devueltas por{" "}
+            {pesos(e.devoluciones.monto)}.
+          </>
+        }
+      >
         {e.avisos.length ? (
-          <ul className="mt-2 flex flex-col gap-1 text-sm">
+          <ul className="flex flex-col gap-1 text-sm">
             {e.avisos.map((a) => (
               <li key={a} className="flex gap-2">
                 <span style={{ color: "var(--acento)" }}>•</span>
@@ -131,73 +145,78 @@ export function CorteVista({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm" style={{ color: "var(--exito-texto)" }}>
+          <Aviso tono="bien">
             Todas las órdenes tienen su depósito real, su revisión y su costo; publicidad y cargos de MELI leídos del API.
-          </p>
+          </Aviso>
         )}
-      </section>
+      </Seccion>
 
       {/* ---- Gastos ------------------------------------------------------ */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Gastos capturados a mano</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Lo que no llega por API: almacenamiento de Full si la facturación no se pudo leer, publicidad fuera de Product
-              Ads, cualquier otro gasto del mes. Se restan de la utilidad neta.
-            </p>
-          </header>
+        <Seccion titulo="Gastos capturados a mano" descripcion="Lo que no llega por API; se resta de la utilidad neta." sinRelleno>
+          <div className="px-4 pt-3">
+            <Ayuda titulo="¿Qué se captura aquí?">
+              <p>
+                Lo que no llega por API: almacenamiento de Full si la facturación no se pudo leer, publicidad fuera de
+                Product Ads, cualquier otro gasto del mes. Se restan de la utilidad neta.
+              </p>
+            </Ayuda>
+          </div>
           <GastosDelMes apiBase={apiBase} gastos={e.gastosManuales} desde={e.desde} hasta={e.hasta} />
-        </section>
+        </Seccion>
 
-        <section className="tarjeta overflow-hidden">
-          <header className="border-b p-4 hairline">
-            <h2 className="text-base font-semibold">Facturado por MELI en el periodo</h2>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-              Por tipo de cargo. Solo «Full» y «Otro» se restan: comisión y envío ya van dentro del neto, Product Ads ya
-              cuenta desde el API de publicidad, y los pagos son abonos.
-            </p>
-          </header>
+        <Seccion titulo="Facturado por MELI en el periodo" descripcion="Por tipo de cargo. Solo «Full» y «Otro» se restan." sinRelleno>
+          <div className="px-4 pt-3">
+            <Ayuda>
+              <p>
+                Por tipo de cargo. Solo «Full» y «Otro» se restan: comisión y envío ya van dentro del neto, Product Ads ya
+                cuenta desde el API de publicidad, y los pagos son abonos.
+              </p>
+            </Ayuda>
+          </div>
           {e.cargosPorTipo.length ? (
-            <table className="datos">
-              <thead>
-                <tr>
-                  <th>Tipo</th>
-                  <th>Clase</th>
-                  <th className="num">Renglones</th>
-                  <th className="num">Monto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {e.cargosPorTipo.map((k) => (
-                  <tr key={k.tipo}>
-                    <td className="font-medium">{k.tipo}</td>
-                    <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
-                    <td className="num cifra">{n(k.renglones)}</td>
-                    <td className="num cifra">{pesos(k.monto)}</td>
+            <Tabla>
+              <table className="datos">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Clase</th>
+                    <th className="num">Renglones</th>
+                    <th className="num">Monto</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {e.cargosPorTipo.map((k) => (
+                    <tr key={k.tipo}>
+                      <td className="font-medium">{k.tipo}</td>
+                      <td>{({ full: "Full (se resta)", otro: "Otro (se resta)", venta: "En el neto", publicidad: "Publicidad", pago: "Pago / abono", bonificacion: "Anulación (no se suma)", resumen: "Resumen (no se resta)" } as Record<string, string>)[k.clase] ?? k.clase}</td>
+                      <td className="num cifra">{n(k.renglones)}</td>
+                      <td className="num cifra">{pesos(k.monto)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Tabla>
           ) : (
-            <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
+            <p className="texto-2 p-4 text-sm">
               Todavía no se lee la facturación de este periodo. Dale a «Leer facturación de MELI»; si MELI no la entrega,
               captura el almacenamiento de Full a mano.
             </p>
           )}
-        </section>
+        </Seccion>
       </div>
 
       {/* ---- Por modelo y por categoría ---------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por modelo</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y los
-            gastos de Full no se reparten por modelo.
-          </p>
-        </header>
-        <div className="max-h-[36rem] overflow-auto">
+      <Seccion titulo="Por modelo" descripcion="Ganancia = neto − costo − publicidad del modelo." sinRelleno>
+        <div className="px-4 pt-3">
+          <Ayuda>
+            <p>
+              Neto = depósito real repartido por SKU; ganancia = neto − costo − publicidad del modelo. Las devoluciones y
+              los gastos de Full no se reparten por modelo.
+            </p>
+          </Ayuda>
+        </div>
+        <Tabla alta>
           <table className="datos">
             <thead>
               <tr>
@@ -206,10 +225,10 @@ export function CorteVista({
                 <th className="num">Pares</th>
                 <th className="num">Venta</th>
                 <th className="num">Comisión</th>
-                 <th className="num">Envío</th>
-                 <th className="num">ISR</th>
-                 <th className="num">IVA</th>
-                 <th className="num">Otros</th>
+                <th className="num">Envío</th>
+                <th className="num">ISR</th>
+                <th className="num">IVA</th>
+                <th className="num">Otros</th>
                 <th className="num">Neto</th>
                 <th className="num">Costo</th>
                 <th className="num">Publicidad</th>
@@ -220,128 +239,127 @@ export function CorteVista({
               {e.porModelo.map((m) => (
                 <tr key={m.modelo}>
                   <td className="font-medium">{m.modelo}</td>
-                  <td style={{ color: "var(--ink-2)" }}>{m.categoria ?? "—"}</td>
+                  <td className="texto-2">{m.categoria ?? "—"}</td>
                   <td className="num cifra">{n(m.unidades)}</td>
                   <td className="num cifra">{pesos(m.importe)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.comision)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.envio ?? 0)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.isr ?? 0)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.iva ?? 0)}</td>
-                  <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(m.otrosCargos ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(m.comision)}</td>
+                  <td className="num cifra texto-tenue">{pesos(m.envio ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(m.isr ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(m.iva ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(m.otrosCargos ?? 0)}</td>
                   <td className="num cifra">{pesos(m.neto)}</td>
-                  <td className="num cifra" style={{ color: m.costo == null ? "var(--estado-alerta)" : "var(--ink-1)" }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
+                  <td className="num cifra" style={{ color: m.costo == null ? "var(--alerta-texto)" : "var(--ink-1)" }}>{m.costo == null ? "sin costo" : pesos(m.costo)}</td>
                   <td className="num cifra">{m.publicidad ? pesos(m.publicidad) : "—"}</td>
-                  <td className="num cifra font-semibold" style={{ color: m.ganancia == null ? "var(--ink-muted)" : m.ganancia < 0 ? "var(--estado-critico)" : "var(--exito-texto)" }}>
+                  <td className="num cifra font-semibold" style={{ color: colorGanancia(m.ganancia) }}>
                     {m.ganancia == null ? "—" : pesos(m.ganancia)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      </section>
+        </Tabla>
+      </Seccion>
 
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Por categoría</h2>
-        </header>
-        <table className="datos">
-          <thead>
-            <tr>
-              <th>Categoría</th>
-              <th className="num">Pares</th>
-              <th className="num">Venta</th>
-               <th className="num">Comisión</th>
-               <th className="num">Envío</th>
-               <th className="num">ISR</th>
-               <th className="num">IVA</th>
-               <th className="num">Otros</th>
-              <th className="num">Neto</th>
-              <th className="num">Costo</th>
-              <th className="num">Publicidad</th>
-              <th className="num">Ganancia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {e.porCategoria.map((k) => (
-              <tr key={k.categoria}>
-                <td className="font-medium">{k.categoria}</td>
-                <td className="num cifra">{n(k.unidades)}</td>
-                <td className="num cifra">{pesos(k.importe)}</td>
-                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.comision ?? 0)}</td>
-                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.envio ?? 0)}</td>
-                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.isr ?? 0)}</td>
-                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.iva ?? 0)}</td>
-                 <td className="num cifra" style={{ color: "var(--ink-muted)" }}>{pesos(k.otrosCargos ?? 0)}</td>
-                <td className="num cifra">{pesos(k.neto)}</td>
-                <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
-                <td className="num cifra">{k.publicidad ? pesos(k.publicidad) : "—"}</td>
-                <td className="num cifra font-semibold" style={{ color: k.ganancia == null ? "var(--ink-muted)" : k.ganancia < 0 ? "var(--estado-critico)" : "var(--exito-texto)" }}>
-                  {k.ganancia == null ? "—" : pesos(k.ganancia)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {/* ---- Cortes guardados -------------------------------------------- */}
-      <section className="tarjeta overflow-hidden">
-        <header className="border-b p-4 hairline">
-          <h2 className="text-base font-semibold">Cortes guardados</h2>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
-            Cada corte queda congelado con las cifras del momento; su PDF se puede bajar cuantas veces haga falta.
-          </p>
-        </header>
-        {cortes.length ? (
+      <Seccion titulo="Por categoría" sinRelleno>
+        <Tabla>
           <table className="datos">
             <thead>
               <tr>
-                <th>Mes</th>
-                <th>Hecho el</th>
-                <th className="num">Venta bruta</th>
+                <th>Categoría</th>
+                <th className="num">Pares</th>
+                <th className="num">Venta</th>
+                <th className="num">Comisión</th>
+                <th className="num">Envío</th>
+                <th className="num">ISR</th>
+                <th className="num">IVA</th>
+                <th className="num">Otros</th>
                 <th className="num">Neto</th>
-                <th className="num">Utilidad neta</th>
-                <th>Estado</th>
-                <th></th>
+                <th className="num">Costo</th>
+                <th className="num">Publicidad</th>
+                <th className="num">Ganancia</th>
               </tr>
             </thead>
             <tbody>
-              {cortes.map((c) => (
-                <tr key={c.id}>
-                  <td className="font-medium">
-                    <Link href={`${ruta}?mes=${c.periodo}`} style={{ color: "var(--acento)" }}>
-                      {nombreDelPeriodo(c.periodo)}
-                    </Link>
-                  </td>
-                  <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
-                  <td className="num cifra">{pesos(c.ventaBruta)}</td>
-                  <td className="num cifra">{pesos(c.netoDepositado)}</td>
-                  <td className="num cifra font-semibold" style={{ color: c.utilidadNeta < 0 ? "var(--estado-critico)" : "var(--exito-texto)" }}>{pesos(c.utilidadNeta)}</td>
-                  <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
-                  <td className="num">
-                    <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" style={{ color: "var(--acento)" }}>
-                      PDF
-                    </a>
-                    {" · "}
-                    <a href={`${apiBase}/cortes/${c.id}/excel`} style={{ color: "var(--acento)" }}>
-                      Excel
-                    </a>
+              {e.porCategoria.map((k) => (
+                <tr key={k.categoria}>
+                  <td className="font-medium">{k.categoria}</td>
+                  <td className="num cifra">{n(k.unidades)}</td>
+                  <td className="num cifra">{pesos(k.importe)}</td>
+                  <td className="num cifra texto-tenue">{pesos(k.comision ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(k.envio ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(k.isr ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(k.iva ?? 0)}</td>
+                  <td className="num cifra texto-tenue">{pesos(k.otrosCargos ?? 0)}</td>
+                  <td className="num cifra">{pesos(k.neto)}</td>
+                  <td className="num cifra">{k.costo == null ? "sin costo" : pesos(k.costo)}</td>
+                  <td className="num cifra">{k.publicidad ? pesos(k.publicidad) : "—"}</td>
+                  <td className="num cifra font-semibold" style={{ color: colorGanancia(k.ganancia) }}>
+                    {k.ganancia == null ? "—" : pesos(k.ganancia)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </Tabla>
+      </Seccion>
+
+      {/* ---- Cortes guardados -------------------------------------------- */}
+      <Seccion
+        titulo="Cortes guardados"
+        descripcion="Cada corte queda congelado con las cifras del momento; su PDF se puede bajar cuantas veces haga falta."
+        sinRelleno
+      >
+        {cortes.length ? (
+          <Tabla>
+            <table className="datos">
+              <thead>
+                <tr>
+                  <th>Mes</th>
+                  <th>Hecho el</th>
+                  <th className="num">Venta bruta</th>
+                  <th className="num">Neto</th>
+                  <th className="num">Utilidad neta</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cortes.map((c) => (
+                  <tr key={c.id}>
+                    <td className="font-medium">
+                      <Link href={`${ruta}?mes=${c.periodo}`} className="enlace">
+                        {nombreDelPeriodo(c.periodo)}
+                      </Link>
+                    </td>
+                    <td className="cifra">{new Date(c.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className="num cifra">{pesos(c.ventaBruta)}</td>
+                    <td className="num cifra">{pesos(c.netoDepositado)}</td>
+                    <td className="num cifra font-semibold" style={{ color: c.utilidadNeta < 0 ? "var(--critico-texto)" : "var(--exito-texto)" }}>{pesos(c.utilidadNeta)}</td>
+                    <td>{c.exacto ? "Exacto" : "Con pendientes"}</td>
+                    <td className="num">
+                      <a href={`${apiBase}/cortes/${c.id}/pdf`} target="_blank" rel="noreferrer" className="enlace">
+                        PDF
+                      </a>
+                      {" · "}
+                      <a href={`${apiBase}/cortes/${c.id}/excel`} className="enlace">
+                        Excel
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Tabla>
         ) : (
-          <p className="p-4 text-sm" style={{ color: "var(--ink-2)" }}>
-            Todavía no hay cortes guardados. Haz el primero con el botón de arriba.
-          </p>
+          <p className="texto-2 p-4 text-sm">Todavía no hay cortes guardados. Haz el primero con el botón de arriba.</p>
         )}
-      </section>
-    </div>
+      </Seccion>
+    </Pagina>
   );
 }
 
+const colorGanancia = (g: number | null | undefined) =>
+  g == null ? "var(--ink-muted)" : g < 0 ? "var(--critico-texto)" : "var(--exito-texto)";
 
 function Cascada({ e }: { e: EstadoResultados }) {
   const puente = puenteVentaANeto(e);
@@ -373,13 +391,13 @@ function Cascada({ e }: { e: EstadoResultados }) {
       <tbody>
         {filas.map((f) => {
           const total = f.tipo === "total" || f.tipo === "final";
-          const color = f.tipo === "final" ? (f.monto < 0 ? "var(--estado-critico)" : "var(--exito-texto)") : f.tipo === "suma" ? "var(--exito-texto)" : total ? "var(--ink-1)" : "var(--ink-2)";
+          const color = f.tipo === "final" ? (f.monto < 0 ? "var(--critico-texto)" : "var(--exito-texto)") : f.tipo === "suma" ? "var(--exito-texto)" : total ? "var(--ink-1)" : "var(--ink-2)";
           return (
             <tr key={f.etiqueta} style={total ? { background: "var(--surface-2)" } : undefined}>
               <td className={total ? "font-semibold" : ""} style={{ color: f.tipo === "final" ? color : undefined }}>
                 {f.etiqueta}
                 {f.nota ? (
-                  <div className="text-xs font-normal" style={{ color: "var(--ink-muted)" }}>
+                  <div className="texto-tenue text-xs font-normal">
                     {f.nota}
                   </div>
                 ) : null}

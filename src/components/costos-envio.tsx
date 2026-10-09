@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { EstadoVentasReales, Medida, ModeloRevisado, VarianteRevisada } from "@/lib/servicios/costos-envio";
+import { Aviso } from "@/components/ui/pagina";
 
 /**
  * Pantalla de costos de envío: qué publicaciones están mal medidas en MELI y
@@ -38,7 +39,7 @@ const fechaCorta = (iso: string) => {
 
 /** Los dos últimos cobros reales: "$59.60 (24/9, pedido $230.25, hermanas $59.60)". */
 function UltimosCobros({ real }: { real: VarianteRevisada["envioReal"] }) {
-  if (!real || !real.ultimos.length) return <span style={{ color: "var(--ink-muted)" }}>sin ventas</span>;
+  if (!real || !real.ultimos.length) return <span className="texto-tenue">sin ventas</span>;
   return (
     <div className="flex flex-col gap-0.5">
       {real.ultimos.map((u, i) => {
@@ -47,7 +48,7 @@ function UltimosCobros({ real }: { real: VarianteRevisada["envioReal"] }) {
         return (
           <div key={i} className="cifra text-xs" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
             <strong>{pesos(u.envio)}</strong>
-            <span style={{ color: "var(--ink-muted)" }}>
+            <span className="texto-tenue">
               {" "}
               {fechaCorta(u.fecha)} · pedido {pesos(u.total)} ·{" "}
               {u.normal == null
@@ -65,34 +66,34 @@ function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
   return (
     <tr>
       <td className="text-sm font-medium">{v.sku}</td>
-      <td className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-xs texto-2">
         {v.inventoryId ?? "—"}
       </td>
-      <td className="cifra text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-xs texto-2">
         {v.itemId ?? "—"}
       </td>
       <td className="cifra text-sm" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
         {caja(v.medida)}
-        <span className="ml-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-1 text-[11px] texto-tenue">
           {v.medida ? `${Math.round(v.medida.peso)} g` : ""}
         </span>
       </td>
-      <td className="cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="cifra text-sm texto-2">
         {caja(v.medidaReal)}
-        <span className="ml-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+        <span className="ml-1 text-[11px] texto-tenue">
           {v.medidaReal ? `${Math.round(v.medidaReal.peso)} g` : ""}
         </span>
       </td>
-      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <td className="text-xs texto-2">
         {v.envioGratis ? "yo" : "el comprador"}
       </td>
       <td className="num cifra text-sm" style={{ color: malo ? "var(--estado-critico)" : undefined }}>
         {pesos(v.costo)}
       </td>
-      <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="num cifra text-sm texto-2">
         {pesos(v.costoNormal)}
       </td>
-      <td className="num cifra text-sm" style={{ color: "var(--ink-2)" }}>
+      <td className="num cifra text-sm texto-2">
         {v.sobrecosto > 0 ? `+${pesos(v.sobrecosto)}` : "—"}
       </td>
       <td>
@@ -101,7 +102,7 @@ function Renglon({ v, malo }: { v: VarianteRevisada; malo: boolean }) {
       <td className="num cifra text-sm font-semibold" style={{ color: v.pagadoDeMas > 0 ? "var(--estado-critico)" : undefined }}>
         {v.conVentas ? (v.pagadoDeMas > 0 ? `+${pesos(v.pagadoDeMas)}` : "$0") : "—"}
         {v.envioReal && (
-          <div className="text-[11px] font-normal" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-[11px] font-normal texto-tenue">
             {v.envioReal.ordenes} ventas · {v.envioReal.comparables} comparables
           </div>
         )}
@@ -299,22 +300,20 @@ export function CostosEnvio({
           <button
             onClick={revisar}
             disabled={revisando}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
           >
             {revisando ? "Revisando…" : "Revisar de nuevo"}
           </button>
           <a
             href="/api/costos-envio/excel?formato=meli"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
-            style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+            className="boton boton-secundario"
           >
             Excel para MELI (Item ID · Site · medidas · link)
           </a>
           <button
             onClick={generarEvidencias}
             disabled={generando || revisando}
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline disabled:opacity-60"
+            className="boton boton-borde"
           >
             {generando ? "Dibujando evidencias…" : "Generar imágenes de evidencia"}
           </button>
@@ -326,8 +325,8 @@ export function CostosEnvio({
           </a>
           <a
             href="/api/costos-envio/excel?todo=1"
-            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline"
-            style={{ color: "var(--ink-2)" }}
+            className="rounded-lg border px-3 py-1.5 text-sm font-medium hairline texto-2"
+           
           >
             Excel del catálogo completo
           </a>
@@ -339,7 +338,7 @@ export function CostosEnvio({
           />
         </div>
 
-        <p className="mt-3 text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="mt-3 text-sm texto-2">
           <strong className="cifra">{totales.malas}</strong> publicaciones cobran de más, en{" "}
           <strong className="cifra">{conProblema.length}</strong> modelos ·{" "}
           <span style={{ color: "var(--estado-critico)" }}>
@@ -369,28 +368,25 @@ export function CostosEnvio({
         </p>
 
         {ventasReales.aviso && (
-          <p
-            className="mt-2 rounded-md px-3 py-2 text-sm"
-            style={{ background: "var(--alerta-fondo, #fef3c7)", color: "var(--alerta-texto, #92400e)" }}
-          >
+          <Aviso tono="alerta" className="mt-2">
             {ventasReales.aviso}
-          </p>
+          </Aviso>
         )}
 
         {aviso && (
-          <p className="mt-2 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="mt-2 text-sm texto-2">
             {aviso}
           </p>
         )}
         {error && (
-          <p className="mt-2 text-sm" style={{ color: "var(--estado-critico)" }}>
+          <Aviso tono="critico" className="mt-2">
             {error}
-          </p>
+          </Aviso>
         )}
       </section>
 
       {!filtrados.length && (
-        <p className="text-sm" style={{ color: "var(--ink-2)" }}>
+        <p className="text-sm texto-2">
           {busqueda
             ? `No hay ningún modelo que se llame así.`
             : totales.medidas === 0
@@ -406,16 +402,15 @@ export function CostosEnvio({
         return (
           <section key={m.modelo} className="tarjeta overflow-hidden">
             <header className="flex flex-wrap items-center gap-3 border-b p-4 hairline">
-              <h2 className="text-base font-semibold">{m.modelo}</h2>
-              <span className="text-sm" style={{ color: "var(--ink-2)" }}>
+              <h2 className="seccion-titulo">{m.modelo}</h2>
+              <span className="text-sm texto-2">
                 caja real <span className="cifra">{caja(m.medidaReal)}</span> cm según{" "}
                 <span className="cifra">{m.hermanas}</span> publicaciones · envío normal{" "}
                 <span className="cifra">{pesos(m.costoNormal)}</span>
               </span>
               {m.malas.length > 0 && (
                 <span
-                  className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-                  style={{ background: "var(--acento-suave)", color: "var(--estado-critico)" }}
+                  className="chip aviso-critico text-[11px]"
                 >
                   {m.malas.length} cobran de más ·{" "}
                   {m.pagadoDeMas > 0 ? `+${pesos(m.pagadoDeMas)} en 60 días` : `+${pesos(m.sobrecosto)} por venta (simulador)`}
@@ -423,13 +418,13 @@ export function CostosEnvio({
               )}
               <button
                 onClick={() => setAbiertos((p) => ({ ...p, [m.modelo]: !abierto }))}
-                className="ml-auto rounded-lg border px-3 py-1.5 text-xs font-medium hairline"
+                className="boton boton-borde boton-chico ml-auto"
               >
                 {abierto ? "Ver solo las malas" : `Ver las ${m.variantes.length} publicaciones`}
               </button>
               <a
                 href={`/api/costos-envio/excel?todo=1&modelo=${encodeURIComponent(m.modelo)}`}
-                className="rounded-lg border px-3 py-1.5 text-xs font-medium hairline"
+                className="boton boton-borde boton-chico"
               >
                 Excel
               </a>
@@ -438,8 +433,7 @@ export function CostosEnvio({
                   href={evidencia ?? `/api/costos-envio/evidencia?modelo=${encodeURIComponent(m.modelo)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hairline"
-                  style={evidencia ? { borderColor: "var(--acento)", color: "var(--acento)" } : { color: "var(--ink-2)" }}
+                  className={evidencia ? "boton boton-secundario boton-chico" : "boton boton-fantasma boton-chico"}
                   title={
                     evidencia
                       ? "El link público de la ficha, el que va en el Excel para MELI"
@@ -452,7 +446,7 @@ export function CostosEnvio({
             </header>
             {!abierto && m.malas.length === 0 ? (
               // Un modelo buscado a mano que está bien: decirlo, no enseñar una tabla vacía.
-              <p className="p-4 text-sm" style={{ color: "var(--estado-ok, #15803d)" }}>
+              <p className="p-4 text-sm" style={{ color: "var(--exito-texto)" }}>
                 Ninguna talla del {m.modelo} cobra de más según sus últimas ventas
                 {m.variantes.some((v) => v.conVentas)
                   ? `: en las ${m.variantes.filter((v) => v.conVentas).length} con ventas comparables, los dos últimos pedidos pagaron lo mismo que sus hermanas.`

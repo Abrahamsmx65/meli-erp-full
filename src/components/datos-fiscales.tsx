@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Aviso } from "./ui/pagina";
 
 /**
  * Sección de datos fiscales: SOLO los SKUs que no tienen la información
@@ -224,7 +225,7 @@ export function DatosFiscales() {
 
   if (cargando) {
     return (
-      <section className="tarjeta p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+      <section className="tarjeta p-6 text-sm texto-2">
         Cargando datos fiscales…
       </section>
     );
@@ -242,15 +243,14 @@ export function DatosFiscales() {
           <Dato etiqueta="Errores" valor={resumen.errores} alerta={resumen.errores > 0} />
           <span className="ml-auto flex items-center gap-2">
             {leyendo ? (
-              <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+              <span className="text-xs texto-tenue">
                 trabajando en segundo plano…
               </span>
             ) : null}
             <button
               onClick={leerDeMeli}
               disabled={leyendo}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+              className="boton boton-borde"
             >
               Leer catálogo de MELI
             </button>
@@ -259,12 +259,7 @@ export function DatosFiscales() {
       ) : null}
 
       {mensaje ? (
-        <p
-          className="rounded-lg p-3 text-sm"
-          style={{ background: "color-mix(in oklab, var(--estado-alerta) 12%, transparent)" }}
-        >
-          {mensaje}
-        </p>
+        <Aviso tono="alerta">{mensaje}</Aviso>
       ) : null}
 
       <section className="tarjeta overflow-hidden">
@@ -280,8 +275,7 @@ export function DatosFiscales() {
           <button
             onClick={rellenarTodos}
             disabled={!conSugerencia.length}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--acento)" }}
+            className="boton boton-primario"
             title="Encola todos los modelos visibles con su clave sugerida (heredada del propio modelo, de su categoría de MELI o del catálogo) o la que hayas capturado. Puedes corregir cualquier renglón antes de confirmar."
           >
             Confirmar y rellenar los {conSugerencia.length} modelos
@@ -289,7 +283,7 @@ export function DatosFiscales() {
         </header>
 
         {visibles.length === 0 ? (
-          <p className="p-6 text-sm" style={{ color: "var(--ink-2)" }}>
+          <p className="p-6 text-sm texto-2">
             {resumen && resumen.sinLeer > 0
               ? "Todavía no se lee todo el catálogo: usa «Leer catálogo de MELI» y espera a que termine."
               : "No hay SKUs sin datos fiscales. Todo el catálogo leído tiene su información cargada."}
@@ -319,18 +313,18 @@ export function DatosFiscales() {
                     <tr key={m.modelo}>
                       <td className="font-medium">{m.modelo}</td>
                       <td
-                        className="max-w-64 truncate text-xs"
-                        style={{ color: "var(--ink-2)" }}
+                        className="max-w-64 truncate text-xs texto-2"
+                       
                         title={m.titulo ?? ""}
                       >
                         {m.titulo ?? "—"}
                       </td>
-                      <td className="text-xs" style={{ color: "var(--ink-2)" }}>
+                      <td className="text-xs texto-2">
                         {m.categoria ?? "—"}
                       </td>
                       <td className="num cifra">
                         {m.sinDatos}
-                        <span style={{ color: "var(--ink-muted)" }}> / {m.totalSkus}</span>
+                        <span className="texto-tenue"> / {m.totalSkus}</span>
                       </td>
                       <td>
                         <input
@@ -352,7 +346,7 @@ export function DatosFiscales() {
                           }
                         />
                         {m.sugerenciaDe && m.sugerenciaDe !== "modelo" ? (
-                          <div className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+                          <div className="text-[10px] texto-tenue">
                             {m.sugerenciaDe === "categoria"
                               ? "de su categoría"
                               : "del catálogo: revísala"}
@@ -408,9 +402,9 @@ export function DatosFiscales() {
                       </td>
                       <td className="text-xs">
                         {st === "guardando" ? (
-                          <span style={{ color: "var(--ink-muted)" }}>…</span>
+                          <span className="texto-tenue">…</span>
                         ) : m.pendientes ? (
-                          <span style={{ color: "var(--ink-2)" }}>
+                          <span className="texto-2">
                             {m.pendientes} en cola
                           </span>
                         ) : m.errores ? (
@@ -455,7 +449,7 @@ function Dato({
       >
         {valor}
       </strong>
-      <span className="text-xs" style={{ color: "var(--ink-2)" }}>
+      <span className="text-xs texto-2">
         {etiqueta}
       </span>
     </span>

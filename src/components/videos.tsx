@@ -1284,8 +1284,8 @@ export function GeneradorVideo({
 
   return (
     <section className="tarjeta p-4">
-      <h2 className="font-semibold">Nuevo video</h2>
-      <p className="mt-0.5 text-sm" style={{ color: "var(--ink-2)" }}>
+      <h2 className="seccion-titulo">Nuevo video</h2>
+      <p className="texto-2 mt-0.5 text-[13px]">
         Clip, prueba y hablado se generan directo de tus fotos reales: el producto
         sale tal cual, sin que la IA lo redibuje. En UGC una persona lo presenta
         hablando (con tu voz grabada o voz de IA); ahí la IA recrea la escena con
@@ -1294,7 +1294,7 @@ export function GeneradorVideo({
 
       {/* 1. Publicación */}
       <div className="mt-3">
-        <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+        <div className="text-xs font-semibold uppercase tracking-wider texto-tenue">
           1 · Publicación
         </div>
         <input
@@ -1315,14 +1315,14 @@ export function GeneradorVideo({
                   className="w-full px-2 py-1.5 text-left text-sm hover:opacity-80"
                 >
                   {p.titulo}
-                  <span className="ml-1 text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <span className="ml-1 text-xs texto-tenue">
                     {p.skus[0] ?? p.itemId}
                   </span>
                 </button>
               </li>
             ))}
             {filtradas.length === 0 && (
-              <li className="px-2 py-1.5 text-xs" style={{ color: "var(--ink-muted)" }}>
+              <li className="px-2 py-1.5 text-xs texto-tenue">
                 Nada con ese texto.
               </li>
             )}
@@ -1331,7 +1331,7 @@ export function GeneradorVideo({
         {pub && (
           <p className="mt-1.5 text-sm">
             <span className="font-medium">{pub.titulo}</span>{" "}
-            <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-xs texto-tenue">
               {pub.itemId}
             </span>
           </p>
@@ -1341,11 +1341,11 @@ export function GeneradorVideo({
       {/* 2. Fotos */}
       {pub && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-xs font-semibold uppercase tracking-wider texto-tenue">
             2 · Fotos del producto
           </div>
           {cargandoFotos ? (
-            <p className="mt-1.5 text-sm" style={{ color: "var(--ink-muted)" }}>
+            <p className="mt-1.5 text-sm texto-tenue">
               Trayendo fotos de MELI…
             </p>
           ) : (
@@ -1374,7 +1374,7 @@ export function GeneradorVideo({
                   );
                 })}
               </div>
-              <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+              <p className="mt-1 text-[11px] texto-tenue">
                 Marca varias: la 1 es la principal del video; en la prueba rápida
                 todas se mandan de referencia a la IA.
               </p>
@@ -1386,7 +1386,7 @@ export function GeneradorVideo({
       {/* 3. Escena */}
       {principal && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--ink-muted)" }}>
+          <div className="text-xs font-semibold uppercase tracking-wider texto-tenue">
             3 · Formato y escena
           </div>
 
@@ -1411,7 +1411,7 @@ export function GeneradorVideo({
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-            <span style={{ color: "var(--ink-muted)" }}>Detecté:</span>
+            <span className="texto-tenue">Detecté:</span>
             <select
               value={tipo}
               onChange={(e) => cambiar({ tipo: e.target.value as TipoCalzado })}
@@ -1630,14 +1630,14 @@ export function GeneradorVideo({
                 <option value="720p">Calidad: 720p (más barato)</option>
               </select>
               {(costoVideo !== null || saldo !== null) && (
-                <span className="text-[11px] font-medium" style={{ color: "var(--ink-muted)" }}>
+                <span className="text-[11px] font-medium texto-tenue">
                   {costoVideo !== null && `≈ ${costoVideo} créditos por video`}
                   {costoVideo !== null && saldo !== null && " · "}
                   {saldo !== null && `Saldo: ${saldo}`}
                 </span>
               )}
               {avatarId && (
-                <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                <span className="text-[11px] texto-tenue">
                   Personaje para {TIPOS_ETIQUETA[tipo]}: misma cara en todos los
                   videos de este tipo.
                 </span>
@@ -1699,7 +1699,7 @@ export function GeneradorVideo({
               </button>
               {personajeAbierto && (
                 <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                  <p className="text-[11px] texto-tenue">
                     Tu influencer fijo: se crea una vez en tu cuenta de Higgsfield
                     y sale con la misma cara en todos los videos. Con una foto
                     real (tuya o de quien quieras que sea la imagen) o generado
@@ -1740,8 +1740,8 @@ export function GeneradorVideo({
                         <img src={fotoPersonaje} alt="Personaje" className="h-16 rounded" />
                         <button
                           onClick={() => setFotoPersonaje(null)}
-                          className="text-xs underline"
-                          style={{ color: "var(--ink-muted)" }}
+                          className="text-xs underline texto-tenue"
+                         
                         >
                           Quitar
                         </button>
@@ -1770,8 +1770,7 @@ export function GeneradorVideo({
                     <button
                       onClick={crearPersonajeAhora}
                       disabled={creandoPersonaje !== "no"}
-                      className="rounded px-3 py-1.5 text-sm text-white disabled:opacity-50"
-                      style={{ background: "var(--acento)" }}
+                      className="boton boton-primario"
                     >
                       {creandoPersonaje === "creando"
                         ? "Creando…"
@@ -1781,7 +1780,7 @@ export function GeneradorVideo({
                             ? "Crear con esta foto"
                             : "✨ Generarlo con IA"}
                     </button>
-                    <span className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                    <span className="text-[11px] texto-tenue">
                       {fotoPersonaje
                         ? "La cara de la foto será la del personaje."
                         : "Sin foto, la IA inventa a la persona con el estilo de la marca."}
@@ -1796,7 +1795,7 @@ export function GeneradorVideo({
             formato === "ugc" ||
             (formato === "studio" && estiloVoz !== "musica")) && (
             <label className="mt-2 flex max-w-2xl flex-col gap-1">
-              <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <span className="text-[11px] font-semibold texto-tenue">
                 {formato === "studio"
                   ? motorEstudio === "rapido"
                     ? "Guion base (Seedance lo dice en el video; en español)"
@@ -1818,7 +1817,7 @@ export function GeneradorVideo({
 
           {formato === "studio" && estiloVoz === "musica" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
-              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <div className="text-[11px] font-semibold texto-tenue">
                 Modo modelaje: nadie habla — el único audio es música. Lo más
                 confiable es TU pista (el ERP la monta tal cual sobre el video,
                 con entrada y salida suaves); sin pista, la música la inventa la
@@ -1877,7 +1876,7 @@ export function GeneradorVideo({
                   </button>
                 </div>
               )}
-              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+              <p className="mt-2 text-[11px] texto-tenue">
                 Sube solo música que tengas derecho a usar (comprada o libre de
                 regalías). La música de tendencia de TikTok no se puede bajar:
                 esa se le pone al video DENTRO de TikTok al publicarlo, donde su
@@ -1888,7 +1887,7 @@ export function GeneradorVideo({
 
           {formato === "studio" && motorEstudio === "rapido" && estiloVoz !== "musica" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
-              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <div className="text-[11px] font-semibold texto-tenue">
                 El ERP genera la voz del guion al darle Generar video (cuesta
                 centavos) y viaja de referencia: el video la clona diciendo tu
                 guion palabra por palabra, con los labios sincronizados. Aquí
@@ -1935,7 +1934,7 @@ export function GeneradorVideo({
                 </div>
               )}
               {usarVoz && (
-                <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                <p className="mt-1 text-[11px] texto-tenue">
                   El video se sincroniza a este audio y el archivo final lleva
                   esta pista tal cual: palabras garantizadas.
                 </p>
@@ -1945,7 +1944,7 @@ export function GeneradorVideo({
 
           {formato === "ugc" && !audio && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
-              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <div className="text-[11px] font-semibold texto-tenue">
                 Primer cuadro del video — sube una FOTO CASERA del producto
                 (recomendado): así arranca la escena y el producto sale idéntico
               </div>
@@ -1978,20 +1977,20 @@ export function GeneradorVideo({
                     <img src={fotoPropia} alt="Primer cuadro" className="h-24 rounded" />
                     <button
                       onClick={() => setFotoPropia(null)}
-                      className="text-xs underline"
-                      style={{ color: "var(--ink-muted)" }}
+                      className="text-xs underline texto-tenue"
+                     
                     >
                       Quitar
                     </button>
                   </>
                 ) : (
-                  <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+                  <span className="text-xs texto-tenue">
                     Sin foto propia se usa la de MELI, pero la portada casi nunca
                     arranca bien una escena real.
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+              <p className="mt-2 text-[11px] texto-tenue">
                 Tip: tómala VERTICAL con el celular, con el producto en un lugar con
                 vida — el piso de la sala, una mesa, la entrada — y luz normal. La
                 persona del video entra a cuadro y lo levanta desde ahí.
@@ -2001,7 +2000,7 @@ export function GeneradorVideo({
 
           {formato === "ugc" && (
             <div className="mt-3 max-w-2xl rounded-md border p-3 hairline">
-              <div className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <div className="text-[11px] font-semibold texto-tenue">
                 Tu voz (opcional) — sin audio, la voz la genera la IA; graba o sube
                 un audio si prefieres la tuya · máximo 15 s
               </div>
@@ -2017,8 +2016,7 @@ export function GeneradorVideo({
                 ) : (
                   <button
                     onClick={pararGrabacion}
-                    className="rounded px-3 py-1.5 text-sm text-white"
-                    style={{ background: "var(--estado-critico)" }}
+                    className="boton boton-peligro-lleno"
                   >
                     ⏹ Detener (se corta solo a los 15 s)
                   </button>
@@ -2043,21 +2041,21 @@ export function GeneradorVideo({
                   <>
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <audio src={audio} controls className="h-8" />
-                    <span className="cifra text-xs" style={{ color: "var(--ink-muted)" }}>
+                    <span className="cifra text-xs texto-tenue">
                       {audioSegundos.toFixed(1)} s → video de{" "}
                       {audioSegundos <= 5 ? 5 : audioSegundos <= 10 ? 10 : 15} s
                     </span>
                     <button
                       onClick={quitarAudio}
-                      className="text-xs underline"
-                      style={{ color: "var(--ink-muted)" }}
+                      className="text-xs underline texto-tenue"
+                     
                     >
                       Quitar
                     </button>
                   </>
                 )}
               </div>
-              <p className="mt-2 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+              <p className="mt-2 text-[11px] texto-tenue">
                 Con voz de IA el video ARRANCA de tu foto real (el producto sale
                 idéntico) y la persona entra a cuadro a levantarlo. Con tu audio se
                 genera primero a la persona (4 candidatas para elegir) y Speak la
@@ -2068,7 +2066,7 @@ export function GeneradorVideo({
 
           {formato === "ugc" && audio && (
             <label className="mt-3 flex max-w-2xl flex-col gap-1">
-              <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+              <span className="text-[11px] font-semibold texto-tenue">
                 Imagen de la persona (con tu audio se genera a la persona: salen 4
                 candidatas y eliges en cuál el producto quedó fiel)
               </span>
@@ -2082,7 +2080,7 @@ export function GeneradorVideo({
           )}
 
           <label className="mt-3 flex max-w-2xl flex-col gap-1">
-            <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+            <span className="text-[11px] font-semibold texto-tenue">
               {formato === "studio"
                 ? "Instrucciones para el Studio (concepto, idioma, energía del personaje)"
                 : formato === "ugc"
@@ -2096,7 +2094,7 @@ export function GeneradorVideo({
               className="w-full px-2 py-1.5 text-xs"
             />
           </label>
-          <p className="text-[11px]" style={{ color: "var(--ink-muted)" }}>
+          <p className="text-[11px] texto-tenue">
             {formato === "ugc"
               ? "Puedes editarlo. En inglés funciona mejor; el 🎲 arma otro concepto completo (escena, influencer y guion)."
               : "Puedes editarlo. En inglés funciona mejor; el 🎲 cambia luz y movimiento sin que tengas que escribir nada."}
@@ -2125,8 +2123,7 @@ export function GeneradorVideo({
                 !promptVideo.trim() ||
                 (formato === "ugc" && audio !== null && !promptImagen.trim())
               }
-              className="rounded px-4 py-1.5 text-sm text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               {estado === "enviando"
                 ? generandoVoz
@@ -2257,7 +2254,7 @@ export function ElegirImagen({ id, imagenes }: { id: string; imagenes: string[] 
           {error}
         </p>
       )}
-      <p className="mt-1 text-[11px]" style={{ color: "var(--ink-muted)" }}>
+      <p className="mt-1 text-[11px] texto-tenue">
         ¿Ninguna convence? Borra el intento y tira 🎲 otro concepto: la imagen es
         lo barato, el video es lo caro.
       </p>
@@ -2331,18 +2328,18 @@ export function CambiarVoz({ id }: { id: string }) {
 
   if (!abierto) {
     return (
-      <button onClick={abrir} className="text-xs underline" style={{ color: "var(--acento)" }}>
+      <button onClick={abrir} className="text-xs enlace">
         🎙 Cambiar voz
       </button>
     );
   }
   return (
     <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
-      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+      <span className="text-[11px] font-semibold texto-tenue">
         Otra voz, mismo video (visuales y tiempos intactos; sale como intento nuevo)
       </span>
       {estado === "cargando" ? (
-        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+        <span className="text-xs texto-tenue">
           Trayendo voces…
         </span>
       ) : (
@@ -2364,15 +2361,14 @@ export function CambiarVoz({ id }: { id: string }) {
             <button
               onClick={aplicar}
               disabled={estado === "enviando" || !vozSel}
-              className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario boton-chico"
             >
               {estado === "enviando" ? "Lanzando…" : "Aplicar"}
             </button>
             <button
               onClick={() => setAbierto(false)}
-              className="text-xs underline"
-              style={{ color: "var(--ink-muted)" }}
+              className="text-xs underline texto-tenue"
+             
             >
               Cancelar
             </button>
@@ -2424,8 +2420,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
     return (
       <button
         onClick={() => setAbierto(true)}
-        className="text-xs underline"
-        style={{ color: "var(--acento)" }}
+        className="text-xs enlace"
       >
         ✏️ Corregir subtítulos
       </button>
@@ -2433,7 +2428,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
   }
   return (
     <div className="flex max-w-[16rem] flex-col gap-1 rounded-md border p-2 hairline">
-      <span className="text-[11px] font-semibold" style={{ color: "var(--ink-muted)" }}>
+      <span className="text-[11px] font-semibold texto-tenue">
         Edita el texto y se re-quema sobre el mismo video — gratis, sin
         regenerar (la voz no cambia)
       </span>
@@ -2447,15 +2442,14 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
         <button
           onClick={aplicar}
           disabled={estado === "enviando" || !texto.trim()}
-          className="rounded px-2 py-1 text-xs text-white disabled:opacity-50"
-          style={{ background: "var(--acento)" }}
+          className="boton boton-primario boton-chico"
         >
           {estado === "enviando" ? "Re-quemando…" : "Aplicar"}
         </button>
         <button
           onClick={() => setAbierto(false)}
-          className="text-xs underline"
-          style={{ color: "var(--ink-muted)" }}
+          className="text-xs underline texto-tenue"
+         
         >
           Cancelar
         </button>
@@ -2465,7 +2459,7 @@ export function EditarSubtitulos({ id, guion }: { id: string; guion: string }) {
           {error}
         </span>
       )}
-      <span className="text-[10px]" style={{ color: "var(--ink-muted)" }}>
+      <span className="text-[10px] texto-tenue">
         Si el video se ve igual después, recarga la página sin caché.
       </span>
     </div>
@@ -2490,8 +2484,8 @@ export function BotonBorrar({ id }: { id: string }) {
     <button
       onClick={borrar}
       disabled={borrando}
-      className="text-xs underline disabled:opacity-50"
-      style={{ color: "var(--ink-muted)" }}
+      className="text-xs underline disabled:opacity-50 texto-tenue"
+     
     >
       {borrando ? "…" : "Borrar"}
     </button>

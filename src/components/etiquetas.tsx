@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import localFont from "next/font/local";
 import { codificar128 } from "@/lib/etiquetas/code128";
+import { Aviso } from "@/components/ui/pagina";
 
 // Las MISMAS letras que los PDF del paquete de la fábrica (extraídas de las
 // fuentes embebidas): Roboto Condensed Bold para MELI y Open Sans Condensed
@@ -409,11 +410,11 @@ export function Etiquetas({
     <div className="flex flex-col gap-5">
       {/* ---- Cómo agregar ------------------------------------------------- */}
       <section className="tarjeta p-4 no-imprimir">
-        <h2 className="text-sm font-semibold">Qué etiquetas necesitas</h2>
+        <h2 className="seccion-titulo">Qué etiquetas necesitas</h2>
 
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="text-sm texto-2">
               Buscar por SKU o título
             </label>
             <input
@@ -440,14 +441,14 @@ export function Etiquetas({
                       className="w-full px-2 py-1.5 text-left text-sm hover:opacity-80"
                     >
                       <span className="font-medium">{r.sku}</span>
-                      <span style={{ color: "var(--ink-muted)" }}>
+                      <span className="texto-tenue">
                         {r.codigoFull
                           ? ` · ${r.codigoFull}`
                           : r.fnsku
                             ? ` · Amazon · FNSKU ${r.fnsku}`
                             : " · sin código Full"}
                       </span>
-                      <div className="truncate text-xs" style={{ color: "var(--ink-2)" }}>
+                      <div className="truncate text-xs texto-2">
                         {r.titulo}
                       </div>
                     </button>
@@ -458,7 +459,7 @@ export function Etiquetas({
           </div>
 
           <div>
-            <label className="text-sm" style={{ color: "var(--ink-2)" }}>
+            <label className="text-sm texto-2">
               O pega una lista: un SKU por renglón, y al lado cuántas etiquetas
             </label>
             <textarea
@@ -472,8 +473,7 @@ export function Etiquetas({
             <button
               onClick={agregarPegado}
               disabled={cargando || !pegado.trim()}
-              className="mt-2 rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="mt-2 boton boton-primario"
             >
               Agregar la lista
             </button>
@@ -485,13 +485,12 @@ export function Etiquetas({
             <button
               onClick={() => resolver(sugeridas)}
               disabled={cargando}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               {sugeridasTexto?.boton ??
                 `Traer las ${sugeridas.length} SKUs del envío que está planeado`}
             </button>
-            <p className="mt-1 text-xs" style={{ color: "var(--ink-2)" }}>
+            <p className="mt-1 text-xs texto-2">
               {sugeridasTexto?.ayuda ??
                 "Toma el plan de envío a Full de hoy y pide una etiqueta por par de cada SKU que va en las cajas."}
             </p>
@@ -499,9 +498,9 @@ export function Etiquetas({
         ) : null}
 
         {error ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
+          <Aviso tono="critico" className="mt-3">
             {error}
-          </p>
+          </Aviso>
         ) : null}
       </section>
 
@@ -509,13 +508,13 @@ export function Etiquetas({
       {lista.length ? (
         <section className="tarjeta overflow-hidden no-imprimir">
           <header className="flex flex-wrap items-center gap-3 border-b p-3 hairline">
-            <h2 className="text-sm font-semibold">
+            <h2 className="seccion-titulo">
               {total} etiquetas de {lista.length} SKUs
             </h2>
 
             {soloMeli ? null : (
               <label className="ml-auto flex items-center gap-2 text-sm">
-                <span style={{ color: "var(--ink-2)" }}>Etiqueta</span>
+                <span className="texto-2">Etiqueta</span>
                 <select
                   value={tipo}
                   onChange={(e) => setTipo(e.target.value as TipoEtiqueta)}
@@ -530,7 +529,7 @@ export function Etiquetas({
             )}
 
             <label className={`flex items-center gap-2 text-sm ${soloMeli ? "ml-auto" : ""}`}>
-              <span style={{ color: "var(--ink-2)" }}>Tamaño</span>
+              <span className="texto-2">Tamaño</span>
               <select
                 value={tamano}
                 onChange={(e) => setTamano(e.target.value as Tamano)}
@@ -547,32 +546,28 @@ export function Etiquetas({
 
             <button
               onClick={() => setLista([])}
-              className="rounded-lg border px-3 py-1.5 text-sm font-medium"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-fantasma"
             >
               Vaciar
             </button>
             <button
               onClick={() => descargar("pdf")}
               disabled={!impresas.length || descargando !== null}
-              className="rounded-lg px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--acento)" }}
+              className="boton boton-primario"
             >
               {descargando === "pdf" ? "Generando…" : "PDF"}
             </button>
             <button
               onClick={() => descargar("zpl")}
               disabled={!impresas.length || descargando !== null}
-              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: "var(--acento)", color: "var(--acento)" }}
+              className="boton boton-secundario"
             >
               {descargando === "zpl" ? "Generando…" : "TXT (ZPL)"}
             </button>
             <button
               onClick={() => window.print()}
               disabled={!impresas.length}
-              className="rounded-lg border px-4 py-1.5 text-sm font-medium disabled:opacity-50"
-              style={{ borderColor: "var(--borde)" }}
+              className="boton boton-borde"
             >
               Imprimir
             </button>
@@ -601,12 +596,12 @@ export function Etiquetas({
                   </td>
                   {soloMeli ? null : (
                     <td className="cifra">
-                      {e.fnsku ?? <span style={{ color: "var(--ink-muted)" }}>—</span>}
+                      {e.fnsku ?? <span className="texto-tenue">—</span>}
                     </td>
                   )}
                   <td
-                    className="max-w-72 truncate text-xs"
-                    style={{ color: "var(--ink-2)" }}
+                    className="max-w-72 truncate text-xs texto-2"
+                   
                     title={e.titulo ?? ""}
                   >
                     {e.titulo ?? "—"}
@@ -640,8 +635,7 @@ export function Etiquetas({
                   <td>
                     <button
                       onClick={() => setLista((l) => l.filter((x) => x.sku !== e.sku))}
-                      className="text-sm"
-                      style={{ color: "var(--ink-muted)" }}
+                      className="texto-tenue text-sm"
                       aria-label={`Quitar ${e.sku}`}
                     >
                       ✕
@@ -653,14 +647,16 @@ export function Etiquetas({
           </table>
 
           {conProblema ? (
-            <div className="border-t p-3 text-sm hairline">
-              {lista
-                .filter((e) => e.problema)
-                .map((e) => (
-                  <p key={e.sku} style={{ color: "var(--estado-alerta)" }}>
-                    <strong>{e.sku}</strong>: {e.problema}
-                  </p>
-                ))}
+            <div className="border-t p-3 hairline">
+              <Aviso tono="alerta">
+                {lista
+                  .filter((e) => e.problema)
+                  .map((e) => (
+                    <p key={e.sku}>
+                      <strong>{e.sku}</strong>: {e.problema}
+                    </p>
+                  ))}
+              </Aviso>
             </div>
           ) : null}
         </section>
@@ -669,7 +665,7 @@ export function Etiquetas({
       {/* ---- La hoja de impresión ------------------------------------------ */}
       {impresas.length ? (
         <section className="tarjeta p-4">
-          <h2 className="text-sm font-semibold no-imprimir">
+          <h2 className="seccion-titulo no-imprimir">
             Así se van a ver ({TAMANOS[tamano].etiqueta})
           </h2>
 
