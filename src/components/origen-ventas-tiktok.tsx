@@ -1,4 +1,5 @@
 import type { OrigenVentas } from "@/lib/tiktok/ventas";
+import { Ayuda, Seccion } from "@/components/ui/pagina";
 
 function n(x: number): string {
   return Math.round(x).toLocaleString("es-MX");
@@ -30,14 +31,15 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
   const segmentos = SEGMENTOS.map((s) => ({ ...s, bloque: origen[s.clave] })).filter((s) => s.bloque.cobrado > 0);
   const maxCreador = origen.top[0]?.cobrado ?? 0;
   return (
-    <section className="tarjeta overflow-hidden">
-      <div className="px-4 pt-4">
-        <h2 className="text-sm font-semibold">Origen de la venta</h2>
-        <p className="text-xs texto-2">
-          Quién trajo cada pedido en pie del rango, según el endpoint de afiliados de TikTok: lo que vendió un creador y lo que
-          vendió la tienda sola. Porcentajes sobre lo cobrado. Un pedido que todavía no se revisa contra TikTok (se leen cada
-          hora) se declara aparte, no se cuenta como nuestro.
-        </p>
+    <Seccion titulo="Origen de la venta" descripcion="Creadores contra la tienda sola, en % de lo cobrado." sinRelleno>
+      <div className="px-4 pt-3">
+        <Ayuda titulo="¿De dónde sale?">
+          <p>
+            Quién trajo cada pedido en pie del rango, según el endpoint de afiliados de TikTok: lo que vendió un creador y lo
+            que vendió la tienda sola. Porcentajes sobre lo cobrado.
+          </p>
+          <p>Un pedido que todavía no se revisa contra TikTok (se leen cada hora) se declara aparte, no se cuenta como nuestro.</p>
+        </Ayuda>
       </div>
 
       {total.cobrado > 0 ? (
@@ -72,29 +74,29 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
         </p>
       )}
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="tabla-caja mt-4">
+        <table className="datos">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
-              <th className="px-4 py-2 font-semibold">#</th>
-              <th className="px-4 py-2 font-semibold">Creador</th>
-              <th className="px-4 py-2 text-right font-semibold">Pedidos</th>
-              <th className="px-4 py-2 text-right font-semibold">Pares</th>
-              <th className="px-4 py-2 text-right font-semibold">Cobrado</th>
-              <th className="px-4 py-2 text-right font-semibold">% de la venta</th>
-              <th className="px-4 py-2 font-semibold" aria-label="Proporción" />
+            <tr>
+              <th>#</th>
+              <th>Creador</th>
+              <th className="num">Pedidos</th>
+              <th className="num">Pares</th>
+              <th className="num">Cobrado</th>
+              <th className="num">% de la venta</th>
+              <th aria-label="Proporción" />
             </tr>
           </thead>
           <tbody>
             {origen.top.map((c, i) => (
-              <tr key={c.creador} className="hairline">
-                <td className="num px-4 py-2 texto-tenue">{i + 1}</td>
-                <td className="px-4 py-2 font-medium">@{c.creador}</td>
-                <td className="num px-4 py-2 text-right">{n(c.pedidos)}</td>
-                <td className="num px-4 py-2 text-right">{n(c.unidades)}</td>
-                <td className="num px-4 py-2 text-right">{pesos(c.cobrado)}</td>
-                <td className="num px-4 py-2 text-right font-semibold">{pct(c.porcentaje)}</td>
-                <td className="px-4 py-2" style={{ width: "22%" }}>
+              <tr key={c.creador}>
+                <td className="num cifra texto-tenue">{i + 1}</td>
+                <td className="font-medium">@{c.creador}</td>
+                <td className="num cifra">{n(c.pedidos)}</td>
+                <td className="num cifra">{n(c.unidades)}</td>
+                <td className="num cifra">{pesos(c.cobrado)}</td>
+                <td className="num cifra font-semibold">{pct(c.porcentaje)}</td>
+                <td style={{ width: "22%" }}>
                   <div className="h-2 w-full rounded-[4px]" style={{ background: "var(--superficie-2, rgba(0,0,0,0.06))" }}>
                     <div className="h-2 rounded-[4px]" style={{ width: `${maxCreador > 0 ? (c.cobrado / maxCreador) * 100 : 0}%`, background: "var(--acento)" }} />
                   </div>
@@ -118,6 +120,6 @@ export function OrigenVentasTikTok({ origen }: { origen: OrigenVentas }) {
           <div className="pb-2" />
         )}
       </div>
-    </section>
+    </Seccion>
   );
 }

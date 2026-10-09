@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
+import { Aviso, Vacio } from "@/components/ui/pagina";
 import { NOMBRE_ESTADO, type EstadoTienda, type PedidoTienda } from "@/lib/tienda/estados";
 
 const ORDEN: EstadoTienda[] = ["pagado", "sin_stock", "pendiente_pago", "enviado", "entregado", "cancelado", "expirado"];
@@ -117,9 +118,7 @@ export function PedidosTienda({
       </div>
 
       {mensaje && (
-        <div className="tarjeta p-3 text-sm" style={{ color: mensaje.error ? "var(--estado-critico)" : "var(--exito-texto)" }}>
-          {mensaje.texto}
-        </div>
+        <Aviso tono={mensaje.error ? "critico" : "bien"}>{mensaje.texto}</Aviso>
       )}
 
       <div className="flex flex-wrap gap-2">
@@ -140,7 +139,7 @@ export function PedidosTienda({
 
       {filtro === "pagado" && porSurtir.length > 0 && (
         <div className="tarjeta p-4">
-          <h2 className="titulo-seccion">Surtir para los pedidos pagados</h2>
+          <h2 className="seccion-titulo">Surtir para los pedidos pagados</h2>
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {porSurtir.map(([sku, n]) => (
               <span key={sku}>
@@ -151,7 +150,7 @@ export function PedidosTienda({
         </div>
       )}
 
-      {!visibles.length && <p className="text-sm texto-2">No hay pedidos en este estado.</p>}
+      {!visibles.length && <div className="tarjeta"><Vacio>No hay pedidos en este estado.</Vacio></div>}
 
       <div className="flex flex-col gap-3">
         {visibles.map((p) => {

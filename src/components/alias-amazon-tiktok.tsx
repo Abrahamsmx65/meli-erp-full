@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Aviso, Ayuda, Seccion } from "@/components/ui/pagina";
 
 export interface AliasAmazonFila {
   modelo: string;
@@ -45,12 +46,13 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Colores equivalentes en Amazon (para el FNSKU)</h2>
-      <p className="mt-0.5 text-xs texto-2">
-        Cuando TikTok llama al color distinto que Amazon, aquí se dice cuál es cuál por modelo. Así el corte
-        encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.
-      </p>
+    <Seccion
+      titulo="Colores equivalentes en Amazon (para el FNSKU)"
+      descripcion="Cuando TikTok llama al color distinto que Amazon, aquí se dice cuál es cuál por modelo."
+    >
+      <Ayuda titulo="¿Para qué sirve?">
+        <p>Así el corte encuentra el FNSKU y la hoja y la guía llevan el código de barras de la caja.</p>
+      </Ayuda>
       <form
         className="mt-3 flex flex-wrap items-end gap-2"
         onSubmit={(e) => {
@@ -74,7 +76,7 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
           Guardar
         </button>
       </form>
-      {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+      {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
       {alias.length ? (
         <ul className="mt-3 flex flex-wrap gap-2 text-sm">
           {alias.map((a) => (
@@ -85,7 +87,7 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
                 type="button"
                 onClick={() => void llamar("DELETE", { modelo: a.modelo, colorTikTok: a.colorTikTok })}
                 disabled={ocupado}
-                className="text-xs underline texto-2"
+                className="enlace text-xs"
               >
                 quitar
               </button>
@@ -93,6 +95,6 @@ export function AliasAmazonTikTok({ alias }: { alias: AliasAmazonFila[] }) {
           ))}
         </ul>
       ) : null}
-    </section>
+    </Seccion>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardList, Eye, FileSpreadsheet, Save } from "lucide-react";
+import { Aviso, Ayuda, Cifras, Seccion } from "@/components/ui/pagina";
 import { Ficha } from "./tiles";
 import type { ResumenPedidoGuardado } from "@/lib/servicios/tiktok-pedidos-almacen";
 
@@ -133,27 +134,33 @@ export function PedidosAlmacenTikTok({
               <input type="number" min={1} max={90} value={diasObjetivo} onChange={(e) => setDiasObjetivo(Number(e.target.value) || 15)} className="w-24 rounded-lg border px-2 py-1.5 text-sm" style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }} />
             </label>
           ) : null}
-          <button onClick={ver} disabled={cargando} className="boton boton-borde gap-1.5">
+          <button onClick={ver} disabled={cargando} className="boton boton-borde">
             <Eye size={14} /> {cargando ? "Armando…" : "Ver qué pedir"}
           </button>
-          <button onClick={guardar} disabled={guardando} className="boton boton-primario gap-1.5">
+          <button onClick={guardar} disabled={guardando} className="boton boton-primario">
             <Save size={14} /> {guardando ? "Guardando…" : "Guardar pedido"}
           </button>
         </div>
-        <p className="mt-2 text-xs texto-2">
-          «Reponer lo vendido» pide par por par lo que salió en el periodo. «Cobertura» pide lo que falte
-          para que el disponible en TikTok alcance N días de venta. Lo que ninguna bodega tiene no se pide
-          ni sale en el Excel; solo se cuenta. Las bodegas guardan cajas cerradas: la hoja pide pares por
-          talla y la bodega elige con qué cajas los cubre.
-        </p>
-        {aviso ? <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>{aviso}</p> : null}
-        {error ? <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+        <div className="mt-3">
+          <Ayuda titulo="¿Cómo se decide cuánto pedir?">
+            <p>
+              «Reponer lo vendido» pide par por par lo que salió en el periodo. «Cobertura» pide lo que falte para que el
+              disponible en TikTok alcance N días de venta.
+            </p>
+            <p>
+              Lo que ninguna bodega tiene no se pide ni sale en el Excel; solo se cuenta. Las bodegas guardan cajas cerradas:
+              la hoja pide pares por talla y la bodega elige con qué cajas los cubre.
+            </p>
+          </Ayuda>
+        </div>
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
       </section>
 
       {vista ? (
         <section className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">
+            <h2 className="seccion-titulo">
               {guardado ? `Pedido #${vista.numero}` : "Vista previa (sin guardar)"}
               <span className="ml-2 text-xs font-normal texto-2">
                 ventas del {vista.desde} al {vista.hasta} · {vista.dias} días ·{" "}
@@ -161,12 +168,12 @@ export function PedidosAlmacenTikTok({
               </span>
             </h2>
             {guardado ? (
-              <a href={`/api/tiktok/pedidos-almacen/${vista.id}/excel`} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
+              <a href={`/api/tiktok/pedidos-almacen/${vista.id}/excel`} className="boton boton-borde">
                 <FileSpreadsheet size={14} /> Excel del pedido
               </a>
             ) : null}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Cifras columnas={4}>
             <Ficha titulo="Pares vendidos" valor={vista.totales.vendidos} nota={`${vista.totales.skus} SKU`} />
             <Ficha titulo="Pares a pedir" valor={vista.totales.pedir} tono="bien" />
             <Ficha
@@ -179,7 +186,7 @@ export function PedidosAlmacenTikTok({
               tono={vista.totales.faltante ? "alerta" : "neutro"}
               nota={vista.sinBodega?.skus ? `${vista.sinBodega.skus} SKU sin nada en bodega: ${vista.sinBodega.lista.slice(0, 4).join(", ")}${vista.sinBodega.lista.length > 4 ? "…" : ""}` : undefined}
             />
-          </div>
+          </Cifras>
 
           <div className="tarjeta overflow-x-auto">
             <table className="w-full text-sm">
@@ -210,9 +217,8 @@ export function PedidosAlmacenTikTok({
         </section>
       ) : null}
 
-      <section className="tarjeta overflow-hidden">
-        <h2 className="px-4 pt-4 text-sm font-semibold">Pedidos guardados</h2>
-        <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
+      <Seccion titulo="Pedidos guardados" sinRelleno>
+        <ul className="divide-y" style={{ borderColor: "var(--grid)" }}>
           {pedidos.map((p) => (
             <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hairline">
               <div className="text-sm">
@@ -223,10 +229,10 @@ export function PedidosAlmacenTikTok({
                 </span>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => verGuardado(p.id)} className="boton boton-borde gap-1.5">
+                <button onClick={() => verGuardado(p.id)} className="boton boton-borde">
                   <ClipboardList size={14} /> Ver
                 </button>
-                <a href={`/api/tiktok/pedidos-almacen/${p.id}/excel`} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: "var(--grid)" }}>
+                <a href={`/api/tiktok/pedidos-almacen/${p.id}/excel`} className="boton boton-borde">
                   <FileSpreadsheet size={14} /> Excel
                 </a>
               </div>
@@ -238,7 +244,7 @@ export function PedidosAlmacenTikTok({
             </li>
           ) : null}
         </ul>
-      </section>
+      </Seccion>
     </div>
   );
 }

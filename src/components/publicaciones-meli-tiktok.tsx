@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Upload } from "lucide-react";
+import { Ayuda, Seccion } from "@/components/ui/pagina";
 import type { PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { PublicacionMeliParaTikTok } from "@/lib/tiktok/publicar";
 
@@ -55,14 +56,18 @@ export function PublicacionesMeliTikTok({
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="titulo-seccion">Publicaciones de MELI con varios modelos</h2>
-      <p className="mt-0.5 text-xs texto-2">
-        En MELI estas publicaciones juntan varios modelos como variantes. En TikTok se publican igual: UN producto cuyas
-        variantes son «modelo + color» («GT117 Café», «GT118 Negro»…) con sus tallas, las fotos de cada variación de MELI,
-        la descripción de la publicación y el SKU de MELI tal cual (el kardex y el amarre ya lo conocen). Un precio único por
-        producto. La casilla «Dejarlos como borrador» de arriba también aplica aquí.
-      </p>
+    <Seccion
+      titulo="Publicaciones de MELI con varios modelos"
+      descripcion="Se publican en TikTok como UN producto con variantes «modelo + color» y un precio único."
+    >
+      <Ayuda titulo="¿Cómo se arman?">
+        <p>
+          En MELI estas publicaciones juntan varios modelos como variantes. En TikTok se publican igual: UN producto cuyas
+          variantes son «modelo + color» («GT117 Café», «GT118 Negro»…) con sus tallas, las fotos de cada variación de MELI,
+          la descripción de la publicación y el SKU de MELI tal cual (el kardex y el amarre ya lo conocen).
+        </p>
+        <p>Un precio único por producto. La casilla «Dejarlos como borrador» de arriba también aplica aquí.</p>
+      </Ayuda>
       <table className="mt-3 w-full text-sm">
         <thead>
           <tr className="text-left text-xs texto-2">
@@ -155,6 +160,6 @@ export function PublicacionesMeliTikTok({
           })}
         </tbody>
       </table>
-    </section>
+    </Seccion>
   );
 }

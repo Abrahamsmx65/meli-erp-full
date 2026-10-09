@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
+import { Aviso, Ayuda, Seccion } from "@/components/ui/pagina";
 
 interface Renglon {
   sku: string;
@@ -87,14 +88,16 @@ export function EntradasTikTok() {
   }
 
   return (
-    <section className="tarjeta p-4">
-      <h2 className="text-sm font-semibold">Corregir a mano</h2>
-      <p className="mt-0.5 text-xs texto-2">
-        Las entradas llegan solas de Industher y las salidas las ponen los pedidos. Esto es para
-        lo demás: una merma, un par que regresó, un conteo. Se le publica a TikTok en el mismo
-        clic.
-        {ayuda ? ` ${ayuda}.` : ""}
-      </p>
+    <Seccion
+      titulo="Corregir a mano"
+      descripcion={`Una merma, un par que regresó, un conteo. Se le publica a TikTok en el mismo clic.${ayuda ? ` ${ayuda}.` : ""}`}
+    >
+      <Ayuda titulo="¿Cuándo se usa?">
+        <p>
+          Las entradas llegan solas de Industher y las salidas las ponen los pedidos. Esto es para lo demás: una merma, un
+          par que regresó, un conteo.
+        </p>
+      </Ayuda>
 
       <div className="mt-3 flex flex-col gap-2">
         {renglones.map((r, i) => (
@@ -136,8 +139,7 @@ export function EntradasTikTok() {
             <button
               onClick={() => setRenglones((p) => (p.length === 1 ? [{ ...VACIO }] : p.filter((_, j) => j !== i)))}
               aria-label={`Quitar el renglón ${i + 1}`}
-              className="rounded-lg border p-1.5"
-              style={{ borderColor: "var(--grid)", color: "var(--ink-2)" }}
+              className="boton boton-borde boton-chico px-1.5"
             >
               <Trash2 size={14} />
             </button>
@@ -148,7 +150,7 @@ export function EntradasTikTok() {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setRenglones((p) => [...p, { ...VACIO }])}
-          className="boton boton-borde boton-chico gap-1.5"
+          className="boton boton-borde boton-chico"
         >
           <Plus size={14} /> Otro renglón
         </button>
@@ -161,16 +163,8 @@ export function EntradasTikTok() {
         </button>
       </div>
 
-      {aviso ? (
-        <p className="mt-2 text-xs" style={{ color: "var(--exito-texto)" }}>
-          {aviso}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="mt-2 text-xs" style={{ color: "var(--estado-critico)" }}>
-          {error}
-        </p>
-      ) : null}
-    </section>
+      {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
+      {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
+    </Seccion>
   );
 }

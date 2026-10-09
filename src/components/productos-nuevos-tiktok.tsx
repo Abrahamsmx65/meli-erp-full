@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { Aviso } from "@/components/ui/pagina";
 import type { ProductosNuevosTikTok, PublicacionEnCola } from "@/lib/servicios/tiktok-publicar";
 import type { ProductoAmazonParaTikTok } from "@/lib/tiktok/publicar";
 import { PublicacionesMeliTikTok } from "./publicaciones-meli-tiktok";
@@ -268,9 +269,9 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   return (
     <div className="flex flex-col gap-6">
       {datos.avisos.map((a) => (
-        <div key={a} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "#f59e0b", color: "#92400e", background: "#fffbeb" }}>
-          <AlertTriangle size={16} /> {a}
-        </div>
+        <Aviso key={a} tono="alerta">
+          {a}
+        </Aviso>
       ))}
 
       <section className="tarjeta p-4">
@@ -285,7 +286,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
           <label className="flex items-center gap-1.5 text-sm texto-2">
             <input type="checkbox" checked={verPublicados} onChange={(e) => setVerPublicados(e.target.checked)} /> Ver también lo que TikTok ya vende
           </label>
-          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde gap-1.5">
+          <button onClick={refrescarLista} disabled={refrescando} className="boton boton-borde">
             <RefreshCw size={14} className={refrescando ? "animate-spin" : ""} /> Releer Amazon
           </button>
           <span className="text-xs texto-2">
@@ -312,28 +313,28 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
             </label>
             <label
               className="flex items-center gap-1.5 text-sm"
-              style={{ color: volverAPublicar ? "#92400e" : "var(--ink-2)" }}
+              style={{ color: volverAPublicar ? "var(--alerta-texto)" : "var(--ink-2)" }}
               title="Para un producto que quedó mal: se publica OTRA VEZ con TODOS sus colores como producto nuevo. El viejo hay que borrarlo en el Seller Center; en la siguiente lectura del catálogo deja de contar."
             >
               <input type="checkbox" checked={volverAPublicar} onChange={(e) => setVolverAPublicar(e.target.checked)} /> Volver a publicar aunque TikTok ya lo tenga (sale otro producto)
             </label>
-            <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario gap-1.5">
+            <button onClick={publicar} disabled={enviando || !listos.length} className="boton boton-primario">
               {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Publicar en TikTok ({listos.length})
             </button>
             {sinPrecio > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
                 {sinPrecio} marcado{sinPrecio === 1 ? "" : "s"} sin precio: no se publica{sinPrecio === 1 ? "" : "n"} hasta capturarlo.
               </span>
             ) : null}
             {sinColores > 0 ? (
-              <span className="text-xs" style={{ color: "#92400e" }}>
+              <span className="text-xs" style={{ color: "var(--alerta-texto)" }}>
                 {sinColores} marcado{sinColores === 1 ? "" : "s"} solo con colores apagados en Amazon: marca «Incluir colores sin tallas activas» para publicarlos.
               </span>
             ) : null}
           </div>
         ) : null}
-        {error ? <p className="mt-3 text-sm" style={{ color: "#b91c1c" }}>{error}</p> : null}
-        {aviso ? <p className="mt-3 text-sm" style={{ color: "#15803d" }}>{aviso}</p> : null}
+        {error ? <Aviso tono="critico" className="mt-3">{error}</Aviso> : null}
+        {aviso ? <Aviso tono="bien" className="mt-3">{aviso}</Aviso> : null}
       </section>
 
       <section className="tarjeta overflow-x-auto">
@@ -395,7 +396,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
       {datos.cola.length ? (
         <section className="tarjeta p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="titulo-seccion">Cola de publicación</h2>
+            <h2 className="seccion-titulo">Cola de publicación</h2>
             <div className="flex items-center gap-2 text-xs texto-2">
               {trabajando ? (
                 <>
@@ -445,7 +446,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                         {c.borrador ? " (borrador)" : ""}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "#b91c1c" : "var(--ink-2)" }}>
+                    <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "var(--critico-texto)" : "var(--ink-2)" }}>
                       {c.estado === "error" ? c.error : c.productId ? `Producto ${c.productId}` : c.intentos > 1 ? `Intento ${c.intentos}` : ""}
                       {c.avisos.length ? ` · TikTok avisa: ${c.avisos.join("; ")}` : ""}
                     </td>
@@ -508,13 +509,13 @@ function FilaProducto({
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
   const estado = !p.coloresPorPublicar.length
-    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "#92400e" : "#15803d" }
+    ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "var(--alerta-texto)" : "var(--exito-texto)" }
     : bloqueado
       ? { texto: enCola?.estado === "publicando" ? "Publicando…" : "En cola", color: "var(--acento)" }
       : enCola?.estado === "error"
-        ? { texto: "Falló; ver cola", color: "#b91c1c" }
+        ? { texto: "Falló; ver cola", color: "var(--critico-texto)" }
         : p.coloresEnTikTok.length
-          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "#92400e" }
+          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "var(--alerta-texto)" }
           : { texto: "Sin publicar", color: "var(--ink-2)" };
 
   return (
@@ -620,7 +621,7 @@ function FilaProducto({
                     ) : null}
                     <span className="font-medium">{c.nombre || c.color}</span>
                     <span className="texto-2">{c.color}</span>
-                    {c.enTikTok.length ? <span style={{ color: "#15803d" }}>ya en TikTok</span> : null}
+                    {c.enTikTok.length ? <span style={{ color: "var(--exito-texto)" }}>ya en TikTok</span> : null}
                   </div>
                   <table className="mt-1">
                     <tbody>

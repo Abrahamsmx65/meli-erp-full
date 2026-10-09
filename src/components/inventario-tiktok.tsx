@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Seccion } from "@/components/ui/pagina";
 import { LigarTikTok } from "@/components/ligar-tiktok";
 import type { RenglonTikTok } from "@/lib/servicios/tiktok-panel";
 import { filtrarInventario, ordenarPorSku, totalesDeInventario } from "@/lib/tiktok/inventario-vista";
@@ -31,25 +32,21 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
   const sinLinea = useMemo(() => renglones.filter((r) => !r.publicable && r.disponible > 0).length, [renglones]);
 
   return (
-    <section className="tarjeta overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
-        <h2 className="text-sm font-semibold">Inventario por SKU</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs texto-2">
-            Orden alfabético · venta de los últimos {diasVenta} días
-          </span>
+    <Seccion
+      titulo="Inventario por SKU"
+      descripcion={`Orden alfabético · venta de los últimos ${diasVenta} días`}
+      sinRelleno
+      acciones={
           <a
             href="/api/tiktok/resumen-modelos"
-            className="rounded-lg border px-3 py-1 text-xs font-medium"
-            style={{ borderColor: "var(--borde)", color: "var(--ink)" }}
+            className="boton boton-borde boton-chico"
             title="Un renglón por modelo: foto, categoría, ID y estado en TikTok, stock en la bodega TikTok, stock por bodega de cajas y ventas de MELI de toda la historia"
           >
             Excel por modelo
           </a>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3 px-4">
+      }
+    >
+      <div className="flex flex-wrap items-center gap-3 px-4 pt-3">
         <input
           type="search"
           value={busqueda}
@@ -59,7 +56,7 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           className="min-w-[16rem] flex-1 rounded-lg border px-2 py-1.5 text-sm"
           style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
         />
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: sinLinea ? "var(--estado-alerta)" : "var(--ink-2)" }}>
+        <label className="flex items-center gap-1.5 text-xs" style={{ color: sinLinea ? "var(--alerta-texto)" : "var(--ink-2)" }}>
           <input type="checkbox" checked={soloSinLinea} onChange={(e) => setSoloSinLinea(e.target.checked)} />
           Solo con stock sin publicación activa ({n(sinLinea)})
         </label>
@@ -83,23 +80,23 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
         </div>
       </div>
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="tabla-caja mt-3">
+        <table className="datos">
           <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide texto-tenue">
-              <th className="px-4 py-2 font-semibold">SKU</th>
-              <th className="px-4 py-2 text-right font-semibold">En almacén</th>
-              <th className="px-4 py-2 text-right font-semibold">Apartado</th>
-              <th className="px-4 py-2 text-right font-semibold">Disponible</th>
-              <th className="px-4 py-2 text-right font-semibold">En TikTok</th>
-              <th className="px-4 py-2 text-right font-semibold">Venta {diasVenta}d</th>
-              <th className="px-4 py-2 text-right font-semibold">Cobertura</th>
+            <tr>
+              <th>SKU</th>
+              <th className="num">En almacén</th>
+              <th className="num">Apartado</th>
+              <th className="num">Disponible</th>
+              <th className="num">En TikTok</th>
+              <th className="num">Venta {diasVenta}d</th>
+              <th className="num">Cobertura</th>
             </tr>
           </thead>
           <tbody>
             {vistos.map((r) => (
-              <tr key={r.sku} className="hairline">
-                <td className="px-4 py-2">
+              <tr key={r.sku}>
+                <td>
                   <span className="font-medium">{r.sku}</span>
                   {r.titulo ? (
                     <span className="block text-xs texto-2">
@@ -126,23 +123,23 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
                     </>
                   ) : null}
                 </td>
-                <td className="num px-4 py-2 text-right" style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}>
+                <td className="num cifra" style={{ color: r.enRojo ? "var(--estado-critico)" : undefined }}>
                   {n(r.saldo)}
                 </td>
-                <td className="num px-4 py-2 text-right texto-2">
+                <td className="num cifra texto-2">
                   {r.apartado ? n(r.apartado) : "—"}
                 </td>
-                <td className="num px-4 py-2 text-right font-semibold">{n(r.disponible)}</td>
+                <td className="num cifra font-semibold">{n(r.disponible)}</td>
                 <td
-                  className="num px-4 py-2 text-right"
+                  className="num cifra"
                   style={{ color: r.desfasado ? "var(--estado-critico)" : "var(--ink-2)" }}
                 >
                   {r.publicado == null ? "—" : n(r.publicado)}
                 </td>
-                <td className="num px-4 py-2 text-right texto-2">
+                <td className="num cifra texto-2">
                   {r.ventas30 ? n(r.ventas30) : "—"}
                 </td>
-                <td className="num px-4 py-2 text-right texto-2">
+                <td className="num cifra texto-2">
                   {r.diasCobertura == null ? "—" : `${Math.round(r.diasCobertura)} d`}
                 </td>
               </tr>
@@ -163,6 +160,6 @@ export function InventarioTikTok({ renglones, diasVenta }: { renglones: RenglonT
           </tbody>
         </table>
       </div>
-    </section>
+    </Seccion>
   );
 }
