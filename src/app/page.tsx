@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Container, Package, ShoppingBag, Truck, TriangleAlert } from "lucide-react";
 import { cronometro } from "@/lib/servicios/cronometro";
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { fechaMx } from "@/lib/servicios/ventas-monitor";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
@@ -12,7 +12,10 @@ import { leerPlanParcial } from "@/lib/servicios/cache";
 import { NOMBRE_CANAL } from "@/lib/servicios/consolidado";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
-import { BarrasApiladasPorDia, type PuntoApilado, type SerieApilada } from "@/components/ui/graficas";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanalesConFecha } from "@/lib/servicios/ventas-tiempo";
+import { MonitorHoy } from "@/components/ui/monitor-hoy";
+import { armarMonitorHoy, minutoMx } from "@/lib/graficas/monitor-hoy";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +27,9 @@ export const dynamic = "force-dynamic";
  * solo en MELI sino en todo junto»): calzado en MELI, fundas, Amazon y
  * TikTok, juntos y por canal.
  *
- * Regla de arquitectura: aquí no se calcula NADA. La venta por día y canal
- * sale del RPC `ventas_por_dia_canales` (sumas en Postgres, ~35 ms); el mes
+ * Regla de arquitectura: aquí no se calcula NADA. La venta por día y por hora
+ * de cada canal sale masticada de `ventas_por_hora` (las mismas reglas que
+ * cada pantalla de ventas, el correo y el Estado de resultados); el mes
  * del corte general guardado (`consolidado_cache`); el plan solo por sus
  * claves; y dos conteos baratos (TikTok sin corte, contenedores).
  */
@@ -44,7 +48,7 @@ export default async function Inicio() {
   const periodo = periodoActual();
   const hoy = fechaMx(0);
   const desde30 = fechaMx(29);
-  const [mes, plan, tiktok, contenedores, diario] = await Promise.all([
+  const [mes, plan, tiktok, contenedores, serie] = await Promise.all([
     leerConsolidadoGuardado(supabase, cuenta, periodo).catch(() => null),
     leerPlanParcial(supabase, cuenta.id, ["resumen", "pendientes"]).catch(() => null),
     supabase
@@ -59,40 +63,44 @@ export default async function Inicio() {
       .eq("account_id", cuenta.id)
       .in("estado", ["en_transito", "borrador"])
       .order("fecha_llegada_est", { ascending: true, nullsFirst: false }),
-    supabase.rpc("ventas_por_dia_canales", {
-      p_meli: cuenta.id,
-      p_amazon: amz?.id ?? null,
-      p_yz: yz?.id ?? null,
-      p_desde: desde30,
-      p_hasta: hoy,
-    }),
+    servirVariosCanalesConFecha(
+      clienteAdmin(),
+      [
+        { canal: "meli_calzado", accountId: cuenta.id },
+        { canal: "amazon", accountId: amz?.id },
+        { canal: "meli_fundas", accountId: yz?.id },
+        { canal: "tiktok", accountId: cuenta.id },
+      ],
+      { desde: desde30, hasta: hoy },
+    ),
   ]);
 
   t.fin();
+  const diario = serie.series;
+  // El monitor corta a la hora en que se leyó la serie (puede ser de hace
+  // unos minutos): comparar contra ayer a la hora de AHORA castigaría a hoy.
+  const leidoEn = serie.generadoEn ? Date.parse(serie.generadoEn) : Date.now();
+  const minuto = fechaDe(leidoEn) === hoy ? minutoMx(leidoEn) : minutoMx();
+  const monitor = armarMonitorHoy(diario, hoy, minuto);
 
-  // La serie apilada de 30 días, un valor por canal y día (los días sin venta van en cero).
-  const filas = (diario.data ?? []) as { fecha: string; canal: string; unidades: number; importe: number }[];
-  const porDia = new Map<string, Record<string, number>>();
-  const unidadesPorDia = new Map<string, number>();
-  for (const f of filas) {
-    const dia = String(f.fecha).slice(0, 10);
-    const v = porDia.get(dia) ?? {};
-    v[f.canal] = (v[f.canal] ?? 0) + Number(f.importe ?? 0);
-    porDia.set(dia, v);
-    unidadesPorDia.set(dia, (unidadesPorDia.get(dia) ?? 0) + Number(f.unidades ?? 0));
+  // Los totales de arriba salen de la MISMA serie que la gráfica.
+  const porDia = new Map<string, { importe: number; unidades: number }>();
+  for (const c of diario) {
+    for (const d of c.dias) {
+      const v = porDia.get(d.f) ?? { importe: 0, unidades: 0 };
+      v.importe += d.i;
+      v.unidades += d.u;
+      porDia.set(d.f, v);
+    }
   }
-  const serie: PuntoApilado[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const f = fechaMx(i);
-    serie.push({ fecha: f, valores: porDia.get(f) ?? {} });
-  }
-  const sumaDia = (f: string) => Object.values(porDia.get(f) ?? {}).reduce((a, x) => a + x, 0);
+  const sumaDia = (f: string) => porDia.get(f)?.importe ?? 0;
+  const unidadesDia = (f: string) => porDia.get(f)?.unidades ?? 0;
   const ventaHoy = sumaDia(hoy);
   const ventaAyer = sumaDia(fechaMx(1));
   const ultimos7 = Array.from({ length: 7 }, (_, i) => fechaMx(i));
   const venta7 = ultimos7.reduce((a, f) => a + sumaDia(f), 0);
-  const unidades7 = ultimos7.reduce((a, f) => a + (unidadesPorDia.get(f) ?? 0), 0);
-  const conDatos = SERIES.filter((s) => filas.some((f) => f.canal === s.clave));
+  const unidades7 = ultimos7.reduce((a, f) => a + unidadesDia(f), 0);
+  const hayVentas = porDia.size > 0;
 
   const resumen = plan?.resumen as { totalCajas?: number; skusCriticos?: number; skusUrgentes?: number } | undefined;
   const pend = plan?.pendientes as { sinCorrida?: unknown[]; sinAmarre?: unknown[] } | undefined;
@@ -153,12 +161,12 @@ export default async function Inicio() {
       <Cifras columnas={4}>
         <Ficha
           titulo="Vendido hoy · todos los canales"
-          valor={filas.length ? pesos(ventaHoy) : "—"}
-          nota={`${n(unidadesPorDia.get(hoy) ?? 0)} unidades · ayer ${pesos(ventaAyer)}`}
+          valor={hayVentas ? pesos(ventaHoy) : "—"}
+          nota={`${n(unidadesDia(hoy))} unidades · ayer ${pesos(ventaAyer)}`}
         />
         <Ficha
           titulo="Últimos 7 días · todos los canales"
-          valor={filas.length ? pesos(venta7) : "—"}
+          valor={hayVentas ? pesos(venta7) : "—"}
           nota={`${n(unidades7)} unidades`}
         />
         <Ficha
@@ -178,8 +186,12 @@ export default async function Inicio() {
         />
       </Cifras>
 
-      <Seccion titulo="Venta diaria por canal" descripcion="Últimos 30 días">
-        <BarrasApiladasPorDia puntos={serie} series={conDatos.length ? conDatos : SERIES} etiqueta="Venta" />
+      <Seccion titulo="Hoy contra ayer y la semana pasada" descripcion="A la misma hora">
+        <MonitorHoy monitor={monitor} />
+      </Seccion>
+
+      <Seccion titulo="Venta por canal, por día y por hora" descripcion="Últimos 30 días">
+        <GraficaVentasTiempo datos={diario} desde={desde30} hasta={hoy} />
       </Seccion>
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
@@ -308,12 +320,6 @@ export default async function Inicio() {
  * Orden de colores fijo y validado con el validador de dataviz (tonos tierra
  * de la marca: caramelo, mezclilla, verde y mostaza); no se cicla.
  */
-const SERIES: SerieApilada[] = [
-  { clave: "calzado", nombre: "Calzado · MELI", color: "#a35f1c" },
-  { clave: "amazon", nombre: "Amazon", color: "#3a72b8" },
-  { clave: "fundas", nombre: "Fundas · MELI", color: "#2f9c63" },
-  { clave: "tiktok", nombre: "TikTok", color: "#d3a52e" },
-];
 
 interface Tarea {
   href: string;
@@ -330,6 +336,10 @@ function n(x: number): string {
 
 function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.round(Math.abs(x)).toLocaleString("es-MX");
+}
+
+function fechaDe(ms: number): string {
+  return new Date(ms - 6 * 3_600_000).toISOString().slice(0, 10);
 }
 
 function horaMx(): number {

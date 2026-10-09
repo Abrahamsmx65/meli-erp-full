@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { cuentaAmazon } from "@/lib/servicios/amazon";
+import { cuentaActiva as cuentaFundas } from "@/lib/yapanizcel/cuenta";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { nombreDelPeriodo, periodoActual, periodoAnterior, validarPeriodo } from "@/lib/servicios/corte-meli";
 import { leerConsolidadoGuardado, leerMismosDiasGuardado, listarCortesGenerales, obtenerConsolidado, periodosDesde, PRIMER_PERIODO_CORTES } from "@/lib/servicios/consolidado-cargar";
@@ -64,6 +68,19 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
     leerMismosDiasGuardado(supabase, cuenta, periodo),
   ]);
   const comparacion = anterior ? compararMeses(cns, anterior, fechaMx(0), mismosDias) : null;
+  // La venta del mes por día y por hora de los cuatro canales (masticada).
+  const hastaGrafica = cns.hasta < fechaMx(0) ? cns.hasta : fechaMx(0);
+  const [amz, yz] = await Promise.all([cuentaAmazon(supabase).catch(() => null), cuentaFundas(supabase).catch(() => null)]);
+  const tiempo = await servirVariosCanales(
+    clienteAdmin(),
+    [
+      { canal: "meli_calzado", accountId: cuenta.id },
+      { canal: "amazon", accountId: amz?.id },
+      { canal: "meli_fundas", accountId: yz?.id },
+      { canal: "tiktok", accountId: cuenta.id },
+    ],
+    { desde: cns.desde, hasta: hastaGrafica },
+  );
   const corteDelMes = cortes.find((c) => c.periodo === periodo) ?? null;
   const calculables = cns.canales.filter((k) => k.calculable !== false);
   const canales: Canal[] = calculables.map((k) => k.canal);
@@ -191,6 +208,10 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
                     <RepartoPesoVista filas={repartoDelPeso(cns)} />
                   </Seccion>
                 </div>
+
+                <Seccion titulo="Venta por día y por hora" descripcion={`${cns.desde} → ${hastaGrafica}`}>
+                  <GraficaVentasTiempo datos={tiempo} desde={cns.desde} hasta={hastaGrafica} />
+                </Seccion>
 
                 {comparacion ? (
                   <ComparacionMensualVista comp={comparacion} nombreActual={nombreDelPeriodo(periodo)} nombreAnterior={nombreDelPeriodo(periodoAnterior(periodo))} />

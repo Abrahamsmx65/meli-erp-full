@@ -8,6 +8,7 @@
  * a medias. Maps y Sets se aplanan con la marca de tipos del plan de FBA.
  */
 import type { DB } from "../datos/repos";
+import { marcarRefrescando } from "./marca-refresco";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 import {
   esErrorObjetoLegacy,
@@ -166,6 +167,7 @@ export async function servirConCacheApp<T>(
   const { datos, generadoEn, vigente } = guardado.valor;
   const viejo = !vigente || Date.now() - Date.parse(generadoEn) > edadMaxMs;
   if (!viejo) return { datos, generadoEn, refrescando: false };
+  marcarRefrescando();
 
   try {
     const { after } = await import("next/server");

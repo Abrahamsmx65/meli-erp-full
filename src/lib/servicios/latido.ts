@@ -327,6 +327,14 @@ export async function latido(
       } catch (err) {
         console.error("precalcularPantallasVentas:", (err as Error).message);
       }
+      // Las gráficas por día y por hora (Ventas, Inicio, Estado de resultados).
+      try {
+        const { precalcularVentasTiempo } = await import("./ventas-tiempo");
+        const { fechaMx } = await import("./ventas-monitor");
+        await precalcularVentasTiempo(admin, accountId, limite - 20_000, fechaMx(0));
+      } catch (err) {
+        console.error("precalcularVentasTiempo:", (err as Error).message);
+      }
     }
 
     await cerrarSync(admin, logId, "ok", { procesados, msPlan, errorAvisos, diasReparados });

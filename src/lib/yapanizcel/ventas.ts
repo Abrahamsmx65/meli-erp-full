@@ -1,8 +1,9 @@
 /**
  * Monitor de ventas con costos y ganancia.
  *
- * Por SKU y por diseño, en el periodo elegido: unidades, importe de lista,
- * comisión de MELI, neto real depositado, costo y ganancia. Regla del
+ * Por SKU y por diseño, en el periodo elegido: unidades, venta al precio
+ * público (la reventa reconstruida, migración 0133), comisión de MELI,
+ * neto real depositado, costo y ganancia. Regla del
  * dueño: NADA se estima. Un renglón cuyo depósito aún no se ha leído de
  * Mercado Pago aporta cero al neto y a la ganancia, y se declara aparte
  * (venta y unidades sin neto); el cron de netos lo completa solo.

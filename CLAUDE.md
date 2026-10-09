@@ -1671,6 +1671,58 @@ guárdala numerada.
   la comisión y el envío reconstruidos de las reventas salían como un
   descuadre de cientos de miles. `pendientes_vencidas` separa las órdenes a
   las que ya toca revisión de las que aún no llegan al plazo.
+  **Todas las pantallas de VENTAS cuentan como el corte y el correo**
+  (migración 0133, `ventas_vivas` / `yz_ventas_vivas`; dueño, 9-oct-2026:
+  «en el correo me llega diferente info de venta de ayer que lo que veo en
+  el panel», eligió la venta al PRECIO PÚBLICO y «que en todas las
+  secciones la info sea consistente»): `ventas_resumen_sku`,
+  `ventas_totales_dia`, `yz_ventas_resumen` y `yz_ventas_por_dia` (Ventas
+  MELI, Ventas de fundas, Publicidad, finanzas, Excel por modelo de TikTok)
+  salen de las ÓRDENES VIVAS (sin canceladas) y, en un día sin órdenes
+  registradas, de los renglones diarios, igual que `ventasDelCorte`; la
+  reventa reconstruida (`total_comprador − total`) sube la venta Y la
+  comisión repartida por importe entre los renglones de la orden: el neto
+  no cambia. El 8-oct el panel decía 1,761 pares / $222 mil y el correo
+  1,745 / $361 mil (16 pares cancelados y 1,584 de 1,620 órdenes en
+  reventa); hoy dicen lo mismo al centavo. El PLAN de Full sigue con los
+  renglones diarios (`ventas_resumen_sku_diarias`): solo pregunta si un SKU
+  vendió alguna vez.
+  **Gráfica de venta POR DÍA y POR HORA** (migración 0134, RPC
+  `ventas_por_hora(canal, cuenta, desde, hasta)` → jsonb {dias, horas};
+  `servicios/ventas-tiempo.ts` masticado en `app_cache`
+  `ventas-tiempo:v1:{canal}:{desde}:{hasta}`, el latido deja listos 7 y 30
+  días de calzado y TikTok; motor puro `graficas/ventas-tiempo.ts`;
+  `components/ui/grafica-ventas-tiempo.tsx`; dueño, 9-oct-2026: «una gráfica
+  por horas y por días en todos los canales y en el general»): en Ventas
+  MELI, Ventas de fundas, Ventas Amazon, Ventas TikTok, Inicio (los cuatro
+  canales, 30 días; sus cifras de hoy y 7 días salen de la MISMA serie) y la
+  pestaña Resumen del Estado de resultados. Botones Por día / Por hora y
+  Facturación / Unidades; por hora se suma cada hora de México en todo el
+  rango y el globo da el promedio por día. Mismas reglas que cada pantalla:
+  calzado y fundas = `ventas_vivas` con la hora de `orden_cruda.date_created`;
+  TikTok = pedidos en pie, precio × cantidad; Amazon = `amazon_ventas_diarias`
+  por día y `amazon_ventas_horas` por hora, que la lectura del reporte llena
+  desde el 9-oct-2026 (`agregarDesdeReporte` → `horas`, `guardarHoras`): lo
+  anterior no tiene hora y la gráfica lo dice.
+  **Monitor de HOY en Inicio** (`graficas/monitor-hoy.ts` puro con pruebas,
+  `components/ui/monitor-hoy.tsx`; dueño, 9-oct-2026: «un monitor de ventas
+  hoy comparado con ayer y con el mismo día la semana pasada»): se compara
+  A LA MISMA HORA, no contra el día completo: lo que ayer (o hace 7 días)
+  llevaba = su día completo × la parte que ya había pasado según sus horas
+  (no toda orden trae hora), la hora en curso en proporción a sus minutos, y
+  el corte es la hora en que se leyó la serie (`servirVariosCanalesConFecha`),
+  no la de ahora. Un canal sin hora ese día (Amazon antes del 9-oct) sale de
+  la comparación —también lo suyo de hoy, `hoyContraAyer`— y se nombra.
+  Las series de `ventas-tiempo` viven 5 min.
+- **Una pantalla servida con datos viejos se vuelve a pedir sola**
+  (`marca-refresco.ts`, `components/ui/refresco-al-terminar.tsx`; dueño,
+  9-oct-2026: «cada vez que me meto a una pestaña me sale la información no
+  actualizada y tengo que actualizar»): `servirConCacheApp`, al servir un
+  renglón viejo y mandarlo a refrescar en `after()`, deja una marca POR
+  REQUEST (`cache` de React) y `<Pagina>` monta un componente que hace
+  `router.refresh()` a los 5, 15 y 40 s hasta que el servidor ya no lo
+  manda. Y `staleTimes` se quitó de `next.config.mjs`: con 30 s el
+  navegador reutilizaba la pantalla vieja al volver a una pestaña.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
@@ -2288,7 +2340,7 @@ login, la base y el deploy.
 | Recordatorios del contenedor por correo (migración 0082, en el cron diario de packing lists): una SEMANA antes de la llegada estimada, las fotos que faltan; el día que LLEGA, aviso de que está en USA. Uno por contenedor (`aviso_previo_en`, `aviso_llegada_en`); lo ya recibido o con más de 30 días de retraso no dispara nada | `src/lib/servicios/avisos-contenedor.ts` |
 | Compartir los documentos del embarque: lee la subcarpeta de Drive de ESE contenedor y abre un borrador de correo con los enlaces (un `mailto:` no lleva adjuntos) | `/api/contenedores/[id]/documentos` + botón «Compartir docs» |
 | Correo con las fotos que faltan al cargar un contenedor NUEVO (a mano o desde Drive): productos nuevos de sus pedidos sin publicar o con menos de 2 fotos; Resend por HTTP (`RESEND_API_KEY`, `CORREO_REMITENTE`, `CORREO_AVISOS`); constancia en `contenedores.fotos_aviso_en` | `src/lib/servicios/fotos-contenedor.ts` + `correo.ts` |
-| Resumen de ventas de AYER por correo a las 8:00 de México (cron `/api/cron/resumen-diario` 14:00Z; pedido del dueño, 28-sep-2026) y cada LUNES además la SEMANA pasada de lunes a domingo (`semanaQueCierra`, `tramosPorMes` si cruza de mes, `sumarFilas`): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatarios `CORREO_RESUMEN_DIARIO` separados por coma (por omisión los tres del dueño, `DESTINATARIOS_RESUMEN`); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar) | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
+| Resumen de ventas de AYER por correo a las 8:00 de México (cron `/api/cron/resumen-diario` 14:00Z; pedido del dueño, 28-sep-2026) y cada LUNES además la SEMANA pasada de lunes a domingo (`semanaQueCierra`, `tramosPorMes` si cruza de mes, `sumarFilas`): unidades, facturación y ganancia de calzado, fundas, Amazon y TikTok, las cuatro del motor del corte general recortado a UN día (`cargarConsolidado({ desde, hasta })`); ganancia del día = neto real − costo − publicidad, SIN los gastos que se cobran por mes (van en el corte); lo que aún no tiene depósito o número de TikTok se declara. Abajo, el mes hasta hoy del corte general guardado. Destinatarios `CORREO_RESUMEN_DIARIO` separados por coma (por omisión los tres del dueño, `DESTINATARIOS_RESUMEN`); constancia en `sync_log` tarea `correo-resumen-diario` y no se repite un día ya mandado (`?dia=…&forzar=1` para probar). **Lleva la cara de la página** (dueño, 9-oct-2026): franja café con el logo por URL (`/getac-logo.png`, público), tarjeta blanca sobre crema, tres cifras grandes, tablas con el punto de color de cada plataforma y botón al Estado de resultados; la plantilla y los tonos viven en `correo-marca.ts` (`plantillaCorreo`, `TONO`), todo en línea y en tablas, con reglas para celular | `src/lib/servicios/resumen-diario.ts` + `/api/cron/resumen-diario` |
 | Costos de envío mal cobrados     | `src/lib/servicios/costos-envio.ts` + `/costos-envio` |
 | Solicitud a MELI de revisión de medidas (Excel Item ID/Site/medidas en cm y g ENTEROS hacia abajo + ficha de evidencia PNG por modelo, bucket `evidencia-envio`) | `src/lib/servicios/evidencia-envio.ts` (+ `-imagen.tsx`, `-generar.ts`) + `/api/costos-envio/evidencia` + `/api/costos-envio/excel?formato=meli` |
 | Inventario desde API Industher   | `src/lib/servicios/industher.ts` + `/api/industher` |

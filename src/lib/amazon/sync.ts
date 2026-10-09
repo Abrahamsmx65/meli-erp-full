@@ -82,6 +82,18 @@ export async function guardarEnLotes(admin: any, tabla: string, filas: any[]): P
   }
 }
 
+/**
+ * Las ventas por hora (`amazon_ventas_horas`, migración 0134) son para las
+ * gráficas: si la tabla falla, el reporte del día NO se pierde por eso.
+ */
+export async function guardarHoras(admin: any, horas: any[]): Promise<void> {
+  try {
+    await guardarEnLotes(admin, "amazon_ventas_horas", horas);
+  } catch (e) {
+    console.error("amazon_ventas_horas:", (e as Error).message);
+  }
+}
+
 /** Cuánto se le espera a un reporte antes de darlo por perdido y pedir otro. */
 const PACIENCIA_REPORTE_MS = 45 * 60_000;
 
@@ -193,7 +205,7 @@ export async function sincronizarVentas(
   await anotar({});
   if (filas.length === 0) return { estado: "vacio" };
 
-  const { ventas, skus } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
+  const { ventas, skus, horas } = agregarDesdeReporte(filas, accountId, husoDe(cliente.cuenta.marketplaceId));
 
   // Solo se escriben los días que el reporte cubre completos. El día extra
   // que se pidió de margen se descarta: viene incompleto por definición.
@@ -202,6 +214,7 @@ export async function sincronizarVentas(
 
   await guardarEnLotes(admin, "amazon_skus", skus);
   await guardarEnLotes(admin, "amazon_ventas_diarias", completos);
+  await guardarHoras(admin, corte ? horas.filter((h) => h.fecha >= corte) : horas);
 
   await admin.from("amazon_sync_estado").upsert({
     account_id: accountId,
@@ -259,9 +272,12 @@ export function agregarDesdeReporte(
   filas: Record<string, string>[],
   accountId: string,
   huso = -6,
-): { ventas: any[]; skus: any[] } {
+): { ventas: any[]; skus: any[]; horas: any[] } {
   const acumulado = new Map<string, any>();
   const pedidos = new Map<string, Set<string>>();
+  // Lo mismo por HORA del día (sin SKU), para las gráficas por hora: el
+  // reporte trae la hora de compra y amazon_ventas_diarias la pierde.
+  const porHora = new Map<string, { account_id: string; fecha: string; hora: number; unidades: number; importe: number; pedidos: Set<string> }>();
   const catalogo = new Map<string, any>();
 
   for (const f of filas) {
@@ -302,6 +318,16 @@ export function agregarDesdeReporte(
     reg.importe += decimal(f["item-price"]);
     acumulado.set(clave, reg);
 
+    if (Number.isFinite(ms)) {
+      const hora = new Date(ms + huso * 3_600_000).getUTCHours();
+      const claveHora = `${fecha}|${hora}`;
+      const h = porHora.get(claveHora) ?? { account_id: accountId, fecha, hora, unidades: 0, importe: 0, pedidos: new Set<string>() };
+      h.unidades += unidades;
+      h.importe += decimal(f["item-price"]);
+      if (unidades > 0) h.pedidos.add(f["amazon-order-id"] ?? "");
+      porHora.set(claveHora, h);
+    }
+
     // Una orden Pending viene con 0 unidades y sin precio: contarla como
     // "orden" inflaría el conteo con órdenes que aún no aportan nada. Se
     // cuenta cuando se concreta (la ventana de 14 días la vuelve a leer).
@@ -318,7 +344,12 @@ export function agregarDesdeReporte(
     importe: Math.round(reg.importe * 100) / 100,
   }));
 
-  return { ventas, skus: [...catalogo.values()] };
+  const horas = [...porHora.values()].map(({ pedidos: p, ...h }) => ({
+    ...h,
+    ordenes: p.size,
+    importe: Math.round(h.importe * 100) / 100,
+  }));
+  return { ventas, skus: [...catalogo.values()], horas };
 }
 
 // ---------------------------------------------------------------------------

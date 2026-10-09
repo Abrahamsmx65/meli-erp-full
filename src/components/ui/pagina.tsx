@@ -21,9 +21,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CejaDeRuta } from "./ceja-ruta";
+import { RefrescoAlTerminar } from "./refresco-al-terminar";
+import { seEstaRefrescando } from "@/lib/servicios/marca-refresco";
 
 export function Pagina({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`pagina ${className}`}>{children}</div>;
+  return (
+    <div className={`pagina ${className}`}>
+      {children}
+      {seEstaRefrescando() ? <RefrescoAlTerminar /> : null}
+    </div>
+  );
 }
 
 export function Encabezado({

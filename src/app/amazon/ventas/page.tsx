@@ -1,4 +1,6 @@
-import { clienteServidor } from "@/lib/supabase/server";
+import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cuentaAmazon } from "@/lib/servicios/amazon";
 import { servirMonitorAmazon } from "@/lib/servicios/amazon-monitor";
@@ -39,7 +41,10 @@ export default async function VentasAmazon({
   const cuentaMeli = await cuentaActiva(supabase);
   // Masticado en `app_cache`: se sirve aunque esté viejo y se refresca por
   // atrás; el latido de Amazon deja listo el rango de 7 días.
-  const servido = await servirMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango);
+  const [servido, tiempo] = await Promise.all([
+    servirMonitorAmazon(supabase, cuenta.id, cuentaMeli?.id ?? null, rango),
+    servirVariosCanales(clienteAdmin(), [{ canal: "amazon", accountId: cuenta.id }], rango),
+  ]);
   const m = servido.datos;
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
   const economiaCompleta =
@@ -127,6 +132,10 @@ export default async function VentasAmazon({
           </a>
         </Aviso>
       ) : null}
+
+      <Seccion titulo="Venta por día y por hora" descripcion={etiquetaRango}>
+        <GraficaVentasTiempo datos={tiempo} desde={rango.desde} hasta={rango.hasta} />
+      </Seccion>
 
       <Pestanas
         pestanas={[

@@ -8,6 +8,8 @@ import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 import { OrigenVentasTikTok } from "@/components/origen-ventas-tiktok";
 import { Pestanas } from "@/components/ui/pestanas";
+import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
+import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +58,10 @@ export default async function VentasTikTok({
   if (!cuenta) return <SinCuenta titulo="Ventas TikTok Shop" />;
 
   const admin = clienteAdmin();
-  const lectura = await leerVentasTikTok(admin, cuenta.id, rango);
+  const [lectura, tiempo] = await Promise.all([
+    leerVentasTikTok(admin, cuenta.id, rango),
+    servirVariosCanales(admin, [{ canal: "tiktok", accountId: cuenta.id }], rango),
+  ]);
   if (lectura.refrescar) {
     after(async () => {
       await recalcularVentasTikTok(admin, cuenta.id, rango).catch(() => undefined);
@@ -144,6 +149,10 @@ export default async function VentasTikTok({
           tono={porEnviar.pedidos ? "alerta" : "bien"}
         />
       </Cifras>
+
+      <Seccion titulo="Venta por día y por hora" descripcion={`${rango.desde} → ${rango.hasta}`}>
+        <GraficaVentasTiempo datos={tiempo} desde={rango.desde} hasta={rango.hasta} />
+      </Seccion>
 
       <Pestanas
         pestanas={[
