@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { avanceDeCortes, pendientesDeCorte, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
+import { avanceDeCortes, pendientesDeCorte, tiemposDeCortes, pendientesPorModeloDeCuenta } from "@/lib/servicios/tiktok-despacho";
 import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok";
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
@@ -28,7 +28,7 @@ export default async function Despacho() {
       .limit(30),
   );
   const pendientesP = pendientesDeCorte(supabase, cuenta.id);
-  const [pendientes, cortesResultado, token, porModelo, avance] = await Promise.all([
+  const [pendientes, cortesResultado, token, porModelo, avance, tiempos] = await Promise.all([
     pendientesP,
     cortesP,
     tokenPreparar(cuenta.id),
@@ -47,6 +47,10 @@ export default async function Despacho() {
         console.error("avance de los cortes de TikTok:", err.message);
         return null;
       }),
+    // Cuánto tardó la preparación de cada corte (primera y última constancia).
+    cortesP
+      .then((r) => tiemposDeCortes(supabase, cuenta.id, (r.data ?? []).map((c: any) => Number(c.id))))
+      .catch(() => new Map<number, { primera: string; ultima: string }>()),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -75,6 +79,8 @@ export default async function Despacho() {
     preparados: avance === null ? null : (avance.get(Number(c.id))?.preparados ?? 0),
     cancelados: avance?.get(Number(c.id))?.cancelados ?? 0,
     enviados: avance?.get(Number(c.id))?.enviados ?? 0,
+    primeraPrep: tiempos.get(Number(c.id))?.primera ?? null,
+    ultimaPrep: tiempos.get(Number(c.id))?.ultima ?? null,
   }));
 
   return (
@@ -82,19 +88,10 @@ export default async function Despacho() {
       <Encabezado
         ceja="TikTok Shop"
         titulo="Despacho de pedidos"
-        descripcion="Un corte confirma lo pendiente y deja listas las etiquetas y la lista de empaque."
-        ayuda={
-          <p>
-            La rutina de la mañana: el corte ordena primero lo de un solo modelo (y dentro, primero lo de un solo color) y al
-            final lo revuelto.
-          </p>
-        }
-        ayudaTitulo="¿Cómo se ordena el corte?"
       />
       {sinAvance ? (
         <Aviso tono="alerta">
-          No se pudo leer el avance de preparación (los «X / Y preparados» salen con —). Los cortes y el despacho siguen
-          funcionando; recarga la página para reintentar.
+          No se pudo leer el avance de preparación. Recarga la página para reintentar.
         </Aviso>
       ) : null}
       <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} />

@@ -8,10 +8,14 @@ import { agruparErrores } from "@/lib/tiktok/despacho";
 import { contarSinTiempo, hayQueSeguir } from "@/lib/tiktok/lunes";
 import { avanceDeTomos, tomosDeCorte } from "@/lib/tiktok/despacho";
 import { etiquetaDeModelos, type PendientesPorModelo } from "@/lib/tiktok/corte-modelos";
-import { Aviso, Ayuda, Seccion } from "@/components/ui/pagina";
+import { textoTiempoPreparacion } from "@/lib/tiktok/tiempo-preparacion";
+import { Aviso, Seccion } from "@/components/ui/pagina";
 
 /** Cuántos tomos de etiquetas se bajan a la vez al imprimir (cada uno ~21 MB). */
 const TOMOS_A_LA_VEZ = 3;
+
+/** Los cortes de las últimas 48 h se ven; los demás, tras «Ver cortes anteriores» (dueño, 9-oct-2026). */
+const VENTANA_CORTES_MS = 48 * 3_600_000;
 
 export interface CorteResumen {
   id: number;
@@ -29,6 +33,9 @@ export interface CorteResumen {
   enviados?: number;
   /** filtro de modelos con el que nació (corte por modelo); null = corte general */
   modelos?: string[] | null;
+  /** primera y última constancia de preparado (tiempo de preparación); null = nada preparado */
+  primeraPrep?: string | null;
+  ultimaPrep?: string | null;
 }
 
 /** Los pedidos del corte que siguen vivos: los que entraron menos los cancelados después. */
@@ -70,8 +77,12 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
   const [faltantes, setFaltantes] = useState<Record<number, any>>({});
   const [pidiendoFaltantes, setPidiendoFaltantes] = useState<number | null>(null);
   const [actualizando, setActualizando] = useState(false);
-  // Confirmar aunque el stock diga cero: se apaga solo después de cada corte.
-  const [sinDefensa, setSinDefensa] = useState(false);
+  // Los cortes de más de dos días se esconden hasta que se piden.
+  const [verAnteriores, setVerAnteriores] = useState(false);
+  const [ahora] = useState(() => Date.now());
+  const recientes = cortes.filter((c) => ahora - new Date(c.creadoEn).getTime() < VENTANA_CORTES_MS);
+  const anteriores = cortes.length - recientes.length;
+  const visibles = verAnteriores ? cortes : recientes;
   // Las etiquetas de un corte grande: el servidor arma tomos de 200 guías y
   // aquí se juntan en UN PDF antes de abrirlo. Texto de avance por corte.
   const [armandoEtiquetas, setArmandoEtiquetas] = useState<Record<number, string>>({});
@@ -383,7 +394,6 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
         const cuerpo = JSON.stringify({
           handover,
           ...(modo ? { modo } : {}),
-          ...(sinDefensa ? { sinDefensa: true } : {}),
           ...(soloModelos.length ? { soloModelos } : {}),
         });
         // El corte tarda hasta 5 min y el navegador (Safari en el iPhone,
@@ -436,7 +446,6 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
       }
       setAviso(resumenes.join(" · "));
       setSimulacion(null);
-      setSinDefensa(false);
       setSoloModelos([]);
       router.refresh();
     } catch (e) {
@@ -488,7 +497,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
           </>
         }
       >
-        {/* Barra del corte: los tres botones, el filtro por modelo y «sin defensa» juntos. */}
+        {/* Barra del corte: los tres botones y el filtro por modelo juntos. */}
         <div className="rounded-lg border" style={{ borderColor: "var(--grid)" }}>
           <div className="flex flex-wrap items-center gap-2 p-3">
             <span className="texto-2 mr-1 text-xs font-semibold">Corte</span>
@@ -528,11 +537,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                     <span className="ml-2 font-normal texto-2">
                       {etiquetaDeModelos(soloModelos)} · {pendientesFiltrados} pedidos
                     </span>
-                  ) : (
-                    <span className="ml-2 font-normal texto-2">
-                      marca uno o varios para despacharlos aparte
-                    </span>
-                  )}
+                  ) : null}
                 </span>
                 {soloModelos.length ? (
                   <button onClick={() => setSoloModelos([])} disabled={ocupado} className="boton boton-fantasma boton-chico">
@@ -573,38 +578,6 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               </div>
             </div>
           ) : null}
-          <label
-            className="hairline flex items-center gap-2 border-t p-3 text-xs"
-            style={{ color: sinDefensa ? "var(--estado-critico)" : "var(--ink-2)" }}
-          >
-            <input type="checkbox" checked={sinDefensa} onChange={(e) => setSinDefensa(e.target.checked)} disabled={ocupado} />
-            <span>
-              <span className="font-semibold">Sin defensa:</span> confirmar todo aunque no haya stock físico (el kardex puede
-              quedar en negativo). Se apaga solo después del corte.
-            </span>
-          </label>
-        </div>
-
-        <div className="mt-3">
-          <Ayuda titulo="¿Qué hace cada corte?">
-            <p>
-              Hacer corte confirma todos los envíos en TikTok de un jalón, descuenta del almacén, republica y deja el corte
-              guardado con sus etiquetas y su lista. Corte ayer toma solo lo de hasta ayer a las 23:59 (hora de México) y deja
-              lo de hoy pendiente, para adelantar un día. Corte lunes hace dos cortes: viernes a domingo (y lo más viejo) y
-              luego lo del lunes.
-            </p>
-            <p>
-              Defensa automática: si un SKU no tiene stock físico para todos los pedidos que lo piden, se cancela en TikTok
-              solo ese renglón (los pedidos más nuevos primero) y se confirma lo demás; si TikTok no acepta la cancelación, el
-              pedido entero se queda fuera y se avisa.
-            </p>
-            <p>
-              Sin defensa libera los bloqueos por stock: el kardex puede quedar en negativo y la alarma lo va a gritar.
-            </p>
-            <p>
-              Corte por modelo: solo paquetes de un solo modelo; los revueltos van con el corte general.
-            </p>
-          </Ayuda>
         </div>
 
         {ronda ? <p className="mt-3 text-xs font-semibold texto-2">{ronda}</p> : null}
@@ -657,32 +630,13 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
               Al 3PL se mandarían: {simulacion.salidasAl3pl.map((x: any) => `${x.sku} ×${x.pares}`).join(", ") || "nada"}
               {" · "}endpoint: {simulacion.endpoint3pl ?? "sin configurar"}
             </div>
-            <p className="mt-1 text-xs texto-2">
-              Nada se ha confirmado: es solo lo que pasaría.
-            </p>
           </div>
         ) : null}
       </Seccion>
 
       <Seccion titulo="Cortes" sinRelleno>
-        <div className="px-4 pt-3">
-          <Ayuda titulo="¿En qué orden van las hojas?">
-            <p>Surtido: pares por SKU en orden alfabético, para jalar de bodega.</p>
-            <p>
-              En los cortes nuevos, etiquetas y lista de empaque van PRIMERO con los paquetes de un solo modelo (una pieza o
-              varias del mismo modelo) y al final los revueltos; dentro de cada modelo, primero los de un solo color y al
-              final los que mezclan colores, y dentro de cada bloque en orden de modelo → color → talla, con el mismo número.
-              Un corte ya hecho conserva el orden y los números con los que se imprimió.
-            </p>
-            <p>
-              En la etiqueta va el CÓDIGO DEL PEDIDO en barras: escanearlo en la estación enseña qué empacar, y luego se
-              escanea el FNSKU de cada caja. Si un corte quedó a medias, «Faltantes» dice qué pedidos y qué productos
-              quedaron sin preparar.
-            </p>
-          </Ayuda>
-        </div>
-        <ul className="mt-3 divide-y" style={{ borderColor: "var(--grid)" }}>
-          {cortes.map((c) => (
+        <ul className="divide-y" style={{ borderColor: "var(--grid)" }}>
+          {visibles.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hairline">
               <div>
                 <div className="text-sm font-semibold">
@@ -707,6 +661,12 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
                     {c.enviados ? ` · ${c.enviados} ${c.enviados === 1 ? "ya enviado sin escanear" : "ya enviados sin escanear"}` : ""}
                     {c.cancelados ? ` · ${c.cancelados} ${c.cancelados === 1 ? "cancelado" : "cancelados"}` : ""}
                   </span>
+                  {(() => {
+                    const listos = listosDe(c);
+                    const completo = listos != null && listos >= vivosDe(c);
+                    const tiempo = textoTiempoPreparacion(c.primeraPrep, c.ultimaPrep, completo);
+                    return tiempo ? <span className="ml-2 text-xs font-normal texto-2">{tiempo}</span> : null;
+                  })()}
                 </div>
                 {armandoEtiquetas[c.id] ? (
                   <p className="mt-1 text-xs font-semibold" style={{ color: armandoEtiquetas[c.id].startsWith("No se pudieron") ? "var(--estado-critico)" : "var(--ink-2)" }}>
@@ -921,8 +881,19 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
             <li className="px-4 py-6 text-center text-sm texto-2">
               Todavía no hay cortes.
             </li>
+          ) : !visibles.length ? (
+            <li className="px-4 py-6 text-center text-sm texto-2">
+              Sin cortes en los últimos dos días.
+            </li>
           ) : null}
         </ul>
+        {anteriores > 0 && !verAnteriores ? (
+          <div className="hairline border-t px-4 py-3">
+            <button type="button" onClick={() => setVerAnteriores(true)} className="boton boton-borde boton-chico">
+              Ver cortes anteriores ({anteriores})
+            </button>
+          </div>
+        ) : null}
       </Seccion>
     </div>
   );

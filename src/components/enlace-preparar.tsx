@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
-import { Ayuda, Seccion } from "@/components/ui/pagina";
+import { Seccion } from "@/components/ui/pagina";
 
 /** El link sin contraseña para los empleados, con el botón para renovarlo si se filtra. */
 export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string | null; origen: string }) {
@@ -38,14 +38,8 @@ export function EnlacePreparar({ tokenInicial, origen }: { tokenInicial: string 
   }
 
   return (
-    <Seccion
-      titulo="Link para los empleados"
-      descripcion="Abre la estación de preparar sin contraseña. Si se filtra, genera otro y el anterior muere."
-    >
-      <Ayuda titulo="¿Qué alcanza el link?">
-        <p>Solo alcanza los cortes y la preparación: nada de ventas, inventario ni cortes nuevos.</p>
-      </Ayuda>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+    <Seccion titulo="Link para los empleados">
+      <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg border px-2.5 py-1.5 text-xs" style={{ borderColor: "var(--grid)" }}>
           {url ?? "Sin link todavía"}
         </code>
