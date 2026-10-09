@@ -56,7 +56,7 @@ export function EnviosFba({ sugerencias, dias }: { sugerencias: SugerenciaFba[];
               La referencia del cálculo: faltante por talla para cubrir {OBJETIVO_DIAS_FBA} días
               al ritmo de los últimos {dias === 365 ? 365 : dias} días. Solo calzado; lo que ya
               está en FBA y lo que va en camino cuenta a favor. Las cajas reales a mandar son las
-              de los envíos de arriba.
+              de la pestaña «Envíos a preparar».
             </p>
           </Ayuda>
         </div>
