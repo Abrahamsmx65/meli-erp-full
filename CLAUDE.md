@@ -1859,6 +1859,47 @@ Los RPCs y lecturas paginadas llevan ORDER BY estable (sin él, PostgREST
 duplica o pierde renglones entre páginas). Antes de agregar una pantalla o
 consulta nueva, sigue este patrón.
 
+**Revisión de velocidad del 9-oct-2026** (`docs/PLAN-VELOCIDAD-Y-DISENO.md`;
+dueño: «otros sistemas abren al momento, el nuestro tarda mucho»). Lo que se
+midió y quedó como regla:
+- **RLS se evalúa UNA vez por consulta** (migración 0116): las políticas son
+  `account_id in (select mis_cuentas_meli())` (y `_amazon`, `_yz`,
+  `_tiktok`), NUNCA `es_mi_cuenta(account_id)` por renglón —esa función es
+  SECURITY DEFINER, Postgres la corría en cada renglón y una consulta de
+  pantalla tardaba 226 ms promedio contra 10 ms del fondo (los pedidos
+  cortados de TikTok: 432 ms → 24 ms)—. Una tabla nueva usa el mismo patrón;
+  `auth.uid()` en una política va como `(select auth.uid())`. Las funciones
+  `es_mi_cuenta*` se quedan para los RPC.
+- **Las pantallas leen con `servirConCacheApp`** (`cache-app.ts`): sirve el
+  renglón aunque esté viejo y refresca en `after()` con candado por clave;
+  `conCacheApp` (calcula en el clic al vencer) queda para el fondo. Ventas
+  MELI tardaba 15–35 s, Planificación China 10–60 s la primera vez de cada
+  media hora. Los rangos por omisión de Ventas/Publicidad (MELI y Amazon) y la
+  sugerencia de compra a China se precalculan en el latido.
+- **Leer solo lo que se enseña**: Despacho cuenta el avance de los cortes en
+  la lista con el RPC `tiktok_avance_cortes` (0120), no bajando las 16 mil
+  preparaciones; `cargarCorte` lee solo los renglones del corte; /envios usa
+  `obtenerPlanLigero` (RPC `plan_cache_ligero`, 0123, sin la explicación de
+  cada línea, más copia en memoria por `generado_en`); el plan de fundas se
+  guarda también en `plan:pantalla` y `plan:sugeridas`.
+- `rpcTodo` de fundas para con un lote más corto que lo pedido Y que el tope
+  de 1,000 de PostgREST (como `traerRpcTodo`): antes repetía el RPC completo
+  una vez por cada mil renglones y el corte de fundas moría por tiempo.
+- La barra de estado pregunta cada 60 s, se pausa con la pestaña escondida y
+  solo recarga las pantallas que usan el plan; la página ya no se desmonta en
+  cada navegación. `clienteAdmin` vive en `supabase/admin.ts` (sin
+  next/headers) para que los servicios que llegan a componentes de cliente
+  lo puedan importar.
+
+**Diseño de pantallas** (`docs/DISENO.md`, piezas en
+`components/ui/pagina.tsx`; dueño, 9-oct-2026: «que todo se vea más bonito,
+más profesional […] que todo sea de la misma manera»): toda pantalla es
+`<Pagina>` → `<Encabezado ceja titulo descripcion frescura acciones ayuda>`
+→ `<Cifras>` → `<Seccion>`; UNA línea de descripción y la regla larga
+plegada en «¿Cómo se calcula?» (se mueve, no se borra); avisos con `<Aviso>`
+de cuatro tonos; `<SinCuenta>` para «conecta primero»; nada de colores a mano
+(`texto-2`, `texto-tenue`, `enlace`, `boton-*`).
+
 **Los avisos de MELI de la app de YAPANIZCEL** entran (si se configuran) por
 `/api/yapanizcel/webhook`, que contesta 200 sin trabajo: la sincronización
 de fundas es por sondeo. La URL de notificaciones del devcenter NUNCA debe
