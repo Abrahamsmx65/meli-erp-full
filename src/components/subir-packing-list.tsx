@@ -151,10 +151,6 @@ export function SubirPackingList() {
   return (
     <section className="tarjeta p-4">
       <h2 className="seccion-titulo">Subir un packing list</h2>
-      <p className="texto-2 mt-1 text-sm">
-        Sube el archivo de la fábrica tal como llega: se amarra con los pedidos cargados y
-        ves cómo queda antes de guardar.
-      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <input
@@ -268,8 +264,7 @@ export function SubirPackingList() {
 
             {casado.contenedorExistente ? (
               <Aviso tono="alerta" className="mt-3">
-                El contenedor <strong>{casado.numero}</strong> ya existe: se le agregan estos
-                renglones y los que ya traía del mismo pedido se dejan como dice el archivo.
+                El contenedor <strong>{casado.numero}</strong> ya existe: se actualiza.
               </Aviso>
             ) : null}
 
@@ -382,10 +377,6 @@ export function SubirPackingList() {
                 </button>
               </div>
             </div>
-            <p className="texto-tenue mt-3 text-xs">
-              Los renglones con problema no se guardan. Si el pedido no está cargado, súbelo
-              primero en <strong>Cargar pedidos</strong> y vuelve a subir este archivo.
-            </p>
           </div>
         </div>
       ) : null}

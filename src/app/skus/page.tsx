@@ -66,7 +66,7 @@ function Tarjeta({ r }: { r: ResumenCanal }) {
           <dd>{fecha(r.actualizadoEn)}</dd>
         </dl>
       ) : (
-        <Aviso tono="alerta">Este canal no está conectado; no hay nada que descargar.</Aviso>
+        <Aviso tono="alerta">Canal no conectado.</Aviso>
       )}
 
       <div className="mt-auto">

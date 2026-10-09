@@ -178,8 +178,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
 
           {raras.length === 0 ? (
             <Aviso tono="bien">
-              Sin diferencias: fuera de talla, color y códigos, todas las publicaciones traen los
-              mismos atributos.
+              Sin diferencias.
             </Aviso>
           ) : (
             <section className="tarjeta overflow-hidden">
@@ -187,9 +186,6 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                 <h2 className="seccion-titulo">
                   Diferencias que parten el selector ({raras.length})
                 </h2>
-                <p className="mt-0.5 text-xs texto-2">
-                  Elige el valor correcto: se escribe en todas las publicaciones del agrupador.
-                </p>
               </header>
 
               <div className="flex flex-col divide-y" style={{ borderColor: "var(--borde)" }}>
@@ -321,8 +317,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           {medidas.length ? (
             <details className="tarjeta p-4">
               <summary className="cursor-pointer text-sm font-semibold">
-                Medidas del paquete ({medidas.length}): MELI las mide por publicación, no
-                parten el selector
+                Medidas del paquete ({medidas.length})
               </summary>
               <ListaValores diferencias={medidas} />
             </details>
@@ -331,7 +326,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
           {esperadas.length ? (
             <details className="tarjeta p-4">
               <summary className="cursor-pointer text-sm font-semibold">
-                Diferencias esperadas ({esperadas.length}): talla, color, códigos
+                Diferencias esperadas ({esperadas.length})
               </summary>
               <ListaValores diferencias={esperadas} />
             </details>

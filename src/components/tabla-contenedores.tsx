@@ -134,8 +134,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     return (
       <section className="tarjeta p-6 text-center">
         <p className="texto-2 text-sm">
-          Todavía no hay contenedores. Sube un packing list arriba o asígnalo desde el botón{" "}
-          <strong>Contenedor</strong> de cada pedido en Cargar pedidos.
+          Todavía no hay contenedores.
         </p>
       </section>
     );
@@ -635,11 +634,6 @@ function ContenidoContenedor({
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Contenido de {contenedor.numero}</h3>
-        <p className="texto-2 mt-1 text-sm">
-          Lo que viaja en este contenedor. Corrige las cajas si algo se capturó mal; pon{" "}
-          <strong>0</strong> para quitar un renglón.
-        </p>
-
         {pendientes.length ? (
           <section
             className="mt-3 rounded-lg border p-3"
@@ -649,10 +643,6 @@ function ContenidoContenedor({
               {pendientes.length === 1 ? "1 renglón del packing list" : `${pendientes.length} renglones del packing list`} por
               confirmar
             </h4>
-            <p className="texto-2 mt-0.5 text-xs">
-              La fábrica escribió el color distinto al pedido. Confirma la sugerencia y las cajas se suman
-              a ese renglón; con «recordar», el próximo embarque amarra solo.
-            </p>
             <ul className="mt-2 flex flex-col gap-2">
               {pendientes.map((p) => {
                 const k = claveP(p);

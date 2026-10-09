@@ -66,7 +66,7 @@ export default async function Plan() {
     return (
       <Bienvenida
         titulo="Falta sincronizar"
-        texto="La cuenta está conectada pero aún no hay SKUs. Trae tu catálogo, tu stock en Full y tus ventas de los últimos 90 días. La primera vez tarda varios minutos."
+        texto="Aún no hay SKUs."
       >
         <BotonesPlan />
       </Bienvenida>

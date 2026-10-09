@@ -119,11 +119,9 @@ export default async function CargarPedidos() {
                       Te faltan {faltan.length} pedidos por cargar
                     </h2>
                     <p className="texto-2 mt-0.5 text-[13px]">
-                      Están en el{" "}
                       <a href={urlSheet} target="_blank" rel="noreferrer" className="enlace">
-                        sheet de pedidos pendientes
-                      </a>{" "}
-                      y no en el ERP. Los AR no cuentan. Sube su proforma arriba.
+                        Sheet de pedidos pendientes
+                      </a>
                     </p>
                   </div>
                 </header>

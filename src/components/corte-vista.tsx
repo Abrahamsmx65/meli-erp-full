@@ -97,7 +97,7 @@ export function CorteVista({
         <p className="texto-tenue text-xs">
           Corte guardado el{" "}
           {new Date(corteDelMes.creadoEn).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}{" "}
-          con utilidad neta {pesos(corteDelMes.utilidadNeta)}; abajo, el cálculo de hoy.
+          con utilidad neta {pesos(corteDelMes.utilidadNeta)}.
         </p>
       ) : null}
 
@@ -139,7 +139,7 @@ export function CorteVista({
                   titulo={e.avisos.length ? "Qué le falta al corte para ser exacto" : "Revisión de órdenes"}
                   descripcion={
                     <>
-                      {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes con neto ya revisadas contra devoluciones y cancelaciones ·{" "}
+                      {n(e.revision.revisadas)} de {n(e.revision.ordenes)} órdenes revisadas ·{" "}
                       {n(e.cancelaciones.ordenes)} canceladas por {pesos(e.cancelaciones.importe)} fuera del corte · {n(e.devoluciones.ordenes)} devueltas por{" "}
                       {pesos(e.devoluciones.monto)}.
                     </>
@@ -155,7 +155,7 @@ export function CorteVista({
                       ))}
                     </ul>
                   ) : (
-                    <p className="texto-2 text-sm">Sin pendientes: depósito, revisión y costo completos.</p>
+                    <p className="texto-2 text-sm">Sin pendientes.</p>
                   )}
                 </Seccion>
               </>
@@ -214,8 +214,7 @@ export function CorteVista({
                       </Tabla>
                     ) : (
                       <p className="texto-2 p-4 text-sm">
-                        Todavía no se lee la facturación de este periodo. Dale a «Leer facturación de MELI»; si MELI no la entrega,
-                        captura el almacenamiento de Full a mano.
+                        Facturación de este periodo sin leer.
                       </p>
                     )}
                   </Seccion>
@@ -386,7 +385,7 @@ export function CorteVista({
                       </table>
                     </Tabla>
                   ) : (
-                    <p className="texto-2 p-4 text-sm">Todavía no hay cortes guardados. Haz el primero con el botón de arriba.</p>
+                    <p className="texto-2 p-4 text-sm">Todavía no hay cortes guardados.</p>
                   )}
                 </Seccion>
               </>

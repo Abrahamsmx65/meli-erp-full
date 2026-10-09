@@ -66,9 +66,7 @@ export function PackingDrive({
       <header className="flex flex-wrap items-center gap-3">
         <h2 className="seccion-titulo">Packing lists desde Drive</h2>
         <span className="texto-tenue text-xs">
-          {configurado
-            ? "Se leen solos cada mañana y entran como borrador."
-            : "Sin configurar: falta la llave de Google Drive en el entorno."}
+          {configurado ? null : "Sin configurar: falta la llave de Google Drive en el entorno."}
         </span>
         <span className="flex-1" />
         <button

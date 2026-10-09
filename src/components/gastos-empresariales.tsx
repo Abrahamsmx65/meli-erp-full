@@ -75,7 +75,6 @@ export function GastosEmpresariales({ gastos, periodo }: { gastos: GastoEmpresar
       <header className="seccion-cabeza">
         <div className="min-w-0">
         <h2 className="seccion-titulo">Gastos empresariales</h2>
-        <p className="texto-2 mt-0.5 text-[13px]">Nómina, bodegas y otros gastos del negocio; se restan solo de la utilidad general.</p>
         </div>
       </header>
       <form onSubmit={guardar} className="grid gap-3 border-b p-4 hairline md:grid-cols-5">
