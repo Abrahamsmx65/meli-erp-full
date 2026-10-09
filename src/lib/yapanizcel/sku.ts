@@ -46,12 +46,20 @@ const SUFIJOS_SITIO = new Set([
 /**
  * Forma canónica para comparar: mayúsculas, sin acentos, y todo lo que no
  * sea letra o número colapsado a un guion.
+ *
+ * El "+" SÍ es parte del nombre: "Rmn14pro+" (Pro Plus) es otro celular que
+ * "Rmn14pro", y MELI tiene las dos publicaciones (C-514-Rmn14pro-5G y
+ * C-514-Rmn14pro+5G). Borrarlo como separador las dejaba con la misma
+ * clave, el amarre lo veía como empate y el pedido se quedaba sin amarre
+ * (8-oct-2026). Se vuelve "PLUS", que es como también lo escriben
+ * (S24plus, A11plus): "S24+" y "S24plus" son el mismo.
  */
 export function canonizar(s: string): string {
   return String(s ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
+    .replace(/\+/g, "PLUS")
     .replace(/[^A-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
