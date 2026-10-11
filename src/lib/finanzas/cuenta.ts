@@ -10,13 +10,15 @@
  *               + gastos en EFECTIVO (los de GASTOS MEX) − ingresos sin
  *               comisión (una deuda que le pagaron al dueño)
  *               + gastos de la cuenta (renta de oficina)
+ *               + lo que se le debe a DAVID por Shein (abajo)
  *   ganancia  = recibido − salidas, repartida por socio (25 / 25 / 50)
- *   shein     = depósitos de Shein − renta y mercancía de la cuenta de
- *               Shein. Es dinero de DAVID: él le da al dueño todo lo que
- *               deposita Shein, el dueño le apunta la mercancía y la renta,
- *               y al final del año le entrega lo que quedó. Por eso se le
- *               DESCUENTA al socio que lleva la cuenta (`recibeShein`)
- *   sobra     = lo que le toca (− Shein) − lo que ya retiró
+ *   sobra     = lo que le toca − lo que ya retiró
+ *
+ * SHEIN es dinero de David que pasa por la cuenta de la EMPRESA: él le da
+ * todo lo que deposita Shein (DEPOSITO SHEIN, transferencias con su
+ * comisión), la empresa le apunta la mercancía y la renta, y al final del
+ * año le entrega lo que quedó. Ese saldo (depósitos − renta − mercancía) es
+ * una salida de la empresa, no de un socio.
  *
  * Las transferencias a Rafa NO son pagos de contenedores (dueño: «esos
  * pagos no tienen nada que ver con los contenedores»): Rafa paga a China o
@@ -65,8 +67,6 @@ export interface Socio {
   id: number;
   nombre: string;
   porcentaje: number;
-  /** este socio lleva la cuenta de Shein: lo que se le debe a David sale de su parte */
-  recibeShein?: boolean;
 }
 
 export interface Retiro {
@@ -92,11 +92,6 @@ export interface EntradaResumen {
 
 export interface RenglonSocio {
   socio: Socio;
-  /** su parte de la ganancia de la cuenta */
-  parte: number;
-  /** lo que se le debe a David por Shein (negativo), si este socio lleva la cuenta */
-  shein: number;
-  /** parte + shein */
   leToca: number;
   retirado: number;
   /** de lo retirado, lo que fue tsedaka */
@@ -128,19 +123,6 @@ export function resumenCuenta(e: EntradaResumen): ResumenCuenta {
   const ingresos = e.movimientos.filter((m) => m.tipo === "ingreso").reduce((s, m) => s + m.monto, 0);
   const gastosCuenta = e.movimientos.filter((m) => m.tipo === "gasto");
 
-  const salidas = [
-    { concepto: "Contenedores de calzado", monto: e.contenedoresCalzado },
-    { concepto: "Contenedores de fundas", monto: e.contenedoresFundas },
-    { concepto: "Comisión de Joanne, 1.5 % (calzado)", monto: e.comisionAgenteCalzado },
-    { concepto: "Comisión de Joanne, 1.5 % (fundas)", monto: e.comisionAgenteFundas },
-    // Los gastos en efectivo se pagaron en parte con ingresos sin comisión.
-    { concepto: "Gastos en efectivo", monto: e.gastosEfectivo - ingresos },
-    ...gastosCuenta.map((g) => ({ concepto: g.beneficiario ?? g.notas ?? "Gasto", monto: g.monto })),
-  ];
-  const totalSalidas = salidas.reduce((s, x) => s + x.monto, 0);
-  const recibido = transferencias - comision;
-  const ganancia = recibido - totalSalidas;
-
   const depositosShein = transf.filter(esDepositoShein).reduce((s, m) => s + m.monto, 0);
   const movShein = e.movimientos.filter((m) => m.tipo === "shein");
   const salidasShein = movShein.reduce((s, m) => s + m.monto, 0);
@@ -156,14 +138,26 @@ export function resumenCuenta(e: EntradaResumen): ResumenCuenta {
     porConcepto: [...conceptosShein.entries()].map(([concepto, monto]) => ({ concepto, monto })),
   };
 
+  const salidas = [
+    { concepto: "Contenedores de calzado", monto: e.contenedoresCalzado },
+    { concepto: "Contenedores de fundas", monto: e.contenedoresFundas },
+    { concepto: "Comisión de Joanne, 1.5 % (calzado)", monto: e.comisionAgenteCalzado },
+    { concepto: "Comisión de Joanne, 1.5 % (fundas)", monto: e.comisionAgenteFundas },
+    // Los gastos en efectivo se pagaron en parte con ingresos sin comisión.
+    { concepto: "Gastos en efectivo", monto: e.gastosEfectivo - ingresos },
+    ...gastosCuenta.map((g) => ({ concepto: g.beneficiario ?? g.notas ?? "Gasto", monto: g.monto })),
+    ...(shein.depositos || shein.salidas ? [{ concepto: "Shein: se le debe a David", monto: shein.neto }] : []),
+  ];
+  const totalSalidas = salidas.reduce((s, x) => s + x.monto, 0);
+  const recibido = transferencias - comision;
+  const ganancia = recibido - totalSalidas;
+
   const socios = e.socios.map((socio) => {
     const suyos = e.retiros.filter((r) => r.socioId === socio.id);
     const retirado = suyos.reduce((s, r) => s + r.monto, 0);
     const tsedaka = suyos.filter((r) => esTsedaka(r.concepto)).reduce((s, r) => s + r.monto, 0);
-    const parte = (ganancia * socio.porcentaje) / 100;
-    const deShein = socio.recibeShein ? -shein.neto : 0;
-    const leToca = parte + deShein;
-    return { socio, parte, shein: deShein, leToca, retirado, tsedaka, sobra: leToca - retirado, retiros: suyos.length };
+    const leToca = (ganancia * socio.porcentaje) / 100;
+    return { socio, leToca, retirado, tsedaka, sobra: leToca - retirado, retiros: suyos.length };
   });
 
   const meses = new Map<string, { transferido: number; comision: number }>();

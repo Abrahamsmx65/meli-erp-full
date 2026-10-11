@@ -62,7 +62,7 @@ describe("cuenta del año", () => {
     expect(pa.leToca).toBe(140_000);
   });
 
-  it("lo que deja Shein es de David y se le descuenta al socio que lleva la cuenta", () => {
+  it("lo que deja Shein es de David: sale de la ganancia de la empresa, no de un socio", () => {
     const r = resumenCuenta({
       movimientos: [
         mov({ monto: 1_160_000, comision: 20_000 }),
@@ -77,16 +77,15 @@ describe("cuenta del año", () => {
       comisionAgenteFundas: 0,
       gastosEfectivo: 0,
       socios: [
-        { id: 1, nombre: "Abraham", porcentaje: 25, recibeShein: true },
+        { id: 1, nombre: "Abraham", porcentaje: 25 },
         { id: 2, nombre: "Papá", porcentaje: 75 },
       ],
       retiros: [],
     });
     expect(r.shein).toMatchObject({ depositos: 116_000, salidas: 80_000, neto: 36_000 });
-    expect(r.ganancia).toBe(1_254_000);
-    expect(r.socios[0].parte).toBe(313_500);
-    expect(r.socios[0].shein).toBe(-36_000);
-    expect(r.socios[0].leToca).toBe(277_500);
-    expect(r.socios[1].shein).toBe(0);
+    // recibido 1,254,000 − 36,000 que se le deben a David
+    expect(r.salidas.find((x) => x.concepto.startsWith("Shein"))?.monto).toBe(36_000);
+    expect(r.ganancia).toBe(1_218_000);
+    expect(r.socios[0].leToca).toBe(304_500);
   });
 });
