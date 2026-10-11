@@ -158,35 +158,61 @@ export async function filasModeloServidas(db: DB, cuenta: Cuenta, rango: RangoFe
 }
 
 /**
- * Deja masticados los rangos por omisión de /ventas (7 días) y /publicidad
- * (30 días) para que la primera visita lea un renglón. Lo llama el latido;
- * cada pieza solo se recalcula si su renglón tiene más de 10 minutos o está
- * invalidado, así que correrlo seguido cuesta dos lecturas.
+ * Los rangos de los atajos del filtro de fechas (`components/filtro-fechas.tsx`):
+ * Hoy, Ayer, 7, 15 y 30 días y Este mes. Son los que el dueño pica; con su
+ * renglón ya masticado, cambiar de fechas es leer un renglón (dueño,
+ * 11-oct-2026: «cambio de fechas y toma como 3 segundos»).
+ */
+export function rangosDeAtajos(hoy: string): RangoFechas[] {
+  const hace = (dias: number) =>
+    new Date(Date.parse(`${hoy}T12:00:00Z`) - dias * 86_400_000).toISOString().slice(0, 10);
+  const vistos = new Set<string>();
+  const rangos: RangoFechas[] = [];
+  for (const r of [
+    { desde: hace(6), hasta: hoy },
+    { desde: hoy, hasta: hoy },
+    { desde: hace(29), hasta: hoy },
+    { desde: `${hoy.slice(0, 7)}-01`, hasta: hoy },
+    { desde: hace(14), hasta: hoy },
+    { desde: hace(1), hasta: hace(1) },
+  ]) {
+    const clave = `${r.desde}:${r.hasta}`;
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    rangos.push(r);
+  }
+  return rangos;
+}
+
+/**
+ * Deja masticados los rangos de los atajos de /ventas (monitor, publicidad y
+ * finanzas) y el de 30 días de /publicidad para que la primera visita y cada
+ * atajo lean un renglón. Lo llama el latido (cada ~2 min); cada pieza solo se
+ * recalcula si su renglón venció o está invalidado, así que correrlo seguido
+ * cuesta unas lecturas. Con el tiempo justo, primero los 7 días (lo que se
+ * abre por omisión).
  */
 export async function precalcularPantallasVentas(
   admin: DB,
   cuenta: { id: string; site_id: string },
   limite: number,
 ): Promise<{ recalculadas: string[] }> {
-  const siete = normalizarRango();
-  const treinta = normalizarRango(fechaMx(29));
-  const tareas: { clave: string; vida: number; calcular: () => Promise<unknown> }[] = [
-    {
-      clave: claveMonitorVentas(siete),
-      vida: VIDA_MONITOR_GUARDADO_MS,
-      calcular: () => calcularMonitorFresco(admin, cuenta.id, siete),
-    },
-    {
-      clave: clavePublicidadMeli(siete),
-      vida: VIDA_PUBLICIDAD_ABIERTA_MS,
-      calcular: () => calcularPublicidadFresca(admin, cuenta, siete),
-    },
-    {
-      clave: clavePublicidadMeli(treinta),
-      vida: VIDA_PUBLICIDAD_ABIERTA_MS,
-      calcular: () => calcularPublicidadFresca(admin, cuenta, treinta),
-    },
-  ];
+  const tareas: { clave: string; vida: number; calcular: () => Promise<unknown> }[] = [];
+  for (const r of rangosDeAtajos(fechaMx(0))) {
+    const rango = normalizarRango(r.desde, r.hasta);
+    tareas.push(
+      {
+        clave: claveMonitorVentas(rango),
+        vida: VIDA_MONITOR_GUARDADO_MS,
+        calcular: () => calcularMonitorFresco(admin, cuenta.id, rango),
+      },
+      {
+        clave: clavePublicidadMeli(rango),
+        vida: VIDA_PUBLICIDAD_ABIERTA_MS,
+        calcular: () => calcularPublicidadFresca(admin, cuenta, rango),
+      },
+    );
+  }
   const { data } = await admin
     .from("app_cache")
     .select("clave, generado_en, vigente")
@@ -202,9 +228,23 @@ export async function precalcularPantallasVentas(
       g && g.vigente !== false && Date.now() - Date.parse(g.generado_en) < t.vida - 30_000;
     if (fresca) continue;
     const t0 = Date.now();
-    const datos = await t.calcular();
-    await guardarCacheApp(admin, cuenta.id, t.clave, datos, Date.now() - t0);
-    recalculadas.push(t.clave);
+    try {
+      const datos = await t.calcular();
+      await guardarCacheApp(admin, cuenta.id, t.clave, datos, Date.now() - t0);
+      recalculadas.push(t.clave);
+    } catch (err) {
+      console.error(`precalcular ${t.clave}:`, (err as Error).message);
+    }
+  }
+  // Las finanzas de cada atajo deciden solas si toca refrescar (política del
+  // periodo): leerlas basta para dejarlas listas.
+  for (const r of rangosDeAtajos(fechaMx(0))) {
+    if (Date.now() > limite) break;
+    try {
+      await leerFinanzasMeli(admin, cuenta.id, normalizarRango(r.desde, r.hasta));
+    } catch (err) {
+      console.error(`precalcular finanzas ${r.desde}:${r.hasta}:`, (err as Error).message);
+    }
   }
   return { recalculadas };
 }
