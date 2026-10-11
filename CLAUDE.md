@@ -1800,6 +1800,23 @@ guárdala numerada.
   MELI y Amazon) SALTA la copia en memoria de la instancia (60 s a 10 min):
   si no, guardaba datos viejos con hora nueva y el renglón «fresco» seguía
   mal hasta la siguiente vuelta.
+  **Y la causa de fondo era que el refresco FALLABA** (11-oct-2026, logs de
+  Vercel: «refresco de fondo: ventas_resumen_sku: canceling statement due
+  to statement timeout»): `ventas_vivas` / `yz_ventas_vivas` de la 0133
+  sacaban el importe de cada orden con una función de VENTANA que ordenaba
+  ~100 mil renglones y se iba a disco (7.2 s en 90 días de calzado); con
+  carga pasaban de los 8 s y el renglón viejo se quedaba para siempre. La
+  0136 lo saca con un lateral sobre los renglones de la misma orden y los
+  días con órdenes salen de las órdenes: 1.0 s, mismo resultado al centavo
+  (comparado renglón por renglón en todo 2026). Un RPC nuevo sobre
+  `ordenes_neto` no usa ventanas sobre los renglones. Y las causas de
+  subida de TikTok leían los cancelados con un embebido
+  `tiktok_orden_items!inner` que la base no puede resolver (no hay llave
+  entre las tablas): fallaba en CADA aviso desde el 9-oct-2026 (3,024 veces)
+  y por el catch se frenaba toda subida del número publicado; ahora es el
+  RPC `tiktok_cancelados_por_sku` (0137). Quedan en la base dos funciones
+  vacías `zz_ventas_vivas` y `zz_yz_ventas_vivas` de la prueba de ese día
+  (el `drop` por el MCP se cuelga); se pueden borrar a mano.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
