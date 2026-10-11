@@ -33,6 +33,8 @@ export interface PendientePacking {
   motivo: string;
   /** el pedido que decía el packing list (los guardados antes del 7-oct-2026 no lo traen) */
   pedido?: string | null;
+  /** foto del producto para la pantalla (no se guarda) */
+  foto?: string | null;
 }
 
 /** Lo guardado en `contenedores.pendientes`, sin confiar en su forma. */

@@ -5,6 +5,8 @@ import { recalcularEstadoPedido } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
 import { amarreDeLineas } from "@/lib/servicios/amarre-pedido";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 
 export const dynamic = "force-dynamic";
 
@@ -85,16 +87,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   // Con qué color de MELI amarra cada renglón (para «recordar» el color del
   // packing list al confirmar un pendiente). Si el catálogo falla, sin color.
-  const amarres = await amarreDeLineas(
-    c.supabase,
-    c.cuenta.id,
-    (lineas ?? []).map((l: any) => ({ modelo: l.modelo, color: l.color, talla: l.talla })),
-  ).catch(() => []);
+  const [amarres, fotos] = await Promise.all([
+    amarreDeLineas(
+      c.supabase,
+      c.cuenta.id,
+      (lineas ?? []).map((l: any) => ({ modelo: l.modelo, color: l.color, talla: l.talla })),
+    ).catch(() => []),
+    leerFotosProducto(c.supabase, c.cuenta.id),
+  ]);
 
   return NextResponse.json({
     numero: c.contenedor.numero,
     lineas: (lineas ?? []).map((l: any, i: number) => ({
       colorMeli: amarres[i]?.estado === "ligado" ? (amarres[i].colorMeli ?? null) : null,
+      foto: fotoDeProducto(fotos, l.modelo, l.color, amarres[i]?.estado === "ligado" ? amarres[i].colorMeli : null),
       pedidoLineaId: l.id,
       pedido: nombrePedido.get(l.pedido_id) ?? "",
       modelo: l.modelo,

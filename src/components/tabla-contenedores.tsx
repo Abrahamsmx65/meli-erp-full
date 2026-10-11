@@ -5,6 +5,15 @@ import { useRouter } from "next/navigation";
 import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
+import { FotoProducto } from "./ui/foto-producto";
+
+/** Miniaturas por renglón del contenedor; el resto se cuenta como «+N». */
+const FOTOS_POR_CONTENEDOR = 6;
+
+/** Una foto por modelo + color, los que más cajas traen primero. */
+function fotosDeModelos(modelos: Contenedor["modelos"]) {
+  return [...modelos].sort((a, b) => b.cajas - a.cajas);
+}
 
 interface Contenedor {
   id: string;
@@ -19,7 +28,7 @@ interface Contenedor {
   notas: string | null;
   cajas: number;
   pedidos: { pedido: string; cajas: number }[];
-  modelos: { modelo: string; color: string; cajas: number; pares: number }[];
+  modelos: { modelo: string; color: string; cajas: number; pares: number; foto?: string | null }[];
   pendientes?: PendientePacking[];
   /** colores en camino que MELI no tiene como los escribió la fábrica */
   sinSku?: ColorFantasma[];
@@ -257,6 +266,23 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
                     {c.modelos.length ? (
+                      <div className="mb-1 flex flex-wrap items-center gap-1">
+                        {fotosDeModelos(c.modelos)
+                          .slice(0, FOTOS_POR_CONTENEDOR)
+                          .map((m) => (
+                            <FotoProducto
+                              key={`${m.modelo}|${m.color}`}
+                              url={m.foto}
+                              alt={`${m.modelo} ${m.color} · ${n(m.cajas)} cajas`}
+                              tamano={28}
+                            />
+                          ))}
+                        {c.modelos.length > FOTOS_POR_CONTENEDOR ? (
+                          <span className="texto-tenue">+{c.modelos.length - FOTOS_POR_CONTENEDOR}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {c.modelos.length ? (
                       <span
                         className="block max-w-56 cursor-help truncate"
                         title={detalleModelos(c)}
@@ -473,6 +499,8 @@ interface LineaContenido {
   enOtros: number;
   /** color de la variante de MELI con la que amarra el renglón del pedido (null si no amarra) */
   colorMeli?: string | null;
+  /** foto del producto (fotos-producto) */
+  foto?: string | null;
 }
 
 /**
@@ -664,7 +692,8 @@ function ContenidoContenedor({
                     className="rounded-lg border p-2.5 text-xs"
                     style={{ borderColor: "var(--borde)", background: "var(--surface-1)" }}
                   >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <FotoProducto url={p.foto} alt={`${p.modelo} ${p.color}`} tamano={32} />
                       <span className="texto-tenue">Packing list{p.pedido ? ` · ${p.pedido}` : ""}:</span>
                       <span className="font-semibold">
                         {p.modelo} {p.color}
@@ -786,6 +815,7 @@ function ContenidoContenedor({
           <table className="datos">
             <thead>
               <tr>
+                <th className="w-12">Foto</th>
                 <th>Pedido</th>
                 <th>Modelo</th>
                 <th>Color</th>
@@ -801,6 +831,9 @@ function ContenidoContenedor({
                 const valor = cajas[l.pedidoLineaId] ?? l.enEste;
                 return (
                   <tr key={l.pedidoLineaId}>
+                    <td>
+                      <FotoProducto url={l.foto} alt={`${l.modelo} ${l.color}`} />
+                    </td>
                     <td className="text-xs">{l.pedido}</td>
                     <td className="font-medium">{l.modelo}</td>
                     <td>{l.color}</td>

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { cargarProductos } from "@/lib/servicios/productos";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 import { TablaProductos } from "@/components/tabla-productos";
 import { SubirCostos } from "@/components/subir-costos";
 import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
@@ -20,11 +22,12 @@ export default async function Productos({
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Catálogo y costos" />;
 
-  const { productos, categorias, faltaMigracion, fundasSinCosto } = await cargarProductos(
-    supabase,
-    cuenta.id,
-    { conFundasSinCosto },
-  );
+  const [{ productos: base, categorias, faltaMigracion, fundasSinCosto }, fotos] = await Promise.all([
+    cargarProductos(supabase, cuenta.id, { conFundasSinCosto }),
+    leerFotosProducto(supabase, cuenta.id),
+  ]);
+  // La foto del modelo junto a su renglón (dueño, 11-oct-2026). Las fundas no tienen fuente de fotos aquí.
+  const productos = base.map((p) => ({ ...p, foto: p.negocio === "calzado" ? fotoDeProducto(fotos, p.modelo) : null }));
   const conCosto = productos.filter((p) => p.costoMxn != null).length;
 
   return (

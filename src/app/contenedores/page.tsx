@@ -6,6 +6,8 @@ import { TablaContenedores } from "@/components/tabla-contenedores";
 import { SubirPackingList } from "@/components/subir-packing-list";
 import { PackingDrive, type ArchivoDriveVista } from "@/components/packing-drive";
 import { configDrive } from "@/lib/servicios/drive";
+import { leerFotosProducto } from "@/lib/servicios/fotos-producto";
+import { fotoDeProducto } from "@/lib/fotos/producto";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
@@ -27,7 +29,7 @@ export default async function Contenedores() {
 
   if (!cuenta) return <SinCuenta titulo="Contenedores" />;
 
-  const [contenedores, drive] = await Promise.all([
+  const [contenedores, drive, fotos] = await Promise.all([
     listarContenedores(supabase, cuenta.id),
     supabase
       .from("drive_packing_lists")
@@ -35,6 +37,7 @@ export default async function Contenedores() {
       .eq("account_id", cuenta.id)
       .order("procesado_en", { ascending: false })
       .limit(30),
+    leerFotosProducto(supabase, cuenta.id),
   ]);
   // Colores de lo que viene en camino que MELI no tiene como los escribió la
   // fábrica (pedido del dueño, 7-oct-2026: «lo mismo en los packing lists de
@@ -47,7 +50,18 @@ export default async function Contenedores() {
     const indices = lineasAmarre.map((l, i) => (l.contenedorId === c.id ? i : -1)).filter((i) => i >= 0);
     const suyas = indices.map((i) => lineasAmarre[i]);
     const propios = indices.map((i) => amarres[i]);
-    return { ...c, sinSku: coloresFantasma(suyas, propios), ligados: coloresLigados(suyas, propios) };
+    // La foto de cada modelo + color junto a su renglón (dueño, 11-oct-2026).
+    return {
+      ...c,
+      modelos: c.modelos.map((m) => {
+        const i = suyas.findIndex((l) => l.modelo === m.modelo && l.color === m.color);
+        const meli = i >= 0 && propios[i]?.estado === "ligado" ? propios[i].colorMeli : null;
+        return { ...m, foto: fotoDeProducto(fotos, m.modelo, m.color, meli) };
+      }),
+      pendientes: c.pendientes?.map((p) => ({ ...p, foto: fotoDeProducto(fotos, p.modelo, p.color) })),
+      sinSku: coloresFantasma(suyas, propios),
+      ligados: coloresLigados(suyas, propios),
+    };
   });
   const enCamino = contenedores.filter((c) => c.estado !== "recibido");
   // Reparto de la tabla en pestañas (mismos renglones, mismo orden).
