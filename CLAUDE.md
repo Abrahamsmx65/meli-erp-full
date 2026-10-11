@@ -156,6 +156,60 @@ guárdala numerada.
   53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
   53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
   inventa.
+- **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
+  `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
+  `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,
+  `servicios/pedidos-borradores.ts`, `POST /api/pedidos/borradores`,
+  migración 0139; dueño, 11-oct-2026: «quiero mandarte una lista así y que
+  se haga solo todo», «tú haz la fábrica y hazlo en su formato», «cada
+  modelo se pide en diferente Excel siempre», «el precio es diferente con
+  cada fábrica», «el último ha sido IN10183»). Se pega la lista tal cual
+  («GT179 CTNS OF 12 / BROWN / 26 22…»: talla y CAJAS de una sola talla;
+  corridas con «23 24 25 / 5 10 11 X 20», «23:5 24:10 X 20» o «misma
+  corrida x 20») y sale UN BORRADOR POR MODELO con su IN consecutivo
+  (`siguienteIn`: el mayor entre pedidos, borradores vivos y
+  `pedidos_ajustes.ultimo_in`). Lo que la lista no dice sale del último
+  pedido del modelo: fábrica (cada modelo siempre ha sido de una), moneda,
+  descripción, el color como lo escribe la fábrica (BLK → BLACK), pares por
+  caja, la corrida «misma» y el PRECIO por color y talla SOLO de pedidos a
+  ESA fábrica (cambiar de fábrica en el borrador lo vuelve a armar sin
+  precios); medidas de la caja del packing list de un contenedor anterior
+  con los mismos pares. Un modelo NUEVO queda pidiendo fábrica, precio y
+  descripción; no se confirma con nada en blanco (`faltantesDeBorrador`).
+  Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
+  con `origen = 'sistema'` (cuenta como en camino, da de alta corridas) y
+  correo con el Excel adjunto a `pedidos_ajustes.destinatarios` (se edita
+  en la pantalla; un correo que no sale no deshace el pedido, se
+  reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
+  la talla, precio por talla en fila de continuación), MINGTAI (RMB),
+  JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y
+  el sencillo para las demás; sin datos bancarios. **Lo generado lo vuelve a
+  leer `importarProforma` igual** (`excel.test.ts`, todos los formatos): la
+  proforma FIRMADA que regresa la fábrica con ese IN se sube en Órdenes de
+  compra y REEMPLAZA los renglones del pedido del sistema mientras nada
+  esté en un contenedor.
+  **El lector de proformas ahora lee la MONEDA** (`monedaDeProforma`, del
+  encabezado del precio, las celdas o su formato «US$»; `formatosDeHoja`),
+  el **precio por talla** de una fila de continuación (`preciosTalla`,
+  `pedido_lineas.precios_talla`), el **CBM por caja** (`cbmCaja`,
+  `pedido_lineas.cbm_caja`) y **hereda el precio** del modelo a los colores
+  sin precio (FUZHOU lo pone solo en el primero: el IN10163 decía $1,483 y
+  eran $11,618). Hasta el 11-oct-2026 todo se guardaba como RMB; la 0139
+  corrigió la moneda por fábrica verificada (USD: Chaozhou, Jiaxing
+  Innovative, Fuzhou, Tengchuang, Baike; RMB: Jinjiang, Mingtai; las demás
+  quedan sin moneda hasta volver a subir su proforma) y rehízo el importe
+  solo de los pedidos sin importe o con precio heredado (el de JINJIANG y
+  MINGTAI ya era el bueno: cobran más las tallas grandes).
+  **PENDIENTES POR ENVIAR** (`/pedidos/pendientes`,
+  `servicios/pedidos-pendientes.ts`): por pedido vivo, las cajas que aún no
+  están en NINGÚN contenedor (un packing list ya las metió aunque el
+  contenedor siga en borrador), el dinero de eso en la moneda de la fábrica
+  (USD y RMB nunca se suman; escalado al importe de la proforma) y los CBM
+  (caja de la proforma o medidas del mismo modelo + pares en un packing
+  list; lo que no tiene medida se cuenta aparte), por fábrica y en total
+  con ≈ contenedores de 68 m³. Un pedido sale de ahí cuando todo está en
+  contenedores.
   **El BL de la misma carpeta de Drive es el NÚMERO DE CONTROL del
   contenedor** (`importar/bl.ts` puro con pruebas, `importar/texto-pdf.ts`
   con `unpdf`, `leerBlsDeContenedores` en `drive-packing.ts`, columnas
@@ -2491,6 +2545,7 @@ login, la base y el deploy.
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
 | Sugerencia de compra a China (demanda MELI corregida + Amazon corregida + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
+| Nuevo pedido a China (lista → borrador por modelo → Excel en formato de la fábrica → correo) y Pendientes por enviar | `src/lib/pedidos-china/` (`lista.ts`, `armar.ts`, `fabricas.ts`, `excel.ts`) + `src/lib/servicios/pedidos-borradores.ts`, `pedidos-pendientes.ts` + `src/app/pedidos/{nuevo,pendientes}` + `/api/pedidos/borradores` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
 | Cargar pedidos (muchas proformas, lista con filtros) y faltantes contra el sheet de pendientes (`PEDIDOS_SHEET_URL`, pestaña por `gid`, AR* ignorados) | `src/app/pedidos/cargar` + `components/cargar-pedidos-lote.tsx` + `src/lib/servicios/pedidos-sheet.ts` |
 | Packing list de la fábrica → contenedor (lector + amarre pedido/modelo/color/talla) | `src/lib/importar/packing-list.ts` + `src/lib/servicios/packing-list.ts` + `/api/contenedores/packing-list` |

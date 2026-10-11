@@ -17,7 +17,7 @@
  * Las tallas vienen como "25MX=39": la de México es la que importa. Y el
  * color viene en tres idiomas, "BLK 黑 NEGRO", del que solo sirve el primero.
  */
-import { leerHoja } from "./leer-hoja";
+import { formatosDeHoja, leerHoja } from "./leer-hoja";
 import { canonizar, normalizarTalla } from "./sku";
 
 export interface LineaProforma {
@@ -40,11 +40,27 @@ export interface LineaProforma {
    * del modelo: son un pedido aparte de esa talla.
    */
   unitalla: string | null;
+  /**
+   * Precio por talla cuando la fábrica cobra distinto según la talla dentro
+   * de la misma corrida (JINJIANG: 9.6 hasta la 26 y 10.1 de la 27 arriba,
+   * en una fila de continuación con su propio precio). null si es uno solo.
+   */
+  preciosTalla?: Record<string, number> | null;
+  /** metros cúbicos de UNA caja (columna CBM ÷ CTNS), si la proforma lo trae */
+  cbmCaja?: number | null;
 }
+
+export type Moneda = "USD" | "RMB";
 
 export interface Proforma {
   pedido: string;
   proveedor: string | null;
+  /**
+   * En qué moneda cobra la fábrica, leída del encabezado del precio
+   * ("FOB Xiamen RMB", "(USD)", "US$1.030"). Cada fábrica es distinta y
+   * hasta el 11-oct-2026 todo se guardaba como RMB. null si no lo dice.
+   */
+  moneda: Moneda | null;
   lineas: LineaProforma[];
   totales: { cajas: number; pares: number; importe: number | null };
   tallasDetectadas: string[];
@@ -200,6 +216,42 @@ export function tallaDeEncabezado(crudo: string): string | null {
   return null;
 }
 
+/**
+ * La moneda del precio: se busca en el encabezado de la columna de precio y
+ * las filas de abajo ("FOB Xiamen RMB", "U./PRICE" + "(USD)", "FOB Shanghai"
+ * + "USD"), en las celdas de precio ("US$1.030", "¥9.6") y, al último, en el
+ * nombre del archivo ("USD PI for boot order…"). Nada se supone.
+ */
+export function monedaDeProforma(filas: unknown[][], filaEnc: number, colPrecio: number, nombre?: string): Moneda | null {
+  const de = (t: string): Moneda | null => {
+    const u = t.toUpperCase();
+    if (/\bUSD\b|US\$|U\.S\.D|DOLLAR/.test(u)) return "USD";
+    if (/\bRMB\b|\bCNY\b|YUAN|¥|￥|人民币/.test(u)) return "RMB";
+    return null;
+  };
+  if (colPrecio >= 0) {
+    for (let i = filaEnc; i < Math.min(filaEnc + 4, filas.length); i++) {
+      for (const c of [colPrecio, colPrecio + 1]) {
+        const m = de(texto(filas[i]?.[c]));
+        if (m) return m;
+      }
+    }
+    // Las celdas de precio de la tabla.
+    for (let i = filaEnc + 1; i < Math.min(filaEnc + 40, filas.length); i++) {
+      const m = de(texto(filas[i]?.[colPrecio]));
+      if (m) return m;
+    }
+  }
+  // Cualquier celda del encabezado (algunas fábricas la ponen en otra columna).
+  for (let i = Math.max(0, filaEnc); i < Math.min(filaEnc + 3, filas.length); i++) {
+    for (const celda of filas[i] ?? []) {
+      const m = de(texto(celda));
+      if (m) return m;
+    }
+  }
+  return nombre ? de(nombre) : null;
+}
+
 export async function importarProforma(
   buffer: ArrayBuffer | Buffer,
   opts?: { nombre?: string; hoja?: string },
@@ -289,6 +341,7 @@ export async function importarProforma(
   let colCajas = -1;
   let colPares = -1;
   let colPrecio = -1;
+  let colCbm = -1;
 
   for (let i = 0; i < Math.min(20, filas.length); i++) {
     const f = filas[i].map((c) => canonizar(c));
@@ -318,6 +371,7 @@ export async function importarProforma(
         c === "TOTAL-PRS" || c === "TOTAL-PAIRS" || c === "TOTAL-PCS",
     );
     colPrecio = f.findIndex((c) => c.startsWith("FOB") || c.includes("PRICE"));
+    colCbm = f.findIndex((c) => c === "CBM" || c === "CBMS");
     break;
   }
 
@@ -325,6 +379,12 @@ export async function importarProforma(
     throw new Error(
       'No encontré la tabla del pedido. Se esperan columnas "Item No.", "COLOR" y las tallas.',
     );
+  }
+
+  let moneda = monedaDeProforma(filas, filaEnc, colPrecio, opts?.nombre);
+  if (!moneda && colPrecio >= 0) {
+    const formatos = await formatosDeHoja(buffer, opts).catch(() => [] as string[][]);
+    moneda = monedaDeProforma(formatos, filaEnc, colPrecio);
   }
 
   // --- Columnas de talla --------------------------------------------------
@@ -379,6 +439,10 @@ export async function importarProforma(
   let modeloActual = "";
   let colorActual = "";
   let ultima: LineaProforma | null = null;
+  // Precio del último renglón de cada modelo: FUZHOU pone el precio SOLO en
+  // el primer color del modelo (celda combinada) y los demás colores salían
+  // sin precio — el IN10163 decía $1,483 de importe y la proforma $11,618.
+  const precioDeModelo = new Map<string, number>();
 
   // El modelo puede no venir en NINGÚN renglón (CHAOZHOU a veces lo deja
   // solo en la foto, y la celda "ITEM NO." queda vacía): última red, el
@@ -440,7 +504,8 @@ export async function importarProforma(
     const porCajaFila = colPorCaja >= 0 ? numero(f[colPorCaja]) : 0;
     const cajasFila = colCajas >= 0 ? numero(f[colCajas]) : 0;
     const paresFila = colPares >= 0 ? numero(f[colPares]) : 0;
-    const precioFila = colPrecio >= 0 ? numero(f[colPrecio]) : 0;
+    let precioFila = colPrecio >= 0 ? numero(f[colPrecio]) : 0;
+    const cbmFila = colCbm >= 0 ? numero(f[colCbm]) : 0;
 
     if (modeloCrudo) modeloActual = modeloCrudo.toUpperCase();
     if (colorCrudo) colorActual = colorCrudo;
@@ -453,6 +518,11 @@ export async function importarProforma(
       );
     }
     if (!modeloActual) continue;
+    if (precioFila > 0) precioDeModelo.set(modeloActual, precioFila);
+    else if (precioDeModelo.has(modeloActual) && (modeloCrudo || colorCrudo || !ultima)) {
+      precioFila = precioDeModelo.get(modeloActual)!;
+    }
+    const cbmCajaFila = cbmFila > 0 && cajasFila > 0 ? Number((cbmFila / cajasFila).toFixed(5)) : null;
 
     // ---- Unitalla: una sola talla con cajas y pares propios ---------------
     // Dos formas. (a) El número bajo la talla son las CAJAS (coincide con
@@ -482,6 +552,7 @@ export async function importarProforma(
         precioUnitario: precioFila > 0 ? precioFila : null,
         cuadra: true,
         unitalla: t,
+        cbmCaja: cbmCajaFila,
       };
       lineas.push(linea);
       importe += precioFila * paresFila;
@@ -491,6 +562,14 @@ export async function importarProforma(
 
     // ---- Continuación: sin modelo ni color propios, sigue la de arriba ----
     if (!modeloCrudo && !colorCrudo && ultima) {
+      // Con su propio precio distinto al del renglón: precio por talla.
+      const precioBase = ultima.precioUnitario ?? 0;
+      if (precioFila > 0 && precioBase > 0 && precioFila !== precioBase) {
+        const porTalla: Record<string, number> = { ...(ultima.preciosTalla ?? {}) };
+        for (const t of Object.keys(ultima.tallas)) if (porTalla[t] == null) porTalla[t] = precioBase;
+        for (const { talla } of tallasFila) porTalla[talla] = precioFila;
+        ultima.preciosTalla = porTalla;
+      }
       for (const { talla, valor } of tallasFila) {
         ultima.tallas[talla] = (ultima.tallas[talla] ?? 0) + valor;
       }
@@ -521,6 +600,7 @@ export async function importarProforma(
       precioUnitario: precioFila > 0 ? precioFila : null,
       cuadra: true,
       unitalla: null,
+      cbmCaja: cbmCajaFila,
     };
     if (porCajaFila > 0) declaradoDe.set(linea, porCajaFila);
     lineas.push(linea);
@@ -550,6 +630,7 @@ export async function importarProforma(
 
       const paresFila = colPares >= 0 ? numero(f[colPares]) : 0;
       const precioFila = colPrecio >= 0 ? numero(f[colPrecio]) : 0;
+      const cbmFila = colCbm >= 0 ? numero(f[colCbm]) : 0;
       // Las cajas no traen encabezado propio (la celda combinada se lo come):
       // son el número que vive entre las tallas y los pares.
       let cajasFila = colCajas >= 0 ? numero(f[colCajas]) : 0;
@@ -597,6 +678,7 @@ export async function importarProforma(
         precioUnitario: precioFila > 0 ? precioFila : null,
         cuadra: true,
         unitalla: null,
+        cbmCaja: cbmFila > 0 && cajasFila > 0 ? Number((cbmFila / cajasFila).toFixed(5)) : null,
       };
       // El cuadre declarado sale de PRS ÷ cajas (aquí no hay "PER CTN").
       if (cajasFila > 0 && paresFila > 0 && paresFila % cajasFila === 0) {
@@ -641,6 +723,7 @@ export async function importarProforma(
     const temporal: Proforma = {
       pedido,
       proveedor,
+      moneda,
       lineas,
       totales: { cajas: 0, pares: 0, importe: null },
       tallasDetectadas: [],
@@ -690,6 +773,7 @@ export async function importarProforma(
   return {
     pedido,
     proveedor,
+    moneda,
     lineas: lineasFinales,
     totales: {
       cajas: totalCajas,

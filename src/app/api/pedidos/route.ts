@@ -83,10 +83,12 @@ export async function POST(req: NextRequest) {
   // Avisar si el pedido ya existe, ANTES de que confirme.
   const { data: yaExiste } = await ctx.supabase
     .from("pedidos")
-    .select("id, estado")
+    .select("id, estado, origen")
     .eq("account_id", ctx.cuenta.id)
     .eq("pedido", proforma.pedido)
     .maybeSingle();
+  // Un pedido que armó el ERP espera su proforma firmada: se reemplaza.
+  const reemplaza = yaExiste?.origen === "sistema";
 
   if (accion === "previsualizar") {
     // Qué renglones NO existen en MELI como están escritos (color fantasma):
@@ -99,12 +101,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       proforma: { ...proforma, amarre },
-      yaExiste: Boolean(yaExiste),
+      yaExiste: Boolean(yaExiste) && !reemplaza,
+      reemplaza,
       archivo: archivo.name,
     });
   }
 
-  if (yaExiste) {
+  if (yaExiste && !reemplaza) {
     return NextResponse.json(
       { error: `El pedido ${proforma.pedido} ya está cargado.` },
       { status: 409 },
