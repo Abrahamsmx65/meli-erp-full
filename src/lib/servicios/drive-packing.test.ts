@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cambio, contenedorDelEmbarque, esArchivoAjeno, esEmbarqueViejo, numeroDeEmbarque } from "./drive-packing";
+import { cambio, contenedorDelEmbarque, elegirContenedor, esArchivoAjeno, esEmbarqueViejo, numeroDeEmbarque, puedeSerBl, referenciaDeNombre } from "./drive-packing";
 
 describe("qué packing lists de Drive se importan", () => {
   it("un embarque ya cargado se reconoce por su NÚMERO aunque el texto cambie (S259 = S259-2026)", () => {
@@ -42,5 +42,29 @@ describe("qué packing lists de Drive se importan", () => {
     expect(cambio(a, { drive_file_id: "1", md5: null, modificado_en: "2026-09-09T05:00:00+00:00", estado: "importado" })).toBe(false);
     expect(cambio(a, { drive_file_id: "1", md5: null, modificado_en: "2026-09-08T00:00:00+00:00", estado: "importado" })).toBe(true);
     expect(cambio({ ...a, md5: "b" }, { drive_file_id: "1", md5: "a", modificado_en: null, estado: "importado" })).toBe(true);
+  });
+
+  it("la referencia sale de la carpeta cuando el archivo no la trae (S271-2026)", () => {
+    expect(referenciaDeNombre("S271-2026", "S271-2026 (HAMU5029953).xls")).toBe("S271-2026");
+    expect(referenciaDeNombre(null, "S264-2026 Packing list - Ari (MIEU4234947).xls")).toBe("S264-2026");
+    expect(referenciaDeNombre("Fundas", "packing.xls")).toBeNull();
+  });
+
+  it("el contenedor bautizado con el ISO se encuentra por el ISO y toma la referencia", () => {
+    const lista = [{ id: "h", numero: "HAMU5029953", estado: "borrador", embarque: null, naviera: "HAMU5029953" }];
+    expect(elegirContenedor(lista, "S271-2026", "HAMU5029953")).toEqual({ existente: lista[0], numero: "S271-2026", renombrar: "S271-2026" });
+  });
+
+  it("dos archivos con la misma referencia caen en el mismo contenedor (S261: mismo PL con dos ISO)", () => {
+    const lista = [{ id: "s", numero: "S261-2026", estado: "borrador", embarque: 261, naviera: "HMMU6173810" }];
+    expect(elegirContenedor(lista, "S261-2026", "HMMU6173610").existente?.id).toBe("s");
+    expect(elegirContenedor([], "S272-2026", "ABCU1234567")).toEqual({ existente: null, numero: "S272-2026", renombrar: null });
+  });
+
+  it("de los PDF de la carpeta, la proforma y el pago no son BL", () => {
+    expect(puedeSerBl("HBL R SASE4492496 (S263-2026).pdf")).toBe(true);
+    expect(puedeSerBl("TELEX-HDMUSHAZLC703700 (S261-2026).pdf")).toBe(true);
+    expect(puedeSerBl("PI JH2026925 (IN10118) revised on July 14.pdf")).toBe(false);
+    expect(puedeSerBl("S260-2026 Packing List.xls")).toBe(false);
   });
 });

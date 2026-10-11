@@ -156,6 +156,47 @@ guárdala numerada.
   53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
   53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
   inventa.
+  **El BL de la misma carpeta de Drive es el NÚMERO DE CONTROL del
+  contenedor** (`importar/bl.ts` puro con pruebas, `importar/texto-pdf.ts`
+  con `unpdf`, `leerBlsDeContenedores` en `drive-packing.ts`, columnas
+  `contenedores.cajas_bl` / `bl_archivo` / `bl_leido_en`, migración 0135;
+  idea del dueño, 11-oct-2026: «sería inteligente siempre confirmar contra el
+  BL; ahí dice cantidad de cajas y está en el mismo Drive que el PL»): cada
+  BL vivo (HBL de YQN, copia del master de HMM, telex, draft de Hapag) trae
+  «CONTENEDOR/SELLO/611/CARTON…» y «TOTAL SIX HUNDRED ELEVEN(611) CARTON
+  ONLY»; manda la línea del contenedor y el total solo si el BL no nombra
+  otro. Se lee una vez por contenedor vivo (sin BL se reintenta al día;
+  «Releer todo» lo vuelve a leer) y la columna Cajas de Contenedores dice
+  «✓ BL 611» o, en rojo, «BL 611 · faltan 212 · 90 por confirmar». Ese día
+  los 18 BL de S258–S271 se leyeron bien y casi todos los borradores
+  estaban cortos: (1) la fila de TOTAL sin letrero o con «合计» se contaba
+  como un renglón más y el contenedor salía al DOBLE (S267: 1,060 contra 530;
+  S271: 1,426 contra 713) — ahora una fila con cajas y sin pedido, modelo,
+  color, talla ni pares por caja es total y no se cuenta; (2) la fábrica
+  empezó a anotar el color en español («BLK (NEGRO)», «DK.BROWN (MARRON
+  OSCURO)», «COGNAC   coñac») y no amarraba con «BLK» del pedido — el
+  casado prueba después del aplastado el color LAXO (`claveColorLaxa`: sin
+  paréntesis, BLACK = BLK, sin punto, repetidos colapsados), y sin pedido en
+  el archivo también rescata el dedazo a una letra (COGNAC / CONGNAC);
+  (3) una caja de corrida contra un pedido que ese color lo tiene POR TALLA
+  («Solid size») se reparte SOLO si sus cajas son exactamente las que les
+  faltan a esas tallas (`repartoExactoPorTalla`; S269 GT134 BLK 41 + 51 = 92
+  del IN10159); si no cuadra queda pendiente diciendo cuánto falta, nunca se
+  adivina; (4) el pedido arrastrado de la fila de arriba que no tiene ese
+  modelo (GT148G debajo de IN10079 en S265) se busca en los demás pedidos
+  vivos; (5) los packing lists sin la referencia adentro (S263, S268, S270,
+  S271) toman la de la subcarpeta (`referenciaDeNombre`) y el contenedor que
+  quedó bautizado con el ISO se encuentra por el ISO y se RENOMBRA
+  (`elegirContenedor`); dos packing lists con la misma referencia caen en
+  el mismo contenedor (S261 trae dos archivos idénticos que solo cambian el
+  ISO y su BL dice 542 para uno). «Releer todo» vuelve a armar los
+  BORRADORES aunque su embarque sea anterior al último cargado, SALVO el que
+  ya tiene cajas confirmadas a mano en Contenido (sus cajas ya no son las
+  que entraron desde Drive; S263 tenía 232): ese no se rearma y se dice.
+  Simulado con la base real ese día: S261, S267, S269 y S270 quedan
+  completos contra su BL, S260 521 de 611 (los 90 de M BROWN contra el LT
+  BROWN del pedido siguen siendo decisión del dueño), S265 418 de 612, S268
+  622 de 657 (35 son bolsas), S271 572 de 713 (GT135 por talla sin cuadrar).
 - **Un pedido con COLOR FANTASMA se grita en Cargar pedidos**
   (`servicios/amarre-pedido.ts`; pedido del dueño el 6-oct-2026: «si el
   sistema ve que un pedido no está ligado a un SKU, que me alerte»): cada

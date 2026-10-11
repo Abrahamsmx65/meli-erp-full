@@ -34,7 +34,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     traerTodo<any>(
       db,
       "contenedores",
-      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes",
+      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes, cajas_bl, bl_archivo",
       (q) => q.eq("account_id", accountId),
     ),
     traerTodo<{ id: string; pedido: string }>(db, "pedidos", "id, pedido", (q) => q.eq("account_id", accountId)),
@@ -118,6 +118,8 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
       almacenDestino: c.almacen_destino ?? null,
       estado: c.estado,
       notas: c.notas ?? null,
+      cajasBl: c.cajas_bl ?? null,
+      blArchivo: c.bl_archivo ?? null,
       cajas,
       pedidos: [...porPedido.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))
