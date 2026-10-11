@@ -196,7 +196,7 @@ export async function recalcularCosteo(db: DB, accountId: string): Promise<Resul
     traerTodo<any>(
       db,
       "costeo_contenedores",
-      "contenedor, anio, iso, productos, costo_usd, flete_usd, aduana_mxn, entregado, fecha_entrega, notas",
+      "contenedor, anio, iso, productos, costo_usd, flete_usd, aduana_mxn, entregado, fecha_entrega, notas, negocio, comision_agente",
       (q) => q.eq("account_id", accountId),
     ),
     traerTodo<any>(db, "costeo_pagos", "id, contenedor, concepto, fecha, usd, tipo_cambio, notas", (q) =>
@@ -248,6 +248,8 @@ export async function recalcularCosteo(db: DB, accountId: string): Promise<Resul
     const susPagos = pagos.filter((p) => p.contenedor === id);
     const datos: DatosContenedor = {
       id,
+      negocio: cap?.negocio === "fundas" || id.startsWith("P") ? "fundas" : "calzado",
+      comisionAgente: num(cap?.comision_agente),
       anio: num(cap?.anio) ?? det?.anio ?? deErp?.anio ?? null,
       iso: cap?.iso ?? det?.iso ?? deErp?.isos[0] ?? null,
       productos: cap?.productos ?? [...new Set((det?.lineas ?? []).map((l) => l.modelo))].join(" "),
@@ -340,6 +342,7 @@ export interface CambioContenedor {
   costoUsd?: number | null;
   fleteUsd?: number | null;
   aduana?: number | null;
+  comisionAgente?: number | null;
   entregado?: boolean;
   fechaEntrega?: string | null;
   notas?: string | null;
@@ -348,7 +351,7 @@ export interface CambioContenedor {
 /** Normaliza "S258-2026" → "S258"; error si no es un contenedor. */
 export function contenedorValido(texto: unknown): string {
   const id = idContenedor(texto);
-  if (!id) throw new Error("El contenedor debe ser S### (por ejemplo S272).");
+  if (!id) throw new Error("El contenedor debe ser S### (calzado, por ejemplo S272) o P### (fundas, por ejemplo P609).");
   return id.id;
 }
 
@@ -367,6 +370,9 @@ export async function guardarContenedor(db: DB, accountId: string, c: CambioCont
   if ("costoUsd" in c) fila.costo_usd = montoONulo(c.costoUsd);
   if ("fleteUsd" in c) fila.flete_usd = montoONulo(c.fleteUsd);
   if ("aduana" in c) fila.aduana_mxn = montoONulo(c.aduana);
+  if ("comisionAgente" in c) fila.comision_agente = montoONulo(c.comisionAgente);
+  // El negocio sale del número: P### son fundas.
+  fila.negocio = contenedor.startsWith("P") ? "fundas" : "calzado";
   if ("entregado" in c) fila.entregado = Boolean(c.entregado);
   if ("fechaEntrega" in c) fila.fecha_entrega = c.fechaEntrega || null;
   if ("notas" in c) fila.notas = c.notas ? String(c.notas).trim() : null;

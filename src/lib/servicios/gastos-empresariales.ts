@@ -16,9 +16,18 @@ export interface GastoEmpresarial {
   proporcion?: number;
   /** el dueño lo corrigió a mano para ese mes */
   editado?: boolean;
+  /**
+   * Con qué se pagó: «banco» (cuenta de la empresa, con factura) o
+   * «efectivo» (de la cuenta con Rafa; la pestaña GASTOS MEX del sheet de
+   * cuentas). Los dos cuentan igual en el Estado de resultados; los de
+   * efectivo además salen de la ganancia de la Cuenta con Rafa.
+   */
+  medio?: MedioGasto;
 }
 
-type EntradaGasto = Pick<GastoEmpresarial, "fecha" | "concepto" | "categoria" | "monto">;
+export type MedioGasto = "banco" | "efectivo";
+
+type EntradaGasto = Pick<GastoEmpresarial, "fecha" | "concepto" | "categoria" | "monto"> & { medio: MedioGasto };
 
 function claveImportacionValida(valor: unknown): valor is string {
   return typeof valor === "string" && valor.trim().length >= 1 && valor.trim().length <= 200;
@@ -44,7 +53,8 @@ function validarEntrada(b: any): { valor?: EntradaGasto; error?: string } {
   if (!concepto) return { error: "Falta el concepto." };
   if (!categoria) return { error: "Falta la categoría." };
   if (!Number.isFinite(monto) || monto <= 0) return { error: "El monto debe ser mayor que cero." };
-  return { valor: { fecha, concepto, categoria, monto: Math.round(monto * 100) / 100 } };
+  const medio: MedioGasto = b?.medio === "efectivo" ? "efectivo" : "banco";
+  return { valor: { fecha, concepto, categoria, monto: Math.round(monto * 100) / 100, medio } };
 }
 
 /**
@@ -65,7 +75,7 @@ export async function listarGastosEmpresariales(db: DB, accountId: string, desde
   const inicioMes = `${periodoDe(desde)}-01`;
   const { data, error } = await db
     .from("gastos_empresariales")
-    .select("id, fecha, concepto, categoria, monto, gasto_fijo_id, editado, omitido")
+    .select("id, fecha, concepto, categoria, monto, gasto_fijo_id, editado, omitido, medio")
     .eq("account_id", accountId)
     .gte("fecha", inicioMes)
     .lte("fecha", hasta)
@@ -78,7 +88,15 @@ export async function listarGastosEmpresariales(db: DB, accountId: string, desde
     if (g.omitido) continue;
     const montoMes = Number(g.monto) || 0;
     const fijoId = g.gasto_fijo_id == null ? null : Number(g.gasto_fijo_id);
-    const base = { id: Number(g.id), fecha: g.fecha as string, concepto: g.concepto, categoria: g.categoria, fijoId, editado: Boolean(g.editado) };
+    const base = {
+      id: Number(g.id),
+      fecha: g.fecha as string,
+      concepto: g.concepto,
+      categoria: g.categoria,
+      fijoId,
+      editado: Boolean(g.editado),
+      medio: (g.medio === "efectivo" ? "efectivo" : "banco") as MedioGasto,
+    };
     if (fijoId == null) {
       if (g.fecha < desde) continue;
       salida.push({ ...base, monto: montoMes, montoMes, proporcion: 1 });

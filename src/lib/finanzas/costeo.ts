@@ -44,11 +44,14 @@ const norm = (s: unknown) =>
     .trim()
     .toUpperCase();
 
-/** "S252-2026" → S252 / 2026; "S236" → S236 / null; "IN10079" → null. */
+/**
+ * "S252-2026" → S252 / 2026; "S236" → S236 / null; "P605" (fundas) → P605;
+ * "IN10079" → null.
+ */
 export function idContenedor(texto: unknown): { id: string; anio: number | null } | null {
-  const m = norm(texto).match(/^S\s?(\d{3})(?:\s*-\s*(\d{4}))?$/);
+  const m = norm(texto).match(/^([SP])\s?(\d{3})(?:\s*-\s*(\d{4}))?$/);
   if (!m) return null;
-  return { id: `S${m[1]}`, anio: m[2] ? Number(m[2]) : null };
+  return { id: `${m[1]}${m[2]}`, anio: m[3] ? Number(m[3]) : null };
 }
 
 /** "GT148", "GT148G", "MY2307", "G650", "YH1002" sí; "IN10079", "ETA :" no. */
@@ -171,8 +174,13 @@ export interface PagoUsd {
   tipoCambio: number;
 }
 
+export type NegocioContenedor = "calzado" | "fundas";
+
 export interface DatosContenedor {
   id: string;
+  negocio: NegocioContenedor;
+  /** comisión del agente (Joanne) en pesos: gasto operativo, NO costo del par */
+  comisionAgente: number | null;
   anio: number | null;
   iso: string | null;
   productos: string;
@@ -210,6 +218,8 @@ export interface CostoModeloContenedor {
 
 export interface ContenedorCosteado {
   id: string;
+  negocio: NegocioContenedor;
+  comisionAgente: number | null;
   anio: number | null;
   iso: string | null;
   productos: string;
@@ -322,6 +332,8 @@ export function costearContenedor(datos: DatosContenedor, detalle: DetalleConten
 
   return {
     id: datos.id,
+    negocio: datos.negocio,
+    comisionAgente: datos.comisionAgente,
     anio: datos.anio ?? detalle?.anio ?? null,
     iso: datos.iso ?? detalle?.iso ?? null,
     productos: datos.productos,

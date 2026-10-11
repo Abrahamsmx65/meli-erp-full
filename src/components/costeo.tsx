@@ -213,6 +213,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
     costoUsd: c.costoUsd != null ? String(c.costoUsd) : "",
     fleteUsd: c.fleteUsd != null ? String(c.fleteUsd) : "",
     aduana: c.aduana != null ? String(c.aduana) : "",
+    comisionAgente: c.comisionAgente != null ? String(c.comisionAgente) : "",
     entregado: c.entregado,
     fechaEntrega: c.fechaEntrega ?? "",
     notas: c.notas ?? "",
@@ -251,7 +252,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
   return (
     <div className="flex flex-col gap-4 p-3">
       <form
-        className="grid grid-cols-2 gap-3 md:grid-cols-6"
+        className="grid grid-cols-2 gap-3 md:grid-cols-7"
         onSubmit={(e) => {
           e.preventDefault();
           correr(() =>
@@ -262,6 +263,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
               costoUsd: form.costoUsd,
               fleteUsd: form.fleteUsd,
               aduana: form.aduana,
+              comisionAgente: form.comisionAgente,
               entregado: form.entregado,
               fechaEntrega: form.fechaEntrega,
               notas: form.notas,
@@ -272,6 +274,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
         {campo("costoUsd", "Factura fábrica (USD)")}
         {campo("fleteUsd", "Flete (USD)")}
         {campo("aduana", "Aduana (MXN)")}
+        {campo("comisionAgente", "Comisión agente (MXN)")}
         <label className="texto-2 flex items-end gap-1.5 pb-2 text-[12px]">
           <input type="checkbox" checked={form.entregado} onChange={(e) => setForm({ ...form, entregado: e.target.checked })} />
           Entregado{c.estadoErp === "recibido" ? " (recibido en Contenedores)" : ""}
@@ -282,7 +285,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
             Guardar
           </button>
         </div>
-        <label className="texto-2 col-span-2 text-[12px] md:col-span-6">
+        <label className="texto-2 col-span-2 text-[12px] md:col-span-7">
           Notas
           <input className={entrada} style={estiloEntrada} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
         </label>
@@ -423,7 +426,7 @@ export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorV
   return (
     <div className="flex flex-col gap-3">
       <form className="flex flex-wrap items-center gap-2" onSubmit={agregar}>
-        <input className="rounded-lg border px-2 py-1.5 text-sm" style={estiloEntrada} placeholder="S272" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
+        <input className="rounded-lg border px-2 py-1.5 text-sm" style={estiloEntrada} placeholder="S272 o P609" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
         <button className="boton boton-fantasma boton-chico" disabled={!nuevo.trim()}>
           Agregar contenedor
         </button>
@@ -439,6 +442,7 @@ export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorV
               <th className="num">T.C. fábrica</th>
               <th className="num">Flete</th>
               <th className="num">Aduana</th>
+              <th className="num" title="Gasto operativo: no entra al costo del par">Agente</th>
               <th className="num">Total MXN</th>
               <th className="num">Pares</th>
               <th className="num">Por par</th>
@@ -451,7 +455,11 @@ export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorV
                 <tr>
                   <td className="font-medium">
                     {c.id}
-                    <div className="texto-tenue text-[11px]">{c.iso ?? ""}</div>
+                    <div className="texto-tenue text-[11px]">
+                      {c.negocio === "fundas" ? "Fundas" : ""}
+                      {c.negocio === "fundas" && c.iso ? " · " : ""}
+                      {c.iso ?? ""}
+                    </div>
                   </td>
                   <td className="text-[12px]">
                     <span style={{ color: c.cuenta ? "var(--exito-texto)" : "var(--alerta-texto)" }}>
@@ -474,6 +482,7 @@ export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorV
                     <div className="texto-tenue text-[11px]">{c.fleteUsd != null ? `${usd(c.fleteUsd)} · ${tc(c.tcFlete)}` : ""}</div>
                   </td>
                   <td className="num cifra">{pesos(c.aduana, 0)}</td>
+                  <td className="num cifra">{c.comisionAgente ? pesos(c.comisionAgente, 0) : "—"}</td>
                   <td className="num cifra font-semibold">{c.totalMxn > 0 ? pesos(c.totalMxn, 0) : "—"}</td>
                   <td className="num cifra">{c.pares ? c.pares.toLocaleString("es-MX") : "—"}</td>
                   <td className="num cifra">{c.pares && c.pesosCosto ? pesos(c.totalMxn / c.pares) : "—"}</td>
@@ -485,7 +494,7 @@ export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorV
                 </tr>
                 {abierto === c.id ? (
                   <tr>
-                    <td colSpan={10} style={{ background: "var(--surface-2)" }}>
+                    <td colSpan={11} style={{ background: "var(--surface-2)" }}>
                       <EditorContenedor c={c} onListo={() => router.refresh()} />
                     </td>
                   </tr>

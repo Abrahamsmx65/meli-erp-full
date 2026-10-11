@@ -66,6 +66,8 @@ describe("leerExcelCosteo", () => {
 
 const datos = (d: Partial<DatosContenedor>): DatosContenedor => ({
   id: "S252",
+  negocio: "calzado",
+  comisionAgente: null,
   anio: 2026,
   iso: null,
   productos: "",
@@ -91,6 +93,14 @@ const det: DetalleContenedor = {
 };
 
 describe("costearContenedor", () => {
+  it("la comisión del agente NO entra al costo del par", () => {
+    const sin = costearContenedor(datos({}), det);
+    const con = costearContenedor(datos({ comisionAgente: 999 }), det);
+    expect(con.modelos[0].porPar).toBe(sin.modelos[0].porPar);
+    expect(con.totalMxn).toBe(sin.totalMxn);
+    expect(con.comisionAgente).toBe(999);
+  });
+
   it("fábrica por valor con el T.C. de sus pagos; flete y aduana por CBM; suma exacto", () => {
     const c = costearContenedor(datos({}), det);
     const [a, b] = c.modelos;
@@ -256,5 +266,6 @@ describe("utilidades", () => {
     expect(numeroCelda("ENTREGADO")).toBeNull();
     expect(idContenedor("S252-2026")).toEqual({ id: "S252", anio: 2026 });
     expect(idContenedor("IN10079")).toBeNull();
+    expect(idContenedor("P605")).toEqual({ id: "P605", anio: null });
   });
 });

@@ -2054,6 +2054,39 @@ guárdala numerada.
   Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
   usó. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
+- **CUENTA CON RAFA, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
+  motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
+  con Rafa» en Negocio, `POST /api/finanzas/cuenta`, migración 0137;
+  dueño, 11-oct-2026). Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
+  se importó UNA vez y desde ahí se captura en el ERP; el sheet nunca se
+  escribe. **Las transferencias a Rafa (Industher / Vantorix) NO son pagos
+  de contenedores** (dueño: «esos pagos no tienen nada que ver con los
+  contenedores»): son el dinero que pasa a una cuenta paralela desde la que
+  Rafa paga a China o le da efectivo al dueño, y cobra 2/116 (~1.72 %) de
+  cada una (`COMISION_RAFA`; `cuenta_paralela` tipo `transferencia`). La
+  pantalla replica la pestaña TOTAL: recibido (transferencias − comisión)
+  − contenedores de calzado y fundas en pesos (del costeo) − comisión del
+  agente − gastos en EFECTIVO + ingresos sin comisión (CREDI PAGO: una
+  deuda que le pagaron al dueño, tipo `ingreso`) − gastos de la cuenta
+  (renta de oficina, tipo `gasto`) = ganancia, repartida entre los SOCIOS
+  (`socios`: Abraham 25 %, Daniel 25 %, su papá 50 %) contra lo que cada
+  uno retiró (`socios_retiros`; negativo = pagó algo del negocio; los
+  retiros solo se APUNTAN, nunca son gasto). Al importar cuadró al centavo
+  con la pestaña TOTAL (transferencias $41,889,509.39, comisión
+  $793,784.63, retiros $3,627,820 y $3,135,465); la ganancia sale $57,100
+  menor que la del sheet por el flete corregido de S244–S246. Los cuatro
+  retiros SIN fecha de Abraham (DÓLARES VIAJE y tres AMEX) no se
+  importaron: en el sheet estaban fuera de la suma. **GASTOS MEX** entró a
+  Gastos con `gastos_empresariales.medio = 'efectivo'` (lo que se paga
+  desde el banco con factura es `banco`, el de omisión) y categorías
+  nuevas (Empaque, Marketing, Oficina y equipo, Comisiones, Trámites,
+  Viajes): los dos medios cuentan igual en el Estado de resultados y los de
+  efectivo además salen de la ganancia de la cuenta. Contenedores de
+  FUNDAS (`P###`, `costeo_contenedores.negocio = 'fundas'`) en el mismo
+  costeo; el P608 viajó en el S268. La comisión del agente (Joanne, 1.5 %
+  del costo en pesos) vive en `costeo_contenedores.comision_agente`: gasto
+  operativo, NUNCA costo del par. CUENTA SHEIN es de David: la renta que
+  la empresa paga se la descuenta a él, no es gasto del negocio.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.
