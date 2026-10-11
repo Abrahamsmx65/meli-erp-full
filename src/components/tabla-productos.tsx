@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import type { Negocio, ProductoConfig } from "@/lib/servicios/productos";
+import { FotoProducto } from "./ui/foto-producto";
 
 /** Renglones que se pintan de entrada (cada uno lleva dos campos de captura). */
 const TOPE_INICIAL = 300;
@@ -131,6 +132,7 @@ export function TablaProductos({
         <table className="datos">
           <thead>
             <tr>
+              <th className="w-12">Foto</th>
               <th>Modelo</th>
               <th>Negocio</th>
               <th>Producto</th>
@@ -147,6 +149,7 @@ export function TablaProductos({
               const st = estado[k];
               return (
                 <tr key={k}>
+                  <td>{p.negocio === "calzado" ? <FotoProducto url={p.foto} alt={p.modelo} /> : null}</td>
                   <td className="font-medium">{p.modelo}</td>
                   <td className="text-xs texto-tenue">
                     {p.negocio === "fundas" ? "Fundas" : "Calzado"}

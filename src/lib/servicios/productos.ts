@@ -26,6 +26,8 @@ export interface ProductoConfig {
   costoMxn: number | null;
   /** de qué catálogo sale: el de calzado (MELI) o el de fundas (YAPANIZCEL) */
   negocio: Negocio;
+  /** foto del modelo (fotos-producto); solo calzado */
+  foto?: string | null;
 }
 
 export interface CatalogoProductos {
