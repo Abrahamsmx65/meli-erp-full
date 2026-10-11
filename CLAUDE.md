@@ -247,6 +247,25 @@ guárdala numerada.
   BORRADORES aunque su embarque sea anterior al último cargado, SALVO el que
   ya tiene cajas confirmadas a mano en Contenido (sus cajas ya no son las
   que entraron desde Drive; S263 tenía 232): ese no se rearma y se dice.
+  **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
+  packing list** (`esArchivoAjeno`: lo que se llama por su pedido
+  «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la
+  carpeta solo se toma si el archivo se llama packing o trae el ISO del
+  contenedor): el mismo 11-oct-2026, el primer «Releer todo» con la
+  referencia de la carpeta cargó las proformas como packing lists, duplicó
+  S263, S268 y S271 (contenedores nuevos armados con la proforma; los
+  correos de «0 productos nuevos» salieron de ahí) y le sumó renglones a
+  S266, S267 y S269. Ahora `elegirContenedor` busca PRIMERO por el ISO (un
+  duplicado con la misma S no se lleva el packing list) y rearmar un
+  borrador desde Drive QUITA los renglones que el archivo ya no trae
+  (`aplicarPackingList({ reemplazar })`; asignar solo agrega o actualiza).
+  Se limpió por SQL: los duplicados quedaron en cero cajas y renombrados
+  «DUPLICADO S26x-2026» para borrarlos con el botón «Borrar» (solo
+  borradores, `DELETE /api/contenedores?id=`; el MCP de Supabase se cuelga
+  con DELETE, igual que con DROP, y también con UPDATE sin WHERE o con
+  varias sentencias juntas), los reales tomaron su referencia, los cuatro
+  renglones de más se pusieron en cero y se recalcularon los estados de los
+  pedidos.
   Simulado con la base real ese día: S261, S267, S269 y S270 quedan
   completos contra su BL, S260 521 de 611 (los 90 de M BROWN contra el LT
   BROWN del pedido siguen siendo decisión del dueño), S265 418 de 612, S268

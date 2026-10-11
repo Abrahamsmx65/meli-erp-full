@@ -100,7 +100,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     const modelos = modelosDeContenedor(
       (lineasPorCont.get(c.id) ?? []).flatMap((cl) => {
         const l = lineaPorId.get(cl.pedido_linea_id);
-        if (!l) return [];
+        if (!l || !(cl.cajas ?? 0)) return [];
         const paresPorCaja = (l.cajas ?? 0) > 0 && (l.pares ?? 0) > 0 ? (l.pares ?? 0) / (l.cajas ?? 1) : 0;
         return [{ modelo: l.modelo, color: l.color, cajas: cl.cajas ?? 0, paresPorCaja }];
       }),

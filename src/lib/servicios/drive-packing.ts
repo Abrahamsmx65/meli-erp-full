@@ -141,15 +141,17 @@ export function elegirContenedor(
 ): { existente: ContenedorCargado | null; numero: string; renombrar: string | null } {
   const ref = referencia?.trim().toUpperCase() || null;
   const cont = iso?.trim().toUpperCase() || null;
-  const porRef = ref ? contenedorDelEmbarque(lista, ref) : null;
-  if (porRef) return { existente: porRef, numero: porRef.numero, renombrar: null };
+  // El ISO primero: es único por contenedor y no lo comparte un duplicado.
   if (cont) {
     const porIso = lista.find((c) => c.naviera === cont || c.numero.trim().toUpperCase() === cont);
     if (porIso) {
-      const renombrar = ref && porIso.embarque == null ? ref : null;
+      const ocupado = ref ? lista.some((c) => c !== porIso && c.numero.trim().toUpperCase() === ref) : true;
+      const renombrar = ref && porIso.embarque == null && !ocupado ? ref : null;
       return { existente: porIso, numero: renombrar ?? porIso.numero, renombrar };
     }
   }
+  const porRef = ref ? contenedorDelEmbarque(lista, ref) : null;
+  if (porRef) return { existente: porRef, numero: porRef.numero, renombrar: null };
   return { existente: null, numero: ref || cont || "", renombrar: null };
 }
 
@@ -158,9 +160,16 @@ export function puedeSerBl(nombre: string): boolean {
   return /\.pdf$/i.test(nombre) && !/\bPI\b|invoice|factura|payment|proforma/i.test(nombre);
 }
 
-/** Facturas y pedidos que viajan en la misma carpeta y no son packing list: ni se descargan. */
+/**
+ * Facturas, pagos, bolsas y PROFORMAS de pedidos que viajan en la misma
+ * carpeta y no son packing list: ni se descargan. La proforma se llama por
+ * su pedido («IN10148 (GT114).xls», «AR10137 (GT148G).xls»); el 11-oct-2026,
+ * al tomar la referencia de la carpeta, las proformas entraron como packing
+ * lists: duplicaron S263, S268 y S271 y le sumaron cajas a S266, S267 y S269.
+ */
 export function esArchivoAjeno(nombre: string): boolean {
-  return /invoice|factura|proforma|\bPI\b/i.test(nombre) && !/packing/i.test(nombre);
+  if (/packing/i.test(nombre)) return false;
+  return /invoice|factura|proforma|payment|courier|\bPI\b/i.test(nombre) || /^\s*(IN|AR)\s*-?\d{4,}/i.test(nombre);
 }
 
 /**
@@ -278,8 +287,11 @@ export async function sincronizarPackingListsDrive(
         }
         throw err;
       }
-      // Sin referencia adentro (S270, S271), la de la carpeta o el nombre.
-      const referencia = packing.referencia || referenciaDeNombre(a.carpeta, a.nombre);
+      // Sin referencia adentro (S270, S271), la de la carpeta o el nombre;
+      // solo si el archivo es un packing list de verdad (se llama así o trae el
+      // número del contenedor): una proforma no trae ninguno de los dos.
+      const pareceDePacking = /packing/i.test(a.nombre) || Boolean(packing.contenedor);
+      const referencia = packing.referencia || (pareceDePacking ? referenciaDeNombre(a.carpeta, a.nombre) : null);
       const numeroLeido = (referencia || packing.contenedor || "").trim().toUpperCase();
       if (!numeroLeido) {
         if (!/packing/i.test(a.nombre)) {
@@ -336,11 +348,19 @@ export async function sincronizarPackingListsDrive(
         r.omitidos.push(`${a.nombre}: ${numero} ya confirmado`);
         continue;
       }
-      const aplicado = await aplicarPackingList(admin, accountId, casado, {
-        numeroNaviera: packing.contenedor || null,
-        estado: "borrador",
-        notas: `Borrador desde Drive: ${a.nombre}`,
-      });
+      const aplicado = await aplicarPackingList(
+        admin,
+        accountId,
+        casado,
+        {
+          numeroNaviera: packing.contenedor || null,
+          estado: "borrador",
+          notas: `Borrador desde Drive: ${a.nombre}`,
+        },
+        // Rearmar un borrador desde su packing list deja SOLO lo del archivo:
+        // asignar cajas agrega o actualiza renglones pero no quita los viejos.
+        { reemplazar: true },
+      );
       huboCambios = true;
       if (!aplicado.existia) cargados.push({ id: aplicado.contenedorId, numero: aplicado.numero, estado: "borrador", embarque: numeroDeEmbarque(aplicado.numero) });
       // Lo que NO entró se guarda POR RENGLÓN y sube al motivo: el dueño
