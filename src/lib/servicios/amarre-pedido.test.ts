@@ -70,3 +70,20 @@ describe("evaluarAmarre: ¿el renglón del pedido existe en MELI?", () => {
     expect(r).toEqual([{ modelo: "MY2307", color: "NAVY", coloresMeli: ["BLUE", "CHOCOLATTE BROWN"] }]);
   });
 });
+
+describe("modelos con guion (GT104-1): MELI pega el número al color", () => {
+  const ix104 = indexarCatalogo([
+    { sku: "GT104-1-BLK-25-MX", modelo: "GT104", color: "1-BLK", talla: "25" },
+    { sku: "GT104-6-BROWN-25-MX", modelo: "GT104", color: "6-BROWN", talla: "25" },
+  ]);
+  it("«GT104-1» + «BLK» del pedido está ligado, no es modelo nuevo", () => {
+    const a = evaluarAmarre(ix104, { modelo: "GT104-1", color: "BLK", tallas: { "25": 2 } });
+    expect(a.estado).toBe("ligado");
+    expect(a.skuMeli).toBe("GT104-1-BLK-25-MX");
+  });
+  it("un color que el GT104-6 no tiene es fantasma con sus colores", () => {
+    const a = evaluarAmarre(ix104, { modelo: "GT104-6", color: "NAVY", tallas: { "25": 2 } });
+    expect(a.estado).toBe("color_fantasma");
+    expect(a.coloresMeli).toEqual(["BROWN"]);
+  });
+});

@@ -338,7 +338,12 @@ guárdala numerada.
   escribe el color por partes con anotación ("BLK/BLK/RED", "BLK/BLK/BLK
   (NEGRO)") y MELI/Amazon lo tienen como "BLK / RED", "BLK-BLK" o "BLK";
   sin paréntesis y con repetidos seguidos colapsados caen en el mismo lugar
-  (verificado con GT134).
+  (verificado con GT134). **Los modelos con guion se parten mal en MELI y Amazon**
+  (`numeroAlFrenteDelColor`; S267, 11-oct-2026): «GT104-1-BLK-25-MX» queda
+  como modelo «GT104» + color «1-BLK», y el pedido y el packing list dicen
+  «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
+  esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
+  ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el

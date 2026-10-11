@@ -12,7 +12,7 @@
  * "BLK/BLK/RED (NEGRO)" del pedido caiga en el "BLK-RED" de Amazon. Lo que
  * no amarra por color usa la foto del modelo; nada se inventa.
  */
-import { canonizar, claveComparacion } from "../importar/sku";
+import { canonizar, claveComparacion, numeroAlFrenteDelColor } from "../importar/sku";
 
 export interface MapaFotos {
   /** MODELO → foto */
@@ -52,7 +52,14 @@ const esUrl = (u: unknown): u is string => typeof u === "string" && /^https?:\/\
 export function armarMapaFotos(colores: FotoDeColor[], respaldoModelo: { modelo: string; url: string | null | undefined }[] = []): MapaFotos {
   const porColor = new Map<string, { url: string; activo: boolean }>();
   const porModelo = new Map<string, { url: string; activo: boolean }>();
+  // «GT104» + «1-BLK» (Amazon) es también «GT104-1» + «BLK» (pedido y packing list).
+  const todos: FotoDeColor[] = [];
   for (const c of colores) {
+    todos.push(c);
+    const n = numeroAlFrenteDelColor(c.color);
+    if (n && c.modelo) todos.push({ ...c, modelo: `${c.modelo}-${n.numero}`, color: n.color });
+  }
+  for (const c of todos) {
     if (!esUrl(c.url) || !c.modelo) continue;
     const activo = Boolean(c.activo);
     const k = claveColor(c.modelo, c.color);
