@@ -1960,7 +1960,11 @@ guárdala numerada.
   dueño: «cambio de fechas y toma como 3 segundos»): monitor, publicidad y
   finanzas de Ventas y las series de la gráfica, no solo 7 y 30 días; picar
   un atajo es leer un renglón. Un rango a mano sigue calculándose en el clic
-  (~1–3 s). Se probó que la pantalla ESPERARA hasta 2.5 s el recálculo de un
+  (~1–3 s). Lo mismo vale para Ventas AMAZON (el cron
+  `/api/cron/amazon-pantallas` deja el monitor de cada atajo, no solo 7 días:
+  «Hoy» se veía de hace casi dos horas) y para las gráficas de Amazon y de
+  fundas (`precalcularVentasTiempo` con `canales`; los atajos viven en
+  `servicios/atajos-fechas.ts`). Se probó que la pantalla ESPERARA hasta 2.5 s el recálculo de un
   renglón viejo: /ventas pasó de ~40 ms a ~1 s y el dueño dijo «estaba mejor
   antes»; se quitó. `servirConCacheApp` sirve lo guardado al instante y
   recalcula en `after()`.
