@@ -33,6 +33,7 @@ import { desglosarOpcionales, type DesgloseOpcionales } from "../reporte/opciona
 import { normalizarParametros } from "../engine/params";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { esErrorObjetoLegacy, mensajeErrorDatos } from "./errores-datos";
+import { marcarRefrescando } from "./marca-refresco";
 
 /** Lo que la pantalla de /amazon necesita, ya calculado. */
 export interface DatosPlanFba {
@@ -303,6 +304,8 @@ async function refrescarPorAtras(
   dias: number,
 ): Promise<void> {
   try {
+    // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+    marcarRefrescando();
     const { after } = await import("next/server");
     after(async () => {
       const recurso = `plan-fba:${dias}`;

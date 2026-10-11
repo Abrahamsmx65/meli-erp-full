@@ -14,6 +14,7 @@ import { costoDeSku } from "./costos";
 import { hoyMx, restarDias, rpcTodo } from "./db";
 import { desglosar } from "./sku";
 import { guardarCacheYz, leerCacheYzGuardado } from "./cache";
+import { marcarRefrescando } from "../servicios/marca-refresco";
 
 export interface Rango {
   desde: string;
@@ -314,6 +315,8 @@ export async function obtenerMonitorYz(
   if (ventasNecesitaRefresco(generadoEn, vigente)) {
     const dbFondo = opts.dbFondo ?? db;
     try {
+      // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+      marcarRefrescando();
       const { after } = await import("next/server");
       after(async () => {
         try {

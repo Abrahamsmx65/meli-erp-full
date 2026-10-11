@@ -21,7 +21,7 @@ import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTik
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
 import { leerEstadosDeCuenta } from "./tiktok-estados";
-import { agregarVentasDiarias } from "../tiktok/ventas";
+import { agregarVentasDiarias, deDesglose } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
@@ -1301,7 +1301,12 @@ async function referenciasRegistradas(
 export async function reconstruirVentasDiarias(db: DB, accountId: string): Promise<number> {
   const eq = (q: any) => q.eq("account_id", accountId);
   const [ordenes, items, actuales] = await Promise.all([
-    traerTodo<any>(db, "tiktok_ordenes", "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra", eq),
+    traerTodo<any>(
+      db,
+      "tiktok_ordenes",
+      "order_id, estado, fecha_creacion, fecha_actualizacion, es_muestra, neto_recibido, pago_esperado, ingreso:pago_desglose->>ingreso",
+      eq,
+    ),
     traerTodo<any>(db, "tiktok_orden_items", "order_id, sku_interno, cantidad, precio, estado", eq),
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, fecha", eq),
   ]);
@@ -1313,6 +1318,7 @@ export async function reconstruirVentasDiarias(db: DB, accountId: string): Promi
       creadoEn: o.fecha_creacion,
       actualizadoEn: o.fecha_actualizacion,
       esMuestra: Boolean(o.es_muestra),
+      ...deDesglose({ ingreso: o.ingreso }, o.neto_recibido != null || o.pago_esperado != null),
     })),
     (items ?? []).map((i: any) => ({
       orderId: i.order_id,
@@ -1592,6 +1598,10 @@ export async function leerSinLiquidar(db: DB, accountId: string, cliente: Client
         ingreso: t.ingreso,
         cargos: t.cargos,
         comision: t.comision,
+        servicio: t.servicio,
+        porPar: t.porPar,
+        comisionTikTok: t.comisionTikTok,
+        anuncios: t.anuncios,
         afiliado: t.afiliado,
         envio: t.envio,
         ivaRetenido: t.ivaRetenido,
@@ -1701,6 +1711,10 @@ export async function liquidarPedidos(db: DB, accountId: string, cliente: Client
           ingreso: t.ingreso,
           cargos: t.cargos,
           comision: t.comision,
+          servicio: t.servicio,
+          porPar: t.porPar,
+          comisionTikTok: t.comisionTikTok,
+          anuncios: t.anuncios,
           afiliado: t.afiliado,
           envio: t.envio,
           ivaRetenido: t.ivaRetenido,

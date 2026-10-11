@@ -4,7 +4,7 @@
  *
  * Las sumas las hace Postgres (`ventas_por_hora`, migración 0134) con las
  * mismas reglas que la pantalla de cada canal; aquí solo se guarda masticado
- * por canal y rango en `app_cache` (`ventas-tiempo:v1:{canal}:{desde}:{hasta}`)
+ * por canal y rango en `app_cache` (`ventas-tiempo:v2:{canal}:{desde}:{hasta}`)
  * y se sirve aunque esté viejo, como todas las pantallas.
  */
 import type { DB } from "../datos/repos";
@@ -56,7 +56,7 @@ export async function servirVentasTiempo(
   accountId: string,
   rango: { desde: string; hasta: string },
 ): Promise<{ datos: VentasTiempo; generadoEn: string | null }> {
-  const clave = `ventas-tiempo:v1:${canal}:${rango.desde}:${rango.hasta}`;
+  const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
   const r = await servirConCacheApp(db, accountId, clave, EDAD_MAX_MS, () => leerVentasTiempo(db, canal, accountId, rango));
   return { datos: r.datos, generadoEn: r.generadoEn };
 }
@@ -106,7 +106,7 @@ export async function precalcularVentasTiempo(admin: DB, meliAccountId: string, 
   for (const rango of rangos) {
     for (const canal of ["meli_calzado", "tiktok"] as const) {
       if (Date.now() > limite) return;
-      const clave = `ventas-tiempo:v1:${canal}:${rango.desde}:${rango.hasta}`;
+      const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
       const g = await leerCacheAppGuardado<VentasTiempo>(admin, meliAccountId, clave);
       if (g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < EDAD_MAX_MS - 30_000) continue;
       const t0 = Date.now();
