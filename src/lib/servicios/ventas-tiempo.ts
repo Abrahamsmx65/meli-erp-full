@@ -10,6 +10,7 @@
 import type { DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado, servirConCacheApp } from "./cache-app";
 import type { CanalTiempo, VentasTiempo } from "../graficas/ventas-tiempo";
+import { rangosDeAtajos } from "./atajos-fechas";
 
 export type { CanalTiempo, DiaVenta, HoraVenta, VentasTiempo } from "../graficas/ventas-tiempo";
 export { CANALES_TIEMPO } from "../graficas/ventas-tiempo";
@@ -95,31 +96,26 @@ export async function servirVariosCanalesConFecha(
 }
 
 /**
- * Deja listas en el latido las series de los atajos del filtro de fechas
- * (calzado y TikTok, que cuelgan de la cuenta de MELI) cuando están por
- * vencer; fundas y Amazon tardan menos de un segundo y se calculan solas.
+ * Deja listas las series de los atajos del filtro de fechas cuando están por
+ * vencer: calzado y TikTok (cuenta de MELI) y fundas desde el latido, Amazon
+ * desde su cron de pantallas.
  */
-export async function precalcularVentasTiempo(admin: DB, meliAccountId: string, limite: number, hoy: string): Promise<void> {
-  const menos = (dias: number) => new Date(Date.parse(`${hoy}T12:00:00Z`) - dias * 86_400_000).toISOString().slice(0, 10);
-  // Los atajos del filtro de fechas: 7 y 30 días primero (Inicio y Ventas por
-  // omisión), luego Este mes, 15 días, Hoy y Ayer.
-  const rangos = [
-    { desde: menos(6), hasta: hoy },
-    { desde: menos(29), hasta: hoy },
-    { desde: `${hoy.slice(0, 7)}-01`, hasta: hoy },
-    { desde: menos(14), hasta: hoy },
-    { desde: hoy, hasta: hoy },
-    { desde: menos(1), hasta: menos(1) },
-  ].filter((r, i, todos) => todos.findIndex((x) => x.desde === r.desde && x.hasta === r.hasta) === i);
-  for (const rango of rangos) {
-    for (const canal of ["meli_calzado", "tiktok"] as const) {
+export async function precalcularVentasTiempo(
+  admin: DB,
+  accountId: string,
+  limite: number,
+  hoy: string,
+  canales: readonly CanalTiempo[] = ["meli_calzado", "tiktok"],
+): Promise<void> {
+  for (const rango of rangosDeAtajos(hoy)) {
+    for (const canal of canales) {
       if (Date.now() > limite) return;
       const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
-      const g = await leerCacheAppGuardado<VentasTiempo>(admin, meliAccountId, clave);
+      const g = await leerCacheAppGuardado<VentasTiempo>(admin, accountId, clave);
       if (g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < EDAD_MAX_MS - 30_000) continue;
       const t0 = Date.now();
-      const datos = await leerVentasTiempo(admin, canal, meliAccountId, rango);
-      await guardarCacheApp(admin, meliAccountId, clave, datos, Date.now() - t0);
+      const datos = await leerVentasTiempo(admin, canal, accountId, rango);
+      await guardarCacheApp(admin, accountId, clave, datos, Date.now() - t0);
     }
   }
 }

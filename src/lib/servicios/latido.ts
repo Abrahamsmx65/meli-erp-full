@@ -332,6 +332,11 @@ export async function latido(
         const { precalcularVentasTiempo } = await import("./ventas-tiempo");
         const { fechaMx } = await import("./ventas-monitor");
         await precalcularVentasTiempo(admin, accountId, limite - 20_000, fechaMx(0));
+        // Las de fundas viven en la cuenta de YAPANIZCEL (Ventas de fundas e Inicio).
+        const { data: yz } = await admin.from("yz_cuentas").select("id");
+        for (const c of (yz ?? []) as { id: string }[]) {
+          await precalcularVentasTiempo(admin, c.id, limite - 15_000, fechaMx(0), ["meli_fundas"]);
+        }
       } catch (err) {
         console.error("precalcularVentasTiempo:", (err as Error).message);
       }
