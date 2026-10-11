@@ -12,6 +12,8 @@ import ExcelJS from "exceljs";
 import { traerTodo, type DB } from "../datos/repos";
 import { cargarInventario } from "./inventario";
 import { fechaMx } from "./ventas-monitor";
+import { sinSkusExternos } from "../tiktok/externos";
+import { skusExternos } from "./tiktok-externos";
 import {
   armarPedidoAlmacen,
   DIAS_COBERTURA,
@@ -106,13 +108,17 @@ export async function armarPedidoDeCuenta(
   accountId: string,
   p: ParametrosPedido,
 ): Promise<PedidoAlmacenArmado> {
-  const [ventas, kardex, inventario] = await Promise.all([
+  const [ventasCrudas, kardexCrudo, inventario, externos] = await Promise.all([
     traerTodo<any>(db, "tiktok_ventas_diarias", "sku, unidades", (q) =>
       q.eq("account_id", accountId).gte("fecha", p.desde).lte("fecha", p.hasta),
     ),
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", (q) => q.eq("account_id", accountId)),
     cargarInventario(db, accountId, { sinCrudos: true }),
+    // Lo de los vendedores externos (David) no se repone desde las bodegas de cajas.
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
+  const ventas = sinSkusExternos((ventasCrudas ?? []) as { sku: string; unidades: number }[], externos);
+  const kardex = sinSkusExternos((kardexCrudo ?? []) as { sku: string; saldo: number; apartado: number; apartado_web: number }[], externos);
 
   // La existencia por bodega sale de las cajas de cada pedido: un renglón
   // por (SKU, bodega). Lo que viene de China lo descarta el motor.

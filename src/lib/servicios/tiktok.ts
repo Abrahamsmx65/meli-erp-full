@@ -17,7 +17,7 @@
  */
 import { adquirirCandado, liberarCandado, porTandas, traerTodo, type DB } from "../datos/repos";
 import { configuracionIndusther, sincronizarInventarioIndusther } from "./industher";
-import { leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
+import { estanteDeSku, leerEstanteTikTok, sincronizarSaldoDesdeBodega, type ResultadoBodegaTikTok } from "./tiktok-bodega";
 import { empujarSalidasAl3pl, registrarSalidasDeCorte } from "./tiktok-3pl";
 import { leerAfiliados, type ResultadoAfiliados } from "./tiktok-afiliados";
 import { leerEstadosDeCuenta } from "./tiktok-estados";
@@ -815,9 +815,8 @@ export async function publicarDisponibilidad(
   const reglasTienda: { account_id: string; sku: string; contado: boolean; tope_estante: number | null }[] = [];
   for (const r of inv ?? []) {
     const contado = contados.has(r.sku);
-    const pares = estante.pares && !estante.contadosDespues.has(r.sku)
-      ? (estante.pares.get(r.sku) ?? 0)
-      : null;
+    // Un SKU de vendedor externo (David) no tiene estante: `estanteDeSku` contesta null.
+    const pares = !estante.contadosDespues.has(r.sku) ? estanteDeSku(estante, r.sku) : null;
     if (Boolean(r.contado) !== contado || (r.tope_estante ?? null) !== pares) {
       reglasTienda.push({ account_id: accountId, sku: r.sku, contado, tope_estante: pares });
     }

@@ -18,6 +18,8 @@ import { diaMx, resumenPorModelo, type OrdenParaVentas, type RenglonParaVentas }
 import type { BloqueCanal } from "./consolidado";
 import type { ConfigProducto } from "./productos";
 import { ajustesDelPeriodo, type EstadoCuentaTikTok } from "../tiktok/estados-cuenta";
+import { sinVentasExternas } from "../tiktok/externos";
+import { skusExternos } from "./tiktok-externos";
 
 /** TikTok empezó a vender en septiembre de 2026: antes no hay canal. */
 export const TIKTOK_DESDE = "2026-09-01";
@@ -235,5 +237,10 @@ export async function cargarVentasTikTok(db: DB, accountId: string, desde: strin
       renglones.push({ orderId: it.order_id, skuInterno: it.sku_interno ?? null, cantidad: it.cantidad ?? 0, precio: it.precio != null ? Number(it.precio) : null, estado: it.estado ?? null });
     }
   }
-  return { ordenes, renglones };
+  // La venta de los vendedores externos (David) no es del dueño: fuera sus
+  // renglones y, en un pedido mixto, solo la parte del pago que toca a los
+  // pares del dueño (decisión del dueño, 11-oct-2026: «sus pedidos no los
+  // metas a mi ganancia y no me importan sus costos»).
+  const externos = await skusExternos(db, accountId).catch(() => new Map<string, string>());
+  return sinVentasExternas(ordenes, renglones, externos);
 }
