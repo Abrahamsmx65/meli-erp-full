@@ -33,6 +33,13 @@ export interface LineaGuardada {
    * que lo lea debe caer a `tasaObservada × 30` cuando falte.
    */
   unidades30?: number;
+  /**
+   * Lo que vende cuando TIENE stock (`engine/demanda-surtida.ts`): la
+   * demanda del pedido a China. null = menos de 14 días surtidos; falta en
+   * los planes cacheados viejos. Quien lo lea cae a `demandaDiaria`.
+   */
+  demandaSurtida?: number | null;
+  diasSurtidos?: number;
   disponible: number;
   enTransferencia: number;
   posicion: number;
@@ -127,6 +134,8 @@ export function aplanar(completo: PlanCompleto): PlanGuardado {
         unidadesTotales: l.demanda.unidadesTotales,
         // El bucket 0 siempre es el más reciente ("Últimos 30 días").
         unidades30: l.demanda.buckets[0]?.unidades ?? 0,
+        demandaSurtida: l.demanda.tasaSurtida == null ? null : Number(l.demanda.tasaSurtida.toFixed(3)),
+        diasSurtidos: l.demanda.diasSurtidos,
         disponible: l.disponible,
         enTransferencia: l.enTransferencia,
         posicion: l.posicion,
