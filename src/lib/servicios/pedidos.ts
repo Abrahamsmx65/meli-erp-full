@@ -54,38 +54,80 @@ export async function guardarProforma(
   db: DB,
   accountId: string,
   proforma: Proforma,
-  opts?: { fechaPi?: string | null; notas?: string | null; archivo?: string | null },
-): Promise<{ pedidoId: string; corridasCreadas: number; lineasCreadas: number }> {
+  opts?: {
+    fechaPi?: string | null;
+    notas?: string | null;
+    archivo?: string | null;
+    /** "sistema" = lo armó el ERP desde la lista del dueño (Nuevo pedido) */
+    origen?: "proforma" | "sistema";
+  },
+): Promise<{ pedidoId: string; corridasCreadas: number; lineasCreadas: number; reemplazado?: boolean }> {
   const { data: existente } = await db
     .from("pedidos")
-    .select("id")
+    .select("id, origen")
     .eq("account_id", accountId)
     .eq("pedido", proforma.pedido)
     .maybeSingle();
 
+  // La proforma FIRMADA de un pedido que armó el ERP reemplaza sus renglones
+  // (la fábrica pudo cambiar cajas o precio), mientras nada esté en un
+  // contenedor. Así el número IN sigue siendo el mismo pedido.
+  let pedido: { id: string } | null = null;
+  let reemplazado = false;
   if (existente) {
-    throw new Error(
-      `El pedido ${proforma.pedido} ya está cargado. Bórralo primero si quieres volver a subirlo.`,
-    );
-  }
+    if (existente.origen !== "sistema" || opts?.origen === "sistema") {
+      throw new Error(
+        `El pedido ${proforma.pedido} ya está cargado. Bórralo primero si quieres volver a subirlo.`,
+      );
+    }
+    const { data: lineasViejas } = await db.from("pedido_lineas").select("id").eq("pedido_id", existente.id);
+    const ids = (lineasViejas ?? []).map((l) => l.id as string);
+    if (ids.length) {
+      const { count } = await db.from("contenedor_lineas").select("id", { count: "exact", head: true }).in("pedido_linea_id", ids);
+      if ((count ?? 0) > 0) {
+        throw new Error(
+          `El pedido ${proforma.pedido} ya tiene cajas en un contenedor: no se puede reemplazar con la proforma.`,
+        );
+      }
+    }
+    const { error: errBorrar } = await db.from("pedido_lineas").delete().eq("pedido_id", existente.id);
+    if (errBorrar) throw new Error(`No se pudieron quitar los renglones anteriores: ${errBorrar.message}`);
+    const { error: errAct } = await db
+      .from("pedidos")
+      .update({
+        proveedor: proforma.proveedor,
+        importe: proforma.totales.importe,
+        moneda: proforma.moneda,
+        archivo: opts?.archivo ?? null,
+        origen: "proforma",
+        actualizado_en: new Date().toISOString(),
+      })
+      .eq("id", existente.id);
+    if (errAct) throw new Error(`No se pudo actualizar el pedido: ${errAct.message}`);
+    pedido = { id: existente.id as string };
+    reemplazado = true;
+  } else {
+    const { data, error } = await db
+      .from("pedidos")
+      .insert({
+        account_id: accountId,
+        pedido: proforma.pedido,
+        proveedor: proforma.proveedor,
+        fecha_pi: opts?.fechaPi ?? null,
+        importe: proforma.totales.importe,
+        moneda: proforma.moneda,
+        origen: opts?.origen ?? "proforma",
+        estado: "creado",
+        notas: opts?.notas ?? null,
+        archivo: opts?.archivo ?? null,
+      })
+      .select("id")
+      .single();
 
-  const { data: pedido, error } = await db
-    .from("pedidos")
-    .insert({
-      account_id: accountId,
-      pedido: proforma.pedido,
-      proveedor: proforma.proveedor,
-      fecha_pi: opts?.fechaPi ?? null,
-      importe: proforma.totales.importe,
-      estado: "creado",
-      notas: opts?.notas ?? null,
-      archivo: opts?.archivo ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (error || !pedido) {
-    throw new Error(`No se pudo crear el pedido: ${error?.message ?? "sin detalle"}`);
+    if (error || !data) {
+      throw new Error(`No se pudo crear el pedido: ${error?.message ?? "sin detalle"}`);
+    }
+    pedido = data;
   }
 
   // Renglones de CORRIDA: uno por modelo+color (si la proforma lo repite, se
@@ -139,6 +181,8 @@ export async function guardarProforma(
       cajas: l.cajas,
       pares: l.pares,
       precio_unitario: l.precioUnitario,
+      precios_talla: l.unitalla ? null : (l.preciosTalla ?? null),
+      cbm_caja: l.cbmCaja ?? null,
     })),
   );
   if (errLineas) throw new Error(`No se pudieron guardar los renglones: ${errLineas.message}`);
@@ -164,6 +208,7 @@ export async function guardarProforma(
 
   return {
     pedidoId: pedido.id,
+    reemplazado,
     lineasCreadas: lineasDeCorrida.length + lineasUnitalla.length,
     corridasCreadas: lineasDeCorrida.length,
   };

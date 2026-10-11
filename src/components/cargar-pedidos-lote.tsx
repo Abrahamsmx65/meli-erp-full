@@ -118,7 +118,9 @@ export function CargarPedidosLote() {
             proforma: j.proforma,
             mensaje: j.yaExiste
               ? "Este pedido ya está en el ERP; bórralo primero si quieres volver a subirlo."
-              : null,
+              : j.reemplaza
+                ? "Es la proforma firmada de un pedido armado en Nuevo pedido: reemplaza sus renglones."
+                : null,
           });
         } catch (e) {
           actualizar(i, { estado: "error", mensaje: (e as Error).message });

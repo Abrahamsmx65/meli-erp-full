@@ -35,6 +35,8 @@ import {
   Upload,
   Warehouse,
   ClipboardList,
+  FilePlus2,
+  Hourglass,
   type LucideIcon,
   Undo2,
   Wallet,
@@ -129,6 +131,8 @@ const GRUPOS: Grupo[] = [
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planeación de compras", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/nuevo", texto: "Nuevo pedido", icono: FilePlus2, ayuda: "Pega la lista, revisa el borrador y se manda a la fábrica en su formato" },
+      { href: "/pedidos/pendientes", texto: "Pendientes por enviar", icono: Hourglass, ayuda: "Lo pedido que aún no está en un contenedor: dinero y CBM" },
       { href: "/pedidos/cargar", texto: "Órdenes de compra", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
       { href: "/pedidos/nuevos", texto: "Lanzamientos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },
