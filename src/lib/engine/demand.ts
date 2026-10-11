@@ -7,6 +7,7 @@
  * reciente y se ajusta por tendencia.
  */
 import { calcularFraccionesConStock } from "./stockHistory";
+import { demandaConStock } from "./demanda-surtida";
 import type {
   Bucket,
   Confianza,
@@ -80,6 +81,10 @@ export function calcularDemanda(
 
   // Fracciones de día con stock (muta `dias`) + tasa corregida global.
   const tasaCorregidaRaw = calcularFraccionesConStock(dias);
+
+  // Lo que vende cuando TIENE stock, para el pedido a China: días surtidos
+  // ponderados por recencia, sin tope ni tendencia (`demanda-surtida.ts`).
+  const surtidaFinal = demandaConStock(dias, p.pesosRecencia);
 
   const unidadesTotales = dias.reduce((a, d) => a + d.unidades, 0);
   const diasCalendario = dias.length;
@@ -212,8 +217,11 @@ export function calcularDemanda(
     );
   }
 
+  // La misma mano del usuario manda sobre la demanda surtida.
+  let tasaSurtida = surtidaFinal.tasa == null ? null : surtidaFinal.tasa * temporada;
   if (override?.demandaManual != null && override.demandaManual >= 0) {
     demandaDiaria = override.demandaManual;
+    tasaSurtida = override.demandaManual;
     notas.push("Demanda fijada a mano (override).");
   }
   if (temporada !== 1) {
@@ -265,6 +273,8 @@ export function calcularDemanda(
     tasaPonderada,
     factorTendencia,
     demandaDiaria: Math.max(0, demandaDiaria),
+    tasaSurtida: tasaSurtida == null ? null : Math.max(0, tasaSurtida),
+    diasSurtidos: surtidaFinal.diasSurtidos,
     sigmaDiaria,
     coefVariacion,
     confianza,

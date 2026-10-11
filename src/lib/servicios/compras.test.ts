@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarPedidoColor,
   buscarCorrida,
+  demandaChinaDeLinea,
   faltantesPorRegimen,
   indexarCorridas,
   paresPorCajaNormalizado,
@@ -259,5 +260,15 @@ describe("la corrida se encuentra aunque el color esté escrito distinto (9-oct-
   it("un SKU suelto de Amazon con -MX se parte con la talla al final, no como color MINT-23", () => {
     expect(partesDeSkuSuelto("GT100-MINT-23-MX")).toEqual({ modelo: "GT100", color: "MINT", talla: "23" });
     expect(partesDeSkuSuelto("GT204-BLK-GREY-24")).toEqual({ modelo: "GT204", color: "BLK-GREY", talla: "24" });
+  });
+});
+
+describe("la demanda de China por talla es lo que vende con stock (11-oct-2026)", () => {
+  it("usa la demanda surtida cuando la hay", () => {
+    expect(demandaChinaDeLinea({ demandaDiaria: 16, demandaSurtida: 19.3 })).toBe(19.3);
+  });
+  it("sin 14 días surtidos cae a la demanda del plan de Full", () => {
+    expect(demandaChinaDeLinea({ demandaDiaria: 16, demandaSurtida: null })).toBe(16);
+    expect(demandaChinaDeLinea({ demandaDiaria: 16 })).toBe(16);
   });
 });

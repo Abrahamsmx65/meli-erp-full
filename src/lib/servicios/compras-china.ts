@@ -23,7 +23,7 @@ import { amazonParaCompras } from "./fba";
 import { tiktokParaCompras } from "./tiktok-compras";
 
 /** La clave cambia con la receta o la forma: lo guardado con otra no sirve. */
-export const CLAVE_COMPRA_CHINA = "compras-china:v3";
+export const CLAVE_COMPRA_CHINA = "compras-china:v4";
 /** Media hora: cubre los insumos que cambian sin aviso (sumas de Amazon). */
 export const EDAD_COMPRA_CHINA_MS = 30 * 60_000;
 /** Con avisos de Amazon o TikTok se reintenta más seguido. */

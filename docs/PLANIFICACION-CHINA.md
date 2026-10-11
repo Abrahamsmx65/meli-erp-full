@@ -24,11 +24,27 @@ reparten** las cajas (corrida vs. unitalla).
 
 ## 3. La demanda es la de los TRES canales
 
-Demanda diaria del color = suma de la demanda corregida de sus SKUs en MELI
-(la misma del plan de Full: venta real ÷ días con stock, corregida por
-agotamiento) **+** la venta diaria de esos SKUs en Amazon (corregida por
+Demanda diaria del color = suma de lo que cada SKU **vende cuando tiene
+stock** en MELI **+** la venta diaria de esos SKUs en Amazon (corregida por
 agotamiento con las fotos de FBA) **+** la venta diaria de TikTok. Pedir
 solo con MELI deja corto todo lo que también vende en FBA y en TikTok.
+
+**MELI: «según el stock alto»** (decisión del dueño, 11-oct-2026; motor en
+`engine/demanda-surtida.ts`). De la ventana de 90 días se toman solo los
+DÍAS SURTIDOS (stock al menos tres cuartas partes del día); los agotados y
+los de poco stock no diluyen el promedio. Esos días se parten en tandas por
+conteo (los últimos 30 surtidos, los 30 anteriores, el resto) que pesan
+50 / 30 / 20: si las últimas semanas surtidas son las mejores, esas mandan,
+pero nunca se extrapola más allá de lo que de verdad vendió. No hay tope de
+3× ni tendencia: el GT104 BLK vendía 560 pares al mes surtido y el tope lo
+dejaba en 480; el GT104 NAVY nunca pasó de 800 surtido y la tendencia lo
+subía a 1,037. Una oferta de una semana entra con su peso (7 de 30 días al
+50 %), no se vuelve la nueva normal; una que dura el mes entero sí sube la
+demanda. Con menos de 14 días surtidos en la ventana (producto nuevo, o
+agotado casi siempre) no hay dato y esa talla usa la demanda del plan de
+Full, como antes; el renglón lo dice («N de M tallas usan la demanda del
+plan de Full»). El plan de Full no cambia: su horizonte es de 30 días y ahí
+la tendencia reciente sí ayuda.
 
 **TikTok entra TAL CUAL se vendió** (unidades de los últimos 30 días ÷ 30),
 sin corrección por agotamiento ni por tendencia. Decisión del dueño
