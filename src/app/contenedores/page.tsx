@@ -1,6 +1,7 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { listarContenedores } from "@/lib/servicios/contenedores";
+import { ordenarPorId } from "@/lib/servicios/contenedores-vista";
 import { amarreDeLineas, coloresFantasma, coloresLigados } from "@/lib/servicios/amarre-pedido";
 import { TablaContenedores } from "@/components/tabla-contenedores";
 import { SubirPackingList } from "@/components/subir-packing-list";
@@ -46,7 +47,8 @@ export default async function Contenedores() {
   const vivos = contenedores.filter((c) => c.estado !== "recibido");
   const lineasAmarre = vivos.flatMap((c) => c.modelos.map((m) => ({ contenedorId: c.id, modelo: m.modelo, color: m.color })));
   const amarres = await amarreDeLineas(supabase, cuenta.id, lineasAmarre).catch(() => []);
-  const contenedoresVista = contenedores.map((c) => {
+  // En orden alfabético por nuestro ID (dueño, 11-oct-2026).
+  const contenedoresVista = ordenarPorId(contenedores).map((c) => {
     const indices = lineasAmarre.map((l, i) => (l.contenedorId === c.id ? i : -1)).filter((i) => i >= 0);
     const suyas = indices.map((i) => lineasAmarre[i]);
     const propios = indices.map((i) => amarres[i]);
