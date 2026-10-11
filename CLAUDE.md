@@ -1031,6 +1031,47 @@ guárdala numerada.
   y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **VENDEDORES EXTERNOS en la misma tienda: lo de DAVID** (`tiktok/externos.ts`
+  motor puro con pruebas, `servicios/tiktok-externos.ts`, `/tiktok/externos`
+  «Productos de David», `POST /api/tiktok/externos`, tabla
+  `tiktok_productos_externos` y `tiktok_cortes.vendedor`, migración 0133;
+  pedido del dueño, 11-oct-2026: «david, que vende en Shein, quiere subir sus
+  productos pero él los despacha desde otra bodega; que pueda subir su stock
+  y tenga una pestaña de cortes para él; sus pedidos no los metas a mi
+  ganancia y no me importan sus costos; si un cliente compra un producto de
+  nosotros dos juntos, que salga en su corte, no en el mío»): una
+  PUBLICACIÓN de TikTok (product_id) se liga a un vendedor (`ligarPublicacion`;
+  a sus SKUs sin amarre se les pone su `seller_sku` como nombre del kardex,
+  `origen_amarre = externo`, y el catálogo de TikTok es memoria del amarre,
+  así el nombre se queda) y con ella todos sus SKUs (`skusExternos`: sku →
+  vendedor, caché de 20 s). Esos SKUs viven en el MISMO kardex (TikTok
+  recibe el disponible por el mismo camino, `saldo − apartado`), pero: su
+  stock lo captura David a mano (`guardarStockExterno`: `ajuste` con
+  referencia `externo:david:<fecha>` y publicación pasando por
+  `sincronizarTikTok` con `soloPedidos`, regla de oro); Industher no los
+  tiene, así que la conciliación los salta (`sincronizarSaldoDesdeBodega`
+  filtra movimientos y foto), el estante contesta «sin dato»
+  (`EstanteTikTok.sinEstante`, `estanteDeSku`: ni tope al publicar, ni
+  defensa por estante, ni alarma, ni Cuadre de inventario), y al 3PL no se
+  le mandan sus salidas. **Un pedido con ALGÚN par de David es de David**
+  (`vendedorDePedido`, `partirPorVendedor`): `pendientesDeCorte(db, cuenta,
+  vendedor)` reparte (null = el dueño, 'david' = los suyos, el mixto con
+  él), `hacerCorte({ vendedor })` lo guarda en `tiktok_cortes.vendedor` y la
+  unión al corte de hoy exige el MISMO vendedor (`corteDeHoyQueContinua`);
+  `/tiktok/despacho?vendedor=david` es su despacho (mismos botones, mismas
+  etiquetas y lista) y arriba un enlace cruza entre los dos con los
+  pendientes del otro. **Su venta no es del dueño** (`sinVentasExternas`):
+  Ventas TikTok (`calcularVentasTikTok`), el corte general y el resumen
+  diario (`cargarVentasTikTok`) quitan sus renglones y en un pedido mixto
+  recortan lo que TikTok paga (neto, por liquidar, afiliado, desglose) a la
+  parte de los pares del dueño POR PRECIO (sin precios, por pares); un
+  pedido solo suyo desaparece. Compras a China, Reabasto de almacén, el
+  Inventario TikTok y el Excel por modelo no lo cuentan, y la tienda en
+  línea y el catálogo de creadores no copian sus publicaciones. Los
+  vendedores viven en `VENDEDORES_EXTERNOS` (hoy solo `david`); la pantalla
+  es de él y el rol de TikTok la abre. En un pedido mixto el par del dueño
+  sale del kardex y SÍ se le manda a Industher como salida (es el mismo
+  camino de siempre): quién se lo lleva a David es un acuerdo entre ellos.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
@@ -2396,6 +2437,7 @@ login, la base y el deploy.
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
 | TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
+| TikTok: Productos de David (vendedor externo: ligar publicaciones, su stock a mano, sus cortes aparte, fuera de la ganancia del dueño) | `src/lib/tiktok/externos.ts` + `src/lib/servicios/tiktok-externos.ts` + `src/app/tiktok/externos` + `/api/tiktok/externos` + `/tiktok/despacho?vendedor=david` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |

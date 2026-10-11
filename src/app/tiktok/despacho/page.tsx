@@ -5,36 +5,46 @@ import { DespachoTikTok, type CorteResumen } from "@/components/despacho-tiktok"
 import { EnlacePreparar } from "@/components/enlace-preparar";
 import { tokenPreparar } from "@/lib/servicios/acceso-preparar";
 import { Aviso, Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
+import Link from "next/link";
+import { nombreDeVendedor, normalizarVendedor, VENDEDOR_DAVID } from "@/lib/tiktok/externos";
 
 export const dynamic = "force-dynamic";
 
-/** Despacho de TikTok por cortes: confirmar todo, etiquetas y lista de empaque. */
-export default async function Despacho() {
+/**
+ * Despacho de TikTok por cortes: confirmar todo, etiquetas y lista de empaque.
+ * `?vendedor=david` enseña los cortes y pendientes del vendedor externo
+ * (David despacha desde su bodega): sus pedidos nunca entran al corte del
+ * dueño ni al revés.
+ */
+export default async function Despacho({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
   if (!cuenta) return <SinCuenta titulo="Despacho de pedidos" />;
+  const params = await searchParams;
+  const vendedor = normalizarVendedor(params?.vendedor);
 
   // Los pendientes se leen UNA vez (el selector por modelo los reusa) y el
   // avance sale SOLO de los cortes que se enseñan: antes se bajaba el
   // historial completo de preparaciones y de pedidos cortados.
   // Promise.resolve: el builder de Supabase vuelve a consultar cada vez que
   // se le pide `then`; así la consulta sale una sola vez para los dos usos.
+  const consultaCortes = supabase
+    .from("tiktok_cortes")
+    .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos, vendedor")
+    .eq("account_id", cuenta.id);
   const cortesP = Promise.resolve(
-    supabase
-      .from("tiktok_cortes")
-      .select("id, numero, creado_en, pedidos, pares, handover, errores, modelos")
-      .eq("account_id", cuenta.id)
+    (vendedor ? consultaCortes.eq("vendedor", vendedor) : consultaCortes.is("vendedor", null))
       .order("numero", { ascending: false })
       .limit(30),
   );
-  const pendientesP = pendientesDeCorte(supabase, cuenta.id);
-  const [pendientes, cortesResultado, token, porModelo, avance, tiempos] = await Promise.all([
+  const pendientesP = pendientesDeCorte(supabase, cuenta.id, vendedor);
+  const [pendientes, cortesResultado, token, porModelo, avance, tiempos, deLosOtros] = await Promise.all([
     pendientesP,
     cortesP,
     tokenPreparar(cuenta.id),
     // Corte por modelo: cuántos pendientes son de un solo modelo, por modelo.
     pendientesP
-      .then((p) => pendientesPorModeloDeCuenta(supabase, cuenta.id, p))
+      .then((p) => pendientesPorModeloDeCuenta(supabase, cuenta.id, p, vendedor))
       .catch(() => ({ modelos: [], revueltos: { pedidos: 0, pares: 0 }, sinSku: 0 })),
     // Preparados, cancelados DESPUÉS de entrar al corte (conservan su número
     // en la hoja) y los que TikTok ya tiene en camino o entregados (se fueron
@@ -51,6 +61,10 @@ export default async function Despacho() {
     cortesP
       .then((r) => tiemposDeCortes(supabase, cuenta.id, (r.data ?? []).map((c: any) => Number(c.id))))
       .catch(() => new Map<number, { primera: string; ultima: string }>()),
+    // Cuántos pendientes tiene el OTRO despacho (el dueño ↔ David), para el enlace de arriba.
+    pendientesDeCorte(supabase, cuenta.id, vendedor ? null : VENDEDOR_DAVID)
+      .then((p) => p.length)
+      .catch(() => 0),
   ]);
   if (cortesResultado.error) {
     throw new Error(`No se pudieron leer los cortes de TikTok: ${cortesResultado.error.message}`);
@@ -87,14 +101,24 @@ export default async function Despacho() {
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
-        titulo="Despacho de pedidos"
+        titulo={vendedor ? `Despacho de ${nombreDeVendedor(vendedor)}` : "Despacho de pedidos"}
+        descripcion={
+          vendedor
+            ? `Los pedidos con algún producto de ${nombreDeVendedor(vendedor)} (también los que traen algo de GETAC): los despacha él desde su bodega.`
+            : undefined
+        }
+        acciones={
+          <Link href={vendedor ? "/tiktok/despacho" : `/tiktok/despacho?vendedor=${VENDEDOR_DAVID}`} className="boton boton-borde boton-chico">
+            {vendedor ? `Cortes de GETAC (${deLosOtros} pendientes)` : `Cortes de ${nombreDeVendedor(VENDEDOR_DAVID)} (${deLosOtros} pendientes)`}
+          </Link>
+        }
       />
       {sinAvance ? (
         <Aviso tono="alerta">
           No se pudo leer el avance de preparación. Recarga la página para reintentar.
         </Aviso>
       ) : null}
-      <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} />
+      <DespachoTikTok pendientes={pendientes.length} cortes={cortes} porModelo={porModelo} vendedor={vendedor} />
       <EnlacePreparar tokenInicial={token} origen={origen} />
     </Pagina>
   );

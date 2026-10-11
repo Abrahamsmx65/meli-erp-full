@@ -13,7 +13,7 @@ import { cualesAvisar, desfasesPeligrosos, HORAS_PARA_AVISAR, type LecturaSku } 
 import { correoConfigurado, destinatarioAvisos, enviarCorreo } from "./correo";
 import { registrarCorreo } from "./tiktok-faltantes-correo";
 import { estadoSalidas3pl } from "./tiktok-3pl";
-import { leerEstanteTikTok } from "./tiktok-bodega";
+import { estanteDeSku, leerEstanteTikTok } from "./tiktok-bodega";
 
 export interface ResultadoAlarma {
   revisados: number;
@@ -37,8 +37,9 @@ export async function revisarDesfasesTikTok(db: DB, accountId: string): Promise<
     sku: r.sku,
     saldo: r.saldo ?? 0,
     // Sin lectura del 3PL no se juzga a nadie: no se puede distinguir
-    // "la bodega tiene cero" de "el API no contestó".
-    estante: estante.pares ? (estante.pares.get(r.sku) ?? 0) : null,
+    // "la bodega tiene cero" de "el API no contestó". Un SKU de vendedor
+    // externo (David) tampoco: no vive en Industher.
+    estante: estanteDeSku(estante, r.sku),
     salidasPendientes: salidas.pendientes.get(r.sku) ?? 0,
     apartado: r.apartado ?? 0,
   }));
