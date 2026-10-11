@@ -62,7 +62,7 @@ export default async function Ventas({
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="Mercado Libre"
         titulo="Ventas"

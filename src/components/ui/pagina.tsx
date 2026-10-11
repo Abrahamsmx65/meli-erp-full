@@ -21,14 +21,25 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CejaDeRuta } from "./ceja-ruta";
+import { ActualizacionViva } from "./actualizacion-viva";
 import { RefrescoAlTerminar } from "./refresco-al-terminar";
 import { seEstaRefrescando } from "@/lib/servicios/marca-refresco";
 
-export function Pagina({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Pagina({
+  children,
+  className = "",
+  vivo,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** ms: la pantalla se vuelve a pedir sola cada tanto mientras se ve (ventas). */
+  vivo?: number;
+}) {
   return (
     <div className={`pagina ${className}`}>
       {children}
       {seEstaRefrescando() ? <RefrescoAlTerminar /> : null}
+      {vivo ? <ActualizacionViva cadaMs={vivo} /> : null}
     </div>
   );
 }

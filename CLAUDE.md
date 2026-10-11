@@ -1858,6 +1858,30 @@ guárdala numerada.
   RPC `tiktok_cancelados_por_sku` (0137). Quedan en la base dos funciones
   vacías `zz_ventas_vivas` y `zz_yz_ventas_vivas` de la prueba de ese día
   (el `drop` por el MCP se cuelga); se pueden borrar a mano.
+  **Las ventas por día YA ESTÁN SUMADAS en la base** (migración 0138;
+  11-oct-2026, dueño: «se tarda mucho todavía, más que todo cuando te vas a
+  más días atrás, y no sé si se actualiza al momento sin actualizarlo yo»):
+  `ventas_dia_sku` y `ventas_dia_hora` guardan por canal (`meli_calzado`,
+  `meli_fundas`) el resultado de `ventas_vivas_calculo` /
+  `yz_ventas_vivas_calculo` (el cuerpo de la 0136, sin permiso, solo para el
+  fondo) y la regla por hora de la 0134 (hora −1 = sin hora o día de
+  renglones diarios). Disparadores POR SENTENCIA de insert y update en
+  `ordenes_neto`, `ventas_diarias` y sus gemelas `yz_` marcan el día en
+  `ventas_dias_sucios`; pg_cron (`limpiar-ventas-sucias`, cada minuto) corre
+  `limpiar_ventas_sucias()`, que rehace lo marcado después de su
+  `ventas_dias_hechos.hecho_en` (`rehacer_ventas_dias`: pone en cero y
+  vuelve a escribir, sin borrar) y, como red para lo que se BORRA (el
+  barrido quita renglones de `ventas_diarias` sin reescribir el día), rehace
+  por edad los últimos 3 días cada 15 min y los últimos 120 cada 6 h.
+  `ventas_vivas`, `yz_ventas_vivas` y la rama MELI/fundas de
+  `ventas_por_hora` leen las tablas: 180 días en 50–400 ms (antes 2.3–3.6 s
+  por llamada); comparado al centavo renglón por renglón contra el cálculo
+  en vivo de todo 2026 y la gráfica con el mismo md5. Un día tocado se ve en
+  ≤ 1 min. Los monitores guardados viven 3 min (ventas) y 2 min (gráficas), y
+  Inicio y las cuatro pantallas de Ventas se vuelven a pedir solas cada
+  2 min mientras se ven y al volver a la pestaña (`<Pagina vivo>`,
+  `components/ui/actualizacion-viva.tsx`). Sin disparadores de `delete` a
+  propósito: el MCP pide confirmación por esa palabra y se cuelga.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
