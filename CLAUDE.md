@@ -1264,6 +1264,31 @@ guárdala numerada.
   TikTok ya trae descontados comisión, cargo por par, afiliados, envío e
   IVA/ISR retenidos; el ERP no lleva gastos propios de TikTok como el 3PL);
   los cancelados no se enseñan en ningún lado, ni en «Pedidos por estado».
+  **La VENTA de TikTok es lo que TikTok cuenta como INGRESO, no lo que pagó
+  el cliente** (`ventaDeOrden`, `deDesglose` en `tiktok/ventas.ts`;
+  migración 0135; dueño, 11-oct-2026: «según yo pagamos 6 % de comisión,
+  8 % de envío y $6 de costo fijo, afiliados ~10 % e impuestos ~10 %; la
+  suma debería ser casi 40 %»): `revenue_amount` de sus transacciones
+  (precio menos el descuento del vendedor) incluye el descuento que TikTok
+  pone de su bolsa y luego paga; septiembre 2026 liquidado: el cliente pagó
+  $1,276,208 y el ingreso fue $1,357,487. Medida contra lo pagado, la barra
+  de «plataforma» del corte general salía en 27 %; contra el ingreso, los
+  cargos son ~30 % (33.7 % desde que TikTok MX cobra su 6 %, semana del
+  28-sep). Misma regla que la reventa de MELI al precio público. Sin número
+  de TikTok todavía, la venta es precio × cantidad. Lo obedecen el resumen
+  por modelo (`cobrado` = venta; `pagadoCliente` aparte), las ventas
+  diarias, el origen (creadores/tienda), Ventas TikTok («Venta»), el corte
+  general, el correo y `ventas_por_hora` (gráficas e Inicio). **Los cargos
+  van desglosados** (`pago_desglose.servicio` = `sfp_service_fee` 8 %,
+  `porPar` $6, `comisionTikTok` el %, `anuncios`; `tiktok_desglose_fino`
+  los sacó del crudo para lo ya guardado) y **los anuncios GMV Max que
+  TikTok cobra dentro del pedido son PUBLICIDAD del modelo**, no plataforma
+  (el neto los suma de vuelta y `ads` los resta: la utilidad no cambia). Lo
+  POR LIQUIDAR no separa el cargo por par ni las retenciones: quedan en
+  «reembolsos y cargos sin desglose». Septiembre: servicio $110,065, por
+  par $58,140, comisión $27,987, afiliados $69,194, IVA $93,626, ISR
+  $29,262, GMV Max $20,118. `versionContable` 9, `tiktok:ventas:v2`,
+  `ventas-tiempo:v2`.
   **Ventas TikTok se lee MASTICADA, como MELI y Amazon** (`servicios/
   tiktok-ventas.ts`, `app_cache` clave `tiktok:ventas:v1:{desde}:{hasta}`,
   TTL 10 min, `Frescura`; RPC `tiktok_ventas_pedidos`, migración 0105;
@@ -1723,6 +1748,17 @@ guárdala numerada.
   `router.refresh()` a los 5, 15 y 40 s hasta que el servidor ya no lo
   manda. Y `staleTimes` se quitó de `next.config.mjs`: con 30 s el
   navegador reutilizaba la pantalla vieja al volver a una pestaña.
+  **Todos los cachés que sirven viejo marcan** (11-oct-2026, dueño: «sigue
+  algo mal, tengo que recargar varias veces en cada pestaña»): el primer
+  arreglo solo cubría `servirConCacheApp`; el Estado de resultados
+  (`consolidado-cargar`), los cortes por canal (`corte-cache`), Ventas de
+  fundas, el plan de FBA y costos de envío refrescan con su propio
+  `after()` y no avisaban. Ahora todos llaman `marcarRefrescando()` y la
+  pantalla enseña «Actualizando datos…» mientras se vuelve a pedir. Y el
+  recálculo de fondo de los monitores (ventas MELI, Amazon, publicidad
+  MELI y Amazon) SALTA la copia en memoria de la instancia (60 s a 10 min):
+  si no, guardaba datos viejos con hora nueva y el renglón «fresco» seguía
+  mal hasta la siguiente vuelta.
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de

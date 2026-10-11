@@ -172,8 +172,10 @@ export async function servirMonitor(
   rango?: RangoFechas,
 ): Promise<{ datos: Monitor; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
+  // Lo que se guarda tiene que ser de AHORA: la copia en memoria de esta
+  // instancia (60 s) se saltaría y el renglón saldría «fresco» con datos viejos.
   return servirConCacheApp(db, accountId, claveMonitorVentas(r), VIDA_MONITOR_GUARDADO_MS, () =>
-    calcularMonitor(db, accountId, r),
+    calcularMonitorFresco(db, accountId, r),
   );
 }
 

@@ -142,3 +142,34 @@ describe("origenDeVentas", () => {
     expect(vacio.top).toEqual([]);
   });
 });
+
+describe("venta = ingreso de TikTok (11-oct-2026)", () => {
+  const rango = { desde: "2026-09-01", hasta: "2026-09-30" };
+  const ordenes = [
+    // TikTok puso $20 de descuento de su bolsa: el cliente pagó 100, la venta es 120
+    { orderId: "A", estado: "COMPLETED", creadoEn: "2026-09-10T18:00:00Z", pagoEsperado: 80, ingresoTikTok: 120, anuncios: 4 },
+    // sin número de TikTok: la venta es lo que pagó el cliente
+    { orderId: "B", estado: "AWAITING_SHIPMENT", creadoEn: "2026-09-10T18:00:00Z" },
+  ];
+  const renglones = [
+    { orderId: "A", skuInterno: "GT134-BLK-24-MX", cantidad: 1, precio: 60, estado: "COMPLETED" },
+    { orderId: "A", skuInterno: "GT148-CREAM-25-MX", cantidad: 1, precio: 40, estado: "COMPLETED" },
+    { orderId: "B", skuInterno: "GT134-BLK-25-MX", cantidad: 1, precio: 50, estado: "AWAITING_SHIPMENT" },
+  ];
+  it("reparte el ingreso de TikTok por precio y los anuncios igual", () => {
+    const m = resumenPorModelo(ordenes, renglones, rango);
+    const gt134 = m.find((x) => x.modelo === "GT134")!;
+    const gt148 = m.find((x) => x.modelo === "GT148")!;
+    expect(gt134.cobrado).toBeCloseTo(72 + 50, 6);
+    expect(gt134.pagadoCliente).toBe(110);
+    expect(gt148.cobrado).toBeCloseTo(48, 6);
+    expect(gt134.anuncios).toBeCloseTo(2.4, 6);
+    expect(gt148.anuncios).toBeCloseTo(1.6, 6);
+    expect(gt134.cobradoSinDato).toBe(50);
+  });
+  it("las ventas diarias y el origen usan la misma venta", () => {
+    const d = agregarVentasDiarias(ordenes, renglones);
+    expect(d.reduce((a, x) => a + x.importe, 0)).toBeCloseTo(170, 6);
+    expect(origenDeVentas(ordenes, renglones, rango).total.cobrado).toBeCloseTo(170, 6);
+  });
+});

@@ -183,9 +183,11 @@ export async function servirMonitorAmazon(
   rango?: RangoFechas,
 ): Promise<{ datos: MonitorAmazon; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
-  return servirConCacheApp(db, amazonAccountId, claveMonitorAmazon(meliAccountId, r), vidaMonitorAmazon(r), () =>
-    cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r),
-  );
+  // Sin la copia en memoria: lo guardado tiene que ser de ahora.
+  return servirConCacheApp(db, amazonAccountId, claveMonitorAmazon(meliAccountId, r), vidaMonitorAmazon(r), () => {
+    cacheMonitorAmz.clear();
+    return cargarMonitorAmazon(db, amazonAccountId, meliAccountId, r);
+  });
 }
 
 export async function cargarMonitorAmazon(

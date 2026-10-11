@@ -1099,7 +1099,8 @@ export async function servirPublicidad(
 ): Promise<{ datos: Publicidad; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
   const vida = r.hasta < fechaMx(0) ? VIDA_PUBLICIDAD_CERRADA_MS : VIDA_PUBLICIDAD_ABIERTA_MS;
-  return servirConCacheApp(db, cuenta.id, clavePublicidadMeli(r), vida, () => cargarPublicidad(db, cuenta, r));
+  // Sin la copia en memoria (10 min): lo guardado tiene que ser de ahora.
+  return servirConCacheApp(db, cuenta.id, clavePublicidadMeli(r), vida, () => calcularPublicidadFresca(db, cuenta, r));
 }
 
 /** Calcula el panel sin caché en memoria (lo usa el fondo para guardarlo). */

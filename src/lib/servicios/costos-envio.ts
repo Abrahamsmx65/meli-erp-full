@@ -31,6 +31,7 @@ import { MeliClient, enLotes, trozos } from "../meli/client";
 import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { mensajeErrorDatos } from "./errores-datos";
+import { marcarRefrescando } from "./marca-refresco";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -1136,6 +1137,8 @@ export async function leerEnviosRealesConEstado(
  */
 async function releerEnviosRealesPorAtras(db: DB, accountId: string): Promise<boolean> {
   try {
+    // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+    marcarRefrescando();
     const { after } = await import("next/server");
     after(async () => {
       const recurso = `cache:${CLAVE_ENVIO_REAL}`;

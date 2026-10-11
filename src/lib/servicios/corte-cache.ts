@@ -26,6 +26,7 @@ import { cargarEstadoResultadosYz } from "../yapanizcel/corte";
 import type { CuentaYz } from "../yapanizcel/cuenta";
 
 import { claveCorte } from "./corte-invalidar";
+import { marcarRefrescando } from "./marca-refresco";
 export { claveCorte };
 
 /** ¿El renglón guardado del periodo necesita un refresco de fondo? (pura) */
@@ -112,6 +113,8 @@ export async function obtenerConCachePorPeriodo<T>(opts: {
 
   if (opts.refrescarEnFondo !== false && corteNecesitaRefresco(opts.periodo, valorGuardado.generadoEn, valorGuardado.vigente)) {
     try {
+      // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+      marcarRefrescando();
       const { after } = await import("next/server");
       after(async () => {
         try {

@@ -19,6 +19,7 @@ import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 import { fechaMx } from "./ventas-monitor";
 import { marcarTipos, revivirTipos } from "./plan-fba-cache";
 import { listarGastosEmpresariales } from "./gastos-empresariales";
+import { marcarRefrescando } from "./marca-refresco";
 
 /** Abre cortes históricos sin inventar el desglose que todavía no se guardaba. */
 export function compatibilidadGastosEmpresariales(consolidado: Consolidado): Consolidado {
@@ -278,6 +279,8 @@ export async function obtenerConsolidado(db: DB, cuenta: Cuenta, periodo: string
       // mes (recarga de pagos, netos de fundas, Finances de Amazon).
       if (data && corteNecesitaRefresco(periodo, data.generado_en, data.vigente ?? true)) {
         try {
+          // La pantalla se vuelve a pedir sola cuando el fondo termine (marca-refresco).
+          marcarRefrescando();
           const { after } = await import("next/server");
           after(async () => {
             try {
@@ -555,7 +558,7 @@ export function esConsolidadoActual(valor: unknown): valor is Consolidado {
   if (!valor || typeof valor !== "object") return false;
   const consolidado = valor as Partial<Consolidado>;
   if (
-    consolidado.versionContable !== 8
+    consolidado.versionContable !== 9
     || !Array.isArray(consolidado.canales)
     || !Array.isArray(consolidado.porCategoria)
     || !Array.isArray(consolidado.porModelo)

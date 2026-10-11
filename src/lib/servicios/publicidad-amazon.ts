@@ -220,9 +220,11 @@ export async function servirPublicidadAmazon(
   rango?: RangoFechas,
 ): Promise<{ datos: PublicidadAmazon; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
-  return servirConCacheApp(db, amazonAccountId, clavePublicidadAmazon(meliAccountId, r), VIDA_PUBLICIDAD_AMAZON_MS, () =>
-    cargarPublicidadAmazon(db, amazonAccountId, meliAccountId, r),
-  );
+  // Sin la copia en memoria (10 min): lo guardado tiene que ser de ahora.
+  return servirConCacheApp(db, amazonAccountId, clavePublicidadAmazon(meliAccountId, r), VIDA_PUBLICIDAD_AMAZON_MS, () => {
+    cacheAmz.clear();
+    return cargarPublicidadAmazon(db, amazonAccountId, meliAccountId, r);
+  });
 }
 
 export async function obtenerPublicidadAmazon(

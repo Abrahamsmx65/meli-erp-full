@@ -106,7 +106,7 @@ export default async function VentasTikTok({
 
       <Cifras columnas={5}>
         <Ficha titulo="Pares vendidos" valor={n(unidades)} nota={`${n(pedidosEnPie)} pedidos en pie · sin muestras ni cancelados`} />
-        <Ficha titulo="Cobrado" valor={pesos(importe)} nota="precio de venta al cliente" />
+        <Ficha titulo="Venta" valor={pesos(importe)} nota="ingreso de TikTok: incluye el descuento que TikTok pone de su bolsa" />
         <Ficha
           titulo="Me va a pagar TikTok"
           valor={pesos(aRecibir)}

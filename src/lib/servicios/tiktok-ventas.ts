@@ -9,7 +9,7 @@
  * alcanzaba, la pantalla tardaba medio minuto.
  *
  * Ahora el trabajo se hace UNA vez por rango y se guarda en `app_cache`
- * (`tiktok:ventas:v1:{desde}:{hasta}`): la pantalla lee ese renglón —aunque
+ * (`tiktok:ventas:v2:{desde}:{hasta}`): la pantalla lee ese renglón —aunque
  * esté viejo o invalidado, declarándolo con `Frescura`— y, si tiene más de
  * `TTL_MS` o lo invalidó una sincronización, pide el recálculo por atrás
  * (`after()`). Solo si no existe ningún renglón se calcula en el clic. Los
@@ -20,6 +20,7 @@ import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
 import { efectoDeEstado } from "../tiktok/kardex";
 import {
+  deDesglose,
   muestrasEnRango,
   origenDeVentas,
   pedidosDeVenta,
@@ -33,7 +34,7 @@ import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
 
 /** Cada cuánto se rehace un rango aunque nadie lo invalide. */
 const TTL_MS = 10 * 60_000;
-const VERSION = "v1";
+const VERSION = "v2";
 
 export function claveVentasTikTok(rango: { desde: string; hasta: string }): string {
   return `tiktok:ventas:${VERSION}:${rango.desde}:${rango.hasta}`;
@@ -126,6 +127,7 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
     netoRecibido: o.netoRecibido != null ? Number(o.netoRecibido) : null,
     pagoEsperado: o.pagoEsperado != null ? Number(o.pagoEsperado) : null,
     afiliado: o.afiliado != null ? Number(o.afiliado) : null,
+    ...deDesglose({ ingreso: o.ingreso, anuncios: o.anuncios }, o.netoRecibido != null || o.pagoEsperado != null),
     destinatario: o.destinatario ?? null,
     creador: o.creador ?? null,
     afiliadoLeido: Boolean(o.afiliadoLeido),
@@ -140,9 +142,10 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
   }));
 
   const unidades = (ventas ?? []).reduce((a, v) => a + (v.unidades ?? 0), 0);
-  const importe = (ventas ?? []).reduce((a, v) => a + Number(v.importe ?? 0), 0);
-
   const modelosBase = resumenPorModelo(ordenes, renglones, rango);
+  // La venta del rango es la del resumen (ingreso de TikTok, 11-oct-2026),
+  // no la de los renglones diarios, que se rehacen cada 15 min.
+  const importe = modelosBase.reduce((a, m) => a + m.cobrado, 0);
   const costoDe = new Map<string, number>();
   for (const c of costosRaw ?? []) {
     const modelo = String(c.modelo ?? "").toUpperCase();
