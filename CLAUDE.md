@@ -255,6 +255,14 @@ guárdala numerada.
   talla con sus pares por caja; antes los 198 cartones de GT114 de pedido
   por talla salían juntos sin talla y no amarraban. Un rango «36-41
   (23-27)» sigue siendo corrida.
+  **Lo que NO es calzado viaja con el contenedor como «otros artículos»**
+  (`esInsumo`, estado `insumo` del casado, `contenedores.otros`, migración
+  0142; dueño, 11-oct-2026: «tengo en el S268 bolsas de plástico para
+  empaque; que salga en el contenido pero no es algo para pedir»): Polybag,
+  bolsas, cajas, etiquetas, cinta… no se amarran con pedidos, no son
+  pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
+  viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
+  622 de calzado + 35 de bolsas = 657 del BL).
   **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
   packing list** (`esArchivoAjeno`: lo que se llama por su pedido
   «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la

@@ -21,6 +21,8 @@ export interface ContenedorVista {
   modelos: { modelo: string; color: string; cajas: number; pares: number }[];
   /** renglones del packing list que NO amarraron: el dueño los resuelve en la pantalla */
   pendientes: PendientePacking[];
+  /** lo que viaja y NO es calzado (bolsas de empaque…): se ve, cuenta contra el BL, no se pide */
+  otros?: OtroDelContenedor[];
   /** cajas que dice el BL de la carpeta de Drive (número de control); null = sin BL leído */
   cajasBl?: number | null;
   /** de qué archivo salió («S260-2026/HDMU… .pdf») */
@@ -39,6 +41,30 @@ export interface PendientePacking {
   pedido?: string | null;
   /** foto del producto para la pantalla (no se guarda) */
   foto?: string | null;
+}
+
+/** Algo del packing list que no es calzado («Polybag White», 35 cajas, 55,000 piezas). */
+export interface OtroDelContenedor {
+  descripcion: string;
+  color: string;
+  cajas: number;
+  piezas: number;
+  pedido?: string | null;
+}
+
+/** Lo guardado en `contenedores.otros`, sin confiar en su forma. */
+export function leerOtros(valor: unknown): OtroDelContenedor[] {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
+    .map((x) => ({
+      descripcion: String(x.descripcion ?? "").toUpperCase(),
+      color: String(x.color ?? "").toUpperCase(),
+      cajas: Number(x.cajas) || 0,
+      piezas: Number(x.piezas) || 0,
+      pedido: x.pedido ? String(x.pedido).toUpperCase() : null,
+    }))
+    .filter((o) => o.descripcion && o.cajas > 0);
 }
 
 /** Lo guardado en `contenedores.pendientes`, sin confiar en su forma. */

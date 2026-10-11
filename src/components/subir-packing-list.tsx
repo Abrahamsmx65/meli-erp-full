@@ -18,7 +18,7 @@ interface LineaCasada {
   enOtros: number;
   enEste: number;
   cajasAsignar: number;
-  estado: "ok" | "recorte" | "sin_pedido" | "sin_renglon" | "sin_espacio";
+  estado: "ok" | "recorte" | "sin_pedido" | "sin_renglon" | "sin_espacio" | "insumo";
   detalle: string | null;
 }
 
@@ -49,6 +49,7 @@ const ETIQUETA: Record<LineaCasada["estado"], { texto: string; color: string }> 
   sin_pedido: { texto: "Pedido sin cargar", color: "var(--estado-critico)" },
   sin_renglon: { texto: "No está en el pedido", color: "var(--estado-critico)" },
   sin_espacio: { texto: "Ya embarcado", color: "var(--estado-critico)" },
+  insumo: { texto: "Otro artículo (no es calzado)", color: "var(--texto-2)" },
 };
 
 function n(x: number): string {
