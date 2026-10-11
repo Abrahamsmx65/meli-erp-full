@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CostoModeloVista } from "@/lib/servicios/costeo";
+import type { ContenedorVista, CostoModeloVista } from "@/lib/servicios/costeo";
 
 function pesos(x: number | null | undefined, dec = 2): string {
   if (x == null || !Number.isFinite(x)) return "—";
   return "$" + x.toLocaleString("es-MX", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
+function usd(x: number | null | undefined): string {
+  if (x == null || !Number.isFinite(x)) return "—";
+  return "US$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+const tc = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(4));
+
+const entrada = "w-full rounded-lg border px-2 py-1.5 text-sm";
+const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-2)" };
 
 async function post(cuerpo: unknown): Promise<any> {
   const r = await fetch("/api/finanzas/costeo", {
@@ -20,7 +28,7 @@ async function post(cuerpo: unknown): Promise<any> {
   return j;
 }
 
-/** Botones de arriba: volver a leer los sheets y subir el Excel de costeo. */
+/** Botones de arriba: recalcular y subir el Excel de costeo. */
 export function AccionesCosteo() {
   const router = useRouter();
   const archivo = useRef<HTMLInputElement>(null);
@@ -74,7 +82,7 @@ export function AccionesCosteo() {
         {ocupado === "subir" ? "Leyendo…" : "Subir Excel de costeo"}
       </button>
       <button className="boton boton-primario boton-chico" disabled={!!ocupado} onClick={refrescar}>
-        {ocupado === "refrescar" ? "Leyendo sheets…" : "Actualizar"}
+        {ocupado === "refrescar" ? "Calculando…" : "Recalcular"}
       </button>
     </div>
   );
@@ -96,11 +104,9 @@ export function CostosPorModelo({ modelos }: { modelos: CostoModeloVista[] }) {
   };
 
   const visibles = useMemo(() => {
-    const q = busca.trim().toUpperCase().replace(/[\s-]/g, "");
+    const q = busca.trim().toUpperCase();
     return modelos.filter(
-      (m) =>
-        (!q || m.modelo.replace(/-/g, "").includes(q) || (m.categoria ?? "").toUpperCase().includes(busca.trim().toUpperCase())) &&
-        (!soloDistintos || distinto(m)),
+      (m) => (!q || m.modelo.includes(q.replace(/\s/g, "")) || (m.categoria ?? "").toUpperCase().includes(q)) && (!soloDistintos || distinto(m)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelos, busca, soloDistintos]);
@@ -124,13 +130,7 @@ export function CostosPorModelo({ modelos }: { modelos: CostoModeloVista[] }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          className="rounded-lg border px-2 py-1.5 text-sm"
-          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
-          placeholder="Buscar modelo o categoría"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
+        <input className="rounded-lg border px-2 py-1.5 text-sm" style={estiloEntrada} placeholder="Buscar modelo o categoría" value={busca} onChange={(e) => setBusca(e.target.value)} />
         <label className="texto-2 flex items-center gap-1.5 text-[13px]">
           <input type="checkbox" checked={soloDistintos} onChange={(e) => setSoloDistintos(e.target.checked)} />
           Solo los que no cuadran con el catálogo
@@ -168,7 +168,7 @@ export function CostosPorModelo({ modelos }: { modelos: CostoModeloVista[] }) {
                   <td className="num cifra">
                     {m.existencias == null ? "—" : m.existencias.toLocaleString("es-MX")}
                     {m.sinCubrir > 0 ? (
-                      <div className="texto-tenue text-[11px]" title="Pares que llegaron en contenedores sin costear (antes del S239 o sin detalle)">
+                      <div className="texto-tenue text-[11px]" title="Pares que llegaron en contenedores sin costear">
                         {m.sinCubrir.toLocaleString("es-MX")} sin costear
                       </div>
                     ) : null}
@@ -198,6 +198,300 @@ export function CostosPorModelo({ modelos }: { modelos: CostoModeloVista[] }) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const hoy = () => new Date().toISOString().slice(0, 10);
+
+/** Lo que se captura de un contenedor: factura, flete, aduana, entregado y sus pagos. */
+function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => void }) {
+  const [form, setForm] = useState({
+    costoUsd: c.costoUsd != null ? String(c.costoUsd) : "",
+    fleteUsd: c.fleteUsd != null ? String(c.fleteUsd) : "",
+    aduana: c.aduana != null ? String(c.aduana) : "",
+    entregado: c.entregado,
+    fechaEntrega: c.fechaEntrega ?? "",
+    notas: c.notas ?? "",
+  });
+  const [pago, setPago] = useState({ concepto: "fabrica", fecha: hoy(), usd: "", tipoCambio: "" });
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState("");
+
+  async function correr(fn: () => Promise<unknown>) {
+    setOcupado(true);
+    setError("");
+    try {
+      await fn();
+      onListo();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const campo = (k: keyof typeof form, etiqueta: string, tipo = "number") => (
+    <label className="texto-2 text-[12px]">
+      {etiqueta}
+      <input
+        className={entrada}
+        style={estiloEntrada}
+        type={tipo}
+        step="any"
+        value={String(form[k])}
+        onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+      />
+    </label>
+  );
+
+  return (
+    <div className="flex flex-col gap-4 p-3">
+      <form
+        className="grid grid-cols-2 gap-3 md:grid-cols-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          correr(() =>
+            post({
+              accion: "contenedor",
+              contenedor: c.id,
+              iso: c.iso,
+              costoUsd: form.costoUsd,
+              fleteUsd: form.fleteUsd,
+              aduana: form.aduana,
+              entregado: form.entregado,
+              fechaEntrega: form.fechaEntrega,
+              notas: form.notas,
+            }),
+          );
+        }}
+      >
+        {campo("costoUsd", "Factura fábrica (USD)")}
+        {campo("fleteUsd", "Flete (USD)")}
+        {campo("aduana", "Aduana (MXN)")}
+        <label className="texto-2 flex items-end gap-1.5 pb-2 text-[12px]">
+          <input type="checkbox" checked={form.entregado} onChange={(e) => setForm({ ...form, entregado: e.target.checked })} />
+          Entregado{c.estadoErp === "recibido" ? " (recibido en Contenedores)" : ""}
+        </label>
+        {campo("fechaEntrega", "Fecha de entrega", "date")}
+        <div className="flex items-end">
+          <button className="boton boton-primario boton-chico w-full" disabled={ocupado}>
+            Guardar
+          </button>
+        </div>
+        <label className="texto-2 col-span-2 text-[12px] md:col-span-6">
+          Notas
+          <input className={entrada} style={estiloEntrada} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
+        </label>
+      </form>
+
+      <div>
+        <div className="mb-1 text-[13px] font-semibold">Pagos</div>
+        <table className="datos">
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th>Fecha</th>
+              <th className="num">USD</th>
+              <th className="num">Tipo de cambio</th>
+              <th className="num">Pesos</th>
+              <th>Notas</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {c.pagos.map((p) => (
+              <tr key={p.id}>
+                <td>{p.concepto === "fabrica" ? "Fábrica" : "Flete"}</td>
+                <td>{p.fecha ?? "—"}</td>
+                <td className="num cifra">{usd(p.usd)}</td>
+                <td className="num cifra">{tc(p.tipoCambio)}</td>
+                <td className="num cifra">{pesos(p.usd * p.tipoCambio)}</td>
+                <td className="texto-tenue text-[12px]">{p.notas ?? ""}</td>
+                <td>
+                  <button
+                    className="boton boton-fantasma boton-chico"
+                    disabled={ocupado}
+                    onClick={() => window.confirm("¿Borrar este pago?") && correr(() => post({ accion: "borrar-pago", id: p.id }))}
+                  >
+                    Borrar
+                  </button>
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td>
+                <select className={entrada} style={estiloEntrada} value={pago.concepto} onChange={(e) => setPago({ ...pago, concepto: e.target.value })}>
+                  <option value="fabrica">Fábrica</option>
+                  <option value="flete">Flete</option>
+                </select>
+              </td>
+              <td>
+                <input className={entrada} style={estiloEntrada} type="date" value={pago.fecha} onChange={(e) => setPago({ ...pago, fecha: e.target.value })} />
+              </td>
+              <td>
+                <input className={entrada} style={estiloEntrada} type="number" step="any" placeholder="USD" value={pago.usd} onChange={(e) => setPago({ ...pago, usd: e.target.value })} />
+              </td>
+              <td>
+                <input className={entrada} style={estiloEntrada} type="number" step="any" placeholder="17.25" value={pago.tipoCambio} onChange={(e) => setPago({ ...pago, tipoCambio: e.target.value })} />
+              </td>
+              <td className="num cifra texto-tenue">
+                {Number(pago.usd) > 0 && Number(pago.tipoCambio) > 0 ? pesos(Number(pago.usd) * Number(pago.tipoCambio)) : ""}
+              </td>
+              <td colSpan={2}>
+                <button
+                  className="boton boton-primario boton-chico"
+                  disabled={ocupado || !(Number(pago.usd) > 0 && Number(pago.tipoCambio) > 0)}
+                  onClick={() =>
+                    correr(async () => {
+                      await post({ accion: "pago", contenedor: c.id, ...pago, usd: Number(pago.usd), tipoCambio: Number(pago.tipoCambio) });
+                      setPago({ ...pago, usd: "", tipoCambio: "" });
+                    })
+                  }
+                >
+                  Agregar pago
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {c.modelos.length ? (
+        <div>
+          <div className="mb-1 text-[13px] font-semibold">
+            Reparto {c.fuente === "excel" ? "(Excel de costeo)" : "(packing list)"}
+          </div>
+          <table className="datos">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th className="num">Pares</th>
+                <th className="num">USD/par</th>
+                <th className="num">CBM</th>
+                <th className="num">Fábrica</th>
+                <th className="num">Flete</th>
+                <th className="num">Aduana</th>
+                <th className="num">Por par</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.modelos.map((m) => (
+                <tr key={m.modelo}>
+                  <td>{m.modelo}</td>
+                  <td className="num cifra">{m.pares.toLocaleString("es-MX")}</td>
+                  <td className="num cifra">{m.usdPar == null ? "—" : m.usdPar.toFixed(2)}</td>
+                  <td className="num cifra">{m.cbm == null ? "—" : m.cbm.toFixed(2)}</td>
+                  <td className="num cifra">{pesos(m.fabricaMxn, 0)}</td>
+                  <td className="num cifra">{pesos(m.fleteMxn, 0)}</td>
+                  <td className="num cifra">{pesos(m.aduanaMxn, 0)}</td>
+                  <td className="num cifra font-semibold">{m.porPar > 0 ? pesos(m.porPar) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {error ? <p className="text-[13px]" style={{ color: "var(--estado-critico)" }}>{error}</p> : null}
+    </div>
+  );
+}
+
+/** Lista de contenedores: lo pagado, con qué tipo de cambio y si ya cuenta. */
+export function ContenedoresCosteo({ contenedores }: { contenedores: ContenedorVista[] }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [nuevo, setNuevo] = useState("");
+  const [error, setError] = useState("");
+
+  async function agregar(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      await post({ accion: "contenedor", contenedor: nuevo });
+      setAbierto(nuevo.trim().toUpperCase().slice(0, 4));
+      setNuevo("");
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <form className="flex flex-wrap items-center gap-2" onSubmit={agregar}>
+        <input className="rounded-lg border px-2 py-1.5 text-sm" style={estiloEntrada} placeholder="S272" value={nuevo} onChange={(e) => setNuevo(e.target.value)} />
+        <button className="boton boton-fantasma boton-chico" disabled={!nuevo.trim()}>
+          Agregar contenedor
+        </button>
+        {error ? <span className="text-[13px]" style={{ color: "var(--estado-critico)" }}>{error}</span> : null}
+      </form>
+      <div className="tabla-caja alta">
+        <table className="datos">
+          <thead>
+            <tr>
+              <th>Contenedor</th>
+              <th>Estado</th>
+              <th className="num">Factura</th>
+              <th className="num">T.C. fábrica</th>
+              <th className="num">Flete</th>
+              <th className="num">Aduana</th>
+              <th className="num">Total MXN</th>
+              <th className="num">Pares</th>
+              <th className="num">Por par</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {contenedores.map((c) => (
+              <Fragment key={c.id}>
+                <tr>
+                  <td className="font-medium">
+                    {c.id}
+                    <div className="texto-tenue text-[11px]">{c.iso ?? ""}</div>
+                  </td>
+                  <td className="text-[12px]">
+                    <span style={{ color: c.cuenta ? "var(--exito-texto)" : "var(--alerta-texto)" }}>
+                      {c.cuenta ? "Cuenta" : c.motivo}
+                    </span>
+                    {c.avisos.map((a, i) => (
+                      <div key={i} className="texto-tenue">{a}</div>
+                    ))}
+                    {c.notas ? <div className="texto-tenue">{c.notas}</div> : null}
+                  </td>
+                  <td className="num cifra">
+                    {usd(c.costoUsd)}
+                    {c.costoUsd != null && c.pagadoUsd < c.costoUsd - 1 ? (
+                      <div className="texto-tenue text-[11px]">pagado {usd(c.pagadoUsd)}</div>
+                    ) : null}
+                  </td>
+                  <td className="num cifra">{tc(c.tcFabrica)}</td>
+                  <td className="num cifra">
+                    {pesos(c.pesosEnvio, 0)}
+                    <div className="texto-tenue text-[11px]">{c.fleteUsd != null ? `${usd(c.fleteUsd)} · ${tc(c.tcFlete)}` : ""}</div>
+                  </td>
+                  <td className="num cifra">{pesos(c.aduana, 0)}</td>
+                  <td className="num cifra font-semibold">{c.totalMxn > 0 ? pesos(c.totalMxn, 0) : "—"}</td>
+                  <td className="num cifra">{c.pares ? c.pares.toLocaleString("es-MX") : "—"}</td>
+                  <td className="num cifra">{c.pares && c.pesosCosto ? pesos(c.totalMxn / c.pares) : "—"}</td>
+                  <td>
+                    <button className="boton boton-fantasma boton-chico" onClick={() => setAbierto(abierto === c.id ? null : c.id)}>
+                      {abierto === c.id ? "Cerrar" : "Capturar"}
+                    </button>
+                  </td>
+                </tr>
+                {abierto === c.id ? (
+                  <tr>
+                    <td colSpan={10} style={{ background: "var(--surface-2)" }}>
+                      <EditorContenedor c={c} onListo={() => router.refresh()} />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </div>

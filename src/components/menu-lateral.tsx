@@ -79,6 +79,7 @@ const GRUPOS: Grupo[] = [
       { href: "/cortes", texto: "Estado de resultados", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
       { href: "/gastos", texto: "Gastos", icono: Wallet, ayuda: "Nómina, fletes, renta y 3PL: fijos cada mes y sueltos" },
       { href: "/finanzas/costeo", texto: "Costeo", icono: Calculator, ayuda: "Costo real por par de cada contenedor" },
+      { href: "/finanzas/numeros", texto: "Números", icono: Scale, ayuda: "Precios por modelo en MELI, Amazon y TikTok" },
     ],
   },
   {

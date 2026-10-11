@@ -1,28 +1,26 @@
 /**
- * COSTEO REAL POR CONTENEDOR (pedido del dueño, 11-oct-2026: «quiero
- * integrar mis finanzas al sistema […] el costo que quiero es el real para
- * calcular ganancias reales, pero para Números sí calculo el costo del
- * último contenedor»). Motor puro, sin base ni red.
+ * COSTEO REAL POR CONTENEDOR (dueño, 11-oct-2026: «el costo que quiero es
+ * el real para calcular ganancias reales, pero para Números sí calculo el
+ * costo del último contenedor»; y el mismo día: «quiero dejar de usar el
+ * sheet COSTING GETAC para tener todo en el sistema, el reparto se hace a
+ * fuerzas por CBM de lo que dice en el contenedor, la comisión de Joanne no
+ * me la metas como costo»). Motor puro, sin base ni red.
  *
- * De dónde sale cada número:
- *   - LO PAGADO por contenedor, del sheet de CUENTAS del dueño (pestaña
- *     «COSTING GETAC», SOLO LECTURA: ese sheet nunca se escribe): costo de
- *     fábrica en USD y en PESOS (cada pago tiene su propio tipo de cambio,
- *     por eso manda PESOS COSTO, no USD × un tipo de cambio), flete en
- *     pesos, CRUCE TOTAL (la aduana) y ESTATUS. La comisión de Joanne sale
- *     de la pestaña «COMISSION JOANNE».
- *   - QUÉ TRAÍA cada contenedor: el Excel de costeo de la fábrica
- *     («Costing for shoe Internet»: por pedido los pares, el USD por par de
- *     cada modelo y los CBM) o, desde que existen, los packing lists del ERP
- *     (`contenedor_lineas` con sus medidas).
- *   - El CBM por par de cada modelo del sheet «Números» (pestaña CALZADO)
- *     solo de respaldo, si el contenedor no dice sus CBM.
+ * De dónde sale cada número (todo vive en el ERP):
+ *   - LO PAGADO: `costeo_contenedores` (factura en USD, flete en USD, aduana
+ *     en pesos, si ya se entregó) y `costeo_pagos` (cada pago en USD con SU
+ *     tipo de cambio). Los pesos de la fábrica = factura USD × el tipo de
+ *     cambio promedio ponderado de sus pagos; lo mismo el flete con los
+ *     suyos (sin pagos de flete, con el de la fábrica, y se avisa).
+ *   - QUÉ TRAÍA: el Excel de costeo de la fábrica («Costing for shoe
+ *     Internet»: pares, USD por par y CBM por pedido) o el packing list del
+ *     ERP (`contenedor_lineas` con medidas).
  *
- * Reparto (igual que el Excel y «Números» del dueño):
- *   - fábrica en pesos y comisión → por el VALOR en USD de cada modelo;
- *   - flete y aduana → por los CBM de cada modelo.
- * Un contenedor solo CUENTA para el costo cuando el sheet dice ENTREGADO y
- * ya tiene apuntada la aduana (regla del dueño): antes, su precio no existe.
+ * Reparto: la fábrica por el VALOR en USD de cada modelo; el flete y la
+ * aduana SOLO por los CBM que dice el contenedor (sin CBM, no se costea y
+ * se declara: no se adivina). Comisiones y demás gastos NO entran: son
+ * gasto operativo. Un contenedor solo CUENTA entregado y con la aduana
+ * apuntada.
  */
 import type { Filas } from "../importar/leer-hoja";
 
@@ -61,7 +59,7 @@ export function esModelo(texto: unknown): boolean {
 }
 
 const esPedido = (texto: unknown) => /^IN\d{4,}/.test(norm(texto));
-const esIsoContenedor = (texto: unknown) => /^[A-Z]{4}\d{7}$/.test(norm(texto));
+export const esIsoContenedor = (texto: unknown) => /^[A-Z]{4}\d{7}$/.test(norm(texto));
 
 // ------------------------------------------------- Excel de costeo (fábrica)
 
@@ -69,7 +67,7 @@ export interface LineaCosteo {
   modelo: string;
   pedido: string | null;
   pares: number;
-  /** costo de fábrica por par en USD; null si la fuente no lo trae */
+  /** costo de fábrica por par (USD en el Excel; en el packing list solo vale como proporción) */
   usdPar: number | null;
   /** metros cúbicos de ESTA línea; null si la fuente no los trae */
   cbm: number | null;
@@ -80,8 +78,12 @@ export interface DetalleContenedor {
   anio: number | null;
   iso: string | null;
   fuente: "excel" | "packing";
+  /** flete total en USD que dice la fuente («US$7,330/HQ + US$100 … | 7430») */
+  fleteUsd?: number | null;
   lineas: LineaCosteo[];
 }
+
+type EnArmado = DetalleContenedor & { grupos: { cbm: number | null; lineas: LineaCosteo[] }[] };
 
 /**
  * Lee el Excel de costeo de la fábrica. Cada contenedor es un bloque:
@@ -92,6 +94,7 @@ export interface DetalleContenedor {
  *   ETA : …   |       | 960                                                               ← subtotal
  *   MRSU6780533                                                                           ← contenedor
  *   IN10105   |       |      |           |             |       | 545.34  | 5.541      | CBM   ← otro grupo
+ *   …         |       |      |           |             |       | US$6,230/HQ + US$100 … | 6330  ← flete total
  *
  * Un grupo es un renglón con flete en la G, CBM en la H y la palabra «CBM»
  * en la I; sus CBM se reparten entre los modelos del grupo por pares. Un
@@ -100,7 +103,7 @@ export interface DetalleContenedor {
  */
 export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
   const salida: DetalleContenedor[] = [];
-  let actual: (DetalleContenedor & { grupos: { cbm: number | null; lineas: LineaCosteo[] }[] }) | null = null;
+  let actual: EnArmado | null = null;
   let grupo: { cbm: number | null; lineas: LineaCosteo[] } | null = null;
   let ultimoModelo: string | null = null;
   let pedido: string | null = null;
@@ -122,16 +125,17 @@ export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
     const id = idContenedor(c(0));
     if (id) {
       cerrar();
-      actual = { ...id, iso: null, fuente: "excel", lineas: [], grupos: [] };
+      actual = { ...id, iso: null, fuente: "excel", fleteUsd: null, lineas: [], grupos: [] };
       grupo = null;
       ultimoModelo = null;
       pedido = null;
     }
     if (!actual) continue;
-    const det = actual as DetalleContenedor & { grupos: { cbm: number | null; lineas: LineaCosteo[] }[] };
+    const det: EnArmado = actual;
     if (esIsoContenedor(c(0))) det.iso = norm(c(0));
     if (esPedido(c(0))) pedido = norm(c(0)).match(/^IN\d+/)![0];
     if (esPedido(c(1))) pedido = norm(c(1)).match(/^IN\d+/)![0];
+    if (/US\$/.test(String(c(7))) && numeroCelda(c(8)) != null) det.fleteUsd = numeroCelda(c(8));
 
     // Renglón de grupo: flete (G) + CBM (H) + «CBM» (I). El total del
     // contenedor trae CBM pero NO flete: ese no abre grupo.
@@ -160,110 +164,34 @@ export function leerExcelCosteo(filas: Filas): DetalleContenedor[] {
   return salida;
 }
 
-// ------------------------------------------------- sheet de cuentas (lectura)
+// ------------------------------------------------------------- lo pagado
 
-export interface PagoContenedor {
+export interface PagoUsd {
+  usd: number;
+  tipoCambio: number;
+}
+
+export interface DatosContenedor {
   id: string;
+  anio: number | null;
   iso: string | null;
   productos: string;
+  /** factura de la fábrica en USD (sin capturar: la del Excel de costeo) */
   costoUsd: number | null;
-  envioUsd: number | null;
-  tipoCambio: number | null;
-  /** lo pagado a la fábrica en pesos (cada pago con su tipo de cambio) */
-  pesosCosto: number | null;
-  pesosEnvio: number | null;
-  /** CRUCE TOTAL: la aduana */
+  /** flete en USD (sin capturar: el del Excel de costeo) */
+  fleteUsd: number | null;
   aduana: number | null;
-  estatus: string;
   entregado: boolean;
+  pagosFabrica: PagoUsd[];
+  pagosFlete: PagoUsd[];
+  notas: string | null;
 }
 
-function columnas(encabezado: string[], nombres: Record<string, string[]>): Record<string, number> {
-  const h = encabezado.map(norm);
-  const r: Record<string, number> = {};
-  for (const [k, alias] of Object.entries(nombres)) r[k] = h.findIndex((x) => alias.includes(x));
-  return r;
-}
-
-/** Pestaña «COSTING GETAC» del sheet de cuentas. */
-export function leerCostingGetac(filas: Filas): PagoContenedor[] {
-  const iEnc = filas.findIndex((f) => (f ?? []).some((c) => norm(c) === "ID CONTENEDOR"));
-  if (iEnc < 0) return [];
-  const col = columnas(filas[iEnc], {
-    iso: ["CONTENEDOR"],
-    id: ["ID CONTENEDOR"],
-    productos: ["PRODUCTO", "PRODUCTOS"],
-    costoUsd: ["COSTO USD"],
-    envioUsd: ["COSTO ENVIO", "ENVIO USD"],
-    tipoCambio: ["TIPO DE CAMBIO"],
-    pesosCosto: ["PESOS COSTO"],
-    pesosEnvio: ["PESOS ENVIO"],
-    aduana: ["CRUCE TOTAL", "ADUANA"],
-    estatus: ["ESTATUS"],
-  });
-  const salida: PagoContenedor[] = [];
-  const vistos = new Set<string>();
-  for (const f of filas.slice(iEnc + 1)) {
-    const v = (k: string) => (col[k] >= 0 ? f?.[col[k]] ?? "" : "");
-    const id = idContenedor(v("id"));
-    if (!id) continue;
-    // La pestaña repite su tabla abajo: la primera aparición manda.
-    if (vistos.has(id.id)) continue;
-    const costoUsd = numeroCelda(v("costoUsd"));
-    const tipoCambio = numeroCelda(v("tipoCambio"));
-    let pesosCosto = numeroCelda(v("pesosCosto"));
-    if ((pesosCosto == null || pesosCosto <= 0) && costoUsd && tipoCambio) pesosCosto = costoUsd * tipoCambio;
-    const estatus = norm(v("estatus"));
-    const productos = String(v("productos")).trim();
-    if (!productos && costoUsd == null && !estatus) continue; // renglón reservado (S272…)
-    vistos.add(id.id);
-    salida.push({
-      id: id.id,
-      iso: esIsoContenedor(v("iso")) ? norm(v("iso")) : null,
-      productos,
-      costoUsd,
-      envioUsd: numeroCelda(v("envioUsd")),
-      tipoCambio,
-      pesosCosto: pesosCosto && pesosCosto > 0 ? pesosCosto : null,
-      pesosEnvio: numeroCelda(v("pesosEnvio")),
-      aduana: numeroCelda(v("aduana")),
-      estatus,
-      entregado: estatus === "ENTREGADO",
-    });
-  }
-  return salida;
-}
-
-/**
- * Pestaña «COMISSION JOANNE»: renglones PEDIDO | PRODUCTO | COSTO USD |
- * TIPO DE CAMBIO | COMISION MXN, dos bloques lado a lado (fundas y calzado).
- * Solo se toman los pedidos que son contenedor de calzado (S###).
- */
-export function leerComisiones(filas: Filas): Map<string, number> {
-  const r = new Map<string, number>();
-  for (const f of filas) {
-    for (let i = 0; i + 4 < (f?.length ?? 0); i++) {
-      const id = idContenedor(f[i]);
-      const comision = numeroCelda(f[i + 4]);
-      if (id && comision != null && comision > 0 && !r.has(id.id)) r.set(id.id, comision);
-    }
-  }
-  return r;
-}
-
-/** Pestaña CALZADO del sheet «Números»: CBM por par de cada modelo. */
-export function leerCbmPorPar(filas: Filas): Map<string, number> {
-  const r = new Map<string, number>();
-  const iEnc = filas.findIndex((f) => (f ?? []).some((c) => norm(c) === "CBM X PAR"));
-  if (iEnc < 0) return r;
-  const col = columnas(filas[iEnc], { modelo: ["MODELO"], cbm: ["CBM X PAR"] });
-  if (col.modelo < 0 || col.cbm < 0) return r;
-  for (const f of filas.slice(iEnc + 1)) {
-    const modelo = norm(f?.[col.modelo]);
-    const cbm = numeroCelda(f?.[col.cbm]);
-    if (esModelo(modelo) && cbm != null && cbm > 0 && !r.has(modelo)) r.set(modelo, cbm);
-  }
-  return r;
+/** Tipo de cambio promedio ponderado por USD; null sin pagos. */
+export function tipoCambioPonderado(pagos: PagoUsd[]): number | null {
+  const usd = pagos.reduce((s, p) => s + p.usd, 0);
+  if (usd <= 0) return null;
+  return pagos.reduce((s, p) => s + p.usd * p.tipoCambio, 0) / usd;
 }
 
 // ------------------------------------------------------------- el reparto
@@ -272,77 +200,49 @@ export interface CostoModeloContenedor {
   modelo: string;
   pares: number;
   usdPar: number | null;
-  cbm: number;
+  cbm: number | null;
   fabricaMxn: number;
   fleteMxn: number;
   aduanaMxn: number;
-  comisionMxn: number;
   totalMxn: number;
   porPar: number;
 }
-
-export type MetodoCbm = "contenedor" | "numeros" | "pares";
 
 export interface ContenedorCosteado {
   id: string;
   anio: number | null;
   iso: string | null;
   productos: string;
-  estatus: string;
-  /** true = ya entregado y con aduana: su costo cuenta */
+  entregado: boolean;
+  /** true = entregado, con aduana y completo: su costo cuenta */
   cuenta: boolean;
   /** por qué no cuenta todavía (null si cuenta) */
   motivo: string | null;
   fuente: "excel" | "packing" | null;
-  metodoCbm: MetodoCbm | null;
+  costoUsd: number | null;
+  pagadoUsd: number;
+  tcFabrica: number | null;
+  fleteUsd: number | null;
+  tcFlete: number | null;
   pesosCosto: number | null;
   pesosEnvio: number | null;
   aduana: number | null;
-  comision: number;
   totalMxn: number;
   pares: number;
+  cbm: number | null;
   modelos: CostoModeloContenedor[];
   avisos: string[];
+  notas: string | null;
 }
 
 /**
- * Reparte lo pagado por un contenedor entre sus modelos. Sin el detalle de
- * qué traía (ni Excel de costeo ni packing list) no se puede repartir y se
- * declara; lo mismo sin pesos de fábrica. Lo que se reparte suma EXACTO lo
- * pagado: fábrica + flete + aduana + comisión.
+ * Reparte lo pagado por un contenedor entre sus modelos. Lo repartido suma
+ * EXACTO fábrica + flete + aduana. Lo que no se puede saber (sin detalle,
+ * sin CBM, sin pagos) se declara en `motivo` y el contenedor no cuenta.
  */
-export function costearContenedor(
-  pago: PagoContenedor,
-  detalle: DetalleContenedor | null,
-  cbmPorPar: Map<string, number>,
-  comision: number,
-): ContenedorCosteado {
+export function costearContenedor(datos: DatosContenedor, detalle: DetalleContenedor | null): ContenedorCosteado {
   const avisos: string[] = [];
-  const base: ContenedorCosteado = {
-    id: pago.id,
-    anio: detalle?.anio ?? null,
-    iso: pago.iso ?? detalle?.iso ?? null,
-    productos: pago.productos,
-    estatus: pago.estatus || "SIN ESTATUS",
-    cuenta: false,
-    motivo: null,
-    fuente: detalle?.fuente ?? null,
-    metodoCbm: null,
-    pesosCosto: pago.pesosCosto,
-    pesosEnvio: pago.pesosEnvio,
-    aduana: pago.aduana,
-    comision,
-    totalMxn: (pago.pesosCosto ?? 0) + (pago.pesosEnvio ?? 0) + (pago.aduana ?? 0) + comision,
-    pares: 0,
-    modelos: [],
-    avisos,
-  };
-
   const lineas = (detalle?.lineas ?? []).filter((l) => l.pares > 0);
-  if (!lineas.length) {
-    base.motivo = "No se sabe qué traía: no está en el Excel de costeo ni tiene packing list en el ERP.";
-    return base;
-  }
 
   // Juntar por modelo.
   const porModelo = new Map<string, { pares: number; usd: number; conUsd: boolean; cbm: number | null }>();
@@ -351,79 +251,99 @@ export function costearContenedor(
     m.pares += l.pares;
     if (l.usdPar == null) m.conUsd = false;
     else m.usd += l.usdPar * l.pares;
-    m.cbm = m.cbm != null && l.cbm != null ? m.cbm + l.cbm : null;
+    m.cbm = m.cbm != null && l.cbm != null && l.cbm > 0 ? m.cbm + l.cbm : null;
     porModelo.set(l.modelo, m);
   }
   const modelos = [...porModelo.entries()];
-  base.pares = modelos.reduce((s, [, m]) => s + m.pares, 0);
+  const pares = modelos.reduce((s, [, m]) => s + m.pares, 0);
+  const conCbm = modelos.length > 0 && modelos.every(([, m]) => m.cbm != null && m.cbm > 0);
+  const cbmTotal = conCbm ? modelos.reduce((s, [, m]) => s + (m.cbm ?? 0), 0) : null;
+  const conPrecio = modelos.length > 0 && modelos.every(([, m]) => m.conUsd && m.usd > 0);
+  const usdDetalle = modelos.reduce((s, [, m]) => s + m.usd, 0);
 
-  // CBM: los del contenedor; si faltan, los de «Números»; si tampoco, por pares.
-  let metodo: MetodoCbm = "contenedor";
-  let cbms = modelos.map(([, m]) => m.cbm);
-  if (cbms.some((c) => c == null || c <= 0)) {
-    metodo = "numeros";
-    cbms = modelos.map(([modelo, m]) => {
-      const porPar = cbmPorPar.get(modelo);
-      return m.cbm != null && m.cbm > 0 ? m.cbm : porPar != null ? porPar * m.pares : null;
-    });
-    if (cbms.some((c) => c == null || c <= 0)) {
-      metodo = "pares";
-      cbms = modelos.map(([, m]) => m.pares);
-      avisos.push("Sin CBM de todos sus modelos: el flete y la aduana se repartieron por pares.");
-    }
-  }
-  base.metodoCbm = metodo;
-  const cbmTotal = cbms.reduce<number>((s, c) => s + (c ?? 0), 0);
-
-  // Valor de fábrica: por USD si todos lo traen; si no, por pares.
-  const porValor = modelos.every(([, m]) => m.conUsd && m.usd > 0);
-  if (!porValor) avisos.push("Algún modelo no trae precio de fábrica: la fábrica se repartió por pares.");
-  const pesos = modelos.map(([, m]) => (porValor ? m.usd : m.pares));
-  const pesoTotal = pesos.reduce((s, x) => s + x, 0);
-
-  const usdTotal = modelos.reduce((s, [, m]) => s + m.usd, 0);
-  if (porValor && pago.costoUsd && Math.abs(usdTotal - pago.costoUsd) > Math.max(1, pago.costoUsd * 0.01)) {
+  // La factura: la capturada; si no, la del Excel (ahí el precio SÍ es USD).
+  const costoUsd = datos.costoUsd ?? (detalle?.fuente === "excel" && conPrecio ? usdDetalle : null);
+  const pagadoUsd = datos.pagosFabrica.reduce((s, p) => s + p.usd, 0);
+  const tcFabrica = tipoCambioPonderado(datos.pagosFabrica);
+  const pesosCosto = costoUsd != null && tcFabrica != null ? costoUsd * tcFabrica : null;
+  if (costoUsd != null && tcFabrica != null && pagadoUsd < costoUsd - 1) {
     avisos.push(
-      `El detalle suma US$${usdTotal.toFixed(2)} y en cuentas dice US$${pago.costoUsd.toFixed(2)}: se reparte lo de cuentas en la proporción del detalle.`,
+      `Pagado US$${pagadoUsd.toFixed(2)} de US$${costoUsd.toFixed(2)}: lo que falta se valuó con el tipo de cambio de lo ya pagado.`,
     );
   }
+  if (detalle?.fuente === "excel" && conPrecio && datos.costoUsd != null && Math.abs(usdDetalle - datos.costoUsd) > Math.max(1, datos.costoUsd * 0.01)) {
+    avisos.push(`El Excel de costeo suma US$${usdDetalle.toFixed(2)} y la factura capturada US$${datos.costoUsd.toFixed(2)}.`);
+  }
 
-  const fabrica = pago.pesosCosto ?? 0;
-  const flete = pago.pesosEnvio ?? 0;
-  const aduana = pago.aduana ?? 0;
-  base.modelos = modelos
-    .map(([modelo, m], i) => {
-      const pv = pesoTotal > 0 ? pesos[i] / pesoTotal : 0;
-      const pc = cbmTotal > 0 ? (cbms[i] ?? 0) / cbmTotal : 0;
+  const fleteUsd = datos.fleteUsd ?? detalle?.fleteUsd ?? null;
+  let tcFlete = tipoCambioPonderado(datos.pagosFlete);
+  if (tcFlete == null && fleteUsd && tcFabrica != null) {
+    tcFlete = tcFabrica;
+    avisos.push("El flete no tiene pago capturado: se valuó con el tipo de cambio de la fábrica.");
+  }
+  const pesosEnvio = fleteUsd != null && tcFlete != null ? fleteUsd * tcFlete : null;
+  const aduana = datos.aduana != null && datos.aduana > 0 ? datos.aduana : null;
+
+  let motivo: string | null = null;
+  if (!lineas.length) motivo = "No se sabe qué traía: no está en el Excel de costeo ni tiene packing list.";
+  else if (!datos.entregado) motivo = "Todavía no está entregado.";
+  else if (aduana == null) motivo = "Falta apuntar la aduana.";
+  else if (costoUsd == null) motivo = "Falta la factura de la fábrica en USD.";
+  else if (tcFabrica == null) motivo = "Faltan los pagos a la fábrica con su tipo de cambio.";
+  else if (!conCbm) motivo = "El contenedor no dice los CBM de todos sus modelos.";
+  else if (!conPrecio) motivo = "Falta el precio de fábrica de algún modelo.";
+  if (lineas.length && pesosEnvio == null && motivo == null) avisos.push("No tiene flete capturado.");
+
+  const fabrica = pesosCosto ?? 0;
+  const flete = pesosEnvio ?? 0;
+  const adu = aduana ?? 0;
+  const calculable = conCbm && conPrecio;
+  const repartidos: CostoModeloContenedor[] = modelos
+    .map(([modelo, m]) => {
+      const pv = calculable && usdDetalle > 0 ? m.usd / usdDetalle : 0;
+      const pc = calculable && cbmTotal ? (m.cbm ?? 0) / cbmTotal : 0;
       const fabricaMxn = fabrica * pv;
       const fleteMxn = flete * pc;
-      const aduanaMxn = aduana * pc;
-      const comisionMxn = comision * pv;
-      const totalMxn = fabricaMxn + fleteMxn + aduanaMxn + comisionMxn;
+      const aduanaMxn = adu * pc;
+      const totalMxn = fabricaMxn + fleteMxn + aduanaMxn;
       return {
         modelo,
         pares: m.pares,
         usdPar: m.conUsd && m.pares > 0 ? m.usd / m.pares : null,
-        cbm: cbms[i] ?? 0,
+        cbm: m.cbm,
         fabricaMxn,
         fleteMxn,
         aduanaMxn,
-        comisionMxn,
         totalMxn,
         porPar: m.pares > 0 ? totalMxn / m.pares : 0,
       };
     })
     .sort((a, b) => a.modelo.localeCompare(b.modelo, "es", { numeric: true }));
 
-  if (!pago.entregado) base.motivo = "Todavía no está ENTREGADO.";
-  else if (!pago.aduana || pago.aduana <= 0) base.motivo = "Falta apuntar la aduana (CRUCE TOTAL).";
-  else if (!pago.pesosCosto) base.motivo = "Falta lo pagado a la fábrica (COSTO USD y tipo de cambio) en cuentas.";
-  else if (!pago.pesosEnvio || pago.pesosEnvio <= 0) {
-    // Sin flete se puede costear, pero se avisa: casi seguro falta capturarlo.
-    avisos.push("No tiene flete en pesos apuntado.");
-  }
-  base.cuenta = base.motivo == null;
-  return base;
+  return {
+    id: datos.id,
+    anio: datos.anio ?? detalle?.anio ?? null,
+    iso: datos.iso ?? detalle?.iso ?? null,
+    productos: datos.productos,
+    entregado: datos.entregado,
+    cuenta: motivo == null,
+    motivo,
+    fuente: detalle?.fuente ?? null,
+    costoUsd,
+    pagadoUsd,
+    tcFabrica,
+    fleteUsd,
+    tcFlete,
+    pesosCosto,
+    pesosEnvio,
+    aduana,
+    totalMxn: (pesosCosto ?? 0) + (pesosEnvio ?? 0) + (aduana ?? 0),
+    pares,
+    cbm: cbmTotal,
+    modelos: repartidos,
+    avisos,
+    notas: datos.notas,
+  };
 }
 
 // ----------------------------------------------------- costo por modelo
@@ -436,7 +356,7 @@ export interface TomaDeContenedor {
 
 export interface CostoModelo {
   modelo: string;
-  /** el último contenedor entregado con aduana: el que usa «Números» */
+  /** el último contenedor entregado con aduana: el que usa Números */
   ultimo: TomaDeContenedor | null;
   /**
    * Costo REAL de lo que hay hoy en existencia (PEPS): se valúan las
@@ -450,7 +370,7 @@ export interface CostoModelo {
   existencias: number | null;
   /** existencias que ningún contenedor costeado cubre (llegaron antes) */
   sinCubrir: number;
-  /** todos los contenedores entregados con este modelo, del más nuevo al más viejo */
+  /** todos los contenedores que cuentan con este modelo, del más nuevo al más viejo */
   historial: TomaDeContenedor[];
 }
 
@@ -491,8 +411,8 @@ export function costosPorModelo(
         falta -= toma;
       }
       sinCubrir = Math.max(0, falta);
-      const pares = tomas.reduce((s, t) => s + t.pares, 0);
-      real = pares > 0 ? tomas.reduce((s, t) => s + t.pares * t.porPar, 0) / pares : real;
+      const p = tomas.reduce((s, t) => s + t.pares, 0);
+      real = p > 0 ? tomas.reduce((s, t) => s + t.pares * t.porPar, 0) / p : real;
     } else if (ultimo) {
       tomas = [{ ...ultimo }];
     }

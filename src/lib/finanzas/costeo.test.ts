@@ -3,13 +3,13 @@ import {
   costearContenedor,
   costosPorModelo,
   idContenedor,
-  leerCbmPorPar,
-  leerComisiones,
-  leerCostingGetac,
   leerExcelCosteo,
   numeroCelda,
-  type PagoContenedor,
+  tipoCambioPonderado,
+  type DatosContenedor,
+  type DetalleContenedor,
 } from "./costeo";
+import { calcularNumeros, ENTRADA_VACIA } from "./numeros";
 
 const ENC = ["Invoice", "Style", "Qtys", "Cost(RMB)", "Cost in USD", "Total Amount", "DHL USD", "Cost/Piece USD", ""];
 
@@ -36,10 +36,10 @@ const EXCEL = [
 describe("leerExcelCosteo", () => {
   const det = leerExcelCosteo(EXCEL);
 
-  it("separa contenedores con su año e ISO", () => {
-    expect(det.map((d) => [d.id, d.anio, d.iso])).toEqual([
-      ["S252", 2026, "MRSU6229114"],
-      ["S270", 2026, "TIIU9082344"],
+  it("separa contenedores con su año, ISO y flete total", () => {
+    expect(det.map((d) => [d.id, d.anio, d.iso, d.fleteUsd])).toEqual([
+      ["S252", 2026, "MRSU6229114", 5030],
+      ["S270", 2026, "TIIU9082344", null],
     ]);
   });
 
@@ -61,108 +61,85 @@ describe("leerExcelCosteo", () => {
       ["GT260", "IN10118"],
       ["GT261", "IN10118"],
     ]);
-    expect(det[1].lineas[0].cbm! + det[1].lineas[1].cbm!).toBeCloseTo(67.45, 6);
   });
 });
 
-describe("sheet de cuentas", () => {
-  const filas = [
-    ["CONTENEDOR", "ID CONTENEDOR", "PRODUCTO", "COSTO USD", "COSTO ENVIO ", "TIPO DE CAMBIO", "PESOS COSTO", "PESOS ENVIO", "CRUCE TOTAL", "TOTAL PESOS", "ESTATUS"],
-    ["FCIU9736902", "S236", "MY2307", "", "", "", "", "", "321900", "321900", "ENTREGADO"],
-    ["MRSU6229114", "S252", "GT117 GT121 GT134", "44623.07", "5030", "17.2572", "770069.61", "86339.95", "318200", "1174609.56", "ENTREGADO"],
-    ["WHSU7038690", "S258", "GT125", "24282", "2710", "17.0225", "", "45883.01", "", "", "EN CAMINO"],
-    ["", "S272"],
-    ["MRSU6229114", "S252", "repetido abajo", "1", "1", "1", "1", "1", "1", "1", "ENTREGADO"],
-  ];
-  const pagos = leerCostingGetac(filas);
-
-  it("lee cada contenedor una vez y salta los renglones reservados", () => {
-    expect(pagos.map((p) => p.id)).toEqual(["S236", "S252", "S258"]);
-    expect(pagos[1]).toMatchObject({ iso: "MRSU6229114", pesosCosto: 770069.61, aduana: 318200, entregado: true });
-  });
-
-  it("sin PESOS COSTO lo calcula con USD × tipo de cambio", () => {
-    expect(pagos[2].pesosCosto).toBeCloseTo(24282 * 17.0225, 4);
-    expect(pagos[2].entregado).toBe(false);
-  });
-
-  it("comisiones: el bloque de calzado (S###), no el de fundas", () => {
-    const c = leerComisiones([
-      ["PEDIDO", "PRODUCTO", "COSTO USD", "TIPO DE CAMBIO", "COMISION MXN", "", "PEDIDO", "PRODUCTO", "COSTO USD", "TIPO DE CAMBIO", "COMISION MXN"],
-      ["P605", "FUNDAS", "56938.67", "17.4", "14867.55", "", "S239", "GT117", "56567.56", "17.327", "14702.19"],
-    ]);
-    expect([...c]).toEqual([["S239", 14702.19]]);
-  });
-
-  it("CBM por par de Números", () => {
-    const m = leerCbmPorPar([
-      ["CATEGORIA", "MODELO", "USD", "TDC", "CBM X PAR"],
-      ["EVA", "GT134", "1.44", "17.5", "0.00217317708"],
-      ["", "", "", "", ""],
-    ]);
-    expect(m.get("GT134")).toBeCloseTo(0.00217317708, 10);
-  });
-});
-
-const pago = (p: Partial<PagoContenedor>): PagoContenedor => ({
+const datos = (d: Partial<DatosContenedor>): DatosContenedor => ({
   id: "S252",
+  anio: 2026,
   iso: null,
   productos: "",
-  costoUsd: null,
-  envioUsd: null,
-  tipoCambio: null,
-  pesosCosto: 1000,
-  pesosEnvio: 200,
+  costoUsd: 100,
+  fleteUsd: 10,
   aduana: 300,
-  estatus: "ENTREGADO",
   entregado: true,
-  ...p,
+  pagosFabrica: [{ usd: 100, tipoCambio: 10 }],
+  pagosFlete: [{ usd: 10, tipoCambio: 20 }],
+  notas: null,
+  ...d,
 });
 
-describe("costearContenedor", () => {
-  const det = {
-    id: "S252",
-    anio: 2026,
-    iso: null,
-    fuente: "excel" as const,
-    lineas: [
-      { modelo: "A", pedido: null, pares: 100, usdPar: 3, cbm: 1 },
-      { modelo: "B", pedido: null, pares: 100, usdPar: 1, cbm: 3 },
-    ],
-  };
+const det: DetalleContenedor = {
+  id: "S252",
+  anio: 2026,
+  iso: null,
+  fuente: "excel",
+  lineas: [
+    { modelo: "A", pedido: null, pares: 100, usdPar: 0.75, cbm: 1 },
+    { modelo: "B", pedido: null, pares: 100, usdPar: 0.25, cbm: 3 },
+  ],
+};
 
-  it("fábrica y comisión por valor; flete y aduana por CBM; suma exacto lo pagado", () => {
-    const c = costearContenedor(pago({}), det, new Map(), 40);
+describe("costearContenedor", () => {
+  it("fábrica por valor con el T.C. de sus pagos; flete y aduana por CBM; suma exacto", () => {
+    const c = costearContenedor(datos({}), det);
     const [a, b] = c.modelos;
+    expect(c.pesosCosto).toBe(1000);
+    expect(c.pesosEnvio).toBe(200);
     expect(a.fabricaMxn).toBeCloseTo(750, 6);
     expect(b.fabricaMxn).toBeCloseTo(250, 6);
     expect(a.fleteMxn).toBeCloseTo(50, 6);
     expect(b.aduanaMxn).toBeCloseTo(225, 6);
-    expect(a.comisionMxn).toBeCloseTo(30, 6);
-    expect(a.totalMxn + b.totalMxn).toBeCloseTo(1000 + 200 + 300 + 40, 6);
-    expect(a.porPar).toBeCloseTo((750 + 50 + 75 + 30) / 100, 6);
+    expect(a.totalMxn + b.totalMxn).toBeCloseTo(1000 + 200 + 300, 6);
+    expect(a.porPar).toBeCloseTo((750 + 50 + 75) / 100, 6);
     expect(c.cuenta).toBe(true);
   });
 
-  it("no cuenta sin estar ENTREGADO ni sin aduana", () => {
-    expect(costearContenedor(pago({ entregado: false, estatus: "EN CAMINO" }), det, new Map(), 0).motivo).toMatch(/ENTREGADO/);
-    expect(costearContenedor(pago({ aduana: null }), det, new Map(), 0).motivo).toMatch(/aduana/);
+  it("cada pago con su tipo de cambio: se pondera por USD", () => {
+    expect(tipoCambioPonderado([{ usd: 60, tipoCambio: 17 }, { usd: 40, tipoCambio: 18 }])).toBeCloseTo(17.4, 10);
+    const c = costearContenedor(datos({ pagosFabrica: [{ usd: 60, tipoCambio: 17 }, { usd: 40, tipoCambio: 18 }] }), det);
+    expect(c.pesosCosto).toBeCloseTo(1740, 6);
   });
 
-  it("sin detalle no se puede repartir y se declara", () => {
-    const c = costearContenedor(pago({}), null, new Map(), 0);
+  it("pagado a medias: lo que falta va con el T.C. de lo pagado y se avisa", () => {
+    const c = costearContenedor(datos({ pagosFabrica: [{ usd: 50, tipoCambio: 17 }] }), det);
+    expect(c.pesosCosto).toBeCloseTo(1700, 6);
+    expect(c.avisos.join(" ")).toMatch(/Pagado US\$50/);
+  });
+
+  it("sin pago de flete se usa el T.C. de la fábrica y se avisa", () => {
+    const c = costearContenedor(datos({ pagosFlete: [] }), det);
+    expect(c.pesosEnvio).toBe(100);
+    expect(c.avisos.join(" ")).toMatch(/flete/);
+  });
+
+  it("sin factura capturada usa la suma del Excel; sin pagos no cuenta", () => {
+    expect(costearContenedor(datos({ costoUsd: null }), det).costoUsd).toBeCloseTo(100, 6);
+    expect(costearContenedor(datos({ pagosFabrica: [] }), det).motivo).toMatch(/pagos/);
+  });
+
+  it("no cuenta sin entregar, sin aduana ni sin detalle", () => {
+    expect(costearContenedor(datos({ entregado: false }), det).motivo).toMatch(/entregado/);
+    expect(costearContenedor(datos({ aduana: null }), det).motivo).toMatch(/aduana/);
+    expect(costearContenedor(datos({}), null).motivo).toMatch(/qué traía/);
+  });
+
+  it("el reparto es A FUERZAS por los CBM del contenedor: sin ellos no se costea", () => {
+    const sinCbm = { ...det, lineas: det.lineas.map((l, i) => ({ ...l, cbm: i === 0 ? null : l.cbm })) };
+    const c = costearContenedor(datos({}), sinCbm);
     expect(c.cuenta).toBe(false);
-    expect(c.motivo).toMatch(/qué traía/);
-  });
-
-  it("sin CBM usa los de Números; sin ellos, por pares", () => {
-    const sinCbm = { ...det, lineas: det.lineas.map((l) => ({ ...l, cbm: null })) };
-    const c1 = costearContenedor(pago({}), sinCbm, new Map([["A", 0.01], ["B", 0.03]]), 0);
-    expect(c1.metodoCbm).toBe("numeros");
-    expect(c1.modelos[1].fleteMxn).toBeCloseTo(150, 6);
-    const c2 = costearContenedor(pago({}), sinCbm, new Map([["A", 0.01]]), 0);
-    expect(c2.metodoCbm).toBe("pares");
-    expect(c2.modelos[1].fleteMxn).toBeCloseTo(100, 6);
+    expect(c.motivo).toMatch(/CBM/);
+    expect(c.modelos.every((m) => m.totalMxn === 0)).toBe(true);
   });
 });
 
@@ -184,12 +161,65 @@ describe("costosPorModelo", () => {
       { id: "S250", pares: 500, porPar: 50 },
     ]);
     expect(m.real).toBeCloseTo((1000 * 60 + 500 * 50) / 1500, 6);
-    expect(m.sinCubrir).toBe(0);
   });
 
   it("existencias de más quedan como sin costear", () => {
     const [m] = costosPorModelo(lista, new Map([["GT1", 2500]]));
     expect(m.sinCubrir).toBe(500);
+  });
+});
+
+describe("Números: las fórmulas del sheet del dueño", () => {
+  it("G650 (renglón 2 del sheet)", () => {
+    const r = calcularNumeros(
+      { modelo: "G650", ...ENTRADA_VACIA, envioMeli: 44, precioRelampago: 298.99, envioAmazon: 72 },
+      112.244872,
+    );
+    expect(r.ganancia).toBeCloseTo(97.896628, 5);
+    expect(r.porcentaje).toBeCloseTo(0.8721701603, 8);
+    expect(r.pvNormal).toBeCloseTo(318.42435, 5);
+    expect(r.gananciaNormal).toBeCloseTo(114.4158255, 5);
+    expect(r.recibirAmazon).toBeCloseTo(210.1415, 4);
+    expect(r.pvpAmazon).toBeCloseTo(371.4932398, 5);
+    expect(r.pvpDeal).toBeCloseTo(416.0724286, 5);
+    expect(r.tiktokLives).toBeCloseTo(287.0282895, 5);
+    expect(r.tiktokOferta).toBeCloseTo(318.6014013, 5);
+    expect(r.tiktokRelampago).toBeCloseTo(302.6713313, 5);
+  });
+
+  it("MY2304: con la retención del 10.5 %", () => {
+    const r = calcularNumeros(
+      { modelo: "MY2304", ...ENTRADA_VACIA, envioMeli: 40, precioRelampago: 140, pvNormal: 148.9, retencion: true },
+      46.76952272,
+    );
+    expect(r.ganancia).toBeCloseTo(19.55806348, 5);
+    expect(r.gananciaNormal).toBeCloseTo(26.31746004, 5);
+  });
+
+  it("variantes de TikTok (+6 / 0.2405205 / ×1.06) y deal fijo", () => {
+    const r = calcularNumeros(
+      {
+        modelo: "X",
+        ...ENTRADA_VACIA,
+        envioMeli: 40,
+        precioRelampago: 300,
+        envioAmazon: 36,
+        pvpDeal: 339.99,
+        tiktokExtra: 6,
+        tiktokComision: 0.2405205,
+        tiktokOferta: 1.06,
+      },
+      70,
+    );
+    expect(r.pvpDeal).toBe(339.99);
+    expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + 6) / (1 - 0.2405205), 8);
+    expect(r.tiktokOferta).toBeCloseTo(r.tiktokLives! * 1.06, 8);
+  });
+
+  it("sin costo no inventa precios", () => {
+    const r = calcularNumeros({ modelo: "X", ...ENTRADA_VACIA, precioRelampago: 200 }, null);
+    expect(r.ganancia).toBeNull();
+    expect(r.pvNormal).toBeCloseTo(213, 6);
   });
 });
 

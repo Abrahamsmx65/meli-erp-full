@@ -1,31 +1,32 @@
 /**
- * Costeo real por contenedor: junta las fuentes y lo deja MASTICADO en
- * `app_cache` (clave `finanzas:costeo`); la pantalla lee un renglón.
+ * Costeo real por contenedor: junta lo capturado en el ERP y lo deja
+ * MASTICADO en `app_cache` (clave `finanzas:costeo`); la pantalla lee un
+ * renglón.
  *
- *   - Sheet de CUENTAS del dueño (`CUENTAS_SHEET_URL`), SOLO LECTURA: se baja
- *     con el enlace público de exportación, que no puede escribir. Regla del
- *     dueño: «ese sheet no puedes modificar nada jamás».
- *   - Sheet «Números» (`NUMEROS_SHEET_URL`): solo el CBM por par de respaldo.
+ *   - `costeo_contenedores` + `costeo_pagos`: lo pagado (factura y flete en
+ *     USD con los tipos de cambio de cada pago, aduana en pesos, entregado).
+ *     Se importaron UNA vez del sheet COSTING GETAC del dueño el
+ *     11-oct-2026; desde ahí se capturan aquí y el sheet ya no se lee.
  *   - El Excel de costeo de la fábrica, que el dueño sube en la pantalla y
  *     se guarda ya leído (`finanzas:costeo-excel`).
- *   - Los packing lists del ERP para lo que no esté en ese Excel.
+ *   - Los packing lists del ERP para lo que no esté en ese Excel, y su
+ *     estado: un contenedor RECIBIDO en el ERP cuenta como entregado.
  *
  * Ver el motor en `finanzas/costeo.ts`.
  */
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
-import { leerHoja, type Filas } from "../importar/leer-hoja";
+import { leerHoja } from "../importar/leer-hoja";
 import {
   costearContenedor,
   costosPorModelo,
+  esIsoContenedor,
   idContenedor,
-  leerCbmPorPar,
-  leerComisiones,
-  leerCostingGetac,
   leerExcelCosteo,
   ordenContenedor,
   type ContenedorCosteado,
   type CostoModelo,
+  type DatosContenedor,
   type DetalleContenedor,
   type LineaCosteo,
 } from "../finanzas/costeo";
@@ -39,11 +40,6 @@ export const CLAVE_COSTEO_EXCEL = "finanzas:costeo-excel";
 /** La pantalla pide un recálculo en el fondo si lo guardado es más viejo. */
 export const EDAD_COSTEO_MS = 6 * 3_600_000;
 
-export const URL_CUENTAS_OMISION =
-  "https://docs.google.com/spreadsheets/d/1-GwdeIj8Y1_fDr5WqA3TcYMAIzEOc0TOPvmwxUQFoUk/edit";
-export const URL_NUMEROS_OMISION =
-  "https://docs.google.com/spreadsheets/d/1fQKU0lwxvcqjhBH4hlF9gk2tzo8X04fdq7KKRDP_wzA/edit";
-
 export interface ExcelCosteoGuardado {
   nombre: string;
   subidoEn: string;
@@ -56,47 +52,31 @@ export interface CostoModeloVista extends CostoModelo {
   costoActual: number | null;
 }
 
+export interface PagoGuardado {
+  id: number;
+  contenedor: string;
+  concepto: "fabrica" | "flete";
+  fecha: string | null;
+  usd: number;
+  tipoCambio: number;
+  notas: string | null;
+}
+
+export interface ContenedorVista extends ContenedorCosteado {
+  /** ya tiene renglón capturado en costeo_contenedores */
+  capturado: boolean;
+  fechaEntrega: string | null;
+  /** el estado del contenedor en /contenedores, si existe ahí */
+  estadoErp: string | null;
+  pagos: PagoGuardado[];
+}
+
 export interface ResultadoCosteo {
   generadoEn: string;
-  contenedores: ContenedorCosteado[];
+  contenedores: ContenedorVista[];
   modelos: CostoModeloVista[];
-  fuentes: {
-    cuentas: { ok: boolean; error: string | null; contenedores: number };
-    numeros: { ok: boolean; error: string | null; modelos: number };
-    excel: { nombre: string; subidoEn: string; contenedores: number } | null;
-    packing: number;
-  };
+  excel: { nombre: string; subidoEn: string; contenedores: number } | null;
   avisos: string[];
-}
-
-function limpiarUrl(env: string | undefined, omision: string): string {
-  return (env ?? "").trim().replace(/^["']+|["']+$/g, "") || omision;
-}
-
-/** De la URL del navegador a la descarga del libro completo en .xlsx. */
-export function urlXlsxSheets(url: string): string {
-  const m = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-  if (!m) throw new Error("No parece una URL de Google Sheets (docs.google.com/spreadsheets/d/…).");
-  return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=xlsx`;
-}
-
-async function bajarLibro(url: string): Promise<Buffer> {
-  // Solo GET de exportación: este camino NO puede escribir en el sheet.
-  const r = await fetch(urlXlsxSheets(url), { redirect: "follow", cache: "no-store" });
-  if (!r.ok) {
-    throw new Error(
-      r.status === 401 || r.status === 403
-        ? "El sheet no está compartido como «Cualquier persona con el enlace · Lector»."
-        : `Google contestó ${r.status}.`,
-    );
-  }
-  const tipo = r.headers.get("content-type") ?? "";
-  if (tipo.includes("text/html")) throw new Error("Google devolvió una página en vez del archivo (¿sheet privado?).");
-  return Buffer.from(await r.arrayBuffer());
-}
-
-async function pestana(libro: Buffer, hoja: string): Promise<Filas> {
-  return leerHoja(libro, { hoja });
 }
 
 /** Lee el Excel de costeo que sube el dueño y lo guarda ya leído. */
@@ -115,20 +95,25 @@ export async function guardarExcelCosteo(
   return guardado;
 }
 
-/** Lo que traía cada contenedor según los packing lists del ERP (con medidas = CBM). */
-async function detallesDelErp(db: DB, accountId: string): Promise<{ porId: Map<string, DetalleContenedor>; porIso: Map<string, DetalleContenedor> }> {
+interface ContenedorErp {
+  id: string | null;
+  anio: number | null;
+  isos: string[];
+  estado: string;
+  detalle: DetalleContenedor | null;
+}
+
+/** Los contenedores del ERP con lo que traían según su packing list (medidas → CBM). */
+async function contenedoresDelErp(db: DB, accountId: string): Promise<ContenedorErp[]> {
   const contenedores = await traerTodo<any>(db, "contenedores", "id, numero, numero_naviera, estado", (q) =>
     q.eq("account_id", accountId),
   );
-  const porId = new Map<string, DetalleContenedor>();
-  const porIso = new Map<string, DetalleContenedor>();
-  if (!contenedores.length) return { porId, porIso };
-  const ids = contenedores.map((c) => c.id);
+  if (!contenedores.length) return [];
   const lineas = await traerTodo<any>(
     db,
     "contenedor_lineas",
     "id, contenedor_id, cajas, largo_cm, ancho_cm, alto_cm, pedido_lineas(modelo, pares_por_caja, precio_unitario, pedidos(pedido))",
-    (q) => q.in("contenedor_id", ids),
+    (q) => q.in("contenedor_id", contenedores.map((c) => c.id)),
   );
   const porContenedor = new Map<string, LineaCosteo[]>();
   for (const l of lineas) {
@@ -145,30 +130,29 @@ async function detallesDelErp(db: DB, accountId: string): Promise<{ porId: Map<s
       modelo: modeloUnificado(String(pl.modelo)) || String(pl.modelo).toUpperCase(),
       pedido: pl.pedidos?.pedido ?? null,
       pares,
-      // La moneda del pedido no es de fiar (dice RMB y trae USD): este
-      // precio solo sirve como PROPORCIÓN entre modelos del mismo contenedor.
+      // La moneda del pedido no es de fiar (dice RMB y a veces trae USD):
+      // este precio solo reparte la factura entre modelos del contenedor.
       usdPar: Number.isFinite(precio) && precio > 0 ? precio : null,
       cbm,
     });
     porContenedor.set(l.contenedor_id, arr);
   }
-  for (const c of contenedores) {
-    const lin = porContenedor.get(c.id);
-    if (!lin?.length) continue;
+  return contenedores.map((c) => {
     const id = idContenedor(c.numero);
-    const det: DetalleContenedor = {
-      id: id?.id ?? String(c.numero),
+    const isos = [c.numero_naviera, c.numero]
+      .filter((x) => x && esIsoContenedor(x))
+      .map((x) => String(x).toUpperCase());
+    const lin = porContenedor.get(c.id);
+    return {
+      id: id?.id ?? null,
       anio: id?.anio ?? null,
-      iso: c.numero_naviera ? String(c.numero_naviera).toUpperCase() : null,
-      fuente: "packing",
-      lineas: lin,
+      isos,
+      estado: String(c.estado ?? ""),
+      detalle: lin?.length
+        ? { id: id?.id ?? String(c.numero), anio: id?.anio ?? null, iso: isos[0] ?? null, fuente: "packing", lineas: lin }
+        : null,
     };
-    if (id) porId.set(id.id, det);
-    for (const iso of [c.numero_naviera, c.numero]) {
-      if (iso && /^[A-Z]{4}\d{7}$/i.test(String(iso))) porIso.set(String(iso).toUpperCase(), det);
-    }
-  }
-  return { porId, porIso };
+  });
 }
 
 /** Pares que hay HOY por modelo: Full + transferencias + bodega, TikTok y FBA. */
@@ -201,65 +185,88 @@ async function existenciasPorModelo(db: DB, accountId: string, avisos: string[])
   return r;
 }
 
+const num = (x: unknown): number | null => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
+
 /** Recalcula todo y lo guarda. `db` debe poder leer todas las tablas (admin). */
 export async function recalcularCosteo(db: DB, accountId: string): Promise<ResultadoCosteo> {
   const t0 = Date.now();
   const avisos: string[] = [];
-  const fuentes: ResultadoCosteo["fuentes"] = {
-    cuentas: { ok: false, error: null, contenedores: 0 },
-    numeros: { ok: false, error: null, modelos: 0 },
-    excel: null,
-    packing: 0,
-  };
 
-  let pagos: ReturnType<typeof leerCostingGetac> = [];
-  let comisiones = new Map<string, number>();
-  try {
-    const libro = await bajarLibro(limpiarUrl(process.env.CUENTAS_SHEET_URL, URL_CUENTAS_OMISION));
-    pagos = leerCostingGetac(await pestana(libro, "COSTING GETAC"));
-    try {
-      comisiones = leerComisiones(await pestana(libro, "COMISSION JOANNE"));
-    } catch {
-      avisos.push("No encontré la pestaña «COMISSION JOANNE»: los contenedores van sin comisión.");
-    }
-    fuentes.cuentas = { ok: true, error: null, contenedores: pagos.length };
-  } catch (err) {
-    fuentes.cuentas.error = (err as Error).message;
-  }
+  const [capturados, pagosCrudos, excel, erp] = await Promise.all([
+    traerTodo<any>(
+      db,
+      "costeo_contenedores",
+      "contenedor, anio, iso, productos, costo_usd, flete_usd, aduana_mxn, entregado, fecha_entrega, notas",
+      (q) => q.eq("account_id", accountId),
+    ),
+    traerTodo<any>(db, "costeo_pagos", "id, contenedor, concepto, fecha, usd, tipo_cambio, notas", (q) =>
+      q.eq("account_id", accountId),
+    ),
+    leerCacheAppGuardado<ExcelCosteoGuardado>(db, accountId, CLAVE_COSTEO_EXCEL),
+    contenedoresDelErp(db, accountId).catch((err) => {
+      avisos.push(`No se pudieron leer los contenedores del ERP: ${(err as Error).message}`);
+      return [] as ContenedorErp[];
+    }),
+  ]);
 
-  let cbmPorPar = new Map<string, number>();
-  try {
-    const libro = await bajarLibro(limpiarUrl(process.env.NUMEROS_SHEET_URL, URL_NUMEROS_OMISION));
-    cbmPorPar = leerCbmPorPar(await pestana(libro, "CALZADO"));
-    fuentes.numeros = { ok: true, error: null, modelos: cbmPorPar.size };
-  } catch (err) {
-    fuentes.numeros.error = (err as Error).message;
-  }
-
-  const excel = await leerCacheAppGuardado<ExcelCosteoGuardado>(db, accountId, CLAVE_COSTEO_EXCEL);
   const delExcel = new Map<string, DetalleContenedor>();
+  let excelInfo: ResultadoCosteo["excel"] = null;
   if (excel.estado === "encontrado") {
     const e = excel.valor.datos;
     for (const d of e.contenedores) if (!delExcel.has(d.id)) delExcel.set(d.id, d);
-    fuentes.excel = { nombre: e.nombre, subidoEn: e.subidoEn, contenedores: e.contenedores.length };
+    excelInfo = { nombre: e.nombre, subidoEn: e.subidoEn, contenedores: e.contenedores.length };
   }
 
-  let erp: Awaited<ReturnType<typeof detallesDelErp>> = { porId: new Map(), porIso: new Map() };
-  try {
-    erp = await detallesDelErp(db, accountId);
-  } catch (err) {
-    avisos.push(`No se pudieron leer los packing lists del ERP: ${(err as Error).message}`);
+  const capturadoPorId = new Map<string, any>(capturados.map((c) => [c.contenedor, c]));
+  const pagos: PagoGuardado[] = pagosCrudos
+    .map((p) => ({
+      id: Number(p.id),
+      contenedor: p.contenedor,
+      concepto: p.concepto,
+      fecha: p.fecha,
+      usd: Number(p.usd),
+      tipoCambio: Number(p.tipo_cambio),
+      notas: p.notas,
+    }))
+    .sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? "") || a.id - b.id);
+
+  // El contenedor del ERP se reconoce por su número S### o por su ISO.
+  const isoAId = new Map<string, string>();
+  for (const c of capturados) if (c.iso) isoAId.set(String(c.iso).toUpperCase(), c.contenedor);
+  for (const d of delExcel.values()) if (d.iso) isoAId.set(d.iso, d.id);
+  const erpPorId = new Map<string, ContenedorErp>();
+  for (const c of erp) {
+    const id = c.id ?? c.isos.map((i) => isoAId.get(i)).find(Boolean) ?? null;
+    if (id && !erpPorId.has(id)) erpPorId.set(id, c);
   }
 
-  // El Excel de costeo manda (el dueño lo cuadra a mano); el packing list
-  // del ERP cubre lo que el Excel no tenga.
-  const contenedores = pagos.map((p) => {
-    let det = delExcel.get(p.id) ?? null;
-    if (!det) {
-      det = erp.porId.get(p.id) ?? (p.iso ? erp.porIso.get(p.iso) ?? null : null);
-      if (det) fuentes.packing++;
-    }
-    return costearContenedor(p, det, cbmPorPar, comisiones.get(p.id) ?? 0);
+  const ids = new Set<string>([...capturadoPorId.keys(), ...delExcel.keys(), ...erpPorId.keys()]);
+  const contenedores: ContenedorVista[] = [...ids].map((id) => {
+    const cap = capturadoPorId.get(id);
+    const deErp = erpPorId.get(id) ?? null;
+    const det = delExcel.get(id) ?? deErp?.detalle ?? null;
+    const susPagos = pagos.filter((p) => p.contenedor === id);
+    const datos: DatosContenedor = {
+      id,
+      anio: num(cap?.anio) ?? det?.anio ?? deErp?.anio ?? null,
+      iso: cap?.iso ?? det?.iso ?? deErp?.isos[0] ?? null,
+      productos: cap?.productos ?? [...new Set((det?.lineas ?? []).map((l) => l.modelo))].join(" "),
+      costoUsd: num(cap?.costo_usd),
+      fleteUsd: num(cap?.flete_usd),
+      aduana: num(cap?.aduana_mxn),
+      // Entregado: lo marcó el dueño aquí o el contenedor ya está RECIBIDO en el ERP.
+      entregado: Boolean(cap?.entregado) || deErp?.estado === "recibido",
+      pagosFabrica: susPagos.filter((p) => p.concepto === "fabrica"),
+      pagosFlete: susPagos.filter((p) => p.concepto === "flete"),
+      notas: cap?.notas ?? null,
+    };
+    return {
+      ...costearContenedor(datos, det),
+      capturado: Boolean(cap),
+      fechaEntrega: cap?.fecha_entrega ?? null,
+      estadoErp: deErp?.estado ?? null,
+      pagos: susPagos,
+    };
   });
   contenedores.sort(ordenContenedor);
 
@@ -270,13 +277,7 @@ export async function recalcularCosteo(db: DB, accountId: string): Promise<Resul
     return { ...m, categoria: cfg?.categoria ?? null, costoActual: cfg?.costo ?? null };
   });
 
-  const resultado: ResultadoCosteo = {
-    generadoEn: new Date().toISOString(),
-    contenedores,
-    modelos,
-    fuentes,
-    avisos,
-  };
+  const resultado: ResultadoCosteo = { generadoEn: new Date().toISOString(), contenedores, modelos, excel: excelInfo, avisos };
   await guardarCacheApp(db, accountId, CLAVE_COSTEO, resultado, Date.now() - t0);
   return resultado;
 }
@@ -328,4 +329,79 @@ export async function aplicarCostosReales(
   for (const m of datos.modelos) if (hechos.has(m.modelo)) m.costoActual = Math.round(m.real! * 100) / 100;
   await guardarCacheApp(db, accountId, CLAVE_COSTEO, datos, 0);
   return { aplicados: aplicados.length, modelos: aplicados };
+}
+
+// ------------------------------------------------------- captura del dueño
+
+export interface CambioContenedor {
+  contenedor: string;
+  iso?: string | null;
+  productos?: string | null;
+  costoUsd?: number | null;
+  fleteUsd?: number | null;
+  aduana?: number | null;
+  entregado?: boolean;
+  fechaEntrega?: string | null;
+  notas?: string | null;
+}
+
+/** Normaliza "S258-2026" → "S258"; error si no es un contenedor. */
+export function contenedorValido(texto: unknown): string {
+  const id = idContenedor(texto);
+  if (!id) throw new Error("El contenedor debe ser S### (por ejemplo S272).");
+  return id.id;
+}
+
+const montoONulo = (x: unknown): number | null => {
+  if (x == null || x === "") return null;
+  const n = Number(x);
+  if (!Number.isFinite(n) || n < 0) throw new Error("Los montos deben ser números positivos.");
+  return n;
+};
+
+export async function guardarContenedor(db: DB, accountId: string, c: CambioContenedor): Promise<void> {
+  const contenedor = contenedorValido(c.contenedor);
+  const fila: Record<string, unknown> = { account_id: accountId, contenedor, actualizado_en: new Date().toISOString() };
+  if ("iso" in c) fila.iso = c.iso ? String(c.iso).trim().toUpperCase() : null;
+  if ("productos" in c) fila.productos = c.productos ? String(c.productos).trim() : null;
+  if ("costoUsd" in c) fila.costo_usd = montoONulo(c.costoUsd);
+  if ("fleteUsd" in c) fila.flete_usd = montoONulo(c.fleteUsd);
+  if ("aduana" in c) fila.aduana_mxn = montoONulo(c.aduana);
+  if ("entregado" in c) fila.entregado = Boolean(c.entregado);
+  if ("fechaEntrega" in c) fila.fecha_entrega = c.fechaEntrega || null;
+  if ("notas" in c) fila.notas = c.notas ? String(c.notas).trim() : null;
+  const { error } = await db.from("costeo_contenedores").upsert(fila, { onConflict: "account_id,contenedor" });
+  if (error) throw new Error(`costeo_contenedores: ${error.message}`);
+}
+
+export async function agregarPago(
+  db: DB,
+  accountId: string,
+  p: { contenedor: string; concepto: string; fecha?: string | null; usd: number; tipoCambio: number; notas?: string | null },
+): Promise<void> {
+  const contenedor = contenedorValido(p.contenedor);
+  if (p.concepto !== "fabrica" && p.concepto !== "flete") throw new Error("El pago es de fábrica o de flete.");
+  const usd = Number(p.usd);
+  const tc = Number(p.tipoCambio);
+  if (!(usd > 0)) throw new Error("Los USD del pago deben ser mayores a cero.");
+  if (!(tc > 5 && tc < 50)) throw new Error("El tipo de cambio no se ve bien (pesos por dólar).");
+  // El contenedor tiene que existir para que el pago no quede huérfano.
+  await db
+    .from("costeo_contenedores")
+    .upsert({ account_id: accountId, contenedor }, { onConflict: "account_id,contenedor", ignoreDuplicates: true });
+  const { error } = await db.from("costeo_pagos").insert({
+    account_id: accountId,
+    contenedor,
+    concepto: p.concepto,
+    fecha: p.fecha || null,
+    usd,
+    tipo_cambio: tc,
+    notas: p.notas ? String(p.notas).trim() : null,
+  });
+  if (error) throw new Error(`costeo_pagos: ${error.message}`);
+}
+
+export async function borrarPago(db: DB, accountId: string, id: number): Promise<void> {
+  const { error } = await db.from("costeo_pagos").delete().eq("account_id", accountId).eq("id", id);
+  if (error) throw new Error(`costeo_pagos: ${error.message}`);
 }
