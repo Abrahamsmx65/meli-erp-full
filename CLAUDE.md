@@ -1964,7 +1964,9 @@ guárdala numerada.
   `/api/cron/amazon-pantallas` deja el monitor de cada atajo, no solo 7 días:
   «Hoy» se veía de hace casi dos horas) y para las gráficas de Amazon y de
   fundas (`precalcularVentasTiempo` con `canales`; los atajos viven en
-  `servicios/atajos-fechas.ts`). Se probó que la pantalla ESPERARA hasta 2.5 s el recálculo de un
+  `servicios/atajos-fechas.ts`). Y para Ventas TIKTOK (`precalcularVentasTikTok` en el
+  latido; la pantalla ahora sí marca `marcarRefrescando()` al pedir el
+  recálculo: antes se quedaba con lo viejo hasta recargar a mano). Se probó que la pantalla ESPERARA hasta 2.5 s el recálculo de un
   renglón viejo: /ventas pasó de ~40 ms a ~1 s y el dueño dijo «estaba mejor
   antes»; se quitó. `servirConCacheApp` sirve lo guardado al instante y
   recalcula en `after()`.

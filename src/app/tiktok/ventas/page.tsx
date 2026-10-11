@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { leerVentasTikTok, recalcularVentasTikTok } from "@/lib/servicios/tiktok-ventas";
+import { marcarRefrescando } from "@/lib/servicios/marca-refresco";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
@@ -63,6 +64,8 @@ export default async function VentasTikTok({
     servirVariosCanales(admin, [{ canal: "tiktok", accountId: cuenta.id }], rango),
   ]);
   if (lectura.refrescar) {
+    // Sin la marca la pantalla se quedaba con lo viejo hasta recargar a mano.
+    marcarRefrescando();
     after(async () => {
       await recalcularVentasTikTok(admin, cuenta.id, rango).catch(() => undefined);
     });
