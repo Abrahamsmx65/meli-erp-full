@@ -127,6 +127,48 @@ function claveColor(color: string): string {
   return claveAplastada(color || "");
 }
 
+/**
+ * El color LAXO, segundo intento cuando el aplastado no amarra: sin la
+ * anotación en español entre paréntesis que la fábrica empezó a poner
+ * («BLK (NEGRO)», «NAVY (AZUL MARINO)», «CAMEL （camello）»), con los
+ * sinónimos de `claveComparacion` (BLACK = BLK, el punto de «DK.BROWN» se
+ * va) y los repetidos seguidos colapsados («BLK/BLK/RED» = «BLK-RED»).
+ * Mismo criterio que `claveProductoLaxa` de Productos nuevos. 11-oct-2026:
+ * por esto se quedaban fuera cientos de cajas en S264, S265, S268, S269 y
+ * S270 con «ningún pedido vivo tiene GT134 BLK (NEGRO)».
+ */
+export function claveColorLaxa(color: string): string {
+  const sinNota = String(color ?? "").replace(/[(（][^)）]*[)）]/g, " ");
+  const tokens = claveComparacion(sinNota).split("-").filter(Boolean);
+  const laxos: string[] = [];
+  for (const t of tokens) if (laxos[laxos.length - 1] !== t) laxos.push(t);
+  return laxos.join("");
+}
+
+function claveRenglonLaxa(pedido: string | null, modelo: string, color: string, talla: string | null): string {
+  return `${pedido ? canonizar(pedido) : ""}|${canonizar(modelo)}|${claveColorLaxa(color)}|${talla ?? ""}`;
+}
+
+/**
+ * Caja de corrida del packing list contra un pedido que el modelo + color
+ * lo tiene POR TALLA (cajas de una sola talla, «Solid size»): el archivo no
+ * dice qué tallas trae, así que SOLO se amarra si sus cajas son exactamente
+ * las que les faltan a esas tallas (S269-2026: GT134 BLK 41 + 51 = 92, lo
+ * que le faltaba al IN10159 en sus seis tallas). Si no cuadra exacto no se
+ * adivina el reparto: queda pendiente y se dice por qué.
+ */
+export function repartoExactoPorTalla<T extends { id: string; talla: string }>(
+  cajas: number,
+  renglones: T[],
+  libreDe: (r: T) => number,
+): { renglon: T; cajas: number }[] | null {
+  const porTalla = renglones.filter((r) => r.talla);
+  if (!porTalla.length) return null;
+  const libres = porTalla.map((r) => ({ renglon: r, cajas: Math.max(0, libreDe(r)) })).filter((x) => x.cajas > 0);
+  const suma = libres.reduce((a, x) => a + x.cajas, 0);
+  return suma > 0 && suma === cajas ? libres : null;
+}
+
 function claveRenglon(pedido: string | null, modelo: string, color: string, talla: string | null): string {
   return `${pedido ? canonizar(pedido) : ""}|${canonizar(modelo)}|${claveColor(color)}|${talla ?? ""}`;
 }
@@ -137,7 +179,9 @@ async function cargarRenglones(db: DB, accountId: string) {
     .from("pedidos")
     .select("id, pedido, estado, creado_en")
     .eq("account_id", accountId)
-    .neq("estado", "cancelado");
+    .neq("estado", "cancelado")
+    // Del más viejo al más nuevo: sin orden, «el pedido más viejo primero» dependía de la base.
+    .order("creado_en", { ascending: true });
 
   const porPedidoId = new Map<string, { pedido: string; orden: number }>();
   const idPorPedido = new Map<string, string>();
@@ -239,7 +283,20 @@ export async function casarPackingList(
   const porClave = new Map<string, RenglonPedido>();
   const porSku = new Map<string, RenglonPedido[]>();
   const porProducto = new Map<string, RenglonPedido[]>();
+  // Segundo intento con el color laxo (sin «(NEGRO)», BLACK = BLK): con y sin pedido.
+  const porClaveLaxa = new Map<string, RenglonPedido[]>();
+  const porLaxaLibre = new Map<string, RenglonPedido[]>();
+  // Por modelo en cualquier pedido vivo: para el dedazo cuando el archivo no trae pedido.
+  const porModeloLibre = new Map<string, RenglonPedido[]>();
+  const agregar = (m: Map<string, RenglonPedido[]>, k: string, r: RenglonPedido) => {
+    const l = m.get(k) ?? [];
+    l.push(r);
+    m.set(k, l);
+  };
   for (const r of renglones) {
+    agregar(porClaveLaxa, claveRenglonLaxa(r.pedido, r.modelo, r.color, r.talla || null), r);
+    agregar(porLaxaLibre, claveRenglonLaxa(null, r.modelo, r.color, r.talla || null), r);
+    agregar(porModeloLibre, canonizar(r.modelo), r);
     porClave.set(claveRenglon(r.pedido, r.modelo, r.color, r.talla || null), r);
     const sku = claveComparacion(construirSkuMeli(r.modelo, r.color, r.talla));
     const lista = porSku.get(sku) ?? [];
@@ -255,11 +312,16 @@ export async function casarPackingList(
     // Sin pedido en el archivo: los renglones de cualquier pedido vivo con
     // ese producto, del más viejo al más nuevo.
     const clave = sku ? claveComparacion(sku) : claveComparacion(construirSkuMeli(modelo, color, talla ?? ""));
-    const candidatos = porSku.get(clave) ?? [];
+    let candidatos = porSku.get(clave) ?? [];
+    if (!candidatos.length && !sku) candidatos = porLaxaLibre.get(claveRenglonLaxa(null, modelo, color, talla)) ?? [];
     return candidatos
       .filter((r) => r.cajas - enOtrosDe(r.id) > 0)
       .sort((a, b) => a.pedidoOrden - b.pedidoOrden);
   };
+  const libreDe = (r: RenglonPedido) => r.cajas - enOtrosDe(r.id) - (reclamado.get(r.id) ?? 0);
+  /** El primero con hueco entre los renglones del color laxo (o el primero, para declarar que ya no cabe). */
+  const elegirLaxo = (lista: RenglonPedido[] | undefined): RenglonPedido | null =>
+    lista?.length ? (lista.find((r) => libreDe(r) > 0) ?? lista[0]) : null;
 
   // Un mismo producto repetido en el archivo (dos embarques parciales del
   // mismo pedido, por ejemplo) se suma antes de casar.
@@ -336,7 +398,19 @@ export async function casarPackingList(
       pesoKg: g.lineas.find((x) => x.pesoKg)?.pesoKg ?? null,
     };
 
-    if (l.pedido) {
+    // El pedido de la celda se arrastra hacia abajo en el archivo: si ese
+    // pedido NO tiene el modelo, el renglón es de otro pedido (S265-2026:
+    // GT148G quedó debajo de IN10079 y es del IN10136). Se busca entre los
+    // pedidos vivos como si el archivo no trajera pedido, y se declara.
+    const pedidoSinModelo =
+      Boolean(l.pedido) &&
+      !l.sku &&
+      idPorPedido.has(canonizar(l.pedido!)) &&
+      !renglones.some((x) => canonizar(x.pedido) === canonizar(l.pedido!) && canonizar(x.modelo) === canonizar(l.modelo));
+    if (pedidoSinModelo) {
+      avisos.push(`${l.modelo} ${l.color}: el pedido ${l.pedido} no tiene el modelo ${l.modelo}; se buscó en los demás pedidos vivos.`);
+    }
+    if (l.pedido && !pedidoSinModelo) {
       if (!idPorPedido.has(canonizar(l.pedido))) {
         salida.push({
           ...base,
@@ -356,6 +430,41 @@ export async function casarPackingList(
           avisos.push(
             `${l.modelo} ${l.color} talla ${l.talla}: el pedido ${l.pedido} no tiene ese renglón por talla; se puso en el de corrida.`,
           );
+        }
+      }
+      // El color sin la anotación («BLK (NEGRO)» = «BLK», BLACK = BLK, «DK.BROWN» = «DK BROWN»).
+      if (!r && !l.sku) {
+        r =
+          elegirLaxo(porClaveLaxa.get(claveRenglonLaxa(l.pedido, l.modelo, l.color, l.talla))) ??
+          (l.talla ? elegirLaxo(porClaveLaxa.get(claveRenglonLaxa(l.pedido, l.modelo, l.color, null))) : null);
+      }
+      // Caja de corrida contra un pedido que ese color lo tiene por talla: solo si cuadra exacto.
+      if (!r && !l.sku && !l.talla) {
+        const porTalla = renglones.filter(
+          (x) =>
+            canonizar(x.pedido) === canonizar(l.pedido!) &&
+            canonizar(x.modelo) === canonizar(l.modelo) &&
+            claveColorLaxa(x.color) === claveColorLaxa(l.color) &&
+            x.talla,
+        );
+        const reparto = repartoExactoPorTalla(cajas, porTalla, libreDe);
+        if (reparto) {
+          for (const x of reparto) {
+            salida.push(armar({ ...base, talla: x.renglon.talla, cajas: x.cajas, pares: l.paresPorCaja ? x.cajas * l.paresPorCaja : 0 }, x.renglon, x.cajas));
+          }
+          avisos.push(
+            `${l.modelo} ${l.color}: el pedido ${l.pedido} lo tiene por talla; las ${cajas} cajas son justo las que le faltaban a sus ${reparto.length} tallas y se repartieron así.`,
+          );
+          continue;
+        }
+        if (porTalla.length) {
+          const faltan = porTalla.reduce((a, x) => a + Math.max(0, libreDe(x)), 0);
+          salida.push({
+            ...base,
+            pedidoErp: l.pedido,
+            detalle: `El pedido ${l.pedido} tiene ${l.modelo} ${porTalla[0].color} por talla (le faltan ${faltan} cajas) y el packing list trae ${cajas} cajas sin decir de qué talla; elige el reparto a mano.`,
+          });
+          continue;
         }
       }
       // Dedazo en el color: se rescata solo si hay UN color parecido.
@@ -398,7 +507,48 @@ export async function casarPackingList(
     }
 
     // Sin pedido: repartir entre los pedidos vivos con hueco.
-    const libres = buscarLibre(l.modelo, l.color, l.talla, l.sku);
+    let libres = buscarLibre(l.modelo, l.color, l.talla, l.sku);
+    // Corrida contra un pedido vivo que ese color lo tiene por talla: solo si cuadra exacto con UN pedido.
+    if (!libres.length && !l.sku && !l.talla) {
+      const delModelo = (porModeloLibre.get(canonizar(l.modelo)) ?? []).filter(
+        (x) => x.talla && claveColorLaxa(x.color) === claveColorLaxa(l.color),
+      );
+      const pedidos = [...new Set(delModelo.map((x) => x.pedido))];
+      const repartos = pedidos
+        .map((p) => ({ p, reparto: repartoExactoPorTalla(cajas, delModelo.filter((x) => x.pedido === p), libreDe) }))
+        .filter((x) => x.reparto);
+      if (repartos.length === 1) {
+        for (const x of repartos[0].reparto!) {
+          salida.push(armar({ ...base, talla: x.renglon.talla, cajas: x.cajas, pares: l.paresPorCaja ? x.cajas * l.paresPorCaja : 0 }, x.renglon, x.cajas));
+        }
+        avisos.push(
+          `${l.modelo} ${l.color}: el pedido ${repartos[0].p} lo tiene por talla; las ${cajas} cajas son justo las que le faltaban y se repartieron así.`,
+        );
+        continue;
+      }
+      if (delModelo.some((x) => libreDe(x) > 0)) {
+        const faltan = delModelo.reduce((a, x) => a + Math.max(0, libreDe(x)), 0);
+        salida.push({
+          ...base,
+          detalle: `${pedidos.join(", ")} tiene ${l.modelo} ${delModelo[0].color} por talla (le faltan ${faltan} cajas) y el packing list trae ${cajas} cajas sin decir de qué talla; elige el reparto a mano.`,
+        });
+        continue;
+      }
+    }
+    // Dedazo en el color sin pedido en el archivo: UN solo color del modelo a una letra, en pedidos vivos con hueco.
+    if (!libres.length && !l.sku) {
+      const conHueco = (porModeloLibre.get(canonizar(l.modelo)) ?? []).filter(
+        (x) => (x.talla || null) === (l.talla || null) && libreDe(x) > 0,
+      );
+      const colores = [...new Set(conHueco.map((x) => claveColorLaxa(x.color)))];
+      const cerca = colores.filter((c) => aUnaLetra(c, claveColorLaxa(l.color)));
+      if (cerca.length === 1) {
+        libres = conHueco.filter((x) => claveColorLaxa(x.color) === cerca[0]).sort((a, b) => a.pedidoOrden - b.pedidoOrden);
+        avisos.push(
+          `${l.modelo} "${l.colorCrudo || l.color}": los pedidos lo tienen como "${libres[0].color}"; se amarró ahí (una letra de diferencia).`,
+        );
+      }
+    }
     if (!libres.length) {
       salida.push({
         ...base,

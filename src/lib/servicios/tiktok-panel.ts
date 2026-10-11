@@ -12,6 +12,7 @@ import { sugerirParecidos } from "../tiktok/sugerencias";
 import { skusContados } from "./tiktok";
 import { conCacheApp } from "./cache-app";
 import { paresEnBodegaTikTok } from "./tiktok-bodega";
+import { skusExternos } from "./tiktok-externos";
 import { estadoSalidas3pl } from "./tiktok-3pl";
 
 /** Ventana con la que se mide qué tan rápido se vende cada talla. */
@@ -82,7 +83,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
   const eq = (q: any) => q.eq("account_id", accountId);
   const desde = new Date(Date.now() - DIAS_VENTA * 86_400_000).toISOString().slice(0, 10);
 
-  const [tiendaRes, inv, skusTikTok, ventas, movsRes, syncRes, contados] = await Promise.all([
+  const [tiendaRes, invCrudo, skusTikTokCrudos, ventas, movsRes, syncRes, contados, externos] = await Promise.all([
     db
       .from("tiktok_tienda")
       .select("nombre, shop_id, warehouse_id, shop_cipher, activo")
@@ -112,7 +113,11 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
       .limit(1)
       .maybeSingle(),
     skusContados(db, accountId),
+    // Los SKUs de vendedores externos (David) tienen su propia pantalla.
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
+  const inv = (invCrudo ?? []).filter((r: any) => !externos.has(String(r.sku)));
+  const skusTikTok = (skusTikTokCrudos ?? []).filter((s: any) => !s.sku_interno || !externos.has(String(s.sku_interno)));
 
   const tienda = tiendaRes.data ?? null;
 
@@ -234,7 +239,7 @@ export interface PanelDesfases {
 
 export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDesfases> {
   const eq = (q: any) => q.eq("account_id", accountId);
-  const [inv, skusTikTok, contados, bodega, salidas] = await Promise.all([
+  const [inv, skusTikTok, contados, bodega, salidas, externos] = await Promise.all([
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", eq).then((filas) =>
       (filas ?? []).map((r: any) => ({ ...r, apartado: (r.apartado ?? 0) + (r.apartado_web ?? 0) })),
     ),
@@ -244,6 +249,7 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
     // Industher cambia cada 3 horas y la sincronización la invalida.
     conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () => paresEnBodegaTikTok(db, accountId)),
     estadoSalidas3pl(db, accountId),
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
 
   const enTikTok = new Map<string, number>();
@@ -257,6 +263,8 @@ export async function cargarDesfases(db: DB, accountId: string): Promise<PanelDe
   for (const r of inv ?? []) kardex.set(r.sku, { saldo: r.saldo, apartado: r.apartado });
 
   const todos = new Set<string>([...kardex.keys(), ...bodega.pares.keys(), ...enTikTok.keys()]);
+  // Los SKUs de vendedores externos (David) no están en Industher: no se cuadran aquí.
+  for (const sku of externos.keys()) todos.delete(sku);
   const desfases: Desfase[] = [];
 
   for (const sku of todos) {

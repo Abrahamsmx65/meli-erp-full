@@ -52,7 +52,7 @@ export default async function VentasAmazon({
   const real = m.real && (m.real.ventas.eventos > 0 || m.real.reembolsos.eventos > 0) ? m.real : null;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="Amazon"
         titulo="Ventas Amazon"

@@ -306,7 +306,8 @@ export async function importarPackingList(
   for (let i = filaEnc + 1; i < filas.length; i++) {
     const f = filas[i];
     const primeras = f.slice(0, 4).map((c) => texto(c).toUpperCase());
-    if (primeras.some((c) => /^(TTL|TOTAL|GRAND TOTAL)\b/.test(c))) break;
+    // «合计» es «total» en chino (S271-2026 traía su total de 713 cajas así).
+    if (primeras.some((c) => /^(TTL|TOTAL|GRAND TOTAL|SUBTOTAL|SUB-TOTAL)\b/.test(c) || /^(合计|合計|总计|總計|小计|小計)/.test(c))) break;
 
     // ---- Formato del ERP: SKU | Cajas ----------------------------------------
     if (col.sku >= 0 && col.modelo < 0) {
@@ -345,6 +346,21 @@ export async function importarPackingList(
     if (pedidoCrudo && /\d{3,}/.test(pedidoCrudo)) pedidoActual = pedidoCrudo.toUpperCase();
     if (modeloCrudo) modeloActual = modeloCrudo.toUpperCase();
 
+    // Fila de TOTAL sin etiqueta: trae cajas pero ni pedido, ni modelo, ni
+    // color, ni talla, ni pares por caja. Sin esto se leía como otro bloque
+    // del último modelo y el contenedor salía al DOBLE (S267-2026: 1,060
+    // cajas contra las 530 del BL; el total sin letrero quedó como «GT104-6
+    // BROWN 530 cajas»).
+    const tallaCelda = col.talla >= 0 ? texto(f[col.talla]) : "";
+    if (cajasFila > 0 && !colorCrudo && !modeloCrudo && !pedidoCrudo && !tallaCelda && !porCajaFila) {
+      const hastaAqui = lineas.reduce((a, l) => a + l.cajas, 0);
+      if (cajasFila !== hastaAqui) {
+        avisos.push(`Fila ${i + 1}: ${cajasFila} cajas sin modelo, color ni talla; se tomó como total y no se contó.`);
+      }
+      bloque = null;
+      continue;
+    }
+
     // ¿Empieza un bloque? Trae color o cajas propias.
     const empieza = Boolean(colorCrudo) || cajasFila > 0;
 
@@ -354,7 +370,9 @@ export async function importarPackingList(
         bloque = null;
         continue;
       }
-      const colorDelBloque = colorCrudo || colorAnterior;
+      // «COGNAC   coñac»: la traducción va en minúsculas tras varios espacios
+      // y, cortada en la «ñ», dejaba «COGNAC CO» (S270-2026).
+      const colorDelBloque = (colorCrudo || colorAnterior).replace(/\s{2,}[a-zà-ÿ].*$/u, "");
       colorAnterior = colorDelBloque;
       bloque = {
         pedidoCrudo: pedidoActual || null,

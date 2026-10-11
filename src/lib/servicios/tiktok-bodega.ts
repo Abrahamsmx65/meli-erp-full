@@ -16,6 +16,7 @@ import { aliasDesdeTikTok, conciliarAcumulado, esAlmacenTikTok, paresApartadosPo
 import { confirmarSalidasAtribuidas, estadoSalidas3pl } from "./tiktok-3pl";
 import type { Movimiento } from "../tiktok/kardex";
 import { registrarMovimientos } from "./tiktok";
+import { skusExternos } from "./tiktok-externos";
 
 export interface ResultadoBodegaTikTok {
   /** cómo se llama la bodega en Industher; null si el API todavía no la reporta */
@@ -85,6 +86,22 @@ export interface EstanteTikTok {
   pares: Map<string, number> | null;
   /** SKUs contados a mano DESPUÉS de la foto: su conteo manda sobre el 3PL */
   contadosDespues: Set<string>;
+  /**
+   * SKUs de VENDEDORES EXTERNOS (David): no viven en Industher, así que no
+   * tienen estante. Para ellos la lectura siempre es «sin dato»: ni se topa
+   * lo que se publica, ni la defensa los recorta, ni la alarma los juzga.
+   */
+  sinEstante: Set<string>;
+}
+
+/**
+ * Lo que el 3PL reporta de UN SKU: null si no hubo lectura o si el SKU no
+ * es de Industher (vendedor externo). Todos los que comparan kardex contra
+ * estante pasan por aquí para que la regla sea una sola.
+ */
+export function estanteDeSku(estante: EstanteTikTok, sku: string): number | null {
+  if (!estante.pares || estante.sinEstante.has(sku)) return null;
+  return estante.pares.get(sku) ?? 0;
 }
 
 /**
@@ -94,12 +111,14 @@ export interface EstanteTikTok {
  * se topa nada, porque un API caído no puede apagar la tienda.
  */
 export async function leerEstanteTikTok(db: DB, accountId: string): Promise<EstanteTikTok> {
-  const vacio: EstanteTikTok = { pares: null, contadosDespues: new Set() };
+  const vacio: EstanteTikTok = { pares: null, contadosDespues: new Set(), sinEstante: new Set() };
   try {
-    const bodega = await conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () =>
-      paresEnBodegaTikTok(db, accountId),
-    );
+    const [bodega, externos] = await Promise.all([
+      conCacheApp(db, accountId, "tiktok-bodega", 15 * 60_000, () => paresEnBodegaTikTok(db, accountId)),
+      skusExternos(db, accountId).catch(() => new Map<string, string>()),
+    ]);
     if (!bodega?.almacen || !bodega.pares) return vacio;
+    const sinEstante = new Set(externos.keys());
 
     let contadosDespues = new Set<string>();
     if (bodega.fechaFoto) {
@@ -108,7 +127,7 @@ export async function leerEstanteTikTok(db: DB, accountId: string): Promise<Esta
       ).catch(() => []);
       contadosDespues = new Set((ajustes ?? []).map((a: any) => String(a.sku)));
     }
-    return { pares: bodega.pares, contadosDespues };
+    return { pares: bodega.pares, contadosDespues, sinEstante };
   } catch {
     return vacio;
   }
@@ -157,7 +176,7 @@ export async function sincronizarSaldoDesdeBodega(
       { onConflict: "account_id,almacen" },
     );
 
-  const [skus, corridasRaw, mapeoRaw, movsRaw, ttSkus, invRaw] = await Promise.all([
+  const [skus, corridasRaw, mapeoRaw, movsRaw, ttSkus, invRaw, externos] = await Promise.all([
     traerTodo<any>(db, "skus", "sku", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "corridas", "pedido, modelo, color, tallas, total", eq),
     traerTodo<any>(db, "mapeo_sku", "sku_construido, sku_meli", eq),
@@ -169,9 +188,15 @@ export async function sincronizarSaldoDesdeBodega(
     traerTodo<any>(db, "tiktok_inventario", "sku, apartado, apartado_web", (q) =>
       eq(q).or("apartado.gt.0,apartado_web.gt.0"),
     ).catch(() => []),
+    // Los SKUs de vendedores externos (David) NO están en Industher: su
+    // kardex se compara contra nada, ni entrada ni merma.
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
+  const esExterno = (sku: unknown) => externos.has(String(sku));
   const apartados = new Map<string, number>(
-    (invRaw ?? []).map((r: any) => [String(r.sku), (Number(r.apartado) || 0) + (Number(r.apartado_web) || 0)]),
+    (invRaw ?? [])
+      .filter((r: any) => !esExterno(r.sku))
+      .map((r: any) => [String(r.sku), (Number(r.apartado) || 0) + (Number(r.apartado_web) || 0)]),
   );
   const alias = aliasDesdeTikTok((ttSkus ?? []).map((t: any) => ({ sellerSku: t.seller_sku, skuInterno: t.sku_interno })));
 
@@ -213,7 +238,9 @@ export async function sincronizarSaldoDesdeBodega(
   // 29-sep-2026). Lo apartado solo sirve para explicar la baja.
   const pares = paresDisponiblesPorSkuDesdeCajas(resultado.cajas, alias);
   const apartadasBodega = paresApartadosPorSkuDesdeCajas(resultado.cajas, alias);
-  const movimientos: Movimiento[] = (movsRaw ?? []).map((m: any) => ({
+  for (const sku of [...pares.keys()]) if (esExterno(sku)) pares.delete(sku);
+  for (const sku of [...apartadasBodega.keys()]) if (esExterno(sku)) apartadasBodega.delete(sku);
+  const movimientos: Movimiento[] = (movsRaw ?? []).filter((m: any) => !esExterno(m.sku)).map((m: any) => ({
     sku: m.sku,
     tipo: m.tipo,
     cantidad: m.cantidad,

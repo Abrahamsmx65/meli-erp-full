@@ -43,7 +43,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
   const variacion = m.anterior.unidades > 0 ? (m.periodo.unidades - m.anterior.unidades) / m.anterior.unidades : null;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="Fundas"
         titulo="Ventas fundas"

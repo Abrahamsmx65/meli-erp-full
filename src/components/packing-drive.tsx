@@ -47,11 +47,15 @@ export function PackingDrive({
       // Solo lo que le cambia el trabajo al dueño: lo que ENTRÓ. Lo demás
       // (omitidos, archivos que no son packing list) vive en el detalle.
       const correos = (j.correos ?? []).filter((c: { enviado: boolean }) => c.enviado).length;
+      const bls: string[] = j.bls ?? [];
+      const aMano: string[] = (j.omitidos ?? []).filter((o: string) => o.includes("cambios a mano"));
       setResumen(
-        j.importados.length
+        (j.importados.length
           ? `Entraron ${j.importados.length}: ${j.importados.join(" · ")}` +
-              (correos ? ` · ${correos} correo(s) de fotos enviados` : "")
-          : `Nada nuevo (${j.revisados} archivo(s) revisados).`,
+            (correos ? ` · ${correos} correo(s) de fotos enviados` : "")
+          : `Nada nuevo (${j.revisados} archivo(s) revisados).`) +
+          (aMano.length ? ` · No se rearmaron por tener cambios a mano: ${aMano.join(" · ")}` : "") +
+          (bls.length ? ` · BL leídos: ${bls.join(" · ")}` : ""),
       );
       router.refresh();
     } catch (e) {
@@ -80,7 +84,7 @@ export function PackingDrive({
           onClick={() => traer(true)}
           disabled={ocupado || !configurado}
           className="boton boton-borde boton-chico disabled:opacity-50"
-          title="Vuelve a leer también los archivos que no cambiaron"
+          title="Vuelve a leer los archivos que no cambiaron, los contenedores en borrador (aunque sean embarques anteriores) y el BL de cada contenedor"
         >
           Releer todo
         </button>

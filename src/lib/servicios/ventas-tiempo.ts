@@ -14,8 +14,10 @@ import type { CanalTiempo, VentasTiempo } from "../graficas/ventas-tiempo";
 export type { CanalTiempo, DiaVenta, HoraVenta, VentasTiempo } from "../graficas/ventas-tiempo";
 export { CANALES_TIEMPO } from "../graficas/ventas-tiempo";
 
-// Cinco minutos: el monitor de hoy de Inicio compara contra ayer a la misma hora.
-const EDAD_MAX_MS = 5 * 60_000;
+// Dos minutos: el monitor de hoy de Inicio compara contra ayer a la misma
+// hora. Desde la 0138 MELI y fundas se leen de `ventas_dia_hora` (~50 ms),
+// así que refrescar seguido no cuesta.
+const EDAD_MAX_MS = 2 * 60_000;
 
 const num = (x: unknown) => Number(x) || 0;
 
@@ -94,8 +96,8 @@ export async function servirVariosCanalesConFecha(
 
 /**
  * Deja listas en el latido las series que más se abren (7 y 30 días de
- * calzado y TikTok, que cuelgan de la cuenta de MELI) cuando tienen más de
- * 10 minutos; fundas y Amazon tardan menos de un segundo y se calculan solas.
+ * calzado y TikTok, que cuelgan de la cuenta de MELI) cuando están por
+ * vencer; fundas y Amazon tardan menos de un segundo y se calculan solas.
  */
 export async function precalcularVentasTiempo(admin: DB, meliAccountId: string, limite: number, hoy: string): Promise<void> {
   const menos = (dias: number) => new Date(Date.parse(`${hoy}T12:00:00Z`) - dias * 86_400_000).toISOString().slice(0, 10);

@@ -17,6 +17,8 @@
  */
 import { traerTodo, type DB } from "../datos/repos";
 import { fechaMx } from "./ventas-monitor";
+import { sinSkusExternos } from "../tiktok/externos";
+import { skusExternos } from "./tiktok-externos";
 
 export const VENTANA_VENTA_TIKTOK = 30;
 
@@ -88,7 +90,7 @@ export async function tiktokParaCompras(db: DB, accountId: string): Promise<TikT
   const desde = fechaMx(VENTANA_VENTA_TIKTOK - 1);
   const advertencias: string[] = [];
   try {
-    const [ventas, kardex] = await Promise.all([
+    const [ventas, kardex, externos] = await Promise.all([
       traerTodo<{ sku: string; unidades: number; fecha: string }>(
         db,
         "tiktok_ventas_diarias",
@@ -101,9 +103,11 @@ export async function tiktokParaCompras(db: DB, accountId: string): Promise<TikT
         "sku, saldo, apartado",
         (q) => q.eq("account_id", accountId),
       ),
+      // Lo de los vendedores externos (David) no se le pide a China.
+      skusExternos(db, accountId).catch(() => new Map<string, string>()),
     ]);
     const resultado: TikTokParaComprasResultado = {
-      datos: armarTikTokParaCompras(ventas ?? [], kardex ?? []),
+      datos: armarTikTokParaCompras(sinSkusExternos(ventas ?? [], externos), sinSkusExternos(kardex ?? [], externos)),
       advertencias,
       disponible: true,
     };

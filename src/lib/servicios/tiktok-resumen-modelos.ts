@@ -22,6 +22,7 @@ import {
   type VentaMeliResumen,
 } from "../tiktok/resumen-modelos";
 import { fechaMx } from "./ventas-monitor";
+import { productosExternos } from "./tiktok-externos";
 
 const DIAS_RECIENTES = 30;
 const MS_POR_FOTO = 10_000;
@@ -38,7 +39,7 @@ export async function cargarResumenModelos(db: DB, accountId: string): Promise<R
   const hoy = fechaMx();
   const avisos: string[] = [];
 
-  const [tiktokRaw, kardexRaw, existRaw, configRaw, tiendaRaw, ventasR] = await Promise.all([
+  const [tiktokCrudo, kardexCrudo, existRaw, configRaw, tiendaRaw, ventasR, externosProductos] = await Promise.all([
     traerTodo<any>(db, "tiktok_skus", "seller_sku, sku_interno, product_id, estado, titulo", (q) => eq(q).eq("activo", true)),
     traerTodo<any>(db, "tiktok_inventario", "sku, saldo, apartado, apartado_web", eq),
     traerTodo<any>(db, "existencias", "almacen, modelo, cajas_disponibles, pares_por_caja", eq),
@@ -53,7 +54,14 @@ export async function cargarResumenModelos(db: DB, accountId: string): Promise<R
       p_prev_hasta: hoy,
       p_hoy: hoy,
     }),
+    // Las publicaciones de vendedores externos (David) no son modelos del dueño.
+    productosExternos(db, accountId).catch(() => new Map<string, string>()),
   ]);
+  const tiktokRaw = (tiktokCrudo ?? []).filter((s: any) => !externosProductos.has(String(s.product_id ?? "")));
+  const skusAjenos = new Set(
+    (tiktokCrudo ?? []).filter((s: any) => externosProductos.has(String(s.product_id ?? ""))).map((s: any) => String(s.sku_interno ?? s.seller_sku ?? "")),
+  );
+  const kardexRaw = (kardexCrudo ?? []).filter((r: any) => !skusAjenos.has(String(r.sku)));
 
   const ventasMeli: VentaMeliResumen[] = [];
   if (ventasR.error) {
