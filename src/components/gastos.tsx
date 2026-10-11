@@ -127,7 +127,7 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
   const ultimoDia = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
   const desde = `${periodo}-01`;
   const hasta = `${periodo}-${String(ultimoDia).padStart(2, "0")}`;
-  const vacio = { id: 0, fecha: desde, concepto: "", categoria: categorias[0], monto: "", fijo: false };
+  const vacio = { id: 0, fecha: desde, concepto: "", categoria: categorias[0], monto: "", fijo: false, medio: "banco" };
   const [form, setForm] = useState(vacio);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
@@ -139,7 +139,7 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
     setOcupado(true);
     setError("");
     try {
-      const datos = { id: form.id, fecha: form.fecha, concepto: form.concepto, categoria: form.categoria, monto: Number(form.monto) };
+      const datos = { id: form.id, fecha: form.fecha, concepto: form.concepto, categoria: form.categoria, monto: Number(form.monto), medio: form.medio };
       if (!form.id) intentoPendiente.current = prepararIntentoGasto(intentoPendiente.current, JSON.stringify(datos));
       await enviar("/api/cortes/general/gastos", form.id ? "PUT" : "POST", {
         ...datos,
@@ -178,11 +178,12 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
           <h2 className="seccion-titulo">Gastos de {nombreMes(periodo)}</h2>
         </div>
       </header>
-      <form onSubmit={guardar} className="grid gap-3 border-b p-4 hairline md:grid-cols-5">
+      <form onSubmit={guardar} className="grid gap-3 border-b p-4 hairline md:grid-cols-6">
         <label className="text-xs">Fecha<input className={entrada} style={estiloEntrada} type="date" required disabled={form.fijo} min={desde} max={hasta} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></label>
         <label className="text-xs md:col-span-2">Concepto<input className={entrada} style={estiloEntrada} required maxLength={200} value={form.concepto} onChange={(e) => setForm({ ...form, concepto: e.target.value })} placeholder="Ej. Flete extra contenedor" /></label>
         <label className="text-xs">Categoría<input className={entrada} style={estiloEntrada} required list="categorias-mes" maxLength={80} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} /><Categorias id="categorias-mes" categorias={categorias} /></label>
         <label className="text-xs">Monto<input className={entrada} style={estiloEntrada} type="number" required min="0.01" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} /></label>
+        <label className="text-xs">Pagado con<select className={entrada} style={estiloEntrada} value={form.medio} onChange={(e) => setForm({ ...form, medio: e.target.value })}><option value="banco">Banco</option><option value="efectivo">Efectivo (Rafa)</option></select></label>
         <div className="flex gap-2 md:col-span-5">
           <button className="boton boton-primario" disabled={ocupado}>{ocupado ? "Guardando…" : form.id ? (form.fijo ? "Corregir este mes" : "Guardar cambios") : "Agregar gasto suelto"}</button>
           {form.id ? <button type="button" className="boton boton-fantasma" onClick={() => setForm(vacio)}>Cancelar</button> : null}
@@ -194,7 +195,7 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
           <table className="datos">
             <thead>
               <tr>
-                <th>Tipo</th><th>Categoría</th><th>Concepto</th><th className="num">Del mes</th>
+                <th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Pagado con</th><th className="num">Del mes</th>
                 {hayProrrateo ? <th className="num">A hoy</th> : null}
                 <th></th>
               </tr>
@@ -205,10 +206,11 @@ export function GastosDelMes({ gastos, periodo, categorias }: { gastos: GastoEmp
                   <td className="whitespace-nowrap">{g.fijoId != null ? (g.editado ? "Fijo · corregido" : "Fijo") : g.fecha}</td>
                   <td>{g.categoria}</td>
                   <td>{g.concepto}</td>
+                  <td className="texto-2 text-[12px]">{g.medio === "efectivo" ? "Efectivo" : "Banco"}</td>
                   <td className="num cifra">{pesos(g.montoMes ?? g.monto)}</td>
                   {hayProrrateo ? <td className="num cifra">{pesos(g.monto)}</td> : null}
                   <td className="num whitespace-nowrap">
-                    <button type="button" className="boton boton-fantasma boton-chico mr-1" onClick={() => setForm({ id: g.id, fecha: g.fecha, concepto: g.concepto, categoria: g.categoria, monto: String(g.montoMes ?? g.monto), fijo: g.fijoId != null })}>Editar</button>
+                    <button type="button" className="boton boton-fantasma boton-chico mr-1" onClick={() => setForm({ id: g.id, fecha: g.fecha, concepto: g.concepto, categoria: g.categoria, monto: String(g.montoMes ?? g.monto), fijo: g.fijoId != null, medio: g.medio ?? "banco" })}>Editar</button>
                     <button type="button" className="boton boton-peligro boton-chico" disabled={ocupado} onClick={() => quitar(g)}>{g.fijoId != null ? "Omitir" : "Eliminar"}</button>
                   </td>
                 </tr>

@@ -2223,6 +2223,97 @@ guárdala numerada.
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
+- **COSTEO REAL POR CONTENEDOR y NÚMEROS, todo en el ERP** (`finanzas/costeo.ts`
+  y `finanzas/numeros.ts` motores puros con pruebas, `servicios/costeo.ts`,
+  `servicios/numeros.ts`, pantallas `/finanzas/costeo` «Costeo» y
+  `/finanzas/numeros` «Números» en Negocio, `POST /api/finanzas/costeo` y
+  `/api/finanzas/numeros`, migración 0135, `app_cache` `finanzas:costeo` y
+  `finanzas:costeo-excel`; dueño, 11-oct-2026: «el costo que quiero es el
+  real para calcular ganancias reales, pero para Números el del último
+  contenedor», «ya no quiero actualizar Números ni usar el sheet COSTING
+  GETAC, todo en el sistema»). LO PAGADO vive en `costeo_contenedores`
+  (factura y flete en USD, aduana en pesos, entregado) y `costeo_pagos`
+  (cada pago en USD con SU tipo de cambio: los pesos de la fábrica = factura
+  × el T.C. ponderado de sus pagos; el flete con los suyos o, sin ellos, con
+  el de la fábrica y se avisa). Se importó UNA vez de la pestaña COSTING
+  GETAC del sheet de cuentas (el flete con el multiplicador de la fórmula de
+  su propio renglón: S244–S247 apuntaban al renglón de arriba); ese sheet
+  NUNCA se escribe y ya no se lee. QUÉ TRAÍA cada contenedor: el Excel de
+  costeo de la fábrica («Costing for shoe Internet», se sube en la
+  pantalla: pares, USD por par, CBM por pedido y flete total) o el packing
+  list del ERP (medidas → CBM; su precio solo como proporción). Reparto: la
+  fábrica por VALOR en USD; flete y aduana **a fuerzas por los CBM del
+  contenedor** (sin CBM no se costea, no se adivina). **Comisiones (Joanne)
+  y gastos NO son costo del par**: son gasto operativo. Cuenta solo
+  entregado (capturado o RECIBIDO en Contenedores) y con aduana. S236–S238
+  solo tienen la aduana: su fábrica se pagó el año anterior. Por modelo:
+  «último» = el contenedor más nuevo que cuenta (el de Números) y «real» =
+  PEPS sobre las existencias de hoy (Full + transferencias + bodega + TikTok
+  + FBA). «Usar» pasa el real a `productos_config` (solo el costo, color
+  ''), que leen los cortes; nunca se aplica solo. NÚMEROS reproduce el sheet
+  del dueño fórmula por fórmula (`numeros_modelos`: envío MELI, relámpago,
+  PV normal, retención 10.5 %, envío Amazon, deal fijo, TikTok extra /
+  comisión / factor de oferta; importado el mismo día) con el costo del
+  último contenedor, o el del catálogo si no hay. **Y con lo que COBRÓ cada
+  plataforma** (mismo día: «en vez de mis estimaciones de comisión y costo
+  de envío, ¿lo puedes calcular con lo real?»; migración 0136,
+  `*_tarifas_por_modelo`, `servicios/tarifas-reales.ts`, `app_cache`
+  `finanzas:tarifas-reales`, 6 h): con ≥ 10 pares en 30 días, MELI usa la
+  comisión real, el envío real = MEDIANA de las ventas DIRECTAS de un par
+  (el promedio lo inflan los carritos; con < 5 directas, el estimado) y la
+  retención efectiva (la REVENTA, ~93 % de los pares, no trae retención);
+  Amazon usa comisión + retención reales sobre el precio y FBA + promos por
+  par; TikTok lo que se queda = 1 − (pago + $6) ÷ precio, más $6 por par.
+  Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
+  usó. Los sueldos del dueño y de
+  Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
+- **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
+  motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
+  del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
+  0138; dueño, 11-oct-2026). **La cuenta es del DUEÑO, no de Rafa** («la
+  cuenta con Rafa es solo las de transferencias; el total es conmigo») y va
+  de MAYO a ABRIL (`ejercicioDeFecha`, `?ejercicio=2026` = may-2026 a
+  abr-2027; «cada año hacemos así las cuentas»): lo fechado cae por su
+  fecha y lo que no (renta de oficina de 12 meses, contenedores) por su
+  columna `ejercicio` (por omisión `ejercicio_actual()`). La **comisión de
+  Joanne** es 1.5 % × costo USD × el tipo de cambio de la fábrica de ESE
+  contenedor (`comisionAgenteDe`), calculada sola para todo contenedor
+  pagado; `comision_agente` solo si se captura a mano. **SHEIN**: los
+  depósitos ya son transferencias (DEPOSITO SHEIN, con comisión); la renta
+  y la mercancía de la cuenta de Shein son movimientos `shein`. Ese dinero
+  es de DAVID (dueño: «le doy mercancía a David, ahí apunto su gasto, él me
+  da todo su dinero y lo que gana al final de año se lo doy»), así que lo
+  que deja (depósitos − renta − mercancía) se le DESCUENTA al socio con
+  `socios.recibe_shein` (Abraham), de su 25 %. Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
+  se importó UNA vez y desde ahí se captura en el ERP; el sheet nunca se
+  escribe. **Las transferencias a Rafa (Industher / Vantorix) NO son pagos
+  de contenedores** (dueño: «esos pagos no tienen nada que ver con los
+  contenedores»): son el dinero que pasa a una cuenta paralela desde la que
+  Rafa paga a China o le da efectivo al dueño, y cobra 2/116 (~1.72 %) de
+  cada una (`COMISION_RAFA`; `cuenta_paralela` tipo `transferencia`). La
+  pantalla replica la pestaña TOTAL: recibido (transferencias − comisión)
+  − contenedores de calzado y fundas en pesos (del costeo) − comisión del
+  agente − gastos en EFECTIVO + ingresos sin comisión (CREDI PAGO: una
+  deuda que le pagaron al dueño, tipo `ingreso`) − gastos de la cuenta
+  (renta de oficina, tipo `gasto`) = ganancia, repartida entre los SOCIOS
+  (`socios`: Abraham 25 %, Daniel 25 %, su papá 50 %) contra lo que cada
+  uno retiró (`socios_retiros`; negativo = pagó algo del negocio; los
+  retiros solo se APUNTAN, nunca son gasto). Al importar cuadró al centavo
+  con la pestaña TOTAL (transferencias $41,889,509.39, comisión
+  $793,784.63, retiros $3,627,820 y $3,135,465); la ganancia sale $57,100
+  menor que la del sheet por el flete corregido de S244–S246. Los cuatro
+  retiros SIN fecha de Abraham (DÓLARES VIAJE y tres AMEX) no se
+  importaron: en el sheet estaban fuera de la suma. **GASTOS MEX** entró a
+  Gastos con `gastos_empresariales.medio = 'efectivo'` (lo que se paga
+  desde el banco con factura es `banco`, el de omisión) y categorías
+  nuevas (Empaque, Marketing, Oficina y equipo, Comisiones, Trámites,
+  Viajes): los dos medios cuentan igual en el Estado de resultados y los de
+  efectivo además salen de la ganancia de la cuenta. Contenedores de
+  FUNDAS (`P###`, `costeo_contenedores.negocio = 'fundas'`) en el mismo
+  costeo; el P608 viajó en el S268. La comisión del agente (Joanne, 1.5 %
+  del costo en pesos) vive en `costeo_contenedores.comision_agente`: gasto
+  operativo, NUNCA costo del par. CUENTA SHEIN es de David: la renta que
+  la empresa paga se la descuenta a él, no es gasto del negocio.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.

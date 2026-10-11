@@ -15,7 +15,20 @@ import type { DB } from "../datos/repos";
  * anterior» son parejas. Un gasto suelto cuenta completo en su fecha.
  */
 
-export const CATEGORIAS_GASTO = ["Nómina", "Fletes", "Renta", "Logística 3PL", "Servicios", "Otros"] as const;
+export const CATEGORIAS_GASTO = [
+  "Nómina",
+  "Fletes",
+  "Renta",
+  "Logística 3PL",
+  "Servicios",
+  "Empaque",
+  "Marketing",
+  "Oficina y equipo",
+  "Comisiones",
+  "Trámites",
+  "Viajes",
+  "Otros",
+] as const;
 
 export interface GastoFijo {
   id: number;
