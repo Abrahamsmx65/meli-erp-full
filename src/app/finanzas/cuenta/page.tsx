@@ -20,7 +20,8 @@ const nombreMes = (m: string) => (/^\d{4}-\d{2}$/.test(m) ? `${MESES[Number(m.sl
  * YAPANIZCEL» dentro del ERP, de MAYO a ABRIL. Lo transferido a Rafa menos
  * su comisión, menos lo pagado por los contenedores, la comisión de Joanne y
  * los gastos en efectivo = la ganancia, repartida entre los socios (más lo
- * que deja Shein al que la recibe) contra lo que cada uno ha retirado.
+ * que se le debe a David por Shein, descontado al que lleva esa cuenta)
+ * contra lo que cada uno ha retirado.
  */
 export default async function Cuenta({ searchParams }: { searchParams: Promise<{ ejercicio?: string }> }) {
   const supabase = await clienteServidor();
@@ -111,7 +112,7 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
                           <th>Socio</th>
                           <th className="num">%</th>
                           <th className="num">Su parte</th>
-                          <th className="num">Shein</th>
+                          <th className="num">Shein (David)</th>
                           <th className="num">Le toca</th>
                           <th className="num">Retirado</th>
                           <th className="num">De eso, tsedaka</th>
@@ -210,9 +211,9 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
                   <Ficha titulo="Depósitos de Shein" valor={pesos(r.shein.depositos)} nota="Entran en Transferencias" />
                   <Ficha titulo="Renta y mercancía" valor={pesos(r.shein.salidas)} />
                   <Ficha
-                    titulo="Deja Shein"
+                    titulo="Se le debe a David"
                     valor={pesos(r.shein.neto)}
-                    nota={d.socios.filter((s) => s.recibeShein).map((s) => `Se le suma a ${s.nombre}`).join(", ") || undefined}
+                    nota={d.socios.filter((s) => s.recibeShein).map((s) => `Se le descuenta a ${s.nombre}`).join(", ") || undefined}
                     tono={r.shein.neto >= 0 ? "bien" : "critico"}
                   />
                 </Cifras>

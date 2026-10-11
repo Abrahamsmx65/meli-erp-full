@@ -2067,10 +2067,11 @@ guárdala numerada.
   contenedor (`comisionAgenteDe`), calculada sola para todo contenedor
   pagado; `comision_agente` solo si se captura a mano. **SHEIN**: los
   depósitos ya son transferencias (DEPOSITO SHEIN, con comisión); la renta
-  y la mercancía de la cuenta de Shein son movimientos `shein` y lo que deja
-  (depósitos − renta − mercancía) se le SUMA al socio con
-  `socios.recibe_shein` (Abraham; «me la tienes que sumar a mí también como
-  ganancia»), aparte de su 25 %. Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
+  y la mercancía de la cuenta de Shein son movimientos `shein`. Ese dinero
+  es de DAVID (dueño: «le doy mercancía a David, ahí apunto su gasto, él me
+  da todo su dinero y lo que gana al final de año se lo doy»), así que lo
+  que deja (depósitos − renta − mercancía) se le DESCUENTA al socio con
+  `socios.recibe_shein` (Abraham), de su 25 %. Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
   se importó UNA vez y desde ahí se captura en el ERP; el sheet nunca se
   escribe. **Las transferencias a Rafa (Industher / Vantorix) NO son pagos
   de contenedores** (dueño: «esos pagos no tienen nada que ver con los

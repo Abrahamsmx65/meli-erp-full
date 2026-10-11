@@ -62,7 +62,7 @@ describe("cuenta del año", () => {
     expect(pa.leToca).toBe(140_000);
   });
 
-  it("lo que deja Shein se le suma al socio que lo recibe", () => {
+  it("lo que deja Shein es de David y se le descuenta al socio que lleva la cuenta", () => {
     const r = resumenCuenta({
       movimientos: [
         mov({ monto: 1_160_000, comision: 20_000 }),
@@ -85,7 +85,8 @@ describe("cuenta del año", () => {
     expect(r.shein).toMatchObject({ depositos: 116_000, salidas: 80_000, neto: 36_000 });
     expect(r.ganancia).toBe(1_254_000);
     expect(r.socios[0].parte).toBe(313_500);
-    expect(r.socios[0].leToca).toBe(349_500);
+    expect(r.socios[0].shein).toBe(-36_000);
+    expect(r.socios[0].leToca).toBe(277_500);
     expect(r.socios[1].shein).toBe(0);
   });
 });

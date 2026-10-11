@@ -12,9 +12,11 @@
  *               + gastos de la cuenta (renta de oficina)
  *   ganancia  = recibido − salidas, repartida por socio (25 / 25 / 50)
  *   shein     = depósitos de Shein − renta y mercancía de la cuenta de
- *               Shein; se le SUMA al socio que la recibe (el dueño: «me la
- *               tienes que sumar a mí también como ganancia»)
- *   sobra     = lo que le toca (+ Shein) − lo que ya retiró
+ *               Shein. Es dinero de DAVID: él le da al dueño todo lo que
+ *               deposita Shein, el dueño le apunta la mercancía y la renta,
+ *               y al final del año le entrega lo que quedó. Por eso se le
+ *               DESCUENTA al socio que lleva la cuenta (`recibeShein`)
+ *   sobra     = lo que le toca (− Shein) − lo que ya retiró
  *
  * Las transferencias a Rafa NO son pagos de contenedores (dueño: «esos
  * pagos no tienen nada que ver con los contenedores»): Rafa paga a China o
@@ -63,7 +65,7 @@ export interface Socio {
   id: number;
   nombre: string;
   porcentaje: number;
-  /** a este socio se le suma lo que deja Shein */
+  /** este socio lleva la cuenta de Shein: lo que se le debe a David sale de su parte */
   recibeShein?: boolean;
 }
 
@@ -92,9 +94,9 @@ export interface RenglonSocio {
   socio: Socio;
   /** su parte de la ganancia de la cuenta */
   parte: number;
-  /** lo que deja Shein, si es suyo */
+  /** lo que se le debe a David por Shein (negativo), si este socio lleva la cuenta */
   shein: number;
-  /** parte + Shein */
+  /** parte + shein */
   leToca: number;
   retirado: number;
   /** de lo retirado, lo que fue tsedaka */
@@ -159,7 +161,7 @@ export function resumenCuenta(e: EntradaResumen): ResumenCuenta {
     const retirado = suyos.reduce((s, r) => s + r.monto, 0);
     const tsedaka = suyos.filter((r) => esTsedaka(r.concepto)).reduce((s, r) => s + r.monto, 0);
     const parte = (ganancia * socio.porcentaje) / 100;
-    const deShein = socio.recibeShein ? shein.neto : 0;
+    const deShein = socio.recibeShein ? -shein.neto : 0;
     const leToca = parte + deShein;
     return { socio, parte, shein: deShein, leToca, retirado, tsedaka, sobra: leToca - retirado, retiros: suyos.length };
   });
