@@ -127,6 +127,16 @@ const UNIONES_COLOR = new Set(["WITH"]);
  * "GT110-MILITARY GREEN-26" armado desde la corrida se reconozcan como el
  * mismo par de zapatos.
  */
+/**
+ * «GT104» + «1-BLK»: en MELI y Amazon los modelos con guion (GT104-1) se
+ * parten mal y el número queda pegado al color; el pedido y el packing list
+ * dicen «GT104-1» + «BLK». Devuelve el número y el color sin él, o null.
+ */
+export function numeroAlFrenteDelColor(color: string): { numero: string; color: string } | null {
+  const m = String(color ?? "").trim().match(/^(\d{1,2})\s*[-\s]\s*(\S.*)$/);
+  return m ? { numero: m[1], color: m[2] } : null;
+}
+
 export function claveComparacion(s: string): string {
   const partes = canonizar(s)
     .split("-")

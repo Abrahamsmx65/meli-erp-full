@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { contenidoPorModelo, detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
+import { contenidoPorModelo, detalleModelos, resumenModelos, type OtroDelContenedor, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 import { FotoProducto } from "./ui/foto-producto";
@@ -38,6 +38,8 @@ interface Contenedor {
   /** cajas del BL (número de control) */
   cajasBl?: number | null;
   blArchivo?: string | null;
+  /** lo que viaja y no es calzado (bolsas de empaque…) */
+  otros?: OtroDelContenedor[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -285,7 +287,12 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
                   <td className="num">
                     <span className="cifra">{n(c.cajas)}</span>
-                    <ContraBl cargadas={c.cajas} pendientes={(c.pendientes ?? []).reduce((a, p) => a + p.cajas, 0)} cajasBl={c.cajasBl} archivo={c.blArchivo} />
+                    {cajasOtros(c) ? (
+                      <span className="block text-[11px] texto-tenue" title="Bolsas de empaque y otros artículos que no son calzado">
+                        + {n(cajasOtros(c))} otros
+                      </span>
+                    ) : null}
+                    <ContraBl cargadas={c.cajas + cajasOtros(c)} pendientes={(c.pendientes ?? []).reduce((a, p) => a + p.cajas, 0)} cajasBl={c.cajasBl} archivo={c.blArchivo} />
                   </td>
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
@@ -300,6 +307,18 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               <span className="cifra texto-tenue">· {n(m.cajas)} cajas</span>
                               <span className="block texto-2">
                                 {m.colores.map((x) => `${x.color || "—"} ${n(x.cajas)}`).join(" · ")}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                        {(c.otros ?? []).map((o) => (
+                          <li key={`otro|${o.descripcion}|${o.color}`} className="flex items-start gap-2">
+                            <FotoProducto url={null} alt={o.descripcion} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{nombreOtro(o)}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(o.cajas)} cajas</span>
+                              <span className="block texto-tenue">
+                                {o.piezas ? `${n(o.piezas)} piezas · ` : ""}no es calzado
                               </span>
                             </span>
                           </li>
@@ -335,6 +354,11 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     ) : (
                       <span className="texto-tenue">—</span>
                     )}
+                    {(c.otros ?? []).length ? (
+                      <span className="block max-w-56 truncate texto-tenue">
+                        + {(c.otros ?? []).map((o) => `${nombreOtro(o)} ${n(o.cajas)}`).join(", ")}
+                      </span>
+                    ) : null}
                     </div>
                     {c.sinSku?.length ? (
                       <button
@@ -545,6 +569,15 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
  * 11-oct-2026): si no cuadran se dice en rojo cuántas faltan o sobran y
  * cuántas están por confirmar en Contenido.
  */
+/** Cajas de lo que viaja y no es calzado (bolsas de empaque…): cuentan contra el BL. */
+function cajasOtros(c: { otros?: { cajas: number }[] }): number {
+  return (c.otros ?? []).reduce((a, o) => a + o.cajas, 0);
+}
+
+function nombreOtro(o: { descripcion: string; color: string }): string {
+  return `${o.descripcion}${o.color ? ` ${o.color}` : ""}`;
+}
+
 function ContraBl({
   cargadas,
   pendientes,
@@ -751,6 +784,21 @@ function ContenidoContenedor({
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Contenido de {contenedor.numero}</h3>
+        {(contenedor.otros ?? []).length ? (
+          <section className="mt-3 rounded-lg border p-3 text-xs" style={{ borderColor: "var(--borde)" }}>
+            <h4 className="text-sm font-semibold">Otros artículos (no son calzado)</h4>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {(contenedor.otros ?? []).map((o) => (
+                <li key={`${o.descripcion}|${o.color}`} className="flex flex-wrap gap-x-2">
+                  <span className="font-medium">{nombreOtro(o)}</span>
+                  <span className="cifra">{n(o.cajas)} cajas</span>
+                  {o.piezas ? <span className="cifra texto-tenue">{n(o.piezas)} piezas</span> : null}
+                  {o.pedido ? <span className="texto-tenue">{o.pedido}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {pendientes.length ? (
           <section
             className="mt-3 rounded-lg border p-3"

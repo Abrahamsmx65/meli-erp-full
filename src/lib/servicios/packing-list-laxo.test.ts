@@ -178,3 +178,11 @@ describe("caja de corrida contra un pedido por talla", () => {
     expect(c.totales.cajasAsignar).toBe(92);
   });
 });
+
+describe("esInsumo: lo que no es calzado viaja con el contenedor", () => {
+  it("bolsas, cajas y etiquetas sí; modelos de calzado no", async () => {
+    const { esInsumo } = await import("./packing-list");
+    for (const m of ["POLYBAG", "Polybag", "POLY BAG", "BOLSAS", "CARTON", "LABELS", "HANGTAG"]) expect(esInsumo(m)).toBe(true);
+    for (const m of ["GT114", "GT104-6", "MY2304", "GT148G"]) expect(esInsumo(m)).toBe(false);
+  });
+});

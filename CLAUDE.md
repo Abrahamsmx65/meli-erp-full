@@ -255,6 +255,14 @@ guárdala numerada.
   talla con sus pares por caja; antes los 198 cartones de GT114 de pedido
   por talla salían juntos sin talla y no amarraban. Un rango «36-41
   (23-27)» sigue siendo corrida.
+  **Lo que NO es calzado viaja con el contenedor como «otros artículos»**
+  (`esInsumo`, estado `insumo` del casado, `contenedores.otros`, migración
+  0142; dueño, 11-oct-2026: «tengo en el S268 bolsas de plástico para
+  empaque; que salga en el contenido pero no es algo para pedir»): Polybag,
+  bolsas, cajas, etiquetas, cinta… no se amarran con pedidos, no son
+  pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
+  viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
+  622 de calzado + 35 de bolsas = 657 del BL).
   **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
   packing list** (`esArchivoAjeno`: lo que se llama por su pedido
   «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la
@@ -338,7 +346,12 @@ guárdala numerada.
   escribe el color por partes con anotación ("BLK/BLK/RED", "BLK/BLK/BLK
   (NEGRO)") y MELI/Amazon lo tienen como "BLK / RED", "BLK-BLK" o "BLK";
   sin paréntesis y con repetidos seguidos colapsados caen en el mismo lugar
-  (verificado con GT134).
+  (verificado con GT134). **Los modelos con guion se parten mal en MELI y Amazon**
+  (`numeroAlFrenteDelColor`; S267, 11-oct-2026): «GT104-1-BLK-25-MX» queda
+  como modelo «GT104» + color «1-BLK», y el pedido y el packing list dicen
+  «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
+  esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
+  ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el

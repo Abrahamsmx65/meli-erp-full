@@ -19,14 +19,30 @@ import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
 import { recalcularEstadoPedido } from "./pedidos";
-import { leerPendientes, type PendientePacking } from "./contenedores-vista";
+import { leerPendientes, type OtroDelContenedor, type PendientePacking } from "./contenedores-vista";
 
 export type EstadoCasado =
   | "ok"
   | "recorte"
   | "sin_pedido"
   | "sin_renglon"
-  | "sin_espacio";
+  | "sin_espacio"
+  /** no es calzado (bolsas de empaque, cajas, etiquetas): va con el contenedor, nunca a un pedido */
+  | "insumo";
+
+/**
+ * Lo que viaja en el contenedor y NO es calzado: bolsas de empaque
+ * («Polybag» del S268-2026, IN10157/IN10158), cajas, etiquetas, cinta. No
+ * se amarra con pedidos ni cuenta como inventario: se guarda con el
+ * contenedor para verlo y para cuadrar contra el BL (dueño, 11-oct-2026:
+ * «quiero que salga en el contenido del contenedor pero no es algo para
+ * pedir, simplemente ahí está»).
+ */
+export function esInsumo(modelo: string): boolean {
+  return /\b(POLY\s*-?\s*BAGS?|BAGS?|BOLSAS?|EMPAQUES?|PACKING\s+BAGS?|CARTONS?|CAJAS?|BOX(ES)?|LABELS?|ETIQUETAS?|STICKERS?|TAPE|CINTA|HANGTAGS?|TAGS?)\b/i.test(
+    String(modelo ?? ""),
+  );
+}
 
 export { aUnaLetra } from "../importar/sku";
 import { cargarAliasColores, colorEfectivo, type MapaAlias } from "./alias-color";
@@ -68,7 +84,7 @@ export function colorParecido<T extends { color: string }>(color: string, candid
  */
 export function problemasDelCasado(casado: PackingCasado): string[] {
   return casado.lineas
-    .filter((l) => l.cajasAsignar < l.cajas)
+    .filter((l) => l.estado !== "insumo" && l.cajasAsignar < l.cajas)
     .map((l) => {
       const que = `${l.modelo}${l.color ? ` ${l.color}` : ""}${l.talla ? ` talla ${l.talla}` : ""}`;
       const faltan = l.cajas - l.cajasAsignar;
@@ -400,6 +416,11 @@ export async function casarPackingList(
       pesoKg: g.lineas.find((x) => x.pesoKg)?.pesoKg ?? null,
     };
 
+    if (!l.sku && esInsumo(l.modelo)) {
+      salida.push({ ...base, estado: "insumo", detalle: "No es calzado: va con el contenedor, sin pedido." });
+      continue;
+    }
+
     // El pedido de la celda se arrastra hacia abajo en el archivo: si ese
     // pedido NO tiene el modelo, el renglón es de otro pedido (S265-2026:
     // GT148G quedó debajo de IN10079 y es del IN10136). Se busca entre los
@@ -578,7 +599,7 @@ export async function casarPackingList(
   }
 
   const cajasAsignar = salida.reduce((a, s) => a + s.cajasAsignar, 0);
-  const ok = salida.filter((s) => s.estado === "ok").length;
+  const ok = salida.filter((s) => s.estado === "ok" || s.estado === "insumo").length;
 
   return {
     numero,
@@ -707,8 +728,11 @@ export async function aplicarPackingList(
 
   // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
   // el borrador, elija el renglón del pedido que sí es y lo confirme ahí.
+  const otros: OtroDelContenedor[] = casado.lineas
+    .filter((l) => l.estado === "insumo")
+    .map((l) => ({ descripcion: l.modelo, color: l.color, cajas: l.cajas, piezas: l.pares, pedido: l.pedidoArchivo ?? null }));
   let pendientes = casado.lineas
-    .filter((l) => l.cajasAsignar < l.cajas)
+    .filter((l) => l.estado !== "insumo" && l.cajasAsignar < l.cajas)
     .map((l) => ({
       modelo: l.modelo,
       color: l.color,
@@ -730,7 +754,7 @@ export async function aplicarPackingList(
   }
   await db
     .from("contenedores")
-    .update({ pendientes: pendientes.length ? pendientes : null })
+    .update({ pendientes: pendientes.length ? pendientes : null, otros: otros.length ? otros : null })
     .eq("id", r.contenedorId);
 
   invalidarInventario(accountId);
