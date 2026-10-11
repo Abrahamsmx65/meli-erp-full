@@ -60,7 +60,7 @@ export default async function VentasAmazon({
         frescura={servido.generadoEn}
       />
 
-      <FiltroFechas base="/amazon/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+      <FiltroFechas base="/amazon/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} precargar />
 
       <Cifras columnas={5}>
         <Ficha

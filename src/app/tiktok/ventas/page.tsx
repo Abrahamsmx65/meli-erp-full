@@ -105,7 +105,7 @@ export default async function VentasTikTok({
           </>
         }
       />
-      <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} />
+      <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} precargar />
 
       <Cifras columnas={5}>
         <Ficha titulo="Pares vendidos" valor={n(unidades)} nota={`${n(pedidosEnPie)} pedidos en pie · sin muestras ni cancelados`} />

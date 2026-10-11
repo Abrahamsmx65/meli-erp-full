@@ -3,9 +3,10 @@
  * por horas y por días en todos los canales y en el general»).
  *
  * Las sumas las hace Postgres (`ventas_por_hora`, migración 0134) con las
- * mismas reglas que la pantalla de cada canal; aquí solo se guarda masticado
- * por canal y rango en `app_cache` (`ventas-tiempo:v2:{canal}:{desde}:{hasta}`)
- * y se sirve aunque esté viejo, como todas las pantallas.
+ * mismas reglas que la pantalla de cada canal. TikTok y Amazon se guardan
+ * masticados por canal y rango en `app_cache`
+ * (`ventas-tiempo:v2:{canal}:{desde}:{hasta}`) y se sirven aunque estén
+ * viejos; MELI calzado y fundas se leen en vivo (`CANALES_EN_VIVO`).
  */
 import type { DB } from "../datos/repos";
 import { guardarCacheApp, leerCacheAppGuardado, servirConCacheApp } from "./cache-app";
@@ -19,6 +20,14 @@ export { CANALES_TIEMPO } from "../graficas/ventas-tiempo";
 // hora. Desde la 0138 MELI y fundas se leen de `ventas_dia_hora` (~50 ms),
 // así que refrescar seguido no cuesta.
 const EDAD_MAX_MS = 2 * 60_000;
+
+/**
+ * MELI calzado y fundas se leen EN VIVO en cada visita (11-oct-2026): sus
+ * días y horas ya están sumados en la base (`ventas_dia_hora`, 0138, ≤ 1 min)
+ * y leerlos cuesta 20–70 ms; una copia encima solo los atrasaba. TikTok y
+ * Amazon calculan desde sus pedidos y siguen masticados.
+ */
+export const CANALES_EN_VIVO: readonly CanalTiempo[] = ["meli_calzado", "meli_fundas"];
 
 const num = (x: unknown) => Number(x) || 0;
 
@@ -60,6 +69,15 @@ export async function servirVentasTiempo(
   rango: { desde: string; hasta: string },
 ): Promise<{ datos: VentasTiempo; generadoEn: string | null }> {
   const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
+  if (CANALES_EN_VIVO.includes(canal)) {
+    try {
+      const generadoEn = new Date().toISOString();
+      return { datos: await leerVentasTiempo(db, canal, accountId, rango), generadoEn };
+    } catch (e) {
+      // Si la lectura en vivo falla, lo último guardado sirve.
+      console.error((e as Error).message);
+    }
+  }
   const r = await servirConCacheApp(db, accountId, clave, EDAD_MAX_MS, () => leerVentasTiempo(db, canal, accountId, rango));
   return { datos: r.datos, generadoEn: r.generadoEn };
 }
@@ -97,19 +115,20 @@ export async function servirVariosCanalesConFecha(
 
 /**
  * Deja listas las series de los atajos del filtro de fechas cuando están por
- * vencer: calzado y TikTok (cuenta de MELI) y fundas desde el latido, Amazon
- * desde su cron de pantallas.
+ * vencer: TikTok desde el latido y Amazon desde su cron de pantallas. MELI
+ * calzado y fundas van en vivo (`CANALES_EN_VIVO`) y no se guardan.
  */
 export async function precalcularVentasTiempo(
   admin: DB,
   accountId: string,
   limite: number,
   hoy: string,
-  canales: readonly CanalTiempo[] = ["meli_calzado", "tiktok"],
+  canales: readonly CanalTiempo[] = ["tiktok"],
 ): Promise<void> {
   for (const rango of rangosDeAtajos(hoy)) {
     for (const canal of canales) {
       if (Date.now() > limite) return;
+      if (CANALES_EN_VIVO.includes(canal)) continue;
       const clave = `ventas-tiempo:v2:${canal}:${rango.desde}:${rango.hasta}`;
       const g = await leerCacheAppGuardado<VentasTiempo>(admin, accountId, clave);
       if (g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < EDAD_MAX_MS - 30_000) continue;
