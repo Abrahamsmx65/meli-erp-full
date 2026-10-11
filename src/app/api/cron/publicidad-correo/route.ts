@@ -5,11 +5,12 @@ import { enviarCorreoPublicidad } from "@/lib/servicios/publicidad-correo";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// Lee tres canales; el de fundas pagina sus anuncios de 50 en 50.
+export const maxDuration = 800;
 
 /**
- * Correo de las 8:15 de México (14:15Z, vercel.json) con los cambios de
- * publicidad que hay que hacer hoy. Mismo secreto que los demás crons. Para
+ * Correo de los LUNES y JUEVES a las 8:15 de México (14:15Z, vercel.json)
+ * con los cambios de publicidad de calzado, fundas y Amazon. Mismo secreto que los demás crons. Para
  * probarlo a mano: `?forzar=1` (sin `forzar`, no se repite en el mismo día)
  * y `&para=correo@…` para mandarlo solo a una dirección.
  */
@@ -30,7 +31,8 @@ export async function GET(req: NextRequest) {
   const forzar = sp.get("forzar") === "1";
   const para = sp.get("para")?.trim() || undefined;
 
-  // La publicidad de calzado cuelga de la primera cuenta de MELI.
+  // Cuelga de la primera cuenta de MELI (calzado); fundas y Amazon se leen
+  // desde su propia cuenta.
   const { data: cuentas } = await admin
     .from("meli_accounts")
     .select("id, meli_user_id, nickname, site_id")

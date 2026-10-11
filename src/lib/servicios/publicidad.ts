@@ -481,8 +481,23 @@ export function armarRecomendaciones(opts: {
    * muerto: a ese no se le sugiere apagar (verificado con GT190).
    */
   modelosConHistoria?: Set<string>;
+  /** dónde vive el stock que se mira: «Full» (MELI) o «FBA» (Amazon) */
+  almacen?: string;
+  /** cómo se cuentan: «pares» (calzado) o «piezas» (fundas) */
+  unidad?: string;
+  /** días de stock debajo de los cuales se pausa (por omisión 14) */
+  coberturaCorta?: number;
+  /** días de stock arriba de los cuales cabe más inversión (por omisión 45) */
+  coberturaLarga?: number;
+  /** dónde se crea el anuncio, para el texto */
+  consola?: string;
 }): RecomendacionAds[] {
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
+  const almacen = opts.almacen ?? "Full";
+  const unidad = opts.unidad ?? "pares";
+  const corta = opts.coberturaCorta ?? COBERTURA_CORTA_DIAS;
+  const larga = opts.coberturaLarga ?? COBERTURA_LARGA_DIAS;
+  const consola = opts.consola ?? "Product Ads";
   const modelosConHistoria = opts.modelosConHistoria ?? null;
   const recomendaciones: RecomendacionAds[] = [];
   const num = (x: number) => Math.round(x).toLocaleString("es-MX");
@@ -514,12 +529,12 @@ export function armarRecomendaciones(opts: {
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
     const cobertext =
       cobertura != null
-        ? `${num(cobertura)} días de stock (${num(stock)} pares)`
-        : `${num(stock)} pares en Full`;
+        ? `${num(cobertura)} días de stock (${num(stock)} ${unidad})`
+        : `${num(stock)} ${unidad} en ${almacen}`;
 
     // 1. Stock agotado o por agotarse con el anuncio prendido.
     const sinStock = stock <= 0;
-    const coberturaCorta = cobertura != null && cobertura < COBERTURA_CORTA_DIAS;
+    const coberturaCorta = cobertura != null && cobertura < corta;
     if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta)) {
       agregar(
         {
@@ -527,7 +542,7 @@ export function armarRecomendaciones(opts: {
           accion: "pausar",
           queHacer: "Pausar el anuncio",
           razon: sinStock
-            ? `Sin stock en Full y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
+            ? `Sin stock en ${almacen} y lleva $${num(f.gastoAds)} gastados: está pagando ventas que no puede surtir.`
             : `Quedan ${cobertext} y ya lleva $${num(f.gastoAds)} en ads: esas ventas caen solas, la publicidad solo acelera el quiebre.`,
         },
         f.gastoAds,
@@ -537,7 +552,7 @@ export function armarRecomendaciones(opts: {
 
     // 2. Anuncio pausado con el stock ya repuesto.
     const stockRecuperado =
-      cobertura != null ? cobertura >= COBERTURA_CORTA_DIAS : stock > 0;
+      cobertura != null ? cobertura >= corta : stock > 0;
     if (pausados.length > 0 && stockRecuperado) {
       agregar(
         {
@@ -588,7 +603,7 @@ export function armarRecomendaciones(opts: {
       f.gastoAds > 0 &&
       f.tacos != null &&
       cobertura != null &&
-      cobertura > COBERTURA_LARGA_DIAS &&
+      cobertura > larga &&
       f.tacos < margen / 2
     ) {
       agregar(
@@ -614,8 +629,8 @@ export function armarRecomendaciones(opts: {
         queHacer: "Crear anuncio: producto nuevo",
         razon:
           f.unidades > 0
-            ? `Producto nuevo (no vendía antes del periodo): lleva ${num(f.unidades)} pares vendidos sin publicidad y hay ${cobertext}. Un anuncio acelera el arranque.`
-            : `Producto nuevo con ${num(stock)} pares en Full y sin anuncio: sin publicidad casi no se ve.`,
+            ? `Producto nuevo (no vendía antes del periodo): lleva ${num(f.unidades)} ${unidad} vendidos sin publicidad y hay ${cobertext}. Un anuncio acelera el arranque.`
+            : `Producto nuevo con ${num(stock)} ${unidad} en ${almacen} y sin anuncio: sin publicidad casi no se ve.`,
       };
       nuevos.add(r);
       agregar(r, stock);
@@ -628,14 +643,14 @@ export function armarRecomendaciones(opts: {
       items.length === 0 &&
       ritmo >= 1 &&
       stock > 0 &&
-      (cobertura == null || cobertura > COBERTURA_LARGA_DIAS)
+      (cobertura == null || cobertura > larga)
     ) {
       agregar(
         {
           modelo: f.modelo,
           accion: "activar",
           queHacer: "Crear anuncio (candidato)",
-          razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en Product Ads.`,
+          razon: `Vende ${num(ritmo)} al día sin publicidad y hay ${cobertext}: vale la pena probarlo en ${consola}.`,
         },
         f.importe,
       );
@@ -652,7 +667,7 @@ export function armarRecomendaciones(opts: {
       modelo,
       accion: "activar",
       queHacer: "Crear anuncio: producto nuevo",
-      razon: `Producto nuevo con ${num(stock)} pares en Full, sin ventas todavía y sin anuncio: sin publicidad casi no se ve.`,
+      razon: `Producto nuevo con ${num(stock)} ${unidad} en ${almacen}, sin ventas todavía y sin anuncio: sin publicidad casi no se ve.`,
     };
     nuevos.add(r);
     agregar(r, stock);
