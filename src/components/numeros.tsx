@@ -9,6 +9,22 @@ const din = (x: number | null | undefined, dec = 2) =>
 
 const estiloEntrada = { borderColor: "var(--borde)", background: "var(--surface-2)" };
 
+const pct = (x: number, dec = 0) => `${(x * 100).toFixed(dec)}%`;
+
+/** Debajo de la cifra: con qué tasas salió (lo real de 30 días o tu estimación). */
+function Fuente({ real, children }: { real: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className="text-[11px]"
+      style={{ color: real ? "var(--exito-texto)" : "var(--ink-3)" }}
+      title={real ? "Lo que cobró la plataforma en los últimos 30 días" : "Tu estimación: el modelo no vendió lo suficiente en 30 días"}
+    >
+      {real ? "real " : "estimado "}
+      {children}
+    </div>
+  );
+}
+
 type CampoNum = "envioMeli" | "precioRelampago" | "pvNormal" | "envioAmazon" | "pvpDeal" | "tiktokExtra" | "tiktokComision" | "tiktokOferta";
 
 function Celda({
@@ -135,7 +151,8 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
             {visibles.map((r) => {
               const m = r.entrada.modelo;
               const e = entradas[m];
-              const c = calcularNumeros(e, r.costo);
+              const c = calcularNumeros(e, r.costo, r.reales);
+              const u = c.usado;
               const st = estado[m];
               return (
                 <tr key={m}>
@@ -158,6 +175,10 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                   <td className="num">{num(m, "precioRelampago")}</td>
                   <td className="num cifra" style={{ color: c.ganancia != null && c.ganancia < 0 ? "var(--estado-critico)" : undefined }}>
                     {din(c.ganancia)}
+                    <Fuente real={u.meli.fuente === "real"}>
+                      {pct(u.meli.comisionPct)} · {din(u.meli.envio)}
+                      {u.meli.retencionPct > 0 ? ` · ret ${pct(u.meli.retencionPct, 1)}` : ""}
+                    </Fuente>
                   </td>
                   <td className="num cifra">{c.porcentaje == null ? "—" : `${(c.porcentaje * 100).toFixed(0)}%`}</td>
                   <td className="num">{num(m, "pvNormal", c.pvNormal != null ? c.pvNormal.toFixed(2) : "")}</td>
@@ -167,9 +188,20 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                   </td>
                   <td className="num cifra">{din(c.recibirAmazon)}</td>
                   <td className="num">{num(m, "envioAmazon", "", "w-16")}</td>
-                  <td className="num cifra">{din(c.pvpAmazon)}</td>
+                  <td className="num cifra">
+                    {din(c.pvpAmazon)}
+                    <Fuente real={u.amazon.fuente === "real"}>
+                      {pct(u.amazon.pctTotal, 1)}
+                      {u.amazon.porPar != null ? ` + ${din(u.amazon.porPar)}` : ""}
+                    </Fuente>
+                  </td>
                   <td className="num">{num(m, "pvpDeal", c.pvpAmazon != null ? (c.pvpAmazon * 1.12).toFixed(2) : "")}</td>
-                  <td className="num cifra">{din(c.tiktokLives)}</td>
+                  <td className="num cifra">
+                    {din(c.tiktokLives)}
+                    <Fuente real={u.tiktok.fuente === "real"}>
+                      {pct(u.tiktok.pctTotal, 1)} + {din(u.tiktok.fijo, 0)}
+                    </Fuente>
+                  </td>
                   <td className="num cifra">{din(c.tiktokRelampago)}</td>
                   <td className="num cifra">{din(c.tiktokOferta)}</td>
                   <td className="num">{num(m, "tiktokExtra", "8", "w-12")}</td>

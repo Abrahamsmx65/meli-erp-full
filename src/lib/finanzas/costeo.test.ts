@@ -216,6 +216,33 @@ describe("Números: las fórmulas del sheet del dueño", () => {
     expect(r.tiktokOferta).toBeCloseTo(r.tiktokLives! * 1.06, 8);
   });
 
+  it("con lo real: comisión, envío y retención que cobró MELI; Amazon y TikTok con lo que cobraron", () => {
+    const e = { modelo: "GT134", ...ENTRADA_VACIA, envioMeli: 38, precioRelampago: 155.99, envioAmazon: 39 };
+    const r = calcularNumeros(e, 35.25, {
+      meli: { pares: 2229, paresDirecta: 155, comisionPct: 0.15, envioPar: 41, retencionPct: 0.01, netoPar: 98.33 },
+      amazon: { unidades: 467, precioPar: 208.21, comisionPct: 0.1263, retencionPct: 0.0695, fbaPar: 35.43, otrosPar: 6.7, netoPar: 132 },
+      tiktok: { pares: 991, precioPar: 113.37, pagoPar: 78.64, afiliadoPct: 0.0455 },
+    });
+    expect(r.usado.meli).toEqual({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01 });
+    expect(r.ganancia).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
+    expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 35.43 + 6.7) / (1 - 0.1263 - 0.0695), 8);
+    const queda = 1 - (78.64 + 6) / 113.37;
+    expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + 6) / (1 - queda), 8);
+  });
+
+  it("pocas ventas: se queda la estimación del dueño", () => {
+    const e = { modelo: "X", ...ENTRADA_VACIA, envioMeli: 38, precioRelampago: 200, envioAmazon: 39 };
+    const r = calcularNumeros(e, 50, { meli: { pares: 3, paresDirecta: 3, comisionPct: 0.15, envioPar: 99, retencionPct: 0.09, netoPar: 1 } });
+    expect(r.usado.meli.fuente).toBe("estimado");
+    expect(r.ganancia).toBeCloseTo(200 - 30 - 38 - 50, 8);
+  });
+
+  it("muchas ventas pero casi ninguna directa: comisión real y envío estimado", () => {
+    const e = { modelo: "G650", ...ENTRADA_VACIA, envioMeli: 44, precioRelampago: 298.99 };
+    const r = calcularNumeros(e, 112, { meli: { pares: 91, paresDirecta: 3, comisionPct: 0.15, envioPar: 59, retencionPct: 0.0045, netoPar: 204 } });
+    expect(r.usado.meli).toMatchObject({ fuente: "real", envio: 44 });
+  });
+
   it("sin costo no inventa precios", () => {
     const r = calcularNumeros({ modelo: "X", ...ENTRADA_VACIA, precioRelampago: 200 }, null);
     expect(r.ganancia).toBeNull();

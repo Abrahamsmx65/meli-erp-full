@@ -2041,7 +2041,18 @@ guárdala numerada.
   del dueño fórmula por fórmula (`numeros_modelos`: envío MELI, relámpago,
   PV normal, retención 10.5 %, envío Amazon, deal fijo, TikTok extra /
   comisión / factor de oferta; importado el mismo día) con el costo del
-  último contenedor, o el del catálogo si no hay. Los sueldos del dueño y de
+  último contenedor, o el del catálogo si no hay. **Y con lo que COBRÓ cada
+  plataforma** (mismo día: «en vez de mis estimaciones de comisión y costo
+  de envío, ¿lo puedes calcular con lo real?»; migración 0136,
+  `*_tarifas_por_modelo`, `servicios/tarifas-reales.ts`, `app_cache`
+  `finanzas:tarifas-reales`, 6 h): con ≥ 10 pares en 30 días, MELI usa la
+  comisión real, el envío real = MEDIANA de las ventas DIRECTAS de un par
+  (el promedio lo inflan los carritos; con < 5 directas, el estimado) y la
+  retención efectiva (la REVENTA, ~93 % de los pares, no trae retención);
+  Amazon usa comisión + retención reales sobre el precio y FBA + promos por
+  par; TikTok lo que se queda = 1 − (pago + $6) ÷ precio, más $6 por par.
+  Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
+  usó. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`

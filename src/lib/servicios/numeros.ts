@@ -7,7 +7,7 @@
  */
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
-import { ENTRADA_VACIA, type EntradaNumeros } from "../finanzas/numeros";
+import { ENTRADA_VACIA, type EntradaNumeros, type TarifasReales } from "../finanzas/numeros";
 import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_COSTEO, type ResultadoCosteo } from "./costeo";
 import { configPorProducto } from "./productos";
@@ -22,11 +22,17 @@ export interface RenglonNumeros {
   contenedor: string | null;
   /** ya tiene renglón guardado en numeros_modelos */
   guardado: boolean;
+  /** lo que cobró cada plataforma de verdad en los últimos 30 días */
+  reales: TarifasReales | null;
 }
 
 const n = (x: unknown): number | null => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
 
-export async function listarNumeros(db: DB, accountId: string): Promise<{ renglones: RenglonNumeros[]; costeoEn: string | null }> {
+export async function listarNumeros(
+  db: DB,
+  accountId: string,
+  tarifas: Record<string, TarifasReales> = {},
+): Promise<{ renglones: RenglonNumeros[]; costeoEn: string | null }> {
   const [filas, costeo, config] = await Promise.all([
     traerTodo<any>(
       db,
@@ -70,6 +76,7 @@ export async function listarNumeros(db: DB, accountId: string): Promise<{ renglo
       fuenteCosto: u ? "contenedor" : costo != null ? "catalogo" : null,
       contenedor: u?.id ?? null,
       guardado: entradas.has(modelo),
+      reales: tarifas[modelo] ?? null,
     };
   });
   renglones.sort((a, b) => a.entrada.modelo.localeCompare(b.entrada.modelo, "es", { numeric: true }));
