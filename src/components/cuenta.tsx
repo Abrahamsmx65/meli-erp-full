@@ -46,17 +46,26 @@ const TIPOS: Record<MovimientoCuenta["tipo"], string> = {
   transferencia: "Transferencia",
   ingreso: "Ingreso sin comisión",
   gasto: "Gasto de la cuenta",
-  shein: "Shein (renta o mercancía)",
+  shein: "Shein: renta o mercancía",
 };
 
+/** En la pestaña Shein el depósito se captura aquí y se guarda como transferencia. */
+const DEPOSITO_SHEIN = "deposito-shein";
+
 /**
- * Movimientos de la cuenta del año: alta, lista y borrar. Con `shein`, solo
- * lo que sale de la cuenta de Shein (renta y mercancía).
+ * Movimientos de la cuenta del año: alta, lista y borrar. Con `shein`, la
+ * cuenta de Shein: sus depósitos (que son transferencias con beneficiario
+ * DEPOSITO SHEIN) y lo que sale (renta y mercancía).
  */
 export function MovimientosCuenta({ movimientos, shein = false }: { movimientos: MovimientoCuenta[]; shein?: boolean }) {
   const { ocupado, error, correr } = useAccion();
-  const tipos = Object.entries(TIPOS).filter(([k]) => (shein ? k === "shein" : k !== "shein"));
-  const vacio = { fecha: hoy(), tipo: shein ? "shein" : "transferencia", monto: "", beneficiario: "", referencia: "", notas: "" };
+  const tipos: [string, string][] = shein
+    ? [
+        [DEPOSITO_SHEIN, "Depósito de Shein"],
+        ["shein", TIPOS.shein],
+      ]
+    : Object.entries(TIPOS).filter(([k]) => k !== "shein");
+  const vacio = { fecha: hoy(), tipo: shein ? DEPOSITO_SHEIN : "transferencia", monto: "", beneficiario: "", referencia: "", notas: "" };
   const [form, setForm] = useState(vacio);
   const [busca, setBusca] = useState("");
   const visibles = useMemo(() => {
@@ -65,7 +74,7 @@ export function MovimientosCuenta({ movimientos, shein = false }: { movimientos:
       ? movimientos.filter((m) => [m.beneficiario, m.referencia, m.notas, m.fecha].some((x) => (x ?? "").toUpperCase().includes(q)))
       : movimientos;
   }, [movimientos, busca]);
-  const comisionPrevia = form.tipo === "transferencia" && Number(form.monto) > 0 ? (Number(form.monto) * 2) / 116 : 0;
+  const comisionPrevia = (form.tipo === "transferencia" || form.tipo === DEPOSITO_SHEIN) && Number(form.monto) > 0 ? (Number(form.monto) * 2) / 116 : 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -73,7 +82,11 @@ export function MovimientosCuenta({ movimientos, shein = false }: { movimientos:
         className="grid grid-cols-2 gap-2 md:grid-cols-7"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (await correr(() => post({ accion: "movimiento", ...form, monto: Number(form.monto) }))) setForm(vacio);
+          const cuerpo =
+            form.tipo === DEPOSITO_SHEIN
+              ? { ...form, tipo: "transferencia", beneficiario: "DEPOSITO SHEIN" }
+              : form;
+          if (await correr(() => post({ accion: "movimiento", ...cuerpo, monto: Number(form.monto) }))) setForm(vacio);
         }}
       >
         <input className={entrada} style={estiloEntrada} type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
@@ -83,7 +96,8 @@ export function MovimientosCuenta({ movimientos, shein = false }: { movimientos:
           ))}
         </select>
         <input className={entrada} style={estiloEntrada} inputMode="decimal" placeholder="Monto" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} />
-        <input className={entrada} style={estiloEntrada} placeholder={shein ? "Concepto (RENTA OCT, MERCANCIA)" : "Beneficiario (RAFA.VANTORIX)"} value={form.beneficiario} onChange={(e) => setForm({ ...form, beneficiario: e.target.value })} />
+        <input className={entrada} style={estiloEntrada} placeholder={shein ? (form.tipo === DEPOSITO_SHEIN ? "DEPOSITO SHEIN" : "Concepto (RENTA OCT, MERCANCIA)") : "Beneficiario (RAFA.VANTORIX)"}
+          disabled={form.tipo === DEPOSITO_SHEIN} value={form.beneficiario} onChange={(e) => setForm({ ...form, beneficiario: e.target.value })} />
         <input className={entrada} style={estiloEntrada} placeholder="Referencia" value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} />
         <input className={entrada} style={estiloEntrada} placeholder="Notas" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
         <button className="boton boton-primario boton-chico" disabled={ocupado || !Number(form.monto)}>
@@ -113,7 +127,7 @@ export function MovimientosCuenta({ movimientos, shein = false }: { movimientos:
             {visibles.map((m) => (
               <tr key={m.id}>
                 <td className="cifra">{m.fecha ?? "—"}</td>
-                <td className="texto-2 text-[12px]">{TIPOS[m.tipo]}</td>
+                <td className="texto-2 text-[12px]">{shein && m.tipo === "transferencia" ? "Depósito de Shein" : TIPOS[m.tipo]}</td>
                 <td>{m.beneficiario ?? "—"}</td>
                 <td className="texto-2">{m.referencia ?? ""}</td>
                 <td className="num cifra">{pesos(m.monto)}</td>

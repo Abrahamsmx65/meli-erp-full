@@ -2,7 +2,7 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { clienteAdmin } from "@/lib/supabase/admin";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { cargarCuenta } from "@/lib/servicios/cuenta";
-import { nombreEjercicio } from "@/lib/finanzas/cuenta";
+import { esDepositoShein, nombreEjercicio } from "@/lib/finanzas/cuenta";
 import Link from "next/link";
 import { Ficha } from "@/components/tiles";
 import { MovimientosCuenta, RetirosSocios } from "@/components/cuenta";
@@ -19,9 +19,8 @@ const nombreMes = (m: string) => (/^\d{4}-\d{2}$/.test(m) ? `${MESES[Number(m.sl
  * Cuenta del año (dueño, 11-oct-2026): la pestaña TOTAL del sheet «Cuentas
  * YAPANIZCEL» dentro del ERP, de MAYO a ABRIL. Lo transferido a Rafa menos
  * su comisión, menos lo pagado por los contenedores, la comisión de Joanne y
- * los gastos en efectivo = la ganancia, repartida entre los socios (más lo
- * que se le debe a David por Shein, descontado al que lleva esa cuenta)
- * contra lo que cada uno ha retirado.
+ * los gastos en efectivo y lo que se le debe a David por Shein = la
+ * ganancia, repartida entre los socios contra lo que cada uno ha retirado.
  */
 export default async function Cuenta({ searchParams }: { searchParams: Promise<{ ejercicio?: string }> }) {
   const supabase = await clienteServidor();
@@ -31,7 +30,7 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
   const d = await cargarCuenta(supabase as DB, cuenta.id, clienteAdmin() as DB, ejercicio ? Number(ejercicio) : null);
   const r = d.resumen;
   const transferencias = d.movimientos.filter((m) => m.tipo !== "shein");
-  const deShein = d.movimientos.filter((m) => m.tipo === "shein");
+  const deShein = d.movimientos.filter((m) => m.tipo === "shein" || esDepositoShein(m));
 
   return (
     <Pagina>
@@ -111,8 +110,6 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
                         <tr>
                           <th>Socio</th>
                           <th className="num">%</th>
-                          <th className="num">Su parte</th>
-                          <th className="num">Shein (David)</th>
                           <th className="num">Le toca</th>
                           <th className="num">Retirado</th>
                           <th className="num">De eso, tsedaka</th>
@@ -124,8 +121,6 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
                           <tr key={s.socio.id}>
                             <td className="font-medium">{s.socio.nombre}</td>
                             <td className="num cifra">{s.socio.porcentaje}%</td>
-                            <td className="num cifra">{pesos(s.parte)}</td>
-                            <td className="num cifra">{s.shein ? pesos(s.shein) : "—"}</td>
                             <td className="num cifra font-medium">{pesos(s.leToca)}</td>
                             <td className="num cifra">{s.retiros ? pesos(s.retirado) : "—"}</td>
                             <td className="num cifra">{s.tsedaka ? pesos(s.tsedaka) : "—"}</td>
@@ -208,12 +203,12 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
             contenido: (
               <div className="flex flex-col gap-4">
                 <Cifras columnas={3}>
-                  <Ficha titulo="Depósitos de Shein" valor={pesos(r.shein.depositos)} nota="Entran en Transferencias" />
+                  <Ficha titulo="Depósitos de Shein" valor={pesos(r.shein.depositos)} nota="También cuentan en Transferencias" />
                   <Ficha titulo="Renta y mercancía" valor={pesos(r.shein.salidas)} />
                   <Ficha
                     titulo="Se le debe a David"
                     valor={pesos(r.shein.neto)}
-                    nota={d.socios.filter((s) => s.recibeShein).map((s) => `Se le descuenta a ${s.nombre}`).join(", ") || undefined}
+                    nota="Sale de la ganancia de la empresa"
                     tono={r.shein.neto >= 0 ? "bien" : "critico"}
                   />
                 </Cifras>

@@ -51,7 +51,7 @@ export async function cargarCuenta(db: DB, accountId: string, admin: DB, pedido?
     traerTodo<any>(db, "cuenta_paralela", "id, fecha, tipo, monto, beneficiario, referencia, comision, notas, ejercicio", (q) =>
       q.eq("account_id", accountId),
     ),
-    traerTodo<any>(db, "socios", "id, nombre, porcentaje, orden, recibe_shein", (q) => q.eq("account_id", accountId)),
+    traerTodo<any>(db, "socios", "id, nombre, porcentaje, orden", (q) => q.eq("account_id", accountId)),
     traerTodo<any>(db, "socios_retiros", "id, socio_id, fecha, concepto, monto", (q) => q.eq("account_id", accountId)),
     traerTodo<any>(db, "gastos_empresariales", "id, fecha, monto, medio, omitido", (q) =>
       q.eq("account_id", accountId).eq("medio", "efectivo").gte("fecha", desde).lte("fecha", hasta),
@@ -90,7 +90,7 @@ export async function cargarCuenta(db: DB, accountId: string, admin: DB, pedido?
   const movimientos = todosMovs.filter((m) => ejercicioDe(m, actual) === ejercicio);
   const listaSocios: Socio[] = socios
     .sort((a, b) => a.orden - b.orden)
-    .map((s) => ({ id: Number(s.id), nombre: s.nombre, porcentaje: n(s.porcentaje), recibeShein: Boolean(s.recibe_shein) }));
+    .map((s) => ({ id: Number(s.id), nombre: s.nombre, porcentaje: n(s.porcentaje) }));
   const listaRetiros: Retiro[] = retiros
     .filter((r) => (r.fecha ? ejercicioDeFecha(r.fecha) : actual) === ejercicio)
     .map((r) => ({ id: Number(r.id), socioId: Number(r.socio_id), fecha: r.fecha, concepto: r.concepto, monto: n(r.monto) }))
