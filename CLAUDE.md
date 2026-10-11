@@ -2010,6 +2010,32 @@ guárdala numerada.
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
+- **COSTEO REAL POR CONTENEDOR** (`finanzas/costeo.ts` motor puro con
+  pruebas, `servicios/costeo.ts`, `/finanzas/costeo` «Costeo» en Negocio,
+  `POST /api/finanzas/costeo`, `app_cache` `finanzas:costeo` y
+  `finanzas:costeo-excel`; dueño, 11-oct-2026: «el costo que quiero es el
+  real para calcular ganancias reales, pero para Números sí calculo el
+  costo del último contenedor»). LO PAGADO sale del sheet de CUENTAS del
+  dueño (`CUENTAS_SHEET_URL`, pestañas «COSTING GETAC» y «COMISSION
+  JOANNE»), que **NUNCA se escribe**: se baja por el enlace público de
+  exportación, que no puede escribir. Manda PESOS COSTO (cada pago trae su
+  propio tipo de cambio), PESOS ENVIO y CRUCE TOTAL (la aduana). QUÉ TRAÍA
+  cada contenedor sale del Excel de costeo de la fábrica («Costing for shoe
+  Internet», lo sube el dueño en la pantalla y se guarda ya leído: pares,
+  USD por par y CBM por pedido) o, si no está ahí, del packing list del ERP
+  (`contenedor_lineas` con medidas → CBM; el precio del pedido solo como
+  proporción porque su moneda no es de fiar). Reparto del dueño: fábrica y
+  comisión por VALOR en USD, flete y aduana por CBM (respaldo: el «CBM X
+  PAR» de la pestaña CALZADO de «Números», `NUMEROS_SHEET_URL`; si tampoco,
+  por pares, y se declara). Un contenedor solo CUENTA si está ENTREGADO y
+  ya tiene la aduana apuntada. Por modelo: «último» = el contenedor más
+  nuevo que cuenta (el de Números) y «real» = PEPS sobre las existencias de
+  hoy (Full + transferencias + bodega + TikTok + FBA, valuadas con los
+  contenedores más nuevos hacia atrás). El botón «Usar» pasa el real a
+  `productos_config` (solo el costo, color ''), que es lo que leen los
+  cortes; nunca se aplica solo. Se recalcula en el cron diario de packing
+  lists y con «Actualizar». Los sueldos del dueño y de Daniel (pestaña
+  SUELDOS) NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.
