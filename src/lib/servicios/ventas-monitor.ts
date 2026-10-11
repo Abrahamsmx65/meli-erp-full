@@ -11,7 +11,6 @@
  * se atribuye a la demanda.
  */
 import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
-import { servirConCacheApp } from "./cache-app";
 import { configPorProducto } from "./productos";
 
 /** Compatibilidad: sin marca explícita, solo los netos positivos históricos eran reales. */
@@ -143,30 +142,25 @@ function rangoPrevio(r: RangoFechas): RangoFechas {
 }
 
 /**
- * Un minuto de caché por instancia: el monitor baja decenas de miles de
- * renglones de venta por clic y el latido solo escribe una vez por minuto —
- * releerlo en cada visita era puro tiempo perdido.
+ * Copia en memoria por instancia, MUY corta: solo para que varios clics
+ * seguidos (o las recargas de la pantalla) no repitan el mismo cálculo. Lo
+ * guardado de verdad son las ventas por día de la base (`ventas_dia_sku`,
+ * al corriente en ≤ 1 min); el monitor se arma sobre ellas en cada visita.
  */
 const cacheMonitor = new Map<string, { en: number; datos: Monitor }>();
-const VIDA_CACHE_MONITOR_MS = 60_000;
+const VIDA_CACHE_MONITOR_MS = 15_000;
 
 /**
- * Cuánto vive el monitor guardado antes de refrescarse por atrás. La ficha
- * de «Hoy» va dentro, así que aunque el rango ya haya cerrado no se congela.
- * Tres minutos desde la 0138: las ventas por día ya están sumadas en la base
- * y el recálculo de fondo es barato.
- */
-export const VIDA_MONITOR_GUARDADO_MS = 3 * 60_000;
-
-export const claveMonitorVentas = (r: RangoFechas): string => `ventas-monitor:${r.desde}:${r.hasta}`;
-
-/**
- * El monitor masticado para PANTALLAS: sirve el renglón de `app_cache`
- * aunque esté viejo y lo refresca por atrás (`servirConCacheApp`); solo sin
- * renglón se calcula en el clic. El latido deja listo el rango por omisión
- * (`precalcularPantallasVentas`). La búsqueda, el orden y la página de la
- * tabla se aplican después sobre este resultado y no forman parte de la
- * clave, por lo que navegar la tabla no vuelve a consultar sus fuentes.
+ * El monitor para PANTALLAS se calcula EN VIVO (dueño, 11-oct-2026: «antes
+ * todo era en vivo, todo funcionaba rápido; no se trabajaba cuando cambiabas
+ * entre hoy, ayer, 7, 15 o 30 días»). Hasta ese día se servía una copia
+ * guardada por rango en `app_cache` que vencía a los 3 min mientras el
+ * latido la rehacía cada ~6: casi toda visita encontraba la copia vieja, la
+ * enseñaba, mandaba a recalcular y la pantalla se recargaba sola con los
+ * números brincando. Desde la 0138 los días ya están sumados en la base y
+ * `ventas_monitor_datos` (0141) suma el periodo, el anterior y los totales
+ * por día en UNA llamada (30 días ≈ 110 ms en Postgres): ya no hace falta
+ * otra copia encima. «Hoy» sale con el retraso de la base (≤ 1 min).
  */
 export async function servirMonitor(
   db: DB,
@@ -174,21 +168,37 @@ export async function servirMonitor(
   rango?: RangoFechas,
 ): Promise<{ datos: Monitor; generadoEn: string | null; refrescando: boolean }> {
   const r = rango ?? normalizarRango();
-  // Lo que se guarda tiene que ser de AHORA: la copia en memoria de esta
-  // instancia (60 s) se saltaría y el renglón saldría «fresco» con datos viejos.
-  return servirConCacheApp(db, accountId, claveMonitorVentas(r), VIDA_MONITOR_GUARDADO_MS, () =>
-    calcularMonitorFresco(db, accountId, r),
-  );
+  const datos = await calcularMonitor(db, accountId, r);
+  return { datos, generadoEn: null, refrescando: false };
 }
 
 export async function cargarMonitor(db: DB, accountId: string, rango?: RangoFechas): Promise<Monitor> {
   return (await servirMonitor(db, accountId, rango)).datos;
 }
 
-/** Calcula el monitor sin pasar por el caché (lo usa el fondo para guardarlo). */
-export function calcularMonitorFresco(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
-  cacheMonitor.clear();
-  return calcularMonitor(db, accountId, rango);
+/**
+ * Catálogo y stock para nombrar modelos y explicar las razones: cambian
+ * despacio, así que se guardan dos minutos por instancia (no son ventas).
+ */
+const VIDA_CATALOGO_MS = 2 * 60_000;
+const cacheCatalogo = new Map<
+  string,
+  { en: number; datos: Promise<{ skus: any[]; stock: any[] }> }
+>();
+
+function catalogoMonitor(db: DB, accountId: string): Promise<{ skus: any[]; stock: any[] }> {
+  const guardado = cacheCatalogo.get(accountId);
+  if (guardado && Date.now() - guardado.en < VIDA_CATALOGO_MS) return guardado.datos;
+  const datos = Promise.all([
+    traerTodo<any>(db, "skus", "sku, modelo, color", (q) => q.eq("account_id", accountId).eq("activo", true)),
+    traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", accountId)),
+  ]).then(([skus, stock]) => ({ skus, stock }));
+  cacheCatalogo.set(accountId, { en: Date.now(), datos });
+  // Si falla, que el siguiente lo vuelva a pedir.
+  datos.catch(() => {
+    if (cacheCatalogo.get(accountId)?.datos === datos) cacheCatalogo.delete(accountId);
+  });
+  return datos;
 }
 
 async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): Promise<Monitor> {
@@ -255,6 +265,41 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
 
   // Sumado en Postgres: bajar decenas de miles de renglones para sumarlos
   // aquí era el costo más alto de abrir la pantalla.
+  // UNA llamada (0141): lo mismo que `ventas_resumen_sku` + `ventas_totales_dia`.
+  const agregadosDesdeMonitorDatos = async (): Promise<Agregados | null> => {
+    const { data, error } = await db.rpc("ventas_monitor_datos", {
+      p_account: accountId,
+      p_desde: inicioSemana,
+      p_hasta: finRango,
+      p_prev_desde: previo.desde,
+      p_prev_hasta: previo.hasta,
+      p_hoy: hoy,
+    });
+    if (error || !data) return null;
+    const crudo = data as { skus?: unknown[][]; dias?: unknown[][] };
+    const porSku: AgregadoSku[] = (crudo.skus ?? []).map((f) => ({
+      sku: String(f[0]),
+      unidades: Number(f[1]) || 0,
+      ordenes: Number(f[2]) || 0,
+      importe: Number(f[3]) || 0,
+      comision: Number(f[4]) || 0,
+      netoResuelto: Number(f[5]) || 0,
+      importeNetoReal: Number(f[6]) || 0,
+      comisionNetoReal: Number(f[7]) || 0,
+      netoReal: Number(f[8]) || 0,
+      unidadesHoy: Number(f[9]) || 0,
+      unidadesPrev: Number(f[10]) || 0,
+    }));
+    const porDia = new Map<string, ResumenDia>(
+      (crudo.dias ?? []).map((f) => [
+        String(f[0]),
+        { unidades: Number(f[1]) || 0, ordenes: Number(f[2]) || 0, importe: Number(f[3]) || 0 },
+      ]),
+    );
+    return { porSku, porDia };
+  };
+
+  // Respaldo: las dos consultas de antes (si la 0141 no está en la base).
   const agregadosDesdeRpc = async (): Promise<Agregados | null> => {
     const hastaTotales = hoy > finRango ? hoy : finRango;
     const [porSkuR, porDiaR] = await Promise.all([
@@ -350,14 +395,12 @@ async function calcularMonitor(db: DB, accountId: string, rango: RangoFechas): P
     return { porSku: [...porSku.values()], porDia };
   };
 
-  const [agregados, skus, stock, config] = await Promise.all([
-    (async () => (await agregadosDesdeRpc()) ?? agregadosDesdeRenglones(await leerVentas()))(),
-    traerTodo<any>(db, "skus", "sku, modelo, color", (q) =>
-      q.eq("account_id", accountId).eq("activo", true),
-    ),
-    traerTodo<any>(db, "stock_full", "sku, disponible, en_transferencia", (q) =>
-      q.eq("account_id", accountId),
-    ),
+  const [agregados, { skus, stock }, config] = await Promise.all([
+    (async () =>
+      (await agregadosDesdeMonitorDatos()) ??
+      (await agregadosDesdeRpc()) ??
+      agregadosDesdeRenglones(await leerVentas()))(),
+    catalogoMonitor(db, accountId),
     configPorProducto(db, accountId),
   ]);
 

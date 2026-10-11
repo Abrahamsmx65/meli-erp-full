@@ -1978,6 +1978,32 @@ guárdala numerada.
   renglón viejo: /ventas pasó de ~40 ms a ~1 s y el dueño dijo «estaba mejor
   antes»; se quitó. `servirConCacheApp` sirve lo guardado al instante y
   recalcula en `after()`.
+  **Ventas MELI va EN VIVO otra vez** (11-oct-2026, dueño: «antes todo era
+  en vivo; no se trabajaba cuando cambiabas entre hoy, ayer, 7, 15 o 30
+  días»; migración 0141). La copia del monitor por rango vencía a los 3 min
+  y el latido corre cada ~6 (10 veces por hora, 87 s de promedio): casi
+  toda visita servía lo viejo, mandaba a recalcular, enseñaba «Actualizando
+  datos…» y se recargaba sola a los 5/15/40 s con los números brincando.
+  Ahora: (1) el MONITOR (Hoy, Ayer, periodo, modelos, categorías) se
+  calcula en cada visita sobre `ventas_dia_sku` con `ventas_monitor_datos`
+  (periodo + anterior + totales por día en UNA llamada; 30 días ≈ 110 ms,
+  180 ≈ 300 ms; comparado renglón por renglón contra `ventas_resumen_sku` +
+  `ventas_totales_dia`: idéntico); los días cerrados SON lo guardado (la
+  tabla de la 0138) y hoy entra con su retraso de ≤ 1 min. Ya no hay
+  `ventas-monitor:` en `app_cache`; catálogo y stock para las razones viven
+  2 min en memoria. (2) La GRÁFICA de MELI calzado y fundas se lee en vivo
+  (`CANALES_EN_VIVO`, 20–70 ms); TikTok y Amazon siguen masticados.
+  (3) Publicidad y dinero (cascada) siguen masticados y DECLARAN su edad
+  (la ganancia dice «publicidad (hace X min)», la pestaña Dinero su
+  `Frescura`); el cuadre «venta bruta por renglón vs. por orden» solo se
+  hace si las dos cifras son del mismo momento (`mismoMomentoParaCuadrar`:
+  periodo cerrado, o dinero de hace < 1 min). (4) Una `<Pagina vivo>` ya no
+  monta `RefrescoAlTerminar`: nada de pastilla ni recargas a los 5/15/40 s;
+  queda la vuelta tranquila de cada 2 min. (5) Los atajos de las cuatro
+  pantallas de Ventas se PRECARGAN completos (`components/atajos-fechas.tsx`,
+  `FiltroFechas precargar`) y se renuevan cada 30 s con la pestaña a la
+  vista; `staleTimes.static` = 30 s: el clic cambia sin pantalla gris y con
+  datos de < 30 s. Ventas de fundas sigue con su monitor masticado (10 min).
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
