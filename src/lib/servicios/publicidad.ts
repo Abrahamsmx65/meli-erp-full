@@ -423,6 +423,9 @@ export const COBERTURA_CORTA_DIAS = 14;
 /** Arriba de esto hay capital parado: espacio para invertir en ads. */
 export const COBERTURA_LARGA_DIAS = 45;
 
+/** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
+export const MAX_NUEVOS_SIN_ANUNCIO = 10;
+
 /**
  * En qué orden se atienden. Primero lo que está TIRANDO dinero (apagar y
  * pausar), luego lo que hay que moderar (bajar), luego dónde vale la pena
@@ -458,7 +461,9 @@ export const GRUPOS_ACCION: { acciones: AccionSugerida[]; titulo: string }[] = [
  *    lanzamiento nuevo está en rampa, a ese no se le dice nada).
  * 4. Los ads se llevan más que el margen -> BAJAR, con el ACOS objetivo sano.
  * 5. Mucho stock y ads usando menos de la mitad del margen -> SUBIR.
- * 6. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
+ * 6. Producto NUEVO (no vendía antes del periodo) con stock en Full y sin
+ *    anuncio -> ACTIVAR, aunque todavía venda poco (hasta 10, por stock).
+ * 7. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
  *
  * El texto sale listo para ejecutarse a mano en la consola de Product Ads:
  * el API de MELI no acepta escrituras de publicidad de esta cuenta.
@@ -489,6 +494,15 @@ export function armarRecomendaciones(opts: {
     recomendaciones.push(r);
     peso.set(r, enJuego);
   };
+
+  // Productos nuevos sin anuncio: van aparte del recorte de candidatos.
+  const nuevos = new Set<RecomendacionAds>();
+  const esNuevoSinAnuncio = (modelo: string, gasto: number, anunciosDelModelo: number, stock: number) =>
+    modelosConHistoria != null &&
+    !modelosConHistoria.has(modelo) &&
+    gasto === 0 &&
+    anunciosDelModelo === 0 &&
+    stock > 0;
 
   for (const f of filas) {
     const stock = stockDeModelo.get(f.modelo) ?? 0;
@@ -589,6 +603,25 @@ export function armarRecomendaciones(opts: {
       continue;
     }
 
+    // 6a. Producto NUEVO en Full sin anuncio: no vendía antes del periodo y
+    // ya tiene stock. Un lanzamiento sin publicidad tarda mucho en arrancar
+    // (regla de producto nuevo del plan de Full: si no se le empuja, nunca
+    // paga), así que se sugiere aunque todavía venda poco.
+    if (esNuevoSinAnuncio(f.modelo, f.gastoAds, items.length, stock)) {
+      const r: RecomendacionAds = {
+        modelo: f.modelo,
+        accion: "activar",
+        queHacer: "Crear anuncio: producto nuevo",
+        razon:
+          f.unidades > 0
+            ? `Producto nuevo (no vendía antes del periodo): lleva ${num(f.unidades)} pares vendidos sin publicidad y hay ${cobertext}. Un anuncio acelera el arranque.`
+            : `Producto nuevo con ${num(stock)} pares en Full y sin anuncio: sin publicidad casi no se ve.`,
+      };
+      nuevos.add(r);
+      agregar(r, stock);
+      continue;
+    }
+
     // 6. Vende solo, con stock de sobra y sin anuncio.
     if (
       f.gastoAds === 0 &&
@@ -609,17 +642,37 @@ export function armarRecomendaciones(opts: {
     }
   }
 
+  // Modelos con stock en Full que NO vendieron en el periodo ni antes y no
+  // tienen anuncio: tampoco salen en `filas` (no tienen venta ni gasto).
+  const enFilas = new Set(filas.map((f) => f.modelo));
+  for (const [modelo, stock] of stockDeModelo) {
+    if (enFilas.has(modelo)) continue;
+    if (!esNuevoSinAnuncio(modelo, 0, (itemsDeModelo.get(modelo) ?? []).length, stock)) continue;
+    const r: RecomendacionAds = {
+      modelo,
+      accion: "activar",
+      queHacer: "Crear anuncio: producto nuevo",
+      razon: `Producto nuevo con ${num(stock)} pares en Full, sin ventas todavía y sin anuncio: sin publicidad casi no se ve.`,
+    };
+    nuevos.add(r);
+    agregar(r, stock);
+  }
+  // Los nuevos se quedan con los que más stock tienen (no saturar la lista).
+  const nuevosQueQuedan = new Set(
+    [...nuevos].sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0)).slice(0, MAX_NUEVOS_SIN_ANUNCIO),
+  );
+
   // Los candidatos a activar pueden ser docenas: se queda con los 5 que más
   // venden ANTES de ordenar, para que el recorte no dependa del alfabeto.
   const mejoresCandidatos = new Set(
     recomendaciones
-      .filter((r) => r.accion === "activar")
+      .filter((r) => r.accion === "activar" && !nuevos.has(r))
       .sort((a, b) => (peso.get(b) ?? 0) - (peso.get(a) ?? 0))
       .slice(0, 5),
   );
 
   return recomendaciones
-    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r))
+    .filter((r) => r.accion !== "activar" || mejoresCandidatos.has(r) || nuevosQueQuedan.has(r))
     // Por lo que hay que HACER, no por el alfabeto: primero lo que está
     // tirando dinero y al final los candidatos nuevos. Antes se ordenaba por
     // modelo y la prioridad solo desempataba — y como hay UNA recomendación
