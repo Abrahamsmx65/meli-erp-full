@@ -37,6 +37,7 @@ import { agruparAmazon, armarCatalogoAmazon, preciosTikTokPorModelo, stockPorMod
 import { fechaMx } from "./ventas-monitor";
 import { configPorProducto } from "./productos";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { refrescarFotosProducto } from "./fotos-producto";
 
 export const CLAVE_CATALOGO_AMAZON = "catalogo-amazon";
 export const CLAVE_FICHAS = "catalogo-amazon:asins";
@@ -150,6 +151,8 @@ export async function refrescarCatalogoAmazon(
   );
   const resultado = { modelos: modelos.length, productos: productos.length, asinsLeidos: leidos, asinsPendientes: pendientes, avisos };
   if (opciones.soloArmar) return resultado;
+  // Las fotos que enseñan Contenedores y Catálogo y costos salen de estas mismas fichas.
+  await refrescarFotosProducto(admin, accountId).catch((err) => avisos.push(`Fotos de producto: ${(err as Error).message}`));
   await admin.from("tiktok_sync_log").insert({
     account_id: accountId,
     tarea: "catalogo-amazon",
