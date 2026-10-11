@@ -1955,6 +1955,14 @@ guárdala numerada.
   2 min mientras se ven y al volver a la pestaña (`<Pagina vivo>`,
   `components/ui/actualizacion-viva.tsx`). Sin disparadores de `delete` a
   propósito: el MCP pide confirmación por esa palabra y se cuelga.
+  **Y la 0138 tumbó el guardado de órdenes 10 horas** (arreglo en la 0140):
+  el disparador hacía `select distinct …, clock_timestamp()` y la hora hacía
+  distinto cada renglón, así que una sentencia con DOS renglones del mismo
+  día chocaba en su propio ON CONFLICT y se caía COMPLETA. De las 03:33Z a
+  las 13:40Z del 11-oct-2026 no entró ninguna orden de MELI (calzado ni
+  fundas) ni venta diaria; «Hoy» marcaba 0. Los barridos y el registro de
+  órdenes lo recuperaron solos al arreglarlo. Un disparador nuevo se prueba
+  con una sentencia de VARIOS renglones del mismo día, no con uno.
   **El latido deja masticados TODOS los atajos del filtro de fechas**
   (`rangosDeAtajos`: 7 días, Hoy, 30 días, Este mes, 15 días, Ayer; 11-oct-2026,
   dueño: «cambio de fechas y toma como 3 segundos»): monitor, publicidad y
