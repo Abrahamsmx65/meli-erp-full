@@ -982,16 +982,13 @@ async function causasDeSubida(
           .gt("fecha", desdeMin),
       ),
     ),
-    porTandas(pendientes, 200, (tanda) =>
-      traerTodo<any>(db, "tiktok_ordenes", "order_id, fecha_actualizacion, tiktok_orden_items!inner(sku_interno)", (q) =>
-        q
-          .eq("account_id", accountId)
-          .in("estado", ["CANCELLED", "CANCEL"])
-          .gt("fecha_actualizacion", desdeMin)
-          .in("tiktok_orden_items.sku_interno", tanda)
-          .order("order_id", { ascending: true }),
-      ),
-    ),
+    // Pedidos cancelados desde la última escritura con estos SKUs, por RPC:
+    // la base NO tiene llave entre `tiktok_ordenes` y `tiktok_orden_items`,
+    // así que el «!inner» de antes fallaba SIEMPRE
+    // («Could not find a relationship…», cada pocos segundos en los logs
+    // hasta el 11-oct-2026) y por el catch se frenaba TODA subida, también
+    // las que sí traían entrada o devolución.
+    pedidosCanceladosConSkus(db, accountId, desdeMin, new Set(pendientes)),
     // La tienda en línea soltó pares (pedido sin pagar que caducó o se canceló).
     porTandas(pendientes, 200, (tanda) =>
       traerTodo<any>(db, "tienda_pedidos", "id, actualizado_en, tienda_pedido_items!inner(sku_interno)", (q) =>
@@ -1026,6 +1023,25 @@ async function causasDeSubida(
     }
   }
   return causa;
+}
+
+/**
+ * Por SKU, el último pedido CANCELADO desde `desde` que lo traía (RPC
+ * `tiktok_cancelados_por_sku`, migración 0137), con la forma que espera
+ * `causasDeSubida` (`{ fecha_actualizacion, tiktok_orden_items[] }`).
+ */
+async function pedidosCanceladosConSkus(
+  db: DB,
+  accountId: string,
+  desde: string,
+  skus: Set<string>,
+): Promise<{ fecha_actualizacion: string; tiktok_orden_items: { sku_interno: string }[] }[]> {
+  const { data, error } = await db.rpc("tiktok_cancelados_por_sku", { p_account: accountId, p_desde: desde, p_skus: [...skus] });
+  if (error) throw new Error(`tiktok_cancelados_por_sku: ${error.message}`);
+  return ((data ?? []) as { sku: string; fecha: string }[]).map((r) => ({
+    fecha_actualizacion: r.fecha,
+    tiktok_orden_items: [{ sku_interno: r.sku }],
+  }));
 }
 
 // ---------------------------------------------------------------------------
