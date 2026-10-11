@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
+import { contenidoPorModelo, detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 import { FotoProducto } from "./ui/foto-producto";
@@ -289,6 +289,25 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                   </td>
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
+                    {/* Computadora: todo lo que viene, por modelo y color, sin abrir «Contenido». */}
+                    {c.modelos.length ? (
+                      <ul className="hidden min-w-72 flex-col gap-1.5 lg:flex">
+                        {contenidoPorModelo(c.modelos).map((m) => (
+                          <li key={m.modelo} className="flex items-start gap-2">
+                            <FotoProducto url={m.foto} alt={m.modelo} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{m.modelo}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(m.cajas)} cajas</span>
+                              <span className="block texto-2">
+                                {m.colores.map((x) => `${x.color || "—"} ${n(x.cajas)}`).join(" · ")}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {/* Celular: una línea con fotos; el detalle en «Contenido». */}
+                    <div className="lg:hidden">
                     {c.modelos.length ? (
                       <div className="mb-1 flex flex-wrap items-center gap-1">
                         {fotosDeModelos(c.modelos)
@@ -316,6 +335,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     ) : (
                       <span className="texto-tenue">—</span>
                     )}
+                    </div>
                     {c.sinSku?.length ? (
                       <button
                         onClick={() => setLigando(c)}
