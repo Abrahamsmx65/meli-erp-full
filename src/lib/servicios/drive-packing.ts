@@ -321,9 +321,28 @@ export async function sincronizarPackingListsDrive(
           yaCargado.numero = eleccion.renombrar;
           yaCargado.embarque = numeroDeEmbarque(eleccion.renombrar);
         }
-        // Sin tocar su renglón de la bitácora: sigue diciendo con cuántas cajas
-        // entró desde Drive, que es justo lo que delata el cambio a mano.
-        r.omitidos.push(`${a.nombre}: ${yaCargado.numero} con cambios a mano, no se releyó`);
+        // No se rearma (borraría lo confirmado a mano), pero SÍ se le agregan
+        // los renglones del pedido que el archivo trae y el contenedor aún no
+        // tiene: un arreglo del lector (S263-2026, GT114 con talla «39 (26)»)
+        // tiene que llegar también aquí. Sin tocar su renglón de la bitácora:
+        // sigue diciendo con cuántas cajas entró desde Drive, que es justo lo
+        // que delata el cambio a mano.
+        const casadoMano = await casarPackingList(admin, accountId, packing, yaCargado.numero);
+        const nuevos = casadoMano.lineas.some((l) => l.pedidoLineaId && l.cajasAsignar > 0)
+          ? await aplicarPackingList(
+              admin,
+              accountId,
+              casadoMano,
+              { numeroNaviera: packing.contenedor || null, estado: "borrador", notas: `Borrador desde Drive: ${a.nombre}` },
+              { soloNuevas: true },
+            )
+          : null;
+        if (nuevos?.renglones) {
+          huboCambios = true;
+          r.importados.push(`${a.nombre} → ${yaCargado.numero}: con cambios a mano; se agregaron ${nuevos.cajas} cajas en ${nuevos.renglones} renglones nuevos`);
+        } else {
+          r.omitidos.push(`${a.nombre}: ${yaCargado.numero} con cambios a mano, nada nuevo que agregar`);
+        }
         continue;
       }
       if (eleccion.renombrar && yaCargado && yaCargado.estado === "borrador") {

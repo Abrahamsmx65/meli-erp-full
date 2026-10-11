@@ -246,7 +246,15 @@ guárdala numerada.
   ISO y su BL dice 542 para uno). «Releer todo» vuelve a armar los
   BORRADORES aunque su embarque sea anterior al último cargado, SALVO el que
   ya tiene cajas confirmadas a mano en Contenido (sus cajas ya no son las
-  que entraron desde Drive; S263 tenía 232): ese no se rearma y se dice.
+  que entraron desde Drive; S263 tenía 232): ese no se rearma y se dice. Pero SÍ
+  se le AGREGAN los renglones del pedido que el contenedor aún no tiene
+  (`aplicarPackingList({ soloNuevas })`: no cambia cantidades ni quita nada,
+  y de los pendientes solo quedan los que ya estaban pendientes). **Una
+  talla «39 (26)» es la MEXICANA del paréntesis** (`tallaDeCelda`; S263,
+  11-oct-2026): sin columna de pares por talla, la caja es unitalla de esa
+  talla con sus pares por caja; antes los 198 cartones de GT114 de pedido
+  por talla salían juntos sin talla y no amarraban. Un rango «36-41
+  (23-27)» sigue siendo corrida.
   **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
   packing list** (`esArchivoAjeno`: lo que se llama por su pedido
   «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la

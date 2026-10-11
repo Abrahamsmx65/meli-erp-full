@@ -102,6 +102,13 @@ export function pedidoBase(crudo: string): string {
 function tallaDeCelda(v: unknown): string | null {
   const t = texto(v).toUpperCase();
   if (!t) return null;
+  // «39 (26)»: europea afuera y MEXICANA en el paréntesis (S263-2026, cajas
+  // de una sola talla del GT114). Un rango «36-41 (23-27)» es corrida.
+  const mxEnParentesis = t.match(/^\d{1,2}(?:\.\d)?\s*[(（]\s*(\d{1,2}(?:\.\d)?)\s*(?:MX)?\s*[)）]$/);
+  if (mxEnParentesis) {
+    const n = Number(mxEnParentesis[1]);
+    return n >= 14 && n <= 32 ? normalizarTalla(mxEnParentesis[1]) : null;
+  }
   if (/^\d{1,2}(\.\d)?$/.test(t)) {
     const n = Number(t);
     return n >= 14 && n <= 50 ? normalizarTalla(t) : null;
@@ -406,6 +413,11 @@ export async function importarPackingList(
       const prs = col.prsPorTalla >= 0 ? numero(f[col.prsPorTalla]) : 0;
       if (talla && prs > 0) {
         bloque.tallas[talla] = (bloque.tallas[talla] ?? 0) + prs;
+      } else if (talla && empieza && col.prsPorTalla < 0 && porCajaFila > 0) {
+        // Sin columna de pares por talla, la talla en el renglón de la caja
+        // es caja UNITALLA: todos sus pares son de esa talla (S263-2026,
+        // «GT114 BLK (NEGRO) · 39 (26) · 10 cajas × 48»).
+        bloque.tallas[talla] = porCajaFila;
       } else if (talla && prs <= 0 && !empieza) {
         avisos.push(`Fila ${i + 1}: talla ${talla} sin pares por caja; se ignoró.`);
       }

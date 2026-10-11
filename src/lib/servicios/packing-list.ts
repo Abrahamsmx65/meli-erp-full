@@ -19,6 +19,7 @@ import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
 import { recalcularEstadoPedido } from "./pedidos";
+import { leerPendientes, type PendientePacking } from "./contenedores-vista";
 
 export type EstadoCasado =
   | "ok"
@@ -603,7 +604,16 @@ export async function aplicarPackingList(
   accountId: string,
   casado: PackingCasado,
   datos: Omit<DatosContenedor, "numero">,
-  opciones: { reemplazar?: boolean } = {},
+  opciones: {
+    reemplazar?: boolean;
+    /**
+     * Borrador ya corregido a mano: solo AGREGA los renglones del pedido que
+     * el contenedor todavía no tiene (no toca cantidades ni quita nada) y de
+     * los pendientes conserva solo los que ya estaban pendientes: lo que el
+     * dueño confirmó o descartó no vuelve a salir.
+     */
+    soloNuevas?: boolean;
+  } = {},
 ): Promise<{
   contenedorId: string;
   numero: string;
@@ -644,12 +654,37 @@ export async function aplicarPackingList(
     });
   }
 
-  const r = await asignarCajasAContenedor(
-    db,
-    accountId,
-    { ...datos, numero: casado.numero },
-    [...porLinea.entries()].map(([pedidoLineaId, x]) => ({ pedidoLineaId, ...x })),
-  );
+  let pendientesAntes: PendientePacking[] | null = null;
+  if (opciones.soloNuevas) {
+    const { data: cont } = await db
+      .from("contenedores")
+      .select("id, pendientes")
+      .eq("account_id", accountId)
+      .eq("numero", casado.numero)
+      .maybeSingle();
+    if (!cont) throw new Error(`No existe el contenedor ${casado.numero} para agregarle renglones.`);
+    pendientesAntes = leerPendientes(cont.pendientes);
+    const { data: ya } = await db.from("contenedor_lineas").select("pedido_linea_id").eq("contenedor_id", cont.id);
+    for (const v of (ya ?? []) as { pedido_linea_id: string }[]) porLinea.delete(v.pedido_linea_id);
+  }
+
+  const r = porLinea.size || !opciones.soloNuevas
+    ? await asignarCajasAContenedor(
+        db,
+        accountId,
+        { ...datos, numero: casado.numero },
+        [...porLinea.entries()].map(([pedidoLineaId, x]) => ({ pedidoLineaId, ...x })),
+      )
+    : { contenedorId: "", numero: casado.numero, existia: true, recortes: [] as string[] };
+  if (!r.contenedorId) {
+    const { data: cont } = await db
+      .from("contenedores")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("numero", casado.numero)
+      .maybeSingle();
+    r.contenedorId = cont!.id;
+  }
 
   // Rearmar desde el archivo: los renglones que el archivo ya no trae se van
   // (asignar solo agrega o actualiza). Los pedidos que pierden cajas se recalculan.
@@ -672,7 +707,7 @@ export async function aplicarPackingList(
 
   // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
   // el borrador, elija el renglón del pedido que sí es y lo confirme ahí.
-  const pendientes = casado.lineas
+  let pendientes = casado.lineas
     .filter((l) => l.cajasAsignar < l.cajas)
     .map((l) => ({
       modelo: l.modelo,
@@ -683,6 +718,16 @@ export async function aplicarPackingList(
       // Con el pedido, Contenido sugiere POR ELIMINACIÓN el color que falta.
       pedido: l.pedidoErp ?? l.pedidoArchivo ?? null,
     }));
+  if (pendientesAntes) {
+    // Por modelo + color, sin la talla: el mismo renglón pudo leerse antes sin
+    // talla (S263-2026, «39 (26)») y ahora talla por talla.
+    const clave = (x: { modelo: string; color: string }) => `${canonizar(x.modelo)}|${canonizar(x.color)}`;
+    const antes = new Map<string, number>();
+    for (const x of pendientesAntes) antes.set(clave(x), (antes.get(clave(x)) ?? 0) + (x.cajas ?? 0));
+    pendientes = pendientes
+      .filter((x) => antes.has(clave(x)))
+      .map((x) => ({ ...x, cajas: Math.min(x.cajas, antes.get(clave(x))!) }));
+  }
   await db
     .from("contenedores")
     .update({ pendientes: pendientes.length ? pendientes : null })
