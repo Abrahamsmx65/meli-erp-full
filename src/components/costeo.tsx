@@ -213,7 +213,8 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
     costoUsd: c.costoUsd != null ? String(c.costoUsd) : "",
     fleteUsd: c.fleteUsd != null ? String(c.fleteUsd) : "",
     aduana: c.aduana != null ? String(c.aduana) : "",
-    comisionAgente: c.comisionAgente != null ? String(c.comisionAgente) : "",
+    comisionAgente: c.comisionCapturada && c.comisionAgente != null ? String(c.comisionAgente) : "",
+    ejercicio: c.ejercicio != null ? String(c.ejercicio) : "",
     entregado: c.entregado,
     fechaEntrega: c.fechaEntrega ?? "",
     notas: c.notas ?? "",
@@ -252,7 +253,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
   return (
     <div className="flex flex-col gap-4 p-3">
       <form
-        className="grid grid-cols-2 gap-3 md:grid-cols-7"
+        className="grid grid-cols-2 gap-3 md:grid-cols-8"
         onSubmit={(e) => {
           e.preventDefault();
           correr(() =>
@@ -264,6 +265,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
               fleteUsd: form.fleteUsd,
               aduana: form.aduana,
               comisionAgente: form.comisionAgente,
+              ejercicio: form.ejercicio,
               entregado: form.entregado,
               fechaEntrega: form.fechaEntrega,
               notas: form.notas,
@@ -274,7 +276,8 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
         {campo("costoUsd", "Factura fábrica (USD)")}
         {campo("fleteUsd", "Flete (USD)")}
         {campo("aduana", "Aduana (MXN)")}
-        {campo("comisionAgente", "Comisión agente (MXN)")}
+        {campo("comisionAgente", `Comisión agente (vacío = 1.5 %${c.comisionAgente != null && !c.comisionCapturada ? `: ${pesos(c.comisionAgente, 0)}` : ""})`)}
+        {campo("ejercicio", "Cuenta del año (inicia en mayo)")}
         <label className="texto-2 flex items-end gap-1.5 pb-2 text-[12px]">
           <input type="checkbox" checked={form.entregado} onChange={(e) => setForm({ ...form, entregado: e.target.checked })} />
           Entregado{c.estadoErp === "recibido" ? " (recibido en Contenedores)" : ""}
@@ -285,7 +288,7 @@ function EditorContenedor({ c, onListo }: { c: ContenedorVista; onListo: () => v
             Guardar
           </button>
         </div>
-        <label className="texto-2 col-span-2 text-[12px] md:col-span-7">
+        <label className="texto-2 col-span-2 text-[12px] md:col-span-8">
           Notas
           <input className={entrada} style={estiloEntrada} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
         </label>

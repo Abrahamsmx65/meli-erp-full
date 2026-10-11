@@ -6,7 +6,7 @@ import { agregarMovimiento, agregarRetiro, borrarMovimiento, borrarRetiro } from
 export const dynamic = "force-dynamic";
 
 /**
- * Cuenta con Rafa y retiros de socios:
+ * Cuenta del año y retiros de socios (tipo: transferencia, ingreso, gasto o shein):
  *   { accion: "movimiento", fecha, tipo, monto, beneficiario, referencia, notas }
  *   { accion: "borrar-movimiento", id }
  *   { accion: "retiro", socioId, fecha, concepto, monto }

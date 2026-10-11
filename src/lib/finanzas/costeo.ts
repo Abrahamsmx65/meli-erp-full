@@ -176,11 +176,24 @@ export interface PagoUsd {
 
 export type NegocioContenedor = "calzado" | "fundas";
 
+/**
+ * Comisión del agente (Joanne): 1.5 % del costo en USD × el tipo de cambio
+ * con que se pagó ese contenedor (dueño, 11-oct-2026). Gasto operativo de la
+ * cuenta del año, NUNCA costo del par.
+ */
+export const COMISION_AGENTE = 0.015;
+
+export function comisionAgenteDe(costoUsd: number | null, tcFabrica: number | null): number | null {
+  return costoUsd != null && tcFabrica != null && costoUsd > 0 ? Math.round(costoUsd * tcFabrica * COMISION_AGENTE * 100) / 100 : null;
+}
+
 export interface DatosContenedor {
   id: string;
   negocio: NegocioContenedor;
-  /** comisión del agente (Joanne) en pesos: gasto operativo, NO costo del par */
+  /** comisión del agente capturada a mano; sin ella, el 1.5 % (`comisionAgenteDe`) */
   comisionAgente: number | null;
+  /** cuenta del año en que se paga (2026 = may-2026 a abr-2027) */
+  ejercicio?: number | null;
   anio: number | null;
   iso: string | null;
   productos: string;
@@ -219,7 +232,11 @@ export interface CostoModeloContenedor {
 export interface ContenedorCosteado {
   id: string;
   negocio: NegocioContenedor;
+  /** comisión del agente en pesos: gasto operativo, NO costo del par */
   comisionAgente: number | null;
+  /** true = la comisión es la capturada; false = el 1.5 % calculado */
+  comisionCapturada: boolean;
+  ejercicio: number | null;
   anio: number | null;
   iso: string | null;
   productos: string;
@@ -333,7 +350,9 @@ export function costearContenedor(datos: DatosContenedor, detalle: DetalleConten
   return {
     id: datos.id,
     negocio: datos.negocio,
-    comisionAgente: datos.comisionAgente,
+    comisionAgente: datos.comisionAgente ?? comisionAgenteDe(costoUsd, tcFabrica),
+    comisionCapturada: datos.comisionAgente != null,
+    ejercicio: datos.ejercicio ?? null,
     anio: datos.anio ?? detalle?.anio ?? null,
     iso: datos.iso ?? detalle?.iso ?? null,
     productos: datos.productos,

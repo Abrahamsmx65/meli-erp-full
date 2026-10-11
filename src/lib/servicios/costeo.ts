@@ -196,7 +196,7 @@ export async function recalcularCosteo(db: DB, accountId: string): Promise<Resul
     traerTodo<any>(
       db,
       "costeo_contenedores",
-      "contenedor, anio, iso, productos, costo_usd, flete_usd, aduana_mxn, entregado, fecha_entrega, notas, negocio, comision_agente",
+      "contenedor, anio, iso, productos, costo_usd, flete_usd, aduana_mxn, entregado, fecha_entrega, notas, negocio, comision_agente, ejercicio",
       (q) => q.eq("account_id", accountId),
     ),
     traerTodo<any>(db, "costeo_pagos", "id, contenedor, concepto, fecha, usd, tipo_cambio, notas", (q) =>
@@ -250,6 +250,7 @@ export async function recalcularCosteo(db: DB, accountId: string): Promise<Resul
       id,
       negocio: cap?.negocio === "fundas" || id.startsWith("P") ? "fundas" : "calzado",
       comisionAgente: num(cap?.comision_agente),
+      ejercicio: num(cap?.ejercicio),
       anio: num(cap?.anio) ?? det?.anio ?? deErp?.anio ?? null,
       iso: cap?.iso ?? det?.iso ?? deErp?.isos[0] ?? null,
       productos: cap?.productos ?? [...new Set((det?.lineas ?? []).map((l) => l.modelo))].join(" "),
@@ -343,6 +344,7 @@ export interface CambioContenedor {
   fleteUsd?: number | null;
   aduana?: number | null;
   comisionAgente?: number | null;
+  ejercicio?: number | null;
   entregado?: boolean;
   fechaEntrega?: string | null;
   notas?: string | null;
@@ -371,6 +373,11 @@ export async function guardarContenedor(db: DB, accountId: string, c: CambioCont
   if ("fleteUsd" in c) fila.flete_usd = montoONulo(c.fleteUsd);
   if ("aduana" in c) fila.aduana_mxn = montoONulo(c.aduana);
   if ("comisionAgente" in c) fila.comision_agente = montoONulo(c.comisionAgente);
+  if ("ejercicio" in c && c.ejercicio != null && String(c.ejercicio) !== "") {
+    const e = Number(c.ejercicio);
+    if (!Number.isInteger(e) || e < 2020 || e > 2100) throw new Error("La cuenta del año es el año en que empieza (por ejemplo 2026).");
+    fila.ejercicio = e;
+  }
   // El negocio sale del número: P### son fundas.
   fila.negocio = contenedor.startsWith("P") ? "fundas" : "calzado";
   if ("entregado" in c) fila.entregado = Boolean(c.entregado);

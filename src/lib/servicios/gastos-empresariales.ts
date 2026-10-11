@@ -20,7 +20,7 @@ export interface GastoEmpresarial {
    * Con qué se pagó: «banco» (cuenta de la empresa, con factura) o
    * «efectivo» (de la cuenta con Rafa; la pestaña GASTOS MEX del sheet de
    * cuentas). Los dos cuentan igual en el Estado de resultados; los de
-   * efectivo además salen de la ganancia de la Cuenta con Rafa.
+   * efectivo además salen de la ganancia de la Cuenta del año.
    */
   medio?: MedioGasto;
 }

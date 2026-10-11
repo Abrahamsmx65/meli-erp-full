@@ -2,6 +2,8 @@ import { clienteServidor } from "@/lib/supabase/server";
 import { clienteAdmin } from "@/lib/supabase/admin";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { cargarCuenta } from "@/lib/servicios/cuenta";
+import { nombreEjercicio } from "@/lib/finanzas/cuenta";
+import Link from "next/link";
 import { Ficha } from "@/components/tiles";
 import { MovimientosCuenta, RetirosSocios } from "@/components/cuenta";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
@@ -14,27 +16,50 @@ const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "o
 const nombreMes = (m: string) => (/^\d{4}-\d{2}$/.test(m) ? `${MESES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}` : m);
 
 /**
- * Cuenta con Rafa y socios (dueño, 11-oct-2026): la pestaña TOTAL del sheet
- * «Cuentas YAPANIZCEL» dentro del ERP. Lo que se transfiere a Rafa menos su
- * comisión, menos lo pagado por los contenedores, la comisión del agente y
- * los gastos en efectivo = la ganancia, repartida entre los socios contra lo
- * que cada uno ha retirado.
+ * Cuenta del año (dueño, 11-oct-2026): la pestaña TOTAL del sheet «Cuentas
+ * YAPANIZCEL» dentro del ERP, de MAYO a ABRIL. Lo transferido a Rafa menos
+ * su comisión, menos lo pagado por los contenedores, la comisión de Joanne y
+ * los gastos en efectivo = la ganancia, repartida entre los socios (más lo
+ * que deja Shein al que la recibe) contra lo que cada uno ha retirado.
  */
-export default async function Cuenta() {
+export default async function Cuenta({ searchParams }: { searchParams: Promise<{ ejercicio?: string }> }) {
   const supabase = await clienteServidor();
   const cuenta = await cuentaActiva(supabase);
-  if (!cuenta) return <SinCuenta titulo="Cuenta con Rafa" />;
-  const d = await cargarCuenta(supabase as DB, cuenta.id, clienteAdmin() as DB);
+  if (!cuenta) return <SinCuenta titulo="Cuenta del año" />;
+  const { ejercicio } = await searchParams;
+  const d = await cargarCuenta(supabase as DB, cuenta.id, clienteAdmin() as DB, ejercicio ? Number(ejercicio) : null);
   const r = d.resumen;
+  const transferencias = d.movimientos.filter((m) => m.tipo !== "shein");
+  const deShein = d.movimientos.filter((m) => m.tipo === "shein");
 
   return (
     <Pagina>
-      <Encabezado ceja="Negocio" titulo="Cuenta con Rafa" frescura={d.costeoEn} />
+      <Encabezado
+        ceja="Negocio"
+        titulo="Cuenta del año"
+        descripcion={nombreEjercicio(d.ejercicio)}
+        frescura={d.costeoEn}
+        acciones={
+          d.ejercicios.length > 1 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {d.ejercicios.map((e) => (
+                <Link
+                  key={e}
+                  href={`/finanzas/cuenta?ejercicio=${e}`}
+                  className={`boton boton-chico ${e === d.ejercicio ? "boton-primario" : "boton-fantasma"}`}
+                >
+                  {nombreEjercicio(e)}
+                </Link>
+              ))}
+            </div>
+          ) : undefined
+        }
+      />
       {d.avisos.map((a, i) => (
         <Aviso key={i} tono="alerta">{a}</Aviso>
       ))}
       <Cifras columnas={4}>
-        <Ficha titulo="Transferido a Rafa" valor={pesos(r.transferencias)} nota={`Comisión ${pesos(r.comision)}`} />
+        <Ficha titulo="Transferencias" valor={pesos(r.transferencias)} nota={`Comisión de Rafa ${pesos(r.comision)}`} />
         <Ficha titulo="Recibido" valor={pesos(r.recibido)} />
         <Ficha titulo="Salidas" valor={pesos(r.totalSalidas)} />
         <Ficha titulo="Ganancia" valor={pesos(r.ganancia)} tono={r.ganancia >= 0 ? "bien" : "critico"} />
@@ -51,7 +76,7 @@ export default async function Cuenta() {
                     <table className="datos">
                       <tbody>
                         <tr>
-                          <td>Transferencias a Rafa</td>
+                          <td>Transferencias</td>
                           <td className="num cifra">{pesos(r.transferencias, 2)}</td>
                         </tr>
                         <tr>
@@ -85,6 +110,8 @@ export default async function Cuenta() {
                         <tr>
                           <th>Socio</th>
                           <th className="num">%</th>
+                          <th className="num">Su parte</th>
+                          <th className="num">Shein</th>
                           <th className="num">Le toca</th>
                           <th className="num">Retirado</th>
                           <th className="num">De eso, tsedaka</th>
@@ -96,7 +123,9 @@ export default async function Cuenta() {
                           <tr key={s.socio.id}>
                             <td className="font-medium">{s.socio.nombre}</td>
                             <td className="num cifra">{s.socio.porcentaje}%</td>
-                            <td className="num cifra">{pesos(s.leToca)}</td>
+                            <td className="num cifra">{pesos(s.parte)}</td>
+                            <td className="num cifra">{s.shein ? pesos(s.shein) : "—"}</td>
+                            <td className="num cifra font-medium">{pesos(s.leToca)}</td>
                             <td className="num cifra">{s.retiros ? pesos(s.retirado) : "—"}</td>
                             <td className="num cifra">{s.tsedaka ? pesos(s.tsedaka) : "—"}</td>
                             <td className="num cifra font-semibold" style={{ color: s.sobra >= 0 ? "var(--exito-texto)" : "var(--estado-critico)" }}>
@@ -112,13 +141,13 @@ export default async function Cuenta() {
             ),
           },
           {
-            id: "movimientos",
-            titulo: "Movimientos",
-            cuenta: d.movimientos.length,
+            id: "transferencias",
+            titulo: "Transferencias",
+            cuenta: transferencias.length,
             contenido: (
               <div className="flex flex-col gap-4">
                 <Seccion>
-                  <MovimientosCuenta movimientos={d.movimientos} />
+                  <MovimientosCuenta movimientos={transferencias} />
                 </Seccion>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Seccion titulo="Por mes" sinRelleno>
@@ -168,6 +197,28 @@ export default async function Cuenta() {
                     </Tabla>
                   </Seccion>
                 </div>
+              </div>
+            ),
+          },
+          {
+            id: "shein",
+            titulo: "Shein",
+            cuenta: deShein.length,
+            contenido: (
+              <div className="flex flex-col gap-4">
+                <Cifras columnas={3}>
+                  <Ficha titulo="Depósitos de Shein" valor={pesos(r.shein.depositos)} nota="Entran en Transferencias" />
+                  <Ficha titulo="Renta y mercancía" valor={pesos(r.shein.salidas)} />
+                  <Ficha
+                    titulo="Deja Shein"
+                    valor={pesos(r.shein.neto)}
+                    nota={d.socios.filter((s) => s.recibeShein).map((s) => `Se le suma a ${s.nombre}`).join(", ") || undefined}
+                    tono={r.shein.neto >= 0 ? "bien" : "critico"}
+                  />
+                </Cifras>
+                <Seccion>
+                  <MovimientosCuenta movimientos={deShein} shein />
+                </Seccion>
               </div>
             ),
           },

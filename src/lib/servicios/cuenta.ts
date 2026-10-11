@@ -1,5 +1,5 @@
 /**
- * Cuenta con Rafa y socios: lee lo capturado (`cuenta_paralela`, `socios`,
+ * Cuenta del año (mayo a abril) y socios: lee lo capturado (`cuenta_paralela`, `socios`,
  * `socios_retiros`, los gastos en EFECTIVO de Gastos) y lo pagado por los
  * contenedores (`finanzas:costeo`), y arma la pestaña TOTAL del sheet del
  * dueño con el motor de `finanzas/cuenta.ts`. Lecturas chicas (cientos de
@@ -9,6 +9,8 @@ import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
 import {
   comisionDeTransferencia,
+  ejercicioDeFecha,
+  rangoEjercicio,
   resumenCuenta,
   type MovimientoCuenta,
   type Retiro,
@@ -19,6 +21,9 @@ import { leerCacheAppGuardado } from "./cache-app";
 import { CLAVE_COSTEO, recalcularCosteo, type ResultadoCosteo } from "./costeo";
 
 export interface DatosCuenta {
+  ejercicio: number;
+  /** las cuentas con algo capturado, la más nueva primero */
+  ejercicios: number[];
   movimientos: MovimientoCuenta[];
   socios: Socio[];
   retiros: Retiro[];
@@ -29,35 +34,47 @@ export interface DatosCuenta {
 
 const n = (x: unknown) => (x == null || !Number.isFinite(Number(x)) ? 0 : Number(x));
 
-export async function cargarCuenta(db: DB, accountId: string, admin: DB): Promise<DatosCuenta> {
+/** La cuenta en curso: la que empezó el mayo más reciente (hora de México). */
+export function ejercicioActual(ahora = new Date()): number {
+  return ejercicioDeFecha(new Date(ahora.getTime() - 6 * 3600_000).toISOString().slice(0, 10));
+}
+
+const ejercicioDe = (m: { ejercicio?: number | null; fecha: string | null }, porOmision: number) =>
+  m.fecha ? ejercicioDeFecha(m.fecha) : (m.ejercicio ?? porOmision);
+
+export async function cargarCuenta(db: DB, accountId: string, admin: DB, pedido?: number | null): Promise<DatosCuenta> {
   const avisos: string[] = [];
+  const actual = ejercicioActual();
+  const ejercicio = pedido && Number.isInteger(pedido) ? pedido : actual;
+  const { desde, hasta } = rangoEjercicio(ejercicio);
   const [movs, socios, retiros, gastos] = await Promise.all([
-    traerTodo<any>(db, "cuenta_paralela", "id, fecha, tipo, monto, beneficiario, referencia, comision, notas", (q) =>
+    traerTodo<any>(db, "cuenta_paralela", "id, fecha, tipo, monto, beneficiario, referencia, comision, notas, ejercicio", (q) =>
       q.eq("account_id", accountId),
     ),
-    traerTodo<any>(db, "socios", "id, nombre, porcentaje, orden", (q) => q.eq("account_id", accountId)),
+    traerTodo<any>(db, "socios", "id, nombre, porcentaje, orden, recibe_shein", (q) => q.eq("account_id", accountId)),
     traerTodo<any>(db, "socios_retiros", "id, socio_id, fecha, concepto, monto", (q) => q.eq("account_id", accountId)),
-    traerTodo<any>(db, "gastos_empresariales", "id, monto, medio, omitido", (q) =>
-      q.eq("account_id", accountId).eq("medio", "efectivo"),
+    traerTodo<any>(db, "gastos_empresariales", "id, fecha, monto, medio, omitido", (q) =>
+      q.eq("account_id", accountId).eq("medio", "efectivo").gte("fecha", desde).lte("fecha", hasta),
     ),
   ]);
 
   let costeo = await leerCacheAppGuardado<ResultadoCosteo>(db, accountId, CLAVE_COSTEO);
   let datosCosteo = costeo.estado === "encontrado" ? costeo.valor.datos : null;
-  // Un costeo guardado antes de los contenedores de fundas no trae `negocio`.
-  if (!datosCosteo || datosCosteo.contenedores.some((c) => c.negocio == null)) {
+  // Un costeo guardado antes de la cuenta del año no trae `negocio` ni la comisión calculada.
+  if (!datosCosteo || datosCosteo.contenedores.some((c) => c.negocio == null || c.comisionCapturada === undefined)) {
     try {
       datosCosteo = await recalcularCosteo(admin, accountId);
     } catch (err) {
       avisos.push(`No se pudo recalcular el costeo: ${(err as Error).message}`);
     }
   }
-  const contenedores = datosCosteo?.contenedores ?? [];
-  if (!contenedores.length) avisos.push("Sin costeo de contenedores: las salidas a China van en cero.");
+  const todos = datosCosteo?.contenedores ?? [];
+  const contenedores = todos.filter((c) => (c.ejercicio ?? actual) === ejercicio);
+  if (!contenedores.length) avisos.push("Ningún contenedor está apuntado en esta cuenta del año: las salidas a China van en cero.");
   const suma = (negocio: string, f: (c: (typeof contenedores)[number]) => number) =>
     contenedores.filter((c) => (c.negocio ?? (c.id.startsWith("P") ? "fundas" : "calzado")) === negocio).reduce((s, c) => s + f(c), 0);
 
-  const movimientos: MovimientoCuenta[] = movs
+  const todosMovs: MovimientoCuenta[] = movs
     .map((m) => ({
       id: Number(m.id),
       fecha: m.fecha,
@@ -67,12 +84,15 @@ export async function cargarCuenta(db: DB, accountId: string, admin: DB): Promis
       referencia: m.referencia,
       comision: n(m.comision),
       notas: m.notas,
+      ejercicio: m.ejercicio == null ? null : Number(m.ejercicio),
     }))
     .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? "") || b.id - a.id);
+  const movimientos = todosMovs.filter((m) => ejercicioDe(m, actual) === ejercicio);
   const listaSocios: Socio[] = socios
     .sort((a, b) => a.orden - b.orden)
-    .map((s) => ({ id: Number(s.id), nombre: s.nombre, porcentaje: n(s.porcentaje) }));
+    .map((s) => ({ id: Number(s.id), nombre: s.nombre, porcentaje: n(s.porcentaje), recibeShein: Boolean(s.recibe_shein) }));
   const listaRetiros: Retiro[] = retiros
+    .filter((r) => (r.fecha ? ejercicioDeFecha(r.fecha) : actual) === ejercicio)
     .map((r) => ({ id: Number(r.id), socioId: Number(r.socio_id), fecha: r.fecha, concepto: r.concepto, monto: n(r.monto) }))
     .sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? "") || b.id - a.id);
 
@@ -86,7 +106,24 @@ export async function cargarCuenta(db: DB, accountId: string, admin: DB): Promis
     socios: listaSocios,
     retiros: listaRetiros,
   });
-  return { movimientos, socios: listaSocios, retiros: listaRetiros, resumen, costeoEn: datosCosteo?.generadoEn ?? null, avisos };
+  const ejercicios = [
+    ...new Set([
+      actual,
+      ejercicio,
+      ...todosMovs.map((m) => ejercicioDe(m, actual)),
+      ...todos.map((c) => c.ejercicio ?? actual),
+    ]),
+  ].sort((a, b) => b - a);
+  return {
+    ejercicio,
+    ejercicios,
+    movimientos,
+    socios: listaSocios,
+    retiros: listaRetiros,
+    resumen,
+    costeoEn: datosCosteo?.generadoEn ?? null,
+    avisos,
+  };
 }
 
 const fechaValida = (x: unknown): string | null => {
@@ -110,13 +147,15 @@ export async function agregarMovimiento(
   accountId: string,
   m: { fecha?: string; tipo?: string; monto?: number; beneficiario?: string; referencia?: string; notas?: string },
 ): Promise<void> {
-  const tipo = m.tipo === "ingreso" || m.tipo === "gasto" ? m.tipo : "transferencia";
+  const tipo = m.tipo === "ingreso" || m.tipo === "gasto" || m.tipo === "shein" ? m.tipo : "transferencia";
   const valor = monto(m.monto);
+  const fecha = fechaValida(m.fecha);
   const { error } = await db.from("cuenta_paralela").insert({
     account_id: accountId,
-    fecha: fechaValida(m.fecha),
+    fecha,
     tipo,
     monto: valor,
+    ejercicio: fecha ? ejercicioDeFecha(fecha) : ejercicioActual(),
     beneficiario: texto(m.beneficiario)?.toUpperCase() ?? null,
     referencia: texto(m.referencia)?.toUpperCase() ?? null,
     comision: tipo === "transferencia" ? comisionDeTransferencia(valor) : 0,

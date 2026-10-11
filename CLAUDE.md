@@ -2054,10 +2054,23 @@ guárdala numerada.
   Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
   usó. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
-- **CUENTA CON RAFA, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
+- **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
-  con Rafa» en Negocio, `POST /api/finanzas/cuenta`, migración 0137;
-  dueño, 11-oct-2026). Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
+  del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
+  0138; dueño, 11-oct-2026). **La cuenta es del DUEÑO, no de Rafa** («la
+  cuenta con Rafa es solo las de transferencias; el total es conmigo») y va
+  de MAYO a ABRIL (`ejercicioDeFecha`, `?ejercicio=2026` = may-2026 a
+  abr-2027; «cada año hacemos así las cuentas»): lo fechado cae por su
+  fecha y lo que no (renta de oficina de 12 meses, contenedores) por su
+  columna `ejercicio` (por omisión `ejercicio_actual()`). La **comisión de
+  Joanne** es 1.5 % × costo USD × el tipo de cambio de la fábrica de ESE
+  contenedor (`comisionAgenteDe`), calculada sola para todo contenedor
+  pagado; `comision_agente` solo si se captura a mano. **SHEIN**: los
+  depósitos ya son transferencias (DEPOSITO SHEIN, con comisión); la renta
+  y la mercancía de la cuenta de Shein son movimientos `shein` y lo que deja
+  (depósitos − renta − mercancía) se le SUMA al socio con
+  `socios.recibe_shein` (Abraham; «me la tienes que sumar a mí también como
+  ganancia»), aparte de su 25 %. Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
   se importó UNA vez y desde ahí se captura en el ERP; el sheet nunca se
   escribe. **Las transferencias a Rafa (Industher / Vantorix) NO son pagos
   de contenedores** (dueño: «esos pagos no tienen nada que ver con los

@@ -46,12 +46,17 @@ const TIPOS: Record<MovimientoCuenta["tipo"], string> = {
   transferencia: "Transferencia",
   ingreso: "Ingreso sin comisión",
   gasto: "Gasto de la cuenta",
+  shein: "Shein (renta o mercancía)",
 };
 
-/** Movimientos de la cuenta con Rafa: alta, lista y borrar. */
-export function MovimientosCuenta({ movimientos }: { movimientos: MovimientoCuenta[] }) {
+/**
+ * Movimientos de la cuenta del año: alta, lista y borrar. Con `shein`, solo
+ * lo que sale de la cuenta de Shein (renta y mercancía).
+ */
+export function MovimientosCuenta({ movimientos, shein = false }: { movimientos: MovimientoCuenta[]; shein?: boolean }) {
   const { ocupado, error, correr } = useAccion();
-  const vacio = { fecha: hoy(), tipo: "transferencia", monto: "", beneficiario: "", referencia: "", notas: "" };
+  const tipos = Object.entries(TIPOS).filter(([k]) => (shein ? k === "shein" : k !== "shein"));
+  const vacio = { fecha: hoy(), tipo: shein ? "shein" : "transferencia", monto: "", beneficiario: "", referencia: "", notas: "" };
   const [form, setForm] = useState(vacio);
   const [busca, setBusca] = useState("");
   const visibles = useMemo(() => {
@@ -73,12 +78,12 @@ export function MovimientosCuenta({ movimientos }: { movimientos: MovimientoCuen
       >
         <input className={entrada} style={estiloEntrada} type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
         <select className={entrada} style={estiloEntrada} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-          {Object.entries(TIPOS).map(([k, v]) => (
+          {tipos.map(([k, v]) => (
             <option key={k} value={k}>{v}</option>
           ))}
         </select>
         <input className={entrada} style={estiloEntrada} inputMode="decimal" placeholder="Monto" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} />
-        <input className={entrada} style={estiloEntrada} placeholder="Beneficiario (RAFA.VANTORIX)" value={form.beneficiario} onChange={(e) => setForm({ ...form, beneficiario: e.target.value })} />
+        <input className={entrada} style={estiloEntrada} placeholder={shein ? "Concepto (RENTA OCT, MERCANCIA)" : "Beneficiario (RAFA.VANTORIX)"} value={form.beneficiario} onChange={(e) => setForm({ ...form, beneficiario: e.target.value })} />
         <input className={entrada} style={estiloEntrada} placeholder="Referencia" value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} />
         <input className={entrada} style={estiloEntrada} placeholder="Notas" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
         <button className="boton boton-primario boton-chico" disabled={ocupado || !Number(form.monto)}>
