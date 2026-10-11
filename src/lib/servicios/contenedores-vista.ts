@@ -21,6 +21,10 @@ export interface ContenedorVista {
   modelos: { modelo: string; color: string; cajas: number; pares: number }[];
   /** renglones del packing list que NO amarraron: el dueño los resuelve en la pantalla */
   pendientes: PendientePacking[];
+  /** cajas que dice el BL de la carpeta de Drive (número de control); null = sin BL leído */
+  cajasBl?: number | null;
+  /** de qué archivo salió («S260-2026/HDMU… .pdf») */
+  blArchivo?: string | null;
 }
 
 /** Un renglón del packing list que no entró, tal como se guarda con el contenedor. */

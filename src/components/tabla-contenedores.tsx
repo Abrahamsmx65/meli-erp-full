@@ -6,6 +6,7 @@ import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/ser
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 import { FotoProducto } from "./ui/foto-producto";
+import { cotejarConBl } from "@/lib/importar/bl";
 
 /** Miniaturas por renglón del contenedor; el resto se cuenta como «+N». */
 const FOTOS_POR_CONTENEDOR = 6;
@@ -34,6 +35,9 @@ interface Contenedor {
   sinSku?: ColorFantasma[];
   /** colores ya ligados a mano con MELI */
   ligados?: ColorLigado[];
+  /** cajas del BL (número de control) */
+  cajasBl?: number | null;
+  blArchivo?: string | null;
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -262,7 +266,10 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     )}
                   </td>
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
-                  <td className="num cifra">{n(c.cajas)}</td>
+                  <td className="num">
+                    <span className="cifra">{n(c.cajas)}</span>
+                    <ContraBl cargadas={c.cajas} pendientes={(c.pendientes ?? []).reduce((a, p) => a + p.cajas, 0)} cajasBl={c.cajasBl} archivo={c.blArchivo} />
+                  </td>
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
                     {c.modelos.length ? (
@@ -482,6 +489,40 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
         />
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Las cajas cargadas contra el BL de la carpeta de Drive (idea del dueño,
+ * 11-oct-2026): si no cuadran se dice en rojo cuántas faltan o sobran y
+ * cuántas están por confirmar en Contenido.
+ */
+function ContraBl({
+  cargadas,
+  pendientes,
+  cajasBl,
+  archivo,
+}: {
+  cargadas: number;
+  pendientes: number;
+  cajasBl?: number | null;
+  archivo?: string | null;
+}) {
+  const c = cotejarConBl(cargadas, cajasBl);
+  if (c.estado === "sin_bl") return <span className="block text-[11px] texto-tenue">sin BL</span>;
+  const titulo = `BL: ${n(cajasBl ?? 0)} cajas${archivo ? ` (${archivo})` : ""}`;
+  if (c.estado === "cuadra") {
+    return (
+      <span className="block text-[11px]" style={{ color: "var(--exito-texto)" }} title={titulo}>
+        ✓ BL {n(cajasBl ?? 0)}
+      </span>
+    );
+  }
+  return (
+    <span className="block text-[11px] font-medium" style={{ color: "var(--estado-critico)" }} title={titulo}>
+      BL {n(cajasBl ?? 0)} · {c.estado === "faltan" ? `faltan ${n(-c.diferencia)}` : `sobran ${n(c.diferencia)}`}
+      {c.estado === "faltan" && pendientes > 0 ? <span className="block font-normal">{n(pendientes)} por confirmar</span> : null}
+    </span>
   );
 }
 

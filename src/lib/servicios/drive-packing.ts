@@ -14,9 +14,17 @@
  *  - Subir el mismo archivo dos veces no duplica: se reemplaza lo de ese
  *    contenedor (misma regla que la carga a mano).
  *  - Al crear un contenedor nuevo se manda el correo de fotos que faltan.
+ *  - El BL de la misma carpeta es el número de control (11-oct-2026): se lee
+ *    el PDF (`importar/bl.ts`) y sus cajas quedan en `contenedores.cajas_bl`
+ *    para que la pantalla compare contra lo cargado.
+ *  - Un BORRADOR se vuelve a leer con «Releer todo» aunque su embarque sea
+ *    anterior al último cargado: los arreglos del lector y del amarre tienen
+ *    que poder llegarle (S260-2026 se quedó con 399 de 611 cajas).
  */
 import type { DB } from "../datos/repos";
 import { importarPackingList } from "../importar/packing-list";
+import { cajasDelBl, leerBl } from "../importar/bl";
+import { textoDePdf } from "../importar/texto-pdf";
 import { aplicarPackingList, casarPackingList } from "./packing-list";
 import { configDrive, descargarDrive, esHojaDeCalculo, listarCarpetaDrive, type ArchivoDrive } from "./drive";
 import { avisarFotosDeContenedor } from "./fotos-contenedor";
@@ -32,6 +40,8 @@ export interface ResultadoDrivePacking {
   omitidos: string[];
   errores: string[];
   correos: { contenedor: string; enviado: boolean; motivo?: string }[];
+  /** BL leídos: «S260-2026: 611 cajas (archivo)» */
+  bls: string[];
 }
 
 export interface FilaGuardada {
@@ -65,16 +75,19 @@ export interface ContenedorCargado {
   numero: string;
   estado: string;
   embarque: number | null;
+  /** número ISO de la naviera (MIEU3920536) */
+  naviera?: string | null;
 }
 
 /** Los contenedores ya cargados con su número de embarque, y el más alto (de ahí para adelante se importa). */
 export async function contenedoresCargados(admin: DB, accountId: string): Promise<{ lista: ContenedorCargado[]; maximo: number | null }> {
-  const { data } = await admin.from("contenedores").select("id, numero, estado").eq("account_id", accountId);
-  const lista: ContenedorCargado[] = (data ?? []).map((c: { id: string; numero: string; estado: string }) => ({
+  const { data } = await admin.from("contenedores").select("id, numero, estado, numero_naviera").eq("account_id", accountId);
+  const lista: ContenedorCargado[] = (data ?? []).map((c: { id: string; numero: string; estado: string; numero_naviera: string | null }) => ({
     id: c.id,
     numero: c.numero,
     estado: c.estado,
     embarque: numeroDeEmbarque(c.numero),
+    naviera: c.numero_naviera ? c.numero_naviera.trim().toUpperCase() : null,
   }));
   let maximo: number | null = null;
   for (const c of lista) if (c.embarque != null && (maximo == null || c.embarque > maximo)) maximo = c.embarque;
@@ -97,6 +110,54 @@ export function contenedorDelEmbarque(lista: ContenedorCargado[], numero: string
   return n == null ? null : (lista.find((c) => c.embarque === n) ?? null);
 }
 
+/**
+ * La referencia del embarque (S271-2026) del nombre de la subcarpeta o del
+ * archivo, para los packing lists que no la traen adentro (S270, S271:
+ * «Packing List (Container: HAMU5029953 …)» sin la S); antes el contenedor
+ * quedaba bautizado con el número de la naviera.
+ */
+export function referenciaDeNombre(...textos: (string | null | undefined)[]): string | null {
+  for (const t of textos) {
+    const m = String(t ?? "").toUpperCase().match(/(?:^|[^A-Z0-9])S\s*-?\s*(\d{2,4})\s*-\s*(20\d{2})(?![0-9])/);
+    if (m) return `S${m[1]}-${m[2]}`;
+  }
+  return null;
+}
+
+/**
+ * A qué contenedor va un packing list: primero por el número ISO de la
+ * naviera, luego por la referencia del embarque (texto o número: S259 =
+ * S259-2026). Un contenedor que quedó bautizado con el ISO (S270, S271, que
+ * no traen la referencia adentro) se RENOMBRA a la referencia, salvo que ya
+ * exista otro con ese nombre. Dos archivos con la misma referencia caen en
+ * el mismo contenedor: el S261-2026 trae dos packing lists IDÉNTICOS que
+ * solo cambian el ISO (HMMU6173610 / HMMU6173810) y su BL dice 542 cajas para
+ * uno solo; separarlos duplicaría cajas.
+ */
+export function elegirContenedor(
+  lista: ContenedorCargado[],
+  referencia: string | null,
+  iso: string | null,
+): { existente: ContenedorCargado | null; numero: string; renombrar: string | null } {
+  const ref = referencia?.trim().toUpperCase() || null;
+  const cont = iso?.trim().toUpperCase() || null;
+  const porRef = ref ? contenedorDelEmbarque(lista, ref) : null;
+  if (porRef) return { existente: porRef, numero: porRef.numero, renombrar: null };
+  if (cont) {
+    const porIso = lista.find((c) => c.naviera === cont || c.numero.trim().toUpperCase() === cont);
+    if (porIso) {
+      const renombrar = ref && porIso.embarque == null ? ref : null;
+      return { existente: porIso, numero: renombrar ?? porIso.numero, renombrar };
+    }
+  }
+  return { existente: null, numero: ref || cont || "", renombrar: null };
+}
+
+/** Un PDF de la carpeta que puede ser el BL (no la proforma ni el pago). */
+export function puedeSerBl(nombre: string): boolean {
+  return /\.pdf$/i.test(nombre) && !/\bPI\b|invoice|factura|payment|proforma/i.test(nombre);
+}
+
 /** Facturas y pedidos que viajan en la misma carpeta y no son packing list: ni se descargan. */
 export function esArchivoAjeno(nombre: string): boolean {
   return /invoice|factura|proforma|\bPI\b/i.test(nombre) && !/packing/i.test(nombre);
@@ -117,22 +178,49 @@ export async function sincronizarPackingListsDrive(
   accountId: string,
   opts: { finMs: number; forzar?: boolean },
 ): Promise<ResultadoDrivePacking> {
-  const r: ResultadoDrivePacking = { sinConfigurar: false, archivos: 0, revisados: 0, importados: [], omitidos: [], errores: [], correos: [] };
+  const r: ResultadoDrivePacking = { sinConfigurar: false, archivos: 0, revisados: 0, importados: [], omitidos: [], errores: [], correos: [], bls: [] };
   // Sin llave se lee la carpeta pública (decisión del dueño); con llave, el API.
   const cfg = configDrive();
 
   // Los packing lists viven en subcarpetas por contenedor: a las de embarques
   // anteriores al último cargado ni se entra.
   const { lista: cargados, maximo } = await contenedoresCargados(admin, accountId);
-  const archivos = (
-    await listarCarpetaDrive(cfg, { omitirCarpeta: (nombre) => esEmbarqueViejo(numeroDeEmbarque(nombre), maximo) })
-  ).filter(esHojaDeCalculo);
-  r.archivos = archivos.length;
   const { data: guardadas } = await admin
     .from("drive_packing_lists")
-    .select("drive_file_id, md5, modificado_en, estado")
+    .select("drive_file_id, md5, modificado_en, estado, nombre, contenedor_id, resultado")
     .eq("account_id", accountId);
   const previa = new Map((guardadas ?? []).map((g: FilaGuardada) => [g.drive_file_id, g]));
+  // Los embarques con un BORRADOR (por su número o por la carpeta de donde
+  // salió) se siguen leyendo aunque sean anteriores al último cargado.
+  const borradores = new Set(cargados.filter((c) => c.estado === "borrador").map((c) => c.id));
+  const embarquesBorrador = new Set<number>();
+  for (const c of cargados) if (c.estado === "borrador" && c.embarque != null) embarquesBorrador.add(c.embarque);
+  for (const g of (guardadas ?? []) as { nombre: string | null; contenedor_id: string | null }[]) {
+    const n = g.contenedor_id && borradores.has(g.contenedor_id) ? numeroDeEmbarque(String(g.nombre ?? "").split("/")[0]) : null;
+    if (n != null) embarquesBorrador.add(n);
+  }
+  const viejo = (n: number | null) => esEmbarqueViejo(n, maximo) && !(n != null && embarquesBorrador.has(n));
+  // Un borrador que alguien ya CORRIGIÓ a mano en Contenido (sus cajas ya no
+  // son las que entraron desde Drive) no se vuelve a armar: rearmarlo
+  // borraría esas decisiones (S263-2026 tenía 232 cajas confirmadas a mano).
+  const cajasDeDrive = new Map<string, number>();
+  for (const g of (guardadas ?? []) as { contenedor_id: string | null; estado: string; resultado: { cajas?: number } | null }[]) {
+    if (g.contenedor_id && g.estado === "importado" && typeof g.resultado?.cajas === "number") {
+      cajasDeDrive.set(g.contenedor_id, Math.max(cajasDeDrive.get(g.contenedor_id) ?? 0, g.resultado.cajas));
+    }
+  }
+  const cajasActuales = new Map<string, number>();
+  const idsBorrador = [...borradores];
+  if (idsBorrador.length) {
+    const { data: lineasBorrador } = await admin.from("contenedor_lineas").select("contenedor_id, cajas").in("contenedor_id", idsBorrador);
+    for (const l of (lineasBorrador ?? []) as { contenedor_id: string; cajas: number | null }[]) {
+      cajasActuales.set(l.contenedor_id, (cajasActuales.get(l.contenedor_id) ?? 0) + (l.cajas ?? 0));
+    }
+  }
+  const editadoAMano = (id: string) => cajasDeDrive.has(id) && (cajasActuales.get(id) ?? 0) !== cajasDeDrive.get(id);
+  const todos = await listarCarpetaDrive(cfg, { omitirCarpeta: (nombre) => viejo(numeroDeEmbarque(nombre)) });
+  const archivos = todos.filter(esHojaDeCalculo);
+  r.archivos = archivos.length;
 
   const registrar = async (a: ArchivoDrive, estado: EstadoDrivePacking, motivo: string | null, extra: Record<string, unknown> = {}) => {
     await admin.from("drive_packing_lists").upsert(
@@ -152,13 +240,15 @@ export async function sincronizarPackingListsDrive(
   };
 
   let huboCambios = false;
+  // El BL se lee al final y necesita su rato: los packing lists paran antes.
+  const finPacking = opts.finMs - 45_000;
   for (const a of archivos) {
-    if (Date.now() > opts.finMs) break;
+    if (Date.now() > finPacking) break;
     if (!opts.forzar && !cambio(a, previa.get(a.id))) continue;
     // Por la subcarpeta o el nombre, sin descargar: un embarque anterior al
     // último cargado no se toca.
     const porNombre = numeroDeEmbarque(a.carpeta) ?? numeroDeEmbarque(a.nombre);
-    if (esEmbarqueViejo(porNombre, maximo)) {
+    if (viejo(porNombre)) {
       if (!previa.has(a.id) || opts.forzar) {
         await registrar(a, "omitido", `S${porNombre} es anterior al último embarque cargado (S${maximo}); no se importa.`);
         r.omitidos.push(`${a.nombre}: anterior a S${maximo}`);
@@ -188,7 +278,9 @@ export async function sincronizarPackingListsDrive(
         }
         throw err;
       }
-      const numeroLeido = (packing.referencia || packing.contenedor || "").trim().toUpperCase();
+      // Sin referencia adentro (S270, S271), la de la carpeta o el nombre.
+      const referencia = packing.referencia || referenciaDeNombre(a.carpeta, a.nombre);
+      const numeroLeido = (referencia || packing.contenedor || "").trim().toUpperCase();
       if (!numeroLeido) {
         if (!/packing/i.test(a.nombre)) {
           await registrar(a, "omitido", "No parece packing list: no trae la referencia del embarque ni el contenedor.");
@@ -200,16 +292,35 @@ export async function sincronizarPackingListsDrive(
         continue;
       }
       // Si el embarque ya está cargado con otro texto ("S259" a mano y
-      // "S259-2026" en el archivo), se trabaja sobre ESE contenedor.
-      const yaCargado = contenedorDelEmbarque(cargados, numeroLeido);
-      const numero = yaCargado?.numero.trim().toUpperCase() || numeroLeido;
+      // "S259-2026" en el archivo), se trabaja sobre ESE contenedor; el ISO
+      // de la naviera manda para no pisar al gemelo de la misma referencia.
+      const eleccion = elegirContenedor(cargados, referencia, packing.contenedor);
+      const yaCargado = eleccion.existente;
+      const numero = eleccion.numero.trim().toUpperCase() || numeroLeido;
       const porReferencia = numeroDeEmbarque(numero);
-      if (esEmbarqueViejo(porReferencia, maximo)) {
+      if (viejo(porReferencia) && !(yaCargado && yaCargado.estado === "borrador")) {
         await registrar(a, "omitido", `${numero} es anterior al último embarque cargado (S${maximo}); no se importa.`);
         r.omitidos.push(`${a.nombre}: ${numero} anterior a S${maximo}`);
         continue;
       }
-      const casado = await casarPackingList(admin, accountId, packing, numero);
+      if (yaCargado && yaCargado.estado === "borrador" && editadoAMano(yaCargado.id)) {
+        if (eleccion.renombrar) {
+          await admin.from("contenedores").update({ numero: eleccion.renombrar }).eq("id", yaCargado.id);
+          yaCargado.numero = eleccion.renombrar;
+          yaCargado.embarque = numeroDeEmbarque(eleccion.renombrar);
+        }
+        // Sin tocar su renglón de la bitácora: sigue diciendo con cuántas cajas
+        // entró desde Drive, que es justo lo que delata el cambio a mano.
+        r.omitidos.push(`${a.nombre}: ${yaCargado.numero} con cambios a mano, no se releyó`);
+        continue;
+      }
+      if (eleccion.renombrar && yaCargado && yaCargado.estado === "borrador") {
+        // Quedó bautizado con el ISO de la naviera: toma la referencia del embarque.
+        await admin.from("contenedores").update({ numero: eleccion.renombrar }).eq("id", yaCargado.id);
+        yaCargado.numero = eleccion.renombrar;
+        yaCargado.embarque = numeroDeEmbarque(eleccion.renombrar);
+      }
+      const casado = await casarPackingList(admin, accountId, packing, yaCargado && yaCargado.estado !== "borrador" ? yaCargado.numero : numero);
       const amarrados = casado.lineas.filter((l) => l.pedidoLineaId && l.cajasAsignar > 0);
       if (!amarrados.length) {
         await registrar(a, "omitido", "Ningún renglón amarra con un pedido de calzado cargado (¿es de fundas, o falta cargar el pedido?).", {
@@ -270,5 +381,92 @@ export async function sincronizarPackingListsDrive(
   if (huboCambios) {
     await invalidar(admin, accountId, "Entraron packing lists desde Drive.").catch(() => undefined);
   }
+  await leerBlsDeContenedores(admin, accountId, cfg, todos, opts, r).catch((err) => {
+    r.errores.push(`BL: ${(err as Error).message.slice(0, 200)}`);
+  });
   return r;
+}
+
+/** Sin BL encontrado, no se vuelve a buscar en la misma carpeta hasta el día siguiente. */
+const HORAS_REINTENTO_BL = 20;
+
+/**
+ * El BL de cada contenedor vivo, de la misma subcarpeta que su packing list
+ * (o la del mismo número de embarque). Se lee una vez; «Releer todo» lo
+ * vuelve a leer. Un PDF que no trae el número de cajas (proforma, factura)
+ * se brinca solo.
+ */
+async function leerBlsDeContenedores(
+  admin: DB,
+  accountId: string,
+  cfg: ReturnType<typeof configDrive>,
+  todos: ArchivoDrive[],
+  opts: { finMs: number; forzar?: boolean },
+  r: ResultadoDrivePacking,
+): Promise<void> {
+  const pdfs = new Map<string, ArchivoDrive[]>();
+  for (const a of todos) {
+    if (!a.carpeta || !puedeSerBl(a.nombre)) continue;
+    const l = pdfs.get(a.carpeta) ?? [];
+    l.push(a);
+    pdfs.set(a.carpeta, l);
+  }
+  if (!pdfs.size) return;
+  const [{ data: conts }, { data: filas }] = await Promise.all([
+    admin
+      .from("contenedores")
+      .select("id, numero, numero_naviera, estado, cajas_bl, bl_leido_en")
+      .eq("account_id", accountId)
+      .neq("estado", "recibido"),
+    admin.from("drive_packing_lists").select("nombre, contenedor_id").eq("account_id", accountId).not("contenedor_id", "is", null),
+  ]);
+  const carpetaDe = new Map<string, string>();
+  for (const f of (filas ?? []) as { nombre: string; contenedor_id: string }[]) {
+    const carpeta = String(f.nombre ?? "").includes("/") ? String(f.nombre).split("/")[0] : null;
+    if (carpeta && !carpetaDe.has(f.contenedor_id)) carpetaDe.set(f.contenedor_id, carpeta);
+  }
+  const carpetas = [...pdfs.keys()];
+  const leidos = new Map<string, string>();
+  for (const c of (conts ?? []) as {
+    id: string;
+    numero: string;
+    numero_naviera: string | null;
+    cajas_bl: number | null;
+    bl_leido_en: string | null;
+  }[]) {
+    if (Date.now() > opts.finMs) break;
+    if (!opts.forzar && c.cajas_bl != null) continue;
+    if (!opts.forzar && c.bl_leido_en && Date.now() - Date.parse(c.bl_leido_en) < HORAS_REINTENTO_BL * 3_600_000) continue;
+    const embarque = numeroDeEmbarque(c.numero);
+    const carpeta =
+      carpetaDe.get(c.id) ?? carpetas.find((k) => embarque != null && numeroDeEmbarque(k) === embarque) ?? null;
+    if (!carpeta || !pdfs.has(carpeta)) continue;
+    let encontrado: { cajas: number; archivo: string } | null = null;
+    for (const a of pdfs.get(carpeta)!) {
+      if (Date.now() > opts.finMs) break;
+      try {
+        let texto = leidos.get(a.id);
+        if (texto == null) {
+          texto = await textoDePdf(await descargarDrive(cfg, a));
+          leidos.set(a.id, texto);
+        }
+        const cajas = cajasDelBl(leerBl(texto), c.numero_naviera);
+        if (cajas) {
+          encontrado = { cajas, archivo: `${carpeta}/${a.nombre}` };
+          break;
+        }
+      } catch {
+        /* un PDF ilegible no es el BL; se prueba el siguiente */
+      }
+    }
+    await admin
+      .from("contenedores")
+      .update(
+        encontrado
+          ? { cajas_bl: encontrado.cajas, bl_archivo: encontrado.archivo, bl_leido_en: new Date().toISOString() }
+          : { bl_leido_en: new Date().toISOString() },
+      )
+      .eq("id", c.id);
+    if (encontrado) r.bls.push(`${c.numero}: ${encontrado.cajas} cajas (${encontrado.archivo})`);
+  }
 }
