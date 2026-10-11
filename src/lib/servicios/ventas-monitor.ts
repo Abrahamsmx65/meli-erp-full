@@ -153,8 +153,10 @@ const VIDA_CACHE_MONITOR_MS = 60_000;
 /**
  * Cuánto vive el monitor guardado antes de refrescarse por atrás. La ficha
  * de «Hoy» va dentro, así que aunque el rango ya haya cerrado no se congela.
+ * Tres minutos desde la 0138: las ventas por día ya están sumadas en la base
+ * y el recálculo de fondo es barato.
  */
-export const VIDA_MONITOR_GUARDADO_MS = 10 * 60_000;
+export const VIDA_MONITOR_GUARDADO_MS = 3 * 60_000;
 
 export const claveMonitorVentas = (r: RangoFechas): string => `ventas-monitor:${r.desde}:${r.hasta}`;
 

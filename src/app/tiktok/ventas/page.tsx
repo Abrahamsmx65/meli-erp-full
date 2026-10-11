@@ -77,7 +77,7 @@ export default async function VentasTikTok({
   } = t;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="TikTok Shop"
         titulo="Ventas TikTok Shop"

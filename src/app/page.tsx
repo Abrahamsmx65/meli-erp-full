@@ -149,7 +149,7 @@ export default async function Inicio() {
   const maxVenta = Math.max(1, ...canales.map((k) => k.ventaBruta));
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja={fechaLarga()}
         cejaFija
