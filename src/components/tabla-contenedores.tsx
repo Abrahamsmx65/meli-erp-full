@@ -133,6 +133,23 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     }
   }
 
+  /** Solo borradores: un contenedor que llegó de Drive por error (duplicado, proforma). */
+  async function borrar(c: Contenedor) {
+    if (!window.confirm(`¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)? Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.`)) return;
+    setOcupado(c.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/contenedores?id=${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo borrar.");
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   async function confirmarLlegada(c: Contenedor) {
     const seguro = window.confirm(
       `¿Confirmar que el contenedor ${c.numero} ya llegó (${n(c.cajas)} cajas)? ` +
@@ -442,6 +459,17 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               title="Lo revisaste y está bien: pasa a en tránsito"
                             >
                               {ocupado === c.id ? "…" : "Confirmar"}
+                            </button>
+                          ) : null}
+                          {c.estado === "borrador" ? (
+                            <button
+                              onClick={() => borrar(c)}
+                              disabled={ocupado === c.id}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                              style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
+                              title="Quita este borrador y sus renglones"
+                            >
+                              Borrar
                             </button>
                           ) : null}
                           {c.estado !== "recibido" ? (

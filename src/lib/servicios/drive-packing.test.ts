@@ -16,7 +16,8 @@ describe("qué packing lists de Drive se importan", () => {
   it("las facturas y pedidos de la misma carpeta no son packing list", () => {
     expect(esArchivoAjeno("S261-2026 Invoice (HMMU6173610).xls")).toBe(true);
     expect(esArchivoAjeno("S261-2026 Packing List (IN10079-5) (HMMU6173610).xls")).toBe(false);
-    expect(esArchivoAjeno("IN10079 (UGG) revised on May 19.xls")).toBe(false);
+    // La proforma del pedido viaja en la misma carpeta y NO es packing list (11-oct-2026).
+    expect(esArchivoAjeno("IN10079 (UGG) revised on May 19.xls")).toBe(true);
   });
 
   it("saca el número de embarque del nombre o de la referencia", () => {
@@ -66,5 +67,26 @@ describe("qué packing lists de Drive se importan", () => {
     expect(puedeSerBl("TELEX-HDMUSHAZLC703700 (S261-2026).pdf")).toBe(true);
     expect(puedeSerBl("PI JH2026925 (IN10118) revised on July 14.pdf")).toBe(false);
     expect(puedeSerBl("S260-2026 Packing List.xls")).toBe(false);
+  });
+
+  it("las proformas de los pedidos de la misma carpeta no son packing list (11-oct-2026)", () => {
+    expect(esArchivoAjeno("IN10148 (GT114).xls")).toBe(true);
+    expect(esArchivoAjeno("IN10167 (GT135) Soild size.xls")).toBe(true);
+    expect(esArchivoAjeno("AR10137 (GT148G).xls")).toBe(true);
+    expect(esArchivoAjeno("Payment of S266-2026 (IN10133).xls")).toBe(true);
+    expect(esArchivoAjeno("(Internet) 82157 Courier bag (60x70).xls")).toBe(true);
+    expect(esArchivoAjeno("S271-2026 (HAMU5029953).xls")).toBe(false);
+    expect(esArchivoAjeno("S263-2026 PACKING LIST (UETU5682034).xls")).toBe(false);
+  });
+
+  it("el ISO manda sobre la referencia: un duplicado con la misma S no se lleva el packing list", () => {
+    const lista = [
+      { id: "dup", numero: "S263-2026", estado: "borrador", embarque: 263, naviera: null },
+      { id: "real", numero: "UETU5682034", estado: "borrador", embarque: null, naviera: "UETU5682034" },
+    ];
+    const e = elegirContenedor(lista, "S263-2026", "UETU5682034");
+    expect(e.existente?.id).toBe("real");
+    // No se renombra encima de otro contenedor que ya se llama así.
+    expect(e.renombrar).toBeNull();
   });
 });

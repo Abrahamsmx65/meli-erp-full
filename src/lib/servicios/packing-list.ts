@@ -18,6 +18,7 @@ import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
 import { invalidar } from "./cache";
 import { invalidarInventario } from "./inventario";
+import { recalcularEstadoPedido } from "./pedidos";
 
 export type EstadoCasado =
   | "ok"
@@ -602,6 +603,7 @@ export async function aplicarPackingList(
   accountId: string,
   casado: PackingCasado,
   datos: Omit<DatosContenedor, "numero">,
+  opciones: { reemplazar?: boolean } = {},
 ): Promise<{
   contenedorId: string;
   numero: string;
@@ -648,6 +650,25 @@ export async function aplicarPackingList(
     { ...datos, numero: casado.numero },
     [...porLinea.entries()].map(([pedidoLineaId, x]) => ({ pedidoLineaId, ...x })),
   );
+
+  // Rearmar desde el archivo: los renglones que el archivo ya no trae se van
+  // (asignar solo agrega o actualiza). Los pedidos que pierden cajas se recalculan.
+  if (opciones.reemplazar) {
+    const { data: viejas } = await db
+      .from("contenedor_lineas")
+      .select("pedido_linea_id")
+      .eq("contenedor_id", r.contenedorId);
+    const sobran = ((viejas ?? []) as { pedido_linea_id: string }[])
+      .map((v) => v.pedido_linea_id)
+      .filter((id) => !porLinea.has(id));
+    if (sobran.length) {
+      await db.from("contenedor_lineas").delete().eq("contenedor_id", r.contenedorId).in("pedido_linea_id", sobran);
+      const { data: pedidos } = await db.from("pedido_lineas").select("pedido_id").in("id", sobran);
+      for (const pid of new Set(((pedidos ?? []) as { pedido_id: string }[]).map((p) => p.pedido_id))) {
+        await recalcularEstadoPedido(db, pid).catch(() => undefined);
+      }
+    }
+  }
 
   // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
   // el borrador, elija el renglón del pedido que sí es y lo confirme ahí.
