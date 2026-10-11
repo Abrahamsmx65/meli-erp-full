@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ErrorOperacionCacheApp,
   conCacheApp,
+  convieneEsperar,
   guardarCacheApp,
   invalidarApp,
   leerCacheApp,
@@ -130,5 +131,15 @@ describe("escrituras de app_cache", () => {
     const fallo = await invalidarApp(db, "cuenta", "motivo").catch((e) => e);
     expect(fallo).toBeInstanceOf(ErrorOperacionCacheApp);
     expect(fallo).toMatchObject({ operacion: "invalidar", tipo });
+  });
+});
+
+describe("convieneEsperar", () => {
+  it("espera el recálculo solo si esa clave suele calcularse rápido", () => {
+    expect(convieneEsperar(900)).toBe(true);
+    expect(convieneEsperar(4_000)).toBe(true);
+    expect(convieneEsperar(22_000)).toBe(false);
+    expect(convieneEsperar(null)).toBe(false);
+    expect(convieneEsperar(undefined)).toBe(false);
   });
 });

@@ -95,16 +95,22 @@ export async function servirVariosCanalesConFecha(
 }
 
 /**
- * Deja listas en el latido las series que más se abren (7 y 30 días de
- * calzado y TikTok, que cuelgan de la cuenta de MELI) cuando están por
+ * Deja listas en el latido las series de los atajos del filtro de fechas
+ * (calzado y TikTok, que cuelgan de la cuenta de MELI) cuando están por
  * vencer; fundas y Amazon tardan menos de un segundo y se calculan solas.
  */
 export async function precalcularVentasTiempo(admin: DB, meliAccountId: string, limite: number, hoy: string): Promise<void> {
   const menos = (dias: number) => new Date(Date.parse(`${hoy}T12:00:00Z`) - dias * 86_400_000).toISOString().slice(0, 10);
+  // Los atajos del filtro de fechas: 7 y 30 días primero (Inicio y Ventas por
+  // omisión), luego Este mes, 15 días, Hoy y Ayer.
   const rangos = [
     { desde: menos(6), hasta: hoy },
     { desde: menos(29), hasta: hoy },
-  ];
+    { desde: `${hoy.slice(0, 7)}-01`, hasta: hoy },
+    { desde: menos(14), hasta: hoy },
+    { desde: hoy, hasta: hoy },
+    { desde: menos(1), hasta: menos(1) },
+  ].filter((r, i, todos) => todos.findIndex((x) => x.desde === r.desde && x.hasta === r.hasta) === i);
   for (const rango of rangos) {
     for (const canal of ["meli_calzado", "tiktok"] as const) {
       if (Date.now() > limite) return;

@@ -1936,6 +1936,19 @@ guárdala numerada.
   2 min mientras se ven y al volver a la pestaña (`<Pagina vivo>`,
   `components/ui/actualizacion-viva.tsx`). Sin disparadores de `delete` a
   propósito: el MCP pide confirmación por esa palabra y se cuelga.
+  **Y una pantalla vieja ya no se enseña vieja si el cálculo es rápido**
+  (`servirConCacheApp`, `convieneEsperar`, `ESPERA_FRESCO_MS` 2.5 s,
+  `CALCULO_RAPIDO_MS` 4 s; 11-oct-2026, dueño: «picó y me sale datos de hace
+  23 minutos, y cambio de fechas y toma como 3 segundos»): el recálculo de un
+  renglón viejo arranca en el acto y, si el último cálculo de esa clave tardó
+  ≤ 4 s (`app_cache.ms_calculo`), la pantalla lo espera hasta 2.5 s; si no
+  llega, sirve lo guardado y lo termina en `after()` como antes. Lo lento
+  (Productos nuevos, 10–20 s) sigue sirviendo lo guardado al instante. Y el
+  latido deja masticados TODOS los atajos del filtro de fechas
+  (`rangosDeAtajos`: 7 días, Hoy, 30 días, Este mes, 15 días, Ayer): monitor,
+  publicidad y finanzas de Ventas y las series de la gráfica, no solo 7 y 30
+  días; picar un atajo es leer un renglón. Un rango a mano sigue calculándose
+  en el clic (~1–3 s).
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de

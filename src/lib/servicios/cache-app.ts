@@ -21,6 +21,8 @@ export interface GuardadoApp<T> {
   datos: T;
   generadoEn: string;
   vigente: boolean;
+  /** cuánto tardó el último cálculo (null si no se anotó) */
+  msCalculo?: number | null;
 }
 
 export type ResultadoLecturaCache<T> = ResultadoLecturaDatos<T>;
@@ -39,7 +41,7 @@ export async function leerCacheAppGuardado<T>(
   try {
     const { data, error } = await db
       .from("app_cache")
-      .select("datos, vigente, generado_en")
+      .select("datos, vigente, generado_en, ms_calculo")
       .eq("account_id", accountId)
       .eq("clave", clave)
       .maybeSingle();
@@ -51,6 +53,7 @@ export async function leerCacheAppGuardado<T>(
         datos: revivirTipos(data.datos) as T,
         generadoEn: data.generado_en,
         vigente: data.vigente !== false,
+        msCalculo: data.ms_calculo == null ? null : Number(data.ms_calculo),
       },
     };
   } catch (error) {
@@ -132,15 +135,38 @@ export async function conCacheApp<T>(
 }
 
 /**
+ * Cuánto espera la pantalla el recálculo de un renglón viejo antes de servir
+ * lo guardado (dueño, 11-oct-2026: «picó y me sale datos de hace 23 minutos»).
+ * Solo se espera si el último cálculo de esa clave tardó menos que
+ * `CALCULO_RAPIDO_MS`: Ventas, Publicidad y las gráficas tardan 0.1–2.5 s
+ * desde la 0138; Productos nuevos (10–20 s) sigue sirviendo lo guardado al
+ * instante y refrescando por atrás.
+ */
+export const ESPERA_FRESCO_MS = 2_500;
+export const CALCULO_RAPIDO_MS = 4_000;
+
+/** ¿Vale la pena esperar el recálculo en el clic? (puro, con pruebas) */
+export function convieneEsperar(msCalculo: number | null | undefined): boolean {
+  return msCalculo != null && msCalculo <= CALCULO_RAPIDO_MS;
+}
+
+/**
  * Para PANTALLAS: sirve el renglón guardado aunque esté viejo o invalidado y
- * lo refresca por atrás con `after()` (regla de arquitectura: calcular en el
- * clic solo cuando NO existe ningún renglón). `conCacheApp` calculaba en el
- * clic cada vez que vencía el TTL: Planificación China tardaba 10–60 s la
- * primera vez de cada media hora.
+ * lo refresca (regla de arquitectura: calcular en el clic SIN tope solo
+ * cuando NO existe ningún renglón). `conCacheApp` calculaba en el clic cada
+ * vez que vencía el TTL: Planificación China tardaba 10–60 s la primera vez
+ * de cada media hora.
+ *
+ * El recálculo arranca EN EL ACTO y, si esa clave suele calcularse rápido
+ * (`convieneEsperar`), la pantalla lo espera hasta `ESPERA_FRESCO_MS`: lo
+ * normal es que llegue el dato de ahora y no el de hace media hora. Si no
+ * alcanza, se sirve lo guardado, se marca «Actualizando datos…» y el
+ * cálculo termina en `after()`.
  *
  * El refresco lleva candado por clave (`cache:<clave>`): diez visitas a la
- * vez lanzan UN recálculo, no diez. Fuera de un request (pruebas, scripts)
- * no hay fondo y lo guardado sirve igual.
+ * vez lanzan UN recálculo, no diez; las que no lo toman sirven lo guardado.
+ * Fuera de un request (pruebas, scripts) no hay fondo y lo guardado sirve
+ * igual.
  */
 export async function servirConCacheApp<T>(
   db: DB,
@@ -164,45 +190,71 @@ export async function servirConCacheApp<T>(
     return { datos, generadoEn: new Date().toISOString(), refrescando: false };
   }
 
-  const { datos, generadoEn, vigente } = guardado.valor;
+  const { datos, generadoEn, vigente, msCalculo } = guardado.valor;
   const viejo = !vigente || Date.now() - Date.parse(generadoEn) > edadMaxMs;
   if (!viejo) return { datos, generadoEn, refrescando: false };
-  marcarRefrescando();
 
+  let after: ((tarea: () => Promise<unknown>) => void) | null = null;
   try {
-    const { after } = await import("next/server");
-    after(async () => {
-      const recurso = `cache:${clave}`.slice(0, 120);
-      // El candado vive en una tabla sin políticas: se toma con service_role.
-      let admin: DB | null = null;
-      let token: string | null = null;
-      try {
-        const { clienteAdmin } = await import("../supabase/admin");
-        admin = clienteAdmin() as DB;
-        const { adquirirCandado } = await import("../datos/repos");
-        token = await adquirirCandado(admin, accountId, recurso, 300);
-      } catch {
-        token = "sin-candado";
-      }
-      if (!token) return; // otro request ya lo está recalculando
-      try {
-        await recalc();
-      } catch (err) {
-        console.error(`cache ${clave}: refresco de fondo:`, (err as Error).message);
-      } finally {
-        if (token !== "sin-candado" && admin) {
-          try {
-            const { liberarCandado } = await import("../datos/repos");
-            await liberarCandado(admin, accountId, recurso, token);
-          } catch {
-            // vence solo por TTL
-          }
+    after = (await import("next/server")).after;
+  } catch {
+    after = null;
+  }
+  // Sin contexto de request no hay quién termine el trabajo: lo guardado sirve.
+  if (!after) {
+    marcarRefrescando();
+    return { datos, generadoEn, refrescando: true };
+  }
+
+  const recurso = `cache:${clave}`.slice(0, 120);
+  const trabajo = (async (): Promise<T | null> => {
+    // El candado vive en una tabla sin políticas: se toma con service_role.
+    let admin: DB | null = null;
+    let token: string | null = null;
+    try {
+      const { clienteAdmin } = await import("../supabase/admin");
+      admin = clienteAdmin() as DB;
+      const { adquirirCandado } = await import("../datos/repos");
+      token = await adquirirCandado(admin, accountId, recurso, 300);
+    } catch {
+      token = "sin-candado";
+    }
+    if (!token) return null; // otro request ya lo está recalculando
+    try {
+      return await recalc();
+    } catch (err) {
+      console.error(`cache ${clave}: refresco de fondo:`, (err as Error).message);
+      return null;
+    } finally {
+      if (token !== "sin-candado" && admin) {
+        try {
+          const { liberarCandado } = await import("../datos/repos");
+          await liberarCandado(admin, accountId, recurso, token);
+        } catch {
+          // vence solo por TTL
         }
       }
-    });
+    }
+  })();
+  try {
+    after(() => trabajo);
   } catch {
-    // Sin contexto de request: lo guardado sirve igual.
+    // `after` fuera de un request: el trabajo sigue corriendo igual.
   }
+
+  if (convieneEsperar(msCalculo)) {
+    let reloj: ReturnType<typeof setTimeout> | undefined;
+    const fresco = await Promise.race([
+      trabajo,
+      new Promise<null>((ok) => {
+        reloj = setTimeout(() => ok(null), ESPERA_FRESCO_MS);
+      }),
+    ]);
+    if (reloj) clearTimeout(reloj);
+    if (fresco !== null) return { datos: fresco, generadoEn: new Date().toISOString(), refrescando: false };
+  }
+
+  marcarRefrescando();
   return { datos, generadoEn, refrescando: true };
 }
 
