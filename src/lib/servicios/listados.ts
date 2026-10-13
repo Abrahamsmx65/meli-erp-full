@@ -52,6 +52,9 @@ export interface ItemCrudo {
   /** publicaciones del modelo user products (MLMU…): los atributos del
    *  producto viven en /user-products/{id}, no en el item */
   user_product_id?: string | null;
+  /** nombre de familia de user products: MELI junta en UNA página las
+   *  publicaciones que lo comparten (y arma el título con él) */
+  family_name?: string | null;
   attributes?: AtributoCrudo[];
   variations?: VariacionCruda[];
 }
@@ -220,9 +223,23 @@ export function aplanarItem(
     permalink: item.permalink ?? null,
     precio: item.price ?? null,
     color: filaItem?.color ?? (colores.size === 1 ? [...colores][0] : null),
-    atributos: aValores(item.attributes),
+    atributos: [...atributoFamilia(item), ...aValores(item.attributes)],
     variantes,
   };
+}
+
+/**
+ * El nombre de familia no es un atributo de MELI, pero es lo que más parte
+ * una página de user products: la Edad (AGE_GROUP) es read_only y no cuenta,
+ * y GT251 (13-oct-2026) quedó en dos páginas porque una talla se llamaba
+ * «Botín Tipo Chelsea…» y las otras siete «Botas Chelsea…». Se enseña como
+ * atributo para compararlo y unificarlo con el mismo botón.
+ */
+export const ATRIBUTO_FAMILIA = "FAMILY_NAME";
+
+function atributoFamilia(item: ItemCrudo): ValorAtributo[] {
+  if (!item.family_name) return [];
+  return [{ id: ATRIBUTO_FAMILIA, nombre: "Nombre de familia (título)", valor: item.family_name, valueId: null }];
 }
 
 /**
@@ -353,6 +370,15 @@ export function armarPlanUnificacion(
   // resolved from attributes database" (visto en producción con MATERIALS,
   // que es multivalor). El nombre MELI sí lo resuelve contra su catálogo, y
   // si es un valor custom que las hermanas ya traen, lo acepta igual.
+  if (atributoId === ATRIBUTO_FAMILIA) {
+    // MELI solo lo deja cambiar si ninguna venta del user product existe;
+    // si no, contesta el error y la pantalla lo enseña.
+    const igual = (item.family_name ?? "").trim() === valor.trim();
+    return igual
+      ? { itemId: item.id, cuerpo: null, niveles: [] }
+      : { itemId: item.id, cuerpo: { family_name: valor.trim() }, niveles: ["publicacion"] };
+  }
+
   const objetivo: Record<string, unknown> = { id: atributoId, value_name: valor };
 
   const coincide = (a: AtributoCrudo): boolean =>
@@ -654,7 +680,7 @@ async function verificarOEscribirEnUserProduct(
   }
 
   const up = releido.user_product_id ?? item.user_product_id ?? null;
-  if (!up) {
+  if (!up || atributoId === ATRIBUTO_FAMILIA) {
     return {
       itemId,
       estado: "error",
