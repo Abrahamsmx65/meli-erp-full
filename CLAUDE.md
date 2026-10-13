@@ -263,6 +263,14 @@ guárdala numerada.
   pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
   viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
   622 de calzado + 35 de bolsas = 657 del BL).
+  **BORRAR un contenedor es para volver a armarlo desde Drive**
+  (`ESTADO_RELEER`; 13-oct-2026: el dueño corrigió el S265 en Drive, lo
+  borró junto con el S271 y «Traer de Drive» ya no los traía): el borrado
+  deja sus archivos en `drive_packing_lists.estado = 'releer'`, la siguiente
+  pasada los lee aunque no hayan cambiado y su embarque entra aunque sea
+  anterior al último cargado. Un borrador corregido a mano NO toma los
+  cambios del archivo (solo agrega renglones nuevos); para que los tome hay
+  que borrarlo y traerlo de Drive.
   **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
   packing list** (`esArchivoAjeno`: lo que se llama por su pedido
   «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la
