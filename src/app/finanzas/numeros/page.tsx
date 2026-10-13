@@ -4,6 +4,7 @@ import { listarNumeros } from "@/lib/servicios/numeros";
 import { servirConCacheApp } from "@/lib/servicios/cache-app";
 import { CLAVE_TARIFAS, EDAD_TARIFAS_MS, calcularTarifasReales, type TarifasGuardadas } from "@/lib/servicios/tarifas-reales";
 import { TablaNumeros } from "@/components/numeros";
+import { PreciosNumeros } from "@/components/precios-numeros";
 import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +40,9 @@ export default async function Numeros() {
           {conCatalogo} modelos no tienen contenedor costeado y usan el costo de Catálogo y costos.
         </Aviso>
       ) : null}
+      <Seccion titulo="Llevar precios a MELI y Amazon" sinRelleno>
+        <PreciosNumeros />
+      </Seccion>
       <Seccion sinRelleno>
         <div className="p-3">
           <TablaNumeros renglones={renglones} />
