@@ -64,6 +64,9 @@ export function cambio(a: ArchivoDrive, g: FilaGuardada | undefined): boolean {
   return nuevo !== previo;
 }
 
+/** Archivo de un contenedor que se borró: se vuelve a leer en la siguiente pasada. */
+export const ESTADO_RELEER = "releer";
+
 /** "S259-2026 PACKING LIST.xlsx" → 259; "S 260" → 260; sin forma de embarque → null. */
 export function numeroDeEmbarque(texto: string | null | undefined): number | null {
   const m = (texto ?? "").toUpperCase().match(/(?:^|[^A-Z0-9])S\s*-?\s*(\d{2,4})(?![0-9])/);
@@ -204,8 +207,12 @@ export async function sincronizarPackingListsDrive(
   const borradores = new Set(cargados.filter((c) => c.estado === "borrador").map((c) => c.id));
   const embarquesBorrador = new Set<number>();
   for (const c of cargados) if (c.estado === "borrador" && c.embarque != null) embarquesBorrador.add(c.embarque);
-  for (const g of (guardadas ?? []) as { nombre: string | null; contenedor_id: string | null }[]) {
-    const n = g.contenedor_id && borradores.has(g.contenedor_id) ? numeroDeEmbarque(String(g.nombre ?? "").split("/")[0]) : null;
+  for (const g of (guardadas ?? []) as { nombre: string | null; contenedor_id: string | null; estado: string }[]) {
+    // Un contenedor BORRADO desde la pantalla deja sus archivos en «releer»:
+    // su embarque vuelve a entrar aunque sea anterior al último cargado
+    // (S265 y S271 el 13-oct-2026: se borraron y «Traer de Drive» ya no los traía).
+    const delBorrador = g.contenedor_id && borradores.has(g.contenedor_id);
+    const n = delBorrador || g.estado === ESTADO_RELEER ? numeroDeEmbarque(String(g.nombre ?? "").split("/")[0]) : null;
     if (n != null) embarquesBorrador.add(n);
   }
   const viejo = (n: number | null) => esEmbarqueViejo(n, maximo) && !(n != null && embarquesBorrador.has(n));
@@ -253,7 +260,7 @@ export async function sincronizarPackingListsDrive(
   const finPacking = opts.finMs - 45_000;
   for (const a of archivos) {
     if (Date.now() > finPacking) break;
-    if (!opts.forzar && !cambio(a, previa.get(a.id))) continue;
+    if (!opts.forzar && previa.get(a.id)?.estado !== ESTADO_RELEER && !cambio(a, previa.get(a.id))) continue;
     // Por la subcarpeta o el nombre, sin descargar: un embarque anterior al
     // último cargado no se toca.
     const porNombre = numeroDeEmbarque(a.carpeta) ?? numeroDeEmbarque(a.nombre);

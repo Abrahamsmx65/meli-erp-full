@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { recalcularEstadoPedido } from "@/lib/servicios/pedidos";
 import { invalidar } from "@/lib/servicios/cache";
 import { invalidarInventario } from "@/lib/servicios/inventario";
+import { ESTADO_RELEER } from "@/lib/servicios/drive-packing";
 
 export const dynamic = "force-dynamic";
 
@@ -267,7 +268,13 @@ export async function DELETE(req: NextRequest) {
 
   const { error: e1 } = await c.supabase.from("contenedor_lineas").delete().eq("contenedor_id", id);
   if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
-  await c.supabase.from("drive_packing_lists").update({ contenedor_id: null }).eq("contenedor_id", id);
+  // Sus archivos de Drive se vuelven a leer en la siguiente «Traer de Drive»
+  // aunque no hayan cambiado y aunque el embarque sea viejo: borrar es para
+  // volver a armarlo desde el archivo.
+  await c.supabase
+    .from("drive_packing_lists")
+    .update({ contenedor_id: null, estado: ESTADO_RELEER, motivo: `Se borró ${contenedor.numero}: se vuelve a leer de Drive.` })
+    .eq("contenedor_id", id);
   const { error: e2 } = await c.supabase.from("contenedores").delete().eq("id", id).eq("account_id", c.cuenta.id);
   if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
 
