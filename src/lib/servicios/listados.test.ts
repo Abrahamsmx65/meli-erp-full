@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aplanarItem,
+  ATRIBUTO_FAMILIA,
   armarPlanUnificacion,
   armarCuerpoUserProduct,
   calcularDiferencias,
@@ -309,5 +310,26 @@ describe("armarCuerpoUserProduct", () => {
     const c = armarCuerpoUserProduct(atributos, "GENDER", "Unisex") as { attributes: Record<string, unknown>[] };
     expect(c.attributes.filter((a) => a.id === "GENDER")).toEqual([{ id: "GENDER", value_name: "Unisex" }]);
     expect(armarCuerpoUserProduct(atributos, "GENDER", "Mujer")).toBeNull();
+  });
+});
+
+describe("nombre de familia (user products)", () => {
+  const item = (id: string, familia: string) => ({ id, family_name: familia, attributes: [] });
+
+  it("se compara como atributo y parte el selector cuando difiere (GT251)", () => {
+    const grupo = [
+      aplanarItem(item("MLM1", "Botas Chelsea Mujer Ajuste Elástico Con Cierre Confort")),
+      aplanarItem(item("MLM2", "Botín Tipo Chelsea Mujer Ajuste Elástico Con Cierre Confort")),
+    ];
+    const d = calcularDiferencias(grupo).find((x) => x.atributoId === ATRIBUTO_FAMILIA);
+    expect(d?.esperada).toBe(false);
+    expect(d?.valores).toHaveLength(2);
+  });
+
+  it("se unifica mandando family_name y nada más", () => {
+    const valor = "Botas Chelsea Mujer Ajuste Elástico Con Cierre Confort";
+    const plan = armarPlanUnificacion(item("MLM2", "Botín Tipo Chelsea"), ATRIBUTO_FAMILIA, valor);
+    expect(plan.cuerpo).toEqual({ family_name: valor });
+    expect(armarPlanUnificacion(item("MLM1", valor), ATRIBUTO_FAMILIA, valor).cuerpo).toBeNull();
   });
 });
