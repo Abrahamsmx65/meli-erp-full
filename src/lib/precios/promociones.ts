@@ -68,6 +68,10 @@ export function aporteMeli(p: PromoMeli): number {
  */
 export function cruzaEnvioPorAporte(p: PromoMeli, nuevo: number | null): boolean {
   if (nuevo == null || nuevo >= UMBRAL_ENVIO_VENDEDOR) return false;
+  // MELI NO manda el aporte en las candidatas (Buen Fin 26 de GT266 llegó
+  // sin `meli_percentage`, 14-oct-2026): Buen Fin trae aporte de MELI, así
+  // que abajo de $299 se deja el precio propio aunque no venga el dato.
+  if (clasificarPromo(p) === "buen_fin") return true;
   const aporte = aporteMeli(p);
   return aporte > 0 && nuevo + aporte >= UMBRAL_ENVIO_VENDEDOR;
 }
