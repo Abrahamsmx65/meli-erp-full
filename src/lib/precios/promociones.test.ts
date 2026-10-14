@@ -36,10 +36,10 @@ describe("planDePromo", () => {
     expect(planDePromo("MLM1", { id: "P3", type: "LIGHTNING", status: "candidate" }, obj).accion).toBe("inscribir");
   });
 
-  it("respeta el rango de MELI y no toca lo ajeno", () => {
-    expect(
-      planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "candidate", max_discounted_price: 560 }, obj).accion,
-    ).toBe("fuera_de_rango");
+  it("fuera del rango de MELI solo avisa (MELI decide) y no toca lo ajeno", () => {
+    const r = planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "candidate", max_discounted_price: 560 }, obj);
+    expect(r.accion).toBe("inscribir");
+    expect(r.fueraDeRango).toBe(true);
     expect(planDePromo("MLM1", { id: "P9", type: "DEAL", name: "Hot Sale", status: "started", price: 1 }, obj).accion).toBe("no_se_toca");
   });
 

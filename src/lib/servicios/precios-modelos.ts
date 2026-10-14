@@ -285,10 +285,6 @@ export async function confirmarRelampagosPendientes(
   for (const r of revision.meli) {
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
     const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
-    if (r.accion === "fuera_de_rango") {
-      omitidas.push(`${donde}: $${r.nuevo?.toFixed(2)} fuera del rango de MELI (${r.minimo ?? "?"}–${r.maximo ?? "?"})`);
-      continue;
-    }
     if (r.accion !== "inscribir" || r.nuevo == null) continue;
     if (r.stockMin == null) {
       omitidas.push(`${donde}: MELI no dijo el mínimo de pares a reservar`);
