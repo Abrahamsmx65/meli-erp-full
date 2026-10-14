@@ -70,6 +70,7 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
   const [form, setForm] = useState<Record<string, string>>({});
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [avisosBodega, setAvisosBodega] = useState<{ numero: string; avisos: string[] } | null>(null);
 
   function abrirEdicion(c: Contenedor) {
     setEditando(c.id);
@@ -135,6 +136,32 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
     }
   }
 
+  /**
+   * Los dos archivos para avisarle a la bodega lo que llega: alta de
+   * PRODUCTOS (sin lo que ya viajó en otro contenedor) y PACKING LIST.
+   */
+  async function bajarBodega(c: Contenedor, archivo: "productos" | "packing") {
+    setOcupado(c.id);
+    setError(null);
+    setAvisosBodega(null);
+    try {
+      const r = await fetch(`/api/contenedores/${c.id}/bodega?archivo=${archivo}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo armar el archivo.");
+      const url = URL.createObjectURL(new Blob([j.csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = j.nombre;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (j.avisos?.length) setAvisosBodega({ numero: c.numero, avisos: j.avisos });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   /** Solo borradores: un contenedor que llegó de Drive por error (duplicado, proforma). */
   async function borrar(c: Contenedor) {
     if (!window.confirm(`¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)? Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.`)) return;
@@ -182,6 +209,16 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
         <p className="px-3 pt-3 text-sm" style={{ color: "var(--estado-critico)" }}>
           {error}
         </p>
+      ) : null}
+      {avisosBodega ? (
+        <div className="px-3 pt-3 text-sm" style={{ color: "var(--estado-alerta)" }}>
+          <p className="font-medium">Archivo de bodega de {avisosBodega.numero}:</p>
+          <ul className="list-disc pl-5">
+            {avisosBodega.avisos.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="overflow-auto">
@@ -487,6 +524,22 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                           >
                             Packing list
                           </a>
+                          <button
+                            onClick={() => bajarBodega(c, "productos")}
+                            disabled={ocupado === c.id}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
+                            title="Alta de productos para la bodega (sin los que ya venían en un contenedor anterior)"
+                          >
+                            Bodega: productos
+                          </button>
+                          <button
+                            onClick={() => bajarBodega(c, "packing")}
+                            disabled={ocupado === c.id}
+                            className="boton boton-borde boton-chico disabled:opacity-50"
+                            title="Lo que llega en este contenedor, para la bodega"
+                          >
+                            Bodega: llegada
+                          </button>
                           <button
                             onClick={() => compartirDocumentos(c)}
                             disabled={ocupado === c.id}
