@@ -423,6 +423,14 @@ export const COBERTURA_CORTA_DIAS = 14;
 /** Arriba de esto hay capital parado: espacio para invertir en ads. */
 export const COBERTURA_LARGA_DIAS = 45;
 
+/**
+ * TACOS ideal = tope: la publicidad nunca debe pasar del 10 % de la venta
+ * total del modelo (regla del dueño, 14-oct-2026: «el TACOS ideal que
+ * tenemos es 10 %, no hay que gastar más que eso»). Arriba se pide bajar
+ * aunque el margen aguante; subir solo llega hasta ahí.
+ */
+export const TACOS_TOPE = 0.1;
+
 /** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
 export const MAX_NUEVOS_SIN_ANUNCIO = 10;
 
@@ -459,8 +467,9 @@ export const GRUPOS_ACCION: { acciones: AccionSugerida[]; titulo: string }[] = [
  * 2. Anuncio pausado con el stock ya repuesto -> ENCENDER.
  * 3. Gasta sin vender, en un modelo que YA vendía antes -> APAGAR (un
  *    lanzamiento nuevo está en rampa, a ese no se le dice nada).
- * 4. Los ads se llevan más que el margen -> BAJAR, con el ACOS objetivo sano.
- * 5. Mucho stock y ads usando menos de la mitad del margen -> SUBIR.
+ * 4. Los ads pasan del 10 % de la venta (`TACOS_TOPE`) o del margen -> BAJAR,
+ *    con el gasto al día que deja el modelo en el tope.
+ * 5. Mucho stock y ads en menos de la mitad del tope -> SUBIR, hasta el tope.
  * 6. Producto NUEVO (no vendía antes del periodo) con stock en Full y sin
  *    anuncio -> ACTIVAR, aunque todavía venda poco (hasta 10, por stock).
  * 7. Vende solo, con stock de sobra y sin anuncio -> ACTIVAR (candidato).
@@ -491,7 +500,10 @@ export function armarRecomendaciones(opts: {
   coberturaLarga?: number;
   /** dónde se crea el anuncio, para el texto */
   consola?: string;
+  /** TACOS máximo (publicidad ÷ venta total); por omisión `TACOS_TOPE` */
+  tacosTope?: number;
 }): RecomendacionAds[] {
+  const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
   const almacen = opts.almacen ?? "Full";
   const unidad = opts.unidad ?? "pares";
@@ -582,36 +594,46 @@ export function armarRecomendaciones(opts: {
       continue;
     }
 
-    // 4. Los ads se comen más que el margen.
-    if (margen != null && f.tacos != null && f.gastoAds > 0 && f.tacos > margen) {
-      const acosSano = Math.round(margen * 100);
+    // 4. Los ads pasan del tope de TACOS (10 % de la venta, regla del
+    // dueño) o se comen el margen: bajar. El tope manda aunque el margen
+    // aguante; sin costo capturado, también.
+    const tope = margen != null ? Math.min(margen, tacosTope) : tacosTope;
+    if (f.tacos != null && f.gastoAds > 0 && f.tacos > tope) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaSano = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
+      const sinMargen = margen != null && f.tacos > margen;
       agregar(
         {
           modelo: f.modelo,
           accion: "bajar",
-          queHacer: `Bajar el gasto: ACOS objetivo a ${acosSano}% (ROAS ${(1 / margen).toFixed(1)})`,
-          razon: `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen)}: cada venta por publicidad sale con pérdida.`,
+          queHacer: `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)`,
+          razon: sinMargen
+            ? `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen!)}: cada venta por publicidad sale con pérdida.`
+            : `Los ads se llevan ${pct(f.tacos)} de la venta; el tope es ${pct(tacosTope)}.`,
         },
         f.gastoAds,
       );
       continue;
     }
 
-    // 5. Capital parado y margen de sobra.
+    // 5. Capital parado y lejos del tope: subir, pero nunca arriba del 10 %.
     if (
-      margen != null &&
       f.gastoAds > 0 &&
       f.tacos != null &&
+      f.importe > 0 &&
       cobertura != null &&
       cobertura > larga &&
-      f.tacos < margen / 2
+      f.tacos < tope / 2 &&
+      (margen == null || margen > tope)
     ) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaTope = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
       agregar(
         {
           modelo: f.modelo,
           accion: "subir",
-          queHacer: `Subir el presupuesto (hasta ${Math.round(margen * 100)}% de ACOS)`,
-          razon: `Hay ${cobertext} parados y los ads solo usan ${pct(f.tacos)} de un margen de ${pct(margen)}: cabe más inversión sin perder.`,
+          queHacer: `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)`,
+          razon: `Hay ${cobertext} parados y los ads solo se llevan ${pct(f.tacos)} de la venta: cabe más inversión sin pasar del tope de ${pct(tacosTope)}.`,
         },
         f.importe,
       );
