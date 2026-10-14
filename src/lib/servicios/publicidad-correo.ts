@@ -20,7 +20,7 @@
 import type { Cuenta, DB } from "../datos/repos";
 import { enviarCorreo, type ResultadoCorreo } from "./correo";
 import { LETRA_TITULO, TONO, URL_ERP, escaparHtml as esc, plantillaCorreo } from "./correo-marca";
-import { GRUPOS_ACCION, calcularPublicidadFresca, type AccionSugerida, type RecomendacionAds } from "./publicidad";
+import { GRUPOS_ACCION, TACOS_TOPE, calcularPublicidadFresca, type AccionSugerida, type RecomendacionAds } from "./publicidad";
 import { publicidadAmazon, publicidadFundas, type PublicidadCanal } from "./publicidad-canales";
 import { diaAnterior, fechaLarga, hoyMx } from "./resumen-diario";
 
@@ -162,6 +162,14 @@ function pesos(x: number): string {
   return (x < 0 ? "-$" : "$") + Math.round(Math.abs(x)).toLocaleString("es-MX");
 }
 const pct = (x: number | null) => (x == null ? "—" : `${(x * 100).toFixed(1)} %`);
+/** El TACOS del canal contra el tope de 10 %: en rojo si lo pasa. */
+function tacosConTope(t: number | null): string {
+  if (t == null) return "—";
+  const tope = `${Math.round(TACOS_TOPE * 100)} %`;
+  return t > TACOS_TOPE
+    ? `<b style="color:${TONO.mal};">${pct(t)} (arriba del tope de ${tope})</b>`
+    : `${pct(t)} (tope ${tope})`;
+}
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
 const COLOR_ACCION: Record<AccionSugerida, string> = {
@@ -242,7 +250,7 @@ function seccionHtml(s: SeccionCanal, dia: string): string {
       `<span style="display:inline-block;width:10px;height:10px;border-radius:5px;background:${COLOR_CANAL[s.canal]};margin-right:8px;vertical-align:middle;"></span>` +
       `<span style="vertical-align:middle;">${esc(s.nombre)}</span></h2>` +
       `<p style="margin:0 0 12px;font-size:13px;color:${TONO.tinta2};">` +
-      `${plural(s.recomendaciones.length, "cambio", "cambios")}${nuevas ? ` (${nuevas} nuevo${nuevas === 1 ? "" : "s"})` : ""} · gasto ${pesos(s.gastoAds)} · publicidad sobre venta ${pct(s.tacos)}` +
+      `${plural(s.recomendaciones.length, "cambio", "cambios")}${nuevas ? ` (${nuevas} nuevo${nuevas === 1 ? "" : "s"})` : ""} · gasto ${pesos(s.gastoAds)} · publicidad sobre venta ${tacosConTope(s.tacos)}` +
       (s.hasta && s.hasta < diaAnterior(dia) ? ` · datos hasta el ${esc(fechaLarga(s.hasta))}` : "") +
       `</p>`,
   );
