@@ -27,7 +27,9 @@ import { costoDeSkuUnificado, mapaCostosUnificado, modeloUnificado } from "./cos
 import {
   armarPublicidad,
   armarRecomendaciones,
+  presupuestoPorModelo,
   resolverAdvertiser,
+  traerCampanasAds,
   traerAnunciosAds,
   type FilaPublicidad,
   type ItemDeModelo,
@@ -245,9 +247,16 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
 
   let anuncios: Awaited<ReturnType<typeof traerAnunciosAds>> = [];
   let errorAds: string | null = null;
+  let campanas: Awaited<ReturnType<typeof traerCampanasAds>> | null = null;
   try {
     const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
-    anuncios = await traerAnunciosAds(cliente, await resolverAdvertiser(cliente, cuenta.site_id), rango);
+    const adv = await resolverAdvertiser(cliente, cuenta.site_id);
+    anuncios = await traerAnunciosAds(cliente, adv, rango);
+    // El presupuesto de HOY: lo ya subido o bajado no se vuelve a pedir.
+    campanas = await traerCampanasAds(cliente, adv).catch((err) => {
+      avisos.push(`No se pudo leer el presupuesto de las campañas de fundas: ${(err as Error).message}.`);
+      return null;
+    });
   } catch (err) {
     errorAds =
       err instanceof MeliError && err.status === 403
@@ -293,6 +302,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       unidad: "piezas",
       coberturaCorta: COBERTURA_CORTA_FUNDAS,
       coberturaLarga: COBERTURA_LARGA_FUNDAS,
+      presupuestoDeModelo: campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,

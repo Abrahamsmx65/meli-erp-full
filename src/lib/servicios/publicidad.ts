@@ -431,6 +431,38 @@ export const COBERTURA_LARGA_DIAS = 45;
  */
 export const TACOS_TOPE = 0.1;
 
+/** Subir o bajar menos de esto al día no se pide: es ruido en la lista. */
+export const GASTO_DIA_MINIMO = 10;
+
+/**
+ * Presupuesto diario que HOY tiene cada modelo en MELI: la suma de sus
+ * campañas activas con algún anuncio suyo prendido. Una campaña con varios
+ * modelos se reparte en partes iguales. Puro.
+ */
+export function presupuestoPorModelo(
+  campanas: { id: string; estado: string | null; presupuesto: number | null }[],
+  itemsDeModelo: Map<string, ItemDeModelo[]>,
+): Map<string, number> {
+  const activas = new Map(
+    campanas.filter((c) => c.presupuesto != null && c.estado !== "paused").map((c) => [c.id, c.presupuesto as number]),
+  );
+  const modelosDeCampana = new Map<string, Set<string>>();
+  for (const [modelo, items] of itemsDeModelo) {
+    for (const it of items) {
+      if (!it.campanaId || it.estado === "paused" || !activas.has(it.campanaId)) continue;
+      const set = modelosDeCampana.get(it.campanaId) ?? new Set<string>();
+      set.add(modelo);
+      modelosDeCampana.set(it.campanaId, set);
+    }
+  }
+  const salida = new Map<string, number>();
+  for (const [campana, modelos] of modelosDeCampana) {
+    const parte = (activas.get(campana) ?? 0) / modelos.size;
+    for (const m of modelos) salida.set(m, (salida.get(m) ?? 0) + parte);
+  }
+  return salida;
+}
+
 /** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
 export const MAX_NUEVOS_SIN_ANUNCIO = 10;
 
@@ -502,6 +534,13 @@ export function armarRecomendaciones(opts: {
   consola?: string;
   /** TACOS máximo (publicidad ÷ venta total); por omisión `TACOS_TOPE` */
   tacosTope?: number;
+  /**
+   * modelo -> presupuesto diario que HOY tienen sus campañas en MELI
+   * (`presupuestoPorModelo`). El gasto de 14 días va atrasado: si el dueño
+   * ya subió (o bajó) el presupuesto, no se le vuelve a pedir (fundas 650,
+   * 14-oct-2026: «me llegó subir el gasto pero ya se había subido»).
+   */
+  presupuestoDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
   const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
@@ -602,11 +641,16 @@ export function armarRecomendaciones(opts: {
       const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
       const alDiaSano = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
       const sinMargen = margen != null && f.tacos > margen;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      // El presupuesto de hoy ya está en el tope: ya se bajó. Y unos pesos
+      // al día no valen el clic.
+      if (hoy != null && hoy <= alDiaSano * 1.1) continue;
+      if (alDia - alDiaSano < GASTO_DIA_MINIMO) continue;
       agregar(
         {
           modelo: f.modelo,
           accion: "bajar",
-          queHacer: `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)`,
+          queHacer: `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
           razon: sinMargen
             ? `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen!)}: cada venta por publicidad sale con pérdida.`
             : `Los ads se llevan ${pct(f.tacos)} de la venta; el tope es ${pct(tacosTope)}.`,
@@ -628,11 +672,15 @@ export function armarRecomendaciones(opts: {
     ) {
       const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
       const alDiaTope = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      // El presupuesto de hoy ya alcanza para el tope: ya se subió.
+      if (hoy != null && hoy >= alDiaTope * 0.9) continue;
+      if (alDiaTope - alDia < GASTO_DIA_MINIMO) continue;
       agregar(
         {
           modelo: f.modelo,
           accion: "subir",
-          queHacer: `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)`,
+          queHacer: `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
           razon: `Hay ${cobertext} parados y los ads solo se llevan ${pct(f.tacos)} de la venta: cabe más inversión sin pasar del tope de ${pct(tacosTope)}.`,
         },
         f.importe,
@@ -1148,6 +1196,17 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
+  // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
+  // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
+  let presupuestoDeModelo: Map<string, number> | undefined;
+  if (cliente && !stockEstado.error) {
+    try {
+      const adv = await resolverAdvertiser(cliente, cuenta.site_id);
+      presupuestoDeModelo = presupuestoPorModelo(await traerCampanasAds(cliente, adv), itemsDeModelo);
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer el presupuesto de las campañas: ${(err as Error).message}. Las recomendaciones salen solo del gasto.`);
+    }
+  }
   datos.recomendaciones = stockEstado.error
     ? []
     : armarRecomendaciones({
@@ -1156,6 +1215,7 @@ export async function cargarPublicidad(
         dias: diasDeRango(r),
         itemsDeModelo,
         modelosConHistoria,
+        presupuestoDeModelo,
       });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
