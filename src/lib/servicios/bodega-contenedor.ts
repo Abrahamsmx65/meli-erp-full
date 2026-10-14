@@ -36,17 +36,19 @@ export function codigoDeCaja(pedido: string, modelo: string, color: string, tall
   return talla ? `${base}-${pegado(String(talla))}` : base;
 }
 
-/**
- * Nombre y código de categoría en el sistema de la bodega, por código
- * fiscal. Del archivo del dueño solo se conoce PANTUFLAS = 32; lo demás
- * queda en blanco y se avisa hasta que el dueño dé el código.
- */
-export const CATEGORIAS_BODEGA: Record<string, { nombre: string; codigo: string | null }> = {
-  [CODIGOS_FISCALES.botas]: { nombre: "BOTAS", codigo: null },
-  [CODIGOS_FISCALES.zapatos]: { nombre: "ZAPATOS", codigo: null },
-  [CODIGOS_FISCALES.pantuflas]: { nombre: "PANTUFLAS", codigo: "32" },
-  [CODIGOS_FISCALES.sandalias]: { nombre: "SANDALIAS", codigo: null },
-  [CODIGOS_FISCALES.tenis]: { nombre: "TENIS", codigo: null },
+/** Categoría en el sistema de la bodega: TODO el calzado es la 32 (dueño, 14-oct-2026). */
+export const CATEGORIA_BODEGA = "32";
+
+/** El valor de reposición es el DOBLE del costo (dueño, 14-oct-2026). */
+export const FACTOR_VALOR_REPOSICION = 2;
+
+/** Nombre del tipo de calzado por código fiscal, como «PANTUFLAS» del archivo del dueño. */
+export const NOMBRES_BODEGA: Record<string, string> = {
+  [CODIGOS_FISCALES.botas]: "BOTAS",
+  [CODIGOS_FISCALES.zapatos]: "ZAPATOS",
+  [CODIGOS_FISCALES.pantuflas]: "PANTUFLAS",
+  [CODIGOS_FISCALES.sandalias]: "SANDALIAS",
+  [CODIGOS_FISCALES.tenis]: "TENIS",
 };
 
 export interface RenglonBodega {
@@ -68,7 +70,7 @@ export interface ProductoBodega {
   nombre: string;
   categoria: string;
   codigoFiscal: string;
-  /** valor de UNA caja: costo por par × pares */
+  /** valor de reposición de UNA caja: el doble del costo por par × pares */
   valor: number | null;
   pares: number;
   largoCm: number | null;
@@ -113,7 +115,6 @@ export function armarArchivosBodega(
   const yaDadosDeAlta: string[] = [];
   const sinCosto = new Set<string>();
   const sinCategoria = new Set<string>();
-  const sinCodigoBodega = new Set<string>();
   const sinMedidas: string[] = [];
   for (const [sku, { r }] of porSku) {
     if (enviadosAntes.has(sku)) {
@@ -122,17 +123,16 @@ export function armarArchivosBodega(
     }
     const m = modelos.get(r.modelo) ?? modelos.get(r.modelo.toUpperCase()) ?? null;
     const costo = m?.costoMxn != null && m.costoMxn > 0 ? m.costoMxn : null;
-    const valor = costo != null && r.paresPorCaja > 0 ? Math.round(costo * r.paresPorCaja * 100) / 100 : null;
+    const valor =
+      costo != null && r.paresPorCaja > 0 ? Math.round(costo * FACTOR_VALOR_REPOSICION * r.paresPorCaja * 100) / 100 : null;
     if (valor == null) sinCosto.add(r.modelo);
     const codigoFiscal = codigoFiscalDeCategoria(m?.categoriaMeli) ?? "";
     if (!codigoFiscal) sinCategoria.add(r.modelo);
-    const cat = codigoFiscal ? CATEGORIAS_BODEGA[codigoFiscal] : undefined;
-    if (cat && !cat.codigo) sinCodigoBodega.add(cat.nombre);
     if (r.largoCm == null || r.anchoCm == null || r.altoCm == null || r.pesoKg == null) sinMedidas.push(sku);
     productos.push({
       sku,
-      nombre: cat?.nombre ?? "",
-      categoria: cat?.codigo ?? "",
+      nombre: (codigoFiscal && NOMBRES_BODEGA[codigoFiscal]) || "CALZADO",
+      categoria: CATEGORIA_BODEGA,
       codigoFiscal,
       valor,
       pares: r.paresPorCaja,
@@ -146,8 +146,7 @@ export function armarArchivosBodega(
   const avisos: string[] = [];
   const lista = (s: Iterable<string>) => [...s].sort(natural).join(", ");
   if (sinCosto.size) avisos.push(`Sin costo en Productos y costos (Valor reposicion en blanco): ${lista(sinCosto)}.`);
-  if (sinCategoria.size) avisos.push(`Sin categoría de MELI reconocida (Nombre, Categoria y Codigo Fiscal en blanco): ${lista(sinCategoria)}.`);
-  if (sinCodigoBodega.size) avisos.push(`Falta el número de categoría de la bodega para ${lista(sinCodigoBodega)} (columna Categoria en blanco).`);
+  if (sinCategoria.size) avisos.push(`Sin categoría de MELI reconocida (Codigo Fiscal en blanco y Nombre «CALZADO»): ${lista(sinCategoria)}.`);
   if (sinMedidas.length) avisos.push(`${sinMedidas.length} productos sin medidas o peso de la caja en ningún packing list: ${lista(sinMedidas)}.`);
 
   return {

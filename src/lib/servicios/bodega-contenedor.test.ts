@@ -29,7 +29,7 @@ describe("archivos de bodega del contenedor", () => {
     const lineas = csvProductosBodega(a.productos).split("\r\n");
     expect(lineas[0].startsWith("Sku,Nombre,Enviar solo,Categoria,Codigo Fiscal,Valor reposicion,Barcode Producto,Barcode Paquetes,Atributos,Paquete 1 - Alto")).toBe(true);
     expect(lineas[1]).toBe(
-      'IN10079-GT221-BLACK,PANTUFLAS,SI,32,53111700,"2,456.64",IN10079-GT221-BLACK,IN10079-GT221-BLACK,24,66,56,24,8.5' + ",".repeat(28),
+      'IN10079-GT221-BLACK,PANTUFLAS,SI,32,53111700,"4,913.28",IN10079-GT221-BLACK,IN10079-GT221-BLACK,24,66,56,24,8.5' + ",".repeat(28),
     );
     // El packing list sí lleva los dos: es lo que llega.
     expect(csvPackingBodega(a.packing).split("\r\n")).toEqual([
@@ -42,6 +42,8 @@ describe("archivos de bodega del contenedor", () => {
   it("lo que falta se avisa, no se inventa", () => {
     const a = armarArchivosBodega([r({ modelo: "GT999", largoCm: null, pesoKg: null })], new Map(), new Set());
     expect(a.productos[0].valor).toBeNull();
+    expect(a.productos[0].categoria).toBe("32");
+    expect(a.productos[0].nombre).toBe("CALZADO");
     expect(a.avisos.join(" ")).toMatch(/Sin costo/);
     expect(a.avisos.join(" ")).toMatch(/sin medidas/);
   });
