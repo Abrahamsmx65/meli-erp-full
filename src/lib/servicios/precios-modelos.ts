@@ -17,6 +17,7 @@ import {
   ordenarPlan,
   planDePromo,
   redondear99,
+  type Asignaciones,
   type Objetivos,
   type PromoMeli,
   type RenglonPromo,
@@ -119,6 +120,7 @@ export async function revisarPrecios(
   cliente: MeliClient,
   accountId: string,
   modelos: string[],
+  asignadas: Asignaciones = {},
 ): Promise<RevisionPrecios> {
   const avisos: string[] = [];
   const objetivos = await objetivosDe(db, accountId, modelos);
@@ -133,7 +135,7 @@ export async function revisarPrecios(
     const o = porModelo.get(modelo);
     if (!o) continue;
     try {
-      for (const p of await promosDe(cliente, itemId)) meli.push({ ...planDePromo(itemId, p, o), nombre: `${modelo} · ${p.name ?? p.type ?? ""}` });
+      for (const p of await promosDe(cliente, itemId)) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
     } catch (err) {
       avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${mensajeMeli(err)}`);
     }
@@ -156,9 +158,10 @@ export async function aplicarPrecios(
   cliente: MeliClient,
   accountId: string,
   modelos: string[],
+  asignadas: Asignaciones = {},
 ): Promise<{ revision: RevisionPrecios; resultados: ResultadoPrecio[] }> {
   // Se relee justo antes: lo que se aplica es lo que MELI y Amazon tienen ahora.
-  const revision = await revisarPrecios(db, admin, cliente, accountId, modelos);
+  const revision = await revisarPrecios(db, admin, cliente, accountId, modelos, asignadas);
   const resultados: ResultadoPrecio[] = [];
 
   for (const r of revision.meli) {
