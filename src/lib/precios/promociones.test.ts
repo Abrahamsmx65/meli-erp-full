@@ -111,3 +111,18 @@ describe("Amazon: precio y mínimo", () => {
     expect(ofertaAmazon(undefined, "M", 616.99)[0].currency).toBe("MXN");
   });
 });
+
+describe("aporte de MELI y el envío arriba de $299", () => {
+  it("no inscribe si con el aporte la venta se cobra como ≥ $299 (GT266, Buen Fin 26)", () => {
+    const p = { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 298.99, meli_percentage: 3 };
+    const r = planDePromo("MLM1", p, { ...obj, normal: 298.99 });
+    expect(r.accion).toBe("pagarias_envio");
+    expect(r.aporte).toBeCloseTo(8.97, 2);
+  });
+
+  it("sin aporte, o lejos del umbral, se inscribe normal", () => {
+    expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 298.99 }, { ...obj, normal: 298.99 }).accion).toBe("inscribir");
+    expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 220, meli_percentage: 3 }, { ...obj, normal: 199.99 }).accion).toBe("inscribir");
+    expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 700, meli_percentage: 5 }, obj).accion).toBe("inscribir");
+  });
+});
