@@ -3,7 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { aplicarPrecios, normalizarModelos, revisarPrecios } from "@/lib/servicios/precios-modelos";
-import { leerAsignaciones } from "@/lib/precios/promociones";
+import { leerAsignaciones, leerStocks } from "@/lib/precios/promociones";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -46,11 +46,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown; asignadas?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown; asignadas?: unknown; stocks?: unknown };
   const p = await preparar(req, body.modelos);
   if ("error" in p) return p.error;
   try {
-    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, leerAsignaciones(body.asignadas)));
+    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, leerAsignaciones(body.asignadas), leerStocks(body.stocks)));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

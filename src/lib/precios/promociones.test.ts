@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, modeloDeSku, ordenarPlan, planDePromo, redondear99 } from "./promociones";
+import { clasificarPromo, modeloDeSku, ordenarPlan, planDePromo, redondear99, stockParaRelampago } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -29,11 +29,11 @@ describe("planDePromo", () => {
     expect(planDePromo("MLM1", { id: "P1", type: "DEAL", name: "Buen Fin", status: "started", price: 585.99 }, obj).accion).toBe("igual");
   });
 
-  it("inscribe la candidata, salvo relámpago (pide stock y horario)", () => {
+  it("inscribe la candidata, también la relámpago programada", () => {
     const r = planDePromo("MLM1", { id: "P2", type: "SELLER_CAMPAIGN", name: "Todos los días", status: "candidate" }, obj);
     expect(r.accion).toBe("inscribir");
     expect(r.nuevo).toBe(585.99);
-    expect(planDePromo("MLM1", { id: "P3", type: "LIGHTNING", status: "candidate" }, obj).accion).toBe("relampago_candidata");
+    expect(planDePromo("MLM1", { id: "P3", type: "LIGHTNING", status: "candidate" }, obj).accion).toBe("inscribir");
   });
 
   it("respeta el rango de MELI y no toca lo ajeno", () => {
@@ -65,4 +65,14 @@ it("lo que asigna el dueño manda sobre el nombre («Activa Tus Descuentos» es 
   expect(r.accion).toBe("cambiar");
   expect(r.nuevo).toBe(585.99);
   expect(planDePromo("MLM1", { type: "LIGHTNING", status: "started", price: 1 }, obj, { "LIGHTNING|": "no_tocar" }).accion).toBe("no_se_toca");
+});
+
+it("pares del relámpago: lo del dueño o el mínimo de MELI, dentro del rango", () => {
+  const r = planDePromo("MLM1", { id: "L1", type: "LIGHTNING", status: "candidate", stock: { min: 5, max: 40 } }, obj);
+  expect(stockParaRelampago(r, undefined)).toEqual({ stock: 5 });
+  expect(stockParaRelampago(r, 20)).toEqual({ stock: 20 });
+  expect(stockParaRelampago(r, 2)).toHaveProperty("error");
+  expect(stockParaRelampago(r, 50)).toHaveProperty("error");
+  const sin = planDePromo("MLM1", { id: "L2", type: "LIGHTNING", status: "candidate" }, obj);
+  expect(stockParaRelampago(sin, undefined)).toHaveProperty("error");
 });
