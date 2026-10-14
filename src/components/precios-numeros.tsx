@@ -2,12 +2,19 @@
 
 import { useMemo, useState } from "react";
 import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promociones";
-import { NOMBRE_CLASE, ORDEN_CLASES } from "@/lib/precios/promociones";
+import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon } from "@/lib/precios/promociones";
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 
 const din = (x: number | null | undefined) =>
   x == null || !Number.isFinite(x) ? "—" : "$" + x.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fecha = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+};
 
 const TEXTO_ACCION: Record<string, { texto: string; color: string }> = {
   cambiar: { texto: "se cambia", color: "var(--estado-alerta)" },
@@ -16,7 +23,6 @@ const TEXTO_ACCION: Record<string, { texto: string; color: string }> = {
   no_se_toca: { texto: "no se toca", color: "var(--ink-3)" },
   sin_precio: { texto: "sin precio en Números", color: "var(--estado-critico)" },
   fuera_de_rango: { texto: "fuera del rango de MELI", color: "var(--estado-critico)" },
-  relampago_candidata: { texto: "relámpago sin programar: se hace en MELI", color: "var(--ink-3)" },
 };
 
 function Accion({ a }: { a: string }) {
@@ -35,6 +41,7 @@ export function PreciosNumeros() {
   const [revision, setRevision] = useState<RevisionPrecios | null>(null);
   const [resultados, setResultados] = useState<ResultadoPrecio[] | null>(null);
   const [asignadas, setAsignadas] = useState<Asignaciones>({});
+  const [stocks, setStocks] = useState<Record<string, string>>({});
 
   const revisar = async (asig: Asignaciones = asignadas) => {
     setCargando("revisar");
@@ -68,7 +75,7 @@ export function PreciosNumeros() {
       const r = await fetch("/api/finanzas/numeros/precios", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ modelos, asignadas }),
+        body: JSON.stringify({ modelos, asignadas, stocks }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo aplicar.");
@@ -105,11 +112,28 @@ export function PreciosNumeros() {
       <td className="px-2 py-1">{r.nombre}</td>
       <td className="px-2 py-1 texto-tenue">
         {r.tipo} · {r.estado}
+        {r.inicio ? <div>{fecha(r.inicio)}{r.fin ? ` → ${fecha(r.fin)}` : ""}</div> : null}
       </td>
       <td className="px-2 py-1 text-right cifra">{din(r.actual)}</td>
       <td className="px-2 py-1 text-right cifra font-semibold">{din(r.nuevo)}</td>
       <td className="px-2 py-1">
         <Accion a={r.accion} />
+        {r.accion === "inscribir" && r.tipo.toUpperCase() === "LIGHTNING" ? (
+          <label className="ml-2 inline-flex items-center gap-1">
+            <input
+              type="number"
+              min={r.stockMin ?? 1}
+              max={r.stockMax ?? undefined}
+              value={stocks[claveRenglon(r)] ?? (r.stockMin != null ? String(r.stockMin) : "")}
+              onChange={(e) => setStocks((prev) => ({ ...prev, [claveRenglon(r)]: e.target.value }))}
+              className="w-16 rounded border px-1 py-0.5 text-right"
+              style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+            />
+            <span className="texto-tenue">
+              pares{r.stockMin != null || r.stockMax != null ? ` (${r.stockMin ?? 1}–${r.stockMax ?? "?"})` : ""}
+            </span>
+          </label>
+        ) : null}
       </td>
     </tr>
   );

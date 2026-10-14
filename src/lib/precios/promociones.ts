@@ -38,6 +38,8 @@ export interface PromoMeli {
   suggested_discounted_price?: number | null;
   start_date?: string | null;
   finish_date?: string | null;
+  /** relámpago: cuántos pares se pueden reservar */
+  stock?: { min?: number | null; max?: number | null } | null;
 }
 
 export interface Objetivos {
@@ -74,7 +76,7 @@ export function estaInscrita(p: PromoMeli): boolean {
   return ["started", "pending", "active", "programmed"].includes((p.status ?? "").toLowerCase());
 }
 
-export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio" | "fuera_de_rango" | "relampago_candidata";
+export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio" | "fuera_de_rango";
 
 export interface RenglonPromo {
   itemId: string;
@@ -89,6 +91,11 @@ export interface RenglonPromo {
   nuevo: number | null;
   minimo: number | null;
   maximo: number | null;
+  inicio: string | null;
+  fin: string | null;
+  /** relámpago candidata: pares que MELI deja reservar */
+  stockMin: number | null;
+  stockMax: number | null;
   accion: AccionPromo;
 }
 
@@ -121,8 +128,6 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
   else if (nuevo == null) accion = "sin_precio";
   else if (inscrita && igualPrecio(actual, nuevo)) accion = "igual";
   else if ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)) accion = "fuera_de_rango";
-  // Inscribir en un relámpago pide reservar stock y horario: eso se hace en MELI.
-  else if (!inscrita && clase === "relampago") accion = "relampago_candidata";
   else accion = inscrita ? "cambiar" : "inscribir";
   return {
     itemId,
@@ -136,11 +141,42 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     nuevo,
     minimo,
     maximo,
+    inicio: p.start_date ?? null,
+    fin: p.finish_date ?? null,
+    stockMin: p.stock?.min ?? null,
+    stockMax: p.stock?.max ?? null,
     accion,
   };
 }
 
 /** Relámpago primero, luego Buen Fin, luego todos los días; lo demás al final. */
+/** Llave de un renglón (publicación + promoción) para los pares a reservar. */
+export function claveRenglon(r: { itemId: string; promoId: string | null; tipo: string }): string {
+  return `${r.itemId}|${r.promoId ?? r.tipo}`;
+}
+
+/**
+ * Pares a reservar al inscribir un relámpago: lo que puso el dueño o, si no,
+ * el mínimo que pide MELI. Fuera del rango de MELI es error, no se ajusta.
+ */
+export function stockParaRelampago(r: RenglonPromo, pedido: number | undefined): { stock: number } | { error: string } {
+  const v = pedido ?? r.stockMin ?? null;
+  if (v == null || !Number.isInteger(v) || v <= 0) return { error: "falta cuántos pares reservar para el relámpago" };
+  if (r.stockMin != null && v < r.stockMin) return { error: `MELI pide reservar al menos ${r.stockMin} pares` };
+  if (r.stockMax != null && r.stockMax > 0 && v > r.stockMax) return { error: `MELI deja reservar a lo más ${r.stockMax} pares` };
+  return { stock: v };
+}
+
+export function leerStocks(x: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (x && typeof x === "object")
+    for (const [k, v] of Object.entries(x)) {
+      const n = Number(v);
+      if (Number.isInteger(n) && n > 0) out[k] = n;
+    }
+  return out;
+}
+
 export function esAsignacion(x: unknown): x is ClasePromo | "no_tocar" {
   return x === "no_tocar" || ORDEN_CLASES.includes(x as ClasePromo);
 }

@@ -17,6 +17,8 @@ import {
   ordenarPlan,
   planDePromo,
   redondear99,
+  claveRenglon,
+  stockParaRelampago,
   type Asignaciones,
   type Objetivos,
   type PromoMeli,
@@ -159,6 +161,7 @@ export async function aplicarPrecios(
   accountId: string,
   modelos: string[],
   asignadas: Asignaciones = {},
+  stocks: Record<string, number> = {},
 ): Promise<{ revision: RevisionPrecios; resultados: ResultadoPrecio[] }> {
   // Se relee justo antes: lo que se aplica es lo que MELI y Amazon tienen ahora.
   const revision = await revisarPrecios(db, admin, cliente, accountId, modelos, asignadas);
@@ -169,6 +172,16 @@ export async function aplicarPrecios(
     const donde = `${r.itemId} · ${r.nombre}`;
     const cuerpo: Record<string, unknown> = { promotion_type: r.tipo, deal_price: r.nuevo };
     if (r.promoId) cuerpo.promotion_id = r.promoId;
+    // Inscribir en un relámpago (las que programa el asesor, con fecha) pide
+    // reservar pares; modificar una ya inscrita no.
+    if (r.accion === "inscribir" && r.tipo.toUpperCase() === "LIGHTNING") {
+      const s = stockParaRelampago(r, stocks[claveRenglon(r)]);
+      if ("error" in s) {
+        resultados.push({ donde, ok: false, detalle: s.error });
+        continue;
+      }
+      cuerpo.stock = s.stock;
+    }
     try {
       const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
       if (r.accion === "cambiar") await cliente.put(ruta, cuerpo, { reintentos: 1 });
