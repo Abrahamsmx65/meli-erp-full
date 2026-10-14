@@ -10,7 +10,7 @@
 import type { DB } from "../datos/repos";
 import { traerTodo } from "../datos/repos";
 import { calcularNumeros } from "../finanzas/numeros";
-import type { MeliClient } from "../meli/client";
+import { enLotes, type MeliClient } from "../meli/client";
 import { Cliente, ErrorAmazon, cuentasAmazon } from "../amazon/spapi";
 import {
   modeloDeSku,
@@ -123,6 +123,7 @@ export async function revisarPrecios(
   accountId: string,
   modelos: string[],
   asignadas: Asignaciones = {},
+  opciones: { soloMeli?: boolean } = {},
 ): Promise<RevisionPrecios> {
   const avisos: string[] = [];
   const objetivos = await objetivosDe(db, accountId, modelos);
@@ -133,15 +134,23 @@ export async function revisarPrecios(
 
   const items = await itemsDeModelos(db, accountId, modelos);
   const meli: RenglonPromo[] = [];
-  for (const [itemId, modelo] of items) {
+  // De cinco en cinco: con todo el catálogo (el cron diario) son cientos de
+  // publicaciones y en serie no cabían en la función.
+  const leidas = await enLotes([...items], 5, async ([itemId, modelo]) => {
+    try {
+      return { itemId, modelo, promos: await promosDe(cliente, itemId), error: null as string | null };
+    } catch (err) {
+      return { itemId, modelo, promos: [] as PromoMeli[], error: mensajeMeli(err) };
+    }
+  });
+  for (const { itemId, modelo, promos, error } of leidas) {
     const o = porModelo.get(modelo);
     if (!o) continue;
-    try {
-      for (const p of await promosDe(cliente, itemId)) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
-    } catch (err) {
-      avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${mensajeMeli(err)}`);
-    }
+    if (error) avisos.push(`${itemId} (${modelo}): MELI no contestó sus promociones — ${error}`);
+    for (const p of promos) meli.push({ ...planDePromo(itemId, p, o, asignadas), nombre: `${modelo} · ${p.name || "(sin nombre)"}` });
   }
+
+  if (opciones.soloMeli) return { objetivos, meli: ordenarPlan(meli), amazon: [], avisos };
 
   const { filas } = await publicacionesAmazon(admin, modelos);
   const amazon: RenglonAmazon[] = filas.map((f) => {
@@ -245,4 +254,65 @@ export async function aplicarPrecios(
   }
 
   return { revision, resultados };
+}
+
+export const TAREA_RELAMPAGOS = "relampagos-auto";
+
+/**
+ * Cron de las 10:00 de México (dueño, 14-oct-2026: «un cron que todos los
+ * días a las 10 am revise los precios y, si ve alguna relámpago que no se
+ * aplicó y que cumple con el precio mínimo, la confirme»): en TODOS los
+ * modelos con precio relámpago en Números, cada relámpago CANDIDATA (las
+ * que programa el asesor, con fecha) cuyo precio relámpago cabe en el rango
+ * de MELI se inscribe reservando el MÍNIMO de pares que pide MELI. Nada más
+ * se toca: ni Buen Fin, ni todos los días, ni Amazon, ni una relámpago ya
+ * inscrita. Lo hecho queda en `sync_log` (tarea `relampagos-auto`).
+ */
+export async function confirmarRelampagosPendientes(
+  admin: DB,
+  cliente: MeliClient,
+  accountId: string,
+): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
+  const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
+    q.eq("account_id", accountId).not("precio_relampago", "is", null),
+  );
+  const modelos = normalizarModelos(filas.map((f) => f.modelo));
+  const revision = await revisarPrecios(admin, admin, cliente, accountId, modelos, {}, { soloMeli: true });
+
+  const inscritas: ResultadoPrecio[] = [];
+  const fallidas: ResultadoPrecio[] = [];
+  const omitidas: string[] = [];
+  for (const r of revision.meli) {
+    if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
+    const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
+    if (r.accion === "fuera_de_rango") {
+      omitidas.push(`${donde}: $${r.nuevo?.toFixed(2)} fuera del rango de MELI (${r.minimo ?? "?"}–${r.maximo ?? "?"})`);
+      continue;
+    }
+    if (r.accion !== "inscribir" || r.nuevo == null) continue;
+    if (r.stockMin == null) {
+      omitidas.push(`${donde}: MELI no dijo el mínimo de pares a reservar`);
+      continue;
+    }
+    try {
+      await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
+        promotion_id: r.promoId,
+        promotion_type: r.tipo,
+        deal_price: r.nuevo,
+        stock: r.stockMin,
+      });
+      inscritas.push({ donde, ok: true, detalle: `inscrita a $${r.nuevo.toFixed(2)} con ${r.stockMin} pares` });
+    } catch (err) {
+      fallidas.push({ donde, ok: false, detalle: mensajeMeli(err) });
+    }
+  }
+
+  await admin.from("sync_log").insert({
+    account_id: accountId,
+    tarea: TAREA_RELAMPAGOS,
+    estado: fallidas.length ? "error" : "ok",
+    fin: new Date().toISOString(),
+    detalle: { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
+  });
+  return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
