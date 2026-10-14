@@ -57,3 +57,12 @@ it("modeloDeSku", () => {
   expect(modeloDeSku("GT251-BLK-25-MX")).toBe("GT251");
   expect(modeloDeSku("gt128-23-blk-mx")).toBe("GT128");
 });
+
+it("lo que asigna el dueño manda sobre el nombre («Activa Tus Descuentos» es su oferta de todos los días)", () => {
+  const p = { id: "P5", type: "SELLER_CAMPAIGN", name: "Activa Tus Descuentos", status: "started", price: 582.99 };
+  expect(planDePromo("MLM1", p, obj).accion).toBe("no_se_toca");
+  const r = planDePromo("MLM1", p, obj, { "SELLER_CAMPAIGN|Activa Tus Descuentos": "todos_los_dias" });
+  expect(r.accion).toBe("cambiar");
+  expect(r.nuevo).toBe(585.99);
+  expect(planDePromo("MLM1", { type: "LIGHTNING", status: "started", price: 1 }, obj, { "LIGHTNING|": "no_tocar" }).accion).toBe("no_se_toca");
+});

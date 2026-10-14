@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, type DB } from "@/lib/datos/repos";
 import { clienteDeCuenta } from "@/lib/servicios/webhooks";
 import { aplicarPrecios, normalizarModelos, revisarPrecios } from "@/lib/servicios/precios-modelos";
+import { leerAsignaciones } from "@/lib/precios/promociones";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -32,18 +33,24 @@ export async function GET(req: NextRequest) {
   const p = await preparar(req, req.nextUrl.searchParams.get("modelos"));
   if ("error" in p) return p.error;
   try {
-    return NextResponse.json(await revisarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos));
+    let asignadas = {};
+    try {
+      asignadas = leerAsignaciones(JSON.parse(req.nextUrl.searchParams.get("asignadas") ?? "{}"));
+    } catch {
+      /* sin asignaciones */
+    }
+    return NextResponse.json(await revisarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, asignadas));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { modelos?: unknown; asignadas?: unknown };
   const p = await preparar(req, body.modelos);
   if ("error" in p) return p.error;
   try {
-    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos));
+    return NextResponse.json(await aplicarPrecios(p.db, p.admin, p.cliente, p.cuentaId, p.modelos, leerAsignaciones(body.asignadas)));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
