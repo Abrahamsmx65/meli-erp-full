@@ -65,6 +65,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/publicidad-correo",
+      "schedule": "15 14 * * 1,4"
+    },
+    {
       "path": "/api/cron/reparar-ordenes",
       "schedule": "*/5 * * * *"
     },
