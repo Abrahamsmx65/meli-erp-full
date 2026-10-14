@@ -78,7 +78,7 @@ export function estaInscrita(p: PromoMeli): boolean {
   return ["started", "pending", "active", "programmed"].includes((p.status ?? "").toLowerCase());
 }
 
-export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio" | "fuera_de_rango";
+export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio";
 
 export interface RenglonPromo {
   itemId: string;
@@ -93,6 +93,12 @@ export interface RenglonPromo {
   nuevo: number | null;
   minimo: number | null;
   maximo: number | null;
+  /**
+   * El precio nuevo queda fuera del min–max que MELI mandó. Solo AVISA: el
+   * 14-oct-2026 el dueño vio «fuera del rango» en Buen Fin 26 con un precio
+   * que MELI sí le acepta en su pantalla; quien decide es MELI al recibirlo.
+   */
+  fueraDeRango: boolean;
   inicio: string | null;
   fin: string | null;
   /** relámpago candidata: pares que MELI deja reservar */
@@ -129,7 +135,6 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
   if (!clase) accion = "no_se_toca";
   else if (nuevo == null) accion = "sin_precio";
   else if (inscrita && igualPrecio(actual, nuevo)) accion = "igual";
-  else if ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)) accion = "fuera_de_rango";
   else accion = inscrita ? "cambiar" : "inscribir";
   return {
     itemId,
@@ -143,6 +148,8 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     nuevo,
     minimo,
     maximo,
+    fueraDeRango:
+      nuevo != null && ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)),
     inicio: p.start_date ?? null,
     fin: p.finish_date ?? null,
     stockMin: p.stock?.min ?? null,

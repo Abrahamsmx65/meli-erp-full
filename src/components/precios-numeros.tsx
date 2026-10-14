@@ -22,7 +22,6 @@ const TEXTO_ACCION: Record<string, { texto: string; color: string }> = {
   igual: { texto: "ya está", color: "var(--exito-texto)" },
   no_se_toca: { texto: "no se toca", color: "var(--ink-3)" },
   sin_precio: { texto: "sin precio en Números", color: "var(--estado-critico)" },
-  fuera_de_rango: { texto: "fuera del rango de MELI", color: "var(--estado-critico)" },
 };
 
 function Accion({ a }: { a: string }) {
@@ -115,7 +114,18 @@ export function PreciosNumeros() {
         {r.inicio ? <div>{fecha(r.inicio)}{r.fin ? ` → ${fecha(r.fin)}` : ""}</div> : null}
       </td>
       <td className="px-2 py-1 text-right cifra">{din(r.actual)}</td>
-      <td className="px-2 py-1 text-right cifra font-semibold">{din(r.nuevo)}</td>
+      <td className="px-2 py-1 text-right cifra font-semibold">
+        {din(r.nuevo)}
+        {r.minimo || r.maximo ? (
+          <div
+            className="text-[10px] font-normal"
+            style={{ color: r.fueraDeRango ? "var(--estado-alerta)" : "var(--ink-3)" }}
+            title="Rango que MELI mandó para esta promoción; si no lo acepta, al aplicar sale su mensaje"
+          >
+            MELI {din(r.minimo)}–{din(r.maximo)}
+          </div>
+        ) : null}
+      </td>
       <td className="px-2 py-1">
         <Accion a={r.accion} />
         {r.accion === "inscribir" && r.tipo.toUpperCase() === "LIGHTNING" ? (
