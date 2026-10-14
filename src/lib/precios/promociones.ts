@@ -63,7 +63,9 @@ export function clasificarPromo(p: PromoMeli): ClasePromo | null {
   if ((p.type ?? "").toUpperCase() === "LIGHTNING") return "relampago";
   const nombre = sinAcentos(p.name ?? "");
   if (/buen\s*fin/.test(nombre)) return "buen_fin";
-  if (/todos\s*los\s*dias/.test(nombre)) return "todos_los_dias";
+  // «Activa Tus Descuentos» es la oferta de todos los días del dueño
+  // (14-oct-2026: «puedes hacer que lo tome»).
+  if (/todos\s*los\s*dias|activa\s*tus\s*descuentos/.test(nombre)) return "todos_los_dias";
   return null;
 }
 
