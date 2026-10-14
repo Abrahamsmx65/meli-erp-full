@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { RenglonPromo } from "@/lib/precios/promociones";
-import { NOMBRE_CLASE } from "@/lib/precios/promociones";
+import { useMemo, useState } from "react";
+import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promociones";
+import { NOMBRE_CLASE, ORDEN_CLASES } from "@/lib/precios/promociones";
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 
@@ -34,13 +34,16 @@ export function PreciosNumeros() {
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState<RevisionPrecios | null>(null);
   const [resultados, setResultados] = useState<ResultadoPrecio[] | null>(null);
+  const [asignadas, setAsignadas] = useState<Asignaciones>({});
 
-  const revisar = async () => {
+  const revisar = async (asig: Asignaciones = asignadas) => {
     setCargando("revisar");
     setError(null);
     setResultados(null);
     try {
-      const r = await fetch(`/api/finanzas/numeros/precios?modelos=${encodeURIComponent(modelos)}`);
+      const r = await fetch(
+        `/api/finanzas/numeros/precios?modelos=${encodeURIComponent(modelos)}&asignadas=${encodeURIComponent(JSON.stringify(asig))}`,
+      );
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo revisar.");
       setRevision(j as RevisionPrecios);
@@ -65,7 +68,7 @@ export function PreciosNumeros() {
       const r = await fetch("/api/finanzas/numeros/precios", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ modelos }),
+        body: JSON.stringify({ modelos, asignadas }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error ?? "No se pudo aplicar.");
@@ -77,12 +80,32 @@ export function PreciosNumeros() {
     }
   };
 
+  // Cada promoción distinta (tipo + nombre) una vez, con cuántas publicaciones la traen.
+  const promos = useMemo(() => {
+    const m = new Map<string, { clave: string; tipo: string; nombre: string; clase: ClasePromo | null; veces: number }>();
+    for (const r of revision?.meli ?? []) {
+      const nombre = r.clave.split("|").slice(1).join("|") || "(sin nombre)";
+      const p = m.get(r.clave) ?? { clave: r.clave, tipo: r.tipo, nombre, clase: r.clase, veces: 0 };
+      p.veces++;
+      m.set(r.clave, p);
+    }
+    return [...m.values()];
+  }, [revision]);
+
+  const asignar = (clave: string, valor: string) => {
+    const nuevas = { ...asignadas, [clave]: valor as ClasePromo | "no_tocar" };
+    setAsignadas(nuevas);
+    void revisar(nuevas);
+  };
+
   const filaMeli = (r: RenglonPromo, i: number) => (
     <tr key={`${r.itemId}-${r.promoId}-${i}`} className="border-t hairline">
       <td className="px-2 py-1 cifra">{r.itemId}</td>
       <td className="px-2 py-1">{r.clase ? NOMBRE_CLASE[r.clase] : "—"}</td>
       <td className="px-2 py-1">{r.nombre}</td>
-      <td className="px-2 py-1 texto-tenue">{r.estado}</td>
+      <td className="px-2 py-1 texto-tenue">
+        {r.tipo} · {r.estado}
+      </td>
       <td className="px-2 py-1 text-right cifra">{din(r.actual)}</td>
       <td className="px-2 py-1 text-right cifra font-semibold">{din(r.nuevo)}</td>
       <td className="px-2 py-1">
@@ -145,6 +168,33 @@ export function PreciosNumeros() {
             </tbody>
           </table>
 
+          {promos.length ? (
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold">¿Qué oferta es cada promoción de MELI?</span>
+              {promos.map((p) => (
+                <label key={p.clave} className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={asignadas[p.clave] ?? p.clase ?? "no_tocar"}
+                    onChange={(e) => asignar(p.clave, e.target.value)}
+                    disabled={!!cargando}
+                    className="rounded border px-1 py-0.5"
+                    style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+                  >
+                    {ORDEN_CLASES.map((c) => (
+                      <option key={c} value={c}>
+                        {NOMBRE_CLASE[c]}
+                      </option>
+                    ))}
+                    <option value="no_tocar">No tocar</option>
+                  </select>
+                  <span>
+                    {p.nombre} <span className="texto-tenue">({p.tipo} · {p.veces} publicaciones)</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -152,7 +202,7 @@ export function PreciosNumeros() {
                   <th className="px-2">Publicación</th>
                   <th className="px-2">Oferta</th>
                   <th className="px-2">Promoción en MELI</th>
-                  <th className="px-2">Estado</th>
+                  <th className="px-2">Tipo · estado</th>
                   <th className="px-2 text-right">Hoy</th>
                   <th className="px-2 text-right">Nuevo</th>
                   <th className="px-2" />

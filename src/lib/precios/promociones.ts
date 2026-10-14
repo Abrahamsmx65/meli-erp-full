@@ -81,6 +81,8 @@ export interface RenglonPromo {
   promoId: string | null;
   tipo: string;
   nombre: string;
+  /** tipo + nombre de la promoción: con eso el dueño la asigna a mano */
+  clave: string;
   estado: string;
   clase: ClasePromo | null;
   actual: number | null;
@@ -93,8 +95,22 @@ export interface RenglonPromo {
 const igualPrecio = (a: number | null, b: number | null) =>
   a != null && b != null && Math.round(a * 100) === Math.round(b * 100);
 
-export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos): RenglonPromo {
-  const clase = clasificarPromo(p);
+/** Llave de una promoción para asignarla a mano: la misma en todas las publicaciones. */
+export function clavePromo(p: PromoMeli): string {
+  return `${(p.type ?? "").toUpperCase()}|${(p.name ?? "").trim()}`;
+}
+
+/**
+ * Lo que el dueño eligió para cada promoción (`clavePromo` → clase o
+ * "no_tocar"). Manda sobre lo que se reconoce por nombre: MELI llama a las
+ * campañas como quiere («Activa Tus Descuentos») y solo el dueño sabe cuál
+ * es su oferta de todos los días.
+ */
+export type Asignaciones = Record<string, ClasePromo | "no_tocar">;
+
+export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignadas: Asignaciones = {}): RenglonPromo {
+  const elegida = asignadas[clavePromo(p)];
+  const clase = elegida === "no_tocar" ? null : elegida ?? clasificarPromo(p);
   const nuevo = clase ? precioDeClase(clase, o) : null;
   const inscrita = estaInscrita(p);
   const actual = inscrita ? p.price ?? null : null;
@@ -113,6 +129,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos): Renglon
     promoId: p.id ?? null,
     tipo: p.type ?? "",
     nombre: p.name ?? p.type ?? "",
+    clave: clavePromo(p),
     estado: p.status ?? "",
     clase,
     actual,
@@ -124,6 +141,16 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos): Renglon
 }
 
 /** Relámpago primero, luego Buen Fin, luego todos los días; lo demás al final. */
+export function esAsignacion(x: unknown): x is ClasePromo | "no_tocar" {
+  return x === "no_tocar" || ORDEN_CLASES.includes(x as ClasePromo);
+}
+
+export function leerAsignaciones(x: unknown): Asignaciones {
+  const out: Asignaciones = {};
+  if (x && typeof x === "object") for (const [k, v] of Object.entries(x)) if (esAsignacion(v)) out[k] = v;
+  return out;
+}
+
 export function ordenarPlan(r: RenglonPromo[]): RenglonPromo[] {
   const peso = (x: RenglonPromo) => (x.clase ? ORDEN_CLASES.indexOf(x.clase) : ORDEN_CLASES.length);
   return [...r].sort((a, b) => peso(a) - peso(b) || a.itemId.localeCompare(b.itemId));
