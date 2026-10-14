@@ -164,16 +164,27 @@ export function claveRenglon(r: { itemId: string; promoId: string | null; tipo: 
   return `${r.itemId}|${r.promoId ?? r.tipo}`;
 }
 
+/** Pares que se reservan cuando MELI no dice el mínimo (con 1 de respaldo). */
+export const PARES_RELAMPAGO_POR_OMISION = 5;
+
 /**
- * Pares a reservar al inscribir un relámpago: lo que puso el dueño o, si no,
- * el mínimo que pide MELI. Fuera del rango de MELI es error, no se ajusta.
+ * Pares a reservar al inscribir un relámpago, en el orden en que se prueban:
+ * lo que puso el dueño, si no el mínimo que pide MELI, y si MELI no dice
+ * nada, 5 y luego 1 (dueño, 14-oct-2026: «la cantidad no me importa nunca,
+ * siempre confirma las relámpago si cumplen con el precio»; ese día 299
+ * candidatas se quedaron fuera por no traer mínimo). Lo que el dueño
+ * escribe fuera del rango de MELI sí es error: es su número, no uno nuestro.
  */
-export function stockParaRelampago(r: RenglonPromo, pedido: number | undefined): { stock: number } | { error: string } {
-  const v = pedido ?? r.stockMin ?? null;
-  if (v == null || !Number.isInteger(v) || v <= 0) return { error: "falta cuántos pares reservar para el relámpago" };
-  if (r.stockMin != null && v < r.stockMin) return { error: `MELI pide reservar al menos ${r.stockMin} pares` };
-  if (r.stockMax != null && r.stockMax > 0 && v > r.stockMax) return { error: `MELI deja reservar a lo más ${r.stockMax} pares` };
-  return { stock: v };
+export function stockParaRelampago(r: RenglonPromo, pedido: number | undefined): { intentos: number[] } | { error: string } {
+  if (pedido != null) {
+    if (!Number.isInteger(pedido) || pedido <= 0) return { error: "los pares a reservar deben ser un número entero" };
+    if (r.stockMin != null && pedido < r.stockMin) return { error: `MELI pide reservar al menos ${r.stockMin} pares` };
+    if (r.stockMax != null && r.stockMax > 0 && pedido > r.stockMax) return { error: `MELI deja reservar a lo más ${r.stockMax} pares` };
+    return { intentos: [pedido] };
+  }
+  if (r.stockMin != null && r.stockMin > 0) return { intentos: [r.stockMin] };
+  const tope = r.stockMax != null && r.stockMax > 0 ? r.stockMax : Infinity;
+  return { intentos: [...new Set([Math.min(PARES_RELAMPAGO_POR_OMISION, tope), 1])] };
 }
 
 export function leerStocks(x: unknown): Record<string, number> {
@@ -204,4 +215,48 @@ export function ordenarPlan(r: RenglonPromo[]): RenglonPromo[] {
 /** Modelo de un SKU de Amazon o MELI: lo que va antes del primer guion. */
 export function modeloDeSku(sku: string): string {
   return sku.trim().toUpperCase().split(/[-_ ]/)[0] ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Amazon: el precio y el PRECIO MÍNIMO van juntos
+// ---------------------------------------------------------------------------
+
+/** El mínimo queda más de 15 % abajo del precio (dueño, 14-oct-2026). */
+export const DESCUENTO_MINIMO_AMAZON = 0.15;
+
+/**
+ * Precio mínimo del vendedor para un precio de lista: abajo del 85 % del
+ * precio, en .99 (616.99 → 523.99). Dueño, 14-oct-2026: «cuando actualizo
+ * el precio hay que actualizar también el precio mínimo para que sea más de
+ * 15 % menor que el precio de lista».
+ */
+export function precioMinimoAmazon(precio: number): number {
+  return Math.max(0.99, Math.floor(precio * (1 - DESCUENTO_MINIMO_AMAZON)) - 0.01);
+}
+
+type Oferta = Record<string, unknown>;
+const conValor = (v: number) => [{ schedule: [{ value_with_tax: v }] }];
+const valorDe = (x: unknown): number | null => {
+  const v = (x as { schedule?: { value_with_tax?: unknown }[] }[] | undefined)?.[0]?.schedule?.[0]?.value_with_tax;
+  const n = Number(v);
+  return v == null || !Number.isFinite(n) ? null : n;
+};
+
+/**
+ * La oferta de Amazon (`purchasable_offer`) con el precio y el mínimo
+ * nuevos. El parche REEMPLAZA el atributo completo, así que lo demás que la
+ * publicación ya traía (máximo, oferta, otros mercados) se copia tal cual;
+ * un máximo que quedaría abajo del precio nuevo se quita (Amazon rechazaría
+ * la oferta).
+ */
+export function ofertaAmazon(actual: Oferta[] | undefined, marketplaceId: string, precio: number): Oferta[] {
+  const lista = Array.isArray(actual) ? actual : [];
+  const delMercado = lista.find((o) => o?.marketplace_id === marketplaceId);
+  const otras = lista.filter((o) => o !== delMercado);
+  const nueva: Oferta = { ...(delMercado ?? {}), marketplace_id: marketplaceId, currency: (delMercado?.currency as string) ?? "MXN" };
+  nueva.our_price = conValor(precio);
+  nueva.minimum_seller_allowed_price = conValor(precioMinimoAmazon(precio));
+  const maximo = valorDe(nueva.maximum_seller_allowed_price);
+  if (maximo != null && maximo < precio) delete nueva.maximum_seller_allowed_price;
+  return [...otras, nueva];
 }
