@@ -18,6 +18,8 @@ import {
   planDePromo,
   redondear99,
   claveRenglon,
+  ofertaAmazon,
+  precioMinimoAmazon,
   stockParaRelampago,
   type Asignaciones,
   type Objetivos,
@@ -187,9 +189,11 @@ export async function aplicarPrecios(
       const s = stockParaRelampago(r, stocks[claveRenglon(r)]);
       if ("error" in s) {
         resultados.push({ donde, ok: false, detalle: s.error });
-        continue;
+      } else {
+        const hecho = await inscribirRelampago(cliente, r, s.intentos);
+        resultados.push({ donde, ok: hecho.ok, detalle: hecho.detalle });
       }
-      cuerpo.stock = s.stock;
+      continue;
     }
     try {
       const ruta = `/seller-promotions/items/${r.itemId}?app_version=v2`;
@@ -214,8 +218,11 @@ export async function aplicarPrecios(
         const donde = `Amazon ${a.sku}`;
         try {
           const ruta = `${base}/${encodeURIComponent(a.sku)}`;
-          const actual = await amz.llamar<{ summaries?: { productType?: string }[] }>("GET", ruta, "getListingsItem", {
-            params: { marketplaceIds: credenciales.marketplaceId, includedData: "summaries" },
+          const actual = await amz.llamar<{
+            summaries?: { productType?: string }[];
+            attributes?: { purchasable_offer?: Record<string, unknown>[] };
+          }>("GET", ruta, "getListingsItem", {
+            params: { marketplaceIds: credenciales.marketplaceId, includedData: "summaries,attributes" },
           });
           const productType = actual?.summaries?.[0]?.productType;
           if (!productType) {
@@ -230,13 +237,7 @@ export async function aplicarPrecios(
                 {
                   op: "replace",
                   path: "/attributes/purchasable_offer",
-                  value: [
-                    {
-                      marketplace_id: credenciales.marketplaceId,
-                      currency: "MXN",
-                      our_price: [{ schedule: [{ value_with_tax: a.nuevo }] }],
-                    },
-                  ],
+                  value: ofertaAmazon(actual?.attributes?.purchasable_offer, credenciales.marketplaceId, a.nuevo as number),
                 },
               ],
             },
@@ -245,7 +246,12 @@ export async function aplicarPrecios(
           if (!r) resultados.push({ donde, ok: false, detalle: "Amazon no contestó a tiempo." });
           else if (r.status !== "ACCEPTED" || errores.length)
             resultados.push({ donde, ok: false, detalle: errores.map((e) => e.message).join("; ") || `Amazon contestó ${r.status}` });
-          else resultados.push({ donde, ok: true, detalle: `precio a $${(a.nuevo as number).toFixed(2)} (Amazon lo aplica en unos minutos)` });
+          else
+            resultados.push({
+              donde,
+              ok: true,
+              detalle: `precio a $${(a.nuevo as number).toFixed(2)} y mínimo a $${precioMinimoAmazon(a.nuevo as number).toFixed(2)} (Amazon lo aplica en unos minutos)`,
+            });
         } catch (err) {
           resultados.push({ donde, ok: false, detalle: err instanceof ErrorAmazon ? err.detalle.slice(0, 300) : (err as Error).message });
         }
@@ -254,6 +260,33 @@ export async function aplicarPrecios(
   }
 
   return { revision, resultados };
+}
+
+/**
+ * Inscribe un relámpago probando los pares en orden (`stockParaRelampago`):
+ * si MELI rechaza un número, se prueba el siguiente; regresa el mensaje del
+ * último rechazo si ninguno entra.
+ */
+async function inscribirRelampago(
+  cliente: MeliClient,
+  r: RenglonPromo,
+  intentos: number[],
+): Promise<{ ok: boolean; detalle: string }> {
+  let ultimo = "";
+  for (const stock of intentos) {
+    try {
+      await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
+        promotion_id: r.promoId,
+        promotion_type: r.tipo,
+        deal_price: r.nuevo,
+        stock,
+      });
+      return { ok: true, detalle: `inscrita a $${(r.nuevo as number).toFixed(2)} con ${stock} pares` };
+    } catch (err) {
+      ultimo = mensajeMeli(err);
+    }
+  }
+  return { ok: false, detalle: ultimo };
 }
 
 export const TAREA_RELAMPAGOS = "relampagos-auto";
@@ -286,21 +319,13 @@ export async function confirmarRelampagosPendientes(
     if (r.tipo.toUpperCase() !== "LIGHTNING" || r.estado.toLowerCase() !== "candidate") continue;
     const donde = `${r.itemId} · ${r.nombre}${r.inicio ? ` · ${r.inicio}` : ""}`;
     if (r.accion !== "inscribir" || r.nuevo == null) continue;
-    if (r.stockMin == null) {
-      omitidas.push(`${donde}: MELI no dijo el mínimo de pares a reservar`);
+    const s = stockParaRelampago(r, undefined);
+    if ("error" in s) {
+      omitidas.push(`${donde}: ${s.error}`);
       continue;
     }
-    try {
-      await cliente.post(`/seller-promotions/items/${r.itemId}?app_version=v2`, {
-        promotion_id: r.promoId,
-        promotion_type: r.tipo,
-        deal_price: r.nuevo,
-        stock: r.stockMin,
-      });
-      inscritas.push({ donde, ok: true, detalle: `inscrita a $${r.nuevo.toFixed(2)} con ${r.stockMin} pares` });
-    } catch (err) {
-      fallidas.push({ donde, ok: false, detalle: mensajeMeli(err) });
-    }
+    const hecho = await inscribirRelampago(cliente, r, s.intentos);
+    (hecho.ok ? inscritas : fallidas).push({ donde, ok: hecho.ok, detalle: hecho.detalle });
   }
 
   await admin.from("sync_log").insert({

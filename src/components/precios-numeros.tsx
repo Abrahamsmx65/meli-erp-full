@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Asignaciones, ClasePromo, RenglonPromo } from "@/lib/precios/promociones";
-import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon } from "@/lib/precios/promociones";
+import { NOMBRE_CLASE, ORDEN_CLASES, claveRenglon, precioMinimoAmazon } from "@/lib/precios/promociones";
 import type { ResultadoPrecio, RevisionPrecios } from "@/lib/servicios/precios-modelos";
 import { Aviso } from "@/components/ui/pagina";
 
@@ -135,6 +135,7 @@ export function PreciosNumeros() {
               min={r.stockMin ?? 1}
               max={r.stockMax ?? undefined}
               value={stocks[claveRenglon(r)] ?? (r.stockMin != null ? String(r.stockMin) : "")}
+              placeholder="5"
               onChange={(e) => setStocks((prev) => ({ ...prev, [claveRenglon(r)]: e.target.value }))}
               className="w-16 rounded border px-1 py-0.5 text-right"
               style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
@@ -251,7 +252,12 @@ export function PreciosNumeros() {
                     <td className="px-2 py-1">PVP deal</td>
                     <td className="px-2 py-1 texto-tenue">{a.estado ?? ""}</td>
                     <td className="px-2 py-1 text-right cifra">{din(a.actual)}</td>
-                    <td className="px-2 py-1 text-right cifra font-semibold">{din(a.nuevo)}</td>
+                    <td className="px-2 py-1 text-right cifra font-semibold">
+                      {din(a.nuevo)}
+                      {a.nuevo != null ? (
+                        <div className="text-[10px] font-normal texto-tenue">mínimo {din(precioMinimoAmazon(a.nuevo))}</div>
+                      ) : null}
+                    </td>
                     <td className="px-2 py-1">
                       <Accion a={a.accion} />
                     </td>

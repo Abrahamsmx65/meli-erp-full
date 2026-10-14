@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarPromo, modeloDeSku, ordenarPlan, planDePromo, redondear99, stockParaRelampago } from "./promociones";
+import { clasificarPromo, modeloDeSku, ofertaAmazon, ordenarPlan, planDePromo, precioMinimoAmazon, redondear99, stockParaRelampago } from "./promociones";
 
 const obj = { modelo: "GT253", relampago: 549.99, normal: 585.99, pvpDeal: 899.99 };
 
@@ -68,12 +68,46 @@ it("lo que asigna el dueño manda sobre el nombre («Activa Tus Descuentos» es 
   expect(planDePromo("MLM1", { type: "LIGHTNING", status: "started", price: 1 }, obj, { "LIGHTNING|": "no_tocar" }).accion).toBe("no_se_toca");
 });
 
-it("pares del relámpago: lo del dueño o el mínimo de MELI, dentro del rango", () => {
+it("pares del relámpago: lo del dueño, el mínimo de MELI o, sin mínimo, 5 y luego 1", () => {
   const r = planDePromo("MLM1", { id: "L1", type: "LIGHTNING", status: "candidate", stock: { min: 5, max: 40 } }, obj);
-  expect(stockParaRelampago(r, undefined)).toEqual({ stock: 5 });
-  expect(stockParaRelampago(r, 20)).toEqual({ stock: 20 });
+  expect(stockParaRelampago(r, undefined)).toEqual({ intentos: [5] });
+  expect(stockParaRelampago(r, 20)).toEqual({ intentos: [20] });
   expect(stockParaRelampago(r, 2)).toHaveProperty("error");
   expect(stockParaRelampago(r, 50)).toHaveProperty("error");
   const sin = planDePromo("MLM1", { id: "L2", type: "LIGHTNING", status: "candidate" }, obj);
-  expect(stockParaRelampago(sin, undefined)).toHaveProperty("error");
+  expect(stockParaRelampago(sin, undefined)).toEqual({ intentos: [5, 1] });
+  const chico = planDePromo("MLM1", { id: "L3", type: "LIGHTNING", status: "candidate", stock: { max: 3 } }, obj);
+  expect(stockParaRelampago(chico, undefined)).toEqual({ intentos: [3, 1] });
+});
+
+describe("Amazon: precio y mínimo", () => {
+  it("el mínimo queda más de 15 % abajo, en .99", () => {
+    expect(precioMinimoAmazon(616.99)).toBe(523.99);
+    expect(precioMinimoAmazon(679.99)).toBe(576.99);
+    expect(precioMinimoAmazon(616.99)).toBeLessThan(616.99 * 0.85);
+  });
+
+  it("cambia precio y mínimo y conserva lo demás de la oferta", () => {
+    const actual = [
+      {
+        marketplace_id: "A1AM78C64UM0Y8",
+        currency: "MXN",
+        our_price: [{ schedule: [{ value_with_tax: 679.99 }] }],
+        minimum_seller_allowed_price: [{ schedule: [{ value_with_tax: 600 }] }],
+        maximum_seller_allowed_price: [{ schedule: [{ value_with_tax: 900 }] }],
+        audience: "ALL",
+      },
+    ];
+    const [o] = ofertaAmazon(actual, "A1AM78C64UM0Y8", 616.99);
+    expect(o.our_price).toEqual([{ schedule: [{ value_with_tax: 616.99 }] }]);
+    expect(o.minimum_seller_allowed_price).toEqual([{ schedule: [{ value_with_tax: 523.99 }] }]);
+    expect(o.maximum_seller_allowed_price).toEqual([{ schedule: [{ value_with_tax: 900 }] }]);
+    expect(o.audience).toBe("ALL");
+  });
+
+  it("quita un máximo que quedaría abajo del precio nuevo", () => {
+    const actual = [{ marketplace_id: "M", maximum_seller_allowed_price: [{ schedule: [{ value_with_tax: 500 }] }] }];
+    expect(ofertaAmazon(actual, "M", 616.99)[0]).not.toHaveProperty("maximum_seller_allowed_price");
+    expect(ofertaAmazon(undefined, "M", 616.99)[0].currency).toBe("MXN");
+  });
 });
