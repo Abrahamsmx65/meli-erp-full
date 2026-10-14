@@ -156,6 +156,22 @@ guárdala numerada.
   53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
   53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
   inventa.
+  **Y los dos archivos de la BODEGA** (`servicios/bodega-contenedor.ts`
+  puro con pruebas, `servicios/contenedor-datos.ts`, `GET
+  /api/contenedores/{id}/bodega?archivo=productos|packing`, botones
+  «Bodega: productos» y «Bodega: llegada»; dueño, 14-oct-2026: «para avisar
+  a la bodega que llega mercancía doy de alta los productos y luego mando un
+  Excel con lo que va a llegar»): CSV calcados de S259-PRODUCTOS.csv y
+  PACKING_LIST_S259.csv. El SKU y los dos barcodes son EL TEXTO DEL BOX
+  LABEL (`codigoDeCaja`: PEDIDO-MODELO-COLOR(-TALLA) sin espacios ni
+  anotación, la regla de `textosDeCarton`). PRODUCTOS no repite lo que ya
+  viajó en un contenedor ANTERIOR con el mismo SKU (embarque de número
+  menor); el packing list sí lleva todo. Valor reposicion = el DOBLE del
+  costo por par × pares (`FACTOR_VALOR_REPOSICION`); Atributos = pares por caja; Paquete 1 = medidas del packing list
+  de la fábrica en el orden de «Means» (las que faltan salen de otro
+  contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
+  calzado y Nombre = tipo por código fiscal (PANTUFLAS, BOTAS…). Lo que falta
+  va en blanco y la pantalla lo avisa.
 - **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
   `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
   `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,
