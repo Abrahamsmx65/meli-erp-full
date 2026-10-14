@@ -40,6 +40,36 @@ export interface PromoMeli {
   finish_date?: string | null;
   /** relámpago: cuántos pares se pueden reservar */
   stock?: { min?: number | null; max?: number | null } | null;
+  /** parte del descuento que pone MELI (% del precio original) */
+  meli_percentage?: number | null;
+  seller_percentage?: number | null;
+}
+
+/** Desde este precio el vendedor paga el envío en MELI México. */
+export const UMBRAL_ENVIO_VENDEDOR = 299;
+
+/**
+ * Lo que MELI pone de su bolsa en una promoción con aporte: con él, la venta
+ * se le cobra al vendedor como si fuera a precio + aporte.
+ */
+export function aporteMeli(p: PromoMeli): number {
+  const pct = Number(p.meli_percentage ?? 0);
+  const base = Number(p.original_price ?? 0);
+  return pct > 0 && base > 0 ? (base * pct) / 100 : 0;
+}
+
+/**
+ * Con el aporte de MELI una venta abajo de $299 se cobra como si fuera de
+ * $299 o más, y entonces el vendedor paga el envío (~$20). Dueño,
+ * 14-oct-2026, GT266 en Buen Fin 26: «arriba de 298.99 yo pago envío;
+ * prefiero ponerlo a 298.99 de mi bolsa que me bajen $10 pero me lo cobren
+ * como si lo vendí a $300». Esa promoción NO se toca: se queda su precio
+ * propio.
+ */
+export function cruzaEnvioPorAporte(p: PromoMeli, nuevo: number | null): boolean {
+  if (nuevo == null || nuevo >= UMBRAL_ENVIO_VENDEDOR) return false;
+  const aporte = aporteMeli(p);
+  return aporte > 0 && nuevo + aporte >= UMBRAL_ENVIO_VENDEDOR;
 }
 
 export interface Objetivos {
@@ -78,7 +108,7 @@ export function estaInscrita(p: PromoMeli): boolean {
   return ["started", "pending", "active", "programmed"].includes((p.status ?? "").toLowerCase());
 }
 
-export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio";
+export type AccionPromo = "cambiar" | "inscribir" | "igual" | "no_se_toca" | "sin_precio" | "pagarias_envio";
 
 export interface RenglonPromo {
   itemId: string;
@@ -99,6 +129,8 @@ export interface RenglonPromo {
    * que MELI sí le acepta en su pantalla; quien decide es MELI al recibirlo.
    */
   fueraDeRango: boolean;
+  /** lo que pone MELI en la promoción (null = la paga toda el vendedor) */
+  aporte: number | null;
   inicio: string | null;
   fin: string | null;
   /** relámpago candidata: pares que MELI deja reservar */
@@ -135,6 +167,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
   if (!clase) accion = "no_se_toca";
   else if (nuevo == null) accion = "sin_precio";
   else if (inscrita && igualPrecio(actual, nuevo)) accion = "igual";
+  else if (cruzaEnvioPorAporte(p, nuevo)) accion = "pagarias_envio";
   else accion = inscrita ? "cambiar" : "inscribir";
   return {
     itemId,
@@ -148,6 +181,7 @@ export function planDePromo(itemId: string, p: PromoMeli, o: Objetivos, asignada
     nuevo,
     minimo,
     maximo,
+    aporte: aporteMeli(p) || null,
     fueraDeRango:
       nuevo != null && ((minimo != null && minimo > 0 && nuevo < minimo) || (maximo != null && maximo > 0 && nuevo > maximo)),
     inicio: p.start_date ?? null,

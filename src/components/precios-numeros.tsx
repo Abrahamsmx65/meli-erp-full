@@ -21,6 +21,7 @@ const TEXTO_ACCION: Record<string, { texto: string; color: string }> = {
   inscribir: { texto: "se inscribe", color: "var(--estado-alerta)" },
   igual: { texto: "ya está", color: "var(--exito-texto)" },
   no_se_toca: { texto: "no se toca", color: "var(--ink-3)" },
+  pagarias_envio: { texto: "no se toca: con el aporte de MELI te cobra como ≥ $299 y pagas envío", color: "var(--ink-3)" },
   sin_precio: { texto: "sin precio en Números", color: "var(--estado-critico)" },
 };
 
@@ -125,6 +126,7 @@ export function PreciosNumeros() {
             MELI {din(r.minimo)}–{din(r.maximo)}
           </div>
         ) : null}
+        {r.aporte ? <div className="text-[10px] font-normal texto-tenue">aporte MELI {din(r.aporte)}</div> : null}
       </td>
       <td className="px-2 py-1">
         <Accion a={r.accion} />
