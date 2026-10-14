@@ -21,14 +21,30 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CejaDeRuta } from "./ceja-ruta";
+import { ActualizacionViva } from "./actualizacion-viva";
 import { RefrescoAlTerminar } from "./refresco-al-terminar";
 import { seEstaRefrescando } from "@/lib/servicios/marca-refresco";
 
-export function Pagina({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Pagina({
+  children,
+  className = "",
+  vivo,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** ms: la pantalla se vuelve a pedir sola cada tanto mientras se ve (ventas). */
+  vivo?: number;
+}) {
   return (
     <div className={`pagina ${className}`}>
       {children}
-      {seEstaRefrescando() ? <RefrescoAlTerminar /> : null}
+      {/* Una pantalla «viva» (ventas) ya se vuelve a pedir sola cada tanto: ahí
+          no se enseña «Actualizando datos…» ni se recarga a los 5/15/40 s
+          (dueño, 11-oct-2026: los números brincaban y la pantalla parecía
+          «pensar» en cada cambio de fecha). Lo que se refresque por atrás
+          llega en la siguiente vuelta, en silencio. */}
+      {seEstaRefrescando() && !vivo ? <RefrescoAlTerminar /> : null}
+      {vivo ? <ActualizacionViva cadaMs={vivo} /> : null}
     </div>
   );
 }

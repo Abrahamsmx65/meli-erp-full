@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { detalleModelos, resumenModelos, type PendientePacking } from "@/lib/servicios/contenedores-vista";
+import { contenidoPorModelo, detalleModelos, resumenModelos, type OtroDelContenedor, type PendientePacking } from "@/lib/servicios/contenedores-vista";
 import { LigarColores, type ColorFantasma, type ColorLigado } from "./ligar-colores";
 import { sugerirRenglon, type RenglonParaSugerir } from "@/lib/servicios/packing-sugerencias";
 import { FotoProducto } from "./ui/foto-producto";
+import { cotejarConBl } from "@/lib/importar/bl";
 
 /** Miniaturas por renglón del contenedor; el resto se cuenta como «+N». */
 const FOTOS_POR_CONTENEDOR = 6;
@@ -34,6 +35,11 @@ interface Contenedor {
   sinSku?: ColorFantasma[];
   /** colores ya ligados a mano con MELI */
   ligados?: ColorLigado[];
+  /** cajas del BL (número de control) */
+  cajasBl?: number | null;
+  blArchivo?: string | null;
+  /** lo que viaja y no es calzado (bolsas de empaque…) */
+  otros?: OtroDelContenedor[];
 }
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; color: string }> = {
@@ -122,6 +128,23 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
         "",
       ].join("\n");
       window.location.href = `mailto:?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  /** Solo borradores: un contenedor que llegó de Drive por error (duplicado, proforma). */
+  async function borrar(c: Contenedor) {
+    if (!window.confirm(`¿Borrar el borrador ${c.numero} (${n(c.cajas)} cajas)? Sus renglones se quitan y los pedidos vuelven a contar esas cajas como pendientes.`)) return;
+    setOcupado(c.id);
+    setError(null);
+    try {
+      const r = await fetch(`/api/contenedores?id=${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo borrar.");
+      router.refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -262,9 +285,48 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     )}
                   </td>
                   <td className="cifra text-xs">{fecha(c.llegadaReal)}</td>
-                  <td className="num cifra">{n(c.cajas)}</td>
+                  <td className="num">
+                    <span className="cifra">{n(c.cajas)}</span>
+                    {cajasOtros(c) ? (
+                      <span className="block text-[11px] texto-tenue" title="Bolsas de empaque y otros artículos que no son calzado">
+                        + {n(cajasOtros(c))} otros
+                      </span>
+                    ) : null}
+                    <ContraBl cargadas={c.cajas + cajasOtros(c)} pendientes={(c.pendientes ?? []).reduce((a, p) => a + p.cajas, 0)} cajasBl={c.cajasBl} archivo={c.blArchivo} />
+                  </td>
                   {/* Una línea por contenedor: el detalle sale al pasar el mouse. */}
                   <td className="text-xs">
+                    {/* Computadora: todo lo que viene, por modelo y color, sin abrir «Contenido». */}
+                    {c.modelos.length ? (
+                      <ul className="hidden min-w-72 flex-col gap-1.5 lg:flex">
+                        {contenidoPorModelo(c.modelos).map((m) => (
+                          <li key={m.modelo} className="flex items-start gap-2">
+                            <FotoProducto url={m.foto} alt={m.modelo} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{m.modelo}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(m.cajas)} cajas</span>
+                              <span className="block texto-2">
+                                {m.colores.map((x) => `${x.color || "—"} ${n(x.cajas)}`).join(" · ")}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                        {(c.otros ?? []).map((o) => (
+                          <li key={`otro|${o.descripcion}|${o.color}`} className="flex items-start gap-2">
+                            <FotoProducto url={null} alt={o.descripcion} tamano={32} />
+                            <span className="leading-tight">
+                              <span className="font-semibold">{nombreOtro(o)}</span>{" "}
+                              <span className="cifra texto-tenue">· {n(o.cajas)} cajas</span>
+                              <span className="block texto-tenue">
+                                {o.piezas ? `${n(o.piezas)} piezas · ` : ""}no es calzado
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {/* Celular: una línea con fotos; el detalle en «Contenido». */}
+                    <div className="lg:hidden">
                     {c.modelos.length ? (
                       <div className="mb-1 flex flex-wrap items-center gap-1">
                         {fotosDeModelos(c.modelos)
@@ -292,6 +354,12 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                     ) : (
                       <span className="texto-tenue">—</span>
                     )}
+                    {(c.otros ?? []).length ? (
+                      <span className="block max-w-56 truncate texto-tenue">
+                        + {(c.otros ?? []).map((o) => `${nombreOtro(o)} ${n(o.cajas)}`).join(", ")}
+                      </span>
+                    ) : null}
+                    </div>
                     {c.sinSku?.length ? (
                       <button
                         onClick={() => setLigando(c)}
@@ -437,6 +505,17 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
                               {ocupado === c.id ? "…" : "Confirmar"}
                             </button>
                           ) : null}
+                          {c.estado === "borrador" ? (
+                            <button
+                              onClick={() => borrar(c)}
+                              disabled={ocupado === c.id}
+                              className="rounded-lg border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                              style={{ borderColor: "var(--estado-critico)", color: "var(--estado-critico)" }}
+                              title="Quita este borrador y sus renglones"
+                            >
+                              Borrar
+                            </button>
+                          ) : null}
                           {c.estado !== "recibido" ? (
                             <button
                               onClick={() => confirmarLlegada(c)}
@@ -482,6 +561,49 @@ export function TablaContenedores({ contenedores }: { contenedores: Contenedor[]
         />
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Las cajas cargadas contra el BL de la carpeta de Drive (idea del dueño,
+ * 11-oct-2026): si no cuadran se dice en rojo cuántas faltan o sobran y
+ * cuántas están por confirmar en Contenido.
+ */
+/** Cajas de lo que viaja y no es calzado (bolsas de empaque…): cuentan contra el BL. */
+function cajasOtros(c: { otros?: { cajas: number }[] }): number {
+  return (c.otros ?? []).reduce((a, o) => a + o.cajas, 0);
+}
+
+function nombreOtro(o: { descripcion: string; color: string }): string {
+  return `${o.descripcion}${o.color ? ` ${o.color}` : ""}`;
+}
+
+function ContraBl({
+  cargadas,
+  pendientes,
+  cajasBl,
+  archivo,
+}: {
+  cargadas: number;
+  pendientes: number;
+  cajasBl?: number | null;
+  archivo?: string | null;
+}) {
+  const c = cotejarConBl(cargadas, cajasBl);
+  if (c.estado === "sin_bl") return <span className="block text-[11px] texto-tenue">sin BL</span>;
+  const titulo = `BL: ${n(cajasBl ?? 0)} cajas${archivo ? ` (${archivo})` : ""}`;
+  if (c.estado === "cuadra") {
+    return (
+      <span className="block text-[11px]" style={{ color: "var(--exito-texto)" }} title={titulo}>
+        ✓ BL {n(cajasBl ?? 0)}
+      </span>
+    );
+  }
+  return (
+    <span className="block text-[11px] font-medium" style={{ color: "var(--estado-critico)" }} title={titulo}>
+      BL {n(cajasBl ?? 0)} · {c.estado === "faltan" ? `faltan ${n(-c.diferencia)}` : `sobran ${n(c.diferencia)}`}
+      {c.estado === "faltan" && pendientes > 0 ? <span className="block font-normal">{n(pendientes)} por confirmar</span> : null}
+    </span>
   );
 }
 
@@ -662,6 +784,21 @@ function ContenidoContenedor({
     >
       <div className="tarjeta my-8 w-full max-w-3xl p-5" style={{ background: "var(--surface-1)" }}>
         <h3 className="titulo-seccion">Contenido de {contenedor.numero}</h3>
+        {(contenedor.otros ?? []).length ? (
+          <section className="mt-3 rounded-lg border p-3 text-xs" style={{ borderColor: "var(--borde)" }}>
+            <h4 className="text-sm font-semibold">Otros artículos (no son calzado)</h4>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {(contenedor.otros ?? []).map((o) => (
+                <li key={`${o.descripcion}|${o.color}`} className="flex flex-wrap gap-x-2">
+                  <span className="font-medium">{nombreOtro(o)}</span>
+                  <span className="cifra">{n(o.cajas)} cajas</span>
+                  {o.piezas ? <span className="cifra texto-tenue">{n(o.piezas)} piezas</span> : null}
+                  {o.pedido ? <span className="texto-tenue">{o.pedido}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {pendientes.length ? (
           <section
             className="mt-3 rounded-lg border p-3"

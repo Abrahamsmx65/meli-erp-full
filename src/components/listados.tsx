@@ -294,7 +294,7 @@ export function Listados({ agrupadores }: { agrupadores: AgrupadorConocido[] }) 
                               <span className="cifra">{r.itemId}</span>
                               {r.estado === "actualizado" ? (
                                 <span style={{ color: "var(--exito-texto)" }}>
-                                  ✓ actualizado ({r.niveles.join(" y ")})
+                                  ✓ actualizado ({r.niveles.join(" y ").replace("user_product", "user product")})
                                 </span>
                               ) : r.estado === "sin_cambio" ? (
                                 <span className="texto-tenue">ya estaba bien</span>

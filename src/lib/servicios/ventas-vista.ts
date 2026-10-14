@@ -9,12 +9,9 @@
  */
 import {
   aplicarPublicidadAlMonitor,
-  calcularMonitorFresco,
-  claveMonitorVentas,
   fechaMx,
   normalizarRango,
   servirMonitor,
-  VIDA_MONITOR_GUARDADO_MS,
   type Monitor,
   type RangoFechas,
 } from "./ventas-monitor";
@@ -57,8 +54,28 @@ export interface VistaVentas {
    * para que la pantalla los grite si no cuadran, no para esconderlos.
    */
   cuadres: Cuadre[];
-  /** de cuándo es lo guardado (el más viejo de monitor y publicidad) */
-  generadoEn: string | null;
+  /**
+   * De cuándo es la publicidad guardada. Unidades y venta van en vivo (≤ 1
+   * min, de la base); la publicidad y el dinero (`finanzas.generadoEn`) son
+   * renglones masticados y la pantalla declara su edad.
+   */
+  publicidadGeneradaEn: string | null;
+}
+
+/**
+ * ¿Se pueden comparar el monitor (en vivo) y el dinero guardado? Si el
+ * periodo ya cerró, sí: sus días no se mueven. Si incluye hoy, solo cuando
+ * el dinero se masticó hace menos de un minuto (pura).
+ */
+export function mismoMomentoParaCuadrar(
+  rango: RangoFechas,
+  finanzasGeneradoEn: string | null | undefined,
+  ahora = Date.now(),
+  hoy = fechaMx(0),
+): boolean {
+  if (rango.hasta < hoy) return true;
+  if (!finanzasGeneradoEn) return false;
+  return ahora - Date.parse(finanzasGeneradoEn) < 60_000;
 }
 
 function cuadre(que: string, arriba: number, abajo: number): Cuadre {
@@ -95,10 +112,7 @@ export async function vistaVentas(
   ]);
   const sinAds = sinAdsServido.datos;
   const ads = adsServidos.datos;
-  const generadoEn =
-    [sinAdsServido.generadoEn, adsServidos.generadoEn]
-      .filter((x): x is string => !!x)
-      .sort()[0] ?? null;
+  const publicidadGeneradaEn = adsServidos.generadoEn ?? null;
 
   const gastoAds = ads.errorAds ? null : ads.totales.gastoAds;
   const adsPorModelo = ads.errorAds ? null : new Map(ads.filas.map((f) => [f.modelo, f.gastoAds]));
@@ -115,15 +129,18 @@ export async function vistaVentas(
     cuadre("Venta: fichas vs. por categoría", monitor.semana.importe, sumaCategorias("importe7")),
     cuadre("Unidades: fichas vs. por modelo", monitor.semana.unidades, sumaModelos("unidades7")),
     cuadre("Venta: fichas vs. por modelo", monitor.semana.importe, sumaModelos("importe7")),
-    // El bruto por renglón (ventas diarias) contra el bruto por orden que
-    // reconstruye el motor: si difieren, hay órdenes sin renglones o
-    // renglones sin orden, y eso se dice con su monto.
-    cuadre(
-      "Venta bruta: por renglón vs. por orden",
-      monitor.semana.importe,
-      finanzas.totales.bruto / 100,
-    ),
   ];
+  // El bruto por renglón (ventas diarias) contra el bruto por orden que
+  // reconstruye el motor: si difieren, hay órdenes sin renglones o renglones
+  // sin orden, y eso se dice con su monto. Solo se compara si las dos cifras
+  // son del MISMO momento: con el periodo abierto, el monitor va en vivo y
+  // el dinero guardado no trae las órdenes de los últimos minutos; eso no es
+  // un descuadre.
+  if (mismoMomentoParaCuadrar(rango, finanzas.generadoEn)) {
+    cuadres.push(
+      cuadre("Venta bruta: por renglón vs. por orden", monitor.semana.importe, finanzas.totales.bruto / 100),
+    );
+  }
 
   return {
     monitor,
@@ -133,7 +150,7 @@ export async function vistaVentas(
     gananciaConAds,
     finanzas,
     cuadres,
-    generadoEn,
+    publicidadGeneradaEn,
   };
 }
 
@@ -157,36 +174,31 @@ export async function filasModeloServidas(db: DB, cuenta: Cuenta, rango: RangoFe
   return aplicarPublicidadAlMonitor(monitor.datos, adsPorModelo).porModelo;
 }
 
+import { rangosDeAtajos } from "./atajos-fechas";
+export { rangosDeAtajos };
+
 /**
- * Deja masticados los rangos por omisión de /ventas (7 días) y /publicidad
- * (30 días) para que la primera visita lea un renglón. Lo llama el latido;
- * cada pieza solo se recalcula si su renglón tiene más de 10 minutos o está
- * invalidado, así que correrlo seguido cuesta dos lecturas.
+ * Deja masticadas la publicidad y las finanzas de los atajos de /ventas para
+ * que cada atajo lea un renglón. El monitor (unidades, venta, modelos) ya no
+ * se guarda: se calcula en vivo sobre las ventas por día de la base. Lo llama el latido (cada ~2 min); cada pieza solo se
+ * recalcula si su renglón venció o está invalidado, así que correrlo seguido
+ * cuesta unas lecturas. Con el tiempo justo, primero los 7 días (lo que se
+ * abre por omisión).
  */
 export async function precalcularPantallasVentas(
   admin: DB,
   cuenta: { id: string; site_id: string },
   limite: number,
 ): Promise<{ recalculadas: string[] }> {
-  const siete = normalizarRango();
-  const treinta = normalizarRango(fechaMx(29));
-  const tareas: { clave: string; vida: number; calcular: () => Promise<unknown> }[] = [
-    {
-      clave: claveMonitorVentas(siete),
-      vida: VIDA_MONITOR_GUARDADO_MS,
-      calcular: () => calcularMonitorFresco(admin, cuenta.id, siete),
-    },
-    {
-      clave: clavePublicidadMeli(siete),
+  const tareas: { clave: string; vida: number; calcular: () => Promise<unknown> }[] = [];
+  for (const r of rangosDeAtajos(fechaMx(0))) {
+    const rango = normalizarRango(r.desde, r.hasta);
+    tareas.push({
+      clave: clavePublicidadMeli(rango),
       vida: VIDA_PUBLICIDAD_ABIERTA_MS,
-      calcular: () => calcularPublicidadFresca(admin, cuenta, siete),
-    },
-    {
-      clave: clavePublicidadMeli(treinta),
-      vida: VIDA_PUBLICIDAD_ABIERTA_MS,
-      calcular: () => calcularPublicidadFresca(admin, cuenta, treinta),
-    },
-  ];
+      calcular: () => calcularPublicidadFresca(admin, cuenta, rango),
+    });
+  }
   const { data } = await admin
     .from("app_cache")
     .select("clave, generado_en, vigente")
@@ -202,9 +214,23 @@ export async function precalcularPantallasVentas(
       g && g.vigente !== false && Date.now() - Date.parse(g.generado_en) < t.vida - 30_000;
     if (fresca) continue;
     const t0 = Date.now();
-    const datos = await t.calcular();
-    await guardarCacheApp(admin, cuenta.id, t.clave, datos, Date.now() - t0);
-    recalculadas.push(t.clave);
+    try {
+      const datos = await t.calcular();
+      await guardarCacheApp(admin, cuenta.id, t.clave, datos, Date.now() - t0);
+      recalculadas.push(t.clave);
+    } catch (err) {
+      console.error(`precalcular ${t.clave}:`, (err as Error).message);
+    }
+  }
+  // Las finanzas de cada atajo deciden solas si toca refrescar (política del
+  // periodo): leerlas basta para dejarlas listas.
+  for (const r of rangosDeAtajos(fechaMx(0))) {
+    if (Date.now() > limite) break;
+    try {
+      await leerFinanzasMeli(admin, cuenta.id, normalizarRango(r.desde, r.hasta));
+    } catch (err) {
+      console.error(`precalcular finanzas ${r.desde}:${r.hasta}:`, (err as Error).message);
+    }
   }
   return { recalculadas };
 }

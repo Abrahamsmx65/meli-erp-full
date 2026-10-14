@@ -3,6 +3,7 @@ import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { fechaMx, normalizarRango } from "@/lib/servicios/ventas-monitor";
 import { leerVentasTikTok, recalcularVentasTikTok } from "@/lib/servicios/tiktok-ventas";
+import { marcarRefrescando } from "@/lib/servicios/marca-refresco";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { Ficha } from "@/components/tiles";
 import { Cifras, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
@@ -63,6 +64,8 @@ export default async function VentasTikTok({
     servirVariosCanales(admin, [{ canal: "tiktok", accountId: cuenta.id }], rango),
   ]);
   if (lectura.refrescar) {
+    // Sin la marca la pantalla se quedaba con lo viejo hasta recargar a mano.
+    marcarRefrescando();
     after(async () => {
       await recalcularVentasTikTok(admin, cuenta.id, rango).catch(() => undefined);
     });
@@ -77,7 +80,7 @@ export default async function VentasTikTok({
   } = t;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="TikTok Shop"
         titulo="Ventas TikTok Shop"
@@ -102,7 +105,7 @@ export default async function VentasTikTok({
           </>
         }
       />
-      <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} />
+      <FiltroFechas base="/tiktok/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx()} precargar />
 
       <Cifras columnas={5}>
         <Ficha titulo="Pares vendidos" valor={n(unidades)} nota={`${n(pedidosEnPie)} pedidos en pie · sin muestras ni cancelados`} />

@@ -31,6 +31,8 @@ import {
   type ResumenModelo,
 } from "../tiktok/ventas";
 import { guardarCacheApp, leerCacheAppGuardado } from "./cache-app";
+import { sinSkusExternos, sinVentasExternas } from "../tiktok/externos";
+import { skusExternos } from "./tiktok-externos";
 
 /** Cada cuánto se rehace un rango aunque nadie lo invalide. */
 const TTL_MS = 10 * 60_000;
@@ -108,15 +110,18 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
   // de México— más los que aún no salen, de un jalón y sin el JSON crudo.
   const desdeUtc = `${diaCorrido(rango.desde, -1)}T00:00:00Z`;
   const hastaUtc = `${diaCorrido(rango.hasta, 2)}T00:00:00Z`;
-  const [ventas, rpc, costosRaw] = await Promise.all([
+  const [ventasCrudas, rpc, costosRaw, externos] = await Promise.all([
     traerTodo<any>(admin, "tiktok_ventas_diarias", "sku, fecha, unidades, ordenes, importe", (q) =>
       q.eq("account_id", accountId).gte("fecha", rango.desde).lte("fecha", rango.hasta),
     ),
     admin.rpc("tiktok_ventas_pedidos", { p_account: accountId, p_desde: desdeUtc, p_hasta: hastaUtc }),
     traerTodo<any>(admin, "productos_config", "modelo, costo_mxn", (q) => q.eq("account_id", accountId).not("costo_mxn", "is", null)),
+    // Lo de los vendedores externos (David) no es venta del dueño.
+    skusExternos(admin, accountId).catch(() => new Map<string, string>()),
   ]);
   if (rpc.error) throw new Error(`tiktok_ventas_pedidos: ${rpc.error.message}`);
-  const ordenes: (OrdenParaVentas & { creador?: string | null; afiliadoLeido?: boolean; destinatario?: string | null })[] = (
+  const ventas = sinSkusExternos((ventasCrudas ?? []) as { sku: string; unidades: number; importe: number }[], externos);
+  const ordenesCrudas: (OrdenParaVentas & { creador?: string | null; afiliadoLeido?: boolean; destinatario?: string | null })[] = (
     (rpc.data?.ordenes ?? []) as any[]
   ).map((o) => ({
     orderId: String(o.orderId),
@@ -132,7 +137,7 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
     creador: o.creador ?? null,
     afiliadoLeido: Boolean(o.afiliadoLeido),
   }));
-  const renglones: (RenglonParaVentas & { sellerSku?: string | null })[] = ((rpc.data?.renglones ?? []) as any[]).map((i) => ({
+  const renglonesCrudos: (RenglonParaVentas & { sellerSku?: string | null })[] = ((rpc.data?.renglones ?? []) as any[]).map((i) => ({
     orderId: String(i.orderId),
     skuInterno: i.skuInterno ?? null,
     sellerSku: i.sellerSku ?? null,
@@ -140,6 +145,9 @@ export async function calcularVentasTikTok(admin: DB, accountId: string, rango: 
     precio: i.precio != null ? Number(i.precio) : null,
     estado: i.estado ?? null,
   }));
+  // Fuera los renglones de David; en un pedido mixto, al dueño solo le queda
+  // su parte del pago (por precio). Ver `tiktok/externos.ts`.
+  const { ordenes, renglones } = sinVentasExternas(ordenesCrudas, renglonesCrudos, externos);
 
   const unidades = (ventas ?? []).reduce((a, v) => a + (v.unidades ?? 0), 0);
   const modelosBase = resumenPorModelo(ordenes, renglones, rango);
@@ -241,4 +249,30 @@ export async function leerVentasTikTok(admin: DB, accountId: string, rango: { de
   }
   const datos = await recalcularVentasTikTok(admin, accountId, rango);
   return { datos, generadoEn: new Date().toISOString(), refrescar: false };
+}
+
+/**
+ * Deja masticados los atajos del filtro de fechas (Hoy, Ayer, 7, 15 y 30
+ * días, Este mes) cuando su renglón venció o lo invalidó una sincronización.
+ * Lo llama el latido (11-oct-2026, dueño: «el error también está en TikTok»:
+ * 15 y 30 días se veían de hace casi dos horas porque solo se refrescaban al
+ * abrirlos).
+ */
+export async function precalcularVentasTikTok(admin: DB, accountId: string, limite: number, hoy: string): Promise<string[]> {
+  const { rangosDeAtajos } = await import("./atajos-fechas");
+  const hechas: string[] = [];
+  for (const rango of rangosDeAtajos(hoy)) {
+    if (Date.now() > limite) break;
+    const g = await leerCacheAppGuardado<VentasTikTokMasticadas>(admin, accountId, claveVentasTikTok(rango));
+    const fresco =
+      g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < TTL_MS - 60_000;
+    if (fresco) continue;
+    try {
+      await recalcularVentasTikTok(admin, accountId, rango);
+      hechas.push(`${rango.desde}:${rango.hasta}`);
+    } catch (err) {
+      console.error(`tiktok ventas ${rango.desde}:${rango.hasta}:`, (err as Error).message);
+    }
+  }
+  return hechas;
 }

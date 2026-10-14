@@ -162,27 +162,58 @@ export async function refrescarPantallasAmazon(admin: DB, meliAccountId: string 
   return hechas;
 }
 
-/** Calcula y guarda los rangos por omisión de Ventas y Publicidad de Amazon. */
+/**
+ * Calcula y guarda Ventas de Amazon en TODOS los atajos del filtro de fechas
+ * (Hoy, Ayer, 7, 15 y 30 días, Este mes), el panel de Publicidad de 30 días y
+ * las series de la gráfica. Hasta el 11-oct-2026 solo se dejaba el de 7 días
+ * y «Hoy» se veía de hace casi dos horas (dueño: «en Hoy antes salían
+ * actualizados»). Cada pieza se salta si su renglón sigue vigente.
+ */
 async function precalcularPantallasAmazon(
   admin: DB,
   amazonAccountId: string,
   meliAccountId: string | null,
   limite: number,
 ): Promise<object> {
-  const { cargarMonitorAmazon, claveMonitorAmazon } = await import("./amazon-monitor");
+  const { cargarMonitorAmazon, claveMonitorAmazon, vidaMonitorAmazon } = await import("./amazon-monitor");
   const { cargarPublicidadAmazon, clavePublicidadAmazon } = await import("./publicidad-amazon");
-  const siete = normalizarRango();
-  const treinta = normalizarRango(fechaMx(29));
+  const { rangosDeAtajos } = await import("./atajos-fechas");
+  const { leerCacheAppGuardado } = await import("./cache-app");
   const hechas: string[] = [];
-  const t0 = Date.now();
-  const monitor = await cargarMonitorAmazon(admin, amazonAccountId, meliAccountId, siete);
-  await guardarCacheApp(admin, amazonAccountId, claveMonitorAmazon(meliAccountId, siete), monitor, Date.now() - t0);
-  hechas.push("monitor-7");
-  if (Date.now() < limite) {
+  const vigente = async (clave: string, vida: number): Promise<boolean> => {
+    const g = await leerCacheAppGuardado(admin, amazonAccountId, clave);
+    return g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < vida - 60_000;
+  };
+
+  for (const a of rangosDeAtajos(fechaMx(0))) {
+    if (Date.now() > limite - 20_000) break;
+    const r = normalizarRango(a.desde, a.hasta);
+    const clave = claveMonitorAmazon(meliAccountId, r);
+    if (await vigente(clave, vidaMonitorAmazon(r))) continue;
+    const t0 = Date.now();
+    try {
+      const monitor = await cargarMonitorAmazon(admin, amazonAccountId, meliAccountId, r);
+      await guardarCacheApp(admin, amazonAccountId, clave, monitor, Date.now() - t0);
+      hechas.push(`monitor:${r.desde}:${r.hasta}`);
+    } catch (err) {
+      console.error(`amazon monitor ${r.desde}:${r.hasta}:`, (err as Error).message);
+    }
+  }
+  if (Date.now() < limite - 20_000) {
+    const treinta = normalizarRango(fechaMx(29));
     const t1 = Date.now();
     const ads = await cargarPublicidadAmazon(admin, amazonAccountId, meliAccountId, treinta);
     await guardarCacheApp(admin, amazonAccountId, clavePublicidadAmazon(meliAccountId, treinta), ads, Date.now() - t1);
     hechas.push("publicidad-30");
+  }
+  if (Date.now() < limite - 10_000) {
+    try {
+      const { precalcularVentasTiempo } = await import("./ventas-tiempo");
+      await precalcularVentasTiempo(admin, amazonAccountId, limite - 5_000, fechaMx(0), ["amazon"]);
+      hechas.push("graficas");
+    } catch (err) {
+      console.error("amazon gráficas:", (err as Error).message);
+    }
   }
   return { hechas };
 }

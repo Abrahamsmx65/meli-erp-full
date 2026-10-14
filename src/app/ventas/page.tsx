@@ -9,7 +9,7 @@ import { Ficha } from "@/components/tiles";
 import { FiltroFechas } from "@/components/filtro-fechas";
 import { TablaModelosVentas } from "@/components/tabla-modelos-ventas";
 import { compactarFilasModelo, paginarFilasTabla } from "@/lib/servicios/ventas-tabla";
-import { Aviso, Ayuda, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Aviso, Ayuda, Cifras, Encabezado, Frescura, Pagina, Seccion, SinCuenta, Tabla, haceCuanto } from "@/components/ui/pagina";
 import Link from "next/link";
 import { GraficaVentasTiempo } from "@/components/ui/grafica-ventas-tiempo";
 import { servirVariosCanales } from "@/lib/servicios/ventas-tiempo";
@@ -62,12 +62,11 @@ export default async function Ventas({
   const etiquetaRango = `${rango.desde} → ${rango.hasta}`;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="Mercado Libre"
         titulo="Ventas"
         descripcion="Ventas en vivo de Mercado Libre y el periodo elegido contra el anterior del mismo largo."
-        frescura={vista.generadoEn}
         ayuda={
           <p>
             En vivo: los avisos de Mercado Libre actualizan estos números solos. Todo lo demás corre sobre el periodo
@@ -76,7 +75,7 @@ export default async function Ventas({
         }
       />
 
-      <FiltroFechas base="/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} />
+      <FiltroFechas base="/ventas" desde={rango.desde} hasta={rango.hasta} hoy={fechaMx(0)} precargar />
 
       {ads.errorAds || ads.advertencias.length ? (
         <Aviso tono="alerta">
@@ -115,7 +114,7 @@ export default async function Ventas({
           valor={m.coberturaCosto > 0 ? pesos(gananciaConAds ?? m.ganancia7) : "—"}
           nota={
             m.coberturaCosto > 0
-              ? `Neto real de MELI − costo${gastoAds != null ? " − publicidad" : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo${m.desglose.ventaSinDeposito > 0 ? ` · ${pesos(m.desglose.ventaSinDeposito)} de venta sin depósito leído (fuera, nada se estima)` : ""}`
+              ? `Neto real de MELI − costo${gastoAds != null ? ` − publicidad (${haceCuanto(vista.publicidadGeneradaEn)})` : ""} · ${Math.round(m.coberturaCosto * 100)}% de la venta con costo${m.desglose.ventaSinDeposito > 0 ? ` · ${pesos(m.desglose.ventaSinDeposito)} de venta sin depósito leído (fuera, nada se estima)` : ""}`
               : "Captura costos en Productos y costos"
           }
           tono={m.coberturaCosto > 0 && (gananciaConAds ?? m.ganancia7) < 0 ? "critico" : "neutro"}
@@ -152,7 +151,8 @@ export default async function Ventas({
                 titulo="A dónde se fue el dinero del periodo"
                 sinRelleno
               >
-                <div className="px-4 pt-3">
+                <div className="flex items-start justify-between gap-3 px-4 pt-3">
+                  <Frescura generadoEn={finanzas.generadoEn} />
                   <Ayuda>
                     <p>
                       Lo que Mercado Pago dice de cada orden: la venta bruta menos cada cargo, hasta lo que recibes. Lo que

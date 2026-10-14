@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cuentaActiva } from "@/lib/datos/repos";
 import { simularCorte } from "@/lib/servicios/tiktok-despacho";
 import { normalizarModelos } from "@/lib/tiktok/corte-modelos";
+import { normalizarVendedor } from "@/lib/tiktok/externos";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,9 @@ export async function GET(req: NextRequest) {
   if (!cuenta) return NextResponse.json({ error: "No hay cuenta conectada." }, { status: 400 });
   try {
     const modelos = normalizarModelos((req.nextUrl.searchParams.get("modelos") ?? "").split(","));
-    return NextResponse.json(await simularCorte(clienteAdmin(), cuenta.id, modelos));
+    // `?vendedor=david` simula el corte del vendedor externo.
+    const vendedor = normalizarVendedor(req.nextUrl.searchParams.get("vendedor"));
+    return NextResponse.json(await simularCorte(clienteAdmin(), cuenta.id, modelos, vendedor));
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

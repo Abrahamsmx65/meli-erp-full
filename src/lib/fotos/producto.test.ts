@@ -30,3 +30,15 @@ describe("fotos de producto", () => {
     expect(fotoDeProducto(null, "GT1")).toBeNull();
   });
 });
+
+describe("modelos con guion: Amazon dice «GT104» + «1-BLK»", () => {
+  it("la foto se encuentra como «GT104-1» + «BLK»", () => {
+    const mapa = armarMapaFotos([
+      { modelo: "GT104", color: "1-BLK", url: "https://x/negro.jpg", activo: true },
+      { modelo: "GT104", color: "6-BROWN", url: "https://x/cafe.jpg", activo: true },
+    ]);
+    expect(fotoDeProducto(mapa, "GT104-1", "BLK")).toBe("https://x/negro.jpg");
+    expect(fotoDeProducto(mapa, "GT104-6", "BROWN")).toBe("https://x/cafe.jpg");
+    expect(fotoDeProducto(mapa, "GT104-6", "OTRO")).toBe("https://x/cafe.jpg");
+  });
+});

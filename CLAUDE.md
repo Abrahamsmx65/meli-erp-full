@@ -156,6 +156,144 @@ guárdala numerada.
   53111600; Pantuflas 53111700; Sandalias y Chanclas 53111800; Tenis
   53111900). Lo que falta queda en blanco y en una hoja «Avisos»: no se
   inventa.
+- **NUEVO PEDIDO a China desde la lista del dueño** (`/pedidos/nuevo`;
+  `pedidos-china/lista.ts` lee la lista, `armar.ts` arma el borrador,
+  `fabricas.ts` + `excel.ts` el Excel EN EL FORMATO DE CADA FÁBRICA,
+  `servicios/pedidos-borradores.ts`, `POST /api/pedidos/borradores`,
+  migración 0139; dueño, 11-oct-2026: «quiero mandarte una lista así y que
+  se haga solo todo», «tú haz la fábrica y hazlo en su formato», «cada
+  modelo se pide en diferente Excel siempre», «el precio es diferente con
+  cada fábrica», «el último ha sido IN10183»). Se pega la lista tal cual
+  («GT179 CTNS OF 12 / BROWN / 26 22…»: talla y CAJAS de una sola talla;
+  corridas con «23 24 25 / 5 10 11 X 20», «23:5 24:10 X 20» o «misma
+  corrida x 20») y sale UN BORRADOR POR MODELO con su IN consecutivo
+  (`siguienteIn`: el mayor entre pedidos, borradores vivos y
+  `pedidos_ajustes.ultimo_in`). Lo que la lista no dice sale del último
+  pedido del modelo: fábrica (cada modelo siempre ha sido de una), moneda,
+  descripción, el color como lo escribe la fábrica (BLK → BLACK), pares por
+  caja, la corrida «misma» y el PRECIO por color y talla SOLO de pedidos a
+  ESA fábrica (cambiar de fábrica en el borrador lo vuelve a armar sin
+  precios); medidas de la caja del packing list de un contenedor anterior
+  con los mismos pares. Un modelo NUEVO queda pidiendo fábrica, precio y
+  descripción; no se confirma con nada en blanco (`faltantesDeBorrador`).
+  Mientras es borrador NO cuenta para nada. Confirmar = `guardarProforma`
+  con `origen = 'sistema'` (cuenta como en camino, da de alta corridas) y
+  correo con el Excel adjunto a `pedidos_ajustes.destinatarios` (se edita
+  en la pantalla; un correo que no sale no deshace el pedido, se
+  reenvía). Formatos copiados de proformas reales: CHAOZHOU (USD, un
+  renglón por color con las cajas de cada talla), JINJIANG (RMB, cajas bajo
+  la talla, precio por talla en fila de continuación), MINGTAI (RMB),
+  JIAXING INNOVATIVE (USD), FUZHOU (USD, «US$»), HUAIAN TENGCHUANG (USD) y
+  el sencillo para las demás; sin datos bancarios. **Lo generado lo vuelve a
+  leer `importarProforma` igual** (`excel.test.ts`, todos los formatos): la
+  proforma FIRMADA que regresa la fábrica con ese IN se sube en Órdenes de
+  compra y REEMPLAZA los renglones del pedido del sistema mientras nada
+  esté en un contenedor.
+  **El lector de proformas ahora lee la MONEDA** (`monedaDeProforma`, del
+  encabezado del precio, las celdas o su formato «US$»; `formatosDeHoja`),
+  el **precio por talla** de una fila de continuación (`preciosTalla`,
+  `pedido_lineas.precios_talla`), el **CBM por caja** (`cbmCaja`,
+  `pedido_lineas.cbm_caja`) y **hereda el precio** del modelo a los colores
+  sin precio (FUZHOU lo pone solo en el primero: el IN10163 decía $1,483 y
+  eran $11,618). Hasta el 11-oct-2026 todo se guardaba como RMB; la 0139
+  corrigió la moneda por fábrica verificada (USD: Chaozhou, Jiaxing
+  Innovative, Fuzhou, Tengchuang, Baike; RMB: Jinjiang, Mingtai; las demás
+  quedan sin moneda hasta volver a subir su proforma) y rehízo el importe
+  solo de los pedidos sin importe o con precio heredado (el de JINJIANG y
+  MINGTAI ya era el bueno: cobran más las tallas grandes).
+  **PENDIENTES POR ENVIAR** (`/pedidos/pendientes`,
+  `servicios/pedidos-pendientes.ts`): por pedido vivo, las cajas que aún no
+  están en NINGÚN contenedor (un packing list ya las metió aunque el
+  contenedor siga en borrador), el dinero de eso en la moneda de la fábrica
+  (USD y RMB nunca se suman; escalado al importe de la proforma) y los CBM
+  (caja de la proforma o medidas del mismo modelo + pares en un packing
+  list; lo que no tiene medida se cuenta aparte), por fábrica y en total
+  con ≈ contenedores de 68 m³. Un pedido sale de ahí cuando todo está en
+  contenedores.
+  **El BL de la misma carpeta de Drive es el NÚMERO DE CONTROL del
+  contenedor** (`importar/bl.ts` puro con pruebas, `importar/texto-pdf.ts`
+  con `unpdf`, `leerBlsDeContenedores` en `drive-packing.ts`, columnas
+  `contenedores.cajas_bl` / `bl_archivo` / `bl_leido_en`, migración 0135;
+  idea del dueño, 11-oct-2026: «sería inteligente siempre confirmar contra el
+  BL; ahí dice cantidad de cajas y está en el mismo Drive que el PL»): cada
+  BL vivo (HBL de YQN, copia del master de HMM, telex, draft de Hapag) trae
+  «CONTENEDOR/SELLO/611/CARTON…» y «TOTAL SIX HUNDRED ELEVEN(611) CARTON
+  ONLY»; manda la línea del contenedor y el total solo si el BL no nombra
+  otro. Se lee una vez por contenedor vivo (sin BL se reintenta al día;
+  «Releer todo» lo vuelve a leer) y la columna Cajas de Contenedores dice
+  «✓ BL 611» o, en rojo, «BL 611 · faltan 212 · 90 por confirmar». Ese día
+  los 18 BL de S258–S271 se leyeron bien y casi todos los borradores
+  estaban cortos: (1) la fila de TOTAL sin letrero o con «合计» se contaba
+  como un renglón más y el contenedor salía al DOBLE (S267: 1,060 contra 530;
+  S271: 1,426 contra 713) — ahora una fila con cajas y sin pedido, modelo,
+  color, talla ni pares por caja es total y no se cuenta; (2) la fábrica
+  empezó a anotar el color en español («BLK (NEGRO)», «DK.BROWN (MARRON
+  OSCURO)», «COGNAC   coñac») y no amarraba con «BLK» del pedido — el
+  casado prueba después del aplastado el color LAXO (`claveColorLaxa`: sin
+  paréntesis, BLACK = BLK, sin punto, repetidos colapsados), y sin pedido en
+  el archivo también rescata el dedazo a una letra (COGNAC / CONGNAC);
+  (3) una caja de corrida contra un pedido que ese color lo tiene POR TALLA
+  («Solid size») se reparte SOLO si sus cajas son exactamente las que les
+  faltan a esas tallas (`repartoExactoPorTalla`; S269 GT134 BLK 41 + 51 = 92
+  del IN10159); si no cuadra queda pendiente diciendo cuánto falta, nunca se
+  adivina; (4) el pedido arrastrado de la fila de arriba que no tiene ese
+  modelo (GT148G debajo de IN10079 en S265) se busca en los demás pedidos
+  vivos; (5) los packing lists sin la referencia adentro (S263, S268, S270,
+  S271) toman la de la subcarpeta (`referenciaDeNombre`) y el contenedor que
+  quedó bautizado con el ISO se encuentra por el ISO y se RENOMBRA
+  (`elegirContenedor`); dos packing lists con la misma referencia caen en
+  el mismo contenedor (S261 trae dos archivos idénticos que solo cambian el
+  ISO y su BL dice 542 para uno). «Releer todo» vuelve a armar los
+  BORRADORES aunque su embarque sea anterior al último cargado, SALVO el que
+  ya tiene cajas confirmadas a mano en Contenido (sus cajas ya no son las
+  que entraron desde Drive; S263 tenía 232): ese no se rearma y se dice. Pero SÍ
+  se le AGREGAN los renglones del pedido que el contenedor aún no tiene
+  (`aplicarPackingList({ soloNuevas })`: no cambia cantidades ni quita nada,
+  y de los pendientes solo quedan los que ya estaban pendientes). **Una
+  talla «39 (26)» es la MEXICANA del paréntesis** (`tallaDeCelda`; S263,
+  11-oct-2026): sin columna de pares por talla, la caja es unitalla de esa
+  talla con sus pares por caja; antes los 198 cartones de GT114 de pedido
+  por talla salían juntos sin talla y no amarraban. Un rango «36-41
+  (23-27)» sigue siendo corrida.
+  **Lo que NO es calzado viaja con el contenedor como «otros artículos»**
+  (`esInsumo`, estado `insumo` del casado, `contenedores.otros`, migración
+  0142; dueño, 11-oct-2026: «tengo en el S268 bolsas de plástico para
+  empaque; que salga en el contenido pero no es algo para pedir»): Polybag,
+  bolsas, cajas, etiquetas, cinta… no se amarran con pedidos, no son
+  pendientes, no cuentan como inventario ni en camino; se enseñan en «Qué
+  viene» y en Contenido («+ 35 otros») y SÍ cuentan contra el BL (S268:
+  622 de calzado + 35 de bolsas = 657 del BL).
+  **BORRAR un contenedor es para volver a armarlo desde Drive**
+  (`ESTADO_RELEER`; 13-oct-2026: el dueño corrigió el S265 en Drive, lo
+  borró junto con el S271 y «Traer de Drive» ya no los traía): el borrado
+  deja sus archivos en `drive_packing_lists.estado = 'releer'`, la siguiente
+  pasada los lee aunque no hayan cambiado y su embarque entra aunque sea
+  anterior al último cargado. Un borrador corregido a mano NO toma los
+  cambios del archivo (solo agrega renglones nuevos); para que los tome hay
+  que borrarlo y traerlo de Drive.
+  **Las PROFORMAS de los pedidos viajan en la misma carpeta y NO son
+  packing list** (`esArchivoAjeno`: lo que se llama por su pedido
+  «IN10148 (GT114).xls», «AR10137 …», pagos y bolsas; la referencia de la
+  carpeta solo se toma si el archivo se llama packing o trae el ISO del
+  contenedor): el mismo 11-oct-2026, el primer «Releer todo» con la
+  referencia de la carpeta cargó las proformas como packing lists, duplicó
+  S263, S268 y S271 (contenedores nuevos armados con la proforma; los
+  correos de «0 productos nuevos» salieron de ahí) y le sumó renglones a
+  S266, S267 y S269. Ahora `elegirContenedor` busca PRIMERO por el ISO (un
+  duplicado con la misma S no se lleva el packing list) y rearmar un
+  borrador desde Drive QUITA los renglones que el archivo ya no trae
+  (`aplicarPackingList({ reemplazar })`; asignar solo agrega o actualiza).
+  Se limpió por SQL: los duplicados quedaron en cero cajas y renombrados
+  «DUPLICADO S26x-2026» para borrarlos con el botón «Borrar» (solo
+  borradores, `DELETE /api/contenedores?id=`; el MCP de Supabase se cuelga
+  con DELETE, igual que con DROP, y también con UPDATE sin WHERE o con
+  varias sentencias juntas), los reales tomaron su referencia, los cuatro
+  renglones de más se pusieron en cero y se recalcularon los estados de los
+  pedidos.
+  Simulado con la base real ese día: S261, S267, S269 y S270 quedan
+  completos contra su BL, S260 521 de 611 (los 90 de M BROWN contra el LT
+  BROWN del pedido siguen siendo decisión del dueño), S265 418 de 612, S268
+  622 de 657 (35 son bolsas), S271 572 de 713 (GT135 por talla sin cuadrar).
 - **Un pedido con COLOR FANTASMA se grita en Cargar pedidos**
   (`servicios/amarre-pedido.ts`; pedido del dueño el 6-oct-2026: «si el
   sistema ve que un pedido no está ligado a un SKU, que me alerte»): cada
@@ -216,7 +354,12 @@ guárdala numerada.
   escribe el color por partes con anotación ("BLK/BLK/RED", "BLK/BLK/BLK
   (NEGRO)") y MELI/Amazon lo tienen como "BLK / RED", "BLK-BLK" o "BLK";
   sin paréntesis y con repetidos seguidos colapsados caen en el mismo lugar
-  (verificado con GT134).
+  (verificado con GT134). **Los modelos con guion se parten mal en MELI y Amazon**
+  (`numeroAlFrenteDelColor`; S267, 11-oct-2026): «GT104-1-BLK-25-MX» queda
+  como modelo «GT104» + color «1-BLK», y el pedido y el packing list dicen
+  «GT104-1» + «BLK». `indexarCatalogo` y `armarMapaFotos` registran también
+  esa segunda lectura: sin ella el GT104-1…6 salía «modelo nuevo» (sin
+  ligar a MELI, sin «Recordar» en Contenido) y sin foto en Contenedores.
 - **Lo pedido a China que todavía no llega cuenta como «en camino» AUNQUE
   la bodega ya conozca el pedido** (`engine/pendiente-china.ts`,
   `pendientePorLinea`, en `recalcularInventario`; dueño, 5-oct-2026: «el
@@ -1031,6 +1174,47 @@ guárdala numerada.
   y pidió el teclado numérico el 29-sep-2026), no con `window.prompt`. Decisión del dueño: la etiqueta lleva el
   FNSKU (no el código de paquete) porque el flujo arranca por la etiqueta.
   El FNSKU sale de `mapaAmazon`/`buscarAmazon`.
+  **VENDEDORES EXTERNOS en la misma tienda: lo de DAVID** (`tiktok/externos.ts`
+  motor puro con pruebas, `servicios/tiktok-externos.ts`, `/tiktok/externos`
+  «Productos de David», `POST /api/tiktok/externos`, tabla
+  `tiktok_productos_externos` y `tiktok_cortes.vendedor`, migración 0133;
+  pedido del dueño, 11-oct-2026: «david, que vende en Shein, quiere subir sus
+  productos pero él los despacha desde otra bodega; que pueda subir su stock
+  y tenga una pestaña de cortes para él; sus pedidos no los metas a mi
+  ganancia y no me importan sus costos; si un cliente compra un producto de
+  nosotros dos juntos, que salga en su corte, no en el mío»): una
+  PUBLICACIÓN de TikTok (product_id) se liga a un vendedor (`ligarPublicacion`;
+  a sus SKUs sin amarre se les pone su `seller_sku` como nombre del kardex,
+  `origen_amarre = externo`, y el catálogo de TikTok es memoria del amarre,
+  así el nombre se queda) y con ella todos sus SKUs (`skusExternos`: sku →
+  vendedor, caché de 20 s). Esos SKUs viven en el MISMO kardex (TikTok
+  recibe el disponible por el mismo camino, `saldo − apartado`), pero: su
+  stock lo captura David a mano (`guardarStockExterno`: `ajuste` con
+  referencia `externo:david:<fecha>` y publicación pasando por
+  `sincronizarTikTok` con `soloPedidos`, regla de oro); Industher no los
+  tiene, así que la conciliación los salta (`sincronizarSaldoDesdeBodega`
+  filtra movimientos y foto), el estante contesta «sin dato»
+  (`EstanteTikTok.sinEstante`, `estanteDeSku`: ni tope al publicar, ni
+  defensa por estante, ni alarma, ni Cuadre de inventario), y al 3PL no se
+  le mandan sus salidas. **Un pedido con ALGÚN par de David es de David**
+  (`vendedorDePedido`, `partirPorVendedor`): `pendientesDeCorte(db, cuenta,
+  vendedor)` reparte (null = el dueño, 'david' = los suyos, el mixto con
+  él), `hacerCorte({ vendedor })` lo guarda en `tiktok_cortes.vendedor` y la
+  unión al corte de hoy exige el MISMO vendedor (`corteDeHoyQueContinua`);
+  `/tiktok/despacho?vendedor=david` es su despacho (mismos botones, mismas
+  etiquetas y lista) y arriba un enlace cruza entre los dos con los
+  pendientes del otro. **Su venta no es del dueño** (`sinVentasExternas`):
+  Ventas TikTok (`calcularVentasTikTok`), el corte general y el resumen
+  diario (`cargarVentasTikTok`) quitan sus renglones y en un pedido mixto
+  recortan lo que TikTok paga (neto, por liquidar, afiliado, desglose) a la
+  parte de los pares del dueño POR PRECIO (sin precios, por pares); un
+  pedido solo suyo desaparece. Compras a China, Reabasto de almacén, el
+  Inventario TikTok y el Excel por modelo no lo cuentan, y la tienda en
+  línea y el catálogo de creadores no copian sus publicaciones. Los
+  vendedores viven en `VENDEDORES_EXTERNOS` (hoy solo `david`); la pantalla
+  es de él y el rol de TikTok la abre. En un pedido mixto el par del dueño
+  sale del kardex y SÍ se le manda a Industher como salida (es el mismo
+  camino de siempre): quién se lo lleva a David es un acuerdo entre ellos.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en
@@ -1759,6 +1943,96 @@ guárdala numerada.
   MELI y Amazon) SALTA la copia en memoria de la instancia (60 s a 10 min):
   si no, guardaba datos viejos con hora nueva y el renglón «fresco» seguía
   mal hasta la siguiente vuelta.
+  **Y la causa de fondo era que el refresco FALLABA** (11-oct-2026, logs de
+  Vercel: «refresco de fondo: ventas_resumen_sku: canceling statement due
+  to statement timeout»): `ventas_vivas` / `yz_ventas_vivas` de la 0133
+  sacaban el importe de cada orden con una función de VENTANA que ordenaba
+  ~100 mil renglones y se iba a disco (7.2 s en 90 días de calzado); con
+  carga pasaban de los 8 s y el renglón viejo se quedaba para siempre. La
+  0136 lo saca con un lateral sobre los renglones de la misma orden y los
+  días con órdenes salen de las órdenes: 1.0 s, mismo resultado al centavo
+  (comparado renglón por renglón en todo 2026). Un RPC nuevo sobre
+  `ordenes_neto` no usa ventanas sobre los renglones. Y las causas de
+  subida de TikTok leían los cancelados con un embebido
+  `tiktok_orden_items!inner` que la base no puede resolver (no hay llave
+  entre las tablas): fallaba en CADA aviso desde el 9-oct-2026 (3,024 veces)
+  y por el catch se frenaba toda subida del número publicado; ahora es el
+  RPC `tiktok_cancelados_por_sku` (0137). Quedan en la base dos funciones
+  vacías `zz_ventas_vivas` y `zz_yz_ventas_vivas` de la prueba de ese día
+  (el `drop` por el MCP se cuelga); se pueden borrar a mano.
+  **Las ventas por día YA ESTÁN SUMADAS en la base** (migración 0138;
+  11-oct-2026, dueño: «se tarda mucho todavía, más que todo cuando te vas a
+  más días atrás, y no sé si se actualiza al momento sin actualizarlo yo»):
+  `ventas_dia_sku` y `ventas_dia_hora` guardan por canal (`meli_calzado`,
+  `meli_fundas`) el resultado de `ventas_vivas_calculo` /
+  `yz_ventas_vivas_calculo` (el cuerpo de la 0136, sin permiso, solo para el
+  fondo) y la regla por hora de la 0134 (hora −1 = sin hora o día de
+  renglones diarios). Disparadores POR SENTENCIA de insert y update en
+  `ordenes_neto`, `ventas_diarias` y sus gemelas `yz_` marcan el día en
+  `ventas_dias_sucios`; pg_cron (`limpiar-ventas-sucias`, cada minuto) corre
+  `limpiar_ventas_sucias()`, que rehace lo marcado después de su
+  `ventas_dias_hechos.hecho_en` (`rehacer_ventas_dias`: pone en cero y
+  vuelve a escribir, sin borrar) y, como red para lo que se BORRA (el
+  barrido quita renglones de `ventas_diarias` sin reescribir el día), rehace
+  por edad los últimos 3 días cada 15 min y los últimos 120 cada 6 h.
+  `ventas_vivas`, `yz_ventas_vivas` y la rama MELI/fundas de
+  `ventas_por_hora` leen las tablas: 180 días en 50–400 ms (antes 2.3–3.6 s
+  por llamada); comparado al centavo renglón por renglón contra el cálculo
+  en vivo de todo 2026 y la gráfica con el mismo md5. Un día tocado se ve en
+  ≤ 1 min. Los monitores guardados viven 3 min (ventas) y 2 min (gráficas), y
+  Inicio y las cuatro pantallas de Ventas se vuelven a pedir solas cada
+  2 min mientras se ven y al volver a la pestaña (`<Pagina vivo>`,
+  `components/ui/actualizacion-viva.tsx`). Sin disparadores de `delete` a
+  propósito: el MCP pide confirmación por esa palabra y se cuelga.
+  **Y la 0138 tumbó el guardado de órdenes 10 horas** (arreglo en la 0140):
+  el disparador hacía `select distinct …, clock_timestamp()` y la hora hacía
+  distinto cada renglón, así que una sentencia con DOS renglones del mismo
+  día chocaba en su propio ON CONFLICT y se caía COMPLETA. De las 03:33Z a
+  las 13:40Z del 11-oct-2026 no entró ninguna orden de MELI (calzado ni
+  fundas) ni venta diaria; «Hoy» marcaba 0. Los barridos y el registro de
+  órdenes lo recuperaron solos al arreglarlo. Un disparador nuevo se prueba
+  con una sentencia de VARIOS renglones del mismo día, no con uno.
+  **El latido deja masticados TODOS los atajos del filtro de fechas**
+  (`rangosDeAtajos`: 7 días, Hoy, 30 días, Este mes, 15 días, Ayer; 11-oct-2026,
+  dueño: «cambio de fechas y toma como 3 segundos»): monitor, publicidad y
+  finanzas de Ventas y las series de la gráfica, no solo 7 y 30 días; picar
+  un atajo es leer un renglón. Un rango a mano sigue calculándose en el clic
+  (~1–3 s). Lo mismo vale para Ventas AMAZON (el cron
+  `/api/cron/amazon-pantallas` deja el monitor de cada atajo, no solo 7 días:
+  «Hoy» se veía de hace casi dos horas) y para las gráficas de Amazon y de
+  fundas (`precalcularVentasTiempo` con `canales`; los atajos viven en
+  `servicios/atajos-fechas.ts`). Y para Ventas TIKTOK (`precalcularVentasTikTok` en el
+  latido; la pantalla ahora sí marca `marcarRefrescando()` al pedir el
+  recálculo: antes se quedaba con lo viejo hasta recargar a mano). Se probó que la pantalla ESPERARA hasta 2.5 s el recálculo de un
+  renglón viejo: /ventas pasó de ~40 ms a ~1 s y el dueño dijo «estaba mejor
+  antes»; se quitó. `servirConCacheApp` sirve lo guardado al instante y
+  recalcula en `after()`.
+  **Ventas MELI va EN VIVO otra vez** (11-oct-2026, dueño: «antes todo era
+  en vivo; no se trabajaba cuando cambiabas entre hoy, ayer, 7, 15 o 30
+  días»; migración 0141). La copia del monitor por rango vencía a los 3 min
+  y el latido corre cada ~6 (10 veces por hora, 87 s de promedio): casi
+  toda visita servía lo viejo, mandaba a recalcular, enseñaba «Actualizando
+  datos…» y se recargaba sola a los 5/15/40 s con los números brincando.
+  Ahora: (1) el MONITOR (Hoy, Ayer, periodo, modelos, categorías) se
+  calcula en cada visita sobre `ventas_dia_sku` con `ventas_monitor_datos`
+  (periodo + anterior + totales por día en UNA llamada; 30 días ≈ 110 ms,
+  180 ≈ 300 ms; comparado renglón por renglón contra `ventas_resumen_sku` +
+  `ventas_totales_dia`: idéntico); los días cerrados SON lo guardado (la
+  tabla de la 0138) y hoy entra con su retraso de ≤ 1 min. Ya no hay
+  `ventas-monitor:` en `app_cache`; catálogo y stock para las razones viven
+  2 min en memoria. (2) La GRÁFICA de MELI calzado y fundas se lee en vivo
+  (`CANALES_EN_VIVO`, 20–70 ms); TikTok y Amazon siguen masticados.
+  (3) Publicidad y dinero (cascada) siguen masticados y DECLARAN su edad
+  (la ganancia dice «publicidad (hace X min)», la pestaña Dinero su
+  `Frescura`); el cuadre «venta bruta por renglón vs. por orden» solo se
+  hace si las dos cifras son del mismo momento (`mismoMomentoParaCuadrar`:
+  periodo cerrado, o dinero de hace < 1 min). (4) Una `<Pagina vivo>` ya no
+  monta `RefrescoAlTerminar`: nada de pastilla ni recargas a los 5/15/40 s;
+  queda la vuelta tranquila de cada 2 min. (5) Los atajos de las cuatro
+  pantallas de Ventas se PRECARGAN completos (`components/atajos-fechas.tsx`,
+  `FiltroFechas precargar`) y se renuevan cada 30 s con la pestaña a la
+  vista; `staleTimes.static` = 30 s: el clic cambia sin pantalla gris y con
+  datos de < 30 s. Ventas de fundas sigue con su monitor masticado (10 min).
   **Conciliación contra reportes reales**: `/ventas/conciliar` (Ventas de
   MELI, Excel, por pack) y `/amazon/conciliar` (transacciones de Amazon,
   CSV); el navegador lee el archivo y manda JSON gzip (límite de 4.5 MB de
@@ -2046,6 +2320,100 @@ guárdala numerada.
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
   depositado (net_received_amount de Mercado Pago, con cargos diferidos).
+- **COSTEO REAL POR CONTENEDOR y NÚMEROS, todo en el ERP** (`finanzas/costeo.ts`
+  y `finanzas/numeros.ts` motores puros con pruebas, `servicios/costeo.ts`,
+  `servicios/numeros.ts`, pantallas `/finanzas/costeo` «Costeo» y
+  `/finanzas/numeros` «Números» en Negocio, `POST /api/finanzas/costeo` y
+  `/api/finanzas/numeros`, migración 0135, `app_cache` `finanzas:costeo` y
+  `finanzas:costeo-excel`; dueño, 11-oct-2026: «el costo que quiero es el
+  real para calcular ganancias reales, pero para Números el del último
+  contenedor», «ya no quiero actualizar Números ni usar el sheet COSTING
+  GETAC, todo en el sistema»). LO PAGADO vive en `costeo_contenedores`
+  (factura y flete en USD, aduana en pesos, entregado) y `costeo_pagos`
+  (cada pago en USD con SU tipo de cambio: los pesos de la fábrica = factura
+  × el T.C. ponderado de sus pagos; el flete con los suyos o, sin ellos, con
+  el de la fábrica y se avisa). Se importó UNA vez de la pestaña COSTING
+  GETAC del sheet de cuentas (el flete con el multiplicador de la fórmula de
+  su propio renglón: S244–S247 apuntaban al renglón de arriba); ese sheet
+  NUNCA se escribe y ya no se lee. QUÉ TRAÍA cada contenedor: el Excel de
+  costeo de la fábrica («Costing for shoe Internet», se sube en la
+  pantalla: pares, USD por par, CBM por pedido y flete total) o el packing
+  list del ERP (medidas → CBM; su precio solo como proporción). Reparto: la
+  fábrica por VALOR en USD; flete y aduana **a fuerzas por los CBM del
+  contenedor** (sin CBM no se costea, no se adivina). **Comisiones (Joanne)
+  y gastos NO son costo del par**: son gasto operativo. Cuenta solo
+  entregado (capturado o RECIBIDO en Contenedores) y con aduana. S236–S238
+  solo tienen la aduana: su fábrica se pagó el año anterior. Por modelo:
+  «último» = el contenedor más nuevo que cuenta (el de Números) y «real» =
+  PEPS sobre las existencias de hoy (Full + transferencias + bodega + TikTok
+  + FBA). «Usar» pasa el real a `productos_config` (solo el costo, color
+  ''), que leen los cortes; nunca se aplica solo. NÚMEROS reproduce el sheet
+  del dueño fórmula por fórmula (`numeros_modelos`: envío MELI, relámpago,
+  PV normal, retención 10.5 %, envío Amazon, deal fijo, TikTok extra /
+  comisión / factor de oferta; importado el mismo día) con el costo del
+  último contenedor, o el del catálogo si no hay. **Y con lo que COBRÓ cada
+  plataforma** (mismo día: «en vez de mis estimaciones de comisión y costo
+  de envío, ¿lo puedes calcular con lo real?»; migración 0136,
+  `*_tarifas_por_modelo`, `servicios/tarifas-reales.ts`, `app_cache`
+  `finanzas:tarifas-reales`, 6 h): con ≥ 10 pares en 30 días, MELI usa la
+  comisión real, el envío real = MEDIANA de las ventas DIRECTAS de un par
+  (el promedio lo inflan los carritos; con < 5 directas, el estimado) y la
+  retención efectiva (la REVENTA, ~93 % de los pares, no trae retención);
+  Amazon usa comisión + retención reales sobre el precio y FBA + promos por
+  par; TikTok lo que se queda = 1 − (pago + $6) ÷ precio, más $6 por par.
+  Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
+  usó. Los sueldos del dueño y de
+  Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
+- **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
+  motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
+  del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y
+  0138; dueño, 11-oct-2026). **La cuenta es del DUEÑO, no de Rafa** («la
+  cuenta con Rafa es solo las de transferencias; el total es conmigo») y va
+  de MAYO a ABRIL (`ejercicioDeFecha`, `?ejercicio=2026` = may-2026 a
+  abr-2027; «cada año hacemos así las cuentas»): lo fechado cae por su
+  fecha y lo que no (renta de oficina de 12 meses, contenedores) por su
+  columna `ejercicio` (por omisión `ejercicio_actual()`). La **comisión de
+  Joanne** es 1.5 % × costo USD × el tipo de cambio de la fábrica de ESE
+  contenedor (`comisionAgenteDe`), calculada sola para todo contenedor
+  pagado; `comision_agente` solo si se captura a mano. **SHEIN**: los
+  depósitos ya son transferencias (DEPOSITO SHEIN, con comisión); la renta
+  y la mercancía de la cuenta de Shein son movimientos `shein`; los dos se
+  capturan en la pestaña Shein (el depósito se guarda como transferencia).
+  Ese dinero es de DAVID y pasa por la cuenta de la EMPRESA (dueño: «le doy
+  mercancía a David, ahí apunto su gasto, él me da todo su dinero y lo que
+  gana al final de año se lo doy»; «es de la empresa, no mío como
+  Abraham»), así que lo que deja (depósitos − renta − mercancía) es una
+  SALIDA de la ganancia de la empresa («Shein: se le debe a David»), antes
+  del reparto. `socios.recibe_shein` (0138) quedó sin uso. Todo el sheet «Cuentas YAPANIZCEL» (el de cuentas)
+  se importó UNA vez y desde ahí se captura en el ERP; el sheet nunca se
+  escribe. **Las transferencias a Rafa (Industher / Vantorix) NO son pagos
+  de contenedores** (dueño: «esos pagos no tienen nada que ver con los
+  contenedores»): son el dinero que pasa a una cuenta paralela desde la que
+  Rafa paga a China o le da efectivo al dueño, y cobra 2/116 (~1.72 %) de
+  cada una (`COMISION_RAFA`; `cuenta_paralela` tipo `transferencia`). La
+  pantalla replica la pestaña TOTAL: recibido (transferencias − comisión)
+  − contenedores de calzado y fundas en pesos (del costeo) − comisión del
+  agente − gastos en EFECTIVO + ingresos sin comisión (CREDI PAGO: una
+  deuda que le pagaron al dueño, tipo `ingreso`) − gastos de la cuenta
+  (renta de oficina, tipo `gasto`) = ganancia, repartida entre los SOCIOS
+  (`socios`: Abraham 25 %, Daniel 25 %, su papá 50 %) contra lo que cada
+  uno retiró (`socios_retiros`; negativo = pagó algo del negocio; los
+  retiros solo se APUNTAN, nunca son gasto). Al importar cuadró al centavo
+  con la pestaña TOTAL (transferencias $41,889,509.39, comisión
+  $793,784.63, retiros $3,627,820 y $3,135,465); la ganancia sale $57,100
+  menor que la del sheet por el flete corregido de S244–S246. Los cuatro
+  retiros SIN fecha de Abraham (DÓLARES VIAJE y tres AMEX) no se
+  importaron: en el sheet estaban fuera de la suma. **GASTOS MEX** entró a
+  Gastos con `gastos_empresariales.medio = 'efectivo'` (lo que se paga
+  desde el banco con factura es `banco`, el de omisión) y categorías
+  nuevas (Empaque, Marketing, Oficina y equipo, Comisiones, Trámites,
+  Viajes): los dos medios cuentan igual en el Estado de resultados y los de
+  efectivo además salen de la ganancia de la cuenta. Contenedores de
+  FUNDAS (`P###`, `costeo_contenedores.negocio = 'fundas'`) en el mismo
+  costeo; el P608 viajó en el S268. La comisión del agente (Joanne, 1.5 %
+  del costo en pesos) vive en `costeo_contenedores.comision_agente`: gasto
+  operativo, NUNCA costo del par. CUENTA SHEIN es de David: la renta que
+  la empresa paga se la descuenta a él, no es gasto del negocio.
 - **Los SKUs de Amazon traen los mismos pedazos en OTRO orden a veces**
   (`GT128-23-BLK-MX`, talla antes del color): amarrar con `claveOrdenada`
   (tokens ordenados), nunca solo con la clave canónica.
@@ -2366,8 +2734,9 @@ login, la base y el deploy.
 | Productos nuevos: lista en `app_cache` `nuevos:productos` (cae con `invalidar()`), fotos guardadas en `nuevos:fotos` y solo se re-pregunta lo que falta (`productos-nuevos-fotos.ts`). Las fotos de Amazon se cuentan en TODAS las tallas del color y en su PADRE (`amazon_padres`) y, si el catálogo aún no las publica, en la ficha CAPTURADA por SKU (Listings Items, `fotosCapturadasPorSku`): hasta el 1-oct-2026 solo se miraba el primer ASIN en el catálogo y el dueño veía «0 fotos» en lo que ya había cargado (GT211) | `src/lib/servicios/productos-nuevos.ts` + `-revisar.ts` + `/api/pedidos/nuevos/fotos` |
 | Lógica del pedido a China explicada para el dueño | `docs/PLANIFICACION-CHINA.md` |
 | Caché del plan                   | `src/lib/servicios/cache.ts` (`plan_cache`) |
-| Sugerencia de compra a China (demanda MELI corregida + Amazon corregida + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
+| Sugerencia de compra a China (MELI = lo que cada talla VENDE CON STOCK, `engine/demanda-surtida.ts`: días surtidos ≥ 0.75 ponderados por recencia en tandas por conteo 50/30/20, sin tope de 3× ni tendencia, decisión del dueño el 11-oct-2026 «calcular según el stock alto»; sin 14 días surtidos cae a la demanda del plan de Full y el renglón lo dice; `DemandaSku.tasaSurtida` → `LineaGuardada.demandaSurtida` → `demandaChinaDeLinea`; Amazon corregida por agotamiento + TikTok OBSERVADA tal cual, sin tendencia ni agotamiento por decisión del dueño el 5-oct-2026; el stock libre de la bodega de TikTok cuenta como comprado; caché `compras-china:v4`) | `src/lib/servicios/compras.ts` (+ `fba.ts` para el lado Amazon, `tiktok-compras.ts` para TikTok) |
 | Lectura de proforma de fábrica   | `src/lib/importar/proforma.ts` + `leer-hoja.ts` |
+| Nuevo pedido a China (lista → borrador por modelo → Excel en formato de la fábrica → correo) y Pendientes por enviar | `src/lib/pedidos-china/` (`lista.ts`, `armar.ts`, `fabricas.ts`, `excel.ts`) + `src/lib/servicios/pedidos-borradores.ts`, `pedidos-pendientes.ts` + `src/app/pedidos/{nuevo,pendientes}` + `/api/pedidos/borradores` |
 | Envíos separados por bodega      | `src/lib/servicios/envios.ts`               |
 | Cargar pedidos (muchas proformas, lista con filtros) y faltantes contra el sheet de pendientes (`PEDIDOS_SHEET_URL`, pestaña por `gid`, AR* ignorados) | `src/app/pedidos/cargar` + `components/cargar-pedidos-lote.tsx` + `src/lib/servicios/pedidos-sheet.ts` |
 | Packing list de la fábrica → contenedor (lector + amarre pedido/modelo/color/talla) | `src/lib/importar/packing-list.ts` + `src/lib/servicios/packing-list.ts` + `/api/contenedores/packing-list` |
@@ -2397,6 +2766,7 @@ login, la base y el deploy.
 | TikTok Shop (API firmado, kardex) | `src/lib/tiktok/` (`client.ts`, `firma.ts`, `api.ts`, `kardex.ts`, `amarre.ts`) |
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
 | TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
+| TikTok: Productos de David (vendedor externo: ligar publicaciones, su stock a mano, sus cortes aparte, fuera de la ganancia del dueño) | `src/lib/tiktok/externos.ts` + `src/lib/servicios/tiktok-externos.ts` + `src/app/tiktok/externos` + `/api/tiktok/externos` + `/tiktok/despacho?vendedor=david` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |

@@ -17,7 +17,10 @@
  *
  * La cuenta, por modelo+color:
  *
- *   demanda diaria      = suma de la demanda corregida de sus SKUs
+ *   demanda diaria      = suma de lo que cada SKU VENDE CON STOCK (días
+ *                         surtidos ponderados por recencia, sin tope ni
+ *                         tendencia; `engine/demanda-surtida.ts`); sin 14
+ *                         días surtidos, la demanda del plan de Full
  *   cobertura           = inventario total / demanda diaria
  *   objetivo            = demanda × (días de fábrica + días de barco + días
  *                                    de aduana + meses de piso)
@@ -149,7 +152,9 @@ export interface RenglonCompra {
   /** cuántos SKUs (tallas) componen este modelo+color */
   tallas: number;
   demandaDiaria: number;
-  /** venta mensual de MELI (demanda corregida × 30) */
+  /** tallas que no tienen 14 días surtidos y usan la demanda del plan de Full */
+  tallasConRespaldo: number;
+  /** venta mensual de MELI (demanda con stock × 30) */
   ventaMes: number;
   /** venta mensual REALMENTE observada en MELI (últimos 30 días, sin corrección) */
   ventaMesReal: number;
@@ -349,6 +354,17 @@ export function buscarCorrida(
  * Antes se partía a mano y «GT100-MINT-23-MX» quedaba como color «MINT-23»
  * y talla «MX»: un grupo fantasma por talla, sin corrida.
  */
+/**
+ * La demanda de MELI que usa el pedido a China por talla: lo que vende
+ * cuando TIENE stock (`engine/demanda-surtida.ts`); sin 14 días surtidos
+ * en la ventana (producto nuevo, o agotado casi todo el tiempo), la demanda
+ * del plan de Full, como antes. Decisión del dueño (11-oct-2026): «calcular
+ * según el stock alto», sin ajustes a mano.
+ */
+export function demandaChinaDeLinea(l: { demandaDiaria: number; demandaSurtida?: number | null }): number {
+  return l.demandaSurtida ?? l.demandaDiaria;
+}
+
 export function partesDeSkuSuelto(sku: string): { modelo: string; color: string; talla: string } {
   const d = desglosarSku(sku);
   return { modelo: d.modelo ?? sku, color: d.color ?? "", talla: d.talla ?? "" };
@@ -556,6 +572,7 @@ export async function sugerirCompra(
     color: string;
     skus: Set<string>;
     demandaDiaria: number;
+    tallasConRespaldo: number;
     ventaMes: number;
     ventaMesReal: number;
     ventaMesAmazon: number;
@@ -612,6 +629,7 @@ export async function sugerirCompra(
         color: color.toUpperCase(),
         skus: new Set(),
         demandaDiaria: 0,
+        tallasConRespaldo: 0,
         ventaMes: 0,
         ventaMesReal: 0,
         ventaMesAmazon: 0,
@@ -638,8 +656,11 @@ export async function sugerirCompra(
 
     const g = grupo(modelo, color);
     g.skus.add(l.sku);
-    g.demandaDiaria += l.demandaDiaria;
-    g.ventaMes += l.demandaDiaria * 30;
+    // Lo que vende con stock; sin dato, la demanda del plan de Full.
+    const demandaLinea = demandaChinaDeLinea(l);
+    if (l.demandaSurtida == null) g.tallasConRespaldo += 1;
+    g.demandaDiaria += demandaLinea;
+    g.ventaMes += demandaLinea * 30;
     // Lo REALMENTE vendido en los últimos 30 días, sin corrección ni
     // tendencia: la referencia para que el usuario verifique cuánto está
     // estirando el cálculo. El promedio de 90 días (tasa observada × 30)
@@ -651,12 +672,12 @@ export async function sugerirCompra(
     const real30 = l.unidades30 ?? (l.tasaObservada ?? l.demandaDiaria) * 30;
     g.ventaMesReal += real30;
     if (talla) {
-      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + l.demandaDiaria);
+      g.demandaPorTalla.set(talla, (g.demandaPorTalla.get(talla) ?? 0) + demandaLinea);
     }
 
     const d = filaDetalle(l.sku, modelo, color, talla || "");
     d.sku = l.sku; // el nombre real de MELI gana sobre uno construido
-    d.ventaMesMeli += l.demandaDiaria * 30;
+    d.ventaMesMeli += demandaLinea * 30;
     d.ventaMesRealMeli += real30;
   }
 
@@ -842,6 +863,9 @@ export async function sugerirCompra(
           ? `Si pides hoy, llega ${Math.abs(llegada)} días DESPUÉS de quedarte sin producto.`
           : `Aguanta ${Math.round(cobertura ?? 0)} días y el pedido tarda ${ciclo}. Te quedan ${llegada} días de margen.`;
     }
+    if (g.tallasConRespaldo > 0 && g.skus.size > 0) {
+      motivo += ` ${g.tallasConRespaldo} de ${g.skus.size} tallas no llevan 14 días surtidas en la ventana: usan la demanda del plan de Full.`;
+    }
     if (cajasSugeridas > 0) {
       motivo +=
         regimen === "se_agota"
@@ -854,6 +878,7 @@ export async function sugerirCompra(
       color: g.color,
       tallas: g.skus.size,
       demandaDiaria: Number(demanda.toFixed(3)),
+      tallasConRespaldo: g.tallasConRespaldo,
       ventaMes: Math.round(g.ventaMes),
       ventaMesReal: Math.round(g.ventaMesReal),
       ventaMesAmazon: Math.round(g.ventaMesAmazon),

@@ -35,9 +35,13 @@ import {
   Upload,
   Warehouse,
   ClipboardList,
+  FilePlus2,
+  Hourglass,
   type LucideIcon,
   Undo2,
+  Handshake,
   Wallet,
+  Calculator,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 import { Logo } from "@/components/logo";
@@ -77,6 +81,9 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/cortes", texto: "Estado de resultados", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
       { href: "/gastos", texto: "Gastos", icono: Wallet, ayuda: "Nómina, fletes, renta y 3PL: fijos cada mes y sueltos" },
+      { href: "/finanzas/costeo", texto: "Costeo", icono: Calculator, ayuda: "Costo real por par de cada contenedor" },
+      { href: "/finanzas/numeros", texto: "Números", icono: Scale, ayuda: "Precios por modelo en MELI, Amazon y TikTok" },
+      { href: "/finanzas/cuenta", texto: "Cuenta del año", icono: Ship, ayuda: "Mayo a abril: transferencias, contenedores, Joanne, Shein y socios" },
     ],
   },
   {
@@ -116,6 +123,7 @@ const GRUPOS: Grupo[] = [
       { href: "/tiktok/despacho", texto: "Despacho de pedidos", icono: Printer, ayuda: "Cortes, etiquetas y lista de empaque" },
       { href: "/tiktok/tienda", texto: "Tienda en línea", icono: Store, ayuda: "Pedidos de la página de GETAC: mismo inventario que TikTok" },
       { href: "/tiktok/devoluciones", texto: "Devoluciones", icono: Undo2, ayuda: "Recibir lo que regresa el cliente: reembolso y si vuelve al stock" },
+      { href: "/tiktok/externos", texto: "Productos de David", icono: Handshake, ayuda: "Lo que David vende en la tienda: su stock, sus publicaciones y sus cortes aparte" },
       { href: "/tiktok/catalogo", texto: "Catálogo para creadores", icono: LayoutGrid, ayuda: "Qué modelos se ven, su categoría y pares en bodega y en el mar" },
       { href: "/tiktok/pedidos", texto: "Reabasto de almacén", icono: ClipboardList, ayuda: "Qué reponerle a la bodega de TikTok desde Industher y EnvioPack" },
       { href: "/tiktok", texto: "Inventario TikTok", icono: PackageCheck, ayuda: "Kardex y disponible publicado" },
@@ -129,6 +137,8 @@ const GRUPOS: Grupo[] = [
     titulo: "Abastecimiento",
     entradas: [
       { href: "/pedidos", texto: "Planeación de compras", icono: Ship, ayuda: "Qué pedir y qué viene en camino" },
+      { href: "/pedidos/nuevo", texto: "Nuevo pedido", icono: FilePlus2, ayuda: "Pega la lista, revisa el borrador y se manda a la fábrica en su formato" },
+      { href: "/pedidos/pendientes", texto: "Pendientes por enviar", icono: Hourglass, ayuda: "Lo pedido que aún no está en un contenedor: dinero y CBM" },
       { href: "/pedidos/cargar", texto: "Órdenes de compra", icono: Upload, ayuda: "Proformas, pedidos cargados y los que faltan" },
       { href: "/pedidos/nuevos", texto: "Lanzamientos", icono: Sparkles, ayuda: "Lo pedido que nunca ha tenido stock: fotos en MELI y Amazon" },
       { href: "/contenedores", texto: "Contenedores", icono: Container, ayuda: "ETA, llegada y packing list" },

@@ -4,6 +4,7 @@ import { cuentaActiva } from "@/lib/datos/repos";
 import { calentarEtiquetasDelCorte, conCandadoDeCorte, ERROR_CORTE_EN_CURSO, hacerCorte, hacerCorteAyer, hacerCorteLunes, releerSinPrepararDeCortesRecientes } from "@/lib/servicios/tiktok-despacho";
 import { contarSinTiempo } from "@/lib/tiktok/lunes";
 import { normalizarModelos } from "@/lib/tiktok/corte-modelos";
+import { normalizarVendedor } from "@/lib/tiktok/externos";
 import { dispararEtiquetasYAnotar } from "@/lib/servicios/disparar-etiquetas";
 import { origenDeLaApp } from "@/lib/servicios/origen-app";
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
       sinDefensa: body?.sinDefensa === true,
       // Corte por MODELO: solo los paquetes de un solo modelo de esta lista.
       soloModelos: normalizarModelos(body?.soloModelos),
+      // De quién es el corte: null = el dueño; 'david' = los pedidos del vendedor externo.
+      vendedor: normalizarVendedor(body?.vendedor),
     };
     // Las etiquetas se arman y se guardan en cuanto se contesta, con TODO
     // el rato que le quede a la función (hasta ~5 min): cuando el usuario

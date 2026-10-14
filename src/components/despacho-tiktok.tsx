@@ -58,7 +58,18 @@ function cuando(iso: string): string {
  * lista de empaque, en el mismo orden y con los mismos números, y se
  * reimprimen cuantas veces haga falta.
  */
-export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: number; cortes: CorteResumen[]; porModelo: PendientesPorModelo }) {
+export function DespachoTikTok({
+  pendientes,
+  cortes,
+  porModelo,
+  vendedor = null,
+}: {
+  pendientes: number;
+  cortes: CorteResumen[];
+  porModelo: PendientesPorModelo;
+  /** de quién es este despacho: null = el dueño; 'david' = el vendedor externo (viaja en cada corte y simulación) */
+  vendedor?: string | null;
+}) {
   const router = useRouter();
   const [handover, setHandover] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
   // Corte por MODELO (dueño, 5-oct-2026): marcar uno o varios modelos y el
@@ -288,7 +299,10 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
     setSimulando(true);
     setError(null);
     try {
-      const r = await fetch(`/api/tiktok/cortes/simular${soloModelos.length ? `?modelos=${encodeURIComponent(soloModelos.join(","))}` : ""}`);
+      const parametros = new URLSearchParams();
+      if (soloModelos.length) parametros.set("modelos", soloModelos.join(","));
+      if (vendedor) parametros.set("vendedor", vendedor);
+      const r = await fetch(`/api/tiktok/cortes/simular${parametros.size ? `?${parametros}` : ""}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "No se pudo simular.");
       setSimulacion(j);
@@ -395,6 +409,7 @@ export function DespachoTikTok({ pendientes, cortes, porModelo }: { pendientes: 
           handover,
           ...(modo ? { modo } : {}),
           ...(soloModelos.length ? { soloModelos } : {}),
+          ...(vendedor ? { vendedor } : {}),
         });
         // El corte tarda hasta 5 min y el navegador (Safari en el iPhone,
         // sobre todo) suelta la conexión a medias con «Load failed» aunque
