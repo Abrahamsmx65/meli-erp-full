@@ -142,6 +142,9 @@ export default async function CorteGeneral({ searchParams }: { searchParams: Pro
             );
           })}
         </nav>
+        <Link href="/cortes/anio" className="rounded-full border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--acento)", color: "var(--acento)" }}>
+          Año may–abr
+        </Link>
         <span className="texto-tenue text-xs">
           {cns.desde} → {cns.hasta}
           {corteDelMes ? ` · corte guardado el ${new Date(corteDelMes.creadoEn).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "numeric", month: "short" })}` : " · sin corte guardado"}
