@@ -2391,7 +2391,13 @@ guárdala numerada.
   Amazon usa comisión + retención reales sobre el precio y FBA + promos por
   par; TikTok lo que se queda = 1 − (pago + $6) ÷ precio, más $6 por par.
   Sin ventas suficientes, la estimación del dueño, y la tabla dice cuál se
-  usó. Los sueldos del dueño y de
+  usó. **Y debajo de la ganancia de MELI dice lo que se RECIBIÓ de verdad**
+  (`ResultadoNumeros.recibidoMeli`; dueño, 15-oct-2026: «¿por qué no
+  puedes decirme en real simplemente cuánto recibí aunque fue por
+  reventa?»): el depósito de Mercado Pago por par en 30 días (`neto_par`
+  del mismo RPC, reventa incluida) y lo que dejó sobre el costo. Es a los
+  precios que se vendió, no al relámpago, así que NO mueve los precios de
+  Amazon ni TikTok (esos siguen saliendo de la ganancia al relámpago). Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta

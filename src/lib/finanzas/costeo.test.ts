@@ -235,6 +235,7 @@ describe("Números: las fórmulas del sheet del dueño", () => {
     });
     expect(r.usado.meli).toEqual({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01 });
     expect(r.ganancia).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
+    expect(r.recibidoMeli).toEqual({ porPar: 98.33, pares: 2229, ganancia: 98.33 - 35.25 });
     expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 35.43 + 6.7) / (1 - 0.1263 - 0.0695), 8);
     const queda = 1 - (78.64 + 6) / 113.37;
     expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + 6) / (1 - queda), 8);
@@ -244,6 +245,7 @@ describe("Números: las fórmulas del sheet del dueño", () => {
     const e = { modelo: "X", ...ENTRADA_VACIA, envioMeli: 38, precioRelampago: 200, envioAmazon: 39 };
     const r = calcularNumeros(e, 50, { meli: { pares: 3, paresDirecta: 3, comisionPct: 0.15, envioPar: 99, retencionPct: 0.09, netoPar: 1 } });
     expect(r.usado.meli.fuente).toBe("estimado");
+    expect(r.recibidoMeli).toBeNull();
     expect(r.ganancia).toBeCloseTo(200 - 30 - 38 - 50, 8);
   });
 
