@@ -775,8 +775,8 @@ function armarSkus(
 export function armarSkusParaAgregar(
   datos: Pick<DatosPublicacion, "precio" | "moneda" | "warehouseId" | "colores">,
   plantilla: PlantillaTikTok,
-  existentes: { sellerSkus: string[]; coloresNombre: string[] },
-): { skus: Record<string, unknown>[]; saltados: string[] } {
+  existentes: { sellerSkus: string[]; coloresNombre: string[]; skusActuales: Record<string, unknown>[] },
+): { skus: Record<string, unknown>[]; nuevas: Record<string, unknown>[]; saltados: string[] } {
   if (!plantilla.atributoColor) throw new Error("El producto no tiene atributo de color en TikTok: no se le pueden agregar colores.");
   if (!(datos.precio > 0)) throw new Error("El precio tiene que ser mayor a cero.");
   if (!datos.warehouseId) throw new Error("La tienda no tiene bodega configurada en TikTok.");
@@ -791,29 +791,71 @@ export function armarSkusParaAgregar(
     }
     return true;
   });
-  const skus = armarSkus({ ...datos, colores }, plantilla).filter((s) => !yaSku.has(String(s.seller_sku).trim().toUpperCase()));
-  if (!skus.length) throw new Error("No hay variantes nuevas que agregar: TikTok ya tiene esos colores y tallas.");
-  if (skus.length + existentes.sellerSkus.length > MAX_SKUS_POR_PRODUCTO) {
+  const nuevas = armarSkus({ ...datos, colores }, plantilla).filter((s) => !yaSku.has(String(s.seller_sku).trim().toUpperCase()));
+  if (!nuevas.length) throw new Error("No hay variantes nuevas que agregar: TikTok ya tiene esos colores y tallas.");
+  if (nuevas.length + existentes.sellerSkus.length > MAX_SKUS_POR_PRODUCTO) {
     throw new Error(
-      `TikTok acepta hasta ${MAX_SKUS_POR_PRODUCTO} variantes por producto y quedaría con ${skus.length + existentes.sellerSkus.length}: publica esos colores como producto nuevo.`,
+      `TikTok acepta hasta ${MAX_SKUS_POR_PRODUCTO} variantes por producto y quedaría con ${nuevas.length + existentes.sellerSkus.length}: publica esos colores como producto nuevo.`,
     );
   }
-  return { skus, saltados };
+  // La lista de `skus` de la edición parcial es la lista COMPLETA del
+  // producto: «cualquier SKU existente que no venga aquí se borra» (doc de
+  // TikTok). El 15-oct-2026 se mandaron solo las nuevas y el GT125 perdió
+  // sus 20 variantes de Negro, Café, Crema y Leopardo. Las que ya tiene van
+  // primero, con su id, tal como TikTok las trae.
+  if (existentes.sellerSkus.length && existentes.skusActuales.length !== existentes.sellerSkus.length) {
+    throw new Error("No se pudieron leer completas las variantes que el producto ya tiene en TikTok: no se agrega nada para no borrarlas.");
+  }
+  return { skus: [...existentes.skusActuales, ...nuevas], nuevas, saltados };
 }
 
-/** Los seller_sku y los nombres de color que un producto crudo de TikTok ya tiene (para no duplicar al agregar). */
-export function variantesDelProducto(crudo: any): { sellerSkus: string[]; coloresNombre: string[]; mainImages: string[] } {
+/**
+ * Lo que un producto crudo de TikTok ya tiene: sus seller_sku y nombres de
+ * color (para no duplicar al agregar), sus fotos principales y sus variantes
+ * ACTUALES ya en la forma de la edición parcial (`skusActuales`: id,
+ * seller_sku, precio, atributos de venta con su foto e inventario), porque
+ * esa edición reemplaza la lista completa y hay que mandarlas de vuelta.
+ */
+export function variantesDelProducto(crudo: any): {
+  sellerSkus: string[];
+  coloresNombre: string[];
+  mainImages: string[];
+  skusActuales: Record<string, unknown>[];
+} {
   const sellerSkus: string[] = [];
   const colores = new Set<string>();
+  const skusActuales: Record<string, unknown>[] = [];
   const esNumero = (v: unknown) => /^\d{1,2}(\.\d)?$/.test(String(v ?? "").trim());
   for (const s of crudo?.skus ?? []) {
     if (s?.seller_sku) sellerSkus.push(String(s.seller_sku));
     for (const a of s?.sales_attributes ?? []) {
       if (!esNumero(a?.value_name) && a?.value_name) colores.add(String(a.value_name).trim());
     }
+    if (!s?.id) continue;
+    const actual: Record<string, unknown> = { id: String(s.id) };
+    if (s.seller_sku) actual.seller_sku = String(s.seller_sku);
+    const monto = s?.price?.sale_price ?? s?.price?.tax_exclusive_price ?? s?.price?.unit_price;
+    if (monto != null && s?.price?.currency) actual.price = { amount: String(monto), currency: String(s.price.currency) };
+    const atributos = (s?.sales_attributes ?? [])
+      .map((a: any) => {
+        const atr: Record<string, unknown> = {};
+        if (a?.id) atr.id = String(a.id);
+        if (a?.name) atr.name = String(a.name);
+        if (a?.value_id) atr.value_id = String(a.value_id);
+        if (a?.value_name) atr.value_name = String(a.value_name);
+        if (a?.sku_img?.uri) atr.sku_img = { uri: String(a.sku_img.uri) };
+        return atr;
+      })
+      .filter((a: Record<string, unknown>) => Object.keys(a).length);
+    if (atributos.length) actual.sales_attributes = atributos;
+    const inventario = (s?.inventory ?? [])
+      .filter((i: any) => i?.warehouse_id)
+      .map((i: any) => ({ warehouse_id: String(i.warehouse_id), quantity: Number(i?.quantity) || 0 }));
+    if (inventario.length) actual.inventory = inventario;
+    skusActuales.push(actual);
   }
   const mainImages = (crudo?.main_images ?? []).map((m: any) => String(m?.uri ?? "")).filter(Boolean);
-  return { sellerSkus, coloresNombre: [...colores], mainImages };
+  return { sellerSkus, coloresNombre: [...colores], mainImages, skusActuales };
 }
 
 /**

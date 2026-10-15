@@ -192,11 +192,16 @@ describe("armarSkusParaAgregar", () => {
     ],
   };
 
-  it("manda solo las variantes nuevas, sin id, con los atributos del producto", () => {
-    const r = armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"] });
+  const actuales = [{ id: "S1", seller_sku: "GT134-BLK-24-MX", price: { amount: "399", currency: "MXN" } }];
+
+  it("manda la lista COMPLETA: las variantes que ya tiene con su id y luego las nuevas sin id", () => {
+    const r = armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"], skusActuales: actuales });
     expect(r.saltados).toEqual(["BLK"]);
-    expect(r.skus.map((s: any) => s.seller_sku)).toEqual(["GT134-RED-26-MX", "GT134-RED-27-MX"]);
-    const s = r.skus[0] as any;
+    // La edición parcial BORRA toda variante que no venga en `skus` (GT125, 15-oct-2026).
+    expect(r.skus.map((s: any) => s.seller_sku)).toEqual(["GT134-BLK-24-MX", "GT134-RED-26-MX", "GT134-RED-27-MX"]);
+    expect((r.skus[0] as any).id).toBe("S1");
+    expect(r.nuevas.map((s: any) => s.seller_sku)).toEqual(["GT134-RED-26-MX", "GT134-RED-27-MX"]);
+    const s = r.nuevas[0] as any;
     expect(s.id).toBeUndefined();
     expect(s.sales_attributes[0]).toMatchObject({ id: plantilla.atributoColor!.id, value_name: "Rojo", sku_img: { uri: "u-red" } });
     expect(s.sales_attributes[1]).toMatchObject({ id: plantilla.atributoTalla!.id, value_name: "26" });
@@ -205,9 +210,14 @@ describe("armarSkusParaAgregar", () => {
   });
 
   it("sin nada nuevo o pasando de 100 variantes, lanza", () => {
-    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: [], coloresNombre: ["Negro", "Rojo"] })).toThrow(/ya tiene/);
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: [], coloresNombre: ["Negro", "Rojo"], skusActuales: [] })).toThrow(/ya tiene/);
     const muchos = Array.from({ length: 99 }, (_, i) => `X-${i}`);
-    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: muchos, coloresNombre: [] })).toThrow(/100 variantes/);
+    const muchosActuales = muchos.map((m) => ({ id: m, seller_sku: m }));
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: muchos, coloresNombre: [], skusActuales: muchosActuales })).toThrow(/100 variantes/);
+  });
+
+  it("si no se leyeron completas las variantes actuales, no manda nada: mandar menos las borraría", () => {
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"], skusActuales: [] })).toThrow(/no se agrega nada/);
   });
 
   it("lee del producto crudo sus seller_sku, sus colores y sus fotos principales", () => {
@@ -221,6 +231,37 @@ describe("armarSkusParaAgregar", () => {
     expect(v.sellerSkus).toEqual(["GT134-BLK-24-MX", "GT134-BLK-25-MX"]);
     expect(v.coloresNombre).toEqual(["Negro"]);
     expect(v.mainImages).toEqual(["m1", "m2"]);
+    // sin id no hay variante actual que devolver
+    expect(v.skusActuales).toEqual([]);
+  });
+
+  it("devuelve las variantes actuales en la forma de la edición parcial (id, seller_sku, precio, atributos con foto, inventario)", () => {
+    const v = variantesDelProducto({
+      skus: [
+        {
+          id: "S1",
+          seller_sku: "GT134-BLK-24-MX",
+          price: { currency: "MXN", sale_price: "300.00", tax_exclusive_price: "258.62" },
+          inventory: [{ warehouse_id: "W1", quantity: 7 }],
+          sales_attributes: [
+            { id: "100000", name: "Color", value_id: "7001", value_name: "Negro", sku_img: { uri: "img-blk", urls: ["https://x"] } },
+            { id: "100007", name: "Talla", value_name: "24" },
+          ],
+        },
+      ],
+    });
+    expect(v.skusActuales).toEqual([
+      {
+        id: "S1",
+        seller_sku: "GT134-BLK-24-MX",
+        price: { amount: "300.00", currency: "MXN" },
+        sales_attributes: [
+          { id: "100000", name: "Color", value_id: "7001", value_name: "Negro", sku_img: { uri: "img-blk" } },
+          { id: "100007", name: "Talla", value_name: "24" },
+        ],
+        inventory: [{ warehouse_id: "W1", quantity: 7 }],
+      },
+    ]);
   });
 });
 
