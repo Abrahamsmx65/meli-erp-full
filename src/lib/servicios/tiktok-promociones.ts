@@ -34,6 +34,10 @@ import {
   type NivelOferta,
   type OfertaResumen,
   type ProductoParaOferta,
+  horasDeCiclica,
+  tituloDeCiclica,
+  ventanasQueFaltan,
+  HORAS_MAX_CICLICA,
 } from "../tiktok/promociones";
 
 const CLAVE_CACHE_OFERTAS = "tiktok:promociones";
@@ -146,6 +150,8 @@ export async function listarOfertas(admin: any, accountId: string, opciones: { f
 }
 
 export interface PedidoDeOferta {
+  /** la cíclica de la que nace esta ventana (queda en `tiktok_promociones.ciclico_id`) */
+  ciclicoId?: number | null;
   titulo?: string | null;
   /** ISO; vacío = dentro de `MINUTOS_DE_ARRANQUE` minutos */
   inicio?: string | null;
@@ -176,6 +182,7 @@ export interface ResultadoOferta {
  */
 export async function crearOferta(admin: any, accountId: string, pedido: PedidoDeOferta, usuario: string | null): Promise<ResultadoOferta> {
   const nivel: NivelOferta = pedido.nivel === "live" || pedido.nivel === "campana" ? pedido.nivel : "normal";
+  const ciclicoId = Number(pedido.ciclicoId) > 0 ? Number(pedido.ciclicoId) : null;
   const inicio = pedido.inicio ? new Date(pedido.inicio) : new Date(Date.now() + MINUTOS_DE_ARRANQUE * 60_000);
   const horas = Number(pedido.horas) > 0 ? Number(pedido.horas) : HORAS_POR_OMISION;
   const ventana = ventanaDeOferta(inicio, horas);
@@ -212,7 +219,8 @@ export async function crearOferta(admin: any, accountId: string, pedido: PedidoD
           account_id: accountId,
           titulo: cuerpo.title,
           tipo: "FLASHSALE",
-          nivel,
+          nivel: ciclicoId ? "ciclica" : nivel,
+          ciclico_id: ciclicoId,
           inicio: new Date(ventana.beginTime * 1000).toISOString(),
           fin: new Date(ventana.endTime * 1000).toISOString(),
           tope_por_talla: topes.porTalla,
@@ -319,4 +327,288 @@ export async function repetirOferta(
     },
     usuario,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Relámpagos CÍCLICOS: siempre programados, por modelo
+// ---------------------------------------------------------------------------
+
+export interface CiclicaGuardada {
+  id: number;
+  modelo: string;
+  precio: number;
+  horas: number;
+  topePorTalla: number;
+  topePorComprador: number;
+  activo: boolean;
+  ultimoError: string | null;
+  programadoEn: string | null;
+  /** las ventanas creadas que aún no terminan, de la más próxima a la más lejana */
+  ventanas: { id: number; activityId: string | null; inicio: string; fin: string; estado: string }[];
+  /** si el modelo sigue con producto activo en TikTok */
+  enTikTok: boolean;
+}
+
+const ESTADOS_VENTANA_VIVA = ["creada", "parcial", "creando"];
+
+async function ventanasVivasDeCiclicas(db: DB, accountId: string, ids: number[]) {
+  if (!ids.length) return new Map<number, CiclicaGuardada["ventanas"]>();
+  const { data, error } = await db
+    .from("tiktok_promociones")
+    .select("id, ciclico_id, activity_id, inicio, fin, estado")
+    .eq("account_id", accountId)
+    .in("ciclico_id", ids)
+    .in("estado", ESTADOS_VENTANA_VIVA)
+    .gt("fin", new Date().toISOString())
+    .order("inicio", { ascending: true });
+  if (error) throw new Error(error.message);
+  const salida = new Map<number, CiclicaGuardada["ventanas"]>();
+  for (const r of data ?? []) {
+    const lista = salida.get(Number(r.ciclico_id)) ?? [];
+    lista.push({ id: Number(r.id), activityId: r.activity_id ?? null, inicio: r.inicio, fin: r.fin, estado: r.estado });
+    salida.set(Number(r.ciclico_id), lista);
+  }
+  return salida;
+}
+
+/** Las cíclicas de la cuenta (activas y pausadas) con sus ventanas vivas. */
+export async function ciclicasGuardadas(db: DB, accountId: string, enTikTok?: Set<string>): Promise<CiclicaGuardada[]> {
+  const { data, error } = await db
+    .from("tiktok_promociones_ciclicas")
+    .select("id, modelo, precio, horas, tope_por_talla, tope_por_comprador, activo, ultimo_error, programado_en")
+    .eq("account_id", accountId)
+    .order("modelo", { ascending: true });
+  if (error) throw new Error(error.message);
+  const filas = data ?? [];
+  const ventanas = await ventanasVivasDeCiclicas(db, accountId, filas.map((f: any) => Number(f.id)));
+  return filas.map((f: any) => ({
+    id: Number(f.id),
+    modelo: String(f.modelo),
+    precio: Number(f.precio),
+    horas: Number(f.horas),
+    topePorTalla: Number(f.tope_por_talla),
+    topePorComprador: Number(f.tope_por_comprador),
+    activo: Boolean(f.activo),
+    ultimoError: f.ultimo_error ?? null,
+    programadoEn: f.programado_en ?? null,
+    ventanas: ventanas.get(Number(f.id)) ?? [],
+    enTikTok: enTikTok ? enTikTok.has(String(f.modelo)) : true,
+  }));
+}
+
+export interface PedidoCiclica {
+  modelo: string;
+  precio: number;
+  horas?: number | null;
+  topePorTalla?: number | null;
+  topePorComprador?: number | null;
+}
+
+/**
+ * Da de alta o corrige una cíclica. Un cambio de PRECIO se lleva también a
+ * las ventanas ya programadas que no han empezado (TikTok deja editar los
+ * productos de una actividad); la que ya corre se queda con su precio.
+ * Luego se programan en el acto las ventanas que falten.
+ */
+export async function guardarCiclica(admin: any, accountId: string, pedido: PedidoCiclica, usuario: string | null): Promise<CiclicaGuardada> {
+  const modelo = String(pedido.modelo ?? "").trim().toUpperCase();
+  const precio = Math.round(Number(pedido.precio) * 100) / 100;
+  if (!modelo) throw new Error("Falta el modelo.");
+  if (!(precio > 0)) throw new Error("El precio tiene que ser mayor a cero.");
+  const horas = horasDeCiclica(pedido.horas);
+  const topes = { porTalla: topeParaTikTok(pedido.topePorTalla), porComprador: topeParaTikTok(pedido.topePorComprador) };
+  const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
+  const producto = catalogo.find((m) => m.modelo === modelo);
+  if (!producto) throw new Error(`El ${modelo} no tiene producto activo en TikTok.`);
+
+  const { data: previa } = await admin
+    .from("tiktok_promociones_ciclicas")
+    .select("id, precio, tope_por_talla, tope_por_comprador")
+    .eq("account_id", accountId)
+    .eq("modelo", modelo)
+    .maybeSingle();
+  const { data: fila, error } = await admin
+    .from("tiktok_promociones_ciclicas")
+    .upsert(
+      {
+        account_id: accountId,
+        modelo,
+        precio,
+        horas,
+        tope_por_talla: topes.porTalla,
+        tope_por_comprador: topes.porComprador,
+        activo: true,
+        ultimo_error: null,
+        actualizado_en: new Date().toISOString(),
+        creado_por: usuario,
+      },
+      { onConflict: "account_id,modelo" },
+    )
+    .select("id")
+    .single();
+  if (error || !fila) throw new Error(`No se pudo guardar la cíclica: ${error?.message ?? "sin id"}`);
+  const id = Number(fila.id);
+
+  // El precio (o los topes) nuevos a las ventanas que aún no empiezan.
+  const cambio =
+    previa && (Number(previa.precio) !== precio || Number(previa.tope_por_talla) !== topes.porTalla || Number(previa.tope_por_comprador) !== topes.porComprador);
+  if (cambio) {
+    const ventanas = (await ventanasVivasDeCiclicas(admin, accountId, [id])).get(id) ?? [];
+    const porEmpezar = ventanas.filter((v) => v.activityId && Date.parse(v.inicio) > Date.now());
+    if (porEmpezar.length) {
+      const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+      if (!cliente?.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+      const lotes = lotesDeProductos([{ modelo, productId: producto.productId, precio, skuIds: producto.skuIds }], topes);
+      for (const v of porEmpezar) {
+        try {
+          for (const lote of lotes) await actualizarProductosDeActividad(cliente, String(v.activityId), lote);
+          await admin
+            .from("tiktok_promociones")
+            .update({ modelos: [{ modelo, precio, productId: producto.productId, variantes: producto.skuIds.length }], tope_por_talla: topes.porTalla, tope_por_comprador: topes.porComprador })
+            .eq("id", v.id);
+        } catch (err) {
+          await admin
+            .from("tiktok_promociones_ciclicas")
+            .update({ ultimo_error: `No se pudo cambiar el precio de la ventana ${v.activityId}: ${(err as Error).message}` })
+            .eq("id", id);
+        }
+      }
+      await invalidarApp(admin, accountId, "cíclica corregida", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+    }
+  }
+
+  await programarCiclicas(admin, accountId, { soloId: id, presupuestoMs: 150_000 });
+  const [guardada] = (await ciclicasGuardadas(admin, accountId)).filter((c) => c.id === id);
+  if (!guardada) throw new Error("La cíclica se guardó pero no se pudo releer.");
+  return guardada;
+}
+
+/**
+ * Quita una cíclica: deja de reponer ventanas y DESACTIVA en TikTok las que
+ * todavía no empiezan. La que ya corre termina sola (los compradores ya la
+ * ven con ese precio).
+ */
+export async function quitarCiclica(admin: any, accountId: string, id: number): Promise<{ desactivadas: number; errores: string[] }> {
+  const { data: fila } = await admin
+    .from("tiktok_promociones_ciclicas")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("id", id)
+    .maybeSingle();
+  if (!fila) throw new Error("Esa cíclica no existe.");
+  await admin.from("tiktok_promociones_ciclicas").update({ activo: false, actualizado_en: new Date().toISOString() }).eq("id", id);
+  const ventanas = (await ventanasVivasDeCiclicas(admin, accountId, [id])).get(id) ?? [];
+  const porEmpezar = ventanas.filter((v) => v.activityId && Date.parse(v.inicio) > Date.now());
+  const errores: string[] = [];
+  let desactivadas = 0;
+  if (porEmpezar.length) {
+    const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+    if (!cliente?.tienda.shopCipher) throw new Error("TikTok Shop no está conectado.");
+    for (const v of porEmpezar) {
+      try {
+        const r = await desactivarActividad(cliente, String(v.activityId));
+        await admin.from("tiktok_promociones").update({ estado: "desactivada", respuesta: { desactivada: r } }).eq("id", v.id);
+        desactivadas++;
+      } catch (err) {
+        errores.push(`${v.activityId}: ${(err as Error).message}`);
+      }
+    }
+    await invalidarApp(admin, accountId, "cíclica quitada", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+  }
+  return { desactivadas, errores };
+}
+
+export interface ResultadoProgramacion {
+  revisadas: number;
+  creadas: number;
+  errores: string[];
+  sinTiempo: boolean;
+}
+
+/**
+ * Repone las ventanas que falten a cada cíclica activa (`ventanasQueFaltan`
+ * con las vivas de `tiktok_promociones`), una actividad por ventana, con
+ * presupuesto de tiempo: lo que no alcance lo recoge la siguiente corrida
+ * del cron. Un modelo que ya no tiene producto activo en TikTok se anota y
+ * se salta; un error de TikTok queda en `ultimo_error` sin frenar a los
+ * demás.
+ */
+export async function programarCiclicas(
+  admin: any,
+  accountId: string,
+  opciones: { soloId?: number; presupuestoMs?: number } = {},
+): Promise<ResultadoProgramacion> {
+  const arranque = Date.now();
+  const presupuesto = opciones.presupuestoMs ?? 240_000;
+  const salida: ResultadoProgramacion = { revisadas: 0, creadas: 0, errores: [], sinTiempo: false };
+  let consulta = admin
+    .from("tiktok_promociones_ciclicas")
+    .select("id, modelo, precio, horas, tope_por_talla, tope_por_comprador")
+    .eq("account_id", accountId)
+    .eq("activo", true)
+    .order("programado_en", { ascending: true, nullsFirst: true });
+  if (opciones.soloId) consulta = consulta.eq("id", opciones.soloId);
+  const { data: ciclicas, error } = await consulta;
+  if (error) throw new Error(error.message);
+  if (!ciclicas?.length) return salida;
+  const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
+  const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
+  const vivas = await ventanasVivasDeCiclicas(admin, accountId, ciclicas.map((c: any) => Number(c.id)));
+
+  for (const c of ciclicas) {
+    if (Date.now() - arranque > presupuesto) {
+      salida.sinTiempo = true;
+      break;
+    }
+    const id = Number(c.id);
+    const modelo = String(c.modelo);
+    salida.revisadas++;
+    const anotar = (ultimo_error: string | null) =>
+      admin
+        .from("tiktok_promociones_ciclicas")
+        .update({ ultimo_error, programado_en: new Date().toISOString() })
+        .eq("id", id);
+    if (!porModelo.has(modelo)) {
+      await anotar(`El ${modelo} ya no tiene producto activo en TikTok: no se programó nada.`);
+      salida.errores.push(`${modelo}: sin producto activo en TikTok`);
+      continue;
+    }
+    const programadas = (vivas.get(id) ?? []).map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) }));
+    const faltan = ventanasQueFaltan(programadas, Number(c.horas));
+    let errorDeEsta: string | null = null;
+    for (const v of faltan) {
+      if (Date.now() - arranque > presupuesto) {
+        salida.sinTiempo = true;
+        break;
+      }
+      try {
+        const r = await crearOferta(
+          admin,
+          accountId,
+          {
+            ciclicoId: id,
+            titulo: tituloDeCiclica(modelo, v.inicio),
+            inicio: v.inicio.toISOString(),
+            horas: Math.round((v.fin.getTime() - v.inicio.getTime()) / 3_600_000),
+            nivel: "normal",
+            topePorTalla: Number(c.tope_por_talla),
+            topePorComprador: Number(c.tope_por_comprador),
+            modelos: [{ modelo, precio: Number(c.precio) }],
+          },
+          null,
+        );
+        if (r.errores.length) {
+          errorDeEsta = `TikTok rechazó los productos de «${r.titulo}»: ${r.errores.join(" | ")}`;
+          break;
+        }
+        salida.creadas++;
+      } catch (err) {
+        errorDeEsta = `«${tituloDeCiclica(modelo, v.inicio)}»: ${(err as Error).message}`;
+        break;
+      }
+    }
+    if (errorDeEsta) salida.errores.push(`${modelo}: ${errorDeEsta}`);
+    await anotar(errorDeEsta);
+  }
+  return salida;
 }

@@ -25,6 +25,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/tiktok-ciclicos",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/cron/plan",
       "schedule": "*/10 * * * *"
     },

@@ -1,6 +1,6 @@
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { listarOfertas, modelosParaOferta, ofertasGuardadas } from "@/lib/servicios/tiktok-promociones";
+import { ciclicasGuardadas, listarOfertas, modelosParaOferta, ofertasGuardadas } from "@/lib/servicios/tiktok-promociones";
 import { PromocionesTikTok } from "@/components/promociones-tiktok";
 import { Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
@@ -20,23 +20,27 @@ export default async function Promociones() {
     modelosParaOferta(admin, cuenta.id),
     ofertasGuardadas(admin, cuenta.id),
   ]);
+  const ciclicas = await ciclicasGuardadas(admin, cuenta.id, new Set(catalogo.modelos.map((m) => m.modelo)));
   return (
     <Pagina>
       <Encabezado
         ceja="TikTok Shop"
         titulo="Ofertas relámpago"
-        descripcion="Las ofertas que TikTok tiene hoy y una nueva relámpago de 3 días con los precios de la estrategia, sin salir del panel."
+        descripcion="Las ofertas que TikTok tiene hoy, una nueva relámpago de 3 días con los precios de la estrategia y los modelos cíclicos que nunca se quedan sin relámpago."
         ayuda={
           <p>
             La oferta se crea en TikTok tal cual: tipo relámpago, por variante, con el precio de oferta por modelo (todas sus
             tallas igual) y un tope de unidades por talla y por comprador (1 a 99, o sin tope). El precio sugerido es el de
             Estrategia de precios en el nivel que elijas; se puede corregir por modelo antes de crear. Lo que el API de TikTok
             no permite y sigue en el Seller Center: la relámpago de LIVE, las existencias reservadas para el creador y la
-            inscripción a campañas de la plataforma.
+            inscripción a campañas de la plataforma. Un modelo CÍCLICO lleva su precio y el sistema le mantiene siempre
+            tres relámpagos encadenadas (cada una de hasta 72 h, la siguiente empieza cuando termina la anterior); el fondo
+            repone cada hora la que falte. Cambiar el precio lo lleva a las que todavía no empiezan; quitarlo desactiva esas
+            y deja terminar la que corre.
           </p>
         }
       />
-      <PromocionesTikTok ofertas={ofertas} modelos={catalogo.modelos} avisos={catalogo.avisos} guardadas={guardadas} ahora={Date.now()} />
+      <PromocionesTikTok ofertas={ofertas} modelos={catalogo.modelos} avisos={catalogo.avisos} guardadas={guardadas} ciclicas={ciclicas} ahora={Date.now()} />
     </Pagina>
   );
 }

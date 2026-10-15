@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   cuerpoDeActividad,
+  horasDeCiclica,
   lotesDeProductos,
   ordenarOfertas,
   precioDeNivel,
   productosParaOferta,
   resumirActividad,
+  tituloDeCiclica,
   tituloDeOferta,
   topeParaTikTok,
   ventanaDeOferta,
+  ventanasQueFaltan,
 } from "./promociones";
 
 const sku = (skuId: string, productId: string, sellerSku: string, estado = "ACTIVATE", precio: number | null = 499) => ({
@@ -115,5 +118,48 @@ describe("ofertas de TikTok resumidas", () => {
     expect(precioDeNivel({ live: 145, normal: 153, campana: 161 }, "live")).toBe(145);
     expect(precioDeNivel(undefined, "normal")).toBeNull();
     expect(precioDeNivel({ live: 0, normal: 153, campana: 161 }, "live")).toBeNull();
+  });
+});
+
+describe("relámpagos cíclicos", () => {
+  const ahora = new Date("2026-10-15T18:00:00Z");
+  const h = 3_600_000;
+
+  it("sin nada programado arma 3 ventanas de 72 h encadenadas desde ahora + 15 min", () => {
+    const v = ventanasQueFaltan([], 72, ahora);
+    expect(v).toHaveLength(3);
+    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
+    expect(v[0].fin.getTime() - v[0].inicio.getTime()).toBe(72 * h);
+    expect(v[1].inicio.getTime()).toBe(v[0].fin.getTime());
+    expect(v[2].inicio.getTime()).toBe(v[1].fin.getTime());
+  });
+
+  it("con una ventana corriendo y otra programada, solo falta UNA, pegada al fin de la última", () => {
+    const corriendo = { inicio: new Date(ahora.getTime() - 10 * h), fin: new Date(ahora.getTime() + 62 * h) };
+    const siguiente = { inicio: corriendo.fin, fin: new Date(corriendo.fin.getTime() + 72 * h) };
+    const v = ventanasQueFaltan([corriendo, siguiente], 72, ahora);
+    expect(v).toHaveLength(1);
+    expect(v[0].inicio.getTime()).toBe(siguiente.fin.getTime());
+  });
+
+  it("una ventana que ya terminó no cuenta y no sirve de base: se arranca desde ahora", () => {
+    const vieja = { inicio: new Date(ahora.getTime() - 100 * h), fin: new Date(ahora.getTime() - 28 * h) };
+    const v = ventanasQueFaltan([vieja], 72, ahora);
+    expect(v).toHaveLength(3);
+    expect(v[0].inicio.toISOString()).toBe("2026-10-15T18:15:00.000Z");
+  });
+
+  it("las horas se topan a 72 y por omisión son 72; con las 3 ya programadas no falta nada", () => {
+    expect(horasDeCiclica(100)).toBe(72);
+    expect(horasDeCiclica(24)).toBe(24);
+    expect(horasDeCiclica(null)).toBe(72);
+    const tres = [0, 1, 2].map((i) => ({ inicio: new Date(ahora.getTime() + i * 72 * h), fin: new Date(ahora.getTime() + (i + 1) * 72 * h) }));
+    expect(ventanasQueFaltan(tres, 72, ahora)).toEqual([]);
+  });
+
+  it("el título lleva el modelo y la hora de inicio en México, dentro de 50 caracteres", () => {
+    const t = tituloDeCiclica("gt148", new Date("2026-10-16T02:30:00Z"));
+    expect(t).toBe("Cíclica GT148 15/10 20:30");
+    expect(t.length).toBeLessThanOrEqual(50);
   });
 });

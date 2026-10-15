@@ -1567,6 +1567,26 @@ guárdala numerada.
   (candado `tiktok-promocion`). Recordar: TikTok reserva para la
   promoción el stock de cada talla y no deja bajar el inventario abajo de
   eso (`minimum allowed open stock`, visto el 11-oct-2026 con el GT148).
+  **CÍCLICOS: un modelo que NUNCA se queda sin relámpago** (pestaña
+  «Cíclicos»; `tiktok_promociones_ciclicas` y `tiktok_promociones.ciclico_id`,
+  migración 0146; motor puro `ventanasQueFaltan`, `horasDeCiclica`,
+  `tituloDeCiclica`, `HORAS_MAX_CICLICA` 72, `VENTANAS_ADELANTE` 3;
+  servicio `guardarCiclica` / `quitarCiclica` / `programarCiclicas` /
+  `ciclicasGuardadas`; acciones `ciclica-guardar`, `ciclica-quitar`,
+  `ciclica-programar` en `POST /api/tiktok/promociones`; cron
+  `/api/cron/tiktok-ciclicos` cada hora; dueño, 15-oct-2026: «en cíclicos
+  yo pongo un producto, cuál es el precio y el sistema se encarga de que
+  siempre va a estar con relámpagos programadas; se pueden adelantar muchas
+  y cada una dura máximo 72 horas»): por modelo, precio, horas (≤ 72) y
+  topes; el fondo mantiene SIEMPRE 3 ventanas vivas o programadas por
+  modelo, una actividad FLASHSALE por ventana («Cíclica GT148 15/10 20:30»),
+  encadenadas: la siguiente empieza cuando termina la anterior (o en 15 min
+  si no hay ninguna); una que ya terminó no cuenta. Cambiar el precio lo
+  lleva a las ventanas que no han empezado (`actualizarProductosDeActividad`);
+  «Quitar» desactiva esas en TikTok y deja terminar la que corre. Un modelo
+  sin producto activo o un rechazo de TikTok queda en `ultimo_error` sin
+  frenar a los demás; lo que no alcanza en la corrida lo recoge la
+  siguiente hora.
   **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
   `/tiktok/precios`; fue SOLO del dueño hasta el 2-oct-2026, hoy también
   la abre el rol de TikTok;
