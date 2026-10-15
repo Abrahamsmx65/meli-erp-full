@@ -1228,7 +1228,10 @@ guárdala numerada.
   Inventario TikTok y el Excel por modelo no lo cuentan, y la tienda en
   línea y el catálogo de creadores no copian sus publicaciones. Los
   vendedores viven en `VENDEDORES_EXTERNOS` (hoy solo `david`); la pantalla
-  es de él y el rol de TikTok la abre. En un pedido mixto el par del dueño
+  es de él y el rol de TikTok la abre; en el menú del DUEÑO no sale
+  (`FUERA_DEL_MENU_DEL_DUENO` en `acceso/roles.ts`; dueño, 15-oct-2026:
+  «quita los productos de David, no me interesa verlos»), la ruta sigue
+  abierta. En un pedido mixto el par del dueño
   sale del kardex y SÍ se le manda a Industher como salida (es el mismo
   camino de siempre): quién se lo lleva a David es un acuerdo entre ellos.
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
@@ -1545,8 +1548,10 @@ guárdala numerada.
   inicio y fin en segundos UNIX, inicio futuro, título único ≤ 50), meterle
   productos (`PUT …/products`, ≤ 300 variantes por llamada; por variante
   `activity_price_amount`, `quantity_limit` y `quantity_per_user` de 1 a 99
-  o −1 sin tope), buscar por UN estado a la vez, desactivar y quitar
-  (`DELETE …/products`). Lo que NO da y sigue en el Seller Center: la
+  o −1 sin tope), buscar por UN estado a la vez (`page_size` y
+  `page_token` van en el CUERPO: en la URL TikTok contesta 36009004 «param
+  page_size type invalid», visto el primer día en producción), desactivar
+  y quitar (`DELETE …/products`). Lo que NO da y sigue en el Seller Center: la
   relámpago de LIVE, las «existencias reservadas para el creador» y la
   inscripción a campañas de la plataforma. La pantalla: pestaña Ofertas
   (lo que TikTok tiene, masticado 2 min en `app_cache` `tiktok:promociones`,

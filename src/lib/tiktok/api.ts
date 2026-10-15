@@ -1425,12 +1425,13 @@ export async function buscarActividades(
   for (const estado of opciones.estados) {
     let token: string | undefined;
     for (let pagina = 0; pagina < tope; pagina++) {
-      const cuerpo: Record<string, unknown> = { status: estado };
+      // `page_size` y `page_token` van en el CUERPO, no en la URL (forma del
+      // SDK de npm): en la URL TikTok contesta 36009004 «param page_size type
+      // invalid. actual type:string, expected type:int32» (15-oct-2026).
+      const cuerpo: Record<string, unknown> = { status: estado, page_size: 100 };
+      if (token) cuerpo.page_token = token;
       if (opciones.tipo) cuerpo.activity_type = opciones.tipo;
-      const d = await c.llamar<any>("POST", "/promotion/202309/activities/search", {
-        params: { page_size: 100, page_token: token },
-        cuerpo,
-      });
+      const d = await c.llamar<any>("POST", "/promotion/202309/activities/search", { cuerpo });
       if (!d) return { actividades: salida, completo: false };
       for (const a of d?.activities ?? []) salida.push(a);
       token = d?.next_page_token || undefined;
