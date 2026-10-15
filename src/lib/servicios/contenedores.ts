@@ -17,13 +17,15 @@ import { recalcularEstadoPedido } from "./pedidos";
 // arrastrar la base ni los servicios a su paquete. Se reexportan aquí.
 export {
   detalleModelos,
+  leerOtros,
   leerPendientes,
   modelosDeContenedor,
   resumenModelos,
   type ContenedorVista,
+  type OtroDelContenedor,
   type PendientePacking,
 } from "./contenedores-vista";
-import { leerPendientes, modelosDeContenedor, type ContenedorVista } from "./contenedores-vista";
+import { leerOtros, leerPendientes, modelosDeContenedor, type ContenedorVista } from "./contenedores-vista";
 
 export async function listarContenedores(db: DB, accountId: string): Promise<ContenedorVista[]> {
   // traerTodo pagina (PostgREST corta en 1,000 filas SIN avisar) y ordena
@@ -34,7 +36,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     traerTodo<any>(
       db,
       "contenedores",
-      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes",
+      "id, numero, numero_naviera, naviera, fecha_salida, fecha_llegada_est, fecha_llegada_real, almacen_destino, estado, notas, pendientes, otros, cajas_bl, bl_archivo",
       (q) => q.eq("account_id", accountId),
     ),
     traerTodo<{ id: string; pedido: string }>(db, "pedidos", "id, pedido", (q) => q.eq("account_id", accountId)),
@@ -100,7 +102,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     const modelos = modelosDeContenedor(
       (lineasPorCont.get(c.id) ?? []).flatMap((cl) => {
         const l = lineaPorId.get(cl.pedido_linea_id);
-        if (!l) return [];
+        if (!l || !(cl.cajas ?? 0)) return [];
         const paresPorCaja = (l.cajas ?? 0) > 0 && (l.pares ?? 0) > 0 ? (l.pares ?? 0) / (l.cajas ?? 1) : 0;
         return [{ modelo: l.modelo, color: l.color, cajas: cl.cajas ?? 0, paresPorCaja }];
       }),
@@ -108,6 +110,7 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
     return {
       modelos,
       pendientes: leerPendientes(c.pendientes),
+      otros: leerOtros(c.otros),
       id: c.id,
       numero: c.numero,
       numeroNaviera: c.numero_naviera ?? null,
@@ -118,6 +121,8 @@ export async function listarContenedores(db: DB, accountId: string): Promise<Con
       almacenDestino: c.almacen_destino ?? null,
       estado: c.estado,
       notas: c.notas ?? null,
+      cajasBl: c.cajas_bl ?? null,
+      blArchivo: c.bl_archivo ?? null,
       cajas,
       pedidos: [...porPedido.entries()]
         .sort((a, b) => a[0].localeCompare(b[0]))

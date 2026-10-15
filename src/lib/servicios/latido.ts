@@ -309,10 +309,9 @@ export async function latido(
       }
     }
 
-    // Ventas y Publicidad leen el monitor y el panel de ads masticados en
-    // `app_cache`: aquí se deja listo el rango por omisión de cada pantalla
-    // (7 y 30 días) cuando tiene más de 10 minutos. Antes nadie los
-    // precalculaba y /ventas tardaba 15–35 s en el clic.
+    // Ventas y Publicidad leen la publicidad y el dinero masticados en
+    // `app_cache`: aquí se dejan listos los atajos de fechas. Unidades y venta
+    // (el monitor) van en vivo sobre las ventas por día de la base.
     if (Date.now() < limite - 40_000) {
       try {
         const { data: cta } = await admin
@@ -327,11 +326,15 @@ export async function latido(
       } catch (err) {
         console.error("precalcularPantallasVentas:", (err as Error).message);
       }
-      // Las gráficas por día y por hora (Ventas, Inicio, Estado de resultados).
+      // Las gráficas por día y por hora de TikTok (Ventas, Inicio, Estado de resultados).
       try {
         const { precalcularVentasTiempo } = await import("./ventas-tiempo");
         const { fechaMx } = await import("./ventas-monitor");
         await precalcularVentasTiempo(admin, accountId, limite - 20_000, fechaMx(0));
+        // Ventas TikTok (la tabla por modelo) en los mismos atajos.
+        const { precalcularVentasTikTok } = await import("./tiktok-ventas");
+        await precalcularVentasTikTok(admin, accountId, limite - 15_000, fechaMx(0));
+        // MELI calzado y fundas ya no se guardan: van en vivo (CANALES_EN_VIVO).
       } catch (err) {
         console.error("precalcularVentasTiempo:", (err as Error).message);
       }

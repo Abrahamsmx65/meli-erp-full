@@ -43,7 +43,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
   const variacion = m.anterior.unidades > 0 ? (m.periodo.unidades - m.anterior.unidades) / m.anterior.unidades : null;
 
   return (
-    <Pagina>
+    <Pagina vivo={120_000}>
       <Encabezado
         ceja="Fundas"
         titulo="Ventas fundas"
@@ -67,7 +67,7 @@ export default async function VentasYz({ searchParams }: { searchParams: Promise
           </>
         }
       />
-      <FiltroFechas base="/yapanizcel/ventas" desde={rango.desde} hasta={rango.hasta} hoy={hoyMx()} />
+      <FiltroFechas base="/yapanizcel/ventas" desde={rango.desde} hasta={rango.hasta} hoy={hoyMx()} precargar />
 
       <Cifras columnas={5}>
         <Ficha titulo="Hoy" valor={n(m.hoy.unidades)} nota={`${pesos(m.hoy.importe)} · ${n(m.hoy.ordenes)} órdenes`} tono="bien" />

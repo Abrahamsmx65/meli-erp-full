@@ -193,6 +193,13 @@ export interface DemandaSku {
   tasaPonderada: number;
   factorTendencia: number;
   demandaDiaria: number;
+  /**
+   * Lo que vende cuando TIENE stock (`demanda-surtida.ts`): días surtidos
+   * ponderados por recencia, sin tope ni tendencia. La usa el pedido a
+   * China. null = menos de 14 días surtidos en la ventana.
+   */
+  tasaSurtida: number | null;
+  diasSurtidos: number;
   sigmaDiaria: number;
   coefVariacion: number;
   confianza: Confianza;

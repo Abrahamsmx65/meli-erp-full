@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cambio, contenedorDelEmbarque, esArchivoAjeno, esEmbarqueViejo, numeroDeEmbarque } from "./drive-packing";
+import { cambio, contenedorDelEmbarque, elegirContenedor, esArchivoAjeno, esEmbarqueViejo, numeroDeEmbarque, puedeSerBl, referenciaDeNombre } from "./drive-packing";
 
 describe("qué packing lists de Drive se importan", () => {
   it("un embarque ya cargado se reconoce por su NÚMERO aunque el texto cambie (S259 = S259-2026)", () => {
@@ -16,7 +16,8 @@ describe("qué packing lists de Drive se importan", () => {
   it("las facturas y pedidos de la misma carpeta no son packing list", () => {
     expect(esArchivoAjeno("S261-2026 Invoice (HMMU6173610).xls")).toBe(true);
     expect(esArchivoAjeno("S261-2026 Packing List (IN10079-5) (HMMU6173610).xls")).toBe(false);
-    expect(esArchivoAjeno("IN10079 (UGG) revised on May 19.xls")).toBe(false);
+    // La proforma del pedido viaja en la misma carpeta y NO es packing list (11-oct-2026).
+    expect(esArchivoAjeno("IN10079 (UGG) revised on May 19.xls")).toBe(true);
   });
 
   it("saca el número de embarque del nombre o de la referencia", () => {
@@ -42,5 +43,50 @@ describe("qué packing lists de Drive se importan", () => {
     expect(cambio(a, { drive_file_id: "1", md5: null, modificado_en: "2026-09-09T05:00:00+00:00", estado: "importado" })).toBe(false);
     expect(cambio(a, { drive_file_id: "1", md5: null, modificado_en: "2026-09-08T00:00:00+00:00", estado: "importado" })).toBe(true);
     expect(cambio({ ...a, md5: "b" }, { drive_file_id: "1", md5: "a", modificado_en: null, estado: "importado" })).toBe(true);
+  });
+
+  it("la referencia sale de la carpeta cuando el archivo no la trae (S271-2026)", () => {
+    expect(referenciaDeNombre("S271-2026", "S271-2026 (HAMU5029953).xls")).toBe("S271-2026");
+    expect(referenciaDeNombre(null, "S264-2026 Packing list - Ari (MIEU4234947).xls")).toBe("S264-2026");
+    expect(referenciaDeNombre("Fundas", "packing.xls")).toBeNull();
+  });
+
+  it("el contenedor bautizado con el ISO se encuentra por el ISO y toma la referencia", () => {
+    const lista = [{ id: "h", numero: "HAMU5029953", estado: "borrador", embarque: null, naviera: "HAMU5029953" }];
+    expect(elegirContenedor(lista, "S271-2026", "HAMU5029953")).toEqual({ existente: lista[0], numero: "S271-2026", renombrar: "S271-2026" });
+  });
+
+  it("dos archivos con la misma referencia caen en el mismo contenedor (S261: mismo PL con dos ISO)", () => {
+    const lista = [{ id: "s", numero: "S261-2026", estado: "borrador", embarque: 261, naviera: "HMMU6173810" }];
+    expect(elegirContenedor(lista, "S261-2026", "HMMU6173610").existente?.id).toBe("s");
+    expect(elegirContenedor([], "S272-2026", "ABCU1234567")).toEqual({ existente: null, numero: "S272-2026", renombrar: null });
+  });
+
+  it("de los PDF de la carpeta, la proforma y el pago no son BL", () => {
+    expect(puedeSerBl("HBL R SASE4492496 (S263-2026).pdf")).toBe(true);
+    expect(puedeSerBl("TELEX-HDMUSHAZLC703700 (S261-2026).pdf")).toBe(true);
+    expect(puedeSerBl("PI JH2026925 (IN10118) revised on July 14.pdf")).toBe(false);
+    expect(puedeSerBl("S260-2026 Packing List.xls")).toBe(false);
+  });
+
+  it("las proformas de los pedidos de la misma carpeta no son packing list (11-oct-2026)", () => {
+    expect(esArchivoAjeno("IN10148 (GT114).xls")).toBe(true);
+    expect(esArchivoAjeno("IN10167 (GT135) Soild size.xls")).toBe(true);
+    expect(esArchivoAjeno("AR10137 (GT148G).xls")).toBe(true);
+    expect(esArchivoAjeno("Payment of S266-2026 (IN10133).xls")).toBe(true);
+    expect(esArchivoAjeno("(Internet) 82157 Courier bag (60x70).xls")).toBe(true);
+    expect(esArchivoAjeno("S271-2026 (HAMU5029953).xls")).toBe(false);
+    expect(esArchivoAjeno("S263-2026 PACKING LIST (UETU5682034).xls")).toBe(false);
+  });
+
+  it("el ISO manda sobre la referencia: un duplicado con la misma S no se lleva el packing list", () => {
+    const lista = [
+      { id: "dup", numero: "S263-2026", estado: "borrador", embarque: 263, naviera: null },
+      { id: "real", numero: "UETU5682034", estado: "borrador", embarque: null, naviera: "UETU5682034" },
+    ];
+    const e = elegirContenedor(lista, "S263-2026", "UETU5682034");
+    expect(e.existente?.id).toBe("real");
+    // No se renombra encima de otro contenedor que ya se llama así.
+    expect(e.renombrar).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  presupuestoPorModelo,
   armarPublicidad,
   armarRecomendaciones,
   COBERTURA_CORTA_DIAS,
@@ -324,8 +325,8 @@ describe("armarRecomendaciones", () => {
     expect(lanzamiento).toHaveLength(0);
   });
 
-  it("pide bajar cuando el TACOS rebasa el margen, con el ACOS sano en el texto", () => {
-    // margen 30% (9000/30000), TACOS 40%.
+  it("pide bajar cuando el TACOS rebasa el margen, hasta el tope de 10 %", () => {
+    // margen 30% (9000/30000), TACOS 40%: $400 al día → $100 (10% de $1,000).
     const r = armarRecomendaciones({
       filas: [fila("GT122", { gastoAds: 12000, tacos: 0.4 })],
       stockDeModelo: new Map([["GT122", 100]]), // 50 días: no es problema de stock
@@ -333,20 +334,76 @@ describe("armarRecomendaciones", () => {
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
     });
     expect(r[0].accion).toBe("bajar");
-    expect(r[0].queHacer).toContain("30%");
-    expect(r[0].queHacer).toContain("3.3"); // ROAS de equilibrio 1/0.3
+    expect(r[0].queHacer).toBe("Bajar el gasto de $400 a ~$100 al día (10% de la venta)");
+    expect(r[0].razon).toContain("pérdida");
   });
 
-  it("pide subir cuando sobra stock y los ads usan poco margen", () => {
-    // Cobertura 100 días, TACOS 5% contra margen 30%.
+  it("pide bajar arriba del 10 % de TACOS aunque el margen aguante", () => {
+    // margen 30%, TACOS 15%: no pierde, pero pasa del tope.
     const r = armarRecomendaciones({
-      filas: [fila("GT122")],
+      filas: [fila("GT122", { gastoAds: 4500, tacos: 0.15 })],
+      stockDeModelo: new Map([["GT122", 100]]),
+      dias,
+      itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
+    });
+    expect(r[0].accion).toBe("bajar");
+    expect(r[0].razon).toContain("el tope es 10%");
+  });
+
+  it("no pide subir si el presupuesto de HOY ya alcanza el tope", () => {
+    // Gastó $30 al día en 14 días, pero hoy la campaña ya tiene $100.
+    const r = armarRecomendaciones({
+      filas: [fila("650", { tacos: 0.03, gastoAds: 900 })],
+      stockDeModelo: new Map([["650", 200]]),
+      dias,
+      itemsDeModelo: new Map([["650", [item("MLM1")]]]),
+      presupuestoDeModelo: new Map([["650", 100]]),
+    });
+    expect(r).toHaveLength(0);
+  });
+
+  it("no pide bajar si el presupuesto de HOY ya está en el tope", () => {
+    const r = armarRecomendaciones({
+      filas: [fila("GT122", { gastoAds: 12000, tacos: 0.4 })],
+      stockDeModelo: new Map([["GT122", 100]]),
+      dias,
+      itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
+      presupuestoDeModelo: new Map([["GT122", 100]]),
+    });
+    expect(r).toHaveLength(0);
+  });
+
+  it("no pide mover unos pesos al día", () => {
+    // $3 al día contra $1 del tope: no vale el clic.
+    const r = armarRecomendaciones({
+      filas: [fila("STYLE", { importe: 300, unidades: 3, ganancia: null, gastoAds: 90, tacos: 0.3 })],
+      stockDeModelo: new Map([["STYLE", 100]]),
+      dias,
+      itemsDeModelo: new Map([["STYLE", [item("MLM1")]]]),
+    });
+    expect(r.some((x) => x.accion === "bajar")).toBe(false);
+  });
+
+  it("entre 5 % y 10 % de TACOS no pide nada aunque sobre stock", () => {
+    const r = armarRecomendaciones({
+      filas: [fila("GT122", { tacos: 0.08, gastoAds: 2400 })],
+      stockDeModelo: new Map([["GT122", 200]]),
+      dias,
+      itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
+    });
+    expect(r).toHaveLength(0);
+  });
+
+  it("pide subir cuando sobra stock y los ads van lejos del tope, solo hasta el 10 %", () => {
+    // Cobertura 100 días, TACOS 3%: $30 al día → hasta $100 (10% de $1,000).
+    const r = armarRecomendaciones({
+      filas: [fila("GT122", { tacos: 0.03, gastoAds: 900 })],
       stockDeModelo: new Map([["GT122", 200]]),
       dias,
       itemsDeModelo: new Map([["GT122", [item("MLM1")]]]),
     });
     expect(r[0].accion).toBe("subir");
-    expect(r[0].queHacer).toContain("presupuesto");
+    expect(r[0].queHacer).toBe("Subir el gasto de $30 hasta ~$100 al día (10% de la venta)");
   });
 
   it("propone activar ads al que vende solo con stock de sobra, máximo 5", () => {
@@ -369,7 +426,7 @@ describe("armarRecomendaciones", () => {
   // enterrado a media tabla.
   it("lo urgente va arriba aunque su modelo sea el último del alfabeto", () => {
     const r = armarRecomendaciones({
-      filas: [fila("ZZZ"), fila("AAA")],
+      filas: [fila("ZZZ"), fila("AAA", { tacos: 0.03, gastoAds: 900 })],
       stockDeModelo: new Map([
         ["AAA", 200], // subir
         ["ZZZ", 4], // pausar
@@ -421,5 +478,24 @@ describe("armarRecomendaciones", () => {
     });
     expect(r.map((x) => x.modelo)).toEqual(["BBB", "AAA"]);
     expect(r.every((x) => x.accion === "pausar")).toBe(true);
+  });
+});
+
+describe("presupuestoPorModelo", () => {
+  it("suma las campañas activas de cada modelo y reparte las compartidas", () => {
+    const itemDe = (itemId: string, campanaId: string, estado = "active"): ItemDeModelo => ({ itemId, titulo: null, estado, campanaId, compartido: false });
+    const m = presupuestoPorModelo(
+      [
+        { id: "C1", estado: "active", presupuesto: 300 },
+        { id: "C2", estado: "active", presupuesto: 100 },
+        { id: "C3", estado: "paused", presupuesto: 500 },
+      ],
+      new Map([
+        ["650", [itemDe("A", "C1"), itemDe("B", "C2"), itemDe("C", "C3")]],
+        ["644", [itemDe("D", "C2")]],
+      ]),
+    );
+    expect(m.get("650")).toBe(350);
+    expect(m.get("644")).toBe(50);
   });
 });

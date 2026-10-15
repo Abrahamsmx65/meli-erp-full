@@ -250,3 +250,29 @@ export async function leerVentasTikTok(admin: DB, accountId: string, rango: { de
   const datos = await recalcularVentasTikTok(admin, accountId, rango);
   return { datos, generadoEn: new Date().toISOString(), refrescar: false };
 }
+
+/**
+ * Deja masticados los atajos del filtro de fechas (Hoy, Ayer, 7, 15 y 30
+ * días, Este mes) cuando su renglón venció o lo invalidó una sincronización.
+ * Lo llama el latido (11-oct-2026, dueño: «el error también está en TikTok»:
+ * 15 y 30 días se veían de hace casi dos horas porque solo se refrescaban al
+ * abrirlos).
+ */
+export async function precalcularVentasTikTok(admin: DB, accountId: string, limite: number, hoy: string): Promise<string[]> {
+  const { rangosDeAtajos } = await import("./atajos-fechas");
+  const hechas: string[] = [];
+  for (const rango of rangosDeAtajos(hoy)) {
+    if (Date.now() > limite) break;
+    const g = await leerCacheAppGuardado<VentasTikTokMasticadas>(admin, accountId, claveVentasTikTok(rango));
+    const fresco =
+      g.estado === "encontrado" && g.valor.vigente && Date.now() - Date.parse(g.valor.generadoEn) < TTL_MS - 60_000;
+    if (fresco) continue;
+    try {
+      await recalcularVentasTikTok(admin, accountId, rango);
+      hechas.push(`${rango.desde}:${rango.hasta}`);
+    } catch (err) {
+      console.error(`tiktok ventas ${rango.desde}:${rango.hasta}:`, (err as Error).message);
+    }
+  }
+  return hechas;
+}

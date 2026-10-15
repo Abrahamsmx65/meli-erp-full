@@ -95,6 +95,7 @@ describe("ajustes del usuario al confirmar (aplicarOverridesProforma)", () => {
     return {
       pedido: "IN10121",
       proveedor: "CHAOZHOU YINGYUAN SHOES CO., LTD.",
+      moneda: "USD",
       lineas: [
         {
           modelo: "GT114",
