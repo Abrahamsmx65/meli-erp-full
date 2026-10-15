@@ -179,6 +179,16 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                       {pct(u.meli.comisionPct)} · {din(u.meli.envio)}
                       {u.meli.retencionPct > 0 ? ` · ret ${pct(u.meli.retencionPct, 1)}` : ""}
                     </Fuente>
+                    {c.recibidoMeli ? (
+                      <div
+                        className="mt-1 text-[11px]"
+                        style={{ color: "var(--exito-texto)" }}
+                        title={`Lo que Mercado Pago depositó por par en los últimos 30 días (${c.recibidoMeli.pares.toLocaleString("es-MX")} pares, reventa incluida), a los precios que se vendió`}
+                      >
+                        recibiste {din(c.recibidoMeli.porPar)}/par
+                        {c.recibidoMeli.ganancia != null ? ` · ganaste ${din(c.recibidoMeli.ganancia)}` : ""}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="num cifra">{c.porcentaje == null ? "—" : `${(c.porcentaje * 100).toFixed(0)}%`}</td>
                   <td className="num">{num(m, "pvNormal", c.pvNormal != null ? c.pvNormal.toFixed(2) : "")}</td>

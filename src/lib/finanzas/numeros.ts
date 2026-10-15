@@ -73,6 +73,14 @@ export interface UsadoNumeros {
 
 export interface ResultadoNumeros {
   ganancia: number | null;
+  /**
+   * Lo que MELI DEPOSITÓ de verdad por par en 30 días (reventa incluida: ahí
+   * MELI paga precio − comisión − envío sin retenciones) y lo que dejó sobre
+   * el costo. Es dinero real a los precios que se vendió, no al relámpago:
+   * se enseña, pero los precios de Amazon y TikTok siguen saliendo de la
+   * ganancia al relámpago.
+   */
+  recibidoMeli: { porPar: number; pares: number; ganancia: number | null } | null;
   porcentaje: number | null;
   pvNormal: number | null;
   gananciaNormal: number | null;
@@ -134,8 +142,14 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const usado = tasasUsadas(e, reales);
   const pr = e.precioRelampago;
   const pvNormal = e.pvNormal ?? (pr != null ? pr * P.factorPvNormal : null);
+  const m = reales?.meli;
+  const recibidoMeli =
+    m != null && m.pares >= PARES_MINIMOS_REALES && m.netoPar != null
+      ? { porPar: m.netoPar, pares: m.pares, ganancia: costo != null ? m.netoPar - costo : null }
+      : null;
   const vacio: ResultadoNumeros = {
     ganancia: null,
+    recibidoMeli,
     porcentaje: null,
     pvNormal,
     gananciaNormal: null,
@@ -160,6 +174,7 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const tiktokOferta = tiktokLives != null ? tiktokLives * e.tiktokOferta : null;
   return {
     ganancia,
+    recibidoMeli,
     porcentaje: costo > 0 ? ganancia / costo : null,
     pvNormal,
     gananciaNormal,
