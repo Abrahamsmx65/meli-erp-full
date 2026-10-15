@@ -52,6 +52,11 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   // borra en el Seller Center). Dueño, 2-oct-2026: «quiero volver a publicar
   // el GT168 porque quedó mal pero ya no me sale».
   const [volverAPublicar, setVolverAPublicar] = useState(false);
+  // Un modelo que TikTok ya vende ACTIVO recibe sus colores nuevos como
+  // variantes del MISMO producto (dueño, 15-oct-2026: «agregar colores
+  // nuevos a listados ya hechos, por ejemplo el GT125»); aquí se anota el
+  // que el dueño prefiera publicar aparte como producto nuevo.
+  const [comoNuevo, setComoNuevo] = useState<Record<string, boolean>>({});
   const [enviando, setEnviando] = useState(false);
   const [refrescando, setRefrescando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,16 +165,30 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
   const coloresDe = (p: ProductoAmazonParaTikTok) =>
     volverAPublicar ? p.colores.map((c) => c.color) : incluirApagados ? p.coloresPorPublicar : p.coloresActivosPorPublicar;
   const porModelo = useMemo(() => new Map(datos.productos.map((p) => [p.modelo, p])), [datos.productos]);
-  const listos = [...marcados].filter((m) => Number(precios[m]) > 0 && (coloresDe(porModelo.get(m)!)?.length ?? 0) > 0);
-  const sinPrecio = [...marcados].filter((m) => !(Number(precios[m]) > 0)).length;
-  const sinColores = [...marcados].filter((m) => Number(precios[m]) > 0 && !(coloresDe(porModelo.get(m)!)?.length)).length;
+  /** A qué producto de TikTok se le AGREGAN los colores (null = se crea uno nuevo). */
+  const agregarA = (p: ProductoAmazonParaTikTok): string | null =>
+    !volverAPublicar && p.productoTikTok && p.coloresPorPublicar.length && !comoNuevo[p.modelo] ? p.productoTikTok : null;
+  /** El precio con el que se publica: el capturado o, al agregar a un listado, el que ese producto ya tiene en TikTok. */
+  const precioEfectivo = (m: string): number => {
+    const p = porModelo.get(m);
+    const capturado = Number(precios[m]);
+    if (capturado > 0) return capturado;
+    return p && agregarA(p) ? (p.precioTikTok ?? 0) : 0;
+  };
+  const listos = [...marcados].filter((m) => precioEfectivo(m) > 0 && (coloresDe(porModelo.get(m)!)?.length ?? 0) > 0);
+  const sinPrecio = [...marcados].filter((m) => !(precioEfectivo(m) > 0)).length;
+  const sinColores = [...marcados].filter((m) => precioEfectivo(m) > 0 && !(coloresDe(porModelo.get(m)!)?.length)).length;
+  const seAgregan = listos.filter((m) => agregarA(porModelo.get(m)!)).length;
 
   async function publicar() {
     if (!listos.length) return;
     const n = listos.length;
+    const nuevos = n - seAgregan;
     if (
       !window.confirm(
-        `¿Publicar ${n} producto${n === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? Se crean con sus colores y tallas y el precio capturado.` +
+        (nuevos ? `¿Publicar ${nuevos} producto${nuevos === 1 ? "" : "s"} nuevo${nuevos === 1 ? "" : "s"} en TikTok${borrador ? " como borrador" : ""}? ` : "") +
+          (seAgregan ? `${nuevos ? "Y a" : "¿A"} ${seAgregan} listado${seAgregan === 1 ? "" : "s"} que ya existe${seAgregan === 1 ? "" : "n"} se le${seAgregan === 1 ? "" : "s"} agregan sus colores nuevos como variantes${nuevos ? "." : "?"} ` : "") +
+          "Con sus colores y tallas y el precio capturado." +
           (volverAPublicar ? " Lo que TikTok ya tiene se publica OTRA VEZ como producto nuevo: borra el viejo en el Seller Center." : ""),
       )
     )
@@ -184,10 +203,11 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
         body: JSON.stringify({
           productos: listos.map((m) => ({
             modelo: m,
-            precio: Number(precios[m]),
+            precio: precioEfectivo(m),
             colores: coloresDe(porModelo.get(m)!),
             titulo: (titulos[m] ?? porModelo.get(m)!.titulo).trim(),
             forzar: volverAPublicar,
+            agregarA: agregarA(porModelo.get(m)!),
           })),
           borrador,
         }),
@@ -366,11 +386,13 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                 titulo={titulos[p.modelo] ?? p.titulo}
                 enCola={enCola.get(p.modelo) ?? null}
                 forzar={volverAPublicar}
+                agregarA={agregarA(p)}
                 abierto={abierto === p.modelo}
                 onAbrir={() => setAbierto(abierto === p.modelo ? null : p.modelo)}
                 onMarcar={(si) => marcar(p.modelo, si)}
                 onPrecio={(v) => setPrecios((s) => ({ ...s, [p.modelo]: v }))}
                 onTitulo={(v) => setTitulos((s) => ({ ...s, [p.modelo]: v }))}
+                onComoNuevo={(si) => setComoNuevo((s) => ({ ...s, [p.modelo]: si }))}
               />
             ))}
             {!visibles.length ? (
@@ -447,6 +469,7 @@ export function ProductosNuevosTikTok({ inicial, esDueno }: { inicial: Productos
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-xs" style={{ color: c.estado === "error" ? "var(--critico-texto)" : "var(--ink-2)" }}>
+                      {c.productoDestino ? `Al listado ${c.productoDestino} · ` : ""}
                       {c.estado === "error" ? c.error : c.productId ? `Producto ${c.productId}` : c.intentos > 1 ? `Intento ${c.intentos}` : ""}
                       {c.avisos.length ? ` · TikTok avisa: ${c.avisos.join("; ")}` : ""}
                     </td>
@@ -485,11 +508,13 @@ function FilaProducto({
   titulo,
   enCola,
   forzar,
+  agregarA,
   abierto,
   onAbrir,
   onMarcar,
   onPrecio,
   onTitulo,
+  onComoNuevo,
 }: {
   p: ProductoAmazonParaTikTok;
   moneda: string;
@@ -500,14 +525,18 @@ function FilaProducto({
   enCola: PublicacionEnCola | null;
   /** «Volver a publicar»: también lo que TikTok ya tiene */
   forzar: boolean;
+  /** el producto de TikTok al que se le agregan los colores que faltan; null = producto nuevo */
+  agregarA: string | null;
   abierto: boolean;
   onAbrir: () => void;
   onMarcar: (si: boolean) => void;
   onPrecio: (v: string) => void;
   onTitulo: (v: string) => void;
+  onComoNuevo: (si: boolean) => void;
 }) {
   const bloqueado = enCola?.estado === "pendiente" || enCola?.estado === "publicando";
   const publicable = (forzar || p.coloresPorPublicar.length > 0) && !bloqueado;
+  const puedeAgregar = Boolean(p.productoTikTok) && p.coloresPorPublicar.length > 0 && !forzar;
   const estado = !p.coloresPorPublicar.length
     ? { texto: forzar ? "Ya en TikTok · se vuelve a publicar" : "Ya en TikTok", color: forzar ? "var(--alerta-texto)" : "var(--exito-texto)" }
     : bloqueado
@@ -515,7 +544,10 @@ function FilaProducto({
       : enCola?.estado === "error"
         ? { texto: "Falló; ver cola", color: "var(--critico-texto)" }
         : p.coloresEnTikTok.length
-          ? { texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores`, color: "var(--alerta-texto)" }
+          ? {
+              texto: `Faltan ${p.coloresPorPublicar.length} de ${p.colores.length} colores${agregarA ? " · se agregan al listado" : puedeAgregar ? " · producto nuevo" : ""}`,
+              color: "var(--alerta-texto)",
+            }
           : { texto: "Sin publicar", color: "var(--ink-2)" };
 
   return (
@@ -538,7 +570,20 @@ function FilaProducto({
               <button onClick={onAbrir} className="font-semibold hover:underline">
                 {p.modelo}
               </button>
-              {esDueno && publicable ? (
+              {esDueno && publicable && puedeAgregar ? (
+                // Un modelo que TikTok ya vende: sus colores nuevos van al
+                // mismo listado, salvo que el dueño lo quiera aparte.
+                <select
+                  value={agregarA ? "agregar" : "nuevo"}
+                  onChange={(e) => onComoNuevo(e.target.value === "nuevo")}
+                  className="mt-0.5 w-full min-w-64 rounded-lg border px-2 py-1 text-xs"
+                  style={{ borderColor: agregarA ? "var(--acento)" : "var(--grid)", color: "var(--ink-1)" }}
+                  title={`Producto de TikTok ${p.productoTikTok}`}
+                >
+                  <option value="agregar">Agregar los colores al listado que ya existe en TikTok</option>
+                  <option value="nuevo">Publicar los colores como producto nuevo</option>
+                </select>
+              ) : esDueno && publicable ? (
                 // El título con el que se publica: se puede corregir aquí antes de confirmar.
                 <textarea
                   value={titulo}
@@ -597,7 +642,8 @@ function FilaProducto({
               step={1}
               value={precio}
               disabled={!publicable}
-              placeholder={p.precioAmazon ? String(p.precioAmazon) : ""}
+              placeholder={agregarA && p.precioTikTok ? String(p.precioTikTok) : p.precioAmazon ? String(p.precioAmazon) : ""}
+              title={agregarA && p.precioTikTok ? `Vacío = el precio que el listado ya tiene en TikTok (${dinero(p.precioTikTok, moneda)})` : undefined}
               onChange={(e) => onPrecio(e.target.value)}
               className="w-24 rounded-lg border px-2 py-1 text-sm"
               style={{ borderColor: "var(--grid)", color: "var(--ink-1)" }}

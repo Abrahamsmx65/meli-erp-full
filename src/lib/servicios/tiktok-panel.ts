@@ -44,6 +44,13 @@ export interface RenglonTikTok {
    * no está en línea»).
    */
   estadoPublicacion: string | null;
+  /**
+   * false si NINGUNA publicación de TikTok (activa, borrador o apagada)
+   * lleva este SKU: el stock está en la bodega pero no hay dónde venderlo
+   * (dueño, 15-oct-2026: «si tengo stock que no está ligado a ninguna
+   * publicación, que me salga un aviso y cuáles son»).
+   */
+  tienePublicacion: boolean;
   /** alguna vez se contó (entrada o ajuste); si no, a TikTok no se le escribe */
   contado: boolean;
   /** publicaciones de TikTok del mismo modelo y talla, para ligar a mano */
@@ -174,6 +181,7 @@ export async function cargarPanelTikTok(db: DB, accountId: string): Promise<Pane
         enRojo: r.saldo < 0,
         publicable: conPublicacion.has(r.sku) && contado,
         estadoPublicacion: conPublicacion.has(r.sku) ? null : (estadoNoActivo.get(r.sku) ?? null),
+        tienePublicacion: conPublicacion.has(r.sku) || estadoNoActivo.has(r.sku),
         sugerencias: conPublicacion.has(r.sku) || estadoNoActivo.has(r.sku) ? [] : sugerirParecidos(r.sku, sellerSkus),
       };
     })

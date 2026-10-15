@@ -1,6 +1,6 @@
 import { clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva, traerTodo } from "@/lib/datos/repos";
-import { cargarPanelTikTok, DIAS_VENTA } from "@/lib/servicios/tiktok-panel";
+import { cargarPanelTikTok, DIAS_VENTA, type RenglonTikTok } from "@/lib/servicios/tiktok-panel";
 import { AccionesTikTok } from "@/components/tiktok-acciones";
 import { EntradasTikTok } from "@/components/tiktok-entradas";
 import { AliasAmazonTikTok } from "@/components/alias-amazon-tiktok";
@@ -60,6 +60,10 @@ export default async function TikTok({
     traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) => q.eq("account_id", cuenta.id)),
   ]);
   const alias = (aliasRaw ?? []).map((a: any) => ({ modelo: a.modelo, colorTikTok: a.color_tiktok, colorAmazon: a.color_amazon }));
+  // Stock en la bodega sin NINGUNA publicación en TikTok: se avisa arriba con
+  // la lista (lo apagado o en borrador NO se avisa: dueño, 15-oct-2026).
+  const conStock = p.renglones.filter((r) => r.saldo > 0);
+  const sinPublicacion = conStock.filter((r) => !r.tienePublicacion);
 
   return (
     <Pagina>
@@ -119,6 +123,14 @@ export default async function TikTok({
         <Aviso tono="critico">
           {p.totales.enRojo} SKU con saldo negativo: se vendieron pares que nunca se capturaron como entrada. Captura la
           entrada que falta o haz un ajuste por conteo.
+        </Aviso>
+      ) : null}
+
+      {sinPublicacion.length ? (
+        // Stock en la bodega que NO tiene publicación en TikTok: no hay dónde
+        // venderlo (dueño, 15-oct-2026: «que me salga un aviso y cuáles son»).
+        <Aviso tono="alerta" titulo={`${sinPublicacion.length} SKU con stock en la bodega TikTok sin ninguna publicación (${n(sinPublicacion.reduce((a, r) => a + r.saldo, 0))} pares)`}>
+          <ListaSkusSinPublicacion renglones={sinPublicacion} />
         </Aviso>
       ) : null}
 
@@ -191,5 +203,25 @@ export default async function TikTok({
         ]}
       />
     </Pagina>
+  );
+}
+
+/** La lista corta de SKUs con stock sin publicación (o con la publicación apagada), con sus pares. */
+function ListaSkusSinPublicacion({ renglones }: { renglones: RenglonTikTok[] }) {
+  const TOPE = 40;
+  return (
+    <div className="mt-1 text-xs">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {renglones.slice(0, TOPE).map((r) => (
+          <span key={r.sku} className="cifra">
+            {r.sku} <b>×{r.saldo}</b>
+          </span>
+        ))}
+        {renglones.length > TOPE ? <span className="texto-2">y {renglones.length - TOPE} más</span> : null}
+      </div>
+      <p className="mt-1 texto-2">
+        En la tabla, marca «Solo con stock sin publicación activa» para verlos con sus sugerencias de publicación para ligar.
+      </p>
+    </div>
   );
 }
