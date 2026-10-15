@@ -1315,7 +1315,14 @@ guárdala numerada.
   que hay stock TikTok que no está en línea»): un borrador (GT168 BLK) o una
   desactivada por el vendedor (GT074, GT100, GT102, GT105, GT110…) tiene el
   stock fuera de línea; el renglón lo dice y la casilla «Solo con stock sin
-  publicación activa» los lista. Ese día eran 48 SKU.
+  publicación activa» los lista. Ese día eran 48 SKU. **Y la pantalla lo
+  AVISA arriba, con la lista** (`RenglonTikTok.tienePublicacion`,
+  `ListaSkusSinPublicacion` en `app/tiktok/page.tsx`; dueño, 15-oct-2026:
+  «si tengo stock que no está ligado a ninguna publicación, que me salga un
+  aviso y cuáles son»): dos avisos en ámbar, uno con los SKU con stock SIN
+  NINGUNA publicación y otro con los de publicación apagada o en borrador,
+  cada uno con sus pares (hasta 40 y «y N más»). Ese día: 0 sin ninguna y
+  47 apagadas (3,784 pares).
   **EXCEL POR MODELO del Almacén TikTok** (`tiktok/resumen-modelos.ts`
   motor puro con pruebas, `servicios/tiktok-resumen-modelos.ts`, botón
   «Excel por modelo» en la tabla del inventario → `GET
