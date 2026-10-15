@@ -5,13 +5,17 @@ import {
   lotesDeProductos,
   ordenarOfertas,
   precioDeNivel,
+  preciosDeDetalle,
   productosParaOferta,
+  relampagosDeActividad,
   resumirActividad,
   tituloDeCiclica,
   tituloDeOferta,
   topeParaTikTok,
+  ultimaRelampago,
   ventanaDeOferta,
   ventanasQueFaltan,
+  ventanasVivasDeRelampagos,
 } from "./promociones";
 
 const sku = (skuId: string, productId: string, sellerSku: string, estado = "ACTIVATE", precio: number | null = 499) => ({
@@ -161,5 +165,45 @@ describe("relámpagos cíclicos", () => {
     const t = tituloDeCiclica("gt148", new Date("2026-10-16T02:30:00Z"));
     expect(t).toBe("Cíclica GT148 15/10 20:30");
     expect(t.length).toBeLessThanOrEqual(50);
+  });
+});
+
+describe("relámpagos por producto desde el detalle de la actividad", () => {
+  const resumen = { activityId: "A1", titulo: "GT148 13 A 15 OCT", tipo: "FLASHSALE", estado: "ONGOING", nivelProducto: "VARIATION", inicio: "2026-10-14T02:22:00.000Z", fin: "2026-10-17T02:21:00.000Z", productos: 1, inmutable: false };
+  const detalle = {
+    products: [
+      { id: "P148", skus: [{ id: "s1", activity_price: { amount: "162.00" } }, { id: "s2", activity_price: { amount: "162.00" } }, { id: "s3", activity_price: { amount: "180.00" } }] },
+      { id: "P150", activity_price: { amount: "199.00" }, skus: [] },
+      { id: "P999", skus: [{ id: "s9" }] },
+    ],
+  };
+
+  it("el precio por producto es el más repetido entre sus variantes, o el del producto si no hay por variante", () => {
+    const p = preciosDeDetalle(detalle);
+    expect(p.get("P148")).toBe(162);
+    expect(p.get("P150")).toBe(199);
+    expect(p.get("P999")).toBeNull();
+  });
+
+  it("arma un renglón por producto con los datos de la actividad", () => {
+    const r = relampagosDeActividad(resumen, detalle);
+    expect(r.map((x) => x.productId)).toEqual(["P148", "P150", "P999"]);
+    expect(r[0].relampago).toMatchObject({ activityId: "A1", estado: "ONGOING", precio: 162, fin: "2026-10-17T02:21:00.000Z" });
+  });
+
+  it("la última relámpago es la viva que termina más tarde; una vencida solo si no hay viva; las vivas se vuelven ventanas", () => {
+    const vencida = { activityId: "V", titulo: "v", estado: "EXPIRED", inicio: "2026-10-01T00:00:00.000Z", fin: "2026-10-04T00:00:00.000Z", precio: 150 };
+    const enCurso = { ...resumen, activityId: "A1", precio: 162 } as any;
+    const programada = { activityId: "A2", titulo: "gt148 16 a 19", estado: "NOT_START", inicio: "2026-10-17T02:22:00.000Z", fin: "2026-10-20T02:20:00.000Z", precio: 170 };
+    expect(ultimaRelampago([vencida, enCurso, programada])?.activityId).toBe("A2");
+    expect(ultimaRelampago([vencida])?.activityId).toBe("V");
+    expect(ultimaRelampago([])).toBeNull();
+    const ahora = new Date("2026-10-15T18:00:00Z");
+    const ventanas = ventanasVivasDeRelampagos([vencida, enCurso, programada], ahora);
+    expect(ventanas).toHaveLength(2);
+    // y la cíclica se encadena DESPUÉS de la programada del GT148
+    const faltan = ventanasQueFaltan(ventanas, 72, ahora);
+    expect(faltan).toHaveLength(1);
+    expect(faltan[0].inicio.toISOString()).toBe("2026-10-20T02:20:00.000Z");
   });
 });

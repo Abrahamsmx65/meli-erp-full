@@ -17,6 +17,7 @@ import {
   type NivelOferta,
 } from "@/lib/tiktok/promociones";
 import type { CiclicaGuardada, ModeloParaOferta, OfertaGuardada, OfertasDeTikTok } from "@/lib/servicios/tiktok-promociones";
+import type { RelampagoDeProducto } from "@/lib/tiktok/promociones";
 
 const NIVELES: { clave: NivelOferta; nombre: string; nota: string }[] = [
   { clave: "normal", nombre: "Relámpago normal", nota: "deja lo mismo que MELI" },
@@ -61,6 +62,7 @@ export function PromocionesTikTok({
   avisos,
   guardadas,
   ciclicas,
+  ultimaPorModelo,
   ahora,
 }: {
   ofertas: OfertasDeTikTok;
@@ -68,6 +70,8 @@ export function PromocionesTikTok({
   avisos: string[];
   guardadas: OfertaGuardada[];
   ciclicas: CiclicaGuardada[];
+  /** la relámpago más reciente de cada modelo en TikTok, con su precio */
+  ultimaPorModelo: Record<string, RelampagoDeProducto>;
   ahora: number;
 }) {
   const router = useRouter();
@@ -254,6 +258,12 @@ export function PromocionesTikTok({
   const ciclicasActivas = ciclicas.filter((c) => c.activo);
   const yaCiclicos = new Set(ciclicasActivas.map((c) => c.modelo));
   const modeloCiclicaElegido = modelos.find((m) => m.modelo === ciclicaModelo.trim().toUpperCase());
+  const ultimaDelElegido = modeloCiclicaElegido ? ultimaPorModelo[modeloCiclicaElegido.modelo] ?? null : null;
+  const describirRelampago = (r: RelampagoDeProducto) => {
+    const viva = r.estado === "ONGOING" || r.estado === "NOT_START";
+    const cuandoTermina = r.fin ? cuando(r.fin) : "—";
+    return `${dinero(r.precio)} · ${r.estado === "ONGOING" ? "en curso hasta" : r.estado === "NOT_START" ? "programada hasta" : "terminó"} ${cuandoTermina}${viva ? "" : ` (${nombreDeEstado(r.estado)})`} · «${r.titulo}»`;
+  };
 
   const panelCiclicos = (
     <>
@@ -290,7 +300,13 @@ export function PromocionesTikTok({
               step={1}
               value={ciclicaPrecio}
               onChange={(e) => setCiclicaPrecio(e.target.value)}
-              placeholder={modeloCiclicaElegido ? String(precioDeNivel(modeloCiclicaElegido.niveles ?? undefined, "normal") ?? "") : ""}
+              placeholder={
+                ultimaDelElegido?.precio
+                  ? String(ultimaDelElegido.precio)
+                  : modeloCiclicaElegido
+                    ? String(precioDeNivel(modeloCiclicaElegido.niveles ?? undefined, "normal") ?? "")
+                    : ""
+              }
               className="w-28 rounded-lg border px-2 py-1 text-right text-sm"
             />
           </label>
@@ -340,11 +356,25 @@ export function PromocionesTikTok({
             {ocupado === "ciclica-guardar" ? <Loader2 size={14} className="girando" /> : <Repeat size={14} />} Volver cíclico
           </button>
         </div>
-        {modeloCiclicaElegido && modeloCiclicaElegido.niveles ? (
-          <p className="mt-2 text-xs texto-tenue">
-            Estrategia de precios del {modeloCiclicaElegido.modelo}: live {dinero(modeloCiclicaElegido.niveles.live)} · normal{" "}
-            {dinero(modeloCiclicaElegido.niveles.normal)} · campaña {dinero(modeloCiclicaElegido.niveles.campana)}.
-          </p>
+        {modeloCiclicaElegido ? (
+          <div className="mt-2 text-xs texto-tenue">
+            {ultimaDelElegido ? (
+              <p>
+                Última relámpago del {modeloCiclicaElegido.modelo} en TikTok: {describirRelampago(ultimaDelElegido)}.
+                {ultimaDelElegido.estado === "ONGOING" || ultimaDelElegido.estado === "NOT_START"
+                  ? " La cíclica empieza cuando termine esa."
+                  : ""}
+              </p>
+            ) : (
+              <p>El {modeloCiclicaElegido.modelo} no ha tenido relámpago en TikTok (o ya no está en las últimas leídas).</p>
+            )}
+            {modeloCiclicaElegido.niveles ? (
+              <p>
+                Estrategia de precios: live {dinero(modeloCiclicaElegido.niveles.live)} · normal {dinero(modeloCiclicaElegido.niveles.normal)} · campaña{" "}
+                {dinero(modeloCiclicaElegido.niveles.campana)}.
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </Seccion>
       <Seccion
@@ -366,6 +396,7 @@ export function PromocionesTikTok({
                   <th>Modelo</th>
                   <th className="num">Precio</th>
                   <th className="num">Horas</th>
+                  <th>Última en TikTok</th>
                   <th>Relámpagos programadas</th>
                   <th>Estado</th>
                   <th></th>
@@ -402,9 +433,30 @@ export function PromocionesTikTok({
                       )}
                     </td>
                     <td className="num">{c.horas}</td>
+                    <td className="text-xs">
+                      {c.ultimaEnTikTok ? (
+                        <>
+                          <div className="font-semibold">{dinero(c.ultimaEnTikTok.precio)}</div>
+                          <div className="texto-tenue">
+                            {c.ultimaEnTikTok.estado === "ONGOING" ? "en curso hasta " : c.ultimaEnTikTok.estado === "NOT_START" ? "programada hasta " : "terminó "}
+                            {c.ultimaEnTikTok.fin ? cuando(c.ultimaEnTikTok.fin) : "—"}
+                          </div>
+                          <div className="line-clamp-1 texto-tenue" title={c.ultimaEnTikTok.titulo}>
+                            «{c.ultimaEnTikTok.titulo}»
+                          </div>
+                        </>
+                      ) : (
+                        <span className="texto-tenue">ninguna</span>
+                      )}
+                    </td>
                     <td>
-                      {c.ventanas.length ? (
+                      {c.ventanas.length || c.ajenas.length ? (
                         <ul className="text-xs">
+                          {c.ajenas.map((r) => (
+                            <li key={r.activityId} className="texto-tenue">
+                              {r.inicio ? cuando(r.inicio) : "—"} → {r.fin ? cuando(r.fin) : "—"} (a mano: «{r.titulo}», {dinero(r.precio)})
+                            </li>
+                          ))}
                           {c.ventanas.map((v) => (
                             <li key={v.id}>
                               {cuando(v.inicio)} → {cuando(v.fin)}

@@ -1,6 +1,7 @@
 import { clienteAdmin, clienteServidor } from "@/lib/supabase/server";
 import { cuentaActiva } from "@/lib/datos/repos";
-import { ciclicasGuardadas, listarOfertas, modelosParaOferta, ofertasGuardadas } from "@/lib/servicios/tiktok-promociones";
+import { ciclicasGuardadas, listarOfertas, modelosParaOferta, ofertasGuardadas, relampagosPorProducto } from "@/lib/servicios/tiktok-promociones";
+import { ultimaRelampago, type RelampagoDeProducto } from "@/lib/tiktok/promociones";
 import { PromocionesTikTok } from "@/components/promociones-tiktok";
 import { Encabezado, Pagina, SinCuenta } from "@/components/ui/pagina";
 
@@ -20,7 +21,15 @@ export default async function Promociones() {
     modelosParaOferta(admin, cuenta.id),
     ofertasGuardadas(admin, cuenta.id),
   ]);
-  const ciclicas = await ciclicasGuardadas(admin, cuenta.id, new Set(catalogo.modelos.map((m) => m.modelo)));
+  const relampagos = await relampagosPorProducto(admin, cuenta.id);
+  const productoDeModelo = new Map(catalogo.modelos.map((m) => [m.modelo, m.productId]));
+  const ciclicas = await ciclicasGuardadas(admin, cuenta.id, new Set(productoDeModelo.keys()), { productoDeModelo, porProducto: relampagos.porProducto });
+  // La última relámpago de cada modelo en TikTok, para el formulario de cíclicos.
+  const ultimaPorModelo: Record<string, RelampagoDeProducto> = {};
+  for (const [modelo, productId] of productoDeModelo) {
+    const u = ultimaRelampago(relampagos.porProducto[productId] ?? []);
+    if (u) ultimaPorModelo[modelo] = u;
+  }
   return (
     <Pagina>
       <Encabezado
@@ -40,7 +49,7 @@ export default async function Promociones() {
           </p>
         }
       />
-      <PromocionesTikTok ofertas={ofertas} modelos={catalogo.modelos} avisos={catalogo.avisos} guardadas={guardadas} ciclicas={ciclicas} ahora={Date.now()} />
+      <PromocionesTikTok ofertas={ofertas} modelos={catalogo.modelos} avisos={catalogo.avisos} guardadas={guardadas} ciclicas={ciclicas} ultimaPorModelo={ultimaPorModelo} ahora={Date.now()} />
     </Pagina>
   );
 }
