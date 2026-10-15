@@ -223,3 +223,62 @@ export function precioDeNivel(niveles: { live: number; normal: number; campana: 
   const p = niveles[nivel];
   return Number.isFinite(p) && p > 0 ? p : null;
 }
+
+// ---------------------------------------------------------------------------
+// Relámpagos CÍCLICOS: un modelo que SIEMPRE tiene relámpago programada
+// ---------------------------------------------------------------------------
+// Pedido del dueño, 15-oct-2026: «en cíclicos yo pongo un producto, cuál es
+// el precio y el sistema se encarga de que siempre va a estar con relámpagos
+// programadas; se pueden adelantar muchas y cada una dura máximo 72 horas».
+// Cada modelo cíclico lleva su propia cadena de actividades, una detrás de
+// otra (la siguiente empieza cuando termina la anterior), y el fondo repone
+// las que faltan para tener siempre `VENTANAS_ADELANTE` por delante.
+
+/** TikTok deja una relámpago de hasta 72 h; el ciclo nunca pasa de ahí. */
+export const HORAS_MAX_CICLICA = 72;
+/** Cuántas ventanas (la que corre más las que siguen) se mantienen siempre programadas por modelo. */
+export const VENTANAS_ADELANTE = 3;
+
+export interface VentanaProgramada {
+  inicio: Date;
+  fin: Date;
+}
+
+/** Las horas de una cíclica: entre 1 y 72, 72 por omisión. */
+export function horasDeCiclica(x: unknown): number {
+  const n = Number(x);
+  if (!Number.isFinite(n) || n <= 0) return HORAS_MAX_CICLICA;
+  return Math.min(HORAS_MAX_CICLICA, Math.round(n));
+}
+
+/** El título de una ventana cíclica: único por modelo y hora de inicio, dentro de los 50 caracteres. */
+export function tituloDeCiclica(modelo: string, inicio: Date): string {
+  return tituloDeOferta(inicio, "normal", `Cíclica ${String(modelo).trim().toUpperCase()}`);
+}
+
+/**
+ * Las ventanas que FALTAN para que un modelo tenga `ventanasAdelante`
+ * relámpagos vivas o programadas: se encadenan a partir del fin de la última
+ * programada (o de ahora + `MINUTOS_DE_ARRANQUE` si no hay ninguna por
+ * delante), cada una de `horas` (tope 72). Una ventana que ya terminó no
+ * cuenta; una que corre o que empieza después, sí.
+ */
+export function ventanasQueFaltan(
+  programadas: VentanaProgramada[],
+  horas: number,
+  ahora: Date = new Date(),
+  ventanasAdelante: number = VENTANAS_ADELANTE,
+): VentanaProgramada[] {
+  const h = horasDeCiclica(horas);
+  const vivas = programadas.filter((v) => v.fin.getTime() > ahora.getTime());
+  const arranque = new Date(ahora.getTime() + MINUTOS_DE_ARRANQUE * 60_000);
+  let base = vivas.reduce((max, v) => (v.fin.getTime() > max.getTime() ? v.fin : max), arranque);
+  if (base.getTime() < arranque.getTime()) base = arranque;
+  const faltan: VentanaProgramada[] = [];
+  for (let i = vivas.length; i < ventanasAdelante; i++) {
+    const fin = new Date(base.getTime() + h * 3_600_000);
+    faltan.push({ inicio: base, fin });
+    base = fin;
+  }
+  return faltan;
+}
