@@ -72,13 +72,17 @@ export interface UsadoNumeros {
 }
 
 export interface ResultadoNumeros {
+  /** Lo depositado de verdad − costo si hay ventas reales; si no, la ganancia al relámpago. */
   ganancia: number | null;
+  /** Lo que dejaría el precio relámpago con las tasas de arriba (solo referencia si hay ganancia real). */
+  gananciaRelampago: number | null;
   /**
    * Lo que MELI DEPOSITÓ de verdad por par en 30 días (reventa incluida: ahí
    * MELI paga precio − comisión − envío sin retenciones) y lo que dejó sobre
-   * el costo. Es dinero real a los precios que se vendió, no al relámpago:
-   * se enseña, pero los precios de Amazon y TikTok siguen saliendo de la
-   * ganancia al relámpago.
+   * el costo. Cuando existe, ES la ganancia de MELI y de ahí salen «Recibir»
+   * y los precios de Amazon y TikTok (dueño, 15-oct-2026: «que salga la que
+   * de verdad estoy recibiendo para calcular los precios en TikTok y
+   * Amazon»).
    */
   recibidoMeli: { porPar: number; pares: number; ganancia: number | null } | null;
   porcentaje: number | null;
@@ -149,6 +153,7 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
       : null;
   const vacio: ResultadoNumeros = {
     ganancia: null,
+    gananciaRelampago: null,
     recibidoMeli,
     porcentaje: null,
     pvNormal,
@@ -164,7 +169,8 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   if (costo == null || pr == null) return vacio;
   const { comisionPct, envio, retencionPct } = usado.meli;
   const gananciaMeli = (precio: number) => precio * (1 - comisionPct - retencionPct) - envio - costo;
-  const ganancia = gananciaMeli(pr);
+  const gananciaRelampago = gananciaMeli(pr);
+  const ganancia = recibidoMeli?.ganancia ?? gananciaRelampago;
   const gananciaNormal = pvNormal != null ? gananciaMeli(pvNormal) : null;
   const recibirAmazon = costo + ganancia;
   const pvpAmazon =
@@ -174,6 +180,7 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const tiktokOferta = tiktokLives != null ? tiktokLives * e.tiktokOferta : null;
   return {
     ganancia,
+    gananciaRelampago,
     recibidoMeli,
     porcentaje: costo > 0 ? ganancia / costo : null,
     pvNormal,

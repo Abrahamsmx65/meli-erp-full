@@ -2395,9 +2395,13 @@ guárdala numerada.
   (`ResultadoNumeros.recibidoMeli`; dueño, 15-oct-2026: «¿por qué no
   puedes decirme en real simplemente cuánto recibí aunque fue por
   reventa?»): el depósito de Mercado Pago por par en 30 días (`neto_par`
-  del mismo RPC, reventa incluida) y lo que dejó sobre el costo. Es a los
-  precios que se vendió, no al relámpago, así que NO mueve los precios de
-  Amazon ni TikTok (esos siguen saliendo de la ganancia al relámpago). Los sueldos del dueño y de
+  del mismo RPC, reventa incluida) y lo que dejó sobre el costo. **Y ESA
+  es la ganancia de MELI** cuando el modelo tiene ventas reales (mismo día,
+  dueño: «que salga la que de verdad estoy recibiendo para calcular los
+  precios en TikTok y Amazon»): «Recibir», el PVP de Amazon, el deal (y con
+  él «Llevar precios a Amazon») y TikTok salen del depósito real; lo que
+  dejaría el relámpago con las tasas queda abajo como referencia
+  (`gananciaRelampago`). Sin ventas suficientes, como antes. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
