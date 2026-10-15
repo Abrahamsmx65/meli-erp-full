@@ -1319,10 +1319,10 @@ guárdala numerada.
   AVISA arriba, con la lista** (`RenglonTikTok.tienePublicacion`,
   `ListaSkusSinPublicacion` en `app/tiktok/page.tsx`; dueño, 15-oct-2026:
   «si tengo stock que no está ligado a ninguna publicación, que me salga un
-  aviso y cuáles son»): dos avisos en ámbar, uno con los SKU con stock SIN
-  NINGUNA publicación y otro con los de publicación apagada o en borrador,
-  cada uno con sus pares (hasta 40 y «y N más»). Ese día: 0 sin ninguna y
-  47 apagadas (3,784 pares).
+  aviso y cuáles son»): UN aviso en ámbar con los SKU con stock SIN NINGUNA
+  publicación y sus pares (hasta 40 y «y N más»). Lo apagado o en borrador
+  NO se avisa (el dueño no lo quiso ver; la casilla de la tabla sigue). Ese
+  día: 0 sin ninguna publicación y 47 apagadas con 3,784 pares.
   **EXCEL POR MODELO del Almacén TikTok** (`tiktok/resumen-modelos.ts`
   motor puro con pruebas, `servicios/tiktok-resumen-modelos.ts`, botón
   «Excel por modelo» en la tabla del inventario → `GET
@@ -1533,6 +1533,33 @@ guárdala numerada.
   de 3 días, 5,550 pedidos con creador y 298 creadores; TikTok NO exigió
   `program_id`. El tramo de fondo es de 3 días (`DIAS_POR_TRAMO`) porque
   con 7 no cabía en las 60 páginas de una corrida y el cursor no avanzaba.
+  **OFERTAS RELÁMPAGO desde el panel** (`tiktok/promociones.ts` puro con
+  pruebas, `servicios/tiktok-promociones.ts`, `/tiktok/promociones`
+  «Ofertas relámpago» en el menú, `POST /api/tiktok/promociones`, tabla
+  `tiktok_promociones` migración 0144; rutas de promociones en
+  `tiktok/api.ts` y el cliente acepta `DELETE`; pedido del dueño,
+  15-oct-2026: «crear relámpagos en TikTok más rápido […] los relámpagos
+  generales de los que duran cada 3 días, todo desde mi panel»). Lo que el
+  API de promociones (`/promotion/202309/activities`, forma del SDK de
+  npm) SÍ da: crear la actividad (`FLASHSALE`, `product_level VARIATION`,
+  inicio y fin en segundos UNIX, inicio futuro, título único ≤ 50), meterle
+  productos (`PUT …/products`, ≤ 300 variantes por llamada; por variante
+  `activity_price_amount`, `quantity_limit` y `quantity_per_user` de 1 a 99
+  o −1 sin tope), buscar por UN estado a la vez, desactivar y quitar
+  (`DELETE …/products`). Lo que NO da y sigue en el Seller Center: la
+  relámpago de LIVE, las «existencias reservadas para el creador» y la
+  inscripción a campañas de la plataforma. La pantalla: pestaña Ofertas
+  (lo que TikTok tiene, masticado 2 min en `app_cache` `tiktok:promociones`,
+  con Desactivar y Repetir, más la constancia local) y Nueva relámpago
+  (nivel live / normal / campaña de Estrategia de precios por
+  `preciosTikTokPorModelo`, inicio en 15 min por omisión y 72 h, topes,
+  modelos ACTIVOS en TikTok —`productosParaOferta`: el producto activo con
+  más variantes de cada modelo— con el precio sugerido editable). Al crear
+  se guarda la constancia con lo que contestó TikTok (`creada`, `parcial`
+  si rechazó algún lote, `sin_productos`, `error`); un solo clic a la vez
+  (candado `tiktok-promocion`). Recordar: TikTok reserva para la
+  promoción el stock de cada talla y no deja bajar el inventario abajo de
+  eso (`minimum allowed open stock`, visto el 11-oct-2026 con el GT148).
   **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
   `/tiktok/precios`; fue SOLO del dueño hasta el 2-oct-2026, hoy también
   la abre el rol de TikTok;
@@ -2815,6 +2842,7 @@ login, la base y el deploy.
 | TikTok: sincronizar y publicar    | `src/lib/servicios/tiktok.ts` (+ `tiktok-bodega.ts` foto de Industher, `tiktok-panel.ts` pantalla, `tiktok-despacho.ts` cortes, `tiktok-ventas.ts` ventas masticadas, `tiktok-afiliados.ts` creadores) |
 | TikTok: Devoluciones (leer las de TikTok, confirmar recibido = reembolso, par al stock o a la basura) | `src/lib/tiktok/devoluciones.ts` + `src/lib/servicios/tiktok-devoluciones.ts` + `src/app/tiktok/devoluciones` + `/api/tiktok/devoluciones` |
 | TikTok: Productos de David (vendedor externo: ligar publicaciones, su stock a mano, sus cortes aparte, fuera de la ganancia del dueño) | `src/lib/tiktok/externos.ts` + `src/lib/servicios/tiktok-externos.ts` + `src/app/tiktok/externos` + `/api/tiktok/externos` + `/tiktok/despacho?vendedor=david` |
+| TikTok: Ofertas relámpago desde el panel (ver las de TikTok, crear la general de 3 días con los precios de la estrategia, repetir, desactivar) | `src/lib/tiktok/promociones.ts` + `src/lib/servicios/tiktok-promociones.ts` + `src/app/tiktok/promociones` + `/api/tiktok/promociones` |
 | TikTok: Productos nuevos (publicar en TikTok el calzado de Amazon) | `src/lib/tiktok/publicar.ts` + `src/lib/servicios/tiktok-publicar.ts` + `src/app/tiktok/nuevos` + `/api/tiktok/publicar-productos` |
 | Videos de producto (Higgsfield). **El MCP a veces contesta con una PREGUNTA en vez de folio** y el ERP la contesta solo (`generarContestandoAvisos` / `paramsTrasAviso` en `higgsfield/mcp.ts`, hasta `REINTENTOS_POR_AVISO` 3): `unlim_choice` → `use_unlim: true` (las generaciones de prueba son gratis) y `notice.type = preset_recommendation` («tu prompt se parece al preset X, ¿lo usas o generas literal?») → se vuelve a llamar con `declined_preset_id` = ese preset para generar LITERAL lo pedido (24-sep-2026: david veía «El Studio no devolvió folio: {"notice":…}» y no había a quién contestarle). Lo que siga sin folio se enseña con el crudo completo. La sonda `/api/videos/diagnostico?llave=…&herramienta=generate_video` enseña el esquema de la herramienta | `src/lib/higgsfield/` + `src/app/videos` + `/api/videos/*` |
 | ERP YAPANIZCEL (fundas)          | `src/lib/yapanizcel/` (`sku.ts`, `plan.ts`, `sheets.ts`, `sync.ts`, `ventas.ts`, `compras.ts`, `pedidos.ts`) + `src/app/yapanizcel/*` + `/api/yapanizcel/*` |

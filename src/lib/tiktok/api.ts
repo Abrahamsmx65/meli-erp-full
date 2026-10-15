@@ -1366,3 +1366,77 @@ export async function confirmarPaqueteDevuelto(c: Cliente, returnId: string): Pr
   if (d === null) throw new Error("TikTok no contestó la confirmación (sin tiempo).");
   return d ?? {};
 }
+
+// ---------------------------------------------------------------------------
+// Promociones: ofertas relámpago desde el panel (dueño, 15-oct-2026)
+// ---------------------------------------------------------------------------
+
+/** Crea una actividad de promoción; el cuerpo lo arma `tiktok/promociones.ts`. Contesta `activity_id` y estado. */
+export async function crearActividad(c: Cliente, cuerpo: Record<string, unknown>): Promise<any> {
+  const d = await c.llamar<any>("POST", "/promotion/202309/activities", { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó la creación de la oferta (sin tiempo).");
+  if (!d?.activity_id) throw new ErrorTikTok(0, "/promotion/202309/activities", `sin activity_id en la respuesta: ${JSON.stringify(d).slice(0, 200)}`);
+  return d;
+}
+
+/** Mete (o edita) productos y variantes en una actividad: hasta 300 variantes por llamada. */
+export async function actualizarProductosDeActividad(c: Cliente, activityId: string, productos: Record<string, unknown>[]): Promise<any> {
+  const d = await c.llamar<any>("PUT", `/promotion/202309/activities/${encodeURIComponent(activityId)}/products`, {
+    cuerpo: { activity_id: activityId, products: productos },
+  });
+  if (d === null) throw new Error("TikTok no contestó al meter los productos a la oferta (sin tiempo).");
+  return d ?? {};
+}
+
+/** Quita productos o variantes de una actividad. */
+export async function quitarProductosDeActividad(c: Cliente, activityId: string, ids: { productIds?: string[]; skuIds?: string[] }): Promise<any> {
+  const cuerpo: Record<string, unknown> = { activity_id: activityId };
+  if (ids.productIds?.length) cuerpo.product_ids = ids.productIds;
+  if (ids.skuIds?.length) cuerpo.sku_ids = ids.skuIds;
+  // TikTok quita con DELETE sobre la misma ruta de productos, con cuerpo.
+  const d = await c.llamar<any>("DELETE", `/promotion/202309/activities/${encodeURIComponent(activityId)}/products`, { cuerpo });
+  if (d === null) throw new Error("TikTok no contestó al quitar productos de la oferta (sin tiempo).");
+  return d ?? {};
+}
+
+/** Desactiva una actividad (ya no se enseña a los compradores). */
+export async function desactivarActividad(c: Cliente, activityId: string): Promise<any> {
+  const d = await c.llamar<any>("POST", `/promotion/202309/activities/${encodeURIComponent(activityId)}/deactivate`, { cuerpo: {} });
+  if (d === null) throw new Error("TikTok no contestó la desactivación (sin tiempo).");
+  return d ?? {};
+}
+
+/** Una actividad completa, con sus productos y variantes. */
+export async function actividad(c: Cliente, activityId: string): Promise<any | null> {
+  return c.llamar<any>("GET", `/promotion/202309/activities/${encodeURIComponent(activityId)}`);
+}
+
+/**
+ * Las actividades de la tienda por estado (una búsqueda por estado: el API
+ * filtra por UN estado a la vez). Hasta `paginas` páginas de 100 por estado.
+ */
+export async function buscarActividades(
+  c: Cliente,
+  opciones: { estados: string[]; tipo?: string; paginas?: number },
+): Promise<{ actividades: any[]; completo: boolean }> {
+  const tope = opciones.paginas ?? 3;
+  const salida: any[] = [];
+  let completo = true;
+  for (const estado of opciones.estados) {
+    let token: string | undefined;
+    for (let pagina = 0; pagina < tope; pagina++) {
+      const cuerpo: Record<string, unknown> = { status: estado };
+      if (opciones.tipo) cuerpo.activity_type = opciones.tipo;
+      const d = await c.llamar<any>("POST", "/promotion/202309/activities/search", {
+        params: { page_size: 100, page_token: token },
+        cuerpo,
+      });
+      if (!d) return { actividades: salida, completo: false };
+      for (const a of d?.activities ?? []) salida.push(a);
+      token = d?.next_page_token || undefined;
+      if (!token) break;
+      if (pagina === tope - 1) completo = false;
+    }
+  }
+  return { actividades: salida, completo };
+}
