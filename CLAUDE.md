@@ -1550,7 +1550,9 @@ guárdala numerada.
   `activity_price_amount`, `quantity_limit` y `quantity_per_user` de 1 a 99
   o −1 sin tope), buscar por UN estado a la vez (`page_size` y
   `page_token` van en el CUERPO: en la URL TikTok contesta 36009004 «param
-  page_size type invalid», visto el primer día en producción), desactivar
+  page_size type invalid», visto el primer día en producción; y solo
+  NOT_START, ONGOING, EXPIRED y DEACTIVATED: con DRAFT contesta 17029001
+  «Invalid Parameter», así que los borradores no se leen), desactivar
   y quitar (`DELETE …/products`). Lo que NO da y sigue en el Seller Center: la
   relámpago de LIVE, las «existencias reservadas para el creador» y la
   inscripción a campañas de la plataforma. La pantalla: pestaña Ofertas

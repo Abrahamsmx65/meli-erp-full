@@ -125,8 +125,11 @@ async function leerOfertasDeTikTok(admin: any, accountId: string): Promise<Ofert
   const cliente = await clienteDeCuenta(admin, accountId, 60_000);
   if (!cliente?.tienda.shopCipher) return { ofertas: [], error: "TikTok Shop no está conectado.", leidoEn };
   try {
+    // TikTok MX solo deja buscar por NOT_START, ONGOING, EXPIRED y
+    // DEACTIVATED: con DRAFT contesta 17029001 «Invalid Parameter»
+    // (15-oct-2026), así que los borradores no se leen desde aquí.
     const [vivas, vencidas] = await Promise.all([
-      buscarActividades(cliente, { estados: ["ONGOING", "NOT_START", "DRAFT"], paginas: 3 }),
+      buscarActividades(cliente, { estados: ["ONGOING", "NOT_START"], paginas: 3 }),
       buscarActividades(cliente, { estados: ["EXPIRED", "DEACTIVATED"], paginas: 1 }),
     ]);
     const ofertas = ordenarOfertas([...vivas.actividades, ...vencidas.actividades].map(resumirActividad)).filter((o) => o.activityId);
