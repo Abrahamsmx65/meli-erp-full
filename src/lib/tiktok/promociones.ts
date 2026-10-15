@@ -282,3 +282,68 @@ export function ventanasQueFaltan(
   }
   return faltan;
 }
+
+// ---------------------------------------------------------------------------
+// Qué relámpago tiene cada producto en TikTok (del detalle de la actividad)
+// ---------------------------------------------------------------------------
+// Dueño, 15-oct-2026: «que pueda ver el precio en la última relámpago y, si
+// ya hay una como la del GT148, que la cíclica empiece desde que termine esa».
+// El detalle de una actividad (`GET …/activities/{id}`) trae sus productos
+// con el precio de oferta por variante; la búsqueda no.
+
+export interface RelampagoDeProducto {
+  activityId: string;
+  titulo: string;
+  estado: string;
+  inicio: string | null;
+  fin: string | null;
+  /** el precio de oferta más repetido entre las variantes del producto en esa actividad */
+  precio: number | null;
+}
+
+/** De un detalle crudo de actividad, el precio de oferta por producto (el más repetido entre sus variantes). */
+export function preciosDeDetalle(crudo: any): Map<string, number | null> {
+  const salida = new Map<string, number | null>();
+  for (const p of Array.isArray(crudo?.products) ? crudo.products : []) {
+    const id = String(p?.id ?? "");
+    if (!id) continue;
+    const cuenta = new Map<number, number>();
+    const meter = (x: unknown) => {
+      const n = Number(x);
+      if (Number.isFinite(n) && n > 0) cuenta.set(n, (cuenta.get(n) ?? 0) + 1);
+    };
+    for (const s of Array.isArray(p?.skus) ? p.skus : []) meter(s?.activity_price?.amount);
+    if (!cuenta.size) meter(p?.activity_price?.amount);
+    let mejor: number | null = null;
+    let veces = 0;
+    for (const [precio, n] of cuenta) if (n > veces || (n === veces && mejor != null && precio < mejor)) [mejor, veces] = [precio, n];
+    salida.set(id, mejor);
+  }
+  return salida;
+}
+
+/** De un resumen de actividad y su detalle, los renglones «producto → relámpago» que hay que recordar. */
+export function relampagosDeActividad(resumen: OfertaResumen, detalle: any): { productId: string; relampago: RelampagoDeProducto }[] {
+  const precios = preciosDeDetalle(detalle);
+  return [...precios].map(([productId, precio]) => ({
+    productId,
+    relampago: { activityId: resumen.activityId, titulo: resumen.titulo, estado: resumen.estado, inicio: resumen.inicio, fin: resumen.fin, precio },
+  }));
+}
+
+/** La relámpago más reciente de un producto: la que termina más tarde (en curso o programada primero; una vencida solo si no hay otra). */
+export function ultimaRelampago(lista: RelampagoDeProducto[]): RelampagoDeProducto | null {
+  const viva = (r: RelampagoDeProducto) => r.estado === "ONGOING" || r.estado === "NOT_START";
+  const ordenadas = [...lista].sort((a, b) => {
+    if (viva(a) !== viva(b)) return viva(a) ? -1 : 1;
+    return (b.fin ? Date.parse(b.fin) : 0) - (a.fin ? Date.parse(a.fin) : 0);
+  });
+  return ordenadas[0] ?? null;
+}
+
+/** Las relámpagos VIVAS de un producto (en curso o programadas) como ventanas, para encadenar la cíclica después de ellas. */
+export function ventanasVivasDeRelampagos(lista: RelampagoDeProducto[], ahora: Date = new Date()): VentanaProgramada[] {
+  return lista
+    .filter((r) => (r.estado === "ONGOING" || r.estado === "NOT_START") && r.inicio && r.fin && Date.parse(r.fin) > ahora.getTime())
+    .map((r) => ({ inicio: new Date(r.inicio as string), fin: new Date(r.fin as string) }));
+}

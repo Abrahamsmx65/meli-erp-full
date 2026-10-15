@@ -1586,7 +1586,19 @@ guárdala numerada.
   «Quitar» desactiva esas en TikTok y deja terminar la que corre. Un modelo
   sin producto activo o un rechazo de TikTok queda en `ultimo_error` sin
   frenar a los demás; lo que no alcanza en la corrida lo recoge la
-  siguiente hora.
+  siguiente hora. **La cadena arranca DESPUÉS de la relámpago que el
+  producto ya tenga** (dueño, mismo día: «si ya hay una como la del GT148,
+  que empiece desde que termine esa»): `relampagosPorProducto` lee el
+  DETALLE de cada actividad viva y de las últimas 12 vencidas
+  (`GET …/activities/{id}`, lo único que trae el precio de oferta por
+  variante; masticado 10 min en `app_cache` `tiktok:promociones:productos`,
+  cae con cada oferta creada o desactivada) y `preciosDeDetalle` /
+  `relampagosDeActividad` / `ultimaRelampago` / `ventanasVivasDeRelampagos`
+  lo vuelven «producto → sus relámpagos con precio»; las que no nacieron
+  de la cíclica («ajenas», en curso o programadas) cuentan como ventanas
+  vivas para `ventanasQueFaltan`. La pestaña enseña por modelo la ÚLTIMA
+  relámpago en TikTok con su precio (y la sugiere como precio al dar de
+  alta) y las ajenas en la lista de programadas como «a mano».
   **PRECIOS PARA TIKTOK** (`tiktok/precios.ts` puro con pruebas,
   `/tiktok/precios`; fue SOLO del dueño hasta el 2-oct-2026, hoy también
   la abre el rol de TikTok;

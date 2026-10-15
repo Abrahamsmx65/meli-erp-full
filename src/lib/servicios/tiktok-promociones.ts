@@ -18,7 +18,7 @@ import { preciosTikTokPorModelo, type PreciosTikTok } from "../tienda/catalogo-a
 import { fechaMx } from "./ventas-monitor";
 import { conCacheApp, invalidarApp } from "./cache-app";
 import { clienteDeCuenta } from "./tiktok";
-import { actualizarProductosDeActividad, buscarActividades, crearActividad, desactivarActividad } from "../tiktok/api";
+import { actividad, actualizarProductosDeActividad, buscarActividades, crearActividad, desactivarActividad } from "../tiktok/api";
 import {
   cuerpoDeActividad,
   HORAS_POR_OMISION,
@@ -38,10 +38,19 @@ import {
   tituloDeCiclica,
   ventanasQueFaltan,
   HORAS_MAX_CICLICA,
+  relampagosDeActividad,
+  ultimaRelampago,
+  ventanasVivasDeRelampagos,
+  type RelampagoDeProducto,
 } from "../tiktok/promociones";
 
 const CLAVE_CACHE_OFERTAS = "tiktok:promociones";
 const EDAD_CACHE_OFERTAS_MS = 2 * 60_000;
+/** Qué relámpago tiene cada producto (del detalle de cada actividad): 10 min, cae con cada oferta creada o desactivada. */
+const CLAVE_CACHE_RELAMPAGOS = "tiktok:promociones:productos";
+const EDAD_CACHE_RELAMPAGOS_MS = 10 * 60_000;
+/** Cuántas ofertas ya vencidas se detallan para saber el último precio de un modelo que hoy no tiene relámpago. */
+const VENCIDAS_A_DETALLAR = 12;
 const RECURSO_OFERTA = "tiktok-promocion";
 
 export interface ModeloParaOferta extends ProductoParaOferta {
@@ -265,7 +274,7 @@ export async function crearOferta(admin: any, accountId: string, pedido: PedidoD
         .from("tiktok_promociones")
         .update({ activity_id: activityId, estado, error: errores.length ? errores.join(" | ") : null, respuesta })
         .eq("id", id);
-      await invalidarApp(admin, accountId, "oferta creada", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+      await invalidarApp(admin, accountId, "oferta creada", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
       return {
         id,
         activityId,
@@ -295,7 +304,7 @@ export async function desactivarOferta(admin: any, accountId: string, activityId
     .update({ estado: "desactivada", respuesta: { desactivada: r } })
     .eq("account_id", accountId)
     .eq("activity_id", id);
-  await invalidarApp(admin, accountId, "oferta desactivada", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+  await invalidarApp(admin, accountId, "oferta desactivada", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
 }
 
 /** Vuelve a crear una oferta guardada con los mismos modelos y precios, desde ahora (o la fecha que se diga). */
@@ -330,6 +339,49 @@ export async function repetirOferta(
 }
 
 // ---------------------------------------------------------------------------
+// Qué relámpago tiene cada producto en TikTok
+// ---------------------------------------------------------------------------
+
+export interface RelampagosPorProducto {
+  /** product_id → sus relámpagos (en curso, programadas y las últimas vencidas) */
+  porProducto: Record<string, RelampagoDeProducto[]>;
+  leidoEn: string;
+  error: string | null;
+}
+
+async function leerRelampagosPorProducto(admin: any, accountId: string): Promise<RelampagosPorProducto> {
+  const leidoEn = new Date().toISOString();
+  const ofertas = await listarOfertas(admin, accountId);
+  if (ofertas.error) return { porProducto: {}, leidoEn, error: ofertas.error };
+  const cliente = await clienteDeCuenta(admin, accountId, 120_000);
+  if (!cliente?.tienda.shopCipher) return { porProducto: {}, leidoEn, error: "TikTok Shop no está conectado." };
+  const vivas = ofertas.ofertas.filter((o) => o.estado === "ONGOING" || o.estado === "NOT_START");
+  const vencidas = ofertas.ofertas.filter((o) => o.estado !== "ONGOING" && o.estado !== "NOT_START").slice(0, VENCIDAS_A_DETALLAR);
+  const porProducto: Record<string, RelampagoDeProducto[]> = {};
+  const errores: string[] = [];
+  const cola: OfertaResumen[] = [...vivas, ...vencidas];
+  let cursor = 0;
+  const obrero = async () => {
+    while (cursor < cola.length) {
+      const o = cola[cursor++];
+      try {
+        const detalle = await actividad(cliente, o.activityId);
+        for (const { productId, relampago } of relampagosDeActividad(o, detalle)) (porProducto[productId] ??= []).push(relampago);
+      } catch (err) {
+        errores.push(`${o.titulo}: ${(err as Error).message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, cola.length) }, obrero));
+  return { porProducto, leidoEn, error: errores.length ? errores.join(" · ") : null };
+}
+
+/** Las relámpagos de cada producto, masticadas 10 minutos. */
+export async function relampagosPorProducto(admin: any, accountId: string): Promise<RelampagosPorProducto> {
+  return conCacheApp(admin, accountId, CLAVE_CACHE_RELAMPAGOS, EDAD_CACHE_RELAMPAGOS_MS, () => leerRelampagosPorProducto(admin, accountId));
+}
+
+// ---------------------------------------------------------------------------
 // Relámpagos CÍCLICOS: siempre programados, por modelo
 // ---------------------------------------------------------------------------
 
@@ -345,8 +397,23 @@ export interface CiclicaGuardada {
   programadoEn: string | null;
   /** las ventanas creadas que aún no terminan, de la más próxima a la más lejana */
   ventanas: { id: number; activityId: string | null; inicio: string; fin: string; estado: string }[];
+  /** relámpagos del producto en TikTok que NO nacieron de la cíclica y siguen vivas (la cadena arranca después de ellas) */
+  ajenas: RelampagoDeProducto[];
+  /** la relámpago más reciente del producto en TikTok, con su precio */
+  ultimaEnTikTok: RelampagoDeProducto | null;
   /** si el modelo sigue con producto activo en TikTok */
   enTikTok: boolean;
+}
+
+/** Lo que hace falta para cruzar una cíclica con lo que TikTok ya tiene: el producto de cada modelo y las relámpagos por producto. */
+export interface ContextoRelampagos {
+  productoDeModelo: Map<string, string>;
+  porProducto: Record<string, RelampagoDeProducto[]>;
+}
+
+function relampagosDelModelo(ctx: ContextoRelampagos | undefined, modelo: string): RelampagoDeProducto[] {
+  const productId = ctx?.productoDeModelo.get(modelo);
+  return productId ? (ctx?.porProducto[productId] ?? []) : [];
 }
 
 const ESTADOS_VENTANA_VIVA = ["creada", "parcial", "creando"];
@@ -372,7 +439,7 @@ async function ventanasVivasDeCiclicas(db: DB, accountId: string, ids: number[])
 }
 
 /** Las cíclicas de la cuenta (activas y pausadas) con sus ventanas vivas. */
-export async function ciclicasGuardadas(db: DB, accountId: string, enTikTok?: Set<string>): Promise<CiclicaGuardada[]> {
+export async function ciclicasGuardadas(db: DB, accountId: string, enTikTok?: Set<string>, ctx?: ContextoRelampagos): Promise<CiclicaGuardada[]> {
   const { data, error } = await db
     .from("tiktok_promociones_ciclicas")
     .select("id, modelo, precio, horas, tope_por_talla, tope_por_comprador, activo, ultimo_error, programado_en")
@@ -381,19 +448,29 @@ export async function ciclicasGuardadas(db: DB, accountId: string, enTikTok?: Se
   if (error) throw new Error(error.message);
   const filas = data ?? [];
   const ventanas = await ventanasVivasDeCiclicas(db, accountId, filas.map((f: any) => Number(f.id)));
-  return filas.map((f: any) => ({
-    id: Number(f.id),
-    modelo: String(f.modelo),
-    precio: Number(f.precio),
-    horas: Number(f.horas),
-    topePorTalla: Number(f.tope_por_talla),
-    topePorComprador: Number(f.tope_por_comprador),
-    activo: Boolean(f.activo),
-    ultimoError: f.ultimo_error ?? null,
-    programadoEn: f.programado_en ?? null,
-    ventanas: ventanas.get(Number(f.id)) ?? [],
-    enTikTok: enTikTok ? enTikTok.has(String(f.modelo)) : true,
-  }));
+  return filas.map((f: any) => {
+    const propias = ventanas.get(Number(f.id)) ?? [];
+    const propiasIds = new Set(propias.map((v) => v.activityId).filter(Boolean));
+    const enTikTokDelModelo = relampagosDelModelo(ctx, String(f.modelo));
+    const ajenas = enTikTokDelModelo.filter(
+      (r) => !propiasIds.has(r.activityId) && (r.estado === "ONGOING" || r.estado === "NOT_START") && r.fin && Date.parse(r.fin) > Date.now(),
+    );
+    return {
+      id: Number(f.id),
+      modelo: String(f.modelo),
+      precio: Number(f.precio),
+      horas: Number(f.horas),
+      topePorTalla: Number(f.tope_por_talla),
+      topePorComprador: Number(f.tope_por_comprador),
+      activo: Boolean(f.activo),
+      ultimoError: f.ultimo_error ?? null,
+      programadoEn: f.programado_en ?? null,
+      ventanas: propias,
+      ajenas,
+      ultimaEnTikTok: ultimaRelampago(enTikTokDelModelo),
+      enTikTok: enTikTok ? enTikTok.has(String(f.modelo)) : true,
+    };
+  });
 }
 
 export interface PedidoCiclica {
@@ -473,7 +550,7 @@ export async function guardarCiclica(admin: any, accountId: string, pedido: Pedi
             .eq("id", id);
         }
       }
-      await invalidarApp(admin, accountId, "cíclica corregida", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+      await invalidarApp(admin, accountId, "cíclica corregida", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
     }
   }
 
@@ -513,7 +590,7 @@ export async function quitarCiclica(admin: any, accountId: string, id: number): 
         errores.push(`${v.activityId}: ${(err as Error).message}`);
       }
     }
-    await invalidarApp(admin, accountId, "cíclica quitada", { claves: [CLAVE_CACHE_OFERTAS] }).catch(() => undefined);
+    await invalidarApp(admin, accountId, "cíclica quitada", { claves: [CLAVE_CACHE_OFERTAS, CLAVE_CACHE_RELAMPAGOS] }).catch(() => undefined);
   }
   return { desactivadas, errores };
 }
@@ -554,6 +631,11 @@ export async function programarCiclicas(
   const { modelos: catalogo } = await modelosParaOferta(admin, accountId);
   const porModelo = new Map(catalogo.map((m) => [m.modelo, m]));
   const vivas = await ventanasVivasDeCiclicas(admin, accountId, ciclicas.map((c: any) => Number(c.id)));
+  // Lo que el producto YA tiene en TikTok (una relámpago a mano, como la del
+  // GT148 hasta el 19-oct) cuenta como ventana viva: la cadena arranca
+  // cuando termine, nunca encimada (dueño, 15-oct-2026).
+  const enTikTok = await relampagosPorProducto(admin, accountId);
+  if (enTikTok.error) salida.errores.push(`Relámpagos en TikTok: ${enTikTok.error}`);
 
   for (const c of ciclicas) {
     if (Date.now() - arranque > presupuesto) {
@@ -573,7 +655,10 @@ export async function programarCiclicas(
       salida.errores.push(`${modelo}: sin producto activo en TikTok`);
       continue;
     }
-    const programadas = (vivas.get(id) ?? []).map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) }));
+    const propias = vivas.get(id) ?? [];
+    const propiasIds = new Set(propias.map((v) => v.activityId).filter(Boolean));
+    const ajenas = (enTikTok.porProducto[porModelo.get(modelo)!.productId] ?? []).filter((r) => !propiasIds.has(r.activityId));
+    const programadas = [...propias.map((v) => ({ inicio: new Date(v.inicio), fin: new Date(v.fin) })), ...ventanasVivasDeRelampagos(ajenas)];
     const faltan = ventanasQueFaltan(programadas, Number(c.horas));
     let errorDeEsta: string | null = null;
     for (const v of faltan) {
