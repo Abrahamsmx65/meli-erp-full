@@ -1734,7 +1734,7 @@ guárdala numerada.
   pruebas; `ProductoAmazonParaTikTok.productoTikTok` = el producto ACTIVO
   con más variantes del modelo y `precioTikTok` = su precio más común;
   `PedidoDePublicacion.agregarA` → `tiktok_publicaciones.producto_destino`,
-  migración 0143; dueño, 15-oct-2026: «quiero poder agregar colores nuevos
+  migración 0145; dueño, 15-oct-2026: «quiero poder agregar colores nuevos
   a listados ya hechos en TikTok que aumenten colores en Amazon, por
   ejemplo el GT125»): en Productos nuevos, un modelo que TikTok ya vende
   activo trae un selector por renglón, por omisión «Agregar los colores al
