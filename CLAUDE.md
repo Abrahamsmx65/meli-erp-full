@@ -1758,7 +1758,25 @@ guárdala numerada.
   `tiktok_skus` con `product_id` = el destino. Con «Volver a publicar» no
   se agrega: se crea otro producto. El renglón de la cola dice «Al listado
   {id}» y la lista guardada de antes del 15-oct-2026 (sin `productoTikTok`)
-  se rehace sola (`listaConDestino`).
+  se rehace sola (`listaConDestino`). **La lista `skus` de la edición
+  parcial es la lista COMPLETA del producto** (doc de TikTok: «cualquier
+  SKU existente que no venga aquí se borra»): la primera versión mandó
+  solo las nuevas y el GT125 (1736681213198828761) perdió sus 20 variantes
+  de Negro, Café, Crema y Leopardo a las 17:04Z del 15-oct-2026 (dueño:
+  «se desaparecieron los colores viejos»). Ahora `variantesDelProducto`
+  devuelve también `skusActuales` (id, seller_sku, precio, atributos con
+  su foto e inventario, tal como TikTok los trae) y `armarSkusParaAgregar`
+  las manda PRIMERO con su id y luego las nuevas (`nuevas` aparte para
+  dar de alta sus sku_id); si las actuales no se leyeron completas, no se
+  manda nada. Las 20 se volvieron a agregar desde Publicar productos
+  (fotos de Amazon, sku_id nuevos, mismos seller_sku: el kardex no cambia).
+  **Y el sync del catálogo DA DE BAJA lo que TikTok ya no trae**
+  (`catalogoConEstado` → `completo`; `skusDadosDeBaja` en `ResultadoSync`):
+  hasta ese día una variante borrada seguía `activo` para siempre (el
+  GT168 borrado hacía que cada corrida dijera «TikTok rechazó 20 SKU» y
+  Publicar productos creía esos colores todavía en TikTok). Solo con el
+  catálogo leído ENTERO (sin página que TikTok no contestara ni más de
+  20 páginas); una lectura corta no da de baja a nadie.
 
 - **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
   `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el

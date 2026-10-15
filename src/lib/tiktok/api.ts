@@ -205,8 +205,19 @@ export function precioDeSku(price: any): number | null {
 }
 
 export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
+  return (await catalogoConEstado(c, tope)).skus;
+}
+
+/**
+ * El catálogo completo con la constancia de si se leyó ENTERO (`completo`):
+ * solo con la lectura entera se puede dar por desaparecida una variante que
+ * ya no viene (una página que TikTok no contestó o un catálogo más largo que
+ * `tope` páginas dejan `completo` en false y nadie se da de baja).
+ */
+export async function catalogoConEstado(c: Cliente, tope = 20): Promise<{ skus: SkuTikTok[]; completo: boolean }> {
   const salida: SkuTikTok[] = [];
   let token: string | undefined;
+  let completo = false;
 
   for (let pagina = 0; pagina < tope; pagina++) {
     const d = await c.llamar<any>("POST", "/product/202309/products/search", {
@@ -239,10 +250,13 @@ export async function catalogo(c: Cliente, tope = 20): Promise<SkuTikTok[]> {
     }
 
     token = d.next_page_token || undefined;
-    if (!token) break;
+    if (!token) {
+      completo = true;
+      break;
+    }
   }
 
-  return salida;
+  return { skus: salida, completo };
 }
 
 // ---------------------------------------------------------------------------

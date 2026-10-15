@@ -1199,8 +1199,11 @@ async function subirFotosDeEntradas(
  * en TikTok (`producto_destino`), por edición parcial: el producto mismo es
  * la plantilla (mismos ids de atributo de Color y Talla que sus hermanas),
  * cada color sube sus fotos (la primera va como `sku_img` y, si cabe, a las
- * fotos principales), y las variantes se mandan SIN `id`. Lo que TikTok ya
- * tenía no se toca. Después se relee el producto para conocer los sku_id
+ * fotos principales), y las variantes nuevas se mandan SIN `id` DESPUÉS de
+ * las que el producto ya tiene, con su id: la lista `skus` de la edición
+ * parcial es la lista completa y TikTok BORRA las que no vengan (así se
+ * perdieron las 20 variantes viejas del GT125 el 15-oct-2026). Después se
+ * relee el producto para conocer los sku_id
  * nuevos y darlos de alta en `tiktok_skus`, ya amarrados, para que el
  * kardex los conozca desde el primer pedido. Dueño, 15-oct-2026: «agregar
  * colores nuevos a listados ya hechos en TikTok, por ejemplo el GT125».
@@ -1280,7 +1283,7 @@ async function agregarColoresAProducto(
   if (!respuesta) return { sinTiempo: true, parcial: { subidas } };
 
   // 5. Los sku_id nuevos: de la respuesta y, si no los trae, releyendo el producto.
-  const pedidos = new Set(armado.skus.map((s) => String(s.seller_sku).trim().toUpperCase()));
+  const pedidos = new Set(armado.nuevas.map((s) => String(s.seller_sku).trim().toUpperCase()));
   const idPorSellerSku = new Map<string, string>();
   const tomar = (lista: any[]) => {
     for (const s of lista ?? []) {
@@ -1295,7 +1298,7 @@ async function agregarColoresAProducto(
   }
   const ahora = new Date().toISOString();
   const filasSkus = [...idPorSellerSku].map(([sellerSkuMayus, skuId]) => {
-    const sellerSku = String(armado.skus.find((s) => String(s.seller_sku).trim().toUpperCase() === sellerSkuMayus)?.seller_sku ?? sellerSkuMayus);
+    const sellerSku = String(armado.nuevas.find((s) => String(s.seller_sku).trim().toUpperCase() === sellerSkuMayus)?.seller_sku ?? sellerSkuMayus);
     const a = ctx.amarrar(sellerSku);
     return {
       account_id: accountId,
@@ -1328,7 +1331,7 @@ async function agregarColoresAProducto(
       avisos,
       subidas,
       colores: entradas.map((c) => c.nombre ?? c.color),
-      variantesNuevas: armado.skus.length,
+      variantesNuevas: armado.nuevas.length,
       imagenes: (cambios.main_images as unknown[] | undefined)?.length ?? existentes.mainImages.length,
       cuerpo: { ...cambios, skus: armado.skus.length },
     },

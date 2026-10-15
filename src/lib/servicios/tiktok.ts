@@ -27,7 +27,7 @@ import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
 import {
   bodegas,
-  catalogo,
+  catalogoConEstado,
   enviarPaquete,
   etiquetaDePaquete,
   horariosDeRecoleccion,
@@ -213,6 +213,8 @@ export interface ResultadoSync {
   salidas: number;
   devoluciones: number;
   skusCatalogo: number;
+  /** variantes que TikTok ya no trae en el catálogo y dejaron de estar vigentes en esta corrida */
+  skusDadosDeBaja: number;
   sinAmarre: number;
   publicados: number;
   fallosPublicacion: number;
@@ -226,6 +228,7 @@ const VACIO: ResultadoSync = {
   salidas: 0,
   devoluciones: 0,
   skusCatalogo: 0,
+  skusDadosDeBaja: 0,
   sinAmarre: 0,
   publicados: 0,
   fallosPublicacion: 0,
@@ -626,8 +629,9 @@ async function sincronizarTikTokSinCandado(
 
   // ---- 1. Catálogo de TikTok -------------------------------------------
   let skusCatalogo = 0;
+  let skusDadosDeBaja = 0;
   if (!opciones.soloPedidos) try {
-    const lista = await catalogo(cliente);
+    const { skus: lista, completo } = await catalogoConEstado(cliente);
     skusCatalogo = lista.length;
     if (lista.length) {
       const filas = lista.map((s) => {
@@ -650,6 +654,30 @@ async function sincronizarTikTokSinCandado(
         };
       });
       await guardarEnLotes(admin, "tiktok_skus", filas, "account_id,sku_id");
+      // Lo que TikTok YA NO TRAE deja de estar vigente: una variante borrada
+      // (el GT125 perdió 20 el 15-oct-2026 por una edición parcial) seguía
+      // `activo` para siempre, se le intentaba publicar inventario en cada
+      // corrida y Publicar productos la creía todavía en TikTok. Solo con
+      // el catálogo leído ENTERO: una lectura corta no da de baja a nadie.
+      if (completo) {
+        const vigentes = new Set(lista.map((s) => s.skuId));
+        const activos = await traerTodo<{ sku_id: string }>(admin, "tiktok_skus", "sku_id", (q) =>
+          q.eq("account_id", accountId).eq("activo", true),
+        );
+        const desaparecidos = (activos ?? []).map((r) => String(r.sku_id)).filter((id) => !vigentes.has(id));
+        if (desaparecidos.length) {
+          await porTandas(desaparecidos, 200, async (tanda) => {
+            const { error } = await admin
+              .from("tiktok_skus")
+              .update({ activo: false, actualizado_en: new Date().toISOString() })
+              .eq("account_id", accountId)
+              .in("sku_id", tanda);
+            if (error) throw new Error(error.message);
+            return [];
+          });
+          skusDadosDeBaja = desaparecidos.length;
+        }
+      }
     }
   } catch (err) {
     avisos.push(`Catálogo: ${(err as Error).message}`);
@@ -713,6 +741,7 @@ async function sincronizarTikTokSinCandado(
       devoluciones,
       publicados: pub.publicados,
       skusCatalogo,
+      skusDadosDeBaja,
       sinAmarre,
       reamarrados,
       bodega,
@@ -729,6 +758,7 @@ async function sincronizarTikTokSinCandado(
     salidas,
     devoluciones,
     skusCatalogo,
+    skusDadosDeBaja,
     sinAmarre,
     publicados: pub.publicados,
     fallosPublicacion: pub.fallidos,
