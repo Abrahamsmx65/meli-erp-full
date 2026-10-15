@@ -35,6 +35,11 @@ describe("rutas del rol tiktok", () => {
     expect(entradaVisible("tiktok", "/ventas")).toBe(false);
     expect(entradaVisible("dueño", "/ventas")).toBe(true);
   });
+  it("Productos de David no sale en el menú del dueño, pero sí en el del rol de TikTok (y la ruta sigue abierta)", () => {
+    expect(entradaVisible("dueño", "/tiktok/externos")).toBe(false);
+    expect(entradaVisible("tiktok", "/tiktok/externos")).toBe(true);
+    expect(rutaPermitida("dueño", "/tiktok/externos")).toBe(true);
+  });
   it("Precios para TikTok es solo del dueño aunque viva bajo /tiktok (lleva netos de MELI y costos)", () => {
     // Desde el 2-oct-2026 el rol de TikTok abre TODO lo de /tiktok, Precios incluido.
     expect(rutaPermitida("tiktok", "/tiktok/precios")).toBe(true);

@@ -55,7 +55,16 @@ export function rutaPermitida(rol: Rol, ruta: string): boolean {
   return PREFIJOS_TIKTOK.some((p) => limpia === p || limpia.startsWith(p + "/") || limpia.startsWith(p + "?"));
 }
 
-/** Las entradas del menú que ve cada rol: las que puede abrir. */
+/**
+ * Lo que el DUEÑO no quiere ver en su menú aunque pueda abrirlo: Productos
+ * de David es la pantalla del vendedor externo (dueño, 15-oct-2026: «quita
+ * los productos de David, no me interesa verlos»). La ruta sigue viva para
+ * el rol de TikTok, que es quien la usa.
+ */
+const FUERA_DEL_MENU_DEL_DUENO = ["/tiktok/externos"];
+
+/** Las entradas del menú que ve cada rol: las que puede abrir y le interesan. */
 export function entradaVisible(rol: Rol, href: string): boolean {
+  if (rol === "dueño" && FUERA_DEL_MENU_DEL_DUENO.includes(href)) return false;
   return rutaPermitida(rol, href);
 }
