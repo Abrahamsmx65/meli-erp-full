@@ -60,11 +60,10 @@ export default async function TikTok({
     traerTodo<any>(supabase, "tiktok_alias_amazon", "modelo, color_tiktok, color_amazon", (q) => q.eq("account_id", cuenta.id)),
   ]);
   const alias = (aliasRaw ?? []).map((a: any) => ({ modelo: a.modelo, colorTikTok: a.color_tiktok, colorAmazon: a.color_amazon }));
-  // Stock en la bodega sin dónde venderse: sin NINGUNA publicación, o con la
-  // publicación apagada / en borrador. Se avisa arriba con la lista.
+  // Stock en la bodega sin NINGUNA publicación en TikTok: se avisa arriba con
+  // la lista (lo apagado o en borrador NO se avisa: dueño, 15-oct-2026).
   const conStock = p.renglones.filter((r) => r.saldo > 0);
   const sinPublicacion = conStock.filter((r) => !r.tienePublicacion);
-  const apagadas = conStock.filter((r) => r.tienePublicacion && r.estadoPublicacion);
 
   return (
     <Pagina>
@@ -132,11 +131,6 @@ export default async function TikTok({
         // venderlo (dueño, 15-oct-2026: «que me salga un aviso y cuáles son»).
         <Aviso tono="alerta" titulo={`${sinPublicacion.length} SKU con stock en la bodega TikTok sin ninguna publicación (${n(sinPublicacion.reduce((a, r) => a + r.saldo, 0))} pares)`}>
           <ListaSkusSinPublicacion renglones={sinPublicacion} />
-        </Aviso>
-      ) : null}
-      {apagadas.length ? (
-        <Aviso tono="alerta" titulo={`${apagadas.length} SKU con stock cuya publicación está apagada o en borrador (${n(apagadas.reduce((a, r) => a + r.saldo, 0))} pares)`}>
-          <ListaSkusSinPublicacion renglones={apagadas} conEstado />
         </Aviso>
       ) : null}
 
@@ -213,17 +207,14 @@ export default async function TikTok({
 }
 
 /** La lista corta de SKUs con stock sin publicación (o con la publicación apagada), con sus pares. */
-function ListaSkusSinPublicacion({ renglones, conEstado = false }: { renglones: RenglonTikTok[]; conEstado?: boolean }) {
+function ListaSkusSinPublicacion({ renglones }: { renglones: RenglonTikTok[] }) {
   const TOPE = 40;
-  const estado = (e: string | null) =>
-    e === "DRAFT" ? "borrador" : e === "SELLER_DEACTIVATED" ? "desactivada por el vendedor" : e === "PLATFORM_DEACTIVATED" ? "desactivada por TikTok" : (e ?? "");
   return (
     <div className="mt-1 text-xs">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {renglones.slice(0, TOPE).map((r) => (
           <span key={r.sku} className="cifra">
             {r.sku} <b>×{r.saldo}</b>
-            {conEstado && r.estadoPublicacion ? <span className="texto-2"> ({estado(r.estadoPublicacion)})</span> : null}
           </span>
         ))}
         {renglones.length > TOPE ? <span className="texto-2">y {renglones.length - TOPE} más</span> : null}
