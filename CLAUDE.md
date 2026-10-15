@@ -2184,6 +2184,19 @@ guárdala numerada.
   sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
+- **AÑO DEL NEGOCIO, de mayo a abril** (`/cortes/anio`, «Año del negocio» en
+  Negocio y botón «Año may–abr» en Estado de resultados;
+  `servicios/consolidado-anio.ts` motor puro con pruebas: `periodosDelEjercicio`,
+  `sumarAnio`; `leerAnio` en `consolidado-cargar.ts`; dueño, 15-oct-2026: «ver
+  cómo va el año en total, mi cuenta es de mayo a abril»): suma el estado de
+  resultados GUARDADO de cada mes del ejercicio (`leerConsolidadoGuardado`,
+  con sus gastos del negocio) en centavos, sin recalcular nada; el ejercicio
+  es el de la Cuenta del año (`ejercicioDeFecha`, `nombreEjercicio`). Mes por
+  mes con barra de utilidad, por canal (antes de los gastos del negocio), por
+  categoría y por modelo. Un mes sin estado (antes de enero 2026) no suma y
+  se dice; el mes en curso va con lo que lleva y el promedio mensual es solo
+  de los meses cerrados. Un canal no calculable en un mes no suma y se nombra
+  el mes; una ganancia sin costo queda «sin costo algún mes», nunca cero.
 - **GASTOS EMPRESARIALES: fijos cada mes + sueltos** (`/gastos`, «Gastos»
   en Negocio; `servicios/gastos-fijos.ts` + `gastos-empresariales.ts`,
   migración 0132; dueño, 9-oct-2026: «mis gastos regularmente son nóminas,

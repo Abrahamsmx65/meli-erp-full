@@ -10,6 +10,7 @@ import { obtenerMonitorAmazon } from "./amazon-monitor";
 import { cuentaAmazon } from "./amazon";
 import { aplicarGastosEmpresariales, armarConsolidado, bloqueDesdeEstado, type BloqueCanal, type Consolidado } from "./consolidado";
 import { bloqueAmazon } from "./consolidado-amazon";
+import { periodosDelEjercicio, sumarAnio } from "./consolidado-anio";
 import { corteNecesitaRefresco, obtenerEstadoResultadosMeli, obtenerEstadoResultadosYz } from "./corte-cache";
 import { bloqueTikTok, cargarVentasTikTok, rangoTikTok } from "./consolidado-tiktok";
 import { leerEstadosGuardados } from "./tiktok-estados";
@@ -653,4 +654,21 @@ export function normalizarConsolidadoCache(datos: unknown): Consolidado {
       canalesSinCalcular: Array.isArray(totalAnterior.canalesSinCalcular) ? totalAnterior.canalesSinCalcular : [],
     },
   } as Consolidado;
+}
+
+/**
+ * El AÑO de mayo a abril (dueño, 15-oct-2026: «ver cómo va el año en total»):
+ * lee el estado de resultados GUARDADO de cada mes del ejercicio (no calcula
+ * nada; el cron del corte general los mantiene) y los suma con `sumarAnio`.
+ * Los meses antes de `PRIMER_PERIODO_CORTES` o después de hoy no se leen.
+ */
+export async function leerAnio(db: DB, cuenta: Cuenta, ejercicio: number) {
+  const hoy = periodoActual();
+  const estados = await Promise.all(
+    periodosDelEjercicio(ejercicio).map(async (periodo) => ({
+      periodo,
+      cns: periodo >= PRIMER_PERIODO_CORTES && periodo <= hoy ? await leerConsolidadoGuardado(db, cuenta, periodo) : null,
+    })),
+  );
+  return sumarAnio(ejercicio, estados, hoy);
 }
