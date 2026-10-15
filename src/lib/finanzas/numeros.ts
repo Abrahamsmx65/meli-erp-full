@@ -58,7 +58,12 @@ export const PARES_MINIMOS_REALES = 10;
 /** Cargo fijo de TikTok por par (sale aparte de lo que se queda en %). */
 export const FIJO_TIKTOK = 6;
 
+/** Pares mínimos vendidos AL PRECIO RELÁMPAGO para creerle al depósito real a ese precio. */
+export const PARES_MINIMOS_AL_PRECIO = 5;
+
 export interface TarifasReales {
+  /** Depósito real de MELI por par a cada precio al cliente (redondeado al peso). */
+  meliPorPrecio?: { precio: number; pares: number; netoPar: number }[];
   meli?: { pares: number; paresDirecta: number; comisionPct: number | null; envioPar: number | null; retencionPct: number | null; netoPar: number | null };
   amazon?: { unidades: number; precioPar: number | null; comisionPct: number | null; retencionPct: number | null; fbaPar: number | null; otrosPar: number | null; netoPar: number | null };
   tiktok?: { pares: number; precioPar: number | null; pagoPar: number | null; afiliadoPct: number | null };
@@ -77,14 +82,17 @@ export interface ResultadoNumeros {
   /** Lo que dejaría el precio relámpago con las tasas de arriba (solo referencia si hay ganancia real). */
   gananciaRelampago: number | null;
   /**
-   * Lo que MELI DEPOSITÓ de verdad por par en 30 días (reventa incluida: ahí
-   * MELI paga precio − comisión − envío sin retenciones) y lo que dejó sobre
-   * el costo. Cuando existe, ES la ganancia de MELI y de ahí salen «Recibir»
-   * y los precios de Amazon y TikTok (dueño, 15-oct-2026: «que salga la que
-   * de verdad estoy recibiendo para calcular los precios en TikTok y
-   * Amazon»).
+   * Lo que MELI DEPOSITÓ de verdad por par en 30 días en las ventas AL PRECIO
+   * RELÁMPAGO (reventa incluida: ahí MELI paga precio − comisión − envío sin
+   * retenciones) y lo que dejó sobre el costo. Cuando existe, ES la ganancia
+   * de MELI y de ahí salen «Recibir» y los precios de Amazon y TikTok (dueño,
+   * 15-oct-2026). Al precio relámpago, no el promedio del mes: el GT148
+   * promediaba $139.80 porque mezclaba ventas a $250–$356, y a $199.99
+   * recibe $126.87.
    */
-  recibidoMeli: { porPar: number; pares: number; ganancia: number | null } | null;
+  recibidoMeli: { porPar: number; pares: number; precio: number; ganancia: number | null } | null;
+  /** Promedio depositado por par en 30 días a todos los precios (solo referencia). */
+  promedioMeli: { porPar: number; pares: number } | null;
   porcentaje: number | null;
   pvNormal: number | null;
   gananciaNormal: number | null;
@@ -147,14 +155,19 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const pr = e.precioRelampago;
   const pvNormal = e.pvNormal ?? (pr != null ? pr * P.factorPvNormal : null);
   const m = reales?.meli;
-  const recibidoMeli =
-    m != null && m.pares >= PARES_MINIMOS_REALES && m.netoPar != null
-      ? { porPar: m.netoPar, pares: m.pares, ganancia: costo != null ? m.netoPar - costo : null }
-      : null;
+  const promedioMeli = m != null && m.pares >= PARES_MINIMOS_REALES && m.netoPar != null ? { porPar: m.netoPar, pares: m.pares } : null;
+  const alPrecio =
+    pr != null
+      ? (reales?.meliPorPrecio ?? []).find((x) => Math.abs(x.precio - pr) <= 1 && x.pares >= PARES_MINIMOS_AL_PRECIO)
+      : undefined;
+  const recibidoMeli = alPrecio
+    ? { porPar: alPrecio.netoPar, pares: alPrecio.pares, precio: alPrecio.precio, ganancia: costo != null ? alPrecio.netoPar - costo : null }
+    : null;
   const vacio: ResultadoNumeros = {
     ganancia: null,
     gananciaRelampago: null,
     recibidoMeli,
+    promedioMeli,
     porcentaje: null,
     pvNormal,
     gananciaNormal: null,
@@ -182,6 +195,7 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
     ganancia,
     gananciaRelampago,
     recibidoMeli,
+    promedioMeli,
     porcentaje: costo > 0 ? ganancia / costo : null,
     pvNormal,
     gananciaNormal,

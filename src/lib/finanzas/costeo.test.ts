@@ -235,13 +235,34 @@ describe("Números: las fórmulas del sheet del dueño", () => {
     });
     expect(r.usado.meli).toEqual({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01 });
     expect(r.gananciaRelampago).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
-    expect(r.recibidoMeli).toEqual({ porPar: 98.33, pares: 2229, ganancia: 98.33 - 35.25 });
-    // Con depósito real, la ganancia y «Recibir» salen de lo que MELI pagó.
-    expect(r.ganancia).toBeCloseTo(98.33 - 35.25, 8);
-    expect(r.recibirAmazon).toBeCloseTo(98.33, 8);
+    // Sin ventas a $155.99 no hay depósito real a ese precio: manda la cuenta con las tasas.
+    expect(r.recibidoMeli).toBeNull();
+    expect(r.promedioMeli).toEqual({ porPar: 98.33, pares: 2229 });
+    expect(r.ganancia).toBeCloseTo(r.gananciaRelampago!, 8);
     expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 35.43 + 6.7) / (1 - 0.1263 - 0.0695), 8);
     const queda = 1 - (78.64 + 6) / 113.37;
     expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + 6) / (1 - queda), 8);
+  });
+
+  it("con ventas al precio relámpago: ganancia y «Recibir» salen de lo depositado A ESE PRECIO, no del promedio", () => {
+    const e = { modelo: "GT148", ...ENTRADA_VACIA, envioMeli: 41, precioRelampago: 199.99, envioAmazon: 54 };
+    const r = calcularNumeros(e, 58.54, {
+      meli: { pares: 1762, paresDirecta: 105, comisionPct: 0.15, envioPar: 41, retencionPct: 0.0078, netoPar: 139.8 },
+      meliPorPrecio: [
+        { precio: 200, pares: 413, netoPar: 126.87 },
+        { precio: 250, pares: 251, netoPar: 163.93 },
+      ],
+    });
+    expect(r.recibidoMeli).toEqual({ porPar: 126.87, pares: 413, precio: 200, ganancia: 126.87 - 58.54 });
+    expect(r.ganancia).toBeCloseTo(126.87 - 58.54, 8);
+    expect(r.recibirAmazon).toBeCloseTo(126.87, 8);
+    expect(r.promedioMeli?.porPar).toBe(139.8);
+  });
+
+  it("pocas ventas al precio relámpago: no se le cree", () => {
+    const e = { modelo: "X", ...ENTRADA_VACIA, envioMeli: 41, precioRelampago: 199.99 };
+    const r = calcularNumeros(e, 50, { meliPorPrecio: [{ precio: 200, pares: 3, netoPar: 150 }] });
+    expect(r.recibidoMeli).toBeNull();
   });
 
   it("pocas ventas: se queda la estimación del dueño", () => {

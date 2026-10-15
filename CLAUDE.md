@@ -2401,7 +2401,16 @@ guárdala numerada.
   precios en TikTok y Amazon»): «Recibir», el PVP de Amazon, el deal (y con
   él «Llevar precios a Amazon») y TikTok salen del depósito real; lo que
   dejaría el relámpago con las tasas queda abajo como referencia
-  (`gananciaRelampago`). Sin ventas suficientes, como antes. Los sueldos del dueño y de
+  (`gananciaRelampago`). **Pero el depósito real AL PRECIO RELÁMPAGO, no el
+  promedio del mes** (mismo día, dueño: «si GT148 lo vendo en 199, ¿por qué
+  recibo más?»): el promedio ($139.80) mezclaba ventas a $250–$356; a
+  $199.99 MELI deposita $126.87. RPC `meli_neto_por_precio_modelo`
+  (migración 0143: depósito por par a cada precio al cliente redondeado al
+  peso, la reventa al público con `total_comprador`) → `meliPorPrecio` en
+  `finanzas:tarifas-reales:v2`; se usa el escalón a ±$1 del relámpago con
+  ≥ `PARES_MINIMOS_AL_PRECIO` (5) pares, y el promedio del mes queda como
+  referencia (`promedioMeli`). Sin ventas a ese precio, la cuenta con las
+  tasas, como antes. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
