@@ -4,6 +4,8 @@ import {
   agruparPublicacionesMeli,
   agruparVariantesMeli,
   armarCuerpoProducto,
+  armarSkusParaAgregar,
+  variantesDelProducto,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
   elegirImagenesPrincipales,
@@ -158,6 +160,67 @@ describe("agruparProductosAmazon", () => {
     // Un borrador en TikTok también cuenta: publicarlo otra vez lo duplica.
     expect(p[1].coloresPorPublicar).toEqual([]);
     expect(p[1].coloresActivosPorPublicar).toEqual([]);
+  });
+
+  it("sabe a qué producto ACTIVO de TikTok agregarle los colores que faltan, y a qué precio", () => {
+    const p = agruparProductosAmazon(filas, {
+      enTikTok: [
+        { sellerSku: "GT134-BLK-24-MX", skuInterno: "GT134-BLK-24-MX", productId: "P1", estado: "ACTIVATE", precio: 399 },
+        { sellerSku: "GT134-BLK-25-MX", skuInterno: "GT134-BLK-25-MX", productId: "P1", estado: "ACTIVATE", precio: 399 },
+        { sellerSku: "GT134-BLK-26-MX", skuInterno: null, productId: "P9", estado: "ACTIVATE", precio: 450 },
+        { sellerSku: "GT150-GREY-23-MX", skuInterno: null, productId: "P4", estado: "DRAFT" },
+      ],
+    });
+    expect(p[0].productoTikTok).toBe("P1");
+    expect(p[0].precioTikTok).toBe(399);
+    expect(p[0].coloresPorPublicar).toEqual(["RED"]);
+    // Un borrador no es un producto al que se le pueda agregar nada.
+    expect(p[1].productoTikTok).toBeNull();
+    expect(p[1].precioTikTok).toBeNull();
+  });
+});
+
+describe("armarSkusParaAgregar", () => {
+  const plantilla = plantillaDesdeProducto(productoCrudo);
+  const datos = {
+    precio: 399,
+    moneda: "MXN",
+    warehouseId: "W1",
+    colores: [
+      { color: "BLK", imagenUri: "u-blk", tallas: [{ talla: "24", sellerSku: "GT134-BLK-24-MX", cantidad: 3 }] },
+      { color: "RED", imagenUri: "u-red", tallas: [{ talla: "26", sellerSku: "GT134-RED-26-MX", cantidad: 1 }, { talla: "27", sellerSku: "GT134-RED-27-MX", cantidad: 0 }] },
+    ],
+  };
+
+  it("manda solo las variantes nuevas, sin id, con los atributos del producto", () => {
+    const r = armarSkusParaAgregar(datos, plantilla, { sellerSkus: ["GT134-BLK-24-MX"], coloresNombre: ["Negro"] });
+    expect(r.saltados).toEqual(["BLK"]);
+    expect(r.skus.map((s: any) => s.seller_sku)).toEqual(["GT134-RED-26-MX", "GT134-RED-27-MX"]);
+    const s = r.skus[0] as any;
+    expect(s.id).toBeUndefined();
+    expect(s.sales_attributes[0]).toMatchObject({ id: plantilla.atributoColor!.id, value_name: "Rojo", sku_img: { uri: "u-red" } });
+    expect(s.sales_attributes[1]).toMatchObject({ id: plantilla.atributoTalla!.id, value_name: "26" });
+    expect(s.price).toEqual({ amount: "399.00", currency: "MXN" });
+    expect(s.inventory).toEqual([{ warehouse_id: "W1", quantity: 1 }]);
+  });
+
+  it("sin nada nuevo o pasando de 100 variantes, lanza", () => {
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: [], coloresNombre: ["Negro", "Rojo"] })).toThrow(/ya tiene/);
+    const muchos = Array.from({ length: 99 }, (_, i) => `X-${i}`);
+    expect(() => armarSkusParaAgregar(datos, plantilla, { sellerSkus: muchos, coloresNombre: [] })).toThrow(/100 variantes/);
+  });
+
+  it("lee del producto crudo sus seller_sku, sus colores y sus fotos principales", () => {
+    const v = variantesDelProducto({
+      main_images: [{ uri: "m1" }, { uri: "m2" }],
+      skus: [
+        { seller_sku: "GT134-BLK-24-MX", sales_attributes: [{ name: "Color", value_name: "Negro" }, { name: "Talla", value_name: "24" }] },
+        { seller_sku: "GT134-BLK-25-MX", sales_attributes: [{ name: "Color", value_name: "Negro" }, { name: "Talla", value_name: "25" }] },
+      ],
+    });
+    expect(v.sellerSkus).toEqual(["GT134-BLK-24-MX", "GT134-BLK-25-MX"]);
+    expect(v.coloresNombre).toEqual(["Negro"]);
+    expect(v.mainImages).toEqual(["m1", "m2"]);
   });
 });
 

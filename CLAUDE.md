@@ -1535,6 +1535,30 @@ guárdala numerada.
   Para esos renglones `modelo` = item y `colores` = sus modelos. Lo común
   (subir fotos, guía de tallas, cuerpo, crear, SKUs al catálogo) vive en
   `publicarArmado`, que usan las dos fuentes.
+  **(i) Los colores que Amazon estrena se AGREGAN al listado que ya existe
+  en TikTok, no se publican aparte** (`agregarColoresAProducto` en el
+  servicio; `armarSkusParaAgregar` y `variantesDelProducto` puros con
+  pruebas; `ProductoAmazonParaTikTok.productoTikTok` = el producto ACTIVO
+  con más variantes del modelo y `precioTikTok` = su precio más común;
+  `PedidoDePublicacion.agregarA` → `tiktok_publicaciones.producto_destino`,
+  migración 0143; dueño, 15-oct-2026: «quiero poder agregar colores nuevos
+  a listados ya hechos en TikTok que aumenten colores en Amazon, por
+  ejemplo el GT125»): en Productos nuevos, un modelo que TikTok ya vende
+  activo trae un selector por renglón, por omisión «Agregar los colores al
+  listado que ya existe» (el otro valor publica aparte, como antes); el
+  precio vacío toma el que el listado ya tiene en TikTok. La cola lo
+  trabaja por `POST /product/202309/products/{id}/partial_edit` con
+  `skus` SIN `id` (variante nueva) usando el PROPIO producto como plantilla
+  (mismos ids de atributo de Color y Talla que sus hermanas), `sku_img`
+  con la primera foto del color y, si caben en las 9, esas fotos también a
+  `main_images` (se manda la lista completa: la edición parcial la
+  reemplaza). Un color que el producto ya tiene (por nombre en español) se
+  salta y se avisa; más de 100 variantes en total, se rechaza. Los sku_id
+  nuevos salen de la respuesta o de releer el producto y entran a
+  `tiktok_skus` con `product_id` = el destino. Con «Volver a publicar» no
+  se agrega: se crea otro producto. El renglón de la cola dice «Al listado
+  {id}» y la lista guardada de antes del 15-oct-2026 (sin `productoTikTok`)
+  se rehace sola (`listaConDestino`).
 
 - **TIENDA EN LÍNEA DE GETAC: vende del MISMO almacén que TikTok** (proyecto
   `tienda/`, migración 0101; pedido del dueño, 1-oct-2026: «vamos a ocupar el

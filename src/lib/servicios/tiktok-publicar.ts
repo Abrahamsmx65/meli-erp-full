@@ -50,6 +50,9 @@ import {
   agruparPublicacionesMeli,
   agruparVariantesMeli,
   armarCuerpoProducto,
+  armarSkusParaAgregar,
+  variantesDelProducto,
+  MAX_IMAGENES_PRINCIPALES,
   atributosDeVentaDeCategoria,
   descripcionDesdeAmazon,
   elegirImagenesPrincipales,
@@ -92,6 +95,8 @@ export interface PublicacionEnCola {
   borrador: boolean;
   estado: "pendiente" | "publicando" | "publicado" | "error";
   productId: string | null;
+  /** si viene, los colores se AGREGAN como variantes a ese producto de TikTok en vez de crear otro */
+  productoDestino: string | null;
   error: string | null;
   intentos: number;
   creadoEn: string;
@@ -129,7 +134,7 @@ export async function leerCola(
   const { data, error } = await db
     .from("tiktok_publicaciones")
     .select(
-      "id, fuente, item_id, modelo, colores, titulo, precio, borrador, estado, product_id, error, intentos, creado_en, publicado_en, resultado",
+      "id, fuente, item_id, modelo, colores, titulo, precio, borrador, estado, product_id, producto_destino, error, intentos, creado_en, publicado_en, resultado",
     )
     .eq("account_id", accountId)
     .order("creado_en", { ascending: false })
@@ -146,6 +151,7 @@ export async function leerCola(
     borrador: Boolean(r.borrador),
     estado: r.estado,
     productId: r.product_id ?? null,
+    productoDestino: r.producto_destino ?? null,
     error: r.error ?? null,
     intentos: Number(r.intentos ?? 0),
     creadoEn: r.creado_en,
@@ -160,6 +166,12 @@ interface ListaNuevos {
   productos: ProductoAmazonParaTikTok[];
   publicacionesMeli: PublicacionMeliParaTikTok[];
   generadoEn: string;
+}
+
+/** true si la lista guardada ya trae `productoTikTok` (desde el 15-oct-2026); una vacía también vale. */
+function listaConDestino(productos: unknown): boolean {
+  if (!Array.isArray(productos)) return false;
+  return productos.length === 0 || "productoTikTok" in (productos[0] as object);
 }
 
 /** El trabajo pesado de la lista: agrupar Amazon y las publicaciones de MELI. */
@@ -207,8 +219,10 @@ export async function listarProductosNuevos(
       EDAD_CACHE_NUEVOS_MS,
       () => masticarListaNuevos(admin, accountId),
     );
-    // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI: se rehace.
-    if (Array.isArray(s.datos.publicacionesMeli) && Array.isArray(s.datos.productos))
+    // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI, y
+    // uno de antes del 15-oct-2026 no sabe a qué producto de TikTok agregarle
+    // colores (`productoTikTok`): se rehace.
+    if (Array.isArray(s.datos.publicacionesMeli) && Array.isArray(s.datos.productos) && listaConDestino(s.datos.productos))
       lista = s.datos as ListaNuevos;
   } else if (!opciones.forzar) {
     const g = await leerCacheApp<{
@@ -217,7 +231,7 @@ export async function listarProductosNuevos(
       generadoEn: string;
     }>(admin, accountId, CLAVE_CACHE_NUEVOS, EDAD_CACHE_NUEVOS_MS);
     // Un renglón de antes del 2-oct-2026 no trae las publicaciones de MELI: se rehace.
-    if (g.estado === "encontrado" && Array.isArray(g.valor.publicacionesMeli))
+    if (g.estado === "encontrado" && Array.isArray(g.valor.publicacionesMeli) && listaConDestino(g.valor.productos))
       lista = { ...g.valor, publicacionesMeli: g.valor.publicacionesMeli };
   }
   if (!lista) {
@@ -365,7 +379,7 @@ async function skusEnTikTok(admin: any, accountId: string) {
   const filas = await traerTodo<any>(
     admin,
     "tiktok_skus",
-    "seller_sku, sku_interno, product_id, estado",
+    "seller_sku, sku_interno, product_id, estado, precio",
     (q) => q.eq("account_id", accountId).eq("activo", true),
   );
   return (filas ?? []).map((s: any) => ({
@@ -373,6 +387,7 @@ async function skusEnTikTok(admin: any, accountId: string) {
     skuInterno: s.sku_interno ?? null,
     productId: String(s.product_id ?? ""),
     estado: s.estado ?? null,
+    precio: num(s.precio),
   }));
 }
 
@@ -478,6 +493,13 @@ export interface PedidoDePublicacion {
    * «quiero volver a publicar el GT168 porque quedó mal pero ya no me sale».
    */
   forzar?: boolean;
+  /**
+   * AGREGAR los colores como variantes a este producto de TikTok (el que ya
+   * vende el modelo, `ProductoAmazonParaTikTok.productoTikTok`) en vez de
+   * crear otro producto. Dueño, 15-oct-2026: «agregar colores nuevos a
+   * listados ya hechos en TikTok, por ejemplo el GT125».
+   */
+  agregarA?: string | null;
 }
 
 /**
@@ -524,7 +546,14 @@ export async function encolarPublicaciones(
     const pedidosColores = (p.colores ?? [])
       .map((c) => c.trim().toUpperCase())
       .filter(Boolean);
-    const forzar = Boolean(p.forzar);
+    // Agregar al listado que ya existe: solo al producto ACTIVO que vende
+    // el modelo, y nunca junto con «volver a publicar».
+    const agregarA = String(p.agregarA ?? "").trim() || null;
+    if (agregarA && agregarA !== producto.productoTikTok) {
+      rechazados.push({ modelo, motivo: "Ese producto de TikTok ya no vende el modelo (relee la lista)." });
+      continue;
+    }
+    const forzar = Boolean(p.forzar) && !agregarA;
     const permitidos = forzar ? producto.colores.map((c) => c.color) : producto.coloresPorPublicar;
     const colores = (pedidosColores.length ? pedidosColores : permitidos).filter((c) => permitidos.includes(c));
     if (!colores.length) {
@@ -541,6 +570,7 @@ export async function encolarPublicaciones(
       borrador: Boolean(opciones.borrador),
       estado: "pendiente",
       creado_por: opciones.creadoPor ?? null,
+      producto_destino: agregarA,
       // La marca de «volver a publicar» viaja en resultado para que
       // publicarUno no descarte lo que TikTok ya tiene.
       ...(forzar ? { resultado: { forzar: true } } : {}),
@@ -673,7 +703,7 @@ export async function publicarPendientes(
         const { data: pendientes } = await admin
           .from("tiktok_publicaciones")
           .select(
-            "id, fuente, item_id, modelo, colores, titulo, precio, borrador, intentos, resultado",
+            "id, fuente, item_id, modelo, colores, titulo, precio, borrador, intentos, resultado, producto_destino",
           )
           .eq("account_id", accountId)
           .eq("estado", "pendiente")
@@ -733,22 +763,34 @@ export async function publicarPendientes(
                     fila,
                     limite,
                   )
-                : await publicarUno(
-                    admin,
-                    accountId,
-                    tiktok,
-                    amazon,
-                    contexto,
-                    plantillas,
-                    fila,
-                    limite,
-                  );
+                : fila.producto_destino
+                  ? await agregarColoresAProducto(
+                      admin,
+                      accountId,
+                      tiktok,
+                      amazon,
+                      contexto,
+                      fila,
+                      limite,
+                    )
+                  : await publicarUno(
+                      admin,
+                      accountId,
+                      tiktok,
+                      amazon,
+                      contexto,
+                      plantillas,
+                      fila,
+                      limite,
+                    );
             if (r.sinTiempo) {
+              // Lo ya subido se guarda SIN perder las marcas del renglón
+              // (`forzar`): antes el parcial las pisaba.
               await admin
                 .from("tiktok_publicaciones")
                 .update({
                   estado: "pendiente",
-                  resultado: r.parcial,
+                  resultado: { ...(fila.resultado ?? {}), ...(r.parcial ?? {}) },
                   actualizado_en: new Date().toISOString(),
                 })
                 .eq("id", id);
@@ -986,16 +1028,26 @@ interface ResultadoUno {
   resultado?: Record<string, unknown>;
 }
 
-async function publicarUno(
+/** Los colores de un modelo de Amazon ya resueltos (fotos y texto), listos para publicar o agregar. */
+interface EntradasAmazon {
+  producto: ProductoAmazonParaTikTok;
+  entradas: EntradaArmado[];
+  texto: { bullets: string[]; descripcion: string | null };
+}
+
+/**
+ * Qué colores del modelo entran (los pedidos que TikTok no vende, o todos
+ * con «volver a publicar») y de dónde salen sus fotos y su texto: la ficha
+ * capturada de Amazon por color y, de respaldo, el catálogo público por ASIN.
+ */
+async function entradasDesdeAmazon(
   admin: any,
   accountId: string,
-  tiktok: ClienteTikTok,
   amazon: ClienteAmazon | null,
   ctx: ContextoCuenta,
-  plantillas: Map<string, PlantillaTikTok>,
   fila: any,
-  limite: number,
-): Promise<ResultadoUno> {
+  opciones: { forzar: boolean },
+): Promise<EntradasAmazon> {
   const modelo = String(fila.modelo).toUpperCase();
   const coloresPedidos: string[] = Array.isArray(fila.colores)
     ? fila.colores.map((c: any) => String(c).toUpperCase())
@@ -1005,7 +1057,7 @@ async function publicarUno(
   if (!producto)
     throw new Error(`${modelo} ya no está en el catálogo de Amazon.`);
   // «Volver a publicar»: lo que TikTok ya tiene también entra (sale OTRO producto).
-  const forzar = Boolean(fila.resultado?.forzar);
+  const forzar = opciones.forzar;
   const colores = producto.colores.filter(
     (c) => coloresPedidos.includes(c.color) && (forzar || !c.enTikTok.length),
   );
@@ -1013,14 +1065,6 @@ async function publicarUno(
     throw new Error(
       `${modelo}: TikTok ya vende los colores pedidos (${coloresPedidos.join(", ")}).`,
     );
-
-  const plantilla = await plantillaPara(
-    admin,
-    accountId,
-    tiktok,
-    modelo,
-    plantillas,
-  );
 
   // 1. La ficha de Amazon: fotos capturadas y texto, por color (el primer SKU
   //    activo de cada color; si ninguno contesta, el catálogo público por ASIN).
@@ -1084,21 +1128,211 @@ async function publicarUno(
   const fichaTexto = colores
     .map((_, i) => fichaDeColor(i))
     .find((f) => f && (f.bullets.length || f.descripcion));
-  return publicarArmado(
-    admin,
-    accountId,
-    tiktok,
-    ctx,
-    plantilla,
-    fila,
-    limite,
-    colores.map((c, i) => ({
+  return {
+    producto,
+    entradas: colores.map((c, i) => ({
       color: c.color,
       fotos: fotosDeColor(i),
       tallas: c.tallas.map((t) => ({ talla: t.talla, sellerSku: t.skuTikTok })),
     })),
-    { bullets: fichaTexto?.bullets ?? [], descripcion: fichaTexto?.descripcion ?? null },
+    texto: { bullets: fichaTexto?.bullets ?? [], descripcion: fichaTexto?.descripcion ?? null },
+  };
+}
+
+/** Un modelo de Amazon como producto NUEVO de TikTok. */
+async function publicarUno(
+  admin: any,
+  accountId: string,
+  tiktok: ClienteTikTok,
+  amazon: ClienteAmazon | null,
+  ctx: ContextoCuenta,
+  plantillas: Map<string, PlantillaTikTok>,
+  fila: any,
+  limite: number,
+): Promise<ResultadoUno> {
+  const { entradas, texto } = await entradasDesdeAmazon(admin, accountId, amazon, ctx, fila, {
+    forzar: Boolean(fila.resultado?.forzar),
+  });
+  const plantilla = await plantillaPara(
+    admin,
+    accountId,
+    tiktok,
+    String(fila.modelo).toUpperCase(),
+    plantillas,
   );
+  return publicarArmado(admin, accountId, tiktok, ctx, plantilla, fila, limite, entradas, texto);
+}
+
+/**
+ * Sube a TikTok las fotos de cada color (las ya subidas en un intento
+ * anterior se reusan por URL). Contesta `null` si se acabó el tiempo.
+ */
+async function subirFotosDeEntradas(
+  tiktok: ClienteTikTok,
+  entradas: EntradaArmado[],
+  subidas: Record<string, string>,
+  limite: number,
+): Promise<string[][] | null> {
+  const urisPorColor: string[][] = [];
+  for (let i = 0; i < entradas.length; i++) {
+    const uris: string[] = [];
+    for (const url of entradas[i].fotos.slice(0, FOTOS_POR_COLOR)) {
+      if (Date.now() > limite - 30_000) return null;
+      if (subidas[url]) {
+        uris.push(subidas[url]);
+        continue;
+      }
+      const img = await bajarImagen(url);
+      if (!img) continue;
+      const r = await subirImagen(tiktok, img.bytes, img.tipo, "MAIN_IMAGE");
+      if (!r) return null;
+      subidas[url] = r.uri;
+      uris.push(r.uri);
+    }
+    urisPorColor.push(uris);
+  }
+  return urisPorColor;
+}
+
+/**
+ * AGREGA colores de Amazon como variantes NUEVAS a un producto que ya existe
+ * en TikTok (`producto_destino`), por edición parcial: el producto mismo es
+ * la plantilla (mismos ids de atributo de Color y Talla que sus hermanas),
+ * cada color sube sus fotos (la primera va como `sku_img` y, si cabe, a las
+ * fotos principales), y las variantes se mandan SIN `id`. Lo que TikTok ya
+ * tenía no se toca. Después se relee el producto para conocer los sku_id
+ * nuevos y darlos de alta en `tiktok_skus`, ya amarrados, para que el
+ * kardex los conozca desde el primer pedido. Dueño, 15-oct-2026: «agregar
+ * colores nuevos a listados ya hechos en TikTok, por ejemplo el GT125».
+ */
+async function agregarColoresAProducto(
+  admin: any,
+  accountId: string,
+  tiktok: ClienteTikTok,
+  amazon: ClienteAmazon | null,
+  ctx: ContextoCuenta,
+  fila: any,
+  limite: number,
+): Promise<ResultadoUno> {
+  const destino = String(fila.producto_destino);
+  const { entradas } = await entradasDesdeAmazon(admin, accountId, amazon, ctx, fila, { forzar: false });
+
+  // 1. El producto tal como está hoy en TikTok: plantilla y lo que ya tiene.
+  const crudo = await productoTikTok(tiktok, destino);
+  if (!crudo) return { sinTiempo: true, parcial: {} };
+  const estadoProducto = String(crudo.status ?? "");
+  if (/DELETED/i.test(estadoProducto))
+    throw new Error(`El producto ${destino} ya está borrado en TikTok: publica esos colores como producto nuevo.`);
+  const plantilla = plantillaDesdeProducto(crudo);
+  if (!plantilla.atributoTalla || !plantilla.atributoColor) {
+    const atributos = await atributosDeCategoria(tiktok, plantilla.categoryId);
+    const { color, talla } = atributosDeVentaDeCategoria(atributos);
+    plantilla.atributoTalla = plantilla.atributoTalla ?? talla;
+    plantilla.atributoColor = plantilla.atributoColor ?? color;
+  }
+  const existentes = variantesDelProducto(crudo);
+
+  // 2. Las fotos de los colores nuevos.
+  const subidas: Record<string, string> = { ...(fila.resultado?.subidas ?? {}) };
+  const urisPorColor = await subirFotosDeEntradas(tiktok, entradas, subidas, limite);
+  if (!urisPorColor) return { sinTiempo: true, parcial: { subidas } };
+
+  // 3. Las variantes nuevas, con el inventario que el ERP ya le publica a ese SKU.
+  const colores: ColorAPublicar[] = entradas.map((c, i) => ({
+    color: c.color,
+    nombre: c.nombre,
+    imagenUri: urisPorColor[i][0] ?? null,
+    tallas: c.tallas.map((t) => ({
+      talla: t.talla,
+      sellerSku: t.sellerSku,
+      cantidad: ctx.publicadoPorSku.get((ctx.amarrar(t.sellerSku).skuInterno ?? t.sellerSku).toUpperCase()) ?? 0,
+    })),
+  }));
+  let armado: ReturnType<typeof armarSkusParaAgregar>;
+  try {
+    armado = armarSkusParaAgregar(
+      { precio: Number(fila.precio), moneda: ctx.moneda, warehouseId: ctx.warehouseId, colores },
+      plantilla,
+      existentes,
+    );
+  } catch (err) {
+    (err as any).subidas = subidas;
+    throw err;
+  }
+  const cambios: Record<string, unknown> = { skus: armado.skus };
+  // La primera foto de cada color nuevo también a las principales, si cabe
+  // (la lista se manda completa: la edición parcial la reemplaza entera).
+  const principales = [...existentes.mainImages];
+  for (const uris of urisPorColor) {
+    if (uris[0] && !principales.includes(uris[0]) && principales.length < MAX_IMAGENES_PRINCIPALES) principales.push(uris[0]);
+  }
+  if (principales.length > existentes.mainImages.length) cambios.main_images = principales.map((uri) => ({ uri }));
+
+  // 4. La edición parcial.
+  let respuesta: any;
+  try {
+    respuesta = await editarProductoParcial(tiktok, destino, cambios);
+  } catch (err) {
+    (err as any).cuerpoEnviado = cambios;
+    (err as any).subidas = subidas;
+    throw err;
+  }
+  if (!respuesta) return { sinTiempo: true, parcial: { subidas } };
+
+  // 5. Los sku_id nuevos: de la respuesta y, si no los trae, releyendo el producto.
+  const pedidos = new Set(armado.skus.map((s) => String(s.seller_sku).trim().toUpperCase()));
+  const idPorSellerSku = new Map<string, string>();
+  const tomar = (lista: any[]) => {
+    for (const s of lista ?? []) {
+      const ss = String(s?.seller_sku ?? "").trim().toUpperCase();
+      if (ss && s?.id && pedidos.has(ss)) idPorSellerSku.set(ss, String(s.id));
+    }
+  };
+  tomar(respuesta?.skus ?? []);
+  if (idPorSellerSku.size < pedidos.size) {
+    const releido = await productoTikTok(tiktok, destino).catch(() => null);
+    tomar(releido?.skus ?? []);
+  }
+  const ahora = new Date().toISOString();
+  const filasSkus = [...idPorSellerSku].map(([sellerSkuMayus, skuId]) => {
+    const sellerSku = String(armado.skus.find((s) => String(s.seller_sku).trim().toUpperCase() === sellerSkuMayus)?.seller_sku ?? sellerSkuMayus);
+    const a = ctx.amarrar(sellerSku);
+    return {
+      account_id: accountId,
+      sku_id: skuId,
+      product_id: destino,
+      seller_sku: sellerSku,
+      titulo: crudo.title ?? fila.titulo,
+      talla: null,
+      precio: Number(fila.precio),
+      estado: estadoProducto || "ACTIVATE",
+      sku_interno: a.skuInterno,
+      origen_amarre: a.origen,
+      activo: true,
+      actualizado_en: ahora,
+    };
+  });
+  if (filasSkus.length) await upsertEnTandas(admin, "tiktok_skus", filasSkus, "account_id,sku_id");
+
+  const avisos = (respuesta?.warnings ?? []).map((w: any) => String(w?.message ?? "")).filter(Boolean);
+  if (armado.saltados.length) avisos.push(`El producto ya tenía ${armado.saltados.join(", ")}: no se agregó.`);
+  if (idPorSellerSku.size < pedidos.size)
+    avisos.push(`TikTok no devolvió el id de ${pedidos.size - idPorSellerSku.size} variantes; la siguiente lectura del catálogo las da de alta.`);
+  return {
+    sinTiempo: false,
+    productId: destino,
+    resultado: {
+      productId: destino,
+      agregadoA: destino,
+      skus: [...idPorSellerSku].map(([sellerSku, skuId]) => ({ skuId, sellerSku })),
+      avisos,
+      subidas,
+      colores: entradas.map((c) => c.nombre ?? c.color),
+      variantesNuevas: armado.skus.length,
+      imagenes: (cambios.main_images as unknown[] | undefined)?.length ?? existentes.mainImages.length,
+      cuerpo: { ...cambios, skus: armado.skus.length },
+    },
+  };
 }
 
 /** Una variante del producto ya resuelta: de dónde salen sus fotos y qué tallas lleva. */
@@ -1130,25 +1364,8 @@ async function publicarArmado(
   const subidas: Record<string, string> = {
     ...(fila.resultado?.subidas ?? {}),
   };
-  const urisPorColor: string[][] = [];
-  for (let i = 0; i < entradas.length; i++) {
-    const uris: string[] = [];
-    for (const url of entradas[i].fotos.slice(0, FOTOS_POR_COLOR)) {
-      if (Date.now() > limite - 30_000)
-        return { sinTiempo: true, parcial: { subidas } };
-      if (subidas[url]) {
-        uris.push(subidas[url]);
-        continue;
-      }
-      const img = await bajarImagen(url);
-      if (!img) continue;
-      const r = await subirImagen(tiktok, img.bytes, img.tipo, "MAIN_IMAGE");
-      if (!r) return { sinTiempo: true, parcial: { subidas } };
-      subidas[url] = r.uri;
-      uris.push(r.uri);
-    }
-    urisPorColor.push(uris);
-  }
+  const urisPorColor = await subirFotosDeEntradas(tiktok, entradas, subidas, limite);
+  if (!urisPorColor) return { sinTiempo: true, parcial: { subidas } };
   const imagenesUri = elegirImagenesPrincipales(urisPorColor);
 
   // 2b. La guía de tallas (talla MX = largo en cm) dibujada y subida como

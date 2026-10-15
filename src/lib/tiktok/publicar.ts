@@ -85,6 +85,16 @@ export interface ProductoAmazonParaTikTok {
   coloresActivosPorPublicar: string[];
   /** Colores que la tienda ya vende. */
   coloresEnTikTok: string[];
+  /**
+   * El producto ACTIVO de TikTok que vende este modelo (el que tiene más
+   * variantes suyas), para AGREGARLE los colores que faltan como variantes
+   * en vez de crear otro producto (dueño, 15-oct-2026: «agregar colores
+   * nuevos a listados ya hechos en TikTok, por ejemplo el GT125»). null si
+   * TikTok no lo vende activo.
+   */
+  productoTikTok: string | null;
+  /** El precio más común de las variantes de ese producto en TikTok, de referencia para las nuevas. */
+  precioTikTok: number | null;
 }
 
 /** Lo que TikTok ya tiene de un seller_sku. */
@@ -93,6 +103,7 @@ export interface SkuEnTikTok {
   skuInterno: string | null;
   productId: string;
   estado: string | null;
+  precio?: number | null;
 }
 
 export interface AliasColor {
@@ -373,6 +384,9 @@ export function agruparProductosAmazon(
   const alias = new Map<string, string>();
   for (const a of opciones.alias ?? []) alias.set(claveColor(a.modelo, a.colorTikTok), a.colorAmazon);
   const vendidosEnTikTok = new Map<string, Set<string>>();
+  // Por modelo, qué producto ACTIVO de TikTok lo vende y a qué precio: al
+  // que más variantes tiene se le pueden agregar los colores que faltan.
+  const productosActivos = new Map<string, Map<string, { skus: number; precios: Map<number, number> }>>();
   for (const s of opciones.enTikTok ?? []) {
     // Un borrador o un producto apagado SIGUE existiendo en la tienda:
     // volverlo a publicar lo duplica. Solo lo borrado no cuenta.
@@ -384,6 +398,14 @@ export function agruparProductosAmazon(
     const k = claveColor(p.modelo, colorAmazon);
     if (!vendidosEnTikTok.has(k)) vendidosEnTikTok.set(k, new Set());
     vendidosEnTikTok.get(k)!.add(String(s.sellerSku ?? nombre));
+    if (s.estado === "ACTIVATE" && s.productId) {
+      const porProducto = productosActivos.get(p.modelo) ?? new Map();
+      const acc = porProducto.get(s.productId) ?? { skus: 0, precios: new Map<number, number>() };
+      acc.skus += 1;
+      if (s.precio != null && s.precio > 0) acc.precios.set(s.precio, (acc.precios.get(s.precio) ?? 0) + 1);
+      porProducto.set(s.productId, acc);
+      productosActivos.set(p.modelo, porProducto);
+    }
   }
 
   interface Acum {
@@ -472,6 +494,8 @@ export function agruparProductosAmazon(
     const porPublicar = colores.filter((c) => !c.enTikTok.length).map((c) => c.color);
     const activosPorPublicar = colores.filter((c) => !c.enTikTok.length && c.activas > 0).map((c) => c.color);
     const skus = colores.reduce((a, c) => a + c.tallas.length, 0);
+    const principal = [...(productosActivos.get(m.modelo) ?? new Map())].sort((a, b) => b[1].skus - a[1].skus)[0];
+    const precioTikTok = principal ? ([...principal[1].precios.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? null) : null;
     salida.push({
       modelo: m.modelo,
       titulo,
@@ -483,6 +507,8 @@ export function agruparProductosAmazon(
       coloresPorPublicar: porPublicar,
       coloresActivosPorPublicar: activosPorPublicar.length ? activosPorPublicar : porPublicar,
       coloresEnTikTok: colores.filter((c) => c.enTikTok.length).map((c) => c.color),
+      productoTikTok: principal ? principal[0] : null,
+      precioTikTok,
     });
   }
 
@@ -682,28 +708,7 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
     throw new Error("La plantilla no tiene atributo de color y el producto lleva varios colores.");
   }
 
-  const skus: Record<string, unknown>[] = [];
-  for (const c of datos.colores) {
-    for (const t of c.tallas) {
-      const sales: Record<string, unknown>[] = [];
-      if (plantilla.atributoColor) {
-        const attr: Record<string, unknown> = {
-          id: plantilla.atributoColor.id,
-          name: plantilla.atributoColor.name,
-          value_name: c.nombre?.trim() || nombreColorEspanol(c.color).nombre || c.color,
-        };
-        if (c.imagenUri) attr.sku_img = { uri: c.imagenUri };
-        sales.push(attr);
-      }
-      sales.push({ id: plantilla.atributoTalla.id, name: plantilla.atributoTalla.name, value_name: t.talla });
-      skus.push({
-        sales_attributes: sales,
-        seller_sku: t.sellerSku,
-        price: { amount: datos.precio.toFixed(2), currency: datos.moneda },
-        inventory: [{ warehouse_id: datos.warehouseId, quantity: Math.max(0, Math.floor(t.cantidad)) }],
-      });
-    }
-  }
+  const skus = armarSkus(datos, plantilla);
   if (!skus.length) throw new Error("El producto no tiene tallas que publicar.");
   if (skus.length > MAX_SKUS_POR_PRODUCTO) {
     throw new Error(`TikTok acepta hasta ${MAX_SKUS_POR_PRODUCTO} variantes por producto y este lleva ${skus.length}: publícalo por colores.`);
@@ -726,6 +731,89 @@ export function armarCuerpoProducto(datos: DatosPublicacion, plantilla: Plantill
   if (plantilla.isCodAllowed != null) cuerpo.is_cod_allowed = plantilla.isCodAllowed;
   if (datos.guiaTallasUri) cuerpo.size_chart = { image: { uri: datos.guiaTallasUri } };
   return cuerpo;
+}
+
+/** Una variante por color y talla, con la forma que TikTok espera en `skus` (crear y edición parcial). */
+function armarSkus(
+  datos: Pick<DatosPublicacion, "precio" | "moneda" | "warehouseId" | "colores">,
+  plantilla: PlantillaTikTok,
+): Record<string, unknown>[] {
+  if (!plantilla.atributoTalla) throw new Error("La plantilla no tiene atributo de talla: no hay cómo armar las variantes.");
+  const skus: Record<string, unknown>[] = [];
+  for (const c of datos.colores) {
+    for (const t of c.tallas) {
+      const sales: Record<string, unknown>[] = [];
+      if (plantilla.atributoColor) {
+        const attr: Record<string, unknown> = {
+          id: plantilla.atributoColor.id,
+          name: plantilla.atributoColor.name,
+          value_name: c.nombre?.trim() || nombreColorEspanol(c.color).nombre || c.color,
+        };
+        if (c.imagenUri) attr.sku_img = { uri: c.imagenUri };
+        sales.push(attr);
+      }
+      sales.push({ id: plantilla.atributoTalla.id, name: plantilla.atributoTalla.name, value_name: t.talla });
+      skus.push({
+        sales_attributes: sales,
+        seller_sku: t.sellerSku,
+        price: { amount: datos.precio.toFixed(2), currency: datos.moneda },
+        inventory: [{ warehouse_id: datos.warehouseId, quantity: Math.max(0, Math.floor(t.cantidad)) }],
+      });
+    }
+  }
+  return skus;
+}
+
+/**
+ * Las variantes NUEVAS que se le agregan a un producto que YA existe en
+ * TikTok (`POST /products/{id}/partial_edit`, campo `skus`; una variante
+ * sin `id` es nueva). La plantilla es ESE producto: así el color y la talla
+ * llevan los mismos ids de atributo que sus hermanas. Un color que el
+ * producto ya tiene no se manda (TikTok lo duplicaría) y el total no puede
+ * pasar de las 100 variantes por producto.
+ */
+export function armarSkusParaAgregar(
+  datos: Pick<DatosPublicacion, "precio" | "moneda" | "warehouseId" | "colores">,
+  plantilla: PlantillaTikTok,
+  existentes: { sellerSkus: string[]; coloresNombre: string[] },
+): { skus: Record<string, unknown>[]; saltados: string[] } {
+  if (!plantilla.atributoColor) throw new Error("El producto no tiene atributo de color en TikTok: no se le pueden agregar colores.");
+  if (!(datos.precio > 0)) throw new Error("El precio tiene que ser mayor a cero.");
+  if (!datos.warehouseId) throw new Error("La tienda no tiene bodega configurada en TikTok.");
+  const yaSku = new Set(existentes.sellerSkus.map((s) => s.trim().toUpperCase()));
+  const yaColor = new Set(existentes.coloresNombre.map((c) => c.trim().toLowerCase()));
+  const saltados: string[] = [];
+  const colores = datos.colores.filter((c) => {
+    const nombre = (c.nombre?.trim() || nombreColorEspanol(c.color).nombre || c.color).trim().toLowerCase();
+    if (yaColor.has(nombre)) {
+      saltados.push(c.color);
+      return false;
+    }
+    return true;
+  });
+  const skus = armarSkus({ ...datos, colores }, plantilla).filter((s) => !yaSku.has(String(s.seller_sku).trim().toUpperCase()));
+  if (!skus.length) throw new Error("No hay variantes nuevas que agregar: TikTok ya tiene esos colores y tallas.");
+  if (skus.length + existentes.sellerSkus.length > MAX_SKUS_POR_PRODUCTO) {
+    throw new Error(
+      `TikTok acepta hasta ${MAX_SKUS_POR_PRODUCTO} variantes por producto y quedaría con ${skus.length + existentes.sellerSkus.length}: publica esos colores como producto nuevo.`,
+    );
+  }
+  return { skus, saltados };
+}
+
+/** Los seller_sku y los nombres de color que un producto crudo de TikTok ya tiene (para no duplicar al agregar). */
+export function variantesDelProducto(crudo: any): { sellerSkus: string[]; coloresNombre: string[]; mainImages: string[] } {
+  const sellerSkus: string[] = [];
+  const colores = new Set<string>();
+  const esNumero = (v: unknown) => /^\d{1,2}(\.\d)?$/.test(String(v ?? "").trim());
+  for (const s of crudo?.skus ?? []) {
+    if (s?.seller_sku) sellerSkus.push(String(s.seller_sku));
+    for (const a of s?.sales_attributes ?? []) {
+      if (!esNumero(a?.value_name) && a?.value_name) colores.add(String(a.value_name).trim());
+    }
+  }
+  const mainImages = (crudo?.main_images ?? []).map((m: any) => String(m?.uri ?? "")).filter(Boolean);
+  return { sellerSkus, coloresNombre: [...colores], mainImages };
 }
 
 /**
