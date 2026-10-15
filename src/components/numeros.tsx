@@ -180,19 +180,31 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                         <div
                           className="text-[11px]"
                           style={{ color: "var(--exito-texto)" }}
-                          title={`Lo que Mercado Pago depositó por par en los últimos 30 días (${c.recibidoMeli.pares.toLocaleString("es-MX")} pares, reventa incluida). De aquí salen Recibir, Amazon y TikTok.`}
+                          title={`Lo que Mercado Pago depositó por par en las ventas a ${din(c.recibidoMeli.precio, 0)} de los últimos 30 días (${c.recibidoMeli.pares.toLocaleString("es-MX")} pares, reventa incluida). De aquí salen Recibir, Amazon y TikTok.`}
                         >
-                          real: recibes {din(c.recibidoMeli.porPar)}/par
+                          real a {din(c.recibidoMeli.precio, 0)}: recibes {din(c.recibidoMeli.porPar)}/par
                         </div>
-                        <div className="texto-tenue text-[11px]" title="Lo que dejaría el precio relámpago con las tasas reales de MELI">
-                          a {din(e.precioRelampago)}: {din(c.gananciaRelampago)}
+                        <div className="texto-tenue text-[11px]" title="Lo que dejaría el precio relámpago con las tasas de MELI">
+                          con tasas: {din(c.gananciaRelampago)}
                         </div>
+                        {c.promedioMeli ? (
+                          <div className="texto-tenue text-[11px]" title="Promedio depositado por par en 30 días, a todos los precios">
+                            promedio mes: {din(c.promedioMeli.porPar)}/par
+                          </div>
+                        ) : null}
                       </>
                     ) : (
-                      <Fuente real={u.meli.fuente === "real"}>
-                        {pct(u.meli.comisionPct)} · {din(u.meli.envio)}
-                        {u.meli.retencionPct > 0 ? ` · ret ${pct(u.meli.retencionPct, 1)}` : ""}
-                      </Fuente>
+                      <>
+                        <Fuente real={u.meli.fuente === "real"}>
+                          {pct(u.meli.comisionPct)} · {din(u.meli.envio)}
+                          {u.meli.retencionPct > 0 ? ` · ret ${pct(u.meli.retencionPct, 1)}` : ""}
+                        </Fuente>
+                        {c.promedioMeli ? (
+                          <div className="texto-tenue text-[11px]" title="Promedio depositado por par en 30 días, a todos los precios. Sin ventas suficientes a tu precio relámpago, la ganancia sale de las tasas.">
+                            promedio mes: {din(c.promedioMeli.porPar)}/par
+                          </div>
+                        ) : null}
+                      </>
                     )}
                   </td>
                   <td className="num cifra">{c.porcentaje == null ? "—" : `${(c.porcentaje * 100).toFixed(0)}%`}</td>

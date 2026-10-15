@@ -10,7 +10,8 @@ import { traerRpcTodoOLanzar } from "../datos/repos";
 import type { TarifasReales } from "../finanzas/numeros";
 import { cuentaAmazon } from "./amazon";
 
-export const CLAVE_TARIFAS = "finanzas:tarifas-reales";
+// v2: trae el depósito por precio (`meliPorPrecio`, migración 0143).
+export const CLAVE_TARIFAS = "finanzas:tarifas-reales:v2";
 export const DIAS_TARIFAS = 30;
 export const EDAD_TARIFAS_MS = 6 * 3_600_000;
 
@@ -28,13 +29,14 @@ export async function calcularTarifasReales(db: DB, accountId: string): Promise<
   const de = (m: string) => (porModelo[m] ??= {});
   const avisos: string[] = [];
 
-  const [meli, amz, tt] = await Promise.allSettled([
+  const [meli, amz, tt, porPrecio] = await Promise.allSettled([
     traerRpcTodoOLanzar<any>(db, "meli_tarifas_por_modelo", { p_account: accountId, p_desde: desde }),
     (async () => {
       const cuenta = await cuentaAmazon(db);
       return cuenta ? traerRpcTodoOLanzar<any>(db, "amazon_tarifas_por_modelo", { p_account: cuenta.id, p_desde: desde }) : [];
     })(),
     traerRpcTodoOLanzar<any>(db, "tiktok_tarifas_por_modelo", { p_account: accountId, p_desde: desde }),
+    traerRpcTodoOLanzar<any>(db, "meli_neto_por_precio_modelo", { p_account: accountId, p_desde: desde }),
   ]);
 
   if (meli.status === "fulfilled") {
@@ -48,6 +50,14 @@ export async function calcularTarifasReales(db: DB, accountId: string): Promise<
         netoPar: n(r.neto_par),
       };
   } else avisos.push(`MELI: ${(meli.reason as Error).message}`);
+  if (porPrecio.status === "fulfilled") {
+    for (const r of porPrecio.value) {
+      const precio = n(r.precio);
+      const netoPar = n(r.neto_par);
+      if (precio == null || netoPar == null) continue;
+      (de(r.modelo).meliPorPrecio ??= []).push({ precio, pares: Number(r.pares ?? 0), netoPar });
+    }
+  } else avisos.push(`MELI por precio: ${(porPrecio.reason as Error).message}`);
   if (amz.status === "fulfilled") {
     for (const r of amz.value)
       de(r.modelo).amazon = {
