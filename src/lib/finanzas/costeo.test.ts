@@ -234,8 +234,11 @@ describe("Números: las fórmulas del sheet del dueño", () => {
       tiktok: { pares: 991, precioPar: 113.37, pagoPar: 78.64, afiliadoPct: 0.0455 },
     });
     expect(r.usado.meli).toEqual({ fuente: "real", comisionPct: 0.15, envio: 41, retencionPct: 0.01 });
-    expect(r.ganancia).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
+    expect(r.gananciaRelampago).toBeCloseTo(155.99 * (1 - 0.15 - 0.01) - 41 - 35.25, 8);
     expect(r.recibidoMeli).toEqual({ porPar: 98.33, pares: 2229, ganancia: 98.33 - 35.25 });
+    // Con depósito real, la ganancia y «Recibir» salen de lo que MELI pagó.
+    expect(r.ganancia).toBeCloseTo(98.33 - 35.25, 8);
+    expect(r.recibirAmazon).toBeCloseTo(98.33, 8);
     expect(r.pvpAmazon).toBeCloseTo((r.recibirAmazon! + 35.43 + 6.7) / (1 - 0.1263 - 0.0695), 8);
     const queda = 1 - (78.64 + 6) / 113.37;
     expect(r.tiktokLives).toBeCloseTo((r.recibirAmazon! + 6) / (1 - queda), 8);
