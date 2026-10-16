@@ -431,6 +431,26 @@ export const COBERTURA_LARGA_DIAS = 45;
  */
 export const TACOS_TOPE = 0.1;
 
+/**
+ * Producto POSICIONADO (regla del dueño, 16-oct-2026): vende al menos
+ * `POSICIONADO_RITMO_MIN` al día hoy Y en los 60 días anteriores, su venta no
+ * cayó de 0.8× ni brincó arriba de 1.5× (un lanzamiento que despega no es
+ * estable), y a lo más la mitad de lo que vende lo atribuye MELI a la
+ * publicidad. Medido el 16-oct-2026 en calzado: MY2307, GT114, GT142, GT134,
+ * GT110 y GT135 quedaban entre 27 % y 50 %; los demás modelos con anuncio,
+ * entre 70 % y 120 %.
+ */
+export const POSICIONADO_RITMO_MIN = 10;
+export const POSICIONADO_PARTE_ADS_MAX = 0.5;
+export const POSICIONADO_CAMBIO_MIN = 0.8;
+export const POSICIONADO_CAMBIO_MAX = 1.5;
+
+export function esPosicionado(ritmo: number, ritmoPrevio: number, parteAds: number): boolean {
+  if (ritmo < POSICIONADO_RITMO_MIN || ritmoPrevio < POSICIONADO_RITMO_MIN) return false;
+  const cambio = ritmo / ritmoPrevio;
+  return cambio >= POSICIONADO_CAMBIO_MIN && cambio <= POSICIONADO_CAMBIO_MAX && parteAds <= POSICIONADO_PARTE_ADS_MAX;
+}
+
 /** Subir o bajar menos de esto al día no se pide: es ruido en la lista. */
 export const GASTO_DIA_MINIMO = 10;
 
@@ -541,6 +561,12 @@ export function armarRecomendaciones(opts: {
    * 14-oct-2026: «me llegó subir el gasto pero ya se había subido»).
    */
   presupuestoDeModelo?: Map<string, number>;
+  /**
+   * modelo -> unidades al día en los 60 días ANTERIORES al periodo. Con ella
+   * se reconoce un producto POSICIONADO (vende parejo y casi todo sin
+   * publicidad) y se le pide bajar el gasto.
+   */
+  ritmoPrevioDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
   const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
@@ -657,6 +683,41 @@ export function armarRecomendaciones(opts: {
         },
         f.gastoAds,
       );
+      continue;
+    }
+
+    // 4b. Producto POSICIONADO: vende parejo desde hace meses y la mayor
+    // parte de sus ventas NO viene de la publicidad. Ahí el anuncio paga
+    // ventas que ya caían solas (regla del dueño, 16-oct-2026: «no vale la
+    // pena gastar en productos ya posicionados»): bajar el gasto a la mitad
+    // y, si en dos semanas sigue vendiendo igual, otra vez.
+    const previo = opts.ritmoPrevioDeModelo?.get(f.modelo) ?? null;
+    const parteAds = f.unidades > 0 ? f.unidadesAds / f.unidades : null;
+    if (
+      activos.length > 0 &&
+      f.gastoAds > 0 &&
+      previo != null &&
+      parteAds != null &&
+      esPosicionado(ritmo, previo, parteAds)
+    ) {
+      const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+      const alDiaMitad = alDia / 2;
+      const hoy = opts.presupuestoDeModelo?.get(f.modelo);
+      // Ya se bajó: el presupuesto de hoy anda en la mitad (el gasto de 14
+      // días va atrasado). O el recorte ya son unos pesos.
+      const yaBajado = hoy != null && hoy <= alDiaMitad * 1.1;
+      if (!yaBajado && alDia - alDiaMitad >= GASTO_DIA_MINIMO) {
+        agregar(
+          {
+            modelo: f.modelo,
+            accion: "bajar",
+            queHacer: `Producto posicionado: bajar el gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+            razon: `Vende ${num(ritmo)} al día parejo (antes ${num(previo)}) y solo ${pct(parteAds)} de sus ventas viene de la publicidad: ya se vende solo. Si en dos semanas sigue igual, se puede volver a bajar.`,
+          },
+          f.gastoAds,
+        );
+      }
+      // Un posicionado nunca recibe «subir».
       continue;
     }
 
@@ -1021,6 +1082,8 @@ export async function cargarPublicidad(
   const leerVentasAgregadas = async (): Promise<{
     periodo: VentaDiaria[];
     skusConHistoria: Set<string>;
+    /** sku -> unidades en los 60 días anteriores al periodo */
+    unidadesPrevias: Map<string, number>;
     /** venta del periodo cuyo depósito aún no se lee (fuera de la ganancia) */
     ventaSinDeposito: number;
   }> => {
@@ -1036,6 +1099,7 @@ export async function cargarPublicidad(
     if (!error) {
       const periodo: VentaDiaria[] = [];
       const skusConHistoria = new Set<string>();
+      const unidadesPrevias = new Map<string, number>();
       let ventaSinDeposito = 0;
       for (const f of (data ?? []) as any[]) {
         const sku = String(f.sku);
@@ -1045,11 +1109,15 @@ export async function cargarPublicidad(
         // se estima como importe − comisión: se declara y queda fuera.
         const neto = Number(f.neto_real) || 0;
         ventaSinDeposito += Math.max(0, importe - (Number(f.importe_neto_real) || 0));
-        if ((Number(f.unidades_prev) || 0) > 0) skusConHistoria.add(sku);
+        const previas = Number(f.unidades_prev) || 0;
+        if (previas > 0) {
+          skusConHistoria.add(sku);
+          unidadesPrevias.set(sku, previas);
+        }
         if (unidades === 0 && importe === 0 && neto === 0) continue;
         periodo.push({ sku, fecha: r.desde, unidades, importe, comision: importe - neto, neto: null });
       }
-      return { periodo, skusConHistoria, ventaSinDeposito };
+      return { periodo, skusConHistoria, unidadesPrevias, ventaSinDeposito };
     }
 
     if (!esErrorObjetoLegacy(error, ["ventas_resumen_sku"])) {
@@ -1057,12 +1125,16 @@ export async function cargarPublicidad(
     }
     const filas = await leerVentas();
     const skusConHistoria = new Set<string>();
+    const unidadesPrevias = new Map<string, number>();
     let ventaSinDeposito = 0;
     for (const v of filas) {
-      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) skusConHistoria.add(v.sku);
+      if (v.fecha < r.desde && (v.unidades ?? 0) > 0) {
+        skusConHistoria.add(v.sku);
+        unidadesPrevias.set(v.sku, (unidadesPrevias.get(v.sku) ?? 0) + (v.unidades ?? 0));
+      }
       if (v.fecha >= r.desde && netoConfirmadoDeFila(v) == null) ventaSinDeposito += v.importe ?? 0;
     }
-    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, ventaSinDeposito };
+    return { periodo: filas.filter((v) => v.fecha >= r.desde), skusConHistoria, unidadesPrevias, ventaSinDeposito };
   };
 
   const [ventasAgregadas, deBase, skus, config, stockEstado, cliente] = await Promise.all([
@@ -1196,6 +1268,14 @@ export async function cargarPublicidad(
       (stockDeModelo.get(modelo) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0),
     );
   }
+  // Ritmo de venta por modelo en los 60 días anteriores (producto posicionado).
+  const diasPrevios = diasDeRango({ desde: desdeHistoria, hasta: diaAntes });
+  const ritmoPrevioDeModelo = new Map<string, number>();
+  for (const [sku, u] of ventasAgregadas.unidadesPrevias) {
+    const modelo = modeloDeSku.get(sku) ?? (sku.split("-")[0] || sku);
+    ritmoPrevioDeModelo.set(modelo, (ritmoPrevioDeModelo.get(modelo) ?? 0) + u / diasPrevios);
+  }
+
   // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
   // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
   let presupuestoDeModelo: Map<string, number> | undefined;
@@ -1216,6 +1296,7 @@ export async function cargarPublicidad(
         itemsDeModelo,
         modelosConHistoria,
         presupuestoDeModelo,
+        ritmoPrevioDeModelo,
       });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
