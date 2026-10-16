@@ -30,18 +30,74 @@ function Accion({ a }: { a: string }) {
   return <span style={{ color: t.color }}>{t.texto}</span>;
 }
 
+type ConfirmacionRelampagos = {
+  modelos: number;
+  inscritas: ResultadoPrecio[];
+  fallidas: ResultadoPrecio[];
+  omitidas: string[];
+  avisos: string[];
+};
+
+function ResultadoRelampagos({ r }: { r: ConfirmacionRelampagos }) {
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      <Aviso tono={r.fallidas.length ? "alerta" : r.inscritas.length ? "bien" : "info"}>
+        {r.inscritas.length} relámpago inscritas · {r.fallidas.length} rechazadas por MELI · {r.omitidas.length} omitidas ·{" "}
+        {r.modelos} modelos revisados
+      </Aviso>
+      {[...r.inscritas, ...r.fallidas].length ? (
+        <ul className="flex flex-col gap-0.5">
+          {[...r.fallidas, ...r.inscritas].map((x, i) => (
+            <li key={i}>
+              <span className="cifra">{x.donde}</span>{" "}
+              <span style={{ color: x.ok ? "var(--exito-texto)" : "var(--estado-critico)" }}>
+                {x.ok ? "✓" : "✗"} {x.detalle}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {r.omitidas.map((o, i) => (
+        <div key={i} className="texto-tenue">
+          {o}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Lleva los precios de Números a MELI y Amazon: primero REVISA en vivo lo
  * que cada publicación tiene contra lo nuevo y solo con «Aplicar» escribe.
  */
 export function PreciosNumeros() {
   const [modelos, setModelos] = useState("");
-  const [cargando, setCargando] = useState<"revisar" | "aplicar" | null>(null);
+  const [cargando, setCargando] = useState<"revisar" | "aplicar" | "relampagos" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState<RevisionPrecios | null>(null);
   const [resultados, setResultados] = useState<ResultadoPrecio[] | null>(null);
   const [asignadas, setAsignadas] = useState<Asignaciones>({});
   const [stocks, setStocks] = useState<Record<string, string>>({});
+  const [relampagos, setRelampagos] = useState<ConfirmacionRelampagos | null>(null);
+
+  // Lo mismo que el cron de las 10:00, a mano: todas las relámpago
+  // candidatas al precio relámpago de Números; MELI rechaza las que no lo aceptan.
+  const confirmarRelampagos = async () => {
+    if (!confirm("Se van a inscribir TODAS las relámpago candidatas al precio relámpago de Números (5 pares o lo que pida MELI). ¿Continuar?")) return;
+    setCargando("relampagos");
+    setError(null);
+    setRelampagos(null);
+    try {
+      const r = await fetch("/api/finanzas/numeros/relampagos", { method: "POST" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error ?? "No se pudieron confirmar las relámpago.");
+      setRelampagos(j as ConfirmacionRelampagos);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCargando(null);
+    }
+  };
 
   const revisar = async (asig: Asignaciones = asignadas) => {
     setCargando("revisar");
@@ -173,7 +229,18 @@ export function PreciosNumeros() {
         <button type="button" className="boton boton-primario" disabled={!!cargando || !porHacer} onClick={() => void aplicar()}>
           {cargando === "aplicar" ? "Aplicando…" : `Aplicar ${porHacer || ""}`.trim()}
         </button>
+        <button
+          type="button"
+          className="boton boton-secundario"
+          disabled={!!cargando}
+          onClick={() => void confirmarRelampagos()}
+          title="Inscribe las relámpago que cargó tu asesor, solo al precio relámpago de Números"
+        >
+          {cargando === "relampagos" ? "Confirmando relámpagos… (tarda unos minutos)" : "Confirmar relámpagos"}
+        </button>
       </form>
+
+      {relampagos ? <ResultadoRelampagos r={relampagos} /> : null}
 
       {error ? <Aviso tono="critico">{error}</Aviso> : null}
       {revision?.avisos.map((a, i) => (

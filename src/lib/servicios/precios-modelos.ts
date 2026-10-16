@@ -300,11 +300,15 @@ export const TAREA_RELAMPAGOS = "relampagos-auto";
  * de MELI se inscribe reservando el MÍNIMO de pares que pide MELI. Nada más
  * se toca: ni Buen Fin, ni todos los días, ni Amazon, ni una relámpago ya
  * inscrita. Lo hecho queda en `sync_log` (tarea `relampagos-auto`).
+ * El botón «Confirmar relámpagos» de Números corre esto mismo a mano
+ * (`origen: "manual"`; dueño, 16-oct-2026: «cuando mi asesor me carga
+ * ofertas, que solo confirme las que pasan los precios de relámpago»).
  */
 export async function confirmarRelampagosPendientes(
   admin: DB,
   cliente: MeliClient,
   accountId: string,
+  origen: "cron" | "manual" = "cron",
 ): Promise<{ modelos: number; inscritas: ResultadoPrecio[]; fallidas: ResultadoPrecio[]; omitidas: string[]; avisos: string[] }> {
   const filas = await traerTodo<{ modelo: string; precio_relampago: unknown }>(admin, "numeros_modelos", "modelo, precio_relampago", (q) =>
     q.eq("account_id", accountId).not("precio_relampago", "is", null),
@@ -333,7 +337,7 @@ export async function confirmarRelampagosPendientes(
     tarea: TAREA_RELAMPAGOS,
     estado: fallidas.length ? "error" : "ok",
     fin: new Date().toISOString(),
-    detalle: { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
+    detalle: { origen, modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos.slice(0, 50) },
   });
   return { modelos: modelos.length, inscritas, fallidas, omitidas, avisos: revision.avisos };
 }
