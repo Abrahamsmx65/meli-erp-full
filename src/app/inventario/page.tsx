@@ -52,7 +52,7 @@ export default async function Inventario({
       <Encabezado
         ceja="Inventario"
         titulo="Existencias en bodega"
-        descripcion="Cajas en bodega, lo que viene de China y lo que ya está en Full y FBA, con lo invertido y lo que dejaría venderlo."
+        descripcion="Cajas en bodega, lo que viene de China y lo que ya está en Full, FBA y TikTok, con lo invertido y lo que dejaría venderlo."
         ayuda={
           <>
             <p>
@@ -62,7 +62,7 @@ export default async function Inventario({
             <p>
               La inversión es todo a costo de Productos y costos: bodega, lo que viene de China, Full (con lo que va en
               transferencia) y FBA (disponible, reservado y lo ya enviado; un envío solo dado de alta no, porque sus cajas
-              siguen en la bodega). La ganancia estimada es vender TODO eso a lo que Mercado Pago depositó por par de cada
+              siguen en la bodega) y la bodega de TikTok (el saldo del kardex, sin los productos de David). La ganancia estimada es vender TODO eso a lo que Mercado Pago depositó por par de cada
               modelo en los últimos 30 días (reventa incluida, el mismo número de Números) menos el costo; es antes de
               publicidad y gastos. Un modelo con menos de 10 pares vendidos en MELI en 30 días no tiene estimación y se
               dice cuál.
@@ -77,8 +77,11 @@ export default async function Inventario({
 
       <Cifras columnas={6}>
         <Ficha titulo="SKUs" valor={n(fichas.skus)} nota="Con producto en bodega o en camino" />
-        <Ficha titulo="Cajas cerradas" valor={n(fichas.cajas)} nota="En las bodegas de México" />
-        <Ficha titulo="Pares en bodega" valor={n(fichas.paresEnBodega)} nota="Dentro de esas cajas" />
+        <Ficha
+          titulo="Pares en bodega"
+          valor={n(fichas.paresEnBodega)}
+          nota={`En ${n(fichas.cajas)} cajas cerradas en México`}
+        />
         <Ficha
           titulo="En camino de China"
           valor={n(fichas.paresEnCamino)}
@@ -91,6 +94,7 @@ export default async function Inventario({
           nota="Pares en Mercado Libre, con lo que va en transferencia"
         />
         <Ficha titulo="En FBA" valor={n(fichas.paresEnFba)} nota="Pares en Amazon, con lo ya enviado" />
+        <Ficha titulo="En TikTok" valor={n(fichas.paresEnTikTok)} nota="Bodega de TikTok, sin lo de David" />
       </Cifras>
 
       {vista.avisos.map((a, i) => (
@@ -99,7 +103,7 @@ export default async function Inventario({
         </Aviso>
       ))}
 
-      <Cifras columnas={6}>
+      <Cifras columnas={5}>
         <Ficha
           titulo="Valor en bodega"
           valor={fichas.valorEnBodega > 0 ? pesos(fichas.valorEnBodega) : "—"}
@@ -127,10 +131,23 @@ export default async function Inventario({
           nota="Lo que está en Amazon, a costo"
         />
         <Ficha
+          titulo="Valor en TikTok"
+          valor={fichas.valorEnTikTok > 0 ? pesos(fichas.valorEnTikTok) : "—"}
+          nota="La bodega de TikTok, a costo"
+        />
+      </Cifras>
+
+      <Cifras columnas={3}>
+        <Ficha
           titulo="Inversión total"
           valor={fichas.inversionTotal > 0 ? pesos(fichas.inversionTotal) : "—"}
-          nota="Bodega + camino + Full + FBA"
+          nota="Bodega + camino + Full + FBA + TikTok, a costo"
           tono="bien"
+        />
+        <Ficha
+          titulo="Venta estimada"
+          valor={ganancia.pares > 0 ? pesos(ganancia.deposito) : "—"}
+          nota="Lo que depositaría MELI por todo eso"
         />
         <Ficha
           titulo="Ganancia estimada"
@@ -200,6 +217,7 @@ export default async function Inventario({
                           <th className="num">Valor en camino</th>
                           <th className="num">Valor en Full</th>
                           <th className="num">Valor en FBA</th>
+                          <th className="num">Valor en TikTok</th>
                           <th className="num">Inversión</th>
                           <th className="num">Del total</th>
                           <th className="num">Depósito MELI</th>
@@ -212,12 +230,13 @@ export default async function Inventario({
                             <td className="font-medium">{c.categoria}</td>
                             <td className="num cifra">{n(c.modelos)}</td>
                             <td className="num cifra">
-                              {n(c.pares.enBodega + c.pares.enCamino + c.pares.enFull + c.pares.enFba)}
+                              {n(c.pares.enBodega + c.pares.enCamino + c.pares.enFull + c.pares.enFba + c.pares.enTikTok)}
                             </td>
                             <td className="num cifra">{pesos(c.valor.enBodega)}</td>
                             <td className="num cifra texto-2">{pesos(c.valor.enCamino)}</td>
                             <td className="num cifra">{pesos(c.valor.enFull)}</td>
                             <td className="num cifra">{pesos(c.valor.enFba)}</td>
+                            <td className="num cifra">{pesos(c.valor.enTikTok)}</td>
                             <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
                             <td className="num cifra texto-2">{porcentaje(c.parte)}</td>
                             <td className="num cifra texto-2">{c.ganancia.pares ? pesos(c.ganancia.deposito) : "—"}</td>
@@ -235,6 +254,7 @@ export default async function Inventario({
                           <td className="num cifra font-semibold">{pesos(inversion.total.enCamino)}</td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.enFull)}</td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.enFba)}</td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.enTikTok)}</td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.total)}</td>
                           <td className="num cifra">100%</td>
                           <td className="num cifra font-semibold">{ganancia.pares ? pesos(ganancia.deposito) : "—"}</td>

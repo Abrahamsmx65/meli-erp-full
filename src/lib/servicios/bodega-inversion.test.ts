@@ -79,17 +79,19 @@ describe("inversionPorCategoria", () => {
     expect(inv.categorias[0].modelos).toBe(1);
   });
 
-  it("suma lo que está en Full y en FBA a la inversión", () => {
+  it("suma lo que está en Full, FBA y TikTok a la inversión", () => {
     const inv = inversionPorCategoria(
       [
         { modelo: "GT110", enBodega: 10, enCamino: 0, enFull: 20 },
         { modelo: "GT110", enBodega: 0, enCamino: 0, enFba: 5 },
+        { modelo: "GT110", enBodega: 0, enCamino: 0, enTikTok: 7 },
       ],
       base,
     );
     expect(inv.total.enFull).toBe(20 * 300);
     expect(inv.total.enFba).toBe(5 * 300);
-    expect(inv.total.total).toBe(35 * 300);
+    expect(inv.total.enTikTok).toBe(7 * 300);
+    expect(inv.total.total).toBe(42 * 300);
   });
 
   it("ganancia estimada = (depósito de MELI − costo) × todos los pares; sin venta se aparta", () => {

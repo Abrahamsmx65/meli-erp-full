@@ -19,6 +19,7 @@ import { modeloUnificado } from "./costos-unificados";
 import { servirConCacheApp } from "./cache-app";
 import { CLAVE_TARIFAS, EDAD_TARIFAS_MS, calcularTarifasReales, type TarifasGuardadas } from "./tarifas-reales";
 import { esModeloDeCalzado } from "../tiktok/publicar";
+import { skusExternos } from "./tiktok-externos";
 import type { InversionEnBodega } from "./inventario";
 import { traerTodo, type DB } from "../datos/repos";
 import type { Cronometro } from "./cronometro";
@@ -48,7 +49,10 @@ export interface VistaBodega {
     paresEnFba: number;
     valorEnFull: number;
     valorEnFba: number;
-    /** Bodega + camino + Full + FBA, a costo. */
+    /** Pares en la bodega de TikTok (saldo del kardex, sin lo de David). */
+    paresEnTikTok: number;
+    valorEnTikTok: number;
+    /** Bodega + camino + Full + FBA + TikTok, a costo. */
     inversionTotal: number;
     /** Pares que no entran en el valor por no tener costo capturado. */
     paresSinCosto: number;
@@ -79,13 +83,20 @@ export async function vistaBodega(
   // corridas completos (los usa Planificación China); esta vista no, y
   // bajarlos era su costo dominante.
   const avisos: string[] = [];
-  const [inv, config, fba, tarifas] = await Promise.all([
+  const [inv, config, fba, tiktok, tarifas] = await Promise.all([
     medir("inventario", cargarInventario(db, accountId, { sinCrudos: true })),
     medir("config", configPorProducto(db, accountId)),
     medir(
       "fba",
       leerFba(db).catch((err) => {
         avisos.push(`No se pudo leer el inventario de FBA: ${(err as Error).message}`);
+        return [] as RenglonParaCostear[];
+      }),
+    ),
+    medir(
+      "tiktok",
+      leerTikTok(db, accountId).catch((err) => {
+        avisos.push(`No se pudo leer la bodega de TikTok: ${(err as Error).message}`);
         return [] as RenglonParaCostear[];
       }),
     ),
@@ -116,6 +127,7 @@ export async function vistaBodega(
       enFull: r.enFull + r.enTransferencia,
     })),
     ...fba,
+    ...tiktok,
   ];
   const inversion = inversionPorCategoria(paraCostear, config, netoPorModelo);
 
@@ -131,6 +143,8 @@ export async function vistaBodega(
       paresEnFba: fba.reduce((a, r) => a + (r.enFba ?? 0), 0),
       valorEnFull: inversion.total.enFull,
       valorEnFba: inversion.total.enFba,
+      paresEnTikTok: tiktok.reduce((a, r) => a + (r.enTikTok ?? 0), 0),
+      valorEnTikTok: inversion.total.enTikTok,
       inversionTotal: inversion.total.total,
       paresSinCosto: inversion.sinCosto.pares,
     },
@@ -183,6 +197,28 @@ async function leerFba(db: DB): Promise<RenglonParaCostear[]> {
       Number(f.no_disponible ?? 0) +
       Number(f.investigando ?? 0);
     if (pares > 0) r.push({ modelo, enBodega: 0, enCamino: 0, enFba: pares });
+  }
+  return r;
+}
+
+/**
+ * Pares de CALZADO en la bodega de TikTok: el saldo del kardex (lo apartado
+ * sigue físicamente ahí). Esa bodega NO entra en `enBodega` (`construirCajas`
+ * la descarta), así que no se cuenta dos veces. Lo de vendedores externos
+ * (David) no es inversión del dueño y se queda fuera.
+ */
+async function leerTikTok(db: DB, accountId: string): Promise<RenglonParaCostear[]> {
+  const [filas, externos] = await Promise.all([
+    traerTodo<any>(db, "tiktok_inventario", "sku, saldo", (q) => q.eq("account_id", accountId).gt("saldo", 0)),
+    skusExternos(db, accountId).catch(() => new Map<string, string>()),
+  ]);
+  const r: RenglonParaCostear[] = [];
+  for (const f of filas) {
+    if (externos.has(f.sku)) continue;
+    const modelo = modeloUnificado(f.sku);
+    if (!esModeloDeCalzado(modelo)) continue;
+    const pares = Number(f.saldo ?? 0);
+    if (pares > 0) r.push({ modelo, enBodega: 0, enCamino: 0, enTikTok: pares });
   }
   return r;
 }

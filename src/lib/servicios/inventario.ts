@@ -182,11 +182,11 @@ interface InventarioGuardado {
  */
 export interface InversionCategoria {
   categoria: string;
-  pares: { enBodega: number; enCamino: number; enFull: number; enFba: number };
-  valor: { enBodega: number; enCamino: number; enFull: number; enFba: number; total: number };
+  pares: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number };
+  valor: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
   /**
    * Ganancia estimada de vender TODO lo de esta categoría (bodega, barco,
-   * Full y FBA) a lo que MELI depositó por par en los últimos 30 días, menos
+   * Full, FBA y TikTok) a lo que MELI depositó por par en los últimos 30 días, menos
    * el costo. Solo de los modelos con venta en MELI; los demás se apartan.
    */
   ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
@@ -198,7 +198,7 @@ export interface InversionCategoria {
 
 export interface InversionEnBodega {
   categorias: InversionCategoria[];
-  total: { enBodega: number; enCamino: number; enFull: number; enFba: number; total: number };
+  total: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
   /** La ganancia estimada sumada (ver `InversionCategoria.ganancia`). */
   ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
   /** Pares costeados sin venta en MELI en 30 días: no tienen ganancia estimada. */
@@ -223,6 +223,8 @@ export interface RenglonParaCostear {
   enCamino: number;
   enFull?: number;
   enFba?: number;
+  /** Saldo del kardex de la bodega de TikTok (sin lo de vendedores externos). */
+  enTikTok?: number;
 }
 
 /** Lo que MELI deposita por par de un modelo, buscado como en Números. */
@@ -247,7 +249,8 @@ export function inversionPorCategoria(
   for (const r of renglones) {
     const enFull = Math.max(0, r.enFull ?? 0);
     const enFba = Math.max(0, r.enFba ?? 0);
-    const pares = r.enBodega + r.enCamino + enFull + enFba;
+    const enTikTok = Math.max(0, r.enTikTok ?? 0);
+    const pares = r.enBodega + r.enCamino + enFull + enFba + enTikTok;
     if (pares <= 0) continue;
 
     // El costo se busca igual que en el resto del sistema: por modelo tal
@@ -266,8 +269,8 @@ export function inversionPorCategoria(
       grupos.get(categoria) ??
       {
         categoria,
-        pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0 },
-        valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, total: 0 },
+        pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0 },
+        valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0, total: 0 },
         ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 },
         modelos: 0,
         parte: 0,
@@ -277,10 +280,12 @@ export function inversionPorCategoria(
     g.pares.enCamino += r.enCamino;
     g.pares.enFull += enFull;
     g.pares.enFba += enFba;
+    g.pares.enTikTok += enTikTok;
     g.valor.enBodega += r.enBodega * c.costo;
     g.valor.enCamino += r.enCamino * c.costo;
     g.valor.enFull += enFull * c.costo;
     g.valor.enFba += enFba * c.costo;
+    g.valor.enTikTok += enTikTok * c.costo;
     const neto = netoDeModelo(netoPorModelo, r.modelo);
     if (neto == null) {
       paresSinVenta += pares;
@@ -296,7 +301,7 @@ export function inversionPorCategoria(
   }
 
   const categorias = [...grupos.values()].map((g) => {
-    g.valor.total = g.valor.enBodega + g.valor.enCamino + g.valor.enFull + g.valor.enFba;
+    g.valor.total = g.valor.enBodega + g.valor.enCamino + g.valor.enFull + g.valor.enFba + g.valor.enTikTok;
     g.modelos = g.modelosVistos.size;
     return g;
   });
@@ -306,6 +311,7 @@ export function inversionPorCategoria(
     enCamino: categorias.reduce((a, g) => a + g.valor.enCamino, 0),
     enFull: categorias.reduce((a, g) => a + g.valor.enFull, 0),
     enFba: categorias.reduce((a, g) => a + g.valor.enFba, 0),
+    enTikTok: categorias.reduce((a, g) => a + g.valor.enTikTok, 0),
     total: categorias.reduce((a, g) => a + g.valor.total, 0),
   };
   const ganancia = {

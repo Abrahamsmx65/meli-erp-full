@@ -2493,13 +2493,15 @@ guárdala numerada.
   agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
   completo (activos, inactivos, precio, imagen principal) vive aparte y solo
   lo lee la sección de contenido.
-- **INVERSIÓN en Existencias = bodega + camino de China + Full + FBA**
+- **INVERSIÓN en Existencias = bodega + camino de China + Full + FBA + TikTok**
   (`inversionPorCategoria` en `servicios/inventario.ts`, `vistaBodega` en
   `servicios/bodega.ts`; dueño, 16-oct-2026: «para ver cuánto dinero real
   tenemos invertido»): todo a costo de `productos_config`. Full lleva lo que
   va en transferencia; FBA (`amazon_inventario`, solo calzado) lleva
   disponible, reservado, no disponible, investigando, transferencia y lo ya
   enviado o recibiéndose, NO lo «trabajando» (sus cajas siguen en bodega).
+  TikTok = saldo de `tiktok_inventario` sin los SKU de David
+  (`skusExternos`); esa bodega no está en `enBodega`, no se cuenta dos veces.
   **Ganancia estimada** (mismo día: «sumar la ganancia estimada de la venta
   de lo que hay en total, según lo que se gana en MELI»): todos esos pares ×
   (depósito real de MELI por par en 30 días − costo), el `netoPar` de
