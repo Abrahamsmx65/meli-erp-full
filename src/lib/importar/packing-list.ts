@@ -279,9 +279,15 @@ export async function importarPackingList(
         c === "G-W-CTN" || c === "GW-CTN" || c === "G-W-PER-CTN" || c === "GROSS-WEIGHT-CTN" || c === "KGS-CTN" ||
         c === "KG-CTN" || c === "PESO" || c === "PESO-CAJA" || c === "PESO-CTN" || c === "WEIGHT-CTN",
     );
-    col.pesoTotal = f.findIndex(
-      (c) => c === "TOTAL-G-W" || c === "TOTAL-GW" || c === "G-W" || c === "GW" || c === "GROSS-WEIGHT" || c === "TOTAL-GROSS-WEIGHT",
-    );
+    // «G.W» suelto es AMBIGUO: si el archivo trae además «Total G.W», es el
+    // peso POR CAJA (S263-2026: G.W 11 | Total G.W 330 con 30 cajas). Antes
+    // se tomaba como total y se dividía entre las cajas: 11 ÷ 30 = 0.37 kg.
+    const esTotalExplicito = (c: string) => c === "TOTAL-G-W" || c === "TOTAL-GW" || c === "TOTAL-GROSS-WEIGHT";
+    const esPesoSuelto = (c: string) => c === "G-W" || c === "GW" || c === "GROSS-WEIGHT";
+    const iTotal = f.findIndex(esTotalExplicito);
+    const iSuelto = f.findIndex(esPesoSuelto);
+    col.pesoTotal = iTotal >= 0 ? iTotal : iSuelto;
+    if (col.pesoCaja < 0 && iTotal >= 0 && iSuelto >= 0) col.pesoCaja = iSuelto;
     break;
   }
 

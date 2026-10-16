@@ -146,7 +146,16 @@ guárdala numerada.
   metros → cm, «G.W/ctn» en kg; `medidasDeCeldas`) y se guardan por renglón
   en `contenedor_lineas` (migración 0094), nunca se capturan a mano
   (decisión del dueño, 18-sep-2026: «lo tomes del packing list, ahí sí
-  sale»). **El botón «Packing list» del contenedor descarga el formato del
+  sale»). **«G.W» junto a «Total G.W» es el peso POR CAJA** (16-oct-2026,
+  dueño: «estás tomando mal los datos» en el S263): se tomaba como total y
+  se dividía entre las cajas (11 ÷ 30 = 0.37 kg); S263 y S267–S271 tenían
+  todos los pesos así. Y cada lectura del archivo pone medida y peso en
+  TODOS los renglones del contenedor (`medidasParaRenglones`, pedido +
+  modelo + color laxo + talla → pedido + modelo + talla → modelo + talla;
+  sin acuerdo no adivina), también en lo confirmado a mano desde los
+  pendientes: los GT268–GT271 del S263 («N10127», colores en español) se
+  habían quedado sin medidas. Se corrigieron por SQL los 10 contenedores
+  vivos contra sus archivos de Drive. **El botón «Packing list» del contenedor descarga el formato del
   agente aduanal** (`packing-list-contenedor.ts`): LOTE PEDIDO, MODELO,
   COLOR, SKU (`IN10126-GT142-CREAM`, con talla si la caja es unitalla),
   PARES por caja, CAJAS, LARGO, ALTO, ANCHO, PESO, PRECIO = costo por par de
