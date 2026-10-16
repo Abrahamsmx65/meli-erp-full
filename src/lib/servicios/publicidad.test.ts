@@ -4,6 +4,8 @@ import {
   armarPublicidad,
   armarRecomendaciones,
   armarDependencias,
+  roasDeCampana,
+  roasObjetivoPorModelo,
   clasificarDependencia,
   COBERTURA_CORTA_DIAS,
   type AnuncioAds,
@@ -609,5 +611,69 @@ describe("pausar mira la bodega y el estado real del anuncio", () => {
       itemsDeModelo: new Map([["GT259", [item("MLM1", "hold"), item("MLM2", "paused"), item("MLM3", "idle")]]]),
     });
     expect(rs.some((r) => r.accion === "pausar")).toBe(false);
+  });
+});
+
+describe("ROAS objetivo en vez de presupuesto", () => {
+  it("lee el ROAS de la campaña o lo saca del ACOS", () => {
+    expect(roasDeCampana(6, null)).toBe(6);
+    expect(roasDeCampana(null, 20)).toBe(5);
+    expect(roasDeCampana(null, null)).toBeNull();
+  });
+
+  it("pesa el ROAS por presupuesto entre las campañas activas del modelo", () => {
+    const m = roasObjetivoPorModelo(
+      [
+        { id: "a", estado: "active", presupuesto: 300, roasObjetivo: 4 },
+        { id: "b", estado: "active", presupuesto: 100, roasObjetivo: 8 },
+      ],
+      new Map([["GT1", [{ ...item("MLM1"), campanaId: "a" }, { ...item("MLM2"), campanaId: "b" }]]]),
+    );
+    expect(m.get("GT1")).toBe(5);
+  });
+
+  // Posicionado: 20 al día (antes 19), 30 % por anuncio, ROAS real 4.
+  const posicionado = fila("GT114", { unidades: 280, unidadesAds: 84, importe: 200000, ganancia: 60000, gastoAds: 14000, ventaAds: 56000, tacos: 0.07 });
+  const baseP = {
+    filas: [posicionado],
+    dias: 14,
+    stockDeModelo: new Map([["GT114", 5000]]),
+    itemsDeModelo: new Map([["GT114", [item("MLM1")]]]),
+    ritmoPrevioDeModelo: new Map([["GT114", 19]]),
+    presupuestoDeModelo: new Map([["GT114", 1000]]),
+  };
+
+  it("posicionado con ROAS objetivo: pide subir el ROAS, no bajar el presupuesto", () => {
+    const rs = armarRecomendaciones({ ...baseP, roasObjetivoDeModelo: new Map([["GT114", 4]]) });
+    expect(rs).toHaveLength(1);
+    expect(rs[0].accion).toBe("bajar");
+    expect(rs[0].queHacer).toContain("subir el ROAS objetivo de 4.0 a ~6.0");
+  });
+
+  it("si el ROAS objetivo ya se subió, no lo vuelve a pedir", () => {
+    const rs = armarRecomendaciones({ ...baseP, roasObjetivoDeModelo: new Map([["GT114", 6]]) });
+    expect(rs).toHaveLength(0);
+  });
+
+  // Capital parado y TACOS 3 %: ROAS real 5, gasta ~$64 al día.
+  const parado = fila("GT200", { gastoAds: 900, ventaAds: 4500, tacos: 0.03 });
+  const baseS = {
+    filas: [parado],
+    dias: 14,
+    stockDeModelo: new Map([["GT200", 1000]]),
+    itemsDeModelo: new Map([["GT200", [item("MLM1")]]]),
+    roasObjetivoDeModelo: new Map([["GT200", 5]]),
+  };
+
+  it("presupuesto que no se gasta: bajar el ROAS objetivo, no subir el presupuesto", () => {
+    const rs = armarRecomendaciones({ ...baseS, presupuestoDeModelo: new Map([["GT200", 300]]) });
+    expect(rs.map((r) => r.accion)).toEqual(["subir"]);
+    expect(rs[0].queHacer).toContain("Bajar el ROAS objetivo de 5.0 a ~3.3");
+    expect(rs[0].queHacer).toContain("gasta $64 de $300 de presupuesto");
+  });
+
+  it("presupuesto que sí se gasta: subir el presupuesto", () => {
+    const rs = armarRecomendaciones({ ...baseS, presupuestoDeModelo: new Map([["GT200", 64]]) });
+    expect(rs[0].queHacer).toMatch(/^Subir el gasto/);
   });
 });
