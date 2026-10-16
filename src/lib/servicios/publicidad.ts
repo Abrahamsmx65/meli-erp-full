@@ -18,6 +18,7 @@ import { rpcPaginado, traerTodo, type DB } from "../datos/repos";
 import { servirConCacheApp } from "./cache-app";
 import { clienteAdmin } from "../supabase/server";
 import { configPorProducto } from "./productos";
+import { cargarInventario } from "./inventario";
 import { clienteDeCuenta } from "./webhooks";
 import { diasDeRango, fechaMx, netoConfirmadoDeFila, normalizarRango, type RangoFechas } from "./ventas-monitor";
 import {
@@ -457,6 +458,15 @@ export function esPosicionado(ritmo: number, ritmoPrevio: number, parteAds: numb
   return cambio >= POSICIONADO_CAMBIO_MIN && cambio <= POSICIONADO_CAMBIO_MAX && parteAds <= POSICIONADO_PARTE_ADS_MAX;
 }
 
+/**
+ * El anuncio está corriendo. MELI marca «paused» lo que el dueño pausó,
+ * «hold» lo que MELI detiene sola (publicación sin stock o pausada) e
+ * «idle» lo que está en la campaña sin usarse: ninguno de los tres gasta, y
+ * pedir «pausar» sobre ellos es pedir lo ya hecho (GT181, 16-oct-2026:
+ * «me pones que apague la publicidad pero ya está pausado»).
+ */
+export const anuncioCorriendo = (estado: string | null): boolean => estado == null || estado === "active";
+
 /** Subir o bajar menos de esto al día no se pide: es ruido en la lista. */
 export const GASTO_DIA_MINIMO = 10;
 
@@ -475,7 +485,7 @@ export function presupuestoPorModelo(
   const modelosDeCampana = new Map<string, Set<string>>();
   for (const [modelo, items] of itemsDeModelo) {
     for (const it of items) {
-      if (!it.campanaId || it.estado === "paused" || !activas.has(it.campanaId)) continue;
+      if (!it.campanaId || !anuncioCorriendo(it.estado) || !activas.has(it.campanaId)) continue;
       const set = modelosDeCampana.get(it.campanaId) ?? new Set<string>();
       set.add(modelo);
       modelosDeCampana.set(it.campanaId, set);
@@ -673,6 +683,13 @@ export function armarRecomendaciones(opts: {
    * publicidad) y se le pide bajar el gasto.
    */
   ritmoPrevioDeModelo?: Map<string, number>;
+  /**
+   * modelo -> piezas en las bodegas propias (cajas de Industher, Caseshop,
+   * EnvioPack; el Sheet de fundas). Con poco stock en Full pero bodega para
+   * reponerlo, el anuncio NO se pausa: lo que falta es mandar a Full
+   * (GT259, 16-oct-2026: 47 pares en Full y 528 en bodega).
+   */
+  stockBodegaDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
   const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
@@ -707,7 +724,7 @@ export function armarRecomendaciones(opts: {
     const ritmo = dias > 0 ? f.unidades / dias : 0;
     const cobertura = ritmo > 0 ? stock / ritmo : null;
     const items = itemsDeModelo.get(f.modelo) ?? [];
-    const activos = items.filter((i) => i.estado !== "paused");
+    const activos = items.filter((i) => anuncioCorriendo(i.estado));
     const pausados = items.filter((i) => i.estado === "paused");
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
     const cobertext =
@@ -718,7 +735,10 @@ export function armarRecomendaciones(opts: {
     // 1. Stock agotado o por agotarse con el anuncio prendido.
     const sinStock = stock <= 0;
     const coberturaCorta = cobertura != null && cobertura < corta;
-    if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta)) {
+    const bodega = opts.stockBodegaDeModelo?.get(f.modelo) ?? 0;
+    // Con la bodega, ¿alcanza? Entonces se repone Full; el anuncio sigue.
+    const bodegaRepone = bodega > 0 && (ritmo > 0 ? (stock + bodega) / ritmo >= corta : true);
+    if (activos.length > 0 && f.gastoAds > 0 && (sinStock || coberturaCorta) && !bodegaRepone) {
       agregar(
         {
           modelo: f.modelo,
@@ -1382,6 +1402,22 @@ export async function cargarPublicidad(
     ritmoPrevioDeModelo.set(modelo, (ritmoPrevioDeModelo.get(modelo) ?? 0) + u / diasPrevios);
   }
 
+  // Pares en las bodegas propias: con bodega para reponer Full no se pausa.
+  let stockBodegaDeModelo: Map<string, number> | undefined;
+  if (!stockEstado.error) {
+    try {
+      const inv = await cargarInventario(db, cuenta.id, { sinCrudos: true });
+      stockBodegaDeModelo = new Map();
+      for (const rg of inv.renglones) {
+        if (!rg.enBodega) continue;
+        const modelo = modeloDeSku.get(rg.sku) ?? rg.modelo;
+        stockBodegaDeModelo.set(modelo, (stockBodegaDeModelo.get(modelo) ?? 0) + rg.enBodega);
+      }
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer la bodega: ${(err as Error).message}. «Pausar» solo mira el stock de Full.`);
+    }
+  }
+
   // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
   // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
   let presupuestoDeModelo: Map<string, number> | undefined;
@@ -1406,6 +1442,7 @@ export async function cargarPublicidad(
         modelosConHistoria,
         presupuestoDeModelo,
         ritmoPrevioDeModelo,
+        stockBodegaDeModelo,
       });
   datos.dependencias = armarDependencias({
     filas: datos.filas,

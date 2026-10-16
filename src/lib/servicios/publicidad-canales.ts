@@ -222,12 +222,17 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   if (!cuenta) return { recomendaciones: [], gastoAds: 0, tacos: null, hasta: null, avisos: ["No hay cuenta de fundas conectada."], error: true };
 
   const disenoDe = (sku: string, diseno?: string | null) => (diseno || desglosar(sku).diseno || sku).toUpperCase();
-  const [skus, periodo, previa, stock, costos] = await Promise.all([
+  const [skus, periodo, previa, stock, costos, bodegaYz] = await Promise.all([
     todo<{ sku: string; item_id: string | null; diseno: string | null }>(db, "yz_skus", "sku, item_id, diseno", (q) => q.eq("account_id", cuenta.id)),
     rpcTodo<ResumenYz>(db, "yz_ventas_resumen", { p_account: cuenta.id, p_desde: rango.desde, p_hasta: rango.hasta }, ["sku"]),
     rpcTodo<ResumenYz>(db, "yz_ventas_resumen", { p_account: cuenta.id, p_desde: restarDias(rango.desde, 60), p_hasta: restarDias(rango.desde, 1) }, ["sku"]),
     todo<{ sku: string; disponible: number | null; en_transferencia: number | null }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
+    // La bodega (el Sheet de fundas): con piezas para reponer Full no se pausa.
+    todo<{ sku_bodega: string; diseno: string | null; cantidad: number | null }>(db, "yz_inventario", "sku_bodega, diseno, cantidad", (q) => q.eq("account_id", cuenta.id)).catch((err) => {
+      avisos.push(`No se pudo leer la bodega de fundas: ${(err as Error).message}. «Pausar» solo mira el stock de Full.`);
+      return null;
+    }),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -303,6 +308,11 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   if (p.sinAmarre.gasto > 0) avisos.push(`$${Math.round(p.sinAmarre.gasto).toLocaleString("es-MX")} de gasto en ${p.sinAmarre.anuncios} anuncio(s) de fundas sin diseño amarrado.`);
 
   const presupuestoDeModelo = campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined;
+  const stockBodegaDeModelo = bodegaYz ? new Map<string, number>() : undefined;
+  for (const b of bodegaYz ?? []) {
+    const d = disenoDe(b.sku_bodega, b.diseno);
+    stockBodegaDeModelo!.set(d, (stockBodegaDeModelo!.get(d) ?? 0) + (Number(b.cantidad) || 0));
+  }
   return {
     dependencias: armarDependencias({
       filas: p.filas,
@@ -323,6 +333,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       coberturaLarga: COBERTURA_LARGA_FUNDAS,
       presupuestoDeModelo,
       ritmoPrevioDeModelo,
+      stockBodegaDeModelo,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,
