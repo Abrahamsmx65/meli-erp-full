@@ -6,6 +6,7 @@ import { FotoProducto } from "./ui/foto-producto";
 
 /** Renglones que se pintan de entrada (cada uno lleva dos campos de captura). */
 const TOPE_INICIAL = 300;
+const SIN_CATEGORIA = "Sin categoría";
 
 /**
  * Captura de categoría y costo por producto.
@@ -26,6 +27,15 @@ export function TablaProductos({
   const [busqueda, setBusqueda] = useState("");
   const [soloSinCosto, setSoloSinCosto] = useState(false);
   const [negocio, setNegocio] = useState<Negocio | "">("");
+  // Filtro por categoría. Se filtra con la categoría con que llegó cada
+  // renglón, no con la que se está tecleando: así se puede filtrar «Sin
+  // categoría» e ir asignándolas sin que el renglón desaparezca a la primera
+  // letra. Lo recategorizado se acomoda al recargar.
+  const [categoria, setCategoria] = useState<string>("");
+  const categoriaDe = useMemo(
+    () => new Map(productos.map((p) => [p.modelo, p.categoria?.trim() || SIN_CATEGORIA])),
+    [productos],
+  );
   const [tope, setTope] = useState(TOPE_INICIAL);
 
   // Cada renglón trae dos campos de captura: con cientos de modelos, pintar
@@ -37,6 +47,7 @@ export function TablaProductos({
     return filas.filter((p) => {
       if (negocio && p.negocio !== negocio) return false;
       if (soloSinCosto && p.costoMxn != null) return false;
+      if (categoria && (categoriaDe.get(p.modelo) ?? SIN_CATEGORIA) !== categoria) return false;
       if (!q) return true;
       return (
         p.modelo.toUpperCase().includes(q) ||
@@ -44,7 +55,21 @@ export function TablaProductos({
         (p.titulo ?? "").toUpperCase().includes(q)
       );
     });
-  }, [filas, busquedaDiferida, soloSinCosto, negocio]);
+  }, [filas, busquedaDiferida, soloSinCosto, negocio, categoria, categoriaDe]);
+
+  // Las categorías que hay, con cuántos renglones tiene cada una dentro del
+  // negocio elegido (Todo / Calzado / Fundas).
+  const opcionesCategoria = useMemo(() => {
+    const cuenta = new Map<string, number>();
+    for (const p of filas) {
+      if (negocio && p.negocio !== negocio) continue;
+      const c = categoriaDe.get(p.modelo) ?? SIN_CATEGORIA;
+      cuenta.set(c, (cuenta.get(c) ?? 0) + 1);
+    }
+    return [...cuenta.entries()].sort((a, b) =>
+      a[0] === SIN_CATEGORIA ? 1 : b[0] === SIN_CATEGORIA ? -1 : a[0].localeCompare(b[0], "es"),
+    );
+  }, [filas, negocio, categoriaDe]);
   const visibles = filtradas.slice(0, tope);
 
   const clave = (p: ProductoConfig) => p.modelo;
@@ -118,6 +143,26 @@ export function TablaProductos({
             </button>
           ))}
         </div>
+        <select
+          value={categoria}
+          onChange={(e) => {
+            setCategoria(e.target.value);
+            setTope(TOPE_INICIAL);
+          }}
+          aria-label="Filtrar por categoría"
+          className="rounded-lg border px-2 py-1.5 text-sm"
+          style={{ borderColor: "var(--borde)", background: "var(--surface-2)" }}
+        >
+          <option value="">Todas las categorías</option>
+          {opcionesCategoria.map(([c, cuantos]) => (
+            <option key={c} value={c}>
+              {c} ({cuantos})
+            </option>
+          ))}
+          {categoria && !opcionesCategoria.some(([c]) => c === categoria) ? (
+            <option value={categoria}>{categoria} (0)</option>
+          ) : null}
+        </select>
         <label className="flex items-center gap-2 text-sm texto-2">
           <input
             type="checkbox"

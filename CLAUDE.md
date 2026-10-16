@@ -2510,6 +2510,17 @@ guárdala numerada.
   PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
   `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
   capturado no entra a nada.
+- **FUNDAS en Existencias y «Todo junto»** (`servicios/existencias-fundas.ts`,
+  `app_cache` `existencias:fundas:v1` 15 min; dueño, 16-oct-2026: «una
+  sección de fundas, lo que hay en stock y en MELI y Amazon y lo que se gana,
+  y sumar todo junto»): mismo motor (`inversionPorCategoria`) por DISEÑO.
+  Bodega = el sheet ya amarrado (pantalla `inventario` de `yz_cache`; lo sin
+  amarrar no se costea y se dice), camino = pedidos a China de fundas, Full =
+  `yz_stock_full` + transferencia, FBA = SKU de Amazon cuyo diseño empieza
+  con número. Los envíos registrados a Full NO se suman (el sheet los puede
+  traer). Ganancia con el depósito real por pieza y diseño de
+  `yz_ventas_resumen` en 30 días (≥ 10 piezas; si no, el promedio). Arriba,
+  «Todo junto» suma calzado + fundas; cada uno con su propio depósito.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
