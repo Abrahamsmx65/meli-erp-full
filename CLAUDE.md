@@ -162,11 +162,18 @@ guárdala numerada.
   «Bodega: productos» y «Bodega: llegada»; dueño, 14-oct-2026: «para avisar
   a la bodega que llega mercancía doy de alta los productos y luego mando un
   Excel con lo que va a llegar»): CSV calcados de S259-PRODUCTOS.csv y
-  PACKING_LIST_S259.csv. El SKU y los dos barcodes son EL TEXTO DEL BOX
-  LABEL (`codigoDeCaja`: PEDIDO-MODELO-COLOR(-TALLA) sin espacios ni
-  anotación, la regla de `textosDeCarton`). PRODUCTOS no repite lo que ya
-  viajó en un contenedor ANTERIOR con el mismo SKU (embarque de número
-  menor); el packing list sí lleva todo. Valor reposicion = el DOBLE del
+  PACKING_LIST_S259.csv. **El SKU es el de MERCADO LIBRE y los dos
+  barcodes la etiqueta de caja que se mandó a China** (dueño, 16-oct-2026):
+  SKU = PEDIDO + el SKU de la variante de MELI sin «-MX» ni talla
+  (`skuMeliDeCaja`; IN10079-GT221-LT BROWN, IN10079-GT221-BLK; con talla si
+  la caja es unitalla), amarrado con `amarreDeLineas` (amarres a mano
+  incluidos; `conSkusMeli` en `contenedor-datos.ts`); sin variante en MELI
+  lleva el color del pedido y se avisa. Barcode = PEDIDO-MODELO-COLOR(-TALLA)
+  con el color del PEDIDO (BLACK) y cada espacio convertido en GUION
+  (`codigoDeCaja`; IN10079-GT221-LT-BROWN): la almacenadora no acepta
+  espacios, aunque la caja de origen venga con ellos. PRODUCTOS no repite
+  lo que ya viajó en un contenedor ANTERIOR con el mismo barcode (embarque
+  de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
   costo por par × pares (`FACTOR_VALOR_REPOSICION`); Atributos = pares por caja; Paquete 1 = medidas del packing list
   de la fábrica en el orden de «Means» (las que faltan salen de otro
   contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
