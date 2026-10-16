@@ -3,6 +3,8 @@ import {
   presupuestoPorModelo,
   armarPublicidad,
   armarRecomendaciones,
+  armarDependencias,
+  clasificarDependencia,
   COBERTURA_CORTA_DIAS,
   type AnuncioAds,
   type FilaPublicidad,
@@ -544,5 +546,41 @@ describe("presupuestoPorModelo", () => {
     );
     expect(m.get("650")).toBe(350);
     expect(m.get("644")).toBe(50);
+  });
+});
+
+describe("dependencias de la publicidad", () => {
+  it("clasifica por ritmo, ritmo previo y parte por anuncio", () => {
+    expect(clasificarDependencia(20, 20, 0.4)).toBe("posicionado");
+    expect(clasificarDependencia(20, 20, 0.6)).toBe("en_medio");
+    expect(clasificarDependencia(20, 20, 0.9)).toBe("depende");
+    expect(clasificarDependencia(5, 5, 0.9)).toBe("depende");
+    expect(clasificarDependencia(20, 10, 0.4)).toBe("creciendo");
+    expect(clasificarDependencia(5, 0, 0.9)).toBe("creciendo");
+    expect(clasificarDependencia(10, 20, 0.4)).toBe("cayendo");
+    expect(clasificarDependencia(0, 20, null)).toBe("sin_venta");
+  });
+
+  it("lista todo modelo con gasto, con sus campañas y presupuesto, por gasto", () => {
+    const ds = armarDependencias({
+      filas: [
+        fila("GT114", { unidades: 280, unidadesAds: 84, gastoAds: 14000 }),
+        fila("GT200", { unidades: 14, unidadesAds: 13, gastoAds: 700 }),
+        fila("GT300", { gastoAds: 0 }),
+      ],
+      dias: 14,
+      itemsDeModelo: new Map([
+        ["GT114", [{ ...item("MLM1"), campanaId: "c1" }]],
+        ["GT200", [{ ...item("MLM2"), campanaId: "c2" }]],
+      ]),
+      nombresCampana: new Map([["c1", "Botas top"], ["c2", "Nuevos"]]),
+      presupuestoDeModelo: new Map([["GT114", 1000]]),
+      ritmoPrevioDeModelo: new Map([["GT114", 19]]),
+    });
+    expect(ds.map((d) => d.modelo)).toEqual(["GT114", "GT200"]);
+    expect(ds[0]).toMatchObject({ campanas: ["Botas top"], ritmo: 20, gastoDia: 1000, presupuestoHoy: 1000, clase: "posicionado" });
+    expect(ds[0].parteAds).toBeCloseTo(0.3);
+    // Sin venta antes del periodo: es nuevo, va creciendo.
+    expect(ds[1]).toMatchObject({ campanas: ["Nuevos"], ritmoPrevio: 0, presupuestoHoy: null, clase: "creciendo" });
   });
 });

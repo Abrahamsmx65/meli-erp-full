@@ -107,6 +107,28 @@ describe("correo de publicidad", () => {
     expect(texto).toContain("[NUEVO] GT190");
   });
 
+  it("lista todas las campañas con qué tanto depende cada modelo", () => {
+    const c = armarCorreoDePublicidad({
+      dia: "2026-10-16",
+      rango: { desde: "2026-10-02", hasta: "2026-10-15" },
+      canales: {
+        meli_calzado: canal([], {
+          dependencias: [
+            { modelo: "GT114", campanas: ["Botas top"], ritmo: 40, ritmoPrevio: 38, parteAds: 0.3, gastoDia: 980, presupuestoHoy: 1000, tacos: 0.06, clase: "posicionado" },
+            { modelo: "GT200", campanas: [], ritmo: 3, ritmoPrevio: 3, parteAds: 0.95, gastoDia: 60, presupuestoHoy: null, tacos: 0.12, clase: "depende" },
+          ],
+        }),
+      },
+      anterior: null,
+    });
+    const { html, texto } = htmlCorreoPublicidad(c);
+    expect(html).toContain("Todas las campañas: de qué depende cada modelo (2)");
+    expect(html).toContain("Botas top");
+    expect(html).toContain("Depende de la publicidad");
+    expect(html).toContain("94 % del gasto");
+    expect(texto).toContain("GT114: 40 al día (antes 38), 30 % por anuncio, $980 al día");
+  });
+
   it("sin cambios lo dice", () => {
     const c = armarCorreoDePublicidad({
       dia: "2026-10-12",

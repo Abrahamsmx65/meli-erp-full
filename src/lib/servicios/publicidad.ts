@@ -56,6 +56,12 @@ export interface Publicidad {
   filas: FilaPublicidad[];
   /** qué hacer hoy con cada modelo, para ejecutarlo a mano en MELI */
   recomendaciones: RecomendacionAds[];
+  /**
+   * TODAS las campañas con gasto, por modelo: cuánto de lo que vende viene
+   * de la publicidad (`armarDependencias`). Opcional: los paneles guardados
+   * antes del 16-oct-2026 no la traen.
+   */
+  dependencias?: DependenciaAds[];
   totales: {
     gastoAds: number;
     ventaAds: number;
@@ -481,6 +487,106 @@ export function presupuestoPorModelo(
     for (const m of modelos) salida.set(m, (salida.get(m) ?? 0) + parte);
   }
   return salida;
+}
+
+export type ClaseDependencia =
+  | "posicionado"
+  | "depende"
+  | "en_medio"
+  | "creciendo"
+  | "cayendo"
+  | "sin_venta";
+
+export const NOMBRE_CLASE_DEPENDENCIA: Record<ClaseDependencia, string> = {
+  posicionado: "Posicionado: se vende solo",
+  depende: "Depende de la publicidad",
+  en_medio: "En medio",
+  creciendo: "Creciendo",
+  cayendo: "Cayendo",
+  sin_venta: "Gasta sin vender",
+};
+
+/** Arriba de esta parte de las ventas por publicidad, el modelo DEPENDE de ella. */
+export const DEPENDE_PARTE_ADS_MIN = 0.7;
+
+/**
+ * Un modelo con anuncio y qué tanto depende de la publicidad (pedido del
+ * dueño, 16-oct-2026: «hazme de todas las campañas que tengo de qué
+ * dependo»).
+ */
+export interface DependenciaAds {
+  modelo: string;
+  /** nombres de las campañas donde está anunciado */
+  campanas: string[];
+  /** unidades al día en el periodo */
+  ritmo: number;
+  /** unidades al día en los 60 días anteriores; null = sin dato */
+  ritmoPrevio: number | null;
+  /** unidades que MELI atribuye a la publicidad ÷ unidades vendidas; null = sin venta */
+  parteAds: number | null;
+  /** gasto en ads al día del periodo */
+  gastoDia: number;
+  /** presupuesto diario de HOY de sus campañas; null = sin dato */
+  presupuestoHoy: number | null;
+  tacos: number | null;
+  clase: ClaseDependencia;
+}
+
+/** La clase de dependencia de un modelo. Puro. */
+export function clasificarDependencia(
+  ritmo: number,
+  ritmoPrevio: number | null,
+  parteAds: number | null,
+): ClaseDependencia {
+  if (parteAds == null || ritmo === 0) return "sin_venta";
+  if (ritmoPrevio != null && esPosicionado(ritmo, ritmoPrevio, parteAds)) return "posicionado";
+  const cambio = ritmoPrevio != null && ritmoPrevio > 0 ? ritmo / ritmoPrevio : null;
+  if (cambio == null || cambio > POSICIONADO_CAMBIO_MAX) return "creciendo";
+  if (cambio < POSICIONADO_CAMBIO_MIN) return "cayendo";
+  if (parteAds >= DEPENDE_PARTE_ADS_MIN) return "depende";
+  return "en_medio";
+}
+
+/**
+ * La lista completa: cada modelo con gasto en el periodo, ordenado por gasto.
+ * Puro.
+ */
+export function armarDependencias(opts: {
+  filas: FilaPublicidad[];
+  dias: number;
+  itemsDeModelo: Map<string, ItemDeModelo[]>;
+  /** campaña -> nombre */
+  nombresCampana?: Map<string, string>;
+  presupuestoDeModelo?: Map<string, number>;
+  ritmoPrevioDeModelo?: Map<string, number>;
+}): DependenciaAds[] {
+  const dias = opts.dias > 0 ? opts.dias : 1;
+  const salida: DependenciaAds[] = [];
+  for (const f of opts.filas) {
+    if (f.gastoAds <= 0) continue;
+    const ritmo = f.unidades / dias;
+    const ritmoPrevio = opts.ritmoPrevioDeModelo ? (opts.ritmoPrevioDeModelo.get(f.modelo) ?? 0) : null;
+    const parteAds = f.unidades > 0 ? f.unidadesAds / f.unidades : null;
+    const campanas = [
+      ...new Set(
+        (opts.itemsDeModelo.get(f.modelo) ?? [])
+          .map((i) => (i.campanaId ? (opts.nombresCampana?.get(i.campanaId) ?? i.campanaId) : null))
+          .filter((x): x is string => !!x),
+      ),
+    ].sort();
+    salida.push({
+      modelo: f.modelo,
+      campanas,
+      ritmo,
+      ritmoPrevio,
+      parteAds,
+      gastoDia: f.gastoAds / dias,
+      presupuestoHoy: opts.presupuestoDeModelo?.get(f.modelo) ?? null,
+      tacos: f.tacos,
+      clase: clasificarDependencia(ritmo, ritmoPrevio, parteAds),
+    });
+  }
+  return salida.sort((a, b) => b.gastoDia - a.gastoDia || a.modelo.localeCompare(b.modelo));
 }
 
 /** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
@@ -1279,10 +1385,13 @@ export async function cargarPublicidad(
   // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
   // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
   let presupuestoDeModelo: Map<string, number> | undefined;
+  let nombresCampana: Map<string, string> | undefined;
   if (cliente && !stockEstado.error) {
     try {
       const adv = await resolverAdvertiser(cliente, cuenta.site_id);
-      presupuestoDeModelo = presupuestoPorModelo(await traerCampanasAds(cliente, adv), itemsDeModelo);
+      const campanas = await traerCampanasAds(cliente, adv);
+      nombresCampana = new Map(campanas.map((c) => [c.id, c.nombre]));
+      presupuestoDeModelo = presupuestoPorModelo(campanas, itemsDeModelo);
     } catch (err) {
       datos.advertencias.push(`No se pudo leer el presupuesto de las campañas: ${(err as Error).message}. Las recomendaciones salen solo del gasto.`);
     }
@@ -1298,6 +1407,14 @@ export async function cargarPublicidad(
         presupuestoDeModelo,
         ritmoPrevioDeModelo,
       });
+  datos.dependencias = armarDependencias({
+    filas: datos.filas,
+    dias: diasDeRango(r),
+    itemsDeModelo,
+    nombresCampana,
+    presupuestoDeModelo,
+    ritmoPrevioDeModelo,
+  });
 
   // Un panel con error de ads no se cachea: al reintentar (p. ej. ya con el
   // permiso otorgado) debe volver a preguntar, no repetir el error 10 minutos.

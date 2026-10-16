@@ -27,12 +27,14 @@ import { costoDeSkuUnificado, mapaCostosUnificado, modeloUnificado } from "./cos
 import {
   armarPublicidad,
   armarRecomendaciones,
+  armarDependencias,
   presupuestoPorModelo,
   resolverAdvertiser,
   traerCampanasAds,
   traerAnunciosAds,
   type FilaPublicidad,
   type ItemDeModelo,
+  type DependenciaAds,
   type RecomendacionAds,
 } from "./publicidad";
 import type { RangoFechas } from "./ventas-monitor";
@@ -40,6 +42,8 @@ import type { RangoFechas } from "./ventas-monitor";
 /** Lo que el correo necesita de cada canal. */
 export interface PublicidadCanal {
   recomendaciones: RecomendacionAds[];
+  /** todas las campañas con gasto y qué tanto depende cada modelo (MELI) */
+  dependencias?: DependenciaAds[];
   gastoAds: number;
   /** gasto ÷ venta; null = sin venta */
   tacos: number | null;
@@ -298,7 +302,16 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   }
   if (p.sinAmarre.gasto > 0) avisos.push(`$${Math.round(p.sinAmarre.gasto).toLocaleString("es-MX")} de gasto en ${p.sinAmarre.anuncios} anuncio(s) de fundas sin diseño amarrado.`);
 
+  const presupuestoDeModelo = campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined;
   return {
+    dependencias: armarDependencias({
+      filas: p.filas,
+      dias: diasEntre(rango.desde, rango.hasta),
+      itemsDeModelo,
+      nombresCampana: campanas ? new Map(campanas.map((c) => [c.id, c.nombre])) : undefined,
+      presupuestoDeModelo,
+      ritmoPrevioDeModelo,
+    }),
     recomendaciones: armarRecomendaciones({
       filas: p.filas,
       stockDeModelo,
@@ -308,7 +321,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       unidad: "piezas",
       coberturaCorta: COBERTURA_CORTA_FUNDAS,
       coberturaLarga: COBERTURA_LARGA_FUNDAS,
-      presupuestoDeModelo: campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined,
+      presupuestoDeModelo,
       ritmoPrevioDeModelo,
     }),
     gastoAds: p.totales.gastoAds,
