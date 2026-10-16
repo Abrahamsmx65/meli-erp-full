@@ -25,6 +25,8 @@ import { agregarVentasDiarias, deDesglose } from "../tiktok/ventas";
 import { agruparPorPedido, estadoDePago, interpretarTransacciones, listaDeTransacciones } from "../tiktok/liquidacion";
 import { indexarCatalogo } from "../etiquetas/resolver";
 import { amarrarSkuTikTok } from "../tiktok/amarre";
+import { amarreDeExterno } from "../tiktok/externos";
+import { limpiarCacheExternos, productosExternos } from "./tiktok-externos";
 import {
   bodegas,
   catalogoConEstado,
@@ -634,8 +636,11 @@ async function sincronizarTikTokSinCandado(
     const { skus: lista, completo } = await catalogoConEstado(cliente);
     skusCatalogo = lista.length;
     if (lista.length) {
+      // Las publicaciones de un vendedor externo (David): lo que no amarra
+      // con nada toma su seller_sku como nombre del kardex (`amarreDeExterno`).
+      const externos = await productosExternos(admin, accountId);
       const filas = lista.map((s) => {
-        const a = amarrar(s.sellerSku);
+        const a = amarreDeExterno(s.sellerSku, amarrar(s.sellerSku), externos.has(String(s.productId)));
         return {
           account_id: accountId,
           sku_id: s.skuId,
@@ -654,6 +659,7 @@ async function sincronizarTikTokSinCandado(
         };
       });
       await guardarEnLotes(admin, "tiktok_skus", filas, "account_id,sku_id");
+      if (externos.size) limpiarCacheExternos(accountId);
       // Lo que TikTok YA NO TRAE deja de estar vigente: una variante borrada
       // (el GT125 perdió 20 el 15-oct-2026 por una edición parcial) seguía
       // `activo` para siempre, se le intentaba publicar inventario en cada
