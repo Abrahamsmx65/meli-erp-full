@@ -2506,8 +2506,10 @@ guárdala numerada.
   de lo que hay en total, según lo que se gana en MELI»): todos esos pares ×
   (depósito real de MELI por par en 30 días − costo), el `netoPar` de
   `finanzas:tarifas-reales` (el de Números), antes de publicidad y gastos;
-  un modelo con menos de 10 pares vendidos en MELI en 30 días no tiene
-  estimación y se nombra aparte (`sinVentaMeli`).
+  un modelo con menos de 10 pares vendidos en MELI en 30 días se estima con el
+  PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
+  `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
+  capturado no entra a nada.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real
