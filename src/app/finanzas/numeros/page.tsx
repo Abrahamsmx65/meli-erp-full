@@ -6,6 +6,8 @@ import { CLAVE_TARIFAS, EDAD_TARIFAS_MS, calcularTarifasReales, type TarifasGuar
 import { TablaNumeros } from "@/components/numeros";
 import { PreciosNumeros } from "@/components/precios-numeros";
 import { Aviso, Encabezado, Pagina, Seccion, SinCuenta } from "@/components/ui/pagina";
+import { LeerSheets } from "@/components/leer-sheets";
+import { ultimaLecturaSheets } from "@/lib/servicios/sheets-finanzas";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +32,7 @@ export default async function Numeros() {
 
   return (
     <Pagina>
-      <Encabezado ceja="Negocio" titulo="Números" frescura={tarifas?.generadoEn ?? costeoEn} refrescando={tarifas?.refrescando} />
+      <Encabezado ceja="Negocio" titulo="Números" frescura={tarifas?.generadoEn ?? costeoEn} refrescando={tarifas?.refrescando} acciones={<LeerSheets leidoEn={(await ultimaLecturaSheets(supabase as DB, cuenta.id))?.leidoEn ?? null} />} />
       {!tarifas ? <Aviso tono="alerta">No se pudieron leer las tarifas reales: todo se calcula con tus estimaciones.</Aviso> : null}
       {tarifas?.datos.avisos.map((a, i) => (
         <Aviso key={i} tono="alerta">Tarifas reales de {a}</Aviso>
