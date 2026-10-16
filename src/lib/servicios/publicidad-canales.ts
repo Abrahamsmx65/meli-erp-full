@@ -30,6 +30,8 @@ import {
   armarDependencias,
   presupuestoPorModelo,
   roasObjetivoPorModelo,
+  gastoDiaPorModelo,
+  DIAS_GASTO_RECIENTE,
   resolverAdvertiser,
   traerCampanasAds,
   traerAnunciosAds,
@@ -258,6 +260,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   let anuncios: Awaited<ReturnType<typeof traerAnunciosAds>> = [];
   let errorAds: string | null = null;
   let campanas: Awaited<ReturnType<typeof traerCampanasAds>> | null = null;
+  let recientes: Awaited<ReturnType<typeof traerAnunciosAds>> | null = null;
   try {
     const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
     const adv = await resolverAdvertiser(cliente, cuenta.site_id);
@@ -265,6 +268,11 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
     // El presupuesto de HOY: lo ya subido o bajado no se vuelve a pedir.
     campanas = await traerCampanasAds(cliente, adv).catch((err) => {
       avisos.push(`No se pudo leer el presupuesto de las campañas de fundas: ${(err as Error).message}.`);
+      return null;
+    });
+    // El gasto de los últimos días: un ROAS ya movido no se vuelve a pedir.
+    recientes = await traerAnunciosAds(cliente, adv, { desde: restarDias(rango.hasta, DIAS_GASTO_RECIENTE - 1), hasta: rango.hasta }).catch((err) => {
+      avisos.push(`No se pudo leer el gasto de los últimos días de fundas: ${(err as Error).message}.`);
       return null;
     });
   } catch (err) {
@@ -338,6 +346,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       ritmoPrevioDeModelo,
       stockBodegaDeModelo,
       roasObjetivoDeModelo,
+      gastoRecienteDeModelo: recientes ? gastoDiaPorModelo(recientes, modelosDeItem, DIAS_GASTO_RECIENTE) : undefined,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,
