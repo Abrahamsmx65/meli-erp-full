@@ -2594,8 +2594,13 @@ guárdala numerada.
   peso, la reventa al público con `total_comprador`) → `meliPorPrecio` en
   `finanzas:tarifas-reales:v2`; se usa el escalón a ±$1 del relámpago con
   ≥ `PARES_MINIMOS_AL_PRECIO` (5) pares, y el promedio del mes queda como
-  referencia (`promedioMeli`). Sin ventas a ese precio, la cuenta con las
-  tasas, como antes. Los sueldos del dueño y de
+  referencia (`promedioMeli`). Sin ventas a ese precio, **se toma el
+  relámpago REAL del histórico** (`escalonRelampago`: el precio más bajo con
+  ≥ 10 % de los pares y al menos 5; `recibidoMeli.deHistorico`, la tabla lo
+  dice en ámbar; dueño, 16-oct-2026: «si ya hay histórico en MELI nos
+  basamos en ese para fijar precios»: GT150 decía 298.88 y se vende a 350 y
+  370, GT129, GT169, GT229, GT252 y GT259 igual). Solo sin ninguna venta
+  con volumen, la cuenta con las tasas. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
 - **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
   con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,
