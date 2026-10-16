@@ -147,15 +147,21 @@ export default async function Inventario({
         <Ficha
           titulo="Venta estimada"
           valor={ganancia.pares > 0 ? pesos(ganancia.deposito) : "—"}
-          nota="Lo que depositaría MELI por todo eso"
+          nota={
+            ganancia.pares > 0
+              ? `Lo que depositaría MELI por ${n(ganancia.pares)} pares que costaron ${pesos(ganancia.costo)}`
+              : "Sin ventas de MELI para estimar"
+          }
         />
         <Ficha
           titulo="Ganancia estimada"
           valor={ganancia.pares > 0 ? pesos(ganancia.ganancia) : "—"}
           nota={
             ganancia.pares > 0
-              ? `Vendiendo todo a lo que deposita MELI · ${n(ganancia.pares)} pares${
-                  sinVentaMeli.pares > 0 ? `, ${n(sinVentaMeli.pares)} sin venta en MELI fuera` : ""
+              ? `Venta estimada − ${pesos(ganancia.costo)} de costo de esos pares${
+                  sinVentaMeli.pares > 0
+                    ? ` · fuera: ${n(sinVentaMeli.pares)} pares (${pesos(fichas.inversionTotal - ganancia.costo)}) sin venta en MELI`
+                    : ""
                 }`
               : "Sin ventas de MELI para estimar"
           }
