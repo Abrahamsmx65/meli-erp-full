@@ -45,6 +45,8 @@ export default async function Inventario({
   t.fin();
   const { fichas, inversion } = vista;
   const { ganancia, sinVentaMeli } = inversion;
+  const porPromedio = sinVentaMeli.pares > 0 && sinVentaMeli.veces != null;
+  const veces = sinVentaMeli.veces != null ? `${sinVentaMeli.veces.toFixed(2)} veces` : "";
   const listaCorta = (xs: string[]) => (xs.length <= 8 ? xs.join(", ") : `${xs.slice(0, 8).join(", ")} y ${xs.length - 8} más`);
 
   return (
@@ -64,8 +66,9 @@ export default async function Inventario({
               transferencia) y FBA (disponible, reservado y lo ya enviado; un envío solo dado de alta no, porque sus cajas
               siguen en la bodega) y la bodega de TikTok (el saldo del kardex, sin los productos de David). La ganancia estimada es vender TODO eso a lo que Mercado Pago depositó por par de cada
               modelo en los últimos 30 días (reventa incluida, el mismo número de Números) menos el costo; es antes de
-              publicidad y gastos. Un modelo con menos de 10 pares vendidos en MELI en 30 días no tiene estimación y se
-              dice cuál.
+              publicidad y gastos. Un modelo con menos de 10 pares vendidos en MELI en 30 días se estima con el
+              promedio de los que sí venden: su costo × (todo lo que deposita MELI ÷ el costo de esos pares), y se dice
+              cuáles son.
             </p>
             <p>
               En el total por familia las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero todas
@@ -149,7 +152,9 @@ export default async function Inventario({
           valor={ganancia.pares > 0 ? pesos(ganancia.deposito) : "—"}
           nota={
             ganancia.pares > 0
-              ? `Lo que depositaría MELI por ${n(ganancia.pares)} pares que costaron ${pesos(ganancia.costo)}`
+              ? `Lo que depositaría MELI por ${n(ganancia.pares)} pares que costaron ${pesos(ganancia.costo)}${
+                  porPromedio ? ` · ${pesos(sinVentaMeli.deposito)} de eso por promedio` : ""
+                }`
               : "Sin ventas de MELI para estimar"
           }
         />
@@ -158,9 +163,9 @@ export default async function Inventario({
           valor={ganancia.pares > 0 ? pesos(ganancia.ganancia) : "—"}
           nota={
             ganancia.pares > 0
-              ? `Venta estimada − ${pesos(ganancia.costo)} de costo de esos pares${
-                  sinVentaMeli.pares > 0
-                    ? ` · fuera: ${n(sinVentaMeli.pares)} pares (${pesos(fichas.inversionTotal - ganancia.costo)}) sin venta en MELI`
+              ? `Venta estimada − ${pesos(ganancia.costo)} de costo${
+                  porPromedio
+                    ? ` · ${n(sinVentaMeli.pares)} pares sin venta en MELI con el promedio (MELI deposita ${veces} su costo)`
                     : ""
                 }`
               : "Sin ventas de MELI para estimar"
@@ -273,9 +278,11 @@ export default async function Inventario({
 
                   {sinVentaMeli.pares > 0 ? (
                     <footer className="border-t p-3 text-xs hairline texto-tenue">
-                      <strong>{n(sinVentaMeli.pares)} pares</strong> de {sinVentaMeli.modelos.length} modelos sí
-                      cuentan en la inversión pero NO en la ganancia estimada: vendieron menos de 10 pares en MELI en
-                      30 días ({listaCorta(sinVentaMeli.modelos)}).
+                      <strong>{n(sinVentaMeli.pares)} pares</strong> de {sinVentaMeli.modelos.length} modelos vendieron
+                      menos de 10 pares en MELI en 30 días ({listaCorta(sinVentaMeli.modelos)})
+                      {porPromedio
+                        ? `: su venta se estima con el promedio de los que sí venden (MELI deposita ${veces} su costo): ${pesos(sinVentaMeli.costo)} de costo → ${pesos(sinVentaMeli.deposito)}.`
+                        : ": no hay modelos con venta para sacar un promedio, así que no entran en la ganancia."}
                     </footer>
                   ) : null}
                   {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (

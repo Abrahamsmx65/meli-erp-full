@@ -190,6 +190,8 @@ export interface InversionCategoria {
    * el costo. Solo de los modelos con venta en MELI; los demás se apartan.
    */
   ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
+  /** De esos, los pares estimados con el promedio (sin venta propia en MELI). */
+  paresPorPromedio: number;
   /** Cuántos modelos distintos caen en esta categoría. */
   modelos: number;
   /** Qué parte del valor total representa (0-1). */
@@ -201,8 +203,12 @@ export interface InversionEnBodega {
   total: { enBodega: number; enCamino: number; enFull: number; enFba: number; enTikTok: number; total: number };
   /** La ganancia estimada sumada (ver `InversionCategoria.ganancia`). */
   ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
-  /** Pares costeados sin venta en MELI en 30 días: no tienen ganancia estimada. */
-  sinVentaMeli: { pares: number; modelos: string[] };
+  /**
+   * Pares costeados sin venta en MELI en 30 días. Su venta se estima con el
+   * PROMEDIO de los que sí venden (`veces` = depósito ÷ costo de esos;
+   * pedido del dueño, 16-oct-2026) y ya va sumada en `ganancia`.
+   */
+  sinVentaMeli: { pares: number; modelos: string[]; costo: number; deposito: number; veces: number | null };
   /** Lo que quedó fuera del total por no tener costo capturado. */
   sinCosto: { pares: number; modelos: string[] };
   /** Modelos costeados pero sin categoría: van juntos en «Sin categoría». */
@@ -239,7 +245,7 @@ export function inversionPorCategoria(
   /** Depósito real de MELI por par y modelo (30 días); vacío = sin ganancia estimada. */
   netoPorModelo: Map<string, number> = new Map(),
 ): InversionEnBodega {
-  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string> }>();
+  const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string>; costoSinVenta: number }>();
   const sinCostoModelos = new Set<string>();
   const sinVentaModelos = new Set<string>();
   let paresSinVenta = 0;
@@ -272,6 +278,8 @@ export function inversionPorCategoria(
         pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0 },
         valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, enTikTok: 0, total: 0 },
         ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 },
+        paresPorPromedio: 0,
+        costoSinVenta: 0,
         modelos: 0,
         parte: 0,
         modelosVistos: new Set<string>(),
@@ -290,6 +298,8 @@ export function inversionPorCategoria(
     if (neto == null) {
       paresSinVenta += pares;
       sinVentaModelos.add(r.modelo);
+      g.paresPorPromedio += pares;
+      g.costoSinVenta += pares * c.costo;
     } else {
       g.ganancia.pares += pares;
       g.ganancia.deposito += pares * neto;
@@ -314,6 +324,25 @@ export function inversionPorCategoria(
     enTikTok: categorias.reduce((a, g) => a + g.valor.enTikTok, 0),
     total: categorias.reduce((a, g) => a + g.valor.total, 0),
   };
+  // Lo que no vende en MELI se estima con el promedio de lo que sí: cuántas
+  // veces su costo deposita MELI, sumando todos los modelos con venta.
+  const depositoReal = categorias.reduce((a, g) => a + g.ganancia.deposito, 0);
+  const costoReal = categorias.reduce((a, g) => a + g.ganancia.costo, 0);
+  const veces = costoReal > 0 ? depositoReal / costoReal : null;
+  let costoSinVenta = 0;
+  let depositoSinVenta = 0;
+  for (const g of categorias) {
+    costoSinVenta += g.costoSinVenta;
+    if (veces == null || g.paresPorPromedio === 0) continue;
+    const deposito = g.costoSinVenta * veces;
+    depositoSinVenta += deposito;
+    g.ganancia.pares += g.paresPorPromedio;
+    g.ganancia.deposito += deposito;
+    g.ganancia.costo += g.costoSinVenta;
+    g.ganancia.ganancia += deposito - g.costoSinVenta;
+  }
+  if (veces == null) for (const g of categorias) g.paresPorPromedio = 0;
+
   const ganancia = {
     pares: categorias.reduce((a, g) => a + g.ganancia.pares, 0),
     deposito: categorias.reduce((a, g) => a + g.ganancia.deposito, 0),
@@ -326,10 +355,16 @@ export function inversionPorCategoria(
   categorias.sort((a, b) => b.valor.total - a.valor.total || a.categoria.localeCompare(b.categoria, "es"));
 
   return {
-    categorias: categorias.map(({ modelosVistos: _m, ...resto }) => resto),
+    categorias: categorias.map(({ modelosVistos: _m, costoSinVenta: _c, ...resto }) => resto),
     total,
     ganancia,
-    sinVentaMeli: { pares: paresSinVenta, modelos: [...sinVentaModelos].sort() },
+    sinVentaMeli: {
+      pares: paresSinVenta,
+      modelos: [...sinVentaModelos].sort(),
+      costo: costoSinVenta,
+      deposito: depositoSinVenta,
+      veces,
+    },
     sinCosto: { pares: paresSinCosto, modelos: [...sinCostoModelos].sort() },
     sinCategoria: sinCategoriaModelos.size,
   };
