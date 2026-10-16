@@ -166,6 +166,10 @@ const NOTAS: RegExp[] = [
   /de ajustes fuera de los pedidos/i,
   /no traen ajustes fuera de los pedidos/i,
   /no se pudieron atribuir a sus propios productos/i,
+  // Amazon: lo asentado que aún no deposita YA está en el neto (por cobrar).
+  /todavía no deposita; ya están en el neto/i,
+  // TikTok: los anuncios GMV Max van a la publicidad del modelo.
+  /anuncios GMV Max/i,
 ];
 /** Lo que se resuelve solo con el paso de los días. */
 const PENDIENTES: RegExp[] = [
@@ -174,6 +178,12 @@ const PENDIENTES: RegExp[] = [
   /aún no tienen leída la revisión/i,
   /se revisan solas/i,
   /todavía no se leen sus estados de cuenta/i,
+  // Se completan solos (dueño, 16-oct-2026: salían en «Pide acción» sin que
+  // hubiera nada que hacer): el desglose de Mercado Pago lo trae el latido,
+  // la liquidación de Amazon cierra sola y TikTok pone su número al liquidar.
+  /aún no tienen? el desglose por operación/i,
+  /liquidación en curso aún no cierra/i,
+  /todavía sin número de TikTok/i,
 ];
 
 export function clasificarAviso(texto: string): TipoAviso {
