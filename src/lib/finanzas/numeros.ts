@@ -90,7 +90,11 @@ export interface ResultadoNumeros {
    * promediaba $139.80 porque mezclaba ventas a $250–$356, y a $199.99
    * recibe $126.87.
    */
-  recibidoMeli: { porPar: number; pares: number; precio: number; ganancia: number | null } | null;
+  /**
+   * `deHistorico`: el precio relámpago del sheet no tiene ventas y se tomó el
+   * relámpago real de MELI (el escalón más bajo con volumen).
+   */
+  recibidoMeli: { porPar: number; pares: number; precio: number; ganancia: number | null; deHistorico: boolean } | null;
   /** Promedio depositado por par en 30 días a todos los precios (solo referencia). */
   promedioMeli: { porPar: number; pares: number } | null;
   porcentaje: number | null;
@@ -149,6 +153,20 @@ export function tasasUsadas(e: EntradaNumeros, reales?: TarifasReales | null): U
   return { meli, amazon, tiktok };
 }
 
+/**
+ * El relámpago REAL de MELI: de los precios a los que se vendió en 30 días,
+ * el más bajo con volumen (≥ 10 % de los pares y al menos
+ * `PARES_MINIMOS_AL_PRECIO`). Misma idea que `meli_neto_relampago_por_modelo`
+ * de Precios para TikTok: el promedio mezcla precio lleno y oferta.
+ */
+export function escalonRelampago<T extends { precio: number; pares: number }>(escalones: T[]): T | null {
+  const total = escalones.reduce((a, x) => a + x.pares, 0);
+  if (!total) return null;
+  const minimo = Math.max(PARES_MINIMOS_AL_PRECIO, total * 0.1);
+  const conVolumen = escalones.filter((x) => x.pares >= minimo).sort((a, b) => a.precio - b.precio);
+  return conVolumen[0] ?? null;
+}
+
 export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?: TarifasReales | null): ResultadoNumeros {
   const P = PARAMETROS_NUMEROS;
   const usado = tasasUsadas(e, reales);
@@ -156,12 +174,21 @@ export function calcularNumeros(e: EntradaNumeros, costo: number | null, reales?
   const pvNormal = e.pvNormal ?? (pr != null ? pr * P.factorPvNormal : null);
   const m = reales?.meli;
   const promedioMeli = m != null && m.pares >= PARES_MINIMOS_REALES && m.netoPar != null ? { porPar: m.netoPar, pares: m.pares } : null;
-  const alPrecio =
-    pr != null
-      ? (reales?.meliPorPrecio ?? []).find((x) => Math.abs(x.precio - pr) <= 1 && x.pares >= PARES_MINIMOS_AL_PRECIO)
-      : undefined;
-  const recibidoMeli = alPrecio
-    ? { porPar: alPrecio.netoPar, pares: alPrecio.pares, precio: alPrecio.precio, ganancia: costo != null ? alPrecio.netoPar - costo : null }
+  // Con histórico en MELI se fija el precio con él (dueño, 16-oct-2026: «si
+  // ya hay histórico en MELI nos basamos en ese para fijar precios»): el
+  // depósito al precio relámpago del sheet si se vendió a ese precio; si no,
+  // el del relámpago REAL del histórico (`escalonRelampago`).
+  const escalones = reales?.meliPorPrecio ?? [];
+  const alPrecio = pr != null ? escalones.find((x) => Math.abs(x.precio - pr) <= 1 && x.pares >= PARES_MINIMOS_AL_PRECIO) : undefined;
+  const elegido = alPrecio ?? escalonRelampago(escalones);
+  const recibidoMeli = elegido
+    ? {
+        porPar: elegido.netoPar,
+        pares: elegido.pares,
+        precio: elegido.precio,
+        ganancia: costo != null ? elegido.netoPar - costo : null,
+        deHistorico: !alPrecio,
+      }
     : null;
   const vacio: ResultadoNumeros = {
     ganancia: null,

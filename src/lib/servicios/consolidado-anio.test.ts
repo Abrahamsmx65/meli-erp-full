@@ -4,7 +4,7 @@ import type { Consolidado } from "./consolidado";
 
 function mes(periodo: string, utilidad: number, venta: number, extra: Partial<Consolidado> = {}): Consolidado {
   return {
-    versionContable: 9,
+    versionContable: 10,
     periodo,
     desde: `${periodo}-01`,
     hasta: `${periodo}-28`,

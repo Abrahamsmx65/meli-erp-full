@@ -13,6 +13,7 @@
  * y se reparte si hace falta.
  */
 import type { LineaPacking, MedidasCaja, PackingList } from "../importar/packing-list";
+import { pedidoBase } from "../importar/packing-list";
 import { aUnaLetra, canonizar, claveAplastada, claveComparacion, colorPlano, construirSkuMeli } from "../importar/sku";
 import { porTandas, traerTodo, type DB } from "../datos/repos";
 import { asignarCajasAContenedor, type DatosContenedor } from "./contenedores";
@@ -620,6 +621,119 @@ export async function casarPackingList(
  * cada renglón. Los renglones sin pedido o sin renglón no tocan nada; su
  * problema ya se vio en la vista previa.
  */
+/** Un renglón del archivo con lo que trae de la caja. */
+export interface MedidaDeArchivo {
+  pedido: string | null;
+  modelo: string;
+  color: string;
+  talla: string | null;
+  medidas: MedidasCaja | null;
+  pesoKg: number | null;
+}
+
+/** Un renglón ya guardado del contenedor. */
+export interface RenglonParaMedir {
+  id: string;
+  pedido: string | null;
+  modelo: string;
+  color: string;
+  talla: string | null;
+}
+
+/**
+ * Medidas y peso de la caja para CADA renglón del contenedor, del packing
+ * list de la fábrica. Puro, para probarse. Antes solo los llevaban los
+ * renglones que amarraron solos al cargar: lo que el dueño confirmó a mano
+ * desde los pendientes (S263-2026: GT268–GT271 de «N10127», colores «BLK
+ * (NEGRO)», «BROWN(MARRON)» contra CAMEL del pedido) se quedaba sin medidas
+ * y la bodega recibía el renglón en blanco (16-oct-2026). Se busca de lo más
+ * preciso a lo menos: pedido + modelo + color laxo + talla → pedido + modelo
+ * + talla → modelo + talla. Con varios candidatos que NO coinciden en
+ * medida y peso no se adivina.
+ */
+export function medidasParaRenglones(
+  archivo: MedidaDeArchivo[],
+  renglones: RenglonParaMedir[],
+): Map<string, { medidas: MedidasCaja | null; pesoKg: number | null }> {
+  const conDato = archivo.filter((a) => a.medidas || a.pesoKg);
+  const ped = (x: string | null) => (x ? canonizar(pedidoBase(x)) : "");
+  const tal = (x: string | null) => (x ? String(x) : "");
+  const niveles: ((a: MedidaDeArchivo, r: RenglonParaMedir) => boolean)[] = [
+    (a, r) =>
+      ped(a.pedido) === ped(r.pedido) && canonizar(a.modelo) === canonizar(r.modelo) &&
+      claveColorLaxa(a.color) === claveColorLaxa(r.color) && tal(a.talla) === tal(r.talla),
+    (a, r) => ped(a.pedido) === ped(r.pedido) && canonizar(a.modelo) === canonizar(r.modelo) && tal(a.talla) === tal(r.talla),
+    (a, r) => canonizar(a.modelo) === canonizar(r.modelo) && tal(a.talla) === tal(r.talla),
+  ];
+  const firma = (a: MedidaDeArchivo) =>
+    `${a.medidas?.largoCm}|${a.medidas?.anchoCm}|${a.medidas?.altoCm}|${a.pesoKg}`;
+  const out = new Map<string, { medidas: MedidasCaja | null; pesoKg: number | null }>();
+  for (const r of renglones) {
+    for (const nivel of niveles) {
+      const c = conDato.filter((a) => nivel(a, r));
+      if (!c.length) continue;
+      if (new Set(c.map(firma)).size === 1) out.set(r.id, { medidas: c[0].medidas, pesoKg: c[0].pesoKg });
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Escribe en los renglones del contenedor las medidas y el peso que dice el
+ * packing list (el archivo manda: lo guardado con el lector viejo se corrige).
+ */
+async function medirRenglonesDelContenedor(db: DB, contenedorId: string, casado: PackingCasado): Promise<number> {
+  const { data } = await db
+    .from("contenedor_lineas")
+    .select("id, largo_cm, ancho_cm, alto_cm, peso_kg, pedido_lineas!inner(modelo, color, talla, pedidos!inner(pedido))")
+    .eq("contenedor_id", contenedorId);
+  type Fila = {
+    id: string;
+    largo_cm: number | null;
+    ancho_cm: number | null;
+    alto_cm: number | null;
+    peso_kg: number | null;
+    pedido_lineas: { modelo: string; color: string; talla: string | null; pedidos: { pedido: string } };
+  };
+  const filas = (data ?? []) as unknown as Fila[];
+  const medidas = medidasParaRenglones(
+    casado.lineas.map((l) => ({
+      pedido: l.pedidoErp ?? l.pedidoArchivo,
+      modelo: l.modelo,
+      color: l.color,
+      talla: l.talla,
+      medidas: l.medidas,
+      pesoKg: l.pesoKg,
+    })),
+    filas.map((f) => ({
+      id: f.id,
+      pedido: f.pedido_lineas.pedidos.pedido,
+      modelo: f.pedido_lineas.modelo,
+      color: f.pedido_lineas.color,
+      talla: f.pedido_lineas.talla || null,
+    })),
+  );
+  let cambiados = 0;
+  for (const f of filas) {
+    const m = medidas.get(f.id);
+    if (!m) continue;
+    const nuevo = {
+      largo_cm: m.medidas?.largoCm ?? f.largo_cm,
+      ancho_cm: m.medidas?.anchoCm ?? f.ancho_cm,
+      alto_cm: m.medidas?.altoCm ?? f.alto_cm,
+      peso_kg: m.pesoKg ?? f.peso_kg,
+    };
+    const igual =
+      Number(nuevo.largo_cm) === Number(f.largo_cm) && Number(nuevo.ancho_cm) === Number(f.ancho_cm) &&
+      Number(nuevo.alto_cm) === Number(f.alto_cm) && Number(nuevo.peso_kg) === Number(f.peso_kg);
+    if (igual) continue;
+    await db.from("contenedor_lineas").update(nuevo).eq("id", f.id);
+    cambiados++;
+  }
+  return cambiados;
+}
+
 export async function aplicarPackingList(
   db: DB,
   accountId: string,
@@ -725,6 +839,10 @@ export async function aplicarPackingList(
       }
     }
   }
+
+  // Medidas y peso de la caja en TODOS los renglones, también en los que el
+  // dueño confirmó a mano desde los pendientes.
+  await medirRenglonesDelContenedor(db, r.contenedorId, casado).catch(() => 0);
 
   // Lo que no entró se queda CON EL CONTENEDOR para que el dueño lo vea en
   // el borrador, elija el renglón del pedido que sí es y lo confirme ahí.

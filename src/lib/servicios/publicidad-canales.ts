@@ -27,12 +27,17 @@ import { costoDeSkuUnificado, mapaCostosUnificado, modeloUnificado } from "./cos
 import {
   armarPublicidad,
   armarRecomendaciones,
+  armarDependencias,
   presupuestoPorModelo,
+  roasObjetivoPorModelo,
+  gastoDiaPorModelo,
+  DIAS_GASTO_RECIENTE,
   resolverAdvertiser,
   traerCampanasAds,
   traerAnunciosAds,
   type FilaPublicidad,
   type ItemDeModelo,
+  type DependenciaAds,
   type RecomendacionAds,
 } from "./publicidad";
 import type { RangoFechas } from "./ventas-monitor";
@@ -40,6 +45,8 @@ import type { RangoFechas } from "./ventas-monitor";
 /** Lo que el correo necesita de cada canal. */
 export interface PublicidadCanal {
   recomendaciones: RecomendacionAds[];
+  /** todas las campañas con gasto y qué tanto depende cada modelo (MELI) */
+  dependencias?: DependenciaAds[];
   gastoAds: number;
   /** gasto ÷ venta; null = sin venta */
   tacos: number | null;
@@ -218,12 +225,17 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   if (!cuenta) return { recomendaciones: [], gastoAds: 0, tacos: null, hasta: null, avisos: ["No hay cuenta de fundas conectada."], error: true };
 
   const disenoDe = (sku: string, diseno?: string | null) => (diseno || desglosar(sku).diseno || sku).toUpperCase();
-  const [skus, periodo, previa, stock, costos] = await Promise.all([
+  const [skus, periodo, previa, stock, costos, bodegaYz] = await Promise.all([
     todo<{ sku: string; item_id: string | null; diseno: string | null }>(db, "yz_skus", "sku, item_id, diseno", (q) => q.eq("account_id", cuenta.id)),
     rpcTodo<ResumenYz>(db, "yz_ventas_resumen", { p_account: cuenta.id, p_desde: rango.desde, p_hasta: rango.hasta }, ["sku"]),
     rpcTodo<ResumenYz>(db, "yz_ventas_resumen", { p_account: cuenta.id, p_desde: restarDias(rango.desde, 60), p_hasta: restarDias(rango.desde, 1) }, ["sku"]),
     todo<{ sku: string; disponible: number | null; en_transferencia: number | null }>(db, "yz_stock_full", "sku, disponible, en_transferencia", (q) => q.eq("account_id", cuenta.id)),
     mapaCostosUnificado(db, { yzAccountId: cuenta.id }),
+    // La bodega (el Sheet de fundas): con piezas para reponer Full no se pausa.
+    todo<{ sku_bodega: string; diseno: string | null; cantidad: number | null }>(db, "yz_inventario", "sku_bodega, diseno, cantidad", (q) => q.eq("account_id", cuenta.id)).catch((err) => {
+      avisos.push(`No se pudo leer la bodega de fundas: ${(err as Error).message}. «Pausar» solo mira el stock de Full.`);
+      return null;
+    }),
   ]);
 
   const modeloDeSku = new Map<string, string>();
@@ -248,6 +260,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   let anuncios: Awaited<ReturnType<typeof traerAnunciosAds>> = [];
   let errorAds: string | null = null;
   let campanas: Awaited<ReturnType<typeof traerCampanasAds>> | null = null;
+  let recientes: Awaited<ReturnType<typeof traerAnunciosAds>> | null = null;
   try {
     const cliente = await clienteDeCuenta(clienteAdmin(), cuenta.id);
     const adv = await resolverAdvertiser(cliente, cuenta.site_id);
@@ -255,6 +268,11 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
     // El presupuesto de HOY: lo ya subido o bajado no se vuelve a pedir.
     campanas = await traerCampanasAds(cliente, adv).catch((err) => {
       avisos.push(`No se pudo leer el presupuesto de las campañas de fundas: ${(err as Error).message}.`);
+      return null;
+    });
+    // El gasto de los últimos días: un ROAS ya movido no se vuelve a pedir.
+    recientes = await traerAnunciosAds(cliente, adv, { desde: restarDias(rango.hasta, DIAS_GASTO_RECIENTE - 1), hasta: rango.hasta }).catch((err) => {
+      avisos.push(`No se pudo leer el gasto de los últimos días de fundas: ${(err as Error).message}.`);
       return null;
     });
   } catch (err) {
@@ -290,9 +308,31 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
     stockDeModelo.set(d, (stockDeModelo.get(d) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0));
   }
   const historia = new Set(previa.filter((f) => (Number(f.unidades) || 0) > 0).map((f) => de(f.sku)));
+  // Piezas al día por diseño en los 60 días anteriores (producto posicionado).
+  const ritmoPrevioDeModelo = new Map<string, number>();
+  for (const f of previa) {
+    const d = de(f.sku);
+    ritmoPrevioDeModelo.set(d, (ritmoPrevioDeModelo.get(d) ?? 0) + (Number(f.unidades) || 0) / 60);
+  }
   if (p.sinAmarre.gasto > 0) avisos.push(`$${Math.round(p.sinAmarre.gasto).toLocaleString("es-MX")} de gasto en ${p.sinAmarre.anuncios} anuncio(s) de fundas sin diseño amarrado.`);
 
+  const presupuestoDeModelo = campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined;
+  const roasObjetivoDeModelo = campanas ? roasObjetivoPorModelo(campanas, itemsDeModelo) : undefined;
+  const stockBodegaDeModelo = bodegaYz ? new Map<string, number>() : undefined;
+  for (const b of bodegaYz ?? []) {
+    const d = disenoDe(b.sku_bodega, b.diseno);
+    stockBodegaDeModelo!.set(d, (stockBodegaDeModelo!.get(d) ?? 0) + (Number(b.cantidad) || 0));
+  }
   return {
+    dependencias: armarDependencias({
+      filas: p.filas,
+      dias: diasEntre(rango.desde, rango.hasta),
+      itemsDeModelo,
+      nombresCampana: campanas ? new Map(campanas.map((c) => [c.id, c.nombre])) : undefined,
+      presupuestoDeModelo,
+      ritmoPrevioDeModelo,
+      roasObjetivoDeModelo,
+    }),
     recomendaciones: armarRecomendaciones({
       filas: p.filas,
       stockDeModelo,
@@ -302,7 +342,11 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       unidad: "piezas",
       coberturaCorta: COBERTURA_CORTA_FUNDAS,
       coberturaLarga: COBERTURA_LARGA_FUNDAS,
-      presupuestoDeModelo: campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined,
+      presupuestoDeModelo,
+      ritmoPrevioDeModelo,
+      stockBodegaDeModelo,
+      roasObjetivoDeModelo,
+      gastoRecienteDeModelo: recientes ? gastoDiaPorModelo(recientes, modelosDeItem, DIAS_GASTO_RECIENTE) : undefined,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,

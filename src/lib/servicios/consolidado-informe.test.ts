@@ -62,6 +62,13 @@ describe("avisos", () => {
     expect(clasificarAviso("Las retenciones de ISR e IVA son impuesto adelantado…")).toBe("nota");
     expect(clasificarAviso("35,421 órdenes del mes aún no llegan al plazo de sus revisiones")).toBe("pendiente");
     expect(clasificarAviso("15 día(s) donde las órdenes y los renglones de venta no cuadran")).toBe("accion");
+    // Los de octubre 2026 que salían en «Pide acción» sin acción posible.
+    expect(clasificarAviso("1 órdenes del periodo aún no tienen el desglose por operación de Mercado Pago: su cargo ($59.14, venta − depósito) va en «Otros cargos sin desglose»; el latido seguirá completándolo.")).toBe("pendiente");
+    expect(clasificarAviso("La liquidación en curso aún no cierra; sus eventos entran conforme Amazon los asienta y el total puede crecer.")).toBe("pendiente");
+    expect(clasificarAviso("$299.98 de venta (2 pares) todavía sin número de TikTok de cuánto paga; queda fuera del neto y de la ganancia, y su costo ($91.09) espera con ella.")).toBe("pendiente");
+    expect(clasificarAviso("La liquidación en curso lleva $388,569.74 asentados que Amazon todavía no deposita; ya están en el neto y la utilidad como dinero por cobrar.")).toBe("nota");
+    expect(clasificarAviso("$11,544.21 de anuncios GMV Max cobrados dentro de los pedidos van como publicidad de cada modelo, no como cargo de la plataforma.")).toBe("nota");
+    expect(clasificarAviso("257 unidades de 21 modelo(s) sin costo (754, 749). Su neto ($15,570.48) entra a la utilidad sin restarle costo.")).toBe("accion");
   });
 
   it("quita el nombre repetido del canal y junta el mismo texto de varios canales", () => {

@@ -253,7 +253,7 @@ describe("Números: las fórmulas del sheet del dueño", () => {
         { precio: 250, pares: 251, netoPar: 163.93 },
       ],
     });
-    expect(r.recibidoMeli).toEqual({ porPar: 126.87, pares: 413, precio: 200, ganancia: 126.87 - 58.54 });
+    expect(r.recibidoMeli).toMatchObject({ porPar: 126.87, pares: 413, precio: 200, ganancia: 126.87 - 58.54 });
     expect(r.ganancia).toBeCloseTo(126.87 - 58.54, 8);
     expect(r.recibirAmazon).toBeCloseTo(126.87, 8);
     expect(r.promedioMeli?.porPar).toBe(139.8);
@@ -293,5 +293,32 @@ describe("utilidades", () => {
     expect(idContenedor("S252-2026")).toEqual({ id: "S252", anio: 2026 });
     expect(idContenedor("IN10079")).toBeNull();
     expect(idContenedor("P605")).toEqual({ id: "P605", anio: null });
+  });
+});
+
+describe("Números con histórico de MELI (16-oct-2026)", () => {
+  it("sin ventas al relámpago del sheet, toma el relámpago REAL del histórico", async () => {
+    const { calcularNumeros, escalonRelampago, ENTRADA_VACIA } = await import("./numeros");
+    const escalones = [
+      { precio: 370, pares: 232, netoPar: 229.4 },
+      { precio: 350, pares: 52, netoPar: 211.74 },
+      { precio: 548, pares: 6, netoPar: 314.19 },
+    ];
+    expect(escalonRelampago(escalones)?.precio).toBe(350);
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT150", precioRelampago: 298.88, envioMeli: 44 } as never, 100, {
+      meliPorPrecio: escalones,
+    } as never);
+    expect(r.recibidoMeli).toMatchObject({ precio: 350, porPar: 211.74, deHistorico: true });
+    expect(r.ganancia).toBeCloseTo(111.74, 2);
+  });
+  it("si se vendió al relámpago del sheet, manda ese precio", async () => {
+    const { calcularNumeros, ENTRADA_VACIA } = await import("./numeros");
+    const r = calcularNumeros({ ...ENTRADA_VACIA, modelo: "GT148", precioRelampago: 199.99, envioMeli: 41 } as never, 50, {
+      meliPorPrecio: [
+        { precio: 211, pares: 951, netoPar: 128.85 },
+        { precio: 200, pares: 408, netoPar: 126.99 },
+      ],
+    } as never);
+    expect(r.recibidoMeli).toMatchObject({ precio: 200, deHistorico: false });
   });
 });

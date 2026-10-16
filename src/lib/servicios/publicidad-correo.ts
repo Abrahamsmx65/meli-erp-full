@@ -20,7 +20,16 @@
 import type { Cuenta, DB } from "../datos/repos";
 import { enviarCorreo, type ResultadoCorreo } from "./correo";
 import { LETRA_TITULO, TONO, URL_ERP, escaparHtml as esc, plantillaCorreo } from "./correo-marca";
-import { GRUPOS_ACCION, TACOS_TOPE, calcularPublicidadFresca, type AccionSugerida, type RecomendacionAds } from "./publicidad";
+import {
+  GRUPOS_ACCION,
+  NOMBRE_CLASE_DEPENDENCIA,
+  TACOS_TOPE,
+  calcularPublicidadFresca,
+  type AccionSugerida,
+  type ClaseDependencia,
+  type DependenciaAds,
+  type RecomendacionAds,
+} from "./publicidad";
 import { publicidadAmazon, publicidadFundas, type PublicidadCanal } from "./publicidad-canales";
 import { diaAnterior, fechaLarga, hoyMx } from "./resumen-diario";
 
@@ -70,6 +79,8 @@ export interface SeccionCanal {
   url: string;
   recomendaciones: RecomendacionDelDia[];
   resueltas: RecomendacionGuardada[];
+  /** todas las campañas con gasto y qué tanto depende cada modelo */
+  dependencias: DependenciaAds[];
   gastoAds: number;
   tacos: number | null;
   hasta: string | null;
@@ -145,6 +156,7 @@ export function armarCorreoDePublicidad(o: {
       ...c,
       recomendaciones: recomendaciones.filter((r) => r.canal === c.canal),
       resueltas: resueltas.filter((r) => (r.canal ?? "meli_calzado") === c.canal),
+      dependencias: p.dependencias ?? [],
       gastoAds: p.gastoAds,
       tacos: p.tacos,
       hasta: p.hasta,
@@ -242,6 +254,77 @@ function cifras(c: CorreoPublicidad): string {
   );
 }
 
+/** En qué orden y con qué color va cada clase en la lista de campañas. */
+const ORDEN_CLASE: ClaseDependencia[] = ["posicionado", "en_medio", "depende", "creciendo", "cayendo", "sin_venta"];
+const COLOR_CLASE: Record<ClaseDependencia, string> = {
+  posicionado: TONO.bien,
+  en_medio: TONO.tinta2,
+  depende: TONO.alerta,
+  creciendo: TONO.acento,
+  cayendo: TONO.mal,
+  sin_venta: TONO.mal,
+};
+const QUE_SIGNIFICA_CLASE: Record<ClaseDependencia, string> = {
+  posicionado: "vende parejo y la mayoría sin anuncio: el gasto se puede bajar",
+  en_medio: "vende parejo; entre la mitad y el 70 % viene del anuncio",
+  depende: "vende parejo y 70 % o más viene del anuncio: si se apaga, se cae la venta",
+  creciendo: "vende más de 1.5× que en los 60 días anteriores (o es nuevo): el anuncio lo está empujando",
+  cayendo: "vende menos de 0.8× que antes",
+  sin_venta: "gastó sin vender en el periodo",
+};
+
+const roasTexto = (r: number | null | undefined) => (r == null ? "—" : r.toFixed(1));
+const unidadesDia = (x: number) => (x >= 10 ? Math.round(x).toLocaleString("es-MX") : x.toFixed(1));
+
+/** Resumen por clase de las campañas: cuántos modelos y cuánto gastan al día. */
+export function resumenDependencias(ds: DependenciaAds[]): { clase: ClaseDependencia; modelos: number; gastoDia: number }[] {
+  return ORDEN_CLASE.map((clase) => {
+    const de = ds.filter((d) => d.clase === clase);
+    return { clase, modelos: de.length, gastoDia: de.reduce((t, d) => t + d.gastoDia, 0) };
+  }).filter((r) => r.modelos > 0);
+}
+
+function dependenciasHtml(ds: DependenciaAds[], unidad: string): string {
+  if (!ds.length) return "";
+  const total = ds.reduce((t, d) => t + d.gastoDia, 0);
+  const celda = `padding:7px 8px;border-bottom:1px solid ${TONO.borde};font-size:12px;vertical-align:top;`;
+  const enc = `padding:6px 8px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;color:${TONO.tenue};font-weight:700;border-bottom:1px solid ${TONO.borde};background:${TONO.suave};`;
+  const resumen = resumenDependencias(ds)
+    .map(
+      (r) =>
+        `<div style="margin:3px 0;font-size:12px;"><b style="color:${COLOR_CLASE[r.clase]};">${esc(NOMBRE_CLASE_DEPENDENCIA[r.clase])}</b>: ` +
+        `${plural(r.modelos, "modelo", "modelos")} · ${pesos(r.gastoDia)} al día (${total > 0 ? Math.round((r.gastoDia / total) * 100) : 0} % del gasto) ` +
+        `<span style="color:${TONO.tenue};">— ${esc(QUE_SIGNIFICA_CLASE[r.clase])}</span></div>`,
+    )
+    .join("");
+  const renglones = [...ds]
+    .sort((a, b) => ORDEN_CLASE.indexOf(a.clase) - ORDEN_CLASE.indexOf(b.clase) || b.gastoDia - a.gastoDia)
+    .map(
+      (d) =>
+        `<tr>` +
+        `<td style="${celda}white-space:nowrap;"><b>${esc(d.modelo)}</b>` +
+        (d.campanas.length ? `<div style="font-size:10px;color:${TONO.tenue};margin-top:2px;">${esc(d.campanas.join(", "))}</div>` : "") +
+        `</td>` +
+        `<td style="${celda}white-space:nowrap;">${unidadesDia(d.ritmo)}<div style="font-size:10px;color:${TONO.tenue};">antes ${d.ritmoPrevio == null ? "—" : unidadesDia(d.ritmoPrevio)}</div></td>` +
+        `<td style="${celda}white-space:nowrap;font-weight:700;">${d.parteAds == null ? "—" : `${Math.round(d.parteAds * 100)} %`}</td>` +
+        `<td style="${celda}white-space:nowrap;">${pesos(d.gastoDia)}<div style="font-size:10px;color:${TONO.tenue};">hoy ${d.presupuestoHoy == null ? "—" : pesos(d.presupuestoHoy)}</div></td>` +
+        `<td style="${celda}white-space:nowrap;">${roasTexto(d.roasObjetivo)}<div style="font-size:10px;color:${TONO.tenue};">real ${roasTexto(d.roasReal)}</div></td>` +
+        `<td style="${celda}white-space:nowrap;${d.tacos != null && d.tacos > TACOS_TOPE ? `color:${TONO.mal};font-weight:700;` : ""}">${pct(d.tacos)}</td>` +
+        `<td style="${celda}color:${COLOR_CLASE[d.clase]};font-weight:700;">${esc(NOMBRE_CLASE_DEPENDENCIA[d.clase])}</td>` +
+        `</tr>`,
+    )
+    .join("");
+  return (
+    `<div style="margin:18px 0 6px;font-size:13px;font-weight:700;color:${TONO.tinta};">Todas las campañas: de qué depende cada modelo (${ds.length})</div>` +
+    `<div style="margin:0 0 8px;">${resumen}</div>` +
+    `<table class="g-t" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px solid ${TONO.borde};border-radius:8px;margin:0 0 6px;">` +
+    `<tr><th align="left" style="${enc}">Modelo · campaña</th><th align="left" style="${enc}">${esc(unidad)} al día</th><th align="left" style="${enc}">Por anuncio</th><th align="left" style="${enc}">Gasto al día</th><th align="left" style="${enc}">ROAS objetivo</th><th align="left" style="${enc}">TACOS</th><th align="left" style="${enc}">Qué es</th></tr>` +
+    renglones +
+    `</table>` +
+    `<p style="margin:4px 0 0;font-size:11px;color:${TONO.tenue};">«Por anuncio» = ventas que MELI atribuye a la publicidad ÷ todas las ventas del modelo. «Antes» = al día en los 60 días anteriores. «Hoy» = presupuesto diario de sus campañas hoy. ROAS = venta por publicidad ÷ inversión; si el presupuesto no se gasta, lo que frena o suelta el gasto es el ROAS objetivo.</p>`
+  );
+}
+
 function seccionHtml(s: SeccionCanal, dia: string): string {
   const partes: string[] = [];
   const nuevas = s.recomendaciones.filter((r) => r.nueva).length;
@@ -266,6 +349,7 @@ function seccionHtml(s: SeccionCanal, dia: string): string {
     partes.push(`<div style="margin:14px 0 6px;font-size:13px;font-weight:700;color:${TONO.tinta};">${esc(grupo.titulo)} (${delGrupo.length})</div>`);
     partes.push(tablaGrupo(delGrupo, dia));
   }
+  partes.push(dependenciasHtml(s.dependencias, s.canal === "meli_fundas" ? "Piezas" : "Pares"));
   if (s.resueltas.length) {
     partes.push(
       `<div style="margin:12px 0 0;font-size:13px;color:${TONO.tinta2};"><div style="font-weight:700;color:${TONO.bien};margin-bottom:3px;">Ya no hace falta (${s.resueltas.length})</div>` +
@@ -322,6 +406,15 @@ export function htmlCorreoPublicidad(c: CorreoPublicidad): { asunto: string; htm
       lineas.push("Ya no hace falta:");
       for (const r of s.resueltas) lineas.push(`✓ ${r.modelo}: ${r.queHacer}`);
     }
+    if (s.dependencias.length) {
+      lineas.push(`Todas las campañas (${s.dependencias.length}):`);
+      for (const d of s.dependencias) {
+        lineas.push(
+          `${d.modelo}: ${unidadesDia(d.ritmo)} al día (antes ${d.ritmoPrevio == null ? "—" : unidadesDia(d.ritmoPrevio)}), ` +
+            `${d.parteAds == null ? "—" : `${Math.round(d.parteAds * 100)} %`} por anuncio, ${pesos(d.gastoDia)} al día, ROAS objetivo ${roasTexto(d.roasObjetivo)} (real ${roasTexto(d.roasReal)}), TACOS ${pct(d.tacos)} · ${NOMBRE_CLASE_DEPENDENCIA[d.clase]}`,
+        );
+      }
+    }
     lineas.push(...s.avisos, "");
   }
   return { asunto, html, texto: lineas.join("\n") };
@@ -377,7 +470,7 @@ export async function enviarCorreoPublicidad(
     if (p.errorRecomendaciones) avisos.push(p.errorRecomendaciones);
     avisos.push(...p.advertencias.filter((a) => a !== p.errorRecomendaciones));
     if (p.sinAmarre.gasto > 0) avisos.push(`${pesos(p.sinAmarre.gasto)} de gasto en ${p.sinAmarre.anuncios} anuncio(s) que no amarran con ningún modelo del catálogo.`);
-    return { recomendaciones: p.recomendaciones, gastoAds: p.totales.gastoAds, tacos: p.totales.tacos, hasta, avisos, error: Boolean(p.errorAds) };
+    return { recomendaciones: p.recomendaciones, dependencias: p.dependencias ?? [], gastoAds: p.totales.gastoAds, tacos: p.totales.tacos, hasta, avisos, error: Boolean(p.errorAds) };
   };
   const [meliCalzado, meliFundas, amazon] = await Promise.all([
     sinTronar(calzado(), "la publicidad de calzado"),
@@ -409,7 +502,24 @@ export async function enviarCorreoPublicidad(
       id: correo.id ?? null,
       motivo: correo.motivo ?? null,
       recomendaciones: [...paraGuardar(todas), ...arrastradas],
-      porCanal: Object.fromEntries(c.secciones.map((s) => [s.canal, { cambios: s.recomendaciones.length, resueltas: s.resueltas.length, gasto: Math.round(s.gastoAds), avisos: s.avisos }])),
+      porCanal: Object.fromEntries(
+        c.secciones.map((s) => [
+          s.canal,
+          {
+            cambios: s.recomendaciones.length,
+            resueltas: s.resueltas.length,
+            gasto: Math.round(s.gastoAds),
+            avisos: s.avisos,
+            dependencias: s.dependencias.map((d) => ({
+              ...d,
+              ritmo: Math.round(d.ritmo * 10) / 10,
+              ritmoPrevio: d.ritmoPrevio == null ? null : Math.round(d.ritmoPrevio * 10) / 10,
+              parteAds: d.parteAds == null ? null : Math.round(d.parteAds * 1000) / 1000,
+              gastoDia: Math.round(d.gastoDia),
+            })),
+          },
+        ]),
+      ),
     },
   });
   return { dia, enviado: correo.enviado, correo, cambios: todas.length, nuevos };

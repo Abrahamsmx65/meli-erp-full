@@ -8,6 +8,8 @@ import { numeroDeEmbarque } from "./drive-packing";
 import { codigoDeCaja } from "./bodega-contenedor";
 import type { DatosModelo, RenglonContenedor } from "./packing-list-contenedor";
 import { configPorProducto } from "./productos";
+import { amarreDeLineas } from "./amarre-pedido";
+import type { RenglonBodega } from "./bodega-contenedor";
 
 export interface ContenedorBasico {
   id: string;
@@ -73,7 +75,7 @@ export async function renglonesDelContenedor(db: DB, contenedorId: string): Prom
  * list de la fábrica, como el S259): se toman de otro contenedor con el
  * MISMO modelo y los mismos pares por caja. Nunca se inventan.
  */
-export async function completarMedidas(db: DB, renglones: RenglonContenedor[]): Promise<RenglonContenedor[]> {
+export async function completarMedidas<T extends RenglonContenedor>(db: DB, renglones: T[]): Promise<T[]> {
   const faltan = renglones.filter((r) => r.largoCm == null || r.pesoKg == null);
   if (!faltan.length) return renglones;
   const modelos = [...new Set(faltan.map((r) => r.modelo))];
@@ -190,4 +192,18 @@ export async function datosDeModelos(db: DB, accountId: string, modelos: string[
     salida.set(m, { titulo: p?.titulo ?? null, categoriaMeli: categoria, costoMxn: c?.costo ?? null });
   }
   return salida;
+}
+
+/**
+ * A cada renglón le pone el SKU de MELI de su modelo y color (con su talla si
+ * la caja es de una sola), con el mismo amarre que avisa los colores
+ * fantasma (amarres a mano incluidos). Sin variante en MELI queda en null.
+ */
+export async function conSkusMeli(db: DB, accountId: string, renglones: RenglonContenedor[]): Promise<RenglonBodega[]> {
+  const amarres = await amarreDeLineas(
+    db,
+    accountId,
+    renglones.map((r) => ({ modelo: r.modelo, color: r.color, talla: r.talla || null })),
+  ).catch(() => [] as Awaited<ReturnType<typeof amarreDeLineas>>);
+  return renglones.map((r, i) => ({ ...r, skuMeli: amarres[i]?.estado === "ligado" ? amarres[i].skuMeli : null }));
 }
