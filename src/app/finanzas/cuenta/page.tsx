@@ -8,6 +8,8 @@ import { Ficha } from "@/components/tiles";
 import { MovimientosCuenta, RetirosSocios } from "@/components/cuenta";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import { LeerSheets } from "@/components/leer-sheets";
+import { ultimaLecturaSheets } from "@/lib/servicios/sheets-finanzas";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,9 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
         descripcion={nombreEjercicio(d.ejercicio)}
         frescura={d.costeoEn}
         acciones={
-          d.ejercicios.length > 1 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <LeerSheets leidoEn={(await ultimaLecturaSheets(supabase as DB, cuenta.id))?.leidoEn ?? null} />
+          {d.ejercicios.length > 1 ? (
             <div className="flex flex-wrap gap-1.5">
               {d.ejercicios.map((e) => (
                 <Link
@@ -52,7 +56,8 @@ export default async function Cuenta({ searchParams }: { searchParams: Promise<{
                 </Link>
               ))}
             </div>
-          ) : undefined
+          ) : null}
+          </div>
         }
       />
       {d.avisos.map((a, i) => (

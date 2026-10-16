@@ -49,6 +49,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/sheets-finanzas",
+      "schedule": "41 * * * *"
+    },
+    {
       "path": "/api/cron/packing-lists",
       "schedule": "0 13 * * *"
     },

@@ -2594,9 +2594,39 @@ guárdala numerada.
   peso, la reventa al público con `total_comprador`) → `meliPorPrecio` en
   `finanzas:tarifas-reales:v2`; se usa el escalón a ±$1 del relámpago con
   ≥ `PARES_MINIMOS_AL_PRECIO` (5) pares, y el promedio del mes queda como
-  referencia (`promedioMeli`). Sin ventas a ese precio, la cuenta con las
-  tasas, como antes. Los sueldos del dueño y de
+  referencia (`promedioMeli`). Sin ventas a ese precio, **se toma el
+  relámpago REAL del histórico** (`escalonRelampago`: el precio más bajo con
+  ≥ 10 % de los pares y al menos 5; `recibidoMeli.deHistorico`, la tabla lo
+  dice en ámbar; dueño, 16-oct-2026: «si ya hay histórico en MELI nos
+  basamos en ese para fijar precios»: GT150 decía 298.88 y se vende a 350 y
+  370, GT129, GT169, GT229, GT252 y GT259 igual). Solo sin ninguna venta
+  con volumen, la cuenta con las tasas. Los sueldos del dueño y de
   Daniel NO son del negocio: solo se apuntan, nunca entran a la utilidad.
+- **LOS SHEETS DEL DUEÑO SE LEEN SOLOS Y MANDAN** (`finanzas/sheets.ts` puro
+  con pruebas sobre los sheets reales en `fixtures/sheet-*-2026-10-16.xlsx`,
+  `servicios/sheets-finanzas.ts`, cron `/api/cron/sheets-finanzas` cada hora,
+  botón «Leer sheets» en Costeo, Números y Cuenta del año → `POST
+  /api/finanzas/sheets`, constancia en `app_cache` `finanzas:sheets`; dueño,
+  16-oct-2026: «sí, que lo lea automático y manda el sheet»). Desde ese día
+  lo de abajo («se importó UNA vez, el sheet ya no se lee») ya NO vale:
+  «Cuentas YAPANIZCEL» (`SHEET_CUENTAS`) y «Números» (`SHEET_NUMEROS`) se
+  bajan como .xlsx y lo que vino del sheet se REEMPLAZA completo (por
+  `clave_importacion` `cuentas:*`; el dueño inserta renglones en medio, así
+  que el número de renglón no identifica nada): GASTOS MEX → gastos en
+  efectivo (negativo = ingreso de la cuenta; la categoría que el ERP ya le
+  tenía al concepto se respeta), TRANSFERENCIAS, CUENTA SHEIN (salidas),
+  SUELDOS (retiros; fechas de texto «03-AGO-2026», «05-JUNIO-2026»), la
+  renta de TOTAL, COSTING GETAC/FUNDAS (costo, flete, aduana, entregado y
+  los pagos fábrica/flete; T.C. del flete = PESOS ENVIO ÷ COSTO ENVIO del
+  renglón; un contenedor sin T.C. conserva sus pagos) y la pestaña CALZADO
+  de Números (los parámetros salen de las FÓRMULAS: «0.105» = retención,
+  «(N+8)/(1-0.24)» = extra y comisión de TikTok, «R*1.11» = oferta; un
+  precio que es el factor de siempre se deja vacío y lo demás toma el valor
+  del sheet). Lo capturado a mano en el ERP sin clave se queda. Cuadra al
+  centavo con la pestaña TOTAL (transferencias $44,154,035.64, gastos
+  $410,966, retiros $3,692,260 y $3,181,615). El sheet NUNCA se escribe;
+  si Google no lo entrega (deja de estar compartido) no se toca nada y el
+  error queda en la constancia.
 - **CUENTA DEL AÑO, SOCIOS y gastos en EFECTIVO** (`finanzas/cuenta.ts`
   motor puro con pruebas, `servicios/cuenta.ts`, `/finanzas/cuenta` «Cuenta
   del año» en Negocio, `POST /api/finanzas/cuenta`, migraciones 0137 y

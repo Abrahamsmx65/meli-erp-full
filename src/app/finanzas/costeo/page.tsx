@@ -7,6 +7,8 @@ import { Ficha } from "@/components/tiles";
 import { AccionesCosteo, ContenedoresCosteo, CostosPorModelo } from "@/components/costeo";
 import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Vacio } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
+import { LeerSheets } from "@/components/leer-sheets";
+import { ultimaLecturaSheets } from "@/lib/servicios/sheets-finanzas";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,7 @@ export default async function Costeo() {
   }
 
   const encabezado = (
-    <Encabezado ceja="Negocio" titulo="Costeo" frescura={r?.generadoEn ?? null} refrescando={viejo} acciones={<AccionesCosteo />} />
+    <Encabezado ceja="Negocio" titulo="Costeo" frescura={r?.generadoEn ?? null} refrescando={viejo} acciones={<div className="flex flex-wrap items-center gap-2"><LeerSheets leidoEn={(await ultimaLecturaSheets(supabase as DB, cuenta.id))?.leidoEn ?? null} /><AccionesCosteo /></div>} />
   );
   if (!r || vieja) {
     return (

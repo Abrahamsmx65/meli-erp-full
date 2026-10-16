@@ -184,6 +184,15 @@ export function TablaNumeros({ renglones }: { renglones: RenglonNumeros[] }) {
                         >
                           real a {din(c.recibidoMeli.precio, 0)}: recibes {din(c.recibidoMeli.porPar)}/par
                         </div>
+                        {c.recibidoMeli.deHistorico ? (
+                          <div
+                            className="text-[11px]"
+                            style={{ color: "var(--alerta-texto)" }}
+                            title="Al precio relámpago de Números no hubo ventas en 30 días: se usó el relámpago real de MELI (el precio más bajo con volumen)."
+                          >
+                            sin ventas al relámpago de aquí: histórico
+                          </div>
+                        ) : null}
                         <div className="texto-tenue text-[11px]" title="Lo que dejaría el precio relámpago con las tasas de MELI">
                           con tasas: {din(c.gananciaRelampago)}
                         </div>
