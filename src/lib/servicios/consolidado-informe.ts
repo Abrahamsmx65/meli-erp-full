@@ -170,6 +170,7 @@ const NOTAS: RegExp[] = [
   /todavía no deposita; ya están en el neto/i,
   // TikTok: los anuncios GMV Max van a la publicidad del modelo.
   /anuncios GMV Max/i,
+  /se dejan fuera del Estado de resultados/i,
 ];
 /** Lo que se resuelve solo con el paso de los días. */
 const PENDIENTES: RegExp[] = [

@@ -2313,6 +2313,18 @@ guárdala numerada.
   sigue exigiendo todo cerrado y cuadrado. En MELI la venta de REVENTA
   reconstruida al precio público cuenta como venta cubierta (antes
   septiembre salía con 71 % teniendo todos los depósitos leídos).
+- **Lo que NO es del negocio se deja fuera del Estado de resultados**
+  (`MODELOS_OMITIDOS_AMAZON`, `sinModelosOmitidos` en `consolidado-amazon.ts`;
+  dueño, 16-oct-2026: «las bocinas Tronsmart las omites», opción A): las
+  bocinas TRONSMART que se venden en la cuenta de Amazon no tienen costo y su
+  neto entraba completo como ganancia. El bloque de Amazon les quita
+  renglón, venta, neto, cargos y publicidad (el canal sigue cuadrando: venta
+  − cargos = neto) y lo declara como NOTA; Ventas Amazon las sigue
+  enseñando. `versionContable` 10. Ese mismo día se capturaron los costos de
+  fundas y micas que faltaban (754, 748, 749, 750, 380, 585, 610, 640) y $10
+  a las 10 publicaciones de mica con SKU de otro vendedor («black-S»,
+  «MLM2111397273_6_36 EU»…; el dueño ya no vende ahí), y cinco avisos que
+  llegan solos o solo explican dejaron de salir en «Pide acción».
 - **AÑO DEL NEGOCIO, de mayo a abril** (`/cortes/anio`, «Año del negocio» en
   Negocio y botón «Año may–abr» en Estado de resultados;
   `servicios/consolidado-anio.ts` motor puro con pruebas: `periodosDelEjercicio`,
