@@ -2493,6 +2493,19 @@ guárdala numerada.
   agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
   completo (activos, inactivos, precio, imagen principal) vive aparte y solo
   lo lee la sección de contenido.
+- **INVERSIÓN en Existencias = bodega + camino de China + Full + FBA**
+  (`inversionPorCategoria` en `servicios/inventario.ts`, `vistaBodega` en
+  `servicios/bodega.ts`; dueño, 16-oct-2026: «para ver cuánto dinero real
+  tenemos invertido»): todo a costo de `productos_config`. Full lleva lo que
+  va en transferencia; FBA (`amazon_inventario`, solo calzado) lleva
+  disponible, reservado, no disponible, investigando, transferencia y lo ya
+  enviado o recibiéndose, NO lo «trabajando» (sus cajas siguen en bodega).
+  **Ganancia estimada** (mismo día: «sumar la ganancia estimada de la venta
+  de lo que hay en total, según lo que se gana en MELI»): todos esos pares ×
+  (depósito real de MELI por par en 30 días − costo), el `netoPar` de
+  `finanzas:tarifas-reales` (el de Números), antes de publicidad y gastos;
+  un modelo con menos de 10 pares vendidos en MELI en 30 días no tiene
+  estimación y se nombra aparte (`sinVentaMeli`).
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real

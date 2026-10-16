@@ -6,7 +6,7 @@ import { cronometro } from "@/lib/servicios/cronometro";
 import { Ficha } from "@/components/tiles";
 import { TablaInventario } from "@/components/tabla-inventario";
 import { TotalMexico } from "@/components/total-mexico";
-import { Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
+import { Aviso, Cifras, Encabezado, Pagina, Seccion, SinCuenta, Tabla } from "@/components/ui/pagina";
 import { Pestanas } from "@/components/ui/pestanas";
 
 export const dynamic = "force-dynamic";
@@ -44,18 +44,28 @@ export default async function Inventario({
   const vista = await vistaBodega(supabase, cuenta.id, t);
   t.fin();
   const { fichas, inversion } = vista;
+  const { ganancia, sinVentaMeli } = inversion;
+  const listaCorta = (xs: string[]) => (xs.length <= 8 ? xs.join(", ") : `${xs.slice(0, 8).join(", ")} y ${xs.length - 8} más`);
 
   return (
     <Pagina>
       <Encabezado
         ceja="Inventario"
         titulo="Existencias en bodega"
-        descripcion="Lo que está en cajas cerradas en tus bodegas y lo que viene en camino de China."
+        descripcion="Cajas en bodega, lo que viene de China y lo que ya está en Full y FBA, con lo invertido y lo que dejaría venderlo."
         ayuda={
           <>
             <p>
               Lo de Mercado Libre vive en su propia sección. El Excel se baja desde la tabla por SKU, con los mismos filtros
               que estés viendo.
+            </p>
+            <p>
+              La inversión es todo a costo de Productos y costos: bodega, lo que viene de China, Full (con lo que va en
+              transferencia) y FBA (disponible, reservado y lo ya enviado; un envío solo dado de alta no, porque sus cajas
+              siguen en la bodega). La ganancia estimada es vender TODO eso a lo que Mercado Pago depositó por par de cada
+              modelo en los últimos 30 días (reventa incluida, el mismo número de Números) menos el costo; es antes de
+              publicidad y gastos. Un modelo con menos de 10 pares vendidos en MELI en 30 días no tiene estimación y se
+              dice cuál.
             </p>
             <p>
               En el total por familia las cajas se cuentan una sola vez: una caja de corrida trae varias tallas, pero todas
@@ -76,6 +86,21 @@ export default async function Inventario({
           tono={fichas.paresEnCamino > 0 ? "alerta" : "neutro"}
         />
         <Ficha
+          titulo="En Full"
+          valor={n(fichas.paresEnFull)}
+          nota="Pares en Mercado Libre, con lo que va en transferencia"
+        />
+        <Ficha titulo="En FBA" valor={n(fichas.paresEnFba)} nota="Pares en Amazon, con lo ya enviado" />
+      </Cifras>
+
+      {vista.avisos.map((a, i) => (
+        <Aviso key={i} tono="alerta">
+          {a}
+        </Aviso>
+      ))}
+
+      <Cifras columnas={6}>
+        <Ficha
           titulo="Valor en bodega"
           valor={fichas.valorEnBodega > 0 ? pesos(fichas.valorEnBodega) : "—"}
           nota={
@@ -90,6 +115,34 @@ export default async function Inventario({
           titulo="Valor en camino"
           valor={fichas.valorEnCamino > 0 ? pesos(fichas.valorEnCamino) : "—"}
           nota="Lo que viene de China, a costo"
+        />
+        <Ficha
+          titulo="Valor en Full"
+          valor={fichas.valorEnFull > 0 ? pesos(fichas.valorEnFull) : "—"}
+          nota="Lo que está en Mercado Libre, a costo"
+        />
+        <Ficha
+          titulo="Valor en FBA"
+          valor={fichas.valorEnFba > 0 ? pesos(fichas.valorEnFba) : "—"}
+          nota="Lo que está en Amazon, a costo"
+        />
+        <Ficha
+          titulo="Inversión total"
+          valor={fichas.inversionTotal > 0 ? pesos(fichas.inversionTotal) : "—"}
+          nota="Bodega + camino + Full + FBA"
+          tono="bien"
+        />
+        <Ficha
+          titulo="Ganancia estimada"
+          valor={ganancia.pares > 0 ? pesos(ganancia.ganancia) : "—"}
+          nota={
+            ganancia.pares > 0
+              ? `Vendiendo todo a lo que deposita MELI · ${n(ganancia.pares)} pares${
+                  sinVentaMeli.pares > 0 ? `, ${n(sinVentaMeli.pares)} sin venta en MELI fuera` : ""
+                }`
+              : "Sin ventas de MELI para estimar"
+          }
+          tono={ganancia.ganancia >= 0 ? "bien" : "critico"}
         />
       </Cifras>
 
@@ -142,12 +195,15 @@ export default async function Inventario({
                         <tr>
                           <th>Categoría</th>
                           <th className="num">Modelos</th>
-                          <th className="num">Pares en bodega</th>
-                          <th className="num">Pares en camino</th>
+                          <th className="num">Pares</th>
                           <th className="num">Valor en bodega</th>
                           <th className="num">Valor en camino</th>
+                          <th className="num">Valor en Full</th>
+                          <th className="num">Valor en FBA</th>
                           <th className="num">Inversión</th>
                           <th className="num">Del total</th>
+                          <th className="num">Depósito MELI</th>
+                          <th className="num">Ganancia estimada</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -155,18 +211,17 @@ export default async function Inventario({
                           <tr key={c.categoria}>
                             <td className="font-medium">{c.categoria}</td>
                             <td className="num cifra">{n(c.modelos)}</td>
-                            <td className="num cifra">{c.pares.enBodega ? n(c.pares.enBodega) : "—"}</td>
-                            <td className="num cifra texto-2">
-                              {c.pares.enCamino ? n(c.pares.enCamino) : "—"}
+                            <td className="num cifra">
+                              {n(c.pares.enBodega + c.pares.enCamino + c.pares.enFull + c.pares.enFba)}
                             </td>
                             <td className="num cifra">{pesos(c.valor.enBodega)}</td>
-                            <td className="num cifra texto-2">
-                              {pesos(c.valor.enCamino)}
-                            </td>
+                            <td className="num cifra texto-2">{pesos(c.valor.enCamino)}</td>
+                            <td className="num cifra">{pesos(c.valor.enFull)}</td>
+                            <td className="num cifra">{pesos(c.valor.enFba)}</td>
                             <td className="num cifra font-semibold">{pesos(c.valor.total)}</td>
-                            <td className="num cifra texto-2">
-                              {porcentaje(c.parte)}
-                            </td>
+                            <td className="num cifra texto-2">{porcentaje(c.parte)}</td>
+                            <td className="num cifra texto-2">{c.ganancia.pares ? pesos(c.ganancia.deposito) : "—"}</td>
+                            <td className="num cifra font-semibold">{c.ganancia.pares ? pesos(c.ganancia.ganancia) : "—"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -176,17 +231,27 @@ export default async function Inventario({
                           <td className="font-semibold">Total</td>
                           <td></td>
                           <td></td>
-                          <td></td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.enBodega)}</td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.enCamino)}</td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.enFull)}</td>
+                          <td className="num cifra font-semibold">{pesos(inversion.total.enFba)}</td>
                           <td className="num cifra font-semibold">{pesos(inversion.total.total)}</td>
                           <td className="num cifra">100%</td>
+                          <td className="num cifra font-semibold">{ganancia.pares ? pesos(ganancia.deposito) : "—"}</td>
+                          <td className="num cifra font-semibold">{ganancia.pares ? pesos(ganancia.ganancia) : "—"}</td>
                         </tr>
                       </tfoot>
                     </table>
                     </Tabla>
                   )}
 
+                  {sinVentaMeli.pares > 0 ? (
+                    <footer className="border-t p-3 text-xs hairline texto-tenue">
+                      <strong>{n(sinVentaMeli.pares)} pares</strong> de {sinVentaMeli.modelos.length} modelos sí
+                      cuentan en la inversión pero NO en la ganancia estimada: vendieron menos de 10 pares en MELI en
+                      30 días ({listaCorta(sinVentaMeli.modelos)}).
+                    </footer>
+                  ) : null}
                   {inversion.sinCosto.pares > 0 || inversion.sinCategoria > 0 ? (
                     <footer className="border-t p-3 text-xs hairline texto-tenue">
                       {inversion.sinCosto.pares > 0 ? (

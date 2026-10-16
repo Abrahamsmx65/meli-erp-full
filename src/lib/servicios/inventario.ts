@@ -182,8 +182,14 @@ interface InventarioGuardado {
  */
 export interface InversionCategoria {
   categoria: string;
-  pares: { enBodega: number; enCamino: number };
-  valor: { enBodega: number; enCamino: number; total: number };
+  pares: { enBodega: number; enCamino: number; enFull: number; enFba: number };
+  valor: { enBodega: number; enCamino: number; enFull: number; enFba: number; total: number };
+  /**
+   * Ganancia estimada de vender TODO lo de esta categoría (bodega, barco,
+   * Full y FBA) a lo que MELI depositó por par en los últimos 30 días, menos
+   * el costo. Solo de los modelos con venta en MELI; los demás se apartan.
+   */
+  ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
   /** Cuántos modelos distintos caen en esta categoría. */
   modelos: number;
   /** Qué parte del valor total representa (0-1). */
@@ -192,7 +198,11 @@ export interface InversionCategoria {
 
 export interface InversionEnBodega {
   categorias: InversionCategoria[];
-  total: { enBodega: number; enCamino: number; total: number };
+  total: { enBodega: number; enCamino: number; enFull: number; enFba: number; total: number };
+  /** La ganancia estimada sumada (ver `InversionCategoria.ganancia`). */
+  ganancia: { pares: number; deposito: number; costo: number; ganancia: number };
+  /** Pares costeados sin venta en MELI en 30 días: no tienen ganancia estimada. */
+  sinVentaMeli: { pares: number; modelos: string[] };
   /** Lo que quedó fuera del total por no tener costo capturado. */
   sinCosto: { pares: number; modelos: string[] };
   /** Modelos costeados pero sin categoría: van juntos en «Sin categoría». */
@@ -201,17 +211,43 @@ export interface InversionEnBodega {
 
 const SIN_CATEGORIA = "Sin categoría";
 
+/**
+ * Un renglón para costear. `enFull` (Full + transferencia a Full) y `enFba`
+ * (todo lo que Amazon tiene o recibe en FBA) son opcionales: el dinero
+ * invertido de verdad incluye lo que ya está en los almacenes de MELI y
+ * Amazon, no solo la bodega y el barco (dueño, 16-oct-2026).
+ */
+export interface RenglonParaCostear {
+  modelo: string;
+  enBodega: number;
+  enCamino: number;
+  enFull?: number;
+  enFba?: number;
+}
+
+/** Lo que MELI deposita por par de un modelo, buscado como en Números. */
+function netoDeModelo(netoPorModelo: Map<string, number>, modelo: string): number | null {
+  const m = modelo.toUpperCase();
+  return netoPorModelo.get(modelo) ?? netoPorModelo.get(m) ?? netoPorModelo.get(m.split("-")[0]) ?? null;
+}
+
 export function inversionPorCategoria(
-  renglones: { modelo: string; enBodega: number; enCamino: number }[],
+  renglones: RenglonParaCostear[],
   config: Map<string, { categoria: string | null; costo: number | null }>,
+  /** Depósito real de MELI por par y modelo (30 días); vacío = sin ganancia estimada. */
+  netoPorModelo: Map<string, number> = new Map(),
 ): InversionEnBodega {
   const grupos = new Map<string, InversionCategoria & { modelosVistos: Set<string> }>();
   const sinCostoModelos = new Set<string>();
+  const sinVentaModelos = new Set<string>();
+  let paresSinVenta = 0;
   const sinCategoriaModelos = new Set<string>();
   let paresSinCosto = 0;
 
   for (const r of renglones) {
-    const pares = r.enBodega + r.enCamino;
+    const enFull = Math.max(0, r.enFull ?? 0);
+    const enFba = Math.max(0, r.enFba ?? 0);
+    const pares = r.enBodega + r.enCamino + enFull + enFba;
     if (pares <= 0) continue;
 
     // El costo se busca igual que en el resto del sistema: por modelo tal
@@ -230,22 +266,37 @@ export function inversionPorCategoria(
       grupos.get(categoria) ??
       {
         categoria,
-        pares: { enBodega: 0, enCamino: 0 },
-        valor: { enBodega: 0, enCamino: 0, total: 0 },
+        pares: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0 },
+        valor: { enBodega: 0, enCamino: 0, enFull: 0, enFba: 0, total: 0 },
+        ganancia: { pares: 0, deposito: 0, costo: 0, ganancia: 0 },
         modelos: 0,
         parte: 0,
         modelosVistos: new Set<string>(),
       };
     g.pares.enBodega += r.enBodega;
     g.pares.enCamino += r.enCamino;
+    g.pares.enFull += enFull;
+    g.pares.enFba += enFba;
     g.valor.enBodega += r.enBodega * c.costo;
     g.valor.enCamino += r.enCamino * c.costo;
+    g.valor.enFull += enFull * c.costo;
+    g.valor.enFba += enFba * c.costo;
+    const neto = netoDeModelo(netoPorModelo, r.modelo);
+    if (neto == null) {
+      paresSinVenta += pares;
+      sinVentaModelos.add(r.modelo);
+    } else {
+      g.ganancia.pares += pares;
+      g.ganancia.deposito += pares * neto;
+      g.ganancia.costo += pares * c.costo;
+      g.ganancia.ganancia += pares * (neto - c.costo);
+    }
     g.modelosVistos.add(r.modelo);
     grupos.set(categoria, g);
   }
 
   const categorias = [...grupos.values()].map((g) => {
-    g.valor.total = g.valor.enBodega + g.valor.enCamino;
+    g.valor.total = g.valor.enBodega + g.valor.enCamino + g.valor.enFull + g.valor.enFba;
     g.modelos = g.modelosVistos.size;
     return g;
   });
@@ -253,7 +304,15 @@ export function inversionPorCategoria(
   const total = {
     enBodega: categorias.reduce((a, g) => a + g.valor.enBodega, 0),
     enCamino: categorias.reduce((a, g) => a + g.valor.enCamino, 0),
+    enFull: categorias.reduce((a, g) => a + g.valor.enFull, 0),
+    enFba: categorias.reduce((a, g) => a + g.valor.enFba, 0),
     total: categorias.reduce((a, g) => a + g.valor.total, 0),
+  };
+  const ganancia = {
+    pares: categorias.reduce((a, g) => a + g.ganancia.pares, 0),
+    deposito: categorias.reduce((a, g) => a + g.ganancia.deposito, 0),
+    costo: categorias.reduce((a, g) => a + g.ganancia.costo, 0),
+    ganancia: categorias.reduce((a, g) => a + g.ganancia.ganancia, 0),
   };
   for (const g of categorias) g.parte = total.total > 0 ? g.valor.total / total.total : 0;
 
@@ -263,6 +322,8 @@ export function inversionPorCategoria(
   return {
     categorias: categorias.map(({ modelosVistos: _m, ...resto }) => resto),
     total,
+    ganancia,
+    sinVentaMeli: { pares: paresSinVenta, modelos: [...sinVentaModelos].sort() },
     sinCosto: { pares: paresSinCosto, modelos: [...sinCostoModelos].sort() },
     sinCategoria: sinCategoriaModelos.size,
   };

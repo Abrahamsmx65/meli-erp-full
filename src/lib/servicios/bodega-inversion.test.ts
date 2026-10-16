@@ -78,4 +78,34 @@ describe("inversionPorCategoria", () => {
     expect(inv.categorias).toHaveLength(1);
     expect(inv.categorias[0].modelos).toBe(1);
   });
+
+  it("suma lo que está en Full y en FBA a la inversión", () => {
+    const inv = inversionPorCategoria(
+      [
+        { modelo: "GT110", enBodega: 10, enCamino: 0, enFull: 20 },
+        { modelo: "GT110", enBodega: 0, enCamino: 0, enFba: 5 },
+      ],
+      base,
+    );
+    expect(inv.total.enFull).toBe(20 * 300);
+    expect(inv.total.enFba).toBe(5 * 300);
+    expect(inv.total.total).toBe(35 * 300);
+  });
+
+  it("ganancia estimada = (depósito de MELI − costo) × todos los pares; sin venta se aparta", () => {
+    const inv = inversionPorCategoria(
+      [
+        { modelo: "GT110", enBodega: 10, enCamino: 5, enFull: 3, enFba: 2 },
+        r("GT200", 4),
+      ],
+      base,
+      new Map([["GT110", 420]]),
+    );
+    expect(inv.ganancia.pares).toBe(20);
+    expect(inv.ganancia.deposito).toBe(20 * 420);
+    expect(inv.ganancia.ganancia).toBe(20 * (420 - 300));
+    expect(inv.sinVentaMeli).toEqual({ pares: 4, modelos: ["GT200"] });
+    // La inversión sí incluye al que no vendió.
+    expect(inv.total.total).toBe(20 * 300 + 4 * 100);
+  });
 });
