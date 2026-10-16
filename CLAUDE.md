@@ -146,7 +146,16 @@ guárdala numerada.
   metros → cm, «G.W/ctn» en kg; `medidasDeCeldas`) y se guardan por renglón
   en `contenedor_lineas` (migración 0094), nunca se capturan a mano
   (decisión del dueño, 18-sep-2026: «lo tomes del packing list, ahí sí
-  sale»). **El botón «Packing list» del contenedor descarga el formato del
+  sale»). **«G.W» junto a «Total G.W» es el peso POR CAJA** (16-oct-2026,
+  dueño: «estás tomando mal los datos» en el S263): se tomaba como total y
+  se dividía entre las cajas (11 ÷ 30 = 0.37 kg); S263 y S267–S271 tenían
+  todos los pesos así. Y cada lectura del archivo pone medida y peso en
+  TODOS los renglones del contenedor (`medidasParaRenglones`, pedido +
+  modelo + color laxo + talla → pedido + modelo + talla → modelo + talla;
+  sin acuerdo no adivina), también en lo confirmado a mano desde los
+  pendientes: los GT268–GT271 del S263 («N10127», colores en español) se
+  habían quedado sin medidas. Se corrigieron por SQL los 10 contenedores
+  vivos contra sus archivos de Drive. **El botón «Packing list» del contenedor descarga el formato del
   agente aduanal** (`packing-list-contenedor.ts`): LOTE PEDIDO, MODELO,
   COLOR, SKU (`IN10126-GT142-CREAM`, con talla si la caja es unitalla),
   PARES por caja, CAJAS, LARGO, ALTO, ANCHO, PESO, PRECIO = costo por par de
@@ -162,11 +171,18 @@ guárdala numerada.
   «Bodega: productos» y «Bodega: llegada»; dueño, 14-oct-2026: «para avisar
   a la bodega que llega mercancía doy de alta los productos y luego mando un
   Excel con lo que va a llegar»): CSV calcados de S259-PRODUCTOS.csv y
-  PACKING_LIST_S259.csv. El SKU y los dos barcodes son EL TEXTO DEL BOX
-  LABEL (`codigoDeCaja`: PEDIDO-MODELO-COLOR(-TALLA) sin espacios ni
-  anotación, la regla de `textosDeCarton`). PRODUCTOS no repite lo que ya
-  viajó en un contenedor ANTERIOR con el mismo SKU (embarque de número
-  menor); el packing list sí lleva todo. Valor reposicion = el DOBLE del
+  PACKING_LIST_S259.csv. **El SKU es el de MERCADO LIBRE y los dos
+  barcodes la etiqueta de caja que se mandó a China** (dueño, 16-oct-2026):
+  SKU = PEDIDO + el SKU de la variante de MELI sin «-MX» ni talla
+  (`skuMeliDeCaja`; IN10079-GT221-LT BROWN, IN10079-GT221-BLK; con talla si
+  la caja es unitalla), amarrado con `amarreDeLineas` (amarres a mano
+  incluidos; `conSkusMeli` en `contenedor-datos.ts`); sin variante en MELI
+  lleva el color del pedido y se avisa. Barcode = PEDIDO-MODELO-COLOR(-TALLA)
+  con el color del PEDIDO (BLACK) y cada espacio convertido en GUION
+  (`codigoDeCaja`; IN10079-GT221-LT-BROWN): la almacenadora no acepta
+  espacios, aunque la caja de origen venga con ellos. PRODUCTOS no repite
+  lo que ya viajó en un contenedor ANTERIOR con el mismo barcode (embarque
+  de número menor); el packing list sí lleva todo, con el SKU de MELI. Valor reposicion = el DOBLE del
   costo por par × pares (`FACTOR_VALOR_REPOSICION`); Atributos = pares por caja; Paquete 1 = medidas del packing list
   de la fábrica en el orden de «Means» (las que faltan salen de otro
   contenedor con el mismo modelo y pares); Categoria = 32 para TODO el
@@ -2486,6 +2502,34 @@ guárdala numerada.
   agotadas.length`, `fba.ts`): media corrida dejaría de viajar. El catálogo
   completo (activos, inactivos, precio, imagen principal) vive aparte y solo
   lo lee la sección de contenido.
+- **INVERSIÓN en Existencias = bodega + camino de China + Full + FBA + TikTok**
+  (`inversionPorCategoria` en `servicios/inventario.ts`, `vistaBodega` en
+  `servicios/bodega.ts`; dueño, 16-oct-2026: «para ver cuánto dinero real
+  tenemos invertido»): todo a costo de `productos_config`. Full lleva lo que
+  va en transferencia; FBA (`amazon_inventario`, solo calzado) lleva
+  disponible, reservado, no disponible, investigando, transferencia y lo ya
+  enviado o recibiéndose, NO lo «trabajando» (sus cajas siguen en bodega).
+  TikTok = saldo de `tiktok_inventario` sin los SKU de David
+  (`skusExternos`); esa bodega no está en `enBodega`, no se cuenta dos veces.
+  **Ganancia estimada** (mismo día: «sumar la ganancia estimada de la venta
+  de lo que hay en total, según lo que se gana en MELI»): todos esos pares ×
+  (depósito real de MELI por par en 30 días − costo), el `netoPar` de
+  `finanzas:tarifas-reales` (el de Números), antes de publicidad y gastos;
+  un modelo con menos de 10 pares vendidos en MELI en 30 días se estima con el
+  PROMEDIO de los que sí venden (su costo × depósito ÷ costo de esos;
+  `sinVentaMeli.veces`, dueño, 16-oct-2026) y se nombra aparte. Sin costo
+  capturado no entra a nada.
+- **FUNDAS en Existencias y «Todo junto»** (`servicios/existencias-fundas.ts`,
+  `app_cache` `existencias:fundas:v1` 15 min; dueño, 16-oct-2026: «una
+  sección de fundas, lo que hay en stock y en MELI y Amazon y lo que se gana,
+  y sumar todo junto»): mismo motor (`inversionPorCategoria`) por DISEÑO.
+  Bodega = el sheet ya amarrado (pantalla `inventario` de `yz_cache`; lo sin
+  amarrar no se costea y se dice), camino = pedidos a China de fundas, Full =
+  `yz_stock_full` + transferencia, FBA = SKU de Amazon cuyo diseño empieza
+  con número. Los envíos registrados a Full NO se suman (el sheet los puede
+  traer). Ganancia con el depósito real por pieza y diseño de
+  `yz_ventas_resumen` en 30 días (≥ 10 piezas; si no, el promedio). Arriba,
+  «Todo junto» suma calzado + fundas; cada uno con su propio depósito.
 - **Costos y categorías son por MODELO** (mismo costo todos los colores), en
   MXN final, en `productos_config`. Ahí también viven los diseños de FUNDAS
   (categoría "Fundas"): es el único lugar de costos del sistema. La ganancia de MELI usa el neto real

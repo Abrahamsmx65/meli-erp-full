@@ -5,6 +5,7 @@ import { armarArchivosBodega, csvPackingBodega, csvProductosBodega } from "@/lib
 import {
   completarMedidas,
   contenedorDeCuenta,
+  conSkusMeli,
   datosDeModelos,
   renglonesDelContenedor,
   skusDeContenedoresAnteriores,
@@ -33,13 +34,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const contenedor = await contenedorDeCuenta(supabase, cuenta.id, id);
   if (!contenedor) return NextResponse.json({ error: "Contenedor no encontrado." }, { status: 404 });
 
-  let renglones = await renglonesDelContenedor(supabase, contenedor.id);
-  if (!renglones.length) return NextResponse.json({ error: "El contenedor no tiene cajas asignadas todavía." }, { status: 400 });
+  const crudos = await renglonesDelContenedor(supabase, contenedor.id);
+  if (!crudos.length) return NextResponse.json({ error: "El contenedor no tiene cajas asignadas todavía." }, { status: 400 });
+  let renglones = await conSkusMeli(supabase, cuenta.id, crudos);
 
   const numero = contenedor.numero.replace(/-\d{4}$/, "");
   if (archivo === "packing") {
     const armado = armarArchivosBodega(renglones, new Map(), new Set());
-    return NextResponse.json({ nombre: `PACKING_LIST_${numero}.csv`, csv: csvPackingBodega(armado.packing), avisos: [] });
+    const avisos = armado.avisos.filter((a) => a.startsWith("Sin variante en Mercado Libre"));
+    return NextResponse.json({ nombre: `PACKING_LIST_${numero}.csv`, csv: csvPackingBodega(armado.packing), avisos });
   }
 
   renglones = await completarMedidas(supabase, renglones);
