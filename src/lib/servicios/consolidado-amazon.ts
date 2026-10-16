@@ -30,7 +30,77 @@ export function bloqueAmazon(m: MonitorAmazon, config: Map<string, ConfigProduct
   // Una fuente de respaldo que no se pudo leer se DECLARA; antes su error
   // tumbaba el canal entero y Amazon desaparecía del corte general.
   if (m.avisosFuentes?.length) bloque.avisos = [...m.avisosFuentes, ...bloque.avisos];
-  return bloque;
+  return sinModelosOmitidos(bloque);
+}
+
+/**
+ * Lo que se vende en la cuenta de Amazon pero NO es del negocio y se deja
+ * fuera del Estado de resultados (dueño, 16-oct-2026: «las bocinas
+ * Tronsmart las omites», opción A: ni venta ni utilidad). Sin costo, su
+ * neto entraba completo como ganancia. Ventas Amazon las sigue enseñando.
+ */
+export const MODELOS_OMITIDOS_AMAZON: ReadonlySet<string> = new Set(["TRONSMART"]);
+
+/**
+ * Saca del bloque los renglones de los modelos omitidos y les resta su
+ * venta, neto, cargos y publicidad a los totales, en centavos, para que el
+ * canal siga cuadrando (venta − cargos = neto). Pura.
+ */
+export function sinModelosOmitidos(b: BloqueCanal, omitidos: ReadonlySet<string> = MODELOS_OMITIDOS_AMAZON): BloqueCanal {
+  const fuera = b.porModelo.filter((f) => omitidos.has(f.modelo.toUpperCase()));
+  if (!fuera.length) return b;
+  const c = (x: number | null | undefined) => Math.round((Number(x) || 0) * 100);
+  const p = (cent: number) => Math.round(cent) / 100 || 0;
+  const suma = (campo: "unidades" | "importe" | "neto" | "ads" | "comision" | "envio" | "iva" | "otros" | "isr") =>
+    fuera.reduce((a, f) => a + c(f[campo]), 0);
+  const unidades = fuera.reduce((a, f) => a + (Number(f.unidades) || 0), 0);
+  const importe = suma("importe");
+  const neto = suma("neto");
+  const ads = suma("ads");
+  const comision = suma("comision");
+  const envio = suma("envio");
+  const iva = suma("iva");
+  const otros = suma("otros");
+  const isr = suma("isr");
+
+  const desglose = b.desglosePlataforma
+    ? {
+        ...b.desglosePlataforma,
+        comision: p(c(b.desglosePlataforma.comision) - comision),
+        envio: p(c(b.desglosePlataforma.envio) - envio),
+        iva: p(c(b.desglosePlataforma.iva) - iva),
+        isr: p(c(b.desglosePlataforma.isr) - isr),
+        otros: p(c(b.desglosePlataforma.otros) - otros),
+      }
+    : undefined;
+  // Las mismas restas en las líneas de conciliación (descuentos ya incluidos en el neto).
+  const restar: Record<string, number> = {
+    "Comisión de Amazon (referral)": comision,
+    "Tarifa de FBA": envio,
+    "IVA retenido por Amazon": iva,
+  };
+  const lineaOtros = b.descuentos.some((d) => d.concepto === "Otras tarifas por renglón")
+    ? "Otras tarifas por renglón"
+    : "Promociones absorbidas";
+  restar[lineaOtros] = (restar[lineaOtros] ?? 0) + otros;
+  const descuentos = b.descuentos.map((d) => (restar[d.concepto] ? { ...d, monto: p(c(d.monto) - restar[d.concepto]) } : d));
+
+  const nombres = [...new Set(fuera.map((f) => f.modelo.toUpperCase()))].join(", ");
+  const fmt = (cent: number) => (cent / 100).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+  return {
+    ...b,
+    unidades: b.unidades - unidades,
+    ventaBruta: p(c(b.ventaBruta) - importe),
+    neto: p(c(b.neto) - neto),
+    descuentos,
+    desglosePlataforma: desglose,
+    adsPorModelo: p(c(b.adsPorModelo) - ads),
+    porModelo: b.porModelo.filter((f) => !omitidos.has(f.modelo.toUpperCase())),
+    avisos: [
+      ...b.avisos,
+      `Amazon: se dejan fuera del Estado de resultados ${unidades} unidad(es) de ${nombres} (${fmt(importe)} de venta, ${fmt(neto)} de neto): no son del negocio, decisión del dueño.`,
+    ],
+  };
 }
 
 /** ¿Alguna liquidación leída (en pesos) empieza el primer día del rango o antes? */
