@@ -584,3 +584,30 @@ describe("dependencias de la publicidad", () => {
     expect(ds[1]).toMatchObject({ campanas: ["Nuevos"], ritmoPrevio: 0, presupuestoHoy: null, clase: "creciendo" });
   });
 });
+
+describe("pausar mira la bodega y el estado real del anuncio", () => {
+  // 60 pares en 14 días = ~4.3 al día; 20 en Full = ~5 días (< 14).
+  const base = { filas: [fila("GT259", { unidades: 60 })], dias: 14, stockDeModelo: new Map([["GT259", 20]]) };
+
+  it("sin bodega, poco stock en Full = pausar", () => {
+    const rs = armarRecomendaciones({ ...base, itemsDeModelo: new Map([["GT259", [item("MLM1")]]]) });
+    expect(rs.map((r) => r.accion)).toEqual(["pausar"]);
+  });
+
+  it("con bodega para reponer Full no se pausa", () => {
+    const rs = armarRecomendaciones({
+      ...base,
+      itemsDeModelo: new Map([["GT259", [item("MLM1")]]]),
+      stockBodegaDeModelo: new Map([["GT259", 528]]),
+    });
+    expect(rs.some((r) => r.accion === "pausar")).toBe(false);
+  });
+
+  it("un anuncio en hold, pausado o idle no se vuelve a pedir pausar", () => {
+    const rs = armarRecomendaciones({
+      ...base,
+      itemsDeModelo: new Map([["GT259", [item("MLM1", "hold"), item("MLM2", "paused"), item("MLM3", "idle")]]]),
+    });
+    expect(rs.some((r) => r.accion === "pausar")).toBe(false);
+  });
+});
