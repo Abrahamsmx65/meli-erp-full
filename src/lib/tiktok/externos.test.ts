@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amarreDeExterno,
   agruparPublicaciones,
   coincidePublicacion,
   mismoVendedor,
@@ -85,6 +86,20 @@ describe("ventas sin lo externo", () => {
     expect((r.ordenes[0] as any).netoRecibido).toBeCloseTo(75);
     const igual = sinVentasExternas(ordenes, renglones, new Map());
     expect(igual.ordenes).toBe(ordenes);
+  });
+});
+
+describe("nombre del kardex de un SKU externo", () => {
+  it("sin amarre, una publicación de David usa su seller_sku tal cual (con su «D-»)", () => {
+    const r = amarreDeExterno(" D-GT074-BLK-24-MX ", { skuInterno: null, origen: null }, true);
+    expect(r).toEqual({ skuInterno: "D-GT074-BLK-24-MX", origen: "externo" });
+  });
+  it("lo que sí amarró se respeta, y una publicación del dueño no cambia", () => {
+    const amarrado = { skuInterno: "GT146-BLK-23-MX", origen: "exacto" as const };
+    expect(amarreDeExterno("GT146-BLK-23-MX", amarrado, true)).toBe(amarrado);
+    const nada = { skuInterno: null, origen: null };
+    expect(amarreDeExterno("D-GT074-BLK-24-MX", nada, false)).toBe(nada);
+    expect(amarreDeExterno("   ", nada, true)).toBe(nada);
   });
 });
 

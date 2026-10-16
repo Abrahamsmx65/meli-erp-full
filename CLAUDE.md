@@ -1234,6 +1234,20 @@ guárdala numerada.
   abierta. En un pedido mixto el par del dueño
   sale del kardex y SÍ se le manda a Industher como salida (es el mismo
   camino de siempre): quién se lo lleva a David es un acuerdo entre ellos.
+  **Los SKU de David llevan el prefijo «D-» y ESE es su nombre en el
+  kardex** (`amarreDeExterno` en `tiktok/externos.ts`, en el paso 1 de
+  `sincronizarTikTok`; origen `externo`; acuerdo del dueño con David,
+  16-oct-2026: «todo lo de él en los SKUs le está poniendo una D antes para
+  diferenciar»): un SKU de una publicación ligada que no amarra con nada del
+  ERP toma su `seller_sku` tal cual. Hasta ese día solo `ligarPublicacion`
+  bautizaba los SKU sin amarre, y la sincronización del catálogo volvía a
+  escribir `sku_interno = null` en cuanto David renombraba una variante
+  («D-GT074-BLK-24-MX» no es un SKU de calzado para `pareceSkuDeCalzado`):
+  el stock que capturó el 15-oct (D-GT074 y D-GT105, 20 SKU) nunca llegó a
+  TikTok y la pantalla decía «178 SKU todavía no tienen stock capturado». Se
+  rebautizaron 81 renglones por SQL. Lo que sí amarra (GT146-BLK-23-MX, mismo
+  nombre que en MELI) se queda con ese nombre: David y el dueño comparten el
+  renglón del kardex si usan el mismo SKU, por eso la «D».
   **LOTES: muchos paquetes iguales de UN par** (`tiktok/lotes.ts` motor puro
   con pruebas: `detectarLotes`, `PAQUETES_POR_LOTE_MIN` 10, `loteDeCodigo`,
   `avanceDeLote`; `itemsConLotes` en `tiktok/empaque.ts`; `dibujarLote` en

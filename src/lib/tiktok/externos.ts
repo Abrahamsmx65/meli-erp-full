@@ -25,6 +25,7 @@
  *
  * Todo puro: los servicios leen la base y le pasan a esto los mapas.
  */
+import type { AmarreTikTok } from "./amarre";
 import type { OrdenParaVentas, RenglonParaVentas } from "./ventas";
 
 /** Los vendedores externos que la tienda conoce. La clave es la que se guarda en la base. */
@@ -53,6 +54,25 @@ export function mismoVendedor(a: string | null | undefined, b: string | null | u
 
 /** sku del ERP → vendedor externo al que pertenece. */
 export type MapaExternos = Map<string, string>;
+
+/**
+ * El nombre del kardex de un SKU de una publicación EXTERNA. Si el ERP lo
+ * amarró a algo (a mano, catálogo, MELI…), ese nombre se queda; si no, es su
+ * propio `seller_sku` tal cual (recortado), con origen `externo`.
+ *
+ * Sin esto, la sincronización del catálogo le borraba el nombre: David
+ * renombró sus variantes con el prefijo «D-» (acuerdo con el dueño,
+ * 16-oct-2026: «todo lo de él en los SKUs le está poniendo una D antes para
+ * diferenciar»), «D-GT074-BLK-24-MX» no amarra con nada del ERP, la
+ * sincronización escribía `sku_interno = null` y el stock que capturó
+ * (12, 16, 11, 48 pares) nunca llegó a TikTok. Una publicación que NO es
+ * externa sale igual que entró.
+ */
+export function amarreDeExterno(sellerSku: string | null | undefined, amarre: AmarreTikTok, esExterno: boolean): AmarreTikTok {
+  if (!esExterno || amarre.skuInterno) return amarre;
+  const propio = String(sellerSku ?? "").trim();
+  return propio ? { skuInterno: propio, origen: "externo" } : amarre;
+}
 
 /**
  * De quién es un pedido según sus renglones: si ALGÚN par es de un
