@@ -384,6 +384,53 @@ describe("armarRecomendaciones", () => {
     expect(r.some((x) => x.accion === "bajar")).toBe(false);
   });
 
+  describe("producto posicionado", () => {
+    // 600 pares en 30 días = 20 al día; antes 19 al día; solo 25 % por ads.
+    const posicionado = () =>
+      fila("GT114", { unidades: 600, importe: 300000, ganancia: 90000, gastoAds: 6000, tacos: 0.02, unidadesAds: 150 });
+    const base = () => ({
+      filas: [posicionado()],
+      stockDeModelo: new Map([["GT114", 6000]]), // 300 días: sobra stock
+      dias,
+      itemsDeModelo: new Map([["GT114", [item("MLM1")]]]),
+      ritmoPrevioDeModelo: new Map([["GT114", 19]]),
+    });
+
+    it("pide bajar el gasto a la mitad aunque el TACOS sea bajo, en vez de subir", () => {
+      const r = armarRecomendaciones(base());
+      expect(r).toHaveLength(1);
+      expect(r[0].accion).toBe("bajar");
+      expect(r[0].queHacer).toBe("Producto posicionado: bajar el gasto de $200 a ~$100 al día");
+      expect(r[0].razon).toContain("25%");
+    });
+
+    it("no lo vuelve a pedir si el presupuesto de hoy ya está en la mitad", () => {
+      const r = armarRecomendaciones({ ...base(), presupuestoDeModelo: new Map([["GT114", 100]]) });
+      expect(r).toHaveLength(0);
+    });
+
+    it("no es posicionado si la venta depende de la publicidad", () => {
+      const r = armarRecomendaciones({ ...base(), filas: [{ ...posicionado(), unidadesAds: 420 }] });
+      expect(r.some((x) => x.queHacer.includes("posicionado"))).toBe(false);
+    });
+
+    it("no es posicionado si viene despegando o cayendo", () => {
+      const despega = armarRecomendaciones({ ...base(), ritmoPrevioDeModelo: new Map([["GT114", 5]]) });
+      const cae = armarRecomendaciones({ ...base(), ritmoPrevioDeModelo: new Map([["GT114", 30]]) });
+      expect(despega.some((x) => x.queHacer.includes("posicionado"))).toBe(false);
+      expect(cae.some((x) => x.queHacer.includes("posicionado"))).toBe(false);
+    });
+
+    it("no es posicionado si vende poco", () => {
+      const r = armarRecomendaciones({
+        ...base(),
+        filas: [{ ...posicionado(), unidades: 150, unidadesAds: 30 }],
+        ritmoPrevioDeModelo: new Map([["GT114", 5]]),
+      });
+      expect(r.some((x) => x.queHacer.includes("posicionado"))).toBe(false);
+    });
+  });
+
   it("entre 5 % y 10 % de TACOS no pide nada aunque sobre stock", () => {
     const r = armarRecomendaciones({
       filas: [fila("GT122", { tacos: 0.08, gastoAds: 2400 })],

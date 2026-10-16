@@ -290,6 +290,12 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
     stockDeModelo.set(d, (stockDeModelo.get(d) ?? 0) + (s.disponible ?? 0) + (s.en_transferencia ?? 0));
   }
   const historia = new Set(previa.filter((f) => (Number(f.unidades) || 0) > 0).map((f) => de(f.sku)));
+  // Piezas al día por diseño en los 60 días anteriores (producto posicionado).
+  const ritmoPrevioDeModelo = new Map<string, number>();
+  for (const f of previa) {
+    const d = de(f.sku);
+    ritmoPrevioDeModelo.set(d, (ritmoPrevioDeModelo.get(d) ?? 0) + (Number(f.unidades) || 0) / 60);
+  }
   if (p.sinAmarre.gasto > 0) avisos.push(`$${Math.round(p.sinAmarre.gasto).toLocaleString("es-MX")} de gasto en ${p.sinAmarre.anuncios} anuncio(s) de fundas sin diseño amarrado.`);
 
   return {
@@ -303,6 +309,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       coberturaCorta: COBERTURA_CORTA_FUNDAS,
       coberturaLarga: COBERTURA_LARGA_FUNDAS,
       presupuestoDeModelo: campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined,
+      ritmoPrevioDeModelo,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,
