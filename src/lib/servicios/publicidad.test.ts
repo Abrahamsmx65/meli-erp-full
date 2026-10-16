@@ -650,9 +650,18 @@ describe("ROAS objetivo en vez de presupuesto", () => {
     expect(rs[0].queHacer).toContain("subir el ROAS objetivo de 4.0 a ~6.0");
   });
 
-  it("si el ROAS objetivo ya se subió, no lo vuelve a pedir", () => {
-    const rs = armarRecomendaciones({ ...baseP, roasObjetivoDeModelo: new Map([["GT114", 6]]) });
+  it("si el gasto de los últimos días ya bajó a la meta, no lo vuelve a pedir", () => {
+    const rs = armarRecomendaciones({
+      ...baseP,
+      roasObjetivoDeModelo: new Map([["GT114", 6]]),
+      gastoRecienteDeModelo: new Map([["GT114", 480]]),
+    });
     expect(rs).toHaveLength(0);
+  });
+
+  it("el paso sale del ROAS objetivo, no del real (que MELI deja muy arriba)", () => {
+    const rs = armarRecomendaciones({ ...baseP, roasObjetivoDeModelo: new Map([["GT114", 8]]) });
+    expect(rs[0].queHacer).toContain("de 8.0 a ~12.0");
   });
 
   // Capital parado y TACOS 3 %: ROAS real 5, gasta ~$64 al día.
@@ -670,6 +679,15 @@ describe("ROAS objetivo en vez de presupuesto", () => {
     expect(rs.map((r) => r.accion)).toEqual(["subir"]);
     expect(rs[0].queHacer).toContain("Bajar el ROAS objetivo de 5.0 a ~3.3");
     expect(rs[0].queHacer).toContain("gasta $64 de $300 de presupuesto");
+  });
+
+  it("si el gasto de los últimos días ya subió, no pide bajar el ROAS otra vez", () => {
+    const rs = armarRecomendaciones({
+      ...baseS,
+      presupuestoDeModelo: new Map([["GT200", 300]]),
+      gastoRecienteDeModelo: new Map([["GT200", 210]]),
+    });
+    expect(rs).toHaveLength(0);
   });
 
   it("presupuesto que sí se gasta: subir el presupuesto", () => {

@@ -661,18 +661,44 @@ export const PASO_ROAS_MAX = 1.5;
 export const PASO_ROAS_MIN = 1.15;
 
 /**
- * El ROAS objetivo nuevo para llevar el gasto de `alDia` a `meta`: el gasto
- * baja más o menos en la misma proporción en que sube el ROAS, así que se
- * parte del ROAS REAL del periodo (venta por publicidad ÷ gasto) y se mueve
- * por esa proporción, en pasos de 15 % a 50 %. Puro.
+ * El ROAS objetivo nuevo para llevar el gasto de `alDia` a `meta`: se mueve
+ * el objetivo de HOY por la proporción de gasto que se busca, en pasos de
+ * 15 % a 50 % (para bajar el gasto a la mitad, ×1.5). No se parte del ROAS
+ * real: MELI suele quedar muy arriba del objetivo y el paso salía de 8 a 33
+ * (GT135, 16-oct-2026). Puro.
  */
-export function roasParaGasto(roasReal: number, alDia: number, meta: number): number {
+export function roasParaGasto(roasObjetivo: number, alDia: number, meta: number): number {
   const razon = alDia / Math.max(meta, 0.01);
   const sube = razon >= 1;
   const paso = Math.min(PASO_ROAS_MAX, Math.max(PASO_ROAS_MIN, sube ? razon : 1 / razon));
-  const nuevo = sube ? roasReal * paso : roasReal / paso;
+  const nuevo = sube ? roasObjetivo * paso : roasObjetivo / paso;
   return Math.round(nuevo * 10) / 10;
 }
+
+/**
+ * Días con que se mide el gasto RECIENTE: el de 14 días va atrasado, así que
+ * un ROAS ya movido se reconoce porque el gasto de estos días ya llegó a la
+ * meta.
+ */
+export const DIAS_GASTO_RECIENTE = 3;
+
+/** Gasto al día por modelo; un anuncio de varios modelos se parte parejo. Puro. */
+export function gastoDiaPorModelo(
+  anuncios: { itemId: string; gasto: number }[],
+  modelosDeItem: Map<string, string[]>,
+  dias: number,
+): Map<string, number> {
+  const salida = new Map<string, number>();
+  for (const a of anuncios) {
+    const modelos = modelosDeItem.get(a.itemId) ?? [];
+    if (!modelos.length || !(a.gasto > 0)) continue;
+    for (const m of modelos) salida.set(m, (salida.get(m) ?? 0) + a.gasto / modelos.length / Math.max(dias, 1));
+  }
+  return salida;
+}
+
+const restarDiasIso = (dia: string, n: number) =>
+  new Date(Date.parse(`${dia}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
 export const MAX_NUEVOS_SIN_ANUNCIO = 10;
@@ -767,6 +793,8 @@ export function armarRecomendaciones(opts: {
   stockBodegaDeModelo?: Map<string, number>;
   /** modelo -> ROAS objetivo de HOY de sus campañas (`roasObjetivoPorModelo`) */
   roasObjetivoDeModelo?: Map<string, number>;
+  /** modelo -> gasto al día de los últimos `DIAS_GASTO_RECIENTE` días */
+  gastoRecienteDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
   const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
@@ -806,7 +834,6 @@ export function armarRecomendaciones(opts: {
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
     // ¿Se gasta el presupuesto? Si no, moverlo no cambia nada: va el ROAS.
     const roasObj = opts.roasObjetivoDeModelo?.get(f.modelo) ?? null;
-    const roasReal = f.gastoAds > 0 && f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null;
     const presHoy = opts.presupuestoDeModelo?.get(f.modelo) ?? null;
     const gastoDiaActual = dias > 0 ? f.gastoAds / dias : f.gastoAds;
     const presupuestoLleno = presHoy == null || presHoy <= 0 || gastoDiaActual >= presHoy * PRESUPUESTO_LLENO;
@@ -816,10 +843,12 @@ export function armarRecomendaciones(opts: {
         : "";
     // Para BAJAR el gasto se sube el ROAS objetivo (si la campaña tiene uno);
     // devuelve null si ya está ahí o si no hay ROAS con qué trabajar.
+    const reciente = opts.gastoRecienteDeModelo ? (opts.gastoRecienteDeModelo.get(f.modelo) ?? 0) : null;
     const subirRoas = (meta: number): { texto: string; listo: boolean } | null => {
-      if (roasObj == null || roasReal == null) return null;
-      const nuevo = roasParaGasto(roasReal, gastoDiaActual, meta);
-      if (roasObj >= nuevo * 0.95) return { texto: "", listo: true };
+      if (roasObj == null) return null;
+      // Ya se movió: el gasto de los últimos días ya llegó a la meta.
+      if (reciente != null && reciente <= meta * 1.1) return { texto: "", listo: true };
+      const nuevo = roasParaGasto(roasObj, gastoDiaActual, meta);
       return { texto: `Subir el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)}`, listo: false };
     };
     const cobertext =
@@ -969,10 +998,12 @@ export function armarRecomendaciones(opts: {
       // es el ROAS objetivo y hay que BAJARLO, sin pasar del piso que deja la
       // publicidad en el tope de TACOS.
       let queHacer: string;
-      if (!presupuestoLleno && roasObj != null && roasReal != null) {
+      if (!presupuestoLleno && roasObj != null) {
         const parteVentaAds = f.importe > 0 ? f.ventaAds / f.importe : 0;
         const piso = Math.round((parteVentaAds / tope) * 10) / 10;
-        const nuevo = Math.max(piso, roasParaGasto(roasReal, alDia, alDiaTope));
+        const nuevo = Math.max(piso, roasParaGasto(roasObj, alDia, alDiaTope));
+        // Ya se bajó (el gasto de los últimos días ya subió) o no hay a dónde.
+        if (reciente != null && reciente >= alDiaTope * 0.9) continue;
         if (roasObj <= nuevo * 1.05) continue;
         queHacer = `Bajar el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)} para que gaste más (hasta ~$${num(alDiaTope)} al día, ${pct(tope)} de la venta)${consumo}`;
       } else {
@@ -1551,6 +1582,18 @@ export async function cargarPublicidad(
       datos.advertencias.push(`No se pudo leer el presupuesto de las campañas: ${(err as Error).message}. Las recomendaciones salen solo del gasto.`);
     }
   }
+  // Gasto de los últimos días, para reconocer un ROAS ya movido.
+  let gastoRecienteDeModelo: Map<string, number> | undefined;
+  if (!stockEstado.error && !errorAds) {
+    const rec = { desde: restarDiasIso(r.hasta, DIAS_GASTO_RECIENTE - 1), hasta: r.hasta };
+    try {
+      let recientes = await anunciosDesdeBase(db, cuenta.id, rec);
+      if (!recientes && cliente) recientes = await traerAnunciosAds(cliente, await resolverAdvertiser(cliente, cuenta.site_id), rec);
+      if (recientes) gastoRecienteDeModelo = gastoDiaPorModelo(recientes, modelosDeItem, DIAS_GASTO_RECIENTE);
+    } catch (err) {
+      datos.advertencias.push(`No se pudo leer el gasto de los últimos días: ${(err as Error).message}.`);
+    }
+  }
   datos.recomendaciones = stockEstado.error
     ? []
     : armarRecomendaciones({
@@ -1563,6 +1606,7 @@ export async function cargarPublicidad(
         ritmoPrevioDeModelo,
         stockBodegaDeModelo,
         roasObjetivoDeModelo,
+        gastoRecienteDeModelo,
       });
   datos.dependencias = armarDependencias({
     filas: datos.filas,
