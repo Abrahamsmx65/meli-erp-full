@@ -29,6 +29,7 @@ import {
   armarRecomendaciones,
   armarDependencias,
   presupuestoPorModelo,
+  roasObjetivoPorModelo,
   resolverAdvertiser,
   traerCampanasAds,
   traerAnunciosAds,
@@ -308,6 +309,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
   if (p.sinAmarre.gasto > 0) avisos.push(`$${Math.round(p.sinAmarre.gasto).toLocaleString("es-MX")} de gasto en ${p.sinAmarre.anuncios} anuncio(s) de fundas sin diseño amarrado.`);
 
   const presupuestoDeModelo = campanas ? presupuestoPorModelo(campanas, itemsDeModelo) : undefined;
+  const roasObjetivoDeModelo = campanas ? roasObjetivoPorModelo(campanas, itemsDeModelo) : undefined;
   const stockBodegaDeModelo = bodegaYz ? new Map<string, number>() : undefined;
   for (const b of bodegaYz ?? []) {
     const d = disenoDe(b.sku_bodega, b.diseno);
@@ -321,6 +323,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       nombresCampana: campanas ? new Map(campanas.map((c) => [c.id, c.nombre])) : undefined,
       presupuestoDeModelo,
       ritmoPrevioDeModelo,
+      roasObjetivoDeModelo,
     }),
     recomendaciones: armarRecomendaciones({
       filas: p.filas,
@@ -334,6 +337,7 @@ export async function publicidadFundas(db: DB, rango: RangoFechas): Promise<Publ
       presupuestoDeModelo,
       ritmoPrevioDeModelo,
       stockBodegaDeModelo,
+      roasObjetivoDeModelo,
     }),
     gastoAds: p.totales.gastoAds,
     tacos: p.totales.tacos,

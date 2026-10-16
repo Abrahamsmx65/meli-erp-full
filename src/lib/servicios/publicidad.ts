@@ -111,6 +111,11 @@ export interface CampanaAds {
   presupuesto: number | null;
   /** ACOS objetivo en % (así lo maneja MELI); null = automática o no vino */
   acosObjetivo: number | null;
+  /**
+   * ROAS objetivo (venta por publicidad ÷ inversión): el que MELI enseña en
+   * la consola. Viene como `roas_target` o se saca del ACOS (100 ÷ ACOS).
+   */
+  roasObjetivo: number | null;
   estrategia: string | null;
   /** gasto del periodo de los anuncios de esta campaña */
   gasto: number;
@@ -194,6 +199,7 @@ interface RespuestaCampanas {
     status?: string;
     budget?: number;
     acos_target?: number;
+    roas_target?: number;
     strategy?: string;
   }[];
   paging?: { total?: number; offset?: number; limit?: number };
@@ -409,6 +415,7 @@ export async function traerCampanasAds(
         estado: c.status ?? null,
         presupuesto: c.budget != null ? Number(c.budget) : null,
         acosObjetivo: c.acos_target != null ? Number(c.acos_target) : null,
+        roasObjetivo: roasDeCampana(c.roas_target, c.acos_target),
         estrategia: c.strategy ?? null,
       });
     }
@@ -538,6 +545,10 @@ export interface DependenciaAds {
   gastoDia: number;
   /** presupuesto diario de HOY de sus campañas; null = sin dato */
   presupuestoHoy: number | null;
+  /** ROAS objetivo de HOY de sus campañas; null = sin dato o automática */
+  roasObjetivo?: number | null;
+  /** venta por publicidad ÷ gasto del periodo; null = sin venta por ads */
+  roasReal?: number | null;
   tacos: number | null;
   clase: ClaseDependencia;
 }
@@ -569,6 +580,7 @@ export function armarDependencias(opts: {
   nombresCampana?: Map<string, string>;
   presupuestoDeModelo?: Map<string, number>;
   ritmoPrevioDeModelo?: Map<string, number>;
+  roasObjetivoDeModelo?: Map<string, number>;
 }): DependenciaAds[] {
   const dias = opts.dias > 0 ? opts.dias : 1;
   const salida: DependenciaAds[] = [];
@@ -592,11 +604,74 @@ export function armarDependencias(opts: {
       parteAds,
       gastoDia: f.gastoAds / dias,
       presupuestoHoy: opts.presupuestoDeModelo?.get(f.modelo) ?? null,
+      roasObjetivo: opts.roasObjetivoDeModelo?.get(f.modelo) ?? null,
+      roasReal: f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null,
       tacos: f.tacos,
       clase: clasificarDependencia(ritmo, ritmoPrevio, parteAds),
     });
   }
   return salida.sort((a, b) => b.gastoDia - a.gastoDia || a.modelo.localeCompare(b.modelo));
+}
+
+/** ROAS objetivo de la campaña: `roas_target` o 100 ÷ ACOS objetivo. */
+export function roasDeCampana(roas: number | null | undefined, acos: number | null | undefined): number | null {
+  const r = roas != null ? Number(roas) : NaN;
+  if (Number.isFinite(r) && r > 0) return r;
+  const a = acos != null ? Number(acos) : NaN;
+  return Number.isFinite(a) && a > 0 ? 100 / a : null;
+}
+
+/**
+ * ROAS objetivo de HOY de cada modelo: el de sus campañas activas con algún
+ * anuncio suyo corriendo, pesado por presupuesto si está en varias. Puro.
+ */
+export function roasObjetivoPorModelo(
+  campanas: { id: string; estado: string | null; presupuesto: number | null; roasObjetivo: number | null }[],
+  itemsDeModelo: Map<string, ItemDeModelo[]>,
+): Map<string, number> {
+  const porId = new Map(campanas.filter((c) => c.estado !== "paused" && c.roasObjetivo != null).map((c) => [c.id, c]));
+  const salida = new Map<string, number>();
+  for (const [modelo, items] of itemsDeModelo) {
+    const ids = new Set(items.filter((i) => i.campanaId && anuncioCorriendo(i.estado)).map((i) => i.campanaId as string));
+    let suma = 0;
+    let peso = 0;
+    for (const id of ids) {
+      const c = porId.get(id);
+      if (!c) continue;
+      const w = c.presupuesto && c.presupuesto > 0 ? c.presupuesto : 1;
+      suma += (c.roasObjetivo as number) * w;
+      peso += w;
+    }
+    if (peso > 0) salida.set(modelo, suma / peso);
+  }
+  return salida;
+}
+
+/**
+ * El presupuesto se está gastando: el gasto al día llega a esta parte del
+ * presupuesto de hoy. Si no llega, el presupuesto NO es lo que limita y
+ * moverlo no cambia nada: lo que manda es el ROAS objetivo (dueño,
+ * 16-oct-2026: «el presupuesto es 150 y gasta 50 […] ahí deberías
+ * ajustar el ROAS objetivo»).
+ */
+export const PRESUPUESTO_LLENO = 0.8;
+
+/** Un paso de ROAS objetivo nunca mueve más de esto (ni menos de lo mínimo). */
+export const PASO_ROAS_MAX = 1.5;
+export const PASO_ROAS_MIN = 1.15;
+
+/**
+ * El ROAS objetivo nuevo para llevar el gasto de `alDia` a `meta`: el gasto
+ * baja más o menos en la misma proporción en que sube el ROAS, así que se
+ * parte del ROAS REAL del periodo (venta por publicidad ÷ gasto) y se mueve
+ * por esa proporción, en pasos de 15 % a 50 %. Puro.
+ */
+export function roasParaGasto(roasReal: number, alDia: number, meta: number): number {
+  const razon = alDia / Math.max(meta, 0.01);
+  const sube = razon >= 1;
+  const paso = Math.min(PASO_ROAS_MAX, Math.max(PASO_ROAS_MIN, sube ? razon : 1 / razon));
+  const nuevo = sube ? roasReal * paso : roasReal / paso;
+  return Math.round(nuevo * 10) / 10;
 }
 
 /** Cuántos productos nuevos sin anuncio se sugieren a la vez (los de más stock). */
@@ -690,6 +765,8 @@ export function armarRecomendaciones(opts: {
    * (GT259, 16-oct-2026: 47 pares en Full y 528 en bodega).
    */
   stockBodegaDeModelo?: Map<string, number>;
+  /** modelo -> ROAS objetivo de HOY de sus campañas (`roasObjetivoPorModelo`) */
+  roasObjetivoDeModelo?: Map<string, number>;
 }): RecomendacionAds[] {
   const tacosTope = opts.tacosTope ?? TACOS_TOPE;
   const { filas, stockDeModelo, dias, itemsDeModelo } = opts;
@@ -727,6 +804,24 @@ export function armarRecomendaciones(opts: {
     const activos = items.filter((i) => anuncioCorriendo(i.estado));
     const pausados = items.filter((i) => i.estado === "paused");
     const margen = f.ganancia != null && f.importe > 0 ? f.ganancia / f.importe : null;
+    // ¿Se gasta el presupuesto? Si no, moverlo no cambia nada: va el ROAS.
+    const roasObj = opts.roasObjetivoDeModelo?.get(f.modelo) ?? null;
+    const roasReal = f.gastoAds > 0 && f.ventaAds > 0 ? f.ventaAds / f.gastoAds : null;
+    const presHoy = opts.presupuestoDeModelo?.get(f.modelo) ?? null;
+    const gastoDiaActual = dias > 0 ? f.gastoAds / dias : f.gastoAds;
+    const presupuestoLleno = presHoy == null || presHoy <= 0 || gastoDiaActual >= presHoy * PRESUPUESTO_LLENO;
+    const consumo =
+      presHoy != null && presHoy > 0
+        ? ` · gasta $${num(gastoDiaActual)} de $${num(presHoy)} de presupuesto`
+        : "";
+    // Para BAJAR el gasto se sube el ROAS objetivo (si la campaña tiene uno);
+    // devuelve null si ya está ahí o si no hay ROAS con qué trabajar.
+    const subirRoas = (meta: number): { texto: string; listo: boolean } | null => {
+      if (roasObj == null || roasReal == null) return null;
+      const nuevo = roasParaGasto(roasReal, gastoDiaActual, meta);
+      if (roasObj >= nuevo * 0.95) return { texto: "", listo: true };
+      return { texto: `Subir el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)}`, listo: false };
+    };
     const cobertext =
       cobertura != null
         ? `${num(cobertura)} días de stock (${num(stock)} ${unidad})`
@@ -794,15 +889,19 @@ export function armarRecomendaciones(opts: {
       const alDiaSano = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
       const sinMargen = margen != null && f.tacos > margen;
       const hoy = opts.presupuestoDeModelo?.get(f.modelo);
-      // El presupuesto de hoy ya está en el tope: ya se bajó. Y unos pesos
-      // al día no valen el clic.
-      if (hoy != null && hoy <= alDiaSano * 1.1) continue;
       if (alDia - alDiaSano < GASTO_DIA_MINIMO) continue;
+      // Con ROAS objetivo, se baja subiéndolo (el presupuesto casi nunca es
+      // lo que limita); sin él, con el presupuesto, si no está ya en el tope.
+      const roas = subirRoas(alDiaSano);
+      if (roas?.listo) continue;
+      if (!roas && hoy != null && hoy <= alDiaSano * 1.1) continue;
       agregar(
         {
           modelo: f.modelo,
           accion: "bajar",
-          queHacer: `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+          queHacer: roas
+            ? `${roas.texto} para bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${consumo}`
+            : `Bajar el gasto de $${num(alDia)} a ~$${num(alDiaSano)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
           razon: sinMargen
             ? `Los ads se llevan ${pct(f.tacos)} de la venta y el margen es solo ${pct(margen!)}: cada venta por publicidad sale con pérdida.`
             : `Los ads se llevan ${pct(f.tacos)} de la venta; el tope es ${pct(tacosTope)}.`,
@@ -829,15 +928,20 @@ export function armarRecomendaciones(opts: {
       const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
       const alDiaMitad = alDia / 2;
       const hoy = opts.presupuestoDeModelo?.get(f.modelo);
-      // Ya se bajó: el presupuesto de hoy anda en la mitad (el gasto de 14
-      // días va atrasado). O el recorte ya son unos pesos.
-      const yaBajado = hoy != null && hoy <= alDiaMitad * 1.1;
+      // Con ROAS objetivo: subirlo (dueño: «si está bien posicionado, en vez
+      // de bajar el gasto podemos subir el ROAS objetivo»). Sin él, el
+      // presupuesto; ya se hizo si el de hoy anda en la mitad (el gasto de
+      // 14 días va atrasado). Unos pesos no valen el clic.
+      const roas = subirRoas(alDiaMitad);
+      const yaBajado = roas ? roas.listo : hoy != null && hoy <= alDiaMitad * 1.1;
       if (!yaBajado && alDia - alDiaMitad >= GASTO_DIA_MINIMO) {
         agregar(
           {
             modelo: f.modelo,
             accion: "bajar",
-            queHacer: `Producto posicionado: bajar el gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+            queHacer: roas
+              ? `Producto posicionado: ${roas.texto.charAt(0).toLowerCase()}${roas.texto.slice(1)} (gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día)${consumo}`
+              : `Producto posicionado: bajar el gasto de $${num(alDia)} a ~$${num(alDiaMitad)} al día${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
             razon: `Vende ${num(ritmo)} al día parejo (antes ${num(previo)}) y solo ${pct(parteAds)} de sus ventas viene de la publicidad: ya se vende solo. Si en dos semanas sigue igual, se puede volver a bajar.`,
           },
           f.gastoAds,
@@ -860,14 +964,27 @@ export function armarRecomendaciones(opts: {
       const alDia = dias > 0 ? f.gastoAds / dias : f.gastoAds;
       const alDiaTope = dias > 0 ? (tope * f.importe) / dias : tope * f.importe;
       const hoy = opts.presupuestoDeModelo?.get(f.modelo);
-      // El presupuesto de hoy ya alcanza para el tope: ya se subió.
-      if (hoy != null && hoy >= alDiaTope * 0.9) continue;
       if (alDiaTope - alDia < GASTO_DIA_MINIMO) continue;
+      // Si el presupuesto NO se gasta, subirlo no mueve nada: lo que frena
+      // es el ROAS objetivo y hay que BAJARLO, sin pasar del piso que deja la
+      // publicidad en el tope de TACOS.
+      let queHacer: string;
+      if (!presupuestoLleno && roasObj != null && roasReal != null) {
+        const parteVentaAds = f.importe > 0 ? f.ventaAds / f.importe : 0;
+        const piso = Math.round((parteVentaAds / tope) * 10) / 10;
+        const nuevo = Math.max(piso, roasParaGasto(roasReal, alDia, alDiaTope));
+        if (roasObj <= nuevo * 1.05) continue;
+        queHacer = `Bajar el ROAS objetivo de ${roasObj.toFixed(1)} a ~${nuevo.toFixed(1)} para que gaste más (hasta ~$${num(alDiaTope)} al día, ${pct(tope)} de la venta)${consumo}`;
+      } else {
+        // El presupuesto de hoy ya alcanza para el tope: ya se subió.
+        if (hoy != null && hoy >= alDiaTope * 0.9) continue;
+        queHacer = `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`;
+      }
       agregar(
         {
           modelo: f.modelo,
           accion: "subir",
-          queHacer: `Subir el gasto de $${num(alDia)} hasta ~$${num(alDiaTope)} al día (${pct(tope)} de la venta)${hoy != null ? ` · presupuesto hoy $${num(hoy)}` : ""}`,
+          queHacer,
           razon: `Hay ${cobertext} parados y los ads solo se llevan ${pct(f.tacos)} de la venta: cabe más inversión sin pasar del tope de ${pct(tacosTope)}.`,
         },
         f.importe,
@@ -1421,6 +1538,7 @@ export async function cargarPublicidad(
   // El presupuesto de HOY de cada campaña: lo ya subido o bajado no se
   // vuelve a pedir. Si MELI no lo da, se recomienda solo con el gasto.
   let presupuestoDeModelo: Map<string, number> | undefined;
+  let roasObjetivoDeModelo: Map<string, number> | undefined;
   let nombresCampana: Map<string, string> | undefined;
   if (cliente && !stockEstado.error) {
     try {
@@ -1428,6 +1546,7 @@ export async function cargarPublicidad(
       const campanas = await traerCampanasAds(cliente, adv);
       nombresCampana = new Map(campanas.map((c) => [c.id, c.nombre]));
       presupuestoDeModelo = presupuestoPorModelo(campanas, itemsDeModelo);
+      roasObjetivoDeModelo = roasObjetivoPorModelo(campanas, itemsDeModelo);
     } catch (err) {
       datos.advertencias.push(`No se pudo leer el presupuesto de las campañas: ${(err as Error).message}. Las recomendaciones salen solo del gasto.`);
     }
@@ -1443,6 +1562,7 @@ export async function cargarPublicidad(
         presupuestoDeModelo,
         ritmoPrevioDeModelo,
         stockBodegaDeModelo,
+        roasObjetivoDeModelo,
       });
   datos.dependencias = armarDependencias({
     filas: datos.filas,
@@ -1450,6 +1570,7 @@ export async function cargarPublicidad(
     itemsDeModelo,
     nombresCampana,
     presupuestoDeModelo,
+    roasObjetivoDeModelo,
     ritmoPrevioDeModelo,
   });
 
