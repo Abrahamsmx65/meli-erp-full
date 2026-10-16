@@ -11,29 +11,55 @@
  *   PACKING LIST: Tipo de contenedor, Numero de contenedor, Sku, Cantidad,
  *     Informacion.
  *
- * El SKU y los dos barcodes son EXACTAMENTE el texto de la etiqueta de caja
- * que sale del ZIP de etiquetas del pedido (BOX LABEL): PEDIDO-MODELO-COLOR
- * para la corrida y PEDIDO-MODELO-COLOR-TALLA para la caja de una talla, sin
- * espacios (`codigoDeCaja`, la misma regla que `textosDeCarton`). Un producto
- * que ya viajó en un contenedor ANTERIOR con el mismo SKU completo ya se dio
- * de alta: no se repite en PRODUCTOS (sí va en el packing list, que es lo que
- * llega). Lo que falte se deja en blanco y se declara en `avisos`: nunca se
- * inventa.
+ * El SKU es el de MERCADO LIBRE (dueño, 16-oct-2026: «los SKUs idénticos a
+ * los que vienen en Mercado Libre»): PEDIDO + el SKU de la variante de MELI
+ * sin la talla ni el «-MX» (IN10079-GT221-LT BROWN, IN10079-GT221-BLK), con
+ * la talla si la caja es de una sola. Los dos BARCODES son la etiqueta de
+ * caja que se mandó a China (el color del PEDIDO, IN10079-GT221-BLACK), y
+ * como la almacenadora no acepta códigos con espacios, el espacio se vuelve
+ * GUION aunque la caja de origen no venga así (IN10079-GT221-LT-BROWN). Un
+ * color que no amarra con MELI lleva el color del pedido en el SKU y se
+ * avisa. Un producto que ya viajó en un contenedor ANTERIOR (mismo barcode)
+ * ya se dio de alta: no se repite en PRODUCTOS (sí va en el packing list,
+ * que es lo que llega). Lo que falte se deja en blanco y se declara en
+ * `avisos`: nunca se inventa.
  *
  * Motor puro: la ruta junta los datos y este módulo arma las filas y el CSV.
  */
 import { sinAnotacion } from "../etiquetas/resolver";
 import { codigoFiscalDeCategoria, CODIGOS_FISCALES, type DatosModelo } from "./packing-list-contenedor";
 
-/** Sin espacios y en mayúsculas, como el texto del BOX LABEL. */
-function pegado(s: string): string {
-  return s.toUpperCase().replace(/\s+/g, "");
+/** Mayúsculas y cada tramo de espacios convertido en UN guion: la almacenadora no acepta espacios. */
+function conGuiones(s: string): string {
+  return s.toUpperCase().trim().replace(/\s+/g, "-");
 }
 
-/** El texto de la etiqueta de caja: PEDIDO-MODELO-COLOR(-TALLA). */
+/** Mayúsculas y espacios sencillos, como los escribe MELI. */
+function limpio(s: string): string {
+  return s.toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+/** El BARCODE de la caja: la etiqueta que se mandó a China, PEDIDO-MODELO-COLOR(-TALLA), sin espacios. */
 export function codigoDeCaja(pedido: string, modelo: string, color: string, talla?: string | null): string {
-  const base = `${pegado(pedido)}-${pegado(modelo)}-${pegado(sinAnotacion(color ?? ""))}`;
-  return talla ? `${base}-${pegado(String(talla))}` : base;
+  const base = `${conGuiones(pedido)}-${conGuiones(modelo)}-${conGuiones(sinAnotacion(color ?? ""))}`;
+  return talla ? `${base}-${conGuiones(String(talla))}` : base;
+}
+
+/**
+ * El SKU de la caja como lo escribe MELI: PEDIDO + el SKU de una variante de
+ * MELI de ese modelo y color sin el «-MX» ni la talla (la caja de una sola
+ * talla se amarró con ESA talla y la conserva). Sin variante en MELI, el
+ * color del pedido.
+ */
+export function skuMeliDeCaja(pedido: string, modelo: string, color: string, talla: string | null | undefined, skuMeli: string | null | undefined): string {
+  const t = talla ? String(talla).trim() : "";
+  if (skuMeli) {
+    let base = limpio(skuMeli).replace(/-(MX|ME|MEX)$/, "");
+    if (!t) base = base.replace(/-[^-]+$/, "");
+    return `${limpio(pedido)}-${base}`;
+  }
+  const base = `${limpio(pedido)}-${limpio(modelo)}-${limpio(sinAnotacion(color ?? ""))}`;
+  return t ? `${base}-${limpio(t)}` : base;
 }
 
 /** Categoría en el sistema de la bodega: TODO el calzado es la 32 (dueño, 14-oct-2026). */
@@ -63,10 +89,15 @@ export interface RenglonBodega {
   anchoCm: number | null;
   altoCm: number | null;
   pesoKg: number | null;
+  /** el SKU de MELI de una variante de ese modelo y color (de la talla de la caja si es unitalla) */
+  skuMeli?: string | null;
 }
 
 export interface ProductoBodega {
+  /** el SKU como lo escribe MELI */
   sku: string;
+  /** la etiqueta de caja que se mandó a China, sin espacios */
+  barcode: string;
   nombre: string;
   categoria: string;
   codigoFiscal: string;
@@ -81,7 +112,7 @@ export interface ProductoBodega {
 
 export interface ArchivosBodega {
   productos: ProductoBodega[];
-  /** SKUs que ya viajaron en un contenedor anterior y no se vuelven a dar de alta */
+  /** barcodes que ya viajaron en un contenedor anterior y no se vuelven a dar de alta */
   yaDadosDeAlta: string[];
   packing: { sku: string; cajas: number }[];
   avisos: string[];
@@ -92,22 +123,26 @@ const natural = (a: string, b: string) => a.localeCompare(b, "es", { numeric: tr
 export function armarArchivosBodega(
   renglones: RenglonBodega[],
   modelos: Map<string, DatosModelo>,
-  /** SKUs de etiqueta de los contenedores anteriores */
+  /** barcodes (etiqueta de caja) de los contenedores anteriores */
   enviadosAntes: Set<string>,
 ): ArchivosBodega {
-  const porSku = new Map<string, { r: RenglonBodega; cajas: number }>();
+  const porSku = new Map<string, { r: RenglonBodega; cajas: number; sku: string }>();
   const ordenados = [...renglones]
     .filter((r) => r.cajas > 0)
     .sort((a, b) => natural(a.pedido, b.pedido) || natural(a.modelo, b.modelo) || natural(a.color, b.color) || natural(a.talla, b.talla));
   for (const r of ordenados) {
-    const sku = codigoDeCaja(r.pedido, r.modelo, r.color, r.talla);
-    const ya = porSku.get(sku);
+    const barcode = codigoDeCaja(r.pedido, r.modelo, r.color, r.talla);
+    const ya = porSku.get(barcode);
     if (ya) {
       ya.cajas += r.cajas;
       // Dos renglones con la misma etiqueta: las medidas del primero que las traiga.
       if (ya.r.largoCm == null && r.largoCm != null) ya.r = { ...ya.r, largoCm: r.largoCm, anchoCm: r.anchoCm, altoCm: r.altoCm, pesoKg: r.pesoKg };
+      if (!ya.r.skuMeli && r.skuMeli) {
+        ya.r = { ...ya.r, skuMeli: r.skuMeli };
+        ya.sku = skuMeliDeCaja(r.pedido, r.modelo, r.color, r.talla, r.skuMeli);
+      }
     } else {
-      porSku.set(sku, { r, cajas: r.cajas });
+      porSku.set(barcode, { r, cajas: r.cajas, sku: skuMeliDeCaja(r.pedido, r.modelo, r.color, r.talla, r.skuMeli) });
     }
   }
 
@@ -116,8 +151,10 @@ export function armarArchivosBodega(
   const sinCosto = new Set<string>();
   const sinCategoria = new Set<string>();
   const sinMedidas: string[] = [];
-  for (const [sku, { r }] of porSku) {
-    if (enviadosAntes.has(sku)) {
+  const sinMeli = new Set<string>();
+  for (const [barcode, { r, sku }] of porSku) {
+    if (!r.skuMeli) sinMeli.add(`${r.modelo} ${sinAnotacion(r.color)}`);
+    if (enviadosAntes.has(barcode)) {
       yaDadosDeAlta.push(sku);
       continue;
     }
@@ -131,6 +168,7 @@ export function armarArchivosBodega(
     if (r.largoCm == null || r.anchoCm == null || r.altoCm == null || r.pesoKg == null) sinMedidas.push(sku);
     productos.push({
       sku,
+      barcode,
       nombre: (codigoFiscal && NOMBRES_BODEGA[codigoFiscal]) || "CALZADO",
       categoria: CATEGORIA_BODEGA,
       codigoFiscal,
@@ -147,12 +185,13 @@ export function armarArchivosBodega(
   const lista = (s: Iterable<string>) => [...s].sort(natural).join(", ");
   if (sinCosto.size) avisos.push(`Sin costo en Productos y costos (Valor reposicion en blanco): ${lista(sinCosto)}.`);
   if (sinCategoria.size) avisos.push(`Sin categoría de MELI reconocida (Codigo Fiscal en blanco y Nombre «CALZADO»): ${lista(sinCategoria)}.`);
+  if (sinMeli.size) avisos.push(`Sin variante en Mercado Libre (el SKU lleva el color del pedido): ${lista(sinMeli)}.`);
   if (sinMedidas.length) avisos.push(`${sinMedidas.length} productos sin medidas o peso de la caja en ningún packing list: ${lista(sinMedidas)}.`);
 
   return {
     productos,
     yaDadosDeAlta: yaDadosDeAlta.sort(natural),
-    packing: [...porSku.entries()].map(([sku, { cajas }]) => ({ sku, cajas })),
+    packing: [...porSku.values()].map(({ sku, cajas }) => ({ sku, cajas })),
     avisos,
   };
 }
@@ -190,8 +229,8 @@ export function csvProductosBodega(productos: ProductoBodega[]): string {
       p.categoria,
       p.codigoFiscal,
       dinero(p.valor),
-      p.sku,
-      p.sku,
+      p.barcode,
+      p.barcode,
       p.pares || "",
       // El archivo del dueño pone las medidas en el orden del packing list de
       // la fábrica («Means» 0.66 × 0.56 × 0.24 → Alto 66, Ancho 56, Largo 24).

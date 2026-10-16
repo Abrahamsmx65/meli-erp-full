@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armarArchivosBodega, codigoDeCaja, csvPackingBodega, csvProductosBodega, type RenglonBodega } from "./bodega-contenedor";
+import { armarArchivosBodega, codigoDeCaja, csvPackingBodega, csvProductosBodega, skuMeliDeCaja, type RenglonBodega } from "./bodega-contenedor";
 
 const r = (x: Partial<RenglonBodega>): RenglonBodega => ({
   pedido: "IN10079",
@@ -17,25 +17,44 @@ const r = (x: Partial<RenglonBodega>): RenglonBodega => ({
 const modelos = new Map([["GT221", { titulo: "Pantuflas", categoriaMeli: "Pantuflas", costoMxn: 102.36 }]]);
 
 describe("archivos de bodega del contenedor", () => {
-  it("el SKU es el texto del BOX LABEL (sin espacios ni anotación; con talla si es unitalla)", () => {
-    expect(codigoDeCaja("IN10079", "GT221", "M BROWN")).toBe("IN10079-GT221-MBROWN");
+  it("el barcode es la etiqueta de caja que se mandó a China, con guion donde había espacio", () => {
+    expect(codigoDeCaja("IN10079", "GT221", "LT BROWN")).toBe("IN10079-GT221-LT-BROWN");
+    expect(codigoDeCaja("IN10079", "GT221", "M  BROWN ")).toBe("IN10079-GT221-M-BROWN");
     expect(codigoDeCaja("IN10159", "GT134", "BLK (NEGRO)", "24")).toBe("IN10159-GT134-BLK-24");
   });
 
-  it("PRODUCTOS calcado del archivo del dueño y sin lo que ya viajó antes", () => {
-    const a = armarArchivosBodega([r({}), r({ color: "TAN", cajas: 40 })], modelos, new Set(["IN10079-GT221-TAN"]));
-    expect(a.productos.map((p) => p.sku)).toEqual(["IN10079-GT221-BLACK"]);
+  it("el SKU es el de Mercado Libre: sin talla en la corrida, con ella en la unitalla, y sin «-MX»", () => {
+    expect(skuMeliDeCaja("IN10079", "GT221", "BLACK", "", "GT221-BLK-24-MX")).toBe("IN10079-GT221-BLK");
+    expect(skuMeliDeCaja("IN10079", "GT221", "LT BROWN", "", "GT221-LT BROWN-25-MX")).toBe("IN10079-GT221-LT BROWN");
+    expect(skuMeliDeCaja("IN10172", "GT148", "BLACK", "24", "GT148-BLK-24-MX")).toBe("IN10172-GT148-BLK-24");
+    expect(skuMeliDeCaja("IN10140", "GT104-1", "BLK", "", "GT104-1-BLK-25-MX")).toBe("IN10140-GT104-1-BLK");
+    // Sin variante en MELI: el color del pedido, sin anotación.
+    expect(skuMeliDeCaja("IN10079", "GT999", "BLK (NEGRO)", "", null)).toBe("IN10079-GT999-BLK");
+  });
+
+  it("PRODUCTOS calcado del archivo del dueño: SKU de MELI, barcodes de la etiqueta, sin lo que ya viajó antes", () => {
+    const a = armarArchivosBodega(
+      [r({ skuMeli: "GT221-BLK-24-MX" }), r({ color: "LT BROWN", cajas: 40, skuMeli: "GT221-LT BROWN-23-MX" }), r({ color: "TAN", skuMeli: "GT221-TAN-24-MX" })],
+      modelos,
+      new Set(["IN10079-GT221-TAN"]),
+    );
+    expect(a.productos.map((p) => [p.sku, p.barcode])).toEqual([
+      ["IN10079-GT221-BLK", "IN10079-GT221-BLACK"],
+      ["IN10079-GT221-LT BROWN", "IN10079-GT221-LT-BROWN"],
+    ]);
     expect(a.yaDadosDeAlta).toEqual(["IN10079-GT221-TAN"]);
     const lineas = csvProductosBodega(a.productos).split("\r\n");
     expect(lineas[0].startsWith("Sku,Nombre,Enviar solo,Categoria,Codigo Fiscal,Valor reposicion,Barcode Producto,Barcode Paquetes,Atributos,Paquete 1 - Alto")).toBe(true);
     expect(lineas[1]).toBe(
-      'IN10079-GT221-BLACK,PANTUFLAS,SI,32,53111700,"4,913.28",IN10079-GT221-BLACK,IN10079-GT221-BLACK,24,66,56,24,8.5' + ",".repeat(28),
+      'IN10079-GT221-BLK,PANTUFLAS,SI,32,53111700,"4,913.28",IN10079-GT221-BLACK,IN10079-GT221-BLACK,24,66,56,24,8.5' + ",".repeat(28),
     );
-    // El packing list sí lleva los dos: es lo que llega.
+    expect(lineas[2].startsWith("IN10079-GT221-LT BROWN,PANTUFLAS,SI,32,53111700,\"4,913.28\",IN10079-GT221-LT-BROWN,IN10079-GT221-LT-BROWN,")).toBe(true);
+    // El packing list sí lleva todo, con el SKU de MELI: es lo que llega.
     expect(csvPackingBodega(a.packing).split("\r\n")).toEqual([
       "Tipo de contenedor,Numero de contenedor,Sku,Cantidad,Informacion",
-      "X,1,IN10079-GT221-BLACK,40,CAJA MASTER SELLADA",
-      "X,2,IN10079-GT221-TAN,40,CAJA MASTER SELLADA",
+      "X,1,IN10079-GT221-BLK,40,CAJA MASTER SELLADA",
+      "X,2,IN10079-GT221-LT BROWN,40,CAJA MASTER SELLADA",
+      "X,3,IN10079-GT221-TAN,40,CAJA MASTER SELLADA",
     ]);
   });
 
@@ -46,5 +65,6 @@ describe("archivos de bodega del contenedor", () => {
     expect(a.productos[0].nombre).toBe("CALZADO");
     expect(a.avisos.join(" ")).toMatch(/Sin costo/);
     expect(a.avisos.join(" ")).toMatch(/sin medidas/);
+    expect(a.avisos.join(" ")).toMatch(/Sin variante en Mercado Libre/);
   });
 });
