@@ -126,6 +126,14 @@ describe("aporte de MELI y el envío arriba de $299", () => {
     expect(planDePromo("MLM1", p, { ...obj, normal: 599.99 }).accion).toBe("inscribir");
   });
 
+  it("Buen Fin muy abajo de $299 SÍ se inscribe: el aporte no lo cruza (GT151 a $249.99)", () => {
+    const p = { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", original_price: 499, max_discounted_price: 484.03 };
+    expect(planDePromo("MLM1", p, { ...obj, normal: 249.99 }).accion).toBe("inscribir");
+    const sinOriginal = { id: "B", type: "DEAL", name: "Buen Fin 26", status: "candidate", max_discounted_price: 484.03 };
+    expect(planDePromo("MLM1", sinOriginal, { ...obj, normal: 249.99 }).accion).toBe("inscribir");
+    expect(planDePromo("MLM1", sinOriginal, { ...obj, normal: 289.99 }).accion).toBe("pagarias_envio");
+  });
+
   it("sin aporte, o lejos del umbral, se inscribe normal", () => {
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 298.99 }, { ...obj, normal: 298.99 }).accion).toBe("inscribir");
     expect(planDePromo("MLM1", { id: "B", type: "DEAL", name: "Todos los días", status: "candidate", original_price: 220, meli_percentage: 3 }, { ...obj, normal: 199.99 }).accion).toBe("inscribir");
