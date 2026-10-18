@@ -86,12 +86,23 @@ Pedido tiene que cuadrar con el Detalle SKU).
 
 - **Pares por caja**: el total histórico de la corrida llevado al tamaño
   real de fábrica más cercano (12 / 24 / 36 / 48; en empate, la grande).
+  **Sin receta de ese color, la caja se supone** (`cajaDeRespaldo`; dueño,
+  18-oct-2026: «¿para qué necesitas la proforma para poder calcular qué
+  hay que pedir?»): primero la receta más reciente del MISMO MODELO en otro
+  color, si no la caja ESTÁNDAR de la fábrica (la más frecuente entre todas
+  las recetas de la cuenta). La corrida se propone por venta, como siempre,
+  y el renglón dice qué caja se supuso. Solo sin NINGUNA receta en la
+  cuenta queda sin cajas.
 - **Unitalla**: una talla se separa en cajas de una sola talla cuando ella
   sola justifica al menos 5 cajas (`UNITALLA_MIN_CAJAS`). No hay mínimo por
   color: exigirlo obligaba a inflar la corrida entera para acompletar una
-  talla corta.
-- **Corrida**: el resto del faltante se reparte entre tallas en proporción
-  a su faltante, en enteros que suman exacto.
+  talla corta. **Una talla que va unitalla va SOLO unitalla** (dueño,
+  18-oct-2026: «muchas veces me pides del mismo modelo y talla caja unitalla
+  y caja de corrida; mejor dame solo unitalla»): su faltante completo se
+  redondea a cajas hacia arriba y esa talla sale de la corrida. Antes el
+  pico que no llenaba caja se colaba a la corrida.
+- **Corrida**: el faltante de las tallas que NO van unitalla se reparte
+  entre ellas en proporción a su faltante, en enteros que suman exacto.
 - **Corrida vs. venta real**: si la caja trae 3 pares del 25 y 15 del 27
   pero el 25 es el que se mueve, el renglón lo dice. No cambia lo que se
   pide (la caja viene como viene); es lo que hay que reclamarle a la

@@ -210,6 +210,8 @@ export interface RenglonCompra {
   unitallas: { talla: string; cajas: number }[];
   /** faltante por talla, la base de todo el reparto */
   faltantePorTalla: Record<string, number>;
+  /** sin receta de este color: de dónde salió la caja que se supuso (null = receta real) */
+  cajaSupuesta: OrigenCajaSupuesta | null;
   /**
    * La OTRA opción de pedido: solo según la venta, SIN descontar ningún
    * inventario. La demanda por talla ya viene corregida por agotamientos
@@ -269,7 +271,10 @@ export interface SugerenciaCompra {
     cajas: number;
     pares: number;
     enQuiebre: number;
+    /** con faltante y sin NINGUNA caja que suponer (ni del modelo ni estándar) */
     sinCorrida: number;
+    /** con faltante y receta de otro color o estándar en vez de la propia */
+    conCajaSupuesta: number;
   };
 }
 
@@ -346,6 +351,43 @@ export function buscarCorrida(
     if (c) return c;
   }
   return undefined;
+}
+
+export type OrigenCajaSupuesta = "modelo" | "estandar";
+
+/**
+ * Pares por caja cuando NO hay receta de ese modelo + color (dueño,
+ * 18-oct-2026: «¿para qué necesitas la proforma para poder calcular qué hay
+ * que pedir?»): la caja del MISMO MODELO en otro color (la receta más
+ * reciente) y, si el modelo nunca se ha pedido, la caja ESTÁNDAR de la
+ * fábrica (la más frecuente entre todas las recetas de la cuenta). La
+ * corrida se propone por venta, como siempre; el renglón declara qué caja
+ * se supuso. Sin ninguna receta en la cuenta, null.
+ */
+export function cajaDeRespaldo(
+  corridas: { pedido?: unknown; modelo?: unknown; color?: unknown; tallas?: unknown; total?: unknown }[],
+  modelo: string,
+): { paresPorCaja: number; origen: OrigenCajaSupuesta } | null {
+  const m = claveAplastada(modelo || "");
+  let delModelo: { total: number; pedido: string } | null = null;
+  const frecuencia = new Map<number, number>();
+  for (const c of corridas) {
+    const tallas = (c.tallas ?? {}) as Record<string, number>;
+    const total = Number(c.total) || Object.values(tallas).reduce((a: number, b: unknown) => a + Number(b), 0);
+    if (!total) continue;
+    const caja = paresPorCajaNormalizado(total);
+    frecuencia.set(caja, (frecuencia.get(caja) ?? 0) + 1);
+    const pedido = String(c.pedido ?? "");
+    if (m && claveAplastada(String(c.modelo ?? "")) === m) {
+      if (!delModelo || numeroDePedido(pedido) > numeroDePedido(delModelo.pedido)) delModelo = { total, pedido };
+    }
+  }
+  if (delModelo) return { paresPorCaja: paresPorCajaNormalizado(delModelo.total), origen: "modelo" };
+  let mejor: { caja: number; veces: number } | null = null;
+  for (const [caja, veces] of frecuencia) {
+    if (!mejor || veces > mejor.veces || (veces === mejor.veces && caja > mejor.caja)) mejor = { caja, veces };
+  }
+  return mejor ? { paresPorCaja: mejor.caja, origen: "estandar" } : null;
 }
 
 /**
@@ -434,10 +476,13 @@ export function armarPedidoColor(
     // Las cajas de una sola talla se miden con el faltante EXACTO: es
     // caja completa, sin corrida que cuidar, y el número debe ser exacto.
     const exacto = faltanteExactoPorTalla[talla] ?? 0;
-    const cajas = Math.floor(exacto / paresPorCaja);
-    if (cajas >= UNITALLA_MIN_CAJAS) {
-      unitallas.push({ talla, cajas });
-      restante[talla] = Math.max(0, restante[talla] - cajas * paresPorCaja);
+    if (Math.floor(exacto / paresPorCaja) >= UNITALLA_MIN_CAJAS) {
+      // Una talla que va unitalla va SOLO unitalla (decisión del dueño,
+      // 18-oct-2026: «muchas veces me pides del mismo modelo y talla caja
+      // unitalla y caja de corrida; mejor dame solo unitalla»): su faltante
+      // completo se redondea a cajas hacia arriba y sale de la corrida.
+      unitallas.push({ talla, cajas: Math.ceil(exacto / paresPorCaja) });
+      restante[talla] = 0;
     }
   }
   unitallas.sort((a, b) => Number(a.talla) - Number(b.talla));
@@ -795,7 +840,11 @@ export async function sugerirCompra(
     const c = buscarCorrida(corridaDe, g.modelo, g.color);
     // La fábrica solo arma cajas de 12/24/36/48: el total histórico se lleva
     // al tamaño real más cercano (la corrida interna cambia, el total no).
-    const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : null;
+    // Sin receta de este color, la caja del modelo en otro color o la
+    // estándar de la fábrica (`cajaDeRespaldo`): la proforma no hace falta
+    // para decir cuántas cajas son.
+    const respaldo = c ? null : cajaDeRespaldo(corridasRaw, g.modelo);
+    const paresPorCaja = c ? paresPorCajaNormalizado(c.total) : (respaldo?.paresPorCaja ?? null);
 
     // El faltante por talla, exacto: demanda del horizonte menos el stock
     // completo de esa talla.
@@ -852,7 +901,7 @@ export async function sugerirCompra(
     } else if (totalFaltanteTallas <= 0) {
       motivo = `Con ${Math.round(inventarioTotal)} pares aguanta ${Math.round(cobertura ?? 0)} días; el ciclo completo son ${horizonte}. No hace falta pedir.`;
     } else if (!paresPorCaja) {
-      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay corrida cargada para este modelo+color, así que no puedo decir cuántas cajas son.`;
+      motivo = `Faltan ${Math.round(totalFaltanteTallas)} pares por talla, pero no hay ninguna receta cargada en la cuenta, así que no puedo decir cuántas cajas son.`;
     } else if (faltante <= 0) {
       const tallasCortas = Object.keys(faltantePorTalla).sort((a, b) => Number(a) - Number(b));
       motivo = `En total parece alcanzar, pero por talla no: faltan ${Math.round(totalFaltanteTallas)} pares en ${tallasCortas.join(", ")} (el sobrante de otras tallas no las tapa).`;
@@ -862,6 +911,11 @@ export async function sugerirCompra(
         llegada < 0
           ? `Si pides hoy, llega ${Math.abs(llegada)} días DESPUÉS de quedarte sin producto.`
           : `Aguanta ${Math.round(cobertura ?? 0)} días y el pedido tarda ${ciclo}. Te quedan ${llegada} días de margen.`;
+    }
+    if (respaldo && paresPorCaja) {
+      motivo += ` No hay receta de este color: se supone la caja de ${paresPorCaja} pares ${
+        respaldo.origen === "modelo" ? "del mismo modelo en otro color" : "estándar de tus pedidos"
+      } y la corrida va propuesta por venta.`;
     }
     if (g.tallasConRespaldo > 0 && g.skus.size > 0) {
       motivo += ` ${g.tallasConRespaldo} de ${g.skus.size} tallas no llevan 14 días surtidas en la ventana: usan la demanda del plan de Full.`;
@@ -898,7 +952,8 @@ export async function sugerirCompra(
       paresPorCaja,
       cajasSugeridas,
       paresSugeridos: cajasSugeridas * (paresPorCaja ?? 0),
-      tieneCorrida: Boolean(paresPorCaja),
+      tieneCorrida: Boolean(c),
+      cajaSupuesta: respaldo?.origen ?? null,
       corridaPedido: c?.pedido ?? null,
       urgencia,
       regimen,
@@ -949,7 +1004,8 @@ export async function sugerirCompra(
       cajas: aPedir.reduce((a, r) => a + r.cajasSugeridas, 0),
       pares: aPedir.reduce((a, r) => a + r.paresSugeridos, 0),
       enQuiebre: renglones.filter((r) => r.urgencia === "quiebre" || r.urgencia === "urgente").length,
-      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.tieneCorrida).length,
+      sinCorrida: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && !r.paresPorCaja).length,
+      conCajaSupuesta: renglones.filter((r) => Object.keys(r.faltantePorTalla).length > 0 && r.cajaSupuesta).length,
     },
   };
 }
