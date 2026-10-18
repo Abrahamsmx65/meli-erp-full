@@ -43,6 +43,8 @@ export interface FilaResumen {
   /** neto − costo − publicidad; null si no hay nada con dato */
   ganancia: number | null;
   notas: string[];
+  /** el canal no se pudo leer: no es cero, es sin dato (16-oct-2026: fundas salió «0 · $0» por un statement timeout) */
+  sinDato?: boolean;
 }
 
 export interface ResumenDiario {
@@ -93,7 +95,8 @@ export function filasDeConsolidado(c: Consolidado, antesDeGastosDelMes: boolean)
   });
 }
 
-function totalDe(filas: FilaResumen[]) {
+function totalDe(todas: FilaResumen[]) {
+  const filas = todas.filter((f) => !f.sinDato);
   return {
     unidades: filas.reduce((a, f) => a + f.unidades, 0),
     facturacion: r2(filas.reduce((a, f) => a + f.facturacion, 0)),
@@ -104,9 +107,23 @@ function totalDe(filas: FilaResumen[]) {
 const ORDEN_CANALES = ["meli_calzado", "meli_fundas", "amazon", "tiktok"];
 const NOMBRES: Record<string, string> = { meli_calzado: "Calzado · Mercado Libre", meli_fundas: "Fundas · Mercado Libre", amazon: "Amazon", tiktok: "TikTok Shop" };
 
-/** Las cuatro plataformas en orden, aunque alguna no haya vendido. */
-function ordenar(filas: FilaResumen[]): FilaResumen[] {
-  return ORDEN_CANALES.map((canal) => filas.find((f) => f.canal === canal) ?? { canal, nombre: NOMBRES[canal], unidades: 0, facturacion: 0, ganancia: null, notas: [] });
+/** El canal por su nombre (`alFallarCanal` lo nombra como en pantalla). */
+export function canalDeNombre(nombre: string): string | null {
+  return Object.entries(NOMBRES).find(([, v]) => v === nombre)?.[0] ?? null;
+}
+
+/**
+ * Las cuatro plataformas en orden. Una que no vendió sale en cero; una que
+ * NO SE PUDO LEER (`caidos`) sale sin dato, nunca como cero.
+ */
+function ordenar(filas: FilaResumen[], caidos: string[] = []): FilaResumen[] {
+  return ORDEN_CANALES.map((canal) => {
+    const f = filas.find((x) => x.canal === canal);
+    if (f) return f;
+    return caidos.includes(canal)
+      ? { canal, nombre: NOMBRES[canal], unidades: 0, facturacion: 0, ganancia: null, notas: ["no se pudo leer: no está en el total"], sinDato: true }
+      : { canal, nombre: NOMBRES[canal], unidades: 0, facturacion: 0, ganancia: null, notas: [] };
+  });
 }
 
 /** Si `dia` es domingo, la semana que cierra (lunes a domingo); si no, null. */
@@ -144,13 +161,20 @@ export function sumarFilas(listas: FilaResumen[][]): FilaResumen[] {
       a.facturacion = r2(a.facturacion + f.facturacion);
       a.ganancia = a.ganancia == null && f.ganancia == null ? null : r2((a.ganancia ?? 0) + (f.ganancia ?? 0));
       a.notas.push(...f.notas);
+      if (f.sinDato) a.sinDato = true;
     }
   }
   return ordenar([...porCanal.values()]);
 }
 
-export function armarResumen(dia: string, consolidadoDia: Consolidado | null, mes: { periodo: string; consolidado: Consolidado | null } | null, avisos: string[] = []): ResumenDiario {
-  const filas = ordenar(consolidadoDia ? filasDeConsolidado(consolidadoDia, true) : []);
+export function armarResumen(
+  dia: string,
+  consolidadoDia: Consolidado | null,
+  mes: { periodo: string; consolidado: Consolidado | null } | null,
+  avisos: string[] = [],
+  caidos: string[] = [],
+): ResumenDiario {
+  const filas = ordenar(consolidadoDia ? filasDeConsolidado(consolidadoDia, true) : [], consolidadoDia ? caidos : ORDEN_CANALES);
   const resumenMes: ResumenDiario["mes"] = mes?.consolidado
     ? (() => {
         const f = ordenar(filasDeConsolidado(mes.consolidado!, false));
@@ -161,8 +185,10 @@ export function armarResumen(dia: string, consolidadoDia: Consolidado | null, me
 }
 
 /** Le pone al resumen la semana ya sumada. */
-export function conSemana(r: ResumenDiario, semana: { desde: string; hasta: string }, consolidados: Consolidado[]): ResumenDiario {
-  const filas = sumarFilas(consolidados.map((c) => filasDeConsolidado(c, true)));
+export function conSemana(r: ResumenDiario, semana: { desde: string; hasta: string }, consolidados: Consolidado[], caidos: string[] = []): ResumenDiario {
+  const filas = sumarFilas(consolidados.map((c) => filasDeConsolidado(c, true))).map((f) =>
+    caidos.includes(f.canal) ? { ...f, sinDato: true, notas: [...f.notas, "no se pudo leer completa: no está en el total"] } : f,
+  );
   return { ...r, semana: { ...semana, filas, total: totalDe(filas) } };
 }
 
@@ -212,7 +238,9 @@ function tabla(filas: FilaResumen[], total: ResumenDiario["total"], tituloGananc
         `<span style="vertical-align:middle;">${esc(f.nombre)}</span>` +
         (f.notas.length ? `<div class="g-nota" style="font-size:11px;color:${TONO.tenue};margin:4px 0 0 16px;">${f.notas.map(esc).join(" · ")}</div>` : "") +
         `</td>` +
-        `<td style="${num}">${n(f.unidades)}</td><td style="${num}">${pesos(f.facturacion)}</td>` +
+        (f.sinDato
+          ? `<td style="${num}color:${TONO.tenue}">—</td><td style="${num}color:${TONO.tenue}">—</td>`
+          : `<td style="${num}">${n(f.unidades)}</td><td style="${num}">${pesos(f.facturacion)}</td>`) +
         `<td style="${num}font-weight:700;color:${colorGanancia(f.ganancia)}">${f.ganancia == null ? "—" : pesos(f.ganancia)}</td></tr>`,
     )
     .join("");
@@ -249,10 +277,16 @@ function subtitulo(texto: string, nota: string): string {
   );
 }
 
+/** « (sin Fundas · Mercado Libre)» si algún canal no se pudo leer. */
+function faltan(filas: FilaResumen[]): string {
+  const caidas = filas.filter((f) => f.sinDato).map((f) => f.nombre);
+  return caidas.length ? ` (sin ${caidas.join(", ")})` : "";
+}
+
 export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: string; texto: string } {
   const asunto = r.semana
     ? `Ventas de ayer y de la semana: ${n(r.semana.total.unidades)} unidades · ${pesos(r.semana.total.facturacion)} · ganancia ${pesos(r.semana.total.ganancia)} en la semana`
-    : `Ventas de ayer (${fechaLarga(r.dia)}): ${n(r.total.unidades)} unidades · ${pesos(r.total.facturacion)} · ganancia ${pesos(r.total.ganancia)}`;
+    : `Ventas de ayer (${fechaLarga(r.dia)}): ${n(r.total.unidades)} unidades · ${pesos(r.total.facturacion)} · ganancia ${pesos(r.total.ganancia)}${faltan(r.filas)}`;
   const partes: string[] = [];
   partes.push(cifras(r.total));
   partes.push(tabla(r.filas, r.total, "Ganancia"));
@@ -285,7 +319,12 @@ export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: st
   });
 
   const lineas = [`Ventas de ayer · ${fechaLarga(r.dia)}`, ""];
-  for (const f of r.filas) lineas.push(`${f.nombre}: ${n(f.unidades)} u · ${pesos(f.facturacion)} · ganancia ${f.ganancia == null ? "—" : pesos(f.ganancia)}${f.notas.length ? ` (${f.notas.join("; ")})` : ""}`);
+  for (const f of r.filas)
+    lineas.push(
+      f.sinDato
+        ? `${f.nombre}: no se pudo leer (no está en el total)`
+        : `${f.nombre}: ${n(f.unidades)} u · ${pesos(f.facturacion)} · ganancia ${f.ganancia == null ? "—" : pesos(f.ganancia)}${f.notas.length ? ` (${f.notas.join("; ")})` : ""}`,
+    );
   lineas.push(`Total: ${n(r.total.unidades)} u · ${pesos(r.total.facturacion)} · ganancia ${pesos(r.total.ganancia)}`);
   if (r.semana) {
     lineas.push("", `Semana del ${fechaLarga(r.semana.desde)} al ${fechaLarga(r.semana.hasta)}`);
@@ -300,10 +339,15 @@ export function armarCorreoResumen(r: ResumenDiario): { asunto: string; html: st
 // Carga y envío
 // ---------------------------------------------------------------------------
 
+/** Intentos de leer el día antes de mandarlo con un canal sin dato. */
+const INTENTOS_DIA = 3;
+const ESPERA_REINTENTO_MS = 20_000;
+
 export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): Promise<ResumenDiario> {
   const periodo = dia.slice(0, 7);
   const avisos: string[] = [];
   const semana = semanaQueCierra(dia);
+  const caidosSemana: string[] = [];
   const cargarSemana = async (): Promise<Consolidado[] | null> => {
     if (!semana) return null;
     try {
@@ -312,7 +356,11 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
           cargarConsolidado(db, cuenta, t.periodo, {
             desde: t.desde,
             hasta: t.hasta,
-            alFallarCanal: (canal, motivo) => avisos.push(`Semana · ${canal}: no se pudo leer (${motivo}).`),
+            alFallarCanal: (canal, motivo) => {
+              avisos.push(`Semana · ${canal}: no se pudo leer (${motivo}).`);
+              const k = canalDeNombre(canal);
+              if (k) caidosSemana.push(k);
+            },
           }),
         ),
       );
@@ -321,20 +369,34 @@ export async function cargarResumenDiario(db: DB, cuenta: Cuenta, dia: string): 
       return null;
     }
   };
-  const [consolidadoDia, mesGuardado, semanaCargada] = await Promise.all([
-    cargarConsolidado(db, cuenta, periodo, {
+  // El día: si un canal se cae (a las 8:00 la base va cargada y una lectura
+  // de 100 ms llegó a pasar de los 8 s del statement_timeout), se vuelve a
+  // intentar antes de mandar; lo que siga caído sale SIN DATO, nunca en cero.
+  const cargarDia = async (): Promise<{ c: Consolidado | null; caidos: { canal: string; motivo: string }[] }> => {
+    const caidos: { canal: string; motivo: string }[] = [];
+    const c = await cargarConsolidado(db, cuenta, periodo, {
       desde: dia,
       hasta: dia,
-      alFallarCanal: (canal, motivo) => avisos.push(`${canal}: no se pudo leer (${motivo}).`),
+      alFallarCanal: (canal, motivo) => caidos.push({ canal, motivo }),
     }).catch((err) => {
-      avisos.push(`No se pudieron leer las ventas: ${(err as Error).message}.`);
+      caidos.push({ canal: "", motivo: (err as Error).message });
       return null;
-    }),
-    leerConsolidadoGuardado(db, cuenta, periodo),
-    cargarSemana(),
-  ]);
-  const r = armarResumen(dia, consolidadoDia, { periodo, consolidado: mesGuardado }, avisos);
-  return semana && semanaCargada ? conSemana(r, semana, semanaCargada) : r;
+    });
+    return { c, caidos };
+  };
+  const leerDia = async () => {
+    let d = await cargarDia();
+    for (let intento = 0; intento < INTENTOS_DIA - 1 && (d.c == null || d.caidos.length); intento++) {
+      await new Promise((ok) => setTimeout(ok, ESPERA_REINTENTO_MS));
+      d = await cargarDia();
+    }
+    return d;
+  };
+  const [dia1, mesGuardado, semanaCargada] = await Promise.all([leerDia(), leerConsolidadoGuardado(db, cuenta, periodo), cargarSemana()]);
+  for (const x of dia1.caidos) avisos.push(x.canal ? `${x.canal}: no se pudo leer (${x.motivo}).` : `No se pudieron leer las ventas: ${x.motivo}.`);
+  const caidos = dia1.caidos.map((x) => canalDeNombre(x.canal)).filter((x): x is string => !!x);
+  const r = armarResumen(dia, dia1.c, { periodo, consolidado: mesGuardado }, avisos, caidos);
+  return semana && semanaCargada ? conSemana(r, semana, semanaCargada, caidosSemana) : r;
 }
 
 /** Ya se mandó el resumen de ese día (el cron puede dispararse dos veces). */
