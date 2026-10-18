@@ -147,8 +147,14 @@ export default async function Pedidos() {
 
       {compra.totales.sinCorrida > 0 ? (
         <Aviso tono="alerta">
-          {compra.totales.sinCorrida} modelos necesitan producto pero no tienen corrida cargada:
-          carga su proforma.
+          {compra.totales.sinCorrida} modelos necesitan producto y no hay ninguna receta cargada en la
+          cuenta para suponer la caja.
+        </Aviso>
+      ) : null}
+      {compra.totales.conCajaSupuesta > 0 ? (
+        <Aviso tono="info">
+          {compra.totales.conCajaSupuesta} modelos sin receta propia: se les supuso la caja del mismo modelo en
+          otro color (o la estándar de tus pedidos) y la corrida va propuesta por venta. El renglón lo dice.
         </Aviso>
       ) : null}
 

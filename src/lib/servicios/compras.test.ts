@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   armarPedidoColor,
   buscarCorrida,
+  cajaDeRespaldo,
   demandaChinaDeLinea,
   faltantesPorRegimen,
   indexarCorridas,
@@ -62,9 +63,20 @@ describe("reglas de unitalla", () => {
     const p = armarPedidoColor(faltante, 24);
     const paresPedidos =
       p.cajasCorrida * 24 + p.unitallas.reduce((a, u) => a + u.cajas * 24, 0);
-    // Se pide al menos el faltante y a lo más una caja extra por el redondeo.
+    // Se pide al menos el faltante y a lo más una caja extra por cada talla
+    // unitalla (su redondeo hacia arriba) y una por la corrida.
     expect(paresPedidos).toBeGreaterThanOrEqual(total);
-    expect(paresPedidos).toBeLessThan(total + 24 * 2);
+    expect(paresPedidos).toBeLessThan(total + 24 * (p.unitallas.length + 1));
+  });
+
+  it("una talla que va unitalla va SOLO unitalla: no se repite en la corrida (18-oct-2026)", () => {
+    // 24 pide 130 pares = 5.4 cajas: antes salían 5 unitalla y los 10 pares
+    // sobrantes se colaban a la corrida junto con la 23.
+    const p = armarPedidoColor({ "23": 30, "24": 130 }, 24);
+    expect(p.unitallas).toEqual([{ talla: "24", cajas: 6 }]);
+    expect(p.corridaPropuesta["24"]).toBeUndefined();
+    expect(p.corridaPropuesta).toEqual({ "23": 24 });
+    expect(p.cajasCorrida).toBe(2);
   });
 
   it("las unitallas se separan con el faltante EXACTO, no con el de corrida", () => {
@@ -270,5 +282,26 @@ describe("la demanda de China por talla es lo que vende con stock (11-oct-2026)"
   it("sin 14 días surtidos cae a la demanda del plan de Full", () => {
     expect(demandaChinaDeLinea({ demandaDiaria: 16, demandaSurtida: null })).toBe(16);
     expect(demandaChinaDeLinea({ demandaDiaria: 16 })).toBe(16);
+  });
+});
+
+describe("sin receta de ese color, la caja se supone (18-oct-2026)", () => {
+  const corridas = [
+    { pedido: "IN10053", modelo: "GT104-2", color: "GREY", tallas: { "25": 24, "26": 24 }, total: 48 },
+    { pedido: "IN10032", modelo: "GT104-2", color: "RED", tallas: { "25": 12, "26": 12 }, total: 24 },
+    { pedido: "IN10077", modelo: "GT204", color: "BLK", tallas: { "24": 24, "25": 24 }, total: 48 },
+    { pedido: "IN10069", modelo: "YH816", color: "BLK/RED", tallas: { "24": 12, "25": 12 }, total: 24 },
+  ];
+
+  it("primero la receta más reciente del mismo modelo en otro color", () => {
+    expect(cajaDeRespaldo(corridas, "GT104-2")).toEqual({ paresPorCaja: 48, origen: "modelo" });
+  });
+
+  it("un modelo nunca pedido toma la caja estándar de la cuenta (la más frecuente; en empate la grande)", () => {
+    expect(cajaDeRespaldo(corridas, "GT999")).toEqual({ paresPorCaja: 48, origen: "estandar" });
+  });
+
+  it("sin ninguna receta en la cuenta, null", () => {
+    expect(cajaDeRespaldo([], "GT999")).toBeNull();
   });
 });
