@@ -273,6 +273,7 @@ const QUE_SIGNIFICA_CLASE: Record<ClaseDependencia, string> = {
   sin_venta: "gastó sin vender en el periodo",
 };
 
+const roasTexto = (r: number | null | undefined) => (r == null ? "—" : r.toFixed(1));
 const unidadesDia = (x: number) => (x >= 10 ? Math.round(x).toLocaleString("es-MX") : x.toFixed(1));
 
 /** Resumen por clase de las campañas: cuántos modelos y cuánto gastan al día. */
@@ -307,6 +308,7 @@ function dependenciasHtml(ds: DependenciaAds[], unidad: string): string {
         `<td style="${celda}white-space:nowrap;">${unidadesDia(d.ritmo)}<div style="font-size:10px;color:${TONO.tenue};">antes ${d.ritmoPrevio == null ? "—" : unidadesDia(d.ritmoPrevio)}</div></td>` +
         `<td style="${celda}white-space:nowrap;font-weight:700;">${d.parteAds == null ? "—" : `${Math.round(d.parteAds * 100)} %`}</td>` +
         `<td style="${celda}white-space:nowrap;">${pesos(d.gastoDia)}<div style="font-size:10px;color:${TONO.tenue};">hoy ${d.presupuestoHoy == null ? "—" : pesos(d.presupuestoHoy)}</div></td>` +
+        `<td style="${celda}white-space:nowrap;">${roasTexto(d.roasObjetivo)}<div style="font-size:10px;color:${TONO.tenue};">real ${roasTexto(d.roasReal)}</div></td>` +
         `<td style="${celda}white-space:nowrap;${d.tacos != null && d.tacos > TACOS_TOPE ? `color:${TONO.mal};font-weight:700;` : ""}">${pct(d.tacos)}</td>` +
         `<td style="${celda}color:${COLOR_CLASE[d.clase]};font-weight:700;">${esc(NOMBRE_CLASE_DEPENDENCIA[d.clase])}</td>` +
         `</tr>`,
@@ -316,10 +318,10 @@ function dependenciasHtml(ds: DependenciaAds[], unidad: string): string {
     `<div style="margin:18px 0 6px;font-size:13px;font-weight:700;color:${TONO.tinta};">Todas las campañas: de qué depende cada modelo (${ds.length})</div>` +
     `<div style="margin:0 0 8px;">${resumen}</div>` +
     `<table class="g-t" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px solid ${TONO.borde};border-radius:8px;margin:0 0 6px;">` +
-    `<tr><th align="left" style="${enc}">Modelo · campaña</th><th align="left" style="${enc}">${esc(unidad)} al día</th><th align="left" style="${enc}">Por anuncio</th><th align="left" style="${enc}">Gasto al día</th><th align="left" style="${enc}">TACOS</th><th align="left" style="${enc}">Qué es</th></tr>` +
+    `<tr><th align="left" style="${enc}">Modelo · campaña</th><th align="left" style="${enc}">${esc(unidad)} al día</th><th align="left" style="${enc}">Por anuncio</th><th align="left" style="${enc}">Gasto al día</th><th align="left" style="${enc}">ROAS objetivo</th><th align="left" style="${enc}">TACOS</th><th align="left" style="${enc}">Qué es</th></tr>` +
     renglones +
     `</table>` +
-    `<p style="margin:4px 0 0;font-size:11px;color:${TONO.tenue};">«Por anuncio» = ventas que MELI atribuye a la publicidad ÷ todas las ventas del modelo. «Antes» = al día en los 60 días anteriores. «Hoy» = presupuesto diario de sus campañas hoy.</p>`
+    `<p style="margin:4px 0 0;font-size:11px;color:${TONO.tenue};">«Por anuncio» = ventas que MELI atribuye a la publicidad ÷ todas las ventas del modelo. «Antes» = al día en los 60 días anteriores. «Hoy» = presupuesto diario de sus campañas hoy. ROAS = venta por publicidad ÷ inversión; si el presupuesto no se gasta, lo que frena o suelta el gasto es el ROAS objetivo.</p>`
   );
 }
 
@@ -409,7 +411,7 @@ export function htmlCorreoPublicidad(c: CorreoPublicidad): { asunto: string; htm
       for (const d of s.dependencias) {
         lineas.push(
           `${d.modelo}: ${unidadesDia(d.ritmo)} al día (antes ${d.ritmoPrevio == null ? "—" : unidadesDia(d.ritmoPrevio)}), ` +
-            `${d.parteAds == null ? "—" : `${Math.round(d.parteAds * 100)} %`} por anuncio, ${pesos(d.gastoDia)} al día, TACOS ${pct(d.tacos)} · ${NOMBRE_CLASE_DEPENDENCIA[d.clase]}`,
+            `${d.parteAds == null ? "—" : `${Math.round(d.parteAds * 100)} %`} por anuncio, ${pesos(d.gastoDia)} al día, ROAS objetivo ${roasTexto(d.roasObjetivo)} (real ${roasTexto(d.roasReal)}), TACOS ${pct(d.tacos)} · ${NOMBRE_CLASE_DEPENDENCIA[d.clase]}`,
         );
       }
     }
