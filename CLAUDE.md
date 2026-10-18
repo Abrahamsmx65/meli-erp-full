@@ -2629,7 +2629,14 @@ guárdala numerada.
   de Números (los parámetros salen de las FÓRMULAS: «0.105» = retención,
   «(N+8)/(1-0.24)» = extra y comisión de TikTok, «R*1.11» = oferta; un
   precio que es el factor de siempre se deja vacío y lo demás toma el valor
-  del sheet). Lo capturado a mano en el ERP sin clave se queda. Cuadra al
+  del sheet). Lo capturado a mano en el ERP sin clave se queda. En Números, lo
+  cambiado en el ERP le GANA al sheet (`finanzas/numeros-sheet.ts` puro
+  con pruebas, `numeros_modelos.editados_erp` / `valores_sheet`, migración
+  0148; dueño, 18-oct-2026: «si hice un cambio en el sistema, toma ese
+  precio y no el del sheet»): campo por campo manda el ÚLTIMO cambio; lo
+  editado en el ERP se respeta mientras el sheet diga lo mismo que en la
+  lectura anterior, y si el dueño cambia ese campo en el sheet, el sheet
+  vuelve a mandar y la marca se quita. Cuadra al
   centavo con la pestaña TOTAL (transferencias $44,154,035.64, gastos
   $410,966, retiros $3,692,260 y $3,181,615). El sheet NUNCA se escribe;
   si Google no lo entrega (deja de estar compartido) no se toca nada y el
