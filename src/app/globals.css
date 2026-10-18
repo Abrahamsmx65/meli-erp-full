@@ -823,3 +823,173 @@
     margin: 0;
   }
 }
+
+/* GETAC Wrapped (/cortes/wrapped): el año en tarjetas tipo historia. */
+@layer components {
+  .wr-marco {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .wr-tarjeta {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    aspect-ratio: 9 / 15;
+    max-height: calc(100dvh - 12rem);
+    min-height: 460px;
+    border-radius: 24px;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 18px 50px rgb(43 29 16 / 0.28);
+    transition: background 0.5s ease;
+  }
+  .wr-progreso {
+    position: absolute;
+    inset: 14px 14px auto 14px;
+    display: flex;
+    gap: 4px;
+  }
+  .wr-progreso span {
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.25;
+    transition: opacity 0.3s;
+  }
+  .wr-progreso span.lleno {
+    opacity: 0.9;
+  }
+  .wr-contenido {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 2.5rem 1.75rem 2rem;
+  }
+  .wr-contenido > * {
+    animation: wr-entra 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .wr-contenido > *:nth-child(2) { animation-delay: 0.12s; }
+  .wr-contenido > *:nth-child(3) { animation-delay: 0.24s; }
+  .wr-contenido > *:nth-child(4) { animation-delay: 0.36s; }
+  .wr-contenido > *:nth-child(5) { animation-delay: 0.48s; }
+  .wr-ceja {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.8;
+  }
+  .wr-grande {
+    font-family: var(--fuente-titulo);
+    font-size: clamp(2.6rem, 11vw, 3.8rem);
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .wr-titulo {
+    font-family: var(--fuente-titulo);
+    font-size: 1.6rem;
+    line-height: 1.15;
+  }
+  .wr-nota {
+    font-size: 1rem;
+    line-height: 1.45;
+    opacity: 0.92;
+  }
+  .wr-pista {
+    margin-top: 2rem;
+    font-size: 0.85rem;
+    opacity: 0.7;
+    animation: wr-late 1.6s ease-in-out infinite !important;
+  }
+  .wr-foto {
+    width: 140px;
+    height: 140px;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 18px;
+    padding: 6px;
+    transform: rotate(-4deg);
+    box-shadow: 0 10px 24px rgb(0 0 0 / 0.2);
+  }
+  .wr-cajas {
+    display: flex;
+    gap: 4px;
+    margin-top: 0.75rem;
+  }
+  .wr-cajas span {
+    width: 20px;
+    height: 14px;
+    border-radius: 2px;
+    background: #f3dc8c;
+    animation: wr-caja 0.4s ease-out both;
+  }
+  .wr-barras {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+  }
+  .wr-barra {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr 2.5rem;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .wr-barra-fondo {
+    height: 10px;
+    border-radius: 5px;
+    background: rgb(43 29 16 / 0.1);
+    overflow: hidden;
+  }
+  .wr-barra-fondo span {
+    display: block;
+    height: 100%;
+    border-radius: 5px;
+    transform-origin: left;
+    animation: wr-crece 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .wr-barra-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .wr-controles {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  @keyframes wr-entra {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes wr-crece {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+  @keyframes wr-caja {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes wr-late {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 0.9; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wr-contenido > *,
+    .wr-cajas span,
+    .wr-barra-fondo span,
+    .wr-pista {
+      animation: none !important;
+    }
+  }
+}

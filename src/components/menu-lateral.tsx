@@ -44,6 +44,7 @@ import {
   Wallet,
   Calculator,
   CalendarRange,
+  PartyPopper,
 } from "lucide-react";
 import { entradaVisible, type Rol } from "@/lib/acceso/roles";
 import { Logo } from "@/components/logo";
@@ -83,6 +84,7 @@ const GRUPOS: Grupo[] = [
     entradas: [
       { href: "/cortes", texto: "Estado de resultados", icono: PieChart, ayuda: "Calzado + fundas + Amazon: ganancia real del mes" },
       { href: "/cortes/anio", texto: "Año del negocio", icono: CalendarRange, ayuda: "Mayo a abril: el estado de resultados del año, mes por mes y en total" },
+      { href: "/cortes/wrapped", texto: "GETAC Wrapped", icono: PartyPopper, ayuda: "Tu año del negocio en tarjetas, como el Wrapped de Spotify" },
       { href: "/gastos", texto: "Gastos", icono: Wallet, ayuda: "Nómina, fletes, renta y 3PL: fijos cada mes y sueltos" },
       { href: "/finanzas/costeo", texto: "Costeo", icono: Calculator, ayuda: "Costo real por par de cada contenedor" },
       { href: "/finanzas/numeros", texto: "Números", icono: Scale, ayuda: "Precios por modelo en MELI, Amazon y TikTok" },

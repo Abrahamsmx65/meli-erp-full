@@ -56,9 +56,14 @@ export default async function AnioDelNegocio({ searchParams }: { searchParams: P
         descripcion={`${nombreEjercicio(ejercicio)}: calzado, fundas, Amazon y TikTok, mes por mes y en total.`}
         frescura={a.generadoEn}
         acciones={
-          <Link href="/cortes" className="boton boton-borde boton-chico">
-            Ver por mes
-          </Link>
+          <>
+            <Link href={`/cortes/wrapped?ejercicio=${ejercicio}`} className="boton boton-borde boton-chico">
+              Ver mi Wrapped ✨
+            </Link>
+            <Link href="/cortes" className="boton boton-borde boton-chico">
+              Ver por mes
+            </Link>
+          </>
         }
         ayuda={
           <p>
